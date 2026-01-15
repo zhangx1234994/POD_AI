@@ -25,3 +25,6 @@
 ## 已完成（近期）
 - [x] 管理端独立化（`podi-admin-web`）：包含执行节点、工作流、绑定、API Key 管理及百度能力测试面板。
 - [x] 百度图像处理执行器接入与测试接口 `/api/admin/tests/baidu/quality-upgrade`。
+- [x] 统一能力 API (`/api/abilities`, `/api/abilities/{id}/invoke`, `/api/ability-tasks`) 与能力日志 (`ability_invocation_logs`) 上线，支持回调、异步任务、成本字段。
+- [x] ComfyUI 运维能力落地：LoRA/模型下拉 (`/api/admin/comfyui/models`)、队列状态面板 (`/api/admin/comfyui/queue-status`)、多节点配置与日志透出。
+- [x] 管理端“能力详情”抽屉重构：新增统一接口说明、实时测试、调用记录、成本占位、执行节点/LoRA 选择器。

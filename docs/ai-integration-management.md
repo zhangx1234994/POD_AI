@@ -50,7 +50,14 @@
 
 前端实现建议：将 `IntegrationDashboard` 拆分为独立的模块化组件，复用 `DataTable`，并通过 websocket/轮询获取心跳与用量数据。
 
-目前 `/admin/integrations` 页面已实现基础仪表：顶部汇总执行节点/工作流/绑定/API Key 数量，中间各 Tab 提供列表 + 表单并支持创建、编辑、删除、切换绑定启用状态、录入工作流 JSON 与执行器配置。后续可在同一页面拓展“部署”“健康检测”“密钥轮换”等操作按钮。
+目前 `/admin/integrations` 页面已实现基础仪表：顶部汇总执行节点/工作流/绑定/API Key 数量，中间各 Tab 提供列表 + 表单并支持创建、编辑、删除、切换绑定启用状态、录入工作流 JSON 与执行器配置。2026-01 起新增：
+
+- **能力目录 & 统一接口信息**：卡片展示 Ability ID、所属 provider、默认执行节点、能力类型、成本（`metadata.pricing`），并通过“统一能力接口”说明组件生成可复制的 `curl` 示例。
+- **实时测试 Tab**：根据能力 schema（含节点编号描述）渲染表单，支持上传图片、选择执行节点、覆盖默认参数。ComfyUI 能力会调用 `/api/admin/comfyui/models` 自动把 UNet/CLIP/VAE/LoRA 列表渲染为下拉框，避免手填。
+- **调用记录 Tab**：嵌入 `/api/admin/abilities/{abilityId}/logs` 数据，展示最近 N 次调用的状态、耗时、输出 OSS 链接、失败原因、traceId。点击可展开 Raw Response，辅助排查。
+- **ComfyUI 队列状态面板**：针对每个 ComfyUI 执行节点，展示 `running/pending/max` 以及错误提示（如 `COMFYUI_QUEUE_STATUS_ERROR`），并提供刷新按钮，帮助判断串行队列是否阻塞。
+- **API Key 仓库**：提供列表 + 详情抽屉，支持录入、启用/禁用、备注限流策略；能力表单会检测 executor 是否缺少凭证并给出指引。
+- **能力详情空位**：提前预留成本、自检、SLA 等信息位，即使数据暂缺亦有 placeholder，提醒后续需要补齐。
 
 ### 能力示例：百度智能云图像处理
 
@@ -94,3 +101,16 @@
 3. **第三阶段**：监控告警、工作流版本审计、ComfyUI 可视化编辑（后续可用 iframe 嵌入）。
 
 每个阶段完成后需同步更新 `docs/task-submission-flow.md`、`docs/development-guide.md` 与 `AGENTS.md`，并在 Admin 页面增加内嵌帮助链接。
+
+## 统一能力接口与日志（2026-01 更新）
+
+为对外提供稳定的“原子能力中心”，后端新增了 `AbilityService` 及配套的日志/成本模型：
+
+- `GET /api/abilities` / `POST /api/abilities/{id}/invoke`：向客户端暴露统一的调用入口，与管理端表单保持同一份 `input_schema` / `default_params`。所有能力都必须在 `app/constants/abilities.py` 中登记，缺失字段会被阻止发布。
+- `POST /api/ability-tasks`：承载异步/批量请求；后台线程池遵循 `ABILITY_TASK_MAX_WORKERS` + `executors.max_concurrency`，必要时可在配置中按能力/节点限流。
+- `ability_invocation_logs`：记录能力调用的 `request_id`、`executor_id`、`duration_ms`、`pricing`（对外价 & 折扣价）、`cost_amount`，并存储 OSS 输出列表。管理端“调用记录”即基于该表。
+- `metadata.pricing`：能力成本模型，字段包括 `currency`、`unit`、`list_price`、`discount_price`。管理端展示“¥0.30 / 每张（折扣） / ¥0.50 / 每张（对外）”形式，并在日志中回写实际 cost。ComfyUI 默认 ¥0.30/张，可覆盖。
+- `callbackUrl/callbackHeaders`：同步/异步调用均可附带回调，后端会在执行完毕后推送 `status/result/error/logId`，便于第三方系统解耦。
+- `traceId/workflowRunId`：请求可在 metadata 中携带自定义 ID，后端随日志返回，用于串联上下游链路。未来工作流层会将 `workflow_run_nodes` 与能力日志打通。
+
+通过上述机制，我们保证：① 客户端/管理端/工作流都使用统一接口；② 每次调用都有日志可查；③ 成本/队列/LoRA 这些运行时信息被显式暴露，利于运营和排障。
