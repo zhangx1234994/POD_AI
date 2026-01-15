@@ -15,6 +15,7 @@
 | AUTH    | 认证相关 | 登录、授权等认证相关错误 |
 | USER    | 用户相关 | 用户管理相关错误 |
 | REGISTER | 注册相关 | 用户注册相关错误 |
+| ABILITY | 能力/执行器 | 统一能力 API、AbilityTask、执行节点、ComfyUI 队列等相关错误 |
 | SYSTEM  | 系统错误 | 系统级错误 |
 
 ## 3. 错误码列表
@@ -71,6 +72,24 @@
 | SYSTEM_001 | 系统维护中，请稍后重试 | 503 | 系统正在维护 |
 | SYSTEM_002 | 服务暂时不可用，请稍后重试 | 503 | 服务暂时无法处理请求 |
 
+### 3.6 能力/执行器相关错误 (ABILITY)
+
+> 所有原子能力、AbilityTask、执行节点、ComfyUI 工作流都归类到该模块。管理端“统一能力接口”与客户端调用 `/api/abilities`、`/api/ability-tasks` 时需重点关注这些错误，并向用户展示可操作的提示。
+
+| 错误码 | 错误信息 | HTTP状态码 | 说明 |
+|-------|---------|-----------|------|
+| ABILITY_001 | 能力未绑定可用执行节点 | 400 | 数据库中缺少 `executor_id` 或节点处于禁用状态。 |
+| ABILITY_002 | 能力已停用或不存在 | 404 | `ability_id` 不存在或 `status != active`。 |
+| ABILITY_003 | 能力类型暂不支持该操作 | 400 | 请求方式与能力类型不兼容，如在非 ComfyUI 能力上传 LoRA。 |
+| ABILITY_004 | 输入参数不合法 | 400 | `input_schema` 校验失败，常见于缺少图片/必填字段。 |
+| ABILITY_005 | AbilityTask 不存在或无权访问 | 404 | 查询的任务 ID 无效或属于其他用户。 |
+| ABILITY_006 | AbilityTask 正在排队，请稍后重试 | 429 | 超出 `ABILITY_TASK_MAX_WORKERS` 或单节点 `max_concurrency`。 |
+| ABILITY_007 | 执行节点不可达，请检查网络/鉴权 | 502 | 访问 Baidu/Volcengine/KIE/ComfyUI 失败（网络、凭证、超时）。 |
+| ABILITY_008 | 第三方 API 返回错误 | 502 | 厂商接口返回非 2xx，`details` 中附带原始错误码。 |
+| ABILITY_009 | 媒资上传失败，请重试 | 500 | 能力执行成功但 OSS 落地失败，结果未能提供下载链接。 |
+| ABILITY_010 | ComfyUI 队列异常 | 503 | `/queue/status` 返回 `COMFYUI_QUEUE_STATUS_ERROR` 或节点挂掉。 |
+| ABILITY_011 | 能力成本配置缺失 | 500 | `metadata.pricing` 未配置且缺省成本失效，无法写入日志。 |
+
 ## 4. 错误响应格式
 
 ### 4.1 成功响应
@@ -108,6 +127,11 @@ if (userMapper.existsByUsername(username)) {
 // 或直接返回错误响应
 return ResponseEntity.status(409)
         .body(ApiErrorResponse.error(ErrorCode.REGISTER_002.getCode(), ErrorCode.REGISTER_002.getMessage()));
+
+// 能力未绑定执行节点
+if (!ability.hasExecutor()) {
+    throw new ApiException(ErrorCode.ABILITY_001);
+}
 ```
 
 ### 5.2 前端使用示例
@@ -122,6 +146,23 @@ async function login(username: string, password: string) {
     // 使用友好错误信息
     const errorMessage = error?.friendlyMessage || '登录失败';
     setError(errorMessage);
+    throw error;
+  }
+}
+
+// 统一能力接口
+async function invokeAbility(abilityId: string, payload: AbilityInvokePayload) {
+  try {
+    const { data } = await http.post(`/api/abilities/${abilityId}/invoke`, payload);
+    return data;
+  } catch (error: any) {
+    if (error?.response?.data?.code === 'ABILITY_001') {
+      toast.error('请先在管理端绑定执行节点');
+    } else if (error?.response?.data?.code === 'ABILITY_006') {
+      toast.warn('任务排队中，请稍后重试');
+    } else {
+      toast.error('能力调用失败，请稍后再试');
+    }
     throw error;
   }
 }
@@ -167,6 +208,7 @@ async function login(username: string, password: string) {
 |------|------|----------|
 | v1.0 | 2025-12-11 | 初始版本，包含基础错误码 |
 | v1.1 | 2025-12-11 | 细化注册相关错误码，增加更多场景 |
+| v1.2 | 2026-01-15 | 新增 ABILITY 模块错误码，覆盖统一能力 API/AbilityTask/ComfyUI 队列 |
 
 ---
 
