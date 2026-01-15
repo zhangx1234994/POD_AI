@@ -93,6 +93,7 @@
 - **OSS**：沿用直传策略，但在后台记录上传对象的 `root-prefix` + `taskId` 方便追踪，配合 RAM 角色 CLTZ (`acs:ram::1738589252389908:role/cltz`) 生成 STS，确保 key 失效可控。TODO：硬化信任策略，只允许指定应用角色 AssumeRole。
 - **密钥加密**：`api_keys.key` 建议引入 `Fernet`/KMS 加密存储；展示时仅显示后四位。
 - **多环境配置**：`settings.py` 中为各 provider 提供命名空间（如 `OpenAISettings`, `VolcanoSettings`），Admin 输入的 `base_url` 与 key 将覆盖默认值。
+- **WebHook 安全**：能力回调 (`callbackUrl`) 可在管理端配置签名 Header（静态 token 或 HMAC），运营同学需记录回调地址、Header key/value，并在第三方系统验证；如需 IP 白名单，可在 Nginx 层限制出口。管理端“能力测试”也提供一键复制回调示例，便于联调。
 
 ## 开发生命线
 

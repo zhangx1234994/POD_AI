@@ -386,130 +386,14 @@ Authorization: Bearer <token>
 | WALLET_HOLD_NOT_FOUND | holdId 不存在 |
 | WALLET_SERVICE_UNAVAILABLE | 服务不可用 |
 
-## 图像处理API
+## 能力与任务 API
 
-### 提交图像处理任务
-
-```http
-POST /api/op/v1/process
-Authorization: Bearer <token>
-Content-Type: multipart/form-data
-
-action: upscale
-images: [File, File, ...]
-params: {
-  "scale": 2,
-  "model": "esrgan"
-}
-```
-
-**响应示例**:
-```json
-{
-  "code": 200,
-  "message": "任务提交成功",
-  "data": {
-    "taskId": "task_789",
-    "action": "upscale",
-    "status": "pending",
-    "createdAt": "2023-07-20T12:00:00Z"
-  }
-}
-```
-
-### 获取任务状态
-
-```http
-GET /api/op/v1/tasks/{taskId}
-Authorization: Bearer <token>
-```
-
-**响应示例**:
-```json
-{
-  "code": 200,
-  "message": "获取成功",
-  "data": {
-    "id": "task_789",
-    "action": "upscale",
-    "status": "completed",
-    "progress": 100,
-    "createdAt": "2023-07-20T12:00:00Z",
-    "startedAt": "2023-07-20T12:01:00Z",
-    "completedAt": "2023-07-20T12:05:00Z",
-    "params": {
-      "scale": 2,
-      "model": "esrgan"
-    },
-    "result": {
-      "outputImages": [
-        {
-          "url": "https://example.com/result/image1.jpg",
-          "filename": "upscaled_image1.jpg",
-          "size": 2048576
-        }
-      ]
-    }
-  }
-}
-```
-
-### 获取任务结果
-
-```http
-GET /api/op/v1/tasks/{taskId}/result
-Authorization: Bearer <token>
-```
-
-**响应示例**:
-```json
-{
-  "code": 200,
-  "message": "获取成功",
-  "data": {
-    "taskId": "task_789",
-    "status": "completed",
-    "result": {
-      "outputImages": [
-        {
-          "url": "https://example.com/result/image1.jpg",
-          "filename": "upscaled_image1.jpg",
-          "size": 2048576,
-          "width": 2048,
-          "height": 2048
-        }
-      ],
-      "metadata": {
-        "processingTime": 240,
-        "model": "esrgan",
-        "scale": 2
-      }
-    }
-  }
-}
-```
-
-### 取消任务
-
-```http
-DELETE /api/op/v1/tasks/{taskId}
-Authorization: Bearer <token>
-```
-
-**响应示例**:
-```json
-{
-  "code": 200,
-  "message": "任务已取消"
-}
-```
-
-## 任务管理API
+能力调用、AbilityTask 队列、日志/成本详见 `docs/api/abilities.md`，本文仅保留钱包/统计等接口。## 任务管理API
 
 ### 获取任务列表
 
 ```http
-GET /api/op/v1/tasks?page=1&pageSize=20&status=completed
+GET /api/ability-tasks?page=1&pageSize=20
 Authorization: Bearer <token>
 ```
 
@@ -555,7 +439,7 @@ Authorization: Bearer <token>
 ### 获取任务详情
 
 ```http
-GET /api/op/v1/tasks/{taskId}/details
+GET /api/ability-tasks/{taskId}/details
 Authorization: Bearer <token>
 ```
 
@@ -618,7 +502,7 @@ Authorization: Bearer <token>
 ### 重试任务
 
 ```http
-POST /api/op/v1/tasks/{taskId}/retry
+POST /api/ability-tasks/{taskId}/retry
 Authorization: Bearer <token>
 ```
 
@@ -641,7 +525,7 @@ Authorization: Bearer <token>
 ### 获取用户统计信息
 
 ```http
-GET /api/op/v1/stats/user
+GET /api/admin/abilities/{abilityId}/logs?limit=12
 Authorization: Bearer <token>
 ```
 
@@ -682,7 +566,7 @@ Authorization: Bearer <token>
 ### 获取系统统计信息 (管理员)
 
 ```http
-GET /api/op/v1/stats/system
+GET /api/admin/abilities?status=active
 Authorization: Bearer <admin_token>
 ```
 
@@ -817,72 +701,11 @@ class ApiClient {
     return response.data;
   }
   
-  // 提交图像处理任务
-  async submitTask(
-    action: string,
-    images: File[],
-    params: Record<string, any>
-  ) {
-    const formData = new FormData();
-    
-    images.forEach((image, index) => {
-      formData.append(`images[${index}]`, image);
-    });
-    
-    formData.append('action', action);
-    formData.append('params', JSON.stringify(params));
-    
-    const response = await fetch(`${this.baseUrl}/process`, {
-      method: 'POST',
-      headers: {
-        ...(this.token && { Authorization: `Bearer ${this.token}` }),
-      },
-      body: formData,
-    });
-    
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.message || '任务提交失败');
-    }
-    
-    return response.json();
-  }
-  
-  // 获取任务状态
-  async getTaskStatus(taskId: string) {
-    return this.request<any>(`/tasks/${taskId}`);
-  }
-  
-  // 获取任务列表
-  async getTasks(params: {
-    page?: number;
-    pageSize?: number;
-    status?: string;
-  } = {}) {
-    const query = new URLSearchParams(params as any).toString();
-    return this.request<any>(`/tasks?${query}`);
-  }
 }
 
 // 使用示例
-const apiClient = new ApiClient('http://localhost:8099/api/op/v1');
-
 // 登录
 await apiClient.login('username', 'password');
-
-// 提交图像处理任务
-const fileInput = document.getElementById('imageInput') as HTMLInputElement;
-const images = Array.from(fileInput.files || []);
-const task = await apiClient.submitTask('upscale', images, {
-  scale: 2,
-  model: 'esrgan',
-});
-
-console.log('任务ID:', task.data.taskId);
-
-// 获取任务状态
-const taskStatus = await apiClient.getTaskStatus(task.data.taskId);
-console.log('任务状态:', taskStatus.data.status);
 ```
 
 ### React Hook示例
@@ -897,16 +720,15 @@ export const useImageProcessing = () => {
   const [error, setError] = useState<string | null>(null);
   
   const submitTask = useCallback(async (
-    action: string,
-    images: File[],
-    params: Record<string, any>
+    abilityId: string,
+    payload: AbilityInvokePayload
   ) => {
     setIsLoading(true);
     setError(null);
     
     try {
-      const result = await apiClient.submitTask(action, images, params);
-      return result.data;
+      const result = await abilityService.invokeAbility(abilityId, payload);
+      return result;
     } catch (err) {
       setError(err instanceof Error ? err.message : '未知错误');
       throw err;
@@ -917,8 +739,8 @@ export const useImageProcessing = () => {
   
   const getTaskStatus = useCallback(async (taskId: string) => {
     try {
-      const result = await apiClient.getTaskStatus(taskId);
-      return result.data;
+      const { data } = await http.get(`/ability-tasks/${taskId}`);
+      return data;
     } catch (err) {
       setError(err instanceof Error ? err.message : '获取任务状态失败');
       throw err;
@@ -931,53 +753,6 @@ export const useImageProcessing = () => {
     isLoading,
     error,
   };
-};
-
-// 在组件中使用
-import React from 'react';
-import { useImageProcessing } from '../hooks/useImageProcessing';
-
-const ImageProcessor: React.FC = () => {
-  const { submitTask, getTaskStatus, isLoading, error } = useImageProcessing();
-  const [taskId, setTaskId] = useState<string | null>(null);
-  
-  const handleSubmit = async () => {
-    try {
-      const result = await submitTask('upscale', selectedImages, {
-        scale: 2,
-        model: 'esrgan',
-      });
-      setTaskId(result.taskId);
-    } catch (err) {
-      console.error('提交任务失败:', err);
-    }
-  };
-  
-  const handleCheckStatus = async () => {
-    if (!taskId) return;
-    
-    try {
-      const status = await getTaskStatus(taskId);
-      console.log('任务状态:', status.status);
-    } catch (err) {
-      console.error('获取任务状态失败:', err);
-    }
-  };
-  
-  return (
-    <div>
-      {/* 图片选择和参数配置UI */}
-      <button onClick={handleSubmit} disabled={isLoading}>
-        {isLoading ? '处理中...' : '提交任务'}
-      </button>
-      
-      {error && <div className="error">{error}</div>}
-      
-      {taskId && (
-        <button onClick={handleCheckStatus}>检查状态</button>
-      )}
-    </div>
-  );
 };
 ```
 
