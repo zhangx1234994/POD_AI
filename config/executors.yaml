@@ -1,0 +1,51 @@
+executors:
+  - id: executor_baidu_image_default
+    name: "百度图像处理 · Default Node"
+    type: baidu
+    base_url: "https://aip.baidubce.com"
+    status: active
+    weight: 1
+    max_concurrency: 2
+    config:
+      apiKey: "${BAIDU_API_KEY}"
+      secretKey: "${BAIDU_SECRET_KEY}"
+  - id: executor_volcengine_default
+    name: "火山 Doubao · Default Node"
+    type: volcengine
+    base_url: "https://ark.cn-beijing.volces.com"
+    status: active
+    weight: 1
+    max_concurrency: 2
+    config:
+      apiKey: "${VOLCENGINE_API_KEY}"
+      baseUrl: "https://ark.cn-beijing.volces.com"
+  - id: executor_kie_market_default
+    name: "KIE Market · Default Node"
+    type: kie
+    base_url: "https://api.kie.ai"
+    status: active
+    weight: 1
+    max_concurrency: 2
+    config:
+      apiKey: "${KIE_API_KEY}"
+      baseUrl: "https://api.kie.ai"
+  - id: executor_comfyui_seamless_117
+    name: "ComfyUI 四方连续 · 117.50.216.233"
+    type: comfyui
+    base_url: "http://117.50.216.233:8079"
+    status: active
+    weight: 1
+    max_concurrency: 1
+    config:
+      baseUrl: "http://117.50.216.233:8079"
+      provider: "comfyui"
+  - id: executor_comfyui_pattern_extract_158
+    name: "ComfyUI 印花提取 · 117.50.80.158"
+    type: comfyui
+    base_url: "http://117.50.80.158:8079"
+    status: active
+    weight: 1
+    max_concurrency: 1
+    config:
+      baseUrl: "http://117.50.80.158:8079"
+      provider: "comfyui"

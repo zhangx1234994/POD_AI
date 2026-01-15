@@ -1,0 +1,862 @@
+# POD AI Studio API 文档
+
+## 目录
+
+1. [API概述](#api概述)
+2. [认证机制](#认证机制)
+3. [API基础信息](#api基础信息)
+4. [用户管理API](#用户管理api)
+5. [图像处理API](#图像处理api)
+6. [任务管理API](#任务管理api)
+7. [数据统计API](#数据统计api)
+8. [错误处理](#错误处理)
+9. [API使用示例](#api使用示例)
+10. [更新日志](#更新日志)
+
+## API概述
+
+POD AI Studio 提供了一套完整的RESTful API，用于用户认证、图像处理、任务管理和数据统计等功能。所有API都基于HTTP协议，使用JSON格式进行数据交换。
+
+### 基础URL
+
+- **认证服务**: `http://localhost:8090/api/os/v1/auth`
+- **业务服务**: `http://localhost:8099/api/op/v1`
+
+### 数据格式
+
+所有API请求和响应都使用JSON格式，字符编码为UTF-8。
+
+## 认证机制
+
+### Token认证
+
+API使用Bearer Token进行认证。用户登录成功后，服务器会返回一个访问令牌，后续请求需要在HTTP头部中包含此令牌。
+
+```http
+Authorization: Bearer <your_token>
+```
+
+### 获取Token
+
+```http
+POST /api/os/v1/auth/login
+Content-Type: application/json
+
+{
+  "username": "your_username",
+  "password": "your_password"
+}
+```
+
+**响应示例**:
+```json
+{
+  "code": 200,
+  "message": "登录成功",
+  "data": {
+    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "user": {
+      "id": "user123",
+      "username": "your_username",
+      "email": "user@example.com",
+      "role": "user"
+    },
+    "expiresIn": 86400
+  }
+}
+```
+
+## API基础信息
+
+### 通用响应格式
+
+所有API响应都遵循统一的格式：
+
+```json
+{
+  "code": 200,
+  "message": "操作成功",
+  "data": {},
+  "timestamp": "2023-07-20T12:00:00Z"
+}
+```
+
+### HTTP状态码
+
+| 状态码 | 说明 |
+|--------|------|
+| 200 | 请求成功 |
+| 201 | 创建成功 |
+| 400 | 请求参数错误 |
+| 401 | 未授权 |
+| 403 | 禁止访问 |
+| 404 | 资源不存在 |
+| 500 | 服务器内部错误 |
+
+### 分页参数
+
+列表类API支持分页，使用以下参数：
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| page | number | 否 | 页码，从1开始，默认1 |
+| pageSize | number | 否 | 每页数量，默认20，最大100 |
+
+## 用户管理API
+
+### 用户注册
+
+```http
+POST /api/os/v1/auth/register
+Content-Type: application/json
+
+{
+  "username": "newuser",
+  "password": "password123",
+  "email": "newuser@example.com"
+}
+```
+
+**响应示例**:
+```json
+{
+  "code": 201,
+  "message": "注册成功",
+  "data": {
+    "user": {
+      "id": "user456",
+      "username": "newuser",
+      "email": "newuser@example.com",
+      "role": "user",
+      "createdAt": "2023-07-20T12:00:00Z"
+    }
+  }
+}
+```
+
+### 用户登录
+
+```http
+POST /api/os/v1/auth/login
+Content-Type: application/json
+
+{
+  "username": "existinguser",
+  "password": "password123"
+}
+```
+
+**响应示例**:
+```json
+{
+  "code": 200,
+  "message": "登录成功",
+  "data": {
+    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "user": {
+      "id": "user123",
+      "username": "existinguser",
+      "email": "user@example.com",
+      "role": "user"
+    },
+    "expiresIn": 86400
+  }
+}
+```
+
+### 获取当前用户信息
+
+```http
+GET /api/os/v1/auth/me
+Authorization: Bearer <token>
+```
+
+**响应示例**:
+```json
+{
+  "code": 200,
+  "message": "获取成功",
+  "data": {
+    "id": "user123",
+    "username": "existinguser",
+    "email": "user@example.com",
+    "role": "user",
+    "createdAt": "2023-07-20T12:00:00Z",
+    "lastLoginAt": "2023-07-20T14:30:00Z"
+  }
+}
+```
+
+### 更新用户信息
+
+```http
+PUT /api/os/v1/auth/me
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "email": "newemail@example.com",
+  "profile": {
+    "firstName": "John",
+    "lastName": "Doe"
+  }
+}
+```
+
+**响应示例**:
+```json
+{
+  "code": 200,
+  "message": "更新成功",
+  "data": {
+    "id": "user123",
+    "username": "existinguser",
+    "email": "newemail@example.com",
+    "profile": {
+      "firstName": "John",
+      "lastName": "Doe"
+    }
+  }
+}
+```
+
+### 修改密码
+
+```http
+PUT /api/os/v1/auth/password
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "currentPassword": "oldpassword123",
+  "newPassword": "newpassword456"
+}
+```
+
+**响应示例**:
+```json
+{
+  "code": 200,
+  "message": "密码修改成功"
+}
+```
+
+## 图像处理API
+
+### 提交图像处理任务
+
+```http
+POST /api/op/v1/process
+Authorization: Bearer <token>
+Content-Type: multipart/form-data
+
+action: upscale
+images: [File, File, ...]
+params: {
+  "scale": 2,
+  "model": "esrgan"
+}
+```
+
+**响应示例**:
+```json
+{
+  "code": 200,
+  "message": "任务提交成功",
+  "data": {
+    "taskId": "task_789",
+    "action": "upscale",
+    "status": "pending",
+    "createdAt": "2023-07-20T12:00:00Z"
+  }
+}
+```
+
+### 获取任务状态
+
+```http
+GET /api/op/v1/tasks/{taskId}
+Authorization: Bearer <token>
+```
+
+**响应示例**:
+```json
+{
+  "code": 200,
+  "message": "获取成功",
+  "data": {
+    "id": "task_789",
+    "action": "upscale",
+    "status": "completed",
+    "progress": 100,
+    "createdAt": "2023-07-20T12:00:00Z",
+    "startedAt": "2023-07-20T12:01:00Z",
+    "completedAt": "2023-07-20T12:05:00Z",
+    "params": {
+      "scale": 2,
+      "model": "esrgan"
+    },
+    "result": {
+      "outputImages": [
+        {
+          "url": "https://example.com/result/image1.jpg",
+          "filename": "upscaled_image1.jpg",
+          "size": 2048576
+        }
+      ]
+    }
+  }
+}
+```
+
+### 获取任务结果
+
+```http
+GET /api/op/v1/tasks/{taskId}/result
+Authorization: Bearer <token>
+```
+
+**响应示例**:
+```json
+{
+  "code": 200,
+  "message": "获取成功",
+  "data": {
+    "taskId": "task_789",
+    "status": "completed",
+    "result": {
+      "outputImages": [
+        {
+          "url": "https://example.com/result/image1.jpg",
+          "filename": "upscaled_image1.jpg",
+          "size": 2048576,
+          "width": 2048,
+          "height": 2048
+        }
+      ],
+      "metadata": {
+        "processingTime": 240,
+        "model": "esrgan",
+        "scale": 2
+      }
+    }
+  }
+}
+```
+
+### 取消任务
+
+```http
+DELETE /api/op/v1/tasks/{taskId}
+Authorization: Bearer <token>
+```
+
+**响应示例**:
+```json
+{
+  "code": 200,
+  "message": "任务已取消"
+}
+```
+
+## 任务管理API
+
+### 获取任务列表
+
+```http
+GET /api/op/v1/tasks?page=1&pageSize=20&status=completed
+Authorization: Bearer <token>
+```
+
+**查询参数**:
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| page | number | 否 | 页码，从1开始，默认1 |
+| pageSize | number | 否 | 每页数量，默认20，最大100 |
+| status | string | 否 | 任务状态过滤 |
+| action | string | 否 | 处理类型过滤 |
+| startDate | string | 否 | 开始日期，ISO格式 |
+| endDate | string | 否 | 结束日期，ISO格式 |
+
+**响应示例**:
+```json
+{
+  "code": 200,
+  "message": "获取成功",
+  "data": {
+    "tasks": [
+      {
+        "id": "task_789",
+        "action": "upscale",
+        "status": "completed",
+        "createdAt": "2023-07-20T12:00:00Z",
+        "completedAt": "2023-07-20T12:05:00Z",
+        "params": {
+          "scale": 2,
+          "model": "esrgan"
+        }
+      }
+    ],
+    "pagination": {
+      "page": 1,
+      "pageSize": 20,
+      "total": 100,
+      "totalPages": 5
+    }
+  }
+}
+```
+
+### 获取任务详情
+
+```http
+GET /api/op/v1/tasks/{taskId}/details
+Authorization: Bearer <token>
+```
+
+**响应示例**:
+```json
+{
+  "code": 200,
+  "message": "获取成功",
+  "data": {
+    "id": "task_789",
+    "action": "upscale",
+    "status": "completed",
+    "progress": 100,
+    "createdAt": "2023-07-20T12:00:00Z",
+    "startedAt": "2023-07-20T12:01:00Z",
+    "completedAt": "2023-07-20T12:05:00Z",
+    "params": {
+      "scale": 2,
+      "model": "esrgan"
+    },
+    "inputImages": [
+      {
+        "filename": "input_image.jpg",
+        "size": 1024576,
+        "url": "https://example.com/input/input_image.jpg"
+      }
+    ],
+    "result": {
+      "outputImages": [
+        {
+          "url": "https://example.com/result/image1.jpg",
+          "filename": "upscaled_image1.jpg",
+          "size": 2048576,
+          "width": 2048,
+          "height": 2048
+        }
+      ],
+      "metadata": {
+        "processingTime": 240,
+        "model": "esrgan",
+        "scale": 2
+      }
+    },
+    "logs": [
+      {
+        "timestamp": "2023-07-20T12:01:00Z",
+        "level": "info",
+        "message": "开始处理图像"
+      },
+      {
+        "timestamp": "2023-07-20T12:05:00Z",
+        "level": "info",
+        "message": "图像处理完成"
+      }
+    ]
+  }
+}
+```
+
+### 重试任务
+
+```http
+POST /api/op/v1/tasks/{taskId}/retry
+Authorization: Bearer <token>
+```
+
+**响应示例**:
+```json
+{
+  "code": 200,
+  "message": "任务已重新提交",
+  "data": {
+    "taskId": "task_790",
+    "originalTaskId": "task_789",
+    "status": "pending",
+    "createdAt": "2023-07-20T13:00:00Z"
+  }
+}
+```
+
+## 数据统计API
+
+### 获取用户统计信息
+
+```http
+GET /api/op/v1/stats/user
+Authorization: Bearer <token>
+```
+
+**响应示例**:
+```json
+{
+  "code": 200,
+  "message": "获取成功",
+  "data": {
+    "totalTasks": 50,
+    "completedTasks": 45,
+    "failedTasks": 3,
+    "pendingTasks": 2,
+    "totalProcessingTime": 7200,
+    "storageUsed": 1073741824,
+    "actions": {
+      "upscale": 20,
+      "cutout": 15,
+      "denoise": 10,
+      "colorize": 5
+    },
+    "monthlyStats": [
+      {
+        "month": "2023-06",
+        "tasks": 15,
+        "processingTime": 1800
+      },
+      {
+        "month": "2023-07",
+        "tasks": 35,
+        "processingTime": 5400
+      }
+    ]
+  }
+}
+```
+
+### 获取系统统计信息 (管理员)
+
+```http
+GET /api/op/v1/stats/system
+Authorization: Bearer <admin_token>
+```
+
+**响应示例**:
+```json
+{
+  "code": 200,
+  "message": "获取成功",
+  "data": {
+    "totalUsers": 1000,
+    "activeUsers": 750,
+    "totalTasks": 10000,
+    "completedTasks": 9500,
+    "failedTasks": 300,
+    "pendingTasks": 200,
+    "totalProcessingTime": 720000,
+    "totalStorageUsed": 107374182400,
+    "actions": {
+      "upscale": 4000,
+      "cutout": 3000,
+      "denoise": 2000,
+      "colorize": 1000
+    },
+    "monthlyStats": [
+      {
+        "month": "2023-06",
+        "users": 800,
+        "tasks": 3000,
+        "processingTime": 180000
+      },
+      {
+        "month": "2023-07",
+        "users": 900,
+        "tasks": 4000,
+        "processingTime": 240000
+      }
+    ]
+  }
+}
+```
+
+## 错误处理
+
+### 错误响应格式
+
+当API请求失败时，服务器会返回详细的错误信息：
+
+```json
+{
+  "code": 400,
+  "message": "请求参数错误",
+  "error": {
+    "type": "ValidationError",
+    "details": [
+      {
+        "field": "scale",
+        "message": "缩放倍数必须是2、4或8"
+      }
+    ]
+  },
+  "timestamp": "2023-07-20T12:00:00Z"
+}
+```
+
+### 常见错误码
+
+| 错误码 | 说明 | 解决方案 |
+|--------|------|----------|
+| 1001 | 用户名或密码错误 | 检查用户名和密码是否正确 |
+| 1002 | Token已过期 | 重新登录获取新Token |
+| 1003 | Token无效 | 检查Token格式是否正确 |
+| 2001 | 图片格式不支持 | 使用支持的图片格式(JPG, PNG等) |
+| 2002 | 图片大小超出限制 | 压缩图片或减小图片尺寸 |
+| 2003 | 处理参数错误 | 检查参数是否符合API要求 |
+| 3001 | 任务不存在 | 检查任务ID是否正确 |
+| 3002 | 任务状态不允许此操作 | 检查任务当前状态 |
+| 4001 | 存储空间不足 | 删除不需要的文件或联系管理员 |
+| 5001 | 系统内部错误 | 稍后重试或联系技术支持 |
+
+## API使用示例
+
+### JavaScript/TypeScript示例
+
+```typescript
+// API客户端示例
+class ApiClient {
+  private baseUrl: string;
+  private token: string | null = null;
+  
+  constructor(baseUrl: string) {
+    this.baseUrl = baseUrl;
+  }
+  
+  // 设置认证Token
+  setToken(token: string) {
+    this.token = token;
+  }
+  
+  // 通用请求方法
+  private async request<T>(
+    endpoint: string,
+    options: RequestInit = {}
+  ): Promise<T> {
+    const url = `${this.baseUrl}${endpoint}`;
+    const headers = {
+      'Content-Type': 'application/json',
+      ...(this.token && { Authorization: `Bearer ${this.token}` }),
+      ...options.headers,
+    };
+    
+    const response = await fetch(url, {
+      ...options,
+      headers,
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || '请求失败');
+    }
+    
+    return response.json();
+  }
+  
+  // 用户登录
+  async login(username: string, password: string) {
+    const response = await this.request<any>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    });
+    
+    this.setToken(response.data.token);
+    return response.data;
+  }
+  
+  // 提交图像处理任务
+  async submitTask(
+    action: string,
+    images: File[],
+    params: Record<string, any>
+  ) {
+    const formData = new FormData();
+    
+    images.forEach((image, index) => {
+      formData.append(`images[${index}]`, image);
+    });
+    
+    formData.append('action', action);
+    formData.append('params', JSON.stringify(params));
+    
+    const response = await fetch(`${this.baseUrl}/process`, {
+      method: 'POST',
+      headers: {
+        ...(this.token && { Authorization: `Bearer ${this.token}` }),
+      },
+      body: formData,
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || '任务提交失败');
+    }
+    
+    return response.json();
+  }
+  
+  // 获取任务状态
+  async getTaskStatus(taskId: string) {
+    return this.request<any>(`/tasks/${taskId}`);
+  }
+  
+  // 获取任务列表
+  async getTasks(params: {
+    page?: number;
+    pageSize?: number;
+    status?: string;
+  } = {}) {
+    const query = new URLSearchParams(params as any).toString();
+    return this.request<any>(`/tasks?${query}`);
+  }
+}
+
+// 使用示例
+const apiClient = new ApiClient('http://localhost:8099/api/op/v1');
+
+// 登录
+await apiClient.login('username', 'password');
+
+// 提交图像处理任务
+const fileInput = document.getElementById('imageInput') as HTMLInputElement;
+const images = Array.from(fileInput.files || []);
+const task = await apiClient.submitTask('upscale', images, {
+  scale: 2,
+  model: 'esrgan',
+});
+
+console.log('任务ID:', task.data.taskId);
+
+// 获取任务状态
+const taskStatus = await apiClient.getTaskStatus(task.data.taskId);
+console.log('任务状态:', taskStatus.data.status);
+```
+
+### React Hook示例
+
+```typescript
+// hooks/useImageProcessing.ts
+import { useState, useCallback } from 'react';
+import { apiClient } from '../services/apiClient';
+
+export const useImageProcessing = () => {
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  
+  const submitTask = useCallback(async (
+    action: string,
+    images: File[],
+    params: Record<string, any>
+  ) => {
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      const result = await apiClient.submitTask(action, images, params);
+      return result.data;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '未知错误');
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+  
+  const getTaskStatus = useCallback(async (taskId: string) => {
+    try {
+      const result = await apiClient.getTaskStatus(taskId);
+      return result.data;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '获取任务状态失败');
+      throw err;
+    }
+  }, []);
+  
+  return {
+    submitTask,
+    getTaskStatus,
+    isLoading,
+    error,
+  };
+};
+
+// 在组件中使用
+import React from 'react';
+import { useImageProcessing } from '../hooks/useImageProcessing';
+
+const ImageProcessor: React.FC = () => {
+  const { submitTask, getTaskStatus, isLoading, error } = useImageProcessing();
+  const [taskId, setTaskId] = useState<string | null>(null);
+  
+  const handleSubmit = async () => {
+    try {
+      const result = await submitTask('upscale', selectedImages, {
+        scale: 2,
+        model: 'esrgan',
+      });
+      setTaskId(result.taskId);
+    } catch (err) {
+      console.error('提交任务失败:', err);
+    }
+  };
+  
+  const handleCheckStatus = async () => {
+    if (!taskId) return;
+    
+    try {
+      const status = await getTaskStatus(taskId);
+      console.log('任务状态:', status.status);
+    } catch (err) {
+      console.error('获取任务状态失败:', err);
+    }
+  };
+  
+  return (
+    <div>
+      {/* 图片选择和参数配置UI */}
+      <button onClick={handleSubmit} disabled={isLoading}>
+        {isLoading ? '处理中...' : '提交任务'}
+      </button>
+      
+      {error && <div className="error">{error}</div>}
+      
+      {taskId && (
+        <button onClick={handleCheckStatus}>检查状态</button>
+      )}
+    </div>
+  );
+};
+```
+
+## 更新日志
+
+### v1.2.0 (2023-07-20)
+
+- 新增图像降噪API
+- 优化任务状态查询性能
+- 修复批量处理时的内存泄漏问题
+
+### v1.1.0 (2023-06-15)
+
+- 新增图像上色API
+- 支持批量图像处理
+- 添加任务重试功能
+
+### v1.0.0 (2023-05-01)
+
+- 初始版本发布
+- 支持图像无损放大
+- 支持印花提取
+- 用户认证和任务管理
+
+---
+
+这份API文档提供了POD AI Studio所有API接口的详细说明，包括请求参数、响应格式和错误处理。如有任何疑问或建议，请联系开发团队。

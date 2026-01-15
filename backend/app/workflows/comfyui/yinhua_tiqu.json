@@ -1,0 +1,241 @@
+{
+  "3": {
+    "inputs": {
+      "seed": 143047115433530,
+      "steps": 8,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": [
+        "75",
+        0
+      ],
+      "positive": [
+        "111",
+        0
+      ],
+      "negative": [
+        "110",
+        0
+      ],
+      "latent_image": [
+        "400",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "K采样器"
+    }
+  },
+  "8": {
+    "inputs": {
+      "samples": [
+        "3",
+        0
+      ],
+      "vae": [
+        "39",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE解码"
+    }
+  },
+  "37": {
+    "inputs": {
+      "unet_name": "qwen_image_edit_2511_fp8mixed.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "UNET加载器"
+    }
+  },
+  "38": {
+    "inputs": {
+      "clip_name": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "type": "qwen_image",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "CLIP加载器"
+    }
+  },
+  "39": {
+    "inputs": {
+      "vae_name": "qwen_image_vae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "VAE加载器"
+    }
+  },
+  "75": {
+    "inputs": {
+      "strength": 1,
+      "model": [
+        "420",
+        0
+      ]
+    },
+    "class_type": "CFGNorm",
+    "_meta": {
+      "title": "CFG归一化"
+    }
+  },
+  "88": {
+    "inputs": {
+      "pixels": [
+        "393",
+        0
+      ],
+      "vae": [
+        "39",
+        0
+      ]
+    },
+    "class_type": "VAEEncode",
+    "_meta": {
+      "title": "VAE编码"
+    }
+  },
+  "89": {
+    "inputs": {
+      "lora_name": "Qwen-Image-Edit-2509-Lightning-8steps-V1.0-bf16.safetensors",
+      "strength_model": 1,
+      "model": [
+        "37",
+        0
+      ]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "LoRA加载器(仅模型)"
+    }
+  },
+  "110": {
+    "inputs": {
+      "prompt": "低分辨率, 模糊, 像素化, 有噪点, 有水印, 有文字, 有边框, 有阴影, 有折痕, 有污渍, 有磨损, 有划痕, 有毛刺, 有锯齿, 有压缩痕迹, 有伪影, 有变形, 有拉伸, 有透视畸变, 有透视效果, 有3D渲染感, 有立体感, 有厚度, 有深度, 有光照, 有反射, 有人物, 有手脚, 有鞋子, 有地板, 有背景, 有家具, 有物品, 有拉链, 有扣子, 有缝线, 有带子, 有边缘, 有裁切, 有不完整图案, 有拼接痕迹, 有重复块状感, 有马赛克, 有卡通风格, 有写实风格, 有油画风格, 有水彩风格, 有手绘感, 有草稿感, 有涂鸦感, 有抽象感, 有现代感, 有极简主义, 有留白, 有空隙, 有空白区域, 有产品轮廓, 有杯口, 有瓶盖, 有液体, 有冰块, 有倾倒效果, 有褶皱, 有布料纹理, 有弯曲弧度, 有曲面变形, 有材质颗粒感, 有织物网格, 有塑料反光, 有金属光泽, 色彩过饱和, 色彩失真, 色彩偏移, 背景变为纯白色, 背景变为纯黑色, 过度锐化, 过度模糊, 风格化处理, 添加新元素, 删除原图元素, 切割核心主体, 重复核心主体, 变形核心主体, 打乱构图关系, 元素前后关系错误, 元素位置错乱, 错误地将独立构图图案进行无缝平铺, 错误地将无缝图案添加边框, 破坏中心对称性, 扭曲图案比例, 可见的拼接痕迹, 垂直方向拼接失败, 水平方向拼接失败, 重复单元边界明显, 图案断层, 错误识别最小重复单元, 单元对齐错误, 图案元素在单元边界处被切断, 单元内图案不完整, 破坏边框完整性, 边框被错误平铺, 中心对称性被破坏, 图案比例失调, 移除设计性背景底纹, 移除水印, 破坏背景层次感, 背景变为纯色, 移除产品结构, 移除功能部件, 破坏产品结构完整性, 功能部件被错误移除, 破坏视觉结构, 忽略设计意图, 结构混乱, 层次不清, 失去渐变效果, 失去分层效果, 视觉焦点错误, **元素密度失衡**, **分布规律错误**, **过度填充**, **元素过于密集**, **失去呼吸感**, **失去手绘韵味**, **元素分布均匀化**, **元素分布僵硬**",
+      "clip": [
+        "38",
+        0
+      ],
+      "vae": [
+        "39",
+        0
+      ]
+    },
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "_meta": {
+      "title": "TextEncodeQwenImageEditPlus"
+    }
+  },
+  "111": {
+    "inputs": {
+      "prompt": "高分辨率，超清细节，商业级印刷品质。\\n\\n请将提供的产品图片视为一个“实物照片”，并根据其表面的装饰性印花内容，生成一份100%忠于原作的“原始设计稿”。\\n\\n这份“设计稿”必须是：\\n- 纯平面的，彻底消除所有因产品立体形态、弯曲、折叠带来的透视、阴影、形变或褶皱。\\n- 彻底剥离所有非图案元素，包括但不限于：拉链、扣件、缝线、带子、背景、人物、污渍、边缘裁切、产品轮廓、产品硬件（如杯口、瓶盖）、液体、冰块、**以及任何放置在产品表面的独立物体（如盘子、餐具、杯子、花瓶、植物等）**。\\n- 彻底移除产品本身的所有材质纹理（如布料网格、皮革纹路、塑料反光），但**保留图案中所有设计性的背景层次、底纹和水印**，仅移除物理性的干扰。\\n- **智能判断图案类型**：\\n    - 如果图案是**散点式、重复式或无明确边界的**（如碎花、曼陀罗），则**首先识别并提取其最小重复单元 (Tile Unit)**，然后基于此单元进行**精确的、无视觉中断的无缝平铺**。\\n    - 如果图案是**具有明确边框、中心对称或独立构图的**（如地毯、壁画、插画），则**完整保留其原始构图、边框和中心对称性**，不进行任何平铺或重复处理。\\n- 严格保持原始设计的每一个细节、色彩空间、色彩饱和度、明暗关系和艺术风格（如水彩、油画、矢量等），做到100%高保真还原，禁止任何色彩增强、去色或风格化处理。\\n- 识别并完整保留图案中的任何核心主体（如动物、人物、大型花卉等），确保其形态完整、位置准确，不得对其进行切割、重复或变形。\\n- 尊重并还原图案中各元素间的原始构图关系（如前后遮挡、环绕、散点分布等），确保整体布局与原图一致。\\n- **深入理解并忠实再现图案的视觉结构和设计意图**，例如：渐变、分层、区域划分、视觉焦点等，确保最终输出不仅元素正确，而且结构清晰、层次分明、富有设计感。\\n- **精确还原图案中元素的原始密度和分布规律**，无论是稀疏、密集还是随机分布，都必须与原图保持一致，禁止任何形式的过度填充或稀释，以保持图案的“呼吸感”和“设计韵味”。\\n\\n⚠️ 特别注意：\\n- **所有餐具（盘子、刀、叉）、桌椅、植物、柜子等环境元素必须彻底移除，不能保留任何残影或轮廓。**\\n- **图案中的文字“未来可期”、“BEST FRIENDS”必须保持原始字体、字号、间距和排版，不可替换或模糊。**\\n- **背景网格必须保持原始颜色、线条粗细和间距，不可偏色或变形。**\\n\\n最终输出应为一张纯净的设计稿，无任何产品实物、环境或干扰物，仅包含干净、完整、可直接用于印刷的装饰纹样",
+      "clip": [
+        "38",
+        0
+      ],
+      "vae": [
+        "39",
+        0
+      ],
+      "image1": [
+        "393",
+        0
+      ]
+    },
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "_meta": {
+      "title": "TextEncodeQwenImageEditPlus"
+    }
+  },
+  "390": {
+    "inputs": {
+      "lora_name": "印花提取-YinHuaTiQu-Qwen-Image-Edit-LoRA_V1.safetensors",
+      "strength_model": 1,
+      "model": [
+        "89",
+        0
+      ]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "LoRA加载器(仅模型)"
+    }
+  },
+  "393": {
+    "inputs": {
+      "url": "https://podi.oss-cn-hangzhou.aliyuncs.com/test/abilities/admin/20260112/aa461010-1768177990.png"
+    },
+    "class_type": "LoadImagesFromURL",
+    "_meta": {
+      "title": "加载图像(URL)"
+    }
+  },
+  "400": {
+    "inputs": {
+      "upscale_method": "nearest-exact",
+      "width": 1800,
+      "height": 1800,
+      "crop": "center",
+      "samples": [
+        "88",
+        0
+      ]
+    },
+    "class_type": "LatentUpscale",
+    "_meta": {
+      "title": "Latent缩放"
+    }
+  },
+  "410": {
+    "inputs": {
+      "anything": [
+        "8",
+        0
+      ]
+    },
+    "class_type": "easy cleanGpuUsed",
+    "_meta": {
+      "title": "清理GPU占用"
+    }
+  },
+  "420": {
+    "inputs": {
+      "shift": 1.8,
+      "model": [
+        "390",
+        0
+      ]
+    },
+    "class_type": "ModelSamplingAuraFlow",
+    "_meta": {
+      "title": "模型采样算法AuraFlow"
+    }
+  },
+  "421": {
+    "inputs": {
+      "filename_prefix": "DPI_Image",
+      "dpi": 150,
+      "format": "png",
+      "quality": 100,
+      "mode": "save_and_pass",
+      "counter_offset": 0,
+      "images": [
+        "8",
+        0
+      ]
+    },
+    "class_type": "SaveImageWithDPI",
+    "_meta": {
+      "title": "Save Image with DPI"
+    }
+  }
+}
