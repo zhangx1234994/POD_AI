@@ -1,283 +1,130 @@
-# 任务提交与交互事件流程
+# 任务提交流程（统一能力 API）
 
-本文档详细描述了PODI设计平台中任务的提交流程、状态管理以及用户交互事件的处理机制。
+> 版本：2026-01-15。本文结合最新的原子能力平台，梳理客户端/管理端如何发起能力调用、提交异步任务、监听状态以及和后台调度器联动的全过程。
 
-## 1. 任务提交流程概述
+## 1. 总体流程
 
-在PODI设计平台中，任务提交流程主要包括以下几个关键环节：
-
-1. **任务生成**：创建新的任务ID
-2. **参数准备**：收集任务所需的工作流参数
-3. **API调用**：提交任务到后端服务
-4. **状态反馈**：显示任务提交成功提示
-5. **列表刷新**：更新任务列表显示
-
-## 2. 核心组件与功能
-
-### 2.1 DashboardTaskList组件
-
-`DashboardTaskList`是管理任务列表显示、任务操作和状态展示的核心组件。
-
-#### 主要功能
-
-- 显示用户的任务列表（支持分页）
-- 展示任务状态（等待中、处理中、成功、失败、取消）
-- 提供任务操作（预览、下载、重绘）
-- 响应任务状态更新
-
-#### 任务状态定义
-
-```typescript
-type TaskStatusType = 'completed' | 'processing' | 'pending' | 'failed' | 'canceled';
+```
+表单收集参数 → 调用统一能力 API（同步或异步） → AbilityService 记录日志/成本 →
+(可选) AbilityTask 队列 → Executor Adapter 执行（Baidu/Volc/ComfyUI/KIE…） →
+媒资入库 & 回调通知 → 客户端刷新任务/日志面板
 ```
 
-## 3. 任务提交实现细节
+关键特性：
+- **能力即 API**：所有原子能力都通过 `GET /api/abilities` 列表 + `POST /api/abilities/{id}/invoke` 访问，前后端共享一套 schema/defaults。
+- **异步与并发**：批量调用或耗时较长时使用 `POST /api/ability-tasks`，后端线程池（`ABILITY_TASK_MAX_WORKERS`）+ executor `max_concurrency` 控制排队；ComfyUI 节点为串行 worker，队列状态通过 `/api/admin/comfyui/queue-status` 透出。
+- **日志/成本**：每次调用都会写入 `ability_invocation_logs`（包含 `logId/duration/cost/pricing/OSS 输出/raw`），管理端 “调用记录” 与客户端历史面板共享同一数据源。
+- **回调**：同步/异步均可附带 `callbackUrl/callbackHeaders`，后台执行完毕后会 POST 结果，让第三方系统无需轮询。
 
-### 3.1 重绘任务提交流程
+## 2. 前端关键组件
 
-当用户点击"重绘"按钮时，触发以下流程：
+| 组件 | 职责 |
+| --- | --- |
+| `AbilityForm`（客户端/管理端） | 读取 `/api/abilities` + schema 动态渲染字段、上传控件、LoRA/模型下拉（ComfyUI 通过 `/api/admin/comfyui/models` 自动填充）。 |
+| `AbilityTestPanel`（管理端） | 聚合“统一能力接口说明 + 实时测试 + 调用记录 + 队列状态”，让运营同学可在 UI 内直接验证参数。 |
+| `DashboardTaskList`（客户端） | 展示能力调用历史（含同步/异步）、状态、耗时、OSS 链接，支持预览/下载/重跑。 |
+| `AbilityLogsDrawer` | 基于 `/api/admin/abilities/{id}/logs` 展示最近 N 次调用，带 Raw Response、错误详情、成本。 |
 
-1. **参数校验**：检查是否已有重绘任务在执行，验证任务是否包含workflowParams
-2. **任务ID生成**：使用`generateTaskId()`生成新的任务ID
-3. **参数准备**：整理重绘所需的参数，包括action、userId、原taskId、新taskId和workflowParams
-4. **API调用**：调用`rerunTask()`函数提交重绘任务
-5. **结果处理**：
-   - 成功：设置当前任务ID并显示成功对话框，刷新任务列表
-   - 失败：显示错误提示信息
+## 3. 同步能力调用
 
-### 3.2 核心代码实现
+当用户直接点击“立即生成/测试”按钮时：
 
-#### 重绘任务处理函数
+1. **收集参数**：表单值 → `AbilityInvokePayload`（`inputs`、`imageUrl/imageBase64/images[]`、`executorId` 可选、`metadata.traceId`、`callbackUrl` 等）。
+2. **API 调用**：`abilityService.invokeAbility(abilityId, payload)` → `POST /api/abilities/{abilityId}/invoke`。
+3. **返回结果**：`AbilityInvokeResponse` 立即包含 `status/logId/durationMs/images/videos/texts/assets/raw`。
+4. **UI 处理**：
+   - 将 `images`/`assets` 写入画廊或任务列表，展示耗时/成本。
+   - 将 `logId` 保存，方便在“调用记录”中定位同一条链路。
+5. **回调（可选）**：若传了 `callbackUrl`，后端还会在执行完成后推送一次 `{status,result,error,logId,timestamp}`，供外部系统消费。
 
 ```typescript
-const handleRegenerate = async (task: Task, e?: any): Promise<void> => {
-  e?.stopPropagation();
-  
-  if (isRegenerating) {
-    toast.error('正在重绘中，请稍候');
-    return;
-  }
-  
-  if (!task.workflowParams) {
-    toast.error('缺少重绘参数，无法重绘');
-    return;
-  }
-  
+const handleInvoke = async (ability: AbilitySummary, values: FormValues) => {
+  setSubmitting(true);
   try {
-    setIsRegenerating(true);
-    const userId = getUserId();
-    const newTaskId = generateTaskId();
-    
-    // 处理特殊的action类型
-    let action = task.action || '';
-    if (action === 'outpaint' && task.workflowParams?.outpaintMode) {
-      action = task.workflowParams.outpaintMode;
-    }
-    
-    const result = await rerunTask(
-      action,
-      userId,
-      task.id,
-      newTaskId,
-      task.workflowParams
-    );
-    
-    if (result.success) {
-      // 设置当前任务ID并显示成功提示
-      setCurrentTaskId(newTaskId);
-      setShowSuccessDialog(true);
-      // 直接刷新任务列表以显示新任务
-      refreshData();
-    } else {
-      toast.error(result.message || '重绘失败，请稍后重试');
-    }
-  } catch (error) {
-    console.error('重绘失败:', error);
-    toast.error('重绘失败，请稍后重试');
+    const payload = buildPayload(values); // inputs + image url/base64
+    const res = await abilityService.invokeAbility(ability.id, payload);
+    showResult(res); // 预览 & 提示耗时/cost
+  } catch (err) {
+    toast.error(parseError(err));
   } finally {
-    setIsRegenerating(false);
+    setSubmitting(false);
   }
 };
 ```
 
-#### 任务提交API调用
+## 4. 异步 AbilityTask 队列
+
+适用于批量上传、长流程或需要排队的能力（例如 ComfyUI 多图工作流）：
+
+1. **创建任务**：`abilityService.createAbilityTask(abilityId, payload)` → `POST /api/ability-tasks`。响应 `AbilityTask`：`id/status=queued/createdAt`。
+2. **轮询 / Push**：
+   - 前端可定时调用 `GET /api/ability-tasks/{taskId}`，或统一通过 `useTaskPolling` 钩子批量刷新最近任务。
+   - 管理端可直接查看 `AbilityTestPanel` 下方“最近调用记录”，实时显示 `queued/running/succeeded/failed`。
+3. **完成**：
+   - `status=succeeded` → `resultPayload` 携带完整 `AbilityInvokeResponse`（与同步模式一致）。
+   - `status=failed` → `errorMessage`/`resultPayload.error` 描述原因（如 `ABILITY_EXECUTOR_NOT_CONFIGURED`、`COMFYUI_QUEUE_STATUS_ERROR` 等）。
+4. **前端联动**：
+   - 客户端 Dashboard 更新任务状态，弹出成功/失败通知。
+   - 若配置了 `callbackUrl`，外部系统也会收到同样的结果。
 
 ```typescript
-export async function rerunTask(
-  action: string,
-  userId: string,
-  originalTaskId: string,
-  newTaskId: string,
-  workflowParams?: any
-): Promise<{ success: boolean; message?: string }> {
-  try {
-    // 构建重绘请求参数
-    const payload = {
-      userId,
-      originalTaskId,
-      taskId: newTaskId,
-      action,
-      workflowParams
-    };
-    
-    // 调用重绘接口
-    const response = await http.post(`/image-regenerate`, payload);
-    
-    return { success: true };
-  } catch (error) {
-    console.error('提交重绘任务失败:', error);
-    return { success: false, message: '重绘失败，请稍后重试' };
-  }
-}
-```
-
-## 4. 后端任务调度与执行
-
-> 详见 `docs/ai-integration-management.md`，此处强调与提交流程紧密相关的环节，方便前端联调。
-
-1. **调度入口**：`TaskDispatcherService` 会拉取 `status in (pending, queued)` 的任务（默认 5 条），依据 `workflow_bindings` + `executors` 的配置挑选可用节点。开发阶段可手动调用 `POST /api/tasks/v1/dispatch?limit=5` 触发；上线后接 Celery/定时任务。
-2. **运行状态**：命中绑定后任务会被标记为 `running` 并写入 `task_events`，执行器适配层（当前为 `MockExecutorAdapter`）会将 `workflow.definition + input_payload` 组合后“执行”，同步返回结果。
-3. **成功回写**：任务成功后写入 `result_payload`（包括执行器信息、预览图等），状态置为 `completed`，并调用 `wallet_service.confirm` 扣减冻结积分，再通过 `notify_service.broadcast` 推送 `task.status` 与 `wallet.points` 事件，前端仪表盘与任务中心即可更新。
-4. **失败/阻塞处理**：若找不到可用绑定或执行失败，任务状态将被标记为 `blocked`/`failed`，`wallet_service.release` 会还原积分，并同样推送通知，方便用户及时处理配置问题。
-
-在前端页面测试时，只需确保存在 `workflow + executor (type=mock, status=active) + binding(enabled=true)`，然后提交任务并调用 `dispatch` 接口即可看到状态流转。
-
-## 5. 用户交互事件
-
-### 4.1 主要交互事件处理
-
-#### 任务点击
-
-- 点击已完成的任务卡片或缩略图可查看任务详情预览
-- 实现代码：
-  ```typescript
-  const handleTaskClick = (task: Task, e?: any): void => {
-    if (task.status !== 'completed') return;
-    setSelectedTask(task);
-    setShowPreview(true);
-  };
-  ```
-
-#### 任务下载
-
-- 点击"下载"按钮可下载任务结果图片
-- 实现代码：
-  ```typescript
-  const handleDownload = async (task: Task, e?: any): Promise<void> => {
-    if (onDownload) {
-      onDownload(task);
-      return;
-    }
-    
-    const url = task.imgUrl || task.imageUrl || task.thumbnail || '';
-    if (!url) {
-      toast.error('没有可下载的图片');
-      return;
-    }
-    
-    try {
-      // 解析真实图片URL并触发下载
-      // ...
-    } catch (error) {
-      console.error('下载失败:', error);
-      toast.error('下载失败，请稍后重试');
-    }
-  };
-  ```
-
-#### 任务刷新
-
-- 支持手动刷新和自动刷新
-- 实现代码：
-  ```typescript
-  const refreshData = useCallback(() => {
-    // 防止频繁刷新
-    const now = Date.now();
-    if (now - lastRefreshTimeRef.current < 1000) {
-      return;
-    }
-    lastRefreshTimeRef.current = now;
-    
-    debouncedRefresh(() => {
-      fetchTasks();
-    }, 300);
-  }, [fetchTasks, debouncedRefresh]);
-  ```
-
-### 4.2 交互反馈
-
-#### 成功对话框
-
-任务提交成功后，会显示`SuccessDialog`组件提供反馈：
-
-- 显示任务ID和状态信息
-- 提供倒计时自动关闭功能（默认3秒）
-- 可选择继续提交新任务
-
-#### 状态指示
-
-- 使用Badge组件显示任务状态（成功、处理中、等待中、失败、取消）
-- 处理中的任务显示进度条
-- 使用颜色编码区分不同状态
-
-## 6. 任务状态管理
-
-### 5.1 Reducer模式
-
-使用reducer模式管理任务数据状态：
-
-```typescript
-const taskReducer = (state: TaskDataState, action: TaskActionType): TaskDataState => {
-  switch (action.type) {
-    case 'SET_TASKS':
-      return { tasks: action.payload.tasks || [], version: state.version + 1, hasMore: action.payload.hasMore ?? false };
-    case 'UPDATE_TASK':
-      return { ...state, tasks: state.tasks.map(task => task.id === action.payload.id ? action.payload : task), version: state.version + 1 };
-    case 'ADD_TASKS':
-      // 添加新任务，支持去重和前置/后置添加
-      // ...
-    case 'UPDATE_TASKS':
-      return { ...state, tasks: Array.isArray(action.payload) ? action.payload : [], version: state.version + 1 };
-    default:
-      return state;
-  }
+const enqueueTask = async () => {
+  const task = await abilityService.createAbilityTask(abilityId, payload);
+  addTask(task);
+  startPolling(task.id); // 复用 useAbilityTaskPolling
 };
 ```
 
-### 5.2 数据获取与刷新机制
+## 5. 后端调度与日志
 
-- 分页加载任务数据
-- 防抖处理刷新请求，避免频繁调用API
-- 监听外部`refreshTrigger`变化，实现组件间的联动更新
+> 更详细的执行链路见 `docs/ai-integration-management.md`。此处聚焦与前端交互最紧密的部分。
 
-## 7. 代码优化建议
+1. **AbilityService**：
+   - 校验能力是否激活、是否绑定 `executorId`；未配置会返回 `400 ABILITY_EXECUTOR_NOT_CONFIGURED`。
+   - 将请求写入 `ability_invocation_logs`（status=pending），生成 `request_id/log_id`，并保留截断后的 request payload（Base64 自动省略）。
+2. **Executor Adapter**：
+   - 根据 `ability.provider/abilityType` 选择 Baidu/Volcengine/KIE/ComfyUI 等适配器。
+   - 处理鉴权、payload 转换、结果解析（例如 ComfyUI 下载文件再上传 OSS）。
+3. **任务/线程池**：
+   - 同步调用直接等待执行；异步任务由线程池执行，遵循 `ABILITY_TASK_MAX_WORKERS`。
+   - ComfyUI 节点串行 → 如果 `/queue/status` 显示 pending>0，前端会提示“排队中”。
+4. **完成/失败**：
+   - 成功：更新 `ability_invocation_logs.status=success`，填充 `duration_ms/cost_amount/assets/raw`；`AbilityTask` 标记 `succeeded` 并附 `resultPayload`。
+   - 失败：填充 `error_code/error_detail`，并写入能力日志（管理端“调用记录”会显示红色状态）。
+5. **通知**：
+   - 如果传入 `callbackUrl`，后端会 POST `{status,result,error,logId}`。
+   - 管理端 UI 会自动刷新调用记录，客户端 Dashboard 通过轮询/WS 更新任务状态。
 
-### 6.1 性能优化
+## 6. 交互与事件
 
-- **图片URL处理优化**：目前多处重复解析图片URL的逻辑，可以抽离为统一的工具函数
-- **状态管理优化**：考虑使用状态管理库（如Redux或Zustand）统一管理任务状态，减少props drilling
-- **内存优化**：实现图片URL的缓存机制，避免重复解析和请求
+### 6.1 任务预览/详情
 
-### 6.2 代码结构优化
+```typescript
+const handleTaskClick = (entry: AbilityTask | AbilityInvokeResponse) => {
+  if (entry.status !== 'succeeded') return;
+  setPreview(entry.images?.[0]?.ossUrl);
+  setMetadata(entry.metadata);
+};
+```
 
-- **组件拆分**：将`DashboardTaskList`拆分为更小的组件（如`TaskCard`、`TaskPreview`等）
-- **错误处理增强**：实现更细粒度的错误处理，针对不同API错误提供更具体的反馈
-- **类型定义完善**：增强TypeScript类型定义，特别是API响应数据的类型
+### 6.2 下载 / OSS 链接
 
-### 6.3 用户体验优化
+- `AbilityInvokeResponse.images[].ossUrl` 由后台 `media_ingest_service` 统一上传并带签名域名，可直接下载。
+- 若接口仅返回外链（`sourceUrl`），也会伴随 `assets[].storedUrl`，优先使用自有 OSS，避免外链过期。
 
-- **任务状态实时更新**：实现WebSocket连接或轮询机制，实时更新任务状态
-- **批量操作支持**：添加批量下载、批量取消等功能
-- **加载状态优化**：为所有异步操作提供明确的加载状态指示
+### 6.3 调用日志/Raw Response
 
-## 8. 安全考虑
+- 调用记录表格会显示 `logId/duration/cost/executor`，点击行展开 Raw Response（敏感字段已脱敏）。
+- 若日志状态为失败，可直接复制 `requestPayload` 与 `error` 给研发排查。
 
-- 任务ID生成使用随机字符串，避免可预测性
-- 后端接口调用使用统一的HTTP工具，便于添加认证和错误处理
-- 图片URL处理进行了异常捕获，避免页面崩溃
+### 6.4 ComfyUI 队列 & LoRA 切换
 
-## 9. 总结
+- 管理端“队列状态”卡片调用 `/api/admin/comfyui/queue-status?executorId=...`，可手动刷新。
+- LoRA、UNet、CLIP、VAE 下拉来自 `/api/admin/comfyui/models`，默认选中 workflow 定义中的版本；切换后直接写入表单 `inputs`，调用时生效。
 
-PODI设计平台的任务提交流程采用了清晰的组件化结构，通过React Hooks管理状态和副作用，使用Reducer模式处理复杂的状态更新逻辑。用户交互事件处理遵循了React最佳实践，提供了良好的用户反馈机制。
+---
 
-通过优化建议的实施，可以进一步提升代码质量、性能和用户体验，使整个任务管理流程更加高效和稳定。
+随着能力/工作流扩展，以上流程会持续更新。若新增能力或工作流，请同步更新：
+1. `app/constants/abilities.py`（defaults/schema/metadata.pricing）。
+2. `docs/comfyui/README.md` 或对应 provider 文档，描述关键节点与参数。
+3. 本文档及 `docs/api/abilities.md`，确保提交流程与后台实现保持一致。
