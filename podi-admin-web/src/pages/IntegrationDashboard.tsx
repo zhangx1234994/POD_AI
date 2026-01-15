@@ -1582,6 +1582,18 @@ export function IntegrationDashboard() {
           const outputFormat = getPickedString('output_format');
           if (outputFormat) inputPayload.output_format = outputFormat;
         } else if (apiType === 'market_text_to_video') {
+          const mergedImageValue = mergedPicked.image_urls ?? mergedPicked.input_urls;
+          let imageList = parseMultilineList(mergedImageValue);
+          if (imageList.length === 0 && resolvedImageUrl) {
+            imageList = [resolvedImageUrl];
+          }
+          if (imageList.length > 0) {
+            const arrayTarget =
+              typeof metadata.input_array_target === 'string'
+                ? (metadata.input_array_target as string)
+                : 'image_input';
+            inputPayload[arrayTarget] = imageList;
+          }
           const aspectRatio = getPickedString('aspect_ratio');
           if (aspectRatio) inputPayload.aspect_ratio = aspectRatio;
           const nFrames = getPickedString('n_frames');

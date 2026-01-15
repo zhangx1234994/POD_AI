@@ -506,6 +506,15 @@ def _build_kie_schema(capability_key: str) -> dict[str, Any]:
                     "description": _compose_bilingual_label("可选，每行一个角色 ID。", "Optional; one character ID per line."),
                 },
                 {
+                    "name": "image_urls",
+                    "type": "textarea",
+                    "label": _compose_bilingual_label("参考图 URL 列表（可选）", "Reference Image URLs (optional)"),
+                    "description": _compose_bilingual_label(
+                        "每行一个图像 URL，如提供将作为风格/角色参考。",
+                        "One URL per line. When provided, images will be used as style/character references.",
+                    ),
+                },
+                {
                     "name": "callBackUrl",
                     "type": "text",
                     "label": _compose_bilingual_label("回调地址", "Callback URL"),
@@ -807,6 +816,8 @@ KIE_MARKET_ABILITIES: dict[str, AbilityDefinition] = {
             api_type="market_text_to_video",
             model_id="sora-2-pro-text-to-video",
             requires_image_input=False,
+            input_array_target="image_input",
+            supports_vision=True,
         ),
     },
 }
