@@ -319,7 +319,26 @@
 - 可通过管理端 `/api/admin/abilities/{id}/logs` 查看最近调用记录，或在数据库中按 `ability_provider/capability_key` 统计平均耗时。
 - `durationMs` 字段也随响应返回，方便调用方在客户端埋点或直接展示执行时间。
 
-## 4. 工作流接口（规划）
+## 4. 常见错误与排查
+
+统一能力接口使用统一错误响应（参照 `docs/error-codes.md`）。其中 ABILITY 模块最常见，可据此快速定位问题：
+
+| 错误码 | 触发场景 | 排查建议 |
+| --- | --- | --- |
+| `ABILITY_001` 能力未绑定可用执行节点 | 管理端未配置 `executor_id` 或节点被禁用 | 在“能力管理”绑定一个 `active` 节点，或执行 `ensure_default_executors`/`ensure_default_abilities`。 |
+| `ABILITY_004` 输入参数不合法 | 缺少图片、select 值不在枚举内等 | 对照 `inputSchema` 检查字段；ComfyUI 多图输入需以多行文本或 JSON 数组传递。 |
+| `ABILITY_006` AbilityTask 排队中 | 线程池或单节点 `max_concurrency` 已满 | 等待队列或切换其他节点；ComfyUI 节点可查看 `/api/admin/comfyui/queue-status`。 |
+| `ABILITY_007` 执行节点不可达 | 网络/鉴权失败，或第三方超时 | 检查执行节点 `baseUrl`、API Key、网络连通性；管理端“执行节点”页可做连通性测试。 |
+| `ABILITY_008` 第三方返回错误 | 厂商接口报错 | 查看 `error.details` 中的原始错误码并参考厂商文档。 |
+| `ABILITY_010` ComfyUI 队列异常 | `/queue/status` 无响应或节点挂掉 | 检查 ComfyUI 服务器状态；必要时切换到备用节点。 |
+| `ABILITY_011` 能力成本配置缺失 | `metadata.pricing` 未设置且无默认值 | 在 `app/constants/abilities.py` 或管理端为能力配置 `pricing`。 |
+
+前端可根据 `error.code` 提示具体操作（示例见 `docs/error-codes.md`）。如需进一步排查：
+- 查看 `ability_invocation_logs` 或 `/api/admin/abilities/{id}/logs`，日志中会有 `requestPayload/responsePayload` 摘要与 `error_detail`；
+- 对 ComfyUI 能力，结合 `/api/admin/comfyui/queue-status` 与服务器日志判断是否卡在队列；
+- 若配置了 `callbackUrl`，失败时会在回调 payload 的 `error` 中看到 `status_code/detail`。
+
+## 5. 工作流接口（规划）
 
 - **URL（占位）**：`POST /api/workflows/{workflowId}/execute`
 - 与能力接口保持一致的 `inputs/images/metadata` 结构，只是 `workflowId` 指向我们自定义组合（例如“图裂变工作流”会在内部串联 VL 识别 + ComfyUI 扩散）。

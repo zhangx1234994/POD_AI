@@ -1035,6 +1035,7 @@ const ImageProcessor: React.FC = () => {
 - `ability_invocation_logs` 记录每次调用：`ability_id/provider/executor_id/status/duration_ms/billing_unit/list_price/discount_price/cost_amount`.
 - `GET /api/admin/abilities/{abilityId}/logs?limit=12`（管理端）会返回日志记录，包含请求/响应摘要、OSS 输出、失败原因。
 - 成本策略：每个能力在 `metadata.pricing` 中声明币种、单位、对外价、折扣价；如未设置，默认回退为 ComfyUI ¥0.30/张。日志将记录本次调用的实际成本，便于生成报表。
+- 常见错误：若能力缺少执行节点、参数不合法、队列阻塞等，将返回 ABILITY 模块错误码（详见 `docs/error-codes.md`）；前端可根据 `code` 显示更友好的提示，管理端也会在“调用记录”中高亮失败条目。
 
 ### 5. ComfyUI 辅助接口（管理端）
 
