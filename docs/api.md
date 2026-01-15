@@ -388,26 +388,7 @@ Authorization: Bearer <token>
 
 ## 能力与任务 API
 
-能力调用、AbilityTask 队列、日志/成本详见 `docs/api/abilities.md`，本文仅保留钱包/统计等接口。## 任务管理API
-
-### 获取任务列表
-
-```http
-GET /api/ability-tasks?page=1&pageSize=20
-Authorization: Bearer <token>
-```
-
-**查询参数**:
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| page | number | 否 | 页码，从1开始，默认1 |
-| pageSize | number | 否 | 每页数量，默认20，最大100 |
-| status | string | 否 | 任务状态过滤 |
-| action | string | 否 | 处理类型过滤 |
-| startDate | string | 否 | 开始日期，ISO格式 |
-| endDate | string | 否 | 结束日期，ISO格式 |
-
-**响应示例**:
+能力调用、AbilityTask 队列、日志/成本详见 `docs/api/abilities.md`，本文仅保留钱包/统计等接口。
 ```json
 {
   "code": 200,
