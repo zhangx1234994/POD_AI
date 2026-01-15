@@ -80,11 +80,8 @@ yarn install
 在项目根目录创建 `.env.local` 文件:
 
 ```env
-# API服务器地址
-VITE_API_BASE_URL=http://localhost:8099
-
-# 认证服务器地址
-VITE_AUTH_BASE_URL=http://localhost:8090
+# API / 认证统一入口
+VITE_API_BASE_URL=http://localhost:8099/api
 
 # 其他环境变量...
 ```
@@ -632,7 +629,7 @@ class HttpClient {
   
   constructor() {
     this.client = axios.create({
-      baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8099',
+      baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8099/api',
       timeout: 30000,
       headers: {
         'Content-Type': 'application/json',
@@ -692,58 +689,71 @@ export const http = new HttpClient();
 
 ### API服务封装
 
+统一能力接口为前后端共享的唯一入口。常用模式：先读取 `/api/abilities` 渲染表单 → 调用 `POST /api/abilities/{abilityId}/invoke`（同步）或 `POST /api/ability-tasks`（异步）。示例：
+
 ```typescript
-// services/imageProcessingService.ts
+// services/abilityService.ts
 import { http } from '../utils/http';
 
-export interface ImageProcessingParams {
-  action: string;
-  images: File[];
-  params: Record<string, any>;
+export interface AbilityInvokePayload {
+  inputs: Record<string, any>;
+  imageUrl?: string;
+  imageBase64?: string;
+  images?: { name: string; ossUrl: string }[];
+  executorId?: string;
+  metadata?: Record<string, any>;
+  callbackUrl?: string;
 }
 
-export interface TaskResponse {
-  taskId: string;
-  status: string;
-  message?: string;
+export interface AbilityInvokeResponse {
+  abilityId: string;
+  status: 'succeeded' | 'failed';
+  requestId: string;
+  logId: number;
+  durationMs: number;
+  images?: { ossUrl: string; sourceUrl?: string }[];
+  videos?: { ossUrl: string }[];
+  texts?: string[];
+  metadata?: Record<string, any>;
+  raw?: Record<string, any>;
 }
 
-export const imageProcessingService = {
-  // 提交图像处理任务
-  async submitTask(params: ImageProcessingParams): Promise<TaskResponse> {
-    const formData = new FormData();
-    
-    // 添加图片
-    params.images.forEach((image, index) => {
-      formData.append(`images[${index}]`, image);
-    });
-    
-    // 添加参数
-    formData.append('action', params.action);
-    formData.append('params', JSON.stringify(params.params));
-    
-    const response = await http.post<TaskResponse>('/api/op/v1/process', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-    });
-    
-    return response.data;
+export interface AbilityTask {
+  id: string;
+  abilityId: string;
+  status: 'queued' | 'running' | 'succeeded' | 'failed';
+  logId?: number;
+  durationMs?: number;
+  requestPayload?: any;
+  resultPayload?: AbilityInvokeResponse;
+  errorMessage?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const abilityService = {
+  listAbilities() {
+    return http.get('/abilities');
   },
-  
-  // 获取任务状态
-  async getTaskStatus(taskId: string): Promise<TaskResponse> {
-    const response = await http.get<TaskResponse>(`/api/op/v1/tasks/${taskId}`);
-    return response.data;
+
+  invokeAbility(abilityId: string, payload: AbilityInvokePayload) {
+    return http.post<AbilityInvokeResponse>(`/abilities/${abilityId}/invoke`, payload);
   },
-  
-  // 获取任务结果
-  async getTaskResult(taskId: string): Promise<any> {
-    const response = await http.get(`/api/op/v1/tasks/${taskId}/result`);
-    return response.data;
+
+  createAbilityTask(abilityId: string, payload: AbilityInvokePayload) {
+    return http.post<AbilityTask>('/ability-tasks', {
+      abilityId,
+      ...payload,
+    });
+  },
+
+  getAbilityTask(taskId: string) {
+    return http.get<AbilityTask>(`/ability-tasks/${taskId}`);
   },
 };
 ```
+
+> 更多字段及回调/成本信息详见 `docs/api/abilities.md`。管理端在“统一能力接口”板块会提供可复制的 `curl` 示例与默认参数。
 
 ## 测试指南
 

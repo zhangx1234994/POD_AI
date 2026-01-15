@@ -1,34 +1,87 @@
 # POD AI Studio 项目架构文档
 
+> 版本：2026-01-15。新增“原子能力中台”“统一能力 API”“ComfyUI 管理”等模块，确保前/后端结构与最近的能力治理保持一致。
+
 ## 目录
 
-1. [技术架构概览](#技术架构概览)
-2. [前端技术栈](#前端技术栈)
-3. [项目结构](#项目结构)
-4. [核心组件](#核心组件)
-5. [状态管理](#状态管理)
-6. [数据流](#数据流)
-7. [任务管理系统](#任务管理系统)
-8. [用户认证系统](#用户认证系统)
-9. [性能优化](#性能优化)
+1. [系统总览](#系统总览)
+2. [后端能力中台](#后端能力中台)
+3. [前端技术栈](#前端技术栈)
+4. [项目结构](#项目结构)
+5. [核心组件](#核心组件)
+6. [状态管理](#状态管理)
+7. [数据流](#数据流)
+8. [任务管理系统](#任务管理系统)
+9. [用户认证系统](#用户认证系统)
+10. [性能与可观测性](#性能与可观测性)
 
-## 技术架构概览
+## 系统总览
 
-POD AI Studio 采用现代化的前端技术栈，基于 React + TypeScript 构建，使用 Vite 作为构建工具。整体架构遵循组件化、模块化的设计原则，确保代码的可维护性和可扩展性。
+POD AI Studio 由三部分组成：
+
+- **客户端（podi-design-web-dev）**：面向业务用户，负责登录、任务提交、结果查看。
+- **管理端（podi-admin-web）**：供运营/研发配置执行节点、工作流、API Key、能力测试/日志/成本。
+- **后端（FastAPI + Celery）**：统一提供认证、媒资上传、任务调度、原子能力、工作流、日志、成本、自检接口。
 
 ```mermaid
-graph TB
-    A[用户界面层] --> B[组件层]
-    B --> C[业务逻辑层]
-    C --> D[数据服务层]
-    D --> E[API接口层]
-    
-    B --> F[状态管理]
-    F --> C
-    
-    G[工具函数层] --> C
-    H[配置层] --> C
+flowchart LR
+    subgraph Clients
+        A[终端客户端\npodi-design-web-dev]
+        B[管理端\npodi-admin-web]
+    end
+    subgraph Backend
+        C[FastAPI /api/*]
+        D[(DB\nAbility/Task/Logs)]
+        E[(OSS\n媒资/结果)]
+        F[Ability Service\n& Task Dispatcher]
+        G[Executor Registry\nBaidu/Volcengine/KIE/ComfyUI]
+    end
+    subgraph External
+        H[Baidu/Volcengine/KIE API]
+        I[ComfyUI Servers\n117.50.*]
+    end
+
+    A -->|JWT + 统一能力 API| C
+    B -->|管理接口| C
+    C --> D
+    C --> E
+    C -->|任务/能力| F
+    F -->|执行| G
+    G --> H
+    G --> I
+    G -->|结果/日志| C
+    I -->|LoRA/模型| C
 ```
+
+## 后端能力中台
+
+### 关键模块
+
+| 模块 | 说明 |
+| --- | --- |
+| `FastAPI` | 所有公开/管理接口的宿主。`app/routers` 覆盖 `auth/media/tasks/abilities/admin_*` 等领域。 |
+| `AbilityService` | `POST /api/abilities/{id}/invoke` & `POST /api/ability-tasks`：加载 `app/constants/abilities.py`，匹配默认执行节点（`executors` 表），并写入 `ability_invocation_logs`。 |
+| `AbilityTaskService` | 负责异步任务：后台线程池（`ABILITY_TASK_MAX_WORKERS`）+ executor `max_concurrency` 控制并发。支持回调、超时、重试（后续增加）。 |
+| `Executor Registry` | `app/services/executors/` 下的适配器：Baidu/Volcengine/KIE 通过 HTTP API，ComfyUI 通过 `/prompt` + `/queue/status`。每个 executor 在 `config/executors.yaml` 中声明 id/baseUrl/API Key（现改为环境变量占位）。 |
+| `Workflow/Binding Seeds` | `workflow_seed.py`、`ability_seed.py` 把 JSON/YAML 写入 DB，确保四方连续 / 印花提取等 workflow、能力、绑定在新环境一键落库。 |
+| `MediaIngestService` | 将第三方 URL 或 ComfyUI 输出下载后上传至 OSS，并返回 `storedUrl` 供客户端/管理端展示。 |
+| `AbilityLogService` | 将 `request_id/executor_id/duration_ms/pricing/cost_amount/assets/raw/error` 写入 `ability_invocation_logs`，同时提供 `/api/admin/abilities/{id}/logs` 查询。 |
+
+### 统一能力 API & 成本
+
+- `GET /api/abilities`：激活能力列表，字段包含 provider、`abilityType`、能力 Schema、`metadata.pricing`（币种/单位/对外价/折扣价）、健康状态（最近巡检结果、成功率等占位）。
+- `POST /api/abilities/{abilityId}/invoke`：同步调用，必须登录（Bearer Token）。支持 `inputs`（与 schema 对应）、`imageUrl/imageBase64/images[]`、`executorId` 覆盖、`metadata.traceId`、`callbackUrl`。响应包含 `logId`, `durationMs`, `assets`, `raw`。
+- `POST /api/ability-tasks`：异步入口，返回 `taskId`，可 `GET /api/ability-tasks/{taskId}` 或等待回调。任务记录 `requestPayload/resultPayload/errorMessage/duration`.
+- 成本：若能力 metadata 配置 `pricing`，日志会写入 `list_price/discount_price/cost_amount`；未配置则使用默认值（目前 ComfyUI ¥0.30/张）。管理端概览与调用记录均展示成本字段，便于预算估算。
+- 自检：`IntegrationTestService` 已可复用（手动），下一步将在定时任务中巡检并更新 `lastHealthStatus/lastHealthCheckAt`。
+
+### ComfyUI 管理
+
+- Workflow JSON: `backend/app/workflows/comfyui/sifang_lianxu.json`、`yinhua_tiqu.json`。文档 `docs/comfyui/README.md` 记录节点、LoRA、默认参数、变更历史。
+- 执行节点：`config/executors.yaml` 中的 `executor_comfyui_*`，`config.apiKey/baseUrl` 改用环境变量占位；`ensure_default_executors` 写入 DB。
+- `/api/admin/comfyui/models`: 代理 `/object_info`，解析 UNet/CLIP/VAE/LoRA 选项，管理端测试表单自动渲染下拉，并允许“手动输入”回退。
+- `/api/admin/comfyui/queue-status`: 代理 `/queue/status`，返回 `running/pending/max`。若 ComfyUI 离线则抛 `COMFYUI_QUEUE_STATUS_ERROR`，管理端会提示“服务器不可达”。
+- 输出处理：ComfyUI 返回的 `file_name/subfolder/type` 会拼接 `{baseUrl}/view` 下载，再经 `media_ingest_service` 落 OSS，确保统一 URL。
 
 ## 前端技术栈
 
@@ -433,89 +486,24 @@ const http = {
 };
 ```
 
-## 性能优化
+## 性能与可观测性
 
-### 代码分割
+### 前端
+- **代码分割**：AI 工具、任务面板等采用 `React.lazy + Suspense` 动态加载，首屏只加载骨架 & 必需能力。
+- **智能轮询**：`smart-polling` 根据页面可见性、用户活动、任务状态动态调节请求频率，避免后台页面造成无意义请求。
+- **图片优化**：上传前压缩、生成缩略图，展示端使用 Intersection Observer 懒加载与 OSS WebP；长图预览使用自适应 Canvas。
+- **缓存策略**：任务/能力列表写入 localStorage 并附版本号，刷新前校验，减少重复 API。
 
-使用React.lazy和Suspense实现组件级别的代码分割：
+### 后端
+- **并发控制**：`ABILITY_TASK_MAX_WORKERS` 控制线程池；executor `max_concurrency` 防止超量请求压垮第三方；ComfyUI 节点串行执行，通过 `/api/admin/comfyui/queue-status` 暴露实时队列。
+- **日志 & tracing**：`ability_invocation_logs` 记录 `duration_ms/cost_amount/error_detail/trace_id`；`task_events` 记录状态流转。计划对接 OpenTelemetry 统一 trace。
+- **成本/健康**：能力 metadata 附 `pricing`，日志写入成本；后台巡检脚本（规划中）会定期调用能力 → 更新 `lastHealthStatus`，并在管理端标红。
+- **告警（规划）**：当成功率/P95 耗时/成本超阈值时触发通知；ComfyUI 队列 pending>0 超时也应报警。
 
-```typescript
-// 懒加载AI工具组件
-const UpscaleProcessorV2 = React.lazy(() => import('./components/UpscaleProcessorV2'));
-const PatternExtractorV2 = React.lazy(() => import('./components/PatternExtractorV2'));
-
-// 在路由中使用
-<Suspense fallback={<div>加载中...</div>}>
-  <Route path="/hires" component={UpscaleProcessorV2} />
-  <Route path="/pattern-extract" component={PatternExtractorV2} />
-</Suspense>
-```
-
-### 图片优化
-
-1. **图片懒加载**：使用Intersection Observer实现图片懒加载
-2. **缩略图生成**：上传后立即生成缩略图，提高加载速度
-3. **图片压缩**：上传前进行客户端压缩，减少传输数据量
-
-```typescript
-// 图片压缩工具
-export const compressImage = (file: File, quality = 0.7): Promise<File> => {
-  return new Promise((resolve) => {
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    const img = new Image();
-    
-    img.onload = () => {
-      // 计算压缩后的尺寸
-      const { width, height } = calculateCompressedSize(img.width, img.height);
-      canvas.width = width;
-      canvas.height = height;
-      
-      // 绘制压缩后的图片
-      ctx?.drawImage(img, 0, 0, width, height);
-      
-      // 转换为Blob
-      canvas.toBlob((blob) => {
-        if (blob) {
-          const compressedFile = new File([blob], file.name, {
-            type: file.type,
-            lastModified: Date.now()
-          });
-          resolve(compressedFile);
-        }
-      }, file.type, quality);
-    };
-    
-    img.src = URL.createObjectURL(file);
-  });
-};
-```
-
-### 任务状态缓存
-
-使用localStorage缓存任务状态，减少不必要的API请求：
-
-```typescript
-// 任务缓存工具
-export const taskCache = {
-  getTask(taskId: string): Task | null {
-    const cached = localStorage.getItem(`task_${taskId}`);
-    return cached ? JSON.parse(cached) : null;
-  },
-  
-  setTask(taskId: string, task: Task): void {
-    localStorage.setItem(`task_${taskId}`, JSON.stringify(task));
-  },
-  
-  removeTask(taskId: string): void {
-    localStorage.removeItem(`task_${taskId}`);
-  },
-  
-  clearExpiredTasks(): void {
-    // 清理过期的任务缓存
-  }
-};
-```
+### 可视化与排障
+- 管理端能力详情包含“统一接口示例”“实时测试”“调用记录（含 Raw Response、OSS 链接、成本）”“队列状态面板”。
+- ComfyUI 文档 `docs/comfyui/README.md` 记录 workflow 版本、节点编号、默认 LoRA，方便排错。
+- 前后端将接入 Sentry/Prometheus（TODO）以捕获异常 & 暴露指标。
 
 ---
 
