@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { adminAuthAPI } from '../services/authAPI';
+import { ADMIN_TOKEN_INVALID_EVENT } from '../services/adminApi';
 
 const ACCESS_TOKEN_KEY = 'podi_admin_access_token';
 const REFRESH_TOKEN_KEY = 'podi_admin_refresh_token';
@@ -15,6 +16,16 @@ export function LoginGate({ children }: { children: React.ReactNode }) {
     if (cached) {
       setToken(cached);
     }
+
+    const handleTokenInvalid = (event: Event) => {
+      const detail = (event as CustomEvent<{ message?: string }>).detail;
+      setToken(null);
+      setError(detail?.message || '登录已失效，请重新登录');
+    };
+    window.addEventListener(ADMIN_TOKEN_INVALID_EVENT, handleTokenInvalid);
+    return () => {
+      window.removeEventListener(ADMIN_TOKEN_INVALID_EVENT, handleTokenInvalid);
+    };
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {

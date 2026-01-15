@@ -30,9 +30,27 @@ type BaiduImageTestResponse = {
 };
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
+const ACCESS_TOKEN_KEY = 'podi_admin_access_token';
+const REFRESH_TOKEN_KEY = 'podi_admin_refresh_token';
+export const ADMIN_TOKEN_INVALID_EVENT = 'podi-admin-token-invalid';
 
 export function getAdminToken() {
   return localStorage.getItem('podi_admin_access_token');
+}
+
+function clearAdminTokens() {
+  localStorage.removeItem(ACCESS_TOKEN_KEY);
+  localStorage.removeItem(REFRESH_TOKEN_KEY);
+}
+
+function broadcastInvalidToken(message?: string) {
+  window.dispatchEvent(
+    new CustomEvent(ADMIN_TOKEN_INVALID_EVENT, {
+      detail: {
+        message,
+      },
+    }),
+  );
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -47,6 +65,19 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   });
   if (!resp.ok) {
     const text = await resp.text();
+    if (resp.status === 401) {
+      clearAdminTokens();
+      let message = text;
+      try {
+        const parsed = JSON.parse(text);
+        if (parsed?.detail) {
+          message = typeof parsed.detail === 'string' ? parsed.detail : JSON.stringify(parsed.detail);
+        }
+      } catch (err) {
+        // ignore JSON parse errors
+      }
+      broadcastInvalidToken(message || '登录已失效，请重新登录');
+    }
     throw new Error(text || resp.statusText);
   }
   return resp.json();
