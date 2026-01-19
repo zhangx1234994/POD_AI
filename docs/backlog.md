@@ -7,7 +7,7 @@
 - [ ] ⚠ AI 组件库 / Pipeline Builder：定义 `ai_components` 模型、管理端配置界面、TaskDispatcher 支持多阶段执行。
 - [ ] ⚠ 监控与告警：为 executors/pipeline 记录指标（成功率、耗时、错误码），管理端提供图表与告警阈值。
 - [ ] ⚠ 原子能力治理：为每个 Ability 补齐 `metadata.pricing`、`SLA`、`自检计划` 字段，并把“成本/成功率/最近自检”透出到管理端；实现 `IntegrationTestService` 的定时巡检与结果看板。
-- [ ] ⚠ Composable Workflow 可视化：评估/引入可视化编排器（n8n/Temporal/自研 ReactFlow），要求节点级监控、断点调试、并发/重试配置、工作流版本化；现有 TaskDispatcher 需支持节点依赖树与 trace_id。
+- [ ] ⚠ Composable Workflow 可视化：Coze Studio + Coze Loop 已完成本地部署，后续要把节点级监控、断点调试、并发/重试配置全面接入，并推动 TaskDispatcher 支持节点依赖树与 trace_id。
 
 ## 中优先级
 - [ ] 管理端的用户 & 积分管理页面：包含用户列表、积分调整、账户冻结等操作。

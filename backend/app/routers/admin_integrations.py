@@ -6,15 +6,16 @@ import json
 import time
 from typing import Any, Callable
 from uuid import uuid4
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
-from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.core.db import get_session
 from app.deps.auth import require_admin
-from app.models.integration import ApiKey, Executor, ExecutorApiKey, Workflow, WorkflowBinding
+from app.models.integration import Ability, ApiKey, Executor, ExecutorApiKey, Workflow, WorkflowBinding
 from app.schemas import admin_integrations as schemas
-from app.schemas import admin_tests
+from app.schemas import admin_tests, admin_workflows
 from app.services.ability_logs import AbilityLogStartParams, ability_log_service
 from app.services.executor_seed import ensure_default_executors
 from app.services.integration_test import integration_test_service
@@ -93,6 +94,25 @@ def _run_with_logging(
     duration_ms = int((time.perf_counter() - start_time) * 1000)
     ability_log_service.finish_success(log_id, response_payload=result, duration_ms=duration_ms)
     return result, log_id
+
+
+def _find_comfyui_ability(workflow_key: str | None, ability_id: str | None) -> Ability | None:
+    if not ability_id and not workflow_key:
+        return None
+    with get_session() as session:
+        if ability_id:
+            ability = session.get(Ability, ability_id)
+            if ability:
+                return ability
+        if workflow_key:
+            stmt = select(Ability).where(
+                Ability.provider == "comfyui",
+                Ability.capability_key == workflow_key,
+            )
+            ability = session.execute(stmt).scalar_one_or_none()
+            if ability:
+                return ability
+    return None
 
 
 @router.get("/executors", response_model=list[schemas.ExecutorRead])
@@ -516,6 +536,49 @@ def test_comfyui_workflow(payload: admin_tests.ComfyuiWorkflowTestRequest):
     return admin_tests.ComfyuiWorkflowTestResponse(**result, logId=log_id)
 
 
+@router.post("/workflows/comfyui/trigger", response_model=admin_workflows.ComfyuiWorkflowTriggerResponse)
+def trigger_comfyui_workflow(payload: admin_workflows.ComfyuiWorkflowTriggerRequest, request: Request):
+    ability = _find_comfyui_ability(payload.workflowKey, payload.abilityId)
+    request_payload = {
+        "workflowKey": payload.workflowKey,
+        "workflowParams": payload.workflowParams,
+        "workflowRunId": payload.workflowRunId,
+    }
+    workflow_run_id = payload.workflowRunId or request.headers.get("X-Podi-Workflow-Run-Id")
+    params = AbilityLogStartParams(
+        ability_id=getattr(ability, "id", None),
+        ability_name=getattr(ability, "display_name", None),
+        provider="comfyui",
+        capability_key=payload.workflowKey,
+        executor_id=payload.executorId,
+        source=payload.source or "workflow-trigger",
+        request_payload=request_payload,
+        workflow_run_id=workflow_run_id,
+    )
+    log_id = ability_log_service.start_log(params)
+    start_time = time.perf_counter()
+    try:
+        result = integration_test_service.run_comfyui_workflow(
+            executor_id=payload.executorId,
+            workflow_key=payload.workflowKey,
+            workflow_params=payload.workflowParams or {},
+        )
+    except Exception as exc:
+        duration_ms = int((time.perf_counter() - start_time) * 1000)
+        ability_log_service.finish_failure(
+            log_id,
+            error_message=_extract_error_message(exc),
+            response_payload=_extract_error_payload(exc),
+            duration_ms=duration_ms,
+        )
+        raise
+    duration_ms = int((time.perf_counter() - start_time) * 1000)
+    ability_log_service.finish_success(log_id, response_payload=result, duration_ms=duration_ms)
+    return admin_workflows.ComfyuiWorkflowTriggerResponse(
+        **result, logId=log_id, workflowRunId=workflow_run_id
+    )
+
+
 @router.get("/comfyui/models", response_model=admin_tests.ComfyuiModelCatalogResponse)
 def list_comfyui_models(executor_id: str = Query(..., alias="executorId")):
     result = integration_test_service.get_comfyui_model_catalog(executor_id=executor_id)
@@ -526,6 +589,8 @@ def list_comfyui_models(executor_id: str = Query(..., alias="executorId")):
 def get_comfyui_queue_status(executor_id: str = Query(..., alias="executorId")):
     result = integration_test_service.get_comfyui_queue_status(executor_id=executor_id)
     return admin_tests.ComfyuiQueueStatusResponse(**result)
+
+
 def _apply_executor_api_keys(session, executor: Executor, api_key_ids: list[str] | None) -> None:
     desired = {key_id for key_id in (api_key_ids or []) if key_id}
     existing_links = list(executor.api_key_links)

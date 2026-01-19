@@ -56,7 +56,12 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             response = httpx.post(f"{base_url}/prompt", json=submission, timeout=30)
             response.raise_for_status()
         except httpx.HTTPError as exc:  # pragma: no cover - defensive
-            self._logger.warning("Failed to submit ComfyUI prompt: %s", exc)
+            extra_details = ""
+            if isinstance(exc, httpx.HTTPStatusError):
+                resp = exc.response
+                resp_text = resp.text[:1000] if resp is not None else ""
+                extra_details = f" | status={resp.status_code if resp else 'unknown'} body={resp_text!r}"
+            self._logger.warning("Failed to submit ComfyUI prompt: %s%s", exc, extra_details)
             return ExecutionResult(
                 success=False,
                 status="failed",
@@ -188,7 +193,9 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         if workflow_key == "sifang_lianxu":
             return self._build_seamless_inputs(inputs, context)
         if workflow_key == "yinhua_tiqu":
-            return self._build_pattern_extract_inputs(inputs, context)
+            return self._build_pattern_extract_inputs(inputs, context, workflow_definition)
+        if workflow_key == "huawen_kuotu":
+            return self._build_pattern_expand_inputs(inputs, context, workflow_definition)
         return None, None
 
     def _looks_like_node_overrides(self, payload: dict[str, Any]) -> bool:
@@ -230,7 +237,7 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         return (overrides or None), None
 
     def _build_pattern_extract_inputs(
-        self, params: dict[str, Any], context: ExecutionContext
+        self, params: dict[str, Any], context: ExecutionContext, workflow_definition: dict[str, Any]
     ) -> tuple[dict[str, Any] | None, str | None]:
         overrides: dict[str, dict[str, Any]] = {}
         image_url, _ = self._resolve_image_source(params, context)
@@ -256,9 +263,65 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
                 node_inputs["height"] = height
             overrides["400"] = node_inputs
 
+        batch_count = self._coerce_positive_int(
+            params.get("batch_count") or params.get("batchCount") or params.get("repeat_count")
+        )
+        if batch_count:
+            overrides.setdefault("424", {})["amount"] = batch_count
+            base_timeout = self._coerce_positive_int(workflow_definition.get("timeout")) or 180
+            effective_timeout = max(base_timeout, int(base_timeout * batch_count * 1.2))
+            workflow_definition["timeout"] = effective_timeout
+
         lora_name = self._as_text(params.get("lora_name") or params.get("loraName"))
         if lora_name:
             overrides.setdefault("390", {})["lora_name"] = lora_name
+
+        return (overrides or None), None
+
+    def _build_pattern_expand_inputs(
+        self, params: dict[str, Any], context: ExecutionContext, workflow_definition: dict[str, Any]
+    ) -> tuple[dict[str, Any] | None, str | None]:
+        overrides: dict[str, dict[str, Any]] = {}
+        image_url, _ = self._resolve_image_source(params, context)
+        if not image_url:
+            return None, "COMFYUI_IMAGE_REQUIRED"
+        overrides["205"] = {"url": image_url}
+
+        prompt = self._as_text(params.get("prompt"))
+        if prompt:
+            overrides.setdefault("74", {})["text"] = prompt
+        negative = self._as_text(params.get("negative_prompt") or params.get("negativePrompt"))
+        if negative:
+            overrides.setdefault("72", {})["text"] = negative
+
+        mapping = {
+            "expand_left": ("188", "value"),
+            "expand_right": ("189", "value"),
+            "expand_top": ("186", "value"),
+            "expand_bottom": ("187", "value"),
+        }
+        for field, (node_id, key) in mapping.items():
+            value = self._coerce_positive_int(params.get(field))
+            if value is not None:
+                overrides.setdefault(node_id, {})[key] = value
+
+        feathering = self._coerce_positive_int(params.get("feathering"))
+        if feathering is not None:
+            overrides.setdefault("185", {})["feathering"] = feathering
+
+        mask_expand = self._coerce_positive_int(params.get("mask_expand") or params.get("maskExpand"))
+        if mask_expand is not None:
+            overrides.setdefault("73", {})["expand"] = mask_expand
+
+        output_long_side = self._coerce_positive_int(
+            params.get("output_long_side") or params.get("outputLongSide")
+        )
+        if output_long_side:
+            overrides.setdefault("61", {})["value"] = output_long_side
+
+        lora_name = self._as_text(params.get("lora_name") or params.get("loraName"))
+        if lora_name:
+            overrides.setdefault("45", {})["lora_name"] = lora_name
 
         return (overrides or None), None
 

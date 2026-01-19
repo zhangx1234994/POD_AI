@@ -19,6 +19,7 @@ class AbilityPublicInfo(BaseModel):
     abilityType: str = Field(default="api")
     workflowId: str | None = None
     executorId: str | None = None
+    cozeWorkflowId: str | None = None
     defaultParams: dict[str, Any] | None = None
     inputSchema: dict[str, Any] | None = None
     metadata: dict[str, Any] | None = None

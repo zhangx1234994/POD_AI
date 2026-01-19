@@ -77,6 +77,7 @@ export interface Ability {
   ability_type: string;
   executor_id?: string | null;
   workflow_id?: string | null;
+  coze_workflow_id?: string | null;
   default_params?: JsonRecord | null;
   input_schema?: JsonRecord | null;
   metadata?: JsonRecord | null;
@@ -104,6 +105,7 @@ export interface PublicAbility {
   abilityType: string;
   workflowId?: string | null;
   executorId?: string | null;
+  cozeWorkflowId?: string | null;
   defaultParams?: JsonRecord | null;
   inputSchema?: JsonRecord | null;
   metadata?: JsonRecord | null;
@@ -252,6 +254,14 @@ export interface SecurityConfig {
   upload_token_ttl: number;
 }
 
+export interface CozeConfig {
+  base_url?: string | null;
+  loop_base_url?: string | null;
+  default_timeout: number;
+  token_present: boolean;
+  token_hint?: string | null;
+}
+
 export interface TodoItem {
   title: string;
   description: string;
@@ -264,6 +274,7 @@ export interface SystemConfig {
   database: DatabaseConfig;
   oss: OssConfig;
   security: SecurityConfig;
+  coze?: CozeConfig | null;
   feature_flags: Record<string, boolean>;
   todo_items: TodoItem[];
 }

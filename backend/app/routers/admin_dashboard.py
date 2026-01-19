@@ -164,7 +164,18 @@ def get_system_config() -> schemas.SystemConfigResponse:
         "comfyui_pipeline": False,
         "componentized_ai": False,
     }
-
+    coze_token_hint = None
+    if settings.coze_api_token:
+        coze_token_hint = "COZE_API_TOKEN"
+    elif settings.service_api_token:
+        coze_token_hint = "SERVICE_API_TOKEN"
+    coze_config = schemas.CozeConfig(
+        base_url=settings.coze_base_url,
+        loop_base_url=settings.coze_loop_base_url,
+        default_timeout=settings.coze_default_timeout,
+        token_present=bool(settings.coze_api_token or settings.service_api_token),
+        token_hint=coze_token_hint,
+    )
     return schemas.SystemConfigResponse(
         app_name=settings.app_name,
         database=schemas.DatabaseConfig(
@@ -188,6 +199,7 @@ def get_system_config() -> schemas.SystemConfigResponse:
             jwt_refresh_ttl=settings.jwt_refresh_token_expires,
             upload_token_ttl=settings.upload_token_ttl,
         ),
+        coze=coze_config,
         feature_flags=feature_flags,
         todo_items=todo_items,
     )

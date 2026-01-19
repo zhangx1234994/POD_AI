@@ -65,5 +65,9 @@ class AuthService:
         except jwt.PyJWTError as exc:  # type: ignore[attr-defined]
             raise HTTPException(status_code=401, detail="INVALID_TOKEN") from exc
 
+    def build_service_user(self) -> User:
+        user = User(id="service", email="service@podi.internal", role="admin", status="active")
+        return user
+
 
 auth_service = AuthService()

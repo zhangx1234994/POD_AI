@@ -45,6 +45,45 @@
 - 若管理端回显“中心留白”，重点检查节点 96 是否拿到公网可访问的 URL、以及节点 104 是否被正确写入（后端日志会打印）。
 - Base64 默认值不要在 JSON 中清空；任何临时修改需记录在本文档。
 
+## 花纹扩图 · ComfyUI (workflow_key: huawen_kuotu)
+
+| 项目 | 说明 |
+| --- | --- |
+| 能力 ID | comfyui.huawen_kuotu |
+| Action | pattern_expand |
+| 执行节点 | executor_comfyui_pattern_extract_158 / executor_comfyui_seamless_117（均部署 Qwen Image Edit 2511） |
+| Workflow 文件 | backend/app/workflows/comfyui/huawen_kuotu.json |
+| 超时设置 | 420 秒（根据批次数/扩展像素自动放大） |
+| 核心模型 | UNET: qwen_image_edit_2511_fp8mixed、CLIP: qwen_2.5_vl_7b_fp8_scaled、VAE: qwen_image_vae、ControlNet: Qwen InstantX Inpainting、LoRA: Qwen-Image-Edit Lightning |
+
+**关键节点**
+
+| 节点 | 描述 |
+| --- | --- |
+| 205 · LoadImagesFromURL.url | 输入原始图案/布料照片。 |
+| 53 · ImageScaleByAspectRatio | 对输入图做长边缩放，默认 720 px。 |
+| 185 · ImagePadForOutpaint | 控制上下左右扩展像素与羽化。 |
+| 73 · GrowMaskWithBlur | 对扩展 mask 做膨胀/模糊，避免硬边。 |
+| 74 / 72 | 正向/反向提示词，保证扩展区域与原图风格一致。 |
+| 45 · LoRA 加载器 | 默认使用 Qwen Lightning，可切换其他印花 LoRA。 |
+| 52 · ControlNetInpaintingAliMamaApply | 结合 ControlNet + mask 做局部重绘。 |
+| 61 · ImpactInt | 控制输出长边，传递给节点 53/199 的 scale。 |
+| 199 · ImageScale | 最终输出尺寸；width/height 由节点 193/196（输入图尺寸 + 扩展像素）提供。 |
+
+**默认参数**
+
+- prompt：描述保持风格/延续背景的扩图要求。
+- negative_prompt：抑制文字、水印、低质噪点。
+- expand_left/right/top/bottom：200/200/0/0。
+- mask_expand：20，feathering：24。
+- output_long_side：720。
+
+**调试备注**
+
+- 扩展像素越大、批次数越多，任务耗时越长；后端会自动按批次数放宽 timeout，但仍建议分批提交。
+- `output_long_side` 控制最终缩放尺寸（长边），若素材要求高分，请在能力表单中调高。
+- ControlNet/LoRA 组合对图案延展极为敏感，如需替换模型必须同步更新 workflow 与 `metadata.lora_presets`。
+
 ## 印花提取 · ComfyUI (workflow_key: yinhua_tiqu)
 
 | 项目 | 说明 |
@@ -54,30 +93,32 @@
 | 执行节点 | executor_comfyui_pattern_extract_158 → http://117.50.80.158:8079 |
 | Workflow 文件 | backend/app/workflows/comfyui/yinhua_tiqu.json |
 | 超时设置 | 420 秒 (defaults.timeout) |
-| 核心模型 | UNETLoader: qwen_image_edit_2511_fp8mixed.safetensors、CLIP: qwen_2.5_vl_7b_fp8_scaled.safetensors、VAE: qwen_image_vae.safetensors、LoRA(节点 390) 默认 印花提取-YinHuaTiQu-Qwen-Image-Edit-LoRA_V1.safetensors |
+| 核心模型 | UNETLoader: qwen_image_edit_2509_fp8_e4m3fn.safetensors、CLIP: qwen_2.5_vl_7b_fp8_scaled.safetensors、VAE: qwen_image_vae.safetensors、LoRA(节点 390) 默认 `印花提取-YinHuaTiQu-Qwen-Image-Edit-LoRA_V1.safetensors`（可切换 T-Shirt / 毛毯 / 杯子等） |
 
 **关键节点**
 
 | 节点 | 描述 |
 | --- | --- |
 | 393 · LoadImagesFromURL.url | 实物照片 URL（管理端上传→OSS 时自动填写）。 |
-| 111 · TextEncodeQwenImageEditPlus.prompt | 正向提示词，包含“还原设计稿”规范。支持在表单 prompt 字段覆盖。 |
+| 111 · TextEncodeQwenImageEditPlus.prompt | 默认正向提示词（通用高保真模板），管理端 schema 的 `prompt` 字段会写回该节点。 |
 | 110 · TextEncodeQwenImageEditPlus.prompt | 反向提示词（negative_prompt）。 |
 | 390 · LoraLoaderModelOnly | LoRA 文件名（lora_name），更换版本需在本文档记录。 |
 | 400 · LatentUpscale | 最终输出尺寸（output_width/output_height）。 |
+| 427/428/429/430 | 四组 TextEncodeQwenImageEditPlus，用于 T 恤 / 杯子 / 毛毯 / 通用 prompt 模板，供管理端自动回填或调试。 |
 | 421 · SaveImageWithDPI | 保存 PNG，DPI=150，文件前缀 DPI_Image，最终由后端上传 OSS（输入来自节点 8 解码结果）。 |
 
 **默认参数**
 
-- prompt: 文档内“高保真设计稿”模板（见能力 schema）。
+- prompt: 新的全品类高保真模板（`PATTERN_EXTRACT_POSITIVE_DEFAULT`）。
 - negative_prompt: 长串低质量/错误特征黑名单（保持与 workflow JSON 同步）。
 - output_width/output_height: 1800
 - lora_name: 印花提取-YinHuaTiQu-Qwen-Image-Edit-LoRA_V1.safetensors
 
 **调试备注**
 
-- 该版本已移除遮罩/预览分支，所有尺寸控制集中在节点 400。若需裁切或添加遮罩，可在 ComfyUI 端单独分支并记录新的 workflow 版本。
-- 替换 LoRA 时请同步更新 workflow JSON、abilities.py defaults 及本文档的“核心模型/默认参数”。
+- 该版本移除了遮罩/预览分支，尺寸控制统一在节点 400。若需裁切或添加遮罩，请在 ComfyUI 端另行分支并记录新的 workflow 版本。
+- 四套正向模板（节点 111/427/428/429/430）分别服务于通用、T 恤、杯子、毛毯与全局 fallback，默认由能力 schema / metadata 自动驱动，无需在 JSON 内手动改 prompt。
+- 替换或新增 LoRA 时请同步更新 workflow JSON、`backend/app/constants/abilities.py` 中的 `PATTERN_EXTRACT_LORA_PRESETS`、`LORA_CATALOG.md` 以及本文档记录。
 
 ## 版本更新指引
 

@@ -158,6 +158,19 @@ class AbilityLogService:
             stmt = stmt.order_by(desc(AbilityInvocationLog.created_at)).limit(max(1, min(limit, 100)))
             return session.execute(stmt).scalars().all()
 
+    def get_log_by_workflow_run_id(self, workflow_run_id: str) -> AbilityInvocationLog | None:
+        """Return the latest log that matches a workflow_run_id."""
+        if not workflow_run_id:
+            return None
+        with get_session() as session:
+            stmt = (
+                select(AbilityInvocationLog)
+                .where(AbilityInvocationLog.workflow_run_id == workflow_run_id)
+                .order_by(desc(AbilityInvocationLog.created_at))
+                .limit(1)
+            )
+            return session.execute(stmt).scalars().first()
+
     def _finalize_log(
         self,
         log_id: int | None,

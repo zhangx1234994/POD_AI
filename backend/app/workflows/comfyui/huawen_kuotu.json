@@ -1,0 +1,560 @@
+{
+  "35": {
+    "inputs": {
+      "unet_name": "qwen_image_edit_2511_fp8mixed.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "UNet加载器"
+    }
+  },
+  "36": {
+    "inputs": {
+      "clip_name": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "type": "qwen_image",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "加载CLIP"
+    }
+  },
+  "40": {
+    "inputs": {
+      "vae_name": "qwen_image_vae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "加载VAE"
+    }
+  },
+  "41": {
+    "inputs": {
+      "text": [
+        "74",
+        0
+      ],
+      "clip": [
+        "36",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP文本编码"
+    }
+  },
+  "43": {
+    "inputs": {
+      "shift": 3.3,
+      "model": [
+        "45",
+        0
+      ]
+    },
+    "class_type": "ModelSamplingAuraFlow",
+    "_meta": {
+      "title": "采样算法（AuraFlow）"
+    }
+  },
+  "44": {
+    "inputs": {
+      "control_net_name": "qwen-image\\instantx\\Qwen-Image-InstantX-ControlNet-Inpainting.safetensors"
+    },
+    "class_type": "ControlNetLoader",
+    "_meta": {
+      "title": "加载ControlNet模型"
+    }
+  },
+  "45": {
+    "inputs": {
+      "lora_name": "Qwen-Image-Edit-2509-Lightning-8steps-V1.0-bf16.safetensors",
+      "strength_model": 1,
+      "model": [
+        "35",
+        0
+      ]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "LoRA加载器（仅模型）"
+    }
+  },
+  "47": {
+    "inputs": {
+      "samples": [
+        "51",
+        0
+      ],
+      "vae": [
+        "40",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE解码"
+    }
+  },
+  "51": {
+    "inputs": {
+      "seed": 820339091156423,
+      "steps": 8,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": [
+        "43",
+        0
+      ],
+      "positive": [
+        "52",
+        0
+      ],
+      "negative": [
+        "52",
+        1
+      ],
+      "latent_image": [
+        "63",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "K采样器"
+    }
+  },
+  "52": {
+    "inputs": {
+      "strength": 1,
+      "start_percent": 0,
+      "end_percent": 1,
+      "positive": [
+        "41",
+        0
+      ],
+      "negative": [
+        "72",
+        0
+      ],
+      "control_net": [
+        "44",
+        0
+      ],
+      "vae": [
+        "40",
+        0
+      ],
+      "image": [
+        "185",
+        0
+      ],
+      "mask": [
+        "73",
+        0
+      ]
+    },
+    "class_type": "ControlNetInpaintingAliMamaApply",
+    "_meta": {
+      "title": "应用ControlNet（阿里妈妈局部重绘）"
+    }
+  },
+  "53": {
+    "inputs": {
+      "aspect_ratio": "original",
+      "proportional_width": 1,
+      "proportional_height": 1,
+      "fit": "crop",
+      "method": "lanczos",
+      "round_to_multiple": "None",
+      "scale_to_side": "longest",
+      "scale_to_length": [
+        "61",
+        0
+      ],
+      "background_color": "#111111",
+      "image": [
+        "205",
+        0
+      ]
+    },
+    "class_type": "LayerUtility: ImageScaleByAspectRatio V2",
+    "_meta": {
+      "title": "图层工具：按宽高比缩放 V2"
+    }
+  },
+  "56": {
+    "inputs": {
+      "pixels": [
+        "185",
+        0
+      ],
+      "vae": [
+        "40",
+        0
+      ]
+    },
+    "class_type": "VAEEncode",
+    "_meta": {
+      "title": "VAE编码"
+    }
+  },
+  "61": {
+    "inputs": {
+      "value": 720
+    },
+    "class_type": "ImpactInt",
+    "_meta": {
+      "title": "ImpactInt"
+    }
+  },
+  "63": {
+    "inputs": {
+      "samples": [
+        "56",
+        0
+      ],
+      "mask": [
+        "73",
+        0
+      ]
+    },
+    "class_type": "SetLatentNoiseMask",
+    "_meta": {
+      "title": "设置Latent噪波遮罩"
+    }
+  },
+  "72": {
+    "inputs": {
+      "text": "solid color, no smoke, no fog, no atmosphere, blurry, low quality, text, watermark, empty space, extra elements, added objects，text, letter, number, digit, word, character, symbol, logo, watermark, signature, Chinese characters, English letters, Japanese text, Korean text, random text, gibberish, OCR, font, typography, writing, inscription",
+      "clip": [
+        "36",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP文本编码"
+    }
+  },
+  "73": {
+    "inputs": {
+      "expand": 20,
+      "incremental_expandrate": 0,
+      "tapered_corners": true,
+      "flip_input": false,
+      "blur_radius": 5,
+      "lerp_alpha": 1,
+      "decay_factor": 1,
+      "fill_holes": false,
+      "mask": [
+        "185",
+        1
+      ]
+    },
+    "class_type": "GrowMaskWithBlur",
+    "_meta": {
+      "title": "Grow Mask With Blur"
+    }
+  },
+  "74": {
+    "inputs": {
+      "text": "8k, 最佳质量\n请将此图像左右两侧进行自然、无缝的延伸。核心要求如下：\n-风格一致性：必须严格保持原图的艺术风格、色彩、光影和笔触质感。\\n2. 内容延续性：\n- 对于重复性元素（如图案、纹理），请复制并延续其布局。  \n- 对于非重复性元素，请根据上下文逻辑进行合理补充。\n- **对于背景，请严格延续原图中已有的背景元素（如天空、地面、墙壁、烟雾等），不得凭空添加或删除任何背景元素。**\n3. 无拼接痕迹：新生成的部分必须与原图在视觉上完全融合，不能出现明显的边界或断裂感。\n4. 智能补充：如果原图存在视觉上的“空白”或“故事性”，允许模型添加符合主题和风格的新元素以增强画面完整性和叙事性。\n5. 边缘过渡：新生成的部分必须与原图在边缘处实现平滑过渡，不得出现任何硬边或断裂感。\n6. 空间连续性：扩展区域的空间布局、透视关系和物体比例必须与原图保持一致，不得出现突兀的视角变化或比例失调。"
+    },
+    "class_type": "Text _O",
+    "_meta": {
+      "title": "Text _O"
+    }
+  },
+  "144": {
+    "inputs": {
+      "purge_cache": true,
+      "purge_models": true,
+      "anything": [
+        "52",
+        0
+      ]
+    },
+    "class_type": "LayerUtility: PurgeVRAM",
+    "_meta": {
+      "title": "图层工具：清除VRAM"
+    }
+  },
+  "145": {
+    "inputs": {
+      "purge_cache": true,
+      "purge_models": true,
+      "anything": [
+        "41",
+        0
+      ]
+    },
+    "class_type": "LayerUtility: PurgeVRAM",
+    "_meta": {
+      "title": "图层工具：清除VRAM"
+    }
+  },
+  "146": {
+    "inputs": {
+      "purge_cache": true,
+      "purge_models": true,
+      "anything": [
+        "53",
+        0
+      ]
+    },
+    "class_type": "LayerUtility: PurgeVRAM",
+    "_meta": {
+      "title": "图层工具：清除VRAM"
+    }
+  },
+  "159": {
+    "inputs": {
+      "filename_prefix": "ComfyUI",
+      "images": [
+        "199",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "保存图像"
+    }
+  },
+  "184": {
+    "inputs": {
+      "text": "你是一个严格的图像复制助手，你的唯一任务是：将输入图像作为一块‘布料’或‘壁纸’，向四周进行无缝扩展。\n\n强制规则：\n\n绝对禁止添加、删除、修改、变形任何像素。\n所有新增区域必须是原图像素的精确复制和平移。\n不得引入任何新物体（包括但不限于：动物、植物、文字、符号、装饰物）。\n如果你检测到原图中存在非重复元素，请忽略它们，只对纯图案区域进行复制。\n如果无法做到100%一致，而不是生成包含新元素的结果。"
+    },
+    "class_type": "Text _O",
+    "_meta": {
+      "title": "花纹扩图提示词"
+    }
+  },
+  "185": {
+    "inputs": {
+      "left": [
+        "188",
+        0
+      ],
+      "top": [
+        "186",
+        0
+      ],
+      "right": [
+        "189",
+        0
+      ],
+      "bottom": [
+        "187",
+        0
+      ],
+      "feathering": 24,
+      "image": [
+        "53",
+        0
+      ]
+    },
+    "class_type": "ImagePadForOutpaint",
+    "_meta": {
+      "title": "外补画板"
+    }
+  },
+  "186": {
+    "inputs": {
+      "value": 0
+    },
+    "class_type": "ImpactInt",
+    "_meta": {
+      "title": "ImpactInt"
+    }
+  },
+  "187": {
+    "inputs": {
+      "value": 0
+    },
+    "class_type": "ImpactInt",
+    "_meta": {
+      "title": "ImpactInt"
+    }
+  },
+  "188": {
+    "inputs": {
+      "value": 200
+    },
+    "class_type": "ImpactInt",
+    "_meta": {
+      "title": "ImpactInt"
+    }
+  },
+  "189": {
+    "inputs": {
+      "value": 200
+    },
+    "class_type": "ImpactInt",
+    "_meta": {
+      "title": "ImpactInt"
+    }
+  },
+  "190": {
+    "inputs": {
+      "image": [
+        "205",
+        0
+      ]
+    },
+    "class_type": "Get Image Size",
+    "_meta": {
+      "title": "Get Image Size"
+    }
+  },
+  "191": {
+    "inputs": {
+      "value": [
+        "190",
+        0
+      ]
+    },
+    "class_type": "ImpactInt",
+    "_meta": {
+      "title": "ImpactInt"
+    }
+  },
+  "192": {
+    "inputs": {
+      "value": [
+        "190",
+        1
+      ]
+    },
+    "class_type": "ImpactInt",
+    "_meta": {
+      "title": "ImpactInt"
+    }
+  },
+  "193": {
+    "inputs": {
+      "a": [
+        "191",
+        0
+      ],
+      "b": [
+        "194",
+        0
+      ],
+      "operation": "add"
+    },
+    "class_type": "easy mathInt",
+    "_meta": {
+      "title": "整数运算"
+    }
+  },
+  "194": {
+    "inputs": {
+      "a": [
+        "188",
+        0
+      ],
+      "b": [
+        "189",
+        0
+      ],
+      "operation": "add"
+    },
+    "class_type": "easy mathInt",
+    "_meta": {
+      "title": "整数运算"
+    }
+  },
+  "195": {
+    "inputs": {
+      "a": [
+        "187",
+        0
+      ],
+      "b": [
+        "186",
+        0
+      ],
+      "operation": "add"
+    },
+    "class_type": "easy mathInt",
+    "_meta": {
+      "title": "整数运算"
+    }
+  },
+  "196": {
+    "inputs": {
+      "a": [
+        "192",
+        0
+      ],
+      "b": [
+        "195",
+        0
+      ],
+      "operation": "add"
+    },
+    "class_type": "easy mathInt",
+    "_meta": {
+      "title": "整数运算"
+    }
+  },
+  "199": {
+    "inputs": {
+      "upscale_method": "lanczos",
+      "width": [
+        "193",
+        0
+      ],
+      "height": [
+        "196",
+        0
+      ],
+      "crop": "disabled",
+      "image": [
+        "47",
+        0
+      ]
+    },
+    "class_type": "ImageScale",
+    "_meta": {
+      "title": "缩放图像"
+    }
+  },
+  "205": {
+    "inputs": {
+      "url": [
+        "211",
+        0
+      ]
+    },
+    "class_type": "LoadImagesFromURL",
+    "_meta": {
+      "title": "Load Images From URL ♾️Mixlab"
+    }
+  },
+  "206": {
+    "inputs": {
+      "anything": [
+        "199",
+        0
+      ]
+    },
+    "class_type": "easy cleanGpuUsed",
+    "_meta": {
+      "title": "清理显存占用"
+    }
+  },
+  "211": {
+    "inputs": {
+      "inStr": "https://gips2.baidu.com/it/u=1674525583,3037683813&fm=3028&app=3028&f=JPEG&fmt=auto?w=1024&h=1024"
+    },
+    "class_type": "String",
+    "_meta": {
+      "title": "String"
+    }
+  }
+}

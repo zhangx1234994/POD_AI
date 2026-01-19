@@ -93,6 +93,14 @@ class SecurityConfig(BaseModel):
     upload_token_ttl: int
 
 
+class CozeConfig(BaseModel):
+    base_url: str | None = None
+    loop_base_url: str | None = None
+    default_timeout: int
+    token_present: bool = False
+    token_hint: str | None = None
+
+
 class TodoItem(BaseModel):
     title: str
     description: str
@@ -107,5 +115,6 @@ class SystemConfigResponse(BaseModel):
     database: DatabaseConfig
     oss: OssConfig
     security: SecurityConfig
+    coze: CozeConfig | None = None
     feature_flags: dict[str, bool]
     todo_items: list[TodoItem]

@@ -18,6 +18,7 @@ class AbilityBase(BaseModel):
     ability_type: str = Field(default="api")
     executor_id: str | None = None
     workflow_id: str | None = None
+    coze_workflow_id: str | None = None
     default_params: dict[str, Any] | None = None
     input_schema: dict[str, Any] | None = None
     metadata: dict[str, Any] | None = None
@@ -37,6 +38,7 @@ class AbilityUpdate(BaseModel):
     ability_type: str | None = None
     executor_id: str | None = None
     workflow_id: str | None = None
+    coze_workflow_id: str | None = None
     default_params: dict[str, Any] | None = None
     input_schema: dict[str, Any] | None = None
     metadata: dict[str, Any] | None = None
@@ -49,6 +51,7 @@ class AbilityRead(AbilityBase):
 
     ability_type: str = Field(default="api")
     workflow_id: str | None = None
+    coze_workflow_id: str | None = None
     last_health_check_at: datetime | None = None
     last_health_status: str | None = None
     success_rate: float | None = None
@@ -56,3 +59,20 @@ class AbilityRead(AbilityBase):
     id: str
     created_at: datetime
     updated_at: datetime
+
+
+class AbilityOption(BaseModel):
+    id: str
+    provider: str
+    category: str | None = None
+    capability_key: str
+    display_name: str
+    description: str | None = None
+    default_params: dict[str, Any] | None = None
+    input_schema: dict[str, Any] | None = None
+    metadata: dict[str, Any] | None = None
+    coze_workflow_id: str | None = None
+
+
+class AbilityOptionListResponse(BaseModel):
+    items: list[AbilityOption]

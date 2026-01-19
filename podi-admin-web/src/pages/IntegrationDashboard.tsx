@@ -32,7 +32,7 @@ const navItems = [
   { id: 'executors', label: '执行节点', description: '节点配置与健康' },
   { id: 'ability-logs', label: '能力调用', description: '全局历史记录' },
   { id: 'comfyui-templates', label: 'ComfyUI 模板', description: 'Workflow JSON 管理' },
-  { id: 'workflow-builder', label: '工作流编排', description: '可视化流程（规划中）' },
+  { id: 'workflow-builder', label: '工作流编排', description: 'Coze Studio 工作流 + Loop 观测' },
   { id: 'bindings', label: '分配策略', description: 'action 绑定链路' },
   { id: 'apikeys', label: 'API Keys', description: '凭证配额管理' },
   { id: 'monitor', label: '调度监控', description: '队列/任务/节点健康' },
@@ -60,6 +60,7 @@ const providerOptions = [
   { value: 'volcengine', label: '火山引擎' },
   { value: 'kie', label: 'KIE 中转' },
   { value: 'comfyui', label: 'ComfyUI 流程' },
+  { value: 'coze', label: 'Coze Studio' },
 ];
 const abilityTypeOptions = [
   { value: 'api', label: 'API 能力（HTTP 接口）' },
@@ -157,6 +158,18 @@ const resolveAbilityExecutors = (ability: Ability | null, availableExecutors: Ex
   }
   return matched;
 };
+
+const extractCozeWorkflowId = (ability: Ability | null): string => {
+  if (!ability) return '';
+  if (ability.coze_workflow_id) {
+    return ability.coze_workflow_id;
+  }
+  const metadata = ability.metadata as JsonRecord | null;
+  const metaValue =
+    metadata && typeof metadata.coze_workflow_id === 'string' ? metadata.coze_workflow_id.trim() : undefined;
+  return metaValue || '';
+};
+
 const defaultAbilityForm: AbilityFormState = {
   provider: providerOptions[0].value,
   category: categoryOptions[0].value,
@@ -213,6 +226,11 @@ const formatDateTime = (value?: string | null) => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString('zh-CN', { hour12: false, timeZone: 'Asia/Shanghai' });
+};
+const formatDurationMs = (value?: number | null) => {
+  if (value === undefined || value === null) return '—';
+  if (value < 1000) return `${value}ms`;
+  return `${(value / 1000).toFixed(2)}s`;
 };
 const getAbilityLogStatusClass = (status?: string | null) => {
   const normalized = (status || '').toLowerCase();
@@ -785,6 +803,39 @@ export function IntegrationDashboard() {
     () => describePricing(selectedAbilityPricing),
     [selectedAbilityPricing, describePricing],
   );
+  const cozeAbilities = useMemo(
+    () => abilities.filter((ability) => ability.provider === 'coze'),
+    [abilities],
+  );
+  const cozeAbilityStats = useMemo(() => {
+    const mapped = cozeAbilities.filter((ability) => extractCozeWorkflowId(ability)).length;
+    return { total: cozeAbilities.length, mapped };
+  }, [cozeAbilities]);
+  const cozeAbilityMappings = useMemo(
+    () =>
+      cozeAbilities.map((ability) => ({
+        ability,
+        workflowId: extractCozeWorkflowId(ability),
+        latestLog: latestAbilityLogMap[ability.id],
+      })),
+    [cozeAbilities, latestAbilityLogMap],
+  );
+  const cozeRecentLogs = useMemo(
+    () => globalAbilityLogs.filter((log) => log.ability_provider === 'coze').slice(0, 6),
+    [globalAbilityLogs],
+  );
+  const cozeConfig = systemConfig?.coze;
+  const cozeBaseUrl = useMemo(() => {
+    const raw = cozeConfig?.base_url?.trim();
+    if (!raw) return '';
+    return raw.endsWith('/') ? raw.slice(0, -1) : raw;
+  }, [cozeConfig?.base_url]);
+  const cozeLoopUrl = useMemo(() => {
+    const raw = cozeConfig?.loop_base_url?.trim();
+    if (!raw) return '';
+    return raw.endsWith('/') ? raw.slice(0, -1) : raw;
+  }, [cozeConfig?.loop_base_url]);
+  const cozeTokenHint = cozeConfig?.token_present ? (cozeConfig?.token_hint || '已配置') : '未配置';
   const resolveLogPricing = useCallback(
     (log: AbilityInvocationLog): AbilityPricing | null => {
       const logDiscount = coerceNumber(log.cost_amount);
@@ -1027,6 +1078,18 @@ export function IntegrationDashboard() {
     void refreshPublicAbilities();
   }, [refreshPublicAbilities]);
 
+  const handleOpenCozeStudio = useCallback(() => {
+    if (cozeBaseUrl) {
+      window.open(cozeBaseUrl, '_blank', 'noopener,noreferrer');
+    }
+  }, [cozeBaseUrl]);
+
+  const handleOpenCozeLoop = useCallback(() => {
+    if (cozeLoopUrl) {
+      window.open(cozeLoopUrl, '_blank', 'noopener,noreferrer');
+    }
+  }, [cozeLoopUrl]);
+
   const abilityApiExample = useMemo(() => {
     const abilityId = selectedAbility?.id ?? '{abilityId}';
     const body = {
@@ -1164,6 +1227,7 @@ export function IntegrationDashboard() {
       ability_type: abilityForm.ability_type || abilityTypeOptions[0].value,
       executor_id: abilityForm.executor_id,
       workflow_id: abilityForm.workflow_id || undefined,
+      coze_workflow_id: abilityForm.coze_workflow_id || undefined,
       default_params: abilityForm.default_params ? parseJSON(abilityForm.default_params) : undefined,
       input_schema: abilityForm.input_schema ? parseJSON(abilityForm.input_schema) : undefined,
       metadata: abilityForm.metadata ? parseJSON(abilityForm.metadata) : undefined,
@@ -1652,6 +1716,29 @@ const formatRawResponse = (record?: JsonRecord | null, max = 2000) => {
   if (!record) return '';
   const raw = stringifyJSON(record);
   return raw.length > max ? `${raw.slice(0, max)}…` : raw;
+};
+const extractErrorMessage = (error: unknown): string => {
+  if (!error) return '';
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === 'string') return error;
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
+};
+const normalizeErrorMessage = (message: string): string => {
+  if (!message) return '';
+  const trimmed = message.trim();
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (parsed?.detail) {
+      return typeof parsed.detail === 'string' ? parsed.detail : JSON.stringify(parsed.detail);
+    }
+  } catch {
+    // ignore
+  }
+  return trimmed;
 };
 
   const handleExecutorSubmit = async () => {
@@ -3287,6 +3374,23 @@ const formatRawResponse = (record?: JsonRecord | null, max = 2000) => {
                 ))}
               </select>
             </label>
+            {abilityForm.provider === 'coze' && (
+              <label className="text-xs text-slate-400">
+                Coze Workflow ID
+                <input
+                  value={abilityForm.coze_workflow_id || ''}
+                  onChange={(e) =>
+                    setAbilityForm({
+                      ...abilityForm,
+                      coze_workflow_id: e.target.value ? e.target.value.trim() : undefined,
+                    })
+                  }
+                  placeholder="例如 1234567890"
+                  className="mt-1 w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-white"
+                />
+                <p className="mt-1 text-[11px] text-slate-500">对应 Coze Studio 发布后的 workflow_id。</p>
+              </label>
+            )}
             <label className="text-xs text-slate-400">
               默认参数 JSON
               <textarea
@@ -3575,19 +3679,182 @@ const formatRawResponse = (record?: JsonRecord | null, max = 2000) => {
           </div>
         </div>
       </Section>
-
       <Section
         id="workflow-builder"
-        title="工作流编排（规划中）"
-        description="可视化原子能力编排器正在设计中，后续将支持拖拽节点、版本管理与节点级监控。"
+        title="工作流编排"
+        description="Coze Studio + Coze Loop 承担原子能力的拖拽式编排与运行观测，统一账号、统一 Token，避免多套系统割裂。"
       >
-        <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-950/30 p-6 text-sm text-slate-400">
-          <p>
-            规划中：将提供 DAG Builder、节点面板、运行监控与 Trace。当前阶段仅展示占位，相关设计见
-            <code className="mx-1 rounded bg-slate-900 px-1">docs/ai-capability-roadmap.md</code>。
-          </p>
-          <p className="mt-2">如需新增工作流需求，可在此卡片备注，便于后续评审。</p>
-        </div>
+        {!systemConfig ? (
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6 text-sm text-slate-400">
+            正在加载系统配置…
+          </div>
+        ) : (
+          <div className="space-y-6">
+            <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-6">
+              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <div className="text-lg font-semibold text-white">Coze Studio · 工作流画布</div>
+                  <p className="mt-2 text-sm text-slate-400">
+                    Studio 负责节点拖拽/运行调试，Loop 负责运行诊断。所有能力均在“能力目录”中填写 Coze Workflow ID，
+                    调度器即可根据 <code className="px-1">coze_workflow_id</code> 直接调用。
+                  </p>
+                  <div className="mt-3 grid gap-3 text-xs text-slate-400 md:grid-cols-3">
+                    <div>
+                      <div className="text-slate-500">Studio Base URL</div>
+                      <div className="font-mono text-sm text-white">{cozeBaseUrl || '未配置'}</div>
+                    </div>
+                    <div>
+                      <div className="text-slate-500">Loop Dashboard URL</div>
+                      <div className="font-mono text-sm text-white">{cozeLoopUrl || '未配置'}</div>
+                    </div>
+                    <div>
+                      <div className="text-slate-500">API Token</div>
+                      <div className="text-white">{cozeTokenHint}</div>
+                    </div>
+                    <div>
+                      <div className="text-slate-500">默认超时</div>
+                      <div className="text-white">{cozeConfig?.default_timeout ?? 0}s</div>
+                    </div>
+                    <div>
+                      <div className="text-slate-500">能力映射</div>
+                      <div className="text-white">
+                        {cozeAbilityStats.mapped}/{cozeAbilityStats.total} 已填写 Workflow ID
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex flex-col gap-3 text-sm text-white">
+                  <button
+                    className="rounded-full border border-slate-600 px-4 py-2 font-semibold transition hover:border-sky-500 hover:text-sky-200 disabled:cursor-not-allowed disabled:border-slate-800 disabled:text-slate-500"
+                    disabled={!cozeBaseUrl}
+                    onClick={handleOpenCozeStudio}
+                  >
+                    打开 Coze Studio
+                  </button>
+                  <button
+                    className="rounded-full border border-slate-600 px-4 py-2 font-semibold transition hover:border-emerald-500 hover:text-emerald-200 disabled:cursor-not-allowed disabled:border-slate-800 disabled:text-slate-500"
+                    disabled={!cozeLoopUrl}
+                    onClick={handleOpenCozeLoop}
+                  >
+                    打开 Coze Loop
+                  </button>
+                </div>
+              </div>
+              <div className="mt-4 rounded-2xl border border-slate-800/70 bg-slate-950/40 p-4 text-xs text-slate-300">
+                <div className="font-semibold text-white">接入步骤提醒</div>
+                <ol className="mt-2 list-decimal space-y-1 pl-4">
+                  <li>在 Coze Studio 内创建 Workflow，复制 Workflow ID。</li>
+                  <li>在“能力目录”中选择 provider=Coze 的能力，填写 <code className="px-1">Coze Workflow ID</code> 字段。</li>
+                  <li>保存后即可在本平台触发能力，日志会写入 <code className="px-1">ability_invocation_logs</code> 并可在 Loop 中回放。</li>
+                </ol>
+              </div>
+            </div>
+            <div className="grid gap-6 lg:grid-cols-2">
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-white text-lg font-semibold">Coze 能力映射</h3>
+                    <p className="text-xs text-slate-400">列出 provider=Coze 的能力与 workflow 绑定情况。</p>
+                  </div>
+                </div>
+                {cozeAbilityMappings.length === 0 ? (
+                  <div className="mt-4 rounded-2xl border border-slate-800/70 bg-slate-950/40 p-4 text-sm text-slate-400">
+                    还没有注册 Coze 能力，请在“能力目录”中新建 provider=Coze 的能力，并填写 Workflow ID。
+                  </div>
+                ) : (
+                  <div className="mt-4 overflow-x-auto">
+                    <table>
+                      <thead>
+                        <tr className="text-left text-xs uppercase tracking-widest text-slate-500">
+                          <th>能力</th>
+                          <th>Workflow ID</th>
+                          <th>最近运行</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {cozeAbilityMappings.map(({ ability, workflowId, latestLog }) => (
+                          <tr key={ability.id}>
+                            <td className="text-sm text-white">
+                              <div className="font-semibold">{ability.display_name}</div>
+                              <div className="text-xs text-slate-500">{ability.capability_key}</div>
+                              <div className="mt-1 text-xs text-slate-400">
+                                状态：<StatusPill status={ability.status} />
+                              </div>
+                            </td>
+                            <td className="text-sm text-slate-300">
+                              {workflowId ? (
+                                <span className="font-mono text-xs">{workflowId}</span>
+                              ) : (
+                                <span className="text-amber-300">未填写</span>
+                              )}
+                            </td>
+                            <td className="text-xs text-slate-400">
+                              {latestLog ? (
+                                <>
+                                  <StatusPill status={latestLog.status} />
+                                  <div className="mt-1">{formatDateTime(latestLog.created_at)}</div>
+                                </>
+                              ) : (
+                                '—'
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-white text-lg font-semibold">Coze 最新运行</h3>
+                  <span className="text-xs text-slate-500">按能力日志实时刷新</span>
+                </div>
+                {cozeRecentLogs.length === 0 ? (
+                  <div className="mt-4 rounded-2xl border border-slate-800/60 bg-slate-950/40 p-4 text-sm text-slate-400">
+                    暂无运行记录，可在上方能力详情中执行一次测试。
+                  </div>
+                ) : (
+                  <div className="mt-4 space-y-3">
+                    {cozeRecentLogs.map((log) => (
+                      <div
+                        key={log.id}
+                        className="rounded-2xl border border-slate-800/60 bg-slate-950/40 p-4 text-xs text-slate-300"
+                      >
+                        <div className="flex items-center justify-between text-white">
+                          <span>
+                            #{log.id} · {log.capability_key}
+                          </span>
+                          <StatusPill status={log.status} />
+                        </div>
+                        <div className="mt-1 text-slate-400">{formatDateTime(log.created_at)}</div>
+                        {log.result_assets && log.result_assets.length > 0 && (
+                          <div className="mt-2">
+                            <div className="text-slate-500">输出资源</div>
+                            {log.result_assets.map((asset, index) => {
+                              const url = resolveAssetUrl(asset);
+                              if (!url) return null;
+                              return (
+                                <div key={`${log.id}-asset-${index}`} className="truncate text-sky-300">
+                                  <a href={url} target="_blank" rel="noreferrer" className="underline">
+                                    {url}
+                                  </a>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                        {log.error_message && (
+                          <div className="mt-2 text-rose-300">错误：{log.error_message}</div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </Section>
 
       <Section
@@ -3809,7 +4076,7 @@ const formatRawResponse = (record?: JsonRecord | null, max = 2000) => {
           title="系统配置"
           description="汇总环境信息、OSS 配置及安全参数，便于排障和入职交接。"
         >
-          <div className="grid gap-6 lg:grid-cols-3">
+          <div className={`grid gap-6 ${systemConfig.coze ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`}>
             <InfoCard
               title="数据库"
               items={[
@@ -3836,6 +4103,16 @@ const formatRawResponse = (record?: JsonRecord | null, max = 2000) => {
                 { label: '上传 Token TTL', value: `${systemConfig.security.upload_token_ttl}s` },
               ]}
             />
+            {systemConfig.coze && (
+              <InfoCard
+                title="Coze 集成"
+                items={[
+                  { label: 'Studio URL', value: systemConfig.coze.base_url || '未配置' },
+                  { label: 'Loop URL', value: systemConfig.coze.loop_base_url || '未配置' },
+                  { label: 'Token', value: systemConfig.coze.token_present ? systemConfig.coze.token_hint || '已配置' : '未配置' },
+                ]}
+              />
+            )}
           </div>
           <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5">
             <h3 className="text-white text-lg font-semibold">特性开关</h3>

@@ -10,6 +10,7 @@ Usage:
 from app.core.db import Base, engine  # pylint: disable=unused-import
 from app.models import task  # noqa: F401
 from app.models import integration  # noqa: F401
+from app.models import user  # noqa: F401
 
 
 def main() -> None:

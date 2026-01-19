@@ -221,7 +221,6 @@ export const adminApi = {
   getDashboardMetrics: () => request<DashboardMetrics>('/api/admin/dashboard/metrics'),
   getDispatchLogs: () => request<DispatchLogResponse>('/api/admin/dashboard/logs'),
   getSystemConfig: () => request<SystemConfig>('/api/admin/dashboard/system-config'),
-
   // Abilities
   listAbilities: () => request<Ability[]>('/api/admin/abilities'),
   createAbility: (payload: Partial<Ability>) =>

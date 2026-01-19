@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
 import time
@@ -10,7 +11,7 @@ from datetime import datetime, timezone
 from typing import Any, Iterable
 from uuid import uuid4
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from sqlalchemy import select
 
 import httpx
@@ -22,6 +23,7 @@ from app.schemas import abilities as schemas
 from app.services.ability_logs import AbilityLogStartParams, ability_log_service
 from app.services.ability_seed import ensure_default_abilities
 from app.services.integration_test import integration_test_service
+from app.services.coze_client import coze_client
 
 
 @dataclass
@@ -29,6 +31,14 @@ class _ImageBundle:
     image_url: str | None
     image_base64: str | None
     image_list: list[dict[str, Any]]
+
+
+@dataclass
+class _InvocationContext:
+    request_id: str
+    source: str
+    user: User | None
+    payload: schemas.AbilityInvokeRequest
 
 
 class AbilityInvocationService:
@@ -63,12 +73,14 @@ class AbilityInvocationService:
         payload: schemas.AbilityInvokeRequest,
         user: User | None,
         source: str = "ability-api",
+        request: Request | None = None,
     ) -> schemas.AbilityInvokeResponse:
         ability = self._get_ability(ability_id)
         if ability.status != "active":
             raise HTTPException(status_code=400, detail="ABILITY_INACTIVE")
+        provider_key = ability.provider.lower()
         executor_id = payload.executorId or ability.executor_id
-        if not executor_id:
+        if not executor_id and provider_key not in {"coze"}:
             raise HTTPException(status_code=400, detail="ABILITY_EXECUTOR_NOT_CONFIGURED")
         merged_inputs = self._merge_inputs(ability, payload)
         image_bundle = self._normalize_image_inputs(payload, merged_inputs)
@@ -80,7 +92,7 @@ class AbilityInvocationService:
             "hasImageBase64": bool(image_bundle.image_base64),
             "imageListCount": len(image_bundle.image_list),
             "metadata": payload.metadata,
-            "userId": user.id if user else None,
+            "userId": user.id if user else (request.client.host if request else None),
         }
         log_id = ability_log_service.start_log(
             AbilityLogStartParams(
@@ -102,12 +114,19 @@ class AbilityInvocationService:
         start = time.perf_counter()
         callback_url = payload.callbackUrl
         callback_headers = payload.callbackHeaders
+        context = _InvocationContext(
+            request_id=request_marker,
+            source=source or "ability-api",
+            user=user,
+            payload=payload,
+        )
         try:
             provider_result = self._dispatch_provider(
                 ability=ability,
                 executor_id=executor_id,
                 merged_inputs=merged_inputs,
                 images=image_bundle,
+                context=context,
             )
         except Exception as exc:
             duration_ms = int((time.perf_counter() - start) * 1000)
@@ -158,9 +177,10 @@ class AbilityInvocationService:
         self,
         *,
         ability: Ability,
-        executor_id: str,
+        executor_id: str | None,
         merged_inputs: dict[str, Any],
         images: _ImageBundle,
+        context: _InvocationContext,
     ) -> dict[str, Any]:
         provider = ability.provider.lower()
         if provider == "baidu":
@@ -171,6 +191,8 @@ class AbilityInvocationService:
             return self._invoke_comfyui(ability, executor_id, merged_inputs, images)
         if provider == "kie":
             return self._invoke_kie(ability, executor_id, merged_inputs, images)
+        if provider == "coze":
+            return self._invoke_coze(ability, merged_inputs, images, context)
         raise HTTPException(status_code=400, detail=f"ABILITY_PROVIDER_UNSUPPORTED:{provider}")
 
     def _invoke_baidu(
@@ -223,6 +245,13 @@ class AbilityInvocationService:
             negative_prompt = self._pop_first_string(merged_inputs, ["negative_prompt", "negativePrompt"])
             size = self._pop_first_string(merged_inputs, ["size"])
             response_format = self._pop_first_string(merged_inputs, ["response_format", "responseFormat"])
+            reference_urls = self._pop_url_list(
+                merged_inputs, ["image_urls", "image_url", "reference_image_urls"]
+            )
+            bundle_urls = self._urls_from_image_bundle(images)
+            combined_urls = self._deduplicate_urls(reference_urls + bundle_urls)
+            if combined_urls:
+                merged_inputs["image_urls"] = combined_urls
             return integration_test_service.run_volcengine_image_generation(
                 executor_id=executor_id,
                 model=model,
@@ -280,10 +309,31 @@ class AbilityInvocationService:
                 raise HTTPException(status_code=400, detail="PROMPT_REQUIRED")
             input_payload["prompt"] = prompt
         array_target = metadata.get("input_array_target")
-        if array_target and images.image_list:
-            input_payload[array_target] = images.image_list
-        elif array_target and images.image_url:
-            input_payload[array_target] = [{"url": images.image_url}]
+        url_candidates: list[str] = []
+        url_candidates.extend(self._pop_url_list(merged_inputs, ["image_urls", "input_urls"]))
+        url_candidates.extend(self._urls_from_image_bundle(images))
+        if array_target:
+            existing_entries_value = input_payload.get(array_target)
+            normalized_entries: list[dict[str, Any]] = []
+            seen_urls: set[str] = set()
+            if isinstance(existing_entries_value, list):
+                for entry in existing_entries_value:
+                    if isinstance(entry, dict):
+                        normalized_entries.append(entry)
+                        first_url = self._extract_urls_from_value(entry)
+                        if first_url:
+                            seen_urls.add(first_url[0])
+            for url in self._deduplicate_urls(url_candidates):
+                if url in seen_urls:
+                    continue
+                normalized_entries.append({"url": url})
+                seen_urls.add(url)
+            if not normalized_entries and metadata.get("requires_image_input"):
+                raise HTTPException(status_code=400, detail="IMAGE_REQUIRED")
+            if normalized_entries:
+                input_payload[array_target] = normalized_entries
+        elif metadata.get("requires_image_input") and not url_candidates:
+            raise HTTPException(status_code=400, detail="IMAGE_REQUIRED")
         extra_payload = None
         if isinstance(merged_inputs.get("extra"), dict):
             extra_payload = merged_inputs.pop("extra")
@@ -296,6 +346,67 @@ class AbilityInvocationService:
             call_back_url=self._pop_first_string(merged_inputs, ["callBackUrl", "callback_url"]),
             extra_payload=self._clean_params(extra_payload or merged_inputs) or None,
         )
+
+    def _invoke_coze(
+        self,
+        ability: Ability,
+        merged_inputs: dict[str, Any],
+        images: _ImageBundle,
+        context: _InvocationContext,
+    ) -> dict[str, Any]:
+        metadata = ability.extra_metadata if isinstance(ability.extra_metadata, dict) else {}
+        workflow_id = ability.coze_workflow_id or metadata.get("coze_workflow_id")
+        if not workflow_id:
+            raise HTTPException(status_code=400, detail="COZE_WORKFLOW_ID_MISSING")
+        coze_inputs = dict(merged_inputs or {})
+        if images.image_url and not coze_inputs.get("image_url"):
+            coze_inputs["image_url"] = images.image_url
+        if images.image_base64 and not coze_inputs.get("image_base64"):
+            coze_inputs["image_base64"] = images.image_base64
+        if images.image_list and not coze_inputs.get("image_list"):
+            coze_inputs["image_list"] = list(images.image_list)
+        coze_inputs = self._clean_params(coze_inputs)
+        ext_payload = self._build_coze_ext(ability, context)
+        response = coze_client.run_workflow(
+            workflow_id=workflow_id,
+            parameters=coze_inputs,
+            ext=ext_payload,
+            request_id=context.request_id,
+        )
+        base_resp = response.get("BaseResp") or {}
+        status_code = base_resp.get("StatusCode")
+        code = response.get("code")
+        if (isinstance(code, int) and code != 0) or (isinstance(status_code, int) and status_code != 0):
+            message = response.get("msg") or base_resp.get("StatusMessage") or "COZE_EXECUTION_FAILED"
+            detail = {
+                "code": code,
+                "statusCode": status_code,
+                "message": message,
+                "debugUrl": response.get("debug_url"),
+            }
+            raise HTTPException(status_code=502, detail=detail)
+        parsed_payload = self._parse_coze_payload(response.get("data"))
+        provider_result: dict[str, Any] = {
+            "provider": "coze",
+            "taskId": response.get("execute_id"),
+            "state": base_resp.get("StatusMessage"),
+            "raw": {"response": response},
+        }
+        if isinstance(parsed_payload, (dict, list)):
+            provider_result["raw"]["parsedData"] = parsed_payload
+        elif isinstance(parsed_payload, str):
+            provider_result["text"] = parsed_payload
+        text_output = self._extract_coze_text(parsed_payload)
+        if text_output and not provider_result.get("text"):
+            provider_result["text"] = text_output
+        result_urls = self._extract_coze_result_urls(parsed_payload)
+        if result_urls:
+            provider_result["resultUrls"] = result_urls
+        if isinstance(parsed_payload, dict):
+            assets = parsed_payload.get("assets")
+            if isinstance(assets, list):
+                provider_result["assets"] = assets
+        return provider_result
 
     # -------- parsing helpers -------- #
     def _merge_inputs(self, ability: Ability, payload: schemas.AbilityInvokeRequest) -> dict[str, Any]:
@@ -339,6 +450,103 @@ class AbilityInvocationService:
         if isinstance(candidate, dict):
             return candidate
         return None
+
+    def _build_coze_ext(self, ability: Ability, context: _InvocationContext) -> dict[str, str]:
+        ext: dict[str, str] = {
+            "ability_id": ability.id,
+            "capability_key": ability.capability_key,
+            "provider": ability.provider,
+            "request_id": context.request_id,
+            "source": context.source,
+        }
+        if context.user:
+            ext["user_id"] = str(context.user.id)
+        metadata = context.payload.metadata
+        if isinstance(metadata, dict):
+            for key, value in metadata.items():
+                if value is None:
+                    continue
+                ext[f"meta_{key}"] = self._stringify_value(value)
+        return ext
+
+    def _stringify_value(self, value: Any) -> str:
+        if isinstance(value, (str, int, float, bool)):
+            return str(value)
+        try:
+            return json.dumps(value, ensure_ascii=False)
+        except (TypeError, ValueError):
+            return str(value)
+
+    def _parse_coze_payload(self, payload: Any) -> Any:
+        if payload is None:
+            return None
+        if isinstance(payload, str):
+            stripped = payload.strip()
+            if not stripped:
+                return None
+            try:
+                return json.loads(stripped)
+            except (json.JSONDecodeError, ValueError):
+                return stripped
+        return payload
+
+    def _extract_coze_text(self, payload: Any) -> str | None:
+        if payload is None:
+            return None
+        if isinstance(payload, str):
+            stripped = payload.strip()
+            return stripped or None
+        if isinstance(payload, dict):
+            for key in ("text", "data", "content", "message", "output"):
+                if key in payload:
+                    text = self._extract_coze_text(payload[key])
+                    if text:
+                        return text
+            outputs = payload.get("outputs")
+            if isinstance(outputs, list):
+                for item in outputs:
+                    text = self._extract_coze_text(item)
+                    if text:
+                        return text
+        if isinstance(payload, list):
+            for item in payload:
+                text = self._extract_coze_text(item)
+                if text:
+                    return text
+        return None
+
+    def _extract_coze_result_urls(self, payload: Any) -> list[str]:
+        urls: list[str] = []
+
+        def add_url(entry: Any) -> None:
+            if isinstance(entry, str):
+                urls.append(entry)
+            elif isinstance(entry, dict):
+                for key in ("url", "ossUrl", "sourceUrl"):
+                    candidate = entry.get(key)
+                    if isinstance(candidate, str):
+                        urls.append(candidate)
+                        break
+
+        def traverse(value: Any) -> None:
+            if isinstance(value, dict):
+                for key in ("resultUrls", "result_urls", "imageUrls", "images", "urls"):
+                    target = value.get(key)
+                    if isinstance(target, list):
+                        for entry in target:
+                            add_url(entry)
+                    elif isinstance(target, str):
+                        urls.append(target)
+                outputs = value.get("outputs")
+                if isinstance(outputs, list):
+                    for item in outputs:
+                        traverse(item)
+            elif isinstance(value, list):
+                for item in value:
+                    traverse(item)
+
+        traverse(payload)
+        return self._deduplicate_urls(urls)
 
     # -------- response helpers -------- #
     def _build_response_payload(
@@ -429,6 +637,13 @@ class AbilityInvocationService:
             texts.extend([str(item) for item in payload["texts"] if isinstance(item, (str, int, float))])
         return texts
 
+    def _urls_from_image_bundle(self, bundle: _ImageBundle) -> list[str]:
+        urls = []
+        if bundle.image_url:
+            urls.append(bundle.image_url)
+        urls.extend(self._extract_urls_from_value(bundle.image_list))
+        return urls
+
     # -------- misc utilities -------- #
     def _get_ability(self, ability_id: str) -> Ability:
         with get_session() as session:
@@ -454,6 +669,7 @@ class AbilityInvocationService:
             status=ability.status,
             abilityType=ability.ability_type,
             workflowId=ability.workflow_id,
+            cozeWorkflowId=ability.coze_workflow_id,
             executorId=ability.executor_id,
             defaultParams=ability.default_params,
             inputSchema=ability.input_schema,
@@ -494,6 +710,44 @@ class AbilityInvocationService:
             else:
                 sanitized[key] = value
         return sanitized
+
+    @staticmethod
+    def _deduplicate_urls(urls: list[str]) -> list[str]:
+        seen: set[str] = set()
+        unique: list[str] = []
+        for url in urls:
+            normalized = url.strip()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            unique.append(normalized)
+        return unique
+
+    @staticmethod
+    def _extract_urls_from_value(value: Any) -> list[str]:
+        if value is None:
+            return []
+        urls: list[str] = []
+        if isinstance(value, str):
+            normalized = value.replace(",", "\n")
+            urls.extend([line.strip() for line in normalized.splitlines() if line.strip()])
+        elif isinstance(value, (list, tuple, set)):
+            for item in value:
+                urls.extend(AbilityInvocationService._extract_urls_from_value(item))
+        elif isinstance(value, dict):
+            for key in ("url", "ossUrl", "oss_url"):
+                candidate = value.get(key)
+                if isinstance(candidate, str) and candidate.strip():
+                    urls.append(candidate.strip())
+                    break
+        return urls
+
+    def _pop_url_list(self, payload: dict[str, Any], keys: Iterable[str]) -> list[str]:
+        urls: list[str] = []
+        for key in keys:
+            value = payload.pop(key, None)
+            urls.extend(self._extract_urls_from_value(value))
+        return self._deduplicate_urls(urls)
 
     @staticmethod
     def _extract_pricing_metadata(ability: Ability) -> tuple[str | None, str | None, float | None]:

@@ -142,6 +142,7 @@ class Ability(Base):
     ability_type: Mapped[str] = mapped_column(String(32), default="api", nullable=False)
     executor_id: Mapped[str | None] = mapped_column(String(64), ForeignKey("executors.id", ondelete="SET NULL"))
     workflow_id: Mapped[str | None] = mapped_column(String(64), ForeignKey("workflows.id", ondelete="SET NULL"))
+    coze_workflow_id: Mapped[str | None] = mapped_column(String(64))
     default_params: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     input_schema: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     extra_metadata: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSON)

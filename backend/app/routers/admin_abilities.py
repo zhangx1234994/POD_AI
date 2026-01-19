@@ -30,6 +30,38 @@ def list_abilities() -> list[Ability]:
         return session.execute(stmt).scalars().all()
 
 
+@router.get("/options", response_model=schemas.AbilityOptionListResponse)
+def list_ability_options(
+    status: str | None = Query(default="active"),
+    provider: str | None = Query(default=None),
+) -> schemas.AbilityOptionListResponse:
+    with get_session() as session:
+        ensure_default_abilities(session)
+        stmt = select(Ability)
+        if status:
+            stmt = stmt.where(Ability.status == status)
+        if provider:
+            stmt = stmt.where(Ability.provider == provider)
+        stmt = stmt.order_by(Ability.provider.asc(), Ability.capability_key.asc())
+        abilities = session.execute(stmt).scalars().all()
+        items = [
+            schemas.AbilityOption(
+                id=ability.id,
+                provider=ability.provider,
+                category=ability.category,
+                capability_key=ability.capability_key,
+                display_name=ability.display_name,
+                description=ability.description,
+                default_params=ability.default_params,
+                input_schema=ability.input_schema,
+                metadata=ability.extra_metadata,
+                coze_workflow_id=ability.coze_workflow_id,
+            )
+            for ability in abilities
+        ]
+        return schemas.AbilityOptionListResponse(items=items)
+
+
 @router.post("", response_model=schemas.AbilityRead)
 def create_ability(payload: schemas.AbilityCreate) -> Ability:
     with get_session() as session:
@@ -44,6 +76,7 @@ def create_ability(payload: schemas.AbilityCreate) -> Ability:
             ability_type=payload.ability_type or "api",
             executor_id=payload.executor_id,
             workflow_id=payload.workflow_id,
+            coze_workflow_id=payload.coze_workflow_id,
             default_params=payload.default_params,
             input_schema=payload.input_schema,
             extra_metadata=payload.metadata,

@@ -68,7 +68,11 @@
 > TODO：当前阿里云 `ram:AssumeRole` 权限尚未完全配置，`/api/media/v1/sts` 在失败时会自动回落到长效 AK/SK（`isTemporary=false`）。待补齐 RAM 授权后更新配置，使接口稳定返回 `securityToken`。
 
 ## 数据库（任务模型）
-- 在 `.env` 中配置 `DATABASE_URL`（默认 `sqlite:///./app.db`，推荐使用 `mysql+pymysql://user:pass@localhost:3306/podi`）。
+- 在 `.env` 中配置 `DATABASE_URL`（本地/线上均需显式提供；不再内置 SQLite 默认值）。
+- 当前环境统一使用阿里云 RDS（`rm-bp1r74bu12nt8ibs50o.mysql.rds.aliyuncs.com`），账号 `kanban`，密码 `Chrd5@0987`，库名 `ai_zhongtai`。示例：
+  ```bash
+  export DATABASE_URL='mysql+pymysql://kanban:Chrd5%400987@rm-bp1r74bu12nt8ibs50o.mysql.rds.aliyuncs.com/ai_zhongtai'
+  ```
 - 运行 `python scripts/create_schema.py` 会根据 `app/models/task.py` 中的 SQLAlchemy 定义创建以下核心表：
   - `task_batches`：批量任务元数据。
   - `tasks`：单任务主体。
@@ -84,6 +88,11 @@
   - `GET/POST/PUT/DELETE /api/admin/workflow-bindings`：将特定 action 绑定到“工作流 + 执行节点”的组合。
   - `GET/POST/PUT/DELETE /api/admin/api-keys`：集中维护各厂商 API Key，支持状态、配额等字段。
 - 后续调度器可根据这些配置将任务分发到不同节点/模型，管理端页面位于前端 `/admin/integrations`。
+
+## Coze Studio / Loop 集成
+- Coze Studio、Coze Loop 与现有 FastAPI 服务共用同一个 MySQL 集群（`DATABASE_URL`），保持一台服务器部署、统一账号登陆。
+- `.env` 新增 `COZE_BASE_URL`（默认 `http://127.0.0.1:8888`）、`COZE_LOOP_BASE_URL`（Loop 观测台地址）、`COZE_API_TOKEN`（平台服务账号 Token）、`COZE_DEFAULT_TIMEOUT`（秒，默认 180）以调用 `/v1/workflow/run`。
+- Ability 表新增 `coze_workflow_id` 字段，管理端可在“能力目录”中为 provider=`coze` 的能力填写对应的 workflow id。调用 `/api/abilities/{id}/invoke` 时会直接命中 Coze 工作流而无需额外凭证，日志依然写入 `ability_invocation_logs`。
 
 可以通过 `backend/scripts/test_oss_connection.py` 快速验证是否能够访问到配置的桶：
 
