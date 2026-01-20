@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
-"""Run a Coze Studio workflow via HTTP (self-hosted).
+"""Run a Coze workflow via HTTP (self-hosted).
 
-This deployment uses cookie-based auth (session_key). PAT bearer tokens are not
-accepted by `/api/v1/workflow/run` in our current setup.
+Coze open-source deployments typically expose *two* kinds of endpoints:
+1) OpenAPI-style endpoint: `/v1/workflow/run` (Bearer token auth, "parameters" payload)
+2) Web-console endpoint: `/api/v1/workflow/run` (cookie auth, used by the UI)
 
 Usage:
   COZE_BASE_URL=http://118.31.18.249:8888 \\
-  BRIDGE_EMAIL=zhangxposeidon@... \\
-  BRIDGE_PASSWORD='...' \\
-  python3 scripts/coze_studio_run_workflow.py --space-id 7597421439045599232 --workflow-id 7597530887256801280 \\
-    --inputs '{"image_urls":"https://...","prompt":"..."}'
+  COZE_PAT='pat_...' \\
+  python3 scripts/coze_studio_run_workflow.py --workflow-id 7597530887256801280 \\
+    --parameters '{"image_urls":"https://...","prompt":"..."}'
+
+If COZE_PAT is not set, the script falls back to email/password login and cookie auth
+to call the UI endpoint.
 """
 
 from __future__ import annotations
@@ -94,17 +97,56 @@ def _login(opener: urllib.request.OpenerDirector, base: str, email: str, passwor
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--base-url", default=os.getenv("COZE_BASE_URL", "").strip() or "http://127.0.0.1:8888")
-    ap.add_argument("--space-id", required=True)
     ap.add_argument("--workflow-id", required=True)
+    ap.add_argument("--space-id", default="", help="Optional; only used by some UI endpoints.")
     ap.add_argument(
-        "--inputs",
+        "--parameters",
         default="{}",
         help='JSON string, e.g. \'{"prompt":"...","image_urls":"https://..."}\'',
     )
+    ap.add_argument("--bot-id", default="", help="Optional bot_id for workflows that require an associated bot.")
+    ap.add_argument("--is-async", action="store_true", help="Request async execution (if supported).")
     ap.add_argument("--timeout", type=int, default=60)
     args = ap.parse_args()
 
     base = str(args.base_url).rstrip("/")
+    try:
+        parameters = json.loads(args.parameters) if args.parameters.strip() else {}
+    except Exception:
+        raise SystemExit("--parameters must be valid JSON")
+    if not isinstance(parameters, dict):
+        raise SystemExit("--parameters must be a JSON object")
+
+    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(CookieJar()))
+
+    # Preferred: OpenAPI endpoint with Bearer token auth.
+    pat = (os.getenv("COZE_PAT") or os.getenv("COZE_API_KEY") or os.getenv("COZE_TOKEN") or "").strip()
+    if pat:
+        run_url = f"{base}/v1/workflow/run"
+        payload: dict[str, Any] = {
+            "workflow_id": str(args.workflow_id),
+            "parameters": parameters,
+        }
+        if args.bot_id:
+            payload["bot_id"] = str(args.bot_id)
+        if args.is_async:
+            payload["is_async"] = True
+        req = urllib.request.Request(run_url, data=json.dumps(payload).encode("utf-8"), method="POST")
+        req.add_header("Content-Type", "application/json")
+        req.add_header("Authorization", f"Bearer {pat}")
+        try:
+            with opener.open(req, timeout=45) as resp_obj:
+                body = resp_obj.read().decode("utf-8")
+        except urllib.error.HTTPError as e:
+            body = e.read().decode("utf-8", errors="replace")
+        try:
+            resp = json.loads(body) if body else {}
+        except Exception:
+            resp = {"_raw": body}
+        print(json.dumps(resp, ensure_ascii=False, indent=2)[:12000])
+        return 0
+
+    # Fallback: UI endpoint (cookie auth).
     email = (os.getenv("BRIDGE_EMAIL") or os.getenv("COZE_EMAIL") or "").strip()
     password = (os.getenv("BRIDGE_PASSWORD") or os.getenv("COZE_PASSWORD") or "").strip()
     if not email:
@@ -116,23 +158,12 @@ def main() -> int:
             raise SystemExit("Missing BRIDGE_PASSWORD/COZE_PASSWORD.")
         password = getpass("Coze Studio login password: ").strip()
 
-    try:
-        inputs = json.loads(args.inputs) if args.inputs.strip() else {}
-    except Exception:
-        raise SystemExit("--inputs must be valid JSON")
-    if not isinstance(inputs, dict):
-        raise SystemExit("--inputs must be a JSON object")
-
-    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(CookieJar()))
     cookie = _login(opener, base, email, password)
-
-    # Note: Coze open-source deployments differ; current server expects cookie auth
-    # and returns 401 "missing session_key in cookie" otherwise.
     run_url = f"{base}/api/v1/workflow/run"
     payload = {
         "workflow_id": str(args.workflow_id),
         "space_id": str(args.space_id),
-        "inputs": inputs,
+        "inputs": parameters,
         "timeout": int(args.timeout),
     }
     resp = _json_request(opener, "POST", run_url, payload, cookie=cookie)
@@ -142,4 +173,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
