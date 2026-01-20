@@ -389,8 +389,25 @@ def invoke_tool(
     image_url = None
     image_base64 = None
     url_candidates: list[str] = []
-    for key in ("imageUrl", "image_url", "image_urls", "input_urls", "image", "images"):
+    # Coze may send image inputs under a variety of keys depending on the UI widget.
+    # Be permissive here; backend still validates required-image semantics per ability.
+    for key in (
+        "imageUrl",
+        "image_url",
+        "image_urls",
+        "input_urls",
+        "image",
+        "images",
+        "imageList",
+        "image_list",
+        "fileList",
+        "file_list",
+        "files",
+    ):
         url_candidates.extend(_extract_urls_from_value(body.get(key)))
+    # Fallback: scan all values for structured image objects (e.g. {url, ossUrl, ...}).
+    for v in body.values():
+        url_candidates.extend(_extract_urls_from_value(v))
     if url_candidates:
         image_url = url_candidates[0]
     for key in ("imageBase64", "image_base64"):
