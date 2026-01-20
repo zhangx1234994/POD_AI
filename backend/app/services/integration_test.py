@@ -525,7 +525,9 @@ class IntegrationTestService:
                         asset = self._store_remote_asset(
                             raw_url,
                             user_id="admin-kie-input",
-                            filename=f"kie-input-{idx + 1}.png",
+                            # Do not force a suffix: KIE sometimes checks by extension and/or content-type.
+                            # Let our ingest logic pick a matching suffix from the downloaded content-type.
+                            filename=f"kie-input-{idx + 1}",
                             tag="kie-input",
                         )
                         if asset and isinstance(asset.get("ossUrl"), str):
@@ -597,7 +599,8 @@ class IntegrationTestService:
             asset = self._store_remote_asset(
                 remote_url,
                 user_id="admin-kie",
-                filename=f"{model}-{index + 1}.png",
+                # Do not force a suffix; keep content-type/extension consistent.
+                filename=f"{model}-{index + 1}",
                 tag="kie-market",
             )
             if asset:
