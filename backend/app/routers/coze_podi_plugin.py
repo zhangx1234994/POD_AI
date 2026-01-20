@@ -163,10 +163,11 @@ def _extract_urls_from_value(value: Any) -> list[str]:
     return dedup
 
 
-def _build_openapi() -> dict[str, Any]:
+def _build_openapi(*, podi_server: str | None = None) -> dict[str, Any]:
     settings = get_settings()
-    # This plugin runs on our backend. Coze containers must be able to reach this URL.
-    podi_server = settings.podi_internal_base_url.rstrip("/")
+    # This plugin runs on our backend. Coze must be able to reach this URL.
+    # Prefer the caller-provided server (derived from request host), fallback to config.
+    podi_server = (podi_server or settings.podi_internal_base_url).rstrip("/")
 
     with get_session() as session:
         # Ensure the DB has a usable baseline of executors + abilities.
@@ -332,7 +333,18 @@ def _build_openapi() -> dict[str, Any]:
 @router.get("/openapi.json")
 def get_openapi(request: Request) -> dict[str, Any]:
     _require_internal(request)
-    return _build_openapi()
+    # Make the exported OpenAPI self-contained for remote Coze instances:
+    # Coze uses the `servers[0].url` for subsequent tool invocations.
+    forwarded_proto = (request.headers.get("x-forwarded-proto") or "").strip()
+    forwarded_host = (request.headers.get("x-forwarded-host") or "").strip()
+    host = forwarded_host or (request.headers.get("host") or "").strip()
+    scheme = forwarded_proto or request.url.scheme
+    server = ""
+    if host:
+        server = f"{scheme}://{host}"
+    else:
+        server = str(request.base_url).rstrip("/")
+    return _build_openapi(podi_server=server)
 
 
 @router.get("/abilities", response_model=ability_schemas.AbilityListResponse)
