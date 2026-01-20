@@ -26,6 +26,14 @@ import urllib.request
 from getpass import getpass
 from http.cookiejar import CookieJar
 from typing import Any, Iterable
+from pathlib import Path
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+# Ensure `scripts._dotenv` is importable when running as a standalone script.
+sys.path.insert(0, str(REPO_ROOT))
+
+from scripts._dotenv import load_dotenv  # noqa: E402
 
 
 def _extract_cookie_value(set_cookie_values: Iterable[str], key: str) -> str | None:
@@ -95,8 +103,11 @@ def _login(opener: urllib.request.OpenerDirector, base: str, email: str, passwor
 
 
 def main() -> int:
+    dotenv = load_dotenv(REPO_ROOT / "backend" / ".env")
+
     ap = argparse.ArgumentParser()
-    ap.add_argument("--base-url", default=os.getenv("COZE_BASE_URL", "").strip() or "http://127.0.0.1:8888")
+    base_url_default = (os.getenv("COZE_BASE_URL") or dotenv.get("COZE_BASE_URL") or "").strip() or "http://127.0.0.1:8888"
+    ap.add_argument("--base-url", default=base_url_default)
     ap.add_argument("--workflow-id", required=True)
     ap.add_argument("--space-id", default="", help="Optional; only used by some UI endpoints.")
     ap.add_argument(
@@ -120,7 +131,15 @@ def main() -> int:
     opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(CookieJar()))
 
     # Preferred: OpenAPI endpoint with Bearer token auth.
-    pat = (os.getenv("COZE_PAT") or os.getenv("COZE_API_KEY") or os.getenv("COZE_TOKEN") or "").strip()
+    pat = (
+        os.getenv("COZE_PAT")
+        or dotenv.get("COZE_PAT")
+        or os.getenv("COZE_API_KEY")
+        or dotenv.get("COZE_API_KEY")
+        or os.getenv("COZE_TOKEN")
+        or dotenv.get("COZE_TOKEN")
+        or ""
+    ).strip()
     if pat:
         run_url = f"{base}/v1/workflow/run"
         payload: dict[str, Any] = {
@@ -147,8 +166,8 @@ def main() -> int:
         return 0
 
     # Fallback: UI endpoint (cookie auth).
-    email = (os.getenv("BRIDGE_EMAIL") or os.getenv("COZE_EMAIL") or "").strip()
-    password = (os.getenv("BRIDGE_PASSWORD") or os.getenv("COZE_PASSWORD") or "").strip()
+    email = (os.getenv("BRIDGE_EMAIL") or dotenv.get("BRIDGE_EMAIL") or os.getenv("COZE_EMAIL") or dotenv.get("COZE_EMAIL") or "").strip()
+    password = (os.getenv("BRIDGE_PASSWORD") or dotenv.get("BRIDGE_PASSWORD") or os.getenv("COZE_PASSWORD") or dotenv.get("COZE_PASSWORD") or "").strip()
     if not email:
         if not sys.stdin.isatty():
             raise SystemExit("Missing BRIDGE_EMAIL/COZE_EMAIL.")
