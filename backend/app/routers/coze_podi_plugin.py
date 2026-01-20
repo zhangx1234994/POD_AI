@@ -42,6 +42,12 @@ def _is_internal_request(request: Request) -> bool:
     # NOTE: In our local single-host setup, Coze containers reach the host via
     # host.docker.internal and port-forwarding; remote_addr is commonly 127.0.0.1.
     host = (request.client.host if request.client else "") or ""
+    settings = get_settings()
+    trusted = (settings.coze_trusted_ips or "").strip()
+    if trusted:
+        allow = {ip.strip() for ip in trusted.split(",") if ip.strip()}
+        if host in allow:
+            return True
     if host.startswith("127.") or host == "::1":
         return True
     if host.startswith("10.") or host.startswith("192.168.") or host.startswith("172."):

@@ -22,6 +22,7 @@ bash scripts/prod_write_backend_env.sh
 
 可选：
 - `SERVICE_API_TOKEN`（推荐：Coze → PODI 走固定 token）
+- `COZE_TRUSTED_IPS`（当 Coze 与 PODI 不在同一台机器时必填：填 Coze 服务器的源 IP，例如 `1.2.3.4` 或多 IP 用逗号分隔）
 - `VOLCENGINE_API_KEY` / `KIE_API_KEY` / `BAIDU_API_KEY` / `BAIDU_SECRET_KEY`
 - `PODI_INTERNAL_BASE_URL`（Coze 导入 OpenAPI 用；Coze 在另一台机器时必须能访问到 PODI）
 
@@ -44,4 +45,3 @@ python3 -m venv .venv
 说明：
 - 不要用 `host.docker.internal`（那是同机容器访问宿主机的域名）。
 - 生产建议开启 `SERVICE_API_TOKEN`，并让 Coze 侧统一带 `Authorization: Bearer <token>`。
-

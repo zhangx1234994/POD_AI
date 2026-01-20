@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     jwt_access_token_expires: int = Field(default=3600, env="JWT_ACCESS_TOKEN_EXPIRES")
     jwt_refresh_token_expires: int = Field(default=604800, env="JWT_REFRESH_TOKEN_EXPIRES")
     service_api_token: str | None = Field(default=None, env="SERVICE_API_TOKEN")
+    # When Coze Studio runs on a different machine, its requests will not look like "internal"
+    # (127.x/10.x/192.168.x/172.16.x). Allowlist its source IP(s) here.
+    # Comma-separated, e.g. "1.2.3.4,5.6.7.8".
+    coze_trusted_ips: str | None = Field(default=None, env="COZE_TRUSTED_IPS")
     baidu_api_key: str | None = Field(default=None, env="BAIDU_API_KEY")
     baidu_secret_key: str | None = Field(default=None, env="BAIDU_SECRET_KEY")
     baidu_base_url: str = Field(default="https://aip.baidubce.com", env="BAIDU_BASE_URL")
