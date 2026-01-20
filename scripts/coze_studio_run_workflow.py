@@ -134,6 +134,8 @@ def main() -> int:
     pat = (
         os.getenv("COZE_PAT")
         or dotenv.get("COZE_PAT")
+        or os.getenv("COZE_API_TOKEN")
+        or dotenv.get("COZE_API_TOKEN")
         or os.getenv("COZE_API_KEY")
         or dotenv.get("COZE_API_KEY")
         or os.getenv("COZE_TOKEN")
