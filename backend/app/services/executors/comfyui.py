@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import secrets
 import time
 from typing import Any
 from urllib.parse import parse_qs, quote, urlparse, urlencode
@@ -51,6 +52,11 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             )
         if overrides:
             _apply_inputs(graph_payload, overrides)
+
+        # Avoid "same inputs => same outputs" surprises when users run the same workflow
+        # repeatedly (e.g. "抽卡"). Many shared ComfyUI graphs ship with a fixed seed.
+        # Unless the caller explicitly provides a seed, randomize all KSampler seeds.
+        self._ensure_sampler_seed(graph_payload, context.payload or {})
 
         prompt_id = uuid4().hex
         submission = {"prompt": graph_payload, "prompt_id": prompt_id}
@@ -115,6 +121,36 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
                 "raw": outputs,
             },
         )
+
+    def _ensure_sampler_seed(self, graph: dict[str, Any], params: dict[str, Any]) -> None:
+        def _coerce_int(v: Any) -> int | None:
+            try:
+                return int(v)
+            except (TypeError, ValueError):
+                return None
+
+        provided = (
+            params.get("seed")
+            or params.get("random_seed")
+            or params.get("randomSeed")
+            or params.get("sampler_seed")
+            or params.get("samplerSeed")
+        )
+        seed = _coerce_int(provided)
+        if seed is None:
+            # Use a large positive int; ComfyUI typically supports 64-bit seeds.
+            seed = secrets.randbits(48)
+
+        for node in graph.values():
+            if not isinstance(node, dict):
+                continue
+            if node.get("class_type") != "KSampler":
+                continue
+            inputs = node.get("inputs")
+            if not isinstance(inputs, dict):
+                continue
+            if "seed" in inputs:
+                inputs["seed"] = seed
 
     def _poll_history(
         self, base_url: str, prompt_id: str, timeout: float, *, expected_images: int | None
