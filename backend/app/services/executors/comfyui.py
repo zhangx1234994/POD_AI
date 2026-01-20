@@ -166,17 +166,22 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
 
             if isinstance(status, dict):
                 status_str = str(status.get("status_str") or "").lower()
-                # "success" means terminal, but images can still be streaming in for a short while.
-                # If expected_images is set, prefer waiting for it; otherwise rely on stabilization.
-                if status_str in {"success", "error"}:
-                    if expected_images and image_count < expected_images:
-                        if stable_polls >= 3:
-                            break
-                    else:
+                # "error" is terminal.
+                if status_str == "error":
+                    break
+                # "success" can arrive before all batch images are present in `outputs`.
+                # If we know how many images we expect, keep polling until we have them
+                # or until we're close to timing out (to avoid hanging forever).
+                if status_str == "success":
+                    if not expected_images:
+                        break
+                    elapsed = time.monotonic() - start
+                    remaining = timeout - elapsed
+                    if remaining <= 5 and image_count > 0:
                         break
 
             # Fallback: if no status info, consider done once output image count stabilizes.
-            if stable_polls >= 2:
+            if not expected_images and stable_polls >= 2:
                 break
             time.sleep(1)
 
