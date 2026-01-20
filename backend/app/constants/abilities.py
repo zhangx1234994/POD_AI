@@ -94,11 +94,23 @@ def _volcengine_llm_schema() -> dict[str, Any]:
     }
 
 
-def _volcengine_image_schema(defaults: dict[str, Any]) -> dict[str, Any]:
+def _volcengine_image_schema(
+    defaults: dict[str, Any],
+    *,
+    size_options: list[dict[str, str]] | None = None,
+    include_n: bool = True,
+) -> dict[str, Any]:
     size_default = defaults.get("size", "2K")
     response_format_default = defaults.get("response_format", "url")
-    return {
-        "fields": [
+    n_default = defaults.get("n", 1)
+    # Seedream models have different size constraints (e.g. 4.5 minimum is 2K).
+    # Keep the UI aligned with what the provider accepts to reduce user trial/error.
+    size_options = size_options or [
+        {"label": "1K · 1024x1024", "value": "1K"},
+        {"label": "2K · 2048x2048", "value": "2K"},
+        {"label": "4K · 4096x4096", "value": "4K"},
+    ]
+    fields: list[dict[str, Any]] = [
             {
                 "name": "prompt",
                 "type": "textarea",
@@ -115,42 +127,53 @@ def _volcengine_image_schema(defaults: dict[str, Any]) -> dict[str, Any]:
             {
                 "name": "image_urls",
                 "type": "textarea",
-                "label": _compose_bilingual_label("参考图 URL 列表", "Reference Image URLs"),
+                "label": _compose_bilingual_label("参考图 URL（单张或多张）", "Reference Image URL(s)"),
                 "description": _compose_bilingual_label(
-                    "每行输入一个公网可访问的图片链接，用作风格/构图参考。",
-                    "Optional; one public image URL per line to guide style or layout.",
+                    "Seedream 4.x 图生图：单张填 1 行；多参考图每行 1 个 URL。",
+                    "Seedream 4.x image-to-image: one URL per line (1+).",
+                ),
+            },
+            {
+                "name": "sequential_image_generation",
+                "type": "select",
+                "label": _compose_bilingual_label("连续生成", "Sequential Image Generation"),
+                "options": [
+                    {"label": "disabled（默认）", "value": "disabled"},
+                    {"label": "auto（生成一组图）", "value": "auto"},
+                ],
+                "default": "disabled",
+                "description": _compose_bilingual_label(
+                    "auto 时可配 max_images 控制生成张数（由模型决定具体效果）。",
+                    "When auto, set max_images to control batch size.",
+                ),
+            },
+            {
+                "name": "max_images",
+                "type": "number",
+                "label": _compose_bilingual_label("连续生成张数", "Max Images"),
+                "default": 3,
+                "description": _compose_bilingual_label(
+                    "仅在连续生成=auto 时生效。", "Only used when sequential_image_generation=auto."
                 ),
             },
             {
                 "name": "size",
                 "type": "select",
                 "label": _compose_bilingual_label("输出尺寸", "Output Size"),
-                "options": [
-                    {"label": "1K · 1024x1024", "value": "1K"},
-                    {"label": "2K · 2048x2048", "value": "2K"},
-                    {"label": "4K · 4096x4096", "value": "4K"},
-                ],
+                "options": size_options,
                 "default": size_default,
                 "description": _compose_bilingual_label(
                     "常用分辨率，可与自定义宽高共同决定画幅。", "Presets, can combine with custom width/height."
                 ),
             },
             {
-                "name": "ratio",
-                "type": "select",
-                "label": _compose_bilingual_label("画幅比例", "Aspect Ratio"),
-                "options": [
-                    {"label": "1:1 Square", "value": "1:1"},
-                    {"label": "3:4 Portrait", "value": "3:4"},
-                    {"label": "4:3 Landscape", "value": "4:3"},
-                    {"label": "16:9 Wide", "value": "16:9"},
-                    {"label": "9:16 Vertical", "value": "9:16"},
-                ],
-            },
-            {
                 "name": "width",
                 "type": "number",
                 "label": _compose_bilingual_label("自定义宽度 (px)", "Custom Width (px)"),
+                "description": _compose_bilingual_label(
+                    "仅用于 PODI 侧后处理裁切/画布适配；Seedream 4.x 不保证严格按该尺寸生成。",
+                    "Used for PODI post-processing only; model may ignore exact size.",
+                ),
             },
             {
                 "name": "height",
@@ -165,7 +188,22 @@ def _volcengine_image_schema(defaults: dict[str, Any]) -> dict[str, Any]:
                 "default": response_format_default,
             },
         ]
-    }
+
+    if include_n:
+        fields.append(
+            {
+                "name": "n",
+                "type": "number",
+                "label": _compose_bilingual_label("输出张数", "Number of Images"),
+                "default": n_default,
+                "description": _compose_bilingual_label(
+                    "部分模型会忽略该字段；Seedream 4.x 建议用“连续生成”生成一组图。",
+                    "Some models ignore this; for Seedream 4.x prefer sequential generation.",
+                ),
+            }
+        )
+
+    return {"fields": fields}
 
 
 def _volcengine_video_schema() -> dict[str, Any]:
@@ -573,23 +611,6 @@ def _comfyui_pattern_expand_schema() -> dict[str, Any]:
                 "required": True,
             },
             {
-                "name": "prompt",
-                "type": "textarea",
-                "label": _compose_bilingual_label("扩图提示词", "Expansion Prompt"),
-                "description": "节点 74 · Text_O.text",
-                "default": (
-                    "8k, 最佳质量。将输入图像左右两侧进行自然、无缝的延伸，保持风格一致，"
-                    "复制重复图案，延续背景，禁止出现拼接痕迹或新增元素。"
-                ),
-            },
-            {
-                "name": "negative_prompt",
-                "type": "textarea",
-                "label": _compose_bilingual_label("反向提示词", "Negative Prompt"),
-                "description": "节点 72 · CLIPTextEncode.text",
-                "default": "solid color, text, watermark, extra objects, low quality, blurry",
-            },
-            {
                 "name": "expand_left",
                 "type": "number",
                 "label": _compose_bilingual_label("左侧扩展 (px)", "Expand Left (px)"),
@@ -617,37 +638,56 @@ def _comfyui_pattern_expand_schema() -> dict[str, Any]:
                 "description": "节点 187 · ImpactInt.value",
                 "default": 0,
             },
+        ]
+    }
+
+def _comfyui_jisu_chuli_schema() -> dict[str, Any]:
+    return {
+        "fields": [
             {
-                "name": "feathering",
-                "type": "number",
-                "label": _compose_bilingual_label("羽化宽度", "Feathering"),
-                "description": "节点 185 · ImagePadForOutpaint.feathering",
-                "default": 24,
+                "name": "image_url",
+                "type": "image",
+                "label": _compose_bilingual_label("输入图片 URL", "Input Image URL"),
+                "description": _compose_bilingual_label(
+                    "上传/填写一张图片 URL。", "Upload/provide one image URL."
+                ),
+                "required": True,
             },
             {
-                "name": "mask_expand",
-                "type": "number",
-                "label": _compose_bilingual_label("遮罩扩张", "Mask Expand"),
-                "description": "节点 73 · GrowMaskWithBlur.expand",
-                "default": 20,
-                "min": 0,
+                "name": "prompt",
+                "type": "textarea",
+                "label": _compose_bilingual_label("正向提示词", "Positive Prompt"),
+                "placeholder": _compose_bilingual_label("例如：把这只大公鸡变个颜色其他不变", "Describe the edit"),
+                "required": True,
             },
             {
-                "name": "output_long_side",
-                "type": "number",
-                "label": _compose_bilingual_label("输出长边 (px)", "Output Long Side (px)"),
-                "description": "节点 61 · ImpactInt.value → ImageScale.scale_to_length",
-                "default": 720,
+                "name": "negative_prompt",
+                "type": "textarea",
+                "label": _compose_bilingual_label("反向提示词（可选）", "Negative Prompt (optional)"),
+                "required": False,
             },
             {
-                "name": "lora_name",
-                "type": "text",
-                "label": _compose_bilingual_label("LoRA 文件名", "LoRA Filename"),
-                "description": "节点 45 · LoraLoaderModelOnly.lora_name",
-                "default": "Qwen-Image-Edit-2509-Lightning-8steps-V1.0-bf16.safetensors",
-                "component": "select",
-                "allow_custom_value": True,
-                "options": _pattern_extract_lora_options(),
+                "name": "batch",
+                "type": "number",
+                "label": _compose_bilingual_label("批次", "Batch"),
+                "default": 1,
+                "description": _compose_bilingual_label("默认 1。", "Default 1."),
+            },
+            {
+                "name": "output_width",
+                "type": "number",
+                "label": _compose_bilingual_label("输出宽度(px)", "Output Width(px)"),
+                "description": _compose_bilingual_label(
+                    "不填则默认原图宽度。", "If omitted, defaults to input image width."
+                ),
+            },
+            {
+                "name": "output_height",
+                "type": "number",
+                "label": _compose_bilingual_label("输出高度(px)", "Output Height(px)"),
+                "description": _compose_bilingual_label(
+                    "不填则默认原图高度。", "If omitted, defaults to input image height."
+                ),
             },
         ]
     }
@@ -657,6 +697,17 @@ def _build_kie_schema(capability_key: str) -> dict[str, Any]:
     if capability_key == "nano_banana_pro_image_to_image":
         return {
             "fields": [
+                {
+                    "name": "image_url",
+                    "type": "image",
+                    "label": _compose_bilingual_label("参考图 Image URL", "Reference Image URL"),
+                    "description": _compose_bilingual_label(
+                        "上传/填写 1 张参考图（会自动上传到 OSS 并转为 URL）。",
+                        "Upload/provide one reference image (we'll upload to OSS and convert to URL).",
+                    ),
+                    # The provider requires an image. Making it required avoids "IMAGE_REQUIRED" surprises in Coze.
+                    "required": True,
+                },
                 {
                     "name": "prompt",
                     "type": "textarea",
@@ -668,14 +719,17 @@ def _build_kie_schema(capability_key: str) -> dict[str, Any]:
                     "name": "image_urls",
                     "type": "textarea",
                     "label": _compose_bilingual_label("参考图 URL 列表", "Reference Image URLs"),
-                    "description": _compose_bilingual_label("每行一个公网图片链接；留空纯文生图。", "One URL per line; leave empty for text-to-image."),
+                    "description": _compose_bilingual_label(
+                        "可选：每行一个公网图片链接（用于多参考图）。",
+                        "Optional: one URL per line (for multiple reference images).",
+                    ),
                 },
                 {
                     "name": "aspect_ratio",
                     "type": "select",
                     "label": _compose_bilingual_label("画幅比例", "Aspect Ratio"),
                     "options": ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9", "auto"],
-                    "default": "1:1",
+                    "default": "auto",
                 },
                 {
                     "name": "resolution",
@@ -749,6 +803,15 @@ def _build_kie_schema(capability_key: str) -> dict[str, Any]:
                     "required": True,
                 },
                 {
+                    "name": "image_url",
+                    "type": "image",
+                    "label": _compose_bilingual_label("参考图（可选）", "Reference Image (Optional)"),
+                    "description": _compose_bilingual_label(
+                        "可选：上传/填写 1 张参考图，用于更贴近预期的镜头风格。",
+                        "Optional: upload/provide a reference image to guide the style.",
+                    ),
+                },
+                {
                     "name": "aspect_ratio",
                     "type": "select",
                     "label": _compose_bilingual_label("画幅", "Aspect Ratio"),
@@ -815,7 +878,8 @@ def _kie_metadata(
         "api_type": api_type,
         "model_id": model_id,
         "request_endpoint": endpoint,
-        "seed_version": 1,
+        # Bump when changing built-in KIE schemas/metadata/defaults so ability_seed can refresh DB rows.
+        "seed_version": 4,
     }
     if requires_image_input:
         metadata["requires_image_input"] = True
@@ -836,7 +900,8 @@ _DOUBAO_SEEDREAM_45_DEFAULTS: dict[str, Any] = {
 }
 
 _DOUBAO_SEEDREAM_40_DEFAULTS: dict[str, Any] = {
-    "model": "doubao-seedream-4-0-250901",
+    # NOTE: Model IDs vary by account entitlements.
+    "model": "doubao-seedream-4-0-250828",
     "response_format": "url",
     "size": "1K",
     "watermark": True,
@@ -978,14 +1043,21 @@ VOLCENGINE_IMAGE_ABILITIES: dict[str, AbilityDefinition] = {
         "display_name": "火山 · Doubao Seedream 4.5",
         "description": "文生图模型，支持 2K 输出并可选 sequential/watermark 配置。",
         "category": "image_generation",
-        "input_schema": _volcengine_image_schema(_DOUBAO_SEEDREAM_45_DEFAULTS),
+        "input_schema": _volcengine_image_schema(
+            _DOUBAO_SEEDREAM_45_DEFAULTS,
+            size_options=[
+                {"label": "2K · 2048x2048", "value": "2K"},
+                {"label": "4K · 4096x4096", "value": "4K"},
+            ],
+            include_n=False,
+        ),
         "metadata": _volcengine_metadata(
             endpoint="/api/v3/images/generations",
             model_id="doubao-seedream-4-5-251128",
             api_type="image_generation",
             supports_vision=True,
             reference="https://www.volcengine.com/docs/82379/1541523",
-            seed_version=3,
+            seed_version=10,
         ),
     },
     "doubao_seedream_4_0": {
@@ -994,14 +1066,14 @@ VOLCENGINE_IMAGE_ABILITIES: dict[str, AbilityDefinition] = {
         "display_name": "火山 · Doubao Seedream 4.0",
         "description": "性价比更高的文生图模型，适合预算敏感场景。",
         "category": "image_generation",
-        "input_schema": _volcengine_image_schema(_DOUBAO_SEEDREAM_40_DEFAULTS),
+        "input_schema": _volcengine_image_schema(_DOUBAO_SEEDREAM_40_DEFAULTS, include_n=False),
         "metadata": _volcengine_metadata(
             endpoint="/api/v3/images/generations",
-            model_id="doubao-seedream-4-0-250901",
+            model_id="doubao-seedream-4-0-250828",
             api_type="image_generation",
             supports_vision=True,
             reference="https://www.volcengine.com/docs/82379/1541523",
-            seed_version=3,
+            seed_version=10,
         ),
     },
 }
@@ -1034,7 +1106,8 @@ KIE_MARKET_ABILITIES: dict[str, AbilityDefinition] = {
         "endpoint": "/api/v1/jobs/createTask",
         "defaults": {
             "model": "nano-banana-pro",
-            "aspect_ratio": "1:1",
+            # KIE validates this field; "auto" is the safest default across models.
+            "aspect_ratio": "auto",
             "resolution": "1K",
             "output_format": "png",
         },
@@ -1047,7 +1120,7 @@ KIE_MARKET_ABILITIES: dict[str, AbilityDefinition] = {
             endpoint="/api/v1/jobs/createTask",
             api_type="market_image_to_image",
             model_id="nano-banana-pro",
-            requires_image_input=False,
+            requires_image_input=True,
             input_array_target="image_input",
             supports_vision=True,
         ),
@@ -1185,13 +1258,67 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "action": "pattern_expand",
             "requires_image_input": True,
             "supports_vision": True,
-            "seed_version": 1,
+            "seed_version": 2,
             "pricing": {
                 "currency": "CNY",
                 "unit": "per_image",
                 "list_price": 0.6,
                 "discount_price": 0.35,
             },
+        },
+    },
+    "jisu_chuli": {
+        "defaults": {
+            "workflow_key": "jisu_chuli",
+            "timeout": 300,
+            "batch": 1,
+        },
+        "display_name": "ComfyUI · 极速处理版",
+        "description": "极速图生图编辑：上传图片，配置正/反提示词，支持批次与输出尺寸（默认原图大小）。",
+        "category": "image_generation",
+        "input_schema": _comfyui_jisu_chuli_schema(),
+        "metadata": {
+            "executor_type": "comfyui",
+            "executor_tag": "comfyui",
+            "api_type": "comfyui_workflow",
+            "workflow_key": "jisu_chuli",
+            "action": "image_edit_fast",
+            "requires_image_input": True,
+            "supports_vision": True,
+            "seed_version": 1,
+            "pricing": {
+                "currency": "CNY",
+                "unit": "per_image",
+                "list_price": 0.4,
+                "discount_price": 0.25
+            }
+        },
+    },
+    "zhongsu_tisheng": {
+        "defaults": {
+            "workflow_key": "zhongsu_tisheng",
+            "timeout": 420,
+            "batch": 1,
+        },
+        "display_name": "ComfyUI · 中速提质版",
+        "description": "中速质量提升：8 steps（更精细），上传图片，配置正/反提示词，支持批次与输出尺寸（默认原图大小）。",
+        "category": "image_generation",
+        "input_schema": _comfyui_jisu_chuli_schema(),
+        "metadata": {
+            "executor_type": "comfyui",
+            "executor_tag": "comfyui",
+            "api_type": "comfyui_workflow",
+            "workflow_key": "zhongsu_tisheng",
+            "action": "image_edit_medium",
+            "requires_image_input": True,
+            "supports_vision": True,
+            "seed_version": 1,
+            "pricing": {
+                "currency": "CNY",
+                "unit": "per_image",
+                "list_price": 0.6,
+                "discount_price": 0.35
+            }
         },
     },
 }

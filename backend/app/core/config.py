@@ -1,11 +1,17 @@
 """应用配置。"""
 
 from functools import lru_cache
+from pathlib import Path
 from pydantic import Field
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    # Ignore unknown env keys so stale/optional integrations don't prevent boot.
+    # Always load `backend/.env` no matter where uvicorn is started from.
+    _backend_env_file = (Path(__file__).resolve().parents[2] / ".env").as_posix()
+    model_config = SettingsConfigDict(env_file=_backend_env_file, env_file_encoding="utf-8", extra="ignore")
+
     app_name: str = "PODI Backend"
     oss_access_key: str | None = Field(default=None, env=["OSS_ACCESS_KEY", "OSS_AK"])
     oss_secret_key: str | None = Field(default=None, env=["OSS_SECRET_KEY", "OSS_SK"])
@@ -38,12 +44,14 @@ class Settings(BaseSettings):
     coze_api_token: str | None = Field(default=None, env="COZE_API_TOKEN")
     coze_default_timeout: int = Field(default=180, env="COZE_DEFAULT_TIMEOUT")
     coze_loop_base_url: str | None = Field(default=None, env="COZE_LOOP_BASE_URL")
+    # Internal URL that Coze containers can use to call back into this backend.
+    # Default is host.docker.internal for Lima/Docker setups.
+    podi_internal_base_url: str = Field(default="http://host.docker.internal:8099", env="PODI_INTERNAL_BASE_URL")
     executor_config_path: str = Field(default="config/executors.yaml", env="EXECUTOR_CONFIG_PATH")
     ability_task_max_workers: int = Field(default=4, env="ABILITY_TASK_MAX_WORKERS")
-
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
+    # When set, force all ComfyUI abilities to route to a single executor id.
+    # Useful for testing (single ComfyUI server) to avoid node/plugin mismatch.
+    comfyui_default_executor_id: str | None = Field(default=None, env="COMFYUI_DEFAULT_EXECUTOR_ID")
 
 
 @lru_cache

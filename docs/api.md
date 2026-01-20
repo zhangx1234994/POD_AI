@@ -20,13 +20,25 @@ POD AI Studio 提供了一套完整的RESTful API，用于用户认证、图像�
 
 ### 基础URL
 
-- **统一 Host（后台服务）**: `http://localhost:8099`
-- **开放 API 前缀**: `http://localhost:8099/api`
+- **统一 Host（后台服务）**: `http://127.0.0.1:8099`（本地开发建议使用 `127.0.0.1`，避免 `localhost` Cookie/代理差异）
+- **开放 API 前缀**: `http://127.0.0.1:8099/api`
   - `auth`：认证登录/刷新
   - `media`：媒资上传凭证
   - `abilities`：统一能力接口（详见下文）
   - `ability-tasks`：异步/批量任务
   - `admin/*`：管理端专用接口（执行节点、能力日志、ComfyUI 管理等）
+  - `coze/podi/*`：Coze Studio 插件（内部集成用，OpenAPI + Tools）
+
+### Coze 插件（内部集成）
+
+用于把 PODI 的“原子能力”以 Coze Studio Tools 形式暴露（一个能力一个 tool）。
+
+- OpenAPI（给 Coze 导入用）：
+  - `GET /api/coze/podi/openapi.json`
+- 调用某个能力（tool）：
+  - `POST /api/coze/podi/tools/{provider}/{capability_key}`
+- 查询异步任务（用于 ComfyUI 等长耗时能力）：
+  - `POST /api/coze/podi/tasks/get`
 
 ### 数据格式
 

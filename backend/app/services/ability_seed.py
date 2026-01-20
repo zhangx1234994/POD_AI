@@ -146,6 +146,7 @@ def ensure_default_abilities(session: Session) -> bool:
     """Ensure built-in abilities exist; return True if new records were created."""
 
     created = False
+    changed = False
     for seed in DEFAULT_ABILITY_SEEDS:
         stmt = select(Ability).where(
             Ability.provider == seed.provider,
@@ -170,6 +171,7 @@ def ensure_default_abilities(session: Session) -> bool:
                 updated = True
             if updated:
                 session.add(existing)
+                changed = True
             continue
         ability = Ability(
             id=seed.id,
@@ -188,7 +190,8 @@ def ensure_default_abilities(session: Session) -> bool:
         )
         session.add(ability)
         created = True
+        changed = True
 
-    if created:
+    if changed:
         session.commit()
     return created

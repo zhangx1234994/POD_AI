@@ -13,6 +13,16 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 database_url = os.getenv("DATABASE_URL")
+if not database_url:
+    # Local dev convenience: allow alembic to read DATABASE_URL from backend/.env
+    # without requiring callers to export it into the environment.
+    try:
+        from dotenv import dotenv_values  # type: ignore
+
+        env = dotenv_values(".env")
+        database_url = env.get("DATABASE_URL")
+    except Exception:
+        database_url = None
 if database_url:
     config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
 

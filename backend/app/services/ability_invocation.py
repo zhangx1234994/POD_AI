@@ -8,6 +8,7 @@ import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from math import gcd
 from typing import Any, Iterable
 from uuid import uuid4
 
@@ -16,14 +17,17 @@ from sqlalchemy import select
 
 import httpx
 
+from app.core.config import get_settings
 from app.core.db import get_session
-from app.models.integration import Ability
+from app.models.integration import Ability, Executor, WorkflowBinding
 from app.models.user import User
 from app.schemas import abilities as schemas
 from app.services.ability_logs import AbilityLogStartParams, ability_log_service
 from app.services.ability_seed import ensure_default_abilities
+from app.services.executor_seed import ensure_default_executors
 from app.services.integration_test import integration_test_service
 from app.services.coze_client import coze_client
+from app.services.workflow_seed import ensure_default_bindings, ensure_default_workflows
 
 
 @dataclass
@@ -78,12 +82,20 @@ class AbilityInvocationService:
         ability = self._get_ability(ability_id)
         if ability.status != "active":
             raise HTTPException(status_code=400, detail="ABILITY_INACTIVE")
-        provider_key = ability.provider.lower()
-        executor_id = payload.executorId or ability.executor_id
-        if not executor_id and provider_key not in {"coze"}:
-            raise HTTPException(status_code=400, detail="ABILITY_EXECUTOR_NOT_CONFIGURED")
         merged_inputs = self._merge_inputs(ability, payload)
         image_bundle = self._normalize_image_inputs(payload, merged_inputs)
+        provider_key = ability.provider.lower()
+        executor_id = payload.executorId or ability.executor_id
+        # For internal integrations (Coze/automation), we allow omitting executorId and
+        # auto-pick an active executor by provider.
+        if not executor_id and provider_key == "comfyui":
+            # Different ComfyUI servers may have different custom nodes/models installed.
+            # Route by action/workflow_key via workflow bindings when possible.
+            executor_id = self._pick_comfyui_executor_id(ability, merged_inputs)
+        if not executor_id and provider_key not in {"coze"}:
+            executor_id = self._pick_default_executor_id(provider_key)
+        if not executor_id and provider_key not in {"coze"}:
+            raise HTTPException(status_code=400, detail="ABILITY_EXECUTOR_NOT_CONFIGURED")
         request_marker = uuid4().hex
         currency, billing_unit, unit_price = self._extract_pricing_metadata(ability)
         request_payload = {
@@ -172,6 +184,82 @@ class AbilityInvocationService:
             )
         return response_payload
 
+    def _pick_default_executor_id(self, provider_key: str) -> str | None:
+        """Pick a default executor for a provider.
+
+        We keep this simple/deterministic:
+        - seed default executors (from `config/executors.yaml`) if missing
+        - choose the highest-weight active executor of the provider
+        """
+
+        with get_session() as session:
+            ensure_default_executors(session)
+            row = (
+                session.execute(
+                    select(Executor)
+                    .where(Executor.status == "active", Executor.type == provider_key)
+                    .order_by(Executor.weight.desc(), Executor.id.asc())
+                )
+                .scalars()
+                .first()
+            )
+            return row.id if row else None
+
+    def _pick_comfyui_executor_id(self, ability: Ability, merged_inputs: dict[str, Any]) -> str | None:
+        """Pick a ComfyUI executor based on workflow binding/action.
+
+        This avoids sending a workflow graph to a ComfyUI node that doesn't have
+        required custom nodes installed (which causes /prompt 400 errors).
+        """
+
+        settings = get_settings()
+        if settings.comfyui_default_executor_id:
+            forced_id = settings.comfyui_default_executor_id.strip()
+            if forced_id:
+                with get_session() as session:
+                    executor = session.get(Executor, forced_id)
+                    if executor and executor.status == "active" and (executor.type or "").lower() == "comfyui":
+                        return executor.id
+
+        metadata = ability.extra_metadata if isinstance(ability.extra_metadata, dict) else {}
+        action = (metadata.get("action") or "").strip() or "generic"
+        workflow_key = (
+            (merged_inputs.get("workflow_key") if isinstance(merged_inputs, dict) else None)
+            or metadata.get("workflow_key")
+            or ability.capability_key
+        )
+
+        # Some actions share the same executor in our current deployment.
+        actions = [action]
+        if action == "pattern_expand":
+            actions.append("pattern_extract")
+
+        with get_session() as session:
+            ensure_default_executors(session)
+            ensure_default_workflows(session)
+            ensure_default_bindings(session)
+            # Prefer bindings for the action.
+            binding = (
+                session.execute(
+                    select(WorkflowBinding)
+                    .where(WorkflowBinding.enabled.is_(True), WorkflowBinding.action.in_(actions))
+                    .order_by(WorkflowBinding.priority.desc(), WorkflowBinding.id.asc())
+                )
+                .scalars()
+                .first()
+            )
+            if binding:
+                executor = session.get(Executor, binding.executor_id)
+                if executor and executor.status == "active":
+                    return executor.id
+
+        # Fallback: keep current single-host defaults predictable.
+        if workflow_key == "sifang_lianxu":
+            return "executor_comfyui_seamless_117"
+        if workflow_key in {"yinhua_tiqu", "huawen_kuotu", "jisu_chuli", "zhongsu_tisheng"}:
+            return "executor_comfyui_pattern_extract_158"
+        return None
+
     # -------- internal helpers -------- #
     def _dispatch_provider(
         self,
@@ -245,13 +333,79 @@ class AbilityInvocationService:
             negative_prompt = self._pop_first_string(merged_inputs, ["negative_prompt", "negativePrompt"])
             size = self._pop_first_string(merged_inputs, ["size"])
             response_format = self._pop_first_string(merged_inputs, ["response_format", "responseFormat"])
+            sequential = self._pop_first_string(
+                merged_inputs,
+                [
+                    "sequential_image_generation",
+                    "sequentialImageGeneration",
+                ],
+            )
+            max_images_raw = self._pop_first_string(
+                merged_inputs,
+                [
+                    "max_images",
+                    "maxImages",
+                    "sequential_image_generation_max_images",
+                ],
+            )
+            # Support custom width/height (input schema exposes them as "number" but we pass
+            # as real ints to the provider).
+            width_raw = self._pop_first_string(merged_inputs, ["width"])
+            height_raw = self._pop_first_string(merged_inputs, ["height"])
+            n_raw = self._pop_first_string(merged_inputs, ["n"])
+            try:
+                width = int(width_raw) if width_raw is not None else None
+            except (TypeError, ValueError):
+                width = None
+            try:
+                height = int(height_raw) if height_raw is not None else None
+            except (TypeError, ValueError):
+                height = None
+            try:
+                n_value = int(n_raw) if n_raw is not None else None
+            except (TypeError, ValueError):
+                n_value = None
+            # NOTE: Seedream 4.x image-to-image uses `image` (string or list) and may not
+            # support free-form width/height the way OpenAI-style providers do. We keep
+            # width/height as optional metadata for our own post-processing, but do not
+            # rely on the model honoring them.
+            if width and height:
+                merged_inputs["width"] = width
+                merged_inputs["height"] = height
             reference_urls = self._pop_url_list(
                 merged_inputs, ["image_urls", "image_url", "reference_image_urls"]
             )
             bundle_urls = self._urls_from_image_bundle(images)
             combined_urls = self._deduplicate_urls(reference_urls + bundle_urls)
             if combined_urls:
-                merged_inputs["image_urls"] = combined_urls
+                # Seedream 4.x image-to-image uses `image` (string or list).
+                merged_inputs["image"] = combined_urls[0] if len(combined_urls) == 1 else combined_urls
+
+            # Volcengine supports multiple outputs via `n`. Some accounts/models enforce a
+            # combined limit with reference images. We clamp to a conservative max=10.
+            if n_value is not None:
+                if n_value < 1:
+                    n_value = 1
+                if n_value > 10:
+                    n_value = 10
+                merged_inputs["n"] = n_value
+
+            # Seedream 4.x multi-image generation uses sequential generation flags, not `n`.
+            # Keep it optional and pass through when provided.
+            if sequential:
+                seq = sequential.strip().lower()
+                if seq in {"disabled", "auto"}:
+                    merged_inputs["sequential_image_generation"] = seq
+                    if seq != "disabled" and max_images_raw is not None:
+                        try:
+                            max_images = int(str(max_images_raw).strip())
+                        except (TypeError, ValueError):
+                            max_images = None
+                        if max_images and max_images > 0:
+                            merged_inputs["sequential_image_generation_options"] = {"max_images": max_images}
+
+            # Coze expects a single JSON response; streaming will break tool execution.
+            merged_inputs["stream"] = False
             return integration_test_service.run_volcengine_image_generation(
                 executor_id=executor_id,
                 model=model,
@@ -310,41 +464,83 @@ class AbilityInvocationService:
             input_payload["prompt"] = prompt
         array_target = metadata.get("input_array_target")
         url_candidates: list[str] = []
-        url_candidates.extend(self._pop_url_list(merged_inputs, ["image_urls", "input_urls"]))
+        # KIE "market" models are inconsistent in naming image fields; accept a broad set.
+        url_candidates.extend(
+            self._pop_url_list(
+                merged_inputs,
+                [
+                    "image_urls",
+                    "image_url",
+                    "imageUrl",
+                    "input_urls",
+                    "input_url",
+                    "inputUrl",
+                ],
+            )
+        )
+        # Some tools may put image inputs under `input` (input_payload) instead of top-level keys.
+        url_candidates.extend(
+            self._extract_urls_from_value(
+                input_payload.get("image_urls")
+                or input_payload.get("image_url")
+                or input_payload.get("imageUrl")
+                or input_payload.get("input_urls")
+                or input_payload.get("input_url")
+                or input_payload.get("inputUrl")
+            )
+        )
         url_candidates.extend(self._urls_from_image_bundle(images))
         if array_target:
             existing_entries_value = input_payload.get(array_target)
-            normalized_entries: list[dict[str, Any]] = []
+            # KIE tools are inconsistent: some expect `["url1","url2"]`, others accept
+            # `[{"url":"..."}, ...]`. Detect based on existing payload shape.
+            use_object_entries = False
+            if isinstance(existing_entries_value, list):
+                use_object_entries = any(isinstance(item, dict) for item in existing_entries_value)
+
             seen_urls: set[str] = set()
+            normalized_entries: list[Any] = []
             if isinstance(existing_entries_value, list):
                 for entry in existing_entries_value:
-                    if isinstance(entry, dict):
+                    if isinstance(entry, str) and entry.strip():
+                        normalized_entries.append(entry.strip())
+                        seen_urls.add(entry.strip())
+                    elif isinstance(entry, dict) and use_object_entries:
                         normalized_entries.append(entry)
                         first_url = self._extract_urls_from_value(entry)
                         if first_url:
                             seen_urls.add(first_url[0])
+
             for url in self._deduplicate_urls(url_candidates):
                 if url in seen_urls:
                     continue
-                normalized_entries.append({"url": url})
+                normalized_entries.append({"url": url} if use_object_entries else url)
                 seen_urls.add(url)
+
             if not normalized_entries and metadata.get("requires_image_input"):
                 raise HTTPException(status_code=400, detail="IMAGE_REQUIRED")
             if normalized_entries:
                 input_payload[array_target] = normalized_entries
         elif metadata.get("requires_image_input") and not url_candidates:
             raise HTTPException(status_code=400, detail="IMAGE_REQUIRED")
-        extra_payload = None
-        if isinstance(merged_inputs.get("extra"), dict):
-            extra_payload = merged_inputs.pop("extra")
+
+        # KIE expects most parameters under `input`. Treat leftover fields as input params
+        # (keeps Coze form usage simple; avoids silent drops).
+        call_back_url = self._pop_first_string(merged_inputs, ["callBackUrl", "callback_url"])
+        extra_payload = merged_inputs.pop("extra", None) if isinstance(merged_inputs.get("extra"), dict) else None
+        for key, value in list(merged_inputs.items()):
+            if value in (None, "", []):
+                continue
+            input_payload.setdefault(key, value)
+
         endpoint = metadata.get("request_endpoint")
         return integration_test_service.run_kie_market_task(
             executor_id=executor_id,
             endpoint=endpoint,
             model=model,
             input_payload=input_payload,
-            call_back_url=self._pop_first_string(merged_inputs, ["callBackUrl", "callback_url"]),
-            extra_payload=self._clean_params(extra_payload or merged_inputs) or None,
+            call_back_url=call_back_url,
+            extra_payload=self._clean_params(extra_payload) or None,
         )
 
     def _invoke_coze(
@@ -413,6 +609,44 @@ class AbilityInvocationService:
         merged = dict(ability.default_params or {})
         if payload.inputs:
             merged.update(payload.inputs)
+        return self._coerce_input_types(ability, merged)
+
+    def _coerce_input_types(self, ability: Ability, merged: dict[str, Any]) -> dict[str, Any]:
+        """Coerce common field types from string inputs.
+
+        Coze workflows prefer all-string inputs; we convert internally based on
+        Ability.input_schema field types.
+        """
+
+        schema = ability.input_schema or {}
+        fields = schema.get("fields") or []
+        if not isinstance(fields, list) or not fields:
+            return merged
+
+        def truthy(value: str) -> bool:
+            v = value.strip().lower()
+            return v in {"1", "true", "yes", "y", "on"}
+
+        for f in fields:
+            if not isinstance(f, dict):
+                continue
+            name = f.get("name")
+            if not isinstance(name, str) or not name:
+                continue
+            ftype = (f.get("type") or "").lower()
+            if name not in merged:
+                continue
+            value = merged.get(name)
+            if not isinstance(value, str):
+                continue
+            if ftype in {"switch", "boolean"}:
+                merged[name] = truthy(value)
+            elif ftype == "number":
+                try:
+                    merged[name] = int(value.strip())
+                except (TypeError, ValueError):
+                    # Leave it as-is; provider handler may accept non-int forms.
+                    pass
         return merged
 
     def _normalize_image_inputs(
@@ -604,12 +838,46 @@ class AbilityInvocationService:
                 for url in result_urls:
                     if isinstance(url, str):
                         assets.append(schemas.AbilityOutputAsset(sourceUrl=url, type="image"))
+            # Providers like ComfyUI return a generic `assets` list; surface image assets in `images`
+            # so Coze (and our UI) can display them without custom parsing.
+            if not assets:
+                generic_assets = payload.get("assets") or payload.get("storedAssets")
+                if isinstance(generic_assets, list):
+                    for item in generic_assets:
+                        if not isinstance(item, dict):
+                            continue
+                        content_type = (item.get("contentType") or item.get("mimeType") or "").lower()
+                        if content_type.startswith("image/") or item.get("tag") in {"comfyui", "comfyui-input"}:
+                            assets.append(
+                                schemas.AbilityOutputAsset(
+                                    ossUrl=item.get("ossUrl") or item.get("url"),
+                                    sourceUrl=item.get("sourceUrl"),
+                                    type="image",
+                                    tag=item.get("tag"),
+                                )
+                            )
         elif target == "video":
             video_urls = payload.get("videoUrls") or payload.get("videos")
             if isinstance(video_urls, list):
                 for url in video_urls:
                     if isinstance(url, str):
                         assets.append(schemas.AbilityOutputAsset(sourceUrl=url, type="video"))
+            if not assets:
+                generic_assets = payload.get("assets") or payload.get("storedAssets")
+                if isinstance(generic_assets, list):
+                    for item in generic_assets:
+                        if not isinstance(item, dict):
+                            continue
+                        content_type = (item.get("contentType") or item.get("mimeType") or "").lower()
+                        if content_type.startswith("video/") or item.get("tag") in {"video", "comfyui-video"}:
+                            assets.append(
+                                schemas.AbilityOutputAsset(
+                                    ossUrl=item.get("ossUrl") or item.get("url"),
+                                    sourceUrl=item.get("sourceUrl"),
+                                    type="video",
+                                    tag=item.get("tag"),
+                                )
+                            )
         return assets
 
     def _extract_generic_assets(self, payload: dict[str, Any]) -> list[schemas.AbilityOutputAsset]:
@@ -699,6 +967,12 @@ class AbilityInvocationService:
             value = payload.pop(key, None)
             if isinstance(value, str) and value.strip():
                 return value.strip()
+            # Coze inputs are typically strings; internal coercion may have already
+            # converted some fields (e.g., number/switch) to scalars.
+            if isinstance(value, bool):
+                return "true" if value else "false"
+            if isinstance(value, (int, float)):
+                return str(value)
         return None
 
     @staticmethod

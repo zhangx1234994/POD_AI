@@ -1,7 +1,7 @@
 {
   "35": {
     "inputs": {
-      "unet_name": "qwen_image_edit_2511_fp8mixed.safetensors",
+      "unet_name": "qwen-image-2512-fp8.safetensors",
       "weight_dtype": "default"
     },
     "class_type": "UNETLoader",
@@ -99,7 +99,7 @@
   },
   "51": {
     "inputs": {
-      "seed": 820339091156423,
+      "seed": 389365770564283,
       "steps": 8,
       "cfg": 1,
       "sampler_name": "euler",
@@ -558,3 +558,4 @@
     }
   }
 }
+

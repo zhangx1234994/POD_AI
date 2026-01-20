@@ -11,6 +11,8 @@ from urllib.parse import parse_qs, quote, urlparse, urlencode
 from uuid import uuid4
 
 import httpx
+from PIL import Image
+from io import BytesIO
 
 from app.services.executors.base import ExecutionContext, ExecutionResult, ExecutorAdapter
 from app.services.media_ingest import media_ingest_service
@@ -65,7 +67,9 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             return ExecutionResult(
                 success=False,
                 status="failed",
-                error_message="COMFYUI_SUBMIT_ERROR",
+                # Surface status/body to callers (Coze shows this to users), helps diagnose
+                # missing custom nodes/models on a specific ComfyUI executor.
+                error_message=f"COMFYUI_SUBMIT_ERROR{extra_details}",
             )
 
         outputs = self._poll_history(base_url, prompt_id, timeout=workflow_definition.get("timeout", 180))
@@ -196,6 +200,10 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             return self._build_pattern_extract_inputs(inputs, context, workflow_definition)
         if workflow_key == "huawen_kuotu":
             return self._build_pattern_expand_inputs(inputs, context, workflow_definition)
+        if workflow_key == "jisu_chuli":
+            return self._build_jisu_chuli_inputs(inputs, context, workflow_definition)
+        if workflow_key == "zhongsu_tisheng":
+            return self._build_jisu_chuli_inputs(inputs, context, workflow_definition)
         return None, None
 
     def _looks_like_node_overrides(self, payload: dict[str, Any]) -> bool:
@@ -287,13 +295,6 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             return None, "COMFYUI_IMAGE_REQUIRED"
         overrides["205"] = {"url": image_url}
 
-        prompt = self._as_text(params.get("prompt"))
-        if prompt:
-            overrides.setdefault("74", {})["text"] = prompt
-        negative = self._as_text(params.get("negative_prompt") or params.get("negativePrompt"))
-        if negative:
-            overrides.setdefault("72", {})["text"] = negative
-
         mapping = {
             "expand_left": ("188", "value"),
             "expand_right": ("189", "value"),
@@ -305,23 +306,63 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             if value is not None:
                 overrides.setdefault(node_id, {})[key] = value
 
-        feathering = self._coerce_positive_int(params.get("feathering"))
-        if feathering is not None:
-            overrides.setdefault("185", {})["feathering"] = feathering
+        return (overrides or None), None
 
-        mask_expand = self._coerce_positive_int(params.get("mask_expand") or params.get("maskExpand"))
-        if mask_expand is not None:
-            overrides.setdefault("73", {})["expand"] = mask_expand
+    def _build_jisu_chuli_inputs(
+        self, params: dict[str, Any], context: ExecutionContext, workflow_definition: dict[str, Any]
+    ) -> tuple[dict[str, Any] | None, str | None]:
+        """极速处理版：图生图编辑（正/反提示词 + 图片 + 批次 + 输出尺寸）。
 
-        output_long_side = self._coerce_positive_int(
-            params.get("output_long_side") or params.get("outputLongSide")
-        )
-        if output_long_side:
-            overrides.setdefault("61", {})["value"] = output_long_side
+        Node mapping (see `backend/app/workflows/comfyui/jisu_chuli.json`):
+        - 393: LoadImagesFromURL.url
+        - 111: positive prompt
+        - 110: negative prompt
+        - 434: RepeatLatentBatch.amount (batch)
+        - 433: LatentUpscale.width/height (output size)
+        """
 
-        lora_name = self._as_text(params.get("lora_name") or params.get("loraName"))
-        if lora_name:
-            overrides.setdefault("45", {})["lora_name"] = lora_name
+        overrides: dict[str, dict[str, Any]] = {}
+
+        image_url, _ = self._resolve_image_source(params, context)
+        if not image_url:
+            return None, "COMFYUI_IMAGE_REQUIRED"
+        overrides["393"] = {"url": image_url}
+
+        prompt = self._as_text(params.get("prompt") or params.get("positive_prompt"))
+        if prompt:
+            overrides.setdefault("111", {})["prompt"] = prompt
+
+        negative = self._as_text(params.get("negative_prompt") or params.get("negativePrompt"))
+        if negative:
+            overrides.setdefault("110", {})["prompt"] = negative
+
+        batch = self._coerce_positive_int(params.get("batch") or params.get("amount") or params.get("n"))
+        if batch:
+            overrides.setdefault("434", {})["amount"] = batch
+
+        width = self._coerce_positive_int(params.get("output_width") or params.get("width"))
+        height = self._coerce_positive_int(params.get("output_height") or params.get("height"))
+
+        # Default to original image size when not provided.
+        if not width or not height:
+            try:
+                resp = httpx.get(image_url, timeout=30)
+                resp.raise_for_status()
+                im = Image.open(BytesIO(resp.content))
+                src_w, src_h = im.size
+                width = width or int(src_w)
+                height = height or int(src_h)
+            except Exception:
+                # Leave as-is; workflow has defaults (512x512).
+                pass
+
+        if width or height:
+            node_inputs: dict[str, Any] = {}
+            if width:
+                node_inputs["width"] = width
+            if height:
+                node_inputs["height"] = height
+            overrides["433"] = node_inputs
 
         return (overrides or None), None
 

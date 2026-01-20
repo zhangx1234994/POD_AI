@@ -7,15 +7,19 @@ import json
 import time
 from types import SimpleNamespace
 from uuid import uuid4
+from io import BytesIO
 
 import httpx
 from fastapi import HTTPException
+from PIL import Image
 
 from app.constants.abilities import BAIDU_IMAGE_ABILITIES
 from app.core.db import get_session
-from app.models.integration import Executor
+from app.models.integration import ApiKey, Executor
+from app.services.api_key_selector import bump_usage, mark_cooldown, pick_executor_api_key, pick_provider_api_key
 from app.services.executors import ExecutionContext, registry
 from app.services.media_ingest import media_ingest_service
+from app.services.oss import oss_service
 from app.workflows import load_comfy_workflow
 
 
@@ -28,6 +32,9 @@ class IntegrationTestService:
             executor = session.get(Executor, executor_id)
             if not executor:
                 raise HTTPException(status_code=404, detail="EXECUTOR_NOT_FOUND")
+            # Preload api keys (otherwise lazy-loading after session closes will fail).
+            _ = list(executor.api_keys)
+            _ = list(executor.api_key_links)
             return executor
 
     def run_baidu_image_process(
@@ -53,9 +60,10 @@ class IntegrationTestService:
         operation_conf = BAIDU_IMAGE_ABILITIES.get(operation)
         if not operation_conf:
             raise HTTPException(status_code=400, detail="UNSUPPORTED_OPERATION")
+        endpoint = operation_conf["endpoint"]
 
         workflow_definition = {
-            "endpoint": operation_conf["endpoint"],
+            "endpoint": endpoint,
             "defaults": {**operation_conf.get("defaults", {}), **(params or {})},
         }
         payload: dict[str, str] = {}
@@ -79,7 +87,39 @@ class IntegrationTestService:
             raise HTTPException(status_code=502, detail=result.error_message or "BAIDU_TEST_FAILED")
         if not result.result_payload:
             raise HTTPException(status_code=502, detail="NO_RESULT_PAYLOAD")
-        return result.result_payload
+        if not isinstance(result.result_payload, dict):
+            return result.result_payload
+
+        payload_dict = result.result_payload
+
+        # Baidu returns base64 image; persist into OSS so Coze/our UI can preview via URL.
+        result_image = payload_dict.get("resultImage")
+        if isinstance(result_image, str) and result_image.startswith("data:image/") and ";base64," in result_image:
+            b64 = result_image.split(";base64,", 1)[1].strip()
+            asset = self._store_base64_asset(
+                b64,
+                user_id="admin-baidu",
+                filename=f"baidu-{operation}-{uuid4().hex}.png",
+                mime_type="image/png",
+                tag="baidu-image",
+            )
+            if asset and isinstance(asset.get("ossUrl"), str):
+                payload_dict["storedUrl"] = asset["ossUrl"]
+                payload_dict["resultUrls"] = [asset["ossUrl"]]
+                payload_dict["assets"] = [asset]
+
+        # Add request context for debugging without leaking base64 payload.
+        payload_dict["raw"] = {
+            "response": payload_dict.get("raw"),
+            "request": {
+                "endpoint": endpoint,
+                "operation": operation,
+                "params": params or {},
+                "imageUrl": image_url,
+                "hasImageBase64": bool(image_base64),
+            },
+        }
+        return payload_dict
 
     def run_baidu_quality_upgrade(
         self,
@@ -103,15 +143,35 @@ class IntegrationTestService:
         )
 
     # ----------------------- Volcengine helpers ----------------------- #
-    def _prepare_volc_request(self, executor: Executor, *, endpoint: str) -> tuple[str, dict[str, str]]:
+    def _pick_volc_api_key(self, executor: Executor, exclude_ids: set[str] | None = None) -> ApiKey | None:
+        # Prefer keys bound in DB; fallback to legacy executor.config["apiKey"].
+        exclude_ids = exclude_ids or set()
+        with get_session() as session:
+            api_key = pick_executor_api_key(
+                session,
+                executor_id=executor.id,
+                provider="volcengine",
+                exclude_ids=exclude_ids,
+            )
+            if api_key:
+                return api_key
+            # Internal fallback: if the executor isn't bound yet, use the global pool.
+            api_key = pick_provider_api_key(session, provider="volcengine", exclude_ids=exclude_ids)
+            if api_key:
+                return api_key
+        legacy = (executor.config or {}).get("apiKey")
+        if legacy:
+            return ApiKey(id="legacy", provider="volcengine", name="legacy", key=str(legacy), status="active")
+        return None
+
+    def _prepare_volc_request(
+        self, executor: Executor, *, endpoint: str, api_key: ApiKey
+    ) -> tuple[str, dict[str, str]]:
         config = executor.config or {}
-        api_key = config.get("apiKey")
-        if not api_key:
-            raise HTTPException(status_code=400, detail="VOLCENGINE_API_KEY_MISSING")
         base_url = (config.get("baseUrl") or "https://ark.cn-beijing.volces.com").rstrip("/")
         url = f"{base_url}{endpoint}"
         headers = {
-            "Authorization": f"Bearer {api_key}",
+            "Authorization": f"Bearer {api_key.key}",
             "Content-Type": "application/json",
         }
         return url, headers
@@ -128,42 +188,65 @@ class IntegrationTestService:
         executor = self._get_executor(executor_id)
         if executor.type != "volcengine":
             raise HTTPException(status_code=400, detail="EXECUTOR_TYPE_NOT_VOLCENGINE")
-        url, headers = self._prepare_volc_request(executor, endpoint="/api/v3/chat/completions")
-        content: list[dict[str, object]] = [{"type": "text", "text": prompt}]
-        if image_url:
-            content.insert(0, {"type": "image_url", "image_url": {"url": image_url}})
-        payload: dict[str, object] = {
-            "model": model,
-            "messages": [{"role": "user", "content": content}],
-            "stream": False,
-        }
-        if params:
-            payload.update(params)
-        try:
-            response = httpx.post(url, headers=headers, json=payload, timeout=60)
-        except httpx.HTTPError as exc:
-            raise HTTPException(status_code=502, detail="VOLCENGINE_HTTP_ERROR") from exc
-        data = response.json()
-        if response.status_code >= 400:
-            detail = data.get("error", {}).get("message") if isinstance(data, dict) else None
-            raise HTTPException(status_code=502, detail=detail or data)
-        choices = data.get("choices") or []
-        message_content = ""
-        if choices:
-            message = choices[0].get("message") or {}
-            content_value = message.get("content")
-            if isinstance(content_value, list):
-                message_content = " ".join(
-                    part.get("text", "") for part in content_value if isinstance(part, dict)
-                ).strip()
-            elif isinstance(content_value, str):
-                message_content = content_value
-        return {
-            "provider": "volcengine",
-            "model": data.get("model") or model,
-            "text": message_content or "(无返回文本)",
-            "raw": data,
-        }
+        exclude: set[str] = set()
+        last_err: str | None = None
+        for _attempt in range(2):
+            api_key = self._pick_volc_api_key(executor, exclude_ids=exclude)
+            if not api_key:
+                raise HTTPException(status_code=400, detail="VOLCENGINE_API_KEY_MISSING")
+            url, headers = self._prepare_volc_request(executor, endpoint="/api/v3/chat/completions", api_key=api_key)
+
+            content: list[dict[str, object]] = [{"type": "text", "text": prompt}]
+            if image_url:
+                content.insert(0, {"type": "image_url", "image_url": {"url": image_url}})
+            payload: dict[str, object] = {
+                "model": model,
+                "messages": [{"role": "user", "content": content}],
+                "stream": False,
+            }
+            if params:
+                payload.update(params)
+            try:
+                response = httpx.post(url, headers=headers, json=payload, timeout=60)
+            except httpx.HTTPError as exc:
+                raise HTTPException(status_code=502, detail="VOLCENGINE_HTTP_ERROR") from exc
+            data = response.json()
+            if response.status_code >= 400:
+                detail = data.get("error", {}).get("message") if isinstance(data, dict) else None
+                last_err = str(detail or data)
+                if response.status_code == 429 and api_key.id != "legacy":
+                    with get_session() as session:
+                        real_key = session.get(ApiKey, api_key.id)
+                        if real_key:
+                            mark_cooldown(session, api_key=real_key, seconds=120, reason="rate_limited")
+                    exclude.add(api_key.id)
+                    continue
+                raise HTTPException(status_code=502, detail=detail or data)
+
+            if api_key.id != "legacy":
+                with get_session() as session:
+                    real_key = session.get(ApiKey, api_key.id)
+                    if real_key:
+                        bump_usage(session, api_key=real_key)
+
+            choices = data.get("choices") or []
+            message_content = ""
+            if choices:
+                message = choices[0].get("message") or {}
+                content_value = message.get("content")
+                if isinstance(content_value, list):
+                    message_content = " ".join(
+                        part.get("text", "") for part in content_value if isinstance(part, dict)
+                    ).strip()
+                elif isinstance(content_value, str):
+                    message_content = content_value
+            return {
+                "provider": "volcengine",
+                "model": data.get("model") or model,
+                "text": message_content or "(无返回文本)",
+                "raw": data,
+            }
+        raise HTTPException(status_code=502, detail=last_err or "VOLCENGINE_REQUEST_FAILED")
 
     def run_volcengine_image_generation(
         self,
@@ -179,69 +262,197 @@ class IntegrationTestService:
         executor = self._get_executor(executor_id)
         if executor.type != "volcengine":
             raise HTTPException(status_code=400, detail="EXECUTOR_TYPE_NOT_VOLCENGINE")
-        url, headers = self._prepare_volc_request(executor, endpoint="/api/v3/images/generations")
-        payload: dict[str, object] = {
-            "model": model,
-            "prompt": prompt,
-            "stream": False,
-        }
-        if negative_prompt:
-            payload["negative_prompt"] = negative_prompt
-        if size:
-            payload["size"] = size
-        if response_format:
-            payload["response_format"] = response_format
-        if params:
-            payload.update(params)
-        try:
-            response = httpx.post(url, headers=headers, json=payload, timeout=120)
-        except httpx.HTTPError as exc:
-            raise HTTPException(status_code=502, detail="VOLCENGINE_HTTP_ERROR") from exc
-        data = response.json()
-        if response.status_code >= 400:
-            detail = data.get("error", {}).get("message") if isinstance(data, dict) else None
-            raise HTTPException(status_code=502, detail=detail or data)
-        data_records = data.get("data") or []
-        first = data_records[0] if data_records else {}
-        image_url = first.get("url")
-        image_b64 = first.get("b64_json")
+        exclude: set[str] = set()
+        last_err: str | None = None
+        for _attempt in range(2):
+            api_key = self._pick_volc_api_key(executor, exclude_ids=exclude)
+            if not api_key:
+                raise HTTPException(status_code=400, detail="VOLCENGINE_API_KEY_MISSING")
+            url, headers = self._prepare_volc_request(executor, endpoint="/api/v3/images/generations", api_key=api_key)
+
+            payload: dict[str, object] = {
+                "model": model,
+                "prompt": prompt,
+                "stream": False,
+            }
+            if negative_prompt:
+                payload["negative_prompt"] = negative_prompt
+            if size:
+                payload["size"] = size
+            if response_format:
+                payload["response_format"] = response_format
+            if params:
+                payload.update(params)
+
+            try:
+                response = httpx.post(url, headers=headers, json=payload, timeout=120)
+            except httpx.HTTPError as exc:
+                raise HTTPException(status_code=502, detail="VOLCENGINE_HTTP_ERROR") from exc
+            data = response.json()
+            if response.status_code >= 400:
+                detail = data.get("error", {}).get("message") if isinstance(data, dict) else None
+                last_err = str(detail or data)
+                if response.status_code == 429 and api_key.id != "legacy":
+                    with get_session() as session:
+                        real_key = session.get(ApiKey, api_key.id)
+                        if real_key:
+                            mark_cooldown(session, api_key=real_key, seconds=120, reason="rate_limited")
+                    exclude.add(api_key.id)
+                    continue
+                raise HTTPException(status_code=502, detail=detail or data)
+
+            if api_key.id != "legacy":
+                with get_session() as session:
+                    real_key = session.get(ApiKey, api_key.id)
+                    if real_key:
+                        bump_usage(session, api_key=real_key)
+            break
+        else:
+            raise HTTPException(status_code=502, detail=last_err or "VOLCENGINE_REQUEST_FAILED")
+        data_records: list[dict] = []
+        if isinstance(data, dict):
+            recs = data.get("data") or []
+            if isinstance(recs, list):
+                data_records = [r for r in recs if isinstance(r, dict)]
         stored_assets: list[dict[str, object]] = []
-        stored_url: str | None = None
-        if image_url:
-            asset = self._store_remote_asset(image_url, user_id="admin-volcengine", filename=f"{model}.png", tag="volcengine-image")
-            if asset:
-                stored_url = asset.get("ossUrl")
-                stored_assets.append(asset)
-        elif image_b64:
-            asset = self._store_base64_asset(
-                image_b64,
-                user_id="admin-volcengine",
-                filename=f"{model}.png",
-                mime_type="image/png",
-                tag="volcengine-image",
-            )
-            if asset:
-                stored_url = asset.get("ossUrl")
-                stored_assets.append(asset)
+        stored_urls: list[str] = []
+        image_urls: list[str] = []
+        image_b64_list: list[str] = []
+
+        for idx, record in enumerate(data_records):
+            if not isinstance(record, dict):
+                continue
+            image_url = record.get("url")
+            image_b64 = record.get("b64_json")
+            if isinstance(image_url, str) and image_url.strip():
+                image_urls.append(image_url.strip())
+                asset = self._store_remote_asset(
+                    image_url.strip(),
+                    user_id="admin-volcengine",
+                    filename=f"{model}-{idx + 1}.png",
+                    tag="volcengine-image",
+                )
+                if asset and isinstance(asset.get("ossUrl"), str):
+                    stored_assets.append(asset)
+                    stored_urls.append(str(asset["ossUrl"]))
+            elif isinstance(image_b64, str) and image_b64.strip():
+                image_b64_list.append(image_b64.strip())
+                asset = self._store_base64_asset(
+                    image_b64.strip(),
+                    user_id="admin-volcengine",
+                    filename=f"{model}-{idx + 1}.png",
+                    mime_type="image/png",
+                    tag="volcengine-image",
+                )
+                if asset and isinstance(asset.get("ossUrl"), str):
+                    stored_assets.append(asset)
+                    stored_urls.append(str(asset["ossUrl"]))
+
+        # Optional: enforce exact output dimensions without distortion.
+        # We "contain" scale (letterbox) into target size (keeps aspect ratio).
+        width = payload.get("width")
+        height = payload.get("height")
+        try:
+            target_w = int(width) if width is not None else None
+        except (TypeError, ValueError):
+            target_w = None
+        try:
+            target_h = int(height) if height is not None else None
+        except (TypeError, ValueError):
+            target_h = None
+        if target_w and target_h and stored_assets:
+            resized_assets: list[dict[str, object]] = []
+            resized_urls: list[str] = []
+            for idx, asset in enumerate(stored_assets):
+                if not isinstance(asset, dict):
+                    continue
+                src = asset.get("ossUrl") or asset.get("url")
+                if not isinstance(src, str) or not src:
+                    continue
+                try:
+                    img_resp = httpx.get(src, timeout=60)
+                    img_resp.raise_for_status()
+                    im = Image.open(BytesIO(img_resp.content))
+                    im = im.convert("RGBA")
+                    src_w, src_h = im.size
+                    scale = min(target_w / src_w, target_h / src_h)
+                    new_w = max(1, int(round(src_w * scale)))
+                    new_h = max(1, int(round(src_h * scale)))
+                    resized = im.resize((new_w, new_h), resample=Image.Resampling.LANCZOS)
+                    canvas = Image.new("RGBA", (target_w, target_h), (0, 0, 0, 0))
+                    offset_x = (target_w - new_w) // 2
+                    offset_y = (target_h - new_h) // 2
+                    canvas.paste(resized, (offset_x, offset_y))
+                    buf = BytesIO()
+                    canvas.save(buf, format="PNG")
+                    uploaded = oss_service.upload_bytes(
+                        user_id="admin-volcengine",
+                        filename=f"{model}-{idx + 1}-{target_w}x{target_h}.png",
+                        data=buf.getvalue(),
+                        content_type="image/png",
+                    )
+                    new_asset = {
+                        "sourceUrl": src,
+                        "ossUrl": uploaded.get("url"),
+                        "ossKey": uploaded.get("objectKey"),
+                        "contentType": "image/png",
+                        "size": len(buf.getvalue()),
+                        "tag": "volcengine-image-resized",
+                    }
+                    resized_assets.append(new_asset)
+                    if isinstance(uploaded.get("url"), str):
+                        resized_urls.append(str(uploaded["url"]))
+                except Exception:
+                    # If resizing fails, keep original asset.
+                    resized_assets.append(asset)
+                    if isinstance(asset.get("ossUrl"), str):
+                        resized_urls.append(str(asset["ossUrl"]))
+            if resized_urls:
+                stored_assets = resized_assets
+                stored_urls = resized_urls
+
+        first_url = image_urls[0] if image_urls else None
+        first_b64 = image_b64_list[0] if image_b64_list else None
+        stored_url: str | None = stored_urls[0] if stored_urls else None
         return {
             "provider": "volcengine",
-            "model": data.get("model") or model,
-            "imageUrl": image_url,
-            "imageBase64": image_b64,
+            "model": (data.get("model") if isinstance(data, dict) else None) or model,
+            "imageUrl": first_url,
+            "imageBase64": first_b64,
             "storedUrl": stored_url,
+            # Prefer returning our own OSS URLs for multi-image outputs (preserve order).
+            "resultUrls": stored_urls,
             "assets": stored_assets,
-            "raw": data,
+            # Include the request payload to help diagnose "image not applied / size ignored".
+            # This contains no secrets (API key is in headers).
+            "raw": {"response": data, "request": payload},
         }
 
     # ----------------------- KIE helpers ----------------------- #
-    def _prepare_kie_client(self, executor: Executor) -> tuple[str, dict[str, str]]:
+    def _pick_kie_api_key(self, executor: Executor, exclude_ids: set[str] | None = None) -> ApiKey | None:
+        exclude_ids = exclude_ids or set()
+        with get_session() as session:
+            api_key = pick_executor_api_key(
+                session,
+                executor_id=executor.id,
+                provider="kie",
+                exclude_ids=exclude_ids,
+            )
+            if api_key:
+                return api_key
+            api_key = pick_provider_api_key(session, provider="kie", exclude_ids=exclude_ids)
+            if api_key:
+                return api_key
+        legacy = (executor.config or {}).get("apiKey") or (executor.config or {}).get("api_key")
+        if legacy:
+            return ApiKey(id="legacy", provider="kie", name="legacy", key=str(legacy), status="active")
+        return None
+
+    def _prepare_kie_client(self, executor: Executor, *, api_key: ApiKey) -> tuple[str, dict[str, str]]:
         config = executor.config or {}
-        api_key = config.get("apiKey") or config.get("api_key")
-        if not api_key:
-            raise HTTPException(status_code=400, detail="KIE_API_KEY_MISSING")
         base_url = (config.get("baseUrl") or executor.base_url or "https://api.kie.ai").rstrip("/")
         headers = {
-            "Authorization": f"Bearer {api_key}",
+            "Authorization": f"Bearer {api_key.key}",
             "Content-Type": "application/json",
         }
         return base_url, headers
@@ -263,30 +474,63 @@ class IntegrationTestService:
         if normalized_type not in {"kie", "kie-market", "kie_market"}:
             raise HTTPException(status_code=400, detail="EXECUTOR_TYPE_NOT_KIE")
 
-        base_url, headers = self._prepare_kie_client(executor)
-        path = endpoint or "/api/v1/jobs/createTask"
-        if not path.startswith("/"):
-            path = f"/{path}"
-        url = f"{base_url}{path}"
-        payload: dict[str, object] = {"model": model, "input": input_payload}
-        if call_back_url:
-            payload["callBackUrl"] = call_back_url
-        if extra_payload:
-            payload.update(extra_payload)
+        exclude: set[str] = set()
+        last_msg: str | None = None
+        base_url = ""
+        headers: dict[str, str] = {}
+        task_id: str | None = None
 
-        try:
-            response = httpx.post(url, headers=headers, json=payload, timeout=60)
-        except httpx.HTTPError as exc:
-            raise HTTPException(status_code=502, detail="KIE_HTTP_ERROR") from exc
-        try:
-            data = response.json()
-        except ValueError as exc:  # pragma: no cover - defensive
-            raise HTTPException(status_code=502, detail="KIE_RESPONSE_INVALID") from exc
-        if response.status_code >= 400 or data.get("code") not in (200, "200"):
-            raise HTTPException(status_code=502, detail=data.get("msg") or "KIE_TASK_CREATE_FAILED")
-        task_id = ((data.get("data") or {}) or {}).get("taskId")
+        for _attempt in range(2):
+            api_key = self._pick_kie_api_key(executor, exclude_ids=exclude)
+            if not api_key:
+                raise HTTPException(status_code=400, detail="KIE_API_KEY_MISSING")
+            base_url, headers = self._prepare_kie_client(executor, api_key=api_key)
+
+            path = endpoint or "/api/v1/jobs/createTask"
+            if not path.startswith("/"):
+                path = f"/{path}"
+            url = f"{base_url}{path}"
+            payload: dict[str, object] = {"model": model, "input": input_payload}
+            if call_back_url:
+                payload["callBackUrl"] = call_back_url
+            if extra_payload:
+                payload.update(extra_payload)
+
+            try:
+                response = httpx.post(url, headers=headers, json=payload, timeout=60)
+            except httpx.HTTPError as exc:
+                raise HTTPException(status_code=502, detail="KIE_HTTP_ERROR") from exc
+            try:
+                data = response.json()
+            except ValueError as exc:  # pragma: no cover - defensive
+                raise HTTPException(status_code=502, detail="KIE_RESPONSE_INVALID") from exc
+
+            code = data.get("code")
+            ok = (response.status_code < 400) and (code in (200, "200", None))
+            if not ok:
+                last_msg = str(data.get("msg") or data)
+                is_rate_limited = (response.status_code == 429) or (code in (429, "429"))
+                if is_rate_limited and api_key.id != "legacy":
+                    with get_session() as session:
+                        real_key = session.get(ApiKey, api_key.id)
+                        if real_key:
+                            mark_cooldown(session, api_key=real_key, seconds=120, reason="rate_limited")
+                    exclude.add(api_key.id)
+                    continue
+                raise HTTPException(status_code=502, detail=data.get("msg") or "KIE_TASK_CREATE_FAILED")
+
+            task_id = ((data.get("data") or {}) or {}).get("taskId")
+            if not task_id:
+                raise HTTPException(status_code=502, detail="KIE_TASK_ID_MISSING")
+            if api_key.id != "legacy":
+                with get_session() as session:
+                    real_key = session.get(ApiKey, api_key.id)
+                    if real_key:
+                        bump_usage(session, api_key=real_key)
+            break
+
         if not task_id:
-            raise HTTPException(status_code=502, detail="KIE_TASK_ID_MISSING")
+            raise HTTPException(status_code=502, detail=last_msg or "KIE_TASK_CREATE_FAILED")
 
         detail_data = None
         deadline = time.monotonic() + max(poll_timeout, 10)
@@ -301,25 +545,30 @@ class IntegrationTestService:
         state = self._extract_kie_state(detail_data)
         result_urls, result_object = self._parse_kie_result(detail_data)
         stored_assets: list[dict[str, object]] = []
+        stored_urls: list[str] = []
         for index, remote_url in enumerate(result_urls or []):
             asset = self._store_remote_asset(
                 remote_url,
                 user_id="admin-kie",
-                filename=f"{model}-{index}.bin",
+                filename=f"{model}-{index + 1}.png",
                 tag="kie-market",
             )
             if asset:
                 stored_assets.append(asset)
+                if isinstance(asset.get("ossUrl"), str):
+                    stored_urls.append(str(asset["ossUrl"]))
         record = detail_data.get("data") if isinstance(detail_data, dict) else {}
         return {
             "provider": "kie",
             "model": model,
             "taskId": task_id,
             "state": state or (record.get("state") if isinstance(record, dict) else None),
-            "resultUrls": result_urls,
+            # Prefer returning our own OSS URLs so downstream nodes are stable.
+            "resultUrls": stored_urls or result_urls,
             "resultObject": result_object,
             "storedAssets": stored_assets,
-            "raw": detail_data,
+            # Include request payload to diagnose field mapping issues.
+            "raw": {"response": detail_data, "request": payload},
         }
 
     def _fetch_kie_task(self, base_url: str, headers: dict[str, str], task_id: str) -> dict:

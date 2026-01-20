@@ -80,6 +80,16 @@ const statusOptions = [
   { value: 'active', label: '启用' },
   { value: 'deprecated', label: '下线' },
 ];
+const apiKeyStatusOptions = [
+  { value: 'active', label: '启用 (active)' },
+  { value: 'inactive', label: '停用 (inactive)' },
+  { value: 'deprecated', label: '下线 (deprecated)' },
+] as const;
+
+const formControlClass =
+  'w-full rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2 text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40';
+const formControlFlexClass =
+  'flex-1 rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2 text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40';
 const providerLabelMap = providerOptions.reduce<Record<string, string>>((map, option) => {
   map[option.value] = option.label;
   return map;
@@ -2573,7 +2583,7 @@ const normalizeErrorMessage = (message: string): string => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-4 py-8">
       <div className="mx-auto flex max-w-[1500px] gap-8">
-        <aside className="sticky top-6 h-fit w-64 rounded-3xl border border-white/5 bg-slate-950/70 p-6 shadow-[0_20px_60px_rgba(2,6,23,0.65)] backdrop-blur">
+        <aside className="sticky top-6 max-h-[calc(100vh-3rem)] w-64 overflow-y-auto rounded-3xl border border-white/5 bg-slate-950/70 p-6 shadow-[0_20px_60px_rgba(2,6,23,0.65)] backdrop-blur">
           <div className="mb-6">
             <p className="text-xs uppercase tracking-[0.4em] text-slate-500">控制台</p>
             <h1 className="mt-2 text-2xl font-semibold text-white">AI 管理端</h1>
@@ -4003,28 +4013,56 @@ const normalizeErrorMessage = (message: string): string => {
           </div>
           <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 space-y-2 text-sm">
             <h3 className="text-lg font-semibold text-white">{apiKeyForm.id ? '编辑 Key' : '新增 Key'}</h3>
-            <input
-              placeholder="Provider"
+            <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3 text-xs text-slate-300">
+              <div className="font-semibold text-slate-100">怎么填？</div>
+              <div>Provider 选厂商；名称随便起；Key 值粘贴厂商给的 API Key；状态选 active 即可。</div>
+              <div className="text-slate-400 mt-1">日配额/当前用量/过期时间可先不填，后续需要做限流/轮换再补。</div>
+            </div>
+            <label className="text-xs text-slate-400">Provider</label>
+            <select
               value={apiKeyForm.provider || ''}
               onChange={(e) => setApiKeyForm({ ...apiKeyForm, provider: e.target.value })}
-            />
+              className={formControlClass}
+            >
+              <option value="">请选择厂商…</option>
+              {providerOptions
+                .filter((opt) => ['baidu', 'volcengine', 'kie', 'openai', 'aliyun', 'coze'].includes(opt.value))
+                .map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label} ({opt.value})
+                  </option>
+                ))}
+            </select>
+            <label className="text-xs text-slate-400">名称</label>
             <input
               placeholder="名称"
               value={apiKeyForm.name || ''}
               onChange={(e) => setApiKeyForm({ ...apiKeyForm, name: e.target.value })}
+              className={formControlClass}
             />
             {!apiKeyForm.id && (
+              <>
+                <label className="text-xs text-slate-400">Key 值</label>
               <input
-                placeholder="Key 值"
+                placeholder="粘贴 API Key（不会显示明文在列表里）"
                 value={apiKeyForm.key || ''}
                 onChange={(e) => setApiKeyForm({ ...apiKeyForm, key: e.target.value })}
+                className={formControlClass}
               />
+              </>
             )}
-            <input
-              placeholder="状态"
-              value={apiKeyForm.status || ''}
+            <label className="text-xs text-slate-400">状态</label>
+            <select
+              value={apiKeyForm.status || 'active'}
               onChange={(e) => setApiKeyForm({ ...apiKeyForm, status: e.target.value })}
-            />
+              className={formControlClass}
+            >
+              {apiKeyStatusOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
             <div className="flex gap-3">
               <input
                 type="number"
@@ -4033,6 +4071,7 @@ const normalizeErrorMessage = (message: string): string => {
                 onChange={(e) =>
                   setApiKeyForm({ ...apiKeyForm, daily_quota: e.target.value ? Number(e.target.value) : undefined })
                 }
+                className={formControlFlexClass}
               />
               <input
                 type="number"
@@ -4041,6 +4080,7 @@ const normalizeErrorMessage = (message: string): string => {
                 onChange={(e) =>
                   setApiKeyForm({ ...apiKeyForm, usage_count: e.target.value ? Number(e.target.value) : undefined })
                 }
+                className={formControlFlexClass}
               />
             </div>
             <input
@@ -4052,6 +4092,7 @@ const normalizeErrorMessage = (message: string): string => {
                   expire_at: e.target.value ? new Date(e.target.value).toISOString() : undefined,
                 })
               }
+              className={formControlClass}
             />
             <div className="flex gap-3">
               <button className="flex-1 rounded bg-sky-500/80 py-2 text-white" onClick={handleApiKeySubmit}>

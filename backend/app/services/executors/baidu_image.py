@@ -10,6 +10,7 @@ from typing import Any
 import httpx
 
 from app.models.task import Task
+from app.core.config import get_settings
 
 from .base import ExecutionContext, ExecutionResult, ExecutorAdapter
 
@@ -70,8 +71,12 @@ class BaiduImageExecutorAdapter(ExecutorAdapter):
         return ExecutionResult(success=True, status="completed", progress=100, result_payload=payload)
 
     def _get_access_token(self, config: dict[str, Any]) -> str:
-        api_key = config.get("apiKey")
-        secret_key = config.get("secretKey")
+        api_key = config.get("apiKey") or config.get("api_key")
+        secret_key = config.get("secretKey") or config.get("secret_key")
+        if not api_key or not secret_key:
+            settings = get_settings()
+            api_key = api_key or settings.baidu_api_key
+            secret_key = secret_key or settings.baidu_secret_key
         if not api_key or not secret_key:
             raise ValueError("BAIDU_API_KEY_MISSING")
         cache_key = f"{api_key}:{secret_key}"

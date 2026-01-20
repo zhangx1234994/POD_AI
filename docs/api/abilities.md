@@ -289,15 +289,17 @@
 | --- | --- | --- | --- | --- |
 | `volcengine_doubao_seed_1_8` | Doubao Seed 1.8 多模态对话 | `prompt` | 可选 `imageUrl`/`inputs.image_url` 进行图文对话 | `texts[0]` |
 | `volcengine_doubao_seed_1_6_lite` | 轻量版多模态对话 | `prompt` | `imageUrl`、`reasoning_effort`、`max_completion_tokens` | `texts[0]` |
-| `volcengine_doubao_seedream_4_5` | Seedream 4.5 文生图 | `prompt` | `negative_prompt`、`size`、`ratio`、`width`、`height`、`response_format` | 1~4 张图，`images[]` |
-| `volcengine_doubao_seedream_4_0` | Seedream 4.0 文生图 | 同上 | 同上 | 1~4 张图 |
+| `volcengine_doubao_seedream_4_5` | Seedream 4.5 文生图（支持参考图） | `prompt` | `image_urls`/`image_url`（参考图，可选）、`negative_prompt`、`size`、`width`、`height`、`response_format` | 图片数组 `images[]`（按 provider 实际返回） |
+| `volcengine_doubao_seedream_4_0` | Seedream 4.0 文生图（支持参考图） | 同上 | 同上 | 图片数组 `images[]`（按 provider 实际返回） |
 | `volcengine_doubao_seedance_1_5_pro` | Seedance 1.5 图生视频 | `prompt` | 可选 `imageUrl`、`duration`、`camera_fixed`、`watermark` | 视频链接（`videos[]`） |
+
+> 参考图传参说明：PODI 会将 `image_urls/image_url` 同步写入火山参数 `reference_image_urls`（Ark API 识别的字段），用于图生图/风格参考。该参考属于“弱约束”，是否严格遵循取决于模型能力与提示词表达。
 
 #### KIE 市场模型（provider=`kie`）
 
 | Ability ID | 类型 | 必填字段 | 可选字段 | 特性 |
 | --- | --- | --- | --- | --- |
-| `kie_nano_banana_pro_image_to_image` | 图生图 | `prompt` | `image_urls`（自动写入 `input.image_input`，可为空）、`aspect_ratio`、`resolution`、`output_format`、`callBackUrl` | 支持 0~多张参考图；输出 `resultUrls` |
+| `kie_nano_banana_pro_image_to_image` | 图生图 | `prompt` + `image_url` 至少 1 张 | `image_urls`（可选多参考图）、`aspect_ratio`、`resolution`、`output_format`、`callBackUrl` | 支持 1~多张参考图；输出 `resultUrls` |
 | `kie_flux2_pro_image_to_image` | 图生图（Flux-2） | `prompt` + `image_urls/input_urls` 至少 1 条 | `aspect_ratio`、`resolution`、`callBackUrl` | 必须提供 1~8 张参考图 |
 | `kie_sora2_pro_text_to_video` | 文生视频 | `prompt` | `aspect_ratio`、`n_frames`、`size`、`remove_watermark`、`character_ids`、`callBackUrl` | 输出视频 URL + 任务状态 |
 
