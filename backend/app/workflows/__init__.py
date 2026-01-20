@@ -18,5 +18,6 @@ def load_comfy_workflow(workflow_key: str) -> dict[str, Any]:
         path = WORKFLOW_ROOT / "comfyui" / f"{workflow_key}.json"
         if not path.exists():
             raise FileNotFoundError(f"Workflow '{workflow_key}' not found")
-        _CACHE[workflow_key] = json.loads(path.read_text())
+        # Be explicit about encoding; production servers may run under GBK locales.
+        _CACHE[workflow_key] = json.loads(path.read_text(encoding="utf-8"))
     return deepcopy(_CACHE[workflow_key])

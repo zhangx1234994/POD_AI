@@ -539,6 +539,7 @@ class AbilityInvocationService:
             endpoint=endpoint,
             model=model,
             input_payload=input_payload,
+            input_array_target=metadata.get("input_array_target"),
             call_back_url=call_back_url,
             extra_payload=self._clean_params(extra_payload) or None,
         )

@@ -84,7 +84,7 @@ def _load_external_seeds() -> list[ExecutorSeed]:
     if path is None or not path.exists():
         return []
     try:
-        raw = yaml.safe_load(path.read_text()) or []
+        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or []
     except yaml.YAMLError:
         return []
     env = _env_lookup()

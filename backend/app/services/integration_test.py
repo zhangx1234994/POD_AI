@@ -464,6 +464,7 @@ class IntegrationTestService:
         endpoint: str | None,
         model: str,
         input_payload: dict[str, object],
+        input_array_target: str | None = None,
         call_back_url: str | None = None,
         extra_payload: dict[str, object] | None = None,
         poll_timeout: float = 75.0,
@@ -490,6 +491,52 @@ class IntegrationTestService:
             if not path.startswith("/"):
                 path = f"/{path}"
             url = f"{base_url}{path}"
+
+            # KIE pulls images from URL on their side. If Coze sends a URL that is not
+            # publicly reachable (or requires cookies), KIE will fail with
+            # "file type not supported". To make this robust, we ingest any input URLs
+            # into our OSS first and send OSS URLs to KIE.
+            if input_array_target:
+                entries = input_payload.get(input_array_target)
+                oss_urls: list[str] = []
+
+                def _to_url_list(value: object) -> list[str]:
+                    if isinstance(value, str) and value.strip():
+                        return [value.strip()]
+                    if isinstance(value, list):
+                        out: list[str] = []
+                        for item in value:
+                            out.extend(_to_url_list(item))
+                        return out
+                    if isinstance(value, dict):
+                        for key in ("url", "ossUrl", "sourceUrl"):
+                            v = value.get(key)
+                            if isinstance(v, str) and v.strip():
+                                return [v.strip()]
+                    return []
+
+                raw_urls = _to_url_list(entries)
+                for idx, raw_url in enumerate(raw_urls[:10]):
+                    # Skip if it's already our OSS domain.
+                    if "podi.oss-" in raw_url:
+                        oss_urls.append(raw_url)
+                        continue
+                    try:
+                        asset = self._store_remote_asset(
+                            raw_url,
+                            user_id="admin-kie-input",
+                            filename=f"kie-input-{idx + 1}.png",
+                            tag="kie-input",
+                        )
+                        if asset and isinstance(asset.get("ossUrl"), str):
+                            oss_urls.append(str(asset["ossUrl"]))
+                    except Exception:
+                        # Fallback: keep original URL
+                        oss_urls.append(raw_url)
+
+                if oss_urls:
+                    input_payload[input_array_target] = oss_urls if len(oss_urls) > 1 else [oss_urls[0]]
+
             payload: dict[str, object] = {"model": model, "input": input_payload}
             if call_back_url:
                 payload["callBackUrl"] = call_back_url
