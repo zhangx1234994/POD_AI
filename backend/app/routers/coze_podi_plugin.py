@@ -7,6 +7,7 @@ so we keep auth lightweight and rely on network isolation + optional service tok
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from fastapi import APIRouter, Request
@@ -201,6 +202,11 @@ def _build_openapi(*, podi_server: str | None = None) -> dict[str, Any]:
             "videoUrls": {"type": "array", "items": {"type": "string"}, "description": "All video URLs (OSS preferred)."},
             "taskId": _nullable_str("Async task id (if submitted asynchronously)."),
             "taskStatus": _nullable_str("Async task status: queued/running/succeeded/failed."),
+            "expectedImageCount": {
+                "type": "integer",
+                "nullable": True,
+                "description": "Hint: expected number of output images (e.g. ComfyUI batch).",
+            },
             "logId": {"type": "integer", "nullable": True, "description": "PODI log id (if available)."},
             "requestId": _nullable_str("PODI request id (if available)."),
             # String-typed debug fields so Coze never strips them.
@@ -413,6 +419,7 @@ def invoke_tool(
         "videoUrls",
         "taskId",
         "taskStatus",
+        "expectedImageCount",
         "logId",
         "requestId",
         "debugRequest",
@@ -431,6 +438,26 @@ def invoke_tool(
     # ComfyUI tends to queue and can exceed Coze's single-node timeout. For robustness,
     # submit it as an async task and let Coze poll via `podi_task_get`.
     if provider.lower() == "comfyui":
+        def _coerce_positive_int(v: Any) -> int | None:
+            try:
+                n = int(v)
+                return n if n > 0 else None
+            except (TypeError, ValueError):
+                return None
+
+        # Best-effort: we know batch for the common ComfyUI flows we expose.
+        expected_images = 1
+        if capability_key in {"jisu_chuli", "zhongsu_tisheng"}:
+            expected_images = _coerce_positive_int(body.get("batch") or body.get("amount") or body.get("n")) or 1
+        elif capability_key in {"yinhua_tiqu"}:
+            expected_images = (
+                _coerce_positive_int(body.get("batch_count") or body.get("batchCount") or body.get("repeat_count"))
+                or 1
+            )
+
+        # Persist the hint with the task so `/tasks/get` can always surface it.
+        payload.metadata = (payload.metadata or {}) | {"expectedImageCount": expected_images}
+
         # Store as a system task (no user FK) to keep internal integrations simple.
         task = ability_task_service.enqueue(ability_id=ability.id, payload=payload, user=None)
         return _prune(
@@ -439,6 +466,7 @@ def invoke_tool(
                 "texts": ["submitted"],
                 "taskId": task.get("id"),
                 "taskStatus": task.get("status"),
+                "expectedImageCount": expected_images,
                 "logId": task.get("log_id"),
                 "imageUrls": [],
                 "videoUrls": [],
@@ -530,6 +558,29 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
         task = ability_task_service.to_dict(task_row)
     status = task.get("status")
     result_payload = task.get("result_payload") or {}
+    req_payload = task.get("request_payload") or {}
+    expected_images = None
+    if isinstance(req_payload, dict):
+        meta = req_payload.get("metadata")
+        if isinstance(meta, dict):
+            expected_images = meta.get("expectedImageCount")
+
+    # If we know this task should output multiple images (batch), give it a short grace
+    # period so Coze polling is less likely to observe a "running" task too early.
+    # (We still keep this bounded to avoid long blocking calls.)
+    if status in {"queued", "running"} and isinstance(expected_images, int) and expected_images > 1:
+        deadline = time.monotonic() + 6.0
+        while time.monotonic() < deadline:
+            time.sleep(0.8)
+            with get_session() as session:
+                task_row = session.get(AbilityTask, task_id.strip())
+                if not task_row:
+                    break
+                task = ability_task_service.to_dict(task_row)
+            status = task.get("status")
+            if status not in {"queued", "running"}:
+                break
+        result_payload = task.get("result_payload") or {}
 
     allowed_out_keys = {
         "text",
@@ -540,6 +591,7 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
         "videoUrls",
         "taskId",
         "taskStatus",
+        "expectedImageCount",
         "logId",
         "requestId",
         "debugRequest",
@@ -600,6 +652,7 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
             "videoUrls": _all_urls(videos) if isinstance(videos, list) else [],
             "taskId": task.get("id"),
             "taskStatus": status,
+            "expectedImageCount": expected_images,
             "logId": task.get("log_id"),
             "requestId": (result_payload.get("requestId") if isinstance(result_payload, dict) else None),
             "debugRequest": None,
@@ -614,6 +667,7 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
             "texts": ["failed"],
             "taskId": task.get("id"),
             "taskStatus": status,
+            "expectedImageCount": expected_images,
             "logId": task.get("log_id"),
             "requestId": None,
             "imageUrl": None,
@@ -632,6 +686,7 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
         "texts": [status or "running"],
         "taskId": task.get("id"),
         "taskStatus": status,
+        "expectedImageCount": expected_images,
         "logId": task.get("log_id"),
         "requestId": None,
         "imageUrl": None,

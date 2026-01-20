@@ -72,7 +72,18 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
                 error_message=f"COMFYUI_SUBMIT_ERROR{extra_details}",
             )
 
-        outputs = self._poll_history(base_url, prompt_id, timeout=workflow_definition.get("timeout", 180))
+        expected_images = None
+        try:
+            expected_images = int(workflow_definition.get("_expected_image_count") or 0) or None
+        except (TypeError, ValueError):
+            expected_images = None
+
+        outputs = self._poll_history(
+            base_url,
+            prompt_id,
+            timeout=workflow_definition.get("timeout", 180),
+            expected_images=expected_images,
+        )
         if outputs is None:
             return ExecutionResult(
                 success=False,
@@ -105,9 +116,15 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             },
         )
 
-    def _poll_history(self, base_url: str, prompt_id: str, timeout: float) -> dict[str, Any] | None:
+    def _poll_history(
+        self, base_url: str, prompt_id: str, timeout: float, *, expected_images: int | None
+    ) -> dict[str, Any] | None:
         start = time.monotonic()
         last_data: dict[str, Any] | None = None
+        # Some ComfyUI builds create the history entry before all batch images are persisted.
+        # We wait for a terminal status (preferred) or for outputs to "stabilize" for a few polls.
+        stable_polls = 0
+        last_image_count: int | None = None
         while time.monotonic() - start < timeout:
             try:
                 resp = httpx.get(f"{base_url}/history/{prompt_id}", timeout=15)
@@ -120,13 +137,60 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
                 time.sleep(1)
                 continue
             last_data = data
-            if data and data.get(prompt_id):
+            entry = data.get(prompt_id) if isinstance(data, dict) else None
+            if not isinstance(entry, dict):
+                time.sleep(1)
+                continue
+
+            status = entry.get("status")
+            outputs = entry.get("outputs") or {}
+            image_count = 0
+            if isinstance(outputs, dict):
+                for _, info in outputs.items():
+                    if not isinstance(info, dict):
+                        continue
+                    imgs = info.get("images")
+                    if isinstance(imgs, list):
+                        image_count += len(imgs)
+
+            if last_image_count is not None and image_count == last_image_count and image_count > 0:
+                stable_polls += 1
+            else:
+                stable_polls = 0
+            last_image_count = image_count
+
+            # If we know how many images we expect (batch), wait until we have them.
+            # Still keep a fallback to avoid hanging forever if the workflow produces fewer images.
+            if expected_images and image_count >= expected_images:
+                break
+
+            if isinstance(status, dict):
+                status_str = str(status.get("status_str") or "").lower()
+                # "success" means terminal, but images can still be streaming in for a short while.
+                # If expected_images is set, prefer waiting for it; otherwise rely on stabilization.
+                if status_str in {"success", "error"}:
+                    if expected_images and image_count < expected_images:
+                        if stable_polls >= 3:
+                            break
+                    else:
+                        break
+
+            # Fallback: if no status info, consider done once output image count stabilizes.
+            if stable_polls >= 2:
                 break
             time.sleep(1)
 
-        if not last_data or prompt_id not in last_data:
+        if not last_data:
             return None
-        entry = last_data[prompt_id]
+
+        # Most ComfyUI versions return: { "<prompt_id>": { ...entry... } }
+        # But be defensive in case a reverse proxy / fork returns the entry directly.
+        if prompt_id in last_data and isinstance(last_data.get(prompt_id), dict):
+            entry = last_data[prompt_id]
+        elif isinstance(last_data.get("outputs"), dict):
+            entry = last_data
+        else:
+            return None
         outputs = entry.get("outputs") or {}
         images: list[dict[str, Any]] = []
         for _, info in outputs.items():
@@ -276,6 +340,7 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         )
         if batch_count:
             overrides.setdefault("424", {})["amount"] = batch_count
+            workflow_definition["_expected_image_count"] = batch_count
             base_timeout = self._coerce_positive_int(workflow_definition.get("timeout")) or 180
             effective_timeout = max(base_timeout, int(base_timeout * batch_count * 1.2))
             workflow_definition["timeout"] = effective_timeout
@@ -339,6 +404,7 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         batch = self._coerce_positive_int(params.get("batch") or params.get("amount") or params.get("n"))
         if batch:
             overrides.setdefault("434", {})["amount"] = batch
+            workflow_definition["_expected_image_count"] = batch
 
         width = self._coerce_positive_int(params.get("output_width") or params.get("width"))
         height = self._coerce_positive_int(params.get("output_height") or params.get("height"))
