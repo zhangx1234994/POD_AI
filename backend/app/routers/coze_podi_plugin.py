@@ -148,11 +148,16 @@ def _extract_urls_from_value(value: Any) -> list[str]:
         for item in value:
             urls.extend(_extract_urls_from_value(item))
     elif isinstance(value, dict):
+        # Common shapes: {"url": "..."} / {"ossUrl": "..."} / {"sourceUrl": "..."}
         for key in ("url", "ossUrl", "oss_url", "sourceUrl", "source_url"):
             candidate = value.get(key)
             if isinstance(candidate, str) and candidate.strip():
                 urls.append(candidate.strip())
                 break
+        # Nested shapes: {"file": {"url": "..."}} / {"data": {...}} etc.
+        if not urls:
+            for nested in value.values():
+                urls.extend(_extract_urls_from_value(nested))
     # preserve order, de-dup
     seen: set[str] = set()
     dedup: list[str] = []
