@@ -609,6 +609,7 @@ class AbilityInvocationService:
         images: _ImageBundle,
     ) -> dict[str, Any]:
         metadata = ability.extra_metadata or {}
+        schema = ability.input_schema or {}
         model = self._pop_first_string(merged_inputs, ["model"]) or metadata.get("model_id")
         if not model:
             raise HTTPException(status_code=400, detail="KIE_MODEL_REQUIRED")
@@ -680,6 +681,131 @@ class AbilityInvocationService:
         elif metadata.get("requires_image_input") and not url_candidates:
             raise HTTPException(status_code=400, detail="IMAGE_REQUIRED")
 
+        # Default strategy: if the user did NOT specify any size controls, try to
+        # keep outputs aligned with the input image size (no crop; pad if needed).
+        desired_output_size: tuple[int, int] | None = None
+
+        def _has_nonempty(key: str) -> bool:
+            v = input_payload.get(key) or merged_inputs.get(key)
+            if isinstance(v, str):
+                return bool(v.strip())
+            return v not in (None, "", [])
+
+        user_specified_size = any(
+            _has_nonempty(k)
+            for k in (
+                "width",
+                "height",
+                "output_width",
+                "output_height",
+                "resolution",
+                "size",
+                "aspect_ratio",
+            )
+        )
+
+        def _first_image_url() -> str | None:
+            # Prefer the first entry in the array target.
+            if array_target and isinstance(input_payload.get(array_target), list):
+                for entry in input_payload.get(array_target) or []:
+                    if isinstance(entry, str) and entry.strip():
+                        return entry.strip()
+                    if isinstance(entry, dict):
+                        for k in ("ossUrl", "url", "sourceUrl"):
+                            v = entry.get(k)
+                            if isinstance(v, str) and v.strip():
+                                return v.strip()
+            # Fallback to candidates.
+            if url_candidates:
+                return url_candidates[0]
+            return images.image_url
+
+        def _read_image_size(url: str) -> tuple[int, int] | None:
+            try:
+                resp = httpx.get(url, timeout=30)
+                resp.raise_for_status()
+                im = Image.open(BytesIO(resp.content))
+                w, h = im.size
+                if w > 0 and h > 0:
+                    return int(w), int(h)
+            except Exception:
+                return None
+            return None
+
+        if not user_specified_size and metadata.get("requires_image_input"):
+            first_url = _first_image_url()
+            if first_url:
+                size_pair = _read_image_size(first_url)
+                if size_pair:
+                    desired_output_size = size_pair
+
+        # For KIE models that require discrete controls (resolution/aspect_ratio), fill
+        # them based on the input image when the user did not specify them.
+        def _field_options(name: str) -> list[str]:
+            fields = schema.get("fields") or []
+            if not isinstance(fields, list):
+                return []
+            for f in fields:
+                if isinstance(f, dict) and f.get("name") == name:
+                    opts = f.get("options") or []
+                    if isinstance(opts, list):
+                        return [str(o) for o in opts if isinstance(o, (str, int, float))]
+            return []
+
+        def _choose_aspect_ratio(w: int, h: int, options: list[str]) -> str | None:
+            if not options:
+                return None
+            if any(str(o).lower() == "auto" for o in options):
+                return "auto"
+            target = w / float(h)
+            best = None
+            best_err = None
+            for opt in options:
+                s = str(opt).strip()
+                if ":" not in s:
+                    continue
+                a, b = s.split(":", 1)
+                try:
+                    ra = int(a.strip())
+                    rb = int(b.strip())
+                    if ra <= 0 or rb <= 0:
+                        continue
+                    r = ra / float(rb)
+                except Exception:
+                    continue
+                err = abs(r - target)
+                if best_err is None or err < best_err:
+                    best_err = err
+                    best = s
+            return best
+
+        def _choose_resolution(long_edge: int, options: list[str]) -> str | None:
+            if not options:
+                return None
+            mapping = {"1K": 1024, "2K": 2048, "4K": 4096}
+            # Keep only known.
+            supported = [(k, mapping[k]) for k in mapping.keys() if k in options]
+            if not supported:
+                return None
+            # Choose the smallest >= input, else the largest.
+            supported.sort(key=lambda x: x[1])
+            for k, px in supported:
+                if long_edge <= px:
+                    return k
+            return supported[-1][0]
+
+        if desired_output_size and metadata.get("requires_image_input"):
+            w, h = desired_output_size
+            # Only fill if not already present / non-empty.
+            if not _has_nonempty("aspect_ratio"):
+                choice = _choose_aspect_ratio(w, h, _field_options("aspect_ratio"))
+                if choice:
+                    input_payload["aspect_ratio"] = choice
+            if not _has_nonempty("resolution"):
+                choice = _choose_resolution(max(w, h), _field_options("resolution"))
+                if choice:
+                    input_payload["resolution"] = choice
+
         # KIE expects most parameters under `input`. Treat leftover fields as input params
         # (keeps Coze form usage simple; avoids silent drops).
         call_back_url = self._pop_first_string(merged_inputs, ["callBackUrl", "callback_url"])
@@ -698,6 +824,7 @@ class AbilityInvocationService:
             model=model,
             input_payload=input_payload,
             input_array_target=metadata.get("input_array_target"),
+            desired_output_size=desired_output_size,
             call_back_url=call_back_url,
             extra_payload=self._clean_params(extra_payload) or None,
         )

@@ -465,6 +465,7 @@ class IntegrationTestService:
         model: str,
         input_payload: dict[str, object],
         input_array_target: str | None = None,
+        desired_output_size: tuple[int, int] | None = None,
         call_back_url: str | None = None,
         extra_payload: dict[str, object] | None = None,
         poll_timeout: float = 75.0,
@@ -650,9 +651,26 @@ class IntegrationTestService:
                     stored_urls.append(str(asset["ossUrl"]))
         record = detail_data.get("data") if isinstance(detail_data, dict) else {}
 
-        # KIE's image-to-image models sometimes ignore `aspect_ratio`/`resolution` and
-        # return outputs matching the input size. To keep workflows predictable, we
-        # optionally enforce aspect_ratio+resolution as a post-process (center-crop).
+        def _resize_with_pad(im: Image.Image, *, target_w: int, target_h: int) -> Image.Image:
+            """Fit inside target and pad (no crop) to avoid losing elements."""
+            im = im.convert("RGBA")
+            src_w, src_h = im.size
+            if src_w <= 0 or src_h <= 0:
+                return im
+            scale = min(target_w / src_w, target_h / src_h)
+            new_w = max(1, int(round(src_w * scale)))
+            new_h = max(1, int(round(src_h * scale)))
+            resized = im.resize((new_w, new_h), Image.LANCZOS)
+            canvas = Image.new("RGBA", (target_w, target_h), (0, 0, 0, 0))
+            left = max(0, (target_w - new_w) // 2)
+            top = max(0, (target_h - new_h) // 2)
+            canvas.paste(resized, (left, top), resized)
+            return canvas
+
+        # KIE's image-to-image models sometimes ignore `aspect_ratio`/`resolution`.
+        # To keep workflows predictable, we optionally enforce:
+        # - user-provided aspect_ratio(+resolution) as a post-process (pad, no crop)
+        # - "default to input image size" when desired_output_size is provided
         # This only applies when the caller explicitly sets aspect_ratio != auto.
         requested_ratio = desired_aspect_ratio
         requested_res = desired_resolution
@@ -678,24 +696,22 @@ class IntegrationTestService:
 
         ratio_pair = _parse_ratio(requested_ratio)
         res_px = _res_px(requested_res)
-        # If resolution is omitted, still enforce aspect ratio using the output image's
-        # long edge as baseline. (This makes "比例" always take effect.)
+        enforced_assets: list[dict[str, object]] = []
+        enforced_urls: list[str] | None = None
+
+        # 1) Enforce aspect ratio (pad, no crop). Target size uses resolution when present,
+        # otherwise uses output long edge as baseline.
         if ratio_pair and stored_urls:
             rx, ry = ratio_pair
-
-            enforced_assets: list[dict[str, object]] = []
-            enforced_urls: list[str] = []
+            enforced_urls = []
             for idx, oss_url in enumerate(stored_urls):
                 try:
                     resp = httpx.get(oss_url, timeout=60)
                     resp.raise_for_status()
-                    im = Image.open(BytesIO(resp.content)).convert("RGB")
+                    im = Image.open(BytesIO(resp.content))
                     src_w, src_h = im.size
                     if src_w <= 0 or src_h <= 0:
                         raise ValueError("invalid image size")
-
-                    # Determine target size. Prefer requested resolution when present,
-                    # otherwise use the current output long edge as baseline.
                     long_edge = res_px or max(int(src_w), int(src_h))
                     if rx >= ry:
                         target_w = long_edge
@@ -703,17 +719,9 @@ class IntegrationTestService:
                     else:
                         target_h = long_edge
                         target_w = max(64, int(round(long_edge * (rx / ry))))
-
-                    # Scale to cover then center-crop.
-                    scale = max(target_w / src_w, target_h / src_h)
-                    new_w = max(1, int(round(src_w * scale)))
-                    new_h = max(1, int(round(src_h * scale)))
-                    im = im.resize((new_w, new_h), Image.LANCZOS)
-                    left = max(0, (new_w - target_w) // 2)
-                    top = max(0, (new_h - target_h) // 2)
-                    im = im.crop((left, top, left + target_w, top + target_h))
+                    out_im = _resize_with_pad(im, target_w=target_w, target_h=target_h)
                     buf = BytesIO()
-                    im.save(buf, format="PNG")
+                    out_im.save(buf, format="PNG")
                     upload = oss_service.upload_bytes(
                         user_id="admin-kie",
                         filename=f"{model}-{idx + 1}-{target_w}x{target_h}.png",
@@ -732,13 +740,52 @@ class IntegrationTestService:
                         }
                     )
                 except Exception as exc:
-                    # Non-fatal: keep original output if postprocess fails.
-                    self._logger.warning("KIE postprocess resize failed: %s", exc)
+                    self._logger.warning("KIE postprocess aspect_ratio pad failed: %s", exc)
                     enforced_urls.append(oss_url)
-            if enforced_urls:
-                stored_urls = enforced_urls
-                if enforced_assets:
-                    stored_assets.extend(enforced_assets)
+
+        # 2) Enforce "default to input image size" (pad, no crop). This takes precedence.
+        if desired_output_size and stored_urls:
+            try:
+                target_w, target_h = int(desired_output_size[0]), int(desired_output_size[1])
+            except Exception:
+                target_w, target_h = 0, 0
+            if target_w > 0 and target_h > 0:
+                base_urls = enforced_urls or stored_urls
+                final_urls: list[str] = []
+                for idx, oss_url in enumerate(base_urls):
+                    try:
+                        resp = httpx.get(oss_url, timeout=60)
+                        resp.raise_for_status()
+                        im = Image.open(BytesIO(resp.content))
+                        out_im = _resize_with_pad(im, target_w=target_w, target_h=target_h)
+                        buf = BytesIO()
+                        out_im.save(buf, format="PNG")
+                        upload = oss_service.upload_bytes(
+                            user_id="admin-kie",
+                            filename=f"{model}-{idx + 1}-target-{target_w}x{target_h}.png",
+                            data=buf.getvalue(),
+                            content_type="image/png",
+                        )
+                        final_url = str(upload.get("url"))
+                        final_urls.append(final_url)
+                        enforced_assets.append(
+                            {
+                                "sourceUrl": oss_url,
+                                "ossUrl": final_url,
+                                "ossKey": upload.get("objectKey"),
+                                "contentType": "image/png",
+                                "tag": "kie-market-target-size",
+                            }
+                        )
+                    except Exception as exc:
+                        self._logger.warning("KIE postprocess target size pad failed: %s", exc)
+                        final_urls.append(oss_url)
+                enforced_urls = final_urls
+
+        if enforced_urls:
+            stored_urls = enforced_urls
+        if enforced_assets:
+            stored_assets.extend(enforced_assets)
 
         return {
             "provider": "kie",
