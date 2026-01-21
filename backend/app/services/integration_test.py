@@ -475,6 +475,11 @@ class IntegrationTestService:
         if normalized_type not in {"kie", "kie-market", "kie_market"}:
             raise HTTPException(status_code=400, detail="EXECUTOR_TYPE_NOT_KIE")
 
+        # Keep a copy of user intent before we mutate `input_payload` for retries/fallbacks.
+        # Some KIE models ignore or strictly validate these fields; we may post-process.
+        desired_aspect_ratio = str((input_payload or {}).get("aspect_ratio") or "").strip()
+        desired_resolution = str((input_payload or {}).get("resolution") or "").strip()
+
         exclude: set[str] = set()
         last_msg: str | None = None
         base_url = ""
@@ -634,14 +639,8 @@ class IntegrationTestService:
         # return outputs matching the input size. To keep workflows predictable, we
         # optionally enforce aspect_ratio+resolution as a post-process (center-crop).
         # This only applies when the caller explicitly sets aspect_ratio != auto.
-        try:
-            requested_ratio = str((input_payload or {}).get("aspect_ratio") or "").strip()
-        except Exception:
-            requested_ratio = ""
-        try:
-            requested_res = str((input_payload or {}).get("resolution") or "").strip()
-        except Exception:
-            requested_res = ""
+        requested_ratio = desired_aspect_ratio
+        requested_res = desired_resolution
 
         def _parse_ratio(value: str) -> tuple[int, int] | None:
             v = (value or "").strip().lower()
@@ -664,15 +663,10 @@ class IntegrationTestService:
 
         ratio_pair = _parse_ratio(requested_ratio)
         res_px = _res_px(requested_res)
-        if ratio_pair and res_px and stored_urls:
+        # If resolution is omitted, still enforce aspect ratio using the output image's
+        # long edge as baseline. (This makes "比例" always take effect.)
+        if ratio_pair and stored_urls:
             rx, ry = ratio_pair
-            # Determine target size using the resolution as the long edge.
-            if rx >= ry:
-                target_w = res_px
-                target_h = max(64, int(round(res_px * (ry / rx))))
-            else:
-                target_h = res_px
-                target_w = max(64, int(round(res_px * (rx / ry))))
 
             enforced_assets: list[dict[str, object]] = []
             enforced_urls: list[str] = []
@@ -684,6 +678,17 @@ class IntegrationTestService:
                     src_w, src_h = im.size
                     if src_w <= 0 or src_h <= 0:
                         raise ValueError("invalid image size")
+
+                    # Determine target size. Prefer requested resolution when present,
+                    # otherwise use the current output long edge as baseline.
+                    long_edge = res_px or max(int(src_w), int(src_h))
+                    if rx >= ry:
+                        target_w = long_edge
+                        target_h = max(64, int(round(long_edge * (ry / rx))))
+                    else:
+                        target_h = long_edge
+                        target_w = max(64, int(round(long_edge * (rx / ry))))
+
                     # Scale to cover then center-crop.
                     scale = max(target_w / src_w, target_h / src_h)
                     new_w = max(1, int(round(src_w * scale)))
