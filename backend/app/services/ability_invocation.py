@@ -27,6 +27,7 @@ from app.services.ability_seed import ensure_default_abilities
 from app.services.executor_seed import ensure_default_executors
 from app.services.integration_test import integration_test_service
 from app.services.coze_client import coze_client
+from app.services.oss import oss_service
 from app.services.workflow_seed import ensure_default_bindings, ensure_default_workflows
 
 
@@ -295,7 +296,7 @@ class AbilityInvocationService:
         from app.services import podi_image_tools
 
         key = ability.capability_key
-        if key != "expand_mask_color":
+        if key not in {"expand_mask_color", "set_dpi", "upscale_resize"}:
             raise HTTPException(status_code=400, detail="PODI_UTILITY_UNSUPPORTED")
 
         image_url = (
@@ -320,7 +321,9 @@ class AbilityInvocationService:
         top = _as_int("expand_top")
         bottom = _as_int("expand_bottom")
 
-        # Prefer base64 input (no network fetch). Otherwise download by URL.
+        # Read source bytes (prefer base64; otherwise download from URL).
+        src_bytes: bytes | None = None
+        src_source_url: str | None = None
         if image_base64:
             import base64 as _b64
 
@@ -328,6 +331,15 @@ class AbilityInvocationService:
             if "," in raw and "base64" in raw:
                 raw = raw.split(",", 1)[1]
             src_bytes = _b64.b64decode(raw)
+        else:
+            src_source_url = str(image_url)
+            resp = httpx.get(src_source_url, timeout=60)
+            resp.raise_for_status()
+            src_bytes = resp.content
+
+        user_id = str(context.user.id if context.user else "system")
+        asset: dict[str, Any] | None = None
+        if key == "expand_mask_color":
             out_bytes = podi_image_tools.expand_with_color(
                 image_bytes=src_bytes,
                 expand_left=left,
@@ -336,28 +348,63 @@ class AbilityInvocationService:
                 expand_bottom=bottom,
             )
             upload = oss_service.upload_bytes(
-                user_id=str(context.user.id if context.user else "system"),
+                user_id=user_id,
                 filename="expand_mask.png",
                 data=out_bytes,
                 content_type="image/png",
             )
             asset = {
-                "sourceUrl": None,
+                "sourceUrl": src_source_url,
                 "ossUrl": upload.get("url"),
                 "ossKey": upload.get("objectKey"),
                 "contentType": "image/png",
                 "tag": "podi-expand-mask",
             }
-        else:
-            asset = podi_image_tools.expand_with_color_from_url(
-                image_url=str(image_url),
-                expand_left=left,
-                expand_right=right,
-                expand_top=top,
-                expand_bottom=bottom,
-                user_id=str(context.user.id if context.user else "system"),
-                filename="expand_mask.png",
+        elif key == "set_dpi":
+            dpi_raw = merged_inputs.get("dpi")
+            try:
+                dpi = int(str(dpi_raw).strip()) if dpi_raw is not None else 300
+            except Exception:
+                dpi = 300
+            out_bytes, content_type, ext = podi_image_tools.set_dpi(image_bytes=src_bytes, dpi=dpi)
+            upload = oss_service.upload_bytes(
+                user_id=user_id,
+                filename=f"set_dpi_{dpi}{ext}",
+                data=out_bytes,
+                content_type=content_type,
             )
+            asset = {
+                "sourceUrl": src_source_url,
+                "ossUrl": upload.get("url"),
+                "ossKey": upload.get("objectKey"),
+                "contentType": content_type,
+                "tag": "podi-set-dpi",
+            }
+        elif key == "upscale_resize":
+            mle_raw = merged_inputs.get("max_long_edge")
+            try:
+                mle = int(str(mle_raw).strip()) if mle_raw is not None else 4096
+            except Exception:
+                mle = 4096
+            fmt = str(merged_inputs.get("output_format") or "png").strip().lower()
+            out_bytes, content_type, ext = podi_image_tools.upscale_resize(
+                image_bytes=src_bytes,
+                max_long_edge=mle,
+                output_format=fmt,
+            )
+            upload = oss_service.upload_bytes(
+                user_id=user_id,
+                filename=f"upscale_{mle}{ext}",
+                data=out_bytes,
+                content_type=content_type,
+            )
+            asset = {
+                "sourceUrl": src_source_url,
+                "ossUrl": upload.get("url"),
+                "ossKey": upload.get("objectKey"),
+                "contentType": content_type,
+                "tag": "podi-upscale-resize",
+            }
 
         stored_url = asset.get("ossUrl") if isinstance(asset, dict) else None
         return {

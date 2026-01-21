@@ -1377,4 +1377,75 @@ PODI_UTILITY_ABILITIES: dict[str, AbilityDefinition] = {
             "seed_version": 1,
         },
     }
+    ,
+    "set_dpi": {
+        "defaults": {
+            "dpi": 300,
+        },
+        "display_name": "PODI · 设置 DPI",
+        "description": "不改变像素尺寸，仅修改图片 DPI/PPI 元数据（例如改为 300dpi 便于印刷/排版）。",
+        "category": "utilities",
+        "input_schema": {
+            "fields": [
+                {
+                    "name": "image_url",
+                    "type": "image",
+                    "label": _compose_bilingual_label("图片 URL", "Image URL"),
+                    "required": True,
+                },
+                {
+                    "name": "dpi",
+                    "type": "number",
+                    "label": _compose_bilingual_label("DPI", "DPI"),
+                    "default": 300,
+                },
+            ]
+        },
+        "metadata": {
+            "api_type": "podi_utility",
+            "action": "set_dpi",
+            "requires_image_input": True,
+            "supports_vision": True,
+            "seed_version": 1,
+        },
+    },
+    "upscale_resize": {
+        "defaults": {
+            "max_long_edge": 4096,
+            "output_format": "png",
+        },
+        "display_name": "PODI · 高质量缩放",
+        "description": "非 AI 超分：将图片按比例缩放到指定长边像素（默认 4096，最大 8192），用于输出尺寸放大。",
+        "category": "utilities",
+        "input_schema": {
+            "fields": [
+                {
+                    "name": "image_url",
+                    "type": "image",
+                    "label": _compose_bilingual_label("图片 URL", "Image URL"),
+                    "required": True,
+                },
+                {
+                    "name": "max_long_edge",
+                    "type": "number",
+                    "label": _compose_bilingual_label("长边像素", "Long Edge(px)"),
+                    "default": 4096,
+                },
+                {
+                    "name": "output_format",
+                    "type": "select",
+                    "label": _compose_bilingual_label("输出格式", "Output Format"),
+                    "options": ["png", "jpg"],
+                    "default": "png",
+                },
+            ]
+        },
+        "metadata": {
+            "api_type": "podi_utility",
+            "action": "upscale_resize",
+            "requires_image_input": True,
+            "supports_vision": True,
+            "seed_version": 1,
+        },
+    },
 }

@@ -358,6 +358,39 @@ def get_openapi(request: Request) -> dict[str, Any]:
     return _build_openapi(podi_server=server)
 
 
+@router.get("/utils/openapi.json")
+def get_utils_openapi(request: Request) -> dict[str, Any]:
+    """OpenAPI for PODI Utils plugin (only provider=podi utilities)."""
+    _require_internal(request)
+    forwarded_proto = (request.headers.get("x-forwarded-proto") or "").strip()
+    forwarded_host = (request.headers.get("x-forwarded-host") or "").strip()
+    host = forwarded_host or (request.headers.get("host") or "").strip()
+    scheme = forwarded_proto or request.url.scheme
+    server = f"{scheme}://{host}" if host else str(request.base_url).rstrip("/")
+
+    with get_session() as session:
+        ensure_default_executors(session)
+        ensure_default_abilities(session)
+        abilities = (
+            session.execute(
+                select(Ability)
+                .where(Ability.status == "active", Ability.provider == "podi")
+                .order_by(Ability.capability_key.asc())
+            )
+            .scalars()
+            .all()
+        )
+
+    doc = _build_openapi(podi_server=server)
+    paths = doc.get("paths") or {}
+    allowed = {f"/api/coze/podi/tools/podi/{a.capability_key}" for a in abilities}
+    allowed.add("/api/coze/podi/tasks/get")
+    doc["paths"] = {k: v for k, v in paths.items() if k in allowed}
+    doc["info"]["title"] = "PODI Utils"
+    doc["info"]["description"] = "Internal utility tools (image helpers) for workflows."
+    return doc
+
+
 @router.get("/abilities", response_model=ability_schemas.AbilityListResponse)
 def list_abilities_for_coze(request: Request) -> ability_schemas.AbilityListResponse:
     _require_internal(request)
