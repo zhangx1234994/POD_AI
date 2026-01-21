@@ -535,6 +535,11 @@ def invoke_tool(
     texts = resp_dict.get("texts") or []
     images = resp_dict.get("images") or []
     videos = resp_dict.get("videos") or []
+    # Some providers (e.g. KIE) are async on their side and return a provider task id/state.
+    # Surface it as taskId/taskStatus so Coze workflows can branch/poll if needed.
+    meta = resp_dict.get("metadata") if isinstance(resp_dict.get("metadata"), dict) else {}
+    provider_task_id = meta.get("taskId") if isinstance(meta, dict) else None
+    provider_task_status = meta.get("state") if isinstance(meta, dict) else None
     raw_payload = resp_dict.get("raw") if isinstance(resp_dict.get("raw"), dict) else {}
     debug_request = ""
     debug_response = ""
@@ -586,8 +591,8 @@ def invoke_tool(
             "imageUrls": _all_urls(images) if isinstance(images, list) else [],
             "videoUrl": _first_url(videos) if isinstance(videos, list) else None,
             "videoUrls": _all_urls(videos) if isinstance(videos, list) else [],
-            "taskId": None,
-            "taskStatus": None,
+            "taskId": str(provider_task_id).strip() if isinstance(provider_task_id, (str, int)) else None,
+            "taskStatus": str(provider_task_status).strip() if isinstance(provider_task_status, (str, int)) else None,
             "logId": resp_dict.get("logId"),
             "requestId": resp_dict.get("requestId"),
             "debugRequest": debug_request or None,
