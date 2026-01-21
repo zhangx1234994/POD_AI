@@ -340,6 +340,15 @@ class AbilityInvocationService:
         user_id = str(context.user.id if context.user else "system")
         asset: dict[str, Any] | None = None
         if key == "expand_mask_color":
+            # Report dimensions to help downstream workflows compute target sizes.
+            try:
+                from PIL import Image as _PILImage
+                from io import BytesIO as _BytesIO
+
+                _im = _PILImage.open(_BytesIO(src_bytes))
+                in_w, in_h = _im.size
+            except Exception:
+                in_w, in_h = None, None
             out_bytes = podi_image_tools.expand_with_color(
                 image_bytes=src_bytes,
                 expand_left=left,
@@ -347,6 +356,8 @@ class AbilityInvocationService:
                 expand_top=top,
                 expand_bottom=bottom,
             )
+            out_w = (int(in_w) + left + right) if isinstance(in_w, int) else None
+            out_h = (int(in_h) + top + bottom) if isinstance(in_h, int) else None
             upload = oss_service.upload_bytes(
                 user_id=user_id,
                 filename="expand_mask.png",
@@ -420,6 +431,10 @@ class AbilityInvocationService:
                     "expand_bottom": bottom,
                     "imageUrl": image_url,
                     "hasImageBase64": bool(image_base64),
+                    "inputWidth": in_w if key == "expand_mask_color" else None,
+                    "inputHeight": in_h if key == "expand_mask_color" else None,
+                    "outputWidth": out_w if key == "expand_mask_color" else None,
+                    "outputHeight": out_h if key == "expand_mask_color" else None,
                 }
             },
         }
