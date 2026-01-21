@@ -481,7 +481,10 @@ class IntegrationTestService:
         headers: dict[str, str] = {}
         task_id: str | None = None
 
-        for _attempt in range(2):
+        # We allow a few retries to handle:
+        # - API key rate limit rotation
+        # - KIE strict validation errors (e.g. aspect_ratio enum/required)
+        for _attempt in range(3):
             api_key = self._pick_kie_api_key(executor, exclude_ids=exclude)
             if not api_key:
                 raise HTTPException(status_code=400, detail="KIE_API_KEY_MISSING")
@@ -558,17 +561,24 @@ class IntegrationTestService:
             ok = (response.status_code < 400) and (code in (200, "200", None))
             if not ok:
                 last_msg = str(data.get("msg") or data)
-                # Some KIE models validate `aspect_ratio` against a strict enum and may
-                # reject values that look valid to us (or include whitespace).
-                # For robustness, retry once without aspect_ratio (provider default).
-                if (
-                    "aspect_ratio is not within the range of allowed options" in last_msg
-                    and isinstance(input_payload, dict)
-                    and "aspect_ratio" in input_payload
-                    and _attempt == 0
-                ):
-                    input_payload.pop("aspect_ratio", None)
-                    continue
+                # Some KIE models validate `aspect_ratio` against a strict enum and/or
+                # require the field. Coze users may also pass values with whitespace.
+                # For robustness, retry with conservative fallbacks.
+                if isinstance(input_payload, dict) and "aspect_ratio" in last_msg:
+                    current = input_payload.get("aspect_ratio")
+                    current_norm = str(current).strip() if current is not None else ""
+                    # If required, fill it (prefer "auto").
+                    if "aspect_ratio is required" in last_msg:
+                        if not current_norm:
+                            input_payload["aspect_ratio"] = "auto"
+                            continue
+                    # If invalid enum, try "auto" then "1:1".
+                    if "aspect_ratio is not within the range of allowed options" in last_msg:
+                        if current_norm.lower() != "auto":
+                            input_payload["aspect_ratio"] = "auto"
+                            continue
+                        input_payload["aspect_ratio"] = "1:1"
+                        continue
                 is_rate_limited = (response.status_code == 429) or (code in (429, "429"))
                 if is_rate_limited and api_key.id != "legacy":
                     with get_session() as session:
