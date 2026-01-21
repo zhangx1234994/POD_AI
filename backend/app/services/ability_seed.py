@@ -12,6 +12,7 @@ from app.constants.abilities import (
     BAIDU_IMAGE_ABILITIES,
     COMFYUI_ABILITIES,
     KIE_MARKET_ABILITIES,
+    PODI_UTILITY_ABILITIES,
     VOLCENGINE_IMAGE_ABILITIES,
     VOLCENGINE_LLM_ABILITIES,
     VOLCENGINE_VIDEO_ABILITIES,
@@ -134,6 +135,21 @@ def _build_default_seeds() -> list[AbilitySeed]:
                 default_params=definition.get("defaults") or None,
                 input_schema=definition.get("input_schema"),
                 metadata=definition.get("metadata"),
+            )
+        )
+    for capability_key, definition in PODI_UTILITY_ABILITIES.items():
+        seeds.append(
+            AbilitySeed(
+                id=f"podi_{capability_key}",
+                provider="podi",
+                category=definition.get("category", "utilities"),
+                capability_key=capability_key,
+                display_name=definition.get("display_name") or capability_key,
+                description=definition.get("description") or "",
+                status="active",
+                default_params=definition.get("defaults") or None,
+                input_schema=definition.get("input_schema"),
+                metadata=definition.get("metadata") or {"api_type": "podi_utility"},
             )
         )
     return seeds

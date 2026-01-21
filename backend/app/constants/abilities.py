@@ -1322,3 +1322,59 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
         },
     },
 }
+
+
+PODI_UTILITY_ABILITIES: dict[str, AbilityDefinition] = {
+    "expand_mask_color": {
+        "defaults": {
+            "expand_left": 0,
+            "expand_right": 0,
+            "expand_top": 0,
+            "expand_bottom": 0,
+        },
+        "display_name": "PODI · 扩边占位图",
+        "description": "输入图片与上下左右扩展像素，扩展区域填充特殊颜色（亮紫色）用于后续模型补全/扩图提示。",
+        "category": "utilities",
+        "input_schema": {
+            "fields": [
+                {
+                    "name": "image_url",
+                    "type": "image",
+                    "label": _compose_bilingual_label("图片 URL", "Image URL"),
+                    "required": True,
+                },
+                {
+                    "name": "expand_left",
+                    "type": "number",
+                    "label": _compose_bilingual_label("左侧扩展(px)", "Expand Left(px)"),
+                    "default": 0,
+                },
+                {
+                    "name": "expand_right",
+                    "type": "number",
+                    "label": _compose_bilingual_label("右侧扩展(px)", "Expand Right(px)"),
+                    "default": 0,
+                },
+                {
+                    "name": "expand_top",
+                    "type": "number",
+                    "label": _compose_bilingual_label("上侧扩展(px)", "Expand Top(px)"),
+                    "default": 0,
+                },
+                {
+                    "name": "expand_bottom",
+                    "type": "number",
+                    "label": _compose_bilingual_label("下侧扩展(px)", "Expand Bottom(px)"),
+                    "default": 0,
+                },
+            ]
+        },
+        "metadata": {
+            "api_type": "podi_utility",
+            "action": "expand_mask_color",
+            "requires_image_input": True,
+            "supports_vision": True,
+            "seed_version": 1,
+        },
+    }
+}

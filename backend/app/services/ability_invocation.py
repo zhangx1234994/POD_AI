@@ -92,9 +92,9 @@ class AbilityInvocationService:
             # Different ComfyUI servers may have different custom nodes/models installed.
             # Route by action/workflow_key via workflow bindings when possible.
             executor_id = self._pick_comfyui_executor_id(ability, merged_inputs)
-        if not executor_id and provider_key not in {"coze"}:
+        if not executor_id and provider_key not in {"coze", "podi"}:
             executor_id = self._pick_default_executor_id(provider_key)
-        if not executor_id and provider_key not in {"coze"}:
+        if not executor_id and provider_key not in {"coze", "podi"}:
             raise HTTPException(status_code=400, detail="ABILITY_EXECUTOR_NOT_CONFIGURED")
         request_marker = uuid4().hex
         currency, billing_unit, unit_price = self._extract_pricing_metadata(ability)
@@ -271,6 +271,8 @@ class AbilityInvocationService:
         context: _InvocationContext,
     ) -> dict[str, Any]:
         provider = ability.provider.lower()
+        if provider == "podi":
+            return self._invoke_podi(ability, merged_inputs, images, context)
         if provider == "baidu":
             return self._invoke_baidu(ability, executor_id, merged_inputs, images)
         if provider == "volcengine":
@@ -282,6 +284,98 @@ class AbilityInvocationService:
         if provider == "coze":
             return self._invoke_coze(ability, merged_inputs, images, context)
         raise HTTPException(status_code=400, detail=f"ABILITY_PROVIDER_UNSUPPORTED:{provider}")
+
+    def _invoke_podi(
+        self,
+        ability: Ability,
+        merged_inputs: dict[str, Any],
+        images: _ImageBundle,
+        context: _InvocationContext,
+    ) -> dict[str, Any]:
+        from app.services import podi_image_tools
+
+        key = ability.capability_key
+        if key != "expand_mask_color":
+            raise HTTPException(status_code=400, detail="PODI_UTILITY_UNSUPPORTED")
+
+        image_url = (
+            images.image_url
+            or self._pop_first_string(merged_inputs, ["image_url", "imageUrl"])
+            or self._pop_first_string(merged_inputs, ["url"])
+        )
+        image_base64 = images.image_base64 or self._pop_first_string(merged_inputs, ["image_base64", "imageBase64"])
+        if not image_url and not image_base64:
+            raise HTTPException(status_code=400, detail="IMAGE_REQUIRED")
+
+        def _as_int(name: str) -> int:
+            v = merged_inputs.get(name)
+            try:
+                n = int(str(v).strip())
+                return n if n > 0 else 0
+            except Exception:
+                return 0
+
+        left = _as_int("expand_left")
+        right = _as_int("expand_right")
+        top = _as_int("expand_top")
+        bottom = _as_int("expand_bottom")
+
+        # Prefer base64 input (no network fetch). Otherwise download by URL.
+        if image_base64:
+            import base64 as _b64
+
+            raw = image_base64.strip()
+            if "," in raw and "base64" in raw:
+                raw = raw.split(",", 1)[1]
+            src_bytes = _b64.b64decode(raw)
+            out_bytes = podi_image_tools.expand_with_color(
+                image_bytes=src_bytes,
+                expand_left=left,
+                expand_right=right,
+                expand_top=top,
+                expand_bottom=bottom,
+            )
+            upload = oss_service.upload_bytes(
+                user_id=str(context.user.id if context.user else "system"),
+                filename="expand_mask.png",
+                data=out_bytes,
+                content_type="image/png",
+            )
+            asset = {
+                "sourceUrl": None,
+                "ossUrl": upload.get("url"),
+                "ossKey": upload.get("objectKey"),
+                "contentType": "image/png",
+                "tag": "podi-expand-mask",
+            }
+        else:
+            asset = podi_image_tools.expand_with_color_from_url(
+                image_url=str(image_url),
+                expand_left=left,
+                expand_right=right,
+                expand_top=top,
+                expand_bottom=bottom,
+                user_id=str(context.user.id if context.user else "system"),
+                filename="expand_mask.png",
+            )
+
+        stored_url = asset.get("ossUrl") if isinstance(asset, dict) else None
+        return {
+            "provider": "podi",
+            "storedUrl": stored_url,
+            "assets": [asset] if asset else [],
+            "raw": {
+                "request": {
+                    "capability_key": key,
+                    "expand_left": left,
+                    "expand_right": right,
+                    "expand_top": top,
+                    "expand_bottom": bottom,
+                    "imageUrl": image_url,
+                    "hasImageBase64": bool(image_base64),
+                }
+            },
+        }
 
     def _invoke_baidu(
         self,
