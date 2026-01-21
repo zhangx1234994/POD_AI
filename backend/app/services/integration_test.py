@@ -584,6 +584,21 @@ class IntegrationTestService:
                             continue
                         input_payload["aspect_ratio"] = "1:1"
                         continue
+                # Resolution required/enum errors (Flux-2 models are stricter here).
+                if isinstance(input_payload, dict) and "resolution" in last_msg:
+                    cur_res = input_payload.get("resolution")
+                    cur_res_norm = str(cur_res).strip().upper() if cur_res is not None else ""
+                    if "resolution is required" in last_msg:
+                        if not cur_res_norm:
+                            input_payload["resolution"] = "1K"
+                            continue
+                    if "resolution is not within the range of allowed options" in last_msg:
+                        # Try conservative fallbacks.
+                        if cur_res_norm != "1K":
+                            input_payload["resolution"] = "1K"
+                            continue
+                        input_payload["resolution"] = "2K"
+                        continue
                 is_rate_limited = (response.status_code == 429) or (code in (429, "429"))
                 if is_rate_limited and api_key.id != "legacy":
                     with get_session() as session:

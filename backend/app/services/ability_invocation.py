@@ -611,7 +611,14 @@ class AbilityInvocationService:
     def _merge_inputs(self, ability: Ability, payload: schemas.AbilityInvokeRequest) -> dict[str, Any]:
         merged = dict(ability.default_params or {})
         if payload.inputs:
-            merged.update(payload.inputs)
+            # Do not let empty strings clobber defaults. Coze forms often submit "" for
+            # optional fields; treating that as "unset" makes workflows much more robust.
+            for key, value in payload.inputs.items():
+                if isinstance(value, str):
+                    value = value.strip()
+                if value in (None, "", []):
+                    continue
+                merged[key] = value
         return self._coerce_input_types(ability, merged)
 
     def _coerce_input_types(self, ability: Ability, merged: dict[str, Any]) -> dict[str, Any]:
