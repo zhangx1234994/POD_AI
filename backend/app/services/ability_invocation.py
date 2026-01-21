@@ -529,6 +529,8 @@ class AbilityInvocationService:
         call_back_url = self._pop_first_string(merged_inputs, ["callBackUrl", "callback_url"])
         extra_payload = merged_inputs.pop("extra", None) if isinstance(merged_inputs.get("extra"), dict) else None
         for key, value in list(merged_inputs.items()):
+            if isinstance(value, str):
+                value = value.strip()
             if value in (None, "", []):
                 continue
             input_payload.setdefault(key, value)

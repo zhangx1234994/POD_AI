@@ -558,6 +558,17 @@ class IntegrationTestService:
             ok = (response.status_code < 400) and (code in (200, "200", None))
             if not ok:
                 last_msg = str(data.get("msg") or data)
+                # Some KIE models validate `aspect_ratio` against a strict enum and may
+                # reject values that look valid to us (or include whitespace).
+                # For robustness, retry once without aspect_ratio (provider default).
+                if (
+                    "aspect_ratio is not within the range of allowed options" in last_msg
+                    and isinstance(input_payload, dict)
+                    and "aspect_ratio" in input_payload
+                    and _attempt == 0
+                ):
+                    input_payload.pop("aspect_ratio", None)
+                    continue
                 is_rate_limited = (response.status_code == 429) or (code in (429, "429"))
                 if is_rate_limited and api_key.id != "legacy":
                     with get_session() as session:
