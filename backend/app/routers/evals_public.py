@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, UploadFile, File
 from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session
 
@@ -29,6 +29,7 @@ from app.schemas.eval import (
 )
 from app.services.eval_seed import ensure_default_eval_workflow_versions
 from app.services.eval_service import eval_service
+from app.services.oss import oss_service
 
 
 router = APIRouter(prefix="/api/evals", tags=["evals-public"])
@@ -42,6 +43,13 @@ def _require_public_enabled(request: Request) -> None:
         token = request.headers.get("X-Eval-Token") or request.query_params.get("token")
         if token != settings.eval_public_token:
             raise HTTPException(status_code=401, detail="UNAUTHORIZED")
+
+
+def _require_eval_admin(request: Request) -> None:
+    settings = get_settings()
+    token = request.headers.get("X-Eval-Admin-Token") or request.query_params.get("admin_token")
+    if not settings.eval_admin_token or token != settings.eval_admin_token:
+        raise HTTPException(status_code=401, detail="UNAUTHORIZED")
 
 
 def _get_or_set_rater_id(request: Request, response: Response) -> str:
@@ -83,6 +91,54 @@ def list_workflow_versions(
     if status:
         stmt = stmt.where(EvalWorkflowVersion.status == status)
     return db.execute(stmt.order_by(EvalWorkflowVersion.category.asc(), EvalWorkflowVersion.created_at.desc())).scalars().all()
+
+
+@router.post("/uploads")
+async def upload_image(
+    request: Request,
+    response: Response,
+    file: UploadFile = File(...),
+) -> dict[str, Any]:
+    """Upload an image to OSS and return its public URL."""
+    _require_public_enabled(request)
+    user_id = _get_or_set_rater_id(request, response)
+    data = await file.read()
+    uploaded = oss_service.upload_bytes(user_id=user_id, filename=file.filename or "upload.png", data=data, content_type=file.content_type)
+    return {"url": uploaded.get("url"), "objectKey": uploaded.get("objectKey")}
+
+
+@router.get("/admin/workflow-versions", response_model=list[EvalWorkflowVersionResponse])
+def admin_list_workflow_versions(
+    request: Request,
+    category: str | None = Query(None),
+    db: Session = Depends(get_db),
+) -> list[EvalWorkflowVersion]:
+    _require_eval_admin(request)
+    ensure_default_eval_workflow_versions(db)
+    stmt = select(EvalWorkflowVersion)
+    if category:
+        stmt = stmt.where(EvalWorkflowVersion.category == category)
+    return db.execute(stmt.order_by(EvalWorkflowVersion.category.asc(), EvalWorkflowVersion.created_at.desc())).scalars().all()
+
+
+@router.put("/admin/workflow-versions/{workflow_version_id}", response_model=EvalWorkflowVersionResponse)
+def admin_update_workflow_version(
+    workflow_version_id: str,
+    request: Request,
+    body: dict[str, Any],
+    db: Session = Depends(get_db),
+) -> EvalWorkflowVersion:
+    _require_eval_admin(request)
+    row = db.get(EvalWorkflowVersion, workflow_version_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="NOT_FOUND")
+    for key in ("name", "notes", "category", "status", "version"):
+        if key in body and isinstance(body[key], str):
+            setattr(row, key, body[key].strip())
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
 
 
 @router.post("/runs", response_model=EvalRunResponse)

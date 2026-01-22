@@ -9,11 +9,23 @@ from __future__ import annotations
 
 from typing import Any
 from uuid import uuid4
+import json
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.eval import EvalWorkflowVersion
+
+
+LORA_OPTIONS = [
+    # From LORA_CATALOG.md table (repo-managed).
+    "印花提取-YinHuaTiQu-Qwen-Image-Edit-LoRA_V1.safetensors",
+    "T-Shirt-1-1.safetensors",
+    "杯子1124.safetensors",
+    "印花提取-毛毯1-1.safetensors",
+    "印花提取-毛毯2-1.safetensors",
+    "印花提取-毛毯1-2.safetensors",
+]
 
 
 DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
@@ -46,7 +58,14 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                 {"name": "url", "label": "图片 URL", "type": "text", "required": True},
                 {"name": "width", "label": "生成宽度", "type": "text", "required": False, "defaultValue": ""},
                 {"name": "height", "label": "生成高度", "type": "text", "required": False, "defaultValue": ""},
-                {"name": "lora", "label": "LoRA", "type": "text", "required": False, "defaultValue": ""},
+                {
+                    "name": "lora",
+                    "label": "LoRA",
+                    "type": "select",
+                    "required": False,
+                    "defaultValue": LORA_OPTIONS[0],
+                    "options": [{"label": x, "value": x} for x in LORA_OPTIONS],
+                },
             ]
         },
         "output_schema": {"fields": [{"name": "output", "type": "text", "description": "回调 task id"}]},
@@ -86,7 +105,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
     },
     # 图略变类 / 多模型生图（Banana Pro / Flux2 / Doubao 4.5）
     {
-        "category": "image_variation",
+        "category": "general",
         "name": "多模型生图",
         "version": "v1",
         "workflow_id": "7597659369861283840",
@@ -143,7 +162,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
     },
     # 图略变/通用类 / 四步急速生图（输出为回调 task id）
     {
-        "category": "image_variation",
+        "category": "general",
         "name": "四步急速生图",
         "version": "v1",
         "workflow_id": "7597701996124045312",
@@ -161,7 +180,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
     },
     # 图略变/通用类 / 八步急速生图（输出为回调 task id）
     {
-        "category": "image_variation",
+        "category": "general",
         "name": "八步急速生图",
         "version": "v1",
         "workflow_id": "7597702948247830528",
@@ -231,5 +250,34 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
         session.add(row)
         created = True
     if created:
+        session.commit()
+
+    # Small safe normalizations for seeded workflows (no destructive updates):
+    # - ensure ComfyUI lora field is a select with known options
+    # - move certain workflows to general category (as per business definition)
+    category_fixes = {
+        "7597701996124045312": "general",  # 4 steps
+        "7597702948247830528": "general",  # 8 steps
+        "7597659369861283840": "general",  # multi-model gen
+    }
+    rows = session.execute(select(EvalWorkflowVersion)).scalars().all()
+    dirty = False
+    for row in rows:
+        if row.workflow_id in category_fixes and row.category != category_fixes[row.workflow_id]:
+            row.category = category_fixes[row.workflow_id]
+            dirty = True
+        if row.workflow_id == "7597530887256801280":
+            # Work on a copy: mutating JSON in-place is not tracked by SQLAlchemy.
+            schema = json.loads(json.dumps(row.parameters_schema or {}, ensure_ascii=False))
+            fields = schema.get("fields") if isinstance(schema, dict) else None
+            if isinstance(fields, list):
+                for f in fields:
+                    if isinstance(f, dict) and f.get("name") == "lora" and f.get("type") != "select":
+                        f["type"] = "select"
+                        f["defaultValue"] = LORA_OPTIONS[0]
+                        f["options"] = [{"label": x, "value": x} for x in LORA_OPTIONS]
+                        row.parameters_schema = schema
+                        dirty = True
+    if dirty:
         session.commit()
     return created

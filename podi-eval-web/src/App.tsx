@@ -10,7 +10,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   pattern_extract: '花纹提取类',
   image_extend: '图延伸类',
   continuous_pattern: '四方/两方连续图类',
-  image_variation: '图略变类',
+  image_variation: '图像生成类',
   general: '通用类',
 };
 
@@ -245,18 +245,23 @@ export function App() {
   const [metrics, setMetrics] = useState<Record<string, { ratingCount: number; avgRating: number | null }>>({});
 
   const [activeCategory, setActiveCategory] = useState<string>('general');
-  const [activeView, setActiveView] = useState<'home' | 'tool' | 'tasks'>('home');
+  const [activeView, setActiveView] = useState<'home' | 'tool' | 'tasks' | 'admin'>('home');
   const [selectedTool, setSelectedTool] = useState<EvalWorkflowVersion | null>(null);
 
   const [formUrl, setFormUrl] = useState('');
   const [formParams, setFormParams] = useState<Record<string, string>>({});
   const [isRunning, setIsRunning] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   const [runs, setRuns] = useState<RunWithLatest[]>([]);
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [filterRating, setFilterRating] = useState<string>('all');
   const [filterUnrated, setFilterUnrated] = useState<boolean>(false);
   const [search, setSearch] = useState<string>('');
+
+  // Simple "private" admin token stored in localStorage.
+  const [adminToken, setAdminToken] = useState<string>(() => localStorage.getItem('podi_eval_admin_token') || '');
+  const [adminWorkflows, setAdminWorkflows] = useState<EvalWorkflowVersion[]>([]);
 
   const workflowMap = useMemo(() => {
     const m: Record<string, EvalWorkflowVersion> = {};
@@ -432,6 +437,32 @@ export function App() {
           >
             任务管理
           </button>
+          <button
+            type="button"
+            onClick={async () => {
+              // "Private-ish": require a token, stored locally. No normal login.
+              const token = adminToken || window.prompt('请输入 EVAL_ADMIN_TOKEN（仅管理员维护功能名/备注）') || '';
+              if (!token.trim()) return;
+              localStorage.setItem('podi_eval_admin_token', token.trim());
+              setAdminToken(token.trim());
+              setActiveView('admin');
+              setSelectedTool(null);
+              try {
+                const list = await evalApi.adminListWorkflowVersions(token.trim());
+                setAdminWorkflows(list);
+              } catch (err) {
+                console.error(err);
+                alert(String(err));
+              }
+            }}
+            className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${
+              activeView === 'admin'
+                ? 'bg-sky-500/20 text-sky-200 border border-sky-500/40'
+                : 'bg-slate-950 border border-slate-800 text-slate-300 hover:border-slate-700'
+            }`}
+          >
+            维护
+          </button>
           <div className="ml-2 text-xs text-slate-400">
             raterId: <span className="font-mono text-slate-200">{raterId || '...'}</span>
           </div>
@@ -439,6 +470,48 @@ export function App() {
       </div>
     </header>
   );
+
+  if (activeView === 'admin') {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-50">
+        {header}
+        <div className="mx-auto max-w-[1400px] px-6 py-6">
+          <div className="rounded-3xl border border-slate-800 bg-slate-900/30 p-5">
+            <div className="flex items-end justify-between">
+              <div>
+                <div className="text-lg font-semibold">功能维护</div>
+                <div className="text-xs text-slate-400">维护各功能的名称/备注/分类/状态（需要 EVAL_ADMIN_TOKEN）。</div>
+              </div>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!adminToken) return;
+                  const list = await evalApi.adminListWorkflowVersions(adminToken);
+                  setAdminWorkflows(list);
+                }}
+                className="rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-200 hover:border-slate-700"
+              >
+                刷新列表
+              </button>
+            </div>
+            <div className="mt-4 space-y-3">
+              {adminWorkflows.map((wf) => (
+                <AdminWorkflowRow
+                  key={wf.id}
+                  wf={wf}
+                  adminToken={adminToken}
+                  onSaved={(next) => {
+                    setAdminWorkflows((prev) => prev.map((x) => (x.id === next.id ? next : x)));
+                  }}
+                />
+              ))}
+              {adminWorkflows.length === 0 ? <div className="text-sm text-slate-500">暂无数据。</div> : null}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (activeView === 'tasks') {
     return (
@@ -493,12 +566,38 @@ export function App() {
                   <div className="text-xs text-slate-300">
                     图片 URL <span className="text-rose-400">*</span>
                   </div>
-                  <input
-                    value={formUrl}
-                    onChange={(e) => setFormUrl(e.target.value)}
-                    placeholder="https://podi.oss-.../xxx.jpg"
-                    className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-600"
-                  />
+                  <div className="mt-1 flex gap-2">
+                    <input
+                      value={formUrl}
+                      onChange={(e) => setFormUrl(e.target.value)}
+                      placeholder="支持粘贴 URL 或上传本地图片"
+                      className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-600"
+                    />
+                    <label className="shrink-0 rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-200 hover:border-slate-700 cursor-pointer">
+                      {uploading ? '上传中…' : '上传'}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        disabled={uploading}
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          setUploading(true);
+                          try {
+                            const res = await evalApi.uploadImage(file);
+                            setFormUrl(res.url);
+                          } catch (err) {
+                            console.error(err);
+                            alert(String(err));
+                          } finally {
+                            setUploading(false);
+                            e.target.value = '';
+                          }
+                        }}
+                      />
+                    </label>
+                  </div>
                 </label>
                 {formUrl.trim() ? (
                   <div className="mt-3">
@@ -763,6 +862,115 @@ function HistoryRow({
             ) : (
               <div className="text-sm text-slate-500">{run.status === 'running' || run.status === 'queued' ? '生成中…' : '暂无输出'}</div>
             )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AdminWorkflowRow({
+  wf,
+  adminToken,
+  onSaved,
+}: {
+  wf: EvalWorkflowVersion;
+  adminToken: string;
+  onSaved: (next: EvalWorkflowVersion) => void;
+}) {
+  const [name, setName] = useState(wf.name);
+  const [notes, setNotes] = useState(wf.notes || '');
+  const [category, setCategory] = useState(wf.category);
+  const [status, setStatus] = useState(wf.status);
+  const [saving, setSaving] = useState(false);
+
+  const dirty = name !== wf.name || notes !== (wf.notes || '') || category !== wf.category || status !== wf.status;
+
+  return (
+    <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0 flex-1">
+          <div className="text-xs text-slate-500">workflow_id</div>
+          <div className="mt-1 font-mono text-xs text-slate-300 break-all">{wf.workflow_id}</div>
+
+          <div className="mt-3 grid gap-3 lg:grid-cols-2">
+            <label className="block">
+              <div className="text-xs text-slate-300">名称</div>
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+              />
+            </label>
+            <label className="block">
+              <div className="text-xs text-slate-300">分类</div>
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+              >
+                {CATEGORY_ORDER.map((key) => (
+                  <option key={key} value={key}>
+                    {CATEGORY_LABELS[key] ?? key}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <label className="block mt-3">
+            <div className="text-xs text-slate-300">备注</div>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={3}
+              className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 p-3 text-sm text-slate-100"
+            />
+          </label>
+        </div>
+
+        <div className="shrink-0 w-full lg:w-56">
+          <label className="block">
+            <div className="text-xs text-slate-300">状态</div>
+            <select
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+              className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+            >
+              <option value="active">active</option>
+              <option value="inactive">inactive</option>
+            </select>
+          </label>
+
+          <button
+            type="button"
+            disabled={!dirty || saving}
+            onClick={async () => {
+              setSaving(true);
+              try {
+                const next = await evalApi.adminUpdateWorkflowVersion(adminToken, wf.id, {
+                  name,
+                  notes,
+                  category,
+                  status,
+                });
+                onSaved(next);
+              } catch (err) {
+                console.error(err);
+                alert(String(err));
+              } finally {
+                setSaving(false);
+              }
+            }}
+            className={`mt-3 w-full rounded-xl px-3 py-2 text-sm font-semibold transition ${
+              !dirty || saving ? 'bg-slate-700/40 text-slate-400' : 'bg-emerald-500/80 text-white hover:bg-emerald-500'
+            }`}
+          >
+            {saving ? '保存中…' : '保存'}
+          </button>
+
+          <div className="mt-3 text-xs text-slate-500">
+            更新时间：{wf.updated_at}
           </div>
         </div>
       </div>

@@ -56,4 +56,19 @@ export const evalApi = {
     qs.set('offset', String(params.offset ?? 0));
     return request<{ total: number; items: any[] }>(`/api/evals/runs/with-latest-annotation?${qs.toString()}`);
   },
+  uploadImage: async (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    const resp = await fetch(`${API_BASE}/api/evals/uploads`, { method: 'POST', body: form, credentials: 'include' });
+    if (!resp.ok) throw new Error(await resp.text());
+    return resp.json() as Promise<{ url: string; objectKey: string }>;
+  },
+  adminListWorkflowVersions: async (adminToken: string) =>
+    request<EvalWorkflowVersion[]>(`/api/evals/admin/workflow-versions`, { headers: { 'X-Eval-Admin-Token': adminToken } }),
+  adminUpdateWorkflowVersion: async (adminToken: string, id: string, payload: Partial<EvalWorkflowVersion>) =>
+    request<EvalWorkflowVersion>(`/api/evals/admin/workflow-versions/${id}`, {
+      method: 'PUT',
+      headers: { 'X-Eval-Admin-Token': adminToken },
+      body: JSON.stringify(payload),
+    }),
 };
