@@ -275,9 +275,8 @@ export function App() {
   }, [workflows]);
 
   const orderedCategories = useMemo(() => {
-    const have = new Set(Object.keys(grouped));
-    const out: string[] = [];
-    for (const k of CATEGORY_ORDER) if (have.has(k)) out.push(k);
+    // Always show the 5 business categories even if empty (e.g. continuous_pattern placeholder).
+    const out: string[] = CATEGORY_ORDER.slice();
     for (const k of Object.keys(grouped).sort()) if (!out.includes(k)) out.push(k);
     return out;
   }, [grouped]);
@@ -306,20 +305,18 @@ export function App() {
   };
 
   const loadRunsForTool = async (workflowVersionId: string) => {
-    const qs = new URLSearchParams();
-    qs.set('workflow_version_id', workflowVersionId);
-    if (filterStatus !== 'all') qs.set('status', filterStatus);
-    if (filterUnrated) qs.set('unrated', 'true');
-    const url = `/api/evals/runs/with-latest-annotation?${qs.toString()}`;
-    const resp = await (await fetch(url, { credentials: 'include' })).json();
-    // shape: { total, items }
+    const resp = await evalApi.listRunsWithLatestAnnotation({
+      workflow_version_id: workflowVersionId,
+      status: filterStatus !== 'all' ? filterStatus : undefined,
+      unrated: filterUnrated,
+      limit: 80,
+      offset: 0,
+    });
     setRuns((resp.items || []) as RunWithLatest[]);
   };
 
   const loadTasks = async () => {
-    const qs = new URLSearchParams();
-    qs.set('limit', '80');
-    const resp = await (await fetch(`/api/evals/runs/with-latest-annotation?${qs.toString()}`, { credentials: 'include' })).json();
+    const resp = await evalApi.listRunsWithLatestAnnotation({ limit: 80, offset: 0 });
     setRuns((resp.items || []) as RunWithLatest[]);
   };
 
@@ -408,7 +405,7 @@ export function App() {
       <div className="mx-auto max-w-[1400px] px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="text-lg font-semibold">PODI · 能力评测</div>
-          <div className="text-xs text-slate-400">工具箱式评测 · 免登录 · 评分沉淀</div>
+          <div className="text-xs text-slate-400">工具箱式评测 · 免登录 · 评分沉淀 · UI v2</div>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -772,4 +769,3 @@ function HistoryRow({
     </div>
   );
 }
-

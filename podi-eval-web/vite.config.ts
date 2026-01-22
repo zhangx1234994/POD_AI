@@ -1,11 +1,23 @@
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 
-export default defineConfig({
-  plugins: [react()],
-  server: {
-    port: 8200,
-    host: '0.0.0.0',
-  },
-});
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '');
+  // Default to local backend; can override via VITE_API_BASE_URL=http://x.x.x.x:8099
+  const apiBase = (env.VITE_API_BASE_URL || 'http://127.0.0.1:8099').replace(/\/$/, '');
 
+  return {
+    plugins: [react()],
+    server: {
+      port: 8200,
+      host: '0.0.0.0',
+      proxy: {
+        // Make `/api/...` work in dev without configuring CORS or hardcoding base urls.
+        '/api': {
+          target: apiBase,
+          changeOrigin: true,
+        },
+      },
+    },
+  };
+});

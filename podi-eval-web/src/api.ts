@@ -15,7 +15,13 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     const text = await resp.text();
     throw new Error(text || resp.statusText);
   }
-  return resp.json();
+  const contentType = resp.headers.get('content-type') || '';
+  const text = await resp.text();
+  if (!contentType.includes('application/json')) {
+    // When dev proxy isn't configured, Vite may return index.html (text/html).
+    throw new Error(`Expected JSON but got ${contentType || 'unknown'}: ${text.slice(0, 120)}`);
+  }
+  return JSON.parse(text) as T;
 }
 
 export const evalApi = {
@@ -41,4 +47,13 @@ export const evalApi = {
     request(`/api/evals/runs/${runId}/annotations`, { method: 'POST', body: JSON.stringify(payload) }),
   listAnnotations: (runId: string) => request(`/api/evals/runs/${runId}/annotations`),
   workflowMetrics: () => request<{ metrics: Record<string, { ratingCount: number; avgRating: number | null }> }>(`/api/evals/metrics/workflows`),
+  listRunsWithLatestAnnotation: (params: { workflow_version_id?: string; status?: string; unrated?: boolean; limit?: number; offset?: number }) => {
+    const qs = new URLSearchParams();
+    if (params.workflow_version_id) qs.set('workflow_version_id', params.workflow_version_id);
+    if (params.status) qs.set('status', params.status);
+    if (params.unrated) qs.set('unrated', 'true');
+    qs.set('limit', String(params.limit ?? 50));
+    qs.set('offset', String(params.offset ?? 0));
+    return request<{ total: number; items: any[] }>(`/api/evals/runs/with-latest-annotation?${qs.toString()}`);
+  },
 };
