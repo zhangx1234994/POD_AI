@@ -108,6 +108,16 @@ class EvalRunListResponse(BaseModel):
     total: int = Field(..., description="总条数")
     items: List[EvalRunResponse] = Field(..., description="列表项")
 
+class EvalRunWithLatestAnnotationResponse(EvalRunResponse):
+    """Eval run plus latest annotation (if any), used by the public eval console."""
+
+    latest_annotation: Optional["EvalAnnotationResponse"] = Field(default=None, description="最新标注")
+
+
+class EvalRunWithLatestAnnotationListResponse(BaseModel):
+    total: int = Field(..., description="总条数")
+    items: List[EvalRunWithLatestAnnotationResponse] = Field(..., description="列表项")
+
 
 class EvalAnnotationBase(BaseModel):
     """Base schema for evaluation annotation."""
@@ -130,3 +140,6 @@ class EvalAnnotationResponse(EvalAnnotationBase):
     
     class Config:
         from_attributes = True
+
+
+EvalRunWithLatestAnnotationResponse.model_rebuild()

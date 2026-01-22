@@ -2,6 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { evalApi } from './api';
 import type { EvalRun, EvalWorkflowVersion, SchemaField } from './types';
 
+type RunWithLatest = EvalRun & {
+  latest_annotation?: { rating: number; comment?: string | null; created_at: string; created_by: string } | null;
+};
+
 const CATEGORY_LABELS: Record<string, string> = {
   pattern_extract: '花纹提取类',
   image_extend: '图延伸类',
@@ -9,6 +13,8 @@ const CATEGORY_LABELS: Record<string, string> = {
   image_variation: '图略变类',
   general: '通用类',
 };
+
+const CATEGORY_ORDER = ['pattern_extract', 'image_extend', 'continuous_pattern', 'image_variation', 'general'];
 
 const getFields = (wf: EvalWorkflowVersion | null): SchemaField[] => {
   const schema = wf?.parameters_schema as any;
@@ -23,555 +29,747 @@ const formatDuration = (ms?: number | null) => {
   return `${(ms / 1000).toFixed(2)}s`;
 };
 
+const fmtTime = (iso: string) => {
+  try {
+    return new Date(iso).toLocaleString();
+  } catch {
+    return iso;
+  }
+};
+
+const buildCozeDoc = (wf: EvalWorkflowVersion, urlExample: string) => {
+  const paramsExample: Record<string, unknown> = {};
+  for (const f of getFields(wf)) {
+    if (f.name === 'url') {
+      paramsExample.url = urlExample || 'https://...';
+      continue;
+    }
+    const options = Array.isArray((f as any).options) ? ((f as any).options as any[]) : null;
+    if (options && options.length > 0) {
+      paramsExample[f.name] = String(options[0].value);
+      continue;
+    }
+    if (typeof (f as any).defaultValue === 'string') {
+      paramsExample[f.name] = (f as any).defaultValue;
+      continue;
+    }
+    paramsExample[f.name] = '';
+  }
+  return [
+    'curl -X POST "$COZE_BASE_URL/v1/workflow/run" \\',
+    '  -H "Authorization: Bearer $COZE_API_TOKEN" \\',
+    '  -H "Content-Type: application/json" \\',
+    `  -d '${JSON.stringify({ workflow_id: wf.workflow_id, parameters: paramsExample }, null, 2)}'`,
+  ].join('\n');
+};
+
+function ToolCard({
+  wf,
+  active,
+  metric,
+  onClick,
+}: {
+  wf: EvalWorkflowVersion;
+  active: boolean;
+  metric?: { ratingCount: number; avgRating: number | null };
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`group w-full rounded-2xl border bg-slate-950/40 p-4 text-left transition ${
+        active ? 'border-sky-500/70 shadow-[0_0_0_2px_rgba(56,189,248,0.15)]' : 'border-slate-800 hover:border-slate-700'
+      }`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-sm font-semibold text-white truncate">{wf.name}</div>
+          <div className="mt-1 text-[11px] text-slate-500 truncate">{wf.workflow_id}</div>
+        </div>
+        <div className="shrink-0 text-right">
+          {metric?.avgRating ? (
+            <div className="text-sm font-semibold text-amber-200">{metric.avgRating.toFixed(2)}</div>
+          ) : (
+            <div className="text-sm font-semibold text-slate-500">—</div>
+          )}
+          <div className="text-[11px] text-slate-500">{metric?.ratingCount ? `${metric.ratingCount}票` : '未评分'}</div>
+        </div>
+      </div>
+      <div className="mt-3 text-xs text-slate-400 line-clamp-2">{wf.notes || '—'}</div>
+      <div className="mt-3 inline-flex items-center gap-2 text-[11px] text-slate-500">
+        <span className="rounded-full bg-slate-800/50 px-2 py-0.5">{wf.version}</span>
+        <span className="rounded-full bg-slate-800/50 px-2 py-0.5">{CATEGORY_LABELS[wf.category] ?? wf.category}</span>
+      </div>
+    </button>
+  );
+}
+
+function ParamField({
+  field,
+  value,
+  onChange,
+}: {
+  field: SchemaField;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const label = field.label ?? field.name;
+  const required = Boolean(field.required);
+  const options = Array.isArray((field as any).options) ? ((field as any).options as any[]) : null;
+  const type = (field.type || '').toLowerCase();
+
+  if (options && options.length > 0) {
+    return (
+      <label className="block">
+        <div className="text-xs text-slate-300">
+          {label} {required ? <span className="text-rose-400">*</span> : null}
+        </div>
+        <select
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+        >
+          {options.map((opt) => (
+            <option key={String(opt.value)} value={String(opt.value)}>
+              {String(opt.label ?? opt.value)}
+            </option>
+          ))}
+        </select>
+      </label>
+    );
+  }
+
+  if (type === 'textarea') {
+    return (
+      <label className="block">
+        <div className="text-xs text-slate-300">
+          {label} {required ? <span className="text-rose-400">*</span> : null}
+        </div>
+        <textarea
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          rows={4}
+          className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 p-3 text-sm text-slate-100"
+        />
+      </label>
+    );
+  }
+
+  return (
+    <label className="block">
+      <div className="text-xs text-slate-300">
+        {label} {required ? <span className="text-rose-400">*</span> : null}
+      </div>
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+      />
+    </label>
+  );
+}
+
+function TaskTable({
+  runs,
+  workflowMap,
+}: {
+  runs: RunWithLatest[];
+  workflowMap: Record<string, EvalWorkflowVersion>;
+}) {
+  return (
+    <div className="rounded-3xl border border-slate-800 bg-slate-900/30 p-5">
+      <div className="flex items-end justify-between">
+        <div>
+          <div className="text-lg font-semibold">任务管理</div>
+          <div className="text-xs text-slate-400">实时刷新：queued/running 会持续轮询；ComfyUI 类回调出图后才算完成。</div>
+        </div>
+        <div className="text-xs text-slate-500">最近 {runs.length} 条</div>
+      </div>
+
+      <div className="mt-4 space-y-3">
+        {runs.map((run) => {
+          const wf = workflowMap[run.workflow_version_id];
+          const inputUrl = (run.input_oss_urls_json || [])[0] || '';
+          const outputs = run.result_image_urls_json || [];
+          return (
+            <div key={run.id} className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
+              <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <div className="text-sm font-semibold">{wf ? wf.name : run.workflow_version_id}</div>
+                  <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-slate-400">
+                    <span className="rounded-full bg-slate-800/60 px-2 py-0.5">{run.status}</span>
+                    <span>耗时：{formatDuration(run.duration_ms)}</span>
+                    {run.podi_task_id ? <span className="font-mono">task: {run.podi_task_id}</span> : null}
+                    {run.coze_debug_url ? (
+                      <a className="text-sky-400 underline" href={run.coze_debug_url} target="_blank" rel="noreferrer">
+                        debug_url
+                      </a>
+                    ) : null}
+                    {run.latest_annotation?.rating ? (
+                      <span className="text-amber-200">评分：{run.latest_annotation.rating}</span>
+                    ) : (
+                      <span className="text-slate-500">未评分</span>
+                    )}
+                  </div>
+                  {run.error_message ? <div className="mt-2 text-xs text-rose-400">{run.error_message}</div> : null}
+                </div>
+                <div className="text-xs text-slate-500">{fmtTime(run.created_at)}</div>
+              </div>
+
+              <div className="mt-3 grid gap-2 lg:grid-cols-6">
+                {inputUrl ? (
+                  <a href={inputUrl} target="_blank" rel="noreferrer" className="block rounded-xl border border-slate-800 bg-slate-950/30 p-1">
+                    <img src={inputUrl} alt="input" className="h-24 w-full rounded-lg object-contain" />
+                  </a>
+                ) : null}
+                {outputs.slice(0, 5).map((u, idx) => (
+                  <a key={`${run.id}-out-${idx}`} href={u} target="_blank" rel="noreferrer" className="block rounded-xl border border-slate-800 bg-slate-950/30 p-1">
+                    <img src={u} alt="output" className="h-24 w-full rounded-lg object-contain" />
+                  </a>
+                ))}
+                {outputs.length === 0 ? <div className="text-sm text-slate-500">{run.status === 'running' || run.status === 'queued' ? '生成中…' : '暂无输出'}</div> : null}
+              </div>
+            </div>
+          );
+        })}
+        {runs.length === 0 ? <div className="text-sm text-slate-500">暂无任务。</div> : null}
+      </div>
+    </div>
+  );
+}
+
 export function App() {
   const [raterId, setRaterId] = useState<string>('');
   const [workflows, setWorkflows] = useState<EvalWorkflowVersion[]>([]);
-  const [selected, setSelected] = useState<EvalWorkflowVersion | null>(null);
-  const [activeCategory, setActiveCategory] = useState<string>('general');
-  const [activeView, setActiveView] = useState<'toolbox' | 'tasks'>('toolbox');
-  const [params, setParams] = useState<Record<string, any>>({});
-  const [url, setUrl] = useState<string>('');
-  const [runs, setRuns] = useState<EvalRun[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [onlyUnrated, setOnlyUnrated] = useState(false);
-  const [draftRatings, setDraftRatings] = useState<Record<string, number>>({});
-  const [draftComments, setDraftComments] = useState<Record<string, string>>({});
-  const [submitting, setSubmitting] = useState<Record<string, boolean>>({});
-  const [workflowMetrics, setWorkflowMetrics] = useState<Record<string, { ratingCount: number; avgRating: number | null }>>({});
+  const [metrics, setMetrics] = useState<Record<string, { ratingCount: number; avgRating: number | null }>>({});
 
-  const fields = useMemo(() => getFields(selected), [selected]);
-  const grouped = useMemo(() => {
-    const map: Record<string, EvalWorkflowVersion[]> = {};
-    for (const wf of workflows) {
-      const key = wf.category || 'general';
-      map[key] = map[key] || [];
-      map[key].push(wf);
-    }
-    return map;
-  }, [workflows]);
-  const categories = useMemo(() => Object.keys(grouped).sort(), [grouped]);
+  const [activeCategory, setActiveCategory] = useState<string>('general');
+  const [activeView, setActiveView] = useState<'home' | 'tool' | 'tasks'>('home');
+  const [selectedTool, setSelectedTool] = useState<EvalWorkflowVersion | null>(null);
+
+  const [formUrl, setFormUrl] = useState('');
+  const [formParams, setFormParams] = useState<Record<string, string>>({});
+  const [isRunning, setIsRunning] = useState(false);
+
+  const [runs, setRuns] = useState<RunWithLatest[]>([]);
+  const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [filterRating, setFilterRating] = useState<string>('all');
+  const [filterUnrated, setFilterUnrated] = useState<boolean>(false);
+  const [search, setSearch] = useState<string>('');
+
   const workflowMap = useMemo(() => {
     const m: Record<string, EvalWorkflowVersion> = {};
     for (const wf of workflows) m[wf.id] = wf;
     return m;
   }, [workflows]);
 
-  const refreshRuns = async (workflowVersionId: string) => {
-    const res = await evalApi.listRuns({ workflow_version_id: workflowVersionId, limit: 50, offset: 0, unrated: onlyUnrated });
-    setRuns(res.items || []);
+  const grouped = useMemo(() => {
+    const m: Record<string, EvalWorkflowVersion[]> = {};
+    for (const wf of workflows) {
+      const key = wf.category || 'general';
+      m[key] = m[key] || [];
+      m[key].push(wf);
+    }
+    return m;
+  }, [workflows]);
+
+  const orderedCategories = useMemo(() => {
+    const have = new Set(Object.keys(grouped));
+    const out: string[] = [];
+    for (const k of CATEGORY_ORDER) if (have.has(k)) out.push(k);
+    for (const k of Object.keys(grouped).sort()) if (!out.includes(k)) out.push(k);
+    return out;
+  }, [grouped]);
+
+  const toolList = useMemo(() => {
+    const list = (grouped[activeCategory] || []).slice().sort((a, b) => a.name.localeCompare(b.name));
+    return list;
+  }, [grouped, activeCategory]);
+
+  const toolFields = useMemo(() => getFields(selectedTool), [selectedTool]);
+
+  const refreshMetrics = async () => {
+    const resp = await evalApi.workflowMetrics().catch(() => ({ metrics: {} }));
+    setMetrics(resp.metrics || {});
+  };
+
+  const loadBootstrap = async () => {
+    const me = await evalApi.me();
+    setRaterId(me.raterId);
+    const wfs = await evalApi.listWorkflowVersions();
+    setWorkflows(wfs || []);
+    if (wfs && wfs.length > 0) {
+      setActiveCategory(wfs[0].category || 'general');
+    }
+    await refreshMetrics();
+  };
+
+  const loadRunsForTool = async (workflowVersionId: string) => {
+    const qs = new URLSearchParams();
+    qs.set('workflow_version_id', workflowVersionId);
+    if (filterStatus !== 'all') qs.set('status', filterStatus);
+    if (filterUnrated) qs.set('unrated', 'true');
+    const url = `/api/evals/runs/with-latest-annotation?${qs.toString()}`;
+    const resp = await (await fetch(url, { credentials: 'include' })).json();
+    // shape: { total, items }
+    setRuns((resp.items || []) as RunWithLatest[]);
+  };
+
+  const loadTasks = async () => {
+    const qs = new URLSearchParams();
+    qs.set('limit', '80');
+    const resp = await (await fetch(`/api/evals/runs/with-latest-annotation?${qs.toString()}`, { credentials: 'include' })).json();
+    setRuns((resp.items || []) as RunWithLatest[]);
   };
 
   useEffect(() => {
-    (async () => {
-      const me = await evalApi.me();
-      setRaterId(me.raterId);
-      const wfs = await evalApi.listWorkflowVersions();
-      setWorkflows(wfs || []);
-      const metrics = await evalApi.workflowMetrics().catch(() => ({ metrics: {} }));
-      setWorkflowMetrics(metrics.metrics || {});
-      if (wfs && wfs.length > 0) {
-        // Default to the first category with workflows; otherwise keep "general".
-        const first = wfs[0];
-        setActiveCategory(first.category || 'general');
-        setSelected(first);
-      }
-    })().catch((err) => console.error(err));
+    void loadBootstrap();
   }, []);
 
   useEffect(() => {
-    if (!selected) return;
-    setParams({});
-    setUrl('');
-    void refreshRuns(selected.id);
-  }, [selected?.id]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    if (!selected) return;
-    void refreshRuns(selected.id);
-  }, [onlyUnrated]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    if (!selected) return;
+    if (activeView !== 'tool' || !selectedTool) return;
+    void loadRunsForTool(selectedTool.id);
     const timer = window.setInterval(() => {
       const hasPending = runs.some((r) => r.status === 'queued' || r.status === 'running');
-      if (hasPending) void refreshRuns(selected.id);
+      if (hasPending) void loadRunsForTool(selectedTool.id);
     }, 2000);
     return () => window.clearInterval(timer);
-  }, [selected?.id, runs]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeView, selectedTool?.id, filterStatus, filterUnrated, runs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (activeView !== 'tasks') return;
-    const timer = window.setInterval(() => {
-      void evalApi
-        .listRuns({ limit: 80, offset: 0 })
-        .then((res) => setRuns(res.items || []))
-        .catch((err) => console.error(err));
-    }, 2000);
+    void loadTasks();
+    const timer = window.setInterval(() => void loadTasks(), 2000);
     return () => window.clearInterval(timer);
   }, [activeView]);
 
-  const runOnce = async () => {
-    if (!selected) return;
-    if (!url.trim()) return;
-    setLoading(true);
+  const openTool = (wf: EvalWorkflowVersion) => {
+    setSelectedTool(wf);
+    setFormUrl('');
+    const defaults: Record<string, string> = {};
+    for (const f of getFields(wf)) {
+      if (f.name === 'url') continue;
+      const opt = Array.isArray((f as any).options) && (f as any).options.length > 0 ? (f as any).options[0]?.value : undefined;
+      const def = typeof (f as any).defaultValue === 'string' ? (f as any).defaultValue : undefined;
+      defaults[f.name] = opt ? String(opt) : def ? String(def) : '';
+    }
+    setFormParams(defaults);
+    setActiveView('tool');
+  };
+
+  const runTool = async () => {
+    if (!selectedTool) return;
+    if (!formUrl.trim()) return;
+    setIsRunning(true);
     try {
-      const payloadParams = { ...params, url: url.trim() };
-      const run = await evalApi.createRun({
-        workflow_version_id: selected.id,
-        input_oss_urls_json: [url.trim()],
-        parameters_json: payloadParams,
+      const parameters: Record<string, unknown> = { url: formUrl.trim() };
+      for (const [k, v] of Object.entries(formParams)) {
+        if (v === '') continue;
+        parameters[k] = v;
+      }
+      await evalApi.createRun({
+        workflow_version_id: selectedTool.id,
+        input_oss_urls_json: [formUrl.trim()],
+        parameters_json: parameters,
       });
-      setRuns((prev) => [run, ...prev]);
-      await refreshRuns(selected.id);
+      await loadRunsForTool(selectedTool.id);
+      await refreshMetrics();
     } finally {
-      setLoading(false);
+      setIsRunning(false);
     }
   };
 
-  const annotate = async (runId: string) => {
-    const rating = draftRatings[runId];
-    if (!rating) return;
-    const comment = (draftComments[runId] || '').trim() || undefined;
-    setSubmitting((prev) => ({ ...prev, [runId]: true }));
-    try {
-      await evalApi.createAnnotation(runId, { rating, comment });
-      // refresh metrics + runs
-      const metrics = await evalApi.workflowMetrics().catch(() => ({ metrics: {} }));
-      setWorkflowMetrics(metrics.metrics || {});
-      if (selected) await refreshRuns(selected.id);
-    } finally {
-      setSubmitting((prev) => ({ ...prev, [runId]: false }));
-    }
+  const annotate = async (runId: string, rating: number, comment: string) => {
+    await evalApi.createAnnotation(runId, { rating, comment: comment.trim() || undefined });
+    await refreshMetrics();
+    if (selectedTool) await loadRunsForTool(selectedTool.id);
   };
 
-  const toolboxWorkflows = grouped[activeCategory] || [];
-  const selectedMetrics = selected ? workflowMetrics[selected.id] : undefined;
-  const docCurl = useMemo(() => {
-    if (!selected) return '';
-    const paramsExample: Record<string, unknown> = {};
-    for (const f of getFields(selected)) {
-      if (f.name === 'url') {
-        paramsExample.url = 'https://...';
-        continue;
-      }
-      if (Array.isArray((f as any).options) && (f as any).options.length > 0) {
-        paramsExample[f.name] = String((f as any).options[0].value);
-      } else if (typeof (f as any).defaultValue === 'string') {
-        paramsExample[f.name] = (f as any).defaultValue;
-      } else {
-        paramsExample[f.name] = '';
-      }
+  const filteredRuns = useMemo(() => {
+    let out = runs.slice();
+    if (filterRating !== 'all') {
+      const target = Number(filterRating);
+      out = out.filter((r) => r.latest_annotation?.rating === target);
     }
-    return [
-      'curl -X POST "$COZE_BASE_URL/v1/workflow/run" \\',
-      '  -H "Authorization: Bearer $COZE_API_TOKEN" \\',
-      '  -H "Content-Type: application/json" \\',
-      `  -d '${JSON.stringify({ workflow_id: selected.workflow_id, parameters: paramsExample }, null, 2)}'`,
-    ].join('\n');
-  }, [selected]);
+    const keyword = search.trim().toLowerCase();
+    if (keyword) {
+      out = out.filter((r) => {
+        const comment = (r.latest_annotation?.comment || '').toLowerCase();
+        const err = (r.error_message || '').toLowerCase();
+        return comment.includes(keyword) || err.includes(keyword);
+      });
+    }
+    return out;
+  }, [runs, filterRating, search]);
 
-  return (
-    <div className="min-h-screen bg-slate-950 text-slate-50">
-      <header className="border-b border-slate-800 bg-slate-900/40">
-        <div className="mx-auto max-w-[1400px] px-6 py-4 flex items-center justify-between">
-          <div>
-            <div className="text-lg font-semibold">PODI · 能力评测</div>
-            <div className="text-xs text-slate-400">无需登录 · 试运行 + 打分 + 备注（写入 MySQL）</div>
-          </div>
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setActiveView('toolbox')}
-              className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${
-                activeView === 'toolbox' ? 'bg-sky-500/20 text-sky-200 border border-sky-500/40' : 'bg-slate-950 border border-slate-800 text-slate-300 hover:border-slate-700'
-              }`}
-            >
-              工具箱
-            </button>
-            <button
-              type="button"
-              onClick={async () => {
-                setActiveView('tasks');
-                const res = await evalApi.listRuns({ limit: 80, offset: 0 }).catch(() => ({ total: 0, items: [] as EvalRun[] }));
-                setRuns(res.items || []);
-              }}
-              className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${
-                activeView === 'tasks' ? 'bg-sky-500/20 text-sky-200 border border-sky-500/40' : 'bg-slate-950 border border-slate-800 text-slate-300 hover:border-slate-700'
-              }`}
-            >
-              任务管理
-            </button>
-            <div className="text-xs text-slate-400">
-              raterId: <span className="font-mono text-slate-200">{raterId || '...'}</span>
-            </div>
+  const header = (
+    <header className="border-b border-slate-800 bg-slate-900/40">
+      <div className="mx-auto max-w-[1400px] px-6 py-4 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="text-lg font-semibold">PODI · 能力评测</div>
+          <div className="text-xs text-slate-400">工具箱式评测 · 免登录 · 评分沉淀</div>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setActiveView('home');
+              setSelectedTool(null);
+            }}
+            className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${
+              activeView === 'home' ? 'bg-sky-500/20 text-sky-200 border border-sky-500/40' : 'bg-slate-950 border border-slate-800 text-slate-300 hover:border-slate-700'
+            }`}
+          >
+            工具箱
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setActiveView('tasks');
+              setSelectedTool(null);
+            }}
+            className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${
+              activeView === 'tasks' ? 'bg-sky-500/20 text-sky-200 border border-sky-500/40' : 'bg-slate-950 border border-slate-800 text-slate-300 hover:border-slate-700'
+            }`}
+          >
+            任务管理
+          </button>
+          <div className="ml-2 text-xs text-slate-400">
+            raterId: <span className="font-mono text-slate-200">{raterId || '...'}</span>
           </div>
         </div>
-      </header>
+      </div>
+    </header>
+  );
 
-      {activeView === 'tasks' ? (
+  if (activeView === 'tasks') {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-50">
+        {header}
         <div className="mx-auto max-w-[1400px] px-6 py-6">
-          <div className="rounded-3xl border border-slate-800 bg-slate-900/30 p-5">
-            <div className="flex items-end justify-between">
-              <div>
-                <div className="text-lg font-semibold">任务管理</div>
-                <div className="text-xs text-slate-400">实时刷新：queued/running 会持续轮询。ComfyUI 类任务：回调解析到图片后才算完成。</div>
-              </div>
-              <div className="text-xs text-slate-500">最近 {runs.length} 条</div>
-            </div>
-            <div className="mt-4 space-y-3">
-              {runs.map((run) => {
-                const wf = workflowMap[run.workflow_version_id];
-                const images = run.result_image_urls_json || [];
-                return (
-                  <div key={run.id} className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
-                    <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-                      <div>
-                        <div className="text-sm font-semibold">{wf ? wf.name : run.workflow_version_id}</div>
-                        <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-slate-400">
-                          <span className="rounded-full bg-slate-800/60 px-2 py-0.5">{run.status}</span>
-                          <span>耗时：{formatDuration(run.duration_ms)}</span>
-                          {run.podi_task_id ? <span>task: {run.podi_task_id}</span> : null}
-                          {run.coze_debug_url ? (
-                            <a className="text-sky-400 underline" href={run.coze_debug_url} target="_blank" rel="noreferrer">
-                              debug_url
-                            </a>
-                          ) : null}
-                        </div>
-                        {run.error_message ? <div className="mt-2 text-xs text-rose-400">{run.error_message}</div> : null}
-                      </div>
-                      <div className="text-xs text-slate-400">{new Date(run.created_at).toLocaleString()}</div>
-                    </div>
-                    <div className="mt-3 grid gap-2 lg:grid-cols-6">
-                      {(run.input_oss_urls_json || []).slice(0, 2).map((u, idx) => (
-                        <a key={`${run.id}-in-${idx}`} href={u} target="_blank" rel="noreferrer" className="block rounded-xl border border-slate-800 bg-slate-950/30 p-1">
-                          <img src={u} alt="input" className="h-24 w-full rounded-lg object-contain" />
-                        </a>
-                      ))}
-                      {images.slice(0, 4).map((u, idx) => (
-                        <a key={`${run.id}-out-${idx}`} href={u} target="_blank" rel="noreferrer" className="block rounded-xl border border-slate-800 bg-slate-950/30 p-1">
-                          <img src={u} alt="output" className="h-24 w-full rounded-lg object-contain" />
-                        </a>
-                      ))}
-                      {images.length === 0 ? <div className="text-sm text-slate-500">{run.status === 'running' || run.status === 'queued' ? '生成中…' : '暂无输出'}</div> : null}
-                    </div>
-                  </div>
-                );
-              })}
-              {runs.length === 0 && <div className="text-sm text-slate-500">暂无任务。</div>}
-            </div>
-          </div>
+          <TaskTable runs={runs} workflowMap={workflowMap} />
         </div>
-      ) : (
-        <div className="mx-auto max-w-[1400px] px-6 py-6 flex gap-6">
-          <aside className="w-64 shrink-0 rounded-3xl border border-slate-800 bg-slate-900/30 p-4">
-            <div className="text-sm font-semibold">分类</div>
-            <div className="mt-1 text-xs text-slate-400">五类工具箱</div>
-            <div className="mt-4 space-y-2">
-              {categories.map((cat) => {
-                const active = activeCategory === cat;
-                return (
-                  <button
-                    key={cat}
-                    type="button"
-                    onClick={() => setActiveCategory(cat)}
-                    className={`w-full rounded-2xl border px-3 py-2 text-left transition ${
-                      active ? 'border-sky-500/70 bg-sky-500/10 text-white' : 'border-white/5 text-slate-300 hover:border-slate-500/60'
-                    }`}
-                  >
-                    <div className="text-sm font-semibold">{CATEGORY_LABELS[cat] ?? cat}</div>
-                    <div className="text-xs text-slate-500">{(grouped[cat] || []).length} 个功能</div>
-                  </button>
-                );
-              })}
-            </div>
-          </aside>
+      </div>
+    );
+  }
 
-          <aside className="w-96 shrink-0 rounded-3xl border border-slate-800 bg-slate-900/30 p-4 overflow-y-auto max-h-[calc(100vh-120px)]">
-            <div className="text-sm font-semibold">功能</div>
-            <div className="mt-1 text-xs text-slate-400">点击功能开始测试与打标</div>
-            <div className="mt-4 space-y-2">
-              {toolboxWorkflows
-                .slice()
-                .sort((a, b) => a.name.localeCompare(b.name))
-                .map((wf) => {
-                  const active = selected?.id === wf.id;
-                  const m = workflowMetrics[wf.id];
-                  return (
-                    <button
-                      key={wf.id}
-                      type="button"
-                      onClick={() => setSelected(wf)}
-                      className={`w-full rounded-2xl border px-3 py-2 text-left transition ${
-                        active ? 'border-sky-500/70 bg-sky-500/10' : 'border-white/5 hover:border-slate-500/60'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="text-sm font-semibold">{wf.name}</div>
-                        {m?.avgRating ? (
-                          <div className="text-[11px] text-amber-200">{m.avgRating.toFixed(2)} / 5</div>
-                        ) : (
-                          <div className="text-[11px] text-slate-500">未评分</div>
-                        )}
-                      </div>
-                      <div className="mt-1 text-[11px] text-slate-500 break-all">{wf.workflow_id}</div>
-                      {m?.ratingCount ? <div className="mt-1 text-[11px] text-slate-500">样本：{m.ratingCount}</div> : null}
-                    </button>
-                  );
-                })}
-              {toolboxWorkflows.length === 0 && <div className="text-sm text-slate-500">该分类暂无功能。</div>}
-            </div>
-          </aside>
-
-        <main className="flex-1 space-y-6">
-          <section className="rounded-3xl border border-slate-800 bg-slate-900/30 p-5">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <div className="text-lg font-semibold">{selected ? selected.name : '请选择工作流'}</div>
-                <div className="mt-1 text-xs text-slate-400">{selected?.notes || '—'}</div>
-                {selectedMetrics?.avgRating ? (
-                  <div className="mt-2 text-xs text-amber-200">综合评分：{selectedMetrics.avgRating.toFixed(2)} / 5（{selectedMetrics.ratingCount} 票）</div>
+  if (activeView === 'tool' && selectedTool) {
+    const metric = metrics[selectedTool.id];
+    const doc = buildCozeDoc(selectedTool, formUrl.trim());
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-50">
+        {header}
+        <div className="mx-auto max-w-[1400px] px-6 py-6">
+          <div className="mb-4 flex items-start justify-between gap-4">
+            <div>
+              <button
+                type="button"
+                onClick={() => setActiveView('home')}
+                className="mb-2 inline-flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-200 hover:border-slate-700"
+              >
+                ← 返回功能列表
+              </button>
+              <div className="text-xl font-semibold">{selectedTool.name}</div>
+              <div className="mt-1 text-xs text-slate-400">{selectedTool.notes || '—'}</div>
+              <div className="mt-2 flex items-center gap-3 text-xs text-slate-400">
+                <span className="rounded-full bg-slate-800/60 px-2 py-0.5">{CATEGORY_LABELS[selectedTool.category] ?? selectedTool.category}</span>
+                <span className="rounded-full bg-slate-800/60 px-2 py-0.5">{selectedTool.version}</span>
+                {metric?.avgRating ? (
+                  <span className="text-amber-200">综合评分：{metric.avgRating.toFixed(2)} / 5（{metric.ratingCount}票）</span>
                 ) : (
-                  <div className="mt-2 text-xs text-slate-500">综合评分：暂无</div>
+                  <span className="text-slate-500">综合评分：暂无</span>
                 )}
               </div>
-              <div className="flex items-center gap-3">
-                <label className="flex items-center gap-2 text-xs text-slate-300">
+            </div>
+            <div className="text-right text-xs text-slate-500">
+              <div>workflow_id</div>
+              <div className="font-mono text-slate-300">{selectedTool.workflow_id}</div>
+            </div>
+          </div>
+
+          <div className="grid gap-6 lg:grid-cols-[520px_1fr]">
+            <div className="rounded-3xl border border-slate-800 bg-slate-900/30 p-5">
+              <div className="text-sm font-semibold">左侧：测试参数</div>
+              <div className="mt-4">
+                <label className="block">
+                  <div className="text-xs text-slate-300">
+                    图片 URL <span className="text-rose-400">*</span>
+                  </div>
                   <input
-                    type="checkbox"
-                    checked={onlyUnrated}
-                    onChange={(e) => setOnlyUnrated(e.target.checked)}
-                    className="h-4 w-4 rounded border-slate-700 bg-slate-950"
+                    value={formUrl}
+                    onChange={(e) => setFormUrl(e.target.value)}
+                    placeholder="https://podi.oss-.../xxx.jpg"
+                    className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-600"
                   />
-                  只看未打分
                 </label>
+                {formUrl.trim() ? (
+                  <div className="mt-3">
+                    <div className="text-xs text-slate-500 mb-1">原图预览</div>
+                    <img src={formUrl.trim()} alt="input" className="h-56 w-full rounded-2xl border border-slate-800 bg-slate-950/30 object-contain" />
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="mt-4 space-y-3">
+                {toolFields
+                  .filter((f) => f.name !== 'url')
+                  .map((f) => (
+                    <ParamField key={f.name} field={f} value={formParams[f.name] ?? ''} onChange={(v) => setFormParams((p) => ({ ...p, [f.name]: v }))} />
+                  ))}
+              </div>
+
+              <div className="mt-4 flex justify-end">
                 <button
                   type="button"
-                  onClick={() => selected && refreshRuns(selected.id)}
-                  className="rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-200 hover:border-slate-500"
+                  disabled={!formUrl.trim() || isRunning}
+                  onClick={() => void runTool()}
+                  className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                    !formUrl.trim() || isRunning ? 'bg-slate-700/40 text-slate-400' : 'bg-sky-500/80 text-white hover:bg-sky-500'
+                  }`}
                 >
-                  刷新
+                  {isRunning ? '运行中…' : '开始生成'}
                 </button>
+              </div>
+
+              <div className="mt-5 rounded-2xl border border-slate-800 bg-slate-950/40 p-3">
+                <div className="text-xs text-slate-400 mb-2">业务接入文档（Coze OpenAPI）</div>
+                <pre className="max-h-48 overflow-auto rounded-xl bg-slate-950 p-3 font-mono text-[11px] text-slate-200">{doc}</pre>
               </div>
             </div>
 
-            <div className="mt-4 grid gap-4 lg:grid-cols-2">
-              <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
-                <div className="text-sm font-semibold">输入</div>
-                <div className="mt-3">
-                  <div className="text-xs text-slate-400 mb-1">图片 URL（字段名固定为 url）</div>
-                  <input
-                    value={url}
-                    onChange={(e) => setUrl(e.target.value)}
-                    placeholder="https://podi.oss-.../xxx.jpg"
-                    className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-600"
-                  />
-                </div>
-                {url && (
-                  <div className="mt-3">
-                    <div className="text-xs text-slate-500 mb-1">预览</div>
-                    <img src={url} alt="input" className="max-h-72 w-full rounded-xl border border-slate-800 object-contain" />
-                  </div>
+            <div className="rounded-3xl border border-slate-800 bg-slate-900/30 p-5">
+              <div className="text-sm font-semibold">右侧：生成结果</div>
+              <div className="mt-3 text-xs text-slate-400">点击图片可打开原图；下方历史可筛选/打标。</div>
+              <div className="mt-4 grid gap-3 lg:grid-cols-3">
+                {(filteredRuns[0]?.result_image_urls_json || []).map((img, idx) => (
+                  <a key={`latest-${idx}`} href={img} target="_blank" rel="noreferrer" className="block rounded-2xl border border-slate-800 bg-slate-950/30 p-2 hover:border-slate-700">
+                    <img src={img} alt="latest" className="h-56 w-full rounded-xl object-contain" />
+                  </a>
+                ))}
+                {(!filteredRuns[0] || (filteredRuns[0].result_image_urls_json || []).length === 0) && (
+                  <div className="text-sm text-slate-500">暂无结果（先在左侧运行一次）。</div>
                 )}
               </div>
 
-              <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
-                <div className="text-sm font-semibold">参数</div>
-                <div className="mt-2 text-xs text-slate-500">参数 schema 来自后端录入；没有 schema 的字段可后续补。</div>
-                <div className="mt-3 rounded-xl border border-slate-800 bg-slate-950/50 p-3">
-                  <div className="text-xs text-slate-400 mb-2">业务接入文档（Coze OpenAPI）</div>
-                  <pre className="max-h-40 overflow-auto rounded-lg bg-slate-950 p-2 font-mono text-[11px] text-slate-200">{docCurl}</pre>
-                </div>
-                <div className="mt-3 space-y-3">
-                  {fields
-                    .filter((f) => f.name !== 'url')
-                    .map((field) => {
-                      const key = field.name;
-                      const label = field.label ?? key;
-                      const required = Boolean(field.required);
-                      const value = (params as any)[key] ?? field.defaultValue ?? '';
-                      const options = Array.isArray((field as any).options) ? ((field as any).options as any[]) : null;
-
-                      if (options && options.length > 0) {
-                        return (
-                          <label key={key} className="block">
-                            <div className="text-xs text-slate-300">
-                              {label} {required ? <span className="text-rose-400">*</span> : null}
-                            </div>
-                            <select
-                              value={String(value)}
-                              onChange={(e) => setParams((prev) => ({ ...prev, [key]: e.target.value }))}
-                              className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100"
-                            >
-                              {options.map((opt) => (
-                                <option key={String(opt.value)} value={String(opt.value)}>
-                                  {String(opt.label ?? opt.value)}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                        );
-                      }
-
-                      const isTextarea = (field.type || '').toLowerCase() === 'textarea';
-                      if (isTextarea) {
-                        return (
-                          <label key={key} className="block">
-                            <div className="text-xs text-slate-300">
-                              {label} {required ? <span className="text-rose-400">*</span> : null}
-                            </div>
-                            <textarea
-                              rows={4}
-                              value={String(value)}
-                              onChange={(e) => setParams((prev) => ({ ...prev, [key]: e.target.value }))}
-                              className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 p-3 text-sm text-slate-100"
-                            />
-                          </label>
-                        );
-                      }
-
-                      return (
-                        <label key={key} className="block">
-                          <div className="text-xs text-slate-300">
-                            {label} {required ? <span className="text-rose-400">*</span> : null}
-                          </div>
-                          <input
-                            value={String(value)}
-                            onChange={(e) => setParams((prev) => ({ ...prev, [key]: e.target.value }))}
-                            className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100"
-                          />
-                        </label>
-                      );
-                    })}
-                  {fields.length <= 1 && <div className="text-xs text-slate-500">该工作流暂未录入更多参数 schema。</div>}
-                </div>
-
-                <div className="mt-4 flex justify-end">
-                  <button
-                    type="button"
-                    disabled={!selected || !url.trim() || loading}
-                    onClick={() => void runOnce()}
-                    className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
-                      !selected || !url.trim() || loading ? 'bg-slate-700/40 text-slate-400' : 'bg-sky-500/80 hover:bg-sky-500'
-                    }`}
-                  >
-                    {loading ? '运行中…' : '开始评测'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <section className="rounded-3xl border border-slate-800 bg-slate-900/30 p-5">
-            <div className="flex items-end justify-between">
-              <div>
-                <div className="text-sm font-semibold">结果列表</div>
-                <div className="text-xs text-slate-400">等待中会自动轮询刷新；点击图片可打开原图。</div>
-              </div>
-              <div className="text-xs text-slate-500">共 {runs.length} 条</div>
-            </div>
-            <div className="mt-4 space-y-4">
-              {runs.map((run) => {
-                const images = run.result_image_urls_json || [];
-                const inputUrl = (run.input_oss_urls_json || [])[0] || '';
-                return (
-                  <div key={run.id} className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
-                    <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-                      <div>
-                        <div className="text-xs text-slate-500">Run</div>
-                        <div className="text-sm font-semibold break-all">{run.id}</div>
-                        <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-slate-400">
-                          <span className="rounded-full bg-slate-800/60 px-2 py-0.5">{run.status}</span>
-                          <span>耗时：{formatDuration(run.duration_ms)}</span>
-                          {run.podi_task_id ? <span>task: {run.podi_task_id}</span> : null}
-                          {run.coze_debug_url ? (
-                            <a className="text-sky-400 underline" href={run.coze_debug_url} target="_blank" rel="noreferrer">
-                              debug_url
-                            </a>
-                          ) : null}
-                        </div>
-                        {run.error_message ? <div className="mt-2 text-xs text-rose-400">{run.error_message}</div> : null}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <div className="flex items-center gap-1">
-                          {[1, 2, 3, 4, 5].map((n) => {
-                            const active = draftRatings[run.id] === n;
-                            return (
-                              <button
-                                key={`${run.id}-r-${n}`}
-                                type="button"
-                                onClick={() => setDraftRatings((prev) => ({ ...prev, [run.id]: n }))}
-                                className={`h-9 w-9 rounded-xl border text-sm transition ${
-                                  active
-                                    ? 'border-amber-400/80 bg-amber-400/20 text-amber-200'
-                                    : 'border-slate-800 bg-slate-950 text-slate-200 hover:border-amber-400/70 hover:bg-amber-400/10'
-                                }`}
-                                title={`打分 ${n}`}
-                              >
-                                {n}
-                              </button>
-                            );
-                          })}
-                        </div>
-                        <button
-                          type="button"
-                          disabled={!draftRatings[run.id] || submitting[run.id]}
-                          onClick={() => void annotate(run.id)}
-                          className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${
-                            !draftRatings[run.id] || submitting[run.id]
-                              ? 'bg-slate-700/40 text-slate-400'
-                              : 'bg-emerald-500/80 text-white hover:bg-emerald-500'
-                          }`}
-                        >
-                          {submitting[run.id] ? '提交中…' : '提交'}
-                        </button>
-                      </div>
-                    </div>
-                    <div className="mt-3">
-                      <div className="text-xs text-slate-500 mb-1">备注（可选）</div>
-                      <textarea
-                        value={draftComments[run.id] || ''}
-                        onChange={(e) => setDraftComments((prev) => ({ ...prev, [run.id]: e.target.value }))}
-                        rows={2}
-                        className="w-full rounded-xl border border-slate-800 bg-slate-950 p-3 text-sm text-slate-100"
-                        placeholder="问题描述/优化建议…"
-                      />
-                    </div>
-                    <div className="mt-3 grid gap-2 lg:grid-cols-4">
-                      {inputUrl ? (
-                        <a
-                          href={inputUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="block rounded-xl border border-slate-800 bg-slate-950/30 p-1 hover:border-slate-700"
-                        >
-                          <img src={inputUrl} alt="input" className="h-40 w-full rounded-lg object-contain" />
-                        </a>
-                      ) : null}
-                      {images.length > 0 ? (
-                        images.map((img, idx) => (
-                          <a
-                            key={`${run.id}-img-${idx}`}
-                            href={img}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="block rounded-xl border border-slate-800 bg-slate-950/30 p-1 hover:border-slate-700"
-                          >
-                            <img src={img} alt={`result ${idx + 1}`} className="h-40 w-full rounded-lg object-contain" />
-                          </a>
-                        ))
-                      ) : (
-                        <div className="text-sm text-slate-500">{run.status === 'running' || run.status === 'queued' ? '生成中…' : '暂无输出'}</div>
-                      )}
-                    </div>
+              <div className="mt-6 border-t border-slate-800 pt-5">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                  <div>
+                    <div className="text-sm font-semibold">历史记录（打标区）</div>
+                    <div className="text-xs text-slate-500">每条记录包含原图 + 结果图；支持筛选与备注。</div>
                   </div>
-                );
-              })}
-              {runs.length === 0 && <div className="text-sm text-slate-500">暂无记录。</div>}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select
+                      value={filterStatus}
+                      onChange={(e) => setFilterStatus(e.target.value)}
+                      className="rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-200"
+                    >
+                      <option value="all">全部状态</option>
+                      <option value="queued">queued</option>
+                      <option value="running">running</option>
+                      <option value="succeeded">succeeded</option>
+                      <option value="failed">failed</option>
+                    </select>
+                    <select
+                      value={filterRating}
+                      onChange={(e) => setFilterRating(e.target.value)}
+                      className="rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-200"
+                    >
+                      <option value="all">全部评分</option>
+                      {[1, 2, 3, 4, 5].map((n) => (
+                        <option key={n} value={String(n)}>
+                          {n}
+                        </option>
+                      ))}
+                    </select>
+                    <label className="flex items-center gap-2 text-xs text-slate-300">
+                      <input
+                        type="checkbox"
+                        checked={filterUnrated}
+                        onChange={(e) => setFilterUnrated(e.target.checked)}
+                        className="h-4 w-4 rounded border-slate-700 bg-slate-950"
+                      />
+                      未打分
+                    </label>
+                    <input
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      placeholder="搜索备注/错误…"
+                      className="w-56 rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-200 placeholder:text-slate-600"
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-4 space-y-4">
+                  {filteredRuns.map((run) => (
+                    <HistoryRow key={run.id} run={run} onAnnotate={annotate} />
+                  ))}
+                  {filteredRuns.length === 0 ? <div className="text-sm text-slate-500">暂无记录。</div> : null}
+                </div>
+              </div>
             </div>
-          </section>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Home (toolbox) view
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-50">
+      {header}
+      <div className="mx-auto max-w-[1400px] px-6 py-6 grid gap-6 lg:grid-cols-[280px_1fr]">
+        <aside className="rounded-3xl border border-slate-800 bg-slate-900/30 p-4">
+          <div className="text-sm font-semibold">分类</div>
+          <div className="mt-1 text-xs text-slate-400">左侧选分类，右侧是该分类的功能卡片</div>
+          <div className="mt-4 space-y-2">
+            {orderedCategories.map((cat) => {
+              const active = activeCategory === cat;
+              return (
+                <button
+                  key={cat}
+                  type="button"
+                  onClick={() => setActiveCategory(cat)}
+                  className={`w-full rounded-2xl border px-3 py-2 text-left transition ${
+                    active ? 'border-sky-500/70 bg-sky-500/10 text-white' : 'border-white/5 text-slate-300 hover:border-slate-500/60'
+                  }`}
+                >
+                  <div className="text-sm font-semibold">{CATEGORY_LABELS[cat] ?? cat}</div>
+                  <div className="text-xs text-slate-500">{(grouped[cat] || []).length} 个功能</div>
+                </button>
+              );
+            })}
+          </div>
+        </aside>
+
+        <main>
+          <div className="mb-4">
+            <div className="text-lg font-semibold">{CATEGORY_LABELS[activeCategory] ?? activeCategory}</div>
+            <div className="text-xs text-slate-400">点击卡片进入该功能的评测页面（左侧测试，右侧出图，底部打标）。</div>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {toolList.map((wf) => (
+              <ToolCard
+                key={wf.id}
+                wf={wf}
+                active={false}
+                metric={metrics[wf.id]}
+                onClick={() => openTool(wf)}
+              />
+            ))}
+            {toolList.length === 0 ? <div className="text-sm text-slate-500">该分类暂无功能。</div> : null}
+          </div>
         </main>
       </div>
-      )}
     </div>
   );
 }
+
+function HistoryRow({
+  run,
+  onAnnotate,
+}: {
+  run: RunWithLatest;
+  onAnnotate: (runId: string, rating: number, comment: string) => Promise<void>;
+}) {
+  const inputUrl = (run.input_oss_urls_json || [])[0] || '';
+  const outputs = run.result_image_urls_json || [];
+  const [rating, setRating] = useState<number>(run.latest_annotation?.rating || 0);
+  const [comment, setComment] = useState<string>(String(run.latest_annotation?.comment || ''));
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async () => {
+    if (!rating) return;
+    setSubmitting(true);
+    try {
+      await onAnnotate(run.id, rating, comment);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0">
+          <div className="text-xs text-slate-500">Run</div>
+          <div className="text-sm font-semibold text-slate-100 break-all">{run.id}</div>
+          <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-slate-400">
+            <span className="rounded-full bg-slate-800/60 px-2 py-0.5">{run.status}</span>
+            <span>耗时：{formatDuration(run.duration_ms)}</span>
+            {run.podi_task_id ? <span className="font-mono">task: {run.podi_task_id}</span> : null}
+            {run.coze_debug_url ? (
+              <a className="text-sky-400 underline" href={run.coze_debug_url} target="_blank" rel="noreferrer">
+                debug_url
+              </a>
+            ) : null}
+            <span className="text-slate-500">{fmtTime(run.created_at)}</span>
+          </div>
+          {run.error_message ? <div className="mt-2 text-xs text-rose-400">{run.error_message}</div> : null}
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
+            {[1, 2, 3, 4, 5].map((n) => {
+              const active = rating === n;
+              return (
+                <button
+                  key={`${run.id}-r-${n}`}
+                  type="button"
+                  onClick={() => setRating(n)}
+                  className={`h-9 w-9 rounded-xl border text-sm transition ${
+                    active ? 'border-amber-400/80 bg-amber-400/20 text-amber-200' : 'border-slate-800 bg-slate-950 text-slate-200 hover:border-slate-700'
+                  }`}
+                >
+                  {n}
+                </button>
+              );
+            })}
+          </div>
+          <button
+            type="button"
+            disabled={!rating || submitting}
+            onClick={() => void submit()}
+            className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${
+              !rating || submitting ? 'bg-slate-700/40 text-slate-400' : 'bg-emerald-500/80 text-white hover:bg-emerald-500'
+            }`}
+          >
+            {submitting ? '提交中…' : '提交'}
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-3 grid gap-3 lg:grid-cols-[220px_1fr]">
+        <div>
+          <div className="text-xs text-slate-500 mb-1">备注（可选）</div>
+          <textarea
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            rows={3}
+            className="w-full rounded-xl border border-slate-800 bg-slate-950 p-3 text-sm text-slate-100"
+            placeholder="问题描述/优化建议…"
+          />
+        </div>
+        <div>
+          <div className="text-xs text-slate-500 mb-1">原图 / 结果</div>
+          <div className="grid gap-2 lg:grid-cols-4">
+            {inputUrl ? (
+              <a href={inputUrl} target="_blank" rel="noreferrer" className="block rounded-xl border border-slate-800 bg-slate-950/30 p-1 hover:border-slate-700">
+                <img src={inputUrl} alt="input" className="h-32 w-full rounded-lg object-contain" />
+              </a>
+            ) : null}
+            {outputs.length > 0 ? (
+              outputs.map((u, idx) => (
+                <a key={`${run.id}-out-${idx}`} href={u} target="_blank" rel="noreferrer" className="block rounded-xl border border-slate-800 bg-slate-950/30 p-1 hover:border-slate-700">
+                  <img src={u} alt="output" className="h-32 w-full rounded-lg object-contain" />
+                </a>
+              ))
+            ) : (
+              <div className="text-sm text-slate-500">{run.status === 'running' || run.status === 'queued' ? '生成中…' : '暂无输出'}</div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+

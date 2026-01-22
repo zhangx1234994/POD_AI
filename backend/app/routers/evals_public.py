@@ -20,6 +20,8 @@ from app.models.eval import EvalAnnotation, EvalRun, EvalWorkflowVersion
 from app.schemas.eval import (
     EvalAnnotationCreate,
     EvalAnnotationResponse,
+    EvalRunWithLatestAnnotationListResponse,
+    EvalRunWithLatestAnnotationResponse,
     EvalRunCreate,
     EvalRunListResponse,
     EvalRunResponse,
@@ -133,6 +135,71 @@ def list_runs(
     total = int(db.execute(count_stmt).scalar_one())
     items = db.execute(stmt.order_by(EvalRun.created_at.desc()).offset(offset).limit(limit)).scalars().all()
     return EvalRunListResponse(total=total, items=items)
+
+@router.get("/runs/with-latest-annotation", response_model=EvalRunWithLatestAnnotationListResponse)
+def list_runs_with_latest_annotation(
+    request: Request,
+    response: Response,
+    workflow_version_id: str | None = Query(None),
+    status: str | None = Query(None),
+    unrated: bool | None = Query(None),
+    limit: int = Query(50, le=200),
+    offset: int = Query(0),
+    db: Session = Depends(get_db),
+) -> Any:
+    """List runs and attach each run's latest annotation.
+
+    This endpoint is optimized for the evaluation UI: filtering by rating/comment is easier
+    when annotation info is present on each row.
+    """
+    _require_public_enabled(request)
+    _get_or_set_rater_id(request, response)
+
+    stmt = select(EvalRun)
+    count_stmt = select(func.count()).select_from(EvalRun)
+    if workflow_version_id:
+        stmt = stmt.where(EvalRun.workflow_version_id == workflow_version_id)
+        count_stmt = count_stmt.where(EvalRun.workflow_version_id == workflow_version_id)
+    if status:
+        stmt = stmt.where(EvalRun.status == status)
+        count_stmt = count_stmt.where(EvalRun.status == status)
+    if unrated:
+        subq = select(EvalAnnotation.id).where(EvalAnnotation.run_id == EvalRun.id)
+        stmt = stmt.where(~exists(subq))
+        count_stmt = count_stmt.where(~exists(subq))
+
+    total = int(db.execute(count_stmt).scalar_one())
+    runs = db.execute(stmt.order_by(EvalRun.created_at.desc()).offset(offset).limit(limit)).scalars().all()
+
+    run_ids = [r.id for r in runs]
+    latest_map: dict[str, EvalAnnotation] = {}
+    if run_ids:
+        ann_rows = (
+            db.execute(
+                select(EvalAnnotation)
+                .where(EvalAnnotation.run_id.in_(run_ids))
+                .order_by(EvalAnnotation.run_id.asc(), EvalAnnotation.created_at.desc())
+            )
+            .scalars()
+            .all()
+        )
+        for ann in ann_rows:
+            if ann.run_id not in latest_map:
+                latest_map[ann.run_id] = ann
+
+    items: list[EvalRunWithLatestAnnotationResponse] = []
+    for r in runs:
+        items.append(
+            EvalRunWithLatestAnnotationResponse.model_validate(
+                {
+                    **EvalRunResponse.model_validate(r).model_dump(),
+                    "latest_annotation": EvalAnnotationResponse.model_validate(latest_map.get(r.id)).model_dump()
+                    if latest_map.get(r.id)
+                    else None,
+                }
+            )
+        )
+    return EvalRunWithLatestAnnotationListResponse(total=total, items=items)
 
 
 @router.get("/runs/{run_id}", response_model=EvalRunResponse)
