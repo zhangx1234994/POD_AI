@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     podi_internal_base_url: str = Field(default="http://host.docker.internal:8099", env="PODI_INTERNAL_BASE_URL")
     executor_config_path: str = Field(default="config/executors.yaml", env="EXECUTOR_CONFIG_PATH")
     ability_task_max_workers: int = Field(default=4, env="ABILITY_TASK_MAX_WORKERS")
+    eval_run_max_workers: int = Field(default=6, env="EVAL_RUN_MAX_WORKERS")
     # When set, force all ComfyUI abilities to route to a single executor id.
     # Useful for testing (single ComfyUI server) to avoid node/plugin mismatch.
     comfyui_default_executor_id: str | None = Field(default=None, env="COMFYUI_DEFAULT_EXECUTOR_ID")

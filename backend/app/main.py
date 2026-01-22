@@ -9,14 +9,15 @@ from app.routers import (
     health,
     media,
     wallet,
-    tasks,
-    notify,
     points,
     admin_integrations,
     admin_dashboard,
     admin_abilities,
+    admin_evals,
     auth,
     coze_podi_plugin,
+    tasks,
+    notify,
 )
 
 
@@ -43,6 +44,7 @@ def create_app() -> FastAPI:
     app.include_router(admin_integrations.router, prefix="/api", tags=["admin"])
     app.include_router(admin_abilities.router, prefix="/api", tags=["admin-abilities"])
     app.include_router(admin_dashboard.router, prefix="/api", tags=["admin-dashboard"])
+    app.include_router(admin_evals.router, prefix="/api/admin", tags=["admin-evals"])
     app.include_router(coze_podi_plugin.router)
     app.include_router(tasks.router, prefix="/api/tasks", tags=["tasks"])
     app.include_router(notify.router, tags=["notify"])

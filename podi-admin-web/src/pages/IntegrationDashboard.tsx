@@ -24,11 +24,13 @@ import type {
   WorkflowFormState,
 } from '../types/admin';
 import type { UploadResult } from '../types/media';
+import { AbilityEvaluationPage } from './AbilityEvaluation/AbilityEvaluationPage';
 
 const navItems = [
   { id: 'overview', label: '总体概览', description: '指标、刷新、运行状态' },
   { id: 'abilities', label: '能力目录', description: '原子能力列表与成本' },
   { id: 'ability-tests', label: '能力详情/测试', description: '链路自检与演示' },
+  { id: 'ability-evals', label: '能力评测', description: 'Coze 工作流试运行 + 评分' },
   { id: 'executors', label: '执行节点', description: '节点配置与健康' },
   { id: 'ability-logs', label: '能力调用', description: '全局历史记录' },
   { id: 'comfyui-templates', label: 'ComfyUI 模板', description: 'Workflow JSON 管理' },
@@ -3526,6 +3528,13 @@ const normalizeErrorMessage = (message: string): string => {
             )}
           </div>
         )}
+      </Section>
+      <Section
+        id="ability-evals"
+        title="能力评测"
+        description="内部迭代工具：统一用 Coze 工作流试运行，并对输出做 1-5 评分与备注。"
+      >
+        <AbilityEvaluationPage />
       </Section>
       <Section
         id="comfyui-templates"

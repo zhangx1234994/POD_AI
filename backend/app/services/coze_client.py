@@ -89,5 +89,51 @@ class CozeWorkflowClient:
             )
         return payload
 
+    def get_workflow_run_history(
+        self,
+        *, 
+        execute_id: str,
+        workflow_id: str,
+        request_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Get workflow run history by execute_id."""
+        base_url, token, timeout = self._get_config()
+        url = f"{base_url}/v1/workflow/get_run_history"
+        params = {
+            "execute_id": execute_id,
+            "workflow_id": workflow_id
+        }
+        headers = {
+            "Authorization": f"Bearer {token}",
+        }
+        if request_id:
+            headers["X-Request-ID"] = request_id
+        try:
+            response = httpx.get(url, params=params, headers=headers, timeout=timeout)
+        except httpx.HTTPError as exc:  # pragma: no cover - network errors
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"COZE_REQUEST_FAILED:{exc}",
+            ) from exc
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="COZE_INVALID_RESPONSE",
+            ) from exc
+        if response.status_code >= 400:
+            detail = payload.get("msg") if isinstance(payload, dict) else payload
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"COZE_HTTP_{response.status_code}:{detail}",
+            )
+        if not isinstance(payload, dict):
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="COZE_RESPONSE_NOT_JSON",
+            )
+        return payload
+
 
 coze_client = CozeWorkflowClient()

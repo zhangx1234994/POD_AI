@@ -14,6 +14,7 @@ import type {
   SystemConfig,
   Workflow,
 } from '../types/admin';
+import type { EvalAnnotation, EvalDatasetItem, EvalRun, EvalRunListResponse, EvalWorkflowVersion } from '../types/eval';
 
 type AbilityContextPayload = {
   abilityId?: string | null;
@@ -241,4 +242,41 @@ export const adminApi = {
   },
   listPublicAbilities: () =>
     request<AbilityListResponse>('/api/abilities').then((res) => (res.items || []) as PublicAbility[]),
+
+  // Ability evaluations (internal)
+  listEvalWorkflowVersions: (params?: { category?: string; status?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.category) qs.set('category', params.category);
+    if (params?.status) qs.set('status', params.status);
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return request<EvalWorkflowVersion[]>(`/api/admin/evals/workflow-versions${suffix}`);
+  },
+  createEvalWorkflowVersion: (payload: Partial<EvalWorkflowVersion>) =>
+    request<EvalWorkflowVersion>('/api/admin/evals/workflow-versions', { method: 'POST', body: JSON.stringify(payload) }),
+  listEvalDatasetItems: (params?: { category?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.category) qs.set('category', params.category);
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return request<EvalDatasetItem[]>(`/api/admin/evals/datasets${suffix}`);
+  },
+  createEvalDatasetItem: (payload: Partial<EvalDatasetItem>) =>
+    request<EvalDatasetItem>('/api/admin/evals/datasets', { method: 'POST', body: JSON.stringify(payload) }),
+  createEvalRun: (payload: {
+    workflow_version_id: string;
+    dataset_item_id?: string | null;
+    input_oss_urls_json?: string[];
+    parameters_json?: Record<string, unknown>;
+  }) => request<EvalRun>('/api/admin/evals/runs', { method: 'POST', body: JSON.stringify(payload) }),
+  listEvalRuns: (params?: { workflow_version_id?: string; status?: string; limit?: number; offset?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.workflow_version_id) qs.set('workflow_version_id', params.workflow_version_id);
+    if (params?.status) qs.set('status', params.status);
+    if (params?.limit !== undefined) qs.set('limit', String(params.limit));
+    if (params?.offset !== undefined) qs.set('offset', String(params.offset));
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return request<EvalRunListResponse>(`/api/admin/evals/runs${suffix}`);
+  },
+  getEvalRun: (runId: string) => request<EvalRun>(`/api/admin/evals/runs/${runId}`),
+  createEvalAnnotation: (runId: string, payload: { rating: number; comment?: string; tags_json?: string[] }) =>
+    request<EvalAnnotation>(`/api/admin/evals/runs/${runId}/annotations`, { method: 'POST', body: JSON.stringify(payload) }),
 };
