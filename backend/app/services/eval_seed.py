@@ -62,6 +62,8 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         "parameters_schema": {
             "fields": [
                 {"name": "url", "label": "图片 URL", "type": "text", "required": True},
+                # Some legacy Coze workflows use `Url` (capital U). Backend will alias `url` -> `Url` automatically.
+                {"name": "Url", "label": "图片 URL（兼容字段）", "type": "text", "required": False},
                 {"name": "expand_left", "label": "左扩(px)", "type": "text", "required": False, "defaultValue": "0"},
                 {"name": "expand_right", "label": "右扩(px)", "type": "text", "required": False, "defaultValue": "0"},
                 {"name": "expand_top", "label": "上扩(px)", "type": "text", "required": False, "defaultValue": "0"},
@@ -93,6 +95,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         "parameters_schema": {
             "fields": [
                 {"name": "url", "label": "图片 URL", "type": "text", "required": True},
+                {"name": "prompt", "label": "提示词", "type": "textarea", "required": True},
                 {
                     "name": "moxing",
                     "label": "模型",

@@ -14,6 +14,7 @@ from app.routers import (
     admin_dashboard,
     admin_abilities,
     admin_evals,
+    evals_public,
     auth,
     coze_podi_plugin,
     tasks,
@@ -45,6 +46,7 @@ def create_app() -> FastAPI:
     app.include_router(admin_abilities.router, prefix="/api", tags=["admin-abilities"])
     app.include_router(admin_dashboard.router, prefix="/api", tags=["admin-dashboard"])
     app.include_router(admin_evals.router, prefix="/api/admin", tags=["admin-evals"])
+    app.include_router(evals_public.router)
     app.include_router(coze_podi_plugin.router)
     app.include_router(tasks.router, prefix="/api/tasks", tags=["tasks"])
     app.include_router(notify.router, tags=["notify"])

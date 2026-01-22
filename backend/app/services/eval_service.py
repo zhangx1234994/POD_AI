@@ -56,6 +56,9 @@ class EvalService:
             normalized_params.setdefault("url", urls[0])
             if len(urls) > 1:
                 normalized_params.setdefault("urls", urls)
+            # Compat for some Coze workflows that use different casing.
+            for alias in ("Url", "URL"):
+                normalized_params.setdefault(alias, urls[0])
 
         run = EvalRun(
             id=uuid4().hex,
@@ -119,6 +122,7 @@ class EvalService:
 
     def _execute_run(self, run_id: str) -> None:
         started = time.monotonic()
+        settings = get_settings()
         with get_session() as session:
             run = session.get(EvalRun, run_id)
             if not run:
@@ -157,8 +161,30 @@ class EvalService:
             output = parsed.get("output")
             podi_task_id = self._guess_podi_task_id(parsed, output)
             if podi_task_id:
-                self._poll_ability_task(run_id=run_id, task_id=podi_task_id, started=started)
-                return
+                # Prefer PODI ability_tasks.
+                with get_session() as session:
+                    task_row = session.get(AbilityTask, podi_task_id)
+                if task_row:
+                    self._poll_ability_task(run_id=run_id, task_id=podi_task_id, started=started)
+                    return
+                # Fallback: if output is a raw ComfyUI id, resolve via a callback workflow.
+                callback_wf = settings.coze_comfyui_callback_workflow_id
+                if callback_wf:
+                    with get_session() as session:
+                        run = session.get(EvalRun, run_id)
+                        if run:
+                            run.podi_task_id = podi_task_id
+                            session.add(run)
+                            session.commit()
+                    image_urls = self._poll_callback_images(
+                        callback_workflow_id=callback_wf,
+                        taskid=podi_task_id,
+                    )
+                    if image_urls:
+                        self._mark_succeeded(run_id, image_urls=image_urls, started=started)
+                        return
+                    self._mark_failed(run_id, message="CALLBACK_IMAGES_EMPTY", started=started)
+                    return
 
             image_urls = self._extract_image_urls(parsed)
             self._mark_succeeded(run_id, image_urls=image_urls, started=started)
@@ -231,6 +257,32 @@ class EvalService:
             seen.add(u)
             out.append(u)
         return out
+
+    def _poll_callback_images(self, *, callback_workflow_id: str, taskid: str) -> list[str]:
+        """Resolve images for workflows that output a raw ComfyUI task id.
+
+        The callback workflow may return empty images while the underlying job is still running,
+        so we poll for a bounded period.
+        """
+        deadline = time.monotonic() + 180.0
+        interval = 2.0
+        last_images: list[str] = []
+        attempts = 0
+        while time.monotonic() < deadline:
+            attempts += 1
+            resolved = coze_client.run_workflow(
+                workflow_id=callback_workflow_id,
+                parameters={"taskid": taskid},
+                is_async=False,
+            )
+            parsed = self._parse_coze_payload(resolved)
+            images = self._extract_image_urls(parsed)
+            last_images = images
+            if images:
+                break
+            time.sleep(interval)
+            interval = min(interval * 1.4, 8.0)
+        return last_images
 
     def _poll_ability_task(self, *, run_id: str, task_id: str, started: float) -> None:
         deadline = time.monotonic() + 60 * 20  # 20 minutes max
@@ -307,4 +359,3 @@ class EvalService:
 
 
 eval_service = EvalService()
-

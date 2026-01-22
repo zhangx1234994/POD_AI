@@ -54,6 +54,13 @@ class Settings(BaseSettings):
     executor_config_path: str = Field(default="config/executors.yaml", env="EXECUTOR_CONFIG_PATH")
     ability_task_max_workers: int = Field(default=4, env="ABILITY_TASK_MAX_WORKERS")
     eval_run_max_workers: int = Field(default=6, env="EVAL_RUN_MAX_WORKERS")
+    eval_public_enabled: bool = Field(default=False, env="EVAL_PUBLIC_ENABLED")
+    # Optional shared secret for public evaluation APIs. If unset and
+    # eval_public_enabled=true, the endpoints are open (intended for internal LAN).
+    eval_public_token: str | None = Field(default=None, env="EVAL_PUBLIC_TOKEN")
+    # If a Coze workflow returns a raw ComfyUI task id (not a PODI ability_task id),
+    # we can fall back to another workflow to resolve images.
+    coze_comfyui_callback_workflow_id: str | None = Field(default=None, env="COZE_COMFYUI_CALLBACK_WORKFLOW_ID")
     # When set, force all ComfyUI abilities to route to a single executor id.
     # Useful for testing (single ComfyUI server) to avoid node/plugin mismatch.
     comfyui_default_executor_id: str | None = Field(default=None, env="COMFYUI_DEFAULT_EXECUTOR_ID")

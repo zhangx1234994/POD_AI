@@ -15,9 +15,14 @@ scripts/__pycache__/
 podi-admin-web/node_modules/
 podi-admin-web/dist/
 podi-design-web-dev/node_modules/
+podi-eval-web/node_modules/
+podi-eval-web/dist/
 **/package-lock.json
 tmp/
 .trae/
+
+# Local test outputs
+reports/
 
 # Local test reports / one-off scripts
 backend/coze_workflow_*.json

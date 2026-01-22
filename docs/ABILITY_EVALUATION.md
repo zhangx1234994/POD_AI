@@ -9,6 +9,10 @@
   - `COZE_BASE_URL`：例如 `http://114.55.0.56:8888`
   - `COZE_API_TOKEN`：Coze 的 PAT（Bearer Token）
   - 也可复用 `SERVICE_API_TOKEN` 作为兜底 token（不建议线上长期依赖兜底）
+- 若评测人员“无需登录”使用独立页面：
+  - `EVAL_PUBLIC_ENABLED=true`
+  - （可选）`EVAL_PUBLIC_TOKEN=...`：前端请求需带 `X-Eval-Token` 或 `?token=...`
+  - （可选）`COZE_COMFYUI_CALLBACK_WORKFLOW_ID=...`：当工作流输出的是原始 ComfyUI taskid（不在 PODI ability_tasks）时用于兜底解析图片
 
 ## 后端接口
 
@@ -21,6 +25,14 @@
 - `POST /api/admin/evals/runs`
 - `GET /api/admin/evals/runs`
 - `POST /api/admin/evals/runs/{run_id}/annotations`
+
+另提供“无需登录”的评测 API（给独立评测页面用）：
+
+- `GET /api/evals/workflow-versions`
+- `POST /api/evals/runs`
+- `GET /api/evals/runs`
+- `GET /api/evals/runs/{run_id}`
+- `POST /api/evals/runs/{run_id}/annotations`
 
 ## 工作流版本录入（Workflow Version）
 
@@ -55,4 +67,3 @@ curl -X POST "$API_BASE/api/admin/evals/workflow-versions" \
 - 页面点击“试运行”会创建一条 `eval_run` 记录，并后台执行 Coze `/v1/workflow/run`。
 - 如果工作流输出是 PODI 的 task_id（例如 ComfyUI 回调 ID），后端会自动轮询 `ability_tasks` 直到完成，并把图片 URL 写入 `result_image_urls_json`。
 - 评分与备注写入 `eval_annotation`。
-
