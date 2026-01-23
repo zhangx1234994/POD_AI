@@ -306,7 +306,7 @@ def _comfyui_seamless_schema() -> dict[str, Any]:
                     {"label": "3072", "value": "3072"},
                     {"label": "4096", "value": "4096"},
                 ],
-                "default": "2048",
+                "default": "1024",
             },
         ]
     }
@@ -1177,7 +1177,7 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "supports_vision": True,
             # Only 117 server has the required seamless-pattern custom nodes.
             "allowed_executor_ids": ["executor_comfyui_seamless_117"],
-            "seed_version": 6,
+            "seed_version": 7,
             "pricing": {
                 "currency": "CNY",
                 "unit": "per_image",
