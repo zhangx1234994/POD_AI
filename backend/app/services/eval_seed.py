@@ -32,6 +32,8 @@ LORA_OPTIONS = [
 DEPRECATED_EVAL_WORKFLOW_IDS: set[str] = {
     # 提取类
     "7597535455856295936",  # 提示词提取 · tishici_tiqu
+    # 花纹提取类（旧的 space_id 误填版本，保留但不再展示）
+    "7597421439045599232",  # tiqu_duoMoxing_2 (wrong id, superseded by 7598558185544220672)
 }
 
 # Evaluation UI category policy: keep the sidebar fixed to these 4 groups.
