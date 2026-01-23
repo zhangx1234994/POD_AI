@@ -162,11 +162,22 @@ const resolveAbilityExecutors = (ability: Ability | null, availableExecutors: Ex
     if (!executorType) return false;
     return normalizedHints.some((hint) => matchesExecutorHint(executorType, hint));
   });
+  const metadata = (ability.metadata || {}) as Record<string, unknown>;
+  const allowedExecutorIds = Array.isArray(metadata.allowed_executor_ids)
+    ? metadata.allowed_executor_ids.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+    : [];
   if (ability.executor_id) {
     const pinned = availableExecutors.find((executor) => executor.id === ability.executor_id);
     if (pinned) {
-      return [pinned, ...matched.filter((executor) => executor.id !== pinned.id)];
+      const base = [pinned, ...matched.filter((executor) => executor.id !== pinned.id)];
+      if (allowedExecutorIds.length > 0) {
+        return base.filter((executor) => allowedExecutorIds.includes(executor.id));
+      }
+      return base;
     }
+  }
+  if (allowedExecutorIds.length > 0) {
+    return matched.filter((executor) => allowedExecutorIds.includes(executor.id));
   }
   return matched;
 };

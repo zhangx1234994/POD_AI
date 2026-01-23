@@ -447,10 +447,9 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             # Node 72 is the default negative CLIPTextEncode text.
             overrides.setdefault("72", {})["text"] = negative
 
-        long_side = self._coerce_positive_int(params.get("size") or params.get("output_long_side") or params.get("outputLongSide"))
-        long_side = self._normalize_comfy_dim(long_side)
-        if long_side:
-            overrides.setdefault("61", {})["value"] = long_side
+        # NOTE: Node 61 controls a pre-scale (longest side) that affects quality/speed.
+        # For business users, we keep it fixed in the workflow JSON (default 720) and
+        # do not expose/override it via API params to avoid confusion.
 
         lora_name = self._as_text(params.get("lora") or params.get("lora_name") or params.get("loraName"))
         if lora_name:

@@ -596,19 +596,6 @@ def _comfyui_pattern_expand_schema() -> dict[str, Any]:
                 "required": False,
             },
             {
-                "name": "size",
-                "type": "select",
-                "label": _compose_bilingual_label("预缩放最长边(px)", "Pre-scale Long Side (px)"),
-                "description": "节点 61 · ImpactInt.value（输入图会先缩放到该最长边再扩图，影响质量/速度）",
-                "options": [
-                    {"label": "512", "value": "512"},
-                    {"label": "720", "value": "720"},
-                    {"label": "1024", "value": "1024"},
-                    {"label": "1536", "value": "1536"},
-                ],
-                "default": "720",
-            },
-            {
                 "name": "expand_left",
                 "type": "number",
                 "label": _compose_bilingual_label("左侧扩展 (px)", "Expand Left (px)"),
@@ -1202,7 +1189,9 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "action": "seamless",
             "requires_image_input": True,
             "supports_vision": True,
-            "seed_version": 5,
+            # Only 117 server has the required seamless-pattern custom nodes.
+            "allowed_executor_ids": ["executor_comfyui_seamless_117"],
+            "seed_version": 6,
             "pricing": {
                 "currency": "CNY",
                 "unit": "per_image",
@@ -1234,7 +1223,9 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "action": "pattern_extract",
             "requires_image_input": True,
             "supports_vision": True,
-            "seed_version": 4,
+            # Only 158 server has the pattern-extract LoRA + nodes.
+            "allowed_executor_ids": ["executor_comfyui_pattern_extract_158"],
+            "seed_version": 5,
             "lora_presets": PATTERN_EXTRACT_LORA_PRESETS,
             "pricing": {
                 "currency": "CNY",
@@ -1271,7 +1262,9 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "action": "pattern_expand",
             "requires_image_input": True,
             "supports_vision": True,
-            "seed_version": 3,
+            # Only 117 server has the required outpaint custom nodes.
+            "allowed_executor_ids": ["executor_comfyui_seamless_117"],
+            "seed_version": 4,
             "pricing": {
                 "currency": "CNY",
                 "unit": "per_image",
@@ -1298,7 +1291,8 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "action": "image_edit_fast",
             "requires_image_input": True,
             "supports_vision": True,
-            "seed_version": 2,
+            "allowed_executor_ids": ["executor_comfyui_pattern_extract_158"],
+            "seed_version": 3,
             "pricing": {
                 "currency": "CNY",
                 "unit": "per_image",
@@ -1325,7 +1319,8 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "action": "image_edit_medium",
             "requires_image_input": True,
             "supports_vision": True,
-            "seed_version": 2,
+            "allowed_executor_ids": ["executor_comfyui_pattern_extract_158"],
+            "seed_version": 3,
             "pricing": {
                 "currency": "CNY",
                 "unit": "per_image",
