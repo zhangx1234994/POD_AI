@@ -28,7 +28,7 @@ from app.schemas.eval import (
     EvalWorkflowVersionResponse,
 )
 from app.services.eval_seed import ensure_default_eval_workflow_versions
-from app.services.eval_service import eval_service
+from app.services.eval_service import get_eval_service
 from app.services.oss import oss_service
 
 
@@ -150,7 +150,7 @@ def create_run(
 ) -> EvalRun:
     _require_public_enabled(request)
     created_by = _get_or_set_rater_id(request, response)
-    run = eval_service.create_eval_run(
+    run = get_eval_service().create_eval_run(
         workflow_version_id=payload.workflow_version_id,
         dataset_item_id=payload.dataset_item_id,
         input_oss_urls=payload.input_oss_urls_json,

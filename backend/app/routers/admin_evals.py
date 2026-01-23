@@ -26,7 +26,7 @@ from app.schemas.eval import (
     EvalAnnotationCreate,
     EvalAnnotationResponse,
 )
-from app.services import eval_service
+from app.services.eval_service import get_eval_service
 from app.deps.auth import get_current_user
 from app.models.user import User
 
@@ -141,7 +141,7 @@ async def create_eval_run(
 ):
     """Create a new evaluation run."""
     try:
-        db_eval_run = eval_service.create_eval_run(
+        db_eval_run = get_eval_service().create_eval_run(
             workflow_version_id=eval_run.workflow_version_id,
             dataset_item_id=eval_run.dataset_item_id,
             input_oss_urls=eval_run.input_oss_urls_json,
@@ -167,7 +167,7 @@ async def list_eval_runs(
 ):
     """List all evaluation runs with pagination."""
     try:
-        total, results = eval_service.list_eval_runs(
+        total, results = get_eval_service().list_eval_runs(
             db=db,
             workflow_version_id=workflow_version_id,
             status=status,

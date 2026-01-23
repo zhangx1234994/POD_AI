@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from functools import lru_cache
 from typing import Any
 from uuid import uuid4
 
@@ -29,11 +31,17 @@ class EvalService:
     """Persisted evaluation runs with background execution in a bounded thread pool."""
 
     def __init__(self) -> None:
+        self._logger = logging.getLogger(__name__)
         settings = get_settings()
         max_workers = max(1, int(getattr(settings, "eval_run_max_workers", 6)))
         self._executor = ThreadPoolExecutor(max_workers=max_workers)
         self._lock = threading.Lock()
-        self._resume_pending_runs()
+        # Best-effort: never block API startup on evaluation bookkeeping.
+        # (In reload mode, mapper initialization can be sensitive to import order.)
+        try:
+            self._resume_pending_runs()
+        except Exception as exc:  # pragma: no cover - defensive startup guard
+            self._logger.warning("EvalService resume skipped: %s", exc)
 
     def create_eval_run(
         self,
@@ -366,4 +374,8 @@ class EvalService:
             session.commit()
 
 
-eval_service = EvalService()
+@lru_cache
+def get_eval_service() -> EvalService:
+    """Lazy singleton to avoid import-time side effects (important under uvicorn reload)."""
+
+    return EvalService()
