@@ -19,14 +19,14 @@
 
 POD AI Studio 由三部分组成：
 
-- **客户端（podi-design-web-dev）**：面向业务用户，负责登录、任务提交、结果查看。
+- **评测站点（podi-eval-web）**：内部“能力评测”与回归验证（跑 Coze 工作流、看结果/打分）。
 - **管理端（podi-admin-web）**：供运营/研发配置执行节点、工作流、API Key、能力测试/日志/成本。
 - **后端（FastAPI + Celery）**：统一提供认证、媒资上传、任务调度、原子能力、工作流、日志、成本、自检接口。
 
 ```mermaid
 flowchart LR
     subgraph Clients
-        A[终端客户端\npodi-design-web-dev]
+        A[评测站点\npodi-eval-web]
         B[管理端\npodi-admin-web]
     end
     subgraph Backend
@@ -41,7 +41,7 @@ flowchart LR
         I[ComfyUI Servers\n117.50.*]
     end
 
-    A -->|JWT + 统一能力 API| C
+    A -->|内部评测接口| C
     B -->|管理接口| C
     C --> D
     C --> E

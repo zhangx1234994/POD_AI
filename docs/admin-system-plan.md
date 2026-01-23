@@ -9,10 +9,10 @@
 ## 架构拆分
 
 ```
-web-client (现有)          admin-console（新）
-└── podi-design-web-dev    └── podi-admin-web
-    ├── 登录 & 用户视角        ├── 管理员登录页
-    └── /admin/* 移除          └── 仪表盘/导入/监控
+web-client (待重构)         admin-console（现有）
+└── (removed)              └── podi-admin-web
+    ├── (TBD)                 ├── 管理员登录页
+    └── (TBD)                 └── 仪表盘/导入/监控
 ```
 
 | 层级 | 客户端 | 管理端 |

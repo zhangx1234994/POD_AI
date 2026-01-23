@@ -37,10 +37,9 @@
 
 ## 前端设计
 
-### 客户端（podi-design-web-dev）
-- 新增登录/注册页（如 `src/pages/Login`），使用统一的 `/api/auth/login`。
-- 登录成功后存储 `access_token`，在 Axios/http 工具中统一附带 `Authorization: Bearer ...`。
-- 个人中心展示 `profile` 信息，提供“退出登录”按钮。
+### 客户端（待重构）
+- 历史客户端 `podi-design-web-dev/` 已移除；客户端登录/注册页、用户视角能力调用等将随新客户端重构重新落地。
+- 认证接口与模型保持不变：统一基于 `/api/auth/login`（Bearer Token）对接。
 
 ### 管理端（podi-admin-web）
 - 替换现有的 Token 输入组件，改成账号密码登录页；提交后同样保存 JWT。
@@ -56,7 +55,7 @@
    - [x] 自建登录/刷新逻辑（`POST /api/auth/login`、`POST /api/auth/refresh`，参见 `app/routers/auth.py`）。
    - [ ] 替换 `/api/admin/**` 的鉴权依赖，移除旧的 `X-Admin-Token`，统一通过 JWT 校验。
 3. **前端改造**
-   - [ ] 客户端登录/注册页 + Token 存储。
+   - [ ] 新客户端：登录/注册页 + Token 存储。
    - [ ] 管理端登录页重写，后续扩展管理员管理界面。
 4. **运营与配置**
    - [ ] 定义管理员初始化脚本（例如 `python scripts/create_admin.py`）。
