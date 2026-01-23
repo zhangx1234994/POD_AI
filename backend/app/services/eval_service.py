@@ -173,6 +173,19 @@ class EvalService:
                 session.add(run)
                 session.commit()
 
+            # Coze can return HTTP 200 with a non-zero `code` (or BaseResp.StatusCode) for failures.
+            base_resp = response.get("BaseResp") or {}
+            status_code = base_resp.get("StatusCode")
+            code = response.get("code")
+            if (isinstance(code, int) and code != 0) or (isinstance(status_code, int) and status_code != 0):
+                msg = response.get("msg") or base_resp.get("StatusMessage") or "COZE_EXECUTION_FAILED"
+                self._mark_failed(
+                    run_id,
+                    message=f"COZE_FAILED code={code} statusCode={status_code} msg={msg} debugUrl={debug_url}",
+                    started=started,
+                )
+                return
+
             parsed = self._parse_coze_payload(response)
             output = parsed.get("output")
             podi_task_id = self._guess_podi_task_id(parsed, output)

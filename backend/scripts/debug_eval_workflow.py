@@ -17,8 +17,15 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import time
 from uuid import uuid4
+
+from pathlib import Path
+
+# Ensure `backend/` is on sys.path when running from repo root.
+REPO = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO / "backend"))
 
 from app.core.config import get_settings
 from app.services.coze_client import coze_client
@@ -126,7 +133,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    # Ensure `backend/` is on PYTHONPATH when running from repo root.
-    if not os.environ.get("PYTHONPATH"):
-        os.environ["PYTHONPATH"] = "backend"
     raise SystemExit(main())
