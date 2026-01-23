@@ -389,7 +389,9 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         "notes": "输入 Url + 四向扩图像素；输出 output 为回调 task id。",
         "parameters_schema": {
             "fields": [
-                {"name": "Url", "label": "图片 URL", "type": "text", "required": True},
+                # Keep UI convention: single image input uses `url`. Backend will alias `url` -> `Url` for compat.
+                {"name": "url", "label": "图片 URL", "type": "text", "required": True},
+                {"name": "Url", "label": "图片 URL（兼容字段）", "type": "text", "required": False},
                 {"name": "expand_left", "label": "左扩(px)", "type": "text", "required": False, "defaultValue": "0"},
                 {"name": "expand_right", "label": "右扩(px)", "type": "text", "required": False, "defaultValue": "0"},
                 {"name": "expand_top", "label": "上扩(px)", "type": "text", "required": False, "defaultValue": "0"},
@@ -610,6 +612,37 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
                         f["options"] = [{"label": x, "value": x} for x in LORA_OPTIONS]
                         row.parameters_schema = schema
                         dirty = True
+        if row.workflow_id == "7598587935331450880":
+            # Normalize ComfyUI outpaint schema to use `url` as the canonical image key.
+            schema = json.loads(json.dumps(row.parameters_schema or {}, ensure_ascii=False))
+            fields = schema.get("fields") if isinstance(schema, dict) else None
+            if isinstance(fields, list):
+                names = [f.get("name") for f in fields if isinstance(f, dict)]
+                changed = False
+                if "url" not in names:
+                    fields.insert(
+                        0,
+                        {
+                            "name": "url",
+                            "label": "图片 URL",
+                            "type": "text",
+                            "required": True,
+                            "description": "图片地址（OSS 或公网 URL）",
+                        },
+                    )
+                    changed = True
+                for f in fields:
+                    if isinstance(f, dict) and f.get("name") == "Url":
+                        if f.get("required") is True:
+                            f["required"] = False
+                            changed = True
+                        if not f.get("label"):
+                            f["label"] = "图片 URL（兼容字段）"
+                            changed = True
+                if changed:
+                    schema["fields"] = fields
+                    row.parameters_schema = schema
+                    dirty = True
     if dirty:
         session.commit()
     return created
