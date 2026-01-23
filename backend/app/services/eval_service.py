@@ -171,11 +171,7 @@ class EvalService:
             # Execute the workflow (non-streaming). OpenAPI tokens are handled by coze_client.
             if not workflow_id:
                 raise RuntimeError("WORKFLOW_ID_MISSING")
-            response = coze_client.run_workflow(
-                workflow_id=workflow_id,
-                parameters=run_parameters,
-                is_async=False,
-            )
+            response = coze_client.run_workflow(workflow_id=workflow_id, parameters=run_parameters, is_async=False)
 
             execute_id = response.get("execute_id")
             debug_url = response.get("debug_url")
@@ -194,6 +190,69 @@ class EvalService:
             code = response.get("code")
             if (isinstance(code, int) and code != 0) or (isinstance(status_code, int) and status_code != 0):
                 msg = response.get("msg") or base_resp.get("StatusMessage") or "COZE_EXECUTION_FAILED"
+
+                # Coze validates required parameters before running nodes. Some workflows
+                # may mark common fields like height/width as required. If callers omit them
+                # (or send empty), Coze returns code=4000 with a "Missing required parameters"
+                # message. We apply a best-effort fallback and retry once so UI users don't
+                # get stuck with a hard failure for "obvious defaults".
+                if isinstance(code, int) and code == 4000 and isinstance(msg, str) and "Missing required parameters" in msg:
+                    patched = self._patch_missing_required_params(run_parameters, msg)
+                    if patched:
+                        response = coze_client.run_workflow(
+                            workflow_id=workflow_id,
+                            parameters=patched,
+                            is_async=False,
+                        )
+                        base_resp = response.get("BaseResp") or {}
+                        status_code = base_resp.get("StatusCode")
+                        code = response.get("code")
+                        if (isinstance(code, int) and code != 0) or (
+                            isinstance(status_code, int) and status_code != 0
+                        ):
+                            msg = response.get("msg") or base_resp.get("StatusMessage") or "COZE_EXECUTION_FAILED"
+                        else:
+                            # Continue normal success path below.
+                            execute_id = response.get("execute_id")
+                            debug_url = response.get("debug_url")
+                            with get_session() as session:
+                                run = session.get(EvalRun, run_id)
+                                if not run:
+                                    return
+                                run.coze_execute_id = str(execute_id) if execute_id else None
+                                run.coze_debug_url = str(debug_url) if debug_url else None
+                                session.add(run)
+                                session.commit()
+                            parsed = self._parse_coze_payload(response)
+                            output = parsed.get("output")
+                            podi_task_id = self._guess_podi_task_id(parsed, output)
+                            if podi_task_id:
+                                with get_session() as session:
+                                    task_row = session.get(AbilityTask, podi_task_id)
+                                if task_row:
+                                    self._poll_ability_task(run_id=run_id, task_id=podi_task_id, started=started)
+                                    return
+                                callback_wf = settings.coze_comfyui_callback_workflow_id
+                                if callback_wf:
+                                    with get_session() as session:
+                                        run = session.get(EvalRun, run_id)
+                                        if run:
+                                            run.podi_task_id = podi_task_id
+                                            session.add(run)
+                                            session.commit()
+                                    image_urls = self._poll_callback_images(
+                                        callback_workflow_id=callback_wf,
+                                        taskid=podi_task_id,
+                                    )
+                                    if image_urls:
+                                        self._mark_succeeded(run_id, image_urls=image_urls, started=started)
+                                        return
+                                    self._mark_failed(run_id, message="CALLBACK_IMAGES_EMPTY", started=started)
+                                    return
+                            image_urls = self._extract_image_urls(parsed)
+                            self._mark_succeeded(run_id, image_urls=image_urls, started=started)
+                            return
+
                 self._mark_failed(
                     run_id,
                     message=f"COZE_FAILED code={code} statusCode={status_code} msg={msg} debugUrl={debug_url}",
@@ -236,6 +295,47 @@ class EvalService:
             self._mark_failed(run_id, message=str(exc.detail), started=started)
         except Exception as exc:  # pragma: no cover - defensive
             self._mark_failed(run_id, message=str(exc), started=started)
+
+    @staticmethod
+    def _patch_missing_required_params(
+        params: dict[str, Any],
+        msg: str,
+    ) -> dict[str, Any] | None:
+        """Best-effort patch for Coze code=4000 missing required parameters.
+
+        Coze error messages can look like:
+          "Missing required parameters：'height'. ..."
+        We parse the missing field name(s) and fill with safe defaults.
+        """
+
+        missing = set(re.findall(r"'([^']+)'", msg or ""))
+        if not missing:
+            return None
+
+        patched = params.copy()
+        changed = False
+        for name in missing:
+            if name in patched and patched[name] is not None and str(patched[name]).strip():
+                continue
+            key = str(name)
+            # Common numeric-like fields: provide conservative defaults as strings.
+            if key in {"height", "width"}:
+                patched[key] = "1024"
+                changed = True
+                continue
+            if key.startswith("expand_"):
+                patched[key] = "0"
+                changed = True
+                continue
+            if key in {"dpi", "pdi"}:
+                patched[key] = "300"
+                changed = True
+                continue
+            # Generic: provide a whitespace string so it is "present" and non-empty.
+            patched[key] = " "
+            changed = True
+
+        return patched if changed else None
 
     @staticmethod
     def _parse_coze_payload(payload: dict[str, Any]) -> dict[str, Any]:
