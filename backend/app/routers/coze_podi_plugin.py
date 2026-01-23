@@ -341,33 +341,113 @@ def _build_openapi(*, podi_server: str | None = None) -> dict[str, Any]:
         "paths": paths,
     }
 
-
-@router.get("/openapi.json")
-def get_openapi(request: Request) -> dict[str, Any]:
-    _require_internal(request)
-    # Make the exported OpenAPI self-contained for remote Coze instances:
-    # Coze uses the `servers[0].url` for subsequent tool invocations.
+def _server_from_request(request: Request) -> str:
     forwarded_proto = (request.headers.get("x-forwarded-proto") or "").strip()
     forwarded_host = (request.headers.get("x-forwarded-host") or "").strip()
     host = forwarded_host or (request.headers.get("host") or "").strip()
     scheme = forwarded_proto or request.url.scheme
-    server = ""
     if host:
-        server = f"{scheme}://{host}"
-    else:
-        server = str(request.base_url).rstrip("/")
-    return _build_openapi(podi_server=server)
+        return f"{scheme}://{host}"
+    return str(request.base_url).rstrip("/")
+
+
+def _build_openapi_filtered(
+    *,
+    request: Request,
+    providers: set[str],
+    title: str,
+    description: str,
+    # Coze workflows and our internal docs prefer a single image input key `url`.
+    # For provider plugins (especially ComfyUI), we expose `url` instead of `image_url`
+    # to reduce wiring/transform overhead in Coze.
+    prefer_url_field: bool = True,
+) -> dict[str, Any]:
+    server = _server_from_request(request)
+    doc = _build_openapi(podi_server=server)
+
+    with get_session() as session:
+        ensure_default_executors(session)
+        ensure_default_abilities(session)
+        abilities = (
+            session.execute(
+                select(Ability)
+                .where(Ability.status == "active", Ability.provider.in_(sorted(providers)))
+                .order_by(Ability.provider.asc(), Ability.capability_key.asc())
+            )
+            .scalars()
+            .all()
+        )
+
+    # Restrict to the selected abilities + common task polling.
+    paths = doc.get("paths") or {}
+    allowed = {f"/api/coze/podi/tools/{a.provider}/{a.capability_key}" for a in abilities}
+    allowed.add("/api/coze/podi/tasks/get")
+    doc["paths"] = {k: v for k, v in paths.items() if k in allowed}
+    doc["info"]["title"] = title
+    doc["info"]["description"] = description
+
+    if not prefer_url_field:
+        return doc
+
+    # Rewrite request schemas: `image_url`/`imageUrl`/image-type fields -> `url`.
+    # (Backend is permissive and still accepts legacy keys, but this keeps Coze tools stable.)
+    for path, item in (doc.get("paths") or {}).items():
+        post = item.get("post") if isinstance(item, dict) else None
+        if not isinstance(post, dict):
+            continue
+        rb = post.get("requestBody") if isinstance(post.get("requestBody"), dict) else None
+        content = rb.get("content") if isinstance(rb, dict) else None
+        app_json = content.get("application/json") if isinstance(content, dict) else None
+        schema = app_json.get("schema") if isinstance(app_json, dict) else None
+        props = schema.get("properties") if isinstance(schema, dict) else None
+        if not isinstance(props, dict):
+            continue
+
+        # If a tool already exposes `url`, keep it.
+        if "url" in props:
+            continue
+
+        # Detect common image keys and collapse into one `url` field.
+        image_keys = []
+        for key in ("image_url", "imageUrl", "image", "images"):
+            if key in props:
+                image_keys.append(key)
+        # Some abilities use `image_urls`/`input_urls`, but those may be multi-line arrays;
+        # we keep them as-is and only provide a single-url shortcut.
+        if not image_keys:
+            continue
+
+        # Pick the best description we can (prefer the schema's description).
+        desc = None
+        for k in image_keys:
+            d = props.get(k, {}).get("description") if isinstance(props.get(k), dict) else None
+            if isinstance(d, str) and d.strip():
+                desc = d.strip()
+                break
+        props["url"] = {
+            "type": "string",
+            "nullable": True,
+            "description": desc or "Input image URL (recommend OSS URL).",
+        }
+        # Drop the legacy single-image keys from the schema to avoid confusing Coze users.
+        # (Backend still accepts them for backward compatibility.)
+        for k in image_keys:
+            props.pop(k, None)
+
+    return doc
+
+
+@router.get("/openapi.json")
+def get_openapi(request: Request) -> dict[str, Any]:
+    _require_internal(request)
+    return _build_openapi(podi_server=_server_from_request(request))
 
 
 @router.get("/utils/openapi.json")
 def get_utils_openapi(request: Request) -> dict[str, Any]:
     """OpenAPI for PODI Utils plugin (only provider=podi utilities)."""
     _require_internal(request)
-    forwarded_proto = (request.headers.get("x-forwarded-proto") or "").strip()
-    forwarded_host = (request.headers.get("x-forwarded-host") or "").strip()
-    host = forwarded_host or (request.headers.get("host") or "").strip()
-    scheme = forwarded_proto or request.url.scheme
-    server = f"{scheme}://{host}" if host else str(request.base_url).rstrip("/")
+    server = _server_from_request(request)
 
     with get_session() as session:
         ensure_default_executors(session)
@@ -390,6 +470,58 @@ def get_utils_openapi(request: Request) -> dict[str, Any]:
     doc["info"]["title"] = "PODI Utils"
     doc["info"]["description"] = "Internal utility tools (image helpers) for workflows."
     return doc
+
+
+@router.get("/comfyui/openapi.json")
+def get_comfyui_openapi(request: Request) -> dict[str, Any]:
+    """OpenAPI for PODI ComfyUI plugin."""
+    _require_internal(request)
+    return _build_openapi_filtered(
+        request=request,
+        providers={"comfyui"},
+        title="PODI ComfyUI",
+        description="ComfyUI workflows as Coze tools (URL-based image input).",
+        prefer_url_field=True,
+    )
+
+
+@router.get("/kie/openapi.json")
+def get_kie_openapi(request: Request) -> dict[str, Any]:
+    """OpenAPI for PODI KIE plugin."""
+    _require_internal(request)
+    return _build_openapi_filtered(
+        request=request,
+        providers={"kie"},
+        title="PODI KIE",
+        description="KIE Market models as Coze tools.",
+        prefer_url_field=True,
+    )
+
+
+@router.get("/baidu/openapi.json")
+def get_baidu_openapi(request: Request) -> dict[str, Any]:
+    """OpenAPI for PODI Baidu plugin."""
+    _require_internal(request)
+    return _build_openapi_filtered(
+        request=request,
+        providers={"baidu"},
+        title="PODI Baidu",
+        description="Baidu image processing tools.",
+        prefer_url_field=True,
+    )
+
+
+@router.get("/volcengine/openapi.json")
+def get_volcengine_openapi(request: Request) -> dict[str, Any]:
+    """OpenAPI for PODI Volcengine plugin."""
+    _require_internal(request)
+    return _build_openapi_filtered(
+        request=request,
+        providers={"volcengine"},
+        title="PODI Volcengine",
+        description="Volcengine (Doubao) tools.",
+        prefer_url_field=True,
+    )
 
 
 @router.get("/abilities", response_model=ability_schemas.AbilityListResponse)
@@ -431,6 +563,8 @@ def invoke_tool(
     # Coze may send image inputs under a variety of keys depending on the UI widget.
     # Be permissive here; backend still validates required-image semantics per ability.
     for key in (
+        "url",
+        "urls",
         "imageUrl",
         "image_url",
         "image_urls",
