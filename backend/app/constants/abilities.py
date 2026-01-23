@@ -295,18 +295,22 @@ def _comfyui_seamless_schema() -> dict[str, Any]:
                 "required": True,
             },
             {
-                "name": "size",
-                "type": "select",
-                "label": _compose_bilingual_label("输出大小（px）", "Output Size (px)"),
-                "description": "节点 102 · ImageResize+.width/height（统一用一个 size）",
-                "options": [
-                    {"label": "1024", "value": "1024"},
-                    {"label": "1536", "value": "1536"},
-                    {"label": "2048", "value": "2048"},
-                    {"label": "3072", "value": "3072"},
-                    {"label": "4096", "value": "4096"},
-                ],
-                "default": "1024",
+                "name": "width",
+                "type": "number",
+                "label": _compose_bilingual_label("生图宽度(px)", "Output Width (px)"),
+                "description": "节点 102 · ImageResize+.width（默认 1024）",
+                "default": 1024,
+                "min": 256,
+                "max": 4096,
+            },
+            {
+                "name": "height",
+                "type": "number",
+                "label": _compose_bilingual_label("生图高度(px)", "Output Height (px)"),
+                "description": "节点 102 · ImageResize+.height（默认 1024）",
+                "default": 1024,
+                "min": 256,
+                "max": 4096,
             },
         ]
     }
@@ -1160,7 +1164,8 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
         "defaults": {
             "workflow_key": "sifang_lianxu",
             "patternType": "seamless",
-            "size": 2048,
+            "width": 1024,
+            "height": 1024,
             "timeout": 900,
         },
         "display_name": "ComfyUI · 四方连续",
@@ -1177,7 +1182,7 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "supports_vision": True,
             # Only 117 server has the required seamless-pattern custom nodes.
             "allowed_executor_ids": ["executor_comfyui_seamless_117"],
-            "seed_version": 7,
+            "seed_version": 8,
             "pricing": {
                 "currency": "CNY",
                 "unit": "per_image",
