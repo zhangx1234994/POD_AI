@@ -350,13 +350,12 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         self, params: dict[str, Any], context: ExecutionContext
     ) -> tuple[dict[str, Any] | None, str | None]:
         overrides: dict[str, dict[str, Any]] = {}
-        image_url, base64_data = self._resolve_image_source(params, context)
-        if not image_url and not base64_data:
+        image_url, _ = self._resolve_image_source(params, context)
+        if not image_url:
             return None, "COMFYUI_IMAGE_REQUIRED"
-        if image_url:
-            overrides["96"] = {"url": image_url}
-        if base64_data:
-            overrides.setdefault("104", {})["base64_data"] = base64_data
+        # Always use URL-based loading so the ComfyUI server pulls from OSS directly.
+        # This avoids routing large base64 payloads through the backend.
+        overrides["96"] = {"url": image_url}
 
         prompt = self._as_text(params.get("prompt") or params.get("description"))
         if prompt:
@@ -557,13 +556,9 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             uploaded = self._ingest_input_base64(image_base64, context, filename_hint="comfyui_input.png")
             if uploaded:
                 image_url = uploaded
-
-        if image_url and not image_base64:
-            fetched = self._download_base64(image_url)
-            if fetched:
-                image_base64 = fetched
-
-        return image_url, image_base64
+        # IMPORTANT: Do not download remote images into base64 by default.
+        # We standardize on URL-based image loading to save backend bandwidth.
+        return image_url, None
 
     def _ingest_input_base64(
         self, payload: str, context: ExecutionContext, *, filename_hint: str

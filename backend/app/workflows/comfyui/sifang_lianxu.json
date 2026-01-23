@@ -298,7 +298,7 @@
     "inputs": {
       "channel": "red",
       "image": [
-        "104",
+        "96",
         0
       ]
     },
@@ -562,7 +562,7 @@
   },
   "104": {
     "inputs": {
-      "base64_data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADElEQVR42mP8/5+hHgAHggJ/PbHJ3QAAAABJRU5ErkJggg==",
+      "base64_data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgYGAAAAAEAAH2FzhVAAAAAElFTkSuQmCC",
       "image_output": "Hide",
       "save_prefix": "ComfyUI"
     },
