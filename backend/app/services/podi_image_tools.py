@@ -42,8 +42,9 @@ def expand_with_color(
     expand_right: int = 0,
     expand_top: int = 0,
     expand_bottom: int = 0,
-    # Bright magenta is a good "special color" that is rare in natural images.
-    fill_rgb: tuple[int, int, int] = (255, 0, 255),
+    # Default to transparent padding (PNG with alpha). This used to be magenta.
+    fill_rgb: tuple[int, int, int] = (0, 0, 0),
+    fill_alpha: int = 0,
 ) -> bytes:
     """Expand a canvas and fill new area with a solid color (PNG output)."""
 
@@ -56,7 +57,13 @@ def expand_with_color(
     w, h = im.size
     new_w = w + left + right
     new_h = h + top + bottom
-    fill = (*fill_rgb, 255)
+    # Clamp alpha defensively; callers may pass strings via Coze forms.
+    try:
+        a = int(fill_alpha)
+    except Exception:
+        a = 0
+    a = 0 if a < 0 else (255 if a > 255 else a)
+    fill = (*fill_rgb, a)
 
     canvas = Image.new("RGBA", (new_w, new_h), fill)
     canvas.paste(im, (left, top), im)

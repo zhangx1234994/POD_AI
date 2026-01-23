@@ -18,10 +18,12 @@ type Props = {
   inputImages: string[];
   parameters: Record<string, any>;
   isRunning: boolean;
+  isSavingWorkflowNotes?: boolean;
   onDatasetItemSelect: (item: EvalDatasetItem) => void;
   onImageChange: (url: string) => void;
   onParameterChange: (next: Record<string, any>) => void;
   onRunEvaluation: () => void;
+  onSaveWorkflowNotes?: (workflowId: string, notes: string) => void;
 };
 
 const getSchemaFields = (workflow: EvalWorkflowVersion | null): SchemaField[] => {
@@ -53,12 +55,15 @@ export function EvaluationInputPanel({
   inputImages,
   parameters,
   isRunning,
+  isSavingWorkflowNotes = false,
   onDatasetItemSelect,
   onImageChange,
   onParameterChange,
   onRunEvaluation,
+  onSaveWorkflowNotes,
 }: Props) {
   const [rawJson, setRawJson] = useState('');
+  const [notesDraft, setNotesDraft] = useState('');
 
   const fields = useMemo(() => getSchemaFields(selectedWorkflow), [selectedWorkflow]);
   const url = inputImages[0] || '';
@@ -67,6 +72,10 @@ export function EvaluationInputPanel({
     // Keep raw JSON editor in sync when workflow changes.
     setRawJson(JSON.stringify(parameters || {}, null, 2));
   }, [selectedWorkflow?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    setNotesDraft(String(selectedWorkflow?.notes || ''));
+  }, [selectedWorkflow?.id, selectedWorkflow?.notes]);
 
   const useSchemaForm = fields.length > 0;
 
@@ -88,6 +97,9 @@ export function EvaluationInputPanel({
           <div className="text-sm font-semibold text-slate-100">
             {selectedWorkflow ? `${selectedWorkflow.name} · ${selectedWorkflow.version}` : '请选择工作流'}
           </div>
+          {selectedWorkflow?.notes ? (
+            <div className="text-xs text-slate-400 mt-1 whitespace-pre-wrap">{selectedWorkflow.notes}</div>
+          ) : null}
           <div className="text-xs text-slate-400 mt-1">
             约定：图片输入字段名使用 `url`（字符串）；其它参数尽量用字符串，后端再做类型转换。
           </div>
@@ -229,7 +241,31 @@ export function EvaluationInputPanel({
           )}
         </div>
       </div>
+
+      {selectedWorkflow && typeof onSaveWorkflowNotes === 'function' && (
+        <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-sm font-semibold text-slate-100">功能介绍（notes）</div>
+            <button
+              type="button"
+              disabled={Boolean(isSavingWorkflowNotes)}
+              onClick={() => onSaveWorkflowNotes(selectedWorkflow.id, notesDraft)}
+              className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
+                isSavingWorkflowNotes ? 'bg-slate-700/40 text-slate-400' : 'bg-sky-500/80 text-white hover:bg-sky-500'
+              }`}
+            >
+              {isSavingWorkflowNotes ? '保存中…' : '保存'}
+            </button>
+          </div>
+          <textarea
+            value={notesDraft}
+            onChange={(e) => setNotesDraft(e.target.value)}
+            rows={3}
+            className="mt-2 w-full rounded-xl border border-slate-800 bg-slate-950 p-3 text-xs text-slate-100"
+            placeholder="这里写功能介绍、参数说明、注意事项…"
+          />
+        </div>
+      )}
     </div>
   );
 }
-

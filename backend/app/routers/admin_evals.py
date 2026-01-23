@@ -27,6 +27,7 @@ from app.schemas.eval import (
     EvalAnnotationResponse,
 )
 from app.services.eval_service import get_eval_service
+from app.services.eval_seed import ensure_default_eval_workflow_versions
 from app.deps.auth import get_current_user
 from app.models.user import User
 
@@ -55,6 +56,8 @@ async def list_workflow_versions(
     db: Session = Depends(get_db),
 ):
     """List all evaluation workflow versions."""
+    # Keep admin UI in sync with repo-managed defaults.
+    ensure_default_eval_workflow_versions(db)
     query = select(EvalWorkflowVersion)
     if category:
         query = query.where(EvalWorkflowVersion.category == category)

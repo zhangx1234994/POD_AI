@@ -27,6 +27,61 @@ LORA_OPTIONS = [
     "印花提取-毛毯1-2.safetensors",
 ]
 
+# Workflows that should not show up in the evaluation UI anymore.
+# Note: seed inserts are append-only, so we also apply a small normalization pass
+# to mark these as inactive if they already exist in DB.
+DEPRECATED_EVAL_WORKFLOW_IDS: set[str] = {
+    # 提取类
+    "7597535455856295936",  # 提示词提取 · tishici_tiqu
+}
+
+# Evaluation UI category policy: keep the sidebar fixed to these 4 groups.
+ALLOWED_EVAL_CATEGORIES: set[str] = {
+    "花纹提取类",
+    "图延伸类",
+    "四方/两方连续图类",
+    "通用类",
+}
+
+
+def _normalize_eval_category(category: str | None) -> str:
+    """Map legacy/internal categories into the 4 business-facing groups."""
+    c = (category or "").strip()
+    if not c:
+        return "通用类"
+    if c in ALLOWED_EVAL_CATEGORIES:
+        return c
+    if c in {"pattern_extract", "pattern", "pattern-extract"}:
+        return "花纹提取类"
+    if c in {"image_extend", "image_extension", "image_extend_v1", "图扩展", "图延伸", "图延伸"}:
+        return "图延伸类"
+    if c in {"continuous", "lianxu", "seamless"}:
+        return "四方/两方连续图类"
+    if c in {"general", "common"}:
+        return "通用类"
+    # Safe fallback to avoid leaking extra categories into the sidebar.
+    return "通用类"
+
+
+# Workflows we want to keep visible in the evaluation UI.
+# Some were previously marked inactive during cleanup; we flip them back to active
+# in the normalization pass so existing DB rows recover without manual edits.
+FORCE_ACTIVE_EVAL_WORKFLOW_IDS: set[str] = {
+    # 花纹提取 5 个
+    "7597530887256801280",  # tiqu_comfyui_20260123
+    "7598545860393172992",  # tiqu_comfyui_20260123_2
+    "7597421439045599232",  # tiqu_duoMoxing_2
+    "7598559869544693760",  # tiqu_duoMoxing_2_1
+    "7598560946579046400",  # tiqu_duoMoxing_2_2
+    # 连续图
+    "7598563505054154752",  # lianxu
+    # 图扩展
+    "7597723984687267840",  # duomotaikuotu (multi-model outpaint)
+    "7598587935331450880",  # comfyuo_tukuozhan (comfyui outpaint)
+    # 通用
+    "7598589746561941504",  # dpi增分
+}
+
 
 DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
     # 通用类 / 提示词提取
@@ -47,12 +102,12 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
     },
     # 花纹提取类 / ComfyUI 花纹提取（输出为回调 task id）
     {
-        "category": "pattern_extract",
-        "name": "花纹提取 · tiqu_comfyui",
+        "category": "花纹提取类",
+        "name": "花纹提取 · tiqu_comfyui_20260123",
         "version": "v1",
         "workflow_id": "7597530887256801280",
         "status": "active",
-        "notes": "输出 output 为回调 task id（推荐用 PODI ability_task_id 方式轮询）。",
+        "notes": "花纹提取原生版（无需提示词，用于批量）。输出 output 为回调 task id。",
         "parameters_schema": {
             "fields": [
                 {"name": "url", "label": "图片 URL", "type": "text", "required": True},
@@ -70,9 +125,230 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         },
         "output_schema": {"fields": [{"name": "output", "type": "text", "description": "回调 task id"}]},
     },
+    # 花纹提取类 / ComfyUI 花纹提取（支持提示词拼接版本；输出为回调 task id）
+    {
+        "category": "花纹提取类",
+        "name": "花纹提取 · tiqu_comfyui_20260123_2",
+        "version": "v1",
+        "workflow_id": "7598545860393172992",
+        "status": "active",
+        "notes": "输出 output 为回调 task id。此版本在工作流侧支持提示词拼接（如启用对应输入字段）。",
+        "parameters_schema": {
+            "fields": [
+                {"name": "url", "label": "图片 URL", "type": "text", "required": True},
+                {"name": "height", "label": "高度", "type": "text", "required": False, "defaultValue": ""},
+                {"name": "width", "label": "宽度", "type": "text", "required": False, "defaultValue": ""},
+                {"name": "prompt", "label": "提示词", "type": "textarea", "required": False, "defaultValue": ""},
+                {
+                    "name": "lora",
+                    "label": "LoRA",
+                    "type": "select",
+                    "required": False,
+                    "defaultValue": LORA_OPTIONS[0],
+                    "options": [{"label": x, "value": x} for x in LORA_OPTIONS],
+                },
+            ]
+        },
+        "output_schema": {"fields": [{"name": "output", "type": "text", "description": "回调 task id"}]},
+    },
+    # 花纹提取类 / 商业模型提取花纹（支持提示词；输出图片 URL）
+    {
+        "category": "花纹提取类",
+        "name": "花纹提取 · tiqu_duoMoxing_2",
+        "version": "v1",
+        "workflow_id": "7597421439045599232",
+        "status": "active",
+        "notes": "商业模型提取花纹：moxing=1(Banana Pro)/2(Flux2)/3(Doubao 4.5)。输出为图片 URL。",
+        "parameters_schema": {
+            "fields": [
+                {
+                    "name": "moxing",
+                    "label": "模型",
+                    "type": "select",
+                    "required": True,
+                    "defaultValue": "1",
+                    "options": [
+                        {"label": "1 · Banana Pro", "value": "1"},
+                        {"label": "2 · Flux2", "value": "2"},
+                        {"label": "3 · Doubao 4.5", "value": "3"},
+                    ],
+                },
+                {"name": "height", "label": "高度", "type": "text", "required": False, "defaultValue": ""},
+                {"name": "width", "label": "宽度", "type": "text", "required": False, "defaultValue": ""},
+                {
+                    "name": "aspect_ratio",
+                    "label": "比例（仅 Banana/Flux2 生效）",
+                    "type": "select",
+                    "required": False,
+                    "defaultValue": "auto",
+                    "options": [
+                        {"label": "auto", "value": "auto"},
+                        {"label": "1:1", "value": "1:1"},
+                        {"label": "4:3", "value": "4:3"},
+                        {"label": "3:4", "value": "3:4"},
+                        {"label": "16:9", "value": "16:9"},
+                        {"label": "9:16", "value": "9:16"},
+                    ],
+                },
+                {
+                    "name": "resolution",
+                    "label": "分辨率（仅 Banana/Flux2 生效）",
+                    "type": "select",
+                    "required": False,
+                    "defaultValue": "1K",
+                    "options": [
+                        {"label": "1K", "value": "1K"},
+                        {"label": "2K", "value": "2K"},
+                        {"label": "4K", "value": "4K"},
+                    ],
+                },
+                {"name": "prompt", "label": "提示词", "type": "textarea", "required": True},
+            ]
+        },
+        "output_schema": {"fields": [{"name": "output", "type": "text", "description": "图片 URL"}]},
+    },
+    # 花纹提取类 / 商业模型提取花纹（无需提示词；输出图片 URL）
+    {
+        "category": "花纹提取类",
+        "name": "花纹提取 · tiqu_duoMoxing_2_1",
+        "version": "v1",
+        "workflow_id": "7598559869544693760",
+        "status": "active",
+        "notes": "商业模型提取花纹（批量版）：不输入提示词，输出为图片 URL。",
+        "parameters_schema": {
+            "fields": [
+                {
+                    "name": "moxing",
+                    "label": "模型",
+                    "type": "select",
+                    "required": True,
+                    "defaultValue": "1",
+                    "options": [
+                        {"label": "1 · Banana Pro", "value": "1"},
+                        {"label": "2 · Flux2", "value": "2"},
+                        {"label": "3 · Doubao 4.5", "value": "3"},
+                    ],
+                },
+                {"name": "height", "label": "高度", "type": "text", "required": False, "defaultValue": ""},
+                {"name": "width", "label": "宽度", "type": "text", "required": False, "defaultValue": ""},
+                {
+                    "name": "aspect_ratio",
+                    "label": "比例（仅 Banana/Flux2 生效）",
+                    "type": "select",
+                    "required": False,
+                    "defaultValue": "auto",
+                    "options": [
+                        {"label": "auto", "value": "auto"},
+                        {"label": "1:1", "value": "1:1"},
+                        {"label": "4:3", "value": "4:3"},
+                        {"label": "3:4", "value": "3:4"},
+                        {"label": "16:9", "value": "16:9"},
+                        {"label": "9:16", "value": "9:16"},
+                    ],
+                },
+                {
+                    "name": "resolution",
+                    "label": "分辨率（仅 Banana/Flux2 生效）",
+                    "type": "select",
+                    "required": False,
+                    "defaultValue": "1K",
+                    "options": [
+                        {"label": "1K", "value": "1K"},
+                        {"label": "2K", "value": "2K"},
+                        {"label": "4K", "value": "4K"},
+                    ],
+                },
+            ]
+        },
+        "output_schema": {"fields": [{"name": "output", "type": "text", "description": "图片 URL"}]},
+    },
+    # 花纹提取类 / 商业模型 + ComfyUI 串联（为兼顾输出尺寸；输出回调 task id）
+    {
+        "category": "花纹提取类",
+        "name": "花纹提取 · tiqu_duoMoxing_2_2",
+        "version": "v1",
+        "workflow_id": "7598560946579046400",
+        "status": "active",
+        "notes": "商业模型+ComfyUI 串联版本：为兼顾输出尺寸，速度更慢；输出 output 为回调 task id。",
+        "parameters_schema": {
+            "fields": [
+                {
+                    "name": "moxing",
+                    "label": "模型",
+                    "type": "select",
+                    "required": True,
+                    "defaultValue": "1",
+                    "options": [
+                        {"label": "1 · Banana Pro", "value": "1"},
+                        {"label": "2 · Flux2", "value": "2"},
+                        {"label": "3 · Doubao 4.5", "value": "3"},
+                    ],
+                },
+                {"name": "height", "label": "高度", "type": "text", "required": False, "defaultValue": ""},
+                {"name": "width", "label": "宽度", "type": "text", "required": False, "defaultValue": ""},
+                {
+                    "name": "aspect_ratio",
+                    "label": "比例（仅 Banana/Flux2 生效）",
+                    "type": "select",
+                    "required": False,
+                    "defaultValue": "auto",
+                    "options": [
+                        {"label": "auto", "value": "auto"},
+                        {"label": "1:1", "value": "1:1"},
+                        {"label": "4:3", "value": "4:3"},
+                        {"label": "3:4", "value": "3:4"},
+                        {"label": "16:9", "value": "16:9"},
+                        {"label": "9:16", "value": "9:16"},
+                    ],
+                },
+                {
+                    "name": "resolution",
+                    "label": "分辨率（仅 Banana/Flux2 生效）",
+                    "type": "select",
+                    "required": False,
+                    "defaultValue": "1K",
+                    "options": [
+                        {"label": "1K", "value": "1K"},
+                        {"label": "2K", "value": "2K"},
+                        {"label": "4K", "value": "4K"},
+                    ],
+                },
+                {"name": "prompt", "label": "提示词", "type": "textarea", "required": True},
+            ]
+        },
+        "output_schema": {"fields": [{"name": "output", "type": "text", "description": "回调 task id"}]},
+    },
+    # 连续图 / 四方连续、两方连续（输出为回调 task id）
+    {
+        "category": "四方/两方连续图类",
+        "name": "连续图 · lianxu",
+        "version": "v1",
+        "workflow_id": "7598563505054154752",
+        "status": "active",
+        "notes": "四方连续/两方连续。patternType=seamless(四方)/twoway(两方)。输出 output 为回调 task id。",
+        "parameters_schema": {
+            "fields": [
+                {"name": "url", "label": "图片 URL", "type": "text", "required": True},
+                {"name": "height", "label": "高度", "type": "text", "required": False, "defaultValue": ""},
+                {"name": "width", "label": "宽度", "type": "text", "required": False, "defaultValue": ""},
+                {
+                    "name": "patternType",
+                    "label": "连续类型",
+                    "type": "select",
+                    "required": True,
+                    "defaultValue": "seamless",
+                    "options": [
+                        {"label": "seamless · 四方连续", "value": "seamless"},
+                        {"label": "twoway · 两方连续", "value": "twoway"},
+                    ],
+                },
+            ]
+        },
+        "output_schema": {"fields": [{"name": "output", "type": "text", "description": "回调 task id"}]},
+    },
     # 图延伸类 / 扩图（多模型）
     {
-        "category": "image_extend",
+        "category": "图延伸类",
         "name": "扩图多模型版本",
         "version": "v1",
         "workflow_id": "7597723984687267840",
@@ -102,6 +378,25 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
             ]
         },
         "output_schema": {"fields": [{"name": "output", "type": "text", "description": "图片 URL"}]},
+    },
+    # 图扩展 / ComfyUI 扩图（输出为回调 task id）
+    {
+        "category": "图延伸类",
+        "name": "ComfyUI 扩图 · comfyuo_tukuozhan",
+        "version": "v1",
+        "workflow_id": "7598587935331450880",
+        "status": "active",
+        "notes": "输入 Url + 四向扩图像素；输出 output 为回调 task id。",
+        "parameters_schema": {
+            "fields": [
+                {"name": "Url", "label": "图片 URL", "type": "text", "required": True},
+                {"name": "expand_left", "label": "左扩(px)", "type": "text", "required": False, "defaultValue": "0"},
+                {"name": "expand_right", "label": "右扩(px)", "type": "text", "required": False, "defaultValue": "0"},
+                {"name": "expand_top", "label": "上扩(px)", "type": "text", "required": False, "defaultValue": "0"},
+                {"name": "expand_bottom", "label": "下扩(px)", "type": "text", "required": False, "defaultValue": "0"},
+            ]
+        },
+        "output_schema": {"fields": [{"name": "output", "type": "text", "description": "回调 task id"}]},
     },
     # 图略变类 / 多模型生图（Banana Pro / Flux2 / Doubao 4.5）
     {
@@ -198,7 +493,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
     },
     # 通用类 / 8K 高清放大
     {
-        "category": "general",
+        "category": "通用类",
         "name": "8K 高清放大",
         "version": "v1",
         "workflow_id": "7597760543788630016",
@@ -208,6 +503,22 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
             "fields": [
                 {"name": "url", "label": "图片 URL", "type": "text", "required": True},
                 {"name": "bianchang", "label": "最长边(px)", "type": "text", "required": False, "defaultValue": "4096"},
+            ]
+        },
+        "output_schema": {"fields": [{"name": "output", "type": "text", "description": "图片 URL"}]},
+    },
+    # 通用类 / DPI 增分（仅修改 DPI 元数据，不改变像素）
+    {
+        "category": "通用类",
+        "name": "DPI 增分",
+        "version": "v1",
+        "workflow_id": "7598589746561941504",
+        "status": "active",
+        "notes": "输入 url + dpi（默认 300）。输出 output 为图片 URL。",
+        "parameters_schema": {
+            "fields": [
+                {"name": "url", "label": "图片 URL", "type": "text", "required": True},
+                {"name": "dpi", "label": "DPI", "type": "text", "required": False, "defaultValue": "300"},
             ]
         },
         "output_schema": {"fields": [{"name": "output", "type": "text", "description": "图片 URL"}]},
@@ -256,17 +567,38 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
     # - ensure ComfyUI lora field is a select with known options
     # - move certain workflows to general category (as per business definition)
     category_fixes = {
-        "7597701996124045312": "general",  # 4 steps
-        "7597702948247830528": "general",  # 8 steps
-        "7597659369861283840": "general",  # multi-model gen
+        "7597701996124045312": "通用类",  # 4 steps
+        "7597702948247830528": "通用类",  # 8 steps
+        "7597659369861283840": "通用类",  # multi-model gen
     }
     rows = session.execute(select(EvalWorkflowVersion)).scalars().all()
     dirty = False
     for row in rows:
+        if row.workflow_id in DEPRECATED_EVAL_WORKFLOW_IDS and row.status != "inactive":
+            row.status = "inactive"
+            dirty = True
+        if row.workflow_id in FORCE_ACTIVE_EVAL_WORKFLOW_IDS and row.status != "active":
+            row.status = "active"
+            dirty = True
+        normalized_category = _normalize_eval_category(row.category)
+        if row.category != normalized_category:
+            row.category = normalized_category
+            dirty = True
         if row.workflow_id in category_fixes and row.category != category_fixes[row.workflow_id]:
             row.category = category_fixes[row.workflow_id]
             dirty = True
-        if row.workflow_id == "7597530887256801280":
+        # Ensure outpainting workflows show up under the "图延伸类" group.
+        if row.workflow_id in {"7597723984687267840", "7598587935331450880"} and row.category != "图延伸类":
+            row.category = "图延伸类"
+            dirty = True
+        if row.workflow_id == "7597723984687267840" and row.name != "扩图多模型版本":
+            row.name = "扩图多模型版本"
+            dirty = True
+        if row.workflow_id == "7598587935331450880" and row.name != "ComfyUI 扩图 · comfyuo_tukuozhan":
+            row.name = "ComfyUI 扩图 · comfyuo_tukuozhan"
+            dirty = True
+        # Ensure lora field stays a select with known options.
+        if row.workflow_id in {"7597530887256801280", "7598545860393172992"}:
             # Work on a copy: mutating JSON in-place is not tracked by SQLAlchemy.
             schema = json.loads(json.dumps(row.parameters_schema or {}, ensure_ascii=False))
             fields = schema.get("fields") if isinstance(schema, dict) else None

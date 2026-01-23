@@ -253,6 +253,11 @@ export const adminApi = {
   },
   createEvalWorkflowVersion: (payload: Partial<EvalWorkflowVersion>) =>
     request<EvalWorkflowVersion>('/api/admin/evals/workflow-versions', { method: 'POST', body: JSON.stringify(payload) }),
+  updateEvalWorkflowVersion: (id: string, payload: Partial<EvalWorkflowVersion>) =>
+    request<EvalWorkflowVersion>(`/api/admin/evals/workflow-versions/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
   listEvalDatasetItems: (params?: { category?: string }) => {
     const qs = new URLSearchParams();
     if (params?.category) qs.set('category', params.category);

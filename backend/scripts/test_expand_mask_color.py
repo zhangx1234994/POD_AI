@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Quick manual test for PODI expand_mask_color utility.
 
-Reads a sample image from the repo (folder: 提取测试图), expands canvas with magenta,
+Reads a sample image from the repo (folder: 提取测试图), expands canvas with transparent padding,
 and writes a preview PNG under `tmp/` (not committed).
 """
 
