@@ -19,6 +19,82 @@ from app.services.executors.base import ExecutionContext, ExecutionResult, Execu
 from app.services.media_ingest import media_ingest_service
 
 
+# Fallback LoRA name when ComfyUI rejects a lora_name (value_not_in_list).
+# IMPORTANT: This must exist on every ComfyUI executor you route to, otherwise the
+# fallback will still fail. Keep it consistent with your ops sync policy.
+FALLBACK_LORA_NAME = "杯子1124.safetensors"
+
+
+def _detect_lora_name_validation_nodes(payload: Any) -> set[str] | None:
+    """Return node ids that failed lora_name validation, or None if not applicable."""
+    if payload is None:
+        return None
+
+    data: dict[str, Any] | None = None
+    if isinstance(payload, httpx.Response):
+        try:
+            parsed = payload.json()
+        except Exception:
+            return None
+        if isinstance(parsed, dict):
+            data = parsed
+    elif isinstance(payload, dict):
+        data = payload
+    if not isinstance(data, dict):
+        return None
+
+    err = data.get("error")
+    if isinstance(err, dict):
+        # ComfyUI uses this when outputs can't be validated (e.g. missing model/LoRA).
+        if str(err.get("type") or "") != "prompt_outputs_failed_validation":
+            return None
+
+    node_errors = data.get("node_errors")
+    if not isinstance(node_errors, dict) or not node_errors:
+        return None
+
+    nodes: set[str] = set()
+    for node_id, info in node_errors.items():
+        if not isinstance(info, dict):
+            continue
+        errors = info.get("errors")
+        if not isinstance(errors, list):
+            continue
+        for e in errors:
+            if not isinstance(e, dict):
+                continue
+            if str(e.get("type") or "") != "value_not_in_list":
+                continue
+            extra = e.get("extra_info")
+            if not isinstance(extra, dict):
+                continue
+            if str(extra.get("input_name") or "") == "lora_name":
+                nodes.add(str(node_id))
+                break
+
+    return nodes or None
+
+
+def _apply_fallback_lora_name(graph: dict[str, Any], *, node_ids: set[str] | None, fallback: str) -> int:
+    """Update lora_name in the graph and return number of nodes updated."""
+    updated = 0
+    for node_id, node in graph.items():
+        if node_ids is not None and str(node_id) not in node_ids:
+            continue
+        if not isinstance(node, dict):
+            continue
+        inputs = node.get("inputs")
+        if not isinstance(inputs, dict):
+            continue
+        if "lora_name" not in inputs:
+            continue
+        if inputs.get("lora_name") == fallback:
+            continue
+        inputs["lora_name"] = fallback
+        updated += 1
+    return updated
+
+
 class ComfyUIExecutorAdapter(ExecutorAdapter):
     """Submit prompt JSON to ComfyUI /prompt endpoint, poll history, download outputs."""
 
@@ -58,25 +134,62 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         # Unless the caller explicitly provides a seed, randomize all KSampler seeds.
         self._ensure_sampler_seed(graph_payload, context.payload or {})
 
+        def _submit(prompt_id: str) -> tuple[dict[str, Any] | None, str | None]:
+            """Return (json, error_message)."""
+            submission = {"prompt": graph_payload, "prompt_id": prompt_id}
+            try:
+                resp = httpx.post(f"{base_url}/prompt", json=submission, timeout=30)
+                resp.raise_for_status()
+                payload = resp.json() if resp.content else None
+            except httpx.HTTPError as exc:  # pragma: no cover - defensive
+                extra_details = ""
+                node_ids = None
+                if isinstance(exc, httpx.HTTPStatusError):
+                    resp = exc.response
+                    resp_text = resp.text[:1000] if resp is not None else ""
+                    extra_details = f" | status={resp.status_code if resp else 'unknown'} body={resp_text!r}"
+                    # If ComfyUI rejects a LoRA name (not in list), try a safe fallback once.
+                    node_ids = _detect_lora_name_validation_nodes(resp) if resp is not None else None
+                if node_ids:
+                    updated = _apply_fallback_lora_name(graph_payload, node_ids=node_ids, fallback=FALLBACK_LORA_NAME)
+                    if updated:
+                        self._logger.warning(
+                            "ComfyUI rejected lora_name; falling back to %r on %d node(s). prompt_id=%s",
+                            FALLBACK_LORA_NAME,
+                            updated,
+                            prompt_id,
+                        )
+                        return None, "RETRY_FALLBACK_LORA"
+                self._logger.warning("Failed to submit ComfyUI prompt: %s%s", exc, extra_details)
+                return None, f"COMFYUI_SUBMIT_ERROR{extra_details}"
+
+            # ComfyUI can still return node_errors in a 200 response; treat as failure.
+            node_errors = payload.get("node_errors") if isinstance(payload, dict) else None
+            if isinstance(node_errors, dict) and node_errors:
+                node_ids = _detect_lora_name_validation_nodes(payload)  # type: ignore[arg-type]
+                if node_ids:
+                    updated = _apply_fallback_lora_name(graph_payload, node_ids=node_ids, fallback=FALLBACK_LORA_NAME)
+                    if updated:
+                        self._logger.warning(
+                            "ComfyUI returned node_errors for lora_name; falling back to %r on %d node(s). prompt_id=%s",
+                            FALLBACK_LORA_NAME,
+                            updated,
+                            prompt_id,
+                        )
+                        return None, "RETRY_FALLBACK_LORA"
+                return None, f"COMFYUI_SUBMIT_NODE_ERROR:{list(node_errors.keys())[:5]}"
+
+            return payload, None
+
         prompt_id = uuid4().hex
-        submission = {"prompt": graph_payload, "prompt_id": prompt_id}
-        try:
-            response = httpx.post(f"{base_url}/prompt", json=submission, timeout=30)
-            response.raise_for_status()
-        except httpx.HTTPError as exc:  # pragma: no cover - defensive
-            extra_details = ""
-            if isinstance(exc, httpx.HTTPStatusError):
-                resp = exc.response
-                resp_text = resp.text[:1000] if resp is not None else ""
-                extra_details = f" | status={resp.status_code if resp else 'unknown'} body={resp_text!r}"
-            self._logger.warning("Failed to submit ComfyUI prompt: %s%s", exc, extra_details)
-            return ExecutionResult(
-                success=False,
-                status="failed",
-                # Surface status/body to callers (Coze shows this to users), helps diagnose
-                # missing custom nodes/models on a specific ComfyUI executor.
-                error_message=f"COMFYUI_SUBMIT_ERROR{extra_details}",
-            )
+        resp_json, err = _submit(prompt_id)
+        if err == "RETRY_FALLBACK_LORA":
+            prompt_id = uuid4().hex
+            resp_json, err = _submit(prompt_id)
+            if err:
+                return ExecutionResult(success=False, status="failed", error_message=str(err))
+        elif err:
+            return ExecutionResult(success=False, status="failed", error_message=str(err))
 
         expected_images = None
         try:
@@ -119,6 +232,7 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
                 "promptId": prompt_id,
                 "assets": assets,
                 "raw": outputs,
+                "submit": resp_json,
             },
         )
 
