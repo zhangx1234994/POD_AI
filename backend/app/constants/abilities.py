@@ -652,20 +652,6 @@ def _comfyui_jisu_chuli_schema() -> dict[str, Any]:
                 "required": False,
             },
             {
-                "name": "lora",
-                "type": "select",
-                "label": _compose_bilingual_label("LoRA", "LoRA"),
-                "description": _compose_bilingual_label(
-                    "节点 89 · LoraLoaderModelOnly.lora_name（可选，不填使用工作流默认）",
-                    "Node 89 · LoraLoaderModelOnly.lora_name (optional; uses workflow default if omitted).",
-                ),
-                "required": False,
-                "options": [
-                    {"label": "4steps Lightning", "value": "Qwen-Image-Edit-2509-Lightning-4steps-V1.0-bf16.safetensors"},
-                    {"label": "8steps Lightning", "value": "Qwen-Image-Edit-2509-Lightning-8steps-V1.0-bf16.safetensors"},
-                ],
-            },
-            {
                 "name": "batch",
                 "type": "number",
                 "label": _compose_bilingual_label("批次", "Batch"),
@@ -1292,7 +1278,7 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "requires_image_input": True,
             "supports_vision": True,
             "allowed_executor_ids": ["executor_comfyui_pattern_extract_158"],
-            "seed_version": 3,
+            "seed_version": 4,
             "pricing": {
                 "currency": "CNY",
                 "unit": "per_image",
@@ -1320,7 +1306,7 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "requires_image_input": True,
             "supports_vision": True,
             "allowed_executor_ids": ["executor_comfyui_pattern_extract_158"],
-            "seed_version": 3,
+            "seed_version": 4,
             "pricing": {
                 "currency": "CNY",
                 "unit": "per_image",
