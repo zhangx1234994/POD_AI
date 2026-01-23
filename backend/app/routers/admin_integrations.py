@@ -518,6 +518,15 @@ def test_kie_market(payload: admin_tests.KieMarketTestRequest):
 @router.post("/tests/comfyui/workflow", response_model=admin_tests.ComfyuiWorkflowTestResponse)
 def test_comfyui_workflow(payload: admin_tests.ComfyuiWorkflowTestRequest):
     capability_key = payload.capabilityKey or payload.workflowKey
+    ability = _find_comfyui_ability(payload.workflowKey, None)
+    # Guardrail: some ComfyUI graphs require custom nodes only installed on specific servers.
+    # Even if the frontend picks the wrong executor, keep the test running on a compatible node.
+    if ability and isinstance(ability.extra_metadata, dict):
+        allowed = ability.extra_metadata.get("allowed_executor_ids")
+        if isinstance(allowed, list):
+            allowed_ids = [str(x).strip() for x in allowed if isinstance(x, str) and x.strip()]
+            if allowed_ids and payload.executorId not in allowed_ids:
+                payload.executorId = allowed_ids[0]
     request_payload = {
         "workflowKey": payload.workflowKey,
         "workflowParams": payload.workflowParams,
@@ -539,6 +548,12 @@ def test_comfyui_workflow(payload: admin_tests.ComfyuiWorkflowTestRequest):
 @router.post("/workflows/comfyui/trigger", response_model=admin_workflows.ComfyuiWorkflowTriggerResponse)
 def trigger_comfyui_workflow(payload: admin_workflows.ComfyuiWorkflowTriggerRequest, request: Request):
     ability = _find_comfyui_ability(payload.workflowKey, payload.abilityId)
+    if ability and isinstance(ability.extra_metadata, dict):
+        allowed = ability.extra_metadata.get("allowed_executor_ids")
+        if isinstance(allowed, list):
+            allowed_ids = [str(x).strip() for x in allowed if isinstance(x, str) and x.strip()]
+            if allowed_ids and payload.executorId not in allowed_ids:
+                payload.executorId = allowed_ids[0]
     request_payload = {
         "workflowKey": payload.workflowKey,
         "workflowParams": payload.workflowParams,
