@@ -6,15 +6,20 @@ type RunWithLatest = EvalRun & {
   latest_annotation?: { rating: number; comment?: string | null; created_at: string; created_by: string } | null;
 };
 
-const CATEGORY_LABELS: Record<string, string> = {
-  pattern_extract: '花纹提取类',
-  image_extend: '图延伸类',
-  continuous_pattern: '四方/两方连续图类',
-  image_variation: '图像生成类',
-  general: '通用类',
-};
+// Keep the evaluation UI sidebar fixed to these 4 business-facing groups.
+const CATEGORY_ORDER = ['花纹提取类', '图延伸类', '四方/两方连续图类', '通用类'];
 
-const CATEGORY_ORDER = ['pattern_extract', 'image_extend', 'continuous_pattern', 'image_variation', 'general'];
+const normalizeCategory = (category: string | undefined | null): string => {
+  const c = String(category || '').trim();
+  if (!c) return '通用类';
+  if (CATEGORY_ORDER.includes(c)) return c;
+  // Legacy/internal keys -> business labels
+  if (c === 'pattern_extract' || c === 'pattern' || c === 'pattern-extract') return '花纹提取类';
+  if (c === 'image_extend' || c === 'image_extension' || c === '图扩展' || c === '图延伸') return '图延伸类';
+  if (c === 'continuous_pattern' || c === 'continuous' || c === 'lianxu') return '四方/两方连续图类';
+  if (c === 'image_variation' || c === 'general' || c === 'common') return '通用类';
+  return '通用类';
+};
 
 const getFields = (wf: EvalWorkflowVersion | null): SchemaField[] => {
   const schema = wf?.parameters_schema as any;
@@ -176,7 +181,7 @@ function ToolCard({
       <div className="mt-3 text-xs text-slate-400 line-clamp-2">{wf.notes || '—'}</div>
       <div className="mt-3 inline-flex items-center gap-2 text-[11px] text-slate-500">
         <span className="rounded-full bg-slate-800/50 px-2 py-0.5">{wf.version}</span>
-        <span className="rounded-full bg-slate-800/50 px-2 py-0.5">{CATEGORY_LABELS[wf.category] ?? wf.category}</span>
+        <span className="rounded-full bg-slate-800/50 px-2 py-0.5">{normalizeCategory(wf.category)}</span>
       </div>
     </button>
   );
@@ -321,7 +326,7 @@ export function App() {
   const [workflows, setWorkflows] = useState<EvalWorkflowVersion[]>([]);
   const [metrics, setMetrics] = useState<Record<string, { ratingCount: number; avgRating: number | null }>>({});
 
-  const [activeCategory, setActiveCategory] = useState<string>('general');
+  const [activeCategory, setActiveCategory] = useState<string>('通用类');
   const [activeView, setActiveView] = useState<'home' | 'tool' | 'tasks' | 'admin'>('home');
   const [selectedTool, setSelectedTool] = useState<EvalWorkflowVersion | null>(null);
 
@@ -350,7 +355,7 @@ export function App() {
   const grouped = useMemo(() => {
     const m: Record<string, EvalWorkflowVersion[]> = {};
     for (const wf of workflows) {
-      const key = wf.category || 'general';
+      const key = normalizeCategory(wf.category);
       m[key] = m[key] || [];
       m[key].push(wf);
     }
@@ -358,10 +363,8 @@ export function App() {
   }, [workflows]);
 
   const orderedCategories = useMemo(() => {
-    // Always show the 5 business categories even if empty (e.g. continuous_pattern placeholder).
-    const out: string[] = CATEGORY_ORDER.slice();
-    for (const k of Object.keys(grouped).sort()) if (!out.includes(k)) out.push(k);
-    return out;
+    // Always show the 4 business categories (fixed sidebar).
+    return CATEGORY_ORDER.slice();
   }, [grouped]);
 
   const toolList = useMemo(() => {
@@ -382,7 +385,13 @@ export function App() {
     const wfs = await evalApi.listWorkflowVersions();
     setWorkflows(wfs || []);
     if (wfs && wfs.length > 0) {
-      setActiveCategory(wfs[0].category || 'general');
+      const counts: Record<string, number> = {};
+      for (const wf of wfs) {
+        const k = normalizeCategory(wf.category);
+        counts[k] = (counts[k] || 0) + 1;
+      }
+      const firstNonEmpty = CATEGORY_ORDER.find((k) => (counts[k] || 0) > 0);
+      setActiveCategory(firstNonEmpty || '通用类');
     }
     await refreshMetrics();
   };
@@ -629,7 +638,7 @@ export function App() {
               <div className="text-xl font-semibold">{selectedTool.name}</div>
               <div className="mt-1 text-xs text-slate-400">{selectedTool.notes || '—'}</div>
               <div className="mt-2 flex items-center gap-3 text-xs text-slate-400">
-                <span className="rounded-full bg-slate-800/60 px-2 py-0.5">{CATEGORY_LABELS[selectedTool.category] ?? selectedTool.category}</span>
+                <span className="rounded-full bg-slate-800/60 px-2 py-0.5">{normalizeCategory(selectedTool.category)}</span>
                 <span className="rounded-full bg-slate-800/60 px-2 py-0.5">{selectedTool.version}</span>
                 {metric?.avgRating ? (
                   <span className="text-amber-200">综合评分：{metric.avgRating.toFixed(2)} / 5（{metric.ratingCount}票）</span>
@@ -851,7 +860,7 @@ export function App() {
                     active ? 'border-sky-500/70 bg-sky-500/10 text-white' : 'border-white/5 text-slate-300 hover:border-slate-500/60'
                   }`}
                 >
-                  <div className="text-sm font-semibold">{CATEGORY_LABELS[cat] ?? cat}</div>
+                  <div className="text-sm font-semibold">{cat}</div>
                   <div className="text-xs text-slate-500">{(grouped[cat] || []).length} 个功能</div>
                 </button>
               );
@@ -861,7 +870,7 @@ export function App() {
 
         <main>
           <div className="mb-4">
-            <div className="text-lg font-semibold">{CATEGORY_LABELS[activeCategory] ?? activeCategory}</div>
+            <div className="text-lg font-semibold">{normalizeCategory(activeCategory)}</div>
             <div className="text-xs text-slate-400">点击卡片进入该功能的评测页面（左侧测试，右侧出图，底部打标）。</div>
           </div>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -1058,11 +1067,11 @@ function AdminWorkflowRow({
 }) {
   const [name, setName] = useState(wf.name);
   const [notes, setNotes] = useState(wf.notes || '');
-  const [category, setCategory] = useState(wf.category);
+  const [category, setCategory] = useState(normalizeCategory(wf.category));
   const [status, setStatus] = useState(wf.status);
   const [saving, setSaving] = useState(false);
 
-  const dirty = name !== wf.name || notes !== (wf.notes || '') || category !== wf.category || status !== wf.status;
+  const dirty = name !== wf.name || notes !== (wf.notes || '') || category !== normalizeCategory(wf.category) || status !== wf.status;
 
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
@@ -1089,7 +1098,7 @@ function AdminWorkflowRow({
               >
                 {CATEGORY_ORDER.map((key) => (
                   <option key={key} value={key}>
-                    {CATEGORY_LABELS[key] ?? key}
+                    {key}
                   </option>
                 ))}
               </select>
