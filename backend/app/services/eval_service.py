@@ -223,6 +223,9 @@ class EvalService:
                 return {"output": data}
         if isinstance(data, dict):
             return data
+        if isinstance(data, list):
+            # Keep the list under a predictable key; callers can recursively scan it.
+            return {"output": data}
         # Fallback to the top-level payload (best-effort).
         if isinstance(payload, dict):
             return payload
@@ -247,6 +250,26 @@ class EvalService:
             if isinstance(value, str) and value.startswith(("http://", "https://")):
                 candidates.append(value)
 
+        def _scan_any(value: Any, *, depth: int = 0) -> None:
+            # Coze workflows are not consistent: outputs may be nested under `output`,
+            # `data`, arrays, or custom fields. We do a bounded recursive scan as a
+            # last-resort so "success but empty output" becomes less common.
+            if depth > 6:
+                return
+            if len(candidates) >= 50:
+                return
+            if isinstance(value, str):
+                _push(value)
+                return
+            if isinstance(value, dict):
+                for v in value.values():
+                    _scan_any(v, depth=depth + 1)
+                return
+            if isinstance(value, list):
+                for item in value:
+                    _scan_any(item, depth=depth + 1)
+                return
+
         for key in ("imageUrl", "image_url", "url"):
             _push(payload.get(key))
         for key in ("imageUrls", "image_urls", "urls"):
@@ -263,6 +286,9 @@ class EvalService:
 
         # Legacy: some workflows use output for a single URL.
         _push(payload.get("output"))
+        # Fallback: recursively scan the payload for any http(s) string.
+        if not candidates:
+            _scan_any(payload)
 
         # Preserve order, de-dup.
         seen: set[str] = set()
