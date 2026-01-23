@@ -607,10 +607,20 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
             fields = schema.get("fields") if isinstance(schema, dict) else None
             if isinstance(fields, list):
                 for f in fields:
-                    if isinstance(f, dict) and f.get("name") == "lora" and f.get("type") != "select":
+                    if not isinstance(f, dict) or f.get("name") != "lora":
+                        continue
+                    desired_options = [{"label": x, "value": x} for x in LORA_OPTIONS]
+                    desired_default = LORA_OPTIONS[0]
+                    # Always normalize the options list to avoid stale/removed LoRA names
+                    # lingering in DB rows (e.g. old YinHuaTiQu presets).
+                    if (
+                        f.get("type") != "select"
+                        or f.get("defaultValue") != desired_default
+                        or f.get("options") != desired_options
+                    ):
                         f["type"] = "select"
-                        f["defaultValue"] = LORA_OPTIONS[0]
-                        f["options"] = [{"label": x, "value": x} for x in LORA_OPTIONS]
+                        f["defaultValue"] = desired_default
+                        f["options"] = desired_options
                         row.parameters_schema = schema
                         dirty = True
         if row.workflow_id == "7598587935331450880":
