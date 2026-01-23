@@ -68,6 +68,21 @@ class EvalService:
             for alias in ("Url", "URL"):
                 normalized_params.setdefault(alias, urls[0])
 
+        # Coze will hard-fail if a workflow declares required params but they're missing.
+        # Some workflows require `prompt` even when we want "no prompt" behavior; use a
+        # whitespace prompt to satisfy Coze validation while keeping semantics neutral.
+        schema = workflow_version.parameters_schema or {}
+        fields = schema.get("fields") if isinstance(schema, dict) else None
+        if isinstance(fields, list):
+            for f in fields:
+                if not isinstance(f, dict):
+                    continue
+                if f.get("name") != "prompt" or not f.get("required"):
+                    continue
+                v = normalized_params.get("prompt")
+                if v is None or (isinstance(v, str) and not v.strip()):
+                    normalized_params["prompt"] = " "
+
         run = EvalRun(
             id=uuid4().hex,
             workflow_version_id=workflow_version_id,

@@ -69,7 +69,7 @@ FORCE_ACTIVE_EVAL_WORKFLOW_IDS: set[str] = {
     # 花纹提取 5 个
     "7597530887256801280",  # tiqu_comfyui_20260123
     "7598545860393172992",  # tiqu_comfyui_20260123_2
-    "7597421439045599232",  # tiqu_duoMoxing_2
+    "7598558185544220672",  # tiqu_duoMoxing_2
     "7598559869544693760",  # tiqu_duoMoxing_2_1
     "7598560946579046400",  # tiqu_duoMoxing_2_2
     # 连续图
@@ -155,7 +155,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         "category": "花纹提取类",
         "name": "花纹提取 · tiqu_duoMoxing_2",
         "version": "v1",
-        "workflow_id": "7597421439045599232",
+        "workflow_id": "7598558185544220672",
         "status": "active",
         "notes": "商业模型提取花纹：moxing=1(Banana Pro)/2(Flux2)/3(Doubao 4.5)。输出为图片 URL。",
         "parameters_schema": {
