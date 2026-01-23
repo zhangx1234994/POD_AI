@@ -43,7 +43,10 @@ def _truthy(value: Any) -> bool:
 def _is_internal_request(request: Request) -> bool:
     # NOTE: In our local single-host setup, Coze containers reach the host via
     # host.docker.internal and port-forwarding; remote_addr is commonly 127.0.0.1.
-    host = (request.client.host if request.client else "") or ""
+    # When behind reverse proxies, trust the first hop in X-Forwarded-For / X-Real-IP.
+    forwarded_for = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+    real_ip = (request.headers.get("x-real-ip") or "").strip()
+    host = forwarded_for or real_ip or ((request.client.host if request.client else "") or "")
     settings = get_settings()
     trusted = (settings.coze_trusted_ips or "").strip()
     if trusted:
