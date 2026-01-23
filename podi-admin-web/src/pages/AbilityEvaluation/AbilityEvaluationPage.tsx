@@ -5,7 +5,45 @@ import { EvaluationInputPanel } from './components/EvaluationInputPanel';
 import { EvaluationResultPanel } from './components/EvaluationResultPanel';
 import { EvaluationSidebar } from './components/EvaluationSidebar';
 
+type Notice = { type: 'error' | 'success' | 'info'; message: string };
+
+function NoticeBar({ notice, onClose }: { notice: Notice | null; onClose: () => void }) {
+  if (!notice) return null;
+  return (
+    <div className="fixed left-1/2 top-4 z-[60] w-[min(920px,calc(100vw-2rem))] -translate-x-1/2">
+      <div
+        className={`rounded-2xl border px-4 py-3 text-sm shadow-xl backdrop-blur ${
+          notice.type === 'error'
+            ? 'border-rose-500/40 bg-rose-500/10 text-rose-100'
+            : notice.type === 'success'
+              ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-100'
+              : 'border-slate-700 bg-slate-900/60 text-slate-100'
+        }`}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 break-words">{notice.message}</div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="shrink-0 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs hover:bg-white/10"
+          >
+            关闭
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function AbilityEvaluationPage() {
+  const [notice, setNotice] = useState<Notice | null>(null);
+  const pushNotice = (n: Notice) => {
+    setNotice(n);
+    window.setTimeout(() => {
+      setNotice((cur) => (cur?.message === n.message ? null : cur));
+    }, 6500);
+  };
+
   const [workflows, setWorkflows] = useState<EvalWorkflowVersion[]>([]);
   const [datasetItems, setDatasetItems] = useState<EvalDatasetItem[]>([]);
   const [selectedWorkflow, setSelectedWorkflow] = useState<EvalWorkflowVersion | null>(null);
@@ -64,8 +102,13 @@ export function AbilityEvaluationPage() {
   const refreshRuns = async (workflowId?: string) => {
     const wfId = workflowId ?? selectedWorkflow?.id;
     if (!wfId) return;
-    const res = await adminApi.listEvalRuns({ workflow_version_id: wfId, limit: 50, offset: 0 });
-    setEvaluationResults(res.items || []);
+    try {
+      const res = await adminApi.listEvalRuns({ workflow_version_id: wfId, limit: 50, offset: 0 });
+      setEvaluationResults(res.items || []);
+    } catch (err) {
+      console.error(err);
+      pushNotice({ type: 'error', message: String((err as any)?.message || err) });
+    }
   };
 
   useEffect(() => {
@@ -82,6 +125,7 @@ export function AbilityEvaluationPage() {
       }
     } catch (err) {
       console.error(err);
+      pushNotice({ type: 'error', message: String((err as any)?.message || err) });
     }
   };
 
@@ -98,6 +142,7 @@ export function AbilityEvaluationPage() {
         }
       } catch (err) {
         console.error(err);
+        pushNotice({ type: 'error', message: String((err as any)?.message || err) });
       }
     })();
   }, [activeCategory]);
@@ -137,7 +182,28 @@ export function AbilityEvaluationPage() {
   const handleRunEvaluation = async () => {
     if (!selectedWorkflow) return;
     const url = inputImages[0];
-    if (!url) return;
+    if (!url) {
+      pushNotice({ type: 'error', message: '请先填写图片 URL 或选择样例' });
+      return;
+    }
+
+    // Validate required fields from schema (except `prompt`: backend will fallback).
+    const schema = (selectedWorkflow.parameters_schema || {}) as any;
+    const fields = Array.isArray(schema?.fields) ? (schema.fields as any[]) : [];
+    const missing: string[] = [];
+    for (const f of fields) {
+      if (!f || typeof f !== 'object') continue;
+      if (!f.required) continue;
+      const name = String(f.name || '');
+      if (!name || name === 'url' || name === 'prompt') continue;
+      const v = String((parameters as any)?.[name] ?? '').trim();
+      if (!v) missing.push(String(f.label || name));
+    }
+    if (missing.length > 0) {
+      pushNotice({ type: 'error', message: `请补齐必填参数：${missing.join('、')}` });
+      return;
+    }
+
     setIsRunning(true);
     try {
       const run = await adminApi.createEvalRun({
@@ -148,8 +214,10 @@ export function AbilityEvaluationPage() {
       });
       setEvaluationResults((prev) => [run, ...prev]);
       await refreshRuns(selectedWorkflow.id);
+      pushNotice({ type: 'success', message: '已提交运行，稍后会自动刷新结果' });
     } catch (error) {
       console.error('Failed to run evaluation:', error);
+      pushNotice({ type: 'error', message: String((error as any)?.message || error) });
     } finally {
       setIsRunning(false);
     }
@@ -159,8 +227,11 @@ export function AbilityEvaluationPage() {
     try {
       await adminApi.createEvalAnnotation(runId, annotation);
       if (selectedWorkflow) await refreshRuns(selectedWorkflow.id);
+      pushNotice({ type: 'success', message: '已保存评分/备注' });
     } catch (err) {
       console.error(err);
+      pushNotice({ type: 'error', message: String((err as any)?.message || err) });
+      throw err;
     }
   };
 
@@ -170,8 +241,10 @@ export function AbilityEvaluationPage() {
       const updated = await adminApi.updateEvalWorkflowVersion(workflowVersionId, { notes });
       setWorkflows((prev) => prev.map((w) => (w.id === updated.id ? updated : w)));
       setSelectedWorkflow((prev) => (prev && prev.id === updated.id ? updated : prev));
+      pushNotice({ type: 'success', message: '已保存功能介绍' });
     } catch (err) {
       console.error(err);
+      pushNotice({ type: 'error', message: String((err as any)?.message || err) });
     } finally {
       setIsSavingWorkflowNotes(false);
     }
@@ -236,6 +309,13 @@ export function AbilityEvaluationPage() {
       }))
       .filter((f) => f.name);
 
+    // Basic schema sanity: unique field names.
+    const seenNames = new Set<string>();
+    for (const f of fields) {
+      if (seenNames.has(f.name)) return setCreateError(`字段名重复：${f.name}`);
+      seenNames.add(f.name);
+    }
+
     // Ensure url is present (backend also aliases Url/URL, but url keeps UI consistent).
     if (!fields.some((f) => f.name === 'url')) {
       fields.unshift({
@@ -283,9 +363,10 @@ export function AbilityEvaluationPage() {
       await refreshWorkflows();
       setSelectedWorkflow(created);
       setIsCreateOpen(false);
+      pushNotice({ type: 'success', message: '已创建并启用工作流' });
     } catch (err) {
       console.error(err);
-      setCreateError('创建失败，请检查后台日志/权限或参数格式');
+      setCreateError(String((err as any)?.message || err) || '创建失败，请检查后台日志/权限或参数格式');
     } finally {
       setIsCreating(false);
     }
@@ -293,6 +374,7 @@ export function AbilityEvaluationPage() {
 
   return (
     <div className="flex h-[720px] overflow-hidden rounded-3xl border border-slate-800 bg-slate-950/30">
+      <NoticeBar notice={notice} onClose={() => setNotice(null)} />
       <EvaluationSidebar
         workflows={workflows}
         selectedWorkflow={selectedWorkflow}

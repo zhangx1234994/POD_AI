@@ -64,6 +64,7 @@ export function EvaluationInputPanel({
 }: Props) {
   const [rawJson, setRawJson] = useState('');
   const [notesDraft, setNotesDraft] = useState('');
+  const [jsonError, setJsonError] = useState<string>('');
 
   const fields = useMemo(() => getSchemaFields(selectedWorkflow), [selectedWorkflow]);
   const url = inputImages[0] || '';
@@ -84,9 +85,10 @@ export function EvaluationInputPanel({
       const parsed = JSON.parse(rawJson || '{}');
       if (!parsed || typeof parsed !== 'object') return;
       onParameterChange(parsed);
+      setJsonError('');
     } catch (err) {
-      // ignore parse errors; user will see it in console
       console.error(err);
+      setJsonError('参数 JSON 解析失败，请检查格式');
     }
   };
 
@@ -221,6 +223,7 @@ export function EvaluationInputPanel({
                 className="w-full rounded-xl border border-slate-800 bg-slate-950 p-3 font-mono text-xs text-slate-100"
                 placeholder='{"prompt":"...","height":"1200"}'
               />
+              {jsonError ? <div className="mt-2 text-xs text-rose-300">{jsonError}</div> : null}
               <div className="mt-2 flex items-center justify-end gap-2">
                 <button
                   type="button"

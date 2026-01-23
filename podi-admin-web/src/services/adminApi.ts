@@ -39,6 +39,24 @@ export function getAdminToken() {
   return localStorage.getItem('podi_admin_access_token');
 }
 
+function extractErrorMessage(statusText: string, bodyText: string): string {
+  const text = (bodyText || '').trim();
+  if (!text) return statusText || 'Request failed';
+  try {
+    const parsed = JSON.parse(text);
+    const detail = (parsed as any)?.detail;
+    if (typeof detail === 'string' && detail.trim()) return detail.trim();
+    if (detail && typeof detail === 'object') return JSON.stringify(detail);
+    for (const key of ['message', 'msg', 'error_message', 'error']) {
+      const v = (parsed as any)?.[key];
+      if (typeof v === 'string' && v.trim()) return v.trim();
+    }
+  } catch {
+    // ignore JSON parse errors
+  }
+  return text;
+}
+
 function clearAdminTokens() {
   localStorage.removeItem(ACCESS_TOKEN_KEY);
   localStorage.removeItem(REFRESH_TOKEN_KEY);
@@ -68,18 +86,9 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     const text = await resp.text();
     if (resp.status === 401) {
       clearAdminTokens();
-      let message = text;
-      try {
-        const parsed = JSON.parse(text);
-        if (parsed?.detail) {
-          message = typeof parsed.detail === 'string' ? parsed.detail : JSON.stringify(parsed.detail);
-        }
-      } catch (err) {
-        // ignore JSON parse errors
-      }
-      broadcastInvalidToken(message || '登录已失效，请重新登录');
+      broadcastInvalidToken(extractErrorMessage(resp.statusText, text) || '登录已失效，请重新登录');
     }
-    throw new Error(text || resp.statusText);
+    throw new Error(extractErrorMessage(resp.statusText, text));
   }
   return resp.json();
 }

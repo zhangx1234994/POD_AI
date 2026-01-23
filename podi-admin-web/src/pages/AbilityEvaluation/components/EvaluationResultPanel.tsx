@@ -20,13 +20,21 @@ export function EvaluationResultPanel({ results, onAnnotate }: Props) {
   const [ratings, setRatings] = useState<Record<string, number>>({});
   const [comments, setComments] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState<Record<string, boolean>>({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   const submit = async (runId: string) => {
     const rating = ratings[runId];
-    if (!rating) return;
+    if (!rating) {
+      setErrors((prev) => ({ ...prev, [runId]: '请先选择评分（1-5）' }));
+      return;
+    }
     setSubmitting((prev) => ({ ...prev, [runId]: true }));
+    setErrors((prev) => ({ ...prev, [runId]: '' }));
     try {
       await onAnnotate(runId, { rating, comment: comments[runId] || undefined });
+    } catch (err) {
+      console.error(err);
+      setErrors((prev) => ({ ...prev, [runId]: String((err as any)?.message || err) }));
     } finally {
       setSubmitting((prev) => ({ ...prev, [runId]: false }));
     }
@@ -97,6 +105,7 @@ export function EvaluationResultPanel({ results, onAnnotate }: Props) {
                   </button>
                 </div>
               </div>
+              {errors[run.id] ? <div className="mt-2 text-xs text-rose-300">{errors[run.id]}</div> : null}
 
               <div className="mt-3 grid gap-3 lg:grid-cols-2">
                 <div>
@@ -140,4 +149,3 @@ export function EvaluationResultPanel({ results, onAnnotate }: Props) {
     </div>
   );
 }
-

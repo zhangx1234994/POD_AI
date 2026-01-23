@@ -2,6 +2,26 @@ import type { EvalRun, EvalRunListResponse, EvalWorkflowVersion } from './types'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
 
+function extractErrorMessage(statusText: string, bodyText: string): string {
+  const text = (bodyText || '').trim();
+  if (!text) return statusText || 'Request failed';
+  // Prefer FastAPI-style {"detail": "..."}.
+  try {
+    const parsed = JSON.parse(text);
+    const detail = (parsed as any)?.detail;
+    if (typeof detail === 'string' && detail.trim()) return detail.trim();
+    if (detail && typeof detail === 'object') return JSON.stringify(detail);
+    // Generic error/message fields.
+    for (const key of ['message', 'msg', 'error_message', 'error']) {
+      const v = (parsed as any)?.[key];
+      if (typeof v === 'string' && v.trim()) return v.trim();
+    }
+  } catch {
+    // non-JSON
+  }
+  return text;
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const resp = await fetch(`${API_BASE}${path}`, {
     ...options,
@@ -13,7 +33,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   });
   if (!resp.ok) {
     const text = await resp.text();
-    throw new Error(text || resp.statusText);
+    throw new Error(extractErrorMessage(resp.statusText, text));
   }
   const contentType = resp.headers.get('content-type') || '';
   const text = await resp.text();

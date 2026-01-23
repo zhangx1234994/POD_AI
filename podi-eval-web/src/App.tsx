@@ -6,6 +6,8 @@ type RunWithLatest = EvalRun & {
   latest_annotation?: { rating: number; comment?: string | null; created_at: string; created_by: string } | null;
 };
 
+type Notice = { type: 'error' | 'success' | 'info'; message: string };
+
 // Keep the evaluation UI sidebar fixed to these 4 business-facing groups.
 const CATEGORY_ORDER = ['花纹提取类', '图延伸类', '四方/两方连续图类', '通用类'];
 
@@ -321,7 +323,43 @@ function TaskTable({
   );
 }
 
+function NoticeBar({ notice, onClose }: { notice: Notice | null; onClose: () => void }) {
+  if (!notice) return null;
+  return (
+    <div className="fixed left-1/2 top-4 z-[60] w-[min(920px,calc(100vw-2rem))] -translate-x-1/2">
+      <div
+        className={`rounded-2xl border px-4 py-3 text-sm shadow-xl backdrop-blur ${
+          notice.type === 'error'
+            ? 'border-rose-500/40 bg-rose-500/10 text-rose-100'
+            : notice.type === 'success'
+              ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-100'
+              : 'border-slate-700 bg-slate-900/60 text-slate-100'
+        }`}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 break-words">{notice.message}</div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="shrink-0 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs hover:bg-white/10"
+          >
+            关闭
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function App() {
+  const [notice, setNotice] = useState<Notice | null>(null);
+  const pushNotice = (n: Notice) => {
+    setNotice(n);
+    window.setTimeout(() => {
+      setNotice((cur) => (cur?.message === n.message ? null : cur));
+    }, 6500);
+  };
+
   const [raterId, setRaterId] = useState<string>('');
   const [workflows, setWorkflows] = useState<EvalWorkflowVersion[]>([]);
   const [metrics, setMetrics] = useState<Record<string, { ratingCount: number; avgRating: number | null }>>({});
@@ -380,36 +418,51 @@ export function App() {
   };
 
   const loadBootstrap = async () => {
-    const me = await evalApi.me();
-    setRaterId(me.raterId);
-    const wfs = await evalApi.listWorkflowVersions();
-    setWorkflows(wfs || []);
-    if (wfs && wfs.length > 0) {
-      const counts: Record<string, number> = {};
-      for (const wf of wfs) {
-        const k = normalizeCategory(wf.category);
-        counts[k] = (counts[k] || 0) + 1;
+    try {
+      const me = await evalApi.me();
+      setRaterId(me.raterId);
+      const wfs = await evalApi.listWorkflowVersions();
+      setWorkflows(wfs || []);
+      if (wfs && wfs.length > 0) {
+        const counts: Record<string, number> = {};
+        for (const wf of wfs) {
+          const k = normalizeCategory(wf.category);
+          counts[k] = (counts[k] || 0) + 1;
+        }
+        const firstNonEmpty = CATEGORY_ORDER.find((k) => (counts[k] || 0) > 0);
+        setActiveCategory(firstNonEmpty || '通用类');
       }
-      const firstNonEmpty = CATEGORY_ORDER.find((k) => (counts[k] || 0) > 0);
-      setActiveCategory(firstNonEmpty || '通用类');
+      await refreshMetrics();
+    } catch (err) {
+      console.error(err);
+      pushNotice({ type: 'error', message: String((err as any)?.message || err) });
     }
-    await refreshMetrics();
   };
 
   const loadRunsForTool = async (workflowVersionId: string) => {
-    const resp = await evalApi.listRunsWithLatestAnnotation({
-      workflow_version_id: workflowVersionId,
-      status: filterStatus !== 'all' ? filterStatus : undefined,
-      unrated: filterUnrated,
-      limit: 80,
-      offset: 0,
-    });
-    setRuns((resp.items || []) as RunWithLatest[]);
+    try {
+      const resp = await evalApi.listRunsWithLatestAnnotation({
+        workflow_version_id: workflowVersionId,
+        status: filterStatus !== 'all' ? filterStatus : undefined,
+        unrated: filterUnrated,
+        limit: 80,
+        offset: 0,
+      });
+      setRuns((resp.items || []) as RunWithLatest[]);
+    } catch (err) {
+      console.error(err);
+      pushNotice({ type: 'error', message: String((err as any)?.message || err) });
+    }
   };
 
   const loadTasks = async () => {
-    const resp = await evalApi.listRunsWithLatestAnnotation({ limit: 80, offset: 0 });
-    setRuns((resp.items || []) as RunWithLatest[]);
+    try {
+      const resp = await evalApi.listRunsWithLatestAnnotation({ limit: 80, offset: 0 });
+      setRuns((resp.items || []) as RunWithLatest[]);
+    } catch (err) {
+      console.error(err);
+      pushNotice({ type: 'error', message: String((err as any)?.message || err) });
+    }
   };
 
   useEffect(() => {
@@ -455,30 +508,58 @@ export function App() {
 
   const runTool = async () => {
     if (!selectedTool) return;
-    if (!formUrl.trim()) return;
+    const url = formUrl.trim();
+    if (!url) {
+      pushNotice({ type: 'error', message: '请先填写或上传图片 URL' });
+      return;
+    }
+
+    // Validate required fields in schema (except `prompt`: backend will fallback to " ").
+    const missing: string[] = [];
+    for (const f of getFields(selectedTool)) {
+      if (!(f as any)?.required) continue;
+      if (f.name === 'url' || f.name === 'prompt') continue;
+      const v = String((formParams as any)?.[f.name] ?? '').trim();
+      if (!v) missing.push((f as any).label || f.name);
+    }
+    if (missing.length > 0) {
+      pushNotice({ type: 'error', message: `请补齐必填参数：${missing.join('、')}` });
+      return;
+    }
+
     setIsRunning(true);
     try {
-      const parameters: Record<string, unknown> = { url: formUrl.trim() };
+      const parameters: Record<string, unknown> = { url };
       for (const [k, v] of Object.entries(formParams)) {
         if (v === '') continue;
         parameters[k] = v;
       }
       await evalApi.createRun({
         workflow_version_id: selectedTool.id,
-        input_oss_urls_json: [formUrl.trim()],
+        input_oss_urls_json: [url],
         parameters_json: parameters,
       });
       await loadRunsForTool(selectedTool.id);
       await refreshMetrics();
+      pushNotice({ type: 'success', message: '已提交运行，稍后会自动刷新结果' });
+    } catch (err) {
+      console.error(err);
+      pushNotice({ type: 'error', message: String((err as any)?.message || err) });
     } finally {
       setIsRunning(false);
     }
   };
 
   const annotate = async (runId: string, rating: number, comment: string) => {
-    await evalApi.createAnnotation(runId, { rating, comment: comment.trim() || undefined });
-    await refreshMetrics();
-    if (selectedTool) await loadRunsForTool(selectedTool.id);
+    try {
+      await evalApi.createAnnotation(runId, { rating, comment: comment.trim() || undefined });
+      await refreshMetrics();
+      if (selectedTool) await loadRunsForTool(selectedTool.id);
+      pushNotice({ type: 'success', message: '已保存评分/备注' });
+    } catch (err) {
+      console.error(err);
+      pushNotice({ type: 'error', message: String((err as any)?.message || err) });
+    }
   };
 
   const filteredRuns = useMemo(() => {
@@ -545,7 +626,7 @@ export function App() {
                 setAdminWorkflows(list);
               } catch (err) {
                 console.error(err);
-                alert(String(err));
+                pushNotice({ type: 'error', message: String((err as any)?.message || err) });
               }
             }}
             className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${
@@ -568,6 +649,7 @@ export function App() {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-50">
         {header}
+        <NoticeBar notice={notice} onClose={() => setNotice(null)} />
         <div className="mx-auto max-w-[1400px] px-6 py-6">
           <div className="rounded-3xl border border-slate-800 bg-slate-900/30 p-5">
             <div className="flex items-end justify-between">
@@ -579,8 +661,14 @@ export function App() {
                 type="button"
                 onClick={async () => {
                   if (!adminToken) return;
-                  const list = await evalApi.adminListWorkflowVersions(adminToken);
-                  setAdminWorkflows(list);
+                  try {
+                    const list = await evalApi.adminListWorkflowVersions(adminToken);
+                    setAdminWorkflows(list);
+                    pushNotice({ type: 'success', message: '已刷新列表' });
+                  } catch (err) {
+                    console.error(err);
+                    pushNotice({ type: 'error', message: String((err as any)?.message || err) });
+                  }
                 }}
                 className="rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-200 hover:border-slate-700"
               >
@@ -610,6 +698,7 @@ export function App() {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-50">
         {header}
+        <NoticeBar notice={notice} onClose={() => setNotice(null)} />
         <Lightbox url={lightbox?.url || ''} title={lightbox?.title} onClose={() => setLightbox(null)} />
         <div className="mx-auto max-w-[1400px] px-6 py-6">
           <TaskTable runs={runs} workflowMap={workflowMap} />
@@ -624,6 +713,7 @@ export function App() {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-50">
         {header}
+        <NoticeBar notice={notice} onClose={() => setNotice(null)} />
         <Lightbox url={lightbox?.url || ''} title={lightbox?.title} onClose={() => setLightbox(null)} />
         <div className="mx-auto max-w-[1400px] px-6 py-6">
           <div className="mb-4 flex items-start justify-between gap-4">
@@ -684,7 +774,7 @@ export function App() {
                             setFormUrl(res.url);
                           } catch (err) {
                             console.error(err);
-                            alert(String(err));
+                            pushNotice({ type: 'error', message: String((err as any)?.message || err) });
                           } finally {
                             setUploading(false);
                             e.target.value = '';
@@ -843,6 +933,7 @@ export function App() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50">
       {header}
+      <NoticeBar notice={notice} onClose={() => setNotice(null)} />
       <Lightbox url={lightbox?.url || ''} title={lightbox?.title} onClose={() => setLightbox(null)} />
       <div className="mx-auto max-w-[1400px] px-6 py-6 grid gap-6 lg:grid-cols-[280px_1fr]">
         <aside className="rounded-3xl border border-slate-800 bg-slate-900/30 p-4">
@@ -908,6 +999,7 @@ function HistoryRow({
   const [savingRating, setSavingRating] = useState(false);
   const [savingComment, setSavingComment] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<string>('');
+  const [rowError, setRowError] = useState<string>('');
 
   const commentDirty = commentDraft !== savedComment;
 
@@ -953,10 +1045,14 @@ function HistoryRow({
                     if (savingRating || savingComment) return;
                     setRating(n);
                     setSavingRating(true);
+                    setRowError('');
                     try {
                       // Save rating immediately. Keep last saved comment to avoid clearing it.
                       await onAnnotate(run.id, n, savedComment);
                       setLastSavedAt(new Date().toISOString());
+                    } catch (err) {
+                      console.error(err);
+                      setRowError(String((err as any)?.message || err));
                     } finally {
                       setSavingRating(false);
                     }
@@ -987,6 +1083,7 @@ function HistoryRow({
 
       <div className="mt-3 grid gap-3 lg:grid-cols-[220px_1fr]">
         <div>
+          {rowError ? <div className="mb-2 text-xs text-rose-300">{rowError}</div> : null}
           <div className="flex items-center justify-between gap-2 mb-1">
             <div className="text-xs text-slate-500">备注（可选）</div>
             <button
@@ -994,14 +1091,18 @@ function HistoryRow({
               disabled={!commentDirty || savingRating || savingComment}
               onClick={async () => {
                 if (!rating) {
-                  alert('请先点一个评分（1-5），再保存备注。');
+                  setRowError('请先点一个评分（1-5），再保存备注。');
                   return;
                 }
                 setSavingComment(true);
+                setRowError('');
                 try {
                   await onAnnotate(run.id, rating, commentDraft);
                   setSavedComment(commentDraft);
                   setLastSavedAt(new Date().toISOString());
+                } catch (err) {
+                  console.error(err);
+                  setRowError(String((err as any)?.message || err));
                 } finally {
                   setSavingComment(false);
                 }
@@ -1070,6 +1171,7 @@ function AdminWorkflowRow({
   const [category, setCategory] = useState(normalizeCategory(wf.category));
   const [status, setStatus] = useState(wf.status);
   const [saving, setSaving] = useState(false);
+  const [rowError, setRowError] = useState<string>('');
 
   const dirty = name !== wf.name || notes !== (wf.notes || '') || category !== normalizeCategory(wf.category) || status !== wf.status;
 
@@ -1134,6 +1236,7 @@ function AdminWorkflowRow({
             disabled={!dirty || saving}
             onClick={async () => {
               setSaving(true);
+              setRowError('');
               try {
                 const next = await evalApi.adminUpdateWorkflowVersion(adminToken, wf.id, {
                   name,
@@ -1144,7 +1247,7 @@ function AdminWorkflowRow({
                 onSaved(next);
               } catch (err) {
                 console.error(err);
-                alert(String(err));
+                setRowError(String((err as any)?.message || err));
               } finally {
                 setSaving(false);
               }
@@ -1155,6 +1258,7 @@ function AdminWorkflowRow({
           >
             {saving ? '保存中…' : '保存'}
           </button>
+          {rowError ? <div className="mt-2 text-xs text-rose-300 break-words">{rowError}</div> : null}
 
           <div className="mt-3 text-xs text-slate-500">
             更新时间：{wf.updated_at}
