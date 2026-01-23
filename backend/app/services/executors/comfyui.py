@@ -152,6 +152,18 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             if "seed" in inputs:
                 inputs["seed"] = seed
 
+    @staticmethod
+    def _normalize_comfy_dim(value: int | None) -> int | None:
+        """ComfyUI/latent pipelines typically require dimensions to be multiples of 8.
+
+        If callers pass arbitrary px sizes, ComfyUI will silently round; we normalize
+        on our side so the output size matches what we ask for.
+        """
+        if not value or value <= 0:
+            return None
+        # Keep it simple: floor to a multiple of 8.
+        return max(8, int(value) - (int(value) % 8))
+
     def _poll_history(
         self, base_url: str, prompt_id: str, timeout: float, *, expected_images: int | None
     ) -> dict[str, Any] | None:
@@ -253,17 +265,34 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         return {"images": images, "history": entry}
 
     def _store_remote_asset(self, url: str, context: ExecutionContext, *, tag: str) -> dict[str, Any] | None:
-        try:
-            filename_hint = self._extract_filename_hint(url)
-            return media_ingest_service.ingest_from_remote_url(
-                url,
-                user_id=str(context.task.user_id or "comfyui"),
-                filename_hint=filename_hint,
-                tag=tag,
-            )
-        except Exception as exc:  # pragma: no cover - defensive
-            self._logger.warning("Failed to ingest remote ComfyUI asset: %s", exc)
-            return None
+        filename_hint = self._extract_filename_hint(url)
+        # ComfyUI's /view endpoint can be flaky under load (occasionally 502 even though
+        # the file becomes available moments later). Retry a few times before giving up.
+        for attempt in range(4):
+            try:
+                return media_ingest_service.ingest_from_remote_url(
+                    url,
+                    user_id=str(context.task.user_id or "comfyui"),
+                    filename_hint=filename_hint,
+                    tag=tag,
+                )
+            except httpx.HTTPStatusError as exc:
+                status = exc.response.status_code if exc.response is not None else None
+                if status and status >= 500 and attempt < 3:
+                    time.sleep(0.6 * (1.8**attempt))
+                    continue
+                self._logger.warning("Failed to ingest remote ComfyUI asset (status=%s): %s", status, exc)
+                return None
+            except httpx.HTTPError as exc:
+                if attempt < 3:
+                    time.sleep(0.6 * (1.8**attempt))
+                    continue
+                self._logger.warning("Failed to ingest remote ComfyUI asset: %s", exc)
+                return None
+            except Exception as exc:  # pragma: no cover - defensive
+                self._logger.warning("Failed to ingest remote ComfyUI asset: %s", exc)
+                return None
+        return None
 
     def _store_base64_asset(self, payload: str, context: ExecutionContext, *, tag: str) -> dict[str, Any] | None:
         try:
@@ -337,8 +366,14 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         if pattern_type:
             overrides.setdefault("97", {})["boolean"] = pattern_type.lower() != "twoway"
 
+        size = self._coerce_positive_int(params.get("size") or params.get("output_size") or params.get("outputSize"))
         width = self._coerce_positive_int(params.get("width"))
         height = self._coerce_positive_int(params.get("height"))
+        if size and not (width or height):
+            width = size
+            height = size
+        width = self._normalize_comfy_dim(width)
+        height = self._normalize_comfy_dim(height)
         if width or height:
             node_inputs: dict[str, Any] = {}
             if width:
@@ -368,6 +403,8 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
 
         width = self._coerce_positive_int(params.get("output_width") or params.get("width"))
         height = self._coerce_positive_int(params.get("output_height") or params.get("height"))
+        width = self._normalize_comfy_dim(width)
+        height = self._normalize_comfy_dim(height)
         if width or height:
             node_inputs: dict[str, Any] = {}
             if width:
@@ -377,7 +414,7 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             overrides["400"] = node_inputs
 
         batch_count = self._coerce_positive_int(
-            params.get("batch_count") or params.get("batchCount") or params.get("repeat_count")
+            params.get("batch_count") or params.get("batchCount") or params.get("repeat_count") or params.get("batch") or params.get("n")
         )
         if batch_count:
             overrides.setdefault("424", {})["amount"] = batch_count
@@ -386,7 +423,7 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             effective_timeout = max(base_timeout, int(base_timeout * batch_count * 1.2))
             workflow_definition["timeout"] = effective_timeout
 
-        lora_name = self._as_text(params.get("lora_name") or params.get("loraName"))
+        lora_name = self._as_text(params.get("lora") or params.get("lora_name") or params.get("loraName"))
         if lora_name:
             overrides.setdefault("390", {})["lora_name"] = lora_name
 
@@ -400,6 +437,25 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         if not image_url:
             return None, "COMFYUI_IMAGE_REQUIRED"
         overrides["205"] = {"url": image_url}
+
+        prompt = self._as_text(params.get("prompt"))
+        if prompt:
+            overrides.setdefault("74", {})["text"] = prompt
+
+        negative = self._as_text(params.get("negative_prompt") or params.get("negativePrompt"))
+        if negative:
+            # Node 72 is the default negative CLIPTextEncode text.
+            overrides.setdefault("72", {})["text"] = negative
+
+        long_side = self._coerce_positive_int(params.get("size") or params.get("output_long_side") or params.get("outputLongSide"))
+        long_side = self._normalize_comfy_dim(long_side)
+        if long_side:
+            overrides.setdefault("61", {})["value"] = long_side
+
+        lora_name = self._as_text(params.get("lora") or params.get("lora_name") or params.get("loraName"))
+        if lora_name:
+            # Node 45 is the workflow's LoraLoaderModelOnly.
+            overrides.setdefault("45", {})["lora_name"] = lora_name
 
         mapping = {
             "expand_left": ("188", "value"),
@@ -442,6 +498,10 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         if negative:
             overrides.setdefault("110", {})["prompt"] = negative
 
+        lora_name = self._as_text(params.get("lora") or params.get("lora_name") or params.get("loraName"))
+        if lora_name:
+            overrides.setdefault("89", {})["lora_name"] = lora_name
+
         batch = self._coerce_positive_int(params.get("batch") or params.get("amount") or params.get("n"))
         if batch:
             overrides.setdefault("434", {})["amount"] = batch
@@ -463,6 +523,8 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
                 # Leave as-is; workflow has defaults (512x512).
                 pass
 
+        width = self._normalize_comfy_dim(width)
+        height = self._normalize_comfy_dim(height)
         if width or height:
             node_inputs: dict[str, Any] = {}
             if width:

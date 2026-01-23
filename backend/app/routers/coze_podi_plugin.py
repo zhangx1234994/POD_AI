@@ -22,6 +22,7 @@ from app.services.ability_seed import ensure_default_abilities
 from app.services.ability_task_service import ability_task_service
 from app.services.executor_seed import ensure_default_executors
 from app.services.auth_service import auth_service
+from app.services.executors.registry import registry
 
 
 router = APIRouter(prefix="/api/coze/podi", tags=["coze-plugin"])
@@ -506,7 +507,7 @@ def invoke_tool(
             expected_images = _coerce_positive_int(body.get("batch") or body.get("amount") or body.get("n")) or 1
         elif capability_key in {"yinhua_tiqu"}:
             expected_images = (
-                _coerce_positive_int(body.get("batch_count") or body.get("batchCount") or body.get("repeat_count"))
+                _coerce_positive_int(body.get("batch") or body.get("batch_count") or body.get("batchCount") or body.get("repeat_count") or body.get("n"))
                 or 1
             )
 
@@ -740,6 +741,97 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
         )
 
     # queued/running
+    # Special-case: ComfyUI submitted-only tasks. If we already have promptId/baseUrl,
+    # try to finalize on demand when Coze polls.
+    if status in {"queued", "running"} and isinstance(result_payload, dict):
+        meta = result_payload.get("metadata") if isinstance(result_payload.get("metadata"), dict) else {}
+        prompt_id = meta.get("promptId") or meta.get("taskId")
+        base_url = meta.get("baseUrl")
+        executor_id = meta.get("executorId")
+        if isinstance(prompt_id, str) and prompt_id.strip() and isinstance(base_url, str) and base_url.strip():
+            with get_session() as session:
+                db_task = session.get(AbilityTask, task_id.strip())
+                if db_task and (db_task.ability_provider or "").lower() == "comfyui":
+                    try:
+                        import httpx
+                        from types import SimpleNamespace
+
+                        adapter = registry.get("comfyui")
+                        if adapter is None:
+                            raise RuntimeError("COMFYUI_ADAPTER_MISSING")
+
+                        history_url = f"{base_url.rstrip('/')}/history/{prompt_id}"
+                        resp = httpx.get(history_url, timeout=15)
+                        if resp.status_code != 200:
+                            raise RuntimeError(f"COMFYUI_HISTORY_HTTP_{resp.status_code}")
+                        data = resp.json()
+                        entry = data.get(prompt_id) if isinstance(data, dict) else None
+                        if not isinstance(entry, dict):
+                            raise RuntimeError("COMFYUI_HISTORY_INVALID")
+
+                        outputs = adapter._extract_outputs(entry)  # type: ignore[attr-defined]
+                        hist = outputs.get("history") if isinstance(outputs, dict) else None
+                        status_dict = hist.get("status") if isinstance(hist, dict) else None
+                        status_str = str((status_dict or {}).get("status_str") or "").lower()
+
+                        if status_str == "error":
+                            db_task.status = "failed"
+                            db_task.error_message = "COMFYUI_ERROR"
+                            session.add(db_task)
+                            session.commit()
+                            task = ability_task_service.to_dict(db_task)
+                            status = task.get("status")
+                            result_payload = task.get("result_payload") or {}
+
+                        if status_str != "success":
+                            # Still running; keep the DB task as-is.
+                            raise RuntimeError("COMFYUI_NOT_READY")
+
+                        images = outputs.get("images") if isinstance(outputs, dict) else None
+                        if not isinstance(images, list) or not images:
+                            raise RuntimeError("COMFYUI_IMAGES_EMPTY")
+
+                        # Ingest all images into OSS.
+                        from app.services.executors.base import ExecutionContext
+
+                        ctx = ExecutionContext(
+                            task=SimpleNamespace(id=db_task.id, user_id=str(db_task.user_id or "coze"), assets=[]),
+                            workflow=SimpleNamespace(id="coze_task_get", definition={}, extra_metadata={}),
+                            executor=SimpleNamespace(id=executor_id or "comfyui", base_url=base_url, config={}),
+                            payload={},
+                            api_key=None,
+                        )
+                        assets: list[dict[str, Any]] = []
+                        for img in images:
+                            if not isinstance(img, dict):
+                                continue
+                            source_url = img.get("url") or adapter._build_image_url(base_url.rstrip("/"), img)  # type: ignore[attr-defined]
+                            base64_data = img.get("base64")
+                            if source_url:
+                                asset = adapter._store_remote_asset(source_url, ctx, tag="comfyui")  # type: ignore[attr-defined]
+                            elif base64_data:
+                                asset = adapter._store_base64_asset(base64_data, ctx, tag="comfyui")  # type: ignore[attr-defined]
+                            else:
+                                asset = None
+                            if asset:
+                                assets.append(asset)
+
+                        if assets:
+                            next_payload = dict(result_payload)
+                            next_payload["images"] = assets
+                            next_payload["assets"] = assets
+                            next_payload["status"] = "succeeded"
+                            db_task.status = "succeeded"
+                            db_task.result_payload = next_payload
+                            session.add(db_task)
+                            session.commit()
+                            task = ability_task_service.to_dict(db_task)
+                            status = task.get("status")
+                            result_payload = task.get("result_payload") or {}
+                    except Exception:
+                        # Best-effort; fall back to returning the current queued/running state.
+                        pass
+
     return _prune(
         {
         "text": status or "running",

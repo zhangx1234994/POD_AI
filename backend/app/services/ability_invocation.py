@@ -230,10 +230,7 @@ class AbilityInvocationService:
             or ability.capability_key
         )
 
-        # Some actions share the same executor in our current deployment.
         actions = [action]
-        if action == "pattern_expand":
-            actions.append("pattern_extract")
 
         with get_session() as session:
             ensure_default_executors(session)
@@ -255,9 +252,9 @@ class AbilityInvocationService:
                     return executor.id
 
         # Fallback: keep current single-host defaults predictable.
-        if workflow_key == "sifang_lianxu":
+        if workflow_key in {"sifang_lianxu", "huawen_kuotu"}:
             return "executor_comfyui_seamless_117"
-        if workflow_key in {"yinhua_tiqu", "huawen_kuotu", "jisu_chuli", "zhongsu_tisheng"}:
+        if workflow_key in {"yinhua_tiqu", "jisu_chuli", "zhongsu_tisheng"}:
             return "executor_comfyui_pattern_extract_158"
         return None
 
@@ -595,6 +592,24 @@ class AbilityInvocationService:
             workflow_params["imageBase64"] = images.image_base64
         if images.image_list:
             workflow_params["imageList"] = images.image_list
+
+        # Long-running ComfyUI graphs (e.g. outpainting/expansion) should be submitted quickly.
+        # Coze will poll via `/api/coze/podi/tasks/get`, and that endpoint can finalize the
+        # task once ComfyUI images are ready.
+        action = (metadata.get("action") or "")
+        if action in {"pattern_expand", "seamless"}:
+            submitted = integration_test_service.submit_comfyui_workflow(
+                executor_id=executor_id,
+                workflow_key=workflow_key,
+                workflow_params=workflow_params,
+            )
+            # Normalize into a provider_result shape that our response builder understands.
+            return {
+                **submitted,
+                "status": "running",
+                "state": "running",
+                "taskId": submitted.get("promptId"),
+            }
         return integration_test_service.run_comfyui_workflow(
             executor_id=executor_id,
             workflow_key=workflow_key,
@@ -1086,6 +1101,7 @@ class AbilityInvocationService:
         duration_ms: int | None = None,
     ) -> schemas.AbilityInvokeResponse:
         provider = provider_result.get("provider", ability.provider)
+        status = str(provider_result.get("status") or "succeeded")
         images = self._extract_output_assets(provider_result, target="image")
         videos = self._extract_output_assets(provider_result, target="video")
         texts = self._extract_texts(provider_result)
@@ -1094,12 +1110,15 @@ class AbilityInvocationService:
             "model": provider_result.get("model"),
             "state": provider_result.get("state"),
             "taskId": provider_result.get("taskId"),
+            "executorId": provider_result.get("executorId") or provider_result.get("executor"),
+            "baseUrl": provider_result.get("baseUrl"),
+            "promptId": provider_result.get("promptId"),
         }
         raw_payload = provider_result.get("raw")
         return schemas.AbilityInvokeResponse(
             abilityId=ability.id,
             provider=provider,
-            status="succeeded",
+            status=status,
             requestId=request_id,
             logId=log_id,
             durationMs=duration_ms,

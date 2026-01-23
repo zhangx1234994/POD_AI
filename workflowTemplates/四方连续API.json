@@ -1,0 +1,577 @@
+{
+  "1": {
+    "inputs": {
+      "unet_name": "四方连续.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "UNET加载器"
+    }
+  },
+  "2": {
+    "inputs": {
+      "clip_name1": "t5xxl_fp8_e4m3fn_scaled.safetensors",
+      "clip_name2": "clip_l.safetensors",
+      "type": "flux",
+      "device": "default"
+    },
+    "class_type": "DualCLIPLoader",
+    "_meta": {
+      "title": "双CLIP加载器"
+    }
+  },
+  "3": {
+    "inputs": {
+      "vae_name": "ae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "VAE加载器"
+    }
+  },
+  "4": {
+    "inputs": {
+      "seed": 403046111768856,
+      "steps": 30,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "normal",
+      "denoise": 1,
+      "model": [
+        "41",
+        0
+      ],
+      "positive": [
+        "8",
+        0
+      ],
+      "negative": [
+        "8",
+        1
+      ],
+      "latent_image": [
+        "8",
+        2
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "K采样器"
+    }
+  },
+  "5": {
+    "inputs": {
+      "text": [
+        "42",
+        0
+      ],
+      "clip": [
+        "2",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP文本编码器"
+    }
+  },
+  "6": {
+    "inputs": {
+      "guidance": 30,
+      "conditioning": [
+        "5",
+        0
+      ]
+    },
+    "class_type": "FluxGuidance",
+    "_meta": {
+      "title": "Flux引导"
+    }
+  },
+  "7": {
+    "inputs": {
+      "conditioning": [
+        "5",
+        0
+      ]
+    },
+    "class_type": "ConditioningZeroOut",
+    "_meta": {
+      "title": "条件零化"
+    }
+  },
+  "8": {
+    "inputs": {
+      "noise_mask": true,
+      "positive": [
+        "6",
+        0
+      ],
+      "negative": [
+        "7",
+        0
+      ],
+      "vae": [
+        "3",
+        0
+      ],
+      "pixels": [
+        "10",
+        0
+      ],
+      "mask": [
+        "91",
+        0
+      ]
+    },
+    "class_type": "InpaintModelConditioning",
+    "_meta": {
+      "title": "内补模型条件"
+    }
+  },
+  "10": {
+    "inputs": {
+      "shift_x": [
+        "12",
+        0
+      ],
+      "shift_y": [
+        "14",
+        0
+      ],
+      "cyclic": true,
+      "background_color": "#000000",
+      "border_mask_width": [
+        "77",
+        0
+      ],
+      "border_mask_blur": [
+        "78",
+        0
+      ],
+      "image": [
+        "72",
+        0
+      ]
+    },
+    "class_type": "LayerUtility: ImageShift",
+    "_meta": {
+      "title": "位移"
+    }
+  },
+  "11": {
+    "inputs": {
+      "shift_x": [
+        "15",
+        0
+      ],
+      "shift_y": [
+        "16",
+        0
+      ],
+      "cyclic": true,
+      "background_color": "#000000",
+      "border_mask_width": 0,
+      "border_mask_blur": 0,
+      "image": [
+        "69",
+        0
+      ]
+    },
+    "class_type": "LayerUtility: ImageShift",
+    "_meta": {
+      "title": "位移"
+    }
+  },
+  "12": {
+    "inputs": {
+      "expression": "a/2",
+      "a": [
+        "13",
+        0
+      ]
+    },
+    "class_type": "MathExpression|pysssss",
+    "_meta": {
+      "title": "数学表达式"
+    }
+  },
+  "13": {
+    "inputs": {
+      "image": [
+        "72",
+        0
+      ]
+    },
+    "class_type": "GetImageSize",
+    "_meta": {
+      "title": "获取图像尺寸"
+    }
+  },
+  "14": {
+    "inputs": {
+      "expression": [
+        "97",
+        0
+      ],
+      "a": [
+        "13",
+        1
+      ]
+    },
+    "class_type": "MathExpression|pysssss",
+    "_meta": {
+      "title": "数学表达式"
+    }
+  },
+  "15": {
+    "inputs": {
+      "expression": "-a",
+      "a": [
+        "12",
+        0
+      ]
+    },
+    "class_type": "MathExpression|pysssss",
+    "_meta": {
+      "title": "数学表达式"
+    }
+  },
+  "16": {
+    "inputs": {
+      "expression": "-a",
+      "a": [
+        "14",
+        0
+      ]
+    },
+    "class_type": "MathExpression|pysssss",
+    "_meta": {
+      "title": "数学表达式"
+    }
+  },
+  "17": {
+    "inputs": {
+      "samples": [
+        "4",
+        0
+      ],
+      "vae": [
+        "3",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE解码"
+    }
+  },
+  "41": {
+    "inputs": {
+      "strength": 1,
+      "model": [
+        "1",
+        0
+      ]
+    },
+    "class_type": "DifferentialDiffusion",
+    "_meta": {
+      "title": "差异扩散"
+    }
+  },
+  "42": {
+    "inputs": {
+      "string_a": "3D material texture, ",
+      "string_b": [
+        "70",
+        0
+      ],
+      "delimiter": ""
+    },
+    "class_type": "StringConcatenate",
+    "_meta": {
+      "title": "字符串连锁"
+    }
+  },
+  "64": {
+    "inputs": {
+      "channel": "red",
+      "image": [
+        "104",
+        0
+      ]
+    },
+    "class_type": "ImageToMask",
+    "_meta": {
+      "title": "图像到遮罩"
+    }
+  },
+  "65": {
+    "inputs": {
+      "amount": [
+        "78",
+        0
+      ],
+      "device": "auto",
+      "mask": [
+        "64",
+        0
+      ]
+    },
+    "class_type": "MaskBlur+",
+    "_meta": {
+      "title": "遮罩模糊"
+    }
+  },
+  "69": {
+    "inputs": {
+      "anything": [
+        "17",
+        0
+      ]
+    },
+    "class_type": "easy cleanGpuUsed",
+    "_meta": {
+      "title": "清理GPU占用"
+    }
+  },
+  "70": {
+    "inputs": {
+      "anything": [
+        "94",
+        0
+      ]
+    },
+    "class_type": "easy cleanGpuUsed",
+    "_meta": {
+      "title": "清理GPU占用"
+    }
+  },
+  "72": {
+    "inputs": {
+      "width": [
+        "74",
+        0
+      ],
+      "height": [
+        "75",
+        0
+      ],
+      "interpolation": "lanczos",
+      "method": "fill / crop",
+      "condition": "always",
+      "multiple_of": 0,
+      "image": [
+        "102",
+        0
+      ]
+    },
+    "class_type": "ImageResize+",
+    "_meta": {
+      "title": "图像缩放"
+    }
+  },
+  "73": {
+    "inputs": {
+      "image": [
+        "102",
+        0
+      ]
+    },
+    "class_type": "GetImageSize",
+    "_meta": {
+      "title": "获取图像尺寸"
+    }
+  },
+  "74": {
+    "inputs": {
+      "expression": "a//8*8",
+      "a": [
+        "73",
+        0
+      ]
+    },
+    "class_type": "MathExpression|pysssss",
+    "_meta": {
+      "title": "数学表达式"
+    }
+  },
+  "75": {
+    "inputs": {
+      "expression": "a//8*8",
+      "a": [
+        "73",
+        1
+      ]
+    },
+    "class_type": "MathExpression|pysssss",
+    "_meta": {
+      "title": "数学表达式"
+    }
+  },
+  "77": {
+    "inputs": {
+      "value": 150
+    },
+    "class_type": "easy int",
+    "_meta": {
+      "title": "整数"
+    }
+  },
+  "78": {
+    "inputs": {
+      "value": 40
+    },
+    "class_type": "easy int",
+    "_meta": {
+      "title": "整数"
+    }
+  },
+  "91": {
+    "inputs": {
+      "operation": "subtract (a-b)",
+      "mask_1": [
+        "10",
+        2
+      ],
+      "mask_2": [
+        "65",
+        0
+      ]
+    },
+    "class_type": "1hew_MaskMathOps",
+    "_meta": {
+      "title": "Multi Mask Math Ops"
+    }
+  },
+  "93": {
+    "inputs": {
+      "model_name": "deepseek-ai/Janus-Pro-1B"
+    },
+    "class_type": "JanusModelLoader",
+    "_meta": {
+      "title": "Janus Model Loader"
+    }
+  },
+  "94": {
+    "inputs": {
+      "question": "Describe this image in detail.",
+      "seed": 758151626343873,
+      "temperature": 0.8,
+      "top_p": 0.95,
+      "max_new_tokens": 512,
+      "model": [
+        "93",
+        0
+      ],
+      "processor": [
+        "93",
+        1
+      ],
+      "image": [
+        "106",
+        0
+      ]
+    },
+    "class_type": "JanusImageUnderstanding",
+    "_meta": {
+      "title": "Janus Image Understanding"
+    }
+  },
+  "96": {
+    "inputs": {
+      "url": "https://"
+    },
+    "class_type": "LoadImagesFromURL",
+    "_meta": {
+      "title": "加载图像(URL)"
+    }
+  },
+  "97": {
+    "inputs": {
+      "boolean": true,
+      "on_true": [
+        "99",
+        0
+      ],
+      "on_false": [
+        "100",
+        0
+      ]
+    },
+    "class_type": "easy ifElse",
+    "_meta": {
+      "title": "是否判断"
+    }
+  },
+  "99": {
+    "inputs": {
+      "String": "a/2"
+    },
+    "class_type": "String",
+    "_meta": {
+      "title": "字符串"
+    }
+  },
+  "100": {
+    "inputs": {
+      "String": "0"
+    },
+    "class_type": "String",
+    "_meta": {
+      "title": "字符串"
+    }
+  },
+  "102": {
+    "inputs": {
+      "width": 1024,
+      "height": 1024,
+      "interpolation": "lanczos",
+      "method": "fill / crop",
+      "condition": "always",
+      "multiple_of": 0,
+      "image": [
+        "106",
+        0
+      ]
+    },
+    "class_type": "ImageResize+",
+    "_meta": {
+      "title": "图像缩放"
+    }
+  },
+  "104": {
+    "inputs": {
+      "base64_data": "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",
+      "image_output": "Hide",
+      "save_prefix": "ComfyUI"
+    },
+    "class_type": "easy loadImageBase64",
+    "_meta": {
+      "title": "加载图像（Base64）"
+    }
+  },
+  "106": {
+    "inputs": {
+      "image": "2 Pcs Zipper Change Bag Animal Sloth Coin Bag Cartoon Printing Canvas Handy Purse Pouch Travel Toiletry Bag Beauty Accessories Organiser Purse Key Ring Wallet Pencil Case (dinosaur + sloth)-1.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "加载图像"
+    }
+  },
+  "111": {
+    "inputs": {
+      "filename_prefix": "ComfyUI",
+      "images": [
+        "11",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "保存图像"
+    }
+  }
+}

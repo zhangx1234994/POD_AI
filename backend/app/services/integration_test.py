@@ -848,6 +848,84 @@ class IntegrationTestService:
         return result_urls, parsed
 
     # ----------------------- ComfyUI helpers ----------------------- #
+    def submit_comfyui_workflow(
+        self,
+        *,
+        executor_id: str,
+        workflow_key: str,
+        workflow_params: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Submit a ComfyUI prompt and return immediately (no polling).
+
+        This is useful for long-running ComfyUI graphs where we don't want to block
+        a worker thread until generation completes. Callers can later poll
+        `/history/{prompt_id}` to fetch images.
+        """
+        executor = self._get_executor(executor_id)
+        if (executor.type or "").lower() != "comfyui":
+            raise HTTPException(status_code=400, detail="EXECUTOR_TYPE_NOT_COMFYUI")
+        adapter = registry.get(executor.type)
+        if adapter is None:
+            raise HTTPException(status_code=500, detail="EXECUTOR_ADAPTER_MISSING")
+
+        config = executor.config or {}
+        base_url = (executor.base_url or config.get("baseUrl") or config.get("base_url") or "").rstrip("/")
+        if not base_url:
+            raise HTTPException(status_code=400, detail="COMFYUI_BASE_URL_MISSING")
+
+        payload: dict[str, Any] = dict(workflow_params or {})
+        workflow_definition = {
+            "workflow_key": workflow_key,
+            "graph": load_comfy_workflow(workflow_key),
+        }
+        workflow = SimpleNamespace(
+            id=f"{workflow_key}_submit",
+            definition=workflow_definition,
+            extra_metadata={"workflow_key": workflow_key},
+        )
+        context = ExecutionContext(
+            task=SimpleNamespace(id=f"submit-{uuid4().hex}", user_id="admin-comfyui", assets=[]),
+            workflow=workflow,
+            executor=executor,
+            payload=payload,
+            api_key=None,
+        )
+
+        # Reuse adapter's input-mapping and seed logic for consistency.
+        graph_payload = workflow_definition.get("graph") or workflow_definition
+        overrides, override_error = adapter._prepare_graph_inputs(context, workflow_definition)  # type: ignore[attr-defined]
+        if override_error:
+            raise HTTPException(status_code=400, detail=override_error)
+        if overrides:
+            from app.services.executors.comfyui import _apply_inputs
+
+            _apply_inputs(graph_payload, overrides)
+        adapter._ensure_sampler_seed(graph_payload, context.payload or {})  # type: ignore[attr-defined]
+
+        prompt_id = uuid4().hex
+        submission = {"prompt": graph_payload, "prompt_id": prompt_id}
+        try:
+            resp = httpx.post(f"{base_url}/prompt", json=submission, timeout=30)
+            resp.raise_for_status()
+            resp_json = resp.json()
+        except httpx.HTTPError as exc:  # pragma: no cover - defensive
+            self._logger.warning("Failed to submit ComfyUI prompt: %s", exc)
+            raise HTTPException(status_code=502, detail="COMFYUI_SUBMIT_ERROR") from exc
+
+        node_errors = resp_json.get("node_errors") if isinstance(resp_json, dict) else None
+        if isinstance(node_errors, dict) and node_errors:
+            # Make this explicit; otherwise callers will poll forever.
+            raise HTTPException(status_code=502, detail=f"COMFYUI_SUBMIT_NODE_ERROR:{list(node_errors.keys())[:5]}")
+
+        return {
+            "provider": "comfyui",
+            "executorId": executor.id,
+            "baseUrl": base_url,
+            "workflowKey": workflow_key,
+            "promptId": prompt_id,
+            "raw": {"response": resp_json},
+        }
+
     def run_comfyui_workflow(
         self,
         *,
@@ -890,8 +968,13 @@ class IntegrationTestService:
         if isinstance(assets, list) and assets:
             first = assets[0] or {}
             stored_url = first.get("ossUrl") or first.get("url")
+        # Include executor info to simplify debugging/routing validation.
+        config = executor.config or {}
+        base_url = (executor.base_url or config.get("baseUrl") or config.get("base_url") or "").rstrip("/")
         return {
             "provider": "comfyui",
+            "executorId": executor.id,
+            "baseUrl": base_url,
             "workflowKey": workflow_key,
             "promptId": payload.get("promptId") or payload.get("prompt_id") or "",
             "storedUrl": stored_url,

@@ -1,0 +1,376 @@
+{
+  "3": {
+    "inputs": {
+      "seed": 40792162276785,
+      "steps": 8,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": [
+        "75",
+        0
+      ],
+      "positive": [
+        "111",
+        0
+      ],
+      "negative": [
+        "110",
+        0
+      ],
+      "latent_image": [
+        "415",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "K采样器"
+    }
+  },
+  "8": {
+    "inputs": {
+      "samples": [
+        "3",
+        0
+      ],
+      "vae": [
+        "39",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE解码"
+    }
+  },
+  "38": {
+    "inputs": {
+      "clip_name": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "type": "qwen_image",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "CLIP加载器"
+    }
+  },
+  "39": {
+    "inputs": {
+      "vae_name": "qwen_image_vae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "VAE加载器"
+    }
+  },
+  "66": {
+    "inputs": {
+      "shift": 2,
+      "model": [
+        "416",
+        0
+      ]
+    },
+    "class_type": "ModelSamplingAuraFlow",
+    "_meta": {
+      "title": "模型采样算法AuraFlow"
+    }
+  },
+  "75": {
+    "inputs": {
+      "strength": 1,
+      "model": [
+        "66",
+        0
+      ]
+    },
+    "class_type": "CFGNorm",
+    "_meta": {
+      "title": "CFG归一化"
+    }
+  },
+  "78": {
+    "inputs": {
+      "image": "1 (1).png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "加载图像"
+    }
+  },
+  "110": {
+    "inputs": {
+      "prompt": "low resolution, inaccurate anatomy, poor hand rendering, error, mistake, missing fingers, worst quality, low quality, average quality, watermark, blurry, fuzzy, reversed, inverted, deformed, distorted, twisted, warped, turning around, back view, facing away, squatting, crouching, multiple people, extra figures, showing teeth, fast-moving arms, clipping, blurry face, unclear facial features, distorted face, warped face, twisted limbs, warped body parts, color blocks, solid color splotches, fast movement, flickering, flashing, misaligned facial features, displaced eyes, nose and mouth, deformed fingers, malformed fingers, abnormal fingers, twisted fingers\n",
+      "clip": [
+        "38",
+        0
+      ],
+      "vae": [
+        "39",
+        0
+      ],
+      "image1": [
+        "78",
+        0
+      ]
+    },
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "_meta": {
+      "title": "TextEncodeQwenImageEditPlus"
+    }
+  },
+  "111": {
+    "inputs": {
+      "prompt": "“对低分辨率图像进行无损高清修复：同时修复放大后的模糊和像素块，补充丢失的细节（如文字笔画、物体纹理、背景元素），保持色彩一致性（避免色块断层），优化边缘过渡（消除锯齿），最终呈现高清、无失真的放大效果，细节丰富度接近原始高分辨率图像，高清”\n",
+      "clip": [
+        "38",
+        0
+      ],
+      "vae": [
+        "39",
+        0
+      ],
+      "image1": [
+        "78",
+        0
+      ]
+    },
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "_meta": {
+      "title": "TextEncodeQwenImageEditPlus"
+    }
+  },
+  "408": {
+    "inputs": {
+      "upscale_model": [
+        "409",
+        0
+      ],
+      "image": [
+        "8",
+        0
+      ]
+    },
+    "class_type": "ImageUpscaleWithModel",
+    "_meta": {
+      "title": "图像通过模型放大"
+    }
+  },
+  "409": {
+    "inputs": {
+      "model_name": "4x-UltraSharp.pth"
+    },
+    "class_type": "UpscaleModelLoader",
+    "_meta": {
+      "title": "放大模型加载器"
+    }
+  },
+  "415": {
+    "inputs": {
+      "pixels": [
+        "78",
+        0
+      ],
+      "vae": [
+        "39",
+        0
+      ]
+    },
+    "class_type": "VAEEncode",
+    "_meta": {
+      "title": "VAE编码"
+    }
+  },
+  "416": {
+    "inputs": {
+      "unet_name": "qwen_image_edit_2509_fp8_e4m3fn.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "UNET加载器"
+    }
+  },
+  "417": {
+    "inputs": {
+      "upscale_method": "nearest-exact",
+      "width": [
+        "419",
+        0
+      ],
+      "height": [
+        "422",
+        0
+      ],
+      "crop": "center",
+      "image": [
+        "408",
+        0
+      ]
+    },
+    "class_type": "ImageScale",
+    "_meta": {
+      "title": "图像缩放"
+    }
+  },
+  "418": {
+    "inputs": {
+      "image": [
+        "78",
+        0
+      ]
+    },
+    "class_type": "GetImageSize+",
+    "_meta": {
+      "title": "获取图像尺寸"
+    }
+  },
+  "419": {
+    "inputs": {
+      "expression": "a*b",
+      "a": [
+        "418",
+        0
+      ],
+      "b": [
+        "421",
+        0
+      ]
+    },
+    "class_type": "MathExpression|pysssss",
+    "_meta": {
+      "title": "数学表达式"
+    }
+  },
+  "421": {
+    "inputs": {
+      "Number": "2"
+    },
+    "class_type": "Int",
+    "_meta": {
+      "title": "整数"
+    }
+  },
+  "422": {
+    "inputs": {
+      "expression": "a*b",
+      "a": [
+        "418",
+        1
+      ],
+      "b": [
+        "421",
+        0
+      ]
+    },
+    "class_type": "MathExpression|pysssss",
+    "_meta": {
+      "title": "数学表达式"
+    }
+  },
+  "423": {
+    "inputs": {
+      "filename_prefix": "ComfyUI",
+      "images": [
+        "417",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "保存图像"
+    }
+  },
+  "424": {
+    "inputs": {
+      "text": "7528",
+      "anything": [
+        "419",
+        0
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "展示任何"
+    }
+  },
+  "425": {
+    "inputs": {
+      "text": "7488",
+      "anything": [
+        "422",
+        0
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "展示任何"
+    }
+  },
+  "426": {
+    "inputs": {
+      "text": "941",
+      "anything": [
+        "418",
+        0
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "展示任何"
+    }
+  },
+  "427": {
+    "inputs": {
+      "text": "936",
+      "anything": [
+        "418",
+        1
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "展示任何"
+    }
+  },
+  "428": {
+    "inputs": {
+      "image": [
+        "408",
+        0
+      ]
+    },
+    "class_type": "GetImageSize+",
+    "_meta": {
+      "title": "获取图像尺寸"
+    }
+  },
+  "429": {
+    "inputs": {
+      "text": "3744",
+      "anything": [
+        "428",
+        0
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "展示任何"
+    }
+  },
+  "430": {
+    "inputs": {
+      "text": "3744",
+      "anything": [
+        "428",
+        1
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "展示任何"
+    }
+  }
+}

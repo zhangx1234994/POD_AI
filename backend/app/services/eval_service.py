@@ -123,10 +123,15 @@ class EvalService:
     def _execute_run(self, run_id: str) -> None:
         started = time.monotonic()
         settings = get_settings()
+        # Avoid using ORM instances outside the session scope (commit expires attrs by default).
+        workflow_id: str | None = None
+        run_parameters: dict[str, Any] = {}
         with get_session() as session:
             run = session.get(EvalRun, run_id)
             if not run:
                 return
+            if isinstance(run.parameters_json, dict):
+                run_parameters = run.parameters_json.copy()
             workflow_version = session.get(EvalWorkflowVersion, run.workflow_version_id)
             if not workflow_version:
                 run.status = "failed"
@@ -134,15 +139,18 @@ class EvalService:
                 session.add(run)
                 session.commit()
                 return
+            workflow_id = str(workflow_version.workflow_id)
             run.status = "running"
             session.add(run)
             session.commit()
 
         try:
             # Execute the workflow (non-streaming). OpenAPI tokens are handled by coze_client.
+            if not workflow_id:
+                raise RuntimeError("WORKFLOW_ID_MISSING")
             response = coze_client.run_workflow(
-                workflow_id=workflow_version.workflow_id,
-                parameters=run.parameters_json or {},
+                workflow_id=workflow_id,
+                parameters=run_parameters,
                 is_async=False,
             )
 

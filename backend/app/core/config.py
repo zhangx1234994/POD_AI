@@ -59,7 +59,8 @@ class Settings(BaseSettings):
     # eval_public_enabled=true, the endpoints are open (intended for internal LAN).
     eval_public_token: str | None = Field(default=None, env="EVAL_PUBLIC_TOKEN")
     # Admin token for maintaining eval workflow display name/notes/categories without login.
-    eval_admin_token: str | None = Field(default=None, env="EVAL_ADMIN_TOKEN")
+    # Default is set for local/internal use; override via env in real deployments.
+    eval_admin_token: str | None = Field(default="Chrd5@0987", env="EVAL_ADMIN_TOKEN")
     # If a Coze workflow returns a raw ComfyUI task id (not a PODI ability_task id),
     # we can fall back to another workflow to resolve images.
     coze_comfyui_callback_workflow_id: str | None = Field(default=None, env="COZE_COMFYUI_CALLBACK_WORKFLOW_ID")

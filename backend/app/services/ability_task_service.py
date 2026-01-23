@@ -124,12 +124,22 @@ class AbilityTaskService:
                 db_task = session.get(AbilityTask, task_id)
                 if not db_task:
                     return
-                db_task.status = "succeeded"
-                db_task.finished_at = finished_at
-                db_task.duration_ms = duration
-                db_task.result_payload = response.model_dump()
-                db_task.log_id = response.logId
-                db_task.error_message = None
+                # Some abilities (e.g. long-running ComfyUI graphs) return status=running,
+                # meaning we only submitted the job and will finalize later via polling.
+                if (response.status or "").lower() in {"queued", "running"}:
+                    db_task.status = "running"
+                    db_task.finished_at = None
+                    db_task.duration_ms = None
+                    db_task.result_payload = response.model_dump()
+                    db_task.log_id = response.logId
+                    db_task.error_message = None
+                else:
+                    db_task.status = "succeeded"
+                    db_task.finished_at = finished_at
+                    db_task.duration_ms = duration
+                    db_task.result_payload = response.model_dump()
+                    db_task.log_id = response.logId
+                    db_task.error_message = None
                 session.add(db_task)
                 session.commit()
         except Exception as exc:  # pragma: no cover - defensive

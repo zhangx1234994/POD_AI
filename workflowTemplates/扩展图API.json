@@ -1,12 +1,12 @@
 {
   "35": {
     "inputs": {
-      "unet_name": "qwen_image_edit_2509_fp8_e4m3fn.safetensors",
+      "unet_name": "qwen_image_fp8_e4m3fn.safetensors",
       "weight_dtype": "default"
     },
     "class_type": "UNETLoader",
     "_meta": {
-      "title": "UNet加载器"
+      "title": "UNET加载器"
     }
   },
   "36": {
@@ -17,7 +17,7 @@
     },
     "class_type": "CLIPLoader",
     "_meta": {
-      "title": "加载CLIP"
+      "title": "CLIP加载器"
     }
   },
   "40": {
@@ -26,7 +26,7 @@
     },
     "class_type": "VAELoader",
     "_meta": {
-      "title": "加载VAE"
+      "title": "VAE加载器"
     }
   },
   "41": {
@@ -42,7 +42,7 @@
     },
     "class_type": "CLIPTextEncode",
     "_meta": {
-      "title": "CLIP文本编码"
+      "title": "CLIP文本编码器"
     }
   },
   "43": {
@@ -55,7 +55,7 @@
     },
     "class_type": "ModelSamplingAuraFlow",
     "_meta": {
-      "title": "采样算法（AuraFlow）"
+      "title": "模型采样算法AuraFlow"
     }
   },
   "44": {
@@ -64,7 +64,7 @@
     },
     "class_type": "ControlNetLoader",
     "_meta": {
-      "title": "加载ControlNet模型"
+      "title": "ControlNet加载器"
     }
   },
   "45": {
@@ -78,7 +78,7 @@
     },
     "class_type": "LoraLoaderModelOnly",
     "_meta": {
-      "title": "LoRA加载器（仅模型）"
+      "title": "LoRA加载器(仅模型)"
     }
   },
   "47": {
@@ -99,7 +99,7 @@
   },
   "51": {
     "inputs": {
-      "seed": 389365770564283,
+      "seed": 482071062586936,
       "steps": 8,
       "cfg": 1,
       "sampler_name": "euler",
@@ -159,7 +159,7 @@
     },
     "class_type": "ControlNetInpaintingAliMamaApply",
     "_meta": {
-      "title": "应用ControlNet（阿里妈妈局部重绘）"
+      "title": "ControlNet应用_阿里妈妈局部重绘"
     }
   },
   "53": {
@@ -177,13 +177,13 @@
       ],
       "background_color": "#111111",
       "image": [
-        "205",
+        "213",
         0
       ]
     },
     "class_type": "LayerUtility: ImageScaleByAspectRatio V2",
     "_meta": {
-      "title": "图层工具：按宽高比缩放 V2"
+      "title": "按宽高比缩放_V2"
     }
   },
   "56": {
@@ -208,7 +208,7 @@
     },
     "class_type": "ImpactInt",
     "_meta": {
-      "title": "ImpactInt"
+      "title": "整数"
     }
   },
   "63": {
@@ -237,7 +237,7 @@
     },
     "class_type": "CLIPTextEncode",
     "_meta": {
-      "title": "CLIP文本编码"
+      "title": "CLIP文本编码器"
     }
   },
   "73": {
@@ -257,7 +257,7 @@
     },
     "class_type": "GrowMaskWithBlur",
     "_meta": {
-      "title": "Grow Mask With Blur"
+      "title": "遮罩模糊生长"
     }
   },
   "74": {
@@ -368,7 +368,7 @@
     },
     "class_type": "ImpactInt",
     "_meta": {
-      "title": "ImpactInt"
+      "title": "整数"
     }
   },
   "187": {
@@ -377,7 +377,7 @@
     },
     "class_type": "ImpactInt",
     "_meta": {
-      "title": "ImpactInt"
+      "title": "整数"
     }
   },
   "188": {
@@ -386,7 +386,7 @@
     },
     "class_type": "ImpactInt",
     "_meta": {
-      "title": "ImpactInt"
+      "title": "整数"
     }
   },
   "189": {
@@ -395,19 +395,19 @@
     },
     "class_type": "ImpactInt",
     "_meta": {
-      "title": "ImpactInt"
+      "title": "整数"
     }
   },
   "190": {
     "inputs": {
       "image": [
-        "205",
+        "213",
         0
       ]
     },
     "class_type": "Get Image Size",
     "_meta": {
-      "title": "Get Image Size"
+      "title": "获取图像尺寸"
     }
   },
   "191": {
@@ -419,7 +419,7 @@
     },
     "class_type": "ImpactInt",
     "_meta": {
-      "title": "ImpactInt"
+      "title": "整数"
     }
   },
   "192": {
@@ -431,7 +431,7 @@
     },
     "class_type": "ImpactInt",
     "_meta": {
-      "title": "ImpactInt"
+      "title": "整数"
     }
   },
   "193": {
@@ -521,7 +521,7 @@
     },
     "class_type": "ImageScale",
     "_meta": {
-      "title": "缩放图像"
+      "title": "图像缩放"
     }
   },
   "205": {
@@ -533,7 +533,7 @@
     },
     "class_type": "LoadImagesFromURL",
     "_meta": {
-      "title": "Load Images From URL ♾️Mixlab"
+      "title": "加载图像(URL)"
     }
   },
   "206": {
@@ -545,16 +545,25 @@
     },
     "class_type": "easy cleanGpuUsed",
     "_meta": {
-      "title": "清理显存占用"
+      "title": "清理GPU占用"
     }
   },
   "211": {
     "inputs": {
-      "inStr": "https://gips2.baidu.com/it/u=1674525583,3037683813&fm=3028&app=3028&f=JPEG&fmt=auto?w=1024&h=1024"
+      "String": "https://gips2.baidu.com/it/u=1674525583,3037683813&fm=3028&app=3028&f=JPEG&fmt=auto?w=1024&h=1024"
     },
     "class_type": "String",
     "_meta": {
-      "title": "String"
+      "title": "字符串"
+    }
+  },
+  "213": {
+    "inputs": {
+      "image": "2Pcs Christmas Santa Claus Soft Glasses Case Christmas Tree Travel PU Leather Glasses Bag Snowman Portable Squeeze Top Eyeglass Case Pouch for Sunglasses Watches Phones Makeup Brushes-1.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "加载图像"
     }
   }
 }

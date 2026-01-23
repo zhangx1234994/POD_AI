@@ -63,6 +63,83 @@ const buildCozeDoc = (wf: EvalWorkflowVersion, urlExample: string) => {
   ].join('\n');
 };
 
+function Lightbox({
+  url,
+  title,
+  onClose,
+}: {
+  url: string;
+  title?: string;
+  onClose: () => void;
+}) {
+  const [zoomed, setZoomed] = useState(false);
+
+  useEffect(() => {
+    setZoomed(false);
+  }, [url]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  if (!url) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="w-full max-w-5xl rounded-2xl border border-slate-800 bg-slate-950 shadow-xl">
+        <div className="flex items-center justify-between gap-3 border-b border-slate-800 px-4 py-3">
+          <div className="min-w-0">
+            <div className="text-sm font-semibold text-slate-100 truncate">{title || '预览'}</div>
+            <div className="text-[11px] text-slate-500 truncate">{url}</div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setZoomed((z) => !z)}
+              className="rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-200 hover:border-slate-700"
+            >
+              {zoomed ? '缩小' : '放大'}
+            </button>
+            <a
+              href={url}
+              target="_blank"
+              rel="noreferrer"
+              download
+              className="rounded-xl bg-emerald-500/80 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-500"
+            >
+              下载
+            </a>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-200 hover:border-slate-700"
+            >
+              关闭
+            </button>
+          </div>
+        </div>
+        <div className="max-h-[80vh] overflow-auto p-4">
+          <img
+            src={url}
+            alt="preview"
+            className={`mx-auto rounded-xl bg-black/20 object-contain transition ${zoomed ? 'w-auto max-w-none scale-150 origin-top' : 'max-h-[70vh] w-full'}`}
+          />
+          <div className="mt-2 text-[11px] text-slate-500">提示：按 Esc 或点击遮罩层可关闭。</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ToolCard({
   wf,
   active,
@@ -258,6 +335,7 @@ export function App() {
   const [filterRating, setFilterRating] = useState<string>('all');
   const [filterUnrated, setFilterUnrated] = useState<boolean>(false);
   const [search, setSearch] = useState<string>('');
+  const [lightbox, setLightbox] = useState<{ url: string; title?: string } | null>(null);
 
   // Simple "private" admin token stored in localStorage.
   const [adminToken, setAdminToken] = useState<string>(() => localStorage.getItem('podi_eval_admin_token') || '');
@@ -349,6 +427,12 @@ export function App() {
   const openTool = (wf: EvalWorkflowVersion) => {
     setSelectedTool(wf);
     setFormUrl('');
+    // Prevent showing previous tool's results while the new tool's history is loading.
+    setRuns([]);
+    setFilterStatus('all');
+    setFilterRating('all');
+    setFilterUnrated(false);
+    setSearch('');
     const defaults: Record<string, string> = {};
     for (const f of getFields(wf)) {
       if (f.name === 'url') continue;
@@ -517,6 +601,7 @@ export function App() {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-50">
         {header}
+        <Lightbox url={lightbox?.url || ''} title={lightbox?.title} onClose={() => setLightbox(null)} />
         <div className="mx-auto max-w-[1400px] px-6 py-6">
           <TaskTable runs={runs} workflowMap={workflowMap} />
         </div>
@@ -530,6 +615,7 @@ export function App() {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-50">
         {header}
+        <Lightbox url={lightbox?.url || ''} title={lightbox?.title} onClose={() => setLightbox(null)} />
         <div className="mx-auto max-w-[1400px] px-6 py-6">
           <div className="mb-4 flex items-start justify-between gap-4">
             <div>
@@ -636,16 +722,45 @@ export function App() {
 
             <div className="rounded-3xl border border-slate-800 bg-slate-900/30 p-5">
               <div className="text-sm font-semibold">右侧：生成结果</div>
-              <div className="mt-3 text-xs text-slate-400">点击图片可打开原图；下方历史可筛选/打标。</div>
+              <div className="mt-3 text-xs text-slate-400">点击图片可在页面内放大预览；下方历史可筛选/打标。</div>
               <div className="mt-4 grid gap-3 lg:grid-cols-3">
-                {(filteredRuns[0]?.result_image_urls_json || []).map((img, idx) => (
-                  <a key={`latest-${idx}`} href={img} target="_blank" rel="noreferrer" className="block rounded-2xl border border-slate-800 bg-slate-950/30 p-2 hover:border-slate-700">
-                    <img src={img} alt="latest" className="h-56 w-full rounded-xl object-contain" />
-                  </a>
-                ))}
-                {(!filteredRuns[0] || (filteredRuns[0].result_image_urls_json || []).length === 0) && (
-                  <div className="text-sm text-slate-500">暂无结果（先在左侧运行一次）。</div>
-                )}
+                {(() => {
+                  const latest = runs[0] || null; // runs are loaded per-tool (ordered desc by created_at)
+                  if (!latest) {
+                    return <div className="text-sm text-slate-500">暂无记录（先在左侧运行一次）。</div>;
+                  }
+                  if (latest.status === 'queued' || latest.status === 'running') {
+                    return (
+                      <div className="rounded-2xl border border-slate-800 bg-slate-950/30 p-4 text-sm text-slate-300">
+                        正在生成中…
+                        <div className="mt-2 text-xs text-slate-500">run: {latest.id}</div>
+                      </div>
+                    );
+                  }
+                  if (latest.status === 'failed') {
+                    return (
+                      <div className="rounded-2xl border border-slate-800 bg-slate-950/30 p-4 text-sm text-rose-300">
+                        生成失败
+                        {latest.error_message ? <div className="mt-2 text-xs text-rose-400">{latest.error_message}</div> : null}
+                        <div className="mt-2 text-xs text-slate-500">run: {latest.id}</div>
+                      </div>
+                    );
+                  }
+                  const imgs = latest.result_image_urls_json || [];
+                  if (!imgs.length) {
+                    return <div className="text-sm text-slate-500">该次运行无图片输出。</div>;
+                  }
+                  return imgs.map((img, idx) => (
+                    <button
+                      key={`latest-${idx}`}
+                      type="button"
+                      onClick={() => setLightbox({ url: img, title: `最新结果 #${idx + 1}` })}
+                      className="block rounded-2xl border border-slate-800 bg-slate-950/30 p-2 hover:border-slate-700"
+                    >
+                      <img src={img} alt="latest" className="h-56 w-full rounded-xl object-contain" />
+                    </button>
+                  ));
+                })()}
               </div>
 
               <div className="mt-6 border-t border-slate-800 pt-5">
@@ -698,7 +813,12 @@ export function App() {
 
                 <div className="mt-4 space-y-4">
                   {filteredRuns.map((run) => (
-                    <HistoryRow key={run.id} run={run} onAnnotate={annotate} />
+                    <HistoryRow
+                      key={run.id}
+                      run={run}
+                      onAnnotate={annotate}
+                      onOpenImage={(url, title) => setLightbox({ url, title })}
+                    />
                   ))}
                   {filteredRuns.length === 0 ? <div className="text-sm text-slate-500">暂无记录。</div> : null}
                 </div>
@@ -714,6 +834,7 @@ export function App() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50">
       {header}
+      <Lightbox url={lightbox?.url || ''} title={lightbox?.title} onClose={() => setLightbox(null)} />
       <div className="mx-auto max-w-[1400px] px-6 py-6 grid gap-6 lg:grid-cols-[280px_1fr]">
         <aside className="rounded-3xl border border-slate-800 bg-slate-900/30 p-4">
           <div className="text-sm font-semibold">分类</div>
@@ -764,25 +885,33 @@ export function App() {
 function HistoryRow({
   run,
   onAnnotate,
+  onOpenImage,
 }: {
   run: RunWithLatest;
   onAnnotate: (runId: string, rating: number, comment: string) => Promise<void>;
+  onOpenImage: (url: string, title?: string) => void;
 }) {
   const inputUrl = (run.input_oss_urls_json || [])[0] || '';
   const outputs = run.result_image_urls_json || [];
   const [rating, setRating] = useState<number>(run.latest_annotation?.rating || 0);
-  const [comment, setComment] = useState<string>(String(run.latest_annotation?.comment || ''));
-  const [submitting, setSubmitting] = useState(false);
+  const [savedComment, setSavedComment] = useState<string>(String(run.latest_annotation?.comment || ''));
+  const [commentDraft, setCommentDraft] = useState<string>(String(run.latest_annotation?.comment || ''));
+  const [savingRating, setSavingRating] = useState(false);
+  const [savingComment, setSavingComment] = useState(false);
+  const [lastSavedAt, setLastSavedAt] = useState<string>('');
 
-  const submit = async () => {
-    if (!rating) return;
-    setSubmitting(true);
-    try {
-      await onAnnotate(run.id, rating, comment);
-    } finally {
-      setSubmitting(false);
-    }
-  };
+  const commentDirty = commentDraft !== savedComment;
+
+  // Sync state when the latest annotation changes due to refresh/polling.
+  // Do not clobber an in-progress comment draft.
+  useEffect(() => {
+    const nextRating = run.latest_annotation?.rating || 0;
+    const nextComment = String(run.latest_annotation?.comment || '');
+    setRating(nextRating);
+    setSavedComment(nextComment);
+    setCommentDraft((prev) => (prev === savedComment ? nextComment : prev));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [run.latest_annotation?.created_at]);
 
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
@@ -811,9 +940,22 @@ function HistoryRow({
                 <button
                   key={`${run.id}-r-${n}`}
                   type="button"
-                  onClick={() => setRating(n)}
+                  onClick={async () => {
+                    if (savingRating || savingComment) return;
+                    setRating(n);
+                    setSavingRating(true);
+                    try {
+                      // Save rating immediately. Keep last saved comment to avoid clearing it.
+                      await onAnnotate(run.id, n, savedComment);
+                      setLastSavedAt(new Date().toISOString());
+                    } finally {
+                      setSavingRating(false);
+                    }
+                  }}
                   className={`h-9 w-9 rounded-xl border text-sm transition ${
-                    active ? 'border-amber-400/80 bg-amber-400/20 text-amber-200' : 'border-slate-800 bg-slate-950 text-slate-200 hover:border-slate-700'
+                    active
+                      ? 'border-amber-400/80 bg-amber-400/25 text-amber-100 shadow-[0_0_0_2px_rgba(251,191,36,0.12)]'
+                      : 'border-slate-800 bg-slate-950 text-slate-200 hover:border-slate-700'
                   }`}
                 >
                   {n}
@@ -821,25 +963,52 @@ function HistoryRow({
               );
             })}
           </div>
-          <button
-            type="button"
-            disabled={!rating || submitting}
-            onClick={() => void submit()}
-            className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${
-              !rating || submitting ? 'bg-slate-700/40 text-slate-400' : 'bg-emerald-500/80 text-white hover:bg-emerald-500'
-            }`}
-          >
-            {submitting ? '提交中…' : '提交'}
-          </button>
+          <div className="ml-2 text-xs text-slate-400">
+            {savingRating || savingComment ? (
+              <span className="text-slate-300">保存中…</span>
+            ) : rating ? (
+              <span className="text-amber-200">已评分 {rating}</span>
+            ) : (
+              <span className="text-slate-500">未评分</span>
+            )}
+            {lastSavedAt ? <span className="ml-2 text-slate-500">({fmtTime(lastSavedAt)})</span> : null}
+          </div>
         </div>
       </div>
 
       <div className="mt-3 grid gap-3 lg:grid-cols-[220px_1fr]">
         <div>
-          <div className="text-xs text-slate-500 mb-1">备注（可选）</div>
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <div className="text-xs text-slate-500">备注（可选）</div>
+            <button
+              type="button"
+              disabled={!commentDirty || savingRating || savingComment}
+              onClick={async () => {
+                if (!rating) {
+                  alert('请先点一个评分（1-5），再保存备注。');
+                  return;
+                }
+                setSavingComment(true);
+                try {
+                  await onAnnotate(run.id, rating, commentDraft);
+                  setSavedComment(commentDraft);
+                  setLastSavedAt(new Date().toISOString());
+                } finally {
+                  setSavingComment(false);
+                }
+              }}
+              className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${
+                !commentDirty || savingRating || savingComment
+                  ? 'bg-slate-700/40 text-slate-400'
+                  : 'bg-emerald-500/80 text-white hover:bg-emerald-500'
+              }`}
+            >
+              保存备注
+            </button>
+          </div>
           <textarea
-            value={comment}
-            onChange={(e) => setComment(e.target.value)}
+            value={commentDraft}
+            onChange={(e) => setCommentDraft(e.target.value)}
             rows={3}
             className="w-full rounded-xl border border-slate-800 bg-slate-950 p-3 text-sm text-slate-100"
             placeholder="问题描述/优化建议…"
@@ -849,15 +1018,24 @@ function HistoryRow({
           <div className="text-xs text-slate-500 mb-1">原图 / 结果</div>
           <div className="grid gap-2 lg:grid-cols-4">
             {inputUrl ? (
-              <a href={inputUrl} target="_blank" rel="noreferrer" className="block rounded-xl border border-slate-800 bg-slate-950/30 p-1 hover:border-slate-700">
+              <button
+                type="button"
+                onClick={() => onOpenImage(inputUrl, '原图')}
+                className="block rounded-xl border border-slate-800 bg-slate-950/30 p-1 hover:border-slate-700"
+              >
                 <img src={inputUrl} alt="input" className="h-32 w-full rounded-lg object-contain" />
-              </a>
+              </button>
             ) : null}
             {outputs.length > 0 ? (
               outputs.map((u, idx) => (
-                <a key={`${run.id}-out-${idx}`} href={u} target="_blank" rel="noreferrer" className="block rounded-xl border border-slate-800 bg-slate-950/30 p-1 hover:border-slate-700">
+                <button
+                  key={`${run.id}-out-${idx}`}
+                  type="button"
+                  onClick={() => onOpenImage(u, `结果图 #${idx + 1}`)}
+                  className="block rounded-xl border border-slate-800 bg-slate-950/30 p-1 hover:border-slate-700"
+                >
                   <img src={u} alt="output" className="h-32 w-full rounded-lg object-contain" />
-                </a>
+                </button>
               ))
             ) : (
               <div className="text-sm text-slate-500">{run.status === 'running' || run.status === 'queued' ? '生成中…' : '暂无输出'}</div>

@@ -274,13 +274,6 @@ def _comfyui_seamless_schema() -> dict[str, Any]:
     return {
         "fields": [
             {
-                "name": "prompt",
-                "type": "textarea",
-                "label": _compose_bilingual_label("提示词", "Prompt"),
-                "description": "节点 42 · StringConcatenate.string_a",
-                "placeholder": _compose_bilingual_label("例如：手绘花纹、几何、素材描述", "Describe the seamless pattern you expect"),
-            },
-            {
                 "name": "patternType",
                 "type": "select",
                 "label": _compose_bilingual_label("图案类型", "Pattern Type"),
@@ -292,41 +285,28 @@ def _comfyui_seamless_schema() -> dict[str, Any]:
                 "default": "seamless",
             },
             {
-                "name": "resolution",
-                "type": "select",
-                "label": _compose_bilingual_label("输出比例", "Output Ratio"),
-                "description": "节点 102 · ImageResize+",
-                "options": [
-                    {"label": "1:1 正方形", "value": "1:1"},
-                    {"label": "1:2 竖版", "value": "1:2"},
-                    {"label": "2:1 横版", "value": "2:1"},
-                    {"label": "original 原图", "value": "original"},
-                    {"label": "auto 自定义", "value": "auto"},
-                ],
-                "default": "1:1",
-            },
-            {
-                "name": "width",
-                "type": "number",
-                "label": _compose_bilingual_label("输出宽度 (px)", "Output Width (px)"),
-                "description": "节点 102.width",
-                "placeholder": "2048",
-            },
-            {
-                "name": "height",
-                "type": "number",
-                "label": _compose_bilingual_label("输出高度 (px)", "Output Height (px)"),
-                "description": "节点 102.height",
-                "placeholder": "2048",
-            },
-            {
                 "name": "image_url",
-                "type": "text",
+                "type": "image",
                 "label": _compose_bilingual_label("样例图 URL", "Reference Image URL"),
                 "description": _compose_bilingual_label(
                     "输入公网图片链接，或在测试面板上传图片自动填写", "Provide a public URL or upload image in the tester"
                 )
                 + "（节点 96）",
+                "required": True,
+            },
+            {
+                "name": "size",
+                "type": "select",
+                "label": _compose_bilingual_label("输出大小（px）", "Output Size (px)"),
+                "description": "节点 102 · ImageResize+.width/height（统一用一个 size）",
+                "options": [
+                    {"label": "1024", "value": "1024"},
+                    {"label": "1536", "value": "1536"},
+                    {"label": "2048", "value": "2048"},
+                    {"label": "3072", "value": "3072"},
+                    {"label": "4096", "value": "4096"},
+                ],
+                "default": "2048",
             },
         ]
     }
@@ -542,7 +522,7 @@ def _comfyui_pattern_extract_schema() -> dict[str, Any]:
         "fields": [
             {
                 "name": "image_url",
-                "type": "text",
+                "type": "image",
                 "label": _compose_bilingual_label("样例图 URL", "Reference Image URL"),
                 "description": "节点 393 · LoadImagesFromURL.url",
                 "placeholder": "https://example.com/sample.png",
@@ -563,21 +543,21 @@ def _comfyui_pattern_extract_schema() -> dict[str, Any]:
                 "default": negative_default,
             },
             {
-                "name": "output_width",
+                "name": "width",
                 "type": "number",
                 "label": _compose_bilingual_label("输出宽度 (px)", "Output Width (px)"),
                 "description": "节点 400 · LatentUpscale.width",
                 "default": 1800,
             },
             {
-                "name": "output_height",
+                "name": "height",
                 "type": "number",
                 "label": _compose_bilingual_label("输出高度 (px)", "Output Height (px)"),
                 "description": "节点 400 · LatentUpscale.height",
                 "default": 1800,
             },
             {
-                "name": "batch_count",
+                "name": "batch",
                 "type": "number",
                 "label": _compose_bilingual_label("批次数量", "Batch Count"),
                 "description": "节点 424 · RepeatLatentBatch.amount，控制一次生成多少张图（批次越大耗时越久，超时限制会自动按批次增加）。",
@@ -586,13 +566,11 @@ def _comfyui_pattern_extract_schema() -> dict[str, Any]:
                 "max": 8,
             },
             {
-                "name": "lora_name",
-                "type": "text",
-                "label": _compose_bilingual_label("LoRA 文件名", "LoRA Filename"),
-                "description": "节点 390 · LoraLoaderModelOnly.lora_name，可在根目录 LORA_CATALOG.md 查看说明。",
+                "name": "lora",
+                "type": "select",
+                "label": _compose_bilingual_label("LoRA", "LoRA"),
+                "description": "节点 390 · LoraLoaderModelOnly.lora_name（可在根目录 LORA_CATALOG.md 查看说明）。",
                 "default": "印花提取-YinHuaTiQu-Qwen-Image-Edit-LoRA_V1.safetensors",
-                "component": "select",
-                "allow_custom_value": True,
                 "options": _pattern_extract_lora_options(),
             },
         ]
@@ -604,11 +582,31 @@ def _comfyui_pattern_expand_schema() -> dict[str, Any]:
         "fields": [
             {
                 "name": "image_url",
-                "type": "text",
+                "type": "image",
                 "label": _compose_bilingual_label("样例图 URL", "Reference Image URL"),
                 "description": "节点 205 · LoadImagesFromURL.url",
                 "placeholder": "https://example.com/pattern.png",
                 "required": True,
+            },
+            {
+                "name": "prompt",
+                "type": "textarea",
+                "label": _compose_bilingual_label("提示词（可选）", "Prompt (optional)"),
+                "description": "节点 74 · Text _O.text（不填使用默认提示词）",
+                "required": False,
+            },
+            {
+                "name": "size",
+                "type": "select",
+                "label": _compose_bilingual_label("预缩放最长边(px)", "Pre-scale Long Side (px)"),
+                "description": "节点 61 · ImpactInt.value（输入图会先缩放到该最长边再扩图，影响质量/速度）",
+                "options": [
+                    {"label": "512", "value": "512"},
+                    {"label": "720", "value": "720"},
+                    {"label": "1024", "value": "1024"},
+                    {"label": "1536", "value": "1536"},
+                ],
+                "default": "720",
             },
             {
                 "name": "expand_left",
@@ -667,6 +665,20 @@ def _comfyui_jisu_chuli_schema() -> dict[str, Any]:
                 "required": False,
             },
             {
+                "name": "lora",
+                "type": "select",
+                "label": _compose_bilingual_label("LoRA", "LoRA"),
+                "description": _compose_bilingual_label(
+                    "节点 89 · LoraLoaderModelOnly.lora_name（可选，不填使用工作流默认）",
+                    "Node 89 · LoraLoaderModelOnly.lora_name (optional; uses workflow default if omitted).",
+                ),
+                "required": False,
+                "options": [
+                    {"label": "4steps Lightning", "value": "Qwen-Image-Edit-2509-Lightning-4steps-V1.0-bf16.safetensors"},
+                    {"label": "8steps Lightning", "value": "Qwen-Image-Edit-2509-Lightning-8steps-V1.0-bf16.safetensors"},
+                ],
+            },
+            {
                 "name": "batch",
                 "type": "number",
                 "label": _compose_bilingual_label("批次", "Batch"),
@@ -674,7 +686,7 @@ def _comfyui_jisu_chuli_schema() -> dict[str, Any]:
                 "description": _compose_bilingual_label("默认 1。", "Default 1."),
             },
             {
-                "name": "output_width",
+                "name": "width",
                 "type": "number",
                 "label": _compose_bilingual_label("输出宽度(px)", "Output Width(px)"),
                 "description": _compose_bilingual_label(
@@ -682,7 +694,7 @@ def _comfyui_jisu_chuli_schema() -> dict[str, Any]:
                 ),
             },
             {
-                "name": "output_height",
+                "name": "height",
                 "type": "number",
                 "label": _compose_bilingual_label("输出高度(px)", "Output Height(px)"),
                 "description": _compose_bilingual_label(
@@ -1173,10 +1185,10 @@ KIE_MARKET_ABILITIES: dict[str, AbilityDefinition] = {
 COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
     "sifang_lianxu": {
         "defaults": {
-            "patternType": "seamless",
-            "resolution": "1:1",
             "workflow_key": "sifang_lianxu",
-            "timeout": 480,
+            "patternType": "seamless",
+            "size": 2048,
+            "timeout": 900,
         },
         "display_name": "ComfyUI · 四方连续",
         "description": "将输入图转为可四方连续拼接的纹理，自动结合图像理解提示词与自定义 prompt。",
@@ -1190,7 +1202,7 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "action": "seamless",
             "requires_image_input": True,
             "supports_vision": True,
-            "seed_version": 3,
+            "seed_version": 5,
             "pricing": {
                 "currency": "CNY",
                 "unit": "per_image",
@@ -1203,11 +1215,12 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
         "defaults": {
             "workflow_key": "yinhua_tiqu",
             "timeout": 420,
-            "output_width": 1800,
-            "output_height": 1800,
-            "lora_name": "印花提取-YinHuaTiQu-Qwen-Image-Edit-LoRA_V1.safetensors",
+            "width": 1800,
+            "height": 1800,
+            "lora": "印花提取-YinHuaTiQu-Qwen-Image-Edit-LoRA_V1.safetensors",
             "prompt": PATTERN_EXTRACT_POSITIVE_DEFAULT,
             "negative_prompt": PATTERN_EXTRACT_NEGATIVE_DEFAULT,
+            "batch": 1,
         },
         "display_name": "ComfyUI · 印花提取",
         "description": "基于 Qwen Image Edit 与印花 LoRA，将实物照片中的装饰纹样智能抠取成纯净的设计稿，可直接用于印刷或再创作。",
@@ -1221,7 +1234,7 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "action": "pattern_extract",
             "requires_image_input": True,
             "supports_vision": True,
-            "seed_version": 3,
+            "seed_version": 4,
             "lora_presets": PATTERN_EXTRACT_LORA_PRESETS,
             "pricing": {
                 "currency": "CNY",
@@ -1241,7 +1254,7 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "expand_bottom": 0,
             "feathering": 24,
             "mask_expand": 20,
-            "output_long_side": 720,
+            "size": 720,
             "prompt": "8k, 最佳质量，将输入图像左右两侧进行自然无缝延伸，保持风格一致，延续背景，禁止新增元素。",
             "negative_prompt": "solid color, text, watermark, extra objects, low quality, blurry",
             "lora_name": "Qwen-Image-Edit-2509-Lightning-8steps-V1.0-bf16.safetensors",
@@ -1258,7 +1271,7 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "action": "pattern_expand",
             "requires_image_input": True,
             "supports_vision": True,
-            "seed_version": 2,
+            "seed_version": 3,
             "pricing": {
                 "currency": "CNY",
                 "unit": "per_image",
@@ -1285,7 +1298,7 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "action": "image_edit_fast",
             "requires_image_input": True,
             "supports_vision": True,
-            "seed_version": 1,
+            "seed_version": 2,
             "pricing": {
                 "currency": "CNY",
                 "unit": "per_image",
@@ -1312,7 +1325,7 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "action": "image_edit_medium",
             "requires_image_input": True,
             "supports_vision": True,
-            "seed_version": 1,
+            "seed_version": 2,
             "pricing": {
                 "currency": "CNY",
                 "unit": "per_image",

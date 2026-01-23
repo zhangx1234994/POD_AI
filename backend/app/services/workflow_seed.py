@@ -51,6 +51,19 @@ def _build_workflow_seeds() -> list[WorkflowSeed]:
             },
         ),
         WorkflowSeed(
+            id="workflow_comfyui_huawen_kuotu_v1",
+            action="pattern_expand",
+            name="花纹扩图 · ComfyUI",
+            version="v1",
+            type="comfyui",
+            status="active",
+            workflow_key="huawen_kuotu",
+            metadata={
+                "workflow_key": "huawen_kuotu",
+                "description": "ComfyUI workflow for pattern outpainting / expansion.",
+            },
+        ),
+        WorkflowSeed(
             id="workflow_comfyui_yinhua_tiqu_v2",
             action="pattern_extract",
             name="印花提取 · ComfyUI",
@@ -76,6 +89,15 @@ def _build_binding_seeds() -> list[WorkflowBindingSeed]:
             priority=100,
             enabled=True,
             metadata={"notes": "Default binding for ComfyUI seamless pattern workflow"},
+        ),
+        WorkflowBindingSeed(
+            id="binding_pattern_expand_comfyui_v1",
+            action="pattern_expand",
+            workflow_id="workflow_comfyui_huawen_kuotu_v1",
+            executor_id="executor_comfyui_seamless_117",
+            priority=100,
+            enabled=True,
+            metadata={"notes": "Default binding for ComfyUI 花纹扩图 workflow (117.50.216.233:8079)"},
         ),
         WorkflowBindingSeed(
             id="binding_pattern_extract_comfyui_v2",
