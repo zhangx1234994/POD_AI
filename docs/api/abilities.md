@@ -35,7 +35,7 @@
         "timeout": 420,
         "output_width": 1800,
         "output_height": 1800,
-        "lora_name": "印花提取-YinHuaTiQu-Qwen-Image-Edit-LoRA_V1.safetensors"
+        "lora_name": "杯子1124.safetensors"
       },
       "inputSchema": { "...": "同管理端 schema" },
       "metadata": {

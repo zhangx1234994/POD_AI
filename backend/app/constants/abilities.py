@@ -465,13 +465,6 @@ PATTERN_EXTRACT_BLANKET_PROMPT_PORTRAIT = PATTERN_EXTRACT_BLANKET_PROMPT
 
 PATTERN_EXTRACT_LORA_PRESETS: list[dict[str, Any]] = [
     {
-        "value": "印花提取-YinHuaTiQu-Qwen-Image-Edit-LoRA_V1.safetensors",
-        "label": "标准通用（全品类）",
-        "notes": "原图大小训练的全品类 baseline，涵盖 8 条“曲面展开/文字像素级还原/背景色 100%”指令，适合绝大多数场景。",
-        "prompt": PATTERN_EXTRACT_POSITIVE_DEFAULT,
-        "negative_prompt": PATTERN_EXTRACT_NEGATIVE_DEFAULT,
-    },
-    {
         "value": "T-Shirt-1-1.safetensors",
         "label": "T 恤（1:1 标准）",
         "notes": "T 恤/卫衣 1:1 训练集，强调褶皱展开、文字像素级还原与面料底色复刻，可直接输出制版平面稿。",
@@ -574,7 +567,7 @@ def _comfyui_pattern_extract_schema() -> dict[str, Any]:
                 "type": "select",
                 "label": _compose_bilingual_label("LoRA", "LoRA"),
                 "description": "节点 390 · LoraLoaderModelOnly.lora_name（可在根目录 LORA_CATALOG.md 查看说明）。",
-                "default": "印花提取-YinHuaTiQu-Qwen-Image-Edit-LoRA_V1.safetensors",
+                "default": "杯子1124.safetensors",
                 "options": _pattern_extract_lora_options(),
             },
         ]
@@ -1197,7 +1190,7 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "timeout": 420,
             "width": 1800,
             "height": 1800,
-            "lora": "印花提取-YinHuaTiQu-Qwen-Image-Edit-LoRA_V1.safetensors",
+            "lora": "杯子1124.safetensors",
             "prompt": PATTERN_EXTRACT_POSITIVE_DEFAULT,
             "negative_prompt": PATTERN_EXTRACT_NEGATIVE_DEFAULT,
             "batch": 1,

@@ -19,9 +19,8 @@ from app.models.eval import EvalWorkflowVersion
 
 LORA_OPTIONS = [
     # From LORA_CATALOG.md table (repo-managed).
-    "印花提取-YinHuaTiQu-Qwen-Image-Edit-LoRA_V1.safetensors",
-    "T-Shirt-1-1.safetensors",
     "杯子1124.safetensors",
+    "T-Shirt-1-1.safetensors",
     "印花提取-毛毯1-1.safetensors",
     "印花提取-毛毯2-1.safetensors",
     "印花提取-毛毯1-2.safetensors",

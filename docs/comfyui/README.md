@@ -93,7 +93,7 @@
 | 执行节点 | executor_comfyui_pattern_extract_158 → http://117.50.80.158:8079 |
 | Workflow 文件 | backend/app/workflows/comfyui/yinhua_tiqu.json |
 | 超时设置 | 420 秒 (defaults.timeout) |
-| 核心模型 | UNETLoader: qwen_image_edit_2509_fp8_e4m3fn.safetensors、CLIP: qwen_2.5_vl_7b_fp8_scaled.safetensors、VAE: qwen_image_vae.safetensors、LoRA(节点 390) 默认 `印花提取-YinHuaTiQu-Qwen-Image-Edit-LoRA_V1.safetensors`（可切换 T-Shirt / 毛毯 / 杯子等） |
+| 核心模型 | UNETLoader: qwen_image_edit_2509_fp8_e4m3fn.safetensors、CLIP: qwen_2.5_vl_7b_fp8_scaled.safetensors、VAE: qwen_image_vae.safetensors、LoRA(节点 390) 默认 `杯子1124.safetensors`（可切换 T-Shirt / 毛毯 / 杯子等） |
 
 **关键节点**
 
@@ -112,7 +112,7 @@
 - prompt: 新的全品类高保真模板（`PATTERN_EXTRACT_POSITIVE_DEFAULT`）。
 - negative_prompt: 长串低质量/错误特征黑名单（保持与 workflow JSON 同步）。
 - output_width/output_height: 1800
-- lora_name: 印花提取-YinHuaTiQu-Qwen-Image-Edit-LoRA_V1.safetensors
+- lora_name: 杯子1124.safetensors
 
 **调试备注**
 
