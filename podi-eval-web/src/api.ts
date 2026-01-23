@@ -80,7 +80,13 @@ export const evalApi = {
     const form = new FormData();
     form.append('file', file);
     const resp = await fetch(`${API_BASE}/api/evals/uploads`, { method: 'POST', body: form, credentials: 'include' });
-    if (!resp.ok) throw new Error(await resp.text());
+    if (!resp.ok) {
+      const text = await resp.text();
+      const msg = extractErrorMessage(resp.statusText, text);
+      // When reverse proxies return an empty body, `new Error('')` becomes just "Error".
+      // Include status so the UI can show something actionable (413/502/etc).
+      throw new Error(`上传失败 (status=${resp.status}): ${msg}`);
+    }
     return resp.json() as Promise<{ url: string; objectKey: string }>;
   },
   adminListWorkflowVersions: async (adminToken: string) =>
