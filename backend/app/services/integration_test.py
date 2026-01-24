@@ -802,10 +802,36 @@ class IntegrationTestService:
 
     def _fetch_kie_task(self, base_url: str, headers: dict[str, str], task_id: str) -> dict:
         detail_url = f"{base_url}/api/v1/jobs/recordInfo"
-        try:
-            response = httpx.get(detail_url, headers=headers, params={"taskId": task_id}, timeout=30)
-        except httpx.HTTPError as exc:  # pragma: no cover - defensive
-            raise HTTPException(status_code=502, detail="KIE_STATUS_HTTP_ERROR") from exc
+        response = None
+        # KIE status calls can occasionally spike in latency or return transient gateway errors.
+        # Retry a few times so Coze workflows don't fail due to a single timeout.
+        for attempt in range(3):
+            try:
+                response = httpx.get(detail_url, headers=headers, params={"taskId": task_id}, timeout=60)
+            except httpx.HTTPError as exc:  # pragma: no cover - defensive
+                # Backoff and retry on transient network errors/timeouts.
+                if attempt < 2:
+                    time.sleep(0.8 * (1.6**attempt))
+                    continue
+                raise HTTPException(status_code=502, detail=f"KIE_STATUS_HTTP_ERROR: {exc}") from exc
+
+            # Treat upstream 5xx as transient; include snippet for diagnostics.
+            if response.status_code >= 500:
+                if attempt < 2:
+                    time.sleep(0.8 * (1.6**attempt))
+                    continue
+                snippet = ""
+                try:
+                    snippet = (response.text or "")[:300]
+                except Exception:
+                    snippet = ""
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"KIE_STATUS_HTTP_{response.status_code} body={snippet!r}",
+                )
+            break
+        if response is None:  # pragma: no cover - defensive
+            return {}
         try:
             return response.json()
         except ValueError:  # pragma: no cover - defensive
