@@ -7,6 +7,7 @@ This router is intended for internal usage on a trusted network. You can:
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
@@ -91,6 +92,123 @@ def list_workflow_versions(
     if status:
         stmt = stmt.where(EvalWorkflowVersion.status == status)
     return db.execute(stmt.order_by(EvalWorkflowVersion.category.asc(), EvalWorkflowVersion.created_at.desc())).scalars().all()
+
+
+@router.get("/docs/workflows")
+def get_workflow_docs(
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> dict[str, str]:
+    """Developer doc: how to call Coze workflows + full IO schema list (active)."""
+    _require_public_enabled(request)
+    _get_or_set_rater_id(request, response)
+    ensure_default_eval_workflow_versions(db)
+
+    rows = (
+        db.execute(
+            select(EvalWorkflowVersion)
+            .where(EvalWorkflowVersion.status == "active")
+            .order_by(EvalWorkflowVersion.category.asc(), EvalWorkflowVersion.name.asc())
+        )
+        .scalars()
+        .all()
+    )
+
+    def _md_escape(text: str) -> str:
+        return (text or "").replace("|", "\\|").replace("\n", " ").strip()
+
+    def _infer_output_kind(wf: EvalWorkflowVersion) -> str:
+        schema = wf.output_schema or {}
+        fields = schema.get("fields") if isinstance(schema, dict) else None
+        if isinstance(fields, list):
+            for f in fields:
+                if isinstance(f, dict) and f.get("name") == "output":
+                    desc = str(f.get("description") or "")
+                    if "task" in desc.lower() or "回调" in desc:
+                        return "callback_task_id"
+        return "image_url"
+
+    lines: list[str] = []
+    lines.append("# PODI 评测平台 · Coze 工作流调用文档")
+    lines.append("")
+    lines.append("用于开发人员直接通过 Coze OpenAPI 调用工作流，确认入参/出参与 workflow_id。")
+    lines.append("")
+    lines.append("## 调用方式")
+    lines.append("")
+    lines.append("环境变量：")
+    lines.append("- `COZE_BASE_URL`：例如 `https://api.coze.cn`（以实际为准）")
+    lines.append("- `COZE_API_TOKEN`：Coze 平台生成的 token")
+    lines.append("")
+    lines.append("示例：")
+    lines.append("```bash")
+    lines.append("curl -X POST \"$COZE_BASE_URL/v1/workflow/run\" \\")
+    lines.append("  -H \"Authorization: Bearer $COZE_API_TOKEN\" \\")
+    lines.append("  -H \"Content-Type: application/json\" \\")
+    lines.append("  -d '{\"workflow_id\":\"<WORKFLOW_ID>\",\"parameters\":{}}'")
+    lines.append("```")
+    lines.append("")
+    lines.append("## 功能列表（active）")
+    lines.append("")
+    lines.append("| 分类 | 功能 | workflow_id | 输出类型 | 备注 |")
+    lines.append("|---|---|---:|---|---|")
+    for wf in rows:
+        lines.append(
+            f"| {_md_escape(wf.category)} | {_md_escape(wf.name)} | `{_md_escape(wf.workflow_id)}` | `{_infer_output_kind(wf)}` | {_md_escape(wf.notes or '')} |"
+        )
+    lines.append("")
+
+    for wf in rows:
+        lines.append(f"## {wf.name}")
+        lines.append("")
+        lines.append(f"- 分类：`{wf.category}`")
+        lines.append(f"- workflow_id：`{wf.workflow_id}`")
+        lines.append(f"- 输出类型：`{_infer_output_kind(wf)}`（字段名固定为 `output`）")
+        if wf.notes:
+            lines.append(f"- 备注：{wf.notes}")
+        lines.append("")
+        lines.append("### 入参 parameters")
+        lines.append("")
+        schema = wf.parameters_schema or {}
+        fields = schema.get("fields") if isinstance(schema, dict) else None
+        if not isinstance(fields, list) or not fields:
+            lines.append("_无 schema（请在后台补齐 parameters_schema 以生成动态表单）。_")
+            lines.append("")
+        else:
+            lines.append("| 字段 | 必填 | 类型 | 默认值 | 可选项 | 描述 |")
+            lines.append("|---|---:|---|---|---|---|")
+            for f in fields:
+                if not isinstance(f, dict) or not f.get("name"):
+                    continue
+                name = str(f.get("name") or "")
+                required = "Y" if f.get("required") else ""
+                ftype = str(f.get("type") or "text")
+                default = str(f.get("defaultValue") or "")
+                opts = ""
+                options = f.get("options")
+                if isinstance(options, list) and options:
+                    rendered = []
+                    for o in options[:20]:
+                        if isinstance(o, dict):
+                            rendered.append(str(o.get("value") or o.get("label") or ""))
+                        else:
+                            rendered.append(str(o))
+                    opts = ", ".join([x for x in rendered if x])
+                    if len(options) > 20:
+                        opts += ", ..."
+                desc = str(f.get("description") or "")
+                lines.append(
+                    f"| `{_md_escape(name)}` | {required} | `{_md_escape(ftype)}` | `{_md_escape(default)}` | {_md_escape(opts)} | {_md_escape(desc)} |"
+                )
+            lines.append("")
+
+        lines.append("### 出参 data")
+        lines.append("")
+        lines.append("Coze 返回结构中 `data` 可能是 JSON 字符串或对象，通常我们关注：")
+        lines.append("- `data.output`：图片 URL 或回调 task id（取决于该工作流的输出类型）")
+        lines.append("")
+
+    return {"markdown": "\n".join(lines), "generatedAt": datetime.utcnow().isoformat() + "Z"}
 
 
 @router.post("/uploads")

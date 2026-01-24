@@ -47,6 +47,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 export const evalApi = {
   me: () => request<{ raterId: string }>('/api/evals/me'),
   listWorkflowVersions: () => request<EvalWorkflowVersion[]>('/api/evals/workflow-versions?status=active'),
+  getWorkflowDocs: () => request<{ markdown: string; generatedAt?: string }>('/api/evals/docs/workflows'),
   createRun: (payload: {
     workflow_version_id: string;
     dataset_item_id?: string | null;

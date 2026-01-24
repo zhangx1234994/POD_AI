@@ -365,7 +365,7 @@ export function App() {
   const [metrics, setMetrics] = useState<Record<string, { ratingCount: number; avgRating: number | null }>>({});
 
   const [activeCategory, setActiveCategory] = useState<string>('通用类');
-  const [activeView, setActiveView] = useState<'home' | 'tool' | 'tasks' | 'admin'>('home');
+  const [activeView, setActiveView] = useState<'home' | 'tool' | 'tasks' | 'admin' | 'docs'>('home');
   const [selectedTool, setSelectedTool] = useState<EvalWorkflowVersion | null>(null);
 
   const [formUrl, setFormUrl] = useState('');
@@ -383,6 +383,9 @@ export function App() {
   // Simple "private" admin token stored in localStorage.
   const [adminToken, setAdminToken] = useState<string>(() => localStorage.getItem('podi_eval_admin_token') || '');
   const [adminWorkflows, setAdminWorkflows] = useState<EvalWorkflowVersion[]>([]);
+  const [docsMarkdown, setDocsMarkdown] = useState<string>('');
+  const [docsLoading, setDocsLoading] = useState<boolean>(false);
+  const [docsGeneratedAt, setDocsGeneratedAt] = useState<string>('');
 
   const workflowMap = useMemo(() => {
     const m: Record<string, EvalWorkflowVersion> = {};
@@ -484,6 +487,24 @@ export function App() {
     void loadTasks();
     const timer = window.setInterval(() => void loadTasks(), 2000);
     return () => window.clearInterval(timer);
+  }, [activeView]);
+
+  useEffect(() => {
+    if (activeView !== 'docs') return;
+    setDocsLoading(true);
+    void (async () => {
+      try {
+        const res = await evalApi.getWorkflowDocs();
+        setDocsMarkdown(String(res.markdown || ''));
+        setDocsGeneratedAt(String(res.generatedAt || ''));
+      } catch (err) {
+        console.error(err);
+        pushNotice({ type: 'error', message: String((err as any)?.message || err) });
+      } finally {
+        setDocsLoading(false);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeView]);
 
   const openTool = (wf: EvalWorkflowVersion) => {
@@ -613,6 +634,20 @@ export function App() {
           </button>
           <button
             type="button"
+            onClick={() => {
+              setActiveView('docs');
+              setSelectedTool(null);
+            }}
+            className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${
+              activeView === 'docs'
+                ? 'bg-sky-500/20 text-sky-200 border border-sky-500/40'
+                : 'bg-slate-950 border border-slate-800 text-slate-300 hover:border-slate-700'
+            }`}
+          >
+            文档
+          </button>
+          <button
+            type="button"
             onClick={async () => {
               // "Private-ish": require a token, stored locally. No normal login.
               const token = adminToken || window.prompt('请输入 EVAL_ADMIN_TOKEN（仅管理员维护功能名/备注）') || '';
@@ -687,6 +722,55 @@ export function App() {
                 />
               ))}
               {adminWorkflows.length === 0 ? <div className="text-sm text-slate-500">暂无数据。</div> : null}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (activeView === 'docs') {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-50">
+        {header}
+        <NoticeBar notice={notice} onClose={() => setNotice(null)} />
+        <div className="mx-auto max-w-[1400px] px-6 py-6">
+          <div className="rounded-3xl border border-slate-800 bg-slate-900/30 p-5">
+            <div className="flex items-end justify-between gap-3">
+              <div>
+                <div className="text-lg font-semibold">开发文档 · Coze 工作流</div>
+                <div className="text-xs text-slate-400">
+                  从后端自动生成（active 工作流 + 入参/出参 schema）。{docsGeneratedAt ? `生成时间：${docsGeneratedAt}` : ''}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(docsMarkdown || '');
+                      pushNotice({ type: 'success', message: '已复制到剪贴板' });
+                    } catch (err) {
+                      console.error(err);
+                      pushNotice({ type: 'error', message: '复制失败（浏览器不支持或权限不足）' });
+                    }
+                  }}
+                  className="rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-200 hover:border-slate-700"
+                >
+                  复制全文
+                </button>
+              </div>
+            </div>
+            <div className="mt-4">
+              {docsLoading ? (
+                <div className="text-sm text-slate-400">加载中…</div>
+              ) : docsMarkdown ? (
+                <pre className="max-h-[70vh] overflow-auto rounded-2xl border border-slate-800 bg-slate-950/40 p-4 font-mono text-[12px] text-slate-200 whitespace-pre-wrap">
+                  {docsMarkdown}
+                </pre>
+              ) : (
+                <div className="text-sm text-slate-500">暂无文档内容。</div>
+              )}
             </div>
           </div>
         </div>
