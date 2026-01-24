@@ -467,9 +467,16 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         image_url, _ = self._resolve_image_source(params, context)
         if not image_url:
             return None, "COMFYUI_IMAGE_REQUIRED"
-        # Always use URL-based loading so the ComfyUI server pulls from OSS directly.
-        # This avoids routing large base64 payloads through the backend.
+        # Prefer URL-based loading, but ComfyUI nodes often assume the URL loader returns
+        # at least one image (e.g. ImageResize+ reads index 0). In real deployments,
+        # the ComfyUI host may not be able to access our OSS/public domains, which causes
+        # "list index out of range" runtime errors. To make this workflow robust, we
+        # also provide a base64 fallback and re-wire the resize node to use it.
         overrides["96"] = {"url": image_url}
+        base64_data = self._download_base64(image_url)
+        if base64_data:
+            overrides["104"] = {"base64_data": base64_data}
+            overrides.setdefault("102", {})["image"] = ["104", 0]
 
         prompt = self._as_text(params.get("prompt") or params.get("description"))
         if prompt:
@@ -493,7 +500,7 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
                 node_inputs["width"] = width
             if height:
                 node_inputs["height"] = height
-            overrides["102"] = node_inputs
+            overrides.setdefault("102", {}).update(node_inputs)
 
         return (overrides or None), None
 
