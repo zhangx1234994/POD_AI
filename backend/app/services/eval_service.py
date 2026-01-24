@@ -178,6 +178,35 @@ class EvalService:
         for run_id in pending_ids:
             self._executor.submit(self._execute_run, run_id)
 
+    @staticmethod
+    def _append_run_images(run_id: str, *, image_urls: list[str]) -> None:
+        if not image_urls:
+            return
+        cleaned: list[str] = []
+        for u in image_urls:
+            if not isinstance(u, str):
+                continue
+            s = u.strip()
+            if not s:
+                continue
+            cleaned.append(s)
+        if not cleaned:
+            return
+        with get_session() as session:
+            run = session.get(EvalRun, run_id)
+            if not run:
+                return
+            cur = run.result_image_urls_json or []
+            seen = set(cur)
+            for u in cleaned:
+                if u in seen:
+                    continue
+                cur.append(u)
+                seen.add(u)
+            run.result_image_urls_json = cur
+            session.add(run)
+            session.commit()
+
     def _execute_run(self, run_id: str) -> None:
         started = time.monotonic()
         settings = get_settings()
@@ -234,6 +263,7 @@ class EvalService:
                         )
                         if imgs:
                             all_images.extend(imgs)
+                            self._append_run_images(run_id, image_urls=imgs)
                         if err:
                             errors.append(err)
                         if debug_url:
@@ -256,6 +286,7 @@ class EvalService:
                             imgs, err, execute_id, debug_url = fut.result()
                             if imgs:
                                 all_images.extend(imgs)
+                                self._append_run_images(run_id, image_urls=imgs)
                             if err:
                                 errors.append(err)
                             if debug_url:
@@ -495,6 +526,7 @@ class EvalService:
                     "502",
                     "503",
                     "504",
+                    "coze_invalid_response",
                 )
             )
 
@@ -553,7 +585,15 @@ class EvalService:
         deadline = time.monotonic() + 60 * 20  # 20 minutes max
         interval = 1.2
         while time.monotonic() < deadline:
-            hist = coze_client.get_workflow_run_history(execute_id=execute_id, workflow_id=workflow_id)
+            try:
+                hist = coze_client.get_workflow_run_history(execute_id=execute_id, workflow_id=workflow_id)
+            except HTTPException as exc:
+                detail = str(exc.detail)
+                if _is_transient(detail):
+                    time.sleep(interval)
+                    interval = min(interval * 1.4, 8.0)
+                    continue
+                return [], detail, execute_id, debug_url
             base_resp = hist.get("BaseResp") or {}
             status_code = base_resp.get("StatusCode")
             code = hist.get("code")

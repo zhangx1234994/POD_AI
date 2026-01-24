@@ -72,9 +72,16 @@ class CozeWorkflowClient:
         try:
             payload = response.json()
         except ValueError as exc:
+            # Coze (or an upstream proxy) may return HTML/text error pages (502, 504, etc).
+            # Include a small snippet to make debugging possible from our UI logs.
+            snippet = ""
+            try:
+                snippet = (response.text or "")[:300]
+            except Exception:
+                snippet = ""
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="COZE_INVALID_RESPONSE",
+                detail=f"COZE_INVALID_RESPONSE status={response.status_code} body={snippet!r}",
             ) from exc
         if response.status_code >= 400:
             detail = payload.get("msg") if isinstance(payload, dict) else payload
@@ -118,9 +125,14 @@ class CozeWorkflowClient:
         try:
             payload = response.json()
         except ValueError as exc:
+            snippet = ""
+            try:
+                snippet = (response.text or "")[:300]
+            except Exception:
+                snippet = ""
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="COZE_INVALID_RESPONSE",
+                detail=f"COZE_INVALID_RESPONSE status={response.status_code} body={snippet!r}",
             ) from exc
         if response.status_code >= 400:
             detail = payload.get("msg") if isinstance(payload, dict) else payload

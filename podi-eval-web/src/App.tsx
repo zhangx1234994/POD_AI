@@ -1003,10 +1003,20 @@ export function App() {
                   if (latest.status === 'queued' || latest.status === 'running') {
                     const rawCount = Number((latest.parameters_json as any)?.count);
                     const count = Number.isFinite(rawCount) && rawCount > 1 ? Math.min(Math.max(rawCount, 2), 12) : 1;
+                    const imgs = filterImageUrls(latest.result_image_urls_json);
+                    const remain = Math.max(0, count - imgs.length);
                     return (
                       <>
-                        {Array.from({ length: count }).map((_, idx) => (
-                          <SkeletonTile key={`sk-${latest.id}-${idx}`} title={`生成中… #${idx + 1}`} subtitle={`run: ${latest.id}`} />
+                        {imgs.map((img, idx) => (
+                          <ImageTile
+                            key={`latest-${latest.id}-${idx}`}
+                            url={img}
+                            title={`最新结果 #${idx + 1}`}
+                            onOpen={() => setLightbox({ url: img, title: `最新结果 #${idx + 1}` })}
+                          />
+                        ))}
+                        {Array.from({ length: remain }).map((_, idx) => (
+                          <SkeletonTile key={`sk-${latest.id}-${idx}`} title={`生成中… #${imgs.length + idx + 1}`} subtitle={`run: ${latest.id}`} />
                         ))}
                       </>
                     );
@@ -1346,9 +1356,10 @@ function HistoryRow({
                 }
                 const rawCount = Number((run.parameters_json as any)?.count);
                 const count = Number.isFinite(rawCount) && rawCount > 1 ? Math.min(Math.max(rawCount, 2), 12) : 1;
+                const remain = Math.max(0, count - outputs.length);
                 return (
                   <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                    {Array.from({ length: count }).map((_, idx) => (
+                    {Array.from({ length: remain }).map((_, idx) => (
                       <div
                         key={`${run.id}-sk-${idx}`}
                         className="h-32 w-full rounded-xl border border-slate-800 bg-slate-950/60 animate-pulse"
