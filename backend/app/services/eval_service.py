@@ -274,7 +274,12 @@ class EvalService:
                 # (or send empty), Coze returns code=4000 with a "Missing required parameters"
                 # message. We apply a best-effort fallback and retry once so UI users don't
                 # get stuck with a hard failure for "obvious defaults".
-                if isinstance(code, int) and code == 4000 and isinstance(msg, str) and "Missing required parameters" in msg:
+                if (
+                    isinstance(code, int)
+                    and code == 4000
+                    and isinstance(msg, str)
+                    and "Missing required parameters" in msg
+                ):
                     patched = self._patch_missing_required_params(run_parameters, msg)
                     if patched:
                         response = coze_client.run_workflow(
@@ -301,36 +306,8 @@ class EvalService:
                                 run.coze_debug_url = str(debug_url) if debug_url else None
                                 session.add(run)
                                 session.commit()
-                            parsed = self._parse_coze_payload(response)
-                            output = parsed.get("output")
-                            podi_task_id = self._guess_podi_task_id(parsed, output)
-                            if podi_task_id:
-                                with get_session() as session:
-                                    task_row = session.get(AbilityTask, podi_task_id)
-                                if task_row:
-                                    self._poll_ability_task(run_id=run_id, task_id=podi_task_id, started=started)
-                                    return
-                                callback_wf = settings.coze_comfyui_callback_workflow_id
-                                if callback_wf:
-                                    with get_session() as session:
-                                        run = session.get(EvalRun, run_id)
-                                        if run:
-                                            run.podi_task_id = podi_task_id
-                                            session.add(run)
-                                            session.commit()
-                                    image_urls = self._poll_callback_images(
-                                        callback_workflow_id=callback_wf,
-                                        taskid=podi_task_id,
-                                    )
-                                    if image_urls:
-                                        self._mark_succeeded(run_id, image_urls=image_urls, started=started)
-                                        return
-                                    self._mark_failed(run_id, message="CALLBACK_IMAGES_EMPTY", started=started)
-                                    return
-                            image_urls = self._extract_image_urls(parsed)
-                            self._mark_succeeded(run_id, image_urls=image_urls, started=started)
-                            return
 
+                # Still failed after optional patch+retry.
                 self._mark_failed(
                     run_id,
                     message=f"COZE_FAILED code={code} statusCode={status_code} msg={msg} debugUrl={debug_url}",
@@ -339,6 +316,23 @@ class EvalService:
                 return
 
             parsed = self._parse_coze_payload(response)
+            # Some Coze workflows return a structured error payload even with HTTP 200.
+            if isinstance(parsed, dict):
+                if isinstance(parsed.get("$error"), str) and parsed.get("$error"):
+                    self._mark_failed(
+                        run_id,
+                        message=f"COZE_WORKFLOW_ERROR: {parsed.get('$error')}",
+                        started=started,
+                    )
+                    return
+                if isinstance(parsed.get("error_msg"), str) and parsed.get("error_msg"):
+                    self._mark_failed(
+                        run_id,
+                        message=f"COZE_WORKFLOW_ERROR: {parsed.get('error_msg')}",
+                        started=started,
+                    )
+                    return
+
             output = parsed.get("output")
             podi_task_id = self._guess_podi_task_id(parsed, output)
             if podi_task_id:
@@ -507,6 +501,12 @@ class EvalService:
                 return [], f"COZE_HISTORY_FAILED code={code} statusCode={status_code} msg={msg}", execute_id, debug_url
 
             parsed = self._parse_coze_payload(hist)
+            # Coze may surface node failures as a JSON `{ "$error": "..." }` output.
+            if isinstance(parsed, dict):
+                if isinstance(parsed.get("$error"), str) and parsed.get("$error"):
+                    return [], f"COZE_WORKFLOW_ERROR: {parsed.get('$error')}", execute_id, debug_url
+                if isinstance(parsed.get("error_msg"), str) and parsed.get("error_msg"):
+                    return [], f"COZE_WORKFLOW_ERROR: {parsed.get('error_msg')}", execute_id, debug_url
             images = self._extract_image_urls(parsed)
             output = parsed.get("output")
             if images or output is not None:
