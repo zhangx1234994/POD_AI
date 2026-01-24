@@ -218,19 +218,20 @@ class EvalService:
             coze_params.pop("similarity", None)
             fanout = self._pop_fanout_count(coze_params)
             if fanout > 1:
-                max_workers = min(fanout, max(2, int(getattr(settings, "eval_fanout_max_workers", 4))))
+                # Stable default: allow forcing sequential fan-out (max_workers=1) to
+                # reduce pressure on Coze/tools and avoid connection resets under load.
+                max_workers = min(fanout, max(1, int(getattr(settings, "eval_fanout_max_workers", 1))))
                 all_images: list[str] = []
                 errors: list[str] = []
                 last_debug_url: str | None = None
                 last_execute_id: str | None = None
 
-                with ThreadPoolExecutor(max_workers=max_workers) as pool:
-                    futures = [
-                        pool.submit(self._run_coze_async_item, workflow_id, coze_params, settings, expects_callback)
-                        for _ in range(fanout)
-                    ]
-                    for fut in as_completed(futures):
-                        imgs, err, execute_id, debug_url = fut.result()
+                if max_workers <= 1:
+                    # Sequential fan-out (stable mode).
+                    for _ in range(fanout):
+                        imgs, err, execute_id, debug_url = self._run_coze_async_item(
+                            workflow_id, coze_params, settings, expects_callback
+                        )
                         if imgs:
                             all_images.extend(imgs)
                         if err:
@@ -239,6 +240,28 @@ class EvalService:
                             last_debug_url = debug_url
                         if execute_id:
                             last_execute_id = execute_id
+                else:
+                    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+                        futures = [
+                            pool.submit(
+                                self._run_coze_async_item,
+                                workflow_id,
+                                coze_params,
+                                settings,
+                                expects_callback,
+                            )
+                            for _ in range(fanout)
+                        ]
+                        for fut in as_completed(futures):
+                            imgs, err, execute_id, debug_url = fut.result()
+                            if imgs:
+                                all_images.extend(imgs)
+                            if err:
+                                errors.append(err)
+                            if debug_url:
+                                last_debug_url = debug_url
+                            if execute_id:
+                                last_execute_id = execute_id
 
                 # De-dup while preserving order.
                 seen: set[str] = set()
