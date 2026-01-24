@@ -676,6 +676,40 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
                     schema["fields"] = fields
                     row.parameters_schema = schema
                     dirty = True
+        if row.workflow_id == "7597659369861283840":
+            # Coze workflow requires prompt. Some older DB rows were seeded with prompt optional
+            # which causes COZE code=4000 failures when UI leaves it empty. Normalize it.
+            schema = json.loads(json.dumps(row.parameters_schema or {}, ensure_ascii=False))
+            fields = schema.get("fields") if isinstance(schema, dict) else None
+            if isinstance(fields, list):
+                changed = False
+                has_prompt = False
+                for f in fields:
+                    if not isinstance(f, dict):
+                        continue
+                    if f.get("name") == "prompt":
+                        has_prompt = True
+                        if f.get("required") is not True:
+                            f["required"] = True
+                            changed = True
+                        if not isinstance(f.get("type"), str) or not str(f.get("type") or "").strip():
+                            f["type"] = "textarea"
+                            changed = True
+                        if "defaultValue" not in f:
+                            f["defaultValue"] = ""
+                            changed = True
+                if not has_prompt:
+                    # Insert after url for a predictable form order.
+                    insert_at = 1 if fields and isinstance(fields[0], dict) and fields[0].get("name") == "url" else 0
+                    fields.insert(
+                        insert_at,
+                        {"name": "prompt", "label": "提示词", "type": "textarea", "required": True, "defaultValue": ""},
+                    )
+                    changed = True
+                if changed:
+                    schema["fields"] = fields
+                    row.parameters_schema = schema
+                    dirty = True
     if dirty:
         session.commit()
     return created
