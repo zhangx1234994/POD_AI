@@ -330,8 +330,9 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         "parameters_schema": {
             "fields": [
                 {"name": "url", "label": "图片 URL", "type": "text", "required": True},
-                {"name": "height", "label": "高度", "type": "text", "required": False, "defaultValue": ""},
-                {"name": "width", "label": "宽度", "type": "text", "required": False, "defaultValue": ""},
+                # Coze workflow requires height/width; provide safe defaults and mark required so UI blocks early.
+                {"name": "height", "label": "高度", "type": "text", "required": True, "defaultValue": "1024"},
+                {"name": "width", "label": "宽度", "type": "text", "required": True, "defaultValue": "1024"},
                 {
                     "name": "patternType",
                     "label": "连续类型",
@@ -649,6 +650,27 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
                             changed = True
                         if not f.get("label"):
                             f["label"] = "图片 URL（兼容字段）"
+                            changed = True
+                if changed:
+                    schema["fields"] = fields
+                    row.parameters_schema = schema
+                    dirty = True
+        if row.workflow_id == "7598563505054154752":
+            # Coze workflow requires height/width. Ensure DB schema matches so UI and
+            # client requests always include them (avoids COZE code=4000 failures).
+            schema = json.loads(json.dumps(row.parameters_schema or {}, ensure_ascii=False))
+            fields = schema.get("fields") if isinstance(schema, dict) else None
+            if isinstance(fields, list):
+                changed = False
+                for f in fields:
+                    if not isinstance(f, dict):
+                        continue
+                    if f.get("name") in {"height", "width"}:
+                        if f.get("required") is not True:
+                            f["required"] = True
+                            changed = True
+                        if not isinstance(f.get("defaultValue"), str) or not str(f.get("defaultValue") or "").strip():
+                            f["defaultValue"] = "1024"
                             changed = True
                 if changed:
                     schema["fields"] = fields
