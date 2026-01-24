@@ -536,7 +536,13 @@ class EvalService:
 
     @staticmethod
     def _parse_coze_payload(payload: dict[str, Any]) -> dict[str, Any]:
-        """Normalize Coze response to a dict with parsed `data`."""
+        """Normalize Coze response to a dict with parsed `data`.
+
+        Coze `/v1/workflow/get_run_history` commonly returns:
+        - data: [{..., input: "<json str>", output: "<json str>", execute_status: "...", ...}]
+        We should parse the inner `output` JSON (not the entire record), otherwise we may
+        mistakenly treat debug/input URLs as "image outputs".
+        """
         data = payload.get("data")
         if isinstance(data, str):
             try:
@@ -549,7 +555,41 @@ class EvalService:
         if isinstance(data, dict):
             return data
         if isinstance(data, list):
-            # Keep the list under a predictable key; callers can recursively scan it.
+            # Run history: pick the latest record and parse its `output` JSON.
+            if data:
+                last = data[-1]
+                if isinstance(last, dict):
+                    out = last.get("output")
+                    run_status = last.get("execute_status") or last.get("executeStatus") or last.get("status")
+                    debug_url = last.get("debug_url") or last.get("debugUrl")
+                    error_msg = last.get("error_msg") or last.get("errorMsg")
+
+                    parsed_out: dict[str, Any] | None = None
+                    if isinstance(out, str):
+                        try:
+                            maybe = json.loads(out)
+                            if isinstance(maybe, dict):
+                                parsed_out = maybe
+                            else:
+                                parsed_out = {"output": maybe}
+                        except Exception:
+                            parsed_out = {"output": out}
+                    elif isinstance(out, dict):
+                        parsed_out = out
+                    elif out is not None:
+                        parsed_out = {"output": out}
+
+                    if isinstance(parsed_out, dict):
+                        # Attach minimal metadata so callers can show status/debug links.
+                        if run_status is not None and "run_status" not in parsed_out and "status" not in parsed_out:
+                            parsed_out["run_status"] = run_status
+                        if debug_url and "debug_url" not in parsed_out:
+                            parsed_out["debug_url"] = debug_url
+                        if error_msg and "error_msg" not in parsed_out:
+                            parsed_out["error_msg"] = error_msg
+                        return parsed_out
+
+            # Fallback: keep the list under a predictable key; callers can recursively scan it.
             return {"output": data}
         # Fallback to the top-level payload (best-effort).
         if isinstance(payload, dict):
