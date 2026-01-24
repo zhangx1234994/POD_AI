@@ -373,7 +373,10 @@ export function App() {
   const [isRunning, setIsRunning] = useState(false);
   const [uploading, setUploading] = useState(false);
 
-  const [runs, setRuns] = useState<RunWithLatest[]>([]);
+  // Keep tool run history and global task list separate.
+  // Otherwise, in-flight requests from one view can overwrite the other's list.
+  const [toolRuns, setToolRuns] = useState<RunWithLatest[]>([]);
+  const [taskRuns, setTaskRuns] = useState<RunWithLatest[]>([]);
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [filterRating, setFilterRating] = useState<string>('all');
   const [filterUnrated, setFilterUnrated] = useState<boolean>(false);
@@ -451,7 +454,7 @@ export function App() {
         limit: 80,
         offset: 0,
       });
-      setRuns((resp.items || []) as RunWithLatest[]);
+      setToolRuns((resp.items || []) as RunWithLatest[]);
     } catch (err) {
       console.error(err);
       pushNotice({ type: 'error', message: String((err as any)?.message || err) });
@@ -461,7 +464,7 @@ export function App() {
   const loadTasks = async () => {
     try {
       const resp = await evalApi.listRunsWithLatestAnnotation({ limit: 80, offset: 0 });
-      setRuns((resp.items || []) as RunWithLatest[]);
+      setTaskRuns((resp.items || []) as RunWithLatest[]);
     } catch (err) {
       console.error(err);
       pushNotice({ type: 'error', message: String((err as any)?.message || err) });
@@ -476,11 +479,11 @@ export function App() {
     if (activeView !== 'tool' || !selectedTool) return;
     void loadRunsForTool(selectedTool.id);
     const timer = window.setInterval(() => {
-      const hasPending = runs.some((r) => r.status === 'queued' || r.status === 'running');
+      const hasPending = toolRuns.some((r) => r.status === 'queued' || r.status === 'running');
       if (hasPending) void loadRunsForTool(selectedTool.id);
     }, 2000);
     return () => window.clearInterval(timer);
-  }, [activeView, selectedTool?.id, filterStatus, filterUnrated, runs]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeView, selectedTool?.id, filterStatus, filterUnrated, toolRuns]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (activeView !== 'tasks') return;
@@ -511,7 +514,7 @@ export function App() {
     setSelectedTool(wf);
     setFormUrl('');
     // Prevent showing previous tool's results while the new tool's history is loading.
-    setRuns([]);
+    setToolRuns([]);
     setFilterStatus('all');
     setFilterRating('all');
     setFilterUnrated(false);
@@ -584,7 +587,7 @@ export function App() {
   };
 
   const filteredRuns = useMemo(() => {
-    let out = runs.slice();
+    let out = toolRuns.slice();
     if (filterRating !== 'all') {
       const target = Number(filterRating);
       out = out.filter((r) => r.latest_annotation?.rating === target);
@@ -598,7 +601,7 @@ export function App() {
       });
     }
     return out;
-  }, [runs, filterRating, search]);
+  }, [toolRuns, filterRating, search]);
 
   const header = (
     <header className="border-b border-slate-800 bg-slate-900/40">
@@ -785,7 +788,7 @@ export function App() {
         <NoticeBar notice={notice} onClose={() => setNotice(null)} />
         <Lightbox url={lightbox?.url || ''} title={lightbox?.title} onClose={() => setLightbox(null)} />
         <div className="mx-auto max-w-[1400px] px-6 py-6">
-          <TaskTable runs={runs} workflowMap={workflowMap} />
+          <TaskTable runs={taskRuns} workflowMap={workflowMap} />
         </div>
       </div>
     );
@@ -908,7 +911,7 @@ export function App() {
               <div className="mt-3 text-xs text-slate-400">点击图片可在页面内放大预览；下方历史可筛选/打标。</div>
               <div className="mt-4 grid gap-3 lg:grid-cols-3">
                 {(() => {
-                  const latest = runs[0] || null; // runs are loaded per-tool (ordered desc by created_at)
+                  const latest = toolRuns[0] || null; // runs are loaded per-tool (ordered desc by created_at)
                   if (!latest) {
                     return <div className="text-sm text-slate-500">暂无记录（先在左侧运行一次）。</div>;
                   }
