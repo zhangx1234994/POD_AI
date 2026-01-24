@@ -571,8 +571,26 @@ class EvalService:
         """Extract image URLs from common workflow outputs."""
         candidates: list[str] = []
 
+        def _looks_like_image_url(url: str) -> bool:
+            u = url.strip()
+            if not u.startswith(("http://", "https://")):
+                return False
+            lower = u.lower()
+            # Exclude known non-image URLs that sometimes appear in debug payloads.
+            if "/work_flow" in lower or "/workflow" in lower and "execute_id=" in lower:
+                return False
+            if "execute_mode=" in lower and "execute_id=" in lower:
+                return False
+            # Accept common image/video extensions.
+            if re.search(r"\.(png|jpe?g|webp|gif|bmp|mp4)(\\?|$)", lower):
+                return True
+            # Accept ComfyUI /view?filename=xxx.png style URLs.
+            if "filename=" in lower and re.search(r"filename=[^&]+\\.(png|jpe?g|webp|gif|bmp)", lower):
+                return True
+            return False
+
         def _push(value: Any) -> None:
-            if isinstance(value, str) and value.startswith(("http://", "https://")):
+            if isinstance(value, str) and _looks_like_image_url(value):
                 candidates.append(value)
 
         def _scan_any(value: Any, *, depth: int = 0) -> None:

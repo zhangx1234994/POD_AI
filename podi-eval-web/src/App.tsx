@@ -310,7 +310,16 @@ function TaskTable({
                 ) : null}
                 {outputs.slice(0, 5).map((u, idx) => (
                   <a key={`${run.id}-out-${idx}`} href={u} target="_blank" rel="noreferrer" className="block rounded-xl border border-slate-800 bg-slate-950/30 p-1">
-                    <img src={u} alt="output" className="h-24 w-full rounded-lg object-contain" />
+                    <img
+                      src={u}
+                      alt="output"
+                      loading="lazy"
+                      onError={(e) => {
+                        // Avoid showing broken-image icons in the task table.
+                        (e.currentTarget as HTMLImageElement).style.display = 'none';
+                      }}
+                      className="h-24 w-full rounded-lg object-contain"
+                    />
                   </a>
                 ))}
                 {outputs.length === 0 ? <div className="text-sm text-slate-500">{run.status === 'running' || run.status === 'queued' ? '生成中…' : '暂无输出'}</div> : null}
@@ -349,6 +358,46 @@ function NoticeBar({ notice, onClose }: { notice: Notice | null; onClose: () => 
         </div>
       </div>
     </div>
+  );
+}
+
+function ImageTile({
+  url,
+  title,
+  onOpen,
+}: {
+  url: string;
+  title: string;
+  onOpen: () => void;
+}) {
+  const [loaded, setLoaded] = useState(false);
+  const [failed, setFailed] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="relative block rounded-2xl border border-slate-800 bg-slate-950/30 p-2 hover:border-slate-700"
+    >
+      {!loaded && !failed ? (
+        <div className="absolute inset-2 rounded-xl border border-slate-800 bg-slate-950/60 flex items-center justify-center text-xs text-slate-400">
+          加载中…
+        </div>
+      ) : null}
+      {failed ? (
+        <div className="absolute inset-2 rounded-xl border border-rose-500/30 bg-rose-500/5 flex flex-col items-center justify-center gap-2 text-xs text-rose-200 px-3">
+          <div className="font-semibold">图片加载失败</div>
+          <div className="break-all text-[10px] text-rose-300/80">{url}</div>
+        </div>
+      ) : null}
+      <img
+        src={url}
+        alt={title}
+        loading="lazy"
+        onLoad={() => setLoaded(true)}
+        onError={() => setFailed(true)}
+        className="h-56 w-full rounded-xl object-contain"
+      />
+    </button>
   );
 }
 
@@ -938,14 +987,12 @@ export function App() {
                     return <div className="text-sm text-slate-500">该次运行无图片输出。</div>;
                   }
                   return imgs.map((img, idx) => (
-                    <button
+                    <ImageTile
                       key={`latest-${idx}`}
-                      type="button"
-                      onClick={() => setLightbox({ url: img, title: `最新结果 #${idx + 1}` })}
-                      className="block rounded-2xl border border-slate-800 bg-slate-950/30 p-2 hover:border-slate-700"
-                    >
-                      <img src={img} alt="latest" className="h-56 w-full rounded-xl object-contain" />
-                    </button>
+                      url={img}
+                      title={`最新结果 #${idx + 1}`}
+                      onOpen={() => setLightbox({ url: img, title: `最新结果 #${idx + 1}` })}
+                    />
                   ));
                 })()}
               </div>
@@ -1232,7 +1279,15 @@ function HistoryRow({
                   onClick={() => onOpenImage(u, `结果图 #${idx + 1}`)}
                   className="block rounded-xl border border-slate-800 bg-slate-950/30 p-1 hover:border-slate-700"
                 >
-                  <img src={u} alt="output" className="h-32 w-full rounded-lg object-contain" />
+                  <img
+                    src={u}
+                    alt="output"
+                    loading="lazy"
+                    onError={(e) => {
+                      (e.currentTarget as HTMLImageElement).style.display = 'none';
+                    }}
+                    className="h-32 w-full rounded-lg object-contain"
+                  />
                 </button>
               ))
             ) : (
