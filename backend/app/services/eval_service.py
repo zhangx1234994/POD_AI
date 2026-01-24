@@ -100,6 +100,21 @@ class EvalService:
         return run
 
     @staticmethod
+    def _workflow_expects_callback(output_schema: dict[str, Any] | None) -> bool:
+        """Best-effort: infer whether a workflow returns a callback task id in `output`."""
+        schema = output_schema or {}
+        fields = schema.get("fields") if isinstance(schema, dict) else None
+        if not isinstance(fields, list):
+            return False
+        for f in fields:
+            if not isinstance(f, dict) or f.get("name") != "output":
+                continue
+            desc = str(f.get("description") or "")
+            if "task" in desc.lower() or "回调" in desc:
+                return True
+        return False
+
+    @staticmethod
     def _pop_fanout_count(params: dict[str, Any]) -> int:
         """Extract internal fan-out count (裂变数量) from params.
 
@@ -168,6 +183,7 @@ class EvalService:
         settings = get_settings()
         # Avoid using ORM instances outside the session scope (commit expires attrs by default).
         workflow_id: str | None = None
+        expects_callback = False
         run_parameters: dict[str, Any] = {}
         with get_session() as session:
             run = session.get(EvalRun, run_id)
@@ -183,6 +199,7 @@ class EvalService:
                 session.commit()
                 return
             workflow_id = str(workflow_version.workflow_id)
+            expects_callback = self._workflow_expects_callback(workflow_version.output_schema)
             run.status = "running"
             session.add(run)
             session.commit()
@@ -209,7 +226,7 @@ class EvalService:
 
                 with ThreadPoolExecutor(max_workers=max_workers) as pool:
                     futures = [
-                        pool.submit(self._run_coze_async_item, workflow_id, coze_params, settings)
+                        pool.submit(self._run_coze_async_item, workflow_id, coze_params, settings, expects_callback)
                         for _ in range(fanout)
                     ]
                     for fut in as_completed(futures):
@@ -334,7 +351,13 @@ class EvalService:
                     return
 
             output = parsed.get("output")
-            podi_task_id = self._guess_podi_task_id(parsed, output)
+            podi_task_id: str | None = None
+            if expects_callback and isinstance(output, str) and output.strip():
+                # Callback workflows are expected to return the task id in `output`,
+                # which may not be a hex string (e.g. snowflake ids).
+                podi_task_id = output.strip()
+            else:
+                podi_task_id = self._guess_podi_task_id(parsed, output)
             if podi_task_id:
                 # Prefer PODI ability_tasks.
                 with get_session() as session:
@@ -362,6 +385,13 @@ class EvalService:
                     return
 
             image_urls = self._extract_image_urls(parsed)
+            if expects_callback and not image_urls and isinstance(output, str) and output.strip():
+                self._mark_failed(
+                    run_id,
+                    message=f"CALLBACK_TASK_NOT_RESOLVED output={output.strip()[:128]}",
+                    started=started,
+                )
+                return
             self._mark_succeeded(run_id, image_urls=image_urls, started=started)
         except HTTPException as exc:
             self._mark_failed(run_id, message=str(exc.detail), started=started)
@@ -414,6 +444,7 @@ class EvalService:
         workflow_id: str,
         coze_params: dict[str, Any],
         settings: Any,
+        expects_callback: bool,
     ) -> tuple[list[str], str | None, str | None, str | None]:
         """Submit+poll one Coze run via async mode; return resolved image URLs.
 
@@ -510,20 +541,28 @@ class EvalService:
             images = self._extract_image_urls(parsed)
             output = parsed.get("output")
             if images or output is not None:
-                podi_task_id = self._guess_podi_task_id(parsed, output)
+                podi_task_id: str | None = None
+                if expects_callback and isinstance(output, str) and output.strip():
+                    podi_task_id = output.strip()
+                else:
+                    podi_task_id = self._guess_podi_task_id(parsed, output)
                 if podi_task_id:
                     with get_session() as session:
                         task_row = session.get(AbilityTask, podi_task_id)
                     if task_row:
                         imgs = self._poll_ability_task_inline(task_id=podi_task_id)
-                        return imgs, None, execute_id, debug_url
+                        if imgs:
+                            return imgs, None, execute_id, debug_url
+                        return [], "TASK_IMAGES_EMPTY", execute_id, debug_url
                     callback_wf = settings.coze_comfyui_callback_workflow_id
                     if callback_wf:
                         imgs = self._poll_callback_images(callback_workflow_id=callback_wf, taskid=podi_task_id)
                         if imgs:
                             return imgs, None, execute_id, debug_url
                         return [], "CALLBACK_IMAGES_EMPTY", execute_id, debug_url
-                return images, None, execute_id, debug_url
+                if images:
+                    return images, None, execute_id, debug_url
+                return [], f"OUTPUT_NO_IMAGES output={str(output)[:128]}", execute_id, debug_url
 
             status = parsed.get("status") or parsed.get("run_status") or parsed.get("state")
             if isinstance(status, str) and status.lower() in {"failed", "error", "canceled", "cancelled"}:
