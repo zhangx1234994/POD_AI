@@ -36,17 +36,18 @@ DEPRECATED_EVAL_WORKFLOW_IDS: set[str] = {
     "7597421439045599232",  # tiqu_duoMoxing_2 (wrong id, superseded by 7598558185544220672)
 }
 
-# Evaluation UI category policy: keep the sidebar fixed to these 4 groups.
+# Evaluation UI category policy: keep the sidebar fixed to these groups.
 ALLOWED_EVAL_CATEGORIES: set[str] = {
     "花纹提取类",
     "图延伸类",
     "四方/两方连续图类",
+    "图裂变",
     "通用类",
 }
 
 
 def _normalize_eval_category(category: str | None) -> str:
-    """Map legacy/internal categories into the 4 business-facing groups."""
+    """Map legacy/internal categories into the business-facing groups."""
     c = (category or "").strip()
     if not c:
         return "通用类"
@@ -59,7 +60,7 @@ def _normalize_eval_category(category: str | None) -> str:
     if c in {"continuous", "lianxu", "seamless"}:
         return "四方/两方连续图类"
     if c in {"图裂变", "liebiam", "liebain", "variation", "image_variation"}:
-        return "通用类"
+        return "图裂变"
     if c in {"general", "common"}:
         return "通用类"
     # Safe fallback to avoid leaking extra categories into the sidebar.
@@ -83,7 +84,7 @@ FORCE_ACTIVE_EVAL_WORKFLOW_IDS: set[str] = {
     "7598587935331450880",  # comfyuo_tukuozhan (comfyui outpaint)
     # 通用
     "7598589746561941504",  # dpi增分
-    # 图裂变（归类到通用类）
+    # 图裂变
     "7598841920114130944",  # Liebian_comfyui_20260124_1
     "7598820684801769472",  # Liebian_comfyui_20260124
     "7598844004557389824",  # Liebian_shangye_20260124_1_1
@@ -534,9 +535,9 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         },
         "output_schema": {"fields": [{"name": "output", "type": "text", "description": "图片 URL"}]},
     },
-    # 通用类 / 图裂变（ComfyUI，无提示词，输出回调 task id）
+    # 图裂变 / 图裂变（ComfyUI，无提示词，输出回调 task id）
     {
-        "category": "通用类",
+        "category": "图裂变",
         "name": "图裂变 · Liebian_comfyui_20260124_1",
         "version": "v1",
         "workflow_id": "7598841920114130944",
@@ -553,9 +554,9 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         },
         "output_schema": {"fields": [{"name": "output", "type": "text", "description": "回调 task id"}]},
     },
-    # 通用类 / 图裂变（ComfyUI，有提示词，输出回调 task id）
+    # 图裂变 / 图裂变（ComfyUI，有提示词，输出回调 task id）
     {
-        "category": "通用类",
+        "category": "图裂变",
         "name": "图裂变 · Liebian_comfyui_20260124",
         "version": "v1",
         "workflow_id": "7598820684801769472",
@@ -573,9 +574,9 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         },
         "output_schema": {"fields": [{"name": "output", "type": "text", "description": "回调 task id"}]},
     },
-    # 通用类 / 图裂变（商业模型，无提示词，输出图片 URL）
+    # 图裂变 / 图裂变（商业模型，无提示词，输出图片 URL）
     {
-        "category": "通用类",
+        "category": "图裂变",
         "name": "图裂变 · Liebian_shangye_20260124_1_1",
         "version": "v1",
         "workflow_id": "7598844004557389824",
@@ -604,9 +605,9 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         },
         "output_schema": {"fields": [{"name": "output", "type": "text", "description": "图片 URL"}]},
     },
-    # 通用类 / 图裂变（商业模型，有提示词，输出图片 URL）
+    # 图裂变 / 图裂变（商业模型，有提示词，输出图片 URL）
     {
-        "category": "通用类",
+        "category": "图裂变",
         "name": "图裂变 · Liebian_shangye_20260124_1_1_1",
         "version": "v1",
         "workflow_id": "7598848725942796288",
@@ -703,6 +704,15 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
         # Ensure outpainting workflows show up under the "图延伸类" group.
         if row.workflow_id in {"7597723984687267840", "7598587935331450880"} and row.category != "图延伸类":
             row.category = "图延伸类"
+            dirty = True
+        # Ensure "图裂变" workflows stay under their own category (for the sidebar).
+        if row.workflow_id in {
+            "7598841920114130944",
+            "7598820684801769472",
+            "7598844004557389824",
+            "7598848725942796288",
+        } and row.category != "图裂变":
+            row.category = "图裂变"
             dirty = True
         if row.workflow_id == "7597723984687267840" and row.name != "扩图多模型版本":
             row.name = "扩图多模型版本"

@@ -448,6 +448,7 @@ export function AbilityEvaluationPage() {
                   <option value="花纹提取类">花纹提取类</option>
                   <option value="图延伸类">图延伸类</option>
                   <option value="四方/两方连续图类">四方/两方连续图类</option>
+                  <option value="图裂变">图裂变</option>
                   <option value="通用类">通用类</option>
                 </select>
               </label>
@@ -607,10 +608,11 @@ export function AbilityEvaluationPage() {
 }
   const normalizeCategory = (category: string | undefined | null): string => {
     const c = String(category || '').trim();
-    if (c === '花纹提取类' || c === '图延伸类' || c === '四方/两方连续图类' || c === '通用类') return c;
+    if (c === '花纹提取类' || c === '图延伸类' || c === '四方/两方连续图类' || c === '图裂变' || c === '通用类') return c;
     if (c === 'pattern_extract' || c === 'pattern') return '花纹提取类';
     if (c === 'image_extend' || c === '图扩展' || c === '图延伸') return '图延伸类';
     if (c === 'continuous') return '四方/两方连续图类';
+    if (c === '图裂变' || c === 'variation' || c === 'image_variation' || c === 'liebain' || c === 'liebiam') return '图裂变';
     if (c === 'general' || c === 'common') return '通用类';
     return '通用类';
   };

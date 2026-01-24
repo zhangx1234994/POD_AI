@@ -11,10 +11,11 @@ type Props = {
 export function EvaluationSidebar({ workflows, selectedWorkflow, onWorkflowSelect, onCreateWorkflow, onRefreshWorkflows }: Props) {
   const normalizeCategory = (category: string | undefined | null): string => {
     const c = String(category || '').trim();
-    if (c === '花纹提取类' || c === '图延伸类' || c === '四方/两方连续图类' || c === '通用类') return c;
+    if (c === '花纹提取类' || c === '图延伸类' || c === '四方/两方连续图类' || c === '图裂变' || c === '通用类') return c;
     if (c === 'pattern_extract' || c === 'pattern') return '花纹提取类';
     if (c === 'image_extend' || c === '图扩展' || c === '图延伸') return '图延伸类';
     if (c === 'continuous') return '四方/两方连续图类';
+    if (c === '图裂变' || c === 'variation' || c === 'image_variation' || c === 'liebain' || c === 'liebiam') return '图裂变';
     if (c === 'general' || c === 'common') return '通用类';
     return '通用类';
   };
@@ -26,7 +27,7 @@ export function EvaluationSidebar({ workflows, selectedWorkflow, onWorkflowSelec
     return acc;
   }, {});
 
-  const categories = ['花纹提取类', '图延伸类', '四方/两方连续图类', '通用类'].filter((c) => (grouped[c] || []).length > 0);
+  const categories = ['花纹提取类', '图延伸类', '四方/两方连续图类', '图裂变', '通用类'].filter((c) => (grouped[c] || []).length > 0);
 
   return (
     <aside className="w-72 border-r border-slate-800 bg-slate-950/40 p-4 overflow-y-auto">

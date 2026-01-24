@@ -9,7 +9,7 @@ type RunWithLatest = EvalRun & {
 type Notice = { type: 'error' | 'success' | 'info'; message: string };
 
 // Keep the evaluation UI sidebar fixed to these 4 business-facing groups.
-const CATEGORY_ORDER = ['花纹提取类', '图延伸类', '四方/两方连续图类', '通用类'];
+const CATEGORY_ORDER = ['花纹提取类', '图延伸类', '四方/两方连续图类', '图裂变', '通用类'];
 
 const normalizeCategory = (category: string | undefined | null): string => {
   const c = String(category || '').trim();
@@ -19,7 +19,8 @@ const normalizeCategory = (category: string | undefined | null): string => {
   if (c === 'pattern_extract' || c === 'pattern' || c === 'pattern-extract') return '花纹提取类';
   if (c === 'image_extend' || c === 'image_extension' || c === '图扩展' || c === '图延伸') return '图延伸类';
   if (c === 'continuous_pattern' || c === 'continuous' || c === 'lianxu') return '四方/两方连续图类';
-  if (c === 'image_variation' || c === 'general' || c === 'common') return '通用类';
+  if (c === '图裂变' || c === 'variation' || c === 'image_variation' || c === 'liebain' || c === 'liebiam') return '图裂变';
+  if (c === 'general' || c === 'common') return '通用类';
   return '通用类';
 };
 
