@@ -7,7 +7,7 @@ import logging
 import re
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import lru_cache
 from typing import Any
 from uuid import uuid4
@@ -201,94 +201,27 @@ class EvalService:
             coze_params.pop("similarity", None)
             fanout = self._pop_fanout_count(coze_params)
             if fanout > 1:
+                max_workers = min(fanout, max(2, int(getattr(settings, "eval_fanout_max_workers", 4))))
                 all_images: list[str] = []
                 errors: list[str] = []
                 last_debug_url: str | None = None
                 last_execute_id: str | None = None
 
-                for idx in range(fanout):
-                    response = coze_client.run_workflow(
-                        workflow_id=workflow_id,
-                        parameters=coze_params,
-                        is_async=False,
-                    )
-                    execute_id = response.get("execute_id")
-                    debug_url = response.get("debug_url")
-                    if debug_url:
-                        last_debug_url = str(debug_url)
-                    if execute_id:
-                        last_execute_id = str(execute_id)
-
-                    base_resp = response.get("BaseResp") or {}
-                    status_code = base_resp.get("StatusCode")
-                    code = response.get("code")
-                    if (isinstance(code, int) and code != 0) or (isinstance(status_code, int) and status_code != 0):
-                        msg = response.get("msg") or base_resp.get("StatusMessage") or "COZE_EXECUTION_FAILED"
-                        if (
-                            isinstance(code, int)
-                            and code == 4000
-                            and isinstance(msg, str)
-                            and "Missing required parameters" in msg
-                        ):
-                            patched = self._patch_missing_required_params(coze_params, msg)
-                            if patched:
-                                response = coze_client.run_workflow(
-                                    workflow_id=workflow_id,
-                                    parameters=patched,
-                                    is_async=False,
-                                )
-                                base_resp = response.get("BaseResp") or {}
-                                status_code = base_resp.get("StatusCode")
-                                code = response.get("code")
-                                if (isinstance(code, int) and code != 0) or (
-                                    isinstance(status_code, int) and status_code != 0
-                                ):
-                                    msg = response.get("msg") or base_resp.get("StatusMessage") or "COZE_EXECUTION_FAILED"
-                                else:
-                                    parsed = self._parse_coze_payload(response)
-                                    output = parsed.get("output")
-                                    podi_task_id = self._guess_podi_task_id(parsed, output)
-                                    if podi_task_id:
-                                        with get_session() as session:
-                                            task_row = session.get(AbilityTask, podi_task_id)
-                                        if task_row:
-                                            imgs = self._poll_ability_task_inline(task_id=podi_task_id)
-                                            all_images.extend(imgs)
-                                        else:
-                                            callback_wf = settings.coze_comfyui_callback_workflow_id
-                                            if callback_wf:
-                                                imgs = self._poll_callback_images(
-                                                    callback_workflow_id=callback_wf,
-                                                    taskid=podi_task_id,
-                                                )
-                                                all_images.extend(imgs)
-                                    else:
-                                        all_images.extend(self._extract_image_urls(parsed))
-                                    continue
-                        errors.append(
-                            f"[{idx+1}/{fanout}] COZE_FAILED code={code} statusCode={status_code} msg={msg}"
-                        )
-                        continue
-
-                    parsed = self._parse_coze_payload(response)
-                    output = parsed.get("output")
-                    podi_task_id = self._guess_podi_task_id(parsed, output)
-                    if podi_task_id:
-                        with get_session() as session:
-                            task_row = session.get(AbilityTask, podi_task_id)
-                        if task_row:
-                            imgs = self._poll_ability_task_inline(task_id=podi_task_id)
+                with ThreadPoolExecutor(max_workers=max_workers) as pool:
+                    futures = [
+                        pool.submit(self._run_coze_async_item, workflow_id, coze_params, settings)
+                        for _ in range(fanout)
+                    ]
+                    for fut in as_completed(futures):
+                        imgs, err, execute_id, debug_url = fut.result()
+                        if imgs:
                             all_images.extend(imgs)
-                            continue
-                        callback_wf = settings.coze_comfyui_callback_workflow_id
-                        if callback_wf:
-                            imgs = self._poll_callback_images(callback_workflow_id=callback_wf, taskid=podi_task_id)
-                            all_images.extend(imgs)
-                            if not imgs:
-                                errors.append(f"[{idx+1}/{fanout}] CALLBACK_IMAGES_EMPTY")
-                            continue
-
-                    all_images.extend(self._extract_image_urls(parsed))
+                        if err:
+                            errors.append(err)
+                        if debug_url:
+                            last_debug_url = debug_url
+                        if execute_id:
+                            last_execute_id = execute_id
 
                 # De-dup while preserving order.
                 seen: set[str] = set()
@@ -302,10 +235,8 @@ class EvalService:
                 with get_session() as session:
                     run = session.get(EvalRun, run_id)
                     if run:
-                        if last_execute_id and not run.coze_execute_id:
-                            run.coze_execute_id = last_execute_id
-                        if last_debug_url and not run.coze_debug_url:
-                            run.coze_debug_url = last_debug_url
+                        run.coze_execute_id = last_execute_id or run.coze_execute_id
+                        run.coze_debug_url = last_debug_url or run.coze_debug_url
                         session.add(run)
                         session.commit()
 
@@ -483,6 +414,125 @@ class EvalService:
             changed = True
 
         return patched if changed else None
+
+    def _run_coze_async_item(
+        self,
+        workflow_id: str,
+        coze_params: dict[str, Any],
+        settings: Any,
+    ) -> tuple[list[str], str | None, str | None, str | None]:
+        """Submit+poll one Coze run via async mode; return resolved image URLs.
+
+        Returns: (image_urls, error_message, execute_id, debug_url)
+        """
+
+        def _is_transient(msg: str) -> bool:
+            lowered = (msg or "").lower()
+            return any(
+                key in lowered
+                for key in (
+                    "timeout",
+                    "temporarily",
+                    "rate",
+                    "too many",
+                    "bad gateway",
+                    "gateway timeout",
+                    "502",
+                    "503",
+                    "504",
+                )
+            )
+
+        params = coze_params.copy()
+        execute_id: str | None = None
+        debug_url: str | None = None
+
+        # 1) Submit (async) with retry+backoff.
+        last_err: str | None = None
+        for attempt in range(3):
+            try:
+                resp = coze_client.run_workflow(workflow_id=workflow_id, parameters=params, is_async=True)
+                base_resp = resp.get("BaseResp") or {}
+                status_code = base_resp.get("StatusCode")
+                code = resp.get("code")
+                if (isinstance(code, int) and code != 0) or (isinstance(status_code, int) and status_code != 0):
+                    msg = resp.get("msg") or base_resp.get("StatusMessage") or "COZE_SUBMIT_FAILED"
+                    if (
+                        isinstance(code, int)
+                        and code == 4000
+                        and isinstance(msg, str)
+                        and "Missing required parameters" in msg
+                    ):
+                        patched = self._patch_missing_required_params(params, msg)
+                        if patched:
+                            params = patched
+                            continue
+                    last_err = f"COZE_SUBMIT_FAILED code={code} statusCode={status_code} msg={msg}"
+                    if attempt < 2 and isinstance(msg, str) and _is_transient(msg):
+                        time.sleep(0.6 * (1.9**attempt))
+                        continue
+                    return [], last_err, None, None
+
+                execute_id = str(resp.get("execute_id") or "").strip() or None
+                debug_url = str(resp.get("debug_url") or "").strip() or None
+                if execute_id:
+                    break
+                last_err = "COZE_SUBMIT_MISSING_EXECUTE_ID"
+            except HTTPException as exc:
+                last_err = str(exc.detail)
+                if attempt < 2 and _is_transient(last_err):
+                    time.sleep(0.6 * (1.9**attempt))
+                    continue
+                return [], last_err, None, None
+            except Exception as exc:  # pragma: no cover - defensive
+                last_err = str(exc)
+                if attempt < 2:
+                    time.sleep(0.6 * (1.9**attempt))
+                    continue
+                return [], last_err, None, None
+
+        if not execute_id:
+            return [], last_err or "COZE_SUBMIT_FAILED", None, debug_url
+
+        # 2) Poll run history until output appears or failure.
+        deadline = time.monotonic() + 60 * 20  # 20 minutes max
+        interval = 1.2
+        while time.monotonic() < deadline:
+            hist = coze_client.get_workflow_run_history(execute_id=execute_id, workflow_id=workflow_id)
+            base_resp = hist.get("BaseResp") or {}
+            status_code = base_resp.get("StatusCode")
+            code = hist.get("code")
+            if (isinstance(code, int) and code != 0) or (isinstance(status_code, int) and status_code != 0):
+                msg = hist.get("msg") or base_resp.get("StatusMessage") or "COZE_HISTORY_FAILED"
+                return [], f"COZE_HISTORY_FAILED code={code} statusCode={status_code} msg={msg}", execute_id, debug_url
+
+            parsed = self._parse_coze_payload(hist)
+            images = self._extract_image_urls(parsed)
+            output = parsed.get("output")
+            if images or output is not None:
+                podi_task_id = self._guess_podi_task_id(parsed, output)
+                if podi_task_id:
+                    with get_session() as session:
+                        task_row = session.get(AbilityTask, podi_task_id)
+                    if task_row:
+                        imgs = self._poll_ability_task_inline(task_id=podi_task_id)
+                        return imgs, None, execute_id, debug_url
+                    callback_wf = settings.coze_comfyui_callback_workflow_id
+                    if callback_wf:
+                        imgs = self._poll_callback_images(callback_workflow_id=callback_wf, taskid=podi_task_id)
+                        if imgs:
+                            return imgs, None, execute_id, debug_url
+                        return [], "CALLBACK_IMAGES_EMPTY", execute_id, debug_url
+                return images, None, execute_id, debug_url
+
+            status = parsed.get("status") or parsed.get("run_status") or parsed.get("state")
+            if isinstance(status, str) and status.lower() in {"failed", "error", "canceled", "cancelled"}:
+                return [], f"COZE_RUN_{status}", execute_id, debug_url
+
+            time.sleep(interval)
+            interval = min(interval * 1.4, 8.0)
+
+        return [], "COZE_ASYNC_TIMEOUT", execute_id, debug_url
 
     @staticmethod
     def _parse_coze_payload(payload: dict[str, Any]) -> dict[str, Any]:
