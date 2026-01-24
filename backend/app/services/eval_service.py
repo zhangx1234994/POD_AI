@@ -824,6 +824,7 @@ class EvalService:
         """Poll an ability_task and return image URLs (for fan-out runs)."""
         deadline = time.monotonic() + 60 * 20  # 20 minutes max
         interval = 1.5
+        attempts = 0
 
         while time.monotonic() < deadline:
             with get_session() as session:
@@ -852,6 +853,14 @@ class EvalService:
             if status == "failed":
                 return []
 
+            # For long-running ComfyUI "submit only" tasks, the DB row stays running until we
+            # finalize it by polling ComfyUI /history and ingesting outputs. Coze normally
+            # triggers this via `/api/coze/podi/tasks/get`, but eval polling should be able
+            # to finalize on its own (otherwise "generated but never refreshed" happens).
+            attempts += 1
+            if attempts % 3 == 0:
+                self._try_finalize_comfyui_task(task_id=task_id)
+
             time.sleep(interval)
             interval = min(interval * 1.3, 10.0)
 
@@ -861,6 +870,7 @@ class EvalService:
         deadline = time.monotonic() + 60 * 20  # 20 minutes max
         interval = 1.5
         last_status: str | None = None
+        attempts = 0
 
         while time.monotonic() < deadline:
             with get_session() as session:
@@ -900,10 +910,133 @@ class EvalService:
                 self._mark_failed(run_id, message=task.get("error_message") or "TASK_FAILED", started=started)
                 return
 
+            attempts += 1
+            if attempts % 3 == 0:
+                # Try to finalize ComfyUI submitted-only tasks.
+                self._try_finalize_comfyui_task(task_id=task_id)
+
             time.sleep(interval)
             interval = min(interval * 1.3, 10.0)
 
         self._mark_failed(run_id, message="TASK_TIMEOUT", started=started)
+
+    def _try_finalize_comfyui_task(self, *, task_id: str) -> None:
+        """Best-effort: finalize a ComfyUI submitted-only task by polling /history.
+
+        This mirrors the behavior in `/api/coze/podi/tasks/get` so eval runs can refresh
+        without relying on a separate Coze callback workflow.
+        """
+
+        with get_session() as session:
+            task_row = session.get(AbilityTask, task_id)
+            if not task_row:
+                return
+            if (task_row.ability_provider or "").lower() != "comfyui":
+                return
+            if task_row.status not in {"queued", "running"}:
+                return
+            result_payload = task_row.result_payload or {}
+            if not isinstance(result_payload, dict):
+                return
+            meta = result_payload.get("metadata") if isinstance(result_payload.get("metadata"), dict) else {}
+            prompt_id = meta.get("promptId") or meta.get("taskId")
+            base_url = meta.get("baseUrl")
+            executor_id = meta.get("executorId")
+            if not (isinstance(prompt_id, str) and prompt_id.strip() and isinstance(base_url, str) and base_url.strip()):
+                return
+
+        # Avoid importing heavy modules unless needed.
+        try:
+            import httpx
+            from types import SimpleNamespace
+
+            from app.services.executors.base import ExecutionContext
+            from app.services.executors.registry import registry
+        except Exception:
+            return
+
+        adapter = registry.get("comfyui")
+        if adapter is None:
+            return
+
+        try:
+            history_url = f"{base_url.rstrip('/')}/history/{prompt_id}"
+            resp = httpx.get(history_url, timeout=15)
+            if resp.status_code != 200:
+                raise RuntimeError(f"COMFYUI_HISTORY_HTTP_{resp.status_code}")
+            data = resp.json()
+            entry = data.get(prompt_id) if isinstance(data, dict) else None
+            if not isinstance(entry, dict):
+                raise RuntimeError("COMFYUI_HISTORY_INVALID")
+
+            outputs = adapter._extract_outputs(entry)  # type: ignore[attr-defined]
+            hist = outputs.get("history") if isinstance(outputs, dict) else None
+            status_dict = hist.get("status") if isinstance(hist, dict) else None
+            status_str = str((status_dict or {}).get("status_str") or "").lower()
+
+            if status_str == "error":
+                with get_session() as session:
+                    db_task = session.get(AbilityTask, task_id)
+                    if db_task:
+                        db_task.status = "failed"
+                        db_task.error_message = "COMFYUI_ERROR"
+                        session.add(db_task)
+                        session.commit()
+                return
+            if status_str != "success":
+                return
+
+            images = outputs.get("images") if isinstance(outputs, dict) else None
+            if not isinstance(images, list) or not images:
+                return
+
+            ctx = ExecutionContext(
+                task=SimpleNamespace(id=task_id, user_id="eval", assets=[]),
+                workflow=SimpleNamespace(id="eval_finalize", definition={}, extra_metadata={}),
+                executor=SimpleNamespace(id=executor_id or "comfyui", base_url=base_url, config={}),
+                payload={},
+                api_key=None,
+            )
+
+            assets: list[dict[str, Any]] = []
+            for img in images:
+                if not isinstance(img, dict):
+                    continue
+                source_url = img.get("url") or adapter._build_image_url(base_url.rstrip("/"), img)  # type: ignore[attr-defined]
+                base64_data = img.get("base64")
+                if source_url:
+                    asset = adapter._store_remote_asset(source_url, ctx, tag="comfyui")  # type: ignore[attr-defined]
+                elif base64_data:
+                    asset = adapter._store_base64_asset(base64_data, ctx, tag="comfyui")  # type: ignore[attr-defined]
+                else:
+                    asset = None
+                if asset:
+                    assets.append(asset)
+
+            if not assets:
+                return
+
+            with get_session() as session:
+                db_task = session.get(AbilityTask, task_id)
+                if not db_task:
+                    return
+                next_payload = dict(db_task.result_payload or {})
+                next_payload["images"] = assets
+                next_payload["assets"] = assets
+                next_payload["status"] = "succeeded"
+                db_task.status = "succeeded"
+                db_task.result_payload = next_payload
+                session.add(db_task)
+                session.commit()
+        except Exception as exc:
+            # Best-effort; keep task running but record the last diagnostic hint for operators.
+            with get_session() as session:
+                db_task = session.get(AbilityTask, task_id)
+                if db_task and db_task.status in {"queued", "running"}:
+                    db_task.error_message = str(exc)[:240]
+                    session.add(db_task)
+                    session.commit()
+            return
 
     @staticmethod
     def _mark_succeeded(
