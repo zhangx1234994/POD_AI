@@ -762,13 +762,28 @@ class EvalService:
         started: float,
         error_message: str | None = None,
     ) -> None:
+        # Last-line defense: avoid persisting obvious non-image debug URLs as "image outputs".
+        cleaned: list[str] = []
+        for u in image_urls or []:
+            if not isinstance(u, str):
+                continue
+            s = u.strip()
+            if not s:
+                continue
+            lower = s.lower()
+            if "/work_flow" in lower or ("/workflow" in lower and "execute_id=" in lower):
+                continue
+            if "execute_mode=" in lower and "execute_id=" in lower:
+                continue
+            cleaned.append(s)
+
         with get_session() as session:
             run = session.get(EvalRun, run_id)
             if not run:
                 return
             run.status = "succeeded"
             run.error_message = error_message
-            run.result_image_urls_json = image_urls or []
+            run.result_image_urls_json = cleaned or []
             run.duration_ms = int((time.monotonic() - started) * 1000)
             session.add(run)
             session.commit()
