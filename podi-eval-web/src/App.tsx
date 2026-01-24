@@ -401,6 +401,18 @@ function ImageTile({
   );
 }
 
+function SkeletonTile({ title, subtitle }: { title: string; subtitle?: string }) {
+  return (
+    <div className="relative block rounded-2xl border border-slate-800 bg-slate-950/30 p-2">
+      <div className="h-56 w-full rounded-xl border border-slate-800 bg-slate-950/60 animate-pulse" />
+      <div className="mt-2 px-1">
+        <div className="text-xs font-semibold text-slate-200">{title}</div>
+        {subtitle ? <div className="mt-1 text-[11px] text-slate-500 break-all">{subtitle}</div> : null}
+      </div>
+    </div>
+  );
+}
+
 export function App() {
   const [notice, setNotice] = useState<Notice | null>(null);
   const pushNotice = (n: Notice) => {
@@ -966,11 +978,14 @@ export function App() {
                     return <div className="text-sm text-slate-500">暂无记录（先在左侧运行一次）。</div>;
                   }
                   if (latest.status === 'queued' || latest.status === 'running') {
+                    const rawCount = Number((latest.parameters_json as any)?.count);
+                    const count = Number.isFinite(rawCount) && rawCount > 1 ? Math.min(Math.max(rawCount, 2), 12) : 1;
                     return (
-                      <div className="rounded-2xl border border-slate-800 bg-slate-950/30 p-4 text-sm text-slate-300">
-                        正在生成中…
-                        <div className="mt-2 text-xs text-slate-500">run: {latest.id}</div>
-                      </div>
+                      <>
+                        {Array.from({ length: count }).map((_, idx) => (
+                          <SkeletonTile key={`sk-${latest.id}-${idx}`} title={`生成中… #${idx + 1}`} subtitle={`run: ${latest.id}`} />
+                        ))}
+                      </>
                     );
                   }
                   if (latest.status === 'failed') {
@@ -982,7 +997,7 @@ export function App() {
                       </div>
                     );
                   }
-                  const imgs = latest.result_image_urls_json || [];
+                  const imgs = (latest.result_image_urls_json || []).filter((u) => typeof u === 'string' && u.trim());
                   if (!imgs.length) {
                     return <div className="text-sm text-slate-500">该次运行无图片输出。</div>;
                   }
@@ -1127,7 +1142,7 @@ function HistoryRow({
   onOpenImage: (url: string, title?: string) => void;
 }) {
   const inputUrl = (run.input_oss_urls_json || [])[0] || '';
-  const outputs = run.result_image_urls_json || [];
+  const outputs = (run.result_image_urls_json || []).filter((u) => typeof u === 'string' && u.trim());
   const [rating, setRating] = useState<number>(run.latest_annotation?.rating || 0);
   const [savedComment, setSavedComment] = useState<string>(String(run.latest_annotation?.comment || ''));
   const [commentDraft, setCommentDraft] = useState<string>(String(run.latest_annotation?.comment || ''));
@@ -1291,7 +1306,24 @@ function HistoryRow({
                 </button>
               ))
             ) : (
-              <div className="text-sm text-slate-500">{run.status === 'running' || run.status === 'queued' ? '生成中…' : '暂无输出'}</div>
+              (() => {
+                if (run.status !== 'running' && run.status !== 'queued') {
+                  return <div className="text-sm text-slate-500">暂无输出</div>;
+                }
+                const rawCount = Number((run.parameters_json as any)?.count);
+                const count = Number.isFinite(rawCount) && rawCount > 1 ? Math.min(Math.max(rawCount, 2), 12) : 1;
+                return (
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {Array.from({ length: count }).map((_, idx) => (
+                      <div
+                        key={`${run.id}-sk-${idx}`}
+                        className="h-32 w-full rounded-xl border border-slate-800 bg-slate-950/60 animate-pulse"
+                        title="生成中…"
+                      />
+                    ))}
+                  </div>
+                );
+              })()
             )}
           </div>
         </div>
