@@ -34,8 +34,6 @@ DEPRECATED_EVAL_WORKFLOW_IDS: set[str] = {
     "7597535455856295936",  # 提示词提取 · tishici_tiqu
     # 花纹提取类（旧的 space_id 误填版本，保留但不再展示）
     "7597421439045599232",  # tiqu_duoMoxing_2 (wrong id, superseded by 7598558185544220672)
-    # 连续图（当前不在评测平台展示范围内）
-    "7598563505054154752",  # lianxu
 }
 
 # Evaluation UI category policy: keep the sidebar fixed to these 4 groups.
@@ -76,6 +74,8 @@ FORCE_ACTIVE_EVAL_WORKFLOW_IDS: set[str] = {
     "7598558185544220672",  # tiqu_duoMoxing_2
     "7598559869544693760",  # tiqu_duoMoxing_2_1
     "7598560946579046400",  # tiqu_duoMoxing_2_2
+    # 连续图
+    "7598563505054154752",  # lianxu
     # 图扩展
     "7597723984687267840",  # duomotaikuotu (multi-model outpaint)
     "7598587935331450880",  # comfyuo_tukuozhan (comfyui outpaint)
@@ -325,7 +325,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         "name": "连续图 · lianxu",
         "version": "v1",
         "workflow_id": "7598563505054154752",
-        "status": "inactive",
+        "status": "active",
         "notes": "四方连续/两方连续。patternType=seamless(四方)/twoway(两方)。输出 output 为回调 task id。",
         "parameters_schema": {
             "fields": [
