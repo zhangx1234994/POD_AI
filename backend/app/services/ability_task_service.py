@@ -74,11 +74,28 @@ class AbilityTaskService:
     def _resume_pending_tasks(self) -> None:
         pending_ids: list[str] = []
         with get_session() as session:
-            pending_ids = (
-                session.execute(select(AbilityTask.id).where(AbilityTask.status.in_(["queued", "running"])))
+            pending = (
+                session.execute(select(AbilityTask).where(AbilityTask.status.in_(["queued", "running"])))
                 .scalars()
                 .all()
             )
+
+            # Avoid duplicate submissions on process restart:
+            # - Some ComfyUI abilities are "submit-only" (we return immediately and finalize later via polling).
+            # - Those tasks stay in `running` with a stored promptId/baseUrl in result_payload.metadata.
+            # If we blindly reset `running` -> `queued` and re-enqueue, we'll submit the same job again,
+            # creating "mysterious extra jobs" on the ComfyUI server after each backend restart.
+            to_requeue: list[str] = []
+            for task in pending:
+                if task.status == "queued":
+                    to_requeue.append(task.id)
+                    continue
+                if task.status == "running":
+                    if self._is_comfyui_submitted_only(task):
+                        continue
+                    to_requeue.append(task.id)
+
+            pending_ids = to_requeue
             if pending_ids:
                 session.execute(
                     AbilityTask.__table__.update()
@@ -88,6 +105,20 @@ class AbilityTaskService:
                 session.commit()
         for task_id in pending_ids:
             self._executor.submit(self._run_task, task_id)
+
+    @staticmethod
+    def _is_comfyui_submitted_only(task: AbilityTask) -> bool:
+        if (task.ability_provider or "").lower() != "comfyui":
+            return False
+        payload = task.result_payload or {}
+        if not isinstance(payload, dict):
+            return False
+        meta = payload.get("metadata")
+        if not isinstance(meta, dict):
+            return False
+        prompt_id = meta.get("promptId") or meta.get("taskId")
+        base_url = meta.get("baseUrl")
+        return isinstance(prompt_id, str) and bool(prompt_id.strip()) and isinstance(base_url, str) and bool(base_url.strip())
 
     def _run_task(self, task_id: str) -> None:
         started_at = datetime.utcnow()
