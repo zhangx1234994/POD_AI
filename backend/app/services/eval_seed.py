@@ -58,6 +58,8 @@ def _normalize_eval_category(category: str | None) -> str:
         return "图延伸类"
     if c in {"continuous", "lianxu", "seamless"}:
         return "四方/两方连续图类"
+    if c in {"图裂变", "liebiam", "liebain", "variation", "image_variation"}:
+        return "通用类"
     if c in {"general", "common"}:
         return "通用类"
     # Safe fallback to avoid leaking extra categories into the sidebar.
@@ -81,6 +83,10 @@ FORCE_ACTIVE_EVAL_WORKFLOW_IDS: set[str] = {
     "7598587935331450880",  # comfyuo_tukuozhan (comfyui outpaint)
     # 通用
     "7598589746561941504",  # dpi增分
+    # 图裂变（归类到通用类）
+    "7598841920114130944",  # Liebian_comfyui_20260124_1
+    "7598820684801769472",  # Liebian_comfyui_20260124
+    "7598844004557389824",  # Liebian_shangye_20260124_1_1
 }
 
 
@@ -523,6 +529,76 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
             "fields": [
                 {"name": "url", "label": "图片 URL", "type": "text", "required": True},
                 {"name": "dpi", "label": "DPI", "type": "text", "required": False, "defaultValue": "300"},
+            ]
+        },
+        "output_schema": {"fields": [{"name": "output", "type": "text", "description": "图片 URL"}]},
+    },
+    # 通用类 / 图裂变（ComfyUI，无提示词，输出回调 task id）
+    {
+        "category": "通用类",
+        "name": "图裂变 · Liebian_comfyui_20260124_1",
+        "version": "v1",
+        "workflow_id": "7598841920114130944",
+        "status": "active",
+        "notes": "图裂变（ComfyUI 无提示词）。输出 output 为回调 task id。裂变数量通过 count 控制（业务侧循环，不在工作流中循环）。",
+        "parameters_schema": {
+            "fields": [
+                {"name": "url", "label": "图片 URL", "type": "text", "required": True},
+                {"name": "height", "label": "高度", "type": "text", "required": True, "defaultValue": "1024"},
+                {"name": "width", "label": "宽度", "type": "text", "required": True, "defaultValue": "1024"},
+                {"name": "bili", "label": "重绘比例", "type": "text", "required": True, "defaultValue": "50%"},
+                {"name": "count", "label": "裂变数量", "type": "text", "required": False, "defaultValue": "4", "description": "一次评测会触发 count 个子任务并聚合结果"},
+            ]
+        },
+        "output_schema": {"fields": [{"name": "output", "type": "text", "description": "回调 task id"}]},
+    },
+    # 通用类 / 图裂变（ComfyUI，有提示词，输出回调 task id）
+    {
+        "category": "通用类",
+        "name": "图裂变 · Liebian_comfyui_20260124",
+        "version": "v1",
+        "workflow_id": "7598820684801769472",
+        "status": "active",
+        "notes": "图裂变（ComfyUI 有提示词）。输出 output 为回调 task id。裂变数量通过 count 控制。",
+        "parameters_schema": {
+            "fields": [
+                {"name": "url", "label": "图片 URL", "type": "text", "required": True},
+                {"name": "height", "label": "高度", "type": "text", "required": True, "defaultValue": "1024"},
+                {"name": "width", "label": "宽度", "type": "text", "required": True, "defaultValue": "1024"},
+                {"name": "bili", "label": "重绘比例", "type": "text", "required": True, "defaultValue": "50%"},
+                {"name": "prompt", "label": "提示词", "type": "textarea", "required": False, "defaultValue": ""},
+                {"name": "count", "label": "裂变数量", "type": "text", "required": False, "defaultValue": "4", "description": "一次评测会触发 count 个子任务并聚合结果"},
+            ]
+        },
+        "output_schema": {"fields": [{"name": "output", "type": "text", "description": "回调 task id"}]},
+    },
+    # 通用类 / 图裂变（商业模型，无提示词，输出图片 URL）
+    {
+        "category": "通用类",
+        "name": "图裂变 · Liebian_shangye_20260124_1_1",
+        "version": "v1",
+        "workflow_id": "7598844004557389824",
+        "status": "active",
+        "notes": "图裂变（商业模型无提示词）。输出 output 为图片 URL。裂变数量通过 count 控制；当前比例参数后续可能需要额外处理。",
+        "parameters_schema": {
+            "fields": [
+                {"name": "url", "label": "图片 URL", "type": "text", "required": True},
+                {"name": "height", "label": "高度", "type": "text", "required": True, "defaultValue": "1024"},
+                {"name": "width", "label": "宽度", "type": "text", "required": True, "defaultValue": "1024"},
+                {"name": "bili", "label": "重绘比例", "type": "text", "required": True, "defaultValue": "50%"},
+                {
+                    "name": "moxing",
+                    "label": "模型",
+                    "type": "select",
+                    "required": False,
+                    "defaultValue": "1",
+                    "options": [
+                        {"label": "1 · Banana Pro", "value": "1"},
+                        {"label": "2 · Flux2 Pro", "value": "2"},
+                        {"label": "3 · Seedream 4.5", "value": "3"},
+                    ],
+                },
+                {"name": "count", "label": "裂变数量", "type": "text", "required": False, "defaultValue": "4", "description": "一次评测会触发 count 个子任务并聚合结果"},
             ]
         },
         "output_schema": {"fields": [{"name": "output", "type": "text", "description": "图片 URL"}]},

@@ -99,6 +99,26 @@ class EvalService:
         self._executor.submit(self._execute_run, run.id)
         return run
 
+    @staticmethod
+    def _pop_fanout_count(params: dict[str, Any]) -> int:
+        """Extract internal fan-out count (裂变数量) from params.
+
+        This is a PODI evaluation-only control parameter and should NOT be sent to Coze,
+        because most workflows don't declare it in their schema.
+        """
+
+        for key in ("count", "generateCount", "variantCount", "n"):
+            if key not in params:
+                continue
+            raw = params.pop(key, None)
+            try:
+                value = int(str(raw).strip())
+            except Exception:
+                value = 0
+            if value > 0:
+                return min(value, 20)  # safety cap
+        return 1
+
     def list_eval_runs(
         self,
         *,
@@ -171,6 +191,129 @@ class EvalService:
             # Execute the workflow (non-streaming). OpenAPI tokens are handled by coze_client.
             if not workflow_id:
                 raise RuntimeError("WORKFLOW_ID_MISSING")
+
+            # Fan-out (裂变数量): run the same workflow multiple times and aggregate images.
+            # Note: `count` is an internal eval control param and is not sent to Coze.
+            coze_params = run_parameters.copy()
+            fanout = self._pop_fanout_count(coze_params)
+            if fanout > 1:
+                all_images: list[str] = []
+                errors: list[str] = []
+                last_debug_url: str | None = None
+                last_execute_id: str | None = None
+
+                for idx in range(fanout):
+                    response = coze_client.run_workflow(
+                        workflow_id=workflow_id,
+                        parameters=coze_params,
+                        is_async=False,
+                    )
+                    execute_id = response.get("execute_id")
+                    debug_url = response.get("debug_url")
+                    if debug_url:
+                        last_debug_url = str(debug_url)
+                    if execute_id:
+                        last_execute_id = str(execute_id)
+
+                    base_resp = response.get("BaseResp") or {}
+                    status_code = base_resp.get("StatusCode")
+                    code = response.get("code")
+                    if (isinstance(code, int) and code != 0) or (isinstance(status_code, int) and status_code != 0):
+                        msg = response.get("msg") or base_resp.get("StatusMessage") or "COZE_EXECUTION_FAILED"
+                        if (
+                            isinstance(code, int)
+                            and code == 4000
+                            and isinstance(msg, str)
+                            and "Missing required parameters" in msg
+                        ):
+                            patched = self._patch_missing_required_params(coze_params, msg)
+                            if patched:
+                                response = coze_client.run_workflow(
+                                    workflow_id=workflow_id,
+                                    parameters=patched,
+                                    is_async=False,
+                                )
+                                base_resp = response.get("BaseResp") or {}
+                                status_code = base_resp.get("StatusCode")
+                                code = response.get("code")
+                                if (isinstance(code, int) and code != 0) or (
+                                    isinstance(status_code, int) and status_code != 0
+                                ):
+                                    msg = response.get("msg") or base_resp.get("StatusMessage") or "COZE_EXECUTION_FAILED"
+                                else:
+                                    parsed = self._parse_coze_payload(response)
+                                    output = parsed.get("output")
+                                    podi_task_id = self._guess_podi_task_id(parsed, output)
+                                    if podi_task_id:
+                                        with get_session() as session:
+                                            task_row = session.get(AbilityTask, podi_task_id)
+                                        if task_row:
+                                            imgs = self._poll_ability_task_inline(task_id=podi_task_id)
+                                            all_images.extend(imgs)
+                                        else:
+                                            callback_wf = settings.coze_comfyui_callback_workflow_id
+                                            if callback_wf:
+                                                imgs = self._poll_callback_images(
+                                                    callback_workflow_id=callback_wf,
+                                                    taskid=podi_task_id,
+                                                )
+                                                all_images.extend(imgs)
+                                    else:
+                                        all_images.extend(self._extract_image_urls(parsed))
+                                    continue
+                        errors.append(
+                            f"[{idx+1}/{fanout}] COZE_FAILED code={code} statusCode={status_code} msg={msg}"
+                        )
+                        continue
+
+                    parsed = self._parse_coze_payload(response)
+                    output = parsed.get("output")
+                    podi_task_id = self._guess_podi_task_id(parsed, output)
+                    if podi_task_id:
+                        with get_session() as session:
+                            task_row = session.get(AbilityTask, podi_task_id)
+                        if task_row:
+                            imgs = self._poll_ability_task_inline(task_id=podi_task_id)
+                            all_images.extend(imgs)
+                            continue
+                        callback_wf = settings.coze_comfyui_callback_workflow_id
+                        if callback_wf:
+                            imgs = self._poll_callback_images(callback_workflow_id=callback_wf, taskid=podi_task_id)
+                            all_images.extend(imgs)
+                            if not imgs:
+                                errors.append(f"[{idx+1}/{fanout}] CALLBACK_IMAGES_EMPTY")
+                            continue
+
+                    all_images.extend(self._extract_image_urls(parsed))
+
+                # De-dup while preserving order.
+                seen: set[str] = set()
+                dedup: list[str] = []
+                for u in all_images:
+                    if u in seen:
+                        continue
+                    seen.add(u)
+                    dedup.append(u)
+
+                with get_session() as session:
+                    run = session.get(EvalRun, run_id)
+                    if run:
+                        if last_execute_id and not run.coze_execute_id:
+                            run.coze_execute_id = last_execute_id
+                        if last_debug_url and not run.coze_debug_url:
+                            run.coze_debug_url = last_debug_url
+                        session.add(run)
+                        session.commit()
+
+                if dedup:
+                    warn = None
+                    if errors:
+                        warn = "FANOUT_PARTIAL_FAILED: " + " | ".join(errors[:5]) + (" ..." if len(errors) > 5 else "")
+                    self._mark_succeeded(run_id, image_urls=dedup, started=started, error_message=warn)
+                    return
+                self._mark_failed(run_id, message=errors[0] if errors else "FANOUT_EMPTY", started=started)
+                return
+
             response = coze_client.run_workflow(workflow_id=workflow_id, parameters=run_parameters, is_async=False)
 
             execute_id = response.get("execute_id")
@@ -454,6 +597,43 @@ class EvalService:
             interval = min(interval * 1.4, 8.0)
         return last_images
 
+    def _poll_ability_task_inline(self, *, task_id: str) -> list[str]:
+        """Poll an ability_task and return image URLs (for fan-out runs)."""
+        deadline = time.monotonic() + 60 * 20  # 20 minutes max
+        interval = 1.5
+
+        while time.monotonic() < deadline:
+            with get_session() as session:
+                task_row = session.get(AbilityTask, task_id)
+                if not task_row:
+                    return []
+                task = ability_task_service.to_dict(task_row)
+
+            status = task.get("status")
+            if status == "succeeded":
+                result_payload = task.get("result_payload") or {}
+                image_urls: list[str] = []
+                if isinstance(result_payload, dict):
+                    images = result_payload.get("images") or []
+                    if isinstance(images, list):
+                        for it in images:
+                            if not isinstance(it, dict):
+                                continue
+                            for k in ("ossUrl", "sourceUrl", "url"):
+                                v = it.get(k)
+                                if isinstance(v, str) and v.strip():
+                                    image_urls.append(v.strip())
+                                    break
+                return image_urls
+
+            if status == "failed":
+                return []
+
+            time.sleep(interval)
+            interval = min(interval * 1.3, 10.0)
+
+        return []
+
     def _poll_ability_task(self, *, run_id: str, task_id: str, started: float) -> None:
         deadline = time.monotonic() + 60 * 20  # 20 minutes max
         interval = 1.5
@@ -503,13 +683,19 @@ class EvalService:
         self._mark_failed(run_id, message="TASK_TIMEOUT", started=started)
 
     @staticmethod
-    def _mark_succeeded(run_id: str, *, image_urls: list[str], started: float) -> None:
+    def _mark_succeeded(
+        run_id: str,
+        *,
+        image_urls: list[str],
+        started: float,
+        error_message: str | None = None,
+    ) -> None:
         with get_session() as session:
             run = session.get(EvalRun, run_id)
             if not run:
                 return
             run.status = "succeeded"
-            run.error_message = None
+            run.error_message = error_message
             run.result_image_urls_json = image_urls or []
             run.duration_ms = int((time.monotonic() - started) * 1000)
             session.add(run)

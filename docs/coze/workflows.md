@@ -30,3 +30,8 @@ curl -X POST "$COZE_BASE_URL/v1/workflow/run" \
   - `output=image_url`：直接是一张图片 URL
   - `output=callback_task_id`：回调任务 id（需要再走回调/轮询才能拿到图片）
 
+## 裂变类工作流（Fan-out）
+
+评测平台支持“裂变数量”参数：
+- `count`：一次评测会触发 `count` 次 Coze workflow 执行，并把所有结果图聚合展示
+- `count` 是评测平台内部控制参数，不一定在 Coze workflow 的 schema 中出现，因此不会转发给 Coze
