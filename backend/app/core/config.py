@@ -54,6 +54,8 @@ class Settings(BaseSettings):
     executor_config_path: str = Field(default="config/executors.yaml", env="EXECUTOR_CONFIG_PATH")
     ability_task_max_workers: int = Field(default=4, env="ABILITY_TASK_MAX_WORKERS")
     eval_run_max_workers: int = Field(default=6, env="EVAL_RUN_MAX_WORKERS")
+    # Fan-out concurrency for "裂变数量" runs (Coze async submit + polling).
+    eval_fanout_max_workers: int = Field(default=4, env="EVAL_FANOUT_MAX_WORKERS")
     eval_public_enabled: bool = Field(default=False, env="EVAL_PUBLIC_ENABLED")
     # Optional shared secret for public evaluation APIs. If unset and
     # eval_public_enabled=true, the endpoints are open (intended for internal LAN).
