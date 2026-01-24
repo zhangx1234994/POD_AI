@@ -19,7 +19,7 @@ from app.models.integration import Ability, AbilityTask
 from app.schemas import abilities as ability_schemas
 from app.services.ability_invocation import ability_invocation_service
 from app.services.ability_seed import ensure_default_abilities
-from app.services.ability_task_service import ability_task_service
+from app.services.ability_task_service import get_ability_task_service
 from app.services.executor_seed import ensure_default_executors
 from app.services.auth_service import auth_service
 from app.services.executors.registry import registry
@@ -652,7 +652,7 @@ def invoke_tool(
         payload.metadata = (payload.metadata or {}) | {"expectedImageCount": expected_images}
 
         # Store as a system task (no user FK) to keep internal integrations simple.
-        task = ability_task_service.enqueue(ability_id=ability.id, payload=payload, user=None)
+        task = get_ability_task_service().enqueue(ability_id=ability.id, payload=payload, user=None)
         return _prune(
             {
                 "text": "submitted",
@@ -753,7 +753,7 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
             from fastapi import HTTPException
 
             raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
-        task = ability_task_service.to_dict(task_row)
+        task = get_ability_task_service().to_dict(task_row)
     status = task.get("status")
     result_payload = task.get("result_payload") or {}
     req_payload = task.get("request_payload") or {}
@@ -774,7 +774,7 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
                 task_row = session.get(AbilityTask, task_id.strip())
                 if not task_row:
                     break
-                task = ability_task_service.to_dict(task_row)
+                task = get_ability_task_service().to_dict(task_row)
             status = task.get("status")
             if status not in {"queued", "running"}:
                 break
@@ -916,7 +916,7 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
                             db_task.error_message = "COMFYUI_ERROR"
                             session.add(db_task)
                             session.commit()
-                            task = ability_task_service.to_dict(db_task)
+                            task = get_ability_task_service().to_dict(db_task)
                             status = task.get("status")
                             result_payload = task.get("result_payload") or {}
 
@@ -962,7 +962,7 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
                             db_task.result_payload = next_payload
                             session.add(db_task)
                             session.commit()
-                            task = ability_task_service.to_dict(db_task)
+                            task = get_ability_task_service().to_dict(db_task)
                             status = task.get("status")
                             result_payload = task.get("result_payload") or {}
                     except Exception:

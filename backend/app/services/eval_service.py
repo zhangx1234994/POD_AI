@@ -20,7 +20,7 @@ from app.core.config import get_settings
 from app.core.db import get_session
 from app.models.eval import EvalRun, EvalWorkflowVersion
 from app.models.integration import AbilityTask
-from app.services.ability_task_service import ability_task_service
+from app.services.ability_task_service import get_ability_task_service
 from app.services.coze_client import coze_client
 
 
@@ -830,7 +830,7 @@ class EvalService:
                 task_row = session.get(AbilityTask, task_id)
                 if not task_row:
                     return []
-                task = ability_task_service.to_dict(task_row)
+                task = get_ability_task_service().to_dict(task_row)
 
             status = task.get("status")
             if status == "succeeded":
@@ -868,7 +868,7 @@ class EvalService:
                 if not task_row:
                     self._mark_failed(run_id, message="TASK_NOT_FOUND", started=started)
                     return
-                task = ability_task_service.to_dict(task_row)
+                task = get_ability_task_service().to_dict(task_row)
             status = task.get("status")
             if status != last_status:
                 last_status = status

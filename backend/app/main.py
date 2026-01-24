@@ -3,6 +3,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.services.ability_task_service import get_ability_task_service
+from app.services.eval_service import get_eval_service
+
 from app.routers import (
     abilities,
     ability_tasks,
@@ -24,6 +27,12 @@ from app.routers import (
 
 def create_app() -> FastAPI:
     app = FastAPI(title="PODI Backend", version="0.1.0")
+
+    @app.on_event("startup")
+    def _warmup_services() -> None:
+        # Instantiate background queues once per process so pending tasks/runs are resumed.
+        get_ability_task_service()
+        get_eval_service()
 
     app.add_middleware(
         CORSMiddleware,

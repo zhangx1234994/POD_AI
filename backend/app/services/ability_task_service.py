@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
@@ -206,4 +207,8 @@ class AbilityTaskService:
         return _sanitize(payload, depth)
 
 
-ability_task_service = AbilityTaskService()
+@lru_cache
+def get_ability_task_service() -> AbilityTaskService:
+    """Lazy singleton to avoid import-time side effects (important under uvicorn reload/tests)."""
+
+    return AbilityTaskService()
