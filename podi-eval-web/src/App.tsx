@@ -71,6 +71,29 @@ const buildCozeDoc = (wf: EvalWorkflowVersion, urlExample: string) => {
   ].join('\n');
 };
 
+const isLikelyImageUrl = (url: string): boolean => {
+  const u = String(url || '').trim();
+  if (!u.startsWith('http://') && !u.startsWith('https://')) return false;
+  const lower = u.toLowerCase();
+  // Coze debug URLs (HTML) are not image assets; avoid showing broken thumbnails.
+  if (lower.includes('/work_flow') || (lower.includes('/workflow') && lower.includes('execute_id='))) return false;
+  if (lower.includes('execute_mode=') && lower.includes('execute_id=')) return false;
+  // Common image extensions and ComfyUI `/view?filename=xxx.png`.
+  if (/\.(png|jpe?g|webp|gif|bmp)(\?|$)/.test(lower)) return true;
+  if (lower.includes('filename=') && /filename=[^&]+\.(png|jpe?g|webp|gif|bmp)(\&|$)/.test(lower)) return true;
+  // OSS storedUrl often carries an extension, but keep a small allowlist for safety.
+  if (lower.includes('.aliyuncs.com') || lower.includes('.oss-')) return true;
+  return false;
+};
+
+const filterImageUrls = (urls: unknown): string[] => {
+  if (!Array.isArray(urls)) return [];
+  return urls
+    .filter((u) => typeof u === 'string')
+    .map((u) => u.trim())
+    .filter((u) => u && isLikelyImageUrl(u));
+};
+
 function Lightbox({
   url,
   title,
@@ -997,9 +1020,20 @@ export function App() {
                       </div>
                     );
                   }
-                  const imgs = (latest.result_image_urls_json || []).filter((u) => typeof u === 'string' && u.trim());
+                  const imgs = filterImageUrls(latest.result_image_urls_json);
                   if (!imgs.length) {
-                    return <div className="text-sm text-slate-500">该次运行无图片输出。</div>;
+                    return (
+                      <div className="rounded-2xl border border-slate-800 bg-slate-950/30 p-4 text-sm text-slate-300">
+                        该次运行无图片输出。
+                        {latest.coze_debug_url ? (
+                          <div className="mt-2 text-xs">
+                            <a className="text-sky-400 underline" href={latest.coze_debug_url} target="_blank" rel="noreferrer">
+                              打开 Coze debug_url
+                            </a>
+                          </div>
+                        ) : null}
+                      </div>
+                    );
                   }
                   return imgs.map((img, idx) => (
                     <ImageTile
@@ -1142,7 +1176,7 @@ function HistoryRow({
   onOpenImage: (url: string, title?: string) => void;
 }) {
   const inputUrl = (run.input_oss_urls_json || [])[0] || '';
-  const outputs = (run.result_image_urls_json || []).filter((u) => typeof u === 'string' && u.trim());
+  const outputs = filterImageUrls(run.result_image_urls_json);
   const [rating, setRating] = useState<number>(run.latest_annotation?.rating || 0);
   const [savedComment, setSavedComment] = useState<string>(String(run.latest_annotation?.comment || ''));
   const [commentDraft, setCommentDraft] = useState<string>(String(run.latest_annotation?.comment || ''));
