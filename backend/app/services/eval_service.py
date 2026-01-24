@@ -195,6 +195,10 @@ class EvalService:
             # Fan-out (裂变数量): run the same workflow multiple times and aggregate images.
             # Note: `count` is an internal eval control param and is not sent to Coze.
             coze_params = run_parameters.copy()
+            # UI uses `similarity`; Coze workflows expect legacy `bili`.
+            if "bili" not in coze_params and "similarity" in coze_params:
+                coze_params["bili"] = coze_params.get("similarity")
+            coze_params.pop("similarity", None)
             fanout = self._pop_fanout_count(coze_params)
             if fanout > 1:
                 all_images: list[str] = []
@@ -314,7 +318,7 @@ class EvalService:
                 self._mark_failed(run_id, message=errors[0] if errors else "FANOUT_EMPTY", started=started)
                 return
 
-            response = coze_client.run_workflow(workflow_id=workflow_id, parameters=run_parameters, is_async=False)
+            response = coze_client.run_workflow(workflow_id=workflow_id, parameters=coze_params, is_async=False)
 
             execute_id = response.get("execute_id")
             debug_url = response.get("debug_url")

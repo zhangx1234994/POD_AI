@@ -548,7 +548,14 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                 {"name": "url", "label": "图片 URL", "type": "text", "required": True},
                 {"name": "height", "label": "高度", "type": "text", "required": True, "defaultValue": "1024"},
                 {"name": "width", "label": "宽度", "type": "text", "required": True, "defaultValue": "1024"},
-                {"name": "bili", "label": "重绘比例", "type": "text", "required": True, "defaultValue": "50%"},
+                {
+                    "name": "similarity",
+                    "label": "相似度 Similarity",
+                    "type": "text",
+                    "required": True,
+                    "defaultValue": "50%",
+                    "description": "与原图保持相似的比例（越高越接近原图）。兼容字段：bili。",
+                },
                 {"name": "count", "label": "裂变数量", "type": "text", "required": False, "defaultValue": "4", "description": "一次评测会触发 count 个子任务并聚合结果"},
             ]
         },
@@ -567,7 +574,14 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                 {"name": "url", "label": "图片 URL", "type": "text", "required": True},
                 {"name": "height", "label": "高度", "type": "text", "required": True, "defaultValue": "1024"},
                 {"name": "width", "label": "宽度", "type": "text", "required": True, "defaultValue": "1024"},
-                {"name": "bili", "label": "重绘比例", "type": "text", "required": True, "defaultValue": "50%"},
+                {
+                    "name": "similarity",
+                    "label": "相似度 Similarity",
+                    "type": "text",
+                    "required": True,
+                    "defaultValue": "50%",
+                    "description": "与原图保持相似的比例（越高越接近原图）。兼容字段：bili。",
+                },
                 {"name": "prompt", "label": "提示词", "type": "textarea", "required": False, "defaultValue": ""},
                 {"name": "count", "label": "裂变数量", "type": "text", "required": False, "defaultValue": "4", "description": "一次评测会触发 count 个子任务并聚合结果"},
             ]
@@ -587,7 +601,14 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                 {"name": "url", "label": "图片 URL", "type": "text", "required": True},
                 {"name": "height", "label": "高度", "type": "text", "required": True, "defaultValue": "1024"},
                 {"name": "width", "label": "宽度", "type": "text", "required": True, "defaultValue": "1024"},
-                {"name": "bili", "label": "重绘比例", "type": "text", "required": True, "defaultValue": "50%"},
+                {
+                    "name": "similarity",
+                    "label": "相似度 Similarity",
+                    "type": "text",
+                    "required": True,
+                    "defaultValue": "50%",
+                    "description": "与原图保持相似的比例（越高越接近原图）。兼容字段：bili。",
+                },
                 {
                     "name": "moxing",
                     "label": "模型",
@@ -618,7 +639,14 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                 {"name": "url", "label": "图片 URL", "type": "text", "required": True},
                 {"name": "height", "label": "高度", "type": "text", "required": True, "defaultValue": "1024"},
                 {"name": "width", "label": "宽度", "type": "text", "required": True, "defaultValue": "1024"},
-                {"name": "bili", "label": "重绘比例", "type": "text", "required": True, "defaultValue": "50%"},
+                {
+                    "name": "similarity",
+                    "label": "相似度 Similarity",
+                    "type": "text",
+                    "required": True,
+                    "defaultValue": "50%",
+                    "description": "与原图保持相似的比例（越高越接近原图）。兼容字段：bili。",
+                },
                 {
                     "name": "moxing",
                     "label": "模型",
