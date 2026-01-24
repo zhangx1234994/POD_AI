@@ -408,6 +408,13 @@ class EvalService:
                     return
 
             image_urls = self._extract_image_urls(parsed)
+            # Callback workflows must eventually return a task id (then we resolve it to images).
+            # If Coze returns an empty string while the job is still processing, we should not
+            # silently mark success with empty outputs.
+            if expects_callback and not image_urls:
+                if not (isinstance(output, str) and output.strip()):
+                    self._mark_failed(run_id, message="CALLBACK_OUTPUT_EMPTY", started=started)
+                    return
             if expects_callback and not image_urls and isinstance(output, str) and output.strip():
                 self._mark_failed(
                     run_id,
@@ -563,7 +570,9 @@ class EvalService:
                     return [], f"COZE_WORKFLOW_ERROR: {parsed.get('error_msg')}", execute_id, debug_url
             images = self._extract_image_urls(parsed)
             output = parsed.get("output")
-            if images or output is not None:
+            # Treat empty-string output as "not ready yet" (common while tools are still running).
+            output_present = output is not None and not (isinstance(output, str) and not output.strip())
+            if images or output_present:
                 podi_task_id: str | None = None
                 if expects_callback and isinstance(output, str) and output.strip():
                     podi_task_id = output.strip()
