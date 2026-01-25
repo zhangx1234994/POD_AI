@@ -30,7 +30,10 @@ from app.models.integration import Executor
 from app.services.coze_client import coze_client
 
 
-DEFAULT_TEST_IMAGE_URL = "https://podi.oss-cn-hangzhou.aliyuncs.com/test/abilities/Foldable_ShopperS_Tote.png"
+# Keep this URL stable and publicly reachable from both:
+# - the PODI backend host (for base64/upload fallbacks)
+# - ComfyUI executors (for URL loader nodes)
+DEFAULT_TEST_IMAGE_URL = "https://podi.oss-cn-hangzhou.aliyuncs.com/test/abilities/admin/20260120/fc661480-1768882378.jpg"
 
 
 @dataclass
@@ -176,7 +179,14 @@ def run_coze_workflow(
         return out
     out.append(CheckResult(f"Coze submit {name}", True, f"execute_id={execute_id} debug_url={debug_url}"))
 
-    hist = _coze_poll_history(workflow_id=workflow_id, execute_id=execute_id, timeout_s=history_timeout_s, verbose=True)
+    try:
+        hist = _coze_poll_history(
+            workflow_id=workflow_id, execute_id=execute_id, timeout_s=history_timeout_s, verbose=True
+        )
+    except Exception as exc:
+        out.append(CheckResult(f"Coze history {name}", False, str(exc)))
+        return out
+
     output, hist_debug = _parse_run_history_output(hist)
     out.append(CheckResult(f"Coze history {name}", True, f"output={output!r} debug_url={hist_debug or debug_url}"))
 

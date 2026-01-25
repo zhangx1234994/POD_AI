@@ -805,6 +805,32 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
                 continue
             pruned[k] = v
         return pruned
+
+    # Recovery: ComfyUI "submit-only" tasks must stay `running` until the ComfyUI history
+    # reaches success and outputs are ingested. If a task was accidentally marked `failed`
+    # while the underlying ComfyUI job is still running, revive it so polling can continue.
+    if status == "failed" and isinstance(result_payload, dict):
+        meta = result_payload.get("metadata") if isinstance(result_payload.get("metadata"), dict) else {}
+        prompt_id = meta.get("promptId") or meta.get("taskId")
+        base_url = meta.get("baseUrl")
+        if (
+            isinstance(prompt_id, str)
+            and prompt_id.strip()
+            and isinstance(base_url, str)
+            and base_url.strip()
+            and str(result_payload.get("provider") or "").lower() == "comfyui"
+            and str(result_payload.get("status") or "").lower() in {"queued", "running"}
+        ):
+            with get_session() as session:
+                db_task = session.get(AbilityTask, task_id.strip())
+                if db_task and (db_task.ability_provider or "").lower() == "comfyui":
+                    db_task.status = "running"
+                    db_task.finished_at = None
+                    session.add(db_task)
+                    session.commit()
+                    task = get_ability_task_service().to_dict(db_task)
+                    status = task.get("status")
+                    result_payload = task.get("result_payload") or {}
     # If completed, return the same flattened shape as invoke_tool.
     if status == "succeeded" and isinstance(result_payload, dict):
         texts = result_payload.get("texts") or []
@@ -873,7 +899,7 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
             "videoUrl": None,
             "videoUrls": [],
             "debugRequest": None,
-            "debugResponse": None,
+            "debugResponse": (task.get("error_message") if isinstance(task, dict) else None),
             }
         )
 
@@ -936,11 +962,44 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
 
                         if status_str != "success":
                             # Still running; keep the DB task as-is.
-                            raise RuntimeError("COMFYUI_NOT_READY")
+                            return _prune(
+                                {
+                                    "text": status or "running",
+                                    "texts": [status or "running"],
+                                    "taskId": task.get("id"),
+                                    "taskStatus": status,
+                                    "expectedImageCount": expected_images,
+                                    "logId": task.get("log_id"),
+                                    "requestId": None,
+                                    "imageUrl": None,
+                                    "imageUrls": [],
+                                    "videoUrl": None,
+                                    "videoUrls": [],
+                                    "debugRequest": None,
+                                    "debugResponse": f"COMFYUI_STATUS_{status_str or 'running'}",
+                                }
+                            )
 
                         images = outputs.get("images") if isinstance(outputs, dict) else None
                         if not isinstance(images, list) or not images:
-                            raise RuntimeError("COMFYUI_IMAGES_EMPTY")
+                            # Some ComfyUI builds mark success before batch outputs are fully persisted.
+                            return _prune(
+                                {
+                                    "text": status or "running",
+                                    "texts": [status or "running"],
+                                    "taskId": task.get("id"),
+                                    "taskStatus": status,
+                                    "expectedImageCount": expected_images,
+                                    "logId": task.get("log_id"),
+                                    "requestId": None,
+                                    "imageUrl": None,
+                                    "imageUrls": [],
+                                    "videoUrl": None,
+                                    "videoUrls": [],
+                                    "debugRequest": None,
+                                    "debugResponse": "COMFYUI_IMAGES_EMPTY",
+                                }
+                            )
 
                         # Ingest all images into OSS.
                         from app.services.executors.base import ExecutionContext
@@ -983,7 +1042,10 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
                         # Best-effort; keep running but persist a diagnostic hint so operators
                         # can see why one ComfyUI server behaves differently (network/HTTP/etc).
                         try:
-                            db_task.error_message = str(exc)[:240]
+                            hint = str(exc)[:240]
+                            # Don't persist transient polling states as task "errors".
+                            if hint not in {"COMFYUI_NOT_READY", "COMFYUI_IMAGES_EMPTY"}:
+                                db_task.error_message = hint
                             session.add(db_task)
                             session.commit()
                         except Exception:

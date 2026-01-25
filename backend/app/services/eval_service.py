@@ -942,6 +942,20 @@ class EvalService:
             prompt_id = meta.get("promptId") or meta.get("taskId")
             base_url = meta.get("baseUrl")
             executor_id = meta.get("executorId")
+            # Multi-ComfyUI support: prefer executor config if available.
+            if isinstance(executor_id, str) and executor_id.strip():
+                try:
+                    from app.models.integration import Executor
+
+                    ex = session.get(Executor, executor_id.strip())
+                    if ex:
+                        cfg = ex.config or {}
+                        ex_base = (ex.base_url or cfg.get("baseUrl") or cfg.get("base_url") or "").strip()
+                        if ex_base:
+                            base_url = ex_base
+                except Exception:
+                    pass
+
             if not (isinstance(prompt_id, str) and prompt_id.strip() and isinstance(base_url, str) and base_url.strip()):
                 return
 

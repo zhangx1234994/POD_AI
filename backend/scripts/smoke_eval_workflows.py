@@ -20,6 +20,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import httpx
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "backend"))
@@ -77,7 +78,7 @@ def _build_params(workflow_id: str, item: dict[str, Any], sample_url: str) -> di
         params.setdefault("patternType", "seamless")
     if workflow_id in {"7597421439045599232", "7598559869544693760", "7598560946579046400"}:
         params.setdefault("moxing", "1")
-    if workflow_id in {"7597421439045599232", "7598560946579046400"}:
+    if workflow_id in {"7598558185544220672", "7597421439045599232", "7598560946579046400"}:
         params.setdefault("prompt", "test")
     if workflow_id == "7598589746561941504":  # dpi
         # Some Coze versions used `pdi` by mistake; send both to be safe.
@@ -90,6 +91,13 @@ def _build_params(workflow_id: str, item: dict[str, Any], sample_url: str) -> di
         params.setdefault("expand_top", "0")
         params.setdefault("expand_bottom", "0")
     if workflow_id == "7597659369861283840":  # multi_model_gen
+        params.setdefault("prompt", "test")
+    # 图裂变 (required bili; some variants also require prompt / moxing)
+    if workflow_id in {"7598820684801769472", "7598841920114130944", "7598844004557389824", "7598848725942796288"}:
+        params.setdefault("bili", "50%")
+    if workflow_id in {"7598844004557389824", "7598848725942796288"}:
+        params.setdefault("moxing", "1")
+    if workflow_id in {"7598820684801769472", "7598848725942796288"}:
         params.setdefault("prompt", "test")
     return params
 
@@ -148,26 +156,37 @@ def run_one(item: dict[str, Any], sample_url: str, *, poll_callback: bool = True
     output = parsed.get("output") if isinstance(parsed, dict) else None
     image_urls = EvalService._extract_image_urls(parsed if isinstance(parsed, dict) else {"output": parsed})  # noqa: SLF001
 
-    # If we expect taskid, try to resolve via callback workflow.
+    # If we expect taskid, resolve via PODI task polling (preferred; no separate Coze callback).
     if poll_callback and kind == "taskid" and isinstance(output, str) and output.strip():
-        callback_wf = (get_settings().coze_comfyui_callback_workflow_id or "").strip()
-        if callback_wf:
-            cb_started = time.monotonic()
-            deadline = cb_started + 180.0
-            interval = 2.0
-            while time.monotonic() < deadline and not image_urls:
-                cb = coze_client.run_workflow(
-                    workflow_id=callback_wf,
-                    parameters={"taskid": output.strip()},
-                    is_async=False,
-                )
-                cb_parsed = EvalService._parse_coze_payload(cb)  # noqa: SLF001
-                image_urls = EvalService._extract_image_urls(cb_parsed)  # noqa: SLF001
-                if image_urls:
+        podi_base = (os.getenv("PODI_BASE_URL") or "http://127.0.0.1:8099").rstrip("/")
+        cb_started = time.monotonic()
+        deadline = cb_started + 900.0
+        interval = 2.0
+        last: dict[str, Any] = {}
+        first_failed_at: float | None = None
+        while time.monotonic() < deadline and not image_urls:
+            try:
+                r = httpx.post(f"{podi_base}/api/coze/podi/tasks/get", json={"taskId": output.strip()}, timeout=25)
+                last = r.json() if r.headers.get("content-type", "").startswith("application/json") else {"text": r.text}
+            except Exception:
+                last = {}
+            status = str(last.get("taskStatus") or "").lower()
+            if status == "succeeded":
+                urls = last.get("imageUrls")
+                if isinstance(urls, list):
+                    image_urls = [u for u in urls if isinstance(u, str) and u.strip()]
+                    if image_urls:
+                        break
+            if status == "failed":
+                if first_failed_at is None:
+                    first_failed_at = time.monotonic()
+                # Allow a short grace period in case the backend revived a ComfyUI submit-only task
+                # (some tasks may be marked failed too early and then corrected on the next poll).
+                if time.monotonic() - first_failed_at > 60:
                     break
-                time.sleep(interval)
-                interval = min(interval * 1.4, 8.0)
-            duration_ms += int((time.monotonic() - cb_started) * 1000)
+            time.sleep(interval)
+            interval = min(interval * 1.4, 8.0)
+        duration_ms += int((time.monotonic() - cb_started) * 1000)
 
     ok = bool(image_urls) if kind in {"image", "taskid"} else True
     return Result(

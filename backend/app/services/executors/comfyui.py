@@ -378,6 +378,40 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
                 )
         return {"images": images, "history": entry}
 
+    def _extract_outputs(self, entry: dict[str, Any]) -> dict[str, Any]:
+        """Extract images from a ComfyUI history entry.
+
+        NOTE: Some call-sites (eval + coze tasks/get) fetch `/history/{promptId}` themselves
+        and only need a consistent extractor. Keep this in sync with `_poll_history`.
+        """
+        outputs = entry.get("outputs") or {}
+        images: list[dict[str, Any]] = []
+        if isinstance(outputs, dict):
+            for _, info in outputs.items():
+                if not isinstance(info, dict):
+                    continue
+                imgs = info.get("images")
+                if not isinstance(imgs, list):
+                    continue
+                for node_image in imgs:
+                    if not isinstance(node_image, dict):
+                        continue
+                    filename = node_image.get("filename")
+                    subfolder = node_image.get("subfolder") or ""
+                    image_url = node_image.get("url")
+                    image_type = node_image.get("type") or node_image.get("image_type")
+                    images.append(
+                        {
+                            "filename": filename,
+                            "subfolder": subfolder,
+                            "type": image_type,
+                            "url": image_url or "",
+                            "base64": node_image.get("base64"),
+                            "mime": node_image.get("mime_type"),
+                        }
+                    )
+        return {"images": images, "history": entry}
+
     def _store_remote_asset(self, url: str, context: ExecutionContext, *, tag: str) -> dict[str, Any] | None:
         filename_hint = self._extract_filename_hint(url)
         # ComfyUI's /view endpoint can be flaky under load (occasionally 502 even though
@@ -473,10 +507,31 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         # "list index out of range" runtime errors. To make this workflow robust, we
         # also provide a base64 fallback and re-wire the resize node to use it.
         overrides["96"] = {"url": image_url}
+
+        # Best effort: upload the image to the ComfyUI host and route via built-in LoadImage.
+        # This avoids relying on custom nodes and avoids requiring ComfyUI to have outbound
+        # internet access to our OSS/public domains.
+        try:
+            cfg = getattr(context.executor, "config", None) or {}
+            base_url = (
+                getattr(context.executor, "base_url", None) or cfg.get("baseUrl") or cfg.get("base_url") or ""
+            ).rstrip("/")
+            uploaded = self._upload_image_to_comfyui(base_url, image_url) if base_url else None
+        except Exception:
+            uploaded = None
+        if uploaded:
+            overrides["106"] = {"image": uploaded}
+            for nid in ("64", "94", "102"):
+                overrides.setdefault(nid, {})["image"] = ["106", 0]
+
         base64_data = self._download_base64(image_url)
         if base64_data:
             overrides["104"] = {"base64_data": base64_data}
-            overrides.setdefault("102", {})["image"] = ["104", 0]
+            # Re-wire all downstream nodes that previously referenced the URL loader.
+            # This avoids ComfyUI runtime "list index out of range" when the ComfyUI host
+            # cannot access OSS/public URLs (LoadImagesFromURL returns an empty list).
+            for nid in ("64", "94", "102"):
+                overrides.setdefault(nid, {})["image"] = ["104", 0]
 
         prompt = self._as_text(params.get("prompt") or params.get("description"))
         if prompt:
@@ -733,6 +788,46 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             self._logger.warning("Failed to fetch image for base64 fallback: %s", exc)
             return None
         return base64.b64encode(response.content).decode("ascii")
+
+    def _upload_image_to_comfyui(self, base_url: str, image_url: str) -> str | None:
+        """Upload a remote image to ComfyUI and return the LoadImage `image` filename."""
+        if not base_url or not image_url:
+            return None
+        try:
+            resp = httpx.get(image_url, timeout=30)
+            resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            self._logger.warning("Failed to download image for ComfyUI upload: %s", exc)
+            return None
+
+        filename_hint = self._extract_filename_hint(image_url)
+        if "." not in filename_hint:
+            filename_hint = f"{filename_hint}.png"
+        content_type = resp.headers.get("content-type") or "application/octet-stream"
+
+        try:
+            up = httpx.post(
+                f"{base_url.rstrip('/')}/upload/image",
+                data={"type": "input", "overwrite": "true"},
+                files={"image": (filename_hint, resp.content, content_type)},
+                timeout=60,
+            )
+            up.raise_for_status()
+            data = up.json()
+        except Exception as exc:
+            self._logger.warning("Failed to upload image to ComfyUI: %s", exc)
+            return None
+
+        if not isinstance(data, dict):
+            return None
+        name = data.get("name")
+        subfolder = data.get("subfolder") or ""
+        if not isinstance(name, str) or not name.strip():
+            return None
+        name = name.strip()
+        if isinstance(subfolder, str) and subfolder.strip():
+            return f"{subfolder.strip().rstrip('/')}/{name}"
+        return name
 
     @staticmethod
     def _normalize_remote_url(url: str | None) -> str | None:

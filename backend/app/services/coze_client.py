@@ -62,39 +62,57 @@ class CozeWorkflowClient:
         }
         if request_id:
             headers["X-Request-ID"] = request_id
-        try:
-            response = httpx.post(url, json=body, headers=headers, timeout=timeout)
-        except httpx.HTTPError as exc:  # pragma: no cover - network errors
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"COZE_REQUEST_FAILED:{exc}",
-            ) from exc
-        try:
-            payload = response.json()
-        except ValueError as exc:
-            # Coze (or an upstream proxy) may return HTML/text error pages (502, 504, etc).
-            # Include a small snippet to make debugging possible from our UI logs.
-            snippet = ""
+        last_invalid: str | None = None
+        for attempt in range(3):
             try:
-                snippet = (response.text or "")[:300]
-            except Exception:
+                response = httpx.post(url, json=body, headers=headers, timeout=timeout)
+            except httpx.HTTPError as exc:  # pragma: no cover - network errors
+                last_invalid = f"COZE_REQUEST_FAILED:{exc}"
+                if attempt < 2:
+                    import time
+
+                    time.sleep(0.6 * (1.8**attempt))
+                    continue
+                raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=last_invalid) from exc
+
+            try:
+                payload = response.json()
+            except ValueError as exc:
+                # Coze (or an upstream proxy) may return HTML/text error pages (502, 504, etc).
                 snippet = ""
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"COZE_INVALID_RESPONSE status={response.status_code} body={snippet!r}",
-            ) from exc
-        if response.status_code >= 400:
-            detail = payload.get("msg") if isinstance(payload, dict) else payload
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"COZE_HTTP_{response.status_code}:{detail}",
-            )
-        if not isinstance(payload, dict):
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="COZE_RESPONSE_NOT_JSON",
-            )
-        return payload
+                try:
+                    snippet = (response.text or "")[:300]
+                except Exception:
+                    snippet = ""
+                last_invalid = f"COZE_INVALID_RESPONSE status={response.status_code} body={snippet!r}"
+                if response.status_code in {502, 503, 504} and attempt < 2:
+                    import time
+
+                    time.sleep(0.6 * (1.8**attempt))
+                    continue
+                raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=last_invalid) from exc
+
+            if response.status_code >= 500 and attempt < 2:
+                last_invalid = f"COZE_HTTP_{response.status_code}:{payload if not isinstance(payload, dict) else payload.get('msg')}"
+                import time
+
+                time.sleep(0.6 * (1.8**attempt))
+                continue
+
+            if response.status_code >= 400:
+                detail = payload.get("msg") if isinstance(payload, dict) else payload
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=f"COZE_HTTP_{response.status_code}:{detail}",
+                )
+            if not isinstance(payload, dict):
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail="COZE_RESPONSE_NOT_JSON",
+                )
+            return payload
+
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=last_invalid or "COZE_REQUEST_FAILED")
 
     def get_workflow_run_history(
         self,
@@ -115,37 +133,56 @@ class CozeWorkflowClient:
         }
         if request_id:
             headers["X-Request-ID"] = request_id
-        try:
-            response = httpx.get(url, params=params, headers=headers, timeout=timeout)
-        except httpx.HTTPError as exc:  # pragma: no cover - network errors
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"COZE_REQUEST_FAILED:{exc}",
-            ) from exc
-        try:
-            payload = response.json()
-        except ValueError as exc:
-            snippet = ""
+        last_invalid: str | None = None
+        for attempt in range(3):
             try:
-                snippet = (response.text or "")[:300]
-            except Exception:
+                response = httpx.get(url, params=params, headers=headers, timeout=timeout)
+            except httpx.HTTPError as exc:  # pragma: no cover - network errors
+                last_invalid = f"COZE_REQUEST_FAILED:{exc}"
+                if attempt < 2:
+                    import time
+
+                    time.sleep(0.6 * (1.8**attempt))
+                    continue
+                raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=last_invalid) from exc
+
+            try:
+                payload = response.json()
+            except ValueError as exc:
                 snippet = ""
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"COZE_INVALID_RESPONSE status={response.status_code} body={snippet!r}",
-            ) from exc
-        if response.status_code >= 400:
-            detail = payload.get("msg") if isinstance(payload, dict) else payload
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"COZE_HTTP_{response.status_code}:{detail}",
-            )
-        if not isinstance(payload, dict):
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="COZE_RESPONSE_NOT_JSON",
-            )
-        return payload
+                try:
+                    snippet = (response.text or "")[:300]
+                except Exception:
+                    snippet = ""
+                last_invalid = f"COZE_INVALID_RESPONSE status={response.status_code} body={snippet!r}"
+                if response.status_code in {502, 503, 504} and attempt < 2:
+                    import time
+
+                    time.sleep(0.6 * (1.8**attempt))
+                    continue
+                raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=last_invalid) from exc
+
+            if response.status_code >= 500 and attempt < 2:
+                last_invalid = f"COZE_HTTP_{response.status_code}:{payload if not isinstance(payload, dict) else payload.get('msg')}"
+                import time
+
+                time.sleep(0.6 * (1.8**attempt))
+                continue
+
+            if response.status_code >= 400:
+                detail = payload.get("msg") if isinstance(payload, dict) else payload
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=f"COZE_HTTP_{response.status_code}:{detail}",
+                )
+            if not isinstance(payload, dict):
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail="COZE_RESPONSE_NOT_JSON",
+                )
+            return payload
+
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=last_invalid or "COZE_REQUEST_FAILED")
 
 
 coze_client = CozeWorkflowClient()
