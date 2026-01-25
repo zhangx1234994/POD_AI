@@ -15,7 +15,7 @@ from sqlalchemy import select
 
 from app.core.config import get_settings
 from app.core.db import get_session
-from app.models.integration import Ability, AbilityTask
+from app.models.integration import Ability, AbilityTask, Executor
 from app.schemas import abilities as ability_schemas
 from app.services.ability_invocation import ability_invocation_service
 from app.services.ability_seed import ensure_default_abilities
@@ -885,6 +885,20 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
         prompt_id = meta.get("promptId") or meta.get("taskId")
         base_url = meta.get("baseUrl")
         executor_id = meta.get("executorId")
+        # Multi-ComfyUI support: prefer the executor's configured base_url if executorId is available.
+        if isinstance(executor_id, str) and executor_id.strip():
+            try:
+                with get_session() as session:
+                    ex = session.get(Executor, executor_id.strip())
+                if ex:
+                    cfg = ex.config or {}
+                    ex_base = (ex.base_url or cfg.get("baseUrl") or cfg.get("base_url") or "").strip()
+                    if ex_base:
+                        base_url = ex_base
+            except Exception:
+                # Best-effort: fall back to stored baseUrl in metadata.
+                pass
+
         if isinstance(prompt_id, str) and prompt_id.strip() and isinstance(base_url, str) and base_url.strip():
             with get_session() as session:
                 db_task = session.get(AbilityTask, task_id.strip())
@@ -965,9 +979,15 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
                             task = get_ability_task_service().to_dict(db_task)
                             status = task.get("status")
                             result_payload = task.get("result_payload") or {}
-                    except Exception:
-                        # Best-effort; fall back to returning the current queued/running state.
-                        pass
+                    except Exception as exc:
+                        # Best-effort; keep running but persist a diagnostic hint so operators
+                        # can see why one ComfyUI server behaves differently (network/HTTP/etc).
+                        try:
+                            db_task.error_message = str(exc)[:240]
+                            session.add(db_task)
+                            session.commit()
+                        except Exception:
+                            pass
 
     return _prune(
         {
@@ -983,6 +1003,6 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
         "videoUrl": None,
         "videoUrls": [],
         "debugRequest": None,
-        "debugResponse": None,
+        "debugResponse": (task.get("error_message") if isinstance(task, dict) else None),
         }
     )
