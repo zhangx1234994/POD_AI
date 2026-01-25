@@ -46,6 +46,10 @@ Coze 只会展示 OpenAPI response schema 里声明过的字段。PODI 插件统
 
 提示：
 - 插件更新发布后，Coze 工作流里旧节点可能缓存旧 schema；如发现字段/输出不对，请删除节点后重新拖入。
+- 多台 ComfyUI 执行节点：`/tasks/get` 会优先根据 `executorId` 从数据库读取该节点的 `baseUrl` 再拉取 `/history/{promptId}`，
+  避免因为 `baseUrl` 写错导致“已生成但不刷新”。
+- 若轮询一直拿不到结果，展开 `debugResponse`（或查看 `ability_tasks.error_message`）可看到最近一次失败原因
+  （例如 `COMFYUI_HISTORY_HTTP_502` / `connect timeout` 等）。
 
 ## 多图输出规则（统一）
 部分能力会返回多张图片（例如火山图像生成、KIE 多参考输出、ComfyUI 批量）。我们统一约定：

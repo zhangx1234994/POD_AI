@@ -66,4 +66,10 @@ curl -X POST "$API_BASE/api/admin/evals/workflow-versions" \
 
 - 页面点击“试运行”会创建一条 `eval_run` 记录，并后台执行 Coze `/v1/workflow/run`。
 - 如果工作流输出是 PODI 的 task_id（例如 ComfyUI 回调 ID），后端会自动轮询 `ability_tasks` 直到完成，并把图片 URL 写入 `result_image_urls_json`。
+- 对于 ComfyUI “submit-only” 类任务（先提交，任务保持 `running`），评测服务会在轮询阶段主动拉取对应 ComfyUI `/history/{promptId}`
+  并 finalize 任务（写回 OSS 结果），避免出现“ComfyUI 已生成但页面不刷新”。
 - 评分与备注写入 `eval_annotation`。
+
+## 上线前回归清单
+
+见：`docs/release-preflight.md`

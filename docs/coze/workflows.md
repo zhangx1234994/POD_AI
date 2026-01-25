@@ -30,6 +30,12 @@ curl -X POST "$COZE_BASE_URL/v1/workflow/run" \
   - `output=image_url`：直接是一张图片 URL
   - `output=callback_task_id`：回调任务 id（需要再走回调/轮询才能拿到图片）
 
+### ComfyUI 回调型注意事项
+
+- 对于 ComfyUI（以及部分长耗时能力），常见模式是先返回 `output=taskId`，再通过轮询接口拿到最终图片。
+- 多台 ComfyUI 服务器场景下，轮询端需要按 `executorId -> executor.baseUrl` 定位到正确的 ComfyUI `/history/{promptId}`。
+  评测平台与插件的 `/api/coze/podi/tasks/get` 均已按此策略兼容多节点。
+
 ## 裂变类工作流（Fan-out）
 
 评测平台支持“裂变数量”参数：
