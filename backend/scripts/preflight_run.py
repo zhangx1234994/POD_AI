@@ -83,7 +83,7 @@ def check_comfyui_executors() -> list[CheckResult]:
     return results
 
 
-def _coze_poll_history(*, workflow_id: str, execute_id: str, timeout_s: float = 600) -> dict[str, Any]:
+def _coze_poll_history(*, workflow_id: str, execute_id: str, timeout_s: float = 600, verbose: bool = False) -> dict[str, Any]:
     deadline = time.monotonic() + max(10, timeout_s)
     interval = 1.2
     last: dict[str, Any] = {}
@@ -96,6 +96,9 @@ def _coze_poll_history(*, workflow_id: str, execute_id: str, timeout_s: float = 
             status = record.get("execute_status")
             if isinstance(status, str) and status.lower() in {"success", "fail"}:
                 return last
+            if verbose:
+                remaining = int(max(0, deadline - time.monotonic()))
+                print(f"  - polling coze history: execute_status={status} (remaining={remaining}s)", flush=True)
         time.sleep(interval)
         interval = min(interval * 1.4, 8.0)
     return last
@@ -124,7 +127,7 @@ def _parse_run_history_output(hist: dict[str, Any]) -> tuple[str | None, str | N
     return None, (str(debug_url).strip() if debug_url else None)
 
 
-def _poll_podi_task_get(*, podi_base: str, task_id: str, timeout_s: float = 900) -> dict[str, Any]:
+def _poll_podi_task_get(*, podi_base: str, task_id: str, timeout_s: float = 900, verbose: bool = False) -> dict[str, Any]:
     url = f"{podi_base.rstrip('/')}/api/coze/podi/tasks/get"
     deadline = time.monotonic() + max(10, timeout_s)
     interval = 1.2
@@ -138,6 +141,11 @@ def _poll_podi_task_get(*, podi_base: str, task_id: str, timeout_s: float = 900)
         status = str(last.get("taskStatus") or last.get("task_status") or "").lower()
         if status in {"succeeded", "failed"}:
             return last
+        if verbose:
+            remaining = int(max(0, deadline - time.monotonic()))
+            hint = last.get("debugResponse") or ""
+            hint = (str(hint)[:120] + "...") if hint else ""
+            print(f"  - polling podi task: status={status} (remaining={remaining}s) {hint}", flush=True)
         time.sleep(interval)
         interval = min(interval * 1.4, 8.0)
     return last
@@ -150,8 +158,11 @@ def run_coze_workflow(
     parameters: dict[str, Any],
     expects_callback: bool,
     podi_base: str,
+    history_timeout_s: float,
+    task_timeout_s: float,
 ) -> list[CheckResult]:
     out: list[CheckResult] = []
+    print(f"\n=== {name} ===", flush=True)
     try:
         resp = coze_client.run_workflow(workflow_id=workflow_id, parameters=parameters, is_async=True)
     except Exception as exc:
@@ -165,7 +176,7 @@ def run_coze_workflow(
         return out
     out.append(CheckResult(f"Coze submit {name}", True, f"execute_id={execute_id} debug_url={debug_url}"))
 
-    hist = _coze_poll_history(workflow_id=workflow_id, execute_id=execute_id, timeout_s=900)
+    hist = _coze_poll_history(workflow_id=workflow_id, execute_id=execute_id, timeout_s=history_timeout_s, verbose=True)
     output, hist_debug = _parse_run_history_output(hist)
     out.append(CheckResult(f"Coze history {name}", True, f"output={output!r} debug_url={hist_debug or debug_url}"))
 
@@ -177,7 +188,7 @@ def run_coze_workflow(
         out.append(CheckResult(f"PODI task resolve {name}", False, "missing output/taskId from coze history"))
         return out
 
-    task = _poll_podi_task_get(podi_base=podi_base, task_id=output, timeout_s=1200)
+    task = _poll_podi_task_get(podi_base=podi_base, task_id=output, timeout_s=task_timeout_s, verbose=True)
     status = str(task.get("taskStatus") or "").lower()
     if status == "succeeded":
         imgs = task.get("imageUrls") or []
@@ -192,6 +203,9 @@ def main() -> int:
     parser.add_argument("--podi-base", default=os.environ.get("PODI_BASE_URL", "http://127.0.0.1:8099"))
     parser.add_argument("--image-url", default=os.environ.get("PREFLIGHT_TEST_IMAGE_URL", DEFAULT_TEST_IMAGE_URL))
     parser.add_argument("--skip-coze", action="store_true", help="Only run local connectivity checks")
+    parser.add_argument("--only", choices=["all", "lianxu", "liebain", "liebain_1", "multi_model"], default="all")
+    parser.add_argument("--history-timeout", type=float, default=420, help="Coze run_history polling timeout (seconds)")
+    parser.add_argument("--task-timeout", type=float, default=900, help="PODI task polling timeout (seconds)")
     args = parser.parse_args()
 
     settings = get_settings()
@@ -206,42 +220,54 @@ def main() -> int:
 
     if not args.skip_coze:
         # Minimal "logic pit" suite (stable mode, low count). Tune parameters as needed.
-        checks.extend(
-            run_coze_workflow(
-                name="连续图 lianxu",
-                workflow_id="7598563505054154752",
-                parameters={"url": args.image_url, "height": "1024", "width": "1024", "patternType": "seamless"},
-                expects_callback=True,
-                podi_base=args.podi_base,
+        if args.only in {"all", "lianxu"}:
+            checks.extend(
+                run_coze_workflow(
+                    name="连续图 lianxu",
+                    workflow_id="7598563505054154752",
+                    parameters={"url": args.image_url, "height": "1024", "width": "1024", "patternType": "seamless"},
+                    expects_callback=True,
+                    podi_base=args.podi_base,
+                    history_timeout_s=args.history_timeout,
+                    task_timeout_s=args.task_timeout,
+                )
             )
-        )
-        checks.extend(
-            run_coze_workflow(
-                name="图裂变 Liebian_comfyui_20260124",
-                workflow_id="7598820684801769472",
-                parameters={"url": args.image_url, "height": "1024", "width": "1024", "bili": "50%", "prompt": " "},
-                expects_callback=True,
-                podi_base=args.podi_base,
+        if args.only in {"all", "liebain"}:
+            checks.extend(
+                run_coze_workflow(
+                    name="图裂变 Liebian_comfyui_20260124",
+                    workflow_id="7598820684801769472",
+                    parameters={"url": args.image_url, "height": "1024", "width": "1024", "bili": "50%", "prompt": " "},
+                    expects_callback=True,
+                    podi_base=args.podi_base,
+                    history_timeout_s=args.history_timeout,
+                    task_timeout_s=args.task_timeout,
+                )
             )
-        )
-        checks.extend(
-            run_coze_workflow(
-                name="图裂变 Liebian_comfyui_20260124_1",
-                workflow_id="7598841920114130944",
-                parameters={"url": args.image_url, "height": "1024", "width": "1024", "bili": "50%"},
-                expects_callback=True,
-                podi_base=args.podi_base,
+        if args.only in {"all", "liebain_1"}:
+            checks.extend(
+                run_coze_workflow(
+                    name="图裂变 Liebian_comfyui_20260124_1",
+                    workflow_id="7598841920114130944",
+                    parameters={"url": args.image_url, "height": "1024", "width": "1024", "bili": "50%"},
+                    expects_callback=True,
+                    podi_base=args.podi_base,
+                    history_timeout_s=args.history_timeout,
+                    task_timeout_s=args.task_timeout,
+                )
             )
-        )
-        checks.extend(
-            run_coze_workflow(
-                name="多模型生图",
-                workflow_id="7597659369861283840",
-                parameters={"url": args.image_url, "height": "1024", "width": "1024", "moxing": "1", "prompt": "test"},
-                expects_callback=False,
-                podi_base=args.podi_base,
+        if args.only in {"all", "multi_model"}:
+            checks.extend(
+                run_coze_workflow(
+                    name="多模型生图",
+                    workflow_id="7597659369861283840",
+                    parameters={"url": args.image_url, "height": "1024", "width": "1024", "moxing": "1", "prompt": "test"},
+                    expects_callback=False,
+                    podi_base=args.podi_base,
+                    history_timeout_s=args.history_timeout,
+                    task_timeout_s=args.task_timeout,
+                )
             )
-        )
 
     print("\n=== Report ===")
     ok = 0
@@ -255,4 +281,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
