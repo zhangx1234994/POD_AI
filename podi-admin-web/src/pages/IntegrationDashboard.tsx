@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, ReactNode } from 'react';
-import { Button, Card, Col, Input, InputNumber, Layout, Menu, Row, Space, Switch, Table, Tooltip, Typography } from 'tdesign-react';
+import { Alert, Button, Card, Col, Input, InputNumber, Layout, Menu, Row, Space, Switch, Table, Tag, Tooltip, Typography } from 'tdesign-react';
 import { adminApi } from '../services/adminApi';
 import { uploadAbilityTestFile } from '../utils/ossUploader';
 import type {
@@ -268,11 +268,11 @@ const formatDurationMs = (value?: number | null) => {
   if (value < 1000) return `${value}ms`;
   return `${(value / 1000).toFixed(2)}s`;
 };
-const getAbilityLogStatusClass = (status?: string | null) => {
+const getAbilityLogStatusTag = (status?: string | null) => {
   const normalized = (status || '').toLowerCase();
-  if (normalized === 'success') return 'bg-emerald-500/15 text-emerald-300';
-  if (normalized === 'failed') return 'bg-rose-500/15 text-rose-300';
-  return 'bg-slate-600/30 text-slate-200';
+  if (normalized === 'success') return { theme: 'success' as const, text: 'success' };
+  if (normalized === 'failed') return { theme: 'danger' as const, text: 'failed' };
+  return { theme: 'default' as const, text: status || 'unknown' };
 };
 const abilitySourceLabels: Record<string, string> = {
   'admin-test': '控制台测试',
@@ -287,16 +287,14 @@ const formatAbilitySource = (value?: string | null) => {
   if (!value) return '未知来源';
   return abilitySourceLabels[value] ?? value;
 };
-const abilitySourceBadgeClasses: Record<string, string> = {
-  'admin-test': 'bg-sky-500/20 text-sky-200',
-  'ability-api': 'bg-indigo-500/20 text-indigo-200',
-  'ability-task': 'bg-violet-500/20 text-violet-200',
-  workflow: 'bg-emerald-500/20 text-emerald-200',
-  task: 'bg-amber-500/20 text-amber-200',
-};
-const getAbilitySourceBadgeClass = (value?: string | null) => {
-  if (!value) return 'bg-slate-700/60 text-slate-300';
-  return abilitySourceBadgeClasses[value] ?? 'bg-slate-700/60 text-slate-300';
+const getAbilitySourceTagTheme = (value?: string | null) => {
+  const v = value || '';
+  if (v === 'admin-test') return 'primary' as const;
+  if (v === 'ability-api' || v === 'ability_api') return 'warning' as const;
+  if (v === 'ability-task' || v === 'ability_task') return 'default' as const;
+  if (v === 'workflow') return 'success' as const;
+  if (v === 'task') return 'warning' as const;
+  return 'default' as const;
 };
 const resolveAssetUrl = (asset: StoredAsset) => asset.ossUrl || asset.url || asset.sourceUrl || '';
 const formatTaskMarker = (value?: string | null) => {
@@ -630,6 +628,7 @@ export function IntegrationDashboard({
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
   const [abilities, setAbilities] = useState<Ability[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadErrors, setLoadErrors] = useState<string[]>([]);
   const [activeNav, setActiveNav] = useState<NavId>(navItems[0].id);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const [dashboardMetrics, setDashboardMetrics] = useState<DashboardMetrics | null>(null);
@@ -942,9 +941,9 @@ export function IntegrationDashboard({
 
   const load = async () => {
     setLoading(true);
+    setLoadErrors([]);
     try {
-      const [execRes, wfRes, bindingRes, apiKeyRes, metricsRes, logsRes, configRes, abilityRes, abilityLogMetricsRes] =
-        await Promise.all([
+      const settled = await Promise.allSettled([
         adminApi.listExecutors(),
         adminApi.listWorkflows(),
         adminApi.listBindings(),
@@ -955,22 +954,47 @@ export function IntegrationDashboard({
         adminApi.listAbilities(),
         adminApi.getAbilityLogMetrics({ windowHours: 24 }).catch(() => null),
       ]);
-      setExecutors(execRes);
-      setWorkflows(wfRes);
-      setBindings(bindingRes);
-      setApiKeys(apiKeyRes);
-      setAbilities(abilityRes);
-      setDashboardMetrics(metricsRes);
-      setDispatchLogs(logsRes.entries);
-      setSystemConfig(configRes);
+
+      const errors: string[] = [];
+      const unwrap = <T,>(idx: number, label: string): T | null => {
+        const res = settled[idx];
+        if (res.status === 'fulfilled') return res.value as T;
+        const msg = (res.reason as any)?.message || String(res.reason || '');
+        errors.push(`${label}：${msg || '请求失败'}`);
+        return null;
+      };
+
+      const execRes = unwrap<Executor[]>(0, '执行节点');
+      const wfRes = unwrap<Workflow[]>(1, '工作流');
+      const bindingRes = unwrap<Binding[]>(2, '绑定策略');
+      const apiKeyRes = unwrap<ApiKey[]>(3, 'API Keys');
+      const metricsRes = unwrap<DashboardMetrics>(4, '监控指标');
+      const logsRes = unwrap<{ entries: DispatchLogEntry[] }>(5, '调度事件');
+      const configRes = unwrap<SystemConfig>(6, '系统配置');
+      const abilityRes = unwrap<Ability[]>(7, '能力目录');
+      const abilityLogMetricsRes = settled[8].status === 'fulfilled' ? (settled[8].value as any) : null;
+
+      if (execRes) setExecutors(execRes);
+      if (wfRes) setWorkflows(wfRes);
+      if (bindingRes) setBindings(bindingRes);
+      if (apiKeyRes) setApiKeys(apiKeyRes);
+      if (metricsRes) setDashboardMetrics(metricsRes);
+      if (logsRes) setDispatchLogs(logsRes.entries);
+      if (configRes) setSystemConfig(configRes);
+      if (abilityRes) setAbilities(abilityRes);
       if (abilityLogMetricsRes) setAbilityLogMetrics(abilityLogMetricsRes);
-      if (abilityRes.length > 0) {
-        if (!selectedAbilityId || !abilityRes.some((item) => item.id === selectedAbilityId)) {
-          setSelectedAbilityId(abilityRes[0].id);
+
+      if (abilityRes) {
+        if (abilityRes.length > 0) {
+          if (!selectedAbilityId || !abilityRes.some((item) => item.id === selectedAbilityId)) {
+            setSelectedAbilityId(abilityRes[0].id);
+          }
+        } else {
+          setSelectedAbilityId(null);
         }
-      } else {
-        setSelectedAbilityId(null);
       }
+
+      if (errors.length > 0) setLoadErrors(errors);
     } finally {
       setLoading(false);
     }
@@ -2604,12 +2628,12 @@ const normalizeErrorMessage = (message: string): string => {
                       </div>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className={`rounded-full px-3 py-0.5 text-[11px] font-semibold ${getAbilitySourceBadgeClass(log.source)}`}>
+                      <Tag theme={getAbilitySourceTagTheme(log.source)} variant="light">
                         {formatAbilitySource(log.source)}
-                      </span>
-                      <span className={`rounded-full px-3 py-0.5 text-[11px] font-semibold ${getAbilityLogStatusClass(log.status)}`}>
+                      </Tag>
+                      <Tag theme={getAbilityLogStatusTag(log.status).theme} variant="light">
                         {log.status === 'success' ? '成功' : log.status === 'failed' ? '失败' : log.status}
-                      </span>
+                      </Tag>
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-3 text-[11px] text-slate-400">
@@ -2776,6 +2800,31 @@ const normalizeErrorMessage = (message: string): string => {
         </Layout.Header>
         <Layout.Content style={{ padding: 16, overflow: 'hidden' }}>
           <div ref={contentRef} style={{ height: '100%', overflow: 'auto' }}>
+            {loadErrors.length > 0 ? (
+              <div style={{ marginBottom: 16 }}>
+                <Alert
+                  theme="warning"
+                  title="部分数据加载失败"
+                  message={
+                    <div>
+                      <div style={{ marginBottom: 6 }}>
+                        不影响已加载模块，可点击右上角“刷新”重试；失败明细：
+                      </div>
+                      <ul style={{ margin: 0, paddingLeft: 18 }}>
+                        {loadErrors.slice(0, 6).map((msg) => (
+                          <li key={msg}>{msg}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  }
+                  operation={
+                    <Button size="small" variant="outline" onClick={load}>
+                      立即重试
+                    </Button>
+                  }
+                />
+              </div>
+            ) : null}
           {activeNav === 'overview' && (
             <Section id="overview" title="总体概览" description="观察运行快照、调度指标与刷新入口。">
             <Card bordered>
@@ -3471,15 +3520,15 @@ const normalizeErrorMessage = (message: string): string => {
                         )}
                       </td>
                       <td>
-                        <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] ${getAbilitySourceBadgeClass(log.source)}`}>
+                        <Tag theme={getAbilitySourceTagTheme(log.source)} variant="light">
                           {formatAbilitySource(log.source)}
-                        </span>
+                        </Tag>
                       </td>
                       <td className="text-[11px] text-slate-400">{log.executor_name || log.executor_id || '—'}</td>
                       <td>
-                        <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] ${getAbilityLogStatusClass(log.status)}`}>
-                          {log.status}
-                        </span>
+                        <Tag theme={getAbilityLogStatusTag(log.status).theme} variant="light">
+                          {getAbilityLogStatusTag(log.status).text}
+                        </Tag>
                         {typeof log.duration_ms === 'number' && (
                           <div className="text-[10px] text-slate-500">{log.duration_ms}ms</div>
                         )}
@@ -3644,9 +3693,9 @@ const normalizeErrorMessage = (message: string): string => {
                             <>
                               <div>{formatDateTime(latestLog.created_at)}</div>
                               <div className="mt-1 flex items-center gap-2">
-                                <span className={`rounded-full px-2 py-0.5 text-[10px] ${getAbilityLogStatusClass(latestLog.status)}`}>
-                                  {latestLog.status}
-                                </span>
+                                <Tag theme={getAbilityLogStatusTag(latestLog.status).theme} variant="light" size="small">
+                                  {getAbilityLogStatusTag(latestLog.status).text}
+                                </Tag>
                                 {typeof latestLog.duration_ms === 'number' && (
                                   <span className="text-[10px] text-slate-500">{latestLog.duration_ms}ms</span>
                                 )}
