@@ -9,6 +9,7 @@ import {
   Dialog,
   Input,
   Layout,
+  Menu,
   Row,
   Select,
   Space,
@@ -788,11 +789,50 @@ export function App() {
 
   const shell = (content: ReactNode) => (
     <ConfigProvider globalConfig={zhCN}>
-      <Layout style={{ minHeight: '100vh' }}>
+      <Layout style={{ height: '100vh' }}>
         {header}
-        <Layout.Content style={{ padding: 16, background: 'var(--td-bg-color-page)' }}>
-          <div style={{ maxWidth: 1400, margin: '0 auto' }}>{content}</div>
-        </Layout.Content>
+        <Layout>
+          <Layout.Aside
+            style={{
+              width: 260,
+              borderRight: '1px solid var(--td-component-border)',
+              background: 'var(--td-bg-color-container)',
+              padding: 16,
+              overflow: 'auto',
+            }}
+          >
+            <Space direction="vertical" size="small" style={{ width: '100%' }}>
+              <Typography.Text theme="secondary">测试大类</Typography.Text>
+              <Menu
+                value={activeCategory}
+                theme={theme === 'dark' ? 'dark' : 'light'}
+                onChange={(value: string | number) => {
+                  const next = String(value);
+                  setActiveCategory(next);
+                  // Categories are the primary navigation for the toolbox.
+                  setSelectedTool(null);
+                  setActiveView('home');
+                }}
+              >
+                {CATEGORY_ORDER.map((cat) => (
+                  <Menu.MenuItem key={cat} value={cat}>
+                    <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                      <span>{cat}</span>
+                      <Typography.Text theme="secondary">{(grouped[cat] || []).length}</Typography.Text>
+                    </Space>
+                  </Menu.MenuItem>
+                ))}
+              </Menu>
+              <Alert
+                theme="info"
+                message="左侧切换测试大类；右侧展示该大类下的工作流卡片。"
+              />
+            </Space>
+          </Layout.Aside>
+          <Layout.Content style={{ padding: 16, background: 'var(--td-bg-color-page)', overflow: 'auto' }}>
+            <div style={{ maxWidth: 1400, margin: '0 auto' }}>{content}</div>
+          </Layout.Content>
+        </Layout>
       </Layout>
       <Lightbox url={lightbox?.url || ''} title={lightbox?.title} onClose={() => setLightbox(null)} />
     </ConfigProvider>
@@ -1149,53 +1189,28 @@ export function App() {
 
   // Home (toolbox) view
   return shell(
-    <Row gutter={[12, 12]}>
-      <Col xs={24} lg={6}>
-        <Card bordered title="分类">
-          <Space direction="vertical" size="small" style={{ width: '100%' }}>
-            <Typography.Text theme="secondary">左侧选分类，右侧是该分类的功能卡片</Typography.Text>
-            <Space direction="vertical" size="small" style={{ width: '100%' }}>
-              {orderedCategories.map((cat) => (
-                <Button
-                  key={cat}
-                  theme={activeCategory === cat ? 'primary' : 'default'}
-                  variant={activeCategory === cat ? 'base' : 'outline'}
-                  onClick={() => setActiveCategory(cat)}
-                  style={{ justifyContent: 'space-between' }}
-                >
-                  <span>{cat}</span>
-                  <span style={{ opacity: 0.7 }}>{(grouped[cat] || []).length}</span>
-                </Button>
-              ))}
-            </Space>
-          </Space>
-        </Card>
-      </Col>
-      <Col xs={24} lg={18}>
-        <Space direction="vertical" size="large" style={{ width: '100%' }}>
-          <div>
-            <Typography.Title level="h4" style={{ margin: 0 }}>
-              {normalizeCategory(activeCategory)}
-            </Typography.Title>
-            <Typography.Text theme="secondary">
-              点击卡片进入该功能的评测页面（左侧测试，右侧出图，底部打标）。
-            </Typography.Text>
-          </div>
-          <Row gutter={[12, 12]}>
-            {toolList.map((wf) => (
-              <Col key={wf.id} xs={24} sm={12} lg={8}>
-                <ToolCard wf={wf} active={false} metric={metrics[wf.id]} onClick={() => openTool(wf)} />
-              </Col>
-            ))}
-            {toolList.length === 0 ? (
-              <Col span={24}>
-                <Alert theme="info" message="该分类暂无功能。" />
-              </Col>
-            ) : null}
-          </Row>
-        </Space>
-      </Col>
-    </Row>
+    <Space direction="vertical" size="large" style={{ width: '100%' }}>
+      <div>
+        <Typography.Title level="h4" style={{ margin: 0 }}>
+          {normalizeCategory(activeCategory)}
+        </Typography.Title>
+        <Typography.Text theme="secondary">
+          点击卡片进入该功能的评测页面（左侧测试，右侧出图，底部打标）。
+        </Typography.Text>
+      </div>
+      <Row gutter={[12, 12]}>
+        {toolList.map((wf) => (
+          <Col key={wf.id} xs={24} sm={12} lg={8}>
+            <ToolCard wf={wf} active={false} metric={metrics[wf.id]} onClick={() => openTool(wf)} />
+          </Col>
+        ))}
+        {toolList.length === 0 ? (
+          <Col span={24}>
+            <Alert theme="info" message="该分类暂无功能。" />
+          </Col>
+        ) : null}
+      </Row>
+    </Space>
   );
 }
 
