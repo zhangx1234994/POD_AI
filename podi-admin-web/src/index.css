@@ -1,8 +1,8 @@
+@import './styles/legacy-tailwind-to-tdesign.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-@import './styles/legacy-tailwind-to-tdesign.css';
 
 :root {
   /* TDesign font guideline (CN-first). */

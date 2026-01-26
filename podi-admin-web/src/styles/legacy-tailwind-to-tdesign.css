@@ -19,16 +19,13 @@
 
 .text-slate-600,
 .text-slate-500,
-.dark .dark\:text-slate-600,
-.dark .dark\:text-slate-500 {
-  color: var(--td-text-color-secondary) !important;
-}
-
 .text-slate-400,
 .text-slate-300,
+.dark .dark\:text-slate-600,
+.dark .dark\:text-slate-500,
 .dark .dark\:text-slate-400,
 .dark .dark\:text-slate-300 {
-  color: var(--td-text-color-placeholder) !important;
+  color: var(--td-text-color-secondary) !important;
 }
 
 /* Backgrounds (opacity variants) */
@@ -38,13 +35,22 @@
 .dark .dark\:bg-slate-950\/40,
 .dark .dark\:bg-slate-950\/60,
 .dark .dark\:bg-slate-950\/70,
+.bg-slate-50 {
+  background-color: var(--td-bg-color-container) !important;
+}
+
+/* "Panel" backgrounds used by legacy blocks: map to TDesign secondary container so it's readable in light mode. */
 .bg-slate-900\/40,
 .bg-slate-950\/40,
 .bg-slate-950\/60,
 .bg-slate-950\/70,
 .bg-slate-950\/30,
-.bg-slate-50 {
-  background-color: var(--td-bg-color-container) !important;
+.dark .dark\:bg-slate-900\/40,
+.dark .dark\:bg-slate-950\/40,
+.dark .dark\:bg-slate-950\/60,
+.dark .dark\:bg-slate-950\/70,
+.dark .dark\:bg-slate-950\/30 {
+  background-color: var(--td-bg-color-secondarycontainer) !important;
 }
 
 /* Borders */
@@ -78,4 +84,3 @@
 .backdrop-blur-lg {
   backdrop-filter: none !important;
 }
-

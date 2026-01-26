@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, time
+import logging
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.engine import make_url
 
 from app.core.config import get_settings
@@ -18,6 +20,7 @@ from app.models.task import Task, TaskBatch, TaskEvent
 from app.schemas import admin_dashboard as schemas
 
 router = APIRouter(prefix="/admin/dashboard", dependencies=[Depends(require_admin)])
+logger = logging.getLogger(__name__)
 
 
 def _today_start() -> datetime:
@@ -35,81 +38,112 @@ def _today_start() -> datetime:
 def get_dashboard_metrics() -> schemas.DashboardMetricsResponse:
     today_start = _today_start()
     with get_session() as session:
+        def safe_scalar(stmt, default: int = 0) -> int:
+            try:
+                return int(session.scalar(stmt) or default)
+            except SQLAlchemyError:
+                logger.exception("dashboard.metrics query failed: %s", stmt)
+                return default
+
+        def safe_group_count(col, id_col) -> list[tuple[str, int]]:
+            try:
+                rows = session.execute(select(col, func.count(id_col)).group_by(col)).all()
+                out: list[tuple[str, int]] = []
+                for status, count in rows:
+                    if status is None:
+                        continue
+                    out.append((str(status), int(count or 0)))
+                return out
+            except SQLAlchemyError:
+                logger.exception("dashboard.metrics group_by failed: %s", col)
+                return []
+
         # NOTE: The legacy task pipeline uses `tasks`/`task_events`.
         # The evaluation platform and Coze plugin primarily create `eval_run` and `ability_tasks`.
         # For a useful dashboard in the current product stage, we aggregate across all three.
-        total_tasks = (session.scalar(select(func.count(Task.id))) or 0) + (
-            session.scalar(select(func.count(AbilityTask.id))) or 0
-        ) + (session.scalar(select(func.count(EvalRun.id))) or 0)
-
-        queue_depth = (
-            (session.scalar(select(func.count(Task.id)).where(Task.status.in_(["created", "pending", "queued"]))) or 0)
-            + (session.scalar(select(func.count(AbilityTask.id)).where(AbilityTask.status == "queued")) or 0)
-            + (session.scalar(select(func.count(EvalRun.id)).where(EvalRun.status.in_(["queued", "running"]))) or 0)
+        total_tasks = safe_scalar(select(func.count(Task.id))) + safe_scalar(select(func.count(AbilityTask.id))) + safe_scalar(
+            select(func.count(EvalRun.id))
         )
 
-        pending_batches = session.scalar(
+        queue_depth = (
+            safe_scalar(select(func.count(Task.id)).where(Task.status.in_(["created", "pending", "queued"])))
+            + safe_scalar(select(func.count(AbilityTask.id)).where(AbilityTask.status == "queued"))
+            + safe_scalar(select(func.count(EvalRun.id)).where(EvalRun.status.in_(["queued", "running"])))
+        )
+
+        pending_batches = safe_scalar(
             select(func.count(TaskBatch.id)).where(TaskBatch.status.notin_(["completed", "cancelled"]))
-        ) or 0
+        )
 
         failed_tasks = (
-            (session.scalar(select(func.count(Task.id)).where(Task.status == "failed")) or 0)
-            + (session.scalar(select(func.count(AbilityTask.id)).where(AbilityTask.status == "failed")) or 0)
-            + (session.scalar(select(func.count(EvalRun.id)).where(EvalRun.status == "failed")) or 0)
+            safe_scalar(select(func.count(Task.id)).where(Task.status == "failed"))
+            + safe_scalar(select(func.count(AbilityTask.id)).where(AbilityTask.status == "failed"))
+            + safe_scalar(select(func.count(EvalRun.id)).where(EvalRun.status == "failed"))
         )
 
         # Status buckets aggregated across the three pipelines.
         buckets: dict[str, int] = {}
-        for status, count in session.execute(select(Task.status, func.count(Task.id)).group_by(Task.status)).all():
-            if status is None:
-                continue
-            buckets[str(status)] = buckets.get(str(status), 0) + int(count or 0)
-        for status, count in session.execute(
-            select(AbilityTask.status, func.count(AbilityTask.id)).group_by(AbilityTask.status)
-        ).all():
-            if status is None:
-                continue
-            buckets[str(status)] = buckets.get(str(status), 0) + int(count or 0)
-        for status, count in session.execute(select(EvalRun.status, func.count(EvalRun.id)).group_by(EvalRun.status)).all():
-            if status is None:
-                continue
-            buckets[str(status)] = buckets.get(str(status), 0) + int(count or 0)
+        for status, count in safe_group_count(Task.status, Task.id):
+            buckets[status] = buckets.get(status, 0) + count
+        for status, count in safe_group_count(AbilityTask.status, AbilityTask.id):
+            buckets[status] = buckets.get(status, 0) + count
+        for status, count in safe_group_count(EvalRun.status, EvalRun.id):
+            buckets[status] = buckets.get(status, 0) + count
         status_buckets = [schemas.TaskStatusBucket(status=k, count=v) for k, v in sorted(buckets.items(), key=lambda kv: (-kv[1], kv[0]))]
 
         today_map: dict[str, int] = {}
-        for status, count in session.execute(
-            select(Task.status, func.count(Task.id)).where(Task.created_at >= today_start).group_by(Task.status)
-        ).all():
-            if status is None:
-                continue
-            today_map[str(status)] = today_map.get(str(status), 0) + int(count or 0)
-        for status, count in session.execute(
-            select(AbilityTask.status, func.count(AbilityTask.id)).where(AbilityTask.created_at >= today_start).group_by(AbilityTask.status)
-        ).all():
-            if status is None:
-                continue
-            today_map[str(status)] = today_map.get(str(status), 0) + int(count or 0)
-        for status, count in session.execute(
-            select(EvalRun.status, func.count(EvalRun.id)).where(EvalRun.created_at >= today_start).group_by(EvalRun.status)
-        ).all():
-            if status is None:
-                continue
-            today_map[str(status)] = today_map.get(str(status), 0) + int(count or 0)
+        try:
+            for status, count in session.execute(
+                select(Task.status, func.count(Task.id)).where(Task.created_at >= today_start).group_by(Task.status)
+            ).all():
+                if status is None:
+                    continue
+                today_map[str(status)] = today_map.get(str(status), 0) + int(count or 0)
+        except SQLAlchemyError:
+            logger.exception("dashboard.metrics today task query failed")
+        try:
+            for status, count in session.execute(
+                select(AbilityTask.status, func.count(AbilityTask.id)).where(AbilityTask.created_at >= today_start).group_by(AbilityTask.status)
+            ).all():
+                if status is None:
+                    continue
+                today_map[str(status)] = today_map.get(str(status), 0) + int(count or 0)
+        except SQLAlchemyError:
+            logger.exception("dashboard.metrics today ability_task query failed")
+        try:
+            for status, count in session.execute(
+                select(EvalRun.status, func.count(EvalRun.id)).where(EvalRun.created_at >= today_start).group_by(EvalRun.status)
+            ).all():
+                if status is None:
+                    continue
+                today_map[str(status)] = today_map.get(str(status), 0) + int(count or 0)
+        except SQLAlchemyError:
+            logger.exception("dashboard.metrics today eval_run query failed")
 
         # Merge recent "tasks" from all pipelines.
-        legacy_tasks = session.execute(select(Task).order_by(Task.created_at.desc()).limit(8)).scalars().all()
-        ability_tasks = (
-            session.execute(select(AbilityTask).order_by(AbilityTask.created_at.desc()).limit(8)).scalars().all()
-        )
-        eval_rows = (
-            session.execute(
-                select(EvalRun, EvalWorkflowVersion)
-                .join(EvalWorkflowVersion, EvalWorkflowVersion.id == EvalRun.workflow_version_id, isouter=True)
-                .order_by(EvalRun.created_at.desc())
-                .limit(8)
+        try:
+            legacy_tasks = session.execute(select(Task).order_by(Task.created_at.desc()).limit(8)).scalars().all()
+        except SQLAlchemyError:
+            logger.exception("dashboard.metrics recent legacy tasks failed")
+            legacy_tasks = []
+        try:
+            ability_tasks = session.execute(select(AbilityTask).order_by(AbilityTask.created_at.desc()).limit(8)).scalars().all()
+        except SQLAlchemyError:
+            logger.exception("dashboard.metrics recent ability tasks failed")
+            ability_tasks = []
+        try:
+            eval_rows = (
+                session.execute(
+                    select(EvalRun, EvalWorkflowVersion)
+                    .join(EvalWorkflowVersion, EvalWorkflowVersion.id == EvalRun.workflow_version_id, isouter=True)
+                    .order_by(EvalRun.created_at.desc())
+                    .limit(8)
+                )
+                .all()
             )
-            .all()
-        )
+        except SQLAlchemyError:
+            logger.exception("dashboard.metrics recent eval runs failed")
+            eval_rows = []
         recent: list[schemas.RecentTask] = []
         for task in legacy_tasks:
             recent.append(
@@ -154,9 +188,11 @@ def get_dashboard_metrics() -> schemas.DashboardMetricsResponse:
         recent.sort(key=lambda x: x.created_at, reverse=True)
         recent_tasks = recent[:8]
 
-        executor_health = (
-            session.execute(select(Executor).order_by(Executor.updated_at.desc())).scalars().all()
-        )
+        try:
+            executor_health = session.execute(select(Executor).order_by(Executor.updated_at.desc())).scalars().all()
+        except SQLAlchemyError:
+            logger.exception("dashboard.metrics executor health query failed")
+            executor_health = []
 
     return schemas.DashboardMetricsResponse(
         totals=schemas.DashboardTotals(
@@ -190,15 +226,19 @@ def get_dashboard_metrics() -> schemas.DashboardMetricsResponse:
 @router.get("/logs", response_model=schemas.DispatchLogResponse)
 def get_dispatch_logs(limit: int = Query(25, ge=1, le=100)) -> schemas.DispatchLogResponse:
     with get_session() as session:
-        rows = (
-            session.execute(
-                select(TaskEvent, Task)
-                .join(Task, Task.id == TaskEvent.task_id)
-                .order_by(TaskEvent.created_at.desc())
-                .limit(limit)
+        try:
+            rows = (
+                session.execute(
+                    select(TaskEvent, Task)
+                    .join(Task, Task.id == TaskEvent.task_id)
+                    .order_by(TaskEvent.created_at.desc())
+                    .limit(limit)
+                )
+                .all()
             )
-            .all()
-        )
+        except SQLAlchemyError:
+            logger.exception("dashboard.logs legacy task events query failed")
+            rows = []
 
     entries: list[schemas.DispatchLogEntry] = []
     for event, task in rows:
