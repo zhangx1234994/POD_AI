@@ -18,6 +18,7 @@ from app.models.integration import Ability, AbilityTask
 from app.models.user import User
 from app.schemas.abilities import AbilityInvokeRequest
 from app.services.ability_invocation import ability_invocation_service
+from app.services.task_id_codec import decode_task_id
 
 
 class AbilityTaskService:
@@ -62,8 +63,9 @@ class AbilityTaskService:
             return [self.to_dict(task) for task in tasks]
 
     def get_task(self, *, task_id: str, user: User) -> AbilityTask:
+        decoded = decode_task_id(task_id) or task_id
         with get_session() as session:
-            stmt = select(AbilityTask).where(AbilityTask.id == task_id)
+            stmt = select(AbilityTask).where(AbilityTask.id == decoded)
             if user.role != "admin":
                 stmt = stmt.where(AbilityTask.user_id == user.id)
             task = session.execute(stmt).scalar_one_or_none()

@@ -22,6 +22,7 @@ from app.models.eval import EvalRun, EvalWorkflowVersion
 from app.models.integration import AbilityTask
 from app.services.ability_task_service import get_ability_task_service
 from app.services.coze_client import coze_client
+from app.services.task_id_codec import decode_task_id
 
 
 _HEX_TASK_ID = re.compile(r"^[0-9a-f]{24,64}$")
@@ -409,9 +410,9 @@ class EvalService:
             if expects_callback and isinstance(output, str) and output.strip():
                 # Callback workflows are expected to return the task id in `output`,
                 # which may not be a hex string (e.g. snowflake ids).
-                podi_task_id = output.strip()
+                podi_task_id = decode_task_id(output.strip())
             else:
-                podi_task_id = self._guess_podi_task_id(parsed, output)
+                podi_task_id = decode_task_id(self._guess_podi_task_id(parsed, output))
             if podi_task_id:
                 # Prefer PODI ability_tasks.
                 with get_session() as session:
@@ -616,9 +617,9 @@ class EvalService:
             if images or output_present:
                 podi_task_id: str | None = None
                 if expects_callback and isinstance(output, str) and output.strip():
-                    podi_task_id = output.strip()
+                    podi_task_id = decode_task_id(output.strip())
                 else:
-                    podi_task_id = self._guess_podi_task_id(parsed, output)
+                    podi_task_id = decode_task_id(self._guess_podi_task_id(parsed, output))
                 if podi_task_id:
                     with get_session() as session:
                         task_row = session.get(AbilityTask, podi_task_id)

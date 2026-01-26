@@ -20,6 +20,7 @@ from app.schemas import abilities as ability_schemas
 from app.services.ability_invocation import ability_invocation_service
 from app.services.ability_seed import ensure_default_abilities
 from app.services.ability_task_service import get_ability_task_service
+from app.services.task_id_codec import decode_task_id, encode_task_id
 from app.services.executor_seed import ensure_default_executors
 from app.services.auth_service import auth_service
 from app.services.executors.registry import registry
@@ -653,11 +654,16 @@ def invoke_tool(
 
         # Store as a system task (no user FK) to keep internal integrations simple.
         task = get_ability_task_service().enqueue(ability_id=ability.id, payload=payload, user=None)
+        external_task_id = encode_task_id(
+            task_id=str(task.get("id") or ""),
+            provider=provider,
+            executor_id=(executor_id if isinstance(executor_id, str) and executor_id.strip() else None),
+        )
         return _prune(
             {
                 "text": "submitted",
                 "texts": ["submitted"],
-                "taskId": task.get("id"),
+                "taskId": external_task_id or task.get("id"),
                 "taskStatus": task.get("status"),
                 "expectedImageCount": expected_images,
                 "logId": task.get("log_id"),
@@ -742,11 +748,19 @@ def invoke_tool(
 @router.post("/tasks/get")
 def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
     _require_internal(request)
-    task_id = body.get("taskId")
+    raw_task_id = body.get("taskId")
+    task_id = decode_task_id(raw_task_id)
     if not isinstance(task_id, str) or not task_id.strip():
         from fastapi import HTTPException
 
         raise HTTPException(status_code=400, detail="TASK_ID_REQUIRED")
+
+    # Keep backward compatibility:
+    # - if caller already uses the new parseable format, echo it back as taskId
+    # - otherwise keep returning the raw DB id to avoid surprising older clients
+    external_task_id: str | None = None
+    if isinstance(raw_task_id, str) and raw_task_id.strip().startswith("t1."):
+        external_task_id = raw_task_id.strip()
     with get_session() as session:
         task_row = session.get(AbilityTask, task_id.strip())
         if not task_row:
@@ -874,7 +888,7 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
             "imageUrls": _all_urls(images) if isinstance(images, list) else [],
             "videoUrl": _first_url(videos) if isinstance(videos, list) else None,
             "videoUrls": _all_urls(videos) if isinstance(videos, list) else [],
-            "taskId": task.get("id"),
+            "taskId": external_task_id or task.get("id"),
             "taskStatus": status,
             "expectedImageCount": expected_images,
             "logId": task.get("log_id"),
@@ -889,7 +903,7 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
             {
             "text": "failed",
             "texts": ["failed"],
-            "taskId": task.get("id"),
+            "taskId": external_task_id or task.get("id"),
             "taskStatus": status,
             "expectedImageCount": expected_images,
             "logId": task.get("log_id"),
@@ -1055,7 +1069,7 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
         {
         "text": status or "running",
         "texts": [status or "running"],
-        "taskId": task.get("id"),
+        "taskId": external_task_id or task.get("id"),
         "taskStatus": status,
         "expectedImageCount": expected_images,
         "logId": task.get("log_id"),
