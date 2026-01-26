@@ -13,6 +13,13 @@
   color: var(--td-text-color-primary) !important;
 }
 
+.text-slate-100,
+.text-slate-200,
+.dark .dark\:text-slate-100,
+.dark .dark\:text-slate-200 {
+  color: var(--td-text-color-primary) !important;
+}
+
 .text-slate-900,
 .text-slate-800,
 .text-slate-700,

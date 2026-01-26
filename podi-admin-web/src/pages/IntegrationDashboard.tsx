@@ -2299,9 +2299,7 @@ const normalizeErrorMessage = (message: string): string => {
         <div>
           <div className="text-slate-500">默认参数</div>
           {selectedAbility.default_params ? (
-            <pre className="mt-1 max-h-64 overflow-auto rounded-2xl border border-slate-800 bg-slate-950/60 p-3 font-mono text-[11px] text-slate-200">
-              {formatJsonValue(selectedAbility.default_params)}
-            </pre>
+            <CodeBlock value={formatJsonValue(selectedAbility.default_params)} maxHeight={260} />
           ) : (
             <p className="mt-1">未配置，测试时可以在实时测试 Tab 的 JSON 输入框补充。</p>
           )}
@@ -2309,9 +2307,7 @@ const normalizeErrorMessage = (message: string): string => {
         <div>
           <div className="text-slate-500">输入 Schema</div>
           {selectedAbility.input_schema ? (
-            <pre className="mt-1 max-h-64 overflow-auto rounded-2xl border border-slate-800 bg-slate-950/60 p-3 font-mono text-[11px] text-slate-200">
-              {formatJsonValue(selectedAbility.input_schema)}
-            </pre>
+            <CodeBlock value={formatJsonValue(selectedAbility.input_schema)} maxHeight={260} />
           ) : (
             <p className="mt-1">尚未提供 Schema，表单将仅展示 JSON 编辑区。</p>
           )}
@@ -2333,9 +2329,7 @@ const normalizeErrorMessage = (message: string): string => {
         <div>
           <div className="text-slate-500">能力 Metadata</div>
           {selectedAbility.metadata ? (
-            <pre className="mt-1 max-h-80 overflow-auto rounded-2xl border border-slate-800 bg-slate-950/60 p-3 font-mono text-[11px] text-slate-200">
-              {formatJsonValue(selectedAbility.metadata)}
-            </pre>
+            <CodeBlock value={formatJsonValue(selectedAbility.metadata)} maxHeight={320} />
           ) : (
             <p className="mt-1">暂无 metadata，建议补充 workflow_key、api_type、pricing、requirements 等信息。</p>
           )}
@@ -2777,17 +2771,13 @@ const normalizeErrorMessage = (message: string): string => {
                       {log.request_payload && (
                         <div className="mt-1">
                           <div className="text-[10px] uppercase tracking-wide text-slate-500">Request</div>
-                          <pre className="mt-1 max-h-32 overflow-auto rounded border border-slate-800 bg-slate-950/60 p-2 font-mono text-[10px]">
-                            {formatRawResponse(log.request_payload)}
-                          </pre>
+                          <CodeBlock value={formatRawResponse(log.request_payload)} maxHeight={200} />
                         </div>
                       )}
                       {log.response_payload && (
                         <div className="mt-2">
                           <div className="text-[10px] uppercase tracking-wide text-slate-500">Response</div>
-                          <pre className="mt-1 max-h-32 overflow-auto rounded border border-slate-800 bg-slate-950/60 p-2 font-mono text-[10px]">
-                            {formatRawResponse(log.response_payload)}
-                          </pre>
+                          <CodeBlock value={formatRawResponse(log.response_payload)} maxHeight={200} />
                         </div>
                       )}
                     </details>
@@ -5004,6 +4994,27 @@ function InfoCard({ title, items }: { title: string; items: { label: string; val
         ))}
       </Space>
     </Card>
+  );
+}
+
+function CodeBlock({ value, maxHeight = 320 }: { value: string; maxHeight?: number }) {
+  return (
+    <pre
+      style={{
+        marginTop: 8,
+        padding: 12,
+        borderRadius: 8,
+        border: '1px solid var(--td-border-level-1-color)',
+        background: 'var(--td-bg-color-secondarycontainer)',
+        color: 'var(--td-text-color-primary)',
+        fontSize: 12,
+        lineHeight: 1.5,
+        maxHeight,
+        overflow: 'auto',
+      }}
+    >
+      {value}
+    </pre>
   );
 }
 
