@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, ReactNode } from 'react';
+import { Button, Card, Col, Input, InputNumber, Layout, Menu, Row, Space, Switch, Table, Typography } from 'tdesign-react';
 import { adminApi } from '../services/adminApi';
 import { uploadAbilityTestFile } from '../utils/ossUploader';
 import type {
@@ -2764,23 +2765,29 @@ const normalizeErrorMessage = (message: string): string => {
         >
           {activeNav === 'overview' && (
             <Section id="overview" title="总体概览" description="观察运行快照、调度指标与刷新入口。">
-            <div className="flex flex-col gap-4 rounded-[var(--podi-radius)] border border-ui-border bg-ui-surface p-6 shadow-ui lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <p className="text-sm uppercase tracking-[0.4em] text-slate-500">控制面</p>
-                <h2 className="mt-2 text-2xl font-semibold text-ui-text1">AI 集成管理控制台</h2>
-                <p className="text-sm text-ui-text2">
-                  独立系统，聚合 OpenAI/ComfyUI/百度/火山等执行能力，支持链路自检。所有管理操作会实时写入文档。
-                </p>
-              </div>
-              <div className="flex gap-3">
-                <button
-                  onClick={load}
-                  className="rounded-xl border border-ui-border bg-ui-surface px-4 py-2 text-sm text-ui-text2 hover:bg-ui-surface2"
-                >
-                  {loading ? '刷新中…' : '刷新数据'}
-                </button>
-              </div>
-            </div>
+            <Card bordered>
+              <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                  <div>
+                    <Typography.Text theme="secondary">控制台</Typography.Text>
+                    <Typography.Title level="h3" style={{ margin: '6px 0 0' }}>
+                      AI 集成管理控制台
+                    </Typography.Title>
+                    <Typography.Text theme="secondary">
+                      独立系统，聚合 OpenAI/ComfyUI/百度/火山等执行能力，支持链路自检。
+                    </Typography.Text>
+                  </div>
+                  <Space>
+                    <Button variant="outline" loading={loading} onClick={load}>
+                      刷新数据
+                    </Button>
+                    <Button variant="outline" onClick={onToggleTheme}>
+                      {theme === 'dark' ? '深色' : '浅色'}
+                    </Button>
+                  </Space>
+                </Space>
+              </Space>
+            </Card>
             <div className="grid gap-4 pt-4 sm:grid-cols-2 lg:grid-cols-4">
               <MetricCard label="执行节点" value={summary.executors} sub={`活跃 ${summary.activeExecutors}`} />
               <MetricCard label="工作流" value={summary.workflows} sub="版本 & 类型" />
@@ -4306,98 +4313,98 @@ const normalizeErrorMessage = (message: string): string => {
         title="分配策略"
         description="为业务入口（Action）配置工作流与执行节点的回退链路，优先级越大越先尝试，用于多节点容灾/流量分摊。"
       >
-        <p className="mb-4 text-xs text-ui-text2">
+        <div style={{ margin: '0 0 12px' }}>
+          <Typography.Text theme="secondary">
           例如：`action=pattern.extract` 可以先指向云端 ComfyUI 节点，若排队或失败再回落到本地节点；也可以为百度/火山能力配置不同 API Key 的执行器，实现配额切换。
-        </p>
-        <div className="grid gap-6 lg:grid-cols-2">
-          <div className="rounded-[var(--podi-radius)] border border-ui-border bg-ui-surface p-4 shadow-ui">
-            <h3 className="mb-4 text-lg font-semibold text-ui-text1">绑定列表</h3>
-            <div className="overflow-x-auto">
-              <table>
-                <thead>
-                  <tr className="text-left text-sm text-ui-text2">
-                    <th>Action</th>
-                    <th>Workflow</th>
-                    <th>Executor</th>
-                    <th>优先级</th>
-                    <th>启用</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {bindings.map((binding) => (
-                    <tr key={binding.id}>
-                      <td className="text-sm text-ui-text1">{binding.action}</td>
-                      <td className="text-sm text-ui-text2">{binding.workflow_id}</td>
-                      <td className="text-sm text-ui-text2">{binding.executor_id}</td>
-                      <td className="text-sm text-ui-text1">{binding.priority}</td>
-                      <td>
-                        <StatusPill status={binding.enabled ? 'ON' : 'OFF'} />
-                      </td>
-                      <td className="text-right text-xs space-x-2">
-                        <button className="text-sky-400" onClick={() => setBindingForm(binding)}>
-                          编辑
-                        </button>
-                        <button className="text-red-400" onClick={() => handleDelete('binding', binding.id)}>
-                          删除
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-          <div className="rounded-[var(--podi-radius)] border border-ui-border bg-ui-surface p-4 shadow-ui space-y-2 text-sm">
-            <h3 className="text-lg font-semibold text-ui-text1">{bindingForm.id ? '编辑绑定' : '新增绑定'}</h3>
-            <input
-              placeholder="Action"
-              value={bindingForm.action || ''}
-              onChange={(e) => setBindingForm({ ...bindingForm, action: e.target.value })}
-              className={formControlClass}
-            />
-            <input
-              placeholder="Workflow ID"
-              value={bindingForm.workflow_id || ''}
-              onChange={(e) => setBindingForm({ ...bindingForm, workflow_id: e.target.value })}
-              className={formControlClass}
-            />
-            <input
-              placeholder="Executor ID"
-              value={bindingForm.executor_id || ''}
-              onChange={(e) => setBindingForm({ ...bindingForm, executor_id: e.target.value })}
-              className={formControlClass}
-            />
-            <input
-              type="number"
-              placeholder="优先级"
-              value={bindingForm.priority ?? 0}
-              onChange={(e) => setBindingForm({ ...bindingForm, priority: Number(e.target.value) })}
-              className={formControlClass}
-            />
-            <label className="flex items-center gap-2 text-xs text-ui-text2">
-              <input
-                type="checkbox"
-                checked={bindingForm.enabled ?? true}
-                onChange={(e) => setBindingForm({ ...bindingForm, enabled: e.target.checked })}
-              />
-              启用
-            </label>
-            <div className="flex gap-3">
-              <button className="flex-1 rounded bg-ui-primary py-2 text-white hover:bg-ui-primaryHover" onClick={handleBindingSubmit}>
-                保存
-              </button>
-              {bindingForm.id && (
-                <button
-                  className="rounded border border-ui-border bg-ui-surface px-4 py-2 text-ui-text2 hover:bg-ui-surface2"
-                  onClick={() => setBindingForm(defaultBindingForm)}
-                >
-                  取消
-                </button>
-              )}
-            </div>
-          </div>
+          </Typography.Text>
         </div>
+
+        <Row gutter={[16, 16]}>
+          <Col xs={12} lg={8}>
+            <Card title="绑定列表" bordered>
+              <Table
+                rowKey="id"
+                data={bindings as any}
+                columns={
+                  [
+                    { colKey: 'action', title: 'Action', width: 220 },
+                    { colKey: 'workflow_id', title: 'Workflow ID', width: 220 },
+                    { colKey: 'executor_id', title: 'Executor ID', width: 220 },
+                    { colKey: 'priority', title: '优先级', width: 100 },
+                    {
+                      colKey: 'enabled',
+                      title: '启用',
+                      width: 90,
+                      cell: ({ row }: any) => <StatusPill status={row.enabled ? 'ON' : 'OFF'} />,
+                    },
+                    {
+                      colKey: 'op',
+                      title: '操作',
+                      width: 140,
+                      fixed: 'right',
+                      cell: ({ row }: any) => (
+                        <Space>
+                          <Button size="small" variant="text" onClick={() => setBindingForm(row)}>
+                            编辑
+                          </Button>
+                          <Button size="small" variant="text" theme="danger" onClick={() => handleDelete('binding', row.id)}>
+                            删除
+                          </Button>
+                        </Space>
+                      ),
+                    },
+                  ] as any
+                }
+              />
+            </Card>
+          </Col>
+
+          <Col xs={12} lg={4}>
+            <Card title={bindingForm.id ? '编辑绑定' : '新增绑定'} bordered>
+              <Space direction="vertical" size="medium" style={{ width: '100%' }}>
+                <Input
+                  placeholder="Action"
+                  value={bindingForm.action || ''}
+                  onChange={(value) => setBindingForm({ ...bindingForm, action: String(value) })}
+                />
+                <Input
+                  placeholder="Workflow ID"
+                  value={bindingForm.workflow_id || ''}
+                  onChange={(value) => setBindingForm({ ...bindingForm, workflow_id: String(value) })}
+                />
+                <Input
+                  placeholder="Executor ID"
+                  value={bindingForm.executor_id || ''}
+                  onChange={(value) => setBindingForm({ ...bindingForm, executor_id: String(value) })}
+                />
+                <InputNumber
+                  placeholder="优先级"
+                  value={bindingForm.priority ?? 0}
+                  onChange={(value) => setBindingForm({ ...bindingForm, priority: Number(value || 0) })}
+                />
+                <div>
+                  <Space align="center">
+                    <Switch
+                      value={Boolean(bindingForm.enabled ?? true)}
+                      onChange={(value) => setBindingForm({ ...bindingForm, enabled: Boolean(value) })}
+                    />
+                    <Typography.Text>启用</Typography.Text>
+                  </Space>
+                </div>
+                <Space>
+                  <Button theme="primary" onClick={handleBindingSubmit} style={{ width: 120 }}>
+                    保存
+                  </Button>
+                  {bindingForm.id ? (
+                    <Button variant="outline" onClick={() => setBindingForm(defaultBindingForm)}>
+                      取消
+                    </Button>
+                  ) : null}
+                </Space>
+              </Space>
+            </Card>
+          </Col>
+        </Row>
       </Section>
           )}
 
@@ -4679,11 +4686,15 @@ const normalizeErrorMessage = (message: string): string => {
 
 function MetricCard({ label, value, sub }: { label: string; value: number; sub?: string }) {
   return (
-    <div className="rounded-3xl border border-ui-border bg-ui-surface p-5 shadow-lg shadow-slate-900/5">
-      <div className="text-xs uppercase tracking-[0.3em] text-ui-text3">{label}</div>
-      <div className="mt-1 text-3xl font-semibold text-ui-text1">{value}</div>
-      {sub && <div className="mt-1 text-xs text-ui-text2">{sub}</div>}
-    </div>
+    <Card bordered>
+      <Space direction="vertical" size="small">
+        <Typography.Text theme="secondary">{label}</Typography.Text>
+        <Typography.Title level="h2" style={{ margin: 0 }}>
+          {value}
+        </Typography.Title>
+        {sub ? <Typography.Text theme="secondary">{sub}</Typography.Text> : null}
+      </Space>
+    </Card>
   );
 }
 
@@ -4699,12 +4710,16 @@ function Section({
   children: ReactNode;
 }) {
   return (
-    <section id={id} className="space-y-5 scroll-mt-24">
-      <div>
-        <h2 className="text-xl font-semibold tracking-wide text-slate-900 dark:text-white">{title}</h2>
-        {description && <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">{description}</p>}
-      </div>
-      {children}
+    <section id={id} style={{ padding: '4px 0' }}>
+      <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+        <div>
+          <Typography.Title level="h4" style={{ margin: 0 }}>
+            {title}
+          </Typography.Title>
+          {description ? <Typography.Text theme="secondary">{description}</Typography.Text> : null}
+        </div>
+        <div>{children}</div>
+      </Space>
     </section>
   );
 }
