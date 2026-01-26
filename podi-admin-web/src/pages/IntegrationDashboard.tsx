@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, ReactNode } from 'react';
-import { Button, Card, Col, Input, InputNumber, Layout, Menu, Row, Space, Switch, Table, Typography } from 'tdesign-react';
+import { Button, Card, Col, Input, InputNumber, Layout, Menu, Row, Space, Switch, Table, Tooltip, Typography } from 'tdesign-react';
 import { adminApi } from '../services/adminApi';
 import { uploadAbilityTestFile } from '../utils/ossUploader';
 import type {
@@ -2745,12 +2745,9 @@ const normalizeErrorMessage = (message: string): string => {
           >
             {navItems.map((item) => (
               <Menu.MenuItem key={item.id} value={item.id}>
-                <Space direction="vertical" size={2}>
+                <Tooltip content={item.description}>
                   <span>{item.label}</span>
-                  <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
-                    {item.description}
-                  </Typography.Text>
-                </Space>
+                </Tooltip>
               </Menu.MenuItem>
             ))}
           </Menu>
