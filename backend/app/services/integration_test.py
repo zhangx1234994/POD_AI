@@ -468,7 +468,9 @@ class IntegrationTestService:
         desired_output_size: tuple[int, int] | None = None,
         call_back_url: str | None = None,
         extra_payload: dict[str, object] | None = None,
-        poll_timeout: float = 75.0,
+        # KIE "market" jobs are often slow (queue + generation). Empirically 50~80s is common.
+        # Default to a longer timeout so sync tool calls can still return images.
+        poll_timeout: float = 180.0,
         poll_interval: float = 2.5,
     ) -> dict[str, object]:
         executor = self._get_executor(executor_id)
@@ -557,7 +559,10 @@ class IntegrationTestService:
             try:
                 response = httpx.post(url, headers=headers, json=payload, timeout=60)
             except httpx.HTTPError as exc:
-                raise HTTPException(status_code=502, detail="KIE_HTTP_ERROR") from exc
+                # Transient network issues: retry with the same key first, then rotate if needed.
+                last_msg = f"KIE_HTTP_ERROR: {exc}"
+                time.sleep(0.8)
+                continue
             try:
                 data = response.json()
             except ValueError as exc:  # pragma: no cover - defensive
@@ -625,14 +630,27 @@ class IntegrationTestService:
 
         detail_data = None
         deadline = time.monotonic() + max(poll_timeout, 10)
+        interval = max(poll_interval, 0.6)
+        last_status_error: str | None = None
         while time.monotonic() < deadline:
-            detail_data = self._fetch_kie_task(base_url, headers, task_id)
+            try:
+                detail_data = self._fetch_kie_task(base_url, headers, task_id)
+                last_status_error = None
+            except HTTPException as exc:
+                # Status polling is best-effort: gateway errors/timeouts are common on the KIE side.
+                # Do not fail the whole sync call unless we hit the overall timeout.
+                last_status_error = str(exc.detail or "KIE_STATUS_ERROR")
+                time.sleep(interval)
+                interval = min(interval * 1.35, 8.0)
+                continue
             state = self._extract_kie_state(detail_data)
             if state in {"success", "fail"}:
                 break
-            time.sleep(poll_interval)
+            time.sleep(interval)
+            interval = min(interval * 1.15, 6.0)
         if detail_data is None:
-            detail_data = {}
+            # If polling never returned a payload, keep a small hint so callers can diagnose quickly.
+            detail_data = {"detail": last_status_error or "KIE_STATUS_EMPTY"}
         state = self._extract_kie_state(detail_data)
         result_urls, result_object = self._parse_kie_result(detail_data)
         stored_assets: list[dict[str, object]] = []
