@@ -1,6 +1,27 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, ReactNode } from 'react';
-import { Alert, Button, Card, Col, Input, InputNumber, Layout, Menu, Row, Select, Space, Switch, Table, Tag, Tooltip, Typography } from 'tdesign-react';
+import {
+  Alert,
+  Button,
+  Card,
+  Col,
+  Dialog,
+  Input,
+  InputNumber,
+  Layout,
+  Menu,
+  Popup,
+  Row,
+  Select,
+  Space,
+  Switch,
+  Table,
+  Tabs,
+  Tag,
+  Textarea,
+  Tooltip,
+  Typography,
+} from 'tdesign-react';
 import { adminApi } from '../services/adminApi';
 import { uploadAbilityTestFile } from '../utils/ossUploader';
 import type {
@@ -36,13 +57,13 @@ const navItems = [
   { id: 'ability-evals', label: '能力评测', description: 'Coze 工作流试运行 + 评分' },
   { id: 'executors', label: '执行节点', description: '节点配置与健康' },
   { id: 'ability-logs', label: '能力调用', description: '全局历史记录' },
-  { id: 'comfyui-templates', label: 'ComfyUI 模板', description: 'Workflow JSON 管理' },
-  { id: 'workflow-builder', label: '工作流编排', description: 'Coze Studio 工作流 + Loop 观测' },
-  { id: 'bindings', label: '分配策略', description: 'action 绑定链路' },
+  { id: 'comfyui-templates', label: 'ComfyUI 模板', description: 'Workflow JSON 管理', advanced: true },
+  { id: 'workflow-builder', label: '工作流编排', description: 'Coze Studio 工作流 + Loop 观测', advanced: true },
+  { id: 'bindings', label: '分配策略', description: 'action 绑定链路', advanced: true },
   { id: 'apikeys', label: 'API Keys', description: '凭证配额管理' },
   { id: 'monitor', label: '调度监控', description: '队列/任务/节点健康' },
   { id: 'system', label: '系统配置', description: '环境、OSS、待办' },
-  { id: 'logs', label: '调度事件', description: '任务追踪' },
+  { id: 'logs', label: '调度事件', description: '任务追踪', advanced: true },
 ] as const;
 type NavId = (typeof navItems)[number]['id'];
 const abilityDetailTabs = [
@@ -257,10 +278,27 @@ const toImagePreview = (value?: string | null) => {
   return value.startsWith('data:') ? value : `data:image/png;base64,${value}`;
 };
 const abilityLogLimit = 12;
+const parseDateValue = (value?: string | null): Date | null => {
+  if (!value) return null;
+  const raw = String(value).trim();
+  if (!raw) return null;
+
+  // If timezone is missing, treat server timestamps as UTC and convert to Asia/Shanghai for display.
+  const hasTimezone = /[zZ]|[+-]\d{2}:?\d{2}$/.test(raw);
+  if (hasTimezone) {
+    const d = new Date(raw);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  // Handle "YYYY-MM-DD HH:mm:ss" and "YYYY-MM-DDTHH:mm:ss" without timezone.
+  const normalized = raw.includes(' ') && !raw.includes('T') ? raw.replace(' ', 'T') : raw;
+  const isoUtc = `${normalized}Z`;
+  const d = new Date(isoUtc);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
 const formatDateTime = (value?: string | null) => {
-  if (!value) return '';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
+  const date = parseDateValue(value);
+  if (!date) return value || '';
   return date.toLocaleString('zh-CN', { hour12: false, timeZone: 'Asia/Shanghai' });
 };
 const formatDurationMs = (value?: number | null) => {
@@ -650,16 +688,20 @@ export function IntegrationDashboard({
   const [loading, setLoading] = useState(false);
   const [loadErrors, setLoadErrors] = useState<string[]>([]);
   const [activeNav, setActiveNav] = useState<NavId>(navItems[0].id);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const [dashboardMetrics, setDashboardMetrics] = useState<DashboardMetrics | null>(null);
   const [dispatchLogs, setDispatchLogs] = useState<DispatchLogEntry[]>([]);
   const [systemConfig, setSystemConfig] = useState<SystemConfig | null>(null);
   const [abilityForm, setAbilityForm] = useState<AbilityFormState>(defaultAbilityForm);
+  const [abilityDialogOpen, setAbilityDialogOpen] = useState(false);
   const [selectedAbilityId, setSelectedAbilityId] = useState<string | null>(null);
   const [abilitySearch, setAbilitySearch] = useState('');
   const [abilityProviderFilter, setAbilityProviderFilter] = useState<string>('all');
   const [abilityStatusFilter, setAbilityStatusFilter] = useState<string>('all');
   const [activeAbilityDetailTab, setActiveAbilityDetailTab] = useState<AbilityDetailTab>('overview');
+  const [abilityLogDetail, setAbilityLogDetail] = useState<AbilityInvocationLog | null>(null);
+  const [abilityLogDetailOpen, setAbilityLogDetailOpen] = useState(false);
   const [executorForm, setExecutorForm] = useState<ExecutorFormState>(defaultExecutorForm);
   const [workflowForm, setWorkflowForm] = useState<WorkflowFormState>(defaultWorkflowForm);
   const [workflowFormAllowedExecutors, setWorkflowFormAllowedExecutors] = useState<string[]>([]);
@@ -1434,6 +1476,7 @@ export function IntegrationDashboard({
       await adminApi.createAbility({ ...payload, id: abilityForm.id || undefined });
     }
     setAbilityForm(defaultAbilityForm);
+    setAbilityDialogOpen(false);
     load();
   };
 
@@ -1446,6 +1489,7 @@ export function IntegrationDashboard({
       input_schema: formatJsonValue(ability.input_schema),
       metadata: formatJsonValue(ability.metadata),
     });
+    setAbilityDialogOpen(true);
   };
 
   const handleAbilityDelete = async (id: string) => {
@@ -2583,8 +2627,8 @@ const normalizeErrorMessage = (message: string): string => {
     );
   };
 
-  const renderAbilityDetailContent = () => {
-    switch (activeAbilityDetailTab) {
+  const renderAbilityDetailContent = (tab: AbilityDetailTab) => {
+    switch (tab) {
       case 'overview':
         return renderAbilityOverview();
       case 'params':
@@ -2763,6 +2807,11 @@ const normalizeErrorMessage = (message: string): string => {
     contentRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const visibleNavItems = useMemo(
+    () => navItems.filter((item) => !(item as any).advanced || showAdvanced),
+    [showAdvanced],
+  );
+
   return (
     <Layout style={{ height: '100vh' }}>
       <Layout.Aside
@@ -2787,7 +2836,7 @@ const normalizeErrorMessage = (message: string): string => {
             theme={theme === 'dark' ? 'dark' : 'light'}
             onChange={(value) => selectSection(value as NavId)}
           >
-            {navItems.map((item) => (
+            {visibleNavItems.map((item) => (
               <Menu.MenuItem key={item.id} value={item.id}>
                 <Tooltip content={item.description}>
                   <span>{item.label}</span>
@@ -2809,6 +2858,20 @@ const normalizeErrorMessage = (message: string): string => {
           <Space align="center" style={{ justifyContent: 'space-between', width: '100%', height: '100%' }}>
             <Typography.Text strong>{navItems.find((x) => x.id === activeNav)?.label || '控制台'}</Typography.Text>
             <Space>
+              <Space align="center" size="small">
+                <Typography.Text theme="secondary">高级</Typography.Text>
+                <Switch
+                  value={showAdvanced}
+                  onChange={(v) => {
+                    const next = Boolean(v);
+                    setShowAdvanced(next);
+                    if (!next) {
+                      const isAdvanced = Boolean((navItems.find((item) => item.id === activeNav) as any)?.advanced);
+                      if (isAdvanced) selectSection('overview');
+                    }
+                  }}
+                />
+              </Space>
               <Button variant="outline" loading={loading} onClick={load}>
                 刷新
               </Button>
@@ -3516,6 +3579,11 @@ const normalizeErrorMessage = (message: string): string => {
                     logPricing && (logPricing.discountPrice ?? logPricing.listPrice) !== undefined
                       ? `${formatPriceValue(logPricing.discountPrice ?? logPricing.listPrice, logPricing.currency)}`
                       : null;
+                  const previewUrl =
+                    log.stored_url ||
+                    (log.result_assets && log.result_assets.length > 0 ? resolveAssetUrl(log.result_assets[0]) : '') ||
+                    '';
+                  const canPreviewImage = Boolean(previewUrl) && /\.(png|jpg|jpeg|webp|gif)(\?|#|$)/i.test(previewUrl);
                   return (
                     <tr key={`global-log-${log.id}`} className="text-slate-800 dark:text-slate-300">
                       <td className="whitespace-nowrap text-slate-700 dark:text-slate-400">{formatDateTime(log.created_at)}</td>
@@ -3568,24 +3636,49 @@ const normalizeErrorMessage = (message: string): string => {
                         )}
                       </td>
                       <td className="text-[11px] text-slate-400">
-                        {log.stored_url ? (
-                          <a href={log.stored_url} className="text-emerald-400 underline" target="_blank" rel="noreferrer">
-                            预览
-                          </a>
-                        ) : log.error_message ? (
-                          <span className="text-rose-400">{log.error_message}</span>
-                        ) : log.result_assets && log.result_assets.length > 0 ? (
-                          <a
-                            href={resolveAssetUrl(log.result_assets[0])}
-                            className="text-sky-400 underline"
-                            target="_blank"
-                            rel="noreferrer"
+                        <Space size="small">
+                          {previewUrl ? (
+                            canPreviewImage ? (
+                              <Popup
+                                trigger="hover"
+                                placement="left"
+                                content={
+                                  <img
+                                    src={previewUrl}
+                                    alt="preview"
+                                    style={{ maxWidth: 360, maxHeight: 360, display: 'block' }}
+                                  />
+                                }
+                              >
+                                <Button size="small" variant="text">
+                                  预览
+                                </Button>
+                              </Popup>
+                            ) : (
+                              <Button
+                                size="small"
+                                variant="text"
+                                onClick={() => window.open(previewUrl, '_blank', 'noreferrer')}
+                              >
+                                打开
+                              </Button>
+                            )
+                          ) : null}
+                          <Button
+                            size="small"
+                            variant="text"
+                            onClick={() => {
+                              setAbilityLogDetail(log);
+                              setAbilityLogDetailOpen(true);
+                            }}
                           >
-                            {log.result_assets[0].tag || '结果'}
-                          </a>
-                        ) : (
-                          '—'
-                        )}
+                            详情
+                          </Button>
+                          {log.error_message ? (
+                            <Typography.Text theme="error">{log.error_message}</Typography.Text>
+                          ) : null}
+                          {!previewUrl && !log.error_message ? '—' : null}
+                        </Space>
                       </td>
                     </tr>
                   );
@@ -3610,18 +3703,33 @@ const normalizeErrorMessage = (message: string): string => {
         title="能力管理"
         description="集中维护各厂商能力、默认参数和绑定节点，后续工作流和测试面板将直接引用这些配置。"
       >
-        <div className="grid gap-6 lg:grid-cols-2">
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <Card
+          bordered
+          title={
+            <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
               <div>
-                <h3 className="text-lg font-semibold text-white">能力列表</h3>
-                <p className="text-xs text-slate-500">
-                  支持搜索/筛选，点击行即可在右侧查看详情与测试；顶部指标和全局日志同步引用本列表。
-                </p>
+                <Typography.Text strong>能力列表</Typography.Text>
+                <div>
+                  <Typography.Text theme="secondary">新增/编辑改为弹窗，列表占满宽度，操作不再被挤压。</Typography.Text>
+                </div>
               </div>
-            </div>
-            <div className="mb-4 grid gap-3 md:grid-cols-3">
+              <Button
+                theme="primary"
+                onClick={() => {
+                  setAbilityForm(defaultAbilityForm);
+                  setAbilityDialogOpen(true);
+                }}
+              >
+                新增能力
+              </Button>
+            </Space>
+          }
+        >
+          <Row gutter={[12, 12]}>
+            <Col span={4}>
               <Input value={abilitySearch} onChange={(v) => setAbilitySearch(String(v))} placeholder="搜索名称/能力 Key" />
+            </Col>
+            <Col span={4}>
               <Select
                 value={abilityProviderFilter}
                 onChange={(v) => setAbilityProviderFilter(String(v))}
@@ -3631,13 +3739,17 @@ const normalizeErrorMessage = (message: string): string => {
                 ]}
                 placeholder="全部厂商"
               />
+            </Col>
+            <Col span={4}>
               <Select
                 value={abilityStatusFilter}
                 onChange={(v) => setAbilityStatusFilter(String(v))}
                 options={[{ label: '全部状态', value: 'all' }, ...statusOptions]}
                 placeholder="全部状态"
               />
-            </div>
+            </Col>
+          </Row>
+          <div style={{ marginTop: 12 }}>
             <Table
               rowKey="id"
               size="small"
@@ -3721,7 +3833,7 @@ const normalizeErrorMessage = (message: string): string => {
                 {
                   colKey: 'actions',
                   title: '操作',
-                  width: 150,
+                  width: 180,
                   cell: ({ row }) => (
                     <Space size="small">
                       <Button
@@ -3751,188 +3863,161 @@ const normalizeErrorMessage = (message: string): string => {
               ]}
               onRowClick={({ row }) => setSelectedAbilityId((row as any).id)}
               rowClassName={({ row }) => ((row as any).id === selectedAbilityId ? 'podi-row-selected' : '')}
-              empty={<Typography.Text theme="secondary">暂无满足筛选条件的能力，可调整筛选或在右侧表单新增。</Typography.Text>}
+              empty={<Typography.Text theme="secondary">暂无满足筛选条件的能力。</Typography.Text>}
             />
           </div>
+        </Card>
 
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 space-y-3 text-sm">
-            <h3 className="text-lg font-semibold text-white">{abilityForm.id ? '编辑能力' : '新增能力'}</h3>
-            <label className="text-xs text-slate-400">
-              厂商
-              <select
-                value={abilityForm.provider || providerOptions[0].value}
-                onChange={(e) => setAbilityForm({ ...abilityForm, provider: e.target.value })}
-                className="mt-1 w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-white"
-              >
-                {providerOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="text-xs text-slate-400">
-              能力类型
-              <select
-                value={abilityForm.ability_type || abilityTypeOptions[0].value}
-                onChange={(e) => setAbilityForm({ ...abilityForm, ability_type: e.target.value })}
-                className="mt-1 w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-white"
-              >
-                {abilityTypeOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="text-xs text-slate-400">
-              能力分类
-              <select
-                value={abilityForm.category || categoryOptions[0].value}
-                onChange={(e) => setAbilityForm({ ...abilityForm, category: e.target.value })}
-                className="mt-1 w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-white"
-              >
-                {categoryOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="text-xs text-slate-400">
-              能力 Key
-              <input
-                value={abilityForm.capability_key || ''}
-                onChange={(e) => setAbilityForm({ ...abilityForm, capability_key: e.target.value })}
-                placeholder="例如 quality_upgrade"
-                className="mt-1 w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-white"
-              />
-            </label>
-            <label className="text-xs text-slate-400">
-              展示名称
-              <input
-                value={abilityForm.display_name || ''}
-                onChange={(e) => setAbilityForm({ ...abilityForm, display_name: e.target.value })}
-                placeholder="百度无损放大"
-                className="mt-1 w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-white"
-              />
-            </label>
-            <label className="text-xs text-slate-400">
-              描述
-              <textarea
-                rows={2}
+        <Dialog
+          header={abilityForm.id ? '编辑能力' : '新增能力'}
+          visible={abilityDialogOpen}
+          width={760}
+          onClose={() => setAbilityDialogOpen(false)}
+          onConfirm={async () => {
+            await handleAbilitySubmit();
+          }}
+        >
+          <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+            <Row gutter={[12, 12]}>
+              <Col span={6}>
+                <Typography.Text theme="secondary">厂商</Typography.Text>
+                <Select
+                  value={abilityForm.provider || providerOptions[0].value}
+                  onChange={(v) => setAbilityForm({ ...abilityForm, provider: String(v) })}
+                  options={providerOptions}
+                />
+              </Col>
+              <Col span={6}>
+                <Typography.Text theme="secondary">能力类型</Typography.Text>
+                <Select
+                  value={abilityForm.ability_type || abilityTypeOptions[0].value}
+                  onChange={(v) => setAbilityForm({ ...abilityForm, ability_type: String(v) })}
+                  options={abilityTypeOptions}
+                />
+              </Col>
+              <Col span={6}>
+                <Typography.Text theme="secondary">能力分类</Typography.Text>
+                <Select
+                  value={abilityForm.category || categoryOptions[0].value}
+                  onChange={(v) => setAbilityForm({ ...abilityForm, category: String(v) })}
+                  options={categoryOptions}
+                />
+              </Col>
+              <Col span={6}>
+                <Typography.Text theme="secondary">状态</Typography.Text>
+                <Select
+                  value={abilityForm.status || statusOptions[0].value}
+                  onChange={(v) => setAbilityForm({ ...abilityForm, status: String(v) })}
+                  options={statusOptions}
+                />
+              </Col>
+            </Row>
+
+            <Row gutter={[12, 12]}>
+              <Col span={12}>
+                <Typography.Text theme="secondary">能力 Key</Typography.Text>
+                <Input
+                  value={abilityForm.capability_key || ''}
+                  onChange={(v) => setAbilityForm({ ...abilityForm, capability_key: String(v) })}
+                  placeholder="例如 quality_upgrade"
+                />
+              </Col>
+              <Col span={12}>
+                <Typography.Text theme="secondary">展示名称</Typography.Text>
+                <Input
+                  value={abilityForm.display_name || ''}
+                  onChange={(v) => setAbilityForm({ ...abilityForm, display_name: String(v) })}
+                  placeholder="例如 百度无损放大"
+                />
+              </Col>
+            </Row>
+
+            <div>
+              <Typography.Text theme="secondary">描述（选填）</Typography.Text>
+              <Input
                 value={abilityForm.description || ''}
-                onChange={(e) => setAbilityForm({ ...abilityForm, description: e.target.value })}
-                className="mt-1 w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-white"
+                onChange={(v) => setAbilityForm({ ...abilityForm, description: String(v) })}
+                placeholder="一句话说明用途"
               />
-            </label>
-            <label className="text-xs text-slate-400">
-              状态
-              <select
-                value={abilityForm.status || 'inactive'}
-                onChange={(e) => setAbilityForm({ ...abilityForm, status: e.target.value })}
-                className="mt-1 w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-white"
-              >
-                {statusOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="text-xs text-slate-400">
-              默认节点（可选）
-              <select
-                value={abilityForm.executor_id || ''}
-                onChange={(e) => setAbilityForm({ ...abilityForm, executor_id: e.target.value || undefined })}
-                className="mt-1 w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-white"
-              >
-                <option value="">自动匹配</option>
-                {executors.map((executor) => (
-                  <option key={executor.id} value={executor.id}>
-                    {executor.name} · {executor.type}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="text-xs text-slate-400">
-              关联工作流（可选）
-              <select
-                value={abilityForm.workflow_id || ''}
-                onChange={(e) => setAbilityForm({ ...abilityForm, workflow_id: e.target.value || undefined })}
-                className="mt-1 w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-white"
-              >
-                <option value="">未绑定</option>
-                {workflows.map((workflow) => (
-                  <option key={workflow.id} value={workflow.id}>
-                    {workflow.name} · {workflow.version || workflow.type}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {abilityForm.provider === 'coze' && (
-              <label className="text-xs text-slate-400">
-                Coze Workflow ID
-                <input
+            </div>
+
+            <Row gutter={[12, 12]}>
+              <Col span={12}>
+                <Typography.Text theme="secondary">默认节点（可选）</Typography.Text>
+                <Select
+                  value={abilityForm.executor_id || ''}
+                  onChange={(v) => setAbilityForm({ ...abilityForm, executor_id: String(v) || undefined })}
+                  options={[
+                    { label: '自动匹配', value: '' },
+                    ...executors.map((executor) => ({
+                      label: `${executor.name} · ${executor.type}`,
+                      value: executor.id,
+                    })),
+                  ]}
+                  placeholder="自动匹配"
+                />
+              </Col>
+              <Col span={12}>
+                <Typography.Text theme="secondary">关联工作流（可选）</Typography.Text>
+                <Select
+                  value={abilityForm.workflow_id || ''}
+                  onChange={(v) => setAbilityForm({ ...abilityForm, workflow_id: String(v) || undefined })}
+                  options={[
+                    { label: '未绑定', value: '' },
+                    ...workflows.map((workflow) => ({
+                      label: `${workflow.name} · ${workflow.version || workflow.type}`,
+                      value: workflow.id,
+                    })),
+                  ]}
+                  placeholder="未绑定"
+                />
+              </Col>
+            </Row>
+
+            {abilityForm.provider === 'coze' ? (
+              <div>
+                <Typography.Text theme="secondary">Coze Workflow ID</Typography.Text>
+                <Input
                   value={abilityForm.coze_workflow_id || ''}
-                  onChange={(e) =>
+                  onChange={(v) =>
                     setAbilityForm({
                       ...abilityForm,
-                      coze_workflow_id: e.target.value ? e.target.value.trim() : undefined,
+                      coze_workflow_id: String(v).trim() ? String(v).trim() : undefined,
                     })
                   }
                   placeholder="例如 1234567890"
-                  className="mt-1 w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-white"
                 />
-                <p className="mt-1 text-[11px] text-slate-500">对应 Coze Studio 发布后的 workflow_id。</p>
-              </label>
-            )}
-            <label className="text-xs text-slate-400">
-              默认参数 JSON
-              <textarea
-                rows={3}
+              </div>
+            ) : null}
+
+            <div>
+              <Typography.Text theme="secondary">默认参数 JSON</Typography.Text>
+              <Textarea
                 value={abilityForm.default_params || ''}
-                onChange={(e) => setAbilityForm({ ...abilityForm, default_params: e.target.value })}
-                className="mt-1 w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 font-mono text-xs text-white"
+                onChange={(v) => setAbilityForm({ ...abilityForm, default_params: String(v) })}
+                autosize={{ minRows: 3, maxRows: 8 }}
               />
-            </label>
-            <label className="text-xs text-slate-400">
-              输入表单 Schema（选填）
-              <textarea
-                rows={3}
-                value={abilityForm.input_schema || ''}
-                onChange={(e) => setAbilityForm({ ...abilityForm, input_schema: e.target.value })}
-                className="mt-1 w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 font-mono text-xs text-white"
-              />
-            </label>
-            <label className="text-xs text-slate-400">
-              其他元信息（选填）
-              <textarea
-                rows={3}
-                value={abilityForm.metadata || ''}
-                onChange={(e) => setAbilityForm({ ...abilityForm, metadata: e.target.value })}
-                className="mt-1 w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 font-mono text-xs text-white"
-              />
-              <p className="mt-1 text-[11px] text-slate-500">
-                支持 <code className="bg-slate-900/60 px-1 rounded">pricing</code> 字段，例如
-                <code className="text-slate-300">
-                  {' {"pricing":{"currency":"CNY","unit":"per_image","discount_price":0.3,"list_price":0.5}}'}
-                </code>
-                。
-              </p>
-            </label>
-            <div className="flex gap-3">
-              <button className="flex-1 rounded bg-sky-500/80 py-2 text-white" onClick={handleAbilitySubmit}>
-                保存
-              </button>
-              {abilityForm.id && (
-                <button className="rounded border border-slate-500 px-4 py-2 text-slate-200" onClick={() => setAbilityForm(defaultAbilityForm)}>
-                  取消
-                </button>
-              )}
             </div>
-          </div>
-        </div>
+
+            <div>
+              <Typography.Text theme="secondary">输入表单 Schema（选填）</Typography.Text>
+              <Textarea
+                value={abilityForm.input_schema || ''}
+                onChange={(v) => setAbilityForm({ ...abilityForm, input_schema: String(v) })}
+                autosize={{ minRows: 3, maxRows: 8 }}
+              />
+            </div>
+
+            <div>
+              <Typography.Text theme="secondary">其他元信息（选填）</Typography.Text>
+              <Textarea
+                value={abilityForm.metadata || ''}
+                onChange={(v) => setAbilityForm({ ...abilityForm, metadata: String(v) })}
+                autosize={{ minRows: 3, maxRows: 8 }}
+              />
+            </div>
+          </Space>
+        </Dialog>
       </Section>
           )}
 
@@ -3943,76 +4028,62 @@ const normalizeErrorMessage = (message: string): string => {
         description="选择在能力目录中配置好的接口，查看能力上下文、Schema、元信息，并在“实时测试”中一键巡检。"
       >
         {abilities.length === 0 ? (
-          <div className="rounded-2xl border border-amber-500/50 bg-amber-500/5 p-6 text-sm text-amber-100">
-            还没有可用能力，请先到“能力目录”中新建，比如“百度 · 无损放大”。配置好默认参数和节点后，再回到这里进行测试。
-          </div>
+          <Alert
+            theme="warning"
+            title="暂无可用能力"
+            message="请先到“能力管理”新增能力并设为 active（例如：百度 · 无损放大），再回到这里进行测试。"
+          />
         ) : (
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h3 className="text-lg font-semibold text-white">能力详情 & 链路自检</h3>
-                <p className="text-xs text-slate-500">
-                  在左侧列表选择能力后，可在此查看概览、参数、元数据，并直接运行测试/查看日志。
-                </p>
-              </div>
-              {selectedAbility && (
-                <div className="text-right text-xs text-slate-400">
-                  <div>Ability ID：{selectedAbility.id}</div>
-                  <div className="text-[11px] text-slate-500 font-mono">{selectedAbility.capability_key}</div>
+          <Card bordered title="能力详情 & 链路自检">
+            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+              <Space align="start" style={{ justifyContent: 'space-between', width: '100%' }}>
+                <Typography.Text theme="secondary">
+                  选择能力后，可查看概览、参数、元数据，并直接运行测试/查看日志。
+                </Typography.Text>
+                {selectedAbility ? (
+                  <Space direction="vertical" size={2} style={{ textAlign: 'right' }}>
+                    <Typography.Text theme="secondary">Ability ID：{selectedAbility.id}</Typography.Text>
+                    <Typography.Text theme="secondary">{selectedAbility.capability_key}</Typography.Text>
+                  </Space>
+                ) : null}
+              </Space>
+
+              <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                <div style={{ width: 420 }}>
+                  <Select
+                    value={selectedAbilityId ?? ''}
+                    onChange={(v) => setSelectedAbilityId(String(v) || null)}
+                    options={[
+                      { label: '请选择（或在能力管理中新建）', value: '' },
+                      ...abilities.map((ability) => ({
+                        label: `${ability.display_name} · ${getProviderLabel(ability.provider)}`,
+                        value: ability.id,
+                      })),
+                    ]}
+                    placeholder="快速选择能力"
+                  />
                 </div>
+                <Button variant="outline" onClick={() => selectSection('abilities')}>
+                  前往能力管理
+                </Button>
+              </Space>
+
+              {!selectedAbility ? (
+                <Alert theme="info" message="暂未选择能力，请先在下拉框选择，或回到“能力管理”点击一行。" />
+              ) : (
+                <Tabs
+                  theme="card"
+                  value={activeAbilityDetailTab}
+                  onChange={(v) => setActiveAbilityDetailTab(v as AbilityDetailTab)}
+                  list={abilityDetailTabs.map((tab) => ({
+                    value: tab.id,
+                    label: tab.label,
+                    panel: <div style={{ paddingTop: 12 }}>{renderAbilityDetailContent(tab.id)}</div>,
+                  }))}
+                />
               )}
-            </div>
-            <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-slate-400">
-              <label className="flex-1">
-                快速选择能力
-                <select
-                  value={selectedAbilityId ?? ''}
-                  onChange={(e) => setSelectedAbilityId(e.target.value || null)}
-                  className="mt-1 w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-2 text-sm text-white"
-                >
-                  <option value="">请选择（或在能力管理中新建）</option>
-                  {abilities.map((ability) => (
-                    <option key={`ability-selector-${ability.id}`} value={ability.id}>
-                      {ability.display_name} · {getProviderLabel(ability.provider)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button
-                type="button"
-                onClick={() => selectSection('abilities')}
-                className="rounded-full border border-slate-600 px-3 py-1 text-[11px] text-slate-200"
-              >
-                前往能力目录
-              </button>
-            </div>
-            {!selectedAbility ? (
-              <div className="mt-4 rounded-2xl border border-dashed border-slate-700 bg-slate-950/30 p-4 text-sm text-slate-400">
-                暂未选择能力，请在“能力目录”中点击一行，或使用筛选快速定位目标能力。
-              </div>
-            ) : (
-              <>
-                <div className="mt-4 flex flex-wrap gap-2 border-b border-slate-800">
-                  {abilityDetailTabs.map((tab) => {
-                    const isActive = tab.id === activeAbilityDetailTab;
-                    return (
-                      <button
-                        key={tab.id}
-                        type="button"
-                        onClick={() => setActiveAbilityDetailTab(tab.id)}
-                        className={`rounded-t-2xl px-4 py-2 text-sm transition ${
-                          isActive ? 'bg-slate-900 text-white' : 'text-slate-500 hover:text-slate-200'
-                        }`}
-                      >
-                        {tab.label}
-                      </button>
-                    );
-                  })}
-                </div>
-                <div className="mt-4">{renderAbilityDetailContent()}</div>
-              </>
-            )}
-          </div>
+            </Space>
+          </Card>
         )}
       </Section>
           )}
@@ -4744,6 +4815,128 @@ const normalizeErrorMessage = (message: string): string => {
         </div>
       </Section>
       )}
+
+      <Dialog
+        header={abilityLogDetail ? `能力调用详情 #${abilityLogDetail.id}` : '能力调用详情'}
+        visible={abilityLogDetailOpen}
+        width={860}
+        confirmBtn={null}
+        cancelBtn="关闭"
+        onClose={() => setAbilityLogDetailOpen(false)}
+        onCancel={() => setAbilityLogDetailOpen(false)}
+      >
+        {abilityLogDetail ? (
+          <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+            <Row gutter={[12, 12]}>
+              <Col span={12}>
+                <Typography.Text theme="secondary">能力</Typography.Text>
+                <div>
+                  <Typography.Text strong>
+                    {abilityLogDetail.ability_name || abilityLogDetail.capability_key}
+                  </Typography.Text>
+                </div>
+                <Typography.Text theme="secondary">{abilityLogDetail.ability_provider}</Typography.Text>
+              </Col>
+              <Col span={12}>
+                <Typography.Text theme="secondary">状态</Typography.Text>
+                <div>
+                  <Tag theme={getAbilityLogStatusTag(abilityLogDetail.status).theme} variant="light">
+                    {getAbilityLogStatusTag(abilityLogDetail.status).text}
+                  </Tag>
+                </div>
+                <Typography.Text theme="secondary">
+                  {formatDateTime(abilityLogDetail.created_at)} · {formatDurationMs(abilityLogDetail.duration_ms)}
+                </Typography.Text>
+              </Col>
+              <Col span={12}>
+                <Typography.Text theme="secondary">来源</Typography.Text>
+                <div>
+                  <Tag theme={getAbilitySourceTagTheme(abilityLogDetail.source)} variant="light">
+                    {formatAbilitySource(abilityLogDetail.source)}
+                  </Tag>
+                </div>
+              </Col>
+              <Col span={12}>
+                <Typography.Text theme="secondary">节点</Typography.Text>
+                <div>
+                  <Typography.Text>
+                    {abilityLogDetail.executor_name || abilityLogDetail.executor_type || abilityLogDetail.executor_id || '—'}
+                  </Typography.Text>
+                </div>
+              </Col>
+            </Row>
+
+            {(() => {
+              const previewUrl =
+                abilityLogDetail.stored_url ||
+                (abilityLogDetail.result_assets && abilityLogDetail.result_assets.length > 0
+                  ? resolveAssetUrl(abilityLogDetail.result_assets[0])
+                  : '') ||
+                '';
+              const canPreviewImage = Boolean(previewUrl) && /\.(png|jpg|jpeg|webp|gif)(\?|#|$)/i.test(previewUrl);
+              if (!previewUrl) return null;
+              return (
+                <div>
+                  <Typography.Text theme="secondary">结果预览</Typography.Text>
+                  <div style={{ marginTop: 8 }}>
+                    {canPreviewImage ? (
+                      <img src={previewUrl} alt="preview" style={{ maxWidth: '100%', maxHeight: 420, display: 'block' }} />
+                    ) : (
+                      <Button variant="outline" onClick={() => window.open(previewUrl, '_blank', 'noreferrer')}>
+                        打开结果链接
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {abilityLogDetail.request_payload ? (
+              <div>
+                <Typography.Text theme="secondary">Request</Typography.Text>
+                <pre
+                  style={{
+                    marginTop: 8,
+                    padding: 12,
+                    borderRadius: 8,
+                    border: '1px solid var(--td-border-level-1-color)',
+                    background: 'var(--td-bg-color-secondarycontainer)',
+                    color: 'var(--td-text-color-primary)',
+                    fontSize: 12,
+                    maxHeight: 260,
+                    overflow: 'auto',
+                  }}
+                >
+                  {formatRawResponse(abilityLogDetail.request_payload)}
+                </pre>
+              </div>
+            ) : null}
+
+            {abilityLogDetail.response_payload ? (
+              <div>
+                <Typography.Text theme="secondary">Response</Typography.Text>
+                <pre
+                  style={{
+                    marginTop: 8,
+                    padding: 12,
+                    borderRadius: 8,
+                    border: '1px solid var(--td-border-level-1-color)',
+                    background: 'var(--td-bg-color-secondarycontainer)',
+                    color: 'var(--td-text-color-primary)',
+                    fontSize: 12,
+                    maxHeight: 260,
+                    overflow: 'auto',
+                  }}
+                >
+                  {formatRawResponse(abilityLogDetail.response_payload)}
+                </pre>
+              </div>
+            ) : null}
+
+            {abilityLogDetail.error_message ? <Alert theme="error" message={abilityLogDetail.error_message} /> : null}
+          </Space>
+        ) : null}
+      </Dialog>
           </div>
         </Layout.Content>
       </Layout>
@@ -4815,8 +5008,8 @@ function InfoCard({ title, items }: { title: string; items: { label: string; val
 }
 
 function formatDate(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
+  const date = parseDateValue(value);
+  if (!date) return value;
   return date.toLocaleString('zh-CN', { hour12: false, timeZone: 'Asia/Shanghai' });
 }
 
