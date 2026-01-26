@@ -30,19 +30,19 @@ export function EvaluationSidebar({ workflows, selectedWorkflow, onWorkflowSelec
   const categories = ['花纹提取类', '图延伸类', '四方/两方连续图类', '图裂变', '通用类'].filter((c) => (grouped[c] || []).length > 0);
 
   return (
-    <aside className="w-72 border-r border-slate-800 bg-slate-950/40 p-4 overflow-y-auto">
+    <aside className="w-72 overflow-y-auto border-r border-slate-200 bg-white/70 p-4 dark:border-slate-800 dark:bg-slate-950/40">
       <div className="mb-3">
         <div className="flex items-center justify-between gap-2">
           <div>
-            <div className="text-sm font-semibold text-slate-100">能力分组</div>
-            <div className="text-xs text-slate-400">选择一个工作流版本进行评测</div>
+            <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">能力分组</div>
+            <div className="text-xs text-slate-700 dark:text-slate-400">选择一个工作流版本进行评测</div>
           </div>
           <div className="flex items-center gap-2">
             {typeof onRefreshWorkflows === 'function' ? (
               <button
                 type="button"
                 onClick={onRefreshWorkflows}
-                className="rounded-lg border border-slate-800 bg-slate-950 px-2 py-1 text-xs text-slate-200 hover:border-slate-700"
+                className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 dark:hover:border-slate-700"
               >
                 刷新
               </button>
@@ -62,7 +62,7 @@ export function EvaluationSidebar({ workflows, selectedWorkflow, onWorkflowSelec
       <div className="space-y-4">
         {categories.map((cat) => (
           <div key={cat}>
-            <div className="mb-2 text-xs uppercase tracking-widest text-slate-500">{cat}</div>
+            <div className="mb-2 text-xs uppercase tracking-widest text-slate-600 dark:text-slate-500">{cat}</div>
             <div className="space-y-2">
               {grouped[cat]
                 .slice()
@@ -76,23 +76,23 @@ export function EvaluationSidebar({ workflows, selectedWorkflow, onWorkflowSelec
                       onClick={() => onWorkflowSelect(wf)}
                       className={`w-full rounded-xl border px-3 py-2 text-left transition ${
                         active
-                          ? 'border-sky-500/70 bg-sky-500/10 text-white'
-                          : 'border-white/5 bg-transparent text-slate-300 hover:border-slate-500/60'
+                          ? 'border-sky-500/60 bg-sky-500/10 text-slate-900 dark:text-white'
+                          : 'border-slate-200/70 bg-transparent text-slate-800 hover:border-slate-300 dark:border-white/5 dark:text-slate-300 dark:hover:border-slate-500/60'
                       }`}
                     >
                       <div className="flex items-center justify-between gap-2">
-                        <div className="text-sm font-semibold">{wf.name}</div>
-                        <div className="text-[11px] text-slate-400">{wf.version}</div>
+                        <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">{wf.name}</div>
+                        <div className="text-[11px] text-slate-700 dark:text-slate-400">{wf.version}</div>
                       </div>
-                      {wf.notes ? <div className="mt-1 text-xs text-slate-500 line-clamp-2">{wf.notes}</div> : null}
-                      <div className="mt-1 text-xs text-slate-400 break-all">{wf.workflow_id}</div>
+                      {wf.notes ? <div className="mt-1 text-xs text-slate-700 line-clamp-2 dark:text-slate-500">{wf.notes}</div> : null}
+                      <div className="mt-1 text-xs text-slate-700 break-all dark:text-slate-400">{wf.workflow_id}</div>
                     </button>
                   );
                 })}
             </div>
           </div>
         ))}
-        {workflows.length === 0 && <div className="text-sm text-slate-500">暂无工作流版本，请先在后端录入。</div>}
+        {workflows.length === 0 && <div className="text-sm text-slate-700 dark:text-slate-500">暂无工作流版本，请先在后端录入。</div>}
       </div>
     </aside>
   );

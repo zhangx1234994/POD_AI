@@ -3951,12 +3951,12 @@ const normalizeErrorMessage = (message: string): string => {
         description="管理本地/云端多台 ComfyUI 服务器的 Workflow JSON，指定允许运行的节点，作为一类原子能力。后续 Workflow Builder 会基于这些模板拼装业务流程。"
       >
         <div className="grid gap-6 lg:grid-cols-2">
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
-            <h3 className="text-lg font-semibold text-white mb-4">工作流列表</h3>
+          <div className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 dark:border-slate-800 dark:bg-slate-900/40">
+            <h3 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">工作流列表</h3>
             <div className="overflow-x-auto">
               <table>
                 <thead>
-                  <tr className="text-left text-slate-400 text-sm">
+                  <tr className="text-left text-sm text-slate-700 dark:text-slate-400">
                     <th>Action</th>
                     <th>名称</th>
                     <th>版本</th>
@@ -3969,10 +3969,10 @@ const normalizeErrorMessage = (message: string): string => {
                 <tbody>
                   {workflows.map((wf) => (
                     <tr key={wf.id}>
-                      <td className="text-sm text-slate-300">{wf.action}</td>
-                      <td className="text-white font-medium">{wf.name}</td>
-                      <td className="text-sm text-slate-300">{wf.version}</td>
-                      <td className="text-xs text-slate-400">
+                      <td className="text-sm text-slate-800 dark:text-slate-300">{wf.action}</td>
+                      <td className="font-medium text-slate-900 dark:text-white">{wf.name}</td>
+                      <td className="text-sm text-slate-800 dark:text-slate-300">{wf.version}</td>
+                      <td className="text-xs text-slate-700 dark:text-slate-400">
                         {(() => {
                           const allowedIds = extractAllowedExecutorIds(wf.metadata);
                           if (allowedIds.length === 0) return '未限制（匹配任意 ComfyUI 节点）';
@@ -3987,7 +3987,7 @@ const normalizeErrorMessage = (message: string): string => {
                       <td>
                         <StatusPill status={wf.status || 'inactive'} />
                       </td>
-                      <td className="text-xs text-slate-500">{wf.updated_at || '—'}</td>
+                      <td className="text-xs text-slate-700 dark:text-slate-500">{wf.updated_at || '—'}</td>
                       <td className="text-right text-xs space-x-2">
                         <button
                           className="text-sky-400"
@@ -4013,8 +4013,8 @@ const normalizeErrorMessage = (message: string): string => {
               </table>
             </div>
           </div>
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 space-y-3">
-            <h3 className="text-lg font-semibold text-white">
+          <div className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 space-y-3 dark:border-slate-800 dark:bg-slate-900/40">
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
               {workflowForm.id ? '编辑工作流' : '导入/新增工作流'}
             </h3>
             <div className="text-sm space-y-2">
@@ -4022,46 +4022,58 @@ const normalizeErrorMessage = (message: string): string => {
                 placeholder="Action"
                 value={workflowForm.action || ''}
                 onChange={(e) => setWorkflowForm({ ...workflowForm, action: e.target.value })}
+                className={formControlClass}
               />
               <input
                 placeholder="名称"
                 value={workflowForm.name || ''}
                 onChange={(e) => setWorkflowForm({ ...workflowForm, name: e.target.value })}
+                className={formControlClass}
               />
               <div className="flex gap-3">
                 <input
                   placeholder="版本"
                   value={workflowForm.version || ''}
                   onChange={(e) => setWorkflowForm({ ...workflowForm, version: e.target.value })}
+                  className={formControlFlexClass}
                 />
                 <input
                   placeholder="类型"
                   value={workflowForm.type || ''}
                   onChange={(e) => setWorkflowForm({ ...workflowForm, type: e.target.value })}
+                  className={formControlFlexClass}
                 />
               </div>
               <input
                 placeholder="状态，如 active/inactive"
                 value={workflowForm.status || ''}
                 onChange={(e) => setWorkflowForm({ ...workflowForm, status: e.target.value })}
+                className={formControlClass}
               />
-              <label className="block text-xs text-slate-400">
+              <label className="block text-xs text-slate-700 dark:text-slate-400">
                 导入 JSON 文件
-                <input type="file" accept=".json" onChange={(e) => handleWorkflowFile(e.target.files)} />
+                <input
+                  type="file"
+                  accept=".json"
+                  onChange={(e) => handleWorkflowFile(e.target.files)}
+                  className="mt-1 block w-full text-xs text-slate-700 file:mr-3 file:rounded-lg file:border file:border-slate-300 file:bg-white file:px-3 file:py-1 file:text-xs file:text-slate-700 hover:file:bg-slate-50 dark:text-slate-300 dark:file:border-slate-700 dark:file:bg-slate-950/50 dark:file:text-slate-200 dark:hover:file:bg-slate-900/60"
+                />
               </label>
               <textarea
                 rows={6}
                 placeholder="workflow definition JSON"
                 value={workflowForm.definition ?? ''}
                 onChange={(e) => setWorkflowForm({ ...workflowForm, definition: e.target.value })}
+                className={`${formControlClass} font-mono text-xs`}
               />
               <textarea
                 rows={4}
                 placeholder="metadata JSON（参数映射、依赖等）"
                 value={workflowForm.metadata ?? ''}
                 onChange={(e) => setWorkflowForm({ ...workflowForm, metadata: e.target.value })}
+                className={`${formControlClass} font-mono text-xs`}
               />
-              <label className="block text-xs text-slate-400">
+              <label className="block text-xs text-slate-700 dark:text-slate-400">
                 允许运行节点（多选）
                 {comfyExecutors.length > 0 ? (
                   <select
@@ -4070,7 +4082,7 @@ const normalizeErrorMessage = (message: string): string => {
                     onChange={(e) =>
                       setWorkflowFormAllowedExecutors(Array.from(e.target.selectedOptions).map((option) => option.value))
                     }
-                    className="mt-1 h-32 w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-2 text-sm text-white"
+                    className="mt-1 h-32 w-full rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white"
                   >
                     {comfyExecutors.map((executor) => (
                       <option key={`workflow-executor-${executor.id}`} value={executor.id}>
@@ -4079,11 +4091,11 @@ const normalizeErrorMessage = (message: string): string => {
                     ))}
                   </select>
                 ) : (
-                  <div className="mt-1 rounded-2xl border border-dashed border-slate-700 bg-slate-950/40 px-4 py-3 text-slate-500">
+                  <div className="mt-1 rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-slate-700 dark:border-slate-700 dark:bg-slate-950/40 dark:text-slate-500">
                     还没有 ComfyUI 类型的执行节点，请先在“执行节点”中新建，再回到此处绑定允许运行的机器列表。
                   </div>
                 )}
-                <p className="mt-1 text-[11px] text-slate-500">
+                <p className="mt-1 text-[11px] text-slate-700 dark:text-slate-500">
                   用于限制某个 ComfyUI 工作流可以在哪些机器上执行；保存后会写入 metadata.allowed_executor_ids，调度器会据此路由。
                 </p>
               </label>
@@ -4093,7 +4105,7 @@ const normalizeErrorMessage = (message: string): string => {
                 </button>
                 {workflowForm.id && (
                 <button
-                  className="rounded border border-slate-500 px-4 py-2 text-slate-200"
+                  className="rounded border border-slate-300 bg-white px-4 py-2 text-slate-700 hover:bg-slate-50 dark:border-slate-500 dark:bg-transparent dark:text-slate-200"
                   onClick={() => {
                     setWorkflowForm(defaultWorkflowForm);
                     setWorkflowFormAllowedExecutors([]);
@@ -4391,16 +4403,16 @@ const normalizeErrorMessage = (message: string): string => {
         title="API Key 仓库"
         description="统一管理百度、火山、OpenAI 等凭证，并为每个能力分配可用 Key 池，方便限流/欠费时快速切换。"
       >
-        <p className="mb-4 text-xs text-slate-500">
+        <p className="mb-4 text-xs text-slate-700 dark:text-slate-500">
           建议同一 Provider 维护多条 Key，搭配“分配策略”中的不同执行器，实现“主 Key + 备用 Key”或“高优先级/低优先级”模式。
         </p>
         <div className="grid gap-6 lg:grid-cols-2">
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
-            <h3 className="text-lg font-semibold text-white mb-4">Key 列表</h3>
+          <div className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 dark:border-slate-800 dark:bg-slate-900/40">
+            <h3 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Key 列表</h3>
             <div className="overflow-x-auto">
               <table>
                 <thead>
-                  <tr className="text-left text-slate-400 text-sm">
+                  <tr className="text-left text-sm text-slate-700 dark:text-slate-400">
                     <th>Provider</th>
                     <th>名称</th>
                     <th>状态</th>
@@ -4413,14 +4425,14 @@ const normalizeErrorMessage = (message: string): string => {
                 <tbody>
                   {apiKeys.map((key) => (
                     <tr key={key.id}>
-                      <td className="text-sm text-slate-300">{key.provider}</td>
-                      <td className="text-sm text-slate-300">{key.name}</td>
+                      <td className="text-sm text-slate-800 dark:text-slate-300">{key.provider}</td>
+                      <td className="text-sm text-slate-800 dark:text-slate-300">{key.name}</td>
                       <td>
                         <StatusPill status={key.status} />
                       </td>
-                      <td className="text-sm text-slate-300">{key.daily_quota ?? '—'}</td>
-                      <td className="text-sm text-slate-300">{key.usage_count ?? 0}</td>
-                      <td className="text-xs text-slate-400">{key.expire_at || '—'}</td>
+                      <td className="text-sm text-slate-800 dark:text-slate-300">{key.daily_quota ?? '—'}</td>
+                      <td className="text-sm text-slate-800 dark:text-slate-300">{key.usage_count ?? 0}</td>
+                      <td className="text-xs text-slate-700 dark:text-slate-400">{key.expire_at || '—'}</td>
                       <td className="text-right text-xs space-x-2">
                         <button className="text-sky-400" onClick={() => setApiKeyForm(key)}>
                           编辑
@@ -4435,14 +4447,14 @@ const normalizeErrorMessage = (message: string): string => {
               </table>
             </div>
           </div>
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 space-y-2 text-sm">
-            <h3 className="text-lg font-semibold text-white">{apiKeyForm.id ? '编辑 Key' : '新增 Key'}</h3>
-            <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3 text-xs text-slate-300">
-              <div className="font-semibold text-slate-100">怎么填？</div>
+          <div className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 space-y-2 text-sm dark:border-slate-800 dark:bg-slate-900/40">
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-white">{apiKeyForm.id ? '编辑 Key' : '新增 Key'}</h3>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-300">
+              <div className="font-semibold text-slate-900 dark:text-slate-100">怎么填？</div>
               <div>Provider 选厂商；名称随便起；Key 值粘贴厂商给的 API Key；状态选 active 即可。</div>
-              <div className="text-slate-400 mt-1">日配额/当前用量/过期时间可先不填，后续需要做限流/轮换再补。</div>
+              <div className="mt-1 text-slate-600 dark:text-slate-400">日配额/当前用量/过期时间可先不填，后续需要做限流/轮换再补。</div>
             </div>
-            <label className="text-xs text-slate-400">Provider</label>
+            <label className="text-xs text-slate-700 dark:text-slate-400">Provider</label>
             <select
               value={apiKeyForm.provider || ''}
               onChange={(e) => setApiKeyForm({ ...apiKeyForm, provider: e.target.value })}
@@ -4457,7 +4469,7 @@ const normalizeErrorMessage = (message: string): string => {
                   </option>
                 ))}
             </select>
-            <label className="text-xs text-slate-400">名称</label>
+            <label className="text-xs text-slate-700 dark:text-slate-400">名称</label>
             <input
               placeholder="名称"
               value={apiKeyForm.name || ''}
@@ -4466,7 +4478,7 @@ const normalizeErrorMessage = (message: string): string => {
             />
             {!apiKeyForm.id && (
               <>
-                <label className="text-xs text-slate-400">Key 值</label>
+                <label className="text-xs text-slate-700 dark:text-slate-400">Key 值</label>
               <input
                 placeholder="粘贴 API Key（不会显示明文在列表里）"
                 value={apiKeyForm.key || ''}
@@ -4475,7 +4487,7 @@ const normalizeErrorMessage = (message: string): string => {
               />
               </>
             )}
-            <label className="text-xs text-slate-400">状态</label>
+            <label className="text-xs text-slate-700 dark:text-slate-400">状态</label>
             <select
               value={apiKeyForm.status || 'active'}
               onChange={(e) => setApiKeyForm({ ...apiKeyForm, status: e.target.value })}
@@ -4524,7 +4536,7 @@ const normalizeErrorMessage = (message: string): string => {
               </button>
               {apiKeyForm.id && (
                 <button
-                  className="rounded border border-slate-500 px-4 py-2 text-slate-200"
+                  className="rounded border border-slate-300 bg-white px-4 py-2 text-slate-700 hover:bg-slate-50 dark:border-slate-500 dark:bg-transparent dark:text-slate-200"
                   onClick={() => setApiKeyForm(defaultApiKeyForm)}
                 >
                   取消

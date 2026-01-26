@@ -373,7 +373,7 @@ export function AbilityEvaluationPage() {
   };
 
   return (
-    <div className="flex h-[720px] overflow-hidden rounded-3xl border border-slate-800 bg-slate-950/30">
+    <div className="flex h-[calc(100vh-12rem)] min-h-[680px] overflow-hidden rounded-3xl border border-slate-200 bg-white/70 text-slate-900 dark:border-slate-800 dark:bg-slate-950/30 dark:text-slate-100">
       <NoticeBar notice={notice} onClose={() => setNotice(null)} />
       <EvaluationSidebar
         workflows={workflows}
@@ -404,16 +404,16 @@ export function AbilityEvaluationPage() {
 
       {isCreateOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="w-full max-w-3xl rounded-2xl border border-slate-800 bg-slate-950 p-4 text-slate-100">
+          <div className="w-full max-w-3xl rounded-2xl border border-slate-200 bg-white p-4 text-slate-900 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <div className="text-sm font-semibold">新增工作流（快速配置）</div>
-                <div className="mt-1 text-xs text-slate-400">输出字段固定为 `output`，可选“图片地址 / 回调 id”。</div>
+                <div className="mt-1 text-xs text-slate-600 dark:text-slate-400">输出字段固定为 `output`，可选“图片地址 / 回调 id”。</div>
               </div>
               <button
                 type="button"
                 onClick={() => setIsCreateOpen(false)}
-                className="rounded-lg border border-slate-800 bg-slate-950 px-2 py-1 text-xs text-slate-200 hover:border-slate-700"
+                className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 dark:hover:border-slate-700"
               >
                 关闭
               </button>
@@ -421,29 +421,29 @@ export function AbilityEvaluationPage() {
 
             <div className="mt-4 grid gap-3 md:grid-cols-2">
               <label className="block">
-                <div className="text-xs text-slate-300">名称 *</div>
+                <div className="text-xs text-slate-700 dark:text-slate-300">名称 *</div>
                 <input
                   value={createDraft.name}
                   onChange={(e) => setCreateDraft((p) => ({ ...p, name: e.target.value }))}
-                  className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm"
+                  className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
                   placeholder="例如：花纹提取 · tiqu_xxx"
                 />
               </label>
               <label className="block">
-                <div className="text-xs text-slate-300">workflow_id *</div>
+                <div className="text-xs text-slate-700 dark:text-slate-300">workflow_id *</div>
                 <input
                   value={createDraft.workflow_id}
                   onChange={(e) => setCreateDraft((p) => ({ ...p, workflow_id: e.target.value }))}
-                  className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm"
+                  className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
                   placeholder="Coze workflow_id"
                 />
               </label>
               <label className="block">
-                <div className="text-xs text-slate-300">分类</div>
+                <div className="text-xs text-slate-700 dark:text-slate-300">分类</div>
                 <select
                   value={createDraft.category}
                   onChange={(e) => setCreateDraft((p) => ({ ...p, category: e.target.value }))}
-                  className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm"
+                  className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
                 >
                   <option value="花纹提取类">花纹提取类</option>
                   <option value="图延伸类">图延伸类</option>
@@ -453,29 +453,29 @@ export function AbilityEvaluationPage() {
                 </select>
               </label>
               <label className="block">
-                <div className="text-xs text-slate-300">输出类型</div>
+                <div className="text-xs text-slate-700 dark:text-slate-300">输出类型</div>
                 <select
                   value={createDraft.outputKind}
                   onChange={(e) => setCreateDraft((p) => ({ ...p, outputKind: e.target.value as any }))}
-                  className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm"
+                  className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
                 >
                   <option value="image">图片地址（output=图片 URL）</option>
                   <option value="callback">需要回调（output=回调 id）</option>
                 </select>
               </label>
               <label className="block md:col-span-2">
-                <div className="text-xs text-slate-300">功能介绍（notes）</div>
+                <div className="text-xs text-slate-700 dark:text-slate-300">功能介绍（notes）</div>
                 <textarea
                   value={createDraft.notes}
                   onChange={(e) => setCreateDraft((p) => ({ ...p, notes: e.target.value }))}
                   rows={2}
-                  className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 p-3 text-xs"
+                  className="mt-1 w-full rounded-xl border border-slate-300 bg-white p-3 text-xs text-slate-900 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
                   placeholder="给运营/测试看的说明：用途、注意事项、参数含义…"
                 />
               </label>
             </div>
 
-            <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/40 p-3">
+            <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/40">
               <div className="flex items-center justify-between gap-2">
                 <div className="text-sm font-semibold">输入字段</div>
                 <button
@@ -486,7 +486,7 @@ export function AbilityEvaluationPage() {
                       { name: '', label: '', type: 'text', required: false, description: '', defaultValue: '', optionsText: '' },
                     ])
                   }
-                  className="rounded-lg border border-slate-800 bg-slate-950 px-2 py-1 text-xs text-slate-200 hover:border-slate-700"
+                  className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 dark:hover:border-slate-700"
                 >
                   + 添加字段
                 </button>
