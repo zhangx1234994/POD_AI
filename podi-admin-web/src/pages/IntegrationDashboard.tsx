@@ -702,6 +702,10 @@ export function IntegrationDashboard({
   const [activeAbilityDetailTab, setActiveAbilityDetailTab] = useState<AbilityDetailTab>('overview');
   const [abilityLogDetail, setAbilityLogDetail] = useState<AbilityInvocationLog | null>(null);
   const [abilityLogDetailOpen, setAbilityLogDetailOpen] = useState(false);
+  const [globalAbilityLogProvider, setGlobalAbilityLogProvider] = useState<string>('all');
+  const [globalAbilityLogSource, setGlobalAbilityLogSource] = useState<string>('all');
+  const [globalAbilityLogStatus, setGlobalAbilityLogStatus] = useState<string>('all');
+  const [globalAbilityLogSearch, setGlobalAbilityLogSearch] = useState<string>('');
   const [executorForm, setExecutorForm] = useState<ExecutorFormState>(defaultExecutorForm);
   const [workflowForm, setWorkflowForm] = useState<WorkflowFormState>(defaultWorkflowForm);
   const [workflowFormAllowedExecutors, setWorkflowFormAllowedExecutors] = useState<string[]>([]);
@@ -842,6 +846,37 @@ export function IntegrationDashboard({
     });
     return map;
   }, [globalAbilityLogs]);
+  const globalAbilityLogProviders = useMemo(
+    () => Array.from(new Set(globalAbilityLogs.map((log) => log.ability_provider))).sort(),
+    [globalAbilityLogs],
+  );
+  const globalAbilityLogSources = useMemo(
+    () => Array.from(new Set(globalAbilityLogs.map((log) => log.source))).sort(),
+    [globalAbilityLogs],
+  );
+  const globalAbilityLogStatuses = useMemo(
+    () => Array.from(new Set(globalAbilityLogs.map((log) => log.status).filter(Boolean) as string[])).sort(),
+    [globalAbilityLogs],
+  );
+  const filteredGlobalAbilityLogs = useMemo(() => {
+    const keyword = globalAbilityLogSearch.trim().toLowerCase();
+    return globalAbilityLogs.filter((log) => {
+      if (globalAbilityLogProvider !== 'all' && log.ability_provider !== globalAbilityLogProvider) return false;
+      if (globalAbilityLogSource !== 'all' && log.source !== globalAbilityLogSource) return false;
+      if (globalAbilityLogStatus !== 'all' && (log.status || '') !== globalAbilityLogStatus) return false;
+      if (!keyword) return true;
+      const haystack = `${log.ability_name || ''} ${log.capability_key} ${log.ability_provider} ${log.executor_name || ''} ${
+        log.executor_id || ''
+      } ${log.task_id || ''} ${log.trace_id || ''}`.toLowerCase();
+      return haystack.includes(keyword);
+    });
+  }, [
+    globalAbilityLogs,
+    globalAbilityLogProvider,
+    globalAbilityLogSource,
+    globalAbilityLogStatus,
+    globalAbilityLogSearch,
+  ]);
   const abilitySchemaFields = useMemo(
     () => parseAbilitySchemaFields(selectedAbility?.input_schema),
     [selectedAbility],
@@ -2199,89 +2234,88 @@ const normalizeErrorMessage = (message: string): string => {
   const renderAbilityOverview = () => {
     if (!selectedAbility) {
       return (
-        <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-950/30 p-4 text-sm text-slate-400">
-          请先在左侧“能力目录”中选中一条能力，系统会在此处展示能力描述、默认节点、成本与标签。
-        </div>
+        <Alert
+          theme="info"
+          message="请先在左侧“能力目录”中选中一条能力，系统会在此处展示能力描述、默认节点、成本与标签。"
+        />
       );
     }
+    const baseItems = [
+      { label: '能力 Key', value: selectedAbility.capability_key || '—' },
+      { label: '能力类型', value: getAbilityTypeLabel(selectedAbility.ability_type) || '—' },
+      {
+        label: '默认节点',
+        value: pinnedAbilityExecutor ? `${pinnedAbilityExecutor.name} · ${pinnedAbilityExecutor.type}` : '按厂商类型自动匹配',
+      },
+      { label: '关联工作流', value: selectedAbilityWorkflowLabel || '未绑定' },
+    ];
     return (
-      <div className="space-y-4">
-        <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4 space-y-3">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-xs uppercase tracking-widest text-slate-500">
+      <Space direction="vertical" size="large" style={{ width: '100%' }}>
+        <Card bordered>
+          <Space align="start" style={{ justifyContent: 'space-between', width: '100%' }}>
+            <Space direction="vertical" size={2}>
+              <Typography.Text theme="secondary">
                 {getProviderLabel(selectedAbility.provider)} · {getCategoryLabel(selectedAbility.category)}
-              </p>
-              <h4 className="mt-1 text-lg font-semibold text-white">{selectedAbility.display_name}</h4>
-              <p className="mt-1 text-xs text-slate-400">
-                每个 Ability 都是一个原子能力（API、ComfyUI 或第三方服务），下游工作流只需要引用 Ability ID 即可复用配置。
-              </p>
-            </div>
+              </Typography.Text>
+              <Typography.Title level="h4" style={{ margin: 0 }}>
+                {selectedAbility.display_name}
+              </Typography.Title>
+              <Typography.Text theme="secondary">
+                {selectedAbility.description || '暂无描述，建议在能力管理中补充。'}
+              </Typography.Text>
+              {selectedAbilityTags.length > 0 ? (
+                <Space breakLine>
+                  {selectedAbilityTags.map((tag, index) => (
+                    <Tag key={`selected-ability-tag-${index}`} theme="primary" variant="light">
+                      {tag}
+                    </Tag>
+                  ))}
+                </Space>
+              ) : null}
+            </Space>
             <StatusPill status={selectedAbility.status} />
-          </div>
-          <p className="text-xs text-slate-400">
-            {selectedAbility.description || '暂无描述，建议在能力管理中补充。'}
-          </p>
-          {selectedAbilityTags.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {selectedAbilityTags.map((tag, index) => (
-                <span
-                  key={`selected-ability-tag-${index}`}
-                  className="rounded-full border border-sky-500/40 px-2 py-0.5 text-[10px] uppercase tracking-wide text-sky-200"
-                >
-                  {tag}
-                </span>
-              ))}
-            </div>
-          )}
-          <dl className="grid gap-3 text-xs text-slate-400 sm:grid-cols-2 lg:grid-cols-4">
-            <div>
-              <dt className="uppercase tracking-wide text-slate-500">能力 Key</dt>
-              <dd className="mt-1 font-mono text-sm text-white">{selectedAbility.capability_key}</dd>
-            </div>
-            <div>
-              <dt className="uppercase tracking-wide text-slate-500">能力类型</dt>
-              <dd className="mt-1 text-white">{getAbilityTypeLabel(selectedAbility.ability_type)}</dd>
-            </div>
-            <div>
-              <dt className="uppercase tracking-wide text-slate-500">默认节点</dt>
-              <dd className="mt-1 text-white">
-                {pinnedAbilityExecutor
-                  ? `${pinnedAbilityExecutor.name} · ${pinnedAbilityExecutor.type}`
-                  : '按厂商类型自动匹配'}
-              </dd>
-            </div>
-            <div>
-              <dt className="uppercase tracking-wide text-slate-500">关联工作流</dt>
-              <dd className="mt-1 text-white">{selectedAbilityWorkflowLabel || '未绑定'}</dd>
-            </div>
-          </dl>
-          <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-3 text-xs text-slate-400">
-            <div className="text-slate-500">计价信息</div>
-            <div className="mt-1 text-sm text-white">{selectedAbilityPricingText}</div>
-            {selectedAbilityPricingText === '—' && (
-              <p className="text-[11px] text-slate-500">
-                可在 Metadata.pricing 中设置 `currency/unit/list_price/discount_price`，ComfyUI 默认按 ¥0.30 / 每张计算。
-              </p>
-            )}
-          </div>
-        </div>
-        <div className="grid gap-3 md:grid-cols-2">
-          <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4 text-xs text-slate-400">
-            <div className="text-[11px] uppercase tracking-widest text-slate-500">健康巡检</div>
-            <p className="mt-2 text-sm text-white">{selectedAbilityHealth.status}</p>
-            <p className="mt-1 text-[11px] text-slate-500">最近巡检：{selectedAbilityHealth.checkedAt}</p>
-            <p className="mt-1 text-[11px] text-slate-500">可通过能力测试或自动巡检任务刷新该状态。</p>
-          </div>
-          <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4 text-xs text-slate-400">
-            <div className="text-[11px] uppercase tracking-widest text-slate-500">成功率 (近 24h)</div>
-            <p className="mt-2 text-sm text-white">{selectedAbilityHealth.successRateText}</p>
-            <p className="mt-1 text-[11px] text-slate-500">
-              数据来源于 ability_invocation_logs，可在“能力调用记录”中查看明细。
-            </p>
-          </div>
-        </div>
-      </div>
+          </Space>
+        </Card>
+
+        <Row gutter={[12, 12]}>
+          <Col xs={24} md={12}>
+            <InfoCard title="基础信息" items={baseItems} />
+          </Col>
+          <Col xs={24} md={12}>
+            <Card bordered title="计价信息">
+              <Space direction="vertical" size="small">
+                <Typography.Text>{selectedAbilityPricingText}</Typography.Text>
+                {selectedAbilityPricingText === '—' ? (
+                  <Typography.Text theme="secondary">
+                    可在 Metadata.pricing 中设置 `currency/unit/list_price/discount_price`，ComfyUI 默认按 ¥0.30 / 每张计算。
+                  </Typography.Text>
+                ) : null}
+              </Space>
+            </Card>
+          </Col>
+        </Row>
+
+        <Row gutter={[12, 12]}>
+          <Col xs={24} md={12}>
+            <InfoCard
+              title="健康巡检"
+              items={[
+                { label: '状态', value: selectedAbilityHealth.status },
+                { label: '最近巡检', value: selectedAbilityHealth.checkedAt },
+              ]}
+            />
+          </Col>
+          <Col xs={24} md={12}>
+            <InfoCard
+              title="成功率（近 24h）"
+              items={[
+                { label: '成功率', value: selectedAbilityHealth.successRateText },
+                { label: '来源', value: 'ability_invocation_logs（详见“能力调用记录”）' },
+              ]}
+            />
+          </Col>
+        </Row>
+      </Space>
     );
   };
 
@@ -2638,153 +2672,123 @@ const normalizeErrorMessage = (message: string): string => {
   const renderAbilityLogsTab = () => {
     if (!selectedAbility) {
       return (
-        <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-950/30 p-4 text-sm text-slate-400">
-          请选择能力后查看最近的调用记录。
-        </div>
+        <Alert theme="info" message="请选择能力后查看最近的调用记录。" />
       );
     }
     return (
-      <div className="rounded-2xl border border-slate-800 bg-slate-900/30 p-4">
-        <div className="mb-3 flex items-center justify-between gap-4">
-          <div>
-            <h4 className="text-lg font-semibold text-white">最近调用记录</h4>
-            <p className="text-xs text-slate-400">展示最近 {abilityLogLimit} 条测试/任务调用，便于排查链路</p>
-          </div>
-          <button
-            type="button"
-            onClick={() => refreshAbilityLogs()}
-            disabled={abilityLogsLoading}
-            className="rounded-full border border-slate-600 px-3 py-1 text-xs text-slate-200 disabled:opacity-40"
-          >
-            {abilityLogsLoading ? '刷新中…' : '刷新'}
-          </button>
-        </div>
-        {abilityLogsError && <p className="text-xs text-rose-400">{abilityLogsError}</p>}
-        {abilityLogsLoading && abilityLogs.length === 0 ? (
-          <p className="text-sm text-slate-500">正在加载能力调用记录…</p>
-        ) : abilityLogs.length === 0 ? (
-          <p className="text-sm text-slate-500">暂无历史记录，运行一次测试即可自动写入。</p>
-        ) : (
-          <ul className="space-y-3">
-            {abilityLogs.map((log) => {
-              const logPricing = resolveLogPricing(log);
-              const logPricingText = describePricing(logPricing);
-              return (
-                <li
-                  key={log.id}
-                  className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4 text-xs text-slate-300 space-y-2"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <div className="text-sm font-semibold text-white">{log.ability_name || log.capability_key}</div>
-                      <div className="mt-1 text-[11px] text-slate-500">
-                        {formatDateTime(log.created_at)} · {log.executor_name || log.executor_type || log.executor_id || '未指定节点'}
-                        {typeof log.duration_ms === 'number' ? ` · ${log.duration_ms}ms` : ''}
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Tag theme={getAbilitySourceTagTheme(log.source)} variant="light">
-                        {formatAbilitySource(log.source)}
-                      </Tag>
-                      <Tag theme={getAbilityLogStatusTag(log.status).theme} variant="light">
-                        {log.status === 'success' ? '成功' : log.status === 'failed' ? '失败' : log.status}
-                      </Tag>
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-3 text-[11px] text-slate-400">
-                    {log.ability_id && (
-                      <span className="flex items-center gap-1">
-                        Ability：
-                        <code className="bg-slate-900/70 px-1 py-0.5 font-mono">{log.ability_id}</code>
-                        <button type="button" onClick={() => copyTextToClipboard(log.ability_id!)} className="text-sky-400">
-                          复制
-                        </button>
-                      </span>
-                    )}
-                    <span className="flex items-center gap-1">
-                      Log ID：
-                      <code className="bg-slate-900/70 px-1 py-0.5 font-mono">{log.id}</code>
-                    </span>
-                    {log.task_id && (
-                      <span className="flex items-center gap-1">
-                        请求 ID：
-                        <span className="font-mono text-slate-200">{formatTaskMarker(log.task_id)}</span>
-                        <button type="button" onClick={() => copyTextToClipboard(log.task_id!)} className="text-sky-400">
-                          复制
-                        </button>
-                      </span>
-                    )}
-                    {log.trace_id && (
-                      <span className="flex items-center gap-1">
-                        Trace：
-                        <span className="font-mono text-slate-200">{formatTaskMarker(log.trace_id)}</span>
-                        <button type="button" onClick={() => copyTextToClipboard(log.trace_id!)} className="text-sky-400">
-                          复制
-                        </button>
-                      </span>
-                    )}
-                    {log.workflow_run_id && (
-                      <span className="flex items-center gap-1">
-                        Workflow：
-                        <span className="font-mono text-slate-200">{formatTaskMarker(log.workflow_run_id)}</span>
-                      </span>
-                    )}
-                    {log.executor_id && (
-                      <span className="flex items-center gap-1">
-                        节点：
-                        <span className="font-mono">{log.executor_id}</span>
-                      </span>
-                    )}
-                  </div>
-                  {logPricingText && logPricingText !== '—' && <div className="text-[11px] text-slate-400">成本：{logPricingText}</div>}
-                  {log.stored_url && (
-                    <div className="text-[11px]">
-                      OSS 预览：
-                      <a href={log.stored_url} target="_blank" rel="noreferrer" className="text-emerald-400 underline">
-                        {log.stored_url}
-                      </a>
-                    </div>
-                  )}
-                  {log.result_assets && log.result_assets.length > 0 && (
-                    <div className="space-y-1 text-[11px]">
-                      {log.result_assets.map((asset, index) => {
-                        const assetUrl = resolveAssetUrl(asset);
-                        if (!assetUrl) return null;
-                        return (
-                          <div key={`${log.id}-asset-${index}`} className="break-all">
-                            输出 {index + 1}：
-                            <a href={assetUrl} target="_blank" rel="noreferrer" className="text-sky-400 underline">
-                              {assetUrl}
-                            </a>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                  {log.error_message && <p className="text-sm text-rose-400">{log.error_message}</p>}
-                  {(log.request_payload || log.response_payload) && (
-                    <details className="text-[11px] text-slate-300">
-                      <summary className="cursor-pointer text-slate-200">查看请求/响应详情</summary>
-                      {log.request_payload && (
-                        <div className="mt-1">
-                          <div className="text-[10px] uppercase tracking-wide text-slate-500">Request</div>
-                          <CodeBlock value={formatRawResponse(log.request_payload)} maxHeight={200} />
-                        </div>
-                      )}
-                      {log.response_payload && (
-                        <div className="mt-2">
-                          <div className="text-[10px] uppercase tracking-wide text-slate-500">Response</div>
-                          <CodeBlock value={formatRawResponse(log.response_payload)} maxHeight={200} />
-                        </div>
-                      )}
-                    </details>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </div>
+      <Card
+        bordered
+        title={
+          <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+            <div>
+              <Typography.Text strong>最近调用记录</Typography.Text>
+              <div>
+                <Typography.Text theme="secondary">展示最近 {abilityLogLimit} 条测试/任务调用，便于排查链路</Typography.Text>
+              </div>
+            </div>
+            <Button variant="outline" loading={abilityLogsLoading} onClick={() => refreshAbilityLogs()}>
+              刷新
+            </Button>
+          </Space>
+        }
+      >
+        <Space direction="vertical" size="large" style={{ width: '100%' }}>
+          {abilityLogsError ? <Alert theme="error" message={abilityLogsError} /> : null}
+          <Table
+            size="small"
+            rowKey="id"
+            loading={abilityLogsLoading}
+            data={abilityLogs}
+            empty={<Typography.Text theme="secondary">暂无历史记录，运行一次测试即可自动写入。</Typography.Text>}
+            columns={[
+              {
+                colKey: 'created_at',
+                title: '时间',
+                width: 180,
+                cell: ({ row }) => <Typography.Text>{formatDateTime(row.created_at)}</Typography.Text>,
+              },
+              {
+                colKey: 'source',
+                title: '来源',
+                width: 120,
+                cell: ({ row }) => (
+                  <Tag theme={getAbilitySourceTagTheme(row.source)} variant="light">
+                    {formatAbilitySource(row.source)}
+                  </Tag>
+                ),
+              },
+              {
+                colKey: 'executor',
+                title: '节点',
+                width: 220,
+                cell: ({ row }) => <Typography.Text theme="secondary">{row.executor_name || row.executor_id || '—'}</Typography.Text>,
+              },
+              {
+                colKey: 'status',
+                title: '状态',
+                width: 160,
+                cell: ({ row }) => (
+                  <Space direction="vertical" size={2}>
+                    <Tag theme={getAbilityLogStatusTag(row.status).theme} variant="light">
+                      {getAbilityLogStatusTag(row.status).text}
+                    </Tag>
+                    {typeof row.duration_ms === 'number' ? (
+                      <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                        {row.duration_ms}ms
+                      </Typography.Text>
+                    ) : null}
+                  </Space>
+                ),
+              },
+              {
+                colKey: 'result',
+                title: '结果',
+                minWidth: 240,
+                cell: ({ row }) => {
+                  const previewUrl =
+                    row.stored_url ||
+                    (row.result_assets && row.result_assets.length > 0 ? resolveAssetUrl(row.result_assets[0]) : '') ||
+                    '';
+                  const canPreviewImage = Boolean(previewUrl) && /\.(png|jpg|jpeg|webp|gif)(\?|#|$)/i.test(previewUrl);
+                  return (
+                    <Space size="small">
+                      {previewUrl ? (
+                        canPreviewImage ? (
+                          <Popup
+                            trigger="hover"
+                            placement="left"
+                            content={<img src={previewUrl} alt="preview" style={{ maxWidth: 360, maxHeight: 360, display: 'block' }} />}
+                          >
+                            <Button size="small" variant="text">
+                              预览
+                            </Button>
+                          </Popup>
+                        ) : (
+                          <Button size="small" variant="text" onClick={() => window.open(previewUrl, '_blank', 'noreferrer')}>
+                            打开
+                          </Button>
+                        )
+                      ) : null}
+                      <Button
+                        size="small"
+                        variant="text"
+                        onClick={() => {
+                          setAbilityLogDetail(row);
+                          setAbilityLogDetailOpen(true);
+                        }}
+                      >
+                        详情
+                      </Button>
+                      {row.error_message ? <Typography.Text theme="error">{row.error_message}</Typography.Text> : null}
+                      {!previewUrl && !row.error_message ? <Typography.Text theme="secondary">—</Typography.Text> : null}
+                    </Space>
+                  );
+                },
+              },
+            ]}
+          />
+        </Space>
+      </Card>
     );
   };
 
@@ -3443,231 +3447,305 @@ const normalizeErrorMessage = (message: string): string => {
       <Section
         id="ability-logs"
         title="能力调用记录"
-        description="展示最近 30 条能力调用日志（不限能力 ID），便于回溯来源、节点与成本。后续将支持按能力/时间筛选。"
+        description="展示最近能力调用日志（不限能力 ID），支持按厂商/来源/状态/关键词筛选与导出，便于回溯来源、节点与成本。"
       >
-        <div className="rounded-2xl border border-slate-200/70 bg-white/80 p-5 dark:border-slate-800 dark:bg-slate-900/40">
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <div>
-              <h3 className="text-lg font-semibold text-slate-900 dark:text-white">能力调用清单</h3>
-              <p className="text-xs text-slate-600 dark:text-slate-500">最新 30 条（不限能力 ID） · 支持导出最近 24h</p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => refreshGlobalAbilityLogs()}
-                className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-600 dark:bg-slate-950/20 dark:text-slate-200 dark:hover:bg-slate-900/60"
-                disabled={globalAbilityLogsLoading}
-              >
-                {globalAbilityLogsLoading ? '刷新中…' : '刷新'}
-              </button>
-              <button
-                type="button"
-                onClick={() => refreshAbilityLogMetrics()}
-                className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-600 dark:bg-slate-950/20 dark:text-slate-200 dark:hover:bg-slate-900/60"
-                disabled={abilityLogMetricsLoading}
-                title="刷新近 24h 指标（success rate / p50 / p95）"
-              >
-                {abilityLogMetricsLoading ? '指标刷新中…' : '刷新指标'}
-              </button>
-              <button
-                type="button"
-                onClick={async () => {
-                  setExportingAbilityLogs(true);
-                  try {
-                    const blob = await adminApi.exportAbilityLogs({ format: 'csv', sinceHours: 24 });
-                    const filename = `ability_logs_24h_${new Date().toISOString().slice(0, 10)}.csv`;
-                    downloadBlob(blob, filename);
-                  } catch (err: any) {
-                    console.error('Export ability logs failed:', err);
-                    setGlobalAbilityLogsError(err?.message || '导出失败');
-                } finally {
-                  setExportingAbilityLogs(false);
-                }
-              }}
-                className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-600 dark:bg-slate-950/20 dark:text-slate-200 dark:hover:bg-slate-900/60"
-                disabled={exportingAbilityLogs}
-              >
-                {exportingAbilityLogs ? '导出中…' : '导出 CSV'}
-              </button>
-              <button
-                type="button"
-                onClick={async () => {
-                  setExportingAbilityLogs(true);
-                  try {
-                    const blob = await adminApi.exportAbilityLogs({ format: 'json', sinceHours: 24 });
-                    const filename = `ability_logs_24h_${new Date().toISOString().slice(0, 10)}.json`;
-                    downloadBlob(blob, filename);
-                  } catch (err: any) {
-                    console.error('Export ability logs failed:', err);
-                    setGlobalAbilityLogsError(err?.message || '导出失败');
-                  } finally {
-                    setExportingAbilityLogs(false);
-                  }
-                }}
-                className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-600 dark:bg-slate-950/20 dark:text-slate-200 dark:hover:bg-slate-900/60"
-                disabled={exportingAbilityLogs}
-              >
-                导出 JSON
-              </button>
-            </div>
-          </div>
-          {globalAbilityLogsError && <p className="text-xs text-rose-700 dark:text-rose-400">{globalAbilityLogsError}</p>}
-          {abilityLogMetricsError && <p className="text-xs text-rose-700 dark:text-rose-400">{abilityLogMetricsError}</p>}
-          {abilityLogMetrics?.buckets && abilityLogMetrics.buckets.length > 0 ? (
-            <div className="mb-3 grid gap-2 rounded-2xl border border-slate-200/70 bg-slate-50/70 p-3 md:grid-cols-2 xl:grid-cols-4 dark:border-slate-800 dark:bg-slate-950/30">
-              {(abilityLogMetrics.buckets as AbilityLogMetricBucket[]).slice(0, 8).map((b, idx) => (
-                <div
-                  key={`metric-${idx}`}
-                  className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950/40"
-                >
-                  <div className="text-[11px] text-slate-600 dark:text-slate-500">{b.ability_provider}</div>
-                  <div className="text-sm font-semibold text-slate-900 dark:text-white">{b.capability_key}</div>
-                  <div className="mt-1 text-[11px] text-slate-700 dark:text-slate-400">
-                    近{abilityLogMetrics.window_hours}h：{b.count} 次 · 成功 {b.success_count} / 失败 {b.failed_count}
-                  </div>
-                  <div className="mt-1 text-[11px] text-slate-700 dark:text-slate-400">
-                    成功率：{b.success_rate !== null && b.success_rate !== undefined ? `${(b.success_rate * 100).toFixed(1)}%` : '—'}
-                    {' · '}p50：{b.p50_duration_ms ?? '—'}ms{' · '}p95：{b.p95_duration_ms ?? '—'}ms
-                  </div>
+        <Card bordered>
+          <Space direction="vertical" size="large" style={{ width: '100%' }}>
+            <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+              <div>
+                <Typography.Text strong>能力调用清单</Typography.Text>
+                <div>
+                  <Typography.Text theme="secondary">默认加载最近 30 条 · 支持导出最近 24h</Typography.Text>
                 </div>
-              ))}
-            </div>
-          ) : null}
-          <div className="mt-2 overflow-x-auto">
-            <table className="min-w-full text-xs">
-              <thead>
-                <tr className="text-left uppercase tracking-widest text-slate-600 dark:text-slate-500">
-                  <th>时间</th>
-                  <th>能力</th>
-                  <th>来源</th>
-                  <th>节点</th>
-                  <th>状态</th>
-                  <th>成本</th>
-                  <th>结果</th>
-                </tr>
-              </thead>
-              <tbody>
-                {globalAbilityLogs.map((log) => {
-                  const logPricing = resolveLogPricing(log);
-                  const primaryCost =
-                    logPricing && (logPricing.discountPrice ?? logPricing.listPrice) !== undefined
-                      ? `${formatPriceValue(logPricing.discountPrice ?? logPricing.listPrice, logPricing.currency)}`
-                      : null;
-                  const previewUrl =
-                    log.stored_url ||
-                    (log.result_assets && log.result_assets.length > 0 ? resolveAssetUrl(log.result_assets[0]) : '') ||
-                    '';
-                  const canPreviewImage = Boolean(previewUrl) && /\.(png|jpg|jpeg|webp|gif)(\?|#|$)/i.test(previewUrl);
-                  return (
-                    <tr key={`global-log-${log.id}`} className="text-slate-800 dark:text-slate-300">
-                      <td className="whitespace-nowrap text-slate-700 dark:text-slate-400">{formatDateTime(log.created_at)}</td>
-                      <td className="whitespace-nowrap">
-                        <div className="font-semibold text-slate-900 dark:text-white">{log.ability_name || log.capability_key}</div>
-                        <div className="text-[11px] text-slate-600 dark:text-slate-500">{log.ability_provider}</div>
-                        {(log.trace_id || log.workflow_run_id) && (
-                          <div className="text-[10px] text-slate-600 dark:text-slate-500">
-                            {log.trace_id && (
-                              <span>
-                                Trace:{' '}
-                                <span className="font-mono text-slate-800 dark:text-slate-300">
-                                  {formatTaskMarker(log.trace_id)}
-                                </span>
-                              </span>
-                            )}
-                            {log.workflow_run_id && (
-                              <span className="ml-2">
-                                Flow:{' '}
-                                <span className="font-mono text-slate-800 dark:text-slate-300">
-                                  {formatTaskMarker(log.workflow_run_id)}
-                                </span>
-                              </span>
-                            )}
-                          </div>
-                        )}
-                      </td>
-                      <td>
-                        <Tag theme={getAbilitySourceTagTheme(log.source)} variant="light">
-                          {formatAbilitySource(log.source)}
-                        </Tag>
-                      </td>
-                      <td className="text-[11px] text-slate-400">{log.executor_name || log.executor_id || '—'}</td>
-                      <td>
-                        <Tag theme={getAbilityLogStatusTag(log.status).theme} variant="light">
-                          {getAbilityLogStatusTag(log.status).text}
-                        </Tag>
-                        {typeof log.duration_ms === 'number' && (
-                          <div className="text-[10px] text-slate-500">{log.duration_ms}ms</div>
-                        )}
-                      </td>
-                      <td className="text-[11px] text-slate-400">
-                        {primaryCost ? (
-                          <>
-                            {primaryCost}
-                            <div className="text-[10px] text-slate-500">{formatUnitLabel(logPricing?.unit)}</div>
-                          </>
-                        ) : (
-                          '—'
-                        )}
-                      </td>
-                      <td className="text-[11px] text-slate-400">
-                        <Space size="small">
-                          {previewUrl ? (
-                            canPreviewImage ? (
-                              <Popup
-                                trigger="hover"
-                                placement="left"
-                                content={
-                                  <img
-                                    src={previewUrl}
-                                    alt="preview"
-                                    style={{ maxWidth: 360, maxHeight: 360, display: 'block' }}
-                                  />
-                                }
-                              >
-                                <Button size="small" variant="text">
-                                  预览
-                                </Button>
-                              </Popup>
-                            ) : (
-                              <Button
-                                size="small"
-                                variant="text"
-                                onClick={() => window.open(previewUrl, '_blank', 'noreferrer')}
-                              >
-                                打开
-                              </Button>
-                            )
-                          ) : null}
-                          <Button
-                            size="small"
-                            variant="text"
-                            onClick={() => {
-                              setAbilityLogDetail(log);
-                              setAbilityLogDetailOpen(true);
-                            }}
-                          >
-                            详情
-                          </Button>
-                          {log.error_message ? (
-                            <Typography.Text theme="error">{log.error_message}</Typography.Text>
-                          ) : null}
-                          {!previewUrl && !log.error_message ? '—' : null}
+              </div>
+              <Space>
+                <Button variant="outline" loading={globalAbilityLogsLoading} onClick={() => refreshGlobalAbilityLogs()}>
+                  刷新
+                </Button>
+                <Button variant="outline" loading={abilityLogMetricsLoading} onClick={() => refreshAbilityLogMetrics()}>
+                  刷新指标
+                </Button>
+                <Button
+                  variant="outline"
+                  loading={exportingAbilityLogs}
+                  onClick={async () => {
+                    setExportingAbilityLogs(true);
+                    try {
+                      const blob = await adminApi.exportAbilityLogs({ format: 'csv', sinceHours: 24 });
+                      const filename = `ability_logs_24h_${new Date().toISOString().slice(0, 10)}.csv`;
+                      downloadBlob(blob, filename);
+                    } catch (err: any) {
+                      console.error('Export ability logs failed:', err);
+                      setGlobalAbilityLogsError(err?.message || '导出失败');
+                    } finally {
+                      setExportingAbilityLogs(false);
+                    }
+                  }}
+                >
+                  导出 CSV
+                </Button>
+                <Button
+                  variant="outline"
+                  loading={exportingAbilityLogs}
+                  onClick={async () => {
+                    setExportingAbilityLogs(true);
+                    try {
+                      const blob = await adminApi.exportAbilityLogs({ format: 'json', sinceHours: 24 });
+                      const filename = `ability_logs_24h_${new Date().toISOString().slice(0, 10)}.json`;
+                      downloadBlob(blob, filename);
+                    } catch (err: any) {
+                      console.error('Export ability logs failed:', err);
+                      setGlobalAbilityLogsError(err?.message || '导出失败');
+                    } finally {
+                      setExportingAbilityLogs(false);
+                    }
+                  }}
+                >
+                  导出 JSON
+                </Button>
+              </Space>
+            </Space>
+
+            {globalAbilityLogsError ? <Alert theme="error" message={globalAbilityLogsError} /> : null}
+            {abilityLogMetricsError ? <Alert theme="error" message={abilityLogMetricsError} /> : null}
+
+            <Row gutter={[12, 12]}>
+              <Col flex="auto">
+                <Input
+                  value={globalAbilityLogSearch}
+                  placeholder="搜索：能力名/Key/节点/Trace/Task…"
+                  onChange={(v) => setGlobalAbilityLogSearch(String(v))}
+                  clearable
+                />
+              </Col>
+              <Col flex="180px">
+                <Select
+                  value={globalAbilityLogProvider}
+                  onChange={(v) => setGlobalAbilityLogProvider(String(v))}
+                  options={[
+                    { label: '全部厂商', value: 'all' },
+                    ...globalAbilityLogProviders.map((p) => ({ label: p, value: p })),
+                  ]}
+                />
+              </Col>
+              <Col flex="180px">
+                <Select
+                  value={globalAbilityLogSource}
+                  onChange={(v) => setGlobalAbilityLogSource(String(v))}
+                  options={[
+                    { label: '全部来源', value: 'all' },
+                    ...globalAbilityLogSources.map((s) => ({ label: formatAbilitySource(s), value: s })),
+                  ]}
+                />
+              </Col>
+              <Col flex="180px">
+                <Select
+                  value={globalAbilityLogStatus}
+                  onChange={(v) => setGlobalAbilityLogStatus(String(v))}
+                  options={[
+                    { label: '全部状态', value: 'all' },
+                    ...globalAbilityLogStatuses.map((s) => ({ label: getAbilityLogStatusTag(s).text, value: s })),
+                  ]}
+                />
+              </Col>
+            </Row>
+
+            {abilityLogMetrics?.buckets && abilityLogMetrics.buckets.length > 0 ? (
+              <Card bordered title={`近 ${abilityLogMetrics.window_hours}h 指标（Top 8）`}>
+                <Table
+                  size="small"
+                  rowKey="__key"
+                  data={(abilityLogMetrics.buckets as AbilityLogMetricBucket[])
+                    .slice(0, 8)
+                    .map((b) => ({ ...b, __key: `${b.ability_provider}:${b.capability_key}` }))}
+                  columns={[
+                    {
+                      colKey: 'ability',
+                      title: '能力',
+                      cell: ({ row }) => (
+                        <Space direction="vertical" size={2}>
+                          <Typography.Text strong>{row.capability_key}</Typography.Text>
+                          <Typography.Text theme="secondary">{row.ability_provider}</Typography.Text>
                         </Space>
-                      </td>
-                    </tr>
-                  );
-                })}
-                {globalAbilityLogs.length === 0 && (
-                  <tr>
-                    <td colSpan={7} className="py-4 text-center text-sm text-slate-500">
-                      暂无数据。
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
+                      ),
+                    },
+                    {
+                      colKey: 'count',
+                      title: '次数',
+                      width: 120,
+                      cell: ({ row }) => (
+                        <Typography.Text theme="secondary">
+                          {row.count}（{row.success_count}/{row.failed_count}）
+                        </Typography.Text>
+                      ),
+                    },
+                    {
+                      colKey: 'success_rate',
+                      title: '成功率',
+                      width: 120,
+                      cell: ({ row }) => (
+                        <Typography.Text>
+                          {row.success_rate !== null && row.success_rate !== undefined ? `${(row.success_rate * 100).toFixed(1)}%` : '—'}
+                        </Typography.Text>
+                      ),
+                    },
+                    {
+                      colKey: 'p50',
+                      title: 'p50 / p95',
+                      width: 160,
+                      cell: ({ row }) => (
+                        <Typography.Text theme="secondary">
+                          {row.p50_duration_ms ?? '—'}ms / {row.p95_duration_ms ?? '—'}ms
+                        </Typography.Text>
+                      ),
+                    },
+                  ]}
+                />
+              </Card>
+            ) : null}
+
+            <Table
+              size="small"
+              rowKey="id"
+              loading={globalAbilityLogsLoading}
+              data={filteredGlobalAbilityLogs}
+              empty={<Typography.Text theme="secondary">暂无数据。</Typography.Text>}
+              columns={[
+                {
+                  colKey: 'created_at',
+                  title: '时间',
+                  width: 180,
+                  cell: ({ row }) => <Typography.Text>{formatDateTime(row.created_at)}</Typography.Text>,
+                },
+                {
+                  colKey: 'ability',
+                  title: '能力',
+                  minWidth: 240,
+                  cell: ({ row }) => (
+                    <Space direction="vertical" size={2}>
+                      <Typography.Text strong>{row.ability_name || row.capability_key || '—'}</Typography.Text>
+                      <Typography.Text theme="secondary">{row.ability_provider || '—'}</Typography.Text>
+                      {row.trace_id || row.workflow_run_id ? (
+                        <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                          {row.trace_id ? (
+                            <span style={{ marginRight: 12 }}>
+                              Trace: <span style={{ fontFamily: 'monospace' }}>{formatTaskMarker(row.trace_id)}</span>
+                            </span>
+                          ) : null}
+                          {row.workflow_run_id ? (
+                            <span>
+                              Flow: <span style={{ fontFamily: 'monospace' }}>{formatTaskMarker(row.workflow_run_id)}</span>
+                            </span>
+                          ) : null}
+                        </Typography.Text>
+                      ) : null}
+                    </Space>
+                  ),
+                },
+                {
+                  colKey: 'source',
+                  title: '来源',
+                  width: 120,
+                  cell: ({ row }) => (
+                    <Tag theme={getAbilitySourceTagTheme(row.source)} variant="light">
+                      {formatAbilitySource(row.source)}
+                    </Tag>
+                  ),
+                },
+                {
+                  colKey: 'executor',
+                  title: '节点',
+                  width: 220,
+                  cell: ({ row }) => <Typography.Text theme="secondary">{row.executor_name || row.executor_id || '—'}</Typography.Text>,
+                },
+                {
+                  colKey: 'status',
+                  title: '状态',
+                  width: 160,
+                  cell: ({ row }) => (
+                    <Space direction="vertical" size={2}>
+                      <Tag theme={getAbilityLogStatusTag(row.status).theme} variant="light">
+                        {getAbilityLogStatusTag(row.status).text}
+                      </Tag>
+                      {typeof row.duration_ms === 'number' ? (
+                        <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                          {row.duration_ms}ms
+                        </Typography.Text>
+                      ) : null}
+                    </Space>
+                  ),
+                },
+                {
+                  colKey: 'cost',
+                  title: '成本',
+                  width: 140,
+                  cell: ({ row }) => {
+                    const logPricing = resolveLogPricing(row);
+                    const primaryCost =
+                      logPricing && (logPricing.discountPrice ?? logPricing.listPrice) !== undefined
+                        ? `${formatPriceValue(logPricing.discountPrice ?? logPricing.listPrice, logPricing.currency)}`
+                        : null;
+                    return primaryCost ? (
+                      <Space direction="vertical" size={2}>
+                        <Typography.Text>{primaryCost}</Typography.Text>
+                        <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                          {formatUnitLabel(logPricing?.unit)}
+                        </Typography.Text>
+                      </Space>
+                    ) : (
+                      <Typography.Text theme="secondary">—</Typography.Text>
+                    );
+                  },
+                },
+                {
+                  colKey: 'result',
+                  title: '结果',
+                  minWidth: 220,
+                  cell: ({ row }) => {
+                    const previewUrl =
+                      row.stored_url ||
+                      (row.result_assets && row.result_assets.length > 0 ? resolveAssetUrl(row.result_assets[0]) : '') ||
+                      '';
+                    const canPreviewImage = Boolean(previewUrl) && /\.(png|jpg|jpeg|webp|gif)(\?|#|$)/i.test(previewUrl);
+                    return (
+                      <Space size="small">
+                        {previewUrl ? (
+                          canPreviewImage ? (
+                            <Popup
+                              trigger="hover"
+                              placement="left"
+                              content={<img src={previewUrl} alt="preview" style={{ maxWidth: 360, maxHeight: 360, display: 'block' }} />}
+                            >
+                              <Button size="small" variant="text">
+                                预览
+                              </Button>
+                            </Popup>
+                          ) : (
+                            <Button size="small" variant="text" onClick={() => window.open(previewUrl, '_blank', 'noreferrer')}>
+                              打开
+                            </Button>
+                          )
+                        ) : null}
+                        <Button
+                          size="small"
+                          variant="text"
+                          onClick={() => {
+                            setAbilityLogDetail(row);
+                            setAbilityLogDetailOpen(true);
+                          }}
+                        >
+                          详情
+                        </Button>
+                        {row.error_message ? <Typography.Text theme="error">{row.error_message}</Typography.Text> : null}
+                        {!previewUrl && !row.error_message ? <Typography.Text theme="secondary">—</Typography.Text> : null}
+                      </Space>
+                    );
+                  },
+                },
+              ]}
+            />
+          </Space>
+        </Card>
       </Section>
           )}
 
@@ -4954,23 +5032,43 @@ function InfoCard({ title, items }: { title: string; items: { label: string; val
 }
 
 function CodeBlock({ value, maxHeight = 320 }: { value: string; maxHeight?: number }) {
+  const [copied, setCopied] = useState(false);
   return (
-    <pre
-      style={{
-        marginTop: 8,
-        padding: 12,
-        borderRadius: 8,
-        border: '1px solid var(--td-border-level-1-color)',
-        background: 'var(--td-bg-color-secondarycontainer)',
-        color: 'var(--td-text-color-primary)',
-        fontSize: 12,
-        lineHeight: 1.5,
-        maxHeight,
-        overflow: 'auto',
-      }}
-    >
-      {value}
-    </pre>
+    <div style={{ position: 'relative' }}>
+      <Button
+        size="small"
+        variant="text"
+        style={{ position: 'absolute', top: 6, right: 6, zIndex: 1 }}
+        onClick={async () => {
+          try {
+            await navigator.clipboard.writeText(value);
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 1200);
+          } catch {
+            // ignore clipboard errors
+          }
+        }}
+      >
+        {copied ? '已复制' : '复制'}
+      </Button>
+      <pre
+        style={{
+          marginTop: 8,
+          padding: 12,
+          paddingRight: 56,
+          borderRadius: 8,
+          border: '1px solid var(--td-border-level-1-color)',
+          background: 'var(--td-bg-color-secondarycontainer)',
+          color: 'var(--td-text-color-primary)',
+          fontSize: 12,
+          lineHeight: 1.5,
+          maxHeight,
+          overflow: 'auto',
+        }}
+      >
+        {value}
+      </pre>
+    </div>
   );
 }
 
