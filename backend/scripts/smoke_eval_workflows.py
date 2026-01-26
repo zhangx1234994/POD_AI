@@ -165,17 +165,30 @@ def run_one(
     # If we expect taskid, resolve via PODI task polling (preferred; no separate Coze callback).
     if poll_callback and kind == "taskid" and isinstance(output, str) and output.strip():
         podi_base = (os.getenv("PODI_BASE_URL") or "http://127.0.0.1:8099").rstrip("/")
+        service_token = (os.getenv("SERVICE_API_TOKEN") or "").strip()
+        headers = {"Authorization": f"Bearer {service_token}"} if service_token else {}
+        callback_wf = (os.getenv("COZE_COMFYUI_CALLBACK_WORKFLOW_ID") or "").strip()
         cb_started = time.monotonic()
         deadline = cb_started + float(max(5, callback_timeout_s))
         interval = 2.0
         last: dict[str, Any] = {}
         first_failed_at: float | None = None
+        internal_only = False
         while time.monotonic() < deadline and not image_urls:
             try:
-                r = httpx.post(f"{podi_base}/api/coze/podi/tasks/get", json={"taskId": output.strip()}, timeout=25)
+                r = httpx.post(
+                    f"{podi_base}/api/coze/podi/tasks/get",
+                    json={"taskId": output.strip()},
+                    headers=headers,
+                    timeout=25,
+                )
                 last = r.json() if r.headers.get("content-type", "").startswith("application/json") else {"text": r.text}
+                if isinstance(last, dict) and str(last.get("detail") or "").strip() == "INTERNAL_ONLY":
+                    internal_only = True
             except Exception:
                 last = {}
+            if internal_only:
+                break
             status = str(last.get("taskStatus") or "").lower()
             if status == "succeeded":
                 urls = last.get("imageUrls")
@@ -193,6 +206,28 @@ def run_one(
             time.sleep(interval)
             interval = min(interval * 1.4, 8.0)
         duration_ms += int((time.monotonic() - cb_started) * 1000)
+
+        # If caller can't reach PODI internal endpoints (common when running this script off-host),
+        # fall back to using a dedicated Coze callback workflow to resolve images.
+        if not image_urls and internal_only and callback_wf:
+            interval = 2.0
+            cb2_started = time.monotonic()
+            while time.monotonic() < deadline and not image_urls:
+                resp2 = coze_client.run_workflow(workflow_id=callback_wf, parameters={"taskid": output.strip()}, is_async=False)
+                failed2 = _coze_failed(resp2) if isinstance(resp2, dict) else "COZE_RESPONSE_INVALID"
+                if not failed2:
+                    parsed2 = EvalService._parse_coze_payload(resp2)  # noqa: SLF001
+                    # callback wf convention: `images` is a list of URLs
+                    imgs = None
+                    if isinstance(parsed2, dict):
+                        imgs = parsed2.get("images") or parsed2.get("imageUrls")
+                    if isinstance(imgs, list):
+                        image_urls = [u for u in imgs if isinstance(u, str) and u.strip()]
+                        if image_urls:
+                            break
+                time.sleep(interval)
+                interval = min(interval * 1.4, 8.0)
+            duration_ms += int((time.monotonic() - cb2_started) * 1000)
 
     if kind == "taskid" and not poll_callback:
         ok = bool(isinstance(output, str) and output.strip())
