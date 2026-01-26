@@ -535,6 +535,28 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         },
         "output_schema": {"fields": [{"name": "output", "type": "text", "description": "图片 URL"}]},
     },
+    # 通用类 / 图片打标签（小参数版本）
+    {
+        "category": "通用类",
+        "name": "图片打标签 · Biaoqian_tiqu",
+        "version": "v1",
+        "workflow_id": "7597767702970630144",
+        "status": "active",
+        "notes": "小参数版本图片打标签。输出 output 为 JSON（图片标签）。",
+        "parameters_schema": {"fields": [{"name": "url", "label": "图片 URL", "type": "text", "required": True}]},
+        "output_schema": {"fields": [{"name": "output", "type": "json", "description": "JSON 标签"}]},
+    },
+    # 通用类 / 图片打标签（大参数版本）
+    {
+        "category": "通用类",
+        "name": "图片打标签 · Biaoqian_tiqu_1",
+        "version": "v1",
+        "workflow_id": "7598080013539213312",
+        "status": "active",
+        "notes": "大参数版本图片打标签。输出 output 为 JSON（图片标签）。",
+        "parameters_schema": {"fields": [{"name": "url", "label": "图片 URL", "type": "text", "required": True}]},
+        "output_schema": {"fields": [{"name": "output", "type": "json", "description": "JSON 标签"}]},
+    },
     # 图裂变 / 图裂变（ComfyUI，无提示词，输出回调 task id）
     {
         "category": "图裂变",
