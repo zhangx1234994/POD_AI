@@ -93,16 +93,16 @@ export function EvaluationInputPanel({
   };
 
   return (
-    <div className="border-b border-slate-800 bg-slate-900/30 p-4">
+    <div className="max-h-[40vh] overflow-y-auto border-b border-slate-200 bg-slate-50/70 p-4 pr-1 dark:border-slate-800 dark:bg-slate-900/30">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <div className="text-sm font-semibold text-slate-100">
+          <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
             {selectedWorkflow ? `${selectedWorkflow.name} · ${selectedWorkflow.version}` : '请选择工作流'}
           </div>
           {selectedWorkflow?.notes ? (
-            <div className="text-xs text-slate-400 mt-1 whitespace-pre-wrap">{selectedWorkflow.notes}</div>
+            <div className="mt-1 whitespace-pre-wrap text-xs text-slate-700 dark:text-slate-400">{selectedWorkflow.notes}</div>
           ) : null}
-          <div className="text-xs text-slate-400 mt-1">
+          <div className="mt-1 text-xs text-slate-700 dark:text-slate-400">
             约定：图片输入字段名使用 `url`（字符串）；其它参数尽量用字符串，后端再做类型转换。
           </div>
         </div>
@@ -112,8 +112,8 @@ export function EvaluationInputPanel({
           onClick={onRunEvaluation}
           className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
             !selectedWorkflow || !url || isRunning
-              ? 'bg-slate-700/40 text-slate-400'
-              : 'bg-sky-500/80 text-white hover:bg-sky-500'
+              ? 'bg-slate-200 text-slate-500 dark:bg-slate-700/40 dark:text-slate-400'
+              : 'bg-sky-600 text-white hover:bg-sky-500'
           }`}
         >
           {isRunning ? '运行中…' : '试运行'}
@@ -121,22 +121,22 @@ export function EvaluationInputPanel({
       </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
-        <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950/40">
           <div className="flex items-center justify-between">
-            <div className="text-sm font-semibold text-slate-100">输入图片 URL</div>
-            <div className="text-xs text-slate-500">{selectedDatasetItem ? `样例：${selectedDatasetItem.name}` : ''}</div>
+            <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">输入图片 URL</div>
+            <div className="text-xs text-slate-600 dark:text-slate-500">{selectedDatasetItem ? `样例：${selectedDatasetItem.name}` : ''}</div>
           </div>
           <div className="mt-2 flex gap-2">
             <input
               value={url}
               onChange={(e) => onImageChange(e.target.value)}
               placeholder="https://... (OSS 或公网 URL)"
-              className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-600"
+              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-600"
             />
           </div>
           {datasetItems.length > 0 && (
             <div className="mt-3">
-              <div className="text-xs text-slate-500 mb-1">选择样例图</div>
+              <div className="mb-1 text-xs text-slate-600 dark:text-slate-500">选择样例图</div>
               <select
                 value={selectedDatasetItem?.id || ''}
                 onChange={(e) => {
@@ -144,7 +144,7 @@ export function EvaluationInputPanel({
                   const item = datasetItems.find((it) => it.id === id);
                   if (item) onDatasetItemSelect(item);
                 }}
-                className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
               >
                 <option value="">—</option>
                 {datasetItems.map((item) => (
@@ -157,15 +157,19 @@ export function EvaluationInputPanel({
           )}
           {url && (
             <div className="mt-3">
-              <div className="text-xs text-slate-500 mb-1">预览</div>
-              <img src={url} alt="input preview" className="max-h-64 w-full rounded-xl border border-slate-800 object-contain" />
+              <div className="mb-1 text-xs text-slate-600 dark:text-slate-500">预览</div>
+              <img
+                src={url}
+                alt="input preview"
+                className="max-h-64 w-full rounded-xl border border-slate-200 object-contain dark:border-slate-800"
+              />
             </div>
           )}
         </div>
 
-        <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
-          <div className="text-sm font-semibold text-slate-100">参数</div>
-          <div className="mt-2 text-xs text-slate-500">未配置 schema 时可直接编辑 JSON。</div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950/40">
+          <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">参数</div>
+          <div className="mt-2 text-xs text-slate-600 dark:text-slate-500">未配置 schema 时可直接编辑 JSON。</div>
 
           {useSchemaForm ? (
             <div className="mt-3 space-y-3">
@@ -179,14 +183,14 @@ export function EvaluationInputPanel({
                 if (field.options && field.options.length > 0) {
                   return (
                     <label key={key} className="block">
-                      <div className="text-xs text-slate-300">
+                      <div className="text-xs text-slate-700 dark:text-slate-300">
                         {label} {field.required ? <span className="text-rose-400">*</span> : null}
                       </div>
-                      {description && <div className="text-[11px] text-slate-500">{description}</div>}
+                      {description && <div className="text-[11px] text-slate-600 dark:text-slate-500">{description}</div>}
                       <select
                         value={String(value)}
                         onChange={(e) => onParameterChange({ ...parameters, [key]: e.target.value })}
-                        className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+                        className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
                       >
                         {field.options.map((opt) => (
                           <option key={opt.value} value={opt.value}>
@@ -200,15 +204,15 @@ export function EvaluationInputPanel({
 
                 return (
                   <label key={key} className="block">
-                    <div className="text-xs text-slate-300">
+                    <div className="text-xs text-slate-700 dark:text-slate-300">
                       {label} {field.required ? <span className="text-rose-400">*</span> : null}
                     </div>
-                    {description && <div className="text-[11px] text-slate-500">{description}</div>}
+                    {description && <div className="text-[11px] text-slate-600 dark:text-slate-500">{description}</div>}
                     <input
                       value={String(value)}
                       onChange={(e) => onParameterChange({ ...parameters, [key]: e.target.value })}
                       placeholder={key}
-                      className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-600"
+                      className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-600"
                     />
                   </label>
                 );
@@ -220,7 +224,7 @@ export function EvaluationInputPanel({
                 value={rawJson}
                 onChange={(e) => setRawJson(e.target.value)}
                 rows={10}
-                className="w-full rounded-xl border border-slate-800 bg-slate-950 p-3 font-mono text-xs text-slate-100"
+                className="w-full rounded-xl border border-slate-300 bg-white p-3 font-mono text-xs text-slate-900 placeholder:text-slate-400 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-600"
                 placeholder='{"prompt":"...","height":"1200"}'
               />
               {jsonError ? <div className="mt-2 text-xs text-rose-300">{jsonError}</div> : null}
@@ -228,14 +232,14 @@ export function EvaluationInputPanel({
                 <button
                   type="button"
                   onClick={() => setRawJson(JSON.stringify({ ...parameters, url }, null, 2))}
-                  className="rounded-xl border border-slate-800 bg-slate-950 px-3 py-1.5 text-xs text-slate-200 hover:border-slate-700"
+                  className="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 dark:hover:border-slate-700"
                 >
                   重置
                 </button>
                 <button
                   type="button"
                   onClick={handleJsonApply}
-                  className="rounded-xl bg-slate-200/10 px-3 py-1.5 text-xs text-slate-100 hover:bg-slate-200/15"
+                  className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs text-white hover:bg-slate-800 dark:bg-slate-200/10 dark:text-slate-100 dark:hover:bg-slate-200/15"
                 >
                   应用 JSON
                 </button>
@@ -246,15 +250,17 @@ export function EvaluationInputPanel({
       </div>
 
       {selectedWorkflow && typeof onSaveWorkflowNotes === 'function' && (
-        <div className="mt-4 rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
+        <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950/40">
           <div className="flex items-center justify-between gap-2">
-            <div className="text-sm font-semibold text-slate-100">功能介绍（notes）</div>
+            <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">功能介绍（notes）</div>
             <button
               type="button"
               disabled={Boolean(isSavingWorkflowNotes)}
               onClick={() => onSaveWorkflowNotes(selectedWorkflow.id, notesDraft)}
               className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
-                isSavingWorkflowNotes ? 'bg-slate-700/40 text-slate-400' : 'bg-sky-500/80 text-white hover:bg-sky-500'
+                isSavingWorkflowNotes
+                  ? 'bg-slate-200 text-slate-500 dark:bg-slate-700/40 dark:text-slate-400'
+                  : 'bg-sky-600 text-white hover:bg-sky-500'
               }`}
             >
               {isSavingWorkflowNotes ? '保存中…' : '保存'}
@@ -264,7 +270,7 @@ export function EvaluationInputPanel({
             value={notesDraft}
             onChange={(e) => setNotesDraft(e.target.value)}
             rows={3}
-            className="mt-2 w-full rounded-xl border border-slate-800 bg-slate-950 p-3 text-xs text-slate-100"
+            className="mt-2 w-full rounded-xl border border-slate-300 bg-white p-3 text-xs text-slate-900 placeholder:text-slate-400 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-600"
             placeholder="这里写功能介绍、参数说明、注意事项…"
           />
         </div>
