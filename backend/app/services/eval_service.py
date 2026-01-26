@@ -321,7 +321,32 @@ class EvalService:
                 self._mark_failed(run_id, message=errors[0] if errors else "FANOUT_EMPTY", started=started)
                 return
 
-            response = coze_client.run_workflow(workflow_id=workflow_id, parameters=coze_params, is_async=False)
+            # Primary path: sync run (lower overhead).
+            # Fallback: if Coze blocks longer than our HTTP timeout (common for long-running
+            # generation workflows), switch to async submit + run_history polling.
+            try:
+                response = coze_client.run_workflow(workflow_id=workflow_id, parameters=coze_params, is_async=False)
+            except HTTPException as exc:
+                detail = str(getattr(exc, "detail", "") or "")
+                lowered = detail.lower()
+                is_timeout = "coze_request_failed" in lowered and ("timed out" in lowered or "timeout" in lowered)
+                if is_timeout:
+                    imgs, err, execute_id, debug_url = self._run_coze_async_item(
+                        workflow_id, coze_params, settings, expects_callback
+                    )
+                    with get_session() as session:
+                        run = session.get(EvalRun, run_id)
+                        if run:
+                            run.coze_execute_id = execute_id or run.coze_execute_id
+                            run.coze_debug_url = debug_url or run.coze_debug_url
+                            session.add(run)
+                            session.commit()
+                    if imgs:
+                        self._mark_succeeded(run_id, image_urls=imgs, output_json=None, started=started, error_message=None)
+                    else:
+                        self._mark_failed(run_id, message=err or "COZE_ASYNC_EMPTY", started=started)
+                    return
+                raise
 
             execute_id = response.get("execute_id")
             debug_url = response.get("debug_url")
