@@ -28,10 +28,6 @@ LORA_OPTIONS = [
 DEPRECATED_EVAL_WORKFLOW_IDS: set[str] = {
     # 提取类
     "7597535455856295936",  # 提示词提取 · tishici_tiqu
-    # 图像生成类（暂不在评测平台展示，避免分类膨胀/误用）
-    "7597701996124045312",  # 四步急速生图
-    "7597702948247830528",  # 八步急速生图
-    "7597760543788630016",  # 8K 高清放大
     # 花纹提取类（旧的 space_id 误填版本，保留但不再展示）
     "7597421439045599232",  # tiqu_duoMoxing_2 (wrong id, superseded by 7598558185544220672)
 }
@@ -87,6 +83,9 @@ FORCE_ACTIVE_EVAL_WORKFLOW_IDS: set[str] = {
     "7597767702970630144",  # Biaoqian_tiqu (small)
     "7598080013539213312",  # Biaoqian_tiqu_1 (large)
     "7597659369861283840",  # 多模型生图
+    "7597701996124045312",  # 四步急速生图
+    "7597702948247830528",  # 八步急速生图
+    "7597760543788630016",  # 8K 高清放大
     # 图裂变
     "7598841920114130944",  # Liebian_comfyui_20260124_1
     "7598820684801769472",  # Liebian_comfyui_20260124
@@ -476,7 +475,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         "name": "四步急速生图",
         "version": "v1",
         "workflow_id": "7597701996124045312",
-        "status": "inactive",
+        "status": "active",
         "notes": "输出 output 为回调 task id。",
         "parameters_schema": {
             "fields": [
@@ -494,7 +493,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         "name": "八步急速生图",
         "version": "v1",
         "workflow_id": "7597702948247830528",
-        "status": "inactive",
+        "status": "active",
         "notes": "输出 output 为回调 task id。",
         "parameters_schema": {
             "fields": [
@@ -512,7 +511,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         "name": "8K 高清放大",
         "version": "v1",
         "workflow_id": "7597760543788630016",
-        "status": "inactive",
+        "status": "active",
         "notes": "输入 bianchang=最长边目标尺寸（<=8K）。输出为图片地址。",
         "parameters_schema": {
             "fields": [
