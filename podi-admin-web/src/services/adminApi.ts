@@ -2,6 +2,7 @@ import type {
   Ability,
   AbilityListResponse,
   AbilityLogListResponse,
+  AbilityLogMetricsResponse,
   ApiKey,
   Binding,
   DashboardMetrics,
@@ -91,6 +92,26 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     throw new Error(extractErrorMessage(resp.statusText, text));
   }
   return resp.json();
+}
+
+async function requestBlob(path: string, options: RequestInit = {}): Promise<Blob> {
+  const token = getAdminToken();
+  const resp = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: {
+      ...(options.headers || {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+  if (!resp.ok) {
+    const text = await resp.text();
+    if (resp.status === 401) {
+      clearAdminTokens();
+      broadcastInvalidToken(extractErrorMessage(resp.statusText, text) || '登录已失效，请重新登录');
+    }
+    throw new Error(extractErrorMessage(resp.statusText, text));
+  }
+  return resp.blob();
 }
 
 export const adminApi = {
@@ -248,6 +269,38 @@ export const adminApi = {
     if (options?.provider) params.set('provider', options.provider);
     if (options?.capabilityKey) params.set('capabilityKey', options.capabilityKey);
     return request<AbilityLogListResponse>(`/api/admin/abilities/logs?${params.toString()}`);
+  },
+  getAbilityLogMetrics: (options?: { windowHours?: number; provider?: string; capabilityKey?: string; groupByExecutor?: boolean }) => {
+    const params = new URLSearchParams();
+    params.set('windowHours', String(options?.windowHours ?? 24));
+    if (options?.provider) params.set('provider', options.provider);
+    if (options?.capabilityKey) params.set('capabilityKey', options.capabilityKey);
+    if (options?.groupByExecutor) params.set('groupByExecutor', 'true');
+    return request<AbilityLogMetricsResponse>(`/api/admin/abilities/logs/metrics?${params.toString()}`);
+  },
+  exportAbilityLogs: async (options?: {
+    format?: 'csv' | 'json';
+    provider?: string;
+    capabilityKey?: string;
+    abilityId?: string;
+    executorId?: string;
+    status?: string;
+    source?: string;
+    sinceHours?: number;
+  }) => {
+    const params = new URLSearchParams();
+    params.set('format', options?.format ?? 'csv');
+    params.set('sinceHours', String(options?.sinceHours ?? 24));
+    if (options?.provider) params.set('provider', options.provider);
+    if (options?.capabilityKey) params.set('capabilityKey', options.capabilityKey);
+    if (options?.abilityId) params.set('abilityId', options.abilityId);
+    if (options?.executorId) params.set('executorId', options.executorId);
+    if (options?.status) params.set('status', options.status);
+    if (options?.source) params.set('source', options.source);
+    return requestBlob(`/api/admin/abilities/logs/export?${params.toString()}`, {
+      method: 'GET',
+      headers: { Accept: options?.format === 'json' ? 'application/json' : 'text/csv' },
+    });
   },
   listPublicAbilities: () =>
     request<AbilityListResponse>('/api/abilities').then((res) => (res.items || []) as PublicAbility[]),

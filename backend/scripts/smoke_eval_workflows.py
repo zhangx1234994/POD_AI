@@ -126,7 +126,13 @@ class Result:
     error: str | None
 
 
-def run_one(item: dict[str, Any], sample_url: str, *, poll_callback: bool = True) -> Result:
+def run_one(
+    item: dict[str, Any],
+    sample_url: str,
+    *,
+    poll_callback: bool = True,
+    callback_timeout_s: int = 180,
+) -> Result:
     workflow_id = str(item.get("workflow_id") or "").strip()
     name = str(item.get("name") or workflow_id)
     category = str(item.get("category") or "")
@@ -160,7 +166,7 @@ def run_one(item: dict[str, Any], sample_url: str, *, poll_callback: bool = True
     if poll_callback and kind == "taskid" and isinstance(output, str) and output.strip():
         podi_base = (os.getenv("PODI_BASE_URL") or "http://127.0.0.1:8099").rstrip("/")
         cb_started = time.monotonic()
-        deadline = cb_started + 900.0
+        deadline = cb_started + float(max(5, callback_timeout_s))
         interval = 2.0
         last: dict[str, Any] = {}
         first_failed_at: float | None = None
@@ -188,7 +194,14 @@ def run_one(item: dict[str, Any], sample_url: str, *, poll_callback: bool = True
             interval = min(interval * 1.4, 8.0)
         duration_ms += int((time.monotonic() - cb_started) * 1000)
 
-    ok = bool(image_urls) if kind in {"image", "taskid"} else True
+    if kind == "taskid" and not poll_callback:
+        ok = bool(isinstance(output, str) and output.strip())
+    elif kind == "taskid":
+        ok = bool(image_urls)
+    elif kind == "image":
+        ok = bool(image_urls)
+    else:
+        ok = True
     return Result(
         name=name,
         workflow_id=workflow_id,
@@ -215,6 +228,29 @@ def main() -> int:
         default="",
         help="Optional report output path (json). Default: reports/eval_workflow_smoke_<ts>.json",
     )
+    parser.add_argument(
+        "--max-workflows",
+        type=int,
+        default=0,
+        help="Limit number of workflows to run (0 = all). Useful for quick sanity checks.",
+    )
+    parser.add_argument(
+        "--no-poll-callback",
+        action="store_true",
+        help="Do not poll PODI task status for callback workflows (faster, but won't verify final images).",
+    )
+    parser.add_argument(
+        "--callback-timeout-s",
+        type=int,
+        default=180,
+        help="Max seconds to wait for callback images (default: 180).",
+    )
+    parser.add_argument(
+        "--workflow-id",
+        action="append",
+        default=[],
+        help="Only run specified workflow_id(s). Can be repeated.",
+    )
     args = parser.parse_args()
 
     settings = get_settings()
@@ -230,6 +266,11 @@ def main() -> int:
 
     sample_url = _first_sample_url()
     items = [i for i in DEFAULT_EVAL_WORKFLOW_VERSIONS if str(i.get("status") or "") != "inactive"]
+    if args.workflow_id:
+        allow = {str(x).strip() for x in args.workflow_id if str(x).strip()}
+        items = [i for i in items if str(i.get("workflow_id") or "").strip() in allow]
+    if args.max_workflows and args.max_workflows > 0:
+        items = items[: args.max_workflows]
 
     results: list[Result] = []
     for item in items:
@@ -249,7 +290,12 @@ def main() -> int:
             )
         else:
             try:
-                r = run_one(item, sample_url)
+                r = run_one(
+                    item,
+                    sample_url,
+                    poll_callback=not args.no_poll_callback,
+                    callback_timeout_s=args.callback_timeout_s,
+                )
             except Exception as exc:
                 r = Result(
                     name=str(item.get("name") or ""),

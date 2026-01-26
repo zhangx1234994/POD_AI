@@ -39,3 +39,28 @@ class AbilityInvocationLogRead(BaseModel):
 
 class AbilityInvocationLogListResponse(BaseModel):
     items: list[AbilityInvocationLogRead]
+
+
+class AbilityInvocationLogMetricBucket(BaseModel):
+    """Aggregated metrics for ability invocations (best-effort)."""
+
+    ability_provider: str
+    capability_key: str
+    executor_id: str | None = None
+
+    count: int
+    success_count: int
+    failed_count: int
+    success_rate: float | None = None
+
+    avg_duration_ms: float | None = None
+    p50_duration_ms: int | None = None
+    p95_duration_ms: int | None = None
+
+    last_success_at: datetime | None = None
+    last_failed_at: datetime | None = None
+
+
+class AbilityInvocationLogMetricsResponse(BaseModel):
+    window_hours: int
+    buckets: list[AbilityInvocationLogMetricBucket]

@@ -6,6 +6,8 @@ import type {
   Ability,
   AbilityInvocationLog,
   AbilityFormState,
+  AbilityLogMetricsResponse,
+  AbilityLogMetricBucket,
   ApiKey,
   ApiKeyFormState,
   Binding,
@@ -646,6 +648,10 @@ export function IntegrationDashboard() {
   const [globalAbilityLogs, setGlobalAbilityLogs] = useState<AbilityInvocationLog[]>([]);
   const [globalAbilityLogsLoading, setGlobalAbilityLogsLoading] = useState(false);
   const [globalAbilityLogsError, setGlobalAbilityLogsError] = useState<string | null>(null);
+  const [abilityLogMetrics, setAbilityLogMetrics] = useState<AbilityLogMetricsResponse | null>(null);
+  const [abilityLogMetricsLoading, setAbilityLogMetricsLoading] = useState(false);
+  const [abilityLogMetricsError, setAbilityLogMetricsError] = useState<string | null>(null);
+  const [exportingAbilityLogs, setExportingAbilityLogs] = useState(false);
   const [publicAbilities, setPublicAbilities] = useState<PublicAbility[]>([]);
   const [publicAbilitiesLoading, setPublicAbilitiesLoading] = useState(false);
 
@@ -915,7 +921,8 @@ export function IntegrationDashboard() {
   const load = async () => {
     setLoading(true);
     try {
-      const [execRes, wfRes, bindingRes, apiKeyRes, metricsRes, logsRes, configRes, abilityRes] = await Promise.all([
+      const [execRes, wfRes, bindingRes, apiKeyRes, metricsRes, logsRes, configRes, abilityRes, abilityLogMetricsRes] =
+        await Promise.all([
         adminApi.listExecutors(),
         adminApi.listWorkflows(),
         adminApi.listBindings(),
@@ -924,6 +931,7 @@ export function IntegrationDashboard() {
         adminApi.getDispatchLogs(),
         adminApi.getSystemConfig(),
         adminApi.listAbilities(),
+        adminApi.getAbilityLogMetrics({ windowHours: 24 }).catch(() => null),
       ]);
       setExecutors(execRes);
       setWorkflows(wfRes);
@@ -933,6 +941,7 @@ export function IntegrationDashboard() {
       setDashboardMetrics(metricsRes);
       setDispatchLogs(logsRes.entries);
       setSystemConfig(configRes);
+      if (abilityLogMetricsRes) setAbilityLogMetrics(abilityLogMetricsRes);
       if (abilityRes.length > 0) {
         if (!selectedAbilityId || !abilityRes.some((item) => item.id === selectedAbilityId)) {
           setSelectedAbilityId(abilityRes[0].id);
@@ -942,6 +951,31 @@ export function IntegrationDashboard() {
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const downloadBlob = (blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const refreshAbilityLogMetrics = async () => {
+    setAbilityLogMetricsLoading(true);
+    setAbilityLogMetricsError(null);
+    try {
+      const res = await adminApi.getAbilityLogMetrics({ windowHours: 24 });
+      setAbilityLogMetrics(res);
+    } catch (err: any) {
+      console.error('Failed to load ability log metrics:', err);
+      setAbilityLogMetricsError(err?.message || '获取能力调用指标失败');
+    } finally {
+      setAbilityLogMetricsLoading(false);
     }
   };
 
@@ -3008,18 +3042,87 @@ const normalizeErrorMessage = (message: string): string => {
           <div className="mb-3 flex items-center justify-between gap-2">
             <div>
               <h3 className="text-white text-lg font-semibold">能力调用清单</h3>
-              <p className="text-xs text-slate-500">最新 30 条（不限能力 ID）</p>
+              <p className="text-xs text-slate-500">最新 30 条（不限能力 ID） · 支持导出最近 24h</p>
             </div>
-            <button
-              type="button"
-              onClick={() => refreshGlobalAbilityLogs()}
-              className="rounded-full border border-slate-600 px-3 py-1 text-xs text-slate-200 disabled:opacity-40"
-              disabled={globalAbilityLogsLoading}
-            >
-              {globalAbilityLogsLoading ? '刷新中…' : '刷新'}
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => refreshGlobalAbilityLogs()}
+                className="rounded-full border border-slate-600 px-3 py-1 text-xs text-slate-200 disabled:opacity-40"
+                disabled={globalAbilityLogsLoading}
+              >
+                {globalAbilityLogsLoading ? '刷新中…' : '刷新'}
+              </button>
+              <button
+                type="button"
+                onClick={() => refreshAbilityLogMetrics()}
+                className="rounded-full border border-slate-600 px-3 py-1 text-xs text-slate-200 disabled:opacity-40"
+                disabled={abilityLogMetricsLoading}
+                title="刷新近 24h 指标（success rate / p50 / p95）"
+              >
+                {abilityLogMetricsLoading ? '指标刷新中…' : '刷新指标'}
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  setExportingAbilityLogs(true);
+                  try {
+                    const blob = await adminApi.exportAbilityLogs({ format: 'csv', sinceHours: 24 });
+                    const filename = `ability_logs_24h_${new Date().toISOString().slice(0, 10)}.csv`;
+                    downloadBlob(blob, filename);
+                  } catch (err: any) {
+                    console.error('Export ability logs failed:', err);
+                    setGlobalAbilityLogsError(err?.message || '导出失败');
+                  } finally {
+                    setExportingAbilityLogs(false);
+                  }
+                }}
+                className="rounded-full border border-slate-600 px-3 py-1 text-xs text-slate-200 disabled:opacity-40"
+                disabled={exportingAbilityLogs}
+              >
+                {exportingAbilityLogs ? '导出中…' : '导出 CSV'}
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  setExportingAbilityLogs(true);
+                  try {
+                    const blob = await adminApi.exportAbilityLogs({ format: 'json', sinceHours: 24 });
+                    const filename = `ability_logs_24h_${new Date().toISOString().slice(0, 10)}.json`;
+                    downloadBlob(blob, filename);
+                  } catch (err: any) {
+                    console.error('Export ability logs failed:', err);
+                    setGlobalAbilityLogsError(err?.message || '导出失败');
+                  } finally {
+                    setExportingAbilityLogs(false);
+                  }
+                }}
+                className="rounded-full border border-slate-600 px-3 py-1 text-xs text-slate-200 disabled:opacity-40"
+                disabled={exportingAbilityLogs}
+              >
+                导出 JSON
+              </button>
+            </div>
           </div>
           {globalAbilityLogsError && <p className="text-xs text-rose-400">{globalAbilityLogsError}</p>}
+          {abilityLogMetricsError && <p className="text-xs text-rose-400">{abilityLogMetricsError}</p>}
+          {abilityLogMetrics?.buckets && abilityLogMetrics.buckets.length > 0 ? (
+            <div className="mb-3 grid gap-2 rounded-2xl border border-slate-800 bg-slate-950/30 p-3 md:grid-cols-2 xl:grid-cols-4">
+              {(abilityLogMetrics.buckets as AbilityLogMetricBucket[]).slice(0, 8).map((b, idx) => (
+                <div key={`metric-${idx}`} className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
+                  <div className="text-[11px] text-slate-500">{b.ability_provider}</div>
+                  <div className="text-sm font-semibold text-white">{b.capability_key}</div>
+                  <div className="mt-1 text-[11px] text-slate-400">
+                    近{abilityLogMetrics.window_hours}h：{b.count} 次 · 成功 {b.success_count} / 失败 {b.failed_count}
+                  </div>
+                  <div className="mt-1 text-[11px] text-slate-400">
+                    成功率：{b.success_rate !== null && b.success_rate !== undefined ? `${(b.success_rate * 100).toFixed(1)}%` : '—'}
+                    {' · '}p50：{b.p50_duration_ms ?? '—'}ms{' · '}p95：{b.p95_duration_ms ?? '—'}ms
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
           <div className="mt-2 overflow-x-auto">
             <table className="min-w-full text-xs">
               <thead>

@@ -282,3 +282,23 @@ export interface SystemConfig {
 export interface AbilityLogListResponse {
   items: AbilityInvocationLog[];
 }
+
+export interface AbilityLogMetricBucket {
+  ability_provider: string;
+  capability_key: string;
+  executor_id?: string | null;
+  count: number;
+  success_count: number;
+  failed_count: number;
+  success_rate?: number | null;
+  avg_duration_ms?: number | null;
+  p50_duration_ms?: number | null;
+  p95_duration_ms?: number | null;
+  last_success_at?: string | null;
+  last_failed_at?: string | null;
+}
+
+export interface AbilityLogMetricsResponse {
+  window_hours: number;
+  buckets: AbilityLogMetricBucket[];
+}
