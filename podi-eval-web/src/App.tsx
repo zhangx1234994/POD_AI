@@ -1,12 +1,32 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
+import {
+  Alert,
+  Button,
+  Card,
+  Col,
+  ConfigProvider,
+  Dialog,
+  Input,
+  Layout,
+  Row,
+  Select,
+  Space,
+  Switch,
+  Table,
+  Tabs,
+  Tag,
+  Textarea,
+  Typography,
+  MessagePlugin,
+} from 'tdesign-react';
+import zhCN from 'tdesign-react/es/locale/zh_CN';
 import { evalApi } from './api';
 import type { EvalRun, EvalWorkflowVersion, SchemaField } from './types';
 
 type RunWithLatest = EvalRun & {
   latest_annotation?: { rating: number; comment?: string | null; created_at: string; created_by: string } | null;
 };
-
-type Notice = { type: 'error' | 'success' | 'info'; message: string };
 
 // Keep the evaluation UI sidebar fixed to these 4 business-facing groups.
 const CATEGORY_ORDER = ['花纹提取类', '图延伸类', '四方/两方连续图类', '图裂变', '通用类'];
@@ -146,54 +166,41 @@ function Lightbox({
   if (!url) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
+    <Dialog
+      visible
+      header={title || '预览'}
+      onClose={onClose}
+      onCancel={onClose}
+      footer={
+        <Space style={{ justifyContent: 'space-between', width: '100%' }}>
+          <Typography.Text theme="secondary" style={{ maxWidth: 560 }} ellipsis>
+            {url}
+          </Typography.Text>
+          <Space>
+            <Switch value={zoomed} onChange={(v) => setZoomed(Boolean(v))} />
+            <Typography.Text theme="secondary">放大</Typography.Text>
+            <Button variant="outline" onClick={() => window.open(url, '_blank', 'noreferrer')}>
+              新窗口打开
+            </Button>
+          </Space>
+        </Space>
+      }
     >
-      <div className="w-full max-w-5xl rounded-2xl border border-slate-800 bg-slate-950 shadow-xl">
-        <div className="flex items-center justify-between gap-3 border-b border-slate-800 px-4 py-3">
-          <div className="min-w-0">
-            <div className="text-sm font-semibold text-slate-100 truncate">{title || '预览'}</div>
-            <div className="text-[11px] text-slate-500 truncate">{url}</div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setZoomed((z) => !z)}
-              className="rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-200 hover:border-slate-700"
-            >
-              {zoomed ? '缩小' : '放大'}
-            </button>
-            <a
-              href={url}
-              target="_blank"
-              rel="noreferrer"
-              download
-              className="rounded-xl bg-emerald-500/80 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-500"
-            >
-              下载
-            </a>
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-200 hover:border-slate-700"
-            >
-              关闭
-            </button>
-          </div>
-        </div>
-        <div className="max-h-[80vh] overflow-auto p-4">
-          <img
-            src={url}
-            alt="preview"
-            className={`mx-auto rounded-xl bg-black/20 object-contain transition ${zoomed ? 'w-auto max-w-none scale-150 origin-top' : 'max-h-[70vh] w-full'}`}
-          />
-          <div className="mt-2 text-[11px] text-slate-500">提示：按 Esc 或点击遮罩层可关闭。</div>
-        </div>
+      <div style={{ maxHeight: '70vh', overflow: 'auto' }}>
+        <img
+          src={url}
+          alt="preview"
+          style={{
+            display: 'block',
+            margin: '0 auto',
+            maxWidth: zoomed ? 'none' : '100%',
+            width: zoomed ? 'auto' : '100%',
+            maxHeight: zoomed ? 'none' : '70vh',
+            objectFit: 'contain',
+          }}
+        />
       </div>
-    </div>
+    </Dialog>
   );
 }
 
@@ -208,34 +215,53 @@ function ToolCard({
   metric?: { ratingCount: number; avgRating: number | null };
   onClick: () => void;
 }) {
+  const ratingText = metric?.avgRating ? metric.avgRating.toFixed(2) : '—';
+  const ratingCountText = metric?.ratingCount ? `${metric.ratingCount}票` : '未评分';
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onClick}
-      className={`group w-full rounded-2xl border bg-slate-950/40 p-4 text-left transition ${
-        active ? 'border-sky-500/70 shadow-[0_0_0_2px_rgba(56,189,248,0.15)]' : 'border-slate-800 hover:border-slate-700'
-      }`}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') onClick();
+      }}
+      style={{ cursor: 'pointer' }}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="text-sm font-semibold text-white truncate">{wf.name}</div>
-          <div className="mt-1 text-[11px] text-slate-500 truncate">{wf.workflow_id}</div>
-        </div>
-        <div className="shrink-0 text-right">
-          {metric?.avgRating ? (
-            <div className="text-sm font-semibold text-amber-200">{metric.avgRating.toFixed(2)}</div>
-          ) : (
-            <div className="text-sm font-semibold text-slate-500">—</div>
-          )}
-          <div className="text-[11px] text-slate-500">{metric?.ratingCount ? `${metric.ratingCount}票` : '未评分'}</div>
-        </div>
-      </div>
-      <div className="mt-3 text-xs text-slate-400 line-clamp-2">{wf.notes || '—'}</div>
-      <div className="mt-3 inline-flex items-center gap-2 text-[11px] text-slate-500">
-        <span className="rounded-full bg-slate-800/50 px-2 py-0.5">{wf.version}</span>
-        <span className="rounded-full bg-slate-800/50 px-2 py-0.5">{normalizeCategory(wf.category)}</span>
-      </div>
-    </button>
+      <Card
+        bordered
+        style={{
+          borderColor: active ? 'var(--td-brand-color)' : undefined,
+        }}
+      >
+        <Space direction="vertical" size="small" style={{ width: '100%' }}>
+          <Space align="start" style={{ justifyContent: 'space-between', width: '100%' }}>
+            <Space direction="vertical" size={2} style={{ minWidth: 0 }}>
+              <Typography.Text strong ellipsis>
+                {wf.name}
+              </Typography.Text>
+              <Typography.Text theme="secondary" style={{ fontSize: 12 }} ellipsis>
+                {wf.workflow_id}
+              </Typography.Text>
+            </Space>
+            <Space direction="vertical" size={2} style={{ alignItems: 'flex-end' }}>
+              <Typography.Text>{ratingText}</Typography.Text>
+              <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                {ratingCountText}
+              </Typography.Text>
+            </Space>
+          </Space>
+
+          <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+            {wf.notes || '—'}
+          </Typography.Text>
+
+          <Space breakLine>
+            <Tag variant="light">{wf.version}</Tag>
+            <Tag variant="light">{normalizeCategory(wf.category)}</Tag>
+          </Space>
+        </Space>
+      </Card>
+    </div>
   );
 }
 
@@ -255,52 +281,37 @@ function ParamField({
 
   if (options && options.length > 0) {
     return (
-      <label className="block">
-        <div className="text-xs text-slate-300">
-          {label} {required ? <span className="text-rose-400">*</span> : null}
-        </div>
-        <select
+      <Space direction="vertical" size={4} style={{ width: '100%' }}>
+        <Typography.Text>
+          {label} {required ? <Typography.Text theme="error">*</Typography.Text> : null}
+        </Typography.Text>
+        <Select
           value={value}
-          onChange={(e) => onChange(e.target.value)}
-          className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100"
-        >
-          {options.map((opt) => (
-            <option key={String(opt.value)} value={String(opt.value)}>
-              {String(opt.label ?? opt.value)}
-            </option>
-          ))}
-        </select>
-      </label>
+          onChange={(v) => onChange(String(v))}
+          options={options.map((opt) => ({ label: String(opt.label ?? opt.value), value: String(opt.value) }))}
+        />
+      </Space>
     );
   }
 
   if (type === 'textarea') {
     return (
-      <label className="block">
-        <div className="text-xs text-slate-300">
-          {label} {required ? <span className="text-rose-400">*</span> : null}
-        </div>
-        <textarea
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          rows={4}
-          className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 p-3 text-sm text-slate-100"
-        />
-      </label>
+      <Space direction="vertical" size={4} style={{ width: '100%' }}>
+        <Typography.Text>
+          {label} {required ? <Typography.Text theme="error">*</Typography.Text> : null}
+        </Typography.Text>
+        <Textarea value={value} onChange={(v) => onChange(String(v))} autosize={{ minRows: 3, maxRows: 8 }} />
+      </Space>
     );
   }
 
   return (
-    <label className="block">
-      <div className="text-xs text-slate-300">
-        {label} {required ? <span className="text-rose-400">*</span> : null}
-      </div>
-      <input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100"
-      />
-    </label>
+    <Space direction="vertical" size={4} style={{ width: '100%' }}>
+      <Typography.Text>
+        {label} {required ? <Typography.Text theme="error">*</Typography.Text> : null}
+      </Typography.Text>
+      <Input value={value} onChange={(v) => onChange(String(v))} />
+    </Space>
   );
 }
 
@@ -392,34 +403,6 @@ function TaskTable({
   );
 }
 
-function NoticeBar({ notice, onClose }: { notice: Notice | null; onClose: () => void }) {
-  if (!notice) return null;
-  return (
-    <div className="fixed left-1/2 top-4 z-[60] w-[min(920px,calc(100vw-2rem))] -translate-x-1/2">
-      <div
-        className={`rounded-2xl border px-4 py-3 text-sm shadow-xl backdrop-blur ${
-          notice.type === 'error'
-            ? 'border-rose-500/40 bg-rose-500/10 text-rose-100'
-            : notice.type === 'success'
-              ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-100'
-              : 'border-slate-700 bg-slate-900/60 text-slate-100'
-        }`}
-      >
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0 break-words">{notice.message}</div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="shrink-0 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs hover:bg-white/10"
-          >
-            关闭
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function ImageTile({
   url,
   title,
@@ -472,14 +455,30 @@ function SkeletonTile({ title, subtitle }: { title: string; subtitle?: string })
   );
 }
 
+type ThemeMode = 'light' | 'dark';
+
+function readTheme(): ThemeMode {
+  const stored = window.localStorage.getItem('podi.eval.theme');
+  return stored === 'dark' ? 'dark' : 'light';
+}
+
 export function App() {
-  const [notice, setNotice] = useState<Notice | null>(null);
-  const pushNotice = (n: Notice) => {
-    setNotice(n);
-    window.setTimeout(() => {
-      setNotice((cur) => (cur?.message === n.message ? null : cur));
-    }, 6500);
-  };
+  const [theme, setTheme] = useState<ThemeMode>(() => readTheme());
+  useEffect(() => {
+    const isDark = theme === 'dark';
+    // TDesign dark mode is driven by `t-theme-dark` class.
+    document.documentElement.classList.toggle('t-theme-dark', isDark);
+    // Keep Tailwind dark variants working during migration.
+    document.documentElement.classList.toggle('dark', isDark);
+    window.localStorage.setItem('podi.eval.theme', theme);
+  }, [theme]);
+
+  const pushNotice = useCallback((type: 'error' | 'success' | 'info', message: string) => {
+    const content = message || '未知错误';
+    if (type === 'error') MessagePlugin.error({ content, duration: 5000 });
+    else if (type === 'success') MessagePlugin.success({ content, duration: 3500 });
+    else MessagePlugin.info({ content, duration: 3500 });
+  }, []);
 
   const [raterId, setRaterId] = useState<string>('');
   const [workflows, setWorkflows] = useState<EvalWorkflowVersion[]>([]);
@@ -493,6 +492,7 @@ export function App() {
   const [formParams, setFormParams] = useState<Record<string, string>>({});
   const [isRunning, setIsRunning] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
 
   // Keep tool run history and global task list separate.
   // Otherwise, in-flight requests from one view can overwrite the other's list.
@@ -562,7 +562,7 @@ export function App() {
       await refreshMetrics();
     } catch (err) {
       console.error(err);
-      pushNotice({ type: 'error', message: String((err as any)?.message || err) });
+      pushNotice('error', String((err as any)?.message || err));
     }
   };
 
@@ -578,7 +578,7 @@ export function App() {
       setToolRuns((resp.items || []) as RunWithLatest[]);
     } catch (err) {
       console.error(err);
-      pushNotice({ type: 'error', message: String((err as any)?.message || err) });
+      pushNotice('error', String((err as any)?.message || err));
     }
   };
 
@@ -588,7 +588,7 @@ export function App() {
       setTaskRuns((resp.items || []) as RunWithLatest[]);
     } catch (err) {
       console.error(err);
-      pushNotice({ type: 'error', message: String((err as any)?.message || err) });
+      pushNotice('error', String((err as any)?.message || err));
     }
   };
 
@@ -623,7 +623,7 @@ export function App() {
         setDocsGeneratedAt(String(res.generatedAt || ''));
       } catch (err) {
         console.error(err);
-        pushNotice({ type: 'error', message: String((err as any)?.message || err) });
+        pushNotice('error', String((err as any)?.message || err));
       } finally {
         setDocsLoading(false);
       }
@@ -655,7 +655,7 @@ export function App() {
     if (!selectedTool) return;
     const url = formUrl.trim();
     if (!url) {
-      pushNotice({ type: 'error', message: '请先填写或上传图片 URL' });
+      pushNotice('error', '请先填写或上传图片 URL');
       return;
     }
 
@@ -668,7 +668,7 @@ export function App() {
       if (!v) missing.push((f as any).label || f.name);
     }
     if (missing.length > 0) {
-      pushNotice({ type: 'error', message: `请补齐必填参数：${missing.join('、')}` });
+      pushNotice('error', `请补齐必填参数：${missing.join('、')}`);
       return;
     }
 
@@ -686,10 +686,10 @@ export function App() {
       });
       await loadRunsForTool(selectedTool.id);
       await refreshMetrics();
-      pushNotice({ type: 'success', message: '已提交运行，稍后会自动刷新结果' });
+      pushNotice('success', '已提交运行，稍后会自动刷新结果');
     } catch (err) {
       console.error(err);
-      pushNotice({ type: 'error', message: String((err as any)?.message || err) });
+      pushNotice('error', String((err as any)?.message || err));
     } finally {
       setIsRunning(false);
     }
@@ -700,10 +700,10 @@ export function App() {
       await evalApi.createAnnotation(runId, { rating, comment: comment.trim() || undefined });
       await refreshMetrics();
       if (selectedTool) await loadRunsForTool(selectedTool.id);
-      pushNotice({ type: 'success', message: '已保存评分/备注' });
+      pushNotice('success', '已保存评分/备注');
     } catch (err) {
       console.error(err);
-      pushNotice({ type: 'error', message: String((err as any)?.message || err) });
+      pushNotice('error', String((err as any)?.message || err));
     }
   };
 
@@ -724,205 +724,195 @@ export function App() {
     return out;
   }, [toolRuns, filterRating, search]);
 
+  const openAdmin = useCallback(async () => {
+    // "Private-ish": require a token, stored locally. No normal login.
+    const token = adminToken || window.prompt('请输入 EVAL_ADMIN_TOKEN（仅管理员维护功能名/备注）') || '';
+    if (!token.trim()) return;
+    localStorage.setItem('podi_eval_admin_token', token.trim());
+    setAdminToken(token.trim());
+    setActiveView('admin');
+    setSelectedTool(null);
+    try {
+      const list = await evalApi.adminListWorkflowVersions(token.trim());
+      setAdminWorkflows(list);
+    } catch (err) {
+      console.error(err);
+      pushNotice('error', String((err as any)?.message || err));
+    }
+  }, [adminToken, pushNotice]);
+
+  const headerNavValue = activeView === 'tool' ? 'home' : activeView;
+
   const header = (
-    <header className="border-b border-slate-800 bg-slate-900/40">
-      <div className="mx-auto max-w-[1400px] px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="text-lg font-semibold">PODI · 能力评测</div>
-          <div className="text-xs text-slate-400">工具箱式评测 · 免登录 · 评分沉淀 · UI v2</div>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              setActiveView('home');
-              setSelectedTool(null);
-            }}
-            className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${
-              activeView === 'home' ? 'bg-sky-500/20 text-sky-200 border border-sky-500/40' : 'bg-slate-950 border border-slate-800 text-slate-300 hover:border-slate-700'
-            }`}
-          >
-            工具箱
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setActiveView('tasks');
-              setSelectedTool(null);
-            }}
-            className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${
-              activeView === 'tasks' ? 'bg-sky-500/20 text-sky-200 border border-sky-500/40' : 'bg-slate-950 border border-slate-800 text-slate-300 hover:border-slate-700'
-            }`}
-          >
-            任务管理
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setActiveView('docs');
-              setSelectedTool(null);
-            }}
-            className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${
-              activeView === 'docs'
-                ? 'bg-sky-500/20 text-sky-200 border border-sky-500/40'
-                : 'bg-slate-950 border border-slate-800 text-slate-300 hover:border-slate-700'
-            }`}
-          >
-            文档
-          </button>
-          <button
-            type="button"
-            onClick={async () => {
-              // "Private-ish": require a token, stored locally. No normal login.
-              const token = adminToken || window.prompt('请输入 EVAL_ADMIN_TOKEN（仅管理员维护功能名/备注）') || '';
-              if (!token.trim()) return;
-              localStorage.setItem('podi_eval_admin_token', token.trim());
-              setAdminToken(token.trim());
-              setActiveView('admin');
-              setSelectedTool(null);
-              try {
-                const list = await evalApi.adminListWorkflowVersions(token.trim());
-                setAdminWorkflows(list);
-              } catch (err) {
-                console.error(err);
-                pushNotice({ type: 'error', message: String((err as any)?.message || err) });
+    <Layout.Header
+      style={{
+        borderBottom: '1px solid var(--td-component-border)',
+        background: 'var(--td-bg-color-container)',
+        padding: '0 16px',
+      }}
+    >
+      <Space align="center" style={{ justifyContent: 'space-between', width: '100%', height: '100%' }}>
+        <Space direction="vertical" size={2}>
+          <Typography.Text strong>PODI · 能力评测</Typography.Text>
+          <Typography.Text theme="secondary">工具箱式评测 · 免登录 · 评分沉淀</Typography.Text>
+        </Space>
+        <Space align="center">
+          <Tabs
+            value={headerNavValue}
+            onChange={(v) => {
+              const next = String(v) as any;
+              if (next === 'admin') {
+                void openAdmin();
+                return;
               }
+              setActiveView(next);
+              setSelectedTool(null);
             }}
-            className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${
-              activeView === 'admin'
-                ? 'bg-sky-500/20 text-sky-200 border border-sky-500/40'
-                : 'bg-slate-950 border border-slate-800 text-slate-300 hover:border-slate-700'
-            }`}
           >
-            维护
-          </button>
-          <div className="ml-2 text-xs text-slate-400">
-            raterId: <span className="font-mono text-slate-200">{raterId || '...'}</span>
-          </div>
-        </div>
-      </div>
-    </header>
+            <Tabs.TabPanel value="home" label="工具箱" />
+            <Tabs.TabPanel value="tasks" label="任务管理" />
+            <Tabs.TabPanel value="docs" label="文档" />
+            <Tabs.TabPanel value="admin" label="维护" />
+          </Tabs>
+          <Button variant="outline" onClick={() => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}>
+            {theme === 'dark' ? '深色' : '浅色'}
+          </Button>
+          <Typography.Text theme="secondary">
+            raterId:{' '}
+            <span style={{ fontFamily: 'monospace' }}>{raterId || '...'}</span>
+          </Typography.Text>
+        </Space>
+      </Space>
+    </Layout.Header>
+  );
+
+  const shell = (content: ReactNode) => (
+    <ConfigProvider globalConfig={zhCN}>
+      <Layout style={{ minHeight: '100vh' }}>
+        {header}
+        <Layout.Content style={{ padding: 16, background: 'var(--td-bg-color-page)' }}>
+          <div style={{ maxWidth: 1400, margin: '0 auto' }}>{content}</div>
+        </Layout.Content>
+      </Layout>
+      <Lightbox url={lightbox?.url || ''} title={lightbox?.title} onClose={() => setLightbox(null)} />
+    </ConfigProvider>
   );
 
   if (activeView === 'admin') {
-    return (
-      <div className="min-h-screen bg-slate-950 text-slate-50">
-        {header}
-        <NoticeBar notice={notice} onClose={() => setNotice(null)} />
-        <div className="mx-auto max-w-[1400px] px-6 py-6">
-          <div className="rounded-3xl border border-slate-800 bg-slate-900/30 p-5">
-            <div className="flex items-end justify-between">
+    return shell(
+      <Card
+        bordered
+        title={
+          <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+            <div>
+              <Typography.Text strong>功能维护</Typography.Text>
               <div>
-                <div className="text-lg font-semibold">功能维护</div>
-                <div className="text-xs text-slate-400">维护各功能的名称/备注/分类/状态（需要 EVAL_ADMIN_TOKEN）。</div>
+                <Typography.Text theme="secondary">
+                  维护各功能的名称/备注/分类/状态（需要 `EVAL_ADMIN_TOKEN`）。
+                </Typography.Text>
               </div>
-              <button
-                type="button"
-                onClick={async () => {
-                  if (!adminToken) return;
-                  try {
-                    const list = await evalApi.adminListWorkflowVersions(adminToken);
-                    setAdminWorkflows(list);
-                    pushNotice({ type: 'success', message: '已刷新列表' });
-                  } catch (err) {
-                    console.error(err);
-                    pushNotice({ type: 'error', message: String((err as any)?.message || err) });
-                  }
-                }}
-                className="rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-200 hover:border-slate-700"
-              >
-                刷新列表
-              </button>
             </div>
-            <div className="mt-4 space-y-3">
-              {adminWorkflows.map((wf) => (
-                <AdminWorkflowRow
-                  key={wf.id}
-                  wf={wf}
-                  adminToken={adminToken}
-                  onSaved={(next) => {
-                    setAdminWorkflows((prev) => prev.map((x) => (x.id === next.id ? next : x)));
-                  }}
-                />
-              ))}
-              {adminWorkflows.length === 0 ? <div className="text-sm text-slate-500">暂无数据。</div> : null}
-            </div>
-          </div>
-        </div>
-      </div>
+            <Button
+              variant="outline"
+              disabled={!adminToken}
+              onClick={async () => {
+                if (!adminToken) return;
+                try {
+                  const list = await evalApi.adminListWorkflowVersions(adminToken);
+                  setAdminWorkflows(list);
+                  pushNotice('success', '已刷新列表');
+                } catch (err) {
+                  console.error(err);
+                  pushNotice('error', String((err as any)?.message || err));
+                }
+              }}
+            >
+              刷新列表
+            </Button>
+          </Space>
+        }
+      >
+        <Space direction="vertical" size="large" style={{ width: '100%' }}>
+          {adminWorkflows.map((wf) => (
+            <AdminWorkflowRow
+              key={wf.id}
+              wf={wf}
+              adminToken={adminToken}
+              onSaved={(next) => {
+                setAdminWorkflows((prev) => prev.map((x) => (x.id === next.id ? next : x)));
+              }}
+            />
+          ))}
+          {adminWorkflows.length === 0 ? <Typography.Text theme="secondary">暂无数据。</Typography.Text> : null}
+        </Space>
+      </Card>,
     );
   }
 
   if (activeView === 'docs') {
-    return (
-      <div className="min-h-screen bg-slate-950 text-slate-50">
-        {header}
-        <NoticeBar notice={notice} onClose={() => setNotice(null)} />
-        <div className="mx-auto max-w-[1400px] px-6 py-6">
-          <div className="rounded-3xl border border-slate-800 bg-slate-900/30 p-5">
-            <div className="flex items-end justify-between gap-3">
+    return shell(
+      <Card
+        bordered
+        title={
+          <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+            <div>
+              <Typography.Text strong>开发文档 · Coze 工作流</Typography.Text>
               <div>
-                <div className="text-lg font-semibold">开发文档 · Coze 工作流</div>
-                <div className="text-xs text-slate-400">
+                <Typography.Text theme="secondary">
                   从后端自动生成（active 工作流 + 入参/出参 schema）。{docsGeneratedAt ? `生成时间：${docsGeneratedAt}` : ''}
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={async () => {
-                    try {
-                      await navigator.clipboard.writeText(docsMarkdown || '');
-                      pushNotice({ type: 'success', message: '已复制到剪贴板' });
-                    } catch (err) {
-                      console.error(err);
-                      pushNotice({ type: 'error', message: '复制失败（浏览器不支持或权限不足）' });
-                    }
-                  }}
-                  className="rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-200 hover:border-slate-700"
-                >
-                  复制全文
-                </button>
+                </Typography.Text>
               </div>
             </div>
-            <div className="mt-4">
-              {docsLoading ? (
-                <div className="text-sm text-slate-400">加载中…</div>
-              ) : docsMarkdown ? (
-                <pre className="max-h-[70vh] overflow-auto rounded-2xl border border-slate-800 bg-slate-950/40 p-4 font-mono text-[12px] text-slate-200 whitespace-pre-wrap">
-                  {docsMarkdown}
-                </pre>
-              ) : (
-                <div className="text-sm text-slate-500">暂无文档内容。</div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
+            <Button
+              variant="outline"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(docsMarkdown || '');
+                  pushNotice('success', '已复制到剪贴板');
+                } catch (err) {
+                  console.error(err);
+                  pushNotice('error', '复制失败（浏览器不支持或权限不足）');
+                }
+              }}
+            >
+              复制全文
+            </Button>
+          </Space>
+        }
+      >
+        {docsLoading ? (
+          <Typography.Text theme="secondary">加载中…</Typography.Text>
+        ) : docsMarkdown ? (
+          <pre
+            style={{
+              maxHeight: '70vh',
+              overflow: 'auto',
+              border: '1px solid var(--td-border-level-1-color)',
+              background: 'var(--td-bg-color-secondarycontainer)',
+              borderRadius: 8,
+              padding: 12,
+              fontFamily: 'monospace',
+              fontSize: 12,
+              whiteSpace: 'pre-wrap',
+            }}
+          >
+            {docsMarkdown}
+          </pre>
+        ) : (
+          <Typography.Text theme="secondary">暂无文档内容。</Typography.Text>
+        )}
+      </Card>,
     );
   }
 
   if (activeView === 'tasks') {
-    return (
-      <div className="min-h-screen bg-slate-950 text-slate-50">
-        {header}
-        <NoticeBar notice={notice} onClose={() => setNotice(null)} />
-        <Lightbox url={lightbox?.url || ''} title={lightbox?.title} onClose={() => setLightbox(null)} />
-        <div className="mx-auto max-w-[1400px] px-6 py-6">
-          <TaskTable runs={taskRuns} workflowMap={workflowMap} />
-        </div>
-      </div>
-    );
+    return shell(<TaskTable runs={taskRuns} workflowMap={workflowMap} />);
   }
 
   if (activeView === 'tool' && selectedTool) {
     const metric = metrics[selectedTool.id];
     const doc = buildCozeDoc(selectedTool, formUrl.trim());
-    return (
-      <div className="min-h-screen bg-slate-950 text-slate-50">
-        {header}
-        <NoticeBar notice={notice} onClose={() => setNotice(null)} />
-        <Lightbox url={lightbox?.url || ''} title={lightbox?.title} onClose={() => setLightbox(null)} />
+    return shell(
         <div className="mx-auto max-w-[1400px] px-6 py-6">
           <div className="mb-4 flex items-start justify-between gap-4">
             <div>
@@ -959,19 +949,24 @@ export function App() {
                   <div className="text-xs text-slate-300">
                     图片 URL <span className="text-rose-400">*</span>
                   </div>
-                  <div className="mt-1 flex gap-2">
-                    <input
-                      value={formUrl}
-                      onChange={(e) => setFormUrl(e.target.value)}
-                      placeholder="支持粘贴 URL 或上传本地图片"
-                      className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-600"
-                    />
-                    <label className="shrink-0 rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-200 hover:border-slate-700 cursor-pointer">
-                      {uploading ? '上传中…' : '上传'}
+                  <div className="mt-1">
+                    <Space align="center" style={{ width: '100%' }}>
+                      <div style={{ flex: 1 }}>
+                        <Input
+                          value={formUrl}
+                          onChange={(v) => setFormUrl(String(v))}
+                          placeholder="支持粘贴 URL 或上传本地图片"
+                          clearable
+                        />
+                      </div>
+                      <Button variant="outline" loading={uploading} onClick={() => uploadInputRef.current?.click()}>
+                        上传
+                      </Button>
                       <input
+                        ref={uploadInputRef}
                         type="file"
                         accept="image/*"
-                        className="hidden"
+                        style={{ display: 'none' }}
                         disabled={uploading}
                         onChange={async (e) => {
                           const file = e.target.files?.[0];
@@ -982,14 +977,14 @@ export function App() {
                             setFormUrl(res.url);
                           } catch (err) {
                             console.error(err);
-                            pushNotice({ type: 'error', message: String((err as any)?.message || err) });
+                            pushNotice('error', String((err as any)?.message || err));
                           } finally {
                             setUploading(false);
                             e.target.value = '';
                           }
                         }}
                       />
-                    </label>
+                    </Space>
                   </div>
                 </label>
                 {formUrl.trim() ? (
@@ -1009,16 +1004,9 @@ export function App() {
               </div>
 
               <div className="mt-4 flex justify-end">
-                <button
-                  type="button"
-                  disabled={!formUrl.trim() || isRunning}
-                  onClick={() => void runTool()}
-                  className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
-                    !formUrl.trim() || isRunning ? 'bg-slate-700/40 text-slate-400' : 'bg-sky-500/80 text-white hover:bg-sky-500'
-                  }`}
-                >
-                  {isRunning ? '运行中…' : '开始生成'}
-                </button>
+                <Button theme="primary" loading={isRunning} disabled={!formUrl.trim()} onClick={() => void runTool()}>
+                  开始生成
+                </Button>
               </div>
 
               <div className="mt-5 rounded-2xl border border-slate-800 bg-slate-950/40 p-3">
@@ -1109,43 +1097,34 @@ export function App() {
                     <div className="text-xs text-slate-500">每条记录包含原图 + 结果图；支持筛选与备注。</div>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <select
+                    <Select
                       value={filterStatus}
-                      onChange={(e) => setFilterStatus(e.target.value)}
-                      className="rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-200"
-                    >
-                      <option value="all">全部状态</option>
-                      <option value="queued">queued</option>
-                      <option value="running">running</option>
-                      <option value="succeeded">succeeded</option>
-                      <option value="failed">failed</option>
-                    </select>
-                    <select
+                      onChange={(v) => setFilterStatus(String(v))}
+                      options={[
+                        { label: '全部状态', value: 'all' },
+                        { label: 'queued', value: 'queued' },
+                        { label: 'running', value: 'running' },
+                        { label: 'succeeded', value: 'succeeded' },
+                        { label: 'failed', value: 'failed' },
+                      ]}
+                    />
+                    <Select
                       value={filterRating}
-                      onChange={(e) => setFilterRating(e.target.value)}
-                      className="rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-200"
-                    >
-                      <option value="all">全部评分</option>
-                      {[1, 2, 3, 4, 5].map((n) => (
-                        <option key={n} value={String(n)}>
-                          {n}
-                        </option>
-                      ))}
-                    </select>
-                    <label className="flex items-center gap-2 text-xs text-slate-300">
-                      <input
-                        type="checkbox"
-                        checked={filterUnrated}
-                        onChange={(e) => setFilterUnrated(e.target.checked)}
-                        className="h-4 w-4 rounded border-slate-700 bg-slate-950"
-                      />
-                      未打分
-                    </label>
-                    <input
+                      onChange={(v) => setFilterRating(String(v))}
+                      options={[
+                        { label: '全部评分', value: 'all' },
+                        ...[1, 2, 3, 4, 5].map((n) => ({ label: String(n), value: String(n) })),
+                      ]}
+                    />
+                    <Space align="center" size="small">
+                      <Switch value={filterUnrated} onChange={(v) => setFilterUnrated(Boolean(v))} />
+                      <Typography.Text theme="secondary">未打分</Typography.Text>
+                    </Space>
+                    <Input
                       value={search}
-                      onChange={(e) => setSearch(e.target.value)}
+                      onChange={(v) => setSearch(String(v))}
                       placeholder="搜索备注/错误…"
-                      className="w-56 rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-200 placeholder:text-slate-600"
+                      clearable
                     />
                   </div>
                 </div>
@@ -1165,60 +1144,58 @@ export function App() {
             </div>
           </div>
         </div>
-      </div>
     );
   }
 
   // Home (toolbox) view
-  return (
-    <div className="min-h-screen bg-slate-950 text-slate-50">
-      {header}
-      <NoticeBar notice={notice} onClose={() => setNotice(null)} />
-      <Lightbox url={lightbox?.url || ''} title={lightbox?.title} onClose={() => setLightbox(null)} />
-      <div className="mx-auto max-w-[1400px] px-6 py-6 grid gap-6 lg:grid-cols-[280px_1fr]">
-        <aside className="rounded-3xl border border-slate-800 bg-slate-900/30 p-4">
-          <div className="text-sm font-semibold">分类</div>
-          <div className="mt-1 text-xs text-slate-400">左侧选分类，右侧是该分类的功能卡片</div>
-          <div className="mt-4 space-y-2">
-            {orderedCategories.map((cat) => {
-              const active = activeCategory === cat;
-              return (
-                <button
+  return shell(
+    <Row gutter={[12, 12]}>
+      <Col xs={24} lg={6}>
+        <Card bordered title="分类">
+          <Space direction="vertical" size="small" style={{ width: '100%' }}>
+            <Typography.Text theme="secondary">左侧选分类，右侧是该分类的功能卡片</Typography.Text>
+            <Space direction="vertical" size="small" style={{ width: '100%' }}>
+              {orderedCategories.map((cat) => (
+                <Button
                   key={cat}
-                  type="button"
+                  theme={activeCategory === cat ? 'primary' : 'default'}
+                  variant={activeCategory === cat ? 'base' : 'outline'}
                   onClick={() => setActiveCategory(cat)}
-                  className={`w-full rounded-2xl border px-3 py-2 text-left transition ${
-                    active ? 'border-sky-500/70 bg-sky-500/10 text-white' : 'border-white/5 text-slate-300 hover:border-slate-500/60'
-                  }`}
+                  style={{ justifyContent: 'space-between' }}
                 >
-                  <div className="text-sm font-semibold">{cat}</div>
-                  <div className="text-xs text-slate-500">{(grouped[cat] || []).length} 个功能</div>
-                </button>
-              );
-            })}
+                  <span>{cat}</span>
+                  <span style={{ opacity: 0.7 }}>{(grouped[cat] || []).length}</span>
+                </Button>
+              ))}
+            </Space>
+          </Space>
+        </Card>
+      </Col>
+      <Col xs={24} lg={18}>
+        <Space direction="vertical" size="large" style={{ width: '100%' }}>
+          <div>
+            <Typography.Title level="h4" style={{ margin: 0 }}>
+              {normalizeCategory(activeCategory)}
+            </Typography.Title>
+            <Typography.Text theme="secondary">
+              点击卡片进入该功能的评测页面（左侧测试，右侧出图，底部打标）。
+            </Typography.Text>
           </div>
-        </aside>
-
-        <main>
-          <div className="mb-4">
-            <div className="text-lg font-semibold">{normalizeCategory(activeCategory)}</div>
-            <div className="text-xs text-slate-400">点击卡片进入该功能的评测页面（左侧测试，右侧出图，底部打标）。</div>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <Row gutter={[12, 12]}>
             {toolList.map((wf) => (
-              <ToolCard
-                key={wf.id}
-                wf={wf}
-                active={false}
-                metric={metrics[wf.id]}
-                onClick={() => openTool(wf)}
-              />
+              <Col key={wf.id} xs={24} sm={12} lg={8}>
+                <ToolCard wf={wf} active={false} metric={metrics[wf.id]} onClick={() => openTool(wf)} />
+              </Col>
             ))}
-            {toolList.length === 0 ? <div className="text-sm text-slate-500">该分类暂无功能。</div> : null}
-          </div>
-        </main>
-      </div>
-    </div>
+            {toolList.length === 0 ? (
+              <Col span={24}>
+                <Alert theme="info" message="该分类暂无功能。" />
+              </Col>
+            ) : null}
+          </Row>
+        </Space>
+      </Col>
+    </Row>
   );
 }
 

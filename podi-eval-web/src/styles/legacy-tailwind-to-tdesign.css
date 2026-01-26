@@ -1,0 +1,93 @@
+/* Temporary compatibility layer:
+ * Map legacy Tailwind "slate" utility colors to TDesign design tokens.
+ *
+ * Goal: keep the evaluation UI readable and TDesign-token-driven while we
+ * progressively migrate remaining Tailwind-markup blocks to full tdesign-react components.
+ *
+ * IMPORTANT: Only map to TDesign CSS variables. Do NOT introduce custom palettes here.
+ */
+
+/* Text colors */
+.text-white {
+  color: var(--td-text-color-primary) !important;
+}
+
+.text-slate-100,
+.text-slate-200,
+.text-slate-900,
+.text-slate-800,
+.text-slate-700 {
+  color: var(--td-text-color-primary) !important;
+}
+
+.text-slate-600,
+.text-slate-500,
+.text-slate-400,
+.text-slate-300 {
+  color: var(--td-text-color-secondary) !important;
+}
+
+/* Accent/link colors */
+.text-sky-400,
+.text-blue-400,
+.text-indigo-500 {
+  color: var(--td-brand-color) !important;
+}
+
+.text-emerald-200,
+.text-emerald-300,
+.text-emerald-400,
+.text-emerald-500 {
+  color: var(--td-success-color) !important;
+}
+
+.text-amber-200,
+.text-amber-300,
+.text-amber-500 {
+  color: var(--td-warning-color) !important;
+}
+
+.text-red-400,
+.text-rose-200,
+.text-rose-300,
+.text-rose-400,
+.text-rose-500 {
+  color: var(--td-error-color) !important;
+}
+
+/* Backgrounds */
+.bg-white,
+.bg-white\/80,
+.bg-slate-50 {
+  background-color: var(--td-bg-color-container) !important;
+}
+
+.bg-slate-900,
+.bg-slate-950,
+.bg-slate-900\/30,
+.bg-slate-900\/60,
+.bg-slate-900\/70,
+.bg-slate-950\/30,
+.bg-slate-950\/40,
+.bg-slate-950\/60,
+.bg-black\/20 {
+  background-color: var(--td-bg-color-secondarycontainer) !important;
+}
+
+/* Borders */
+.border-slate-200,
+.border-slate-300,
+.border-slate-500,
+.border-slate-600,
+.border-slate-700,
+.border-slate-800 {
+  border-color: var(--td-border-level-1-color) !important;
+}
+
+/* Make "glass" overlays readable (prefer removing these later). */
+.backdrop-blur,
+.backdrop-blur-md,
+.backdrop-blur-lg {
+  backdrop-filter: none !important;
+}
+
