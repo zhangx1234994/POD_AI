@@ -1,0 +1,81 @@
+/* Temporary compatibility layer:
+ * Map legacy Tailwind "slate" utility colors to TDesign design tokens.
+ *
+ * Goal: keep the UI readable and TDesign-token-driven while we progressively migrate
+ * the remaining Tailwind-markup panels to full tdesign-react components.
+ *
+ * IMPORTANT: Only map to TDesign CSS variables. Do NOT introduce custom palettes here.
+ */
+
+/* Text colors */
+.text-slate-900,
+.text-slate-800,
+.text-slate-700,
+.dark .dark\:text-slate-900,
+.dark .dark\:text-slate-800,
+.dark .dark\:text-slate-700 {
+  color: var(--td-text-color-primary) !important;
+}
+
+.text-slate-600,
+.text-slate-500,
+.dark .dark\:text-slate-600,
+.dark .dark\:text-slate-500 {
+  color: var(--td-text-color-secondary) !important;
+}
+
+.text-slate-400,
+.text-slate-300,
+.dark .dark\:text-slate-400,
+.dark .dark\:text-slate-300 {
+  color: var(--td-text-color-placeholder) !important;
+}
+
+/* Backgrounds (opacity variants) */
+.bg-white\/80,
+.bg-white,
+.dark .dark\:bg-slate-900\/40,
+.dark .dark\:bg-slate-950\/40,
+.dark .dark\:bg-slate-950\/60,
+.dark .dark\:bg-slate-950\/70,
+.bg-slate-900\/40,
+.bg-slate-950\/40,
+.bg-slate-950\/60,
+.bg-slate-950\/70,
+.bg-slate-950\/30,
+.bg-slate-50 {
+  background-color: var(--td-bg-color-container) !important;
+}
+
+/* Borders */
+.border-slate-200\/70,
+.border-slate-300,
+.border-slate-500,
+.border-slate-600,
+.border-slate-700,
+.border-slate-800,
+.border-slate-800\/60,
+.border-slate-800\/70,
+.border-slate-800\/80,
+.dark .dark\:border-slate-700,
+.dark .dark\:border-slate-800,
+.dark .dark\:border-slate-800\/60,
+.dark .dark\:border-slate-800\/70,
+.dark .dark\:border-slate-800\/80 {
+  border-color: var(--td-border-level-1-color) !important;
+}
+
+/* Dotted/dashed borders */
+.border-dashed.border-slate-700,
+.border-dashed.border-slate-800,
+.border-dashed.border-slate-800\/60 {
+  border-color: var(--td-border-level-2-color) !important;
+}
+
+/* Make "glass" overlays readable (prefer removing these later). */
+.backdrop-blur,
+.backdrop-blur-md,
+.backdrop-blur-lg {
+  backdrop-filter: none !important;
+}
+

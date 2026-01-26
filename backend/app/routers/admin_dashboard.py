@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime, time
+from datetime import UTC, datetime, time
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
@@ -20,8 +21,14 @@ router = APIRouter(prefix="/admin/dashboard", dependencies=[Depends(require_admi
 
 
 def _today_start() -> datetime:
-    now = datetime.utcnow()
-    return datetime.combine(now.date(), time.min)
+    """Return start of today in Asia/Shanghai, converted to naive UTC for DB comparisons.
+
+    Most of our timestamps are stored/treated as UTC in DB. The dashboard, however, should
+    reflect China business day boundaries.
+    """
+    now_cn = datetime.now(ZoneInfo("Asia/Shanghai"))
+    start_cn = datetime.combine(now_cn.date(), time.min, tzinfo=ZoneInfo("Asia/Shanghai"))
+    return start_cn.astimezone(UTC).replace(tzinfo=None)
 
 
 @router.get("/metrics", response_model=schemas.DashboardMetricsResponse)

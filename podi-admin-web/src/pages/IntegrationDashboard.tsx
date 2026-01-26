@@ -268,6 +268,26 @@ const formatDurationMs = (value?: number | null) => {
   if (value < 1000) return `${value}ms`;
   return `${(value / 1000).toFixed(2)}s`;
 };
+const renderStatusTag = (status?: string | null) => {
+  const normalized = (status || '').toLowerCase();
+  const theme =
+    normalized === 'succeeded' ||
+    normalized === 'success' ||
+    normalized === 'completed' ||
+    normalized === 'active' ||
+    normalized === 'on'
+      ? ('success' as const)
+      : normalized === 'failed' || normalized === 'error' || normalized === 'off'
+        ? ('danger' as const)
+        : normalized === 'running' || normalized === 'queued' || normalized === 'pending'
+          ? ('warning' as const)
+          : ('default' as const);
+  return (
+    <Tag theme={theme} variant="light">
+      {status || 'unknown'}
+    </Tag>
+  );
+};
 const getAbilityLogStatusTag = (status?: string | null) => {
   const normalized = (status || '').toLowerCase();
   if (normalized === 'success') return { theme: 'success' as const, text: 'success' };
@@ -2865,158 +2885,146 @@ const normalizeErrorMessage = (message: string): string => {
                 <MetricCard label="批次待处理" value={dashboardMetrics.totals.pending_batches} sub="未完成的 TaskBatch" />
                 <MetricCard label="失败任务" value={dashboardMetrics.totals.failed_tasks} sub="含错误待复盘" />
               </div>
-              <div className="grid gap-6 lg:grid-cols-2">
-                <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5">
-                  <h3 className="text-white text-lg font-semibold">状态分布</h3>
-                  <p className="text-sm text-slate-400 mb-4">统计所有任务的最新状态，便于评估调度堵塞点。</p>
-                  <div className="space-y-3">
-                    {dashboardMetrics.status_buckets.map((bucket) => (
-                      <div key={bucket.status}>
-                        <div className="flex items-center justify-between text-sm text-slate-300">
-                          <span>{bucket.status}</span>
-                          <span>{bucket.count}</span>
-                        </div>
-                        <div className="mt-1 h-2 rounded-full bg-slate-800">
-                          <div
-                            className="h-2 rounded-full bg-gradient-to-r from-sky-500 to-blue-400"
-                            style={{
-                              width: `${Math.min(
-                                100,
-                                (bucket.count / (dashboardMetrics.totals.total_tasks || 1)) * 100,
-                              )}%`,
-                            }}
-                          />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5">
-                  <h3 className="text-white text-lg font-semibold">今日任务</h3>
-                  <p className="text-sm text-slate-400 mb-4">UTC 当日维度数据，协助判断短期业务波动。</p>
-                  <div className="grid gap-4 sm:grid-cols-3">
-                    <MiniStat label="新建" value={dashboardMetrics.today.created} accent="from-sky-500 to-cyan-400" />
-                    <MiniStat label="完成" value={dashboardMetrics.today.completed} accent="from-emerald-500 to-lime-400" />
-                    <MiniStat label="失败" value={dashboardMetrics.today.failed} accent="from-rose-500 to-amber-500" />
-                  </div>
-                </div>
-              </div>
-              <div className="grid gap-6 lg:grid-cols-2">
-                <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-white text-lg font-semibold">最近任务</h3>
-                    <span className="text-xs text-slate-500">显示最新 8 条</span>
-                  </div>
-                  <div className="mt-3 overflow-x-auto">
-                    <table>
-                      <thead>
-                        <tr className="text-left text-xs uppercase tracking-widest text-slate-500">
-                          <th>任务</th>
-                          <th>渠道</th>
-                          <th>状态</th>
-                          <th>时间</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {dashboardMetrics.recent_tasks.map((task) => (
-                          <tr key={task.id}>
-                            <td className="text-sm text-white">
-                              <div className="font-semibold">{task.tool_action}</div>
-                              <div className="text-xs text-slate-500">{task.id}</div>
-                            </td>
-                            <td className="text-sm text-slate-300">{task.channel}</td>
-                            <td>
-                              <StatusPill status={task.status} />
-                            </td>
-                            <td className="text-xs text-slate-400">{formatDate(task.created_at)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-                <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5">
-                  <h3 className="text-white text-lg font-semibold mb-3">节点健康</h3>
-                  <div className="space-y-4">
-                    {dashboardMetrics.executor_health.map((item) => (
-                      <div
-                        key={item.id}
-                        className="rounded-2xl border border-slate-800/80 bg-slate-950/40 p-4 flex flex-col gap-1"
-                      >
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <div className="text-white font-medium">{item.name}</div>
-                            <div className="text-xs text-slate-500">{item.id}</div>
-                          </div>
-                          <StatusPill status={item.status} />
-                        </div>
-                        <div className="flex flex-wrap items-center gap-4 text-xs text-slate-400">
-                          <span>健康：{item.health_status || 'unknown'}</span>
-                          <span>最大并发：{item.max_concurrency}</span>
-                          <span>权重：{item.weight}</span>
-                        </div>
-                        <div className="text-xs text-slate-500">
-                          心跳：
-                          {item.last_heartbeat_at ? formatDate(item.last_heartbeat_at) : '暂无'}
-                        </div>
-                      </div>
-                    ))}
-                    {dashboardMetrics.executor_health.length === 0 && (
-                      <div className="text-sm text-slate-500">暂无节点数据。</div>
-                    )}
-                  </div>
-                </div>
-              </div>
+              <Row gutter={[16, 16]}>
+                <Col span={12}>
+                  <Card title="状态分布" bordered>
+                    <Typography.Text theme="secondary">统计所有任务的最新状态，便于评估调度堵塞点。</Typography.Text>
+                    <div style={{ marginTop: 12 }}>
+                      <Table
+                        rowKey="status"
+                        size="small"
+                        data={dashboardMetrics.status_buckets}
+                        columns={[
+                          { colKey: 'status', title: '状态', width: 220 },
+                          { colKey: 'count', title: '数量' },
+                        ]}
+                      />
+                    </div>
+                  </Card>
+                </Col>
+                <Col span={12}>
+                  <Card title="今日任务" bordered>
+                    <Typography.Text theme="secondary">按东八区自然日统计。</Typography.Text>
+                    <div style={{ marginTop: 12 }} className="grid gap-4 sm:grid-cols-3">
+                      <MetricCard label="新建" value={dashboardMetrics.today.created} />
+                      <MetricCard label="完成" value={dashboardMetrics.today.completed} />
+                      <MetricCard label="失败" value={dashboardMetrics.today.failed} />
+                    </div>
+                  </Card>
+                </Col>
+                <Col span={12}>
+                  <Card
+                    title={
+                      <Space align="center">
+                        <span>最近任务</span>
+                        <Typography.Text theme="secondary">最新 8 条</Typography.Text>
+                      </Space>
+                    }
+                    bordered
+                  >
+                    <Table
+                      rowKey="id"
+                      size="small"
+                      data={dashboardMetrics.recent_tasks}
+                      columns={[
+                        {
+                          colKey: 'tool_action',
+                          title: '任务',
+                          ellipsis: true,
+                          cell: ({ row }) => (
+                            <Space direction="vertical" size={2}>
+                              <Typography.Text>{row.tool_action}</Typography.Text>
+                              <Typography.Text theme="secondary">{row.id}</Typography.Text>
+                            </Space>
+                          ),
+                        },
+                        { colKey: 'channel', title: '渠道', width: 160, ellipsis: true },
+                        { colKey: 'status', title: '状态', width: 140, cell: ({ row }) => renderStatusTag(row.status) },
+                        {
+                          colKey: 'created_at',
+                          title: '时间',
+                          width: 220,
+                          cell: ({ row }) => <Typography.Text theme="secondary">{formatDateTime(row.created_at)}</Typography.Text>,
+                        },
+                      ]}
+                    />
+                  </Card>
+                </Col>
+                <Col span={12}>
+                  <Card title="节点健康" bordered>
+                    <Table
+                      rowKey="id"
+                      size="small"
+                      data={dashboardMetrics.executor_health}
+                      columns={[
+                        {
+                          colKey: 'name',
+                          title: '节点',
+                          ellipsis: true,
+                          cell: ({ row }) => (
+                            <Space direction="vertical" size={2}>
+                              <Typography.Text>{row.name}</Typography.Text>
+                              <Typography.Text theme="secondary">{row.id}</Typography.Text>
+                            </Space>
+                          ),
+                        },
+                        { colKey: 'status', title: '状态', width: 120, cell: ({ row }) => renderStatusTag(row.status) },
+                        { colKey: 'health_status', title: '健康', width: 120, ellipsis: true },
+                        { colKey: 'max_concurrency', title: '并发', width: 80 },
+                        { colKey: 'weight', title: '权重', width: 80 },
+                        {
+                          colKey: 'last_heartbeat_at',
+                          title: '心跳',
+                          width: 220,
+                          cell: ({ row }) =>
+                            row.last_heartbeat_at ? (
+                              <Typography.Text theme="secondary">{formatDateTime(row.last_heartbeat_at)}</Typography.Text>
+                            ) : (
+                              <Typography.Text theme="secondary">—</Typography.Text>
+                            ),
+                        },
+                      ]}
+                      empty={<Typography.Text theme="secondary">暂无节点数据。</Typography.Text>}
+                    />
+                  </Card>
+                </Col>
+              </Row>
             </Section>
           )}
 
           {activeNav === 'executors' && (
       <Section id="executors" title="执行节点" description="维护执行器的接入信息、并发能力与心跳状态。">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div className="text-xs text-slate-600 dark:text-slate-400">
+        <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+          <Typography.Text theme="secondary">
             同一能力可配置多条线路（多中转站 / 多 ComfyUI 服务器），后续调度会基于优先级与健康度自动切换。
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
+          </Typography.Text>
+          <Space>
+            <Button
+              size="small"
+              variant={executorsView === 'channels' ? 'base' : 'outline'}
               onClick={() => setExecutorsView('channels')}
-              className={`rounded-full border px-3 py-1 text-xs ${
-                executorsView === 'channels'
-                  ? 'border-sky-500/60 bg-sky-500/10 text-slate-900 dark:text-white'
-                  : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200 dark:hover:bg-slate-900/60'
-              }`}
             >
               渠道视图
-            </button>
-            <button
-              type="button"
-              onClick={() => setExecutorsView('list')}
-              className={`rounded-full border px-3 py-1 text-xs ${
-                executorsView === 'list'
-                  ? 'border-sky-500/60 bg-sky-500/10 text-slate-900 dark:text-white'
-                  : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200 dark:hover:bg-slate-900/60'
-              }`}
-            >
+            </Button>
+            <Button size="small" variant={executorsView === 'list' ? 'base' : 'outline'} onClick={() => setExecutorsView('list')}>
               列表/编辑
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              size="small"
+              variant="outline"
               onClick={() => refreshExecutorTraffic()}
-              className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200 dark:hover:bg-slate-900/60"
-              disabled={executorTrafficLoading}
+              loading={executorTrafficLoading}
               title="刷新近 24h 调用指标（成功率/失败/耗时）"
             >
-              {executorTrafficLoading ? '刷新中…' : '刷新指标'}
-            </button>
-          </div>
-        </div>
+              刷新指标
+            </Button>
+          </Space>
+        </Space>
 
         {executorsView === 'channels' ? (
           <div className="space-y-4">
             {executorTrafficError && (
-              <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700 dark:border-rose-900/40 dark:bg-rose-900/20 dark:text-rose-200">
-                {executorTrafficError}
-              </div>
+              <Alert theme="error" message={executorTrafficError} />
             )}
             {(() => {
               const groups = new Map<string, Executor[]>();
@@ -4785,45 +4793,25 @@ function Section({
 }
 
 function StatusPill({ status }: { status: string }) {
-  const className =
-    status === 'active' || status === 'ON'
-      ? 'from-emerald-400 to-emerald-600 text-emerald-100'
-      : status === 'completed'
-        ? 'from-sky-400 to-indigo-500 text-sky-100'
-        : status === 'failed' || status === 'OFF'
-          ? 'from-rose-500 to-amber-500 text-rose-100'
-          : 'from-slate-600 to-slate-700 text-slate-100';
-  return (
-    <span className={`inline-flex rounded-full bg-gradient-to-r ${className} px-3 py-1 text-xs font-semibold`}>
-      {status}
-    </span>
-  );
-}
-
-function MiniStat({ label, value, accent }: { label: string; value: number; accent: string }) {
-  return (
-    <div className="rounded-2xl border border-white/10 bg-slate-950/40 p-4">
-      <div className="text-xs uppercase tracking-[0.4em] text-slate-500">{label}</div>
-      <div className={`mt-1 text-2xl font-semibold text-white bg-gradient-to-r bg-clip-text text-transparent ${accent}`}>
-        {value}
-      </div>
-    </div>
-  );
+  return renderStatusTag(status);
 }
 
 function InfoCard({ title, items }: { title: string; items: { label: string; value: string }[] }) {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5">
-      <h3 className="text-white text-lg font-semibold mb-3">{title}</h3>
-      <div className="space-y-2 text-sm">
+    <Card title={title} bordered>
+      <Space direction="vertical" size="small" style={{ width: '100%' }}>
         {items.map((item) => (
-          <div key={item.label} className="flex justify-between text-slate-300">
-            <span className="text-slate-400">{item.label}</span>
-            <span className="text-right">{item.value}</span>
-          </div>
+          <Row key={item.label} gutter={12} align="middle">
+            <Col span={10}>
+              <Typography.Text theme="secondary">{item.label}</Typography.Text>
+            </Col>
+            <Col span={14}>
+              <Typography.Text>{item.value || '—'}</Typography.Text>
+            </Col>
+          </Row>
         ))}
-      </div>
-    </div>
+      </Space>
+    </Card>
   );
 }
 
@@ -4841,14 +4829,14 @@ function previewPayload(payload?: Record<string, unknown> | null) {
 
 function StepTitle({ index, label, hint }: { index: number; label: string; hint?: string }) {
   return (
-    <div className="flex items-center justify-between">
-      <div className="flex items-center gap-2 text-white">
-        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-800 text-xs font-semibold text-slate-100">
+    <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+      <Space align="center" size="small">
+        <Tag theme="primary" variant="light">
           {index}
-        </span>
-        <span className="text-sm font-semibold">{label}</span>
-      </div>
-      {hint && <span className="text-xs text-slate-500">{hint}</span>}
-    </div>
+        </Tag>
+        <Typography.Text strong>{label}</Typography.Text>
+      </Space>
+      {hint ? <Typography.Text theme="secondary">{hint}</Typography.Text> : null}
+    </Space>
   );
 }
