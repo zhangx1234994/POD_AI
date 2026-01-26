@@ -1161,83 +1161,161 @@ export function App() {
             <Card bordered title="生成结果">
               <Space direction="vertical" size="large" style={{ width: '100%' }}>
                 <Typography.Text theme="secondary">点击图片可放大预览；下方历史可筛选/打标。</Typography.Text>
-                <div className="grid gap-3 lg:grid-cols-3">
-                  {(() => {
-                    const latest = toolRuns[0] || null;
-                    if (!latest) return <Alert theme="info" message="暂无记录（先在左侧运行一次）。" />;
-                    if (latest.status === 'queued' || latest.status === 'running') {
-                      const rawCount = Number((latest.parameters_json as any)?.count);
-                      const count = Number.isFinite(rawCount) && rawCount > 1 ? Math.min(Math.max(rawCount, 2), 12) : 1;
-                      const imgs = filterImageUrls(latest.result_image_urls_json);
-                      const remain = Math.max(0, count - imgs.length);
-                      return (
-                        <>
-                          {imgs.map((img, idx) => (
+                {(() => {
+                  const latest = toolRuns[0] || null;
+                  const status = String(latest?.status || '');
+                  const statusTheme = status === 'failed' ? 'danger' : status === 'succeeded' ? 'success' : 'warning';
+                  const rawCount = Number((latest?.parameters_json as any)?.count);
+                  const expectedCount =
+                    Number.isFinite(rawCount) && rawCount > 1 ? Math.min(Math.max(rawCount, 2), 12) : latest ? 1 : 0;
+                  const imgs = latest ? filterImageUrls(latest.result_image_urls_json) : [];
+                  const remain = latest ? Math.max(0, expectedCount - imgs.length) : 0;
+
+                  return (
+                    <Space direction="vertical" size="large" style={{ width: '100%' }}>
+                      <Card bordered title="当前运行状态">
+                        {!latest ? (
+                          <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                            <Alert theme="info" message="暂无记录（先在左侧运行一次）。" />
+                            <Typography.Text theme="secondary">
+                              提示：多数工作流 50~80s 出图；如长时间无输出，可点右上 debug_url 排查。
+                            </Typography.Text>
+                          </Space>
+                        ) : (
+                          <Row gutter={[12, 12]}>
+                            <Col xs={24} md={8}>
+                              <Space direction="vertical" size={2}>
+                                <Typography.Text theme="secondary">状态</Typography.Text>
+                                <Tag theme={statusTheme as any} variant="light">
+                                  {status || '—'}
+                                </Tag>
+                              </Space>
+                            </Col>
+                            <Col xs={24} md={8}>
+                              <Space direction="vertical" size={2}>
+                                <Typography.Text theme="secondary">run</Typography.Text>
+                                <Typography.Text style={{ fontFamily: 'monospace' }} ellipsis>
+                                  {latest.id}
+                                </Typography.Text>
+                              </Space>
+                            </Col>
+                            <Col xs={24} md={8}>
+                              <Space direction="vertical" size={2}>
+                                <Typography.Text theme="secondary">预期出图</Typography.Text>
+                                <Typography.Text>{expectedCount || '—'}</Typography.Text>
+                              </Space>
+                            </Col>
+                            <Col xs={24} md={8}>
+                              <Space direction="vertical" size={2}>
+                                <Typography.Text theme="secondary">已完成</Typography.Text>
+                                <Typography.Text>{imgs.length}</Typography.Text>
+                              </Space>
+                            </Col>
+                            <Col xs={24} md={8}>
+                              <Space direction="vertical" size={2}>
+                                <Typography.Text theme="secondary">创建时间</Typography.Text>
+                                <Typography.Text>{fmtTime(latest.created_at)}</Typography.Text>
+                              </Space>
+                            </Col>
+                            <Col xs={24} md={8}>
+                              <Space direction="vertical" size={2}>
+                                <Typography.Text theme="secondary">操作</Typography.Text>
+                                <Space>
+                                  {latest.coze_debug_url ? (
+                                    <Button
+                                      size="small"
+                                      variant="outline"
+                                      onClick={() => window.open(latest.coze_debug_url!, '_blank', 'noreferrer')}
+                                    >
+                                      debug_url
+                                    </Button>
+                                  ) : null}
+                                  {latest.error_message ? (
+                                    <Button
+                                      size="small"
+                                      variant="outline"
+                                      theme="danger"
+                                      onClick={() => pushNotice('error', latest.error_message || '生成失败')}
+                                    >
+                                      查看错误
+                                    </Button>
+                                  ) : null}
+                                </Space>
+                              </Space>
+                            </Col>
+                            {latest.error_message ? (
+                              <Col span={24}>
+                                <Alert theme="error" message={latest.error_message} />
+                              </Col>
+                            ) : null}
+                          </Row>
+                        )}
+                      </Card>
+
+                      <div className="grid gap-3 lg:grid-cols-3">
+                        {!latest ? (
+                          Array.from({ length: 6 }).map((_, idx) => (
+                            <SkeletonTile key={`empty-sk-${idx}`} title="等待生成…" subtitle="运行后自动刷新结果" />
+                          ))
+                        ) : status === 'queued' || status === 'running' ? (
+                          <>
+                            {imgs.map((img, idx) => (
+                              <ImageTile
+                                key={`latest-${latest.id}-${idx}`}
+                                url={img}
+                                title={`最新结果 #${idx + 1}`}
+                                onOpen={() => setLightbox({ url: img, title: `最新结果 #${idx + 1}` })}
+                              />
+                            ))}
+                            {Array.from({ length: remain }).map((_, idx) => (
+                              <SkeletonTile
+                                key={`sk-${latest.id}-${idx}`}
+                                title={`生成中… #${imgs.length + idx + 1}`}
+                                subtitle={`run: ${latest.id}`}
+                              />
+                            ))}
+                          </>
+                        ) : status === 'failed' ? (
+                          <Alert theme="error" message={`生成失败（run: ${latest.id}）：${latest.error_message || '—'}`} />
+                        ) : imgs.length === 0 ? (
+                          <Card bordered title="输出">
+                            {(() => {
+                              const jsonPreview = formatJsonPreview((latest as any).result_output_json, 2400);
+                              return jsonPreview ? (
+                                <pre
+                                  style={{
+                                    maxHeight: 420,
+                                    overflow: 'auto',
+                                    border: '1px solid var(--td-border-level-1-color)',
+                                    background: 'var(--td-bg-color-secondarycontainer)',
+                                    borderRadius: 8,
+                                    padding: 12,
+                                    fontFamily: 'monospace',
+                                    fontSize: 12,
+                                    whiteSpace: 'pre-wrap',
+                                  }}
+                                >
+                                  {jsonPreview}
+                                </pre>
+                              ) : (
+                                <Typography.Text theme="secondary">该次运行无图片输出。</Typography.Text>
+                              );
+                            })()}
+                          </Card>
+                        ) : (
+                          imgs.map((img, idx) => (
                             <ImageTile
-                              key={`latest-${latest.id}-${idx}`}
+                              key={`latest-${idx}`}
                               url={img}
                               title={`最新结果 #${idx + 1}`}
                               onOpen={() => setLightbox({ url: img, title: `最新结果 #${idx + 1}` })}
                             />
-                          ))}
-                          {Array.from({ length: remain }).map((_, idx) => (
-                            <SkeletonTile key={`sk-${latest.id}-${idx}`} title={`生成中… #${imgs.length + idx + 1}`} subtitle={`run: ${latest.id}`} />
-                          ))}
-                        </>
-                      );
-                    }
-                    if (latest.status === 'failed') {
-                      return (
-                        <Alert
-                          theme="error"
-                          message={`生成失败（run: ${latest.id}）：${latest.error_message || '—'}`}
-                        />
-                      );
-                    }
-                    const imgs = filterImageUrls(latest.result_image_urls_json);
-                    if (!imgs.length) {
-                      const jsonPreview = formatJsonPreview((latest as any).result_output_json, 2400);
-                      return (
-                        <Card bordered title="输出">
-                          {jsonPreview ? (
-                            <pre
-                              style={{
-                                maxHeight: 420,
-                                overflow: 'auto',
-                                border: '1px solid var(--td-border-level-1-color)',
-                                background: 'var(--td-bg-color-secondarycontainer)',
-                                borderRadius: 8,
-                                padding: 12,
-                                fontFamily: 'monospace',
-                                fontSize: 12,
-                                whiteSpace: 'pre-wrap',
-                              }}
-                            >
-                              {jsonPreview}
-                            </pre>
-                          ) : (
-                            <Typography.Text theme="secondary">该次运行无图片输出。</Typography.Text>
-                          )}
-                          {latest.coze_debug_url ? (
-                            <div style={{ marginTop: 8 }}>
-                              <Button variant="outline" size="small" onClick={() => window.open(latest.coze_debug_url!, '_blank', 'noreferrer')}>
-                                打开 Coze debug_url
-                              </Button>
-                            </div>
-                          ) : null}
-                        </Card>
-                      );
-                    }
-                    return imgs.map((img, idx) => (
-                      <ImageTile
-                        key={`latest-${idx}`}
-                        url={img}
-                        title={`最新结果 #${idx + 1}`}
-                        onOpen={() => setLightbox({ url: img, title: `最新结果 #${idx + 1}` })}
-                      />
-                    ));
-                  })()}
-                </div>
+                          ))
+                        )}
+                      </div>
+                    </Space>
+                  );
+                })()}
               </Space>
             </Card>
           </Col>
