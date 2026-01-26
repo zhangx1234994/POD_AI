@@ -10,6 +10,7 @@ import {
   Input,
   Layout,
   Menu,
+  Rate,
   Row,
   Select,
   Space,
@@ -1001,237 +1002,299 @@ export function App() {
     const metric = metrics[selectedTool.id];
     const doc = buildCozeDoc(selectedTool, formUrl.trim());
     return shell(
-        <div className="mx-auto max-w-[1400px] px-6 py-6">
-          <div className="mb-4 flex items-start justify-between gap-4">
-            <div>
-              <button
-                type="button"
-                onClick={() => setActiveView('home')}
-                className="mb-2 inline-flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-200 hover:border-slate-700"
-              >
-                ← 返回功能列表
-              </button>
-              <div className="text-xl font-semibold">{selectedTool.name}</div>
-              <div className="mt-1 text-xs text-slate-400">{selectedTool.notes || '—'}</div>
-              <div className="mt-2 flex items-center gap-3 text-xs text-slate-400">
-                <span className="rounded-full bg-slate-800/60 px-2 py-0.5">{normalizeCategory(selectedTool.category)}</span>
-                <span className="rounded-full bg-slate-800/60 px-2 py-0.5">{selectedTool.version}</span>
-                {metric?.avgRating ? (
-                  <span className="text-amber-200">综合评分：{metric.avgRating.toFixed(2)} / 5（{metric.ratingCount}票）</span>
-                ) : (
-                  <span className="text-slate-500">综合评分：暂无</span>
-                )}
-              </div>
-            </div>
-            <div className="text-right text-xs text-slate-500">
-              <div>workflow_id</div>
-              <div className="font-mono text-slate-300">{selectedTool.workflow_id}</div>
-            </div>
-          </div>
+      <Space direction="vertical" size="large" style={{ width: '100%' }}>
+        <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setActiveView('home');
+              setSelectedTool(null);
+            }}
+          >
+            返回功能列表
+          </Button>
+          <Typography.Text theme="secondary" style={{ fontFamily: 'monospace' }}>
+            workflow_id: {selectedTool.workflow_id}
+          </Typography.Text>
+        </Space>
 
-          <div className="grid gap-6 lg:grid-cols-[520px_1fr]">
-            <div className="rounded-3xl border border-slate-800 bg-slate-900/30 p-5">
-              <div className="text-sm font-semibold">左侧：测试参数</div>
-              <div className="mt-4">
-                <label className="block">
-                  <div className="text-xs text-slate-300">
-                    图片 URL <span className="text-rose-400">*</span>
-                  </div>
-                  <div className="mt-1">
-                    <Space align="center" style={{ width: '100%' }}>
-                      <div style={{ flex: 1 }}>
-                        <Input
-                          value={formUrl}
-                          onChange={(v) => setFormUrl(String(v))}
-                          placeholder="支持粘贴 URL 或上传本地图片"
-                          clearable
-                        />
-                      </div>
-                      <Button variant="outline" loading={uploading} onClick={() => uploadInputRef.current?.click()}>
-                        上传
-                      </Button>
-                      <input
-                        ref={uploadInputRef}
-                        type="file"
-                        accept="image/*"
-                        style={{ display: 'none' }}
-                        disabled={uploading}
-                        onChange={async (e) => {
-                          const file = e.target.files?.[0];
-                          if (!file) return;
-                          setUploading(true);
+        <Card bordered>
+          <Space align="start" style={{ justifyContent: 'space-between', width: '100%' }}>
+            <Space direction="vertical" size={4} style={{ minWidth: 0 }}>
+              <Typography.Title level="h4" style={{ margin: 0 }}>
+                {selectedTool.name}
+              </Typography.Title>
+              <Typography.Text theme="secondary">{selectedTool.notes || '—'}</Typography.Text>
+              <Space breakLine>
+                <Tag variant="light">{normalizeCategory(selectedTool.category)}</Tag>
+                <Tag variant="light">{selectedTool.version}</Tag>
+                {metric?.avgRating ? (
+                  <Tag theme="warning" variant="light">
+                    综合评分：{metric.avgRating.toFixed(2)} / 5（{metric.ratingCount}票）
+                  </Tag>
+                ) : (
+                  <Tag variant="light">综合评分：暂无</Tag>
+                )}
+              </Space>
+            </Space>
+          </Space>
+        </Card>
+
+        <Row gutter={[12, 12]}>
+          <Col xs={24} lg={9}>
+            <Card bordered title="测试参数">
+              <Space direction="vertical" size="large" style={{ width: '100%' }}>
+                <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                  <Typography.Text>
+                    图片 URL <Typography.Text theme="error">*</Typography.Text>
+                  </Typography.Text>
+                  <Space align="center" style={{ width: '100%' }}>
+                    <div style={{ flex: 1 }}>
+                      <Input
+                        value={formUrl}
+                        onChange={(v) => setFormUrl(String(v))}
+                        placeholder="支持粘贴 URL 或上传本地图片"
+                        clearable
+                      />
+                    </div>
+                    <Button variant="outline" loading={uploading} onClick={() => uploadInputRef.current?.click()}>
+                      上传
+                    </Button>
+                    <input
+                      ref={uploadInputRef}
+                      type="file"
+                      accept="image/*"
+                      style={{ display: 'none' }}
+                      disabled={uploading}
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        setUploading(true);
+                        try {
+                          const res = await evalApi.uploadImage(file);
+                          setFormUrl(res.url);
+                        } catch (err) {
+                          console.error(err);
+                          pushNotice('error', String((err as any)?.message || err));
+                        } finally {
+                          setUploading(false);
+                          e.target.value = '';
+                        }
+                      }}
+                    />
+                  </Space>
+                </Space>
+
+                {formUrl.trim() ? (
+                  <Card bordered title="原图预览">
+                    <img
+                      src={formUrl.trim()}
+                      alt="input"
+                      style={{ height: 240, width: '100%', objectFit: 'contain', cursor: 'pointer' }}
+                      onClick={() => setLightbox({ url: formUrl.trim(), title: '原图' })}
+                    />
+                  </Card>
+                ) : null}
+
+                <Space direction="vertical" size="large" style={{ width: '100%' }}>
+                  {toolFields
+                    .filter((f) => f.name !== 'url')
+                    .map((f) => (
+                      <ParamField
+                        key={f.name}
+                        field={f}
+                        value={formParams[f.name] ?? ''}
+                        onChange={(v) => setFormParams((p) => ({ ...p, [f.name]: v }))}
+                      />
+                    ))}
+                </Space>
+
+                <Space style={{ justifyContent: 'flex-end', width: '100%' }}>
+                  <Button theme="primary" loading={isRunning} disabled={!formUrl.trim()} onClick={() => void runTool()}>
+                    开始生成
+                  </Button>
+                </Space>
+
+                <Card
+                  bordered
+                  title={
+                    <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                      <Typography.Text strong>业务接入文档（Coze OpenAPI）</Typography.Text>
+                      <Button
+                        size="small"
+                        variant="outline"
+                        onClick={async () => {
                           try {
-                            const res = await evalApi.uploadImage(file);
-                            setFormUrl(res.url);
-                          } catch (err) {
-                            console.error(err);
-                            pushNotice('error', String((err as any)?.message || err));
-                          } finally {
-                            setUploading(false);
-                            e.target.value = '';
+                            await navigator.clipboard.writeText(doc);
+                            pushNotice('success', '已复制到剪贴板');
+                          } catch {
+                            pushNotice('error', '复制失败（浏览器不支持或权限不足）');
                           }
                         }}
-                      />
+                      >
+                        复制
+                      </Button>
                     </Space>
-                  </div>
-                </label>
-                {formUrl.trim() ? (
-                  <div className="mt-3">
-                    <div className="text-xs text-slate-500 mb-1">原图预览</div>
-                    <img src={formUrl.trim()} alt="input" className="h-56 w-full rounded-2xl border border-slate-800 bg-slate-950/30 object-contain" />
-                  </div>
-                ) : null}
-              </div>
-
-              <div className="mt-4 space-y-3">
-                {toolFields
-                  .filter((f) => f.name !== 'url')
-                  .map((f) => (
-                    <ParamField key={f.name} field={f} value={formParams[f.name] ?? ''} onChange={(v) => setFormParams((p) => ({ ...p, [f.name]: v }))} />
-                  ))}
-              </div>
-
-              <div className="mt-4 flex justify-end">
-                <Button theme="primary" loading={isRunning} disabled={!formUrl.trim()} onClick={() => void runTool()}>
-                  开始生成
-                </Button>
-              </div>
-
-              <div className="mt-5 rounded-2xl border border-slate-800 bg-slate-950/40 p-3">
-                <div className="text-xs text-slate-400 mb-2">业务接入文档（Coze OpenAPI）</div>
-                <pre className="max-h-48 overflow-auto rounded-xl bg-slate-950 p-3 font-mono text-[11px] text-slate-200">{doc}</pre>
-              </div>
-            </div>
-
-            <div className="rounded-3xl border border-slate-800 bg-slate-900/30 p-5">
-              <div className="text-sm font-semibold">右侧：生成结果</div>
-              <div className="mt-3 text-xs text-slate-400">点击图片可在页面内放大预览；下方历史可筛选/打标。</div>
-              <div className="mt-4 grid gap-3 lg:grid-cols-3">
-                {(() => {
-                  const latest = toolRuns[0] || null; // runs are loaded per-tool (ordered desc by created_at)
-                  if (!latest) {
-                    return <div className="text-sm text-slate-500">暂无记录（先在左侧运行一次）。</div>;
                   }
-                  if (latest.status === 'queued' || latest.status === 'running') {
-                    const rawCount = Number((latest.parameters_json as any)?.count);
-                    const count = Number.isFinite(rawCount) && rawCount > 1 ? Math.min(Math.max(rawCount, 2), 12) : 1;
+                >
+                  <pre
+                    style={{
+                      maxHeight: 240,
+                      overflow: 'auto',
+                      border: '1px solid var(--td-border-level-1-color)',
+                      background: 'var(--td-bg-color-secondarycontainer)',
+                      borderRadius: 8,
+                      padding: 12,
+                      fontFamily: 'monospace',
+                      fontSize: 12,
+                      whiteSpace: 'pre',
+                    }}
+                  >
+                    {doc}
+                  </pre>
+                </Card>
+              </Space>
+            </Card>
+          </Col>
+
+          <Col xs={24} lg={15}>
+            <Card bordered title="生成结果">
+              <Space direction="vertical" size="large" style={{ width: '100%' }}>
+                <Typography.Text theme="secondary">点击图片可放大预览；下方历史可筛选/打标。</Typography.Text>
+                <div className="grid gap-3 lg:grid-cols-3">
+                  {(() => {
+                    const latest = toolRuns[0] || null;
+                    if (!latest) return <Alert theme="info" message="暂无记录（先在左侧运行一次）。" />;
+                    if (latest.status === 'queued' || latest.status === 'running') {
+                      const rawCount = Number((latest.parameters_json as any)?.count);
+                      const count = Number.isFinite(rawCount) && rawCount > 1 ? Math.min(Math.max(rawCount, 2), 12) : 1;
+                      const imgs = filterImageUrls(latest.result_image_urls_json);
+                      const remain = Math.max(0, count - imgs.length);
+                      return (
+                        <>
+                          {imgs.map((img, idx) => (
+                            <ImageTile
+                              key={`latest-${latest.id}-${idx}`}
+                              url={img}
+                              title={`最新结果 #${idx + 1}`}
+                              onOpen={() => setLightbox({ url: img, title: `最新结果 #${idx + 1}` })}
+                            />
+                          ))}
+                          {Array.from({ length: remain }).map((_, idx) => (
+                            <SkeletonTile key={`sk-${latest.id}-${idx}`} title={`生成中… #${imgs.length + idx + 1}`} subtitle={`run: ${latest.id}`} />
+                          ))}
+                        </>
+                      );
+                    }
+                    if (latest.status === 'failed') {
+                      return (
+                        <Alert
+                          theme="error"
+                          message={`生成失败（run: ${latest.id}）：${latest.error_message || '—'}`}
+                        />
+                      );
+                    }
                     const imgs = filterImageUrls(latest.result_image_urls_json);
-                    const remain = Math.max(0, count - imgs.length);
-                    return (
-                      <>
-                        {imgs.map((img, idx) => (
-                          <ImageTile
-                            key={`latest-${latest.id}-${idx}`}
-                            url={img}
-                            title={`最新结果 #${idx + 1}`}
-                            onOpen={() => setLightbox({ url: img, title: `最新结果 #${idx + 1}` })}
-                          />
-                        ))}
-                        {Array.from({ length: remain }).map((_, idx) => (
-                          <SkeletonTile key={`sk-${latest.id}-${idx}`} title={`生成中… #${imgs.length + idx + 1}`} subtitle={`run: ${latest.id}`} />
-                        ))}
-                      </>
-                    );
-                  }
-                  if (latest.status === 'failed') {
-                    return (
-                      <div className="rounded-2xl border border-slate-800 bg-slate-950/30 p-4 text-sm text-rose-300">
-                        生成失败
-                        {latest.error_message ? <div className="mt-2 text-xs text-rose-400">{latest.error_message}</div> : null}
-                        <div className="mt-2 text-xs text-slate-500">run: {latest.id}</div>
-                      </div>
-                    );
-                  }
-                  const imgs = filterImageUrls(latest.result_image_urls_json);
-                  if (!imgs.length) {
-                    const jsonPreview = formatJsonPreview((latest as any).result_output_json, 2400);
-                    return (
-                      <div className="rounded-2xl border border-slate-800 bg-slate-950/30 p-4 text-sm text-slate-300">
-                        {jsonPreview ? (
-                          <>
-                            <div className="font-semibold">输出 JSON</div>
-                            <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-[12px] text-slate-100">
+                    if (!imgs.length) {
+                      const jsonPreview = formatJsonPreview((latest as any).result_output_json, 2400);
+                      return (
+                        <Card bordered title="输出">
+                          {jsonPreview ? (
+                            <pre
+                              style={{
+                                maxHeight: 420,
+                                overflow: 'auto',
+                                border: '1px solid var(--td-border-level-1-color)',
+                                background: 'var(--td-bg-color-secondarycontainer)',
+                                borderRadius: 8,
+                                padding: 12,
+                                fontFamily: 'monospace',
+                                fontSize: 12,
+                                whiteSpace: 'pre-wrap',
+                              }}
+                            >
                               {jsonPreview}
                             </pre>
-                          </>
-                        ) : (
-                          <>该次运行无图片输出。</>
-                        )}
-                        {latest.coze_debug_url ? (
-                          <div className="mt-2 text-xs">
-                            <a className="text-sky-400 underline" href={latest.coze_debug_url} target="_blank" rel="noreferrer">
-                              打开 Coze debug_url
-                            </a>
-                          </div>
-                        ) : null}
-                      </div>
-                    );
-                  }
-                  return imgs.map((img, idx) => (
-                    <ImageTile
-                      key={`latest-${idx}`}
-                      url={img}
-                      title={`最新结果 #${idx + 1}`}
-                      onOpen={() => setLightbox({ url: img, title: `最新结果 #${idx + 1}` })}
-                    />
-                  ));
-                })()}
-              </div>
-
-              <div className="mt-6 border-t border-slate-800 pt-5">
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-                  <div>
-                    <div className="text-sm font-semibold">历史记录（打标区）</div>
-                    <div className="text-xs text-slate-500">每条记录包含原图 + 结果图；支持筛选与备注。</div>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Select
-                      value={filterStatus}
-                      onChange={(v) => setFilterStatus(String(v))}
-                      options={[
-                        { label: '全部状态', value: 'all' },
-                        { label: 'queued', value: 'queued' },
-                        { label: 'running', value: 'running' },
-                        { label: 'succeeded', value: 'succeeded' },
-                        { label: 'failed', value: 'failed' },
-                      ]}
-                    />
-                    <Select
-                      value={filterRating}
-                      onChange={(v) => setFilterRating(String(v))}
-                      options={[
-                        { label: '全部评分', value: 'all' },
-                        ...[1, 2, 3, 4, 5].map((n) => ({ label: String(n), value: String(n) })),
-                      ]}
-                    />
-                    <Space align="center" size="small">
-                      <Switch value={filterUnrated} onChange={(v) => setFilterUnrated(Boolean(v))} />
-                      <Typography.Text theme="secondary">未打分</Typography.Text>
-                    </Space>
-                    <Input
-                      value={search}
-                      onChange={(v) => setSearch(String(v))}
-                      placeholder="搜索备注/错误…"
-                      clearable
-                    />
-                  </div>
+                          ) : (
+                            <Typography.Text theme="secondary">该次运行无图片输出。</Typography.Text>
+                          )}
+                          {latest.coze_debug_url ? (
+                            <div style={{ marginTop: 8 }}>
+                              <Button variant="outline" size="small" onClick={() => window.open(latest.coze_debug_url!, '_blank', 'noreferrer')}>
+                                打开 Coze debug_url
+                              </Button>
+                            </div>
+                          ) : null}
+                        </Card>
+                      );
+                    }
+                    return imgs.map((img, idx) => (
+                      <ImageTile
+                        key={`latest-${idx}`}
+                        url={img}
+                        title={`最新结果 #${idx + 1}`}
+                        onOpen={() => setLightbox({ url: img, title: `最新结果 #${idx + 1}` })}
+                      />
+                    ));
+                  })()}
                 </div>
+              </Space>
+            </Card>
+          </Col>
+        </Row>
 
-                <div className="mt-4 space-y-4">
-                  {filteredRuns.map((run) => (
-                    <HistoryRow
-                      key={run.id}
-                      run={run}
-                      onAnnotate={annotate}
-                      onOpenImage={(url, title) => setLightbox({ url, title })}
-                    />
-                  ))}
-                  {filteredRuns.length === 0 ? <div className="text-sm text-slate-500">暂无记录。</div> : null}
+        <Card
+          bordered
+          title={
+            <Space align="center" breakLine style={{ justifyContent: 'space-between', width: '100%' }}>
+              <div>
+                <Typography.Text strong>历史记录（打标区）</Typography.Text>
+                <div>
+                  <Typography.Text theme="secondary">每条记录包含原图 + 结果图；支持筛选与备注。</Typography.Text>
                 </div>
               </div>
-            </div>
-          </div>
-        </div>
+              <Space breakLine>
+                <Select
+                  value={filterStatus}
+                  onChange={(v) => setFilterStatus(String(v))}
+                  options={[
+                    { label: '全部状态', value: 'all' },
+                    { label: 'queued', value: 'queued' },
+                    { label: 'running', value: 'running' },
+                    { label: 'succeeded', value: 'succeeded' },
+                    { label: 'failed', value: 'failed' },
+                  ]}
+                />
+                <Select
+                  value={filterRating}
+                  onChange={(v) => setFilterRating(String(v))}
+                  options={[
+                    { label: '全部评分', value: 'all' },
+                    ...[1, 2, 3, 4, 5].map((n) => ({ label: String(n), value: String(n) })),
+                  ]}
+                />
+                <Space align="center" size="small">
+                  <Switch value={filterUnrated} onChange={(v) => setFilterUnrated(Boolean(v))} />
+                  <Typography.Text theme="secondary">未打分</Typography.Text>
+                </Space>
+                <Input value={search} onChange={(v) => setSearch(String(v))} placeholder="搜索备注/错误…" clearable />
+              </Space>
+            </Space>
+          }
+        >
+          <Space direction="vertical" size="large" style={{ width: '100%' }}>
+            {filteredRuns.map((run) => (
+              <HistoryRow
+                key={run.id}
+                run={run}
+                onAnnotate={annotate}
+                onOpenImage={(url, title) => setLightbox({ url, title })}
+              />
+            ))}
+            {filteredRuns.length === 0 ? <Typography.Text theme="secondary">暂无记录。</Typography.Text> : null}
+          </Space>
+        </Card>
+      </Space>,
     );
   }
 
@@ -1296,178 +1359,159 @@ function HistoryRow({
   }, [run.latest_annotation?.created_at]);
 
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
-      <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-        <div className="min-w-0">
-          <div className="text-xs text-slate-500">Run</div>
-          <div className="text-sm font-semibold text-slate-100 break-all">{run.id}</div>
-          <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-slate-400">
-            <span className="rounded-full bg-slate-800/60 px-2 py-0.5">{run.status}</span>
-            <span>耗时：{formatDuration(run.duration_ms)}</span>
-            {run.podi_task_id ? <span className="font-mono">task: {run.podi_task_id}</span> : null}
-            {run.coze_debug_url ? (
-              <a className="text-sky-400 underline" href={run.coze_debug_url} target="_blank" rel="noreferrer">
-                debug_url
-              </a>
-            ) : null}
-            <span className="text-slate-500">{fmtTime(run.created_at)}</span>
-          </div>
-          {run.error_message ? <div className="mt-2 text-xs text-rose-400">{run.error_message}</div> : null}
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1">
-            {[1, 2, 3, 4, 5].map((n) => {
-              const active = rating === n;
-              return (
-                <button
-                  key={`${run.id}-r-${n}`}
-                  type="button"
-                  onClick={async () => {
-                    if (savingRating || savingComment) return;
-                    setRating(n);
-                    setSavingRating(true);
-                    setRowError('');
-                    try {
-                      // Save rating immediately. Keep last saved comment to avoid clearing it.
-                      await onAnnotate(run.id, n, savedComment);
-                      setLastSavedAt(new Date().toISOString());
-                    } catch (err) {
-                      console.error(err);
-                      setRowError(String((err as any)?.message || err));
-                    } finally {
-                      setSavingRating(false);
-                    }
-                  }}
-                  className={`h-9 w-9 rounded-xl border text-sm transition ${
-                    active
-                      ? 'border-amber-400/80 bg-amber-400/25 text-amber-100 shadow-[0_0_0_2px_rgba(251,191,36,0.12)]'
-                      : 'border-slate-800 bg-slate-950 text-slate-200 hover:border-slate-700'
-                  }`}
-                >
-                  {n}
-                </button>
-              );
-            })}
-          </div>
-          <div className="ml-2 text-xs text-slate-400">
-            {savingRating || savingComment ? (
-              <span className="text-slate-300">保存中…</span>
-            ) : rating ? (
-              <span className="text-amber-200">已评分 {rating}</span>
-            ) : (
-              <span className="text-slate-500">未评分</span>
-            )}
-            {lastSavedAt ? <span className="ml-2 text-slate-500">({fmtTime(lastSavedAt)})</span> : null}
-          </div>
-        </div>
-      </div>
+    <Card bordered>
+      <Space direction="vertical" size="large" style={{ width: '100%' }}>
+        <Space align="start" style={{ justifyContent: 'space-between', width: '100%' }}>
+          <Space direction="vertical" size={2} style={{ minWidth: 0 }}>
+            <Typography.Text strong style={{ fontFamily: 'monospace' }} ellipsis>
+              run: {run.id}
+            </Typography.Text>
+            <Space breakLine>
+              <Tag variant="light">{run.status}</Tag>
+              <Typography.Text theme="secondary">耗时：{formatDuration(run.duration_ms)}</Typography.Text>
+              <Typography.Text theme="secondary">{fmtTime(run.created_at)}</Typography.Text>
+              {run.podi_task_id ? (
+                <Typography.Text theme="secondary" style={{ fontFamily: 'monospace' }} ellipsis>
+                  task: {run.podi_task_id}
+                </Typography.Text>
+              ) : null}
+              {run.coze_debug_url ? (
+                <Button size="small" variant="text" onClick={() => window.open(run.coze_debug_url || '', '_blank', 'noreferrer')}>
+                  debug_url
+                </Button>
+              ) : null}
+            </Space>
+            {run.error_message ? <Alert theme="error" message={run.error_message} /> : null}
+          </Space>
 
-      <div className="mt-3 grid gap-3 lg:grid-cols-[220px_1fr]">
-        <div>
-          {rowError ? <div className="mb-2 text-xs text-rose-300">{rowError}</div> : null}
-          <div className="flex items-center justify-between gap-2 mb-1">
-            <div className="text-xs text-slate-500">备注（可选）</div>
-            <button
-              type="button"
-              disabled={!commentDirty || savingRating || savingComment}
-              onClick={async () => {
-                if (!rating) {
-                  setRowError('请先点一个评分（1-5），再保存备注。');
-                  return;
-                }
-                setSavingComment(true);
+          <Space direction="vertical" size={2} style={{ alignItems: 'flex-end' }}>
+            <Typography.Text theme="secondary">评分</Typography.Text>
+            <Rate
+              value={rating}
+              onChange={async (v) => {
+                const next = Number(v) || 0;
+                if (savingRating || savingComment) return;
+                setRating(next);
+                setSavingRating(true);
                 setRowError('');
                 try {
-                  await onAnnotate(run.id, rating, commentDraft);
-                  setSavedComment(commentDraft);
+                  await onAnnotate(run.id, next, savedComment);
                   setLastSavedAt(new Date().toISOString());
                 } catch (err) {
                   console.error(err);
                   setRowError(String((err as any)?.message || err));
                 } finally {
-                  setSavingComment(false);
+                  setSavingRating(false);
                 }
               }}
-              className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${
-                !commentDirty || savingRating || savingComment
-                  ? 'bg-slate-700/40 text-slate-400'
-                  : 'bg-emerald-500/80 text-white hover:bg-emerald-500'
-              }`}
-            >
-              保存备注
-            </button>
-          </div>
-          <textarea
-            value={commentDraft}
-            onChange={(e) => setCommentDraft(e.target.value)}
-            rows={3}
-            className="w-full rounded-xl border border-slate-800 bg-slate-950 p-3 text-sm text-slate-100"
-            placeholder="问题描述/优化建议…"
-          />
-        </div>
-        <div>
-          <div className="text-xs text-slate-500 mb-1">原图 / 结果</div>
-          <div className="grid gap-2 lg:grid-cols-4">
-            {inputUrl ? (
-              <button
-                type="button"
-                onClick={() => onOpenImage(inputUrl, '原图')}
-                className="block rounded-xl border border-slate-800 bg-slate-950/30 p-1 hover:border-slate-700"
-              >
-                <img src={inputUrl} alt="input" className="h-32 w-full rounded-lg object-contain" />
-              </button>
-            ) : null}
-            {outputs.length > 0 ? (
-              outputs.map((u, idx) => (
-                <button
-                  key={`${run.id}-out-${idx}`}
-                  type="button"
-                  onClick={() => onOpenImage(u, `结果图 #${idx + 1}`)}
-                  className="block rounded-xl border border-slate-800 bg-slate-950/30 p-1 hover:border-slate-700"
-                >
-                  <img
-                    src={u}
-                    alt="output"
-                    loading="lazy"
-                    onError={(e) => {
-                      (e.currentTarget as HTMLImageElement).style.display = 'none';
+            />
+            <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+              {savingRating || savingComment ? '保存中…' : lastSavedAt ? `已保存 ${fmtTime(lastSavedAt)}` : rating ? '已评分' : '未评分'}
+            </Typography.Text>
+          </Space>
+        </Space>
+
+        <Row gutter={[12, 12]}>
+          <Col xs={24} lg={8}>
+            <Card
+              bordered
+              title={
+                <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                  <Typography.Text strong>备注</Typography.Text>
+                  <Button
+                    size="small"
+                    theme="primary"
+                    disabled={!commentDirty || savingRating || savingComment}
+                    loading={savingComment}
+                    onClick={async () => {
+                      if (!rating) {
+                        setRowError('请先评分（1-5），再保存备注。');
+                        return;
+                      }
+                      setSavingComment(true);
+                      setRowError('');
+                      try {
+                        await onAnnotate(run.id, rating, commentDraft);
+                        setSavedComment(commentDraft);
+                        setLastSavedAt(new Date().toISOString());
+                      } catch (err) {
+                        console.error(err);
+                        setRowError(String((err as any)?.message || err));
+                      } finally {
+                        setSavingComment(false);
+                      }
                     }}
-                    className="h-32 w-full rounded-lg object-contain"
-                  />
-                </button>
-              ))
-            ) : (
-              (() => {
-                if (run.status !== 'running' && run.status !== 'queued') {
-                  if (jsonPreview) {
-                    return (
-                      <pre className="lg:col-span-3 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-[12px] text-slate-100">
-                        {jsonPreview}
-                      </pre>
-                    );
-                  }
-                  return <div className="text-sm text-slate-500">暂无输出</div>;
-                }
-                const rawCount = Number((run.parameters_json as any)?.count);
-                const count = Number.isFinite(rawCount) && rawCount > 1 ? Math.min(Math.max(rawCount, 2), 12) : 1;
-                const remain = Math.max(0, count - outputs.length);
-                return (
-                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                    {Array.from({ length: remain }).map((_, idx) => (
-                      <div
-                        key={`${run.id}-sk-${idx}`}
-                        className="h-32 w-full rounded-xl border border-slate-800 bg-slate-950/60 animate-pulse"
-                        title="生成中…"
-                      />
-                    ))}
-                  </div>
-                );
-              })()
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
+                  >
+                    保存
+                  </Button>
+                </Space>
+              }
+            >
+              <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                {rowError ? <Alert theme="error" message={rowError} /> : null}
+                <Textarea
+                  value={commentDraft}
+                  onChange={(v) => setCommentDraft(String(v))}
+                  autosize={{ minRows: 3, maxRows: 8 }}
+                  placeholder="问题描述/优化建议…"
+                />
+              </Space>
+            </Card>
+          </Col>
+          <Col xs={24} lg={16}>
+            <Card bordered title="原图 / 结果">
+              <div className="grid gap-2 lg:grid-cols-4">
+                {inputUrl ? (
+                  <Button
+                    variant="outline"
+                    onClick={() => onOpenImage(inputUrl, '原图')}
+                    style={{ padding: 6, height: 'auto' }}
+                  >
+                    <img src={inputUrl} alt="input" style={{ height: 128, width: '100%', objectFit: 'contain' }} />
+                  </Button>
+                ) : null}
+
+                {outputs.length > 0 ? (
+                  outputs.map((u, idx) => (
+                    <Button
+                      key={`${run.id}-out-${idx}`}
+                      variant="outline"
+                      onClick={() => onOpenImage(u, `结果图 #${idx + 1}`)}
+                      style={{ padding: 6, height: 'auto' }}
+                    >
+                      <img src={u} alt="output" loading="lazy" style={{ height: 128, width: '100%', objectFit: 'contain' }} />
+                    </Button>
+                  ))
+                ) : run.status !== 'running' && run.status !== 'queued' ? (
+                  jsonPreview ? (
+                    <pre
+                      className="lg:col-span-3"
+                      style={{
+                        maxHeight: 280,
+                        overflow: 'auto',
+                        border: '1px solid var(--td-border-level-1-color)',
+                        background: 'var(--td-bg-color-secondarycontainer)',
+                        borderRadius: 8,
+                        padding: 12,
+                        fontFamily: 'monospace',
+                        fontSize: 12,
+                        whiteSpace: 'pre-wrap',
+                      }}
+                    >
+                      {jsonPreview}
+                    </pre>
+                  ) : (
+                    <Typography.Text theme="secondary">暂无输出</Typography.Text>
+                  )
+                ) : (
+                  <Typography.Text theme="secondary">生成中…</Typography.Text>
+                )}
+              </div>
+            </Card>
+          </Col>
+        </Row>
+      </Space>
+    </Card>
   );
 }
 
