@@ -2083,117 +2083,116 @@ const normalizeErrorMessage = (message: string): string => {
     const label = `${field.label}${field.required ? ' *' : ''}`;
     const description = field.description;
     const placeholder = field.placeholder;
+
+    const heading = (
+      <Space direction="vertical" size={2}>
+        <Typography.Text>{label}</Typography.Text>
+        {description ? <Typography.Text theme="secondary">{description}</Typography.Text> : null}
+      </Space>
+    );
+
     if (field.type === 'switch') {
       return (
-        <label
-          key={field.name}
-          className="flex items-center justify-between rounded-2xl border border-slate-800 bg-slate-950/40 px-4 py-3 text-xs text-slate-300"
-        >
-          <div>
-            <div className="font-semibold text-slate-100">{label}</div>
-            {description && <div className="text-[11px] text-slate-500">{description}</div>}
-          </div>
-          <input
-            type="checkbox"
-            checked={Boolean(rawValue)}
-            onChange={(e) => setSchemaValues((prev) => ({ ...prev, [field.name]: e.target.checked }))}
-            className="h-5 w-5 rounded border border-slate-600 bg-slate-900"
-          />
-        </label>
+        <Card key={field.name} bordered>
+          <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+            {heading}
+            <Switch
+              value={Boolean(rawValue)}
+              onChange={(v) => setSchemaValues((prev) => ({ ...prev, [field.name]: Boolean(v) }))}
+            />
+          </Space>
+        </Card>
       );
     }
+
     if (field.type === 'textarea') {
       const value = typeof rawValue === 'string' ? rawValue : rawValue ? String(rawValue) : '';
       return (
-        <label key={field.name} className="block text-xs text-slate-400">
-          {label}
-          <textarea
-            rows={4}
-            value={value}
-            placeholder={placeholder}
-            onChange={(e) => setSchemaValues((prev) => ({ ...prev, [field.name]: e.target.value }))}
-            className="mt-1 w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-sm text-white"
-          />
-          {description && <p className="mt-1 text-[11px] text-slate-500">{description}</p>}
-        </label>
+        <div key={field.name}>
+          {heading}
+          <div style={{ marginTop: 8 }}>
+            <Textarea
+              value={value}
+              onChange={(v) => setSchemaValues((prev) => ({ ...prev, [field.name]: String(v) }))}
+              autosize={{ minRows: 3, maxRows: 8 }}
+              placeholder={placeholder}
+            />
+          </div>
+        </div>
       );
     }
+
     if (field.type === 'select' && field.options && field.options.length > 0) {
       const value = typeof rawValue === 'string' ? rawValue : rawValue ? String(rawValue) : '';
       const optionValues = field.options.map((option) => option.value);
       const allowCustom = Boolean(field.allowCustomValue);
       const isCustomValue = allowCustom && Boolean(value) && !optionValues.includes(value);
       const selectValue = isCustomValue ? CUSTOM_SELECT_VALUE : value;
-      const handleSelectChange = (event: ChangeEvent<HTMLSelectElement>) => {
-        const selected = event.target.value;
-        if (allowCustom && selected === CUSTOM_SELECT_VALUE) {
-          setSchemaValues((prev) => ({
-            ...prev,
-            [field.name]: isCustomValue ? value : '',
-          }));
-          return;
-        }
-        setSchemaValues((prev) => ({ ...prev, [field.name]: selected }));
-      };
       return (
-        <label key={field.name} className="block text-xs text-slate-400">
-          {label}
-          <select
-            value={selectValue}
-            onChange={handleSelectChange}
-            className="mt-1 w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-white"
-          >
-            <option value="">请选择</option>
-            {field.options.map((option) => (
-              <option key={`${field.name}-${option.value}`} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-            {allowCustom && (
-              <option value={CUSTOM_SELECT_VALUE}>
-                自定义 {field.label.replace(/[*\\s]/g, '') || '选项'}
-              </option>
-            )}
-          </select>
-          {allowCustom && (isCustomValue || selectValue === CUSTOM_SELECT_VALUE) && (
-            <input
-              type="text"
-              value={value}
-              placeholder="输入自定义值，例如其他 LoRA 文件"
-              onChange={(e) => setSchemaValues((prev) => ({ ...prev, [field.name]: e.target.value }))}
-              className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-white"
+        <div key={field.name}>
+          {heading}
+          <div style={{ marginTop: 8 }}>
+            <Select
+              value={selectValue}
+              onChange={(v) => {
+                const selected = String(v);
+                if (allowCustom && selected === CUSTOM_SELECT_VALUE) {
+                  setSchemaValues((prev) => ({ ...prev, [field.name]: isCustomValue ? value : '' }));
+                  return;
+                }
+                setSchemaValues((prev) => ({ ...prev, [field.name]: selected }));
+              }}
+              options={[
+                { label: '请选择', value: '' },
+                ...field.options.map((opt) => ({ label: opt.label, value: opt.value })),
+                ...(allowCustom
+                  ? [{ label: `自定义 ${field.label.replace(/[*\\s]/g, '') || '选项'}`, value: CUSTOM_SELECT_VALUE }]
+                  : []),
+              ]}
+              placeholder="请选择"
             />
-          )}
-          {description && <p className="mt-1 text-[11px] text-slate-500">{description}</p>}
-        </label>
+            {allowCustom && (isCustomValue || selectValue === CUSTOM_SELECT_VALUE) ? (
+              <div style={{ marginTop: 8 }}>
+                <Input
+                  value={value}
+                  placeholder="输入自定义值，例如其他 LoRA 文件"
+                  onChange={(v) => setSchemaValues((prev) => ({ ...prev, [field.name]: String(v) }))}
+                />
+              </div>
+            ) : null}
+          </div>
+        </div>
       );
     }
+
     const value = typeof rawValue === 'string' ? rawValue : rawValue ? String(rawValue) : '';
-    const inputType = field.type === 'number' ? 'number' : 'text';
-    const hasOptions = field.options && field.options.length > 0;
-    const datalistId = hasOptions ? `schema-${field.name}-options` : undefined;
+    if (field.type === 'number') {
+      const numberValue = value === '' ? undefined : Number(value);
+      return (
+        <div key={field.name}>
+          {heading}
+          <div style={{ marginTop: 8 }}>
+            <InputNumber
+              value={Number.isNaN(numberValue as any) ? undefined : (numberValue as any)}
+              onChange={(v) => setSchemaValues((prev) => ({ ...prev, [field.name]: v as any }))}
+              placeholder={placeholder}
+            />
+          </div>
+        </div>
+      );
+    }
+
     return (
-      <label key={field.name} className="block text-xs text-slate-400">
-        {label}
-        <input
-          type={inputType}
-          value={value}
-          placeholder={placeholder}
-          list={inputType === 'text' && hasOptions ? datalistId : undefined}
-          onChange={(e) => setSchemaValues((prev) => ({ ...prev, [field.name]: e.target.value }))}
-          className="mt-1 w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-white"
-        />
-        {hasOptions && inputType === 'text' && datalistId && (
-          <datalist id={datalistId}>
-            {field.options!.map((option) => (
-              <option key={`${field.name}-${option.value}`} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </datalist>
-        )}
-        {description && <p className="mt-1 text-[11px] text-slate-500">{description}</p>}
-      </label>
+      <div key={field.name}>
+        {heading}
+        <div style={{ marginTop: 8 }}>
+          <Input
+            value={value}
+            placeholder={placeholder}
+            onChange={(v) => setSchemaValues((prev) => ({ ...prev, [field.name]: String(v) }))}
+          />
+        </div>
+      </div>
     );
   };
 
