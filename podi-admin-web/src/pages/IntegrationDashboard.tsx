@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, ReactNode } from 'react';
 import { adminApi } from '../services/adminApi';
 import { uploadAbilityTestFile } from '../utils/ossUploader';
@@ -614,6 +614,7 @@ export function IntegrationDashboard() {
   const [abilities, setAbilities] = useState<Ability[]>([]);
   const [loading, setLoading] = useState(false);
   const [activeNav, setActiveNav] = useState<NavId>(navItems[0].id);
+  const contentRef = useRef<HTMLDivElement | null>(null);
   const [dashboardMetrics, setDashboardMetrics] = useState<DashboardMetrics | null>(null);
   const [dispatchLogs, setDispatchLogs] = useState<DispatchLogEntry[]>([]);
   const [systemConfig, setSystemConfig] = useState<SystemConfig | null>(null);
@@ -2618,19 +2619,16 @@ const normalizeErrorMessage = (message: string): string => {
     );
   };
 
-  const scrollToSection = (id: NavId) => {
+  const selectSection = (id: NavId) => {
     setActiveNav(id);
-    const target = document.getElementById(id);
-    if (target) {
-      const offset = target.getBoundingClientRect().top + window.scrollY - 24;
-      window.scrollTo({ top: offset, behavior: 'smooth' });
-    }
+    // Only the right content pane scrolls. Switching sections resets scroll.
+    contentRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-4 py-8">
-      <div className="mx-auto flex max-w-[1500px] gap-8">
-        <aside className="sticky top-6 max-h-[calc(100vh-3rem)] w-64 overflow-y-auto rounded-3xl border border-white/5 bg-slate-950/70 p-6 shadow-[0_20px_60px_rgba(2,6,23,0.65)] backdrop-blur">
+    <div className="h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-4 py-6">
+      <div className="mx-auto flex h-full max-w-[1500px] gap-8">
+        <aside className="w-64 shrink-0 overflow-y-auto rounded-3xl border border-white/5 bg-slate-950/70 p-6 shadow-[0_20px_60px_rgba(2,6,23,0.65)] backdrop-blur">
           <div className="mb-6">
             <p className="text-xs uppercase tracking-[0.4em] text-slate-500">控制台</p>
             <h1 className="mt-2 text-2xl font-semibold text-white">AI 管理端</h1>
@@ -2642,7 +2640,7 @@ const normalizeErrorMessage = (message: string): string => {
               return (
                 <button
                   key={item.id}
-                  onClick={() => scrollToSection(item.id)}
+                  onClick={() => selectSection(item.id)}
                   className={`w-full rounded-2xl border px-4 py-3 text-left transition ${
                     active
                       ? 'border-sky-500/70 bg-sky-500/10 text-white'
@@ -2657,8 +2655,12 @@ const normalizeErrorMessage = (message: string): string => {
           </nav>
         </aside>
 
-        <div className="flex-1 space-y-8 rounded-[32px] border border-white/5 bg-slate-950/70 p-8 shadow-[0_40px_120px_rgba(15,23,42,0.55)] backdrop-blur">
-          <Section id="overview" title="总体概览" description="观察运行快照、调度指标与刷新入口。">
+        <div
+          ref={contentRef}
+          className="flex-1 overflow-y-auto rounded-[32px] border border-white/5 bg-slate-950/70 p-8 shadow-[0_40px_120px_rgba(15,23,42,0.55)] backdrop-blur"
+        >
+          {activeNav === 'overview' && (
+            <Section id="overview" title="总体概览" description="观察运行快照、调度指标与刷新入口。">
             <div className="flex flex-col gap-4 rounded-2xl border border-slate-800 bg-slate-900/50 p-6 lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <p className="text-sm uppercase tracking-[0.4em] text-slate-500">控制面</p>
@@ -2683,14 +2685,11 @@ const normalizeErrorMessage = (message: string): string => {
               <MetricCard label="API Keys" value={summary.apiKeys} sub="即将到期请注意" />
               <MetricCard label="能力目录" value={summary.abilities || 0} sub="厂商 × 功能" />
             </div>
-          </Section>
+            </Section>
+          )}
 
-          {dashboardMetrics && (
-            <Section
-              id="monitor"
-              title="运行监控"
-              description="实时关注任务队列、当日执行概况以及节点健康状态。"
-            >
+          {activeNav === 'monitor' && dashboardMetrics && (
+            <Section id="monitor" title="运行监控" description="实时关注任务队列、当日执行概况以及节点健康状态。">
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <MetricCard label="累计任务" value={dashboardMetrics.totals.total_tasks} sub="历史累计" />
                 <MetricCard label="排队中" value={dashboardMetrics.totals.queue_depth} sub="created/pending/queued" />
@@ -2802,6 +2801,7 @@ const normalizeErrorMessage = (message: string): string => {
             </Section>
           )}
 
+          {activeNav === 'executors' && (
       <Section id="executors" title="执行节点" description="维护执行器的接入信息、并发能力与心跳状态。">
         <div className="grid gap-6 lg:grid-cols-2">
           <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
@@ -2919,7 +2919,9 @@ const normalizeErrorMessage = (message: string): string => {
           提示：允许的节点会写入 `metadata.allowed_executor_ids`，调度器只会在这些 ComfyUI 节点上运行该模板；如未选择则按标签自动匹配。
         </p>
       </Section>
+          )}
 
+          {activeNav === 'abilities' && (
       <Section
         id="future-abilities"
         title="其他原子能力类型（占位）"
@@ -2934,7 +2936,9 @@ const normalizeErrorMessage = (message: string): string => {
           </p>
         </div>
       </Section>
+          )}
 
+          {activeNav === 'abilities' && (
       <Section
         id="ability-api"
         title="统一能力接口"
@@ -3032,7 +3036,9 @@ const normalizeErrorMessage = (message: string): string => {
           </p>
         </div>
       </Section>
+          )}
 
+          {activeNav === 'ability-logs' && (
       <Section
         id="ability-logs"
         title="能力调用记录"
@@ -3225,7 +3231,9 @@ const normalizeErrorMessage = (message: string): string => {
           </div>
         </div>
       </Section>
+          )}
 
+          {activeNav === 'abilities' && (
       <Section
         id="abilities"
         title="能力管理"
@@ -3564,7 +3572,9 @@ const normalizeErrorMessage = (message: string): string => {
           </div>
         </div>
       </Section>
+          )}
 
+          {activeNav === 'ability-tests' && (
       <Section
         id="ability-tests"
         title="能力详情/测试"
@@ -3608,7 +3618,7 @@ const normalizeErrorMessage = (message: string): string => {
               </label>
               <button
                 type="button"
-                onClick={() => scrollToSection('abilities')}
+                onClick={() => selectSection('abilities')}
                 className="rounded-full border border-slate-600 px-3 py-1 text-[11px] text-slate-200"
               >
                 前往能力目录
@@ -3643,6 +3653,8 @@ const normalizeErrorMessage = (message: string): string => {
           </div>
         )}
       </Section>
+          )}
+          {activeNav === 'ability-evals' && (
       <Section
         id="ability-evals"
         title="能力评测"
@@ -3650,6 +3662,8 @@ const normalizeErrorMessage = (message: string): string => {
       >
         <AbilityEvaluationPage />
       </Section>
+          )}
+          {activeNav === 'comfyui-templates' && (
       <Section
         id="comfyui-templates"
         title="ComfyUI 模板"
@@ -3812,6 +3826,8 @@ const normalizeErrorMessage = (message: string): string => {
           </div>
         </div>
       </Section>
+          )}
+          {activeNav === 'workflow-builder' && (
       <Section
         id="workflow-builder"
         title="工作流编排"
@@ -3989,7 +4005,9 @@ const normalizeErrorMessage = (message: string): string => {
           </div>
         )}
       </Section>
+          )}
 
+          {activeNav === 'bindings' && (
       <Section
         id="bindings"
         title="分配策略"
@@ -4084,7 +4102,9 @@ const normalizeErrorMessage = (message: string): string => {
           </div>
         </div>
       </Section>
+          )}
 
+          {activeNav === 'apikeys' && (
       <Section
         id="apikeys"
         title="API Key 仓库"
@@ -4233,13 +4253,10 @@ const normalizeErrorMessage = (message: string): string => {
           </div>
         </div>
       </Section>
+          )}
 
-      {systemConfig && (
-        <Section
-          id="system"
-          title="系统配置"
-          description="汇总环境信息、OSS 配置及安全参数，便于排障和入职交接。"
-        >
+      {activeNav === 'system' && systemConfig && (
+        <Section id="system" title="系统配置" description="汇总环境信息、OSS 配置及安全参数，便于排障和入职交接。">
           <div className={`grid gap-6 ${systemConfig.coze ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`}>
             <InfoCard
               title="数据库"
@@ -4307,6 +4324,7 @@ const normalizeErrorMessage = (message: string): string => {
         </Section>
       )}
 
+      {activeNav === 'logs' && (
       <Section
         id="logs"
         title="调度事件"
@@ -4355,6 +4373,7 @@ const normalizeErrorMessage = (message: string): string => {
           </div>
         </div>
       </Section>
+      )}
         </div>
       </div>
     </div>
