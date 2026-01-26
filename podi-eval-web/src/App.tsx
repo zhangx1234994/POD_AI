@@ -1041,7 +1041,8 @@ export function App() {
         </Card>
 
         <Row gutter={[12, 12]}>
-          <Col xs={24} lg={9}>
+          {/* TDesign Grid uses a 12-column system; keep spans within 12 to avoid wrapping/empty gaps. */}
+          <Col xs={12} xl={5}>
             <Card bordered title="测试参数">
               <Space direction="vertical" size="large" style={{ width: '100%' }}>
                 <Space direction="vertical" size={4} style={{ width: '100%' }}>
@@ -1157,7 +1158,7 @@ export function App() {
             </Card>
           </Col>
 
-          <Col xs={24} lg={15}>
+          <Col xs={12} xl={7}>
             <Card bordered title="生成结果">
               <Space direction="vertical" size="large" style={{ width: '100%' }}>
                 <Typography.Text theme="secondary">点击图片可放大预览；下方历史可筛选/打标。</Typography.Text>
@@ -1183,7 +1184,7 @@ export function App() {
                           </Space>
                         ) : (
                           <Row gutter={[12, 12]}>
-                            <Col xs={24} md={8}>
+                            <Col xs={12} md={4}>
                               <Space direction="vertical" size={2}>
                                 <Typography.Text theme="secondary">状态</Typography.Text>
                                 <Tag theme={statusTheme as any} variant="light">
@@ -1191,7 +1192,7 @@ export function App() {
                                 </Tag>
                               </Space>
                             </Col>
-                            <Col xs={24} md={8}>
+                            <Col xs={12} md={4}>
                               <Space direction="vertical" size={2}>
                                 <Typography.Text theme="secondary">run</Typography.Text>
                                 <Typography.Text style={{ fontFamily: 'monospace' }} ellipsis>
@@ -1199,25 +1200,25 @@ export function App() {
                                 </Typography.Text>
                               </Space>
                             </Col>
-                            <Col xs={24} md={8}>
+                            <Col xs={12} md={4}>
                               <Space direction="vertical" size={2}>
                                 <Typography.Text theme="secondary">预期出图</Typography.Text>
                                 <Typography.Text>{expectedCount || '—'}</Typography.Text>
                               </Space>
                             </Col>
-                            <Col xs={24} md={8}>
+                            <Col xs={12} md={4}>
                               <Space direction="vertical" size={2}>
                                 <Typography.Text theme="secondary">已完成</Typography.Text>
                                 <Typography.Text>{imgs.length}</Typography.Text>
                               </Space>
                             </Col>
-                            <Col xs={24} md={8}>
+                            <Col xs={12} md={4}>
                               <Space direction="vertical" size={2}>
                                 <Typography.Text theme="secondary">创建时间</Typography.Text>
                                 <Typography.Text>{fmtTime(latest.created_at)}</Typography.Text>
                               </Space>
                             </Col>
-                            <Col xs={24} md={8}>
+                            <Col xs={12} md={4}>
                               <Space direction="vertical" size={2}>
                                 <Typography.Text theme="secondary">操作</Typography.Text>
                                 <Space>
@@ -1244,7 +1245,7 @@ export function App() {
                               </Space>
                             </Col>
                             {latest.error_message ? (
-                              <Col span={24}>
+                              <Col span={12}>
                                 <Alert theme="error" message={latest.error_message} />
                               </Col>
                             ) : null}
@@ -1388,13 +1389,14 @@ export function App() {
         </Typography.Text>
       </div>
       <Row gutter={[12, 12]}>
+        {/* 12-col grid: 12=1col, 6=2col, 4=3col */}
         {toolList.map((wf) => (
-          <Col key={wf.id} xs={24} sm={12} lg={8}>
+          <Col key={wf.id} xs={12} sm={6} lg={4}>
             <ToolCard wf={wf} active={false} metric={metrics[wf.id]} onClick={() => openTool(wf)} />
           </Col>
         ))}
         {toolList.length === 0 ? (
-          <Col span={24}>
+          <Col span={12}>
             <Alert theme="info" message="该分类暂无功能。" />
           </Col>
         ) : null}
