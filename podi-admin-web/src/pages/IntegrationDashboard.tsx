@@ -102,9 +102,9 @@ const apiKeyStatusOptions = [
 ] as const;
 
 const formControlClass =
-  'w-full rounded-xl border border-ui-border bg-ui-surface px-3 py-2 text-ui-text1 placeholder:text-ui-text3 focus:outline-none focus:ring-2 focus:ring-ui-primary/25';
+  'w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500';
 const formControlFlexClass =
-  'flex-1 rounded-xl border border-ui-border bg-ui-surface px-3 py-2 text-ui-text1 placeholder:text-ui-text3 focus:outline-none focus:ring-2 focus:ring-ui-primary/25';
+  'flex-1 rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500';
 const providerLabelMap = providerOptions.reduce<Record<string, string>>((map, option) => {
   map[option.value] = option.label;
   return map;
@@ -2720,49 +2720,65 @@ const normalizeErrorMessage = (message: string): string => {
   };
 
   return (
-    <div className="h-screen bg-gradient-to-br from-slate-50 via-white to-slate-50 px-4 py-6 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
-      <div className="mx-auto flex h-full max-w-[1500px] gap-8">
-        <aside className="w-64 shrink-0 overflow-y-auto rounded-3xl border border-slate-200/70 bg-white/70 p-6 shadow-[0_20px_60px_rgba(15,23,42,0.08)] backdrop-blur dark:border-white/5 dark:bg-slate-950/70 dark:shadow-[0_20px_60px_rgba(2,6,23,0.65)]">
-          <div className="mb-6">
-            <p className="text-xs uppercase tracking-[0.4em] text-slate-500">控制台</p>
-            <div className="mt-2 flex items-center justify-between gap-2">
-              <h1 className="text-2xl font-semibold text-slate-900 dark:text-white">AI 管理端</h1>
-              <button
-                type="button"
-                onClick={onToggleTheme}
-                className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200 dark:hover:bg-slate-900/60"
-                title="切换主题（浅色/深色）"
-              >
-                {theme === 'dark' ? '深色' : '浅色'}
-              </button>
-            </div>
-            <p className="text-sm text-slate-600 dark:text-slate-400">集中管理执行节点、工作流、密钥与调度测试。</p>
+    <Layout style={{ height: '100vh' }}>
+      <Layout.Aside
+        style={{
+          width: 260,
+          borderRight: '1px solid var(--td-component-border)',
+          background: 'var(--td-bg-color-container)',
+          padding: 16,
+          overflow: 'auto',
+        }}
+      >
+        <Space direction="vertical" size="small" style={{ width: '100%' }}>
+          <div>
+            <Typography.Text theme="secondary">控制台</Typography.Text>
+            <Typography.Title level="h4" style={{ margin: '6px 0 0' }}>
+              AI 管理端
+            </Typography.Title>
+            <Typography.Text theme="secondary">集中管理执行节点、工作流、密钥与调度测试。</Typography.Text>
           </div>
-          <nav className="space-y-2">
-            {navItems.map((item) => {
-              const active = activeNav === item.id;
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => selectSection(item.id)}
-                  className={`w-full rounded-2xl border px-4 py-3 text-left transition ${
-                    active
-                      ? 'border-sky-500/60 bg-sky-500/10 text-slate-900 dark:text-white'
-                      : 'border-slate-200/70 bg-transparent text-slate-700 hover:border-slate-300 dark:border-white/5 dark:text-slate-300 dark:hover:border-slate-500/60'
-                  }`}
-                >
-                  <div className="text-sm font-semibold">{item.label}</div>
-                  <div className="text-xs text-slate-500 dark:text-slate-400">{item.description}</div>
-                </button>
-              );
-            })}
-          </nav>
-        </aside>
+          <Menu
+            value={activeNav}
+            theme={theme === 'dark' ? 'dark' : 'light'}
+            onChange={(value) => selectSection(value as NavId)}
+          >
+            {navItems.map((item) => (
+              <Menu.MenuItem key={item.id} value={item.id}>
+                <Space direction="vertical" size={2}>
+                  <span>{item.label}</span>
+                  <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                    {item.description}
+                  </Typography.Text>
+                </Space>
+              </Menu.MenuItem>
+            ))}
+          </Menu>
+        </Space>
+      </Layout.Aside>
 
-        <div
-          ref={contentRef}
-          className="flex-1 overflow-y-auto rounded-[32px] border border-slate-200/70 bg-white/70 p-8 shadow-[0_40px_120px_rgba(15,23,42,0.08)] backdrop-blur dark:border-white/5 dark:bg-slate-950/70 dark:shadow-[0_40px_120px_rgba(15,23,42,0.55)]"
+      <Layout>
+        <Layout.Header
+          style={{
+            borderBottom: '1px solid var(--td-component-border)',
+            background: 'var(--td-bg-color-container)',
+            padding: '0 16px',
+          }}
         >
+          <Space align="center" style={{ justifyContent: 'space-between', width: '100%', height: '100%' }}>
+            <Typography.Text strong>{navItems.find((x) => x.id === activeNav)?.label || '控制台'}</Typography.Text>
+            <Space>
+              <Button variant="outline" loading={loading} onClick={load}>
+                刷新
+              </Button>
+              <Button variant="outline" onClick={onToggleTheme}>
+                {theme === 'dark' ? '深色' : '浅色'}
+              </Button>
+            </Space>
+          </Space>
+        </Layout.Header>
+        <Layout.Content style={{ padding: 16, overflow: 'hidden' }}>
+          <div ref={contentRef} style={{ height: '100%', overflow: 'auto' }}>
           {activeNav === 'overview' && (
             <Section id="overview" title="总体概览" description="观察运行快照、调度指标与刷新入口。">
             <Card bordered>
@@ -2780,9 +2796,6 @@ const normalizeErrorMessage = (message: string): string => {
                   <Space>
                     <Button variant="outline" loading={loading} onClick={load}>
                       刷新数据
-                    </Button>
-                    <Button variant="outline" onClick={onToggleTheme}>
-                      {theme === 'dark' ? '深色' : '浅色'}
                     </Button>
                   </Space>
                 </Space>
@@ -4678,9 +4691,10 @@ const normalizeErrorMessage = (message: string): string => {
         </div>
       </Section>
       )}
-        </div>
-      </div>
-    </div>
+          </div>
+        </Layout.Content>
+      </Layout>
+    </Layout>
   );
 }
 
