@@ -79,6 +79,16 @@ const categoryOptions = [
   { value: 'video', label: '视频处理' },
   { value: 'other', label: '其他' },
 ];
+
+type ExecutorTraffic = {
+  count: number;
+  success: number;
+  failed: number;
+  successRate: number | null;
+  lastSuccessAt?: string | null;
+  lastFailedAt?: string | null;
+  p95Ms?: number | null;
+};
 const statusOptions = [
   { value: 'inactive', label: '未启用' },
   { value: 'active', label: '启用' },
@@ -661,6 +671,10 @@ export function IntegrationDashboard({
   const [exportingAbilityLogs, setExportingAbilityLogs] = useState(false);
   const [publicAbilities, setPublicAbilities] = useState<PublicAbility[]>([]);
   const [publicAbilitiesLoading, setPublicAbilitiesLoading] = useState(false);
+  const [executorTraffic, setExecutorTraffic] = useState<Record<string, ExecutorTraffic>>({});
+  const [executorTrafficLoading, setExecutorTrafficLoading] = useState(false);
+  const [executorTrafficError, setExecutorTrafficError] = useState<string | null>(null);
+  const [executorsView, setExecutorsView] = useState<'list' | 'channels'>('channels');
 
   const storedPreviewUrl = testResult?.storedUrl || (testResult?.assets && testResult.assets[0]?.ossUrl) || '';
   const fallbackResultUrl =
@@ -986,6 +1000,61 @@ export function IntegrationDashboard({
     }
   };
 
+  const refreshExecutorTraffic = useCallback(
+    async (options?: { silent?: boolean }) => {
+      const silent = Boolean(options?.silent);
+      if (!silent) setExecutorTrafficLoading(true);
+      setExecutorTrafficError(null);
+      try {
+        const res = await adminApi.getAbilityLogMetrics({ windowHours: 24, groupByExecutor: true });
+        const next: Record<string, ExecutorTraffic> = {};
+        for (const bucket of res.buckets || []) {
+          const execId = bucket.executor_id;
+          if (!execId) continue;
+          const entry = next[execId] || {
+            count: 0,
+            success: 0,
+            failed: 0,
+            successRate: null,
+            lastSuccessAt: null,
+            lastFailedAt: null,
+            p95Ms: null,
+          };
+          entry.count += bucket.count || 0;
+          entry.success += bucket.success_count || 0;
+          entry.failed += bucket.failed_count || 0;
+          if (bucket.last_success_at && (!entry.lastSuccessAt || bucket.last_success_at > entry.lastSuccessAt)) {
+            entry.lastSuccessAt = bucket.last_success_at;
+          }
+          if (bucket.last_failed_at && (!entry.lastFailedAt || bucket.last_failed_at > entry.lastFailedAt)) {
+            entry.lastFailedAt = bucket.last_failed_at;
+          }
+          if (bucket.p95_duration_ms !== null && bucket.p95_duration_ms !== undefined) {
+            entry.p95Ms = Math.max(entry.p95Ms || 0, bucket.p95_duration_ms);
+          }
+          next[execId] = entry;
+        }
+        for (const [execId, entry] of Object.entries(next)) {
+          entry.successRate = entry.count > 0 ? entry.success / entry.count : null;
+          next[execId] = entry;
+        }
+        setExecutorTraffic(next);
+      } catch (err: any) {
+        console.error('Failed to load executor traffic metrics:', err);
+        setExecutorTrafficError(err?.message || '获取节点调用指标失败');
+      } finally {
+        if (!silent) setExecutorTrafficLoading(false);
+      }
+    },
+    [setExecutorTraffic],
+  );
+
+  useEffect(() => {
+    if (activeNav !== 'executors') return;
+    // Warm cache for "channels" view, but avoid blocking initial render.
+    refreshExecutorTraffic({ silent: true });
+  }, [activeNav, refreshExecutorTraffic]);
+
   useEffect(() => {
     load();
   }, []);
@@ -1255,6 +1324,24 @@ export function IntegrationDashboard({
     } catch {
       return {};
     }
+  };
+
+  const getExecutorChannelLabel = (executor: Executor): string => {
+    const config = executor.config || {};
+    const channelKey =
+      (typeof config.channel_key === 'string' && config.channel_key.trim()) ||
+      (typeof config.channelKey === 'string' && config.channelKey.trim()) ||
+      '';
+    if (channelKey) return channelKey;
+    if (executor.base_url) {
+      try {
+        const url = new URL(executor.base_url);
+        return url.host;
+      } catch {
+        // ignore
+      }
+    }
+    return executor.name;
   };
 
   const extractAllowedExecutorIds = (metadata?: string | JsonRecord | null): string[] => {
@@ -2819,6 +2906,155 @@ const normalizeErrorMessage = (message: string): string => {
 
           {activeNav === 'executors' && (
       <Section id="executors" title="执行节点" description="维护执行器的接入信息、并发能力与心跳状态。">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="text-xs text-slate-600 dark:text-slate-400">
+            同一能力可配置多条线路（多中转站 / 多 ComfyUI 服务器），后续调度会基于优先级与健康度自动切换。
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setExecutorsView('channels')}
+              className={`rounded-full border px-3 py-1 text-xs ${
+                executorsView === 'channels'
+                  ? 'border-sky-500/60 bg-sky-500/10 text-slate-900 dark:text-white'
+                  : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200 dark:hover:bg-slate-900/60'
+              }`}
+            >
+              渠道视图
+            </button>
+            <button
+              type="button"
+              onClick={() => setExecutorsView('list')}
+              className={`rounded-full border px-3 py-1 text-xs ${
+                executorsView === 'list'
+                  ? 'border-sky-500/60 bg-sky-500/10 text-slate-900 dark:text-white'
+                  : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200 dark:hover:bg-slate-900/60'
+              }`}
+            >
+              列表/编辑
+            </button>
+            <button
+              type="button"
+              onClick={() => refreshExecutorTraffic()}
+              className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200 dark:hover:bg-slate-900/60"
+              disabled={executorTrafficLoading}
+              title="刷新近 24h 调用指标（成功率/失败/耗时）"
+            >
+              {executorTrafficLoading ? '刷新中…' : '刷新指标'}
+            </button>
+          </div>
+        </div>
+
+        {executorsView === 'channels' ? (
+          <div className="space-y-4">
+            {executorTrafficError && (
+              <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700 dark:border-rose-900/40 dark:bg-rose-900/20 dark:text-rose-200">
+                {executorTrafficError}
+              </div>
+            )}
+            {(() => {
+              const groups = new Map<string, Executor[]>();
+              executors.forEach((ex) => {
+                const key = ex.type || 'unknown';
+                const list = groups.get(key) || [];
+                list.push(ex);
+                groups.set(key, list);
+              });
+              const entries = Array.from(groups.entries()).sort(([a], [b]) => a.localeCompare(b));
+              if (entries.length === 0) {
+                return <div className="text-sm text-slate-500">暂无执行节点，请先新增。</div>;
+              }
+              return (
+                <div className="grid gap-4 lg:grid-cols-2">
+                  {entries.map(([type, items]) => {
+                    const activeCount = items.filter((x) => x.status === 'active').length;
+                    return (
+                      <div
+                        key={`channel-group-${type}`}
+                        className="rounded-2xl border border-slate-200/70 bg-white/80 p-5 dark:border-slate-800 dark:bg-slate-900/40"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="text-xs uppercase tracking-[0.35em] text-slate-500">Provider / Type</div>
+                            <div className="mt-2 text-lg font-semibold text-slate-900 dark:text-white">{type}</div>
+                            <div className="mt-1 text-xs text-slate-600 dark:text-slate-400">
+                              {activeCount}/{items.length} active · 建议至少 2 条线路做容灾（主/备）
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 space-y-3">
+                          {items
+                            .slice()
+                            .sort((a, b) => (b.weight || 0) - (a.weight || 0))
+                            .map((ex) => {
+                              const metric = executorTraffic[ex.id];
+                              return (
+                                <div
+                                  key={`channel-${ex.id}`}
+                                  className="rounded-2xl border border-slate-200 bg-slate-50/50 p-4 dark:border-slate-800 dark:bg-slate-950/20"
+                                >
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                      <div className="flex items-center gap-2">
+                                        <div className="truncate font-semibold text-slate-900 dark:text-white">
+                                          {getExecutorChannelLabel(ex)}
+                                        </div>
+                                        <StatusPill status={ex.status} />
+                                      </div>
+                                      <div className="mt-1 truncate text-xs text-slate-600 dark:text-slate-400">
+                                        {ex.base_url || '—'}
+                                      </div>
+                                    </div>
+                                    <div className="shrink-0 text-right text-xs text-slate-600 dark:text-slate-400">
+                                      <div>
+                                        并发/权重：{ex.max_concurrency}/{ex.weight}
+                                      </div>
+                                      <div>心跳：{ex.last_heartbeat_at ? formatDate(ex.last_heartbeat_at) : '—'}</div>
+                                    </div>
+                                  </div>
+
+                                  <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                                    <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-300">
+                                      <div className="text-[10px] uppercase tracking-widest text-slate-500">24h Calls</div>
+                                      <div className="mt-1 text-sm font-semibold text-slate-900 dark:text-white">
+                                        {metric ? metric.count : '—'}
+                                      </div>
+                                    </div>
+                                    <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-300">
+                                      <div className="text-[10px] uppercase tracking-widest text-slate-500">Success</div>
+                                      <div className="mt-1 text-sm font-semibold text-slate-900 dark:text-white">
+                                        {metric && metric.successRate !== null ? `${Math.round(metric.successRate * 100)}%` : '—'}
+                                      </div>
+                                      {metric?.lastFailedAt && (
+                                        <div className="mt-1 text-[11px] text-rose-700 dark:text-rose-300">
+                                          最近失败：{formatDateTime(metric.lastFailedAt)}
+                                        </div>
+                                      )}
+                                    </div>
+                                    <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-300">
+                                      <div className="text-[10px] uppercase tracking-widest text-slate-500">P95</div>
+                                      <div className="mt-1 text-sm font-semibold text-slate-900 dark:text-white">
+                                        {metric?.p95Ms ? `${Math.round(metric.p95Ms)}ms` : '—'}
+                                      </div>
+                                      <div className="mt-1 text-[11px] text-slate-500">
+                                        路由：按“分配策略”优先级（后续支持失败/超时自动回退）
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+          </div>
+        ) : (
+        <div className="space-y-4">
         <div className="grid gap-6 lg:grid-cols-2">
           <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
             <h3 className="text-lg font-semibold text-white mb-4">节点列表</h3>
@@ -2891,6 +3127,26 @@ const normalizeErrorMessage = (message: string): string => {
                 onChange={(e) => setExecutorForm({ ...executorForm, base_url: e.target.value })}
               />
               <input
+                placeholder="渠道标识（可选，用于多中转站/多机区分）"
+                value={(() => {
+                  const record = parseJSON(executorForm.config);
+                  const value = record.channel_key ?? record.channelKey;
+                  return typeof value === 'string' ? value : '';
+                })()}
+                onChange={(e) => {
+                  const record = parseJSON(executorForm.config);
+                  const next: Record<string, unknown> = { ...record };
+                  const trimmed = e.target.value.trim();
+                  if (trimmed) {
+                    next.channel_key = trimmed;
+                  } else {
+                    delete next.channel_key;
+                  }
+                  setExecutorForm({ ...executorForm, config: stringifyJSON(next as JsonRecord) });
+                }}
+                className={formControlClass}
+              />
+              <input
                 placeholder="状态"
                 value={executorForm.status || ''}
                 onChange={(e) => setExecutorForm({ ...executorForm, status: e.target.value })}
@@ -2931,9 +3187,11 @@ const normalizeErrorMessage = (message: string): string => {
             </div>
           </div>
         </div>
-        <p className="mt-4 text-xs text-slate-500">
+        <p className="text-xs text-slate-500">
           提示：允许的节点会写入 `metadata.allowed_executor_ids`，调度器只会在这些 ComfyUI 节点上运行该模板；如未选择则按标签自动匹配。
         </p>
+        </div>
+        )}
       </Section>
           )}
 
