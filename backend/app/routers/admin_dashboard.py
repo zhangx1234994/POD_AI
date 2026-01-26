@@ -11,7 +11,8 @@ from sqlalchemy.engine import make_url
 from app.core.config import get_settings
 from app.core.db import get_session
 from app.deps.auth import require_admin
-from app.models.integration import Executor
+from app.models.eval import EvalRun, EvalWorkflowVersion
+from app.models.integration import AbilityInvocationLog, AbilityTask, Executor
 from app.models.task import Task, TaskBatch, TaskEvent
 from app.schemas import admin_dashboard as schemas
 
@@ -27,33 +28,124 @@ def _today_start() -> datetime:
 def get_dashboard_metrics() -> schemas.DashboardMetricsResponse:
     today_start = _today_start()
     with get_session() as session:
-        total_tasks = session.scalar(select(func.count(Task.id))) or 0
+        # NOTE: The legacy task pipeline uses `tasks`/`task_events`.
+        # The evaluation platform and Coze plugin primarily create `eval_run` and `ability_tasks`.
+        # For a useful dashboard in the current product stage, we aggregate across all three.
+        total_tasks = (session.scalar(select(func.count(Task.id))) or 0) + (
+            session.scalar(select(func.count(AbilityTask.id))) or 0
+        ) + (session.scalar(select(func.count(EvalRun.id))) or 0)
 
-        queue_depth = session.scalar(
-            select(func.count(Task.id)).where(Task.status.in_(["created", "pending", "queued"]))
-        ) or 0
+        queue_depth = (
+            (session.scalar(select(func.count(Task.id)).where(Task.status.in_(["created", "pending", "queued"]))) or 0)
+            + (session.scalar(select(func.count(AbilityTask.id)).where(AbilityTask.status == "queued")) or 0)
+            + (session.scalar(select(func.count(EvalRun.id)).where(EvalRun.status.in_(["queued", "running"]))) or 0)
+        )
 
         pending_batches = session.scalar(
             select(func.count(TaskBatch.id)).where(TaskBatch.status.notin_(["completed", "cancelled"]))
         ) or 0
 
-        failed_tasks = session.scalar(select(func.count(Task.id)).where(Task.status == "failed")) or 0
-
-        status_rows = session.execute(
-            select(Task.status, func.count(Task.id)).group_by(Task.status)
-        ).all()
-        status_buckets = [
-            schemas.TaskStatusBucket(status=row[0], count=row[1]) for row in status_rows if row[0] is not None
-        ]
-
-        today_rows = session.execute(
-            select(Task.status, func.count(Task.id)).where(Task.created_at >= today_start).group_by(Task.status)
-        ).all()
-        today_map = {row[0]: row[1] for row in today_rows}
-
-        recent_tasks = (
-            session.execute(select(Task).order_by(Task.created_at.desc()).limit(8)).scalars().all()
+        failed_tasks = (
+            (session.scalar(select(func.count(Task.id)).where(Task.status == "failed")) or 0)
+            + (session.scalar(select(func.count(AbilityTask.id)).where(AbilityTask.status == "failed")) or 0)
+            + (session.scalar(select(func.count(EvalRun.id)).where(EvalRun.status == "failed")) or 0)
         )
+
+        # Status buckets aggregated across the three pipelines.
+        buckets: dict[str, int] = {}
+        for status, count in session.execute(select(Task.status, func.count(Task.id)).group_by(Task.status)).all():
+            if status is None:
+                continue
+            buckets[str(status)] = buckets.get(str(status), 0) + int(count or 0)
+        for status, count in session.execute(
+            select(AbilityTask.status, func.count(AbilityTask.id)).group_by(AbilityTask.status)
+        ).all():
+            if status is None:
+                continue
+            buckets[str(status)] = buckets.get(str(status), 0) + int(count or 0)
+        for status, count in session.execute(select(EvalRun.status, func.count(EvalRun.id)).group_by(EvalRun.status)).all():
+            if status is None:
+                continue
+            buckets[str(status)] = buckets.get(str(status), 0) + int(count or 0)
+        status_buckets = [schemas.TaskStatusBucket(status=k, count=v) for k, v in sorted(buckets.items(), key=lambda kv: (-kv[1], kv[0]))]
+
+        today_map: dict[str, int] = {}
+        for status, count in session.execute(
+            select(Task.status, func.count(Task.id)).where(Task.created_at >= today_start).group_by(Task.status)
+        ).all():
+            if status is None:
+                continue
+            today_map[str(status)] = today_map.get(str(status), 0) + int(count or 0)
+        for status, count in session.execute(
+            select(AbilityTask.status, func.count(AbilityTask.id)).where(AbilityTask.created_at >= today_start).group_by(AbilityTask.status)
+        ).all():
+            if status is None:
+                continue
+            today_map[str(status)] = today_map.get(str(status), 0) + int(count or 0)
+        for status, count in session.execute(
+            select(EvalRun.status, func.count(EvalRun.id)).where(EvalRun.created_at >= today_start).group_by(EvalRun.status)
+        ).all():
+            if status is None:
+                continue
+            today_map[str(status)] = today_map.get(str(status), 0) + int(count or 0)
+
+        # Merge recent "tasks" from all pipelines.
+        legacy_tasks = session.execute(select(Task).order_by(Task.created_at.desc()).limit(8)).scalars().all()
+        ability_tasks = (
+            session.execute(select(AbilityTask).order_by(AbilityTask.created_at.desc()).limit(8)).scalars().all()
+        )
+        eval_rows = (
+            session.execute(
+                select(EvalRun, EvalWorkflowVersion)
+                .join(EvalWorkflowVersion, EvalWorkflowVersion.id == EvalRun.workflow_version_id, isouter=True)
+                .order_by(EvalRun.created_at.desc())
+                .limit(8)
+            )
+            .all()
+        )
+        recent: list[schemas.RecentTask] = []
+        for task in legacy_tasks:
+            recent.append(
+                schemas.RecentTask(
+                    id=task.id,
+                    user_id=task.user_id,
+                    tool_action=task.tool_action,
+                    channel=task.channel,
+                    status=task.status,
+                    created_at=task.created_at,
+                    updated_at=task.updated_at,
+                    error_message=task.error_message,
+                )
+            )
+        for t in ability_tasks:
+            recent.append(
+                schemas.RecentTask(
+                    id=t.id,
+                    user_id=str(t.user_id or ""),
+                    tool_action=f"{t.ability_provider}:{t.capability_key or ''}",
+                    channel="ability-task",
+                    status=t.status,
+                    created_at=t.created_at,
+                    updated_at=t.updated_at,
+                    error_message=t.error_message,
+                )
+            )
+        for run, wf in eval_rows:
+            name = wf.name if wf else (run.workflow_version_id or "eval")
+            recent.append(
+                schemas.RecentTask(
+                    id=run.id,
+                    user_id=run.created_by,
+                    tool_action=f"eval:{name}",
+                    channel="eval",
+                    status=run.status,
+                    created_at=run.created_at,
+                    updated_at=run.updated_at,
+                    error_message=run.error_message,
+                )
+            )
+        recent.sort(key=lambda x: x.created_at, reverse=True)
+        recent_tasks = recent[:8]
 
         executor_health = (
             session.execute(select(Executor).order_by(Executor.updated_at.desc())).scalars().all()
@@ -68,23 +160,11 @@ def get_dashboard_metrics() -> schemas.DashboardMetricsResponse:
         ),
         status_buckets=status_buckets,
         today=schemas.TodaySummary(
-            created=today_map.get("created", 0) + today_map.get("pending", 0),
-            completed=today_map.get("completed", 0),
-            failed=today_map.get("failed", 0),
+            created=int(today_map.get("created", 0) + today_map.get("pending", 0) + today_map.get("queued", 0)),
+            completed=int(today_map.get("completed", 0) + today_map.get("succeeded", 0)),
+            failed=int(today_map.get("failed", 0)),
         ),
-        recent_tasks=[
-            schemas.RecentTask(
-                id=task.id,
-                user_id=task.user_id,
-                tool_action=task.tool_action,
-                channel=task.channel,
-                status=task.status,
-                created_at=task.created_at,
-                updated_at=task.updated_at,
-                error_message=task.error_message,
-            )
-            for task in recent_tasks
-        ],
+        recent_tasks=recent_tasks,
         executor_health=[
             schemas.ExecutorHealth(
                 id=executor.id,
@@ -113,18 +193,49 @@ def get_dispatch_logs(limit: int = Query(25, ge=1, le=100)) -> schemas.DispatchL
             .all()
         )
 
-    entries = [
-        schemas.DispatchLogEntry(
-            id=event.id,
-            task_id=task.id,
-            tool_action=task.tool_action,
-            task_status=task.status,
-            event_type=event.event_type,
-            payload=event.payload,
-            created_at=event.created_at,
+    entries: list[schemas.DispatchLogEntry] = []
+    for event, task in rows:
+        entries.append(
+            schemas.DispatchLogEntry(
+                id=event.id,
+                task_id=task.id,
+                tool_action=task.tool_action,
+                task_status=task.status,
+                event_type=event.event_type,
+                payload=event.payload,
+                created_at=event.created_at,
+            )
         )
-        for event, task in rows
-    ]
+
+    # If the legacy pipeline has no events, fall back to ability invocation logs
+    # so the dashboard isn't a "whiteboard" during eval/testing stage.
+    if not entries:
+        with get_session() as session:
+            logs = (
+                session.execute(select(AbilityInvocationLog).order_by(AbilityInvocationLog.created_at.desc()).limit(limit))
+                .scalars()
+                .all()
+            )
+        for log in logs:
+            payload = {
+                "source": log.source,
+                "executor": log.executor_name or log.executor_id or log.executor_type,
+                "stored_url": log.stored_url,
+                "error": log.error_message,
+                "trace_id": log.trace_id,
+                "workflow_run_id": log.workflow_run_id,
+            }
+            entries.append(
+                schemas.DispatchLogEntry(
+                    id=int(log.id),
+                    task_id=str(log.task_id or ""),
+                    tool_action=f"{log.ability_provider}:{log.capability_key}",
+                    task_status=log.status,
+                    event_type="ability_invocation",
+                    payload={k: v for k, v in payload.items() if v},
+                    created_at=log.created_at,
+                )
+            )
     return schemas.DispatchLogResponse(entries=entries)
 
 
