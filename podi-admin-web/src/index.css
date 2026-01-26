@@ -1,3 +1,5 @@
+@import './styles/tokens.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -21,6 +23,8 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  background: rgb(var(--podi-bg));
+  color: rgb(var(--podi-text-1));
 }
 
 #root {
