@@ -1400,19 +1400,12 @@ export function App() {
           点击卡片进入该功能的评测页面（左侧测试，右侧出图，底部打标）。
         </Typography.Text>
       </div>
-      <Row gutter={[12, 12]}>
-        {/* 12-col grid: 12=1col, 6=2col, 4=3col */}
+      {toolList.length === 0 ? <Alert theme="info" message="该分类暂无功能。" /> : null}
+      <div className="podi-tool-grid">
         {toolList.map((wf) => (
-          <Col key={wf.id} xs={12} sm={6} lg={4} style={{ display: 'flex' }}>
-            <ToolCard wf={wf} active={false} metric={metrics[wf.id]} onClick={() => openTool(wf)} />
-          </Col>
+          <ToolCard key={wf.id} wf={wf} active={false} metric={metrics[wf.id]} onClick={() => openTool(wf)} />
         ))}
-        {toolList.length === 0 ? (
-          <Col span={12}>
-            <Alert theme="info" message="该分类暂无功能。" />
-          </Col>
-        ) : null}
-      </Row>
+      </div>
     </Space>
   );
 }
