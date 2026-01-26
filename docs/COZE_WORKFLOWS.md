@@ -75,3 +75,28 @@ curl -sS -X POST "$COZE_BASE_URL/v1/workflow/run" \
 - `Missing required parameters`：Coze 工作流参数必填（常见：`prompt/height/width`），需要在 workflow 或调用方补齐。
 - `502 Bad Gateway`：上游服务（KIE/ComfyUI）网关错误/超时；建议降低并发、检查上游健康与超时配置。
 
+## 7. ComfyUI 多输出节点说明（为什么会出现多张结果图？）
+
+ComfyUI 的 `/history/{promptId}` 返回结构为：
+
+- `outputs: { "<nodeId>": { images: [...] }, ... }`
+
+即：只要某个节点产出了图片（哪怕是中间预览/调试用 SaveImage），都会出现在 history 里。
+
+PODI 的处理策略：
+
+- 默认：收集所有节点的 `images[]`（更通用）
+- 对“只应展示最终结果”的工作流：在能力 metadata 里配置 `output_node_ids`，仅保留指定 nodeId 的输出  
+  例如 `ComfyUI · 四方连续(sifang_lianxu)` 固定只取最终 `111` 节点输出，避免混入中间图。
+
+## 8. 测试阶段清理“未完成任务”
+
+测试阶段如果出现大量 `queued/running` 的脏任务，会影响归因与监控面板展示，可在确认无生产业务影响后清理：
+
+```bash
+python3 backend/scripts/purge_unfinished_ability_tasks.py --yes
+```
+
+说明：
+- 仅删除 `ability_tasks` 中未完成状态（queued/running/pending/created）的记录，并清理关联日志。
+- 不建议在生产高峰期执行；上线前请确认“当前处于测试期且可丢弃历史未完成任务”。
