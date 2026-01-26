@@ -960,7 +960,12 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
                         if not isinstance(entry, dict):
                             raise RuntimeError("COMFYUI_HISTORY_INVALID")
 
-                        outputs = adapter._extract_outputs(entry)  # type: ignore[attr-defined]
+                        output_node_ids = None
+                        if isinstance(meta, dict):
+                            raw_ids = meta.get("outputNodeIds")
+                            if isinstance(raw_ids, list):
+                                output_node_ids = {str(x) for x in raw_ids if str(x).strip()}
+                        outputs = adapter._extract_outputs(entry, output_node_ids=output_node_ids)  # type: ignore[attr-defined]
                         hist = outputs.get("history") if isinstance(outputs, dict) else None
                         status_dict = hist.get("status") if isinstance(hist, dict) else None
                         status_str = str((status_dict or {}).get("status_str") or "").lower()

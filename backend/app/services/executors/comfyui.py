@@ -197,11 +197,17 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         except (TypeError, ValueError):
             expected_images = None
 
+        output_node_ids = None
+        raw_ids = workflow_definition.get("output_node_ids")
+        if isinstance(raw_ids, list):
+            output_node_ids = {str(x) for x in raw_ids if str(x).strip()}
+
         outputs = self._poll_history(
             base_url,
             prompt_id,
             timeout=workflow_definition.get("timeout", 180),
             expected_images=expected_images,
+            output_node_ids=output_node_ids,
         )
         if outputs is None:
             return ExecutionResult(
@@ -279,7 +285,13 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         return max(8, int(value) - (int(value) % 8))
 
     def _poll_history(
-        self, base_url: str, prompt_id: str, timeout: float, *, expected_images: int | None
+        self,
+        base_url: str,
+        prompt_id: str,
+        timeout: float,
+        *,
+        expected_images: int | None,
+        output_node_ids: set[str] | None = None,
     ) -> dict[str, Any] | None:
         start = time.monotonic()
         last_data: dict[str, Any] | None = None
@@ -308,7 +320,9 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             outputs = entry.get("outputs") or {}
             image_count = 0
             if isinstance(outputs, dict):
-                for _, info in outputs.items():
+                for node_id, info in outputs.items():
+                    if output_node_ids and str(node_id) not in output_node_ids:
+                        continue
                     if not isinstance(info, dict):
                         continue
                     imgs = info.get("images")
@@ -360,7 +374,11 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             return None
         outputs = entry.get("outputs") or {}
         images: list[dict[str, Any]] = []
-        for _, info in outputs.items():
+        for node_id, info in outputs.items():
+            if not isinstance(info, dict):
+                continue
+            if output_node_ids and str(node_id) not in output_node_ids:
+                continue
             for node_image in info.get("images", []):
                 filename = node_image.get("filename")
                 subfolder = node_image.get("subfolder") or ""
@@ -368,6 +386,7 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
                 image_type = node_image.get("type") or node_image.get("image_type")
                 images.append(
                     {
+                        "nodeId": str(node_id),
                         "filename": filename,
                         "subfolder": subfolder,
                         "type": image_type,
@@ -378,7 +397,7 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
                 )
         return {"images": images, "history": entry}
 
-    def _extract_outputs(self, entry: dict[str, Any]) -> dict[str, Any]:
+    def _extract_outputs(self, entry: dict[str, Any], *, output_node_ids: set[str] | None = None) -> dict[str, Any]:
         """Extract images from a ComfyUI history entry.
 
         NOTE: Some call-sites (eval + coze tasks/get) fetch `/history/{promptId}` themselves
@@ -387,7 +406,9 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         outputs = entry.get("outputs") or {}
         images: list[dict[str, Any]] = []
         if isinstance(outputs, dict):
-            for _, info in outputs.items():
+            for node_id, info in outputs.items():
+                if output_node_ids and str(node_id) not in output_node_ids:
+                    continue
                 if not isinstance(info, dict):
                     continue
                 imgs = info.get("images")
@@ -402,6 +423,7 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
                     image_type = node_image.get("type") or node_image.get("image_type")
                     images.append(
                         {
+                            "nodeId": str(node_id),
                             "filename": filename,
                             "subfolder": subfolder,
                             "type": image_type,

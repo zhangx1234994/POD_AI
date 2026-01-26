@@ -678,12 +678,16 @@ class AbilityInvocationService:
                 "status": "running",
                 "state": "running",
                 "taskId": submitted.get("promptId"),
+                "outputNodeIds": metadata.get("output_node_ids"),
             }
-        return integration_test_service.run_comfyui_workflow(
+        result = integration_test_service.run_comfyui_workflow(
             executor_id=executor_id,
             workflow_key=workflow_key,
             workflow_params=workflow_params,
         )
+        if isinstance(metadata.get("output_node_ids"), list):
+            result["outputNodeIds"] = metadata.get("output_node_ids")
+        return result
 
     def _invoke_kie(
         self,
@@ -1182,6 +1186,7 @@ class AbilityInvocationService:
             "executorId": provider_result.get("executorId") or provider_result.get("executor"),
             "baseUrl": provider_result.get("baseUrl"),
             "promptId": provider_result.get("promptId"),
+            "outputNodeIds": provider_result.get("outputNodeIds") or provider_result.get("output_node_ids"),
         }
         raw_payload = provider_result.get("raw")
         return schemas.AbilityInvokeResponse(

@@ -1173,6 +1173,9 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "action": "seamless",
             "requires_image_input": True,
             "supports_vision": True,
+            # Only keep final outputs from the known "SaveImage" node for this workflow.
+            # Otherwise ComfyUI history may contain multiple intermediate previews.
+            "output_node_ids": ["111"],
             # Only 117 server has the required seamless-pattern custom nodes.
             "allowed_executor_ids": ["executor_comfyui_seamless_117"],
             "seed_version": 8,
