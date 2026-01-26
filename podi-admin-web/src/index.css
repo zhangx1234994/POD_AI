@@ -4,6 +4,33 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer components {
+  .ui-panel {
+    @apply rounded-[var(--podi-radius)] border border-ui-border bg-ui-surface shadow-ui;
+  }
+  .ui-panel-muted {
+    @apply rounded-[var(--podi-radius)] border border-ui-border bg-ui-surface2 shadow-ui;
+  }
+  .ui-btn {
+    @apply rounded-xl bg-ui-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-ui-primaryHover disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .ui-btn-ghost {
+    @apply rounded-xl border border-ui-border bg-ui-surface px-3 py-2 text-sm text-ui-text2 transition hover:bg-ui-surface2 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .ui-input {
+    @apply w-full rounded-xl border border-ui-border bg-ui-surface px-3 py-2 text-ui-text1 placeholder:text-ui-text3 focus:outline-none focus:ring-2 focus:ring-ui-primary/25;
+  }
+  .ui-text-1 {
+    @apply text-ui-text1;
+  }
+  .ui-text-2 {
+    @apply text-ui-text2;
+  }
+  .ui-text-3 {
+    @apply text-ui-text3;
+  }
+}
+
 :root {
   font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   line-height: 1.5;

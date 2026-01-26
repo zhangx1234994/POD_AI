@@ -101,9 +101,9 @@ const apiKeyStatusOptions = [
 ] as const;
 
 const formControlClass =
-  'w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/30 dark:border-slate-700 dark:bg-slate-950/70 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:ring-sky-500/40';
+  'w-full rounded-xl border border-ui-border bg-ui-surface px-3 py-2 text-ui-text1 placeholder:text-ui-text3 focus:outline-none focus:ring-2 focus:ring-ui-primary/25';
 const formControlFlexClass =
-  'flex-1 rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/30 dark:border-slate-700 dark:bg-slate-950/70 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:ring-sky-500/40';
+  'flex-1 rounded-xl border border-ui-border bg-ui-surface px-3 py-2 text-ui-text1 placeholder:text-ui-text3 focus:outline-none focus:ring-2 focus:ring-ui-primary/25';
 const providerLabelMap = providerOptions.reduce<Record<string, string>>((map, option) => {
   map[option.value] = option.label;
   return map;
@@ -4679,10 +4679,10 @@ const normalizeErrorMessage = (message: string): string => {
 
 function MetricCard({ label, value, sub }: { label: string; value: number; sub?: string }) {
   return (
-    <div className="rounded-3xl border border-slate-200/70 bg-white/80 p-5 shadow-lg shadow-slate-900/5 dark:border-white/5 dark:bg-slate-900/60 dark:shadow-black/40">
-      <div className="text-xs uppercase tracking-[0.3em] text-slate-500">{label}</div>
-      <div className="mt-1 text-3xl font-semibold text-slate-900 dark:text-white">{value}</div>
-      {sub && <div className="mt-1 text-xs text-slate-600 dark:text-slate-400">{sub}</div>}
+    <div className="rounded-3xl border border-ui-border bg-ui-surface p-5 shadow-lg shadow-slate-900/5">
+      <div className="text-xs uppercase tracking-[0.3em] text-ui-text3">{label}</div>
+      <div className="mt-1 text-3xl font-semibold text-ui-text1">{value}</div>
+      {sub && <div className="mt-1 text-xs text-ui-text2">{sub}</div>}
     </div>
   );
 }
