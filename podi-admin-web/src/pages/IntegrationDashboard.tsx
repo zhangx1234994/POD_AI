@@ -2764,18 +2764,18 @@ const normalizeErrorMessage = (message: string): string => {
         >
           {activeNav === 'overview' && (
             <Section id="overview" title="总体概览" description="观察运行快照、调度指标与刷新入口。">
-            <div className="flex flex-col gap-4 rounded-2xl border border-slate-800 bg-slate-900/50 p-6 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex flex-col gap-4 rounded-[var(--podi-radius)] border border-ui-border bg-ui-surface p-6 shadow-ui lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <p className="text-sm uppercase tracking-[0.4em] text-slate-500">控制面</p>
-                <h2 className="mt-2 text-2xl font-semibold text-white">AI 集成管理控制台</h2>
-                <p className="text-sm text-slate-400">
+                <h2 className="mt-2 text-2xl font-semibold text-ui-text1">AI 集成管理控制台</h2>
+                <p className="text-sm text-ui-text2">
                   独立系统，聚合 OpenAI/ComfyUI/百度/火山等执行能力，支持链路自检。所有管理操作会实时写入文档。
                 </p>
               </div>
               <div className="flex gap-3">
                 <button
                   onClick={load}
-                  className="rounded-2xl border border-slate-700 bg-slate-900/70 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800"
+                  className="rounded-xl border border-ui-border bg-ui-surface px-4 py-2 text-sm text-ui-text2 hover:bg-ui-surface2"
                 >
                   {loading ? '刷新中…' : '刷新数据'}
                 </button>
@@ -4306,16 +4306,16 @@ const normalizeErrorMessage = (message: string): string => {
         title="分配策略"
         description="为业务入口（Action）配置工作流与执行节点的回退链路，优先级越大越先尝试，用于多节点容灾/流量分摊。"
       >
-        <p className="mb-4 text-xs text-slate-500">
+        <p className="mb-4 text-xs text-ui-text2">
           例如：`action=pattern.extract` 可以先指向云端 ComfyUI 节点，若排队或失败再回落到本地节点；也可以为百度/火山能力配置不同 API Key 的执行器，实现配额切换。
         </p>
         <div className="grid gap-6 lg:grid-cols-2">
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
-            <h3 className="text-lg font-semibold mb-4 text-white">绑定列表</h3>
+          <div className="rounded-[var(--podi-radius)] border border-ui-border bg-ui-surface p-4 shadow-ui">
+            <h3 className="mb-4 text-lg font-semibold text-ui-text1">绑定列表</h3>
             <div className="overflow-x-auto">
               <table>
                 <thead>
-                  <tr className="text-left text-slate-400 text-sm">
+                  <tr className="text-left text-sm text-ui-text2">
                     <th>Action</th>
                     <th>Workflow</th>
                     <th>Executor</th>
@@ -4327,10 +4327,10 @@ const normalizeErrorMessage = (message: string): string => {
                 <tbody>
                   {bindings.map((binding) => (
                     <tr key={binding.id}>
-                      <td className="text-sm text-slate-300">{binding.action}</td>
-                      <td className="text-sm text-slate-300">{binding.workflow_id}</td>
-                      <td className="text-sm text-slate-300">{binding.executor_id}</td>
-                      <td className="text-sm text-slate-300">{binding.priority}</td>
+                      <td className="text-sm text-ui-text1">{binding.action}</td>
+                      <td className="text-sm text-ui-text2">{binding.workflow_id}</td>
+                      <td className="text-sm text-ui-text2">{binding.executor_id}</td>
+                      <td className="text-sm text-ui-text1">{binding.priority}</td>
                       <td>
                         <StatusPill status={binding.enabled ? 'ON' : 'OFF'} />
                       </td>
@@ -4348,30 +4348,34 @@ const normalizeErrorMessage = (message: string): string => {
               </table>
             </div>
           </div>
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 space-y-2 text-sm">
-            <h3 className="text-lg font-semibold text-white">{bindingForm.id ? '编辑绑定' : '新增绑定'}</h3>
+          <div className="rounded-[var(--podi-radius)] border border-ui-border bg-ui-surface p-4 shadow-ui space-y-2 text-sm">
+            <h3 className="text-lg font-semibold text-ui-text1">{bindingForm.id ? '编辑绑定' : '新增绑定'}</h3>
             <input
               placeholder="Action"
               value={bindingForm.action || ''}
               onChange={(e) => setBindingForm({ ...bindingForm, action: e.target.value })}
+              className={formControlClass}
             />
             <input
               placeholder="Workflow ID"
               value={bindingForm.workflow_id || ''}
               onChange={(e) => setBindingForm({ ...bindingForm, workflow_id: e.target.value })}
+              className={formControlClass}
             />
             <input
               placeholder="Executor ID"
               value={bindingForm.executor_id || ''}
               onChange={(e) => setBindingForm({ ...bindingForm, executor_id: e.target.value })}
+              className={formControlClass}
             />
             <input
               type="number"
               placeholder="优先级"
               value={bindingForm.priority ?? 0}
               onChange={(e) => setBindingForm({ ...bindingForm, priority: Number(e.target.value) })}
+              className={formControlClass}
             />
-            <label className="text-xs text-slate-400 flex items-center gap-2">
+            <label className="flex items-center gap-2 text-xs text-ui-text2">
               <input
                 type="checkbox"
                 checked={bindingForm.enabled ?? true}
@@ -4380,12 +4384,12 @@ const normalizeErrorMessage = (message: string): string => {
               启用
             </label>
             <div className="flex gap-3">
-              <button className="flex-1 rounded bg-sky-500/80 py-2 text-white" onClick={handleBindingSubmit}>
+              <button className="flex-1 rounded bg-ui-primary py-2 text-white hover:bg-ui-primaryHover" onClick={handleBindingSubmit}>
                 保存
               </button>
               {bindingForm.id && (
                 <button
-                  className="rounded border border-slate-500 px-4 py-2 text-slate-200"
+                  className="rounded border border-ui-border bg-ui-surface px-4 py-2 text-ui-text2 hover:bg-ui-surface2"
                   onClick={() => setBindingForm(defaultBindingForm)}
                 >
                   取消
