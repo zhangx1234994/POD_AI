@@ -8,6 +8,11 @@
  */
 
 /* Text colors */
+.text-white,
+.dark .dark\:text-white {
+  color: var(--td-text-color-primary) !important;
+}
+
 .text-slate-900,
 .text-slate-800,
 .text-slate-700,
@@ -28,6 +33,30 @@
   color: var(--td-text-color-secondary) !important;
 }
 
+/* Accent/link colors */
+.text-sky-400,
+.text-blue-400,
+.text-indigo-500 {
+  color: var(--td-brand-color) !important;
+}
+
+.text-emerald-200,
+.text-emerald-300,
+.text-emerald-500 {
+  color: var(--td-success-color) !important;
+}
+
+.text-amber-300,
+.text-amber-500 {
+  color: var(--td-warning-color) !important;
+}
+
+.text-red-400,
+.text-rose-200,
+.text-rose-100 {
+  color: var(--td-error-color) !important;
+}
+
 /* Backgrounds (opacity variants) */
 .bg-white\/80,
 .bg-white,
@@ -40,6 +69,11 @@
 }
 
 /* "Panel" backgrounds used by legacy blocks: map to TDesign secondary container so it's readable in light mode. */
+.bg-slate-900,
+.bg-slate-950,
+.bg-slate-900\/70,
+.bg-slate-900\/80,
+.bg-slate-950\/80,
 .bg-slate-900\/40,
 .bg-slate-950\/40,
 .bg-slate-950\/60,
@@ -51,6 +85,12 @@
 .dark .dark\:bg-slate-950\/70,
 .dark .dark\:bg-slate-950\/30 {
   background-color: var(--td-bg-color-secondarycontainer) !important;
+}
+
+/* Selection hint */
+.bg-sky-500\/5,
+.bg-sky-500\/10 {
+  background-color: var(--td-brand-color-1) !important;
 }
 
 /* Borders */
@@ -83,4 +123,9 @@
 .backdrop-blur-md,
 .backdrop-blur-lg {
   backdrop-filter: none !important;
+}
+
+/* Selected row highlight for TDesign tables */
+.podi-row-selected > td {
+  background-color: var(--td-brand-color-1) !important;
 }

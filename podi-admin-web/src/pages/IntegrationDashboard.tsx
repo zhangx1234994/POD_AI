@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, ReactNode } from 'react';
-import { Alert, Button, Card, Col, Input, InputNumber, Layout, Menu, Row, Space, Switch, Table, Tag, Tooltip, Typography } from 'tdesign-react';
+import { Alert, Button, Card, Col, Input, InputNumber, Layout, Menu, Row, Select, Space, Switch, Table, Tag, Tooltip, Typography } from 'tdesign-react';
 import { adminApi } from '../services/adminApi';
 import { uploadAbilityTestFile } from '../utils/ossUploader';
 import type {
@@ -3292,97 +3292,113 @@ const normalizeErrorMessage = (message: string): string => {
         title="统一能力接口"
         description="面向客户端/业务方公开的 `/api/abilities` 清单与调用示例，便于快速查找能力 ID、输入要求、是否支持多图等。"
       >
-        <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4 space-y-4">
-          <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+        <Card bordered>
+          <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+            <Space align="start" style={{ justifyContent: 'space-between', width: '100%' }}>
+              <Typography.Text theme="secondary">
+                所有终端都应通过{' '}
+                <Tag theme="primary" variant="outline" size="small">
+                  GET /api/abilities
+                </Tag>{' '}
+                查询能力，并使用{' '}
+                <Tag theme="primary" variant="outline" size="small">
+                  POST /api/abilities/&lt;abilityId&gt;/invoke
+                </Tag>{' '}
+                触发；调度层会根据能力配置、绑定规则与执行节点健康度自行分配资源。
+              </Typography.Text>
+              <Button variant="outline" size="small" loading={publicAbilitiesLoading} onClick={refreshPublicAbilities}>
+                刷新列表
+              </Button>
+            </Space>
+
             <div>
-              <p className="text-xs text-slate-400">
-                所有终端都应通过 <code className="bg-slate-900 rounded px-1 py-0.5 text-[10px]">GET /api/abilities</code>{' '}
-                查询能力，并使用 <code className="bg-slate-900 rounded px-1 py-0.5 text-[10px]">POST /api/abilities/&lt;abilityId&gt;/invoke</code> 触发。
-                调度层会根据能力配置、绑定规则与执行节点健康度自行分配资源。
-              </p>
+              <Typography.Text theme="secondary">调用示例（可复制到 Postman / cURL）</Typography.Text>
+              <pre
+                style={{
+                  marginTop: 8,
+                  padding: 12,
+                  borderRadius: 8,
+                  border: '1px solid var(--td-border-level-1-color)',
+                  background: 'var(--td-bg-color-secondarycontainer)',
+                  color: 'var(--td-text-color-primary)',
+                  fontSize: 12,
+                  whiteSpace: 'pre-wrap',
+                }}
+              >
+                {abilityApiExample}
+              </pre>
             </div>
-            <button
-              onClick={refreshPublicAbilities}
-              disabled={publicAbilitiesLoading}
-              className="self-start rounded-full border border-slate-700 px-3 py-1 text-xs text-slate-200 disabled:opacity-40"
-            >
-              {publicAbilitiesLoading ? '刷新中…' : '刷新列表'}
-            </button>
-          </div>
-          <div>
-            <div className="text-xs text-slate-400">调用示例（可复制到 Postman / cURL）</div>
-            <pre className="mt-2 rounded-2xl border border-slate-800 bg-slate-900/70 p-4 text-[11px] text-slate-200 whitespace-pre-wrap">
-              {abilityApiExample}
-            </pre>
-          </div>
-          <div className="space-y-2">
-            <div className="text-xs text-slate-400">能力 ID 清单</div>
-            <div className="max-h-72 overflow-auto rounded-2xl border border-slate-800">
-              <table className="min-w-full text-sm text-slate-200">
-                <thead className="bg-slate-900/80 text-xs uppercase tracking-wide text-slate-400">
-                  <tr>
-                    <th className="px-4 py-2 text-left">能力</th>
-                    <th className="px-4 py-2 text-left">Ability ID</th>
-                    <th className="px-4 py-2 text-left">特性</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {publicAbilitiesLoading && publicAbilities.length === 0 ? (
-                    <tr>
-                      <td colSpan={3} className="px-4 py-4 text-center text-slate-500">
-                        正在加载能力列表…
-                      </td>
-                    </tr>
-                  ) : publicAbilities.length === 0 ? (
-                    <tr>
-                      <td colSpan={3} className="px-4 py-4 text-center text-slate-500">
-                        暂无可用能力，请先在“能力管理”新增并设为 active。
-                      </td>
-                    </tr>
-                  ) : (
-                    publicAbilities.map((ability) => (
-                      <tr key={ability.id} className="border-t border-slate-900/70">
-                        <td className="px-4 py-3 align-top">
-                          <div className="font-medium text-white">{ability.displayName}</div>
-                          <div className="text-xs text-slate-400">
-                            {getProviderLabel(ability.provider)} · {getCategoryLabel(ability.category)}
-                          </div>
-                          {ability.description && (
-                            <div className="mt-1 text-xs text-slate-500 line-clamp-2">{ability.description}</div>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 align-top">
-                          <div className="flex items-center gap-2">
-                            <code className="rounded bg-slate-900/80 px-2 py-1 text-[11px]">{ability.id}</code>
-                            <button
-                              type="button"
-                              onClick={() => copyTextToClipboard(ability.id)}
-                              className="text-xs text-sky-400"
-                            >
-                              复制
-                            </button>
-                          </div>
-                          <div className="mt-1 text-xs text-slate-500">{ability.capabilityKey}</div>
-                        </td>
-                        <td className="px-4 py-3 align-top text-xs text-slate-400 space-y-1">
-                          {ability.requiresImage && <div>• 需图片输入</div>}
-                          {ability.supportsMultipleImages && <div>• 多图输出</div>}
-                          {ability.maxOutputImages && <div>• 最高 {ability.maxOutputImages} 张结果</div>}
-                          {!ability.requiresImage && !ability.supportsMultipleImages && !ability.maxOutputImages && (
-                            <div>• 标准调用</div>
-                          )}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+
+            <div>
+              <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                <Typography.Text theme="secondary">能力 ID 清单</Typography.Text>
+                <Typography.Text theme="secondary">更多细节见 docs/api/abilities.md</Typography.Text>
+              </Space>
+              <div style={{ marginTop: 12 }}>
+                <Table
+                  rowKey="id"
+                  size="small"
+                  data={publicAbilities}
+                  loading={publicAbilitiesLoading}
+                  maxHeight={360}
+                  columns={[
+                    {
+                      colKey: 'displayName',
+                      title: '能力',
+                      ellipsis: true,
+                      cell: ({ row }) => (
+                        <Space direction="vertical" size={2}>
+                          <Typography.Text>{row.displayName}</Typography.Text>
+                          <Typography.Text theme="secondary">
+                            {getProviderLabel(row.provider)} · {getCategoryLabel(row.category)}
+                          </Typography.Text>
+                          {row.description ? <Typography.Text theme="secondary">{row.description}</Typography.Text> : null}
+                        </Space>
+                      ),
+                    },
+                    {
+                      colKey: 'id',
+                      title: 'Ability ID',
+                      width: 360,
+                      cell: ({ row }) => (
+                        <Space>
+                          <Tag theme="default" variant="outline">
+                            {row.id}
+                          </Tag>
+                          <Button size="small" variant="text" onClick={() => copyTextToClipboard(row.id)}>
+                            复制
+                          </Button>
+                        </Space>
+                      ),
+                    },
+                    {
+                      colKey: 'features',
+                      title: '特性',
+                      width: 240,
+                      cell: ({ row }) => (
+                        <Space direction="vertical" size={2}>
+                          {row.requiresImage ? <Typography.Text theme="secondary">需图片输入</Typography.Text> : null}
+                          {row.supportsMultipleImages ? <Typography.Text theme="secondary">多图输出</Typography.Text> : null}
+                          {row.maxOutputImages ? (
+                            <Typography.Text theme="secondary">最高 {row.maxOutputImages} 张结果</Typography.Text>
+                          ) : null}
+                          {!row.requiresImage && !row.supportsMultipleImages && !row.maxOutputImages ? (
+                            <Typography.Text theme="secondary">标准调用</Typography.Text>
+                          ) : null}
+                        </Space>
+                      ),
+                    },
+                  ]}
+                  empty={
+                    <Typography.Text theme="secondary">
+                      暂无可用能力，请先在“能力管理”新增并设为 active。
+                    </Typography.Text>
+                  }
+                />
+              </div>
             </div>
-          </div>
-          <p className="text-[11px] text-slate-500">
-            更多细节见 <code className="bg-slate-900 rounded px-1">docs/api/abilities.md</code>。如需开放新的能力，请先在“能力管理”补齐配置信息，再在此复查 Ability ID 是否对外可见。
-          </p>
-        </div>
+          </Space>
+        </Card>
       </Section>
           )}
 
@@ -3605,147 +3621,138 @@ const normalizeErrorMessage = (message: string): string => {
               </div>
             </div>
             <div className="mb-4 grid gap-3 md:grid-cols-3">
-              <input
-                value={abilitySearch}
-                onChange={(e) => setAbilitySearch(e.target.value)}
-                placeholder="搜索名称/能力 Key"
-                className="rounded-2xl border border-slate-700 bg-slate-950/60 px-4 py-2 text-sm text-white placeholder:text-slate-500"
-              />
-              <select
+              <Input value={abilitySearch} onChange={(v) => setAbilitySearch(String(v))} placeholder="搜索名称/能力 Key" />
+              <Select
                 value={abilityProviderFilter}
-                onChange={(e) => setAbilityProviderFilter(e.target.value)}
-                className="rounded-2xl border border-slate-700 bg-slate-950/60 px-4 py-2 text-sm text-white"
-              >
-                <option value="all">全部厂商</option>
-                {abilityProviders.map((provider) => (
-                  <option key={provider} value={provider}>
-                    {getProviderLabel(provider)}
-                  </option>
-                ))}
-              </select>
-              <select
+                onChange={(v) => setAbilityProviderFilter(String(v))}
+                options={[
+                  { label: '全部厂商', value: 'all' },
+                  ...abilityProviders.map((provider) => ({ label: getProviderLabel(provider), value: provider })),
+                ]}
+                placeholder="全部厂商"
+              />
+              <Select
                 value={abilityStatusFilter}
-                onChange={(e) => setAbilityStatusFilter(e.target.value)}
-                className="rounded-2xl border border-slate-700 bg-slate-950/60 px-4 py-2 text-sm text-white"
-              >
-                <option value="all">全部状态</option>
-                {statusOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
+                onChange={(v) => setAbilityStatusFilter(String(v))}
+                options={[{ label: '全部状态', value: 'all' }, ...statusOptions]}
+                placeholder="全部状态"
+              />
             </div>
-            <div className="overflow-x-auto">
-              <table>
-                <thead>
-                  <tr className="text-left text-xs uppercase tracking-wider text-slate-500">
-                    <th>名称</th>
-                    <th>厂商/能力</th>
-                    <th>状态</th>
-                    <th>成本</th>
-                    <th>绑定节点</th>
-                    <th>最近调用</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredAbilities.map((ability) => {
-                    const boundExecutor = ability.executor_id
-                      ? executors.find((executor) => executor.id === ability.executor_id)
-                      : null;
-                    const abilityRowPricing =
-                      abilityPricingMap[ability.id] ||
-                      abilityPricingMap[`${ability.provider}:${ability.capability_key}`] ||
-                      null;
-                    const abilityRowPricingText = describePricing(abilityRowPricing);
-                    const latestLog = latestAbilityLogMap[ability.id];
-                    const active = ability.id === selectedAbilityId;
+            <Table
+              rowKey="id"
+              size="small"
+              data={filteredAbilities}
+              columns={[
+                {
+                  colKey: 'display_name',
+                  title: '名称',
+                  ellipsis: true,
+                  cell: ({ row }) => (
+                    <Space direction="vertical" size={2}>
+                      <Typography.Text strong>{row.display_name}</Typography.Text>
+                      <Typography.Text theme="secondary">{row.description || '—'}</Typography.Text>
+                    </Space>
+                  ),
+                },
+                {
+                  colKey: 'provider',
+                  title: '厂商/能力',
+                  width: 260,
+                  cell: ({ row }) => (
+                    <Space direction="vertical" size={2}>
+                      <Typography.Text>{getProviderLabel(row.provider)}</Typography.Text>
+                      <Typography.Text theme="secondary">
+                        {row.capability_key} · {getCategoryLabel(row.category)}
+                      </Typography.Text>
+                      <Typography.Text theme="secondary">
+                        {getAbilityTypeLabel(row.ability_type)}
+                        {row.workflow_id ? ` · ${workflowLookup[row.workflow_id]?.name || row.workflow_id}` : ''}
+                      </Typography.Text>
+                    </Space>
+                  ),
+                },
+                { colKey: 'status', title: '状态', width: 120, cell: ({ row }) => renderStatusTag(row.status) },
+                {
+                  colKey: 'pricing',
+                  title: '成本',
+                  width: 180,
+                  cell: ({ row }) => {
+                    const pricing =
+                      abilityPricingMap[row.id] || abilityPricingMap[`${row.provider}:${row.capability_key}`] || null;
+                    const text = describePricing(pricing);
+                    return <Typography.Text theme="secondary">{text !== '—' ? text : '未设置'}</Typography.Text>;
+                  },
+                },
+                {
+                  colKey: 'executor',
+                  title: '绑定节点',
+                  width: 220,
+                  cell: ({ row }) => {
+                    const bound = row.executor_id ? executors.find((ex) => ex.id === row.executor_id) : null;
                     return (
-                      <tr
-                        key={ability.id}
-                        className={`cursor-pointer border-b border-slate-800/60 text-sm transition ${
-                          active ? 'bg-sky-500/5' : 'hover:bg-slate-900/30'
-                        }`}
-                        onClick={() => setSelectedAbilityId(ability.id)}
-                      >
-                        <td className="text-sm text-white">
-                          <div className="font-semibold">{ability.display_name}</div>
-                          <div className="text-xs text-slate-500">{ability.description || '—'}</div>
-                        </td>
-                        <td className="text-sm text-slate-300">
-                          <div>{getProviderLabel(ability.provider)}</div>
-                          <div className="text-xs text-slate-500">
-                            {ability.capability_key} · {getCategoryLabel(ability.category)}
-                          </div>
-                          <div className="text-[11px] text-slate-500">
-                            {getAbilityTypeLabel(ability.ability_type)}
-                            {ability.workflow_id
-                              ? ` · ${workflowLookup[ability.workflow_id]?.name || ability.workflow_id}`
-                              : ''}
-                          </div>
-                        </td>
-                        <td>
-                          <StatusPill status={ability.status} />
-                        </td>
-                        <td className="text-xs text-slate-400">
-                          {abilityRowPricingText !== '—' ? abilityRowPricingText : '未设置'}
-                        </td>
-                        <td className="text-xs text-slate-400">
-                          {boundExecutor
-                            ? `${boundExecutor.name} · ${boundExecutor.type}`
-                            : '自动匹配（按厂商/标签）'}
-                        </td>
-                        <td className="text-xs text-slate-400">
-                          {latestLog ? (
-                            <>
-                              <div>{formatDateTime(latestLog.created_at)}</div>
-                              <div className="mt-1 flex items-center gap-2">
-                                <Tag theme={getAbilityLogStatusTag(latestLog.status).theme} variant="light" size="small">
-                                  {getAbilityLogStatusTag(latestLog.status).text}
-                                </Tag>
-                                {typeof latestLog.duration_ms === 'number' && (
-                                  <span className="text-[10px] text-slate-500">{latestLog.duration_ms}ms</span>
-                                )}
-                              </div>
-                            </>
-                          ) : (
-                            <span className="text-slate-600">—</span>
-                          )}
-                        </td>
-                        <td className="text-right text-xs space-x-2">
-                          <button
-                            className="text-sky-400"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              handleAbilityEdit(ability);
-                            }}
-                          >
-                            编辑
-                          </button>
-                          <button
-                            className="text-red-400"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              handleAbilityDelete(ability.id);
-                            }}
-                          >
-                            删除
-                          </button>
-                        </td>
-                      </tr>
+                      <Typography.Text theme="secondary">
+                        {bound ? `${bound.name} · ${bound.type}` : '自动匹配（按厂商/标签）'}
+                      </Typography.Text>
                     );
-                  })}
-                  {filteredAbilities.length === 0 && (
-                    <tr>
-                      <td colSpan={7} className="py-6 text-center text-sm text-slate-500">
-                        暂无满足筛选条件的能力，可调整筛选或在右侧表单新增。
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+                  },
+                },
+                {
+                  colKey: 'latest',
+                  title: '最近调用',
+                  width: 220,
+                  cell: ({ row }) => {
+                    const latestLog = latestAbilityLogMap[row.id];
+                    if (!latestLog) return <Typography.Text theme="secondary">—</Typography.Text>;
+                    return (
+                      <Space direction="vertical" size={2}>
+                        <Typography.Text theme="secondary">{formatDateTime(latestLog.created_at)}</Typography.Text>
+                        <Space size="small">
+                          <Tag theme={getAbilityLogStatusTag(latestLog.status).theme} variant="light" size="small">
+                            {getAbilityLogStatusTag(latestLog.status).text}
+                          </Tag>
+                          {typeof latestLog.duration_ms === 'number' ? (
+                            <Typography.Text theme="secondary">{latestLog.duration_ms}ms</Typography.Text>
+                          ) : null}
+                        </Space>
+                      </Space>
+                    );
+                  },
+                },
+                {
+                  colKey: 'actions',
+                  title: '操作',
+                  width: 150,
+                  cell: ({ row }) => (
+                    <Space size="small">
+                      <Button
+                        size="small"
+                        variant="text"
+                        onClick={(event) => {
+                          event?.stopPropagation?.();
+                          handleAbilityEdit(row);
+                        }}
+                      >
+                        编辑
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="text"
+                        theme="danger"
+                        onClick={(event) => {
+                          event?.stopPropagation?.();
+                          handleAbilityDelete(row.id);
+                        }}
+                      >
+                        删除
+                      </Button>
+                    </Space>
+                  ),
+                },
+              ]}
+              onRowClick={({ row }) => setSelectedAbilityId((row as any).id)}
+              rowClassName={({ row }) => ((row as any).id === selectedAbilityId ? 'podi-row-selected' : '')}
+              empty={<Typography.Text theme="secondary">暂无满足筛选条件的能力，可调整筛选或在右侧表单新增。</Typography.Text>}
+            />
           </div>
 
           <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 space-y-3 text-sm">
@@ -4239,22 +4246,14 @@ const normalizeErrorMessage = (message: string): string => {
                     </div>
                   </div>
                 </div>
-                <div className="flex flex-col gap-3 text-sm text-white">
-                  <button
-                    className="rounded-full border border-slate-600 px-4 py-2 font-semibold transition hover:border-sky-500 hover:text-sky-200 disabled:cursor-not-allowed disabled:border-slate-800 disabled:text-slate-500"
-                    disabled={!cozeBaseUrl}
-                    onClick={handleOpenCozeStudio}
-                  >
+                <Space breakLine>
+                  <Button variant="outline" disabled={!cozeBaseUrl} onClick={handleOpenCozeStudio}>
                     打开 Coze Studio
-                  </button>
-                  <button
-                    className="rounded-full border border-slate-600 px-4 py-2 font-semibold transition hover:border-emerald-500 hover:text-emerald-200 disabled:cursor-not-allowed disabled:border-slate-800 disabled:text-slate-500"
-                    disabled={!cozeLoopUrl}
-                    onClick={handleOpenCozeLoop}
-                  >
+                  </Button>
+                  <Button variant="outline" disabled={!cozeLoopUrl} onClick={handleOpenCozeLoop}>
                     打开 Coze Loop
-                  </button>
-                </div>
+                  </Button>
+                </Space>
               </div>
               <div className="mt-4 rounded-2xl border border-slate-800/70 bg-slate-950/40 p-4 text-xs text-slate-300">
                 <div className="font-semibold text-white">接入步骤提醒</div>
