@@ -3056,12 +3056,12 @@ const normalizeErrorMessage = (message: string): string => {
         ) : (
         <div className="space-y-4">
         <div className="grid gap-6 lg:grid-cols-2">
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
-            <h3 className="text-lg font-semibold text-white mb-4">节点列表</h3>
+          <div className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 dark:border-slate-800 dark:bg-slate-900/40">
+            <h3 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">节点列表</h3>
             <div className="overflow-x-auto">
               <table>
                 <thead>
-                  <tr className="text-left text-slate-400 text-sm">
+                  <tr className="text-left text-sm text-slate-700 dark:text-slate-400">
                     <th>名称</th>
                     <th>类型</th>
                     <th>状态</th>
@@ -3074,17 +3074,17 @@ const normalizeErrorMessage = (message: string): string => {
                   {executors.map((ex) => (
                     <tr key={ex.id}>
                       <td>
-                        <div className="text-white font-medium">{ex.name}</div>
-                        <div className="text-xs text-slate-400">{ex.base_url || '—'}</div>
+                        <div className="font-medium text-slate-900 dark:text-white">{ex.name}</div>
+                        <div className="text-xs text-slate-600 dark:text-slate-400">{ex.base_url || '—'}</div>
                       </td>
-                      <td className="text-sm text-slate-300">{ex.type}</td>
+                      <td className="text-sm text-slate-700 dark:text-slate-300">{ex.type}</td>
                       <td className="text-sm">
                         <StatusPill status={ex.status} />
                       </td>
-                      <td className="text-sm text-slate-300">
+                      <td className="text-sm text-slate-700 dark:text-slate-300">
                         {ex.max_concurrency}/{ex.weight}
                       </td>
-                      <td className="text-xs text-slate-400">{ex.last_heartbeat_at || '—'}</td>
+                      <td className="text-xs text-slate-700 dark:text-slate-400">{ex.last_heartbeat_at || '—'}</td>
                       <td className="text-right text-xs space-x-2">
                         <button
                           onClick={() => {
@@ -3106,8 +3106,8 @@ const normalizeErrorMessage = (message: string): string => {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
-            <h3 className="text-lg font-semibold text-white mb-4">
+          <div className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 dark:border-slate-800 dark:bg-slate-900/40">
+            <h3 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">
               {executorForm.id ? '编辑节点' : '新增节点'}
             </h3>
             <div className="space-y-3 text-sm">
@@ -3187,7 +3187,7 @@ const normalizeErrorMessage = (message: string): string => {
             </div>
           </div>
         </div>
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-slate-600 dark:text-slate-500">
           提示：允许的节点会写入 `metadata.allowed_executor_ids`，调度器只会在这些 ComfyUI 节点上运行该模板；如未选择则按标签自动匹配。
         </p>
         </div>
@@ -3318,17 +3318,17 @@ const normalizeErrorMessage = (message: string): string => {
         title="能力调用记录"
         description="展示最近 30 条能力调用日志（不限能力 ID），便于回溯来源、节点与成本。后续将支持按能力/时间筛选。"
       >
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5">
+        <div className="rounded-2xl border border-slate-200/70 bg-white/80 p-5 dark:border-slate-800 dark:bg-slate-900/40">
           <div className="mb-3 flex items-center justify-between gap-2">
             <div>
-              <h3 className="text-white text-lg font-semibold">能力调用清单</h3>
-              <p className="text-xs text-slate-500">最新 30 条（不限能力 ID） · 支持导出最近 24h</p>
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-white">能力调用清单</h3>
+              <p className="text-xs text-slate-600 dark:text-slate-500">最新 30 条（不限能力 ID） · 支持导出最近 24h</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 onClick={() => refreshGlobalAbilityLogs()}
-                className="rounded-full border border-slate-600 px-3 py-1 text-xs text-slate-200 disabled:opacity-40"
+                className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-600 dark:bg-slate-950/20 dark:text-slate-200 dark:hover:bg-slate-900/60"
                 disabled={globalAbilityLogsLoading}
               >
                 {globalAbilityLogsLoading ? '刷新中…' : '刷新'}
@@ -3336,7 +3336,7 @@ const normalizeErrorMessage = (message: string): string => {
               <button
                 type="button"
                 onClick={() => refreshAbilityLogMetrics()}
-                className="rounded-full border border-slate-600 px-3 py-1 text-xs text-slate-200 disabled:opacity-40"
+                className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-600 dark:bg-slate-950/20 dark:text-slate-200 dark:hover:bg-slate-900/60"
                 disabled={abilityLogMetricsLoading}
                 title="刷新近 24h 指标（success rate / p50 / p95）"
               >
@@ -3353,11 +3353,11 @@ const normalizeErrorMessage = (message: string): string => {
                   } catch (err: any) {
                     console.error('Export ability logs failed:', err);
                     setGlobalAbilityLogsError(err?.message || '导出失败');
-                  } finally {
-                    setExportingAbilityLogs(false);
-                  }
-                }}
-                className="rounded-full border border-slate-600 px-3 py-1 text-xs text-slate-200 disabled:opacity-40"
+                } finally {
+                  setExportingAbilityLogs(false);
+                }
+              }}
+                className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-600 dark:bg-slate-950/20 dark:text-slate-200 dark:hover:bg-slate-900/60"
                 disabled={exportingAbilityLogs}
               >
                 {exportingAbilityLogs ? '导出中…' : '导出 CSV'}
@@ -3377,25 +3377,28 @@ const normalizeErrorMessage = (message: string): string => {
                     setExportingAbilityLogs(false);
                   }
                 }}
-                className="rounded-full border border-slate-600 px-3 py-1 text-xs text-slate-200 disabled:opacity-40"
+                className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-600 dark:bg-slate-950/20 dark:text-slate-200 dark:hover:bg-slate-900/60"
                 disabled={exportingAbilityLogs}
               >
                 导出 JSON
               </button>
             </div>
           </div>
-          {globalAbilityLogsError && <p className="text-xs text-rose-400">{globalAbilityLogsError}</p>}
-          {abilityLogMetricsError && <p className="text-xs text-rose-400">{abilityLogMetricsError}</p>}
+          {globalAbilityLogsError && <p className="text-xs text-rose-700 dark:text-rose-400">{globalAbilityLogsError}</p>}
+          {abilityLogMetricsError && <p className="text-xs text-rose-700 dark:text-rose-400">{abilityLogMetricsError}</p>}
           {abilityLogMetrics?.buckets && abilityLogMetrics.buckets.length > 0 ? (
-            <div className="mb-3 grid gap-2 rounded-2xl border border-slate-800 bg-slate-950/30 p-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className="mb-3 grid gap-2 rounded-2xl border border-slate-200/70 bg-slate-50/70 p-3 md:grid-cols-2 xl:grid-cols-4 dark:border-slate-800 dark:bg-slate-950/30">
               {(abilityLogMetrics.buckets as AbilityLogMetricBucket[]).slice(0, 8).map((b, idx) => (
-                <div key={`metric-${idx}`} className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
-                  <div className="text-[11px] text-slate-500">{b.ability_provider}</div>
-                  <div className="text-sm font-semibold text-white">{b.capability_key}</div>
-                  <div className="mt-1 text-[11px] text-slate-400">
+                <div
+                  key={`metric-${idx}`}
+                  className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950/40"
+                >
+                  <div className="text-[11px] text-slate-600 dark:text-slate-500">{b.ability_provider}</div>
+                  <div className="text-sm font-semibold text-slate-900 dark:text-white">{b.capability_key}</div>
+                  <div className="mt-1 text-[11px] text-slate-700 dark:text-slate-400">
                     近{abilityLogMetrics.window_hours}h：{b.count} 次 · 成功 {b.success_count} / 失败 {b.failed_count}
                   </div>
-                  <div className="mt-1 text-[11px] text-slate-400">
+                  <div className="mt-1 text-[11px] text-slate-700 dark:text-slate-400">
                     成功率：{b.success_rate !== null && b.success_rate !== undefined ? `${(b.success_rate * 100).toFixed(1)}%` : '—'}
                     {' · '}p50：{b.p50_duration_ms ?? '—'}ms{' · '}p95：{b.p95_duration_ms ?? '—'}ms
                   </div>
@@ -3406,7 +3409,7 @@ const normalizeErrorMessage = (message: string): string => {
           <div className="mt-2 overflow-x-auto">
             <table className="min-w-full text-xs">
               <thead>
-                <tr className="text-left uppercase tracking-widest text-slate-500">
+                <tr className="text-left uppercase tracking-widest text-slate-600 dark:text-slate-500">
                   <th>时间</th>
                   <th>能力</th>
                   <th>来源</th>
@@ -3424,23 +3427,27 @@ const normalizeErrorMessage = (message: string): string => {
                       ? `${formatPriceValue(logPricing.discountPrice ?? logPricing.listPrice, logPricing.currency)}`
                       : null;
                   return (
-                    <tr key={`global-log-${log.id}`} className="text-slate-300">
-                      <td className="whitespace-nowrap text-slate-400">{formatDateTime(log.created_at)}</td>
-                      <td className="whitespace-nowrap text-slate-200">
-                        <div className="font-semibold text-white">{log.ability_name || log.capability_key}</div>
-                        <div className="text-[11px] text-slate-500">{log.ability_provider}</div>
+                    <tr key={`global-log-${log.id}`} className="text-slate-800 dark:text-slate-300">
+                      <td className="whitespace-nowrap text-slate-700 dark:text-slate-400">{formatDateTime(log.created_at)}</td>
+                      <td className="whitespace-nowrap">
+                        <div className="font-semibold text-slate-900 dark:text-white">{log.ability_name || log.capability_key}</div>
+                        <div className="text-[11px] text-slate-600 dark:text-slate-500">{log.ability_provider}</div>
                         {(log.trace_id || log.workflow_run_id) && (
-                          <div className="text-[10px] text-slate-500">
+                          <div className="text-[10px] text-slate-600 dark:text-slate-500">
                             {log.trace_id && (
                               <span>
                                 Trace:{' '}
-                                <span className="font-mono text-slate-300">{formatTaskMarker(log.trace_id)}</span>
+                                <span className="font-mono text-slate-800 dark:text-slate-300">
+                                  {formatTaskMarker(log.trace_id)}
+                                </span>
                               </span>
                             )}
                             {log.workflow_run_id && (
                               <span className="ml-2">
                                 Flow:{' '}
-                                <span className="font-mono text-slate-300">{formatTaskMarker(log.workflow_run_id)}</span>
+                                <span className="font-mono text-slate-800 dark:text-slate-300">
+                                  {formatTaskMarker(log.workflow_run_id)}
+                                </span>
                               </span>
                             )}
                           </div>
