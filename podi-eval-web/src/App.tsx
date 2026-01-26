@@ -324,83 +324,129 @@ function TaskTable({
   workflowMap: Record<string, EvalWorkflowVersion>;
 }) {
   return (
-    <div className="rounded-3xl border border-slate-800 bg-slate-900/30 p-5">
-      <div className="flex items-end justify-between">
-        <div>
-          <div className="text-lg font-semibold">任务管理</div>
-          <div className="text-xs text-slate-400">实时刷新：queued/running 会持续轮询；ComfyUI 类回调出图后才算完成。</div>
-        </div>
-        <div className="text-xs text-slate-500">最近 {runs.length} 条</div>
-      </div>
-
-      <div className="mt-4 space-y-3">
-        {runs.map((run) => {
-          const wf = workflowMap[run.workflow_version_id];
-          const inputUrl = (run.input_oss_urls_json || [])[0] || '';
-          const outputs = run.result_image_urls_json || [];
-          const outputJson = (run as any).result_output_json;
-          const jsonPreview = formatJsonPreview(outputJson, 420);
-          return (
-            <div key={run.id} className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
-              <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-                <div>
-                  <div className="text-sm font-semibold">{wf ? wf.name : run.workflow_version_id}</div>
-                  <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-slate-400">
-                    <span className="rounded-full bg-slate-800/60 px-2 py-0.5">{run.status}</span>
-                    <span>耗时：{formatDuration(run.duration_ms)}</span>
-                    {run.podi_task_id ? <span className="font-mono">task: {run.podi_task_id}</span> : null}
-                    {run.coze_debug_url ? (
-                      <a className="text-sky-400 underline" href={run.coze_debug_url} target="_blank" rel="noreferrer">
-                        debug_url
-                      </a>
-                    ) : null}
-                    {run.latest_annotation?.rating ? (
-                      <span className="text-amber-200">评分：{run.latest_annotation.rating}</span>
-                    ) : (
-                      <span className="text-slate-500">未评分</span>
-                    )}
-                  </div>
-                  {run.error_message ? <div className="mt-2 text-xs text-rose-400">{run.error_message}</div> : null}
-                </div>
-                <div className="text-xs text-slate-500">{fmtTime(run.created_at)}</div>
-              </div>
-
-              <div className="mt-3 grid gap-2 lg:grid-cols-6">
-                {inputUrl ? (
-                  <a href={inputUrl} target="_blank" rel="noreferrer" className="block rounded-xl border border-slate-800 bg-slate-950/30 p-1">
-                    <img src={inputUrl} alt="input" className="h-24 w-full rounded-lg object-contain" />
-                  </a>
-                ) : null}
-                {outputs.slice(0, 5).map((u, idx) => (
-                  <a key={`${run.id}-out-${idx}`} href={u} target="_blank" rel="noreferrer" className="block rounded-xl border border-slate-800 bg-slate-950/30 p-1">
-                    <img
-                      src={u}
-                      alt="output"
-                      loading="lazy"
-                      onError={(e) => {
-                        // Avoid showing broken-image icons in the task table.
-                        (e.currentTarget as HTMLImageElement).style.display = 'none';
-                      }}
-                      className="h-24 w-full rounded-lg object-contain"
-                    />
-                  </a>
-                ))}
-                {outputs.length === 0 && jsonPreview ? (
-                  <div className="lg:col-span-5 rounded-xl border border-slate-800 bg-slate-950/30 p-3">
-                    <div className="text-[11px] font-semibold text-slate-300">输出 JSON</div>
-                    <pre className="mt-2 max-h-28 overflow-auto whitespace-pre-wrap break-words text-[11px] text-slate-200">{jsonPreview}</pre>
-                  </div>
-                ) : null}
-                {outputs.length === 0 && !jsonPreview ? (
-                  <div className="text-sm text-slate-500">{run.status === 'running' || run.status === 'queued' ? '生成中…' : '暂无输出'}</div>
-                ) : null}
-              </div>
+    <Card
+      bordered
+      title={
+        <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+          <div>
+            <Typography.Text strong>任务管理</Typography.Text>
+            <div>
+              <Typography.Text theme="secondary">
+                实时刷新：queued/running 会持续轮询；ComfyUI 类回调出图后才算完成。
+              </Typography.Text>
             </div>
-          );
-        })}
-        {runs.length === 0 ? <div className="text-sm text-slate-500">暂无任务。</div> : null}
-      </div>
-    </div>
+          </div>
+          <Typography.Text theme="secondary">最近 {runs.length} 条</Typography.Text>
+        </Space>
+      }
+    >
+      <Table
+        size="small"
+        rowKey="id"
+        data={runs}
+        empty={<Typography.Text theme="secondary">暂无任务。</Typography.Text>}
+        columns={[
+          {
+            colKey: 'created_at',
+            title: '时间',
+            width: 180,
+            cell: ({ row }) => <Typography.Text>{fmtTime(row.created_at)}</Typography.Text>,
+          },
+          {
+            colKey: 'workflow',
+            title: '工作流',
+            minWidth: 240,
+            cell: ({ row }) => {
+              const wf = workflowMap[row.workflow_version_id];
+              return (
+                <Space direction="vertical" size={2}>
+                  <Typography.Text strong>{wf ? wf.name : row.workflow_version_id}</Typography.Text>
+                  <Typography.Text theme="secondary" style={{ fontSize: 12 }} ellipsis>
+                    {wf?.workflow_id || '—'}
+                  </Typography.Text>
+                </Space>
+              );
+            },
+          },
+          {
+            colKey: 'status',
+            title: '状态',
+            width: 150,
+            cell: ({ row }) => (
+              <Space direction="vertical" size={2}>
+                <Tag variant="light">{row.status}</Tag>
+                <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                  耗时：{formatDuration(row.duration_ms)}
+                </Typography.Text>
+              </Space>
+            ),
+          },
+          {
+            colKey: 'rating',
+            title: '评分',
+            width: 120,
+            cell: ({ row }) =>
+              row.latest_annotation?.rating ? (
+                <Tag theme="warning" variant="light">
+                  {row.latest_annotation.rating}
+                </Tag>
+              ) : (
+                <Typography.Text theme="secondary">未评分</Typography.Text>
+              ),
+          },
+          {
+            colKey: 'output',
+            title: '输出',
+            minWidth: 220,
+            cell: ({ row }) => {
+              const outputs = filterImageUrls(row.result_image_urls_json);
+              const jsonPreview = formatJsonPreview((row as any).result_output_json, 240);
+              if (outputs.length > 0) {
+                return (
+                  <Space breakLine>
+                    <Typography.Text theme="secondary">{outputs.length} 张</Typography.Text>
+                    <Button size="small" variant="text" onClick={() => window.open(outputs[0], '_blank', 'noreferrer')}>
+                      打开首张
+                    </Button>
+                  </Space>
+                );
+              }
+              if (jsonPreview) {
+                return (
+                  <Typography.Text theme="secondary" style={{ fontFamily: 'monospace', fontSize: 12 }} ellipsis>
+                    {jsonPreview}
+                  </Typography.Text>
+                );
+              }
+              return (
+                <Typography.Text theme="secondary">
+                  {row.status === 'running' || row.status === 'queued' ? '生成中…' : '暂无输出'}
+                </Typography.Text>
+              );
+            },
+          },
+          {
+            colKey: 'actions',
+            title: '操作',
+            width: 220,
+            cell: ({ row }) => (
+              <Space>
+                {row.coze_debug_url ? (
+                  <Button
+                    size="small"
+                    variant="outline"
+                    onClick={() => window.open(row.coze_debug_url || '', '_blank', 'noreferrer')}
+                  >
+                    debug_url
+                  </Button>
+                ) : null}
+                {row.error_message ? <Typography.Text theme="error">失败</Typography.Text> : null}
+              </Space>
+            ),
+          },
+        ]}
+      />
+    </Card>
   );
 }
 
@@ -749,7 +795,7 @@ export function App() {
       style={{
         borderBottom: '1px solid var(--td-component-border)',
         background: 'var(--td-bg-color-container)',
-        padding: '0 16px',
+        padding: '0 24px',
       }}
     >
       <Space align="center" style={{ justifyContent: 'space-between', width: '100%', height: '100%' }}>
@@ -802,7 +848,13 @@ export function App() {
             }}
           >
             <Space direction="vertical" size="small" style={{ width: '100%' }}>
-              <Typography.Text theme="secondary">测试大类</Typography.Text>
+              <div>
+                <Typography.Text theme="secondary">导航</Typography.Text>
+                <Typography.Title level="h5" style={{ margin: '6px 0 0' }}>
+                  测试大类
+                </Typography.Title>
+                <Typography.Text theme="secondary">选择分类后，右侧展示对应能力卡片。</Typography.Text>
+              </div>
               <Menu
                 value={activeCategory}
                 theme={theme === 'dark' ? 'dark' : 'light'}
@@ -821,15 +873,11 @@ export function App() {
                       <Typography.Text theme="secondary">{(grouped[cat] || []).length}</Typography.Text>
                     </Space>
                   </Menu.MenuItem>
-                ))}
-              </Menu>
-              <Alert
-                theme="info"
-                message="左侧切换测试大类；右侧展示该大类下的工作流卡片。"
-              />
+                  ))}
+                </Menu>
             </Space>
           </Layout.Aside>
-          <Layout.Content style={{ padding: 16, background: 'var(--td-bg-color-page)', overflow: 'auto' }}>
+          <Layout.Content style={{ padding: 24, background: 'var(--td-bg-color-page)', overflow: 'auto' }}>
             <div style={{ maxWidth: 1400, margin: '0 auto' }}>{content}</div>
           </Layout.Content>
         </Layout>
