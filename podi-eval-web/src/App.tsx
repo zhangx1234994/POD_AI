@@ -227,15 +227,16 @@ function ToolCard({
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') onClick();
       }}
-      style={{ cursor: 'pointer' }}
+      style={{ cursor: 'pointer', height: '100%' }}
     >
       <Card
         bordered
         style={{
+          height: '100%',
           borderColor: active ? 'var(--td-brand-color)' : undefined,
         }}
       >
-        <Space direction="vertical" size="small" style={{ width: '100%' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
           <Space align="start" style={{ justifyContent: 'space-between', width: '100%' }}>
             <Space direction="vertical" size={2} style={{ minWidth: 0 }}>
               <Typography.Text strong ellipsis>
@@ -253,15 +254,26 @@ function ToolCard({
             </Space>
           </Space>
 
-          <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+          <div
+            className="podi-clamp-2"
+            style={{
+              marginTop: 8,
+              fontSize: 12,
+              lineHeight: '18px',
+              minHeight: 36, // Reserve exactly 2 lines so all cards align.
+              color: 'var(--td-text-color-secondary)',
+            }}
+          >
             {wf.notes || '—'}
-          </Typography.Text>
+          </div>
 
-          <Space breakLine>
-            <Tag variant="light">{wf.version}</Tag>
-            <Tag variant="light">{normalizeCategory(wf.category)}</Tag>
-          </Space>
-        </Space>
+          <div style={{ marginTop: 12 }}>
+            <Space breakLine>
+              <Tag variant="light">{wf.version}</Tag>
+              <Tag variant="light">{normalizeCategory(wf.category)}</Tag>
+            </Space>
+          </div>
+        </div>
       </Card>
     </div>
   );
@@ -1391,7 +1403,7 @@ export function App() {
       <Row gutter={[12, 12]}>
         {/* 12-col grid: 12=1col, 6=2col, 4=3col */}
         {toolList.map((wf) => (
-          <Col key={wf.id} xs={12} sm={6} lg={4}>
+          <Col key={wf.id} xs={12} sm={6} lg={4} style={{ display: 'flex' }}>
             <ToolCard wf={wf} active={false} metric={metrics[wf.id]} onClick={() => openTool(wf)} />
           </Col>
         ))}
