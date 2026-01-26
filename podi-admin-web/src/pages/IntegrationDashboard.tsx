@@ -2602,9 +2602,7 @@ const normalizeErrorMessage = (message: string): string => {
               {testResult.raw && (
                 <details className="mt-3 rounded-2xl border border-slate-800 bg-slate-950/40 p-3 text-xs text-slate-300">
                   <summary className="cursor-pointer text-slate-200">查看原始响应</summary>
-                  <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap font-mono text-[11px] text-slate-300">
-                    {formatRawResponse(testResult.raw)}
-                  </pre>
+                  <CodeBlock value={formatRawResponse(testResult.raw)} maxHeight={240} />
                 </details>
               )}
               {!hasTestResultPreview && !testResult.text && (
@@ -3366,20 +3364,7 @@ const normalizeErrorMessage = (message: string): string => {
 
             <div>
               <Typography.Text theme="secondary">调用示例（可复制到 Postman / cURL）</Typography.Text>
-              <pre
-                style={{
-                  marginTop: 8,
-                  padding: 12,
-                  borderRadius: 8,
-                  border: '1px solid var(--td-border-level-1-color)',
-                  background: 'var(--td-bg-color-secondarycontainer)',
-                  color: 'var(--td-text-color-primary)',
-                  fontSize: 12,
-                  whiteSpace: 'pre-wrap',
-                }}
-              >
-                {abilityApiExample}
-              </pre>
+              <CodeBlock value={abilityApiExample} maxHeight={260} />
             </div>
 
             <div>
@@ -4884,42 +4869,14 @@ const normalizeErrorMessage = (message: string): string => {
             {abilityLogDetail.request_payload ? (
               <div>
                 <Typography.Text theme="secondary">Request</Typography.Text>
-                <pre
-                  style={{
-                    marginTop: 8,
-                    padding: 12,
-                    borderRadius: 8,
-                    border: '1px solid var(--td-border-level-1-color)',
-                    background: 'var(--td-bg-color-secondarycontainer)',
-                    color: 'var(--td-text-color-primary)',
-                    fontSize: 12,
-                    maxHeight: 260,
-                    overflow: 'auto',
-                  }}
-                >
-                  {formatRawResponse(abilityLogDetail.request_payload)}
-                </pre>
+                <CodeBlock value={formatRawResponse(abilityLogDetail.request_payload)} maxHeight={260} />
               </div>
             ) : null}
 
             {abilityLogDetail.response_payload ? (
               <div>
                 <Typography.Text theme="secondary">Response</Typography.Text>
-                <pre
-                  style={{
-                    marginTop: 8,
-                    padding: 12,
-                    borderRadius: 8,
-                    border: '1px solid var(--td-border-level-1-color)',
-                    background: 'var(--td-bg-color-secondarycontainer)',
-                    color: 'var(--td-text-color-primary)',
-                    fontSize: 12,
-                    maxHeight: 260,
-                    overflow: 'auto',
-                  }}
-                >
-                  {formatRawResponse(abilityLogDetail.response_payload)}
-                </pre>
+                <CodeBlock value={formatRawResponse(abilityLogDetail.response_payload)} maxHeight={260} />
               </div>
             ) : null}
 
