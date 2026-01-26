@@ -39,9 +39,35 @@ const formatDuration = (ms?: number | null) => {
 
 const fmtTime = (iso: string) => {
   try {
-    return new Date(iso).toLocaleString();
+    // Force CN business timezone regardless of server/browser settings.
+    return new Date(iso).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
   } catch {
     return iso;
+  }
+};
+
+const formatJsonPreview = (value: unknown, maxLen = 1200): string => {
+  try {
+    if (value == null) return '';
+    // Coze "JSON output" is often a JSON string.
+    if (typeof value === 'string') {
+      const s = value.trim();
+      if (!s) return '';
+      if ((s.startsWith('{') && s.endsWith('}')) || (s.startsWith('[') && s.endsWith(']'))) {
+        try {
+          const parsed = JSON.parse(s);
+          const pretty = JSON.stringify(parsed, null, 2);
+          return pretty.length > maxLen ? `${pretty.slice(0, maxLen)}…` : pretty;
+        } catch {
+          return s.length > maxLen ? `${s.slice(0, maxLen)}…` : s;
+        }
+      }
+      return s.length > maxLen ? `${s.slice(0, maxLen)}…` : s;
+    }
+    const pretty = JSON.stringify(value, null, 2);
+    return pretty.length > maxLen ? `${pretty.slice(0, maxLen)}…` : pretty;
+  } catch {
+    return String(value || '');
   }
 };
 
@@ -300,6 +326,8 @@ function TaskTable({
           const wf = workflowMap[run.workflow_version_id];
           const inputUrl = (run.input_oss_urls_json || [])[0] || '';
           const outputs = run.result_image_urls_json || [];
+          const outputJson = (run as any).result_output_json;
+          const jsonPreview = formatJsonPreview(outputJson, 420);
           return (
             <div key={run.id} className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
               <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
@@ -345,7 +373,15 @@ function TaskTable({
                     />
                   </a>
                 ))}
-                {outputs.length === 0 ? <div className="text-sm text-slate-500">{run.status === 'running' || run.status === 'queued' ? '生成中…' : '暂无输出'}</div> : null}
+                {outputs.length === 0 && jsonPreview ? (
+                  <div className="lg:col-span-5 rounded-xl border border-slate-800 bg-slate-950/30 p-3">
+                    <div className="text-[11px] font-semibold text-slate-300">输出 JSON</div>
+                    <pre className="mt-2 max-h-28 overflow-auto whitespace-pre-wrap break-words text-[11px] text-slate-200">{jsonPreview}</pre>
+                  </div>
+                ) : null}
+                {outputs.length === 0 && !jsonPreview ? (
+                  <div className="text-sm text-slate-500">{run.status === 'running' || run.status === 'queued' ? '生成中…' : '暂无输出'}</div>
+                ) : null}
               </div>
             </div>
           );
@@ -1032,9 +1068,19 @@ export function App() {
                   }
                   const imgs = filterImageUrls(latest.result_image_urls_json);
                   if (!imgs.length) {
+                    const jsonPreview = formatJsonPreview((latest as any).result_output_json, 2400);
                     return (
                       <div className="rounded-2xl border border-slate-800 bg-slate-950/30 p-4 text-sm text-slate-300">
-                        该次运行无图片输出。
+                        {jsonPreview ? (
+                          <>
+                            <div className="font-semibold">输出 JSON</div>
+                            <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-[12px] text-slate-100">
+                              {jsonPreview}
+                            </pre>
+                          </>
+                        ) : (
+                          <>该次运行无图片输出。</>
+                        )}
                         {latest.coze_debug_url ? (
                           <div className="mt-2 text-xs">
                             <a className="text-sky-400 underline" href={latest.coze_debug_url} target="_blank" rel="noreferrer">
@@ -1196,6 +1242,7 @@ function HistoryRow({
   const [rowError, setRowError] = useState<string>('');
 
   const commentDirty = commentDraft !== savedComment;
+  const jsonPreview = formatJsonPreview((run as any).result_output_json, 1200);
 
   // Sync state when the latest annotation changes due to refresh/polling.
   // Do not clobber an in-progress comment draft.
@@ -1352,6 +1399,13 @@ function HistoryRow({
             ) : (
               (() => {
                 if (run.status !== 'running' && run.status !== 'queued') {
+                  if (jsonPreview) {
+                    return (
+                      <pre className="lg:col-span-3 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-[12px] text-slate-100">
+                        {jsonPreview}
+                      </pre>
+                    );
+                  }
                   return <div className="text-sm text-slate-500">暂无输出</div>;
                 }
                 const rawCount = Number((run.parameters_json as any)?.count);

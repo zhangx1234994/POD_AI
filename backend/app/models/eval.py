@@ -71,6 +71,10 @@ class EvalRun(Base):
     coze_debug_url: Mapped[str | None] = mapped_column(String(512))
     podi_task_id: Mapped[str | None] = mapped_column(String(64))
     result_image_urls_json: Mapped[list[str] | None] = mapped_column(JSON)
+    # For non-image workflows (e.g. image tagging), persist `output` as JSON so the eval UI can render it.
+    result_output_json: Mapped[dict[str, Any] | list[Any] | str | int | float | bool | None] = mapped_column(
+        JSON, nullable=True
+    )
     error_message: Mapped[str | None] = mapped_column(Text)
     duration_ms: Mapped[int | None] = mapped_column(Integer)
     

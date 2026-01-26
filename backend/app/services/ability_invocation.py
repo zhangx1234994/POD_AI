@@ -51,6 +51,34 @@ class AbilityInvocationService:
 
     def __init__(self) -> None:
         self._logger = logging.getLogger(__name__)
+        # Executor-level concurrency gate:
+        # - ABILITY_TASK_MAX_WORKERS / EVAL_RUN_MAX_WORKERS control *process* concurrency.
+        # - Executor.max_concurrency should control *per-executor* concurrency.
+        # We default to 1 so behavior is unchanged unless operators raise max_concurrency.
+        self._executor_slots: dict[str, threading.BoundedSemaphore] = {}
+        self._executor_slot_sizes: dict[str, int] = {}
+        self._executor_slots_lock = threading.Lock()
+
+    def _get_executor_slot(self, executor_id: str) -> threading.BoundedSemaphore | None:
+        eid = (executor_id or "").strip()
+        if not eid:
+            return None
+        with self._executor_slots_lock:
+            sem = self._executor_slots.get(eid)
+            if sem is not None:
+                return sem
+            # Fetch max_concurrency once; changes take effect after process restart.
+            try:
+                with get_session() as session:
+                    ex = session.get(Executor, eid)
+                max_c = int(getattr(ex, "max_concurrency", 1) or 1) if ex else 1
+            except Exception:
+                max_c = 1
+            max_c = max(1, min(max_c, 50))
+            sem = threading.BoundedSemaphore(value=max_c)
+            self._executor_slots[eid] = sem
+            self._executor_slot_sizes[eid] = max_c
+            return sem
 
     # -------- catalogue helpers -------- #
     def list_public_abilities(self) -> list[schemas.AbilityPublicInfo]:
@@ -260,6 +288,47 @@ class AbilityInvocationService:
 
     # -------- internal helpers -------- #
     def _dispatch_provider(
+        self,
+        *,
+        ability: Ability,
+        executor_id: str | None,
+        merged_inputs: dict[str, Any],
+        images: _ImageBundle,
+        context: _InvocationContext,
+    ) -> dict[str, Any]:
+        provider = ability.provider.lower()
+        # Ability-level concurrency must be enforced per executor, otherwise "业务层并发"
+        # 会直接打爆同一个执行节点（ComfyUI/KIE/Volcengine 等）导致 502/连接重置。
+        # 默认 max_concurrency=1，不改变现有行为；当运维在执行节点上提高该值后，
+        # 这里会自动生效且保持可控。
+        sem = self._get_executor_slot(executor_id or "") if provider in {"baidu", "volcengine", "comfyui", "kie"} else None
+        if sem is None:
+            return self._dispatch_provider_inner(
+                ability=ability,
+                executor_id=executor_id,
+                merged_inputs=merged_inputs,
+                images=images,
+                context=context,
+            )
+        acquired = sem.acquire(timeout=120)
+        if not acquired:
+            raise HTTPException(status_code=429, detail="EXECUTOR_BUSY")
+        try:
+            return self._dispatch_provider_inner(
+                ability=ability,
+                executor_id=executor_id,
+                merged_inputs=merged_inputs,
+                images=images,
+                context=context,
+            )
+        finally:
+            try:
+                sem.release()
+            except Exception:
+                # Should never happen (bounded semaphore), but never break request flow.
+                pass
+
+    def _dispatch_provider_inner(
         self,
         *,
         ability: Ability,

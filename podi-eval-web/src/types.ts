@@ -20,6 +20,7 @@ export type EvalRun = {
   coze_debug_url?: string | null;
   podi_task_id?: string | null;
   result_image_urls_json?: string[] | null;
+  result_output_json?: unknown | null;
   error_message?: string | null;
   duration_ms?: number | null;
   created_by: string;
@@ -40,4 +41,3 @@ export type SchemaField = {
   options?: { label: string; value: string }[];
   defaultValue?: string;
 };
-

@@ -80,6 +80,7 @@ class EvalRunBase(BaseModel):
     coze_debug_url: Optional[str] = Field(None, description="Coze调试URL")
     podi_task_id: Optional[str] = Field(None, description="PODI任务ID")
     result_image_urls_json: Optional[List[str]] = Field(None, description="结果图URL")
+    result_output_json: Optional[Any] = Field(None, description="非图片结果（如打标签 JSON）")
     error_message: Optional[str] = Field(None, description="错误信息")
     duration_ms: Optional[int] = Field(None, description="执行时长（毫秒）")
 

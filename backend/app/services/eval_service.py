@@ -315,7 +315,7 @@ class EvalService:
                     warn = None
                     if errors:
                         warn = "FANOUT_PARTIAL_FAILED: " + " | ".join(errors[:5]) + (" ..." if len(errors) > 5 else "")
-                    self._mark_succeeded(run_id, image_urls=dedup, started=started, error_message=warn)
+                    self._mark_succeeded(run_id, image_urls=dedup, output_json=None, started=started, error_message=warn)
                     return
                 self._mark_failed(run_id, message=errors[0] if errors else "FANOUT_EMPTY", started=started)
                 return
@@ -439,6 +439,7 @@ class EvalService:
                     return
 
             image_urls = self._extract_image_urls(parsed)
+            output_json = self._extract_output_json(parsed)
             # Callback workflows must eventually return a task id (then we resolve it to images).
             # If Coze returns an empty string while the job is still processing, we should not
             # silently mark success with empty outputs.
@@ -453,7 +454,7 @@ class EvalService:
                     started=started,
                 )
                 return
-            self._mark_succeeded(run_id, image_urls=image_urls, started=started)
+            self._mark_succeeded(run_id, image_urls=image_urls, output_json=output_json, started=started)
         except HTTPException as exc:
             self._mark_failed(run_id, message=str(exc.detail), started=started)
         except Exception as exc:  # pragma: no cover - defensive
@@ -1053,10 +1054,42 @@ class EvalService:
             return
 
     @staticmethod
+    def _extract_output_json(payload: dict[str, Any]) -> Any:
+        """Best-effort extraction of `output` for non-image workflows.
+
+        Coze often returns `output` as:
+        - a JSON string (e.g. "{...}") for tagging/metadata flows
+        - a primitive/string for text flows
+        """
+
+        if not isinstance(payload, dict):
+            return None
+        output = payload.get("output")
+        if output is None:
+            return None
+        if isinstance(output, (dict, list, int, float, bool)):
+            return output
+        if isinstance(output, str):
+            s = output.strip()
+            if not s:
+                return None
+            # Try parsing JSON-like strings for nicer rendering in the UI.
+            if (s.startswith("{") and s.endswith("}")) or (s.startswith("[") and s.endswith("]")):
+                try:
+                    parsed = json.loads(s)
+                    return parsed
+                except Exception:
+                    pass
+            # Avoid persisting huge bodies.
+            return s[:8000]
+        return str(output)[:8000]
+
+    @staticmethod
     def _mark_succeeded(
         run_id: str,
         *,
         image_urls: list[str],
+        output_json: Any | None = None,
         started: float,
         error_message: str | None = None,
     ) -> None:
@@ -1082,6 +1115,7 @@ class EvalService:
             run.status = "succeeded"
             run.error_message = error_message
             run.result_image_urls_json = cleaned or []
+            run.result_output_json = output_json
             run.duration_ms = int((time.monotonic() - started) * 1000)
             session.add(run)
             session.commit()
