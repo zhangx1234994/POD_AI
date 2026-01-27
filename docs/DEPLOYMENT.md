@@ -32,6 +32,20 @@ bash scripts/deploy_prodlike.sh
 - 后端启动前自动执行 `alembic upgrade head`
 - 最后用 `/health` 做健康检查
 
+## 无 Docker（兜底方案）
+如果服务器没有 Docker，可以用“prod-like（无 docker）”脚本，效果同样是：
+- 前端不跑 `npm run dev`，使用静态构建产物 + 同源 `/api` 反代（Node 内置小代理）
+- 后端启动前自动跑迁移
+
+```bash
+bash scripts/deploy_prodlike_nodocker.sh
+```
+
+端口保持一致：
+- `8099` 后端
+- `8199` 管理端
+- `8200` 测评端
+
 ## 日志与排查
 ```bash
 docker compose -f docker-compose.prodlike.yml ps
