@@ -11,10 +11,9 @@ import os
 import time
 from sqlalchemy import text
 from sqlalchemy.engine import create_engine
+from app.core.config import get_settings
 
-db = os.environ.get("DATABASE_URL")
-if not db:
-    raise SystemExit("DATABASE_URL is required")
+db = get_settings().database_url
 
 engine = create_engine(db, pool_pre_ping=True)
 deadline = time.time() + 60
@@ -38,4 +37,3 @@ alembic upgrade head
 
 echo "[backend] launching uvicorn on 0.0.0.0:8099"
 exec uvicorn app.main:app --host 0.0.0.0 --port 8099
-
