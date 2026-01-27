@@ -1337,17 +1337,18 @@ export function App() {
         <Card
           bordered
           title={
-            <Space align="center" breakLine style={{ justifyContent: 'space-between', width: '100%' }}>
-              <div>
+            <div className="podi-card-titlebar">
+              <div className="podi-card-titlebar__left">
                 <Typography.Text strong>历史记录（打标区）</Typography.Text>
                 <div>
                   <Typography.Text theme="secondary">每条记录包含原图 + 结果图；支持筛选与备注。</Typography.Text>
                 </div>
               </div>
-              <Space breakLine>
+              <div className="podi-card-titlebar__right">
                 <Select
                   value={filterStatus}
                   onChange={(v) => setFilterStatus(String(v))}
+                  style={{ width: 140 }}
                   options={[
                     { label: '全部状态', value: 'all' },
                     { label: 'queued', value: 'queued' },
@@ -1359,18 +1360,25 @@ export function App() {
                 <Select
                   value={filterRating}
                   onChange={(v) => setFilterRating(String(v))}
+                  style={{ width: 140 }}
                   options={[
                     { label: '全部评分', value: 'all' },
                     ...[1, 2, 3, 4, 5].map((n) => ({ label: String(n), value: String(n) })),
                   ]}
                 />
-                <Space align="center" size="small">
+                <div className="podi-inline">
                   <Switch value={filterUnrated} onChange={(v) => setFilterUnrated(Boolean(v))} />
                   <Typography.Text theme="secondary">未打分</Typography.Text>
-                </Space>
-                <Input value={search} onChange={(v) => setSearch(String(v))} placeholder="搜索备注/错误…" clearable />
-              </Space>
-            </Space>
+                </div>
+                <Input
+                  value={search}
+                  onChange={(v) => setSearch(String(v))}
+                  style={{ width: 240 }}
+                  placeholder="搜索备注/错误…"
+                  clearable
+                />
+              </div>
+            </div>
           }
         >
           <Space direction="vertical" size="large" style={{ width: '100%' }}>
@@ -1446,13 +1454,15 @@ function HistoryRow({
   return (
     <Card bordered>
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
-        <Space align="start" style={{ justifyContent: 'space-between', width: '100%' }}>
-          <Space direction="vertical" size={2} style={{ minWidth: 0 }}>
+        <div className="podi-history-row-head">
+          <div className="podi-history-row-head__meta">
             <Typography.Text strong style={{ fontFamily: 'monospace' }} ellipsis>
               run: {run.id}
             </Typography.Text>
-            <Space breakLine>
-              <Tag variant="light">{run.status}</Tag>
+            <div className="podi-history-row-head__meta-line">
+              <Tag size="small" variant="light">
+                {run.status}
+              </Tag>
               <Typography.Text theme="secondary">耗时：{formatDuration(run.duration_ms)}</Typography.Text>
               <Typography.Text theme="secondary">{fmtTime(run.created_at)}</Typography.Text>
               {run.podi_task_id ? (
@@ -1461,40 +1471,46 @@ function HistoryRow({
                 </Typography.Text>
               ) : null}
               {run.coze_debug_url ? (
-                <Button size="small" variant="text" onClick={() => window.open(run.coze_debug_url || '', '_blank', 'noreferrer')}>
+                <Button
+                  size="small"
+                  variant="text"
+                  onClick={() => window.open(run.coze_debug_url || '', '_blank', 'noreferrer')}
+                >
                   debug_url
                 </Button>
               ) : null}
-            </Space>
+            </div>
             {run.error_message ? <Alert theme="error" message={run.error_message} /> : null}
-          </Space>
+          </div>
 
-          <Space direction="vertical" size={2} style={{ alignItems: 'flex-end' }}>
-            <Typography.Text theme="secondary">评分</Typography.Text>
-            <Rate
-              value={rating}
-              onChange={async (v) => {
-                const next = Number(v) || 0;
-                if (savingRating || savingComment) return;
-                setRating(next);
-                setSavingRating(true);
-                setRowError('');
-                try {
-                  await onAnnotate(run.id, next, savedComment);
-                  setLastSavedAt(new Date().toISOString());
-                } catch (err) {
-                  console.error(err);
-                  setRowError(String((err as any)?.message || err));
-                } finally {
-                  setSavingRating(false);
-                }
-              }}
-            />
-            <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+          <div className="podi-history-row-head__rate">
+            <div className="podi-inline">
+              <Typography.Text theme="secondary">评分</Typography.Text>
+              <Rate
+                value={rating}
+                onChange={async (v) => {
+                  const next = Number(v) || 0;
+                  if (savingRating || savingComment) return;
+                  setRating(next);
+                  setSavingRating(true);
+                  setRowError('');
+                  try {
+                    await onAnnotate(run.id, next, savedComment);
+                    setLastSavedAt(new Date().toISOString());
+                  } catch (err) {
+                    console.error(err);
+                    setRowError(String((err as any)?.message || err));
+                  } finally {
+                    setSavingRating(false);
+                  }
+                }}
+              />
+            </div>
+            <Typography.Text theme="secondary" style={{ fontSize: 12, textAlign: 'right' }}>
               {savingRating || savingComment ? '保存中…' : lastSavedAt ? `已保存 ${fmtTime(lastSavedAt)}` : rating ? '已评分' : '未评分'}
             </Typography.Text>
-          </Space>
-        </Space>
+          </div>
+        </div>
 
         <Row gutter={[12, 12]}>
           <Col xs={24} lg={8}>
@@ -1545,7 +1561,7 @@ function HistoryRow({
           </Col>
           <Col xs={24} lg={16}>
             <Card bordered title="原图 / 结果">
-              <div className="grid gap-2 lg:grid-cols-4">
+              <div className="podi-image-grid">
                 {inputUrl ? (
                   <Button
                     variant="outline"
@@ -1570,7 +1586,7 @@ function HistoryRow({
                 ) : run.status !== 'running' && run.status !== 'queued' ? (
                   jsonPreview ? (
                     <pre
-                      className="lg:col-span-3"
+                      className="podi-image-grid__full"
                       style={{
                         maxHeight: 280,
                         overflow: 'auto',
