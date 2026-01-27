@@ -15,9 +15,14 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 1
 fi
 
+DC="docker compose"
 if ! docker compose version >/dev/null 2>&1; then
-  echo "[deploy] ERROR: docker compose not available"
-  exit 1
+  if command -v docker-compose >/dev/null 2>&1; then
+    DC="docker-compose"
+  else
+    echo "[deploy] ERROR: docker compose not available (need docker compose plugin or docker-compose)"
+    exit 1
+  fi
 fi
 
 if [[ ! -f backend/.env ]]; then
@@ -26,10 +31,10 @@ if [[ ! -f backend/.env ]]; then
 fi
 
 echo "[deploy] building images..."
-docker compose -f "$COMPOSE_FILE" build --pull
+${DC} -f "$COMPOSE_FILE" build --pull
 
 echo "[deploy] starting containers..."
-docker compose -f "$COMPOSE_FILE" up -d --remove-orphans
+${DC} -f "$COMPOSE_FILE" up -d --remove-orphans
 
 echo "[deploy] health check..."
 for i in {1..30}; do
@@ -44,4 +49,3 @@ echo "[deploy] urls:"
 echo "  - backend:   http://127.0.0.1:8099/health"
 echo "  - admin web: http://127.0.0.1:8199/"
 echo "  - eval web:  http://127.0.0.1:8200/"
-

@@ -21,9 +21,9 @@ services:
       context: ./podi-admin-web
       dockerfile: Dockerfile
       args:
-        # Browser访问后端用宿主机端口；线上/开发机保持一致。
-        VITE_API_BASE_URL: "http://localhost:8099"
-        VITE_MEDIA_BASE_URL: "http://localhost:8099/api/media"
+        # Use same-origin `/api/*` via nginx reverse proxy inside the container.
+        VITE_API_BASE_URL: ""
+        VITE_MEDIA_BASE_URL: ""
     container_name: podi-admin-web
     ports:
       - "8199:8199"
@@ -34,9 +34,8 @@ services:
       context: ./podi-eval-web
       dockerfile: Dockerfile
       args:
-        VITE_API_BASE_URL: "http://localhost:8099"
+        VITE_API_BASE_URL: ""
     container_name: podi-eval-web
     ports:
       - "8200:8200"
     restart: unless-stopped
-

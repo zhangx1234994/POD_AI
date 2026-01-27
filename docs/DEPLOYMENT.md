@@ -44,3 +44,8 @@ docker compose -f docker-compose.prodlike.yml logs -f eval-web
 - 线上不要用 `npm run dev`：Vite dev server 会引入 websocket/HMR，且容易因缓存/代理导致“样式乱、资源错配”。
 - 迁移必须跑：新字段/表未迁移会导致管理端接口 500/502。
 
+## API 访问方式（保持开发机/线上一致）
+- 管理端页面：`http://<host>:8199/`
+- 测评端页面：`http://<host>:8200/`
+- 两个前端都通过同源代理访问后端：`/api/*` → `backend:8099`
+  - 好处：不依赖 `VITE_API_BASE_URL`，避免“线上/开发机域名不同导致接口地址漂移”。
