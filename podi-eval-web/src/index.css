@@ -15,7 +15,8 @@
 .podi-tool-grid {
   display: grid;
   gap: 12px;
-  justify-content: start;
+  /* Keep fixed-width cards but avoid "all left / huge blank right" on wide screens. */
+  justify-content: center;
   grid-template-columns: repeat(auto-fill, minmax(360px, 360px));
 }
 
