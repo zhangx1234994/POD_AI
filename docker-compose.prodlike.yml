@@ -1,0 +1,42 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: podi-backend
+    ports:
+      - "8099:8099"
+    environment:
+      PYTHONUNBUFFERED: "1"
+      TZ: "Asia/Shanghai"
+    # We rely on `backend/.env` to keep dev/prod behavior consistent and
+    # to support `${ENV}` interpolation for `config/executors.yaml`.
+    volumes:
+      - ./backend/.env:/app/backend/.env:ro
+      - ./config:/app/config:ro
+    restart: unless-stopped
+
+  admin-web:
+    build:
+      context: ./podi-admin-web
+      dockerfile: Dockerfile
+      args:
+        # Browser访问后端用宿主机端口；线上/开发机保持一致。
+        VITE_API_BASE_URL: "http://localhost:8099"
+        VITE_MEDIA_BASE_URL: "http://localhost:8099/api/media"
+    container_name: podi-admin-web
+    ports:
+      - "8199:8199"
+    restart: unless-stopped
+
+  eval-web:
+    build:
+      context: ./podi-eval-web
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: "http://localhost:8099"
+    container_name: podi-eval-web
+    ports:
+      - "8200:8200"
+    restart: unless-stopped
+
