@@ -25,7 +25,9 @@ executors:
     base_url: "https://api.kie.ai"
     status: active
     weight: 1
-    max_concurrency: 2
+    # KIE tasks are long-running (polling up to ~180s). Keep a small but >1 cap
+    # to avoid frequent 429 EXECUTOR_BUSY under light fan-out workflows.
+    max_concurrency: 4
     config:
       apiKey: "${KIE_API_KEY}"
       baseUrl: "https://api.kie.ai"
