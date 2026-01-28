@@ -17,6 +17,7 @@ from app.models.integration import Ability, ApiKey, Executor, ExecutorApiKey, Wo
 from app.schemas import admin_integrations as schemas
 from app.schemas import admin_tests, admin_workflows
 from app.services.ability_logs import AbilityLogStartParams, ability_log_service
+from app.services.ability_invocation import ability_invocation_service
 from app.services.executor_seed import ensure_default_executors
 from app.services.integration_test import integration_test_service
 from app.services.workflow_seed import ensure_default_bindings, ensure_default_workflows
@@ -147,6 +148,7 @@ def create_executor(payload: schemas.ExecutorCreate) -> Executor:
         session.refresh(executor)
         # preload api key links to avoid detached lazy load
         _ = list(executor.api_key_links)
+        ability_invocation_service.invalidate_executor_slot(executor.id)
         return executor
 
 
@@ -179,6 +181,7 @@ def update_executor(executor_id: str, payload: schemas.ExecutorUpdate) -> Execut
         session.commit()
         session.refresh(executor)
         _ = list(executor.api_key_links)
+        ability_invocation_service.invalidate_executor_slot(executor.id)
         return executor
 
 
@@ -190,6 +193,7 @@ def delete_executor(executor_id: str) -> dict[str, str]:
             raise HTTPException(status_code=404, detail="EXECUTOR_NOT_FOUND")
         session.delete(executor)
         session.commit()
+        ability_invocation_service.invalidate_executor_slot(executor_id)
         return {"status": "deleted"}
 
 

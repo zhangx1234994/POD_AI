@@ -741,6 +741,10 @@ export function IntegrationDashboard({
   const [executorTrafficLoading, setExecutorTrafficLoading] = useState(false);
   const [executorTrafficError, setExecutorTrafficError] = useState<string | null>(null);
   const [executorsView, setExecutorsView] = useState<'list' | 'channels'>('channels');
+  const [executorInlineConcurrency, setExecutorInlineConcurrency] = useState<Record<string, number>>({});
+  const [executorInlineSaving, setExecutorInlineSaving] = useState<Record<string, boolean>>({});
+  const [executorInlineError, setExecutorInlineError] = useState<Record<string, string>>({});
+  const [executorFormError, setExecutorFormError] = useState<string | null>(null);
 
   const storedPreviewUrl = testResult?.storedUrl || (testResult?.assets && testResult.assets[0]?.ossUrl) || '';
   const fallbackResultUrl =
@@ -778,6 +782,74 @@ export function IntegrationDashboard({
     () => executors.filter((executor) => (executor.type || '').toLowerCase().includes('comfyui')),
     [executors],
   );
+
+  const executorConfigRecord = useMemo(() => parseJSON(executorForm.config), [executorForm.config]);
+  const executorTypeNormalized = String(executorForm.type || '').trim().toLowerCase();
+  const executorConfigJsonInvalid = useMemo(() => {
+    const raw = (executorForm.config || '').trim();
+    if (!raw) return null;
+    try {
+      JSON.parse(raw);
+      return null;
+    } catch (e: any) {
+      return String(e?.message || e || 'JSON 解析失败');
+    }
+  }, [executorForm.config]);
+
+  const setExecutorConfigField = useCallback(
+    (key: string, value: unknown) => {
+      const record = parseJSON(executorForm.config);
+      const next: Record<string, unknown> = { ...(record || {}) };
+      if (value === null || value === undefined || (typeof value === 'string' && !value.trim())) {
+        delete next[key];
+      } else {
+        next[key] = value;
+      }
+      setExecutorForm((prev) => ({ ...prev, config: stringifyJSON(next as JsonRecord) }));
+    },
+    [executorForm.config],
+  );
+
+  const executorConfigTemplates = useMemo(() => {
+    // Human-friendly templates (non-dev friendly) for common providers.
+    const comfyui = [
+      { key: 'provider', label: 'provider', hint: '可选，建议填写 comfyui', placeholder: 'comfyui' },
+      { key: 'baseUrl', label: 'baseUrl', hint: '可选：与 Base URL 保持一致', placeholder: 'http://<ip>:8079' },
+      { key: 'channel_key', label: 'channel_key', hint: '可选：用于多机/多中转站区分', placeholder: 'comfyui-158' },
+    ];
+    const kie = [
+      { key: 'apiKey', label: 'apiKey', hint: '必填：KIE API Key', placeholder: 'sk-***' },
+      { key: 'baseUrl', label: 'baseUrl', hint: '默认 https://api.kie.ai', placeholder: 'https://api.kie.ai' },
+      { key: 'channel_key', label: 'channel_key', hint: '可选：多中转站区分', placeholder: 'kie-default' },
+    ];
+    const volcengine = [
+      { key: 'apiKey', label: 'apiKey', hint: '必填：火山 API Key', placeholder: '***' },
+      { key: 'baseUrl', label: 'baseUrl', hint: '默认 https://ark.cn-beijing.volces.com', placeholder: 'https://ark.cn-beijing.volces.com' },
+    ];
+    const baidu = [
+      { key: 'apiKey', label: 'apiKey', hint: '必填：百度 API Key', placeholder: '***' },
+      { key: 'secretKey', label: 'secretKey', hint: '必填：百度 Secret Key', placeholder: '***' },
+      { key: 'accessKey', label: 'accessKey', hint: '可选：如接入点需要', placeholder: '***' },
+    ];
+    if (executorTypeNormalized.includes('kie')) return kie;
+    if (executorTypeNormalized.includes('volc') || executorTypeNormalized.includes('ark')) return volcengine;
+    if (executorTypeNormalized.includes('baidu')) return baidu;
+    if (executorTypeNormalized.includes('comfyui')) return comfyui;
+    return [
+      { key: 'channel_key', label: 'channel_key', hint: '可选：用于区分多渠道/多节点', placeholder: 'default' },
+    ];
+  }, [executorTypeNormalized]);
+
+  // Keep inline concurrency inputs in sync with list results.
+  useEffect(() => {
+    setExecutorInlineConcurrency((prev) => {
+      const next = { ...prev };
+      for (const ex of executors) {
+        if (typeof next[ex.id] !== 'number') next[ex.id] = ex.max_concurrency ?? 1;
+      }
+      return next;
+    });
+  }, [executors]);
   const workflowLookup = useMemo(() => {
     const map: Record<string, Workflow> = {};
     workflows.forEach((workflow) => {
@@ -2017,20 +2089,77 @@ const normalizeErrorMessage = (message: string): string => {
 };
 
   const handleExecutorSubmit = async () => {
-    if (!executorForm.name || !executorForm.type) return;
-    const { config, ...rest } = executorForm;
+    setExecutorFormError(null);
+    const name = String(executorForm.name || '').trim();
+    const type = String(executorForm.type || '').trim();
+    const baseUrl = String(executorForm.base_url || '').trim();
+    const status = String(executorForm.status || '').trim() || 'inactive';
+    const weight = Number(executorForm.weight ?? 1) || 1;
+    const maxConcurrency = Number(executorForm.max_concurrency ?? 1) || 1;
+
+    if (!name) {
+      setExecutorFormError('请填写节点名称');
+      return;
+    }
+    if (!type) {
+      setExecutorFormError('请填写节点类型（如：comfyui/kie/volcengine/baidu）');
+      return;
+    }
+    if (executorConfigJsonInvalid) {
+      setExecutorFormError(`配置 JSON 无法解析：${executorConfigJsonInvalid}`);
+      return;
+    }
+    if (baseUrl && !(baseUrl.startsWith('http://') || baseUrl.startsWith('https://'))) {
+      setExecutorFormError('Base URL 需以 http:// 或 https:// 开头');
+      return;
+    }
+
+    const { config } = executorForm;
     const payload: Partial<Executor> = {
-      ...rest,
+      id: executorForm.id,
+      name,
+      type,
+      base_url: baseUrl || undefined,
+      status,
+      weight: Math.max(1, Math.min(999, weight)),
+      max_concurrency: Math.max(1, Math.min(50, maxConcurrency)),
       ...(config ? { config: parseJSON(config) } : {}),
     };
-    if (executorForm.id) {
-      await adminApi.updateExecutor(executorForm.id, payload);
-    } else {
-      await adminApi.createExecutor(payload);
+    try {
+      if (executorForm.id) {
+        await adminApi.updateExecutor(executorForm.id, payload);
+      } else {
+        await adminApi.createExecutor(payload);
+      }
+      setExecutorForm(defaultExecutorForm);
+      await load();
+    } catch (err: any) {
+      console.error(err);
+      setExecutorFormError(err?.message || '保存失败');
     }
-    setExecutorForm(defaultExecutorForm);
-    load();
   };
+
+  const saveExecutorConcurrency = useCallback(
+    async (executorId: string) => {
+      const executor = executors.find((ex) => ex.id === executorId);
+      if (!executor) return;
+      const draft = Number(executorInlineConcurrency[executorId] ?? executor.max_concurrency ?? 1) || 1;
+      if (draft === executor.max_concurrency) return;
+      setExecutorInlineSaving((prev) => ({ ...prev, [executorId]: true }));
+      setExecutorInlineError((prev) => ({ ...prev, [executorId]: '' }));
+      try {
+        await adminApi.updateExecutor(executorId, { max_concurrency: Math.max(1, Math.min(50, draft)) });
+        // Update local list to reflect immediately (avoid waiting for full reload).
+        setExecutors((prev) => prev.map((ex) => (ex.id === executorId ? { ...ex, max_concurrency: draft } : ex)));
+      } catch (err: any) {
+        console.error(err);
+        setExecutorInlineError((prev) => ({ ...prev, [executorId]: err?.message || '更新失败' }));
+      } finally {
+        setExecutorInlineSaving((prev) => ({ ...prev, [executorId]: false }));
+      }
+    },
+    [executors, executorInlineConcurrency],
+  );
 
   const handleWorkflowSubmit = async () => {
     if (!workflowForm.name || !workflowForm.action) return;
@@ -3182,143 +3311,281 @@ const normalizeErrorMessage = (message: string): string => {
             })()}
           </div>
         ) : (
-        <div className="space-y-4">
-        <div className="grid gap-6 lg:grid-cols-2">
-          <div className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 dark:border-slate-800 dark:bg-slate-900/40">
-            <h3 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">节点列表</h3>
-            <div className="overflow-x-auto">
-              <table>
-                <thead>
-                  <tr className="text-left text-sm text-slate-700 dark:text-slate-400">
-                    <th>名称</th>
-                    <th>类型</th>
-                    <th>状态</th>
-                    <th>并发/权重</th>
-                    <th>心跳</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {executors.map((ex) => (
-                    <tr key={ex.id}>
-                      <td>
-                        <div className="font-medium text-slate-900 dark:text-white">{ex.name}</div>
-                        <div className="text-xs text-slate-600 dark:text-slate-400">{ex.base_url || '—'}</div>
-                      </td>
-                      <td className="text-sm text-slate-700 dark:text-slate-300">{ex.type}</td>
-                      <td className="text-sm">
-                        <StatusPill status={ex.status} />
-                      </td>
-                      <td className="text-sm text-slate-700 dark:text-slate-300">
-                        {ex.max_concurrency}/{ex.weight}
-                      </td>
-                      <td className="text-xs text-slate-700 dark:text-slate-400">{ex.last_heartbeat_at || '—'}</td>
-                      <td className="text-right text-xs space-x-2">
-                        <button
-                          onClick={() => {
-                            const { config, ...rest } = ex;
-                            setExecutorForm({ ...rest, config: stringifyJSON(config) });
-                          }}
-                          className="text-sky-400"
-                        >
-                          编辑
-                        </button>
-                        <button onClick={() => handleDelete('executor', ex.id)} className="text-red-400">
-                          删除
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <Space direction="vertical" size="large" style={{ width: '100%' }}>
+            <Row gutter={[16, 16]}>
+              <Col xs={12} lg={7}>
+                <Card bordered title="节点列表" style={{ width: '100%' }}>
+                  <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                    <Typography.Text theme="secondary">
+                      小贴士：并发（max_concurrency）保存后会立即生效；建议从 1~4 起逐步放量。
+                    </Typography.Text>
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%' }}>
+                        <thead>
+                          <tr style={{ textAlign: 'left' }}>
+                            <th style={{ padding: '8px 6px' }}>名称</th>
+                            <th style={{ padding: '8px 6px' }}>类型</th>
+                            <th style={{ padding: '8px 6px' }}>状态</th>
+                            <th style={{ padding: '8px 6px', width: 220 }}>并发</th>
+                            <th style={{ padding: '8px 6px', width: 140 }}>权重</th>
+                            <th style={{ padding: '8px 6px', width: 160 }}>心跳</th>
+                            <th style={{ padding: '8px 6px', width: 120 }} />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {executors.map((ex) => {
+                            const draft = Number(executorInlineConcurrency[ex.id] ?? ex.max_concurrency ?? 1) || 1;
+                            const changed = draft !== ex.max_concurrency;
+                            const saving = Boolean(executorInlineSaving[ex.id]);
+                            const err = executorInlineError[ex.id];
+                            return (
+                              <tr key={ex.id}>
+                                <td style={{ padding: '10px 6px' }}>
+                                  <div style={{ fontWeight: 600 }}>{ex.name}</div>
+                                  <Typography.Text theme="secondary">{ex.base_url || '—'}</Typography.Text>
+                                </td>
+                                <td style={{ padding: '10px 6px' }}>
+                                  <Typography.Text theme="secondary">{ex.type}</Typography.Text>
+                                </td>
+                                <td style={{ padding: '10px 6px' }}>
+                                  <StatusPill status={ex.status} />
+                                </td>
+                                <td style={{ padding: '10px 6px' }}>
+                                  <Space direction="vertical" size={2}>
+                                    <Space align="center" size="small">
+                                      <InputNumber
+                                        size="small"
+                                        min={1}
+                                        max={50}
+                                        value={draft}
+                                        onChange={(v) =>
+                                          setExecutorInlineConcurrency((prev) => ({ ...prev, [ex.id]: Number(v) || 1 }))
+                                        }
+                                      />
+                                      <Button
+                                        size="small"
+                                        theme="primary"
+                                        disabled={!changed || saving}
+                                        loading={saving}
+                                        onClick={() => saveExecutorConcurrency(ex.id)}
+                                      >
+                                        保存
+                                      </Button>
+                                    </Space>
+                                    {err ? (
+                                      <Typography.Text theme="error" style={{ fontSize: 12 }}>
+                                        {err}
+                                      </Typography.Text>
+                                    ) : null}
+                                  </Space>
+                                </td>
+                                <td style={{ padding: '10px 6px' }}>
+                                  <Typography.Text theme="secondary">{ex.weight}</Typography.Text>
+                                </td>
+                                <td style={{ padding: '10px 6px' }}>
+                                  <Typography.Text theme="secondary">{ex.last_heartbeat_at || '—'}</Typography.Text>
+                                </td>
+                                <td style={{ padding: '10px 6px' }}>
+                                  <Space size="small">
+                                    <Button
+                                      size="small"
+                                      variant="text"
+                                      onClick={() => {
+                                        const { config, ...rest } = ex;
+                                        setExecutorForm({ ...rest, config: stringifyJSON(config) });
+                                        setExecutorFormError(null);
+                                      }}
+                                    >
+                                      编辑
+                                    </Button>
+                                    <Button size="small" theme="danger" variant="text" onClick={() => handleDelete('executor', ex.id)}>
+                                      删除
+                                    </Button>
+                                  </Space>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </Space>
+                </Card>
+              </Col>
 
-          <div className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 dark:border-slate-800 dark:bg-slate-900/40">
-            <h3 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">
-              {executorForm.id ? '编辑节点' : '新增节点'}
-            </h3>
-            <div className="space-y-3 text-sm">
-              <input
-                placeholder="名称"
-                value={executorForm.name || ''}
-                onChange={(e) => setExecutorForm({ ...executorForm, name: e.target.value })}
-              />
-              <input
-                placeholder="类型（mock/openai/comfyui...）"
-                value={executorForm.type || ''}
-                onChange={(e) => setExecutorForm({ ...executorForm, type: e.target.value })}
-              />
-              <input
-                placeholder="Base URL"
-                value={executorForm.base_url || ''}
-                onChange={(e) => setExecutorForm({ ...executorForm, base_url: e.target.value })}
-              />
-              <input
-                placeholder="渠道标识（可选，用于多中转站/多机区分）"
-                value={(() => {
-                  const record = parseJSON(executorForm.config);
-                  const value = record.channel_key ?? record.channelKey;
-                  return typeof value === 'string' ? value : '';
-                })()}
-                onChange={(e) => {
-                  const record = parseJSON(executorForm.config);
-                  const next: Record<string, unknown> = { ...record };
-                  const trimmed = e.target.value.trim();
-                  if (trimmed) {
-                    next.channel_key = trimmed;
-                  } else {
-                    delete next.channel_key;
-                  }
-                  setExecutorForm({ ...executorForm, config: stringifyJSON(next as JsonRecord) });
-                }}
-                className={formControlClass}
-              />
-              <input
-                placeholder="状态"
-                value={executorForm.status || ''}
-                onChange={(e) => setExecutorForm({ ...executorForm, status: e.target.value })}
-              />
-              <div className="flex gap-3">
-                <input
-                  type="number"
-                  placeholder="权重"
-                  value={executorForm.weight ?? 1}
-                  onChange={(e) => setExecutorForm({ ...executorForm, weight: Number(e.target.value) })}
-                />
-                <input
-                  type="number"
-                  placeholder="最大并发"
-                  value={executorForm.max_concurrency ?? 1}
-                  onChange={(e) => setExecutorForm({ ...executorForm, max_concurrency: Number(e.target.value) })}
-                />
-              </div>
-              <textarea
-                placeholder='配置 JSON, 例如 {"provider":"openai"}'
-                rows={5}
-                value={executorForm.config ?? ''}
-                onChange={(e) => setExecutorForm({ ...executorForm, config: e.target.value })}
-              />
-              <div className="flex gap-3">
-                <button className="flex-1 rounded bg-sky-500/80 py-2 text-white" onClick={handleExecutorSubmit}>
-                  保存
-                </button>
-                {executorForm.id && (
-                  <button
-                    className="rounded border border-slate-500 px-4 py-2 text-slate-200"
-                    onClick={() => setExecutorForm(defaultExecutorForm)}
-                  >
-                    取消
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-        <p className="text-xs text-slate-600 dark:text-slate-500">
-          提示：允许的节点会写入 `metadata.allowed_executor_ids`，调度器只会在这些 ComfyUI 节点上运行该模板；如未选择则按标签自动匹配。
-        </p>
-        </div>
+              <Col xs={12} lg={5}>
+                <Card bordered title={executorForm.id ? '编辑节点' : '新增节点'} style={{ width: '100%' }}>
+                  <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                    {executorFormError ? <Alert theme="error" message={executorFormError} /> : null}
+                    <div>
+                      <Typography.Text strong>名称</Typography.Text>
+                      <div style={{ marginTop: 8 }}>
+                        <Input value={String(executorForm.name || '')} onChange={(v) => setExecutorForm({ ...executorForm, name: String(v) })} placeholder="例如：KIE Market · Default Node" />
+                      </div>
+                    </div>
+
+                    <div>
+                      <Space align="center" size="small">
+                        <Typography.Text strong>类型</Typography.Text>
+                        <Tooltip content="常用：comfyui / kie / volcengine / baidu。用于路由与测试分支。">
+                          <Typography.Text theme="secondary">?</Typography.Text>
+                        </Tooltip>
+                      </Space>
+                      <div style={{ marginTop: 8 }}>
+                        <Input
+                          value={String(executorForm.type || '')}
+                          onChange={(v) => {
+                            const nextType = String(v);
+                            setExecutorForm((prev) => {
+                              const base = { ...prev, type: nextType };
+                              const norm = nextType.trim().toLowerCase();
+                              if (!base.base_url) {
+                                if (norm.includes('kie')) base.base_url = 'https://api.kie.ai';
+                                else if (norm.includes('volc') || norm.includes('ark')) base.base_url = 'https://ark.cn-beijing.volces.com';
+                                else if (norm.includes('baidu')) base.base_url = 'https://aip.baidubce.com';
+                              }
+                              return base;
+                            });
+                          }}
+                          placeholder="comfyui / kie / volcengine / baidu"
+                        />
+                      </div>
+                      <div style={{ marginTop: 8 }}>
+                        <Space size="small">
+                          {['comfyui', 'kie', 'volcengine', 'baidu'].map((t) => (
+                            <Button key={`ex-type-${t}`} size="small" variant="outline" onClick={() => setExecutorForm((prev) => ({ ...prev, type: t }))}>
+                              {t}
+                            </Button>
+                          ))}
+                        </Space>
+                      </div>
+                    </div>
+
+                    <div>
+                      <Typography.Text strong>Base URL</Typography.Text>
+                      <Typography.Text theme="secondary" style={{ marginLeft: 8 }}>
+                        （可选：部分 provider 也可在 config.baseUrl 填）
+                      </Typography.Text>
+                      <div style={{ marginTop: 8 }}>
+                        <Input
+                          value={String(executorForm.base_url || '')}
+                          onChange={(v) => setExecutorForm({ ...executorForm, base_url: String(v) })}
+                          placeholder="http://<ip>:<port> 或 https://..."
+                        />
+                      </div>
+                    </div>
+
+                    <Row gutter={[12, 12]}>
+                      <Col xs={6}>
+                        <Typography.Text strong>状态</Typography.Text>
+                        <div style={{ marginTop: 8 }}>
+                          <Select
+                            value={String(executorForm.status || 'inactive')}
+                            options={[
+                              { label: 'active', value: 'active' },
+                              { label: 'inactive', value: 'inactive' },
+                            ]}
+                            onChange={(v) => setExecutorForm({ ...executorForm, status: String(v) })}
+                          />
+                        </div>
+                      </Col>
+                      <Col xs={6}>
+                        <Typography.Text strong>权重</Typography.Text>
+                        <div style={{ marginTop: 8 }}>
+                          <InputNumber
+                            min={1}
+                            max={999}
+                            value={Number(executorForm.weight ?? 1)}
+                            onChange={(v) => setExecutorForm({ ...executorForm, weight: Number(v) || 1 })}
+                          />
+                        </div>
+                      </Col>
+                    </Row>
+
+                    <div>
+                      <Space align="center" size="small">
+                        <Typography.Text strong>最大并发</Typography.Text>
+                        <Tooltip content="1~50。并发越大越容易触发第三方限流/502，建议逐步放量。">
+                          <Typography.Text theme="secondary">?</Typography.Text>
+                        </Tooltip>
+                      </Space>
+                      <div style={{ marginTop: 8 }}>
+                        <InputNumber
+                          min={1}
+                          max={50}
+                          value={Number(executorForm.max_concurrency ?? 1)}
+                          onChange={(v) => setExecutorForm({ ...executorForm, max_concurrency: Number(v) || 1 })}
+                        />
+                      </div>
+                    </div>
+
+                    <Card
+                      bordered
+                      title="接入配置（推荐用下方表单，不需要懂 JSON）"
+                      style={{ background: 'var(--td-bg-color-secondarycontainer)' }}
+                    >
+                      <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                        {executorConfigTemplates.map((item) => (
+                          <div key={`ex-cfg-${item.key}`}>
+                            <Space align="center" size="small">
+                              <Typography.Text strong>{item.label}</Typography.Text>
+                              <Typography.Text theme="secondary">{item.hint}</Typography.Text>
+                            </Space>
+                            <div style={{ marginTop: 8 }}>
+                              <Input
+                                value={String((executorConfigRecord as any)?.[item.key] ?? '')}
+                                placeholder={item.placeholder}
+                                onChange={(v) => setExecutorConfigField(item.key, String(v))}
+                              />
+                            </div>
+                          </div>
+                        ))}
+                        <div>
+                          <Typography.Text theme="secondary">
+                            高级：如需更多字段，可展开 JSON 编辑器（保存时会校验 JSON）。
+                          </Typography.Text>
+                        </div>
+                      </Space>
+                    </Card>
+
+                    <div>
+                      <Space align="center" size="small">
+                        <Typography.Text strong>配置 JSON（高级）</Typography.Text>
+                        {executorConfigJsonInvalid ? (
+                          <Typography.Text theme="error" style={{ fontSize: 12 }}>
+                            JSON 无效
+                          </Typography.Text>
+                        ) : (
+                          <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                            JSON 有效
+                          </Typography.Text>
+                        )}
+                      </Space>
+                      <div style={{ marginTop: 8 }}>
+                        <Textarea
+                          value={String(executorForm.config || '')}
+                          onChange={(v) => setExecutorForm({ ...executorForm, config: String(v) })}
+                          autosize={{ minRows: 5, maxRows: 10 }}
+                          placeholder='例如：{"apiKey":"***","baseUrl":"https://api.kie.ai"}'
+                        />
+                      </div>
+                    </div>
+
+                    <Space style={{ width: '100%' }}>
+                      <Button theme="primary" style={{ flex: 1 }} onClick={handleExecutorSubmit}>
+                        保存
+                      </Button>
+                      {executorForm.id ? (
+                        <Button variant="outline" onClick={() => { setExecutorForm(defaultExecutorForm); setExecutorFormError(null); }}>
+                          取消
+                        </Button>
+                      ) : null}
+                    </Space>
+                  </Space>
+                </Card>
+              </Col>
+            </Row>
+          </Space>
         )}
       </Section>
           )}

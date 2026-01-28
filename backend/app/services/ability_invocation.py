@@ -67,7 +67,8 @@ class AbilityInvocationService:
             sem = self._executor_slots.get(eid)
             if sem is not None:
                 return sem
-            # Fetch max_concurrency once; changes take effect after process restart.
+            # Fetch max_concurrency; cache is invalidated on admin updates so changes
+            # can take effect without a process restart.
             try:
                 with get_session() as session:
                     ex = session.get(Executor, eid)
@@ -79,6 +80,20 @@ class AbilityInvocationService:
             self._executor_slots[eid] = sem
             self._executor_slot_sizes[eid] = max_c
             return sem
+
+    def invalidate_executor_slot(self, executor_id: str) -> None:
+        """Invalidate cached concurrency gate for an executor.
+
+        New invocations will re-read `Executor.max_concurrency` from DB.
+        In-flight invocations are unaffected (they hold the previous semaphore).
+        """
+
+        eid = (executor_id or "").strip()
+        if not eid:
+            return
+        with self._executor_slots_lock:
+            self._executor_slots.pop(eid, None)
+            self._executor_slot_sizes.pop(eid, None)
 
     # -------- catalogue helpers -------- #
     def list_public_abilities(self) -> list[schemas.AbilityPublicInfo]:
