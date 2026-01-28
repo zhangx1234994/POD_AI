@@ -29,6 +29,7 @@ curl -X POST "$COZE_BASE_URL/v1/workflow/run" \
 - 我们的工作流约定：核心输出字段名为 `output`
   - `output=image_url`：直接是一张图片 URL
   - `output=callback_task_id`：回调任务 id（需要再走回调/轮询才能拿到图片）
+  - 注意：历史工作流曾把 `dpi` 写成 `pdi`，现已统一为 `dpi`
 
 ### ComfyUI 回调型注意事项
 
@@ -41,3 +42,9 @@ curl -X POST "$COZE_BASE_URL/v1/workflow/run" \
 评测平台支持“裂变数量”参数：
 - `count`：一次评测会触发 `count` 次 Coze workflow 执行，并把所有结果图聚合展示
 - `count` 是评测平台内部控制参数，不一定在 Coze workflow 的 schema 中出现，因此不会转发给 Coze
+
+## 示例：DPI 增分（图片输出）
+
+- workflow_id：`7598589746561941504`
+- parameters：`url`（图片地址）、`dpi`（建议 300）
+- output：图片 URL

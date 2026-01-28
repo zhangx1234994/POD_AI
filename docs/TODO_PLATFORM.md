@@ -7,6 +7,9 @@
 - Alembic 迁移规范
   - 多 head 情况必须使用 `python3 -m alembic upgrade heads`
   - `alembic_version.version_num` 建议 `VARCHAR(64)+`，避免 revision 被截断导致“半迁移”
+- 部署口径统一（开发机=线上）
+  - 禁止线上跑 `npm run dev`（避免 websocket/HMR、资源错配、样式乱）
+  - 统一使用 prod-like 脚本：`scripts/deploy_prodlike_nodocker.sh`（无 Docker）或 `scripts/deploy_prodlike.sh`（有 Docker）
 - Coze 插件网络/鉴权
   - 明确 `INTERNAL_ONLY` 的触发条件
   - 完整补齐 `COZE_TRUSTED_IPS` / `SERVICE_API_TOKEN` 的部署说明与排查手册
@@ -31,7 +34,7 @@
 ## P2 并发与限流（能力层优先）
 
 - 能力层并发（PODI 内部）
-  - 单节点：按 `Executor.max_concurrency` 做并发闸门（已做）；明确默认值=1 的含义
+  - 单节点：按 `Executor.max_concurrency` 做并发闸门（已做）；管理端修改并发可立即生效（无需重启）
   - 多实例：需要全局并发控制（Redis/DB 分布式信号量），避免“每个进程各放 1 个”导致超卖
 - QPS 控制（对外）
   - 对 Coze 工具接口/能力接口加可配置限流（例如 4~5 QPS），返回明确的 429 + retry-after
@@ -48,4 +51,3 @@
   - 输入 URL 是否落盘 OSS：明确策略（建议：外链输入在需要长期可用时落盘；输出一律落盘）
 - 成本/计费可视化
   - ability metadata pricing + 调用日志 cost 字段 → 汇总报表（按日/按能力/按节点）
-

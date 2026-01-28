@@ -73,6 +73,7 @@ curl -sS -X POST "$COZE_BASE_URL/v1/workflow/run" \
 
 - `INTERNAL_ONLY`：PODI 拦截了非内网请求；配置 `COZE_TRUSTED_IPS` 或使用 `SERVICE_API_TOKEN`。
 - `Missing required parameters`：Coze 工作流参数必填（常见：`prompt/height/width`），需要在 workflow 或调用方补齐。
+- `Missing required parameters: 'pdi'`：历史工作流把 `dpi` 写成了 `pdi`。当前规范统一为 `dpi`（不要再用 `pdi`）。
 - `502 Bad Gateway`：上游服务（KIE/ComfyUI）网关错误/超时；建议降低并发、检查上游健康与超时配置。
 
 ## 7. ComfyUI 多输出节点说明（为什么会出现多张结果图？）
@@ -100,3 +101,27 @@ python3 backend/scripts/purge_unfinished_ability_tasks.py --yes
 说明：
 - 仅删除 `ability_tasks` 中未完成状态（queued/running/pending/created）的记录，并清理关联日志。
 - 不建议在生产高峰期执行；上线前请确认“当前处于测试期且可丢弃历史未完成任务”。
+
+## 9. 示例：DPI 增分（图片输出）
+
+- workflow_id：`7598589746561941504`
+- 入参：
+  - `url`（string，图片地址）
+  - `dpi`（number，建议 300）
+- 出参：
+  - `output`（string，图片 URL）
+
+最小示例：
+
+```bash
+curl -sS -X POST "$COZE_BASE_URL/v1/workflow/run" \
+  -H "Authorization: Bearer $COZE_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "workflow_id":"7598589746561941504",
+    "parameters":{
+      "url":"https://podi.oss-cn-hangzhou.aliyuncs.com/test/abilities/admin-kie-input/20260126/81d56182-1769389464.webp",
+      "dpi":300
+    }
+  }'
+```
