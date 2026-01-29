@@ -93,6 +93,36 @@ const formatJsonPreview = (value: unknown, maxLen = 1200): string => {
   }
 };
 
+const OMIT_PARAM_KEYS = new Set([
+  'url',
+  'image',
+  'images',
+  'image_url',
+  'image_urls',
+  'imageurl',
+  'imageurls',
+  'input_url',
+  'input_urls',
+  'inputurl',
+  'inputurls',
+  'input_oss_url',
+  'input_oss_urls',
+  'oss_url',
+  'oss_urls',
+]);
+
+const filterDisplayParams = (
+  params: Record<string, unknown> | null | undefined,
+): Record<string, unknown> | null => {
+  if (!params || typeof params !== 'object' || Array.isArray(params)) return null;
+  const entries = Object.entries(params).filter(([key]) => {
+    const normalized = key.trim().toLowerCase();
+    return !OMIT_PARAM_KEYS.has(normalized);
+  });
+  if (entries.length === 0) return null;
+  return Object.fromEntries(entries);
+};
+
 const buildCozeDoc = (wf: EvalWorkflowVersion, urlExample: string) => {
   const paramsExample: Record<string, unknown> = {};
   for (const f of getFields(wf)) {
@@ -1439,6 +1469,8 @@ function HistoryRow({
 
   const commentDirty = commentDraft !== savedComment;
   const jsonPreview = formatJsonPreview((run as any).result_output_json, 1200);
+  const displayParams = filterDisplayParams(run.parameters_json as Record<string, unknown> | null);
+  const paramsPreview = formatJsonPreview(displayParams, 1000);
 
   // Sync state when the latest annotation changes due to refresh/polling.
   // Do not clobber an in-progress comment draft.
@@ -1512,8 +1544,8 @@ function HistoryRow({
           </div>
         </div>
 
-        <Row gutter={[12, 12]}>
-          <Col xs={24} lg={8}>
+        <Row gutter={[12, 12]} className="podi-history-row-grid">
+          <Col xs={24} lg={8} className="podi-history-row-col">
             <Card
               bordered
               title={
@@ -1556,10 +1588,20 @@ function HistoryRow({
                   autosize={{ minRows: 3, maxRows: 8 }}
                   placeholder="问题描述/优化建议…"
                 />
+                <div className="podi-history-row-params">
+                  <Typography.Text theme="secondary">参数</Typography.Text>
+                  {paramsPreview ? (
+                    <pre className="podi-history-row-params__pre">{paramsPreview}</pre>
+                  ) : (
+                    <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                      当前记录仅包含图片 URL。
+                    </Typography.Text>
+                  )}
+                </div>
               </Space>
             </Card>
           </Col>
-          <Col xs={24} lg={16}>
+          <Col xs={24} lg={16} className="podi-history-row-col">
             <Card bordered title="原图 / 结果">
               <div className="podi-image-grid">
                 {inputUrl ? (

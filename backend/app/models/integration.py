@@ -188,7 +188,9 @@ class AbilityInvocationLog(Base):
     unit_price: Mapped[float | None] = mapped_column(Numeric(10, 4))
     currency: Mapped[str | None] = mapped_column(String(16))
     cost_amount: Mapped[float | None] = mapped_column(Numeric(14, 4))
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, nullable=False, index=True
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
     )
@@ -212,7 +214,9 @@ class AbilityTask(Base):
     request_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     result_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     error_message: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, nullable=False, index=True
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
     )

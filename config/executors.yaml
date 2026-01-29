@@ -37,7 +37,7 @@ executors:
     base_url: "http://117.50.216.233:8079"
     status: active
     weight: 1
-    max_concurrency: 1
+    max_concurrency: 10
     config:
       baseUrl: "http://117.50.216.233:8079"
       provider: "comfyui"
@@ -47,7 +47,7 @@ executors:
     base_url: "http://117.50.80.158:8079"
     status: active
     weight: 1
-    max_concurrency: 1
+    max_concurrency: 10
     config:
       baseUrl: "http://117.50.80.158:8079"
       provider: "comfyui"

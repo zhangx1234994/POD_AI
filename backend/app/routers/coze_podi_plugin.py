@@ -24,6 +24,7 @@ from app.services.task_id_codec import decode_task_id, encode_task_id
 from app.services.executor_seed import ensure_default_executors
 from app.services.auth_service import auth_service
 from app.services.executors.registry import registry
+from app.services.integration_test import integration_test_service
 
 
 router = APIRouter(prefix="/api/coze/podi", tags=["coze-plugin"])
@@ -226,6 +227,30 @@ def _build_openapi(*, podi_server: str | None = None) -> dict[str, Any]:
     }
 
     task_response_schema: dict[str, Any] = response_schema
+
+    queue_summary_schema: dict[str, Any] = {
+        "type": "object",
+        "properties": {
+            "totalRunning": {"type": "integer"},
+            "totalPending": {"type": "integer"},
+            "totalCount": {"type": "integer"},
+            "servers": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "executorId": {"type": "string"},
+                        "baseUrl": {"type": "string"},
+                        "runningCount": {"type": "integer"},
+                        "pendingCount": {"type": "integer"},
+                        "queueMaxSize": {"type": "integer", "nullable": True},
+                        "supported": {"type": "boolean"},
+                        "message": {"type": "string", "nullable": True},
+                    },
+                },
+            },
+        },
+    }
     for ability in abilities:
         provider = ability.provider
         key = ability.capability_key
@@ -333,6 +358,37 @@ def _build_openapi(*, podi_server: str | None = None) -> dict[str, Any]:
         }
     }
 
+    # ComfyUI queue summary (used for centralized scheduling).
+    paths["/api/coze/podi/comfyui/queue-summary"] = {
+        "post": {
+            "operationId": "podi_comfyui_queue_summary",
+            "summary": "PODI · ComfyUI 队列汇总",
+            "description": "返回全部 ComfyUI 执行节点的队列数量，可选传 executorIds 过滤。",
+            "requestBody": {
+                "required": False,
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "executorIds": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                }
+                            },
+                        }
+                    }
+                },
+            },
+            "responses": {
+                "200": {
+                    "description": "Queue summary",
+                    "content": {"application/json": {"schema": queue_summary_schema}},
+                }
+            },
+        }
+    }
+
     return {
         "openapi": "3.0.0",
         "info": {
@@ -386,6 +442,7 @@ def _build_openapi_filtered(
     paths = doc.get("paths") or {}
     allowed = {f"/api/coze/podi/tools/{a.provider}/{a.capability_key}" for a in abilities}
     allowed.add("/api/coze/podi/tasks/get")
+    allowed.add("/api/coze/podi/comfyui/queue-summary")
     doc["paths"] = {k: v for k, v in paths.items() if k in allowed}
     doc["info"]["title"] = title
     doc["info"]["description"] = description
@@ -684,6 +741,15 @@ def invoke_tool(
     meta = resp_dict.get("metadata") if isinstance(resp_dict.get("metadata"), dict) else {}
     provider_task_id = meta.get("taskId") if isinstance(meta, dict) else None
     provider_task_status = meta.get("state") if isinstance(meta, dict) else None
+    executor_hint = (
+        (meta.get("executorId") if isinstance(meta, dict) else None)
+        or executor_id
+    )
+    external_task_id = encode_task_id(
+        task_id=str(resp_dict.get("requestId") or "").strip(),
+        provider=provider,
+        executor_id=(executor_hint if isinstance(executor_hint, str) and executor_hint.strip() else None),
+    )
     raw_payload = resp_dict.get("raw") if isinstance(resp_dict.get("raw"), dict) else {}
     debug_request = ""
     debug_response = ""
@@ -735,8 +801,8 @@ def invoke_tool(
             "imageUrls": _all_urls(images) if isinstance(images, list) else [],
             "videoUrl": _first_url(videos) if isinstance(videos, list) else None,
             "videoUrls": _all_urls(videos) if isinstance(videos, list) else [],
-            "taskId": str(provider_task_id).strip() if isinstance(provider_task_id, (str, int)) else None,
-            "taskStatus": str(provider_task_status).strip() if isinstance(provider_task_status, (str, int)) else None,
+            "taskId": external_task_id or (str(provider_task_id).strip() if isinstance(provider_task_id, (str, int)) else None),
+            "taskStatus": str(provider_task_status or resp_dict.get("status") or "").strip() or None,
             "logId": resp_dict.get("logId"),
             "requestId": resp_dict.get("requestId"),
             "debugRequest": debug_request or None,
@@ -1087,3 +1153,14 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
         "debugResponse": (task.get("error_message") if isinstance(task, dict) else None),
         }
     )
+
+
+@router.post("/comfyui/queue-summary")
+def get_comfyui_queue_summary(request: Request, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    _require_internal(request)
+    executor_ids: list[str] | None = None
+    if isinstance(body, dict):
+        raw = body.get("executorIds")
+        if isinstance(raw, list):
+            executor_ids = [str(x).strip() for x in raw if isinstance(x, (str, int)) and str(x).strip()]
+    return integration_test_service.get_comfyui_queue_summary(executor_ids=executor_ids)

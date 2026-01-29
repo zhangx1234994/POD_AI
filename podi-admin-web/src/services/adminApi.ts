@@ -227,11 +227,13 @@ export const adminApi = {
     executorId: string;
     workflowKey: string;
     workflowParams: JsonRecord;
+    submitOnly?: boolean;
   }) =>
     request<{
       provider: string;
       workflowKey: string;
       promptId: string;
+      state?: string;
       logId?: number | string;
       storedUrl?: string;
       assets?: StoredAsset[];

@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, time
+from datetime import datetime, time, timezone
 import logging
 from zoneinfo import ZoneInfo
+
+try:  # Python <3.11 compatibility
+    from datetime import UTC  # type: ignore
+except ImportError:  # pragma: no cover - py310 fallback
+    UTC = timezone.utc
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select

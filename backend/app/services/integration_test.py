@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import json
 import time
+from typing import Any
 from types import SimpleNamespace
 from uuid import uuid4
 from io import BytesIO
@@ -12,6 +13,7 @@ from io import BytesIO
 import httpx
 from fastapi import HTTPException
 from PIL import Image
+from sqlalchemy import select
 
 from app.constants.abilities import BAIDU_IMAGE_ABILITIES
 from app.core.db import get_session
@@ -1074,32 +1076,54 @@ class IntegrationTestService:
         ).rstrip("/")
         if not base_url:
             raise HTTPException(status_code=400, detail="COMFYUI_BASE_URL_MISSING")
-        url = f"{base_url}/queue/status"
-        try:
-            response = httpx.get(url, timeout=15)
-            response.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            status_code = exc.response.status_code
-            if status_code in {404, 405}:
-                self._logger.warning("ComfyUI queue endpoint unsupported at %s (status=%s)", url, status_code)
-                return {
-                    "executorId": executor.id,
-                    "baseUrl": base_url,
-                    "runningCount": 0,
-                    "pendingCount": 0,
-                    "queueMaxSize": None,
-                    "supported": False,
-                    "message": "当前 ComfyUI 版本未暴露 /queue/status，无法读取队列状态。",
-                    "raw": {"status_code": status_code},
-                }
-            self._logger.warning("Failed to fetch ComfyUI queue status: %s", exc)
-            raise HTTPException(status_code=502, detail="COMFYUI_QUEUE_STATUS_ERROR") from exc
-        except httpx.HTTPError as exc:
-            self._logger.warning("Failed to fetch ComfyUI queue status: %s", exc)
-            raise HTTPException(status_code=502, detail="COMFYUI_QUEUE_STATUS_ERROR") from exc
-        payload = response.json()
-        if not isinstance(payload, dict):
-            raise HTTPException(status_code=502, detail="COMFYUI_QUEUE_STATUS_INVALID")
+        base_url = base_url.rstrip("/")
+        if base_url.endswith("/api"):
+            root_url = base_url[: -len("/api")]
+            urls = (
+                f"{root_url}/queue/status",
+                f"{base_url}/queue",
+                f"{root_url}/queue",
+            )
+        else:
+            urls = (
+                f"{base_url}/queue/status",
+                f"{base_url}/api/queue",
+                f"{base_url}/queue",
+            )
+        last_unsupported: int | None = None
+        payload: dict[str, Any] | None = None
+        for url in urls:
+            try:
+                response = httpx.get(url, timeout=15)
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                status_code = exc.response.status_code
+                if status_code in {404, 405}:
+                    last_unsupported = status_code
+                    continue
+                self._logger.warning("Failed to fetch ComfyUI queue status: %s", exc)
+                raise HTTPException(status_code=502, detail="COMFYUI_QUEUE_STATUS_ERROR") from exc
+            except httpx.HTTPError as exc:
+                self._logger.warning("Failed to fetch ComfyUI queue status: %s", exc)
+                raise HTTPException(status_code=502, detail="COMFYUI_QUEUE_STATUS_ERROR") from exc
+            data = response.json()
+            if not isinstance(data, dict):
+                raise HTTPException(status_code=502, detail="COMFYUI_QUEUE_STATUS_INVALID")
+            payload = data
+            break
+
+        if payload is None:
+            self._logger.warning("ComfyUI queue endpoint unsupported at %s", base_url)
+            return {
+                "executorId": executor.id,
+                "baseUrl": base_url,
+                "runningCount": 0,
+                "pendingCount": 0,
+                "queueMaxSize": None,
+                "supported": False,
+                "message": "当前 ComfyUI 版本未暴露 /api/queue 或 /queue/status，无法读取队列状态。",
+                "raw": {"status_code": last_unsupported},
+            }
         running_entries = payload.get("queue_running")
         pending_entries = payload.get("queue_pending")
         running_count = len(running_entries) if isinstance(running_entries, list) else 0
@@ -1117,6 +1141,47 @@ class IntegrationTestService:
             "queueMaxSize": max_size_value,
             "supported": True,
             "raw": payload,
+        }
+
+    def get_comfyui_queue_summary(self, *, executor_ids: list[str] | None = None) -> dict[str, Any]:
+        """Return queue counts for all active ComfyUI executors (optionally filtered)."""
+        with get_session() as session:
+            query = select(Executor).where(Executor.status == "active", Executor.type == "comfyui")
+            if executor_ids:
+                query = query.where(Executor.id.in_(executor_ids))
+            executors = session.execute(query.order_by(Executor.id.asc())).scalars().all()
+
+        servers: list[dict[str, Any]] = []
+        total_running = 0
+        total_pending = 0
+        for executor in executors:
+            try:
+                status = self.get_comfyui_queue_status(executor_id=executor.id)
+            except HTTPException as exc:
+                detail = exc.detail if isinstance(exc.detail, str) else "COMFYUI_QUEUE_STATUS_ERROR"
+                status = {
+                    "executorId": executor.id,
+                    "baseUrl": executor.base_url or (executor.config or {}).get("baseUrl") or (executor.config or {}).get("base_url") or "",
+                    "runningCount": 0,
+                    "pendingCount": 0,
+                    "queueMaxSize": None,
+                    "supported": False,
+                    "message": detail,
+                    "raw": None,
+                }
+            else:
+                # Queue payloads can be very large; summary should only expose counts.
+                status["raw"] = None
+            servers.append(status)
+            if status.get("supported"):
+                total_running += int(status.get("runningCount") or 0)
+                total_pending += int(status.get("pendingCount") or 0)
+
+        return {
+            "totalRunning": total_running,
+            "totalPending": total_pending,
+            "totalCount": total_running + total_pending,
+            "servers": servers,
         }
 
     @staticmethod

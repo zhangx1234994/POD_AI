@@ -126,12 +126,14 @@ class ComfyuiWorkflowTestRequest(AbilityTestContext):
     executorId: str = Field(..., description="Executor ID configured with type=comfyui")
     workflowKey: str = Field(..., description="内置 workflow key，例如 sifang_lianxu")
     workflowParams: dict[str, Any] = Field(default_factory=dict, description="与任务提交时 workflowParams 一致")
+    submitOnly: bool | None = Field(default=False, description="仅提交任务进入队列，不等待结果")
 
 
 class ComfyuiWorkflowTestResponse(BaseModel):
     provider: str
     workflowKey: str
     promptId: str
+    state: str | None = None
     logId: int | None = None
     storedUrl: str | None = None
     assets: list[StoredAsset] | None = None
@@ -153,3 +155,10 @@ class ComfyuiQueueStatusResponse(BaseModel):
     supported: bool = True
     message: str | None = None
     raw: dict[str, Any] | None = None
+
+
+class ComfyuiQueueSummaryResponse(BaseModel):
+    totalRunning: int
+    totalPending: int
+    totalCount: int
+    servers: list[ComfyuiQueueStatusResponse]

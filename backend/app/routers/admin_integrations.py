@@ -535,6 +535,20 @@ def test_comfyui_workflow(payload: admin_tests.ComfyuiWorkflowTestRequest):
         "workflowKey": payload.workflowKey,
         "workflowParams": payload.workflowParams,
     }
+    submit_only = bool(payload.submitOnly)
+    if submit_only:
+        result, log_id = _run_with_logging(
+            payload,
+            provider="comfyui",
+            capability_key=capability_key,
+            request_payload=request_payload,
+            runner=lambda: integration_test_service.submit_comfyui_workflow(
+                executor_id=payload.executorId,
+                workflow_key=payload.workflowKey,
+                workflow_params=payload.workflowParams or {},
+            ),
+        )
+        return admin_tests.ComfyuiWorkflowTestResponse(**result, logId=log_id, state="submitted")
     result, log_id = _run_with_logging(
         payload,
         provider="comfyui",
@@ -608,6 +622,12 @@ def list_comfyui_models(executor_id: str = Query(..., alias="executorId")):
 def get_comfyui_queue_status(executor_id: str = Query(..., alias="executorId")):
     result = integration_test_service.get_comfyui_queue_status(executor_id=executor_id)
     return admin_tests.ComfyuiQueueStatusResponse(**result)
+
+
+@router.get("/comfyui/queue-summary", response_model=admin_tests.ComfyuiQueueSummaryResponse)
+def get_comfyui_queue_summary(executor_ids: list[str] | None = Query(None, alias="executorIds")):
+    result = integration_test_service.get_comfyui_queue_summary(executor_ids=executor_ids)
+    return admin_tests.ComfyuiQueueSummaryResponse(**result)
 
 
 def _apply_executor_api_keys(session, executor: Executor, api_key_ids: list[str] | None) -> None:

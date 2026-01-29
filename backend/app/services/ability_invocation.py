@@ -6,6 +6,7 @@ import json
 import logging
 import threading
 import time
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from math import gcd
@@ -177,6 +178,7 @@ class AbilityInvocationService:
             payload=payload,
         )
         try:
+            request_inputs = deepcopy(merged_inputs)
             provider_result = self._dispatch_provider(
                 ability=ability,
                 executor_id=executor_id,
@@ -213,6 +215,7 @@ class AbilityInvocationService:
             provider_result,
             log_id,
             duration_ms=duration_ms,
+            request_inputs=request_inputs,
         )
         if callback_url:
             self._schedule_callback(
@@ -257,6 +260,7 @@ class AbilityInvocationService:
         """
 
         settings = get_settings()
+        route_by_queue = bool(settings.comfyui_route_by_queue)
         if settings.comfyui_default_executor_id:
             forced_id = settings.comfyui_default_executor_id.strip()
             if forced_id:
@@ -266,6 +270,10 @@ class AbilityInvocationService:
                         return executor.id
 
         metadata = ability.extra_metadata if isinstance(ability.extra_metadata, dict) else {}
+        allowed_ids_raw = metadata.get("allowed_executor_ids")
+        allowed_ids: list[str] = []
+        if isinstance(allowed_ids_raw, list):
+            allowed_ids = [str(x).strip() for x in allowed_ids_raw if isinstance(x, str) and x.strip()]
         action = (metadata.get("action") or "").strip() or "generic"
         workflow_key = (
             (merged_inputs.get("workflow_key") if isinstance(merged_inputs, dict) else None)
@@ -275,24 +283,43 @@ class AbilityInvocationService:
 
         actions = [action]
 
+        if allowed_ids:
+            candidates = self._filter_active_comfyui_executors(allowed_ids)
+            if candidates:
+                if not route_by_queue or len(candidates) == 1:
+                    return candidates[0]
+                picked = self._pick_comfyui_executor_by_queue(candidates)
+                if picked:
+                    return picked
+
         with get_session() as session:
             ensure_default_executors(session)
             ensure_default_workflows(session)
             ensure_default_bindings(session)
             # Prefer bindings for the action.
-            binding = (
+            bindings = (
                 session.execute(
                     select(WorkflowBinding)
                     .where(WorkflowBinding.enabled.is_(True), WorkflowBinding.action.in_(actions))
                     .order_by(WorkflowBinding.priority.desc(), WorkflowBinding.id.asc())
                 )
                 .scalars()
-                .first()
+                .all()
             )
-            if binding:
-                executor = session.get(Executor, binding.executor_id)
-                if executor and executor.status == "active":
-                    return executor.id
+            if bindings:
+                max_priority = max(binding.priority for binding in bindings)
+                candidate_ids = [
+                    binding.executor_id
+                    for binding in bindings
+                    if binding.executor_id and binding.priority == max_priority
+                ]
+                candidates = self._filter_active_comfyui_executors(candidate_ids)
+                if candidates:
+                    if not route_by_queue or len(candidates) == 1:
+                        return candidates[0]
+                    picked = self._pick_comfyui_executor_by_queue(candidates)
+                    if picked:
+                        return picked
 
         # Fallback: keep current single-host defaults predictable.
         if workflow_key in {"sifang_lianxu", "huawen_kuotu"}:
@@ -300,6 +327,48 @@ class AbilityInvocationService:
         if workflow_key in {"yinhua_tiqu", "jisu_chuli", "zhongsu_tisheng"}:
             return "executor_comfyui_pattern_extract_158"
         return None
+
+    def _filter_active_comfyui_executors(self, executor_ids: Iterable[str]) -> list[str]:
+        ids = [str(item).strip() for item in executor_ids if isinstance(item, str) and str(item).strip()]
+        if not ids:
+            return []
+        with get_session() as session:
+            rows = (
+                session.execute(
+                    select(Executor.id).where(
+                        Executor.id.in_(ids),
+                        Executor.status == "active",
+                        Executor.type == "comfyui",
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        active = {row for row in rows}
+        return [executor_id for executor_id in ids if executor_id in active]
+
+    def _pick_comfyui_executor_by_queue(self, executor_ids: list[str]) -> str | None:
+        if not executor_ids:
+            return None
+        settings = get_settings()
+        target = max(1, int(settings.comfyui_queue_batch_size or 10))
+        stats: list[tuple[int, str]] = []
+        for executor_id in executor_ids:
+            try:
+                status = integration_test_service.get_comfyui_queue_status(executor_id=executor_id)
+            except HTTPException as exc:
+                self._logger.warning("Failed to fetch ComfyUI queue for %s: %s", executor_id, exc.detail)
+                continue
+            if not status.get("supported", True):
+                continue
+            total = int(status.get("runningCount") or 0) + int(status.get("pendingCount") or 0)
+            stats.append((total, executor_id))
+        if not stats:
+            return None
+        preferred = [item for item in stats if item[0] < target]
+        pool = preferred or stats
+        pool.sort(key=lambda item: (item[0], item[1]))
+        return pool[0][1]
 
     # -------- internal helpers -------- #
     def _dispatch_provider(
@@ -1187,6 +1256,7 @@ class AbilityInvocationService:
         log_id: int | None,
         *,
         duration_ms: int | None = None,
+        request_inputs: dict[str, Any] | None = None,
     ) -> schemas.AbilityInvokeResponse:
         provider = provider_result.get("provider", ability.provider)
         status = str(provider_result.get("status") or "succeeded")
@@ -1194,6 +1264,7 @@ class AbilityInvocationService:
         videos = self._extract_output_assets(provider_result, target="video")
         texts = self._extract_texts(provider_result)
         generic_assets = self._extract_generic_assets(provider_result)
+        prompt_value, params_value = self._extract_prompt_and_params(request_inputs or {})
         metadata = {
             "model": provider_result.get("model"),
             "state": provider_result.get("state"),
@@ -1202,6 +1273,8 @@ class AbilityInvocationService:
             "baseUrl": provider_result.get("baseUrl"),
             "promptId": provider_result.get("promptId"),
             "outputNodeIds": provider_result.get("outputNodeIds") or provider_result.get("output_node_ids"),
+            "prompt": prompt_value,
+            "params": params_value,
         }
         raw_payload = provider_result.get("raw")
         return schemas.AbilityInvokeResponse(
@@ -1280,6 +1353,38 @@ class AbilityInvocationService:
                                 )
                             )
         return assets
+
+    def _extract_prompt_and_params(self, request_inputs: dict[str, Any]) -> tuple[str | None, dict[str, Any] | None]:
+        if not isinstance(request_inputs, dict) or not request_inputs:
+            return None, None
+
+        def _pick_prompt(container: dict[str, Any]) -> str | None:
+            for key in (
+                "prompt",
+                "positive_prompt",
+                "positivePrompt",
+                "text",
+                "instruction",
+                "query",
+            ):
+                value = container.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+            return None
+
+        prompt = _pick_prompt(request_inputs)
+        nested = request_inputs.get("input")
+        if not prompt and isinstance(nested, dict):
+            prompt = _pick_prompt(nested)
+        nested = request_inputs.get("inputs")
+        if not prompt and isinstance(nested, dict):
+            prompt = _pick_prompt(nested)
+
+        params = self._omit_large_fields(request_inputs) if request_inputs else None
+        if isinstance(params, dict):
+            for key in ("prompt", "positive_prompt", "positivePrompt", "text", "instruction", "query"):
+                params.pop(key, None)
+        return prompt, params or None
 
     def _extract_generic_assets(self, payload: dict[str, Any]) -> list[schemas.AbilityOutputAsset]:
         entries = []

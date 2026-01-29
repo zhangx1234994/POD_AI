@@ -85,6 +85,45 @@
   flex: 0 0 auto;
 }
 
+.podi-history-row-grid {
+  align-items: stretch;
+}
+
+.podi-history-row-col {
+  display: flex;
+}
+
+.podi-history-row-col .t-card {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.podi-history-row-col .t-card__body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.podi-history-row-params {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.podi-history-row-params__pre {
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid var(--td-border-level-1-color);
+  background: var(--td-bg-color-secondarycontainer);
+  border-radius: 8px;
+  padding: 10px;
+  font-family: monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
 .podi-image-grid {
   display: grid;
   gap: 8px;

@@ -244,6 +244,7 @@ type AbilityTestForm = {
   params: string;
   imageBase64: string;
   imageUrl: string;
+  comfyuiSubmitOnly: boolean;
 };
 
 type AbilityTestResultPayload = {
@@ -270,6 +271,7 @@ const defaultTestForm: AbilityTestForm = {
   params: '',
   imageBase64: '',
   imageUrl: '',
+  comfyuiSubmitOnly: false,
 };
 
 const formatJsonValue = (value?: JsonRecord | null) => (value ? JSON.stringify(value, null, 2) : '');
@@ -671,6 +673,16 @@ const resolveAbilityApiType = (ability: Ability | null): string => {
   if (ability.category === 'image_generation') return 'image_generation';
   if (ability.category === 'text_generation') return 'chat_completions';
   return '';
+};
+
+const parseJSON = (value?: string | JsonRecord): JsonRecord => {
+  if (!value) return {};
+  if (typeof value === 'object') return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return {};
+  }
 };
 
 export function IntegrationDashboard({
@@ -1348,13 +1360,16 @@ export function IntegrationDashboard({
       console.error('copy text failed', error);
     }
   };
-  const refreshAbilityLogs = useCallback(async () => {
+  const refreshAbilityLogs = useCallback(async (options?: { silent?: boolean }) => {
     if (!selectedAbility?.id) {
       setAbilityLogs([]);
       setAbilityLogsError(null);
       return;
     }
-    setAbilityLogsLoading(true);
+    const silent = options?.silent;
+    if (!silent) {
+      setAbilityLogsLoading(true);
+    }
     try {
       const response = await adminApi.listAbilityLogs(selectedAbility.id, abilityLogLimit);
       setAbilityLogs(response.items);
@@ -1363,7 +1378,9 @@ export function IntegrationDashboard({
       console.error('load ability logs failed', error);
       setAbilityLogsError(error instanceof Error ? error.message : '加载能力调用记录失败');
     } finally {
-      setAbilityLogsLoading(false);
+      if (!silent) {
+        setAbilityLogsLoading(false);
+      }
     }
   }, [selectedAbility?.id]);
 
@@ -1371,8 +1388,11 @@ export function IntegrationDashboard({
     void refreshAbilityLogs();
   }, [refreshAbilityLogs]);
 
-  const refreshGlobalAbilityLogs = useCallback(async () => {
-    setGlobalAbilityLogsLoading(true);
+  const refreshGlobalAbilityLogs = useCallback(async (options?: { silent?: boolean }) => {
+    const silent = options?.silent;
+    if (!silent) {
+      setGlobalAbilityLogsLoading(true);
+    }
     try {
       const response = await adminApi.listAllAbilityLogs({ limit: 30 });
       setGlobalAbilityLogs(response.items);
@@ -1381,13 +1401,31 @@ export function IntegrationDashboard({
       console.error('load global ability logs failed', error);
       setGlobalAbilityLogsError(error instanceof Error ? error.message : '加载能力调用清单失败');
     } finally {
-      setGlobalAbilityLogsLoading(false);
+      if (!silent) {
+        setGlobalAbilityLogsLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
     void refreshGlobalAbilityLogs();
   }, [refreshGlobalAbilityLogs]);
+
+  useEffect(() => {
+    if (!selectedAbility?.id) return;
+    const interval = window.setInterval(() => {
+      void refreshAbilityLogs({ silent: true });
+    }, 10000);
+    return () => window.clearInterval(interval);
+  }, [selectedAbility?.id, refreshAbilityLogs]);
+
+  useEffect(() => {
+    if (activeNav !== 'ability-logs') return;
+    const interval = window.setInterval(() => {
+      void refreshGlobalAbilityLogs({ silent: true });
+    }, 12000);
+    return () => window.clearInterval(interval);
+  }, [activeNav, refreshGlobalAbilityLogs]);
 
   const refreshPublicAbilities = useCallback(async () => {
     setPublicAbilitiesLoading(true);
@@ -1472,6 +1510,7 @@ export function IntegrationDashboard({
         params: '',
         imageUrl: '',
         imageBase64: '',
+        comfyuiSubmitOnly: false,
       }));
       setSchemaValues({});
       return;
@@ -1486,6 +1525,7 @@ export function IntegrationDashboard({
       params: '',
       imageUrl: '',
       imageBase64: '',
+      comfyuiSubmitOnly: false,
     }));
     setTestResult(null);
     setUploadedImage(null);
@@ -1509,16 +1549,6 @@ export function IntegrationDashboard({
     });
     setSchemaValues(nextValues);
   }, [selectedAbility?.id, abilitySchemaFields]);
-
-  const parseJSON = (value?: string | JsonRecord): JsonRecord => {
-    if (!value) return {};
-    if (typeof value === 'object') return value;
-    try {
-      return JSON.parse(value);
-    } catch {
-      return {};
-    }
-  };
 
   const getExecutorChannelLabel = (executor: Executor): string => {
     const config = executor.config || {};
@@ -1899,14 +1929,19 @@ export function IntegrationDashboard({
           executorId: testForm.executorId,
           workflowKey,
           workflowParams,
+          submitOnly: testForm.comfyuiSubmitOnly,
         });
         setTestResult({
           provider: response.provider,
           model: response.workflowKey,
           taskId: response.promptId,
+          state: response.state || (testForm.comfyuiSubmitOnly ? 'submitted' : undefined),
           logId: response.logId ?? undefined,
           storedUrl: response.storedUrl ?? (response.assets && response.assets[0]?.ossUrl) ?? undefined,
           assets: response.assets ?? undefined,
+          text: testForm.comfyuiSubmitOnly
+            ? '已提交到 ComfyUI 队列（submit-only）。请到队列/日志查看进度或等待业务侧轮询回写。'
+            : undefined,
           raw: response.raw ?? null,
         });
         return;
@@ -2670,6 +2705,15 @@ const normalizeErrorMessage = (message: string): string => {
             onChange={(e) => setTestForm((prev) => ({ ...prev, params: e.target.value }))}
           />
         </label>
+        {selectedAbility?.provider === 'comfyui' && (
+          <div className="flex items-center gap-2 text-xs text-slate-400">
+            <Switch
+              value={testForm.comfyuiSubmitOnly}
+              onChange={(value) => setTestForm((prev) => ({ ...prev, comfyuiSubmitOnly: Boolean(value) }))}
+            />
+            提交后不等待（直接入队）
+          </div>
+        )}
         <button
           onClick={handleRunAbilityTest}
           disabled={

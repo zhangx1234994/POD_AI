@@ -15,12 +15,17 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.eval import EvalWorkflowVersion
+from app.constants.abilities import PATTERN_EXTRACT_LORA_PRESETS
 
 
 LORA_OPTIONS = [
-    # From LORA_CATALOG.md table (repo-managed).
-    "杯子1124.safetensors",
+    entry.get("value")
+    for entry in PATTERN_EXTRACT_LORA_PRESETS
+    if isinstance(entry, dict) and entry.get("value")
 ]
+if not LORA_OPTIONS:
+    # Fallback (should not happen unless presets are removed).
+    LORA_OPTIONS = ["杯子1124.safetensors"]
 
 # Workflows that should not show up in the evaluation UI anymore.
 # Note: seed inserts are append-only, so we also apply a small normalization pass
