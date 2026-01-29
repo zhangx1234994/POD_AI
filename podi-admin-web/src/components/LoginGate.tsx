@@ -46,7 +46,7 @@ export function LoginGate({ children }: { children: React.ReactNode }) {
       setForm({ username: '', password: '' });
     } catch (err) {
       console.error('login failed', err);
-      setError('登录失败，请检查账号或密码');
+      setError(err instanceof Error ? err.message : '登录失败，请检查网络或服务状态');
     } finally {
       setLoading(false);
     }

@@ -35,6 +35,12 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
 const ACCESS_TOKEN_KEY = 'podi_admin_access_token';
 const REFRESH_TOKEN_KEY = 'podi_admin_refresh_token';
 export const ADMIN_TOKEN_INVALID_EVENT = 'podi-admin-token-invalid';
+const DEFAULT_TIMEOUT_MS = 15000;
+const TEST_TIMEOUT_MS = 60000;
+const KIE_TIMEOUT_MS = 180000;
+const COMFYUI_TIMEOUT_MS = 600000;
+const AUTH_INVALID_MESSAGE = '登录已失效，请重新登录';
+const GATEWAY_ERROR_MESSAGE = '服务不可达或网关异常，请稍后再试';
 
 export function getAdminToken() {
   return localStorage.getItem('podi_admin_access_token');
@@ -43,6 +49,10 @@ export function getAdminToken() {
 function extractErrorMessage(statusText: string, bodyText: string): string {
   const text = (bodyText || '').trim();
   if (!text) return statusText || 'Request failed';
+  const lower = text.toLowerCase();
+  if (lower.startsWith('<!doctype') || lower.startsWith('<html')) {
+    return '服务异常（网关或代理返回了 HTML 页面）';
+  }
   try {
     const parsed = JSON.parse(text);
     const detail = (parsed as any)?.detail;
@@ -56,6 +66,25 @@ function extractErrorMessage(statusText: string, bodyText: string): string {
     // ignore JSON parse errors
   }
   return text;
+}
+
+function resolveHttpError(status: number, statusText: string, bodyText: string): string {
+  if (status === 401 || status === 403) return AUTH_INVALID_MESSAGE;
+  if (status === 502 || status === 503 || status === 504) return GATEWAY_ERROR_MESSAGE;
+  const message = extractErrorMessage(statusText, bodyText);
+  if (status >= 500 && (!message || message === statusText)) {
+    return '服务异常，请稍后再试';
+  }
+  return message || statusText || 'Request failed';
+}
+
+function withTimeout(options: RequestInit, timeoutMs: number) {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  return {
+    options: { ...options, signal: controller.signal },
+    cancel: () => window.clearTimeout(timer),
+  };
 }
 
 function clearAdminTokens() {
@@ -73,43 +102,74 @@ function broadcastInvalidToken(message?: string) {
   );
 }
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+async function request<T>(path: string, options: RequestInit = {}, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<T> {
   const token = getAdminToken();
-  const resp = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-  });
+  const { options: timedOptions, cancel } = withTimeout(options, timeoutMs);
+  let resp: Response;
+  try {
+    resp = await fetch(`${API_BASE}${path}`, {
+      ...timedOptions,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(options.headers || {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    });
+  } catch (err) {
+    cancel();
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new Error('请求超时，请检查网络或服务是否可用');
+    }
+    throw new Error(String((err as any)?.message || err || '网络请求失败'));
+  }
+  cancel();
   if (!resp.ok) {
     const text = await resp.text();
-    if (resp.status === 401) {
+    const message = resolveHttpError(resp.status, resp.statusText, text);
+    if (resp.status === 401 || resp.status === 403) {
       clearAdminTokens();
-      broadcastInvalidToken(extractErrorMessage(resp.statusText, text) || '登录已失效，请重新登录');
+      broadcastInvalidToken(message);
     }
-    throw new Error(extractErrorMessage(resp.statusText, text));
+    throw new Error(message);
   }
-  return resp.json();
+  const text = await resp.text();
+  if (!text) return undefined as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    const message = extractErrorMessage('', text) || '响应解析失败';
+    throw new Error(message);
+  }
 }
 
-async function requestBlob(path: string, options: RequestInit = {}): Promise<Blob> {
+async function requestBlob(path: string, options: RequestInit = {}, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<Blob> {
   const token = getAdminToken();
-  const resp = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers: {
-      ...(options.headers || {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-  });
+  const { options: timedOptions, cancel } = withTimeout(options, timeoutMs);
+  let resp: Response;
+  try {
+    resp = await fetch(`${API_BASE}${path}`, {
+      ...timedOptions,
+      headers: {
+        ...(options.headers || {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    });
+  } catch (err) {
+    cancel();
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new Error('请求超时，请检查网络或服务是否可用');
+    }
+    throw new Error(String((err as any)?.message || err || '网络请求失败'));
+  }
+  cancel();
   if (!resp.ok) {
     const text = await resp.text();
-    if (resp.status === 401) {
+    const message = resolveHttpError(resp.status, resp.statusText, text);
+    if (resp.status === 401 || resp.status === 403) {
       clearAdminTokens();
-      broadcastInvalidToken(extractErrorMessage(resp.statusText, text) || '登录已失效，请重新登录');
+      broadcastInvalidToken(message);
     }
-    throw new Error(extractErrorMessage(resp.statusText, text));
+    throw new Error(message);
   }
   return resp.blob();
 }
@@ -145,10 +205,14 @@ export const adminApi = {
 
   // Tests
   testBaiduQualityUpgrade: (payload: AbilityContextPayload & { executorId: string; imageBase64: string; resolution: string; upscaleType: string }) =>
-    request<BaiduImageTestResponse>('/api/admin/tests/baidu/quality-upgrade', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
+    request<BaiduImageTestResponse>(
+      '/api/admin/tests/baidu/quality-upgrade',
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      },
+      TEST_TIMEOUT_MS,
+    ),
   testBaiduImageProcess: (payload: AbilityContextPayload & {
     executorId: string;
     operation: string;
@@ -156,10 +220,14 @@ export const adminApi = {
     imageUrl?: string;
     params?: Record<string, unknown>;
   }): Promise<BaiduImageTestResponse> =>
-    request<BaiduImageTestResponse>('/api/admin/tests/baidu/image-process', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
+    request<BaiduImageTestResponse>(
+      '/api/admin/tests/baidu/image-process',
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      },
+      TEST_TIMEOUT_MS,
+    ),
   testVolcengineChat: (payload: AbilityContextPayload & {
     executorId: string;
     model: string;
@@ -173,6 +241,7 @@ export const adminApi = {
         method: 'POST',
         body: JSON.stringify(payload),
       },
+      TEST_TIMEOUT_MS,
     ),
   testVolcengineImage: (payload: AbilityContextPayload & {
     executorId: string;
@@ -198,6 +267,7 @@ export const adminApi = {
         method: 'POST',
         body: JSON.stringify(payload),
       },
+      TEST_TIMEOUT_MS,
     ),
   testKieMarket: (payload: AbilityContextPayload & {
     executorId: string;
@@ -222,6 +292,7 @@ export const adminApi = {
         method: 'POST',
         body: JSON.stringify(payload),
       },
+      KIE_TIMEOUT_MS,
     ),
   testComfyuiWorkflow: (payload: AbilityContextPayload & {
     executorId: string;
@@ -238,10 +309,14 @@ export const adminApi = {
       storedUrl?: string;
       assets?: StoredAsset[];
       raw?: JsonRecord | null;
-    }>('/api/admin/tests/comfyui/workflow', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
+    }>(
+      '/api/admin/tests/comfyui/workflow',
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      },
+      COMFYUI_TIMEOUT_MS,
+    ),
 
   getComfyuiModels: (executorId: string) =>
     request<{ executorId: string; baseUrl: string; models: Record<string, string[]> }>(
