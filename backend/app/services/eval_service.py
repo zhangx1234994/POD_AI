@@ -84,6 +84,50 @@ class EvalService:
                 if v is None or (isinstance(v, str) and not v.strip()):
                     normalized_params["prompt"] = " "
 
+        def _strip_px(value: Any) -> str | None:
+            if value is None:
+                return None
+            if isinstance(value, (int, float)):
+                return str(int(value))
+            if not isinstance(value, str):
+                return None
+            raw = value.strip()
+            if not raw:
+                return None
+            # Accept "200", "200px", "200 px", "200PX"
+            num = ""
+            for ch in raw:
+                if ch.isdigit():
+                    num += ch
+                elif num:
+                    break
+            return num or None
+
+        # Normalize numeric pixel params (strip "px" suffixes if present).
+        pixel_keys = {
+            "width",
+            "height",
+            "expand_left",
+            "expand_right",
+            "expand_top",
+            "expand_bottom",
+            "expandLeft",
+            "expandRight",
+            "expandTop",
+            "expandBottom",
+            "left",
+            "right",
+            "top",
+            "bottom",
+            "bianchang",
+        }
+        for key in list(normalized_params.keys()):
+            if key not in pixel_keys:
+                continue
+            stripped = _strip_px(normalized_params.get(key))
+            if stripped is not None:
+                normalized_params[key] = stripped
+
         run = EvalRun(
             id=uuid4().hex,
             workflow_version_id=workflow_version_id,

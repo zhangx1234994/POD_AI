@@ -828,13 +828,49 @@ export function App() {
 
     setIsRunning(true);
     try {
+      const normalizeNumericParam = (key: string, value: string): string => {
+        const pixelKeys = new Set([
+          'width',
+          'height',
+          'expand_left',
+          'expand_right',
+          'expand_top',
+          'expand_bottom',
+          'expandLeft',
+          'expandRight',
+          'expandTop',
+          'expandBottom',
+          'left',
+          'right',
+          'top',
+          'bottom',
+          'bianchang',
+        ]);
+        if (!pixelKeys.has(key)) return value;
+        const raw = String(value || '').trim();
+        if (!raw) return raw;
+        let num = '';
+        for (const ch of raw) {
+          if (ch >= '0' && ch <= '9') {
+            num += ch;
+          } else if (num) {
+            break;
+          }
+        }
+        return num || raw;
+      };
+
       const parameters: Record<string, unknown> = {};
       if (requiresImage && url) {
         parameters.url = url;
       }
       for (const [k, v] of Object.entries(formParams)) {
         if (v === '') continue;
-        parameters[k] = v;
+        if (typeof v === 'string') {
+          parameters[k] = normalizeNumericParam(k, v);
+        } else {
+          parameters[k] = v;
+        }
       }
       await evalApi.createRun({
         workflow_version_id: selectedTool.id,

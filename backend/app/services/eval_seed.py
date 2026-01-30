@@ -424,10 +424,10 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         "parameters_schema": {
             "fields": [
                 {"name": "url", "label": "图片 URL", "type": "text", "required": True},
-                {"name": "expand_left", "label": "左扩(px)", "type": "text", "required": False, "defaultValue": "0"},
-                {"name": "expand_right", "label": "右扩(px)", "type": "text", "required": False, "defaultValue": "0"},
-                {"name": "expand_top", "label": "上扩(px)", "type": "text", "required": False, "defaultValue": "0"},
-                {"name": "expand_bottom", "label": "下扩(px)", "type": "text", "required": False, "defaultValue": "0"},
+                {"name": "expand_left", "label": "左扩", "type": "text", "required": False, "defaultValue": "0", "description": "像素数值（纯数字，不要带 px）"},
+                {"name": "expand_right", "label": "右扩", "type": "text", "required": False, "defaultValue": "0", "description": "像素数值（纯数字，不要带 px）"},
+                {"name": "expand_top", "label": "上扩", "type": "text", "required": False, "defaultValue": "0", "description": "像素数值（纯数字，不要带 px）"},
+                {"name": "expand_bottom", "label": "下扩", "type": "text", "required": False, "defaultValue": "0", "description": "像素数值（纯数字，不要带 px）"},
                 {
                     "name": "moxing",
                     "label": "模型",
@@ -460,10 +460,10 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         "parameters_schema": {
             "fields": [
                 {"name": "url", "label": "图片 URL", "type": "text", "required": True},
-                {"name": "expand_left", "label": "左扩(px)", "type": "text", "required": False, "defaultValue": "0"},
-                {"name": "expand_right", "label": "右扩(px)", "type": "text", "required": False, "defaultValue": "0"},
-                {"name": "expand_top", "label": "上扩(px)", "type": "text", "required": False, "defaultValue": "0"},
-                {"name": "expand_bottom", "label": "下扩(px)", "type": "text", "required": False, "defaultValue": "0"},
+                {"name": "expand_left", "label": "左扩", "type": "text", "required": False, "defaultValue": "0", "description": "像素数值（纯数字，不要带 px）"},
+                {"name": "expand_right", "label": "右扩", "type": "text", "required": False, "defaultValue": "0", "description": "像素数值（纯数字，不要带 px）"},
+                {"name": "expand_top", "label": "上扩", "type": "text", "required": False, "defaultValue": "0", "description": "像素数值（纯数字，不要带 px）"},
+                {"name": "expand_bottom", "label": "下扩", "type": "text", "required": False, "defaultValue": "0", "description": "像素数值（纯数字，不要带 px）"},
             ]
         },
         "output_schema": {
@@ -497,8 +497,8 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                         {"label": "3 · Doubao 4.5", "value": "3"},
                     ],
                 },
-                {"name": "width", "label": "宽度(px)", "type": "text", "required": False, "defaultValue": ""},
-                {"name": "height", "label": "高度(px)", "type": "text", "required": False, "defaultValue": ""},
+                {"name": "width", "label": "宽度", "type": "text", "required": False, "defaultValue": "", "description": "像素数值（纯数字，不要带 px）"},
+                {"name": "height", "label": "高度", "type": "text", "required": False, "defaultValue": "", "description": "像素数值（纯数字，不要带 px）"},
                 {
                     "name": "aspect_ratio",
                     "label": "比例（仅 Banana/Flux2 生效）",
@@ -587,7 +587,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         "parameters_schema": {
             "fields": [
                 {"name": "url", "label": "图片 URL", "type": "text", "required": True},
-                {"name": "bianchang", "label": "最长边(px)", "type": "text", "required": False, "defaultValue": "4096"},
+                {"name": "bianchang", "label": "最长边", "type": "text", "required": False, "defaultValue": "4096", "description": "像素数值（纯数字，不要带 px）"},
             ]
         },
         "output_schema": {"fields": [{"name": "output", "type": "text", "description": "图片 URL"}]},
@@ -1181,6 +1181,40 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
                     schema["fields"] = fields
                     row.parameters_schema = schema
                     dirty = True
+        # Normalize pixel field labels/descriptions (avoid "px" suffix and enforce numeric).
+        schema = json.loads(json.dumps(row.parameters_schema or {}, ensure_ascii=False))
+        fields = schema.get("fields") if isinstance(schema, dict) else None
+        if isinstance(fields, list):
+            changed = False
+            pixel_fields = {"width", "height", "expand_left", "expand_right", "expand_top", "expand_bottom", "bianchang"}
+            for f in fields:
+                if not isinstance(f, dict):
+                    continue
+                name = f.get("name")
+                if name not in pixel_fields:
+                    continue
+                label = str(f.get("label") or "")
+                if "px" in label.lower():
+                    cleaned = (
+                        label.replace("（px）", "")
+                        .replace("(px)", "")
+                        .replace("px", "")
+                        .replace("PX", "")
+                        .replace("Px", "")
+                        .replace("()", "")
+                        .replace("（）", "")
+                        .strip()
+                    )
+                    f["label"] = cleaned
+                    changed = True
+                desc = str(f.get("description") or "")
+                if "不要带" not in desc:
+                    f["description"] = "像素数值（纯数字，不要带 px）"
+                    changed = True
+            if changed:
+                schema["fields"] = fields
+                row.parameters_schema = schema
+                dirty = True
         if row.workflow_id == "7598563505054154752":
             # Coze workflow requires height/width. Ensure DB schema matches so UI and
             # client requests always include them (avoids COZE code=4000 failures).
