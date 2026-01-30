@@ -711,14 +711,14 @@ def _build_kie_schema(capability_key: str) -> dict[str, Any]:
                     "type": "select",
                     "label": _compose_bilingual_label("画幅比例", "Aspect Ratio"),
                     "options": ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9", "auto"],
-                    "default": "auto",
+                    "description": _compose_bilingual_label("留空将按原图处理。", "Leave empty to keep input size."),
                 },
                 {
                     "name": "resolution",
                     "type": "select",
                     "label": _compose_bilingual_label("分辨率", "Resolution"),
                     "options": ["1K", "2K", "4K"],
-                    "default": "1K",
+                    "description": _compose_bilingual_label("留空将按原图处理。", "Leave empty to keep input size."),
                 },
                 {
                     "name": "output_format",
@@ -757,14 +757,14 @@ def _build_kie_schema(capability_key: str) -> dict[str, Any]:
                     "type": "select",
                     "label": _compose_bilingual_label("画幅比例", "Aspect Ratio"),
                     "options": ["1:1", "4:3", "3:4", "16:9", "9:16", "3:2", "2:3", "auto"],
-                    "default": "1:1",
+                    "description": _compose_bilingual_label("留空将按原图处理。", "Leave empty to keep input size."),
                 },
                 {
                     "name": "resolution",
                     "type": "select",
                     "label": _compose_bilingual_label("分辨率", "Resolution"),
                     "options": ["1K", "2K"],
-                    "default": "1K",
+                    "description": _compose_bilingual_label("留空将按原图处理。", "Leave empty to keep input size."),
                 },
                 {
                     "name": "callBackUrl",
@@ -861,7 +861,7 @@ def _kie_metadata(
         "model_id": model_id,
         "request_endpoint": endpoint,
         # Bump when changing built-in KIE schemas/metadata/defaults so ability_seed can refresh DB rows.
-        "seed_version": 4,
+        "seed_version": 5,
     }
     if requires_image_input:
         metadata["requires_image_input"] = True
@@ -1088,9 +1088,6 @@ KIE_MARKET_ABILITIES: dict[str, AbilityDefinition] = {
         "endpoint": "/api/v1/jobs/createTask",
         "defaults": {
             "model": "nano-banana-pro",
-            # KIE validates this field; "auto" is the safest default across models.
-            "aspect_ratio": "auto",
-            "resolution": "1K",
             "output_format": "png",
         },
         "display_name": "KIE · Nano Banana Pro 图生图",
@@ -1111,8 +1108,6 @@ KIE_MARKET_ABILITIES: dict[str, AbilityDefinition] = {
         "endpoint": "/api/v1/jobs/createTask",
         "defaults": {
             "model": "flux-2/pro-image-to-image",
-            "aspect_ratio": "1:1",
-            "resolution": "1K",
         },
         "display_name": "KIE · Flux-2 Pro 图生图",
         "description": "Flux-2 专业版，要求 1-8 张参考图，支持 auto 比例匹配，适合高精图像编辑。",

@@ -966,7 +966,7 @@ class AbilityInvocationService:
                     return k
             return supported[-1][0]
 
-        if desired_output_size and metadata.get("requires_image_input"):
+        if desired_output_size and metadata.get("requires_image_input") and metadata.get("auto_fill_size") is True:
             w, h = desired_output_size
             # Only fill if not already present / non-empty.
             if not _has_nonempty("aspect_ratio"):
