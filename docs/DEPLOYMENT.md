@@ -12,6 +12,7 @@
 ## 前置条件
 - 服务器已安装 Docker + Docker Compose（`docker compose version` 可用）
 - 云端 MySQL 可访问（后端使用 `backend/.env` 中的 `DATABASE_URL`）
+- 如需服务器本地构建前端：已安装 Node.js（建议 18+）与 npm
 
 ## 一次性准备
 1) 配置后端环境变量文件（线上/开发机都一致）
@@ -21,6 +22,18 @@
 2) （可选）检查执行节点配置
 - 默认读取 `config/executors.yaml`
 - YAML 内允许 `${ENV}`，会从 `backend/.env` 解析
+
+## 前端构建依赖（仅服务器本地构建时需要）
+如果你选择在服务器上构建前端，请确保：
+- Node.js 版本：**18+（建议 LTS）**
+- npm 版本：**9+**
+
+构建命令：
+```bash
+cd podi-admin-web && npm install && npm run build
+cd podi-eval-web && npm install && npm run build
+```
+构建完成后将 `dist/` 作为静态产物发布（配合反代到 `/api`）。
 
 ## 一键部署（推荐）
 在仓库根目录执行：

@@ -1156,7 +1156,7 @@ export function App() {
             <Card bordered>
               <Space direction="vertical" size={6} style={{ width: '100%' }}>
                 <Typography.Text strong>目录</Typography.Text>
-                <Space wrap>
+                <Space style={{ flexWrap: 'wrap' }}>
                   {groupedDocs.map((group) => (
                     <a
                       key={group.category}
@@ -1172,9 +1172,11 @@ export function App() {
 
             {groupedDocs.map((group) => (
               <Space key={group.category} direction="vertical" size="large" style={{ width: '100%' }}>
-                <Typography.Title id={toAnchorId(group.category)} level="h3" style={{ margin: 0 }}>
-                  {group.category}
-                </Typography.Title>
+                <div id={toAnchorId(group.category)}>
+                  <Typography.Title level="h3" style={{ margin: 0 }}>
+                    {group.category}
+                  </Typography.Title>
+                </div>
 
                 {group.items.map((wf) => {
               const params = Array.isArray(wf.parameters) ? wf.parameters : [];
