@@ -881,22 +881,32 @@ export function App() {
     return out;
   }, [toolRuns, filterRating, search]);
 
+  const promptAdminToken = useCallback(
+    async (opts?: { force?: boolean }) => {
+      const force = Boolean(opts?.force);
+      const tokenInput =
+        (!force && adminToken) || window.prompt('请输入 EVAL_ADMIN_TOKEN（仅管理员维护功能名/备注）') || '';
+      if (!tokenInput.trim()) return;
+      const token = tokenInput.trim();
+      localStorage.setItem('podi_eval_admin_token', token);
+      setAdminToken(token);
+      setActiveView('admin');
+      setSelectedTool(null);
+      try {
+        const list = await evalApi.adminListWorkflowVersions(token);
+        setAdminWorkflows(list);
+        pushNotice('success', '已加载维护列表');
+      } catch (err) {
+        console.error(err);
+        pushNotice('error', String((err as any)?.message || err));
+      }
+    },
+    [adminToken, pushNotice],
+  );
+
   const openAdmin = useCallback(async () => {
-    // "Private-ish": require a token, stored locally. No normal login.
-    const token = adminToken || window.prompt('请输入 EVAL_ADMIN_TOKEN（仅管理员维护功能名/备注）') || '';
-    if (!token.trim()) return;
-    localStorage.setItem('podi_eval_admin_token', token.trim());
-    setAdminToken(token.trim());
-    setActiveView('admin');
-    setSelectedTool(null);
-    try {
-      const list = await evalApi.adminListWorkflowVersions(token.trim());
-      setAdminWorkflows(list);
-    } catch (err) {
-      console.error(err);
-      pushNotice('error', String((err as any)?.message || err));
-    }
-  }, [adminToken, pushNotice]);
+    void promptAdminToken();
+  }, [promptAdminToken]);
 
   const headerNavValue = activeView === 'tool' ? 'home' : activeView;
 
@@ -1027,6 +1037,14 @@ export function App() {
             >
               刷新列表
             </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                void promptAdminToken({ force: true });
+              }}
+            >
+              重新输入 Token
+            </Button>
           </Space>
         }
       >
@@ -1036,6 +1054,11 @@ export function App() {
               key={wf.id}
               wf={wf}
               adminToken={adminToken}
+              onAuthInvalid={() => {
+                localStorage.removeItem('podi_eval_admin_token');
+                setAdminToken('');
+                pushNotice('error', '认证已失效，请重新输入 EVAL_ADMIN_TOKEN');
+              }}
               onSaved={(next) => {
                 setAdminWorkflows((prev) => prev.map((x) => (x.id === next.id ? next : x)));
               }}
@@ -1959,10 +1982,12 @@ function AdminWorkflowRow({
   wf,
   adminToken,
   onSaved,
+  onAuthInvalid,
 }: {
   wf: EvalWorkflowVersion;
   adminToken: string;
   onSaved: (next: EvalWorkflowVersion) => void;
+  onAuthInvalid: () => void;
 }) {
   const [name, setName] = useState(wf.name);
   const [notes, setNotes] = useState(wf.notes || '');
@@ -2045,7 +2070,11 @@ function AdminWorkflowRow({
                 onSaved(next);
               } catch (err) {
                 console.error(err);
-                setRowError(String((err as any)?.message || err));
+                const message = String((err as any)?.message || err);
+                setRowError(message);
+                if (message.includes('认证已失效')) {
+                  onAuthInvalid();
+                }
               } finally {
                 setSaving(false);
               }
