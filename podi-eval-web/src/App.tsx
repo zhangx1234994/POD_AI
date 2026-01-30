@@ -1297,9 +1297,11 @@ export function App() {
 
                       <div className="grid gap-3 lg:grid-cols-3">
                         {!latest ? (
-                          Array.from({ length: 6 }).map((_, idx) => (
-                            <SkeletonTile key={`empty-sk-${idx}`} title="等待生成…" subtitle="运行后自动刷新结果" />
-                          ))
+                          <Card bordered title="输出">
+                            <Typography.Text theme="secondary">
+                              暂无运行记录，先在左侧填写参数并点击“开始生成”。
+                            </Typography.Text>
+                          </Card>
                         ) : status === 'queued' || status === 'running' ? (
                           <>
                             {imgs.map((img, idx) => (
