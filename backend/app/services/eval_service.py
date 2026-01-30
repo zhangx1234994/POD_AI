@@ -246,6 +246,10 @@ class EvalService:
             if "bili" not in coze_params and "similarity" in coze_params:
                 coze_params["bili"] = coze_params.get("similarity")
             coze_params.pop("similarity", None)
+            # Some outpaint workflows expect capitalized `Url`.
+            if workflow_id in {"7597723984687267840", "7598587935331450880"}:
+                if "Url" not in coze_params and "url" in coze_params:
+                    coze_params["Url"] = coze_params.get("url")
             fanout = self._pop_fanout_count(coze_params)
             if fanout > 1:
                 # Stable default: allow forcing sequential fan-out (max_workers=1) to
@@ -1092,6 +1096,8 @@ class EvalService:
             return None
         output = payload.get("output")
         if output is None:
+            if any(k in payload for k in ("servers", "totalPending", "totalRunning", "totalCount", "timestamp")):
+                return payload
             return None
         if isinstance(output, (dict, list, int, float, bool)):
             return output

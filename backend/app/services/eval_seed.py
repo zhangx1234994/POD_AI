@@ -35,6 +35,10 @@ DEPRECATED_EVAL_WORKFLOW_IDS: set[str] = {
     "7597535455856295936",  # 提示词提取 · tishici_tiqu
     # 花纹提取类（旧的 space_id 误填版本，保留但不再展示）
     "7597421439045599232",  # tiqu_duoMoxing_2 (wrong id, superseded by 7598558185544220672)
+    # 花纹提取类（旧版本，已替换为 7601080398864449536）
+    "7598558185544220672",  # tiqu_duoMoxing_2 (old)
+    # 图裂变（旧商业模型版本）
+    "7598844004557389824",  # Liebian_shangye_20260124_1_1
 }
 
 # Evaluation UI category policy: keep the sidebar fixed to these groups.
@@ -75,8 +79,8 @@ FORCE_ACTIVE_EVAL_WORKFLOW_IDS: set[str] = {
     # 花纹提取 5 个
     "7597530887256801280",  # tiqu_comfyui_20260123
     "7598545860393172992",  # tiqu_comfyui_20260123_2
-    "7598558185544220672",  # tiqu_duoMoxing_2
-    "7598559869544693760",  # tiqu_duoMoxing_2_1
+    "7601080398864449536",  # tiqu_duoMoxing_2
+    "7598559869544693760",  # tiqu_duoMoxing_20260130
     "7598560946579046400",  # tiqu_duoMoxing_2_2
     # 连续图
     "7598563505054154752",  # lianxu
@@ -87,14 +91,15 @@ FORCE_ACTIVE_EVAL_WORKFLOW_IDS: set[str] = {
     "7598589746561941504",  # dpi增分
     "7597767702970630144",  # Biaoqian_tiqu (small)
     "7598080013539213312",  # Biaoqian_tiqu_1 (large)
-    "7597659369861283840",  # 多模型生图
-    "7597701996124045312",  # 四步急速生图
-    "7597702948247830528",  # 八步急速生图
-    "7597760543788630016",  # 8K 高清放大
+    "7600254097513512960",  # Biaoqian_tiqu_3
+    "7600254796297142272",  # Biaoqian_tiqu_3_1
+    "7601054603211177984",  # comfyui_duilie
+    "7597701996124045312",  # sibu_comfyui
+    "7597702948247830528",  # zhongsu_comfyui
     # 图裂变
     "7598841920114130944",  # Liebian_comfyui_20260124_1
     "7598820684801769472",  # Liebian_comfyui_20260124
-    "7598844004557389824",  # Liebian_shangye_20260124_1_1
+    "7601077530077954048",  # Liebian_shangye_20260130
     "7598848725942796288",  # Liebian_shangye_20260124_1_1_1
 }
 
@@ -167,14 +172,14 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         },
         "output_schema": {"fields": [{"name": "output", "type": "text", "description": "回调 task id"}]},
     },
-    # 花纹提取类 / 商业模型提取花纹（支持提示词；输出图片 URL）
+    # 花纹提取类 / 商业模型提取花纹（支持提示词；输出回调 task id）
     {
         "category": "花纹提取类",
         "name": "花纹提取 · tiqu_duoMoxing_2",
         "version": "v1",
-        "workflow_id": "7598558185544220672",
+        "workflow_id": "7601080398864449536",
         "status": "active",
-        "notes": "商业模型提取花纹：moxing=1(Banana Pro)/2(Flux2)/3(Doubao 4.5)。输出为图片 URL。",
+        "notes": "商业模型提取花纹：moxing=1(Banana Pro)/2(Flux2)/3(Doubao 4.5)。输出 output 为回调 task id。",
         "parameters_schema": {
             "fields": [
                 {
@@ -189,8 +194,6 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                         {"label": "3 · Doubao 4.5", "value": "3"},
                     ],
                 },
-                {"name": "height", "label": "高度", "type": "text", "required": False, "defaultValue": ""},
-                {"name": "width", "label": "宽度", "type": "text", "required": False, "defaultValue": ""},
                 {
                     "name": "aspect_ratio",
                     "label": "比例（仅 Banana/Flux2 生效）",
@@ -218,19 +221,20 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                         {"label": "4K", "value": "4K"},
                     ],
                 },
-                {"name": "prompt", "label": "提示词", "type": "textarea", "required": True},
+                {"name": "url", "label": "图片 URL", "type": "text", "required": True},
+                {"name": "prompt", "label": "提示词", "type": "textarea", "required": False, "defaultValue": ""},
             ]
         },
-        "output_schema": {"fields": [{"name": "output", "type": "text", "description": "图片 URL"}]},
+        "output_schema": {"fields": [{"name": "output", "type": "text", "description": "回调 task id"}]},
     },
-    # 花纹提取类 / 商业模型提取花纹（无需提示词；输出图片 URL）
+    # 花纹提取类 / 商业模型提取花纹（无需提示词；输出回调 task id）
     {
         "category": "花纹提取类",
-        "name": "花纹提取 · tiqu_duoMoxing_2_1",
+        "name": "花纹提取 · tiqu_duoMoxing_20260130",
         "version": "v1",
         "workflow_id": "7598559869544693760",
         "status": "active",
-        "notes": "商业模型提取花纹（批量版）：不输入提示词，输出为图片 URL。",
+        "notes": "商业模型提取花纹（批量版）：不输入提示词，输出 output 为回调 task id。",
         "parameters_schema": {
             "fields": [
                 {
@@ -245,8 +249,6 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                         {"label": "3 · Doubao 4.5", "value": "3"},
                     ],
                 },
-                {"name": "height", "label": "高度", "type": "text", "required": False, "defaultValue": ""},
-                {"name": "width", "label": "宽度", "type": "text", "required": False, "defaultValue": ""},
                 {
                     "name": "aspect_ratio",
                     "label": "比例（仅 Banana/Flux2 生效）",
@@ -274,9 +276,10 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                         {"label": "4K", "value": "4K"},
                     ],
                 },
+                {"name": "url", "label": "图片 URL", "type": "text", "required": True},
             ]
         },
-        "output_schema": {"fields": [{"name": "output", "type": "text", "description": "图片 URL"}]},
+        "output_schema": {"fields": [{"name": "output", "type": "text", "description": "回调 task id"}]},
     },
     # 花纹提取类 / 商业模型 + ComfyUI 串联（为兼顾输出尺寸；输出回调 task id）
     {
@@ -300,6 +303,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                         {"label": "3 · Doubao 4.5", "value": "3"},
                     ],
                 },
+                {"name": "url", "label": "图片 URL", "type": "text", "required": True},
                 {"name": "height", "label": "高度", "type": "text", "required": False, "defaultValue": ""},
                 {"name": "width", "label": "宽度", "type": "text", "required": False, "defaultValue": ""},
                 {
@@ -329,7 +333,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                         {"label": "4K", "value": "4K"},
                     ],
                 },
-                {"name": "prompt", "label": "提示词", "type": "textarea", "required": True},
+                {"name": "prompt", "label": "提示词", "type": "textarea", "required": False, "defaultValue": ""},
             ]
         },
         "output_schema": {"fields": [{"name": "output", "type": "text", "description": "回调 task id"}]},
@@ -363,19 +367,17 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         },
         "output_schema": {"fields": [{"name": "output", "type": "text", "description": "回调 task id"}]},
     },
-    # 图延伸类 / 扩图（多模型）
+    # 图延伸类 / 扩图（多模型，输出回调 task id）
     {
         "category": "图延伸类",
         "name": "扩图多模型版本",
         "version": "v1",
         "workflow_id": "7597723984687267840",
         "status": "active",
-        "notes": "默认 moxing=1(Banana Pro)。输出 output 为图片地址。",
+        "notes": "默认 moxing=1(Banana Pro)。输出 output 为回调 task id。",
         "parameters_schema": {
             "fields": [
-                {"name": "url", "label": "图片 URL", "type": "text", "required": True},
-                # Some legacy Coze workflows use `Url` (capital U). Backend will alias `url` -> `Url` automatically.
-                {"name": "Url", "label": "图片 URL（兼容字段）", "type": "text", "required": False},
+                {"name": "Url", "label": "图片 URL", "type": "text", "required": True},
                 {"name": "expand_left", "label": "左扩(px)", "type": "text", "required": False, "defaultValue": "0"},
                 {"name": "expand_right", "label": "右扩(px)", "type": "text", "required": False, "defaultValue": "0"},
                 {"name": "expand_top", "label": "上扩(px)", "type": "text", "required": False, "defaultValue": "0"},
@@ -394,7 +396,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                 },
             ]
         },
-        "output_schema": {"fields": [{"name": "output", "type": "text", "description": "图片 URL"}]},
+        "output_schema": {"fields": [{"name": "output", "type": "text", "description": "回调 task id"}]},
     },
     # 图扩展 / ComfyUI 扩图（输出为回调 task id）
     {
@@ -406,9 +408,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         "notes": "输入 Url + 四向扩图像素；输出 output 为回调 task id。",
         "parameters_schema": {
             "fields": [
-                # Keep UI convention: single image input uses `url`. Backend will alias `url` -> `Url` for compat.
-                {"name": "url", "label": "图片 URL", "type": "text", "required": True},
-                {"name": "Url", "label": "图片 URL（兼容字段）", "type": "text", "required": False},
+                {"name": "Url", "label": "图片 URL", "type": "text", "required": True},
                 {"name": "expand_left", "label": "左扩(px)", "type": "text", "required": False, "defaultValue": "0"},
                 {"name": "expand_right", "label": "右扩(px)", "type": "text", "required": False, "defaultValue": "0"},
                 {"name": "expand_top", "label": "上扩(px)", "type": "text", "required": False, "defaultValue": "0"},
@@ -474,10 +474,10 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         },
         "output_schema": {"fields": [{"name": "output", "type": "text", "description": "图片 URL（或 task id）"}]},
     },
-    # 图略变/通用类 / 四步急速生图（输出为回调 task id）
+    # 图略变/通用类 / 四步快速生图（输出为回调 task id）
     {
         "category": "general",
-        "name": "四步急速生图",
+        "name": "四步快速生图 · sibu_comfyui",
         "version": "v1",
         "workflow_id": "7597701996124045312",
         "status": "active",
@@ -492,10 +492,10 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         },
         "output_schema": {"fields": [{"name": "output", "type": "text", "description": "回调 task id"}]},
     },
-    # 图略变/通用类 / 八步急速生图（输出为回调 task id）
+    # 图略变/通用类 / 八步中速生图（输出为回调 task id）
     {
         "category": "general",
-        "name": "八步急速生图",
+        "name": "八步中速生图 · zhongsu_comfyui",
         "version": "v1",
         "workflow_id": "7597702948247830528",
         "status": "active",
@@ -564,6 +564,47 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         "parameters_schema": {"fields": [{"name": "url", "label": "图片 URL", "type": "text", "required": True}]},
         "output_schema": {"fields": [{"name": "output", "type": "json", "description": "JSON 标签"}]},
     },
+    # 通用类 / 图片打标签（lits 版本）
+    {
+        "category": "通用类",
+        "name": "图片打标签 · Biaoqian_tiqu_3",
+        "version": "v1",
+        "workflow_id": "7600254097513512960",
+        "status": "active",
+        "notes": "lits 版本图片打标签。输出 output 为 JSON（图片标签）。",
+        "parameters_schema": {"fields": [{"name": "url", "label": "图片 URL", "type": "text", "required": True}]},
+        "output_schema": {"fields": [{"name": "output", "type": "json", "description": "JSON 标签"}]},
+    },
+    # 通用类 / 图片打标签（lits 版本 · 主色为色号）
+    {
+        "category": "通用类",
+        "name": "图片打标签 · Biaoqian_tiqu_3_1",
+        "version": "v1",
+        "workflow_id": "7600254796297142272",
+        "status": "active",
+        "notes": "lits 版本图片打标签（主色为色号）。输出 output 为 JSON（图片标签）。",
+        "parameters_schema": {"fields": [{"name": "url", "label": "图片 URL", "type": "text", "required": True}]},
+        "output_schema": {"fields": [{"name": "output", "type": "json", "description": "JSON 标签"}]},
+    },
+    # 通用类 / ComfyUI 队列监控
+    {
+        "category": "通用类",
+        "name": "ComfyUI 队列监控 · comfyui_duilie",
+        "version": "v1",
+        "workflow_id": "7601054603211177984",
+        "status": "active",
+        "notes": "返回各 ComfyUI 执行节点的队列状态与时间戳。",
+        "parameters_schema": {"fields": []},
+        "output_schema": {
+            "fields": [
+                {"name": "servers", "type": "json", "description": "执行节点队列列表"},
+                {"name": "timestamp", "type": "text", "description": "返回时间"},
+                {"name": "totalRunning", "type": "number", "description": "处理中数量"},
+                {"name": "totalPending", "type": "number", "description": "排队中数量"},
+                {"name": "totalCount", "type": "number", "description": "总数量"},
+            ]
+        },
+    },
     # 图裂变 / 图裂变（ComfyUI，无提示词，输出回调 task id）
     {
         "category": "图裂变",
@@ -617,26 +658,47 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         },
         "output_schema": {"fields": [{"name": "output", "type": "text", "description": "回调 task id"}]},
     },
-    # 图裂变 / 图裂变（商业模型，无提示词，输出图片 URL）
+    # 图裂变 / 图裂变（商业模型，无提示词，输出回调 task id）
     {
         "category": "图裂变",
-        "name": "图裂变 · Liebian_shangye_20260124_1_1",
+        "name": "图裂变 · Liebian_shangye_20260130",
         "version": "v1",
-        "workflow_id": "7598844004557389824",
+        "workflow_id": "7601077530077954048",
         "status": "active",
-        "notes": "图裂变（商业模型无提示词）。输出 output 为图片 URL。裂变数量通过 count 控制；当前比例参数后续可能需要额外处理。",
+        "notes": "图裂变（商业模型无提示词）。输出 output 为回调 task id。裂变数量通过 count 控制；当前比例参数后续可能需要额外处理。",
         "parameters_schema": {
             "fields": [
                 {"name": "url", "label": "图片 URL", "type": "text", "required": True},
-                {"name": "height", "label": "高度", "type": "text", "required": True, "defaultValue": "1024"},
-                {"name": "width", "label": "宽度", "type": "text", "required": True, "defaultValue": "1024"},
                 {
-                    "name": "similarity",
-                    "label": "相似度 Similarity",
+                    "name": "aspect_ratio",
+                    "label": "画幅比例",
+                    "type": "select",
+                    "required": True,
+                    "defaultValue": "1:1",
+                    "options": [
+                        {"label": "1:1", "value": "1:1"},
+                        {"label": "1:2", "value": "1:2"},
+                    ],
+                },
+                {
+                    "name": "resolution",
+                    "label": "分辨率",
+                    "type": "select",
+                    "required": True,
+                    "defaultValue": "1K",
+                    "options": [
+                        {"label": "1K", "value": "1K"},
+                        {"label": "2K", "value": "2K"},
+                        {"label": "4K", "value": "4K"},
+                    ],
+                },
+                {
+                    "name": "bili",
+                    "label": "重绘比例",
                     "type": "text",
                     "required": True,
                     "defaultValue": "50%",
-                    "description": "与原图保持相似的比例（越高越接近原图）。兼容字段：bili。",
+                    "description": "与原图保持相似的比例（越高越接近原图）。",
                 },
                 {
                     "name": "moxing",
@@ -653,28 +715,49 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                 {"name": "count", "label": "裂变数量", "type": "text", "required": False, "defaultValue": "4", "description": "一次评测会触发 count 个子任务并聚合结果"},
             ]
         },
-        "output_schema": {"fields": [{"name": "output", "type": "text", "description": "图片 URL"}]},
+        "output_schema": {"fields": [{"name": "output", "type": "text", "description": "回调 task id"}]},
     },
-    # 图裂变 / 图裂变（商业模型，有提示词，输出图片 URL）
+    # 图裂变 / 图裂变（商业模型，有提示词，输出回调 task id）
     {
         "category": "图裂变",
         "name": "图裂变 · Liebian_shangye_20260124_1_1_1",
         "version": "v1",
         "workflow_id": "7598848725942796288",
         "status": "active",
-        "notes": "图裂变（商业模型有提示词）。输出 output 为图片 URL。裂变数量通过 count 控制；当前比例参数后续可能需要额外处理。",
+        "notes": "图裂变（商业模型有提示词）。输出 output 为回调 task id。裂变数量通过 count 控制；当前比例参数后续可能需要额外处理。",
         "parameters_schema": {
             "fields": [
                 {"name": "url", "label": "图片 URL", "type": "text", "required": True},
-                {"name": "height", "label": "高度", "type": "text", "required": True, "defaultValue": "1024"},
-                {"name": "width", "label": "宽度", "type": "text", "required": True, "defaultValue": "1024"},
                 {
-                    "name": "similarity",
-                    "label": "相似度 Similarity",
+                    "name": "aspect_ratio",
+                    "label": "画幅比例",
+                    "type": "select",
+                    "required": True,
+                    "defaultValue": "1:1",
+                    "options": [
+                        {"label": "1:1", "value": "1:1"},
+                        {"label": "1:2", "value": "1:2"},
+                    ],
+                },
+                {
+                    "name": "resolution",
+                    "label": "分辨率",
+                    "type": "select",
+                    "required": True,
+                    "defaultValue": "1K",
+                    "options": [
+                        {"label": "1K", "value": "1K"},
+                        {"label": "2K", "value": "2K"},
+                        {"label": "4K", "value": "4K"},
+                    ],
+                },
+                {
+                    "name": "bili",
+                    "label": "重绘比例",
                     "type": "text",
                     "required": True,
                     "defaultValue": "50%",
-                    "description": "与原图保持相似的比例（越高越接近原图）。兼容字段：bili。",
+                    "description": "与原图保持相似的比例（越高越接近原图）。",
                 },
                 {
                     "name": "moxing",
@@ -692,7 +775,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                 {"name": "count", "label": "裂变数量", "type": "text", "required": False, "defaultValue": "4", "description": "一次评测会触发 count 个子任务并聚合结果"},
             ]
         },
-        "output_schema": {"fields": [{"name": "output", "type": "text", "description": "图片 URL"}]},
+        "output_schema": {"fields": [{"name": "output", "type": "text", "description": "回调 task id"}]},
     },
     # 不建议直接使用：ComfyUI 回调工作流（供后端兜底解析 images）
     {
@@ -800,36 +883,76 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
                         f["options"] = desired_options
                         row.parameters_schema = schema
                         dirty = True
-        if row.workflow_id == "7598587935331450880":
-            # Normalize ComfyUI outpaint schema to use `url` as the canonical image key.
+        if row.workflow_id in {"7597723984687267840", "7598587935331450880"}:
+            # Normalize outpaint schema to use `Url` as the canonical image key.
             schema = json.loads(json.dumps(row.parameters_schema or {}, ensure_ascii=False))
             fields = schema.get("fields") if isinstance(schema, dict) else None
             if isinstance(fields, list):
-                names = [f.get("name") for f in fields if isinstance(f, dict)]
                 changed = False
-                if "url" not in names:
-                    fields.insert(
-                        0,
-                        {
-                            "name": "url",
-                            "label": "图片 URL",
-                            "type": "text",
-                            "required": True,
-                            "description": "图片地址（OSS 或公网 URL）",
-                        },
-                    )
-                    changed = True
+                has_url = False
+                has_Url = False
                 for f in fields:
-                    if isinstance(f, dict) and f.get("name") == "Url":
-                        if f.get("required") is True:
-                            f["required"] = False
+                    if not isinstance(f, dict):
+                        continue
+                    if f.get("name") == "url":
+                        has_url = True
+                    if f.get("name") == "Url":
+                        has_Url = True
+                if has_url and not has_Url:
+                    for f in fields:
+                        if isinstance(f, dict) and f.get("name") == "url":
+                            f["name"] = "Url"
+                            f["label"] = "图片 URL"
+                            f["required"] = True
                             changed = True
-                        if not f.get("label"):
-                            f["label"] = "图片 URL（兼容字段）"
+                            has_Url = True
+                            has_url = False
+                            break
+                if has_Url:
+                    filtered = []
+                    for f in fields:
+                        if not isinstance(f, dict):
+                            filtered.append(f)
+                            continue
+                        if f.get("name") == "url":
                             changed = True
+                            continue
+                        if f.get("name") == "Url":
+                            if f.get("required") is not True:
+                                f["required"] = True
+                                changed = True
+                            if not f.get("label"):
+                                f["label"] = "图片 URL"
+                                changed = True
+                        filtered.append(f)
+                    fields = filtered
                 if changed:
                     schema["fields"] = fields
                     row.parameters_schema = schema
+                    dirty = True
+        if row.workflow_id in {
+            "7597723984687267840",
+            "7598587935331450880",
+            "7601080398864449536",
+            "7598559869544693760",
+            "7601077530077954048",
+            "7598848725942796288",
+        }:
+            # Ensure output schema hints callback task ids for new async workflows.
+            schema = json.loads(json.dumps(row.output_schema or {}, ensure_ascii=False))
+            fields = schema.get("fields") if isinstance(schema, dict) else None
+            if isinstance(fields, list):
+                changed = False
+                for f in fields:
+                    if not isinstance(f, dict) or f.get("name") != "output":
+                        continue
+                    desc = str(f.get("description") or "")
+                    if "回调" not in desc and "task" not in desc.lower():
+                        f["description"] = "回调 task id"
+                        changed = True
+                if changed:
+                    schema["fields"] = fields
+                    row.output_schema = schema
                     dirty = True
         if row.workflow_id == "7598563505054154752":
             # Coze workflow requires height/width. Ensure DB schema matches so UI and
