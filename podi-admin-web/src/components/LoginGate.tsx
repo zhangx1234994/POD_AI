@@ -28,6 +28,22 @@ export function LoginGate({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  useEffect(() => {
+    if (!token) return;
+    const clearStrayDialogMask = () => {
+      const dialogs = Array.from(document.querySelectorAll('.t-dialog')) as HTMLElement[];
+      const hasVisibleDialog = dialogs.some((el) => el.offsetParent !== null);
+      if (hasVisibleDialog) return;
+      const masks = Array.from(document.querySelectorAll('.t-dialog__mask')) as HTMLElement[];
+      if (masks.length === 0) return;
+      masks.forEach((m) => m.parentElement?.removeChild(m));
+      document.body.style.removeProperty('overflow');
+    };
+    clearStrayDialogMask();
+    const timer = window.setInterval(clearStrayDialogMask, 1500);
+    return () => window.clearInterval(timer);
+  }, [token]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.username || !form.password) {
