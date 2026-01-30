@@ -1163,4 +1163,13 @@ def get_comfyui_queue_summary(request: Request, body: dict[str, Any] | None = No
         raw = body.get("executorIds")
         if isinstance(raw, list):
             executor_ids = [str(x).strip() for x in raw if isinstance(x, (str, int)) and str(x).strip()]
-    return integration_test_service.get_comfyui_queue_summary(executor_ids=executor_ids)
+    result = integration_test_service.get_comfyui_queue_summary(executor_ids=executor_ids)
+    # Coze's schema validator is strict; drop nulls to avoid type mismatches.
+    servers = []
+    for item in result.get("servers") or []:
+        if not isinstance(item, dict):
+            continue
+        cleaned = {k: v for k, v in item.items() if v is not None}
+        servers.append(cleaned)
+    result["servers"] = servers
+    return result
