@@ -628,6 +628,10 @@ export function App() {
   }, [grouped, activeCategory]);
 
   const toolFields = useMemo(() => getFields(selectedTool), [selectedTool]);
+  const requiresImage = useMemo(
+    () => toolFields.some((f) => f.name === 'url' || f.name === 'Url'),
+    [toolFields],
+  );
 
   const refreshMetrics = async () => {
     const resp = await evalApi.workflowMetrics().catch(() => ({ metrics: {} }));
@@ -735,7 +739,13 @@ export function App() {
       if (f.name === 'url') continue;
       const opt = Array.isArray((f as any).options) && (f as any).options.length > 0 ? (f as any).options[0]?.value : undefined;
       const def = typeof (f as any).defaultValue === 'string' ? (f as any).defaultValue : undefined;
-      defaults[f.name] = opt ? String(opt) : def ? String(def) : '';
+      if (def !== undefined) {
+        defaults[f.name] = String(def);
+      } else if (opt !== undefined) {
+        defaults[f.name] = String(opt);
+      } else {
+        defaults[f.name] = '';
+      }
     }
     setFormParams(defaults);
     setActiveView('tool');
@@ -744,7 +754,8 @@ export function App() {
   const runTool = async () => {
     if (!selectedTool) return;
     const url = formUrl.trim();
-    if (!url) {
+    const requiresImage = toolFields.some((f) => f.name === 'url' || f.name === 'Url');
+    if (requiresImage && !url) {
       pushNotice('error', '请先填写或上传图片 URL');
       return;
     }
@@ -753,7 +764,7 @@ export function App() {
     const missing: string[] = [];
     for (const f of getFields(selectedTool)) {
       if (!(f as any)?.required) continue;
-      if (f.name === 'url' || f.name === 'prompt') continue;
+      if (f.name === 'url' || f.name === 'Url' || f.name === 'prompt') continue;
       const v = String((formParams as any)?.[f.name] ?? '').trim();
       if (!v) missing.push((f as any).label || f.name);
     }
@@ -764,14 +775,17 @@ export function App() {
 
     setIsRunning(true);
     try {
-      const parameters: Record<string, unknown> = { url };
+      const parameters: Record<string, unknown> = {};
+      if (requiresImage && url) {
+        parameters.url = url;
+      }
       for (const [k, v] of Object.entries(formParams)) {
         if (v === '') continue;
         parameters[k] = v;
       }
       await evalApi.createRun({
         workflow_version_id: selectedTool.id,
-        input_oss_urls_json: [url],
+        input_oss_urls_json: requiresImage && url ? [url] : [],
         parameters_json: parameters,
       });
       await loadRunsForTool(selectedTool.id);
@@ -1087,61 +1101,65 @@ export function App() {
           <Col xs={12} xl={5}>
             <Card bordered title="测试参数">
               <Space direction="vertical" size="large" style={{ width: '100%' }}>
-                <Space direction="vertical" size={4} style={{ width: '100%' }}>
-                  <Typography.Text>
-                    图片 URL <Typography.Text theme="error">*</Typography.Text>
-                  </Typography.Text>
-                  <Space align="center" style={{ width: '100%' }}>
-                    <div style={{ flex: 1 }}>
-                      <Input
-                        value={formUrl}
-                        onChange={(v) => setFormUrl(String(v))}
-                        placeholder="支持粘贴 URL 或上传本地图片"
-                        clearable
-                      />
-                    </div>
-                    <Button variant="outline" loading={uploading} onClick={() => uploadInputRef.current?.click()}>
-                      上传
-                    </Button>
-                    <input
-                      ref={uploadInputRef}
-                      type="file"
-                      accept="image/*"
-                      style={{ display: 'none' }}
-                      disabled={uploading}
-                      onChange={async (e) => {
-                        const file = e.target.files?.[0];
-                        if (!file) return;
-                        setUploading(true);
-                        try {
-                          const res = await evalApi.uploadImage(file);
-                          setFormUrl(res.url);
-                        } catch (err) {
-                          console.error(err);
-                          pushNotice('error', String((err as any)?.message || err));
-                        } finally {
-                          setUploading(false);
-                          e.target.value = '';
-                        }
-                      }}
-                    />
-                  </Space>
-                </Space>
+                {requiresImage ? (
+                  <>
+                    <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                      <Typography.Text>
+                        图片 URL <Typography.Text theme="error">*</Typography.Text>
+                      </Typography.Text>
+                      <Space align="center" style={{ width: '100%' }}>
+                        <div style={{ flex: 1 }}>
+                          <Input
+                            value={formUrl}
+                            onChange={(v) => setFormUrl(String(v))}
+                            placeholder="支持粘贴 URL 或上传本地图片"
+                            clearable
+                          />
+                        </div>
+                        <Button variant="outline" loading={uploading} onClick={() => uploadInputRef.current?.click()}>
+                          上传
+                        </Button>
+                        <input
+                          ref={uploadInputRef}
+                          type="file"
+                          accept="image/*"
+                          style={{ display: 'none' }}
+                          disabled={uploading}
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            setUploading(true);
+                            try {
+                              const res = await evalApi.uploadImage(file);
+                              setFormUrl(res.url);
+                            } catch (err) {
+                              console.error(err);
+                              pushNotice('error', String((err as any)?.message || err));
+                            } finally {
+                              setUploading(false);
+                              e.target.value = '';
+                            }
+                          }}
+                        />
+                      </Space>
+                    </Space>
 
-                {formUrl.trim() ? (
-                  <Card bordered title="原图预览">
-                    <img
-                      src={formUrl.trim()}
-                      alt="input"
-                      style={{ height: 240, width: '100%', objectFit: 'contain', cursor: 'pointer' }}
-                      onClick={() => setLightbox({ url: formUrl.trim(), title: '原图' })}
-                    />
-                  </Card>
+                    {formUrl.trim() ? (
+                      <Card bordered title="原图预览">
+                        <img
+                          src={formUrl.trim()}
+                          alt="input"
+                          style={{ height: 240, width: '100%', objectFit: 'contain', cursor: 'pointer' }}
+                          onClick={() => setLightbox({ url: formUrl.trim(), title: '原图' })}
+                        />
+                      </Card>
+                    ) : null}
+                  </>
                 ) : null}
 
                 <Space direction="vertical" size="large" style={{ width: '100%' }}>
                   {toolFields
-                    .filter((f) => f.name !== 'url')
+                    .filter((f) => f.name !== 'url' && f.name !== 'Url')
                     .map((f) => (
                       <ParamField
                         key={f.name}
@@ -1153,7 +1171,12 @@ export function App() {
                 </Space>
 
                 <Space style={{ justifyContent: 'flex-end', width: '100%' }}>
-                  <Button theme="primary" loading={isRunning} disabled={!formUrl.trim()} onClick={() => void runTool()}>
+                  <Button
+                    theme="primary"
+                    loading={isRunning}
+                    disabled={requiresImage ? !formUrl.trim() : false}
+                    onClick={() => void runTool()}
+                  >
                     开始生成
                   </Button>
                 </Space>

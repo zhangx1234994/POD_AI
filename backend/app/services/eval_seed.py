@@ -96,12 +96,12 @@ FORCE_ACTIVE_EVAL_WORKFLOW_IDS: set[str] = {
     "7601054603211177984",  # comfyui_duilie
     "7597701996124045312",  # sibu_comfyui
     "7597702948247830528",  # zhongsu_comfyui
-    "7597760543788630016",  # 8K 高清放大
     # 图裂变
     "7598841920114130944",  # Liebian_comfyui_20260124_1
     "7598820684801769472",  # Liebian_comfyui_20260124
     "7601077530077954048",  # Liebian_shangye_20260130
     "7598848725942796288",  # Liebian_shangye_20260124_1_1_1
+    "7597760543788630016",  # 8K 高清放大
 }
 
 
@@ -200,7 +200,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                     "label": "比例（仅 Banana/Flux2 生效）",
                     "type": "select",
                     "required": False,
-                    "defaultValue": "auto",
+                    "defaultValue": "",
                     "options": [
                         {"label": "auto", "value": "auto"},
                         {"label": "1:1", "value": "1:1"},
@@ -215,7 +215,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                     "label": "分辨率（仅 Banana/Flux2 生效）",
                     "type": "select",
                     "required": False,
-                    "defaultValue": "1K",
+                    "defaultValue": "",
                     "options": [
                         {"label": "1K", "value": "1K"},
                         {"label": "2K", "value": "2K"},
@@ -255,7 +255,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                     "label": "比例（仅 Banana/Flux2 生效）",
                     "type": "select",
                     "required": False,
-                    "defaultValue": "auto",
+                    "defaultValue": "",
                     "options": [
                         {"label": "auto", "value": "auto"},
                         {"label": "1:1", "value": "1:1"},
@@ -270,7 +270,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                     "label": "分辨率（仅 Banana/Flux2 生效）",
                     "type": "select",
                     "required": False,
-                    "defaultValue": "1K",
+                    "defaultValue": "",
                     "options": [
                         {"label": "1K", "value": "1K"},
                         {"label": "2K", "value": "2K"},
@@ -312,7 +312,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                     "label": "比例（仅 Banana/Flux2 生效）",
                     "type": "select",
                     "required": False,
-                    "defaultValue": "auto",
+                    "defaultValue": "",
                     "options": [
                         {"label": "auto", "value": "auto"},
                         {"label": "1:1", "value": "1:1"},
@@ -327,7 +327,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                     "label": "分辨率（仅 Banana/Flux2 生效）",
                     "type": "select",
                     "required": False,
-                    "defaultValue": "1K",
+                    "defaultValue": "",
                     "options": [
                         {"label": "1K", "value": "1K"},
                         {"label": "2K", "value": "2K"},
@@ -378,7 +378,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         "notes": "默认 moxing=1(Banana Pro)。输出 output 为回调 task id。",
         "parameters_schema": {
             "fields": [
-                {"name": "Url", "label": "图片 URL", "type": "text", "required": True},
+                {"name": "url", "label": "图片 URL", "type": "text", "required": True},
                 {"name": "expand_left", "label": "左扩(px)", "type": "text", "required": False, "defaultValue": "0"},
                 {"name": "expand_right", "label": "右扩(px)", "type": "text", "required": False, "defaultValue": "0"},
                 {"name": "expand_top", "label": "上扩(px)", "type": "text", "required": False, "defaultValue": "0"},
@@ -406,10 +406,10 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         "version": "v1",
         "workflow_id": "7598587935331450880",
         "status": "active",
-        "notes": "输入 Url + 四向扩图像素；输出 output 为回调 task id。",
+        "notes": "输入 url + 四向扩图像素；输出 output 为回调 task id。",
         "parameters_schema": {
             "fields": [
-                {"name": "Url", "label": "图片 URL", "type": "text", "required": True},
+                {"name": "url", "label": "图片 URL", "type": "text", "required": True},
                 {"name": "expand_left", "label": "左扩(px)", "type": "text", "required": False, "defaultValue": "0"},
                 {"name": "expand_right", "label": "右扩(px)", "type": "text", "required": False, "defaultValue": "0"},
                 {"name": "expand_top", "label": "上扩(px)", "type": "text", "required": False, "defaultValue": "0"},
@@ -621,11 +621,11 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                 {"name": "width", "label": "宽度", "type": "text", "required": True, "defaultValue": "1024"},
                 {
                     "name": "similarity",
-                    "label": "相似度 Similarity",
+                    "label": "相似度(%)",
                     "type": "text",
                     "required": True,
                     "defaultValue": "50%",
-                    "description": "与原图保持相似的比例（越高越接近原图）。兼容字段：bili。",
+                    "description": "与原图保持相似的百分比（越高越接近原图）。兼容字段：bili。",
                 },
                 {"name": "count", "label": "裂变数量", "type": "text", "required": False, "defaultValue": "4", "description": "一次评测会触发 count 个子任务并聚合结果"},
             ]
@@ -647,11 +647,11 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                 {"name": "width", "label": "宽度", "type": "text", "required": True, "defaultValue": "1024"},
                 {
                     "name": "similarity",
-                    "label": "相似度 Similarity",
+                    "label": "相似度(%)",
                     "type": "text",
                     "required": True,
                     "defaultValue": "50%",
-                    "description": "与原图保持相似的比例（越高越接近原图）。兼容字段：bili。",
+                    "description": "与原图保持相似的百分比（越高越接近原图）。兼容字段：bili。",
                 },
                 {"name": "prompt", "label": "提示词", "type": "textarea", "required": False, "defaultValue": ""},
                 {"name": "count", "label": "裂变数量", "type": "text", "required": False, "defaultValue": "4", "description": "一次评测会触发 count 个子任务并聚合结果"},
@@ -695,11 +695,11 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                 },
                 {
                     "name": "bili",
-                    "label": "重绘比例",
+                    "label": "相似度(%)",
                     "type": "text",
                     "required": True,
                     "defaultValue": "50%",
-                    "description": "与原图保持相似的比例（越高越接近原图）。",
+                    "description": "与原图保持相似的百分比（越高越接近原图）。",
                 },
                 {
                     "name": "moxing",
@@ -754,11 +754,11 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                 },
                 {
                     "name": "bili",
-                    "label": "重绘比例",
+                    "label": "相似度(%)",
                     "type": "text",
                     "required": True,
                     "defaultValue": "50%",
-                    "description": "与原图保持相似的比例（越高越接近原图）。",
+                    "description": "与原图保持相似的百分比（越高越接近原图）。",
                 },
                 {
                     "name": "moxing",
@@ -885,40 +885,36 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
                         row.parameters_schema = schema
                         dirty = True
         if row.workflow_id in {"7597723984687267840", "7598587935331450880"}:
-            # Normalize outpaint schema to use `Url` as the canonical image key.
+            # Normalize outpaint schema to use `url` as the canonical image key.
             schema = json.loads(json.dumps(row.parameters_schema or {}, ensure_ascii=False))
             fields = schema.get("fields") if isinstance(schema, dict) else None
             if isinstance(fields, list):
                 changed = False
                 has_url = False
-                has_Url = False
                 for f in fields:
                     if not isinstance(f, dict):
                         continue
                     if f.get("name") == "url":
                         has_url = True
-                    if f.get("name") == "Url":
-                        has_Url = True
-                if has_url and not has_Url:
+                if not has_url:
                     for f in fields:
-                        if isinstance(f, dict) and f.get("name") == "url":
-                            f["name"] = "Url"
+                        if isinstance(f, dict) and f.get("name") == "Url":
+                            f["name"] = "url"
                             f["label"] = "图片 URL"
                             f["required"] = True
                             changed = True
-                            has_Url = True
-                            has_url = False
+                            has_url = True
                             break
-                if has_Url:
+                if has_url:
                     filtered = []
                     for f in fields:
                         if not isinstance(f, dict):
                             filtered.append(f)
                             continue
-                        if f.get("name") == "url":
+                        if f.get("name") == "Url":
                             changed = True
                             continue
-                        if f.get("name") == "Url":
+                        if f.get("name") == "url":
                             if f.get("required") is not True:
                                 f["required"] = True
                                 changed = True
@@ -936,6 +932,7 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
             "7598587935331450880",
             "7601080398864449536",
             "7598559869544693760",
+            "7598560946579046400",
             "7601077530077954048",
             "7598848725942796288",
         }:
@@ -954,6 +951,55 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
                 if changed:
                     schema["fields"] = fields
                     row.output_schema = schema
+                    dirty = True
+        if row.workflow_id in {
+            "7598841920114130944",
+            "7598820684801769472",
+            "7601077530077954048",
+            "7598848725942796288",
+        }:
+            # Normalize similarity labels to avoid "重绘比例" ambiguity.
+            schema = json.loads(json.dumps(row.parameters_schema or {}, ensure_ascii=False))
+            fields = schema.get("fields") if isinstance(schema, dict) else None
+            if isinstance(fields, list):
+                changed = False
+                for f in fields:
+                    if not isinstance(f, dict):
+                        continue
+                    if f.get("name") == "similarity":
+                        if f.get("label") != "相似度(%)":
+                            f["label"] = "相似度(%)"
+                            changed = True
+                        if "相似的百分比" not in str(f.get("description") or ""):
+                            f["description"] = "与原图保持相似的百分比（越高越接近原图）。兼容字段：bili。"
+                            changed = True
+                    if f.get("name") == "bili":
+                        if f.get("label") != "相似度(%)":
+                            f["label"] = "相似度(%)"
+                            changed = True
+                        if "相似的百分比" not in str(f.get("description") or ""):
+                            f["description"] = "与原图保持相似的百分比（越高越接近原图）。"
+                            changed = True
+                if changed:
+                    schema["fields"] = fields
+                    row.parameters_schema = schema
+                    dirty = True
+        if row.workflow_id in {"7601080398864449536", "7598559869544693760", "7598560946579046400"}:
+            # For Banana/Flux2 aspect_ratio/resolution, leave default empty so UI doesn't force 1K.
+            schema = json.loads(json.dumps(row.parameters_schema or {}, ensure_ascii=False))
+            fields = schema.get("fields") if isinstance(schema, dict) else None
+            if isinstance(fields, list):
+                changed = False
+                for f in fields:
+                    if not isinstance(f, dict):
+                        continue
+                    if f.get("name") in {"aspect_ratio", "resolution"}:
+                        if f.get("defaultValue") != "":
+                            f["defaultValue"] = ""
+                            changed = True
+                if changed:
+                    schema["fields"] = fields
+                    row.parameters_schema = schema
                     dirty = True
         if row.workflow_id == "7598563505054154752":
             # Coze workflow requires height/width. Ensure DB schema matches so UI and
