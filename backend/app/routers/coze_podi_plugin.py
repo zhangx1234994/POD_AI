@@ -8,6 +8,7 @@ so we keep auth lightweight and rely on network isolation + optional service tok
 from __future__ import annotations
 
 import time
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Request
@@ -234,6 +235,7 @@ def _build_openapi(*, podi_server: str | None = None) -> dict[str, Any]:
             "totalRunning": {"type": "integer"},
             "totalPending": {"type": "integer"},
             "totalCount": {"type": "integer"},
+            "timestamp": {"type": "string", "description": "Server time (ISO 8601)."},
             "servers": {
                 "type": "array",
                 "items": {
@@ -1172,4 +1174,5 @@ def get_comfyui_queue_summary(request: Request, body: dict[str, Any] | None = No
         cleaned = {k: v for k, v in item.items() if v is not None}
         servers.append(cleaned)
     result["servers"] = servers
+    result["timestamp"] = datetime.now(timezone.utc).isoformat()
     return result
