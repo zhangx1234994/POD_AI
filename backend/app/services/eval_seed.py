@@ -87,37 +87,6 @@ def _normalize_eval_category(category: str | None) -> str:
     return "通用类"
 
 
-# Workflows we want to keep visible in the evaluation UI.
-# Some were previously marked inactive during cleanup; we flip them back to active
-# in the normalization pass so existing DB rows recover without manual edits.
-FORCE_ACTIVE_EVAL_WORKFLOW_IDS: set[str] = {
-    # 花纹提取 5 个
-    "7597530887256801280",  # tiqu_comfyui_20260123
-    "7598545860393172992",  # tiqu_comfyui_20260123_2
-    "7601080398864449536",  # tiqu_duoMoxing_2
-    "7598559869544693760",  # tiqu_duoMoxing_20260130
-    "7598560946579046400",  # tiqu_duoMoxing_2_2
-    # 连续图
-    "7598563505054154752",  # lianxu
-    # 图扩展
-    "7597723984687267840",  # duomotaikuotu (multi-model outpaint)
-    "7598587935331450880",  # comfyuo_tukuozhan (comfyui outpaint)
-    # 通用
-    "7598589746561941504",  # dpi增分
-    "7597767702970630144",  # Biaoqian_tiqu (small)
-    "7598080013539213312",  # Biaoqian_tiqu_1 (large)
-    "7600254097513512960",  # Biaoqian_tiqu_3
-    "7600254796297142272",  # Biaoqian_tiqu_3_1
-    "7601054603211177984",  # comfyui_duilie
-    "7597701996124045312",  # sibu_comfyui
-    "7597702948247830528",  # zhongsu_comfyui
-    # 图裂变
-    "7598841920114130944",  # Liebian_comfyui_20260124_1
-    "7598820684801769472",  # Liebian_comfyui_20260124
-    "7601077530077954048",  # Liebian_shangye_20260130
-    "7598848725942796288",  # Liebian_shangye_20260124_1_1_1
-    "7597760543788630016",  # 8K 高清放大
-}
 
 
 DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
@@ -953,9 +922,6 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
     for row in rows:
         if row.workflow_id in DEPRECATED_EVAL_WORKFLOW_IDS and row.status != "inactive":
             row.status = "inactive"
-            dirty = True
-        if row.workflow_id in FORCE_ACTIVE_EVAL_WORKFLOW_IDS and row.status != "active":
-            row.status = "active"
             dirty = True
         normalized_category = _normalize_eval_category(row.category)
         if row.category != normalized_category:
