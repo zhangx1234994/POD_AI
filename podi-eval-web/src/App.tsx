@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import {
   Alert,
   Button,
@@ -625,6 +627,7 @@ export function App() {
   const [docsLoading, setDocsLoading] = useState<boolean>(false);
   const [docsGeneratedAt, setDocsGeneratedAt] = useState<string>('');
   const [docsWorkflows, setDocsWorkflows] = useState<WorkflowDoc[]>([]);
+  const [docsView, setDocsView] = useState<'structured' | 'markdown'>('structured');
 
   const workflowMap = useMemo(() => {
     const m: Record<string, EvalWorkflowVersion> = {};
@@ -1132,26 +1135,37 @@ export function App() {
                 </Typography.Text>
               </div>
             </div>
-            <Button
-              variant="outline"
-              onClick={async () => {
-                try {
-                  await navigator.clipboard.writeText(docsMarkdown || '');
-                  pushNotice('success', '已复制到剪贴板');
-                } catch (err) {
-                  console.error(err);
-                  pushNotice('error', '复制失败（浏览器不支持或权限不足）');
-                }
-              }}
-            >
-              复制全文
-            </Button>
+            <Space align="center">
+              <Button
+                variant={docsView === 'structured' ? 'base' : 'outline'}
+                onClick={() => setDocsView('structured')}
+              >
+                结构化
+              </Button>
+              <Button variant={docsView === 'markdown' ? 'base' : 'outline'} onClick={() => setDocsView('markdown')}>
+                Markdown
+              </Button>
+              <Button
+                variant="outline"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(docsMarkdown || '');
+                    pushNotice('success', '已复制到剪贴板');
+                  } catch (err) {
+                    console.error(err);
+                    pushNotice('error', '复制失败（浏览器不支持或权限不足）');
+                  }
+                }}
+              >
+                复制全文
+              </Button>
+            </Space>
           </Space>
         }
       >
         {docsLoading ? (
           <Typography.Text theme="secondary">加载中…</Typography.Text>
-        ) : groupedDocs.length > 0 ? (
+        ) : docsView === 'structured' && groupedDocs.length > 0 ? (
           <Space direction="vertical" size="large" style={{ width: '100%' }}>
             <Card bordered>
               <Space direction="vertical" size={6} style={{ width: '100%' }}>
@@ -1248,7 +1262,7 @@ export function App() {
             ))}
           </Space>
         ) : docsMarkdown ? (
-          <pre
+          <div
             style={{
               maxHeight: '70vh',
               overflow: 'auto',
@@ -1256,13 +1270,51 @@ export function App() {
               background: 'var(--td-bg-color-secondarycontainer)',
               borderRadius: 8,
               padding: 12,
-              fontFamily: 'monospace',
-              fontSize: 12,
-              whiteSpace: 'pre-wrap',
             }}
           >
-            {docsMarkdown}
-          </pre>
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                h1: ({ children }) => <Typography.Title level="h3">{children}</Typography.Title>,
+                h2: ({ children }) => <Typography.Title level="h4">{children}</Typography.Title>,
+                h3: ({ children }) => <Typography.Title level="h5">{children}</Typography.Title>,
+                p: ({ children }) => <Typography.Paragraph>{children}</Typography.Paragraph>,
+                code: ({ children }) => (
+                  <code style={{ background: 'var(--td-bg-color-secondarycontainer)', padding: '0 4px', borderRadius: 4 }}>
+                    {children}
+                  </code>
+                ),
+                pre: ({ children }) => (
+                  <pre
+                    style={{
+                      background: 'var(--td-bg-color-secondarycontainer)',
+                      padding: 12,
+                      borderRadius: 8,
+                      overflow: 'auto',
+                      fontSize: 12,
+                    }}
+                  >
+                    {children}
+                  </pre>
+                ),
+                table: ({ children }) => (
+                  <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 12 }}>{children}</table>
+                ),
+                th: ({ children }) => (
+                  <th style={{ border: '1px solid var(--td-border-level-1-color)', padding: 6, textAlign: 'left' }}>
+                    {children}
+                  </th>
+                ),
+                td: ({ children }) => (
+                  <td style={{ border: '1px solid var(--td-border-level-1-color)', padding: 6 }}>{children}</td>
+                ),
+                ul: ({ children }) => <ul style={{ paddingLeft: 20 }}>{children}</ul>,
+                ol: ({ children }) => <ol style={{ paddingLeft: 20 }}>{children}</ol>,
+              }}
+            >
+              {docsMarkdown}
+            </ReactMarkdown>
+          </div>
         ) : (
           <Typography.Text theme="secondary">暂无文档内容。</Typography.Text>
         )}
