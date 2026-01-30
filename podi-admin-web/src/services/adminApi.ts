@@ -9,6 +9,7 @@ import type {
   DispatchLogResponse,
   Executor,
   ComfyuiQueueStatus,
+  ComfyuiQueueSummary,
   JsonRecord,
   PublicAbility,
   StoredAsset,
@@ -324,6 +325,14 @@ export const adminApi = {
     ),
   getComfyuiQueueStatus: (executorId: string) =>
     request<ComfyuiQueueStatus>(`/api/admin/comfyui/queue-status?executorId=${encodeURIComponent(executorId)}`),
+  getComfyuiQueueSummary: (executorIds?: string[]) => {
+    const params = new URLSearchParams();
+    (executorIds || []).forEach((id) => {
+      if (id) params.append('executorIds', id);
+    });
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    return request<ComfyuiQueueSummary>(`/api/admin/comfyui/queue-summary${suffix}`);
+  },
 
   // Dashboard
   getDashboardMetrics: () => request<DashboardMetrics>('/api/admin/dashboard/metrics'),

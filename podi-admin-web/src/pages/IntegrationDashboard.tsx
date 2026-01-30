@@ -42,6 +42,7 @@ import type {
   JsonValue,
   PublicAbility,
   ComfyuiQueueStatus,
+  ComfyuiQueueSummary,
   SystemConfig,
   StoredAsset,
   Workflow,
@@ -734,6 +735,10 @@ export function IntegrationDashboard({
   const [comfyQueueLoading, setComfyQueueLoading] = useState(false);
   const [comfyQueueError, setComfyQueueError] = useState<string | null>(null);
   const [comfyQueueUpdatedAt, setComfyQueueUpdatedAt] = useState<string | null>(null);
+  const [comfyQueueSummary, setComfyQueueSummary] = useState<ComfyuiQueueSummary | null>(null);
+  const [comfyQueueSummaryLoading, setComfyQueueSummaryLoading] = useState(false);
+  const [comfyQueueSummaryError, setComfyQueueSummaryError] = useState<string | null>(null);
+  const [comfyQueueSummaryUpdatedAt, setComfyQueueSummaryUpdatedAt] = useState<string | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [uploadedImage, setUploadedImage] = useState<UploadResult | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -794,6 +799,15 @@ export function IntegrationDashboard({
     () => executors.filter((executor) => (executor.type || '').toLowerCase().includes('comfyui')),
     [executors],
   );
+  const comfyQueueByExecutor = useMemo(() => {
+    const next: Record<string, ComfyuiQueueStatus> = {};
+    for (const item of comfyQueueSummary?.servers || []) {
+      if (item?.executorId) {
+        next[item.executorId] = item;
+      }
+    }
+    return next;
+  }, [comfyQueueSummary]);
 
   const executorConfigRecord = useMemo(() => parseJSON(executorForm.config), [executorForm.config]);
   const executorTypeNormalized = String(executorForm.type || '').trim().toLowerCase();
@@ -1259,7 +1273,25 @@ export function IntegrationDashboard({
     if (activeNav !== 'executors') return;
     // Warm cache for "channels" view, but avoid blocking initial render.
     refreshExecutorTraffic({ silent: true });
-  }, [activeNav, refreshExecutorTraffic]);
+    refreshComfyQueueSummary({ silent: true });
+  }, [activeNav, refreshExecutorTraffic, refreshComfyQueueSummary]);
+
+  useEffect(() => {
+    if (activeNav !== 'executors') return;
+    let cancelled = false;
+    const run = async (silent?: boolean) => {
+      if (cancelled) return;
+      await refreshComfyQueueSummary({ silent });
+    };
+    void run(false);
+    const interval = window.setInterval(() => {
+      void run(true);
+    }, 15000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [activeNav, refreshComfyQueueSummary]);
 
   useEffect(() => {
     load();
@@ -1328,6 +1360,37 @@ export function IntegrationDashboard({
       }
     },
     [selectedAbility?.provider, activeComfyExecutorId],
+  );
+
+  const refreshComfyQueueSummary = useCallback(
+    async (options?: { silent?: boolean }) => {
+      const silent = Boolean(options?.silent);
+      const executorIds = comfyExecutors.map((ex) => ex.id).filter(Boolean);
+      if (!executorIds.length) {
+        setComfyQueueSummary(null);
+        setComfyQueueSummaryError(null);
+        setComfyQueueSummaryUpdatedAt(null);
+        if (!silent) setComfyQueueSummaryLoading(false);
+        return;
+      }
+      if (!silent) {
+        setComfyQueueSummaryLoading(true);
+      }
+      try {
+        const response = await adminApi.getComfyuiQueueSummary(executorIds);
+        setComfyQueueSummary(response);
+        setComfyQueueSummaryError(null);
+        setComfyQueueSummaryUpdatedAt(new Date().toISOString());
+      } catch (error) {
+        console.error('load ComfyUI queue summary failed', error);
+        setComfyQueueSummaryError(error instanceof Error ? error.message : '获取 ComfyUI 队列汇总失败');
+      } finally {
+        if (!silent) {
+          setComfyQueueSummaryLoading(false);
+        }
+      }
+    },
+    [comfyExecutors],
   );
 
   useEffect(() => {
@@ -3245,6 +3308,16 @@ const normalizeErrorMessage = (message: string): string => {
             >
               刷新指标
             </Button>
+            <Button
+              size="small"
+              variant="outline"
+              onClick={() => refreshComfyQueueSummary()}
+              loading={comfyQueueSummaryLoading}
+              disabled={comfyExecutors.length === 0}
+              title="刷新 ComfyUI 队列汇总"
+            >
+              刷新队列
+            </Button>
           </Space>
         </Space>
 
@@ -3252,6 +3325,9 @@ const normalizeErrorMessage = (message: string): string => {
           <div className="space-y-4">
             {executorTrafficError && (
               <Alert theme="error" message={executorTrafficError} />
+            )}
+            {comfyQueueSummaryError && (
+              <Alert theme="error" message={`ComfyUI 队列：${comfyQueueSummaryError}`} />
             )}
             {(() => {
               const groups = new Map<string, Executor[]>();
@@ -3269,6 +3345,9 @@ const normalizeErrorMessage = (message: string): string => {
                 <div className="grid gap-4 lg:grid-cols-2">
                   {entries.map(([type, items]) => {
                     const activeCount = items.filter((x) => x.status === 'active').length;
+                    const typeLower = (type || '').toLowerCase();
+                    const isComfyGroup = typeLower.includes('comfyui');
+                    const queueSummary = isComfyGroup ? comfyQueueSummary : null;
                     return (
                       <div
                         key={`channel-group-${type}`}
@@ -3281,6 +3360,20 @@ const normalizeErrorMessage = (message: string): string => {
                             <div className="mt-1 text-xs text-slate-600 dark:text-slate-400">
                               {activeCount}/{items.length} active · 建议至少 2 条线路做容灾（主/备）
                             </div>
+                            {isComfyGroup && (
+                              <div className="mt-2 text-xs text-slate-600 dark:text-slate-400">
+                                {comfyQueueSummaryLoading
+                                  ? 'ComfyUI 队列：加载中…'
+                                  : queueSummary
+                                    ? `ComfyUI 队列：running ${queueSummary.totalRunning} · pending ${queueSummary.totalPending}`
+                                    : 'ComfyUI 队列：—'}
+                                {comfyQueueSummaryUpdatedAt ? (
+                                  <span className="ml-2 text-[11px] text-slate-500">
+                                    更新：{formatDateTime(comfyQueueSummaryUpdatedAt)}
+                                  </span>
+                                ) : null}
+                              </div>
+                            )}
                           </div>
                         </div>
 
@@ -3290,6 +3383,8 @@ const normalizeErrorMessage = (message: string): string => {
                             .sort((a, b) => (b.weight || 0) - (a.weight || 0))
                             .map((ex) => {
                               const metric = executorTraffic[ex.id];
+                              const isComfyExecutor = (ex.type || '').toLowerCase().includes('comfyui');
+                              const queueStatus = isComfyExecutor ? comfyQueueByExecutor[ex.id] : null;
                               return (
                                 <div
                                   key={`channel-${ex.id}`}
@@ -3342,6 +3437,22 @@ const normalizeErrorMessage = (message: string): string => {
                                         路由：按“分配策略”优先级（后续支持失败/超时自动回退）
                                       </div>
                                     </div>
+                                    {isComfyExecutor && (
+                                      <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-300">
+                                        <div className="text-[10px] uppercase tracking-widest text-slate-500">Queue</div>
+                                        <div className="mt-1 text-sm font-semibold text-slate-900 dark:text-white">
+                                          {queueStatus
+                                            ? `${queueStatus.runningCount}/${queueStatus.pendingCount}`
+                                            : comfyQueueSummaryLoading
+                                              ? '加载中…'
+                                              : '—'}
+                                        </div>
+                                        <div className="mt-1 text-[11px] text-slate-500">running/pending</div>
+                                        {queueStatus?.message ? (
+                                          <div className="mt-1 text-[11px] text-amber-600">{queueStatus.message}</div>
+                                        ) : null}
+                                      </div>
+                                    )}
                                   </div>
                                 </div>
                               );

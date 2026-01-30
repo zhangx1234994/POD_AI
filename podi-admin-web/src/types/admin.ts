@@ -169,6 +169,13 @@ export interface ComfyuiQueueStatus {
   raw?: JsonRecord | null;
 }
 
+export interface ComfyuiQueueSummary {
+  totalRunning: number;
+  totalPending: number;
+  totalCount: number;
+  servers: ComfyuiQueueStatus[];
+}
+
 export interface DashboardTotals {
   total_tasks: number;
   queue_depth: number;
