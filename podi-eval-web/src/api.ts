@@ -1,4 +1,4 @@
-import type { EvalRun, EvalRunListResponse, EvalWorkflowVersion } from './types';
+import type { EvalRun, EvalRunListResponse, EvalWorkflowVersion, WorkflowDoc } from './types';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
 const DEFAULT_TIMEOUT_MS = 15000;
@@ -84,7 +84,8 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 export const evalApi = {
   me: () => request<{ raterId: string }>('/api/evals/me'),
   listWorkflowVersions: () => request<EvalWorkflowVersion[]>('/api/evals/workflow-versions?status=active'),
-  getWorkflowDocs: () => request<{ markdown: string; generatedAt?: string }>('/api/evals/docs/workflows'),
+  getWorkflowDocs: () =>
+    request<{ markdown: string; generatedAt?: string; workflows?: WorkflowDoc[] }>('/api/evals/docs/workflows'),
   createRun: (payload: {
     workflow_version_id: string;
     dataset_item_id?: string | null;

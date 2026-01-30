@@ -24,7 +24,7 @@ import {
 } from 'tdesign-react';
 import zhCN from 'tdesign-react/es/locale/zh_CN';
 import { evalApi } from './api';
-import type { EvalRun, EvalWorkflowVersion, SchemaField } from './types';
+import type { EvalRun, EvalWorkflowVersion, SchemaField, WorkflowDoc } from './types';
 
 type RunWithLatest = EvalRun & {
   latest_annotation?: { rating: number; comment?: string | null; created_at: string; created_by: string } | null;
@@ -91,6 +91,30 @@ const formatJsonPreview = (value: unknown, maxLen = 1200): string => {
   } catch {
     return String(value || '');
   }
+};
+
+const renderOptionTags = (options?: Array<{ label: string; value: string } | string>): ReactNode => {
+  if (!Array.isArray(options) || options.length === 0) return '—';
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+      {options.map((opt, idx) => {
+        if (typeof opt === 'string') {
+          const value = opt.trim();
+          return (
+            <Tag key={`${value}-${idx}`} size="small" variant="light">
+              {value}
+            </Tag>
+          );
+        }
+        const value = String(opt.value || opt.label || '').trim();
+        return (
+          <Tag key={`${value}-${idx}`} size="small" variant="light">
+            {value}
+          </Tag>
+        );
+      })}
+    </div>
+  );
 };
 
 const OMIT_PARAM_KEYS = new Set([
@@ -600,6 +624,7 @@ export function App() {
   const [docsMarkdown, setDocsMarkdown] = useState<string>('');
   const [docsLoading, setDocsLoading] = useState<boolean>(false);
   const [docsGeneratedAt, setDocsGeneratedAt] = useState<string>('');
+  const [docsWorkflows, setDocsWorkflows] = useState<WorkflowDoc[]>([]);
 
   const workflowMap = useMemo(() => {
     const m: Record<string, EvalWorkflowVersion> = {};
@@ -715,6 +740,7 @@ export function App() {
         const res = await evalApi.getWorkflowDocs();
         setDocsMarkdown(String(res.markdown || ''));
         setDocsGeneratedAt(String(res.generatedAt || ''));
+        setDocsWorkflows(Array.isArray(res.workflows) ? res.workflows : []);
       } catch (err) {
         console.error(err);
         pushNotice('error', String((err as any)?.message || err));
@@ -750,6 +776,30 @@ export function App() {
     setFormParams(defaults);
     setActiveView('tool');
   };
+
+  const groupedDocs = useMemo(() => {
+    const map = new Map<string, WorkflowDoc[]>();
+    for (const wf of docsWorkflows) {
+      const cat = normalizeCategory(wf.category);
+      if (!map.has(cat)) map.set(cat, []);
+      map.get(cat)!.push(wf);
+    }
+    const ordered: { category: string; items: WorkflowDoc[] }[] = [];
+    for (const cat of CATEGORY_ORDER) {
+      if (map.has(cat)) ordered.push({ category: cat, items: map.get(cat)! });
+    }
+    for (const [cat, items] of map.entries()) {
+      if (!ordered.some((entry) => entry.category === cat)) {
+        ordered.push({ category: cat, items });
+      }
+    }
+    for (const entry of ordered) {
+      entry.items.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    }
+    return ordered;
+  }, [docsWorkflows]);
+
+  const toAnchorId = (value: string) => `doc-cat-${String(value).replace(/\s+/g, '-')}`;
 
   const runTool = async () => {
     if (!selectedTool) return;
@@ -995,6 +1045,80 @@ export function App() {
   }
 
   if (activeView === 'docs') {
+
+    const paramColumns = [
+      {
+        colKey: 'name',
+        title: '字段',
+        cell: ({ row }: { row: SchemaField }) => (
+          <Space direction="vertical" size={2}>
+            <Typography.Text code>{row.name}</Typography.Text>
+            {row.label ? (
+              <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                {row.label}
+              </Typography.Text>
+            ) : null}
+          </Space>
+        ),
+      },
+      {
+        colKey: 'required',
+        title: '必填',
+        width: 70,
+        cell: ({ row }: { row: SchemaField }) => (row.required ? '是' : '否'),
+      },
+      {
+        colKey: 'type',
+        title: '类型',
+        width: 110,
+        cell: ({ row }: { row: SchemaField }) => <Typography.Text code>{row.type || 'text'}</Typography.Text>,
+      },
+      {
+        colKey: 'defaultValue',
+        title: '默认值',
+        width: 140,
+        cell: ({ row }: { row: SchemaField }) => (row.defaultValue ? String(row.defaultValue) : '—'),
+      },
+      {
+        colKey: 'options',
+        title: '枚举值',
+        cell: ({ row }: { row: SchemaField }) => renderOptionTags(row.options),
+      },
+      {
+        colKey: 'description',
+        title: '说明',
+        cell: ({ row }: { row: SchemaField }) => (row.description ? row.description : '—'),
+      },
+    ];
+
+    const outputColumns = [
+      {
+        colKey: 'name',
+        title: '字段',
+        cell: ({ row }: { row: SchemaField }) => (
+          <Space direction="vertical" size={2}>
+            <Typography.Text code>{row.name}</Typography.Text>
+            {row.label ? (
+              <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                {row.label}
+              </Typography.Text>
+            ) : null}
+          </Space>
+        ),
+      },
+      {
+        colKey: 'type',
+        title: '类型',
+        width: 110,
+        cell: ({ row }: { row: SchemaField }) => <Typography.Text code>{row.type || 'text'}</Typography.Text>,
+      },
+      {
+        colKey: 'description',
+        title: '说明',
+        cell: ({ row }: { row: SchemaField }) => (row.description ? row.description : '—'),
+      },
+    ];
+
     return shell(
       <Card
         bordered
@@ -1027,6 +1151,100 @@ export function App() {
       >
         {docsLoading ? (
           <Typography.Text theme="secondary">加载中…</Typography.Text>
+        ) : groupedDocs.length > 0 ? (
+          <Space direction="vertical" size="large" style={{ width: '100%' }}>
+            <Card bordered>
+              <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                <Typography.Text strong>目录</Typography.Text>
+                <Space wrap>
+                  {groupedDocs.map((group) => (
+                    <a
+                      key={group.category}
+                      href={`#${toAnchorId(group.category)}`}
+                      style={{ color: 'var(--td-text-color-primary)' }}
+                    >
+                      {group.category}（{group.items.length}）
+                    </a>
+                  ))}
+                </Space>
+              </Space>
+            </Card>
+
+            {groupedDocs.map((group) => (
+              <Space key={group.category} direction="vertical" size="large" style={{ width: '100%' }}>
+                <Typography.Title id={toAnchorId(group.category)} level="h3" style={{ margin: 0 }}>
+                  {group.category}
+                </Typography.Title>
+
+                {group.items.map((wf) => {
+              const params = Array.isArray(wf.parameters) ? wf.parameters : [];
+              const outputs = Array.isArray(wf.outputs) ? wf.outputs : [];
+              const requestBody =
+                wf.request?.body ?? {
+                  workflow_id: wf.workflow_id,
+                  parameters: {},
+                };
+              const requestJson = JSON.stringify(requestBody, null, 2);
+              const requestPath = wf.request?.path || '/v1/workflow/run';
+              const requestMethod = wf.request?.method || 'POST';
+
+                  return (
+                    <Card key={wf.workflow_id} bordered>
+                  <Space direction="vertical" size="medium" style={{ width: '100%' }}>
+                    <Space align="center" style={{ flexWrap: 'wrap' }}>
+                      <Typography.Title level="h4" style={{ margin: 0 }}>
+                        {wf.name}
+                      </Typography.Title>
+                      <Tag variant="light">输出类型: {wf.output_kind || 'image_url'}</Tag>
+                    </Space>
+                    <Typography.Text theme="secondary">workflow_id: {wf.workflow_id}</Typography.Text>
+                    {wf.notes ? <Typography.Text>备注：{wf.notes}</Typography.Text> : null}
+
+                    <Space direction="vertical" size={4}>
+                      <Typography.Text strong>调用方式</Typography.Text>
+                      <Typography.Text theme="secondary">
+                        {requestMethod} {requestPath}
+                      </Typography.Text>
+                      <pre
+                        style={{
+                          border: '1px solid var(--td-border-level-1-color)',
+                          background: 'var(--td-bg-color-secondarycontainer)',
+                          borderRadius: 8,
+                          padding: 12,
+                          fontFamily: 'monospace',
+                          fontSize: 12,
+                          whiteSpace: 'pre-wrap',
+                          margin: 0,
+                        }}
+                      >
+                        {requestJson}
+                      </pre>
+                    </Space>
+
+                    <Space direction="vertical" size={4}>
+                      <Typography.Text strong>入参 parameters</Typography.Text>
+                      {params.length > 0 ? (
+                        <Table rowKey="name" data={params} columns={paramColumns} size="small" bordered />
+                      ) : (
+                        <Typography.Text theme="secondary">无参数</Typography.Text>
+                      )}
+                    </Space>
+
+                    <Space direction="vertical" size={4}>
+                      <Typography.Text strong>出参 data</Typography.Text>
+                      {outputs.length > 0 ? (
+                        <Table rowKey="name" data={outputs} columns={outputColumns} size="small" bordered />
+                      ) : (
+                        <Typography.Text theme="secondary">默认关注 data.output（图片 URL 或回调 task id）</Typography.Text>
+                      )}
+                    </Space>
+                  </Space>
+                    </Card>
+                  );
+                })}
+              </Space>
+            ))}
+          </Space>
         ) : docsMarkdown ? (
           <pre
             style={{

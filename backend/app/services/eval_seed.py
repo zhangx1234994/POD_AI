@@ -50,6 +50,21 @@ ALLOWED_EVAL_CATEGORIES: set[str] = {
     "通用类",
 }
 
+# Workflows whose output should include prompt feedback.
+PROMPT_OUTPUT_WORKFLOW_IDS: set[str] = {
+    "7597530887256801280",  # tiqu_comfyui_20260123
+    "7598545860393172992",  # tiqu_comfyui_20260123_2
+    "7601080398864449536",  # tiqu_duoMoxing_2
+    "7598559869544693760",  # tiqu_duoMoxing_20260130
+    "7598560946579046400",  # tiqu_duoMoxing_2_2
+    "7597701996124045312",  # sibu_comfyui
+    "7597702948247830528",  # zhongsu_comfyui
+    "7598841920114130944",  # Liebian_comfyui_20260124_1
+    "7598820684801769472",  # Liebian_comfyui_20260124
+    "7601077530077954048",  # Liebian_shangye_20260130
+    "7598848725942796288",  # Liebian_shangye_20260124_1_1_1
+}
+
 
 def _normalize_eval_category(category: str | None) -> str:
     """Map legacy/internal categories into the business-facing groups."""
@@ -145,7 +160,12 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                 },
             ]
         },
-        "output_schema": {"fields": [{"name": "output", "type": "text", "description": "回调 task id"}]},
+        "output_schema": {
+            "fields": [
+                {"name": "output", "type": "text", "description": "回调 task id"},
+                {"name": "prompt", "type": "text", "description": "提示词反馈字符串"},
+            ]
+        },
     },
     # 花纹提取类 / ComfyUI 花纹提取（支持提示词拼接版本；输出为回调 task id）
     {
@@ -171,7 +191,12 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                 },
             ]
         },
-        "output_schema": {"fields": [{"name": "output", "type": "text", "description": "回调 task id"}]},
+        "output_schema": {
+            "fields": [
+                {"name": "output", "type": "text", "description": "回调 task id"},
+                {"name": "prompt", "type": "text", "description": "提示词反馈字符串"},
+            ]
+        },
     },
     # 花纹提取类 / 商业模型提取花纹（支持提示词；输出回调 task id）
     {
@@ -226,7 +251,12 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                 {"name": "prompt", "label": "提示词", "type": "textarea", "required": False, "defaultValue": ""},
             ]
         },
-        "output_schema": {"fields": [{"name": "output", "type": "text", "description": "回调 task id"}]},
+        "output_schema": {
+            "fields": [
+                {"name": "output", "type": "text", "description": "回调 task id"},
+                {"name": "prompt", "type": "text", "description": "提示词反馈字符串"},
+            ]
+        },
     },
     # 花纹提取类 / 商业模型提取花纹（无需提示词；输出回调 task id）
     {
@@ -280,7 +310,12 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                 {"name": "url", "label": "图片 URL", "type": "text", "required": True},
             ]
         },
-        "output_schema": {"fields": [{"name": "output", "type": "text", "description": "回调 task id"}]},
+        "output_schema": {
+            "fields": [
+                {"name": "output", "type": "text", "description": "回调 task id"},
+                {"name": "prompt", "type": "text", "description": "提示词反馈字符串"},
+            ]
+        },
     },
     # 花纹提取类 / 商业模型 + ComfyUI 串联（为兼顾输出尺寸；输出回调 task id）
     {
@@ -337,7 +372,12 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                 {"name": "prompt", "label": "提示词", "type": "textarea", "required": False, "defaultValue": ""},
             ]
         },
-        "output_schema": {"fields": [{"name": "output", "type": "text", "description": "回调 task id"}]},
+        "output_schema": {
+            "fields": [
+                {"name": "output", "type": "text", "description": "回调 task id"},
+                {"name": "prompt", "type": "text", "description": "提示词反馈字符串"},
+            ]
+        },
     },
     # 连续图 / 四方连续、两方连续（输出为回调 task id）
     {
@@ -366,7 +406,12 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                 },
             ]
         },
-        "output_schema": {"fields": [{"name": "output", "type": "text", "description": "回调 task id"}]},
+        "output_schema": {
+            "fields": [
+                {"name": "output", "type": "text", "description": "回调 task id"},
+                {"name": "prompt", "type": "text", "description": "提示词反馈字符串"},
+            ]
+        },
     },
     # 图延伸类 / 扩图（多模型，输出回调 task id）
     {
@@ -397,7 +442,12 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                 },
             ]
         },
-        "output_schema": {"fields": [{"name": "output", "type": "text", "description": "回调 task id"}]},
+        "output_schema": {
+            "fields": [
+                {"name": "output", "type": "text", "description": "回调 task id"},
+                {"name": "prompt", "type": "text", "description": "提示词反馈字符串"},
+            ]
+        },
     },
     # 图扩展 / ComfyUI 扩图（输出为回调 task id）
     {
@@ -416,7 +466,12 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                 {"name": "expand_bottom", "label": "下扩(px)", "type": "text", "required": False, "defaultValue": "0"},
             ]
         },
-        "output_schema": {"fields": [{"name": "output", "type": "text", "description": "回调 task id"}]},
+        "output_schema": {
+            "fields": [
+                {"name": "output", "type": "text", "description": "回调 task id"},
+                {"name": "prompt", "type": "text", "description": "提示词反馈字符串"},
+            ]
+        },
     },
     # 图略变类 / 多模型生图（Banana Pro / Flux2 / Doubao 4.5）
     {
@@ -491,7 +546,12 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                 {"name": "prompt", "label": "提示词", "type": "textarea", "required": True},
             ]
         },
-        "output_schema": {"fields": [{"name": "output", "type": "text", "description": "回调 task id"}]},
+        "output_schema": {
+            "fields": [
+                {"name": "output", "type": "text", "description": "回调 task id"},
+                {"name": "prompt", "type": "text", "description": "提示词反馈字符串"},
+            ]
+        },
     },
     # 图略变/通用类 / 八步中速生图（输出为回调 task id）
     {
@@ -509,7 +569,12 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                 {"name": "prompt", "label": "提示词", "type": "textarea", "required": True},
             ]
         },
-        "output_schema": {"fields": [{"name": "output", "type": "text", "description": "回调 task id"}]},
+        "output_schema": {
+            "fields": [
+                {"name": "output", "type": "text", "description": "回调 task id"},
+                {"name": "prompt", "type": "text", "description": "提示词反馈字符串"},
+            ]
+        },
     },
     # 通用类 / 8K 高清放大
     {
@@ -630,7 +695,12 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                 {"name": "count", "label": "裂变数量", "type": "text", "required": False, "defaultValue": "4", "description": "一次评测会触发 count 个子任务并聚合结果"},
             ]
         },
-        "output_schema": {"fields": [{"name": "output", "type": "text", "description": "回调 task id"}]},
+        "output_schema": {
+            "fields": [
+                {"name": "output", "type": "text", "description": "回调 task id"},
+                {"name": "prompt", "type": "text", "description": "提示词反馈字符串"},
+            ]
+        },
     },
     # 图裂变 / 图裂变（ComfyUI，有提示词，输出回调 task id）
     {
@@ -657,7 +727,12 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                 {"name": "count", "label": "裂变数量", "type": "text", "required": False, "defaultValue": "4", "description": "一次评测会触发 count 个子任务并聚合结果"},
             ]
         },
-        "output_schema": {"fields": [{"name": "output", "type": "text", "description": "回调 task id"}]},
+        "output_schema": {
+            "fields": [
+                {"name": "output", "type": "text", "description": "回调 task id"},
+                {"name": "prompt", "type": "text", "description": "提示词反馈字符串"},
+            ]
+        },
     },
     # 图裂变 / 图裂变（商业模型，无提示词，输出回调 task id）
     {
@@ -716,7 +791,12 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                 {"name": "count", "label": "裂变数量", "type": "text", "required": False, "defaultValue": "4", "description": "一次评测会触发 count 个子任务并聚合结果"},
             ]
         },
-        "output_schema": {"fields": [{"name": "output", "type": "text", "description": "回调 task id"}]},
+        "output_schema": {
+            "fields": [
+                {"name": "output", "type": "text", "description": "回调 task id"},
+                {"name": "prompt", "type": "text", "description": "提示词反馈字符串"},
+            ]
+        },
     },
     # 图裂变 / 图裂变（商业模型，有提示词，输出回调 task id）
     {
@@ -776,7 +856,12 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                 {"name": "count", "label": "裂变数量", "type": "text", "required": False, "defaultValue": "4", "description": "一次评测会触发 count 个子任务并聚合结果"},
             ]
         },
-        "output_schema": {"fields": [{"name": "output", "type": "text", "description": "回调 task id"}]},
+        "output_schema": {
+            "fields": [
+                {"name": "output", "type": "text", "description": "回调 task id"},
+                {"name": "prompt", "type": "text", "description": "提示词反馈字符串"},
+            ]
+        },
     },
     # 不建议直接使用：ComfyUI 回调工作流（供后端兜底解析 images）
     {
@@ -992,6 +1077,18 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
                     schema["fields"] = fields
                     row.output_schema = schema
                     dirty = True
+        if row.workflow_id in PROMPT_OUTPUT_WORKFLOW_IDS:
+            # Ensure prompt is documented in output schema.
+            schema = json.loads(json.dumps(row.output_schema or {}, ensure_ascii=False))
+            fields = schema.get("fields") if isinstance(schema, dict) else None
+            if not isinstance(fields, list):
+                fields = []
+            has_prompt = any(isinstance(f, dict) and f.get("name") == "prompt" for f in fields)
+            if not has_prompt:
+                fields.append({"name": "prompt", "type": "text", "description": "提示词反馈字符串"})
+                schema["fields"] = fields
+                row.output_schema = schema
+                dirty = True
         if row.workflow_id in {
             "7598841920114130944",
             "7598820684801769472",

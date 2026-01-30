@@ -8,6 +8,7 @@ This router is intended for internal usage on a trusted network. You can:
 from __future__ import annotations
 
 from datetime import datetime
+import json
 from typing import Any
 from uuid import uuid4
 
@@ -99,7 +100,7 @@ def get_workflow_docs(
     request: Request,
     response: Response,
     db: Session = Depends(get_db),
-) -> dict[str, str]:
+) -> dict[str, Any]:
     """Developer doc: how to call Coze workflows + full IO schema list (active)."""
     _require_public_enabled(request)
     _get_or_set_rater_id(request, response)
@@ -128,6 +129,81 @@ def get_workflow_docs(
                     if "task" in desc.lower() or "回调" in desc:
                         return "callback_task_id"
         return "image_url"
+
+    def _coerce_schema(value: Any) -> dict[str, Any]:
+        if isinstance(value, dict):
+            return value
+        if isinstance(value, list):
+            return {"fields": value}
+        if isinstance(value, str):
+            raw = value.strip()
+            if not raw:
+                return {}
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError:
+                return {}
+            if isinstance(parsed, dict):
+                return parsed
+            if isinstance(parsed, list):
+                return {"fields": parsed}
+        return {}
+
+    def _normalize_options(options: Any) -> list[dict[str, str]]:
+        if isinstance(options, str):
+            raw = options.strip()
+            if not raw:
+                return []
+            # Allow comma-separated strings as a fallback.
+            return [{"label": item.strip(), "value": item.strip()} for item in raw.split(",") if item.strip()]
+        if not isinstance(options, list):
+            return []
+        normalized: list[dict[str, str]] = []
+        for opt in options:
+            if isinstance(opt, dict):
+                label = opt.get("label")
+                value = opt.get("value")
+                if value is None:
+                    value = label
+                if label is None:
+                    label = value
+                if value is None and label is None:
+                    continue
+                normalized.append({"label": str(label or ""), "value": str(value or "")})
+            else:
+                normalized.append({"label": str(opt), "value": str(opt)})
+        return [x for x in normalized if x.get("label") or x.get("value")]
+
+    def _normalize_fields(schema: Any) -> list[dict[str, Any]]:
+        schema = _coerce_schema(schema)
+        fields = schema.get("fields") if isinstance(schema, dict) else None
+        if not isinstance(fields, list):
+            return []
+        normalized: list[dict[str, Any]] = []
+        for f in fields:
+            if not isinstance(f, dict) or not f.get("name"):
+                continue
+            normalized.append(
+                {
+                    "name": str(f.get("name") or "").strip(),
+                    "label": str(f.get("label") or "").strip() or None,
+                    "type": str(f.get("type") or "text").strip(),
+                    "required": bool(f.get("required")),
+                    "defaultValue": f.get("defaultValue") if f.get("defaultValue") is not None else "",
+                    "description": str(f.get("description") or "").strip(),
+                    "options": _normalize_options(f.get("options")),
+                }
+            )
+        return normalized
+
+    def _example_parameters(fields: list[dict[str, Any]]) -> dict[str, str]:
+        example: dict[str, str] = {}
+        for f in fields:
+            name = str(f.get("name") or "")
+            if not name:
+                continue
+            example[name] = "<required>" if f.get("required") else "<optional>"
+        return example
 
     lines: list[str] = []
     lines.append("# PODI 评测平台 · Coze 工作流调用文档")
@@ -181,7 +257,27 @@ def get_workflow_docs(
     lines.append("")
     lines.append("| 分类 | 功能 | workflow_id | 输出类型 | 备注 |")
     lines.append("|---|---|---:|---|---|")
+    workflows: list[dict[str, Any]] = []
+
     for wf in rows:
+        parameters = _normalize_fields(wf.parameters_schema or {})
+        outputs = _normalize_fields(wf.output_schema or {})
+        workflows.append(
+            {
+                "category": wf.category,
+                "name": wf.name,
+                "workflow_id": wf.workflow_id,
+                "notes": wf.notes,
+                "output_kind": _infer_output_kind(wf),
+                "parameters": parameters,
+                "outputs": outputs,
+                "request": {
+                    "method": "POST",
+                    "path": "/v1/workflow/run",
+                    "body": {"workflow_id": wf.workflow_id, "parameters": _example_parameters(parameters)},
+                },
+            }
+        )
         lines.append(
             f"| {_md_escape(wf.category)} | {_md_escape(wf.name)} | `{_md_escape(wf.workflow_id)}` | `{_infer_output_kind(wf)}` | {_md_escape(wf.notes or '')} |"
         )
@@ -196,19 +292,29 @@ def get_workflow_docs(
         if wf.notes:
             lines.append(f"- 备注：{wf.notes}")
         lines.append("")
+        lines.append("### 调用方法")
+        lines.append("")
+        lines.append("```json")
+        example_params = _example_parameters(_normalize_fields(wf.parameters_schema or {}))
+        lines.append(
+            json.dumps(
+                {"workflow_id": wf.workflow_id, "parameters": example_params},
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        lines.append("```")
+        lines.append("")
         lines.append("### 入参 parameters")
         lines.append("")
-        schema = wf.parameters_schema or {}
-        fields = schema.get("fields") if isinstance(schema, dict) else None
-        if not isinstance(fields, list) or not fields:
+        fields = _normalize_fields(wf.parameters_schema or {})
+        if not fields:
             lines.append("_无 schema（请在后台补齐 parameters_schema 以生成动态表单）。_")
             lines.append("")
         else:
             lines.append("| 字段 | 必填 | 类型 | 默认值 | 可选项 | 描述 |")
             lines.append("|---|---:|---|---|---|---|")
             for f in fields:
-                if not isinstance(f, dict) or not f.get("name"):
-                    continue
                 name = str(f.get("name") or "")
                 required = "Y" if f.get("required") else ""
                 ftype = str(f.get("type") or "text")
@@ -217,14 +323,12 @@ def get_workflow_docs(
                 options = f.get("options")
                 if isinstance(options, list) and options:
                     rendered = []
-                    for o in options[:20]:
+                    for o in options:
                         if isinstance(o, dict):
                             rendered.append(str(o.get("value") or o.get("label") or ""))
                         else:
                             rendered.append(str(o))
-                    opts = ", ".join([x for x in rendered if x])
-                    if len(options) > 20:
-                        opts += ", ..."
+                    opts = " / ".join([x for x in rendered if x])
                 desc = str(f.get("description") or "")
                 lines.append(
                     f"| `{_md_escape(name)}` | {required} | `{_md_escape(ftype)}` | `{_md_escape(default)}` | {_md_escape(opts)} | {_md_escape(desc)} |"
@@ -237,7 +341,11 @@ def get_workflow_docs(
         lines.append("- `data.output`：图片 URL 或回调 task id（取决于该工作流的输出类型）")
         lines.append("")
 
-    return {"markdown": "\n".join(lines), "generatedAt": datetime.utcnow().isoformat() + "Z"}
+    return {
+        "markdown": "\n".join(lines),
+        "generatedAt": datetime.utcnow().isoformat() + "Z",
+        "workflows": workflows,
+    }
 
 
 @router.post("/uploads")

@@ -38,6 +38,21 @@ export type SchemaField = {
   type?: string;
   required?: boolean;
   description?: string;
-  options?: { label: string; value: string }[];
+  options?: Array<{ label: string; value: string } | string>;
   defaultValue?: string;
+};
+
+export type WorkflowDoc = {
+  category: string;
+  name: string;
+  workflow_id: string;
+  notes?: string | null;
+  output_kind?: string;
+  parameters?: SchemaField[];
+  outputs?: SchemaField[];
+  request?: {
+    method?: string;
+    path?: string;
+    body?: Record<string, unknown>;
+  };
 };
