@@ -96,6 +96,7 @@ FORCE_ACTIVE_EVAL_WORKFLOW_IDS: set[str] = {
     "7601054603211177984",  # comfyui_duilie
     "7597701996124045312",  # sibu_comfyui
     "7597702948247830528",  # zhongsu_comfyui
+    "7597760543788630016",  # 8K 高清放大
     # 图裂变
     "7598841920114130944",  # Liebian_comfyui_20260124_1
     "7598820684801769472",  # Liebian_comfyui_20260124
