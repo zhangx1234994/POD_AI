@@ -679,6 +679,13 @@ def invoke_tool(
         "debugResponse",
     }
 
+    def _coerce_positive_int(v: Any) -> int | None:
+        try:
+            n = int(v)
+            return n if n > 0 else None
+        except (TypeError, ValueError):
+            return None
+
     def _prune(result: dict[str, Any]) -> dict[str, Any]:
         pruned: dict[str, Any] = {}
         for k, v in result.items():
@@ -688,15 +695,20 @@ def invoke_tool(
                 continue
             pruned[k] = v
         return pruned
+    provider_lower = provider.lower()
+    ability_meta = ability.extra_metadata or {}
+    api_type = str(ability_meta.get("api_type") or "").lower()
+    async_api_types = {"image_generation", "video_generation", "market_image_to_image", "market_text_to_video"}
+    async_providers = {"volcengine", "kie"}
+    force_async = bool(
+        ability_meta.get("async_mode")
+        or ability_meta.get("async")
+        or ability_meta.get("callback_mode")
+    )
+
     # ComfyUI tends to queue and can exceed Coze's single-node timeout. For robustness,
     # submit it as an async task and let Coze poll via `podi_task_get`.
-    if provider.lower() == "comfyui":
-        def _coerce_positive_int(v: Any) -> int | None:
-            try:
-                n = int(v)
-                return n if n > 0 else None
-            except (TypeError, ValueError):
-                return None
+    if provider_lower == "comfyui":
 
         # Best-effort: we know batch for the common ComfyUI flows we expose.
         expected_images = 1
@@ -712,6 +724,48 @@ def invoke_tool(
         payload.metadata = (payload.metadata or {}) | {"expectedImageCount": expected_images}
 
         # Store as a system task (no user FK) to keep internal integrations simple.
+        task = get_ability_task_service().enqueue(ability_id=ability.id, payload=payload, user=None)
+        external_task_id = encode_task_id(
+            task_id=str(task.get("id") or ""),
+            provider=provider,
+            executor_id=(executor_id if isinstance(executor_id, str) and executor_id.strip() else None),
+        )
+        return _prune(
+            {
+                "text": "submitted",
+                "texts": ["submitted"],
+                "taskId": external_task_id or task.get("id"),
+                "taskStatus": task.get("status"),
+                "expectedImageCount": expected_images,
+                "logId": task.get("log_id"),
+                "imageUrls": [],
+                "videoUrls": [],
+                "debugRequest": None,
+                "debugResponse": None,
+            }
+        )
+
+    # Commercial models that now return an async id + unified callback should also
+    # be queued as AbilityTask so Coze can poll via /tasks/get.
+    if force_async or (provider_lower in async_providers and api_type in async_api_types):
+        expected_images = (
+            _coerce_positive_int(
+                body.get("n")
+                or body.get("batch")
+                or body.get("amount")
+                or body.get("batch_count")
+                or body.get("batchCount")
+                or body.get("repeat_count")
+            )
+            or (
+                ability_meta.get("max_output_images")
+                if isinstance(ability_meta.get("max_output_images"), int)
+                else None
+            )
+        )
+        if expected_images:
+            payload.metadata = (payload.metadata or {}) | {"expectedImageCount": expected_images}
+
         task = get_ability_task_service().enqueue(ability_id=ability.id, payload=payload, user=None)
         external_task_id = encode_task_id(
             task_id=str(task.get("id") or ""),
