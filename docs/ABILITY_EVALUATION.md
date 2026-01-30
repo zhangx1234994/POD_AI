@@ -71,6 +71,34 @@ curl -X POST "$API_BASE/api/admin/evals/workflow-versions" \
   并 finalize 任务（写回 OSS 结果），避免出现“ComfyUI 已生成但页面不刷新”。
 - 评分与备注写入 `eval_annotation`。
 
+## 对接前校验清单（必做）
+
+这份清单用于“业务系统对接前”的参数与回调验收，避免出现 **px/枚举/回调类型不一致** 的隐患。
+
+1) **输出类型确认**
+   - 明确该工作流 `output` 是 **图片 URL** 还是 **回调 task id**。
+   - 若是回调 task id：评测平台应能自动轮询出图；业务侧也必须接入回调解析链路。
+
+2) **必填参数验证**
+   - 在评测平台用“最小参数”跑通一次（只填 required 字段）。
+   - 记录真实接受的参数名（尤其是 `url/Url/URL`、`prompt`、`width/height`）。
+
+3) **像素参数格式**
+   - 所有像素类字段（`width/height/expand_* / bianchang`）**必须传纯数字，不带 px**。
+   - 评测平台与后端已做自动去 `px` 兜底，但业务系统也应做同样处理。
+
+4) **枚举值一致性**
+   - 所有 `select` 参数必须传 **枚举值**，不要传 label。
+   - 如 `resolution` 只能是 `1K/2K/4K`，`aspect_ratio` 只能是 `1:1/4:3/...`。
+
+5) **回调链路验证**
+   - 回调类工作流至少验证 1 次：输出 task id → 回调/轮询 → 图片可访问（OSS URL）。
+
+6) **错误可读性**
+   - 故意传错一个参数，确认错误能读懂（例如 “Missing required parameters”）。
+
+> 经验教训：先在评测平台 **跑通 + 固化参数合同**，再接入业务系统。
+
 ## 上线前回归清单
 
 见：`docs/release-preflight.md`
