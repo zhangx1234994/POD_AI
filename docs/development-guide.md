@@ -4,7 +4,17 @@
 
 - `backend/`：FastAPI + Celery（端口默认 `8099`）
 - `podi-admin-web/`：管理端（端口默认 `8199`）
-- `podi-eval-web/`：能力评测站点（端口默认 Vite 端口）
+- `podi-eval-web/`：能力评测站点（端口默认 `8200`）
+
+## 固定端口（铁律）
+
+以下端口为 **固定约定**，不得随意更改：
+
+- 后端：`8099`
+- 管理端：`8199`
+- 评测端：`8200`
+
+如端口被占用，先清理旧进程再启动，避免临时改端口导致配置混乱。
 
 历史客户端 `podi-design-web-dev/` 已移除，后续将以新的客户端形态重构。
 
@@ -50,7 +60,7 @@ npm run lint
 ```bash
 cd podi-eval-web
 npm install
-npm run dev
+npm run dev -- --port 8200
 ```
 
 ## 4) 常见问题
@@ -61,4 +71,3 @@ npm run dev
 lsof -i tcp:<port>
 kill <pid>
 ```
-

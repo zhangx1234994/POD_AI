@@ -7,6 +7,8 @@
 - 管理端（静态）：`8199`
 - 测评端（静态）：`8200`
 
+> **固定端口（铁律）**：上述端口为统一约定，不要临时改动；若端口冲突，请先清理旧进程。
+
 ## 前置条件
 - 服务器已安装 Docker + Docker Compose（`docker compose version` 可用）
 - 云端 MySQL 可访问（后端使用 `backend/.env` 中的 `DATABASE_URL`）
