@@ -1152,6 +1152,36 @@ export function IntegrationDashboard({
     : 'running';
   const pendingBatchValue = queueOverview?.pending_batches ?? dashboardMetrics?.totals.pending_batches ?? 0;
   const pendingBatchSub = queueOverview ? `剩余 ${queueOverview.pending_batch_tasks} 条任务` : '未完成的 TaskBatch';
+  const queueOverviewRows = useMemo(
+    () => [
+      {
+        key: 'tasks',
+        label: '任务调度',
+        pending: queueOverview?.task_pending ?? 0,
+        running: queueOverview?.task_running ?? 0,
+      },
+      {
+        key: 'abilities',
+        label: '统一能力',
+        pending: queueOverview?.ability_pending ?? 0,
+        running: queueOverview?.ability_running ?? 0,
+      },
+      {
+        key: 'evals',
+        label: '能力评测',
+        pending: queueOverview?.eval_pending ?? 0,
+        running: queueOverview?.eval_running ?? 0,
+      },
+      {
+        key: 'batches',
+        label: '批次任务',
+        pending: queueOverview?.pending_batches ?? 0,
+        running: queueOverview?.pending_batch_tasks ?? 0,
+        note: '待处理批次 / 剩余任务数',
+      },
+    ],
+    [queueOverview],
+  );
 
   const load = async () => {
     setLoading(true);
@@ -3215,6 +3245,38 @@ const normalizeErrorMessage = (message: string): string => {
                       <MetricCard label="新建" value={dashboardMetrics.today.created} />
                       <MetricCard label="完成" value={dashboardMetrics.today.completed} />
                       <MetricCard label="失败" value={dashboardMetrics.today.failed} />
+                    </div>
+                  </Card>
+                </Col>
+              </Row>
+              <Row gutter={[16, 16]}>
+                <Col span={24}>
+                  <Card title="队列总览" bordered>
+                    <Typography.Text theme="secondary">
+                      排队=created/pending/queued；执行=running。批次任务显示“待处理批次 / 剩余任务数”。
+                    </Typography.Text>
+                    <div style={{ marginTop: 12 }}>
+                      <Table
+                        rowKey="key"
+                        size="small"
+                        data={queueOverviewRows}
+                        columns={[
+                          { colKey: 'label', title: '类型', width: 180 },
+                          { colKey: 'pending', title: '排队中', width: 140 },
+                          { colKey: 'running', title: '执行中', width: 140 },
+                          {
+                            colKey: 'total',
+                            title: '合计',
+                            width: 140,
+                            cell: ({ row }) => (row.pending || 0) + (row.running || 0),
+                          },
+                          {
+                            colKey: 'note',
+                            title: '备注',
+                            cell: ({ row }) => row.note || '—',
+                          },
+                        ]}
+                      />
                     </div>
                   </Card>
                 </Col>
