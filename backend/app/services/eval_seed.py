@@ -943,12 +943,7 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
         } and row.category != "图裂变":
             row.category = "图裂变"
             dirty = True
-        if row.workflow_id == "7597723984687267840" and row.name != "扩图多模型版本":
-            row.name = "扩图多模型版本"
-            dirty = True
-        if row.workflow_id == "7598587935331450880" and row.name != "ComfyUI 扩图 · comfyuo_tukuozhan":
-            row.name = "ComfyUI 扩图 · comfyuo_tukuozhan"
-            dirty = True
+        # Keep workflow names editable in the admin UI; do not force-reset names here.
         # Ensure lora field stays a select with known options.
         if row.workflow_id in {"7597530887256801280", "7598545860393172992"}:
             # Work on a copy: mutating JSON in-place is not tracked by SQLAlchemy.
