@@ -50,9 +50,12 @@ def get_dashboard_metrics() -> schemas.DashboardMetricsResponse:
                 logger.exception("dashboard.metrics query failed: %s", stmt)
                 return default
 
-        def safe_group_count(col, id_col) -> list[tuple[str, int]]:
+        def safe_group_count(col, id_col, filters: list | None = None) -> list[tuple[str, int]]:
             try:
-                rows = session.execute(select(col, func.count(id_col)).group_by(col)).all()
+                stmt = select(col, func.count(id_col))
+                if filters:
+                    stmt = stmt.where(*filters)
+                rows = session.execute(stmt.group_by(col)).all()
                 out: list[tuple[str, int]] = []
                 for status, count in rows:
                     if status is None:
@@ -66,29 +69,37 @@ def get_dashboard_metrics() -> schemas.DashboardMetricsResponse:
         # NOTE: The legacy task pipeline uses `tasks`/`task_events`.
         # The evaluation platform and Coze plugin primarily create `eval_run` and `ability_tasks`.
         # For a useful dashboard in the current product stage, we aggregate across all three.
-        total_tasks = safe_scalar(select(func.count(Task.id))) + safe_scalar(select(func.count(AbilityTask.id))) + safe_scalar(
-            select(func.count(EvalRun.id))
-        )
+        task_filter = Task.is_deleted.is_(False)
+        task_total = safe_scalar(select(func.count(Task.id)).where(task_filter))
+        ability_total = safe_scalar(select(func.count(AbilityTask.id)))
+        eval_total = safe_scalar(select(func.count(EvalRun.id)))
+        total_tasks = task_total + ability_total + eval_total
 
-        queue_depth = (
-            safe_scalar(select(func.count(Task.id)).where(Task.status.in_(["created", "pending", "queued"])))
-            + safe_scalar(select(func.count(AbilityTask.id)).where(AbilityTask.status == "queued"))
-            + safe_scalar(select(func.count(EvalRun.id)).where(EvalRun.status.in_(["queued", "running"])))
-        )
+        task_pending = safe_scalar(select(func.count(Task.id)).where(task_filter, Task.status.in_(["created", "pending", "queued"])))
+        task_running = safe_scalar(select(func.count(Task.id)).where(task_filter, Task.status == "running"))
+        ability_pending = safe_scalar(select(func.count(AbilityTask.id)).where(AbilityTask.status == "queued"))
+        ability_running = safe_scalar(select(func.count(AbilityTask.id)).where(AbilityTask.status == "running"))
+        eval_pending = safe_scalar(select(func.count(EvalRun.id)).where(EvalRun.status == "queued"))
+        eval_running = safe_scalar(select(func.count(EvalRun.id)).where(EvalRun.status == "running"))
 
-        pending_batches = safe_scalar(
-            select(func.count(TaskBatch.id)).where(TaskBatch.status.notin_(["completed", "cancelled"]))
+        queue_depth = task_pending + ability_pending + eval_pending
+        running_total = task_running + ability_running + eval_running
+
+        pending_batch_filter = TaskBatch.completed_count < TaskBatch.total_count
+        pending_batches = safe_scalar(select(func.count(TaskBatch.id)).where(pending_batch_filter))
+        pending_batch_tasks = safe_scalar(
+            select(func.sum(TaskBatch.total_count - TaskBatch.completed_count)).where(pending_batch_filter)
         )
 
         failed_tasks = (
-            safe_scalar(select(func.count(Task.id)).where(Task.status == "failed"))
+            safe_scalar(select(func.count(Task.id)).where(task_filter, Task.status == "failed"))
             + safe_scalar(select(func.count(AbilityTask.id)).where(AbilityTask.status == "failed"))
             + safe_scalar(select(func.count(EvalRun.id)).where(EvalRun.status == "failed"))
         )
 
         # Status buckets aggregated across the three pipelines.
         buckets: dict[str, int] = {}
-        for status, count in safe_group_count(Task.status, Task.id):
+        for status, count in safe_group_count(Task.status, Task.id, [task_filter]):
             buckets[status] = buckets.get(status, 0) + count
         for status, count in safe_group_count(AbilityTask.status, AbilityTask.id):
             buckets[status] = buckets.get(status, 0) + count
@@ -99,7 +110,9 @@ def get_dashboard_metrics() -> schemas.DashboardMetricsResponse:
         today_map: dict[str, int] = {}
         try:
             for status, count in session.execute(
-                select(Task.status, func.count(Task.id)).where(Task.created_at >= today_start).group_by(Task.status)
+                select(Task.status, func.count(Task.id))
+                .where(Task.created_at >= today_start, task_filter)
+                .group_by(Task.status)
             ).all():
                 if status is None:
                     continue
@@ -127,7 +140,13 @@ def get_dashboard_metrics() -> schemas.DashboardMetricsResponse:
 
         # Merge recent "tasks" from all pipelines.
         try:
-            legacy_tasks = session.execute(select(Task).order_by(Task.created_at.desc()).limit(8)).scalars().all()
+            legacy_tasks = (
+                session.execute(
+                    select(Task).where(task_filter).order_by(Task.created_at.desc()).limit(8)
+                )
+                .scalars()
+                .all()
+            )
         except SQLAlchemyError:
             logger.exception("dashboard.metrics recent legacy tasks failed")
             legacy_tasks = []
@@ -205,6 +224,18 @@ def get_dashboard_metrics() -> schemas.DashboardMetricsResponse:
             queue_depth=queue_depth,
             pending_batches=pending_batches,
             failed_tasks=failed_tasks,
+        ),
+        queue_overview=schemas.QueueOverview(
+            total_pending=queue_depth,
+            total_running=running_total,
+            task_pending=task_pending,
+            task_running=task_running,
+            ability_pending=ability_pending,
+            ability_running=ability_running,
+            eval_pending=eval_pending,
+            eval_running=eval_running,
+            pending_batches=pending_batches,
+            pending_batch_tasks=pending_batch_tasks,
         ),
         status_buckets=status_buckets,
         today=schemas.TodaySummary(

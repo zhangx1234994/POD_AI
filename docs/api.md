@@ -809,5 +809,6 @@ export const useImageProcessing = () => {
 
 - `GET /api/admin/comfyui/models?executorId=...`：代理 ComfyUI `/object_info`，返回可选 `unet/clip/vae/lora` 清单，管理端测试面板自动渲染为下拉框。
 - `GET /api/admin/comfyui/queue-status?executorId=...`：代理 `/queue/status`，展示 `running/pending/max`。异常时返回 `COMFYUI_QUEUE_STATUS_ERROR`，通常表示目标节点离线或无响应。
+- `GET /api/admin/comfyui/queue-summary?executorIds=...`：跨节点汇总 ComfyUI 队列状态，返回 `totalRunning/totalPending/servers[]`，用于调度监控看板与集中排障。
 
 > **建议**：客户端只需了解 `/api/abilities` + `/invoke` + `/ability-tasks` + `/auth`。其余 `/api/admin/*` 接口为后台/管理端占用，用于维护执行节点、工作流、API Key 仓库与调用日志。

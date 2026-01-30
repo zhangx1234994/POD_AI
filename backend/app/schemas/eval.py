@@ -143,4 +143,9 @@ class EvalAnnotationResponse(EvalAnnotationBase):
         from_attributes = True
 
 
+class EvalRunPurgeResponse(BaseModel):
+    deleted_runs: int = Field(..., description="已删除的运行记录数")
+    deleted_annotations: int = Field(..., description="已删除的标注记录数")
+
+
 EvalRunWithLatestAnnotationResponse.model_rebuild()

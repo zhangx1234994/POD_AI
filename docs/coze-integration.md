@@ -15,6 +15,9 @@ PODI exposes an OpenAPI document for Coze to import:
 Each PODI Ability becomes one Coze tool:
 - `POST /api/coze/podi/tools/{provider}/{capability_key}`
 
+Additional monitoring tools:
+- `POST /api/coze/podi/comfyui/queue-summary` → returns `totalRunning/totalPending/servers[]` so Coze workflows can check ComfyUI queue health before dispatch.
+
 Coze workflow nodes only show outputs that are declared in the OpenAPI response schema.
 This plugin returns a stable response shape across tools:
 - `text` / `texts`

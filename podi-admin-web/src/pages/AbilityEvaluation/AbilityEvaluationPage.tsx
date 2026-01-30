@@ -53,6 +53,7 @@ export function AbilityEvaluationPage() {
   const [evaluationResults, setEvaluationResults] = useState<EvalRun[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [isSavingWorkflowNotes, setIsSavingWorkflowNotes] = useState(false);
+  const [isPurgingRuns, setIsPurgingRuns] = useState(false);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [createError, setCreateError] = useState<string>('');
   const [isCreating, setIsCreating] = useState(false);
@@ -235,6 +236,39 @@ export function AbilityEvaluationPage() {
     }
   };
 
+  const handlePurgeRuns = async (scope: 'current' | 'all') => {
+    if (isPurgingRuns) return;
+    if (scope === 'current' && !selectedWorkflow?.id) {
+      pushNotice({ type: 'error', message: '请先选择一个工作流再清空。' });
+      return;
+    }
+    const targetLabel =
+      scope === 'current'
+        ? `「${selectedWorkflow?.name || selectedWorkflow?.id}」`
+        : '全部评测记录';
+    if (!window.confirm(`确认清空 ${targetLabel}？该操作不可恢复。`)) return;
+
+    setIsPurgingRuns(true);
+    try {
+      const res = await adminApi.purgeEvalRuns(
+        scope === 'current' ? { workflow_version_id: selectedWorkflow?.id } : undefined,
+      );
+      setEvaluationResults([]);
+      if (selectedWorkflow?.id) {
+        await refreshRuns(selectedWorkflow.id);
+      }
+      pushNotice({
+        type: 'success',
+        message: `已清空评测记录（运行 ${res.deleted_runs} 条 / 标注 ${res.deleted_annotations} 条）`,
+      });
+    } catch (err) {
+      console.error(err);
+      pushNotice({ type: 'error', message: String((err as any)?.message || err) });
+    } finally {
+      setIsPurgingRuns(false);
+    }
+  };
+
   const handleSaveWorkflowNotes = async (workflowVersionId: string, notes: string) => {
     setIsSavingWorkflowNotes(true);
     try {
@@ -399,7 +433,12 @@ export function AbilityEvaluationPage() {
           onSaveWorkflowNotes={handleSaveWorkflowNotes}
         />
 
-        <EvaluationResultPanel results={evaluationResults} onAnnotate={handleAnnotate} />
+        <EvaluationResultPanel
+          results={evaluationResults}
+          onAnnotate={handleAnnotate}
+          onClearRuns={handlePurgeRuns}
+          clearing={isPurgingRuns}
+        />
       </div>
 
       {isCreateOpen ? (

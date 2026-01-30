@@ -148,6 +148,7 @@
 | Endpoint | 说明 |
 | --- | --- |
 | `GET /api/admin/comfyui/models?executorId=...` | 由 admin API 代理 `/object_info`，并解析到 `UNETLoader/CLIPLoader/VAELoader/LoraLoaderModelOnly` 字段。管理端在渲染 schema 时会将 `component=select` 的字段改为下拉，并允许“自定义 LoRA”回退到手动输入。 |
-| `GET /api/admin/comfyui/queue-status?executorId=...` | 由 admin API 代理 `/queue/status`，统一展示 `runningCount/pendingCount/queueMaxSize`。测试面板会自动轮询（15s）并提供手动刷新，方便排查串行 worker 是否被拖慢。 |
+| `GET /api/admin/comfyui/queue-status?executorId=...` | 由 admin API 代理 `/queue/status`，统一展示 `runningCount/pendingCount/queueMaxSize`。测试面板提供手动刷新，方便排查串行 worker 是否被拖慢。 |
+| `GET /api/admin/comfyui/queue-summary?executorIds=...` | 汇总多台 ComfyUI 节点的队列状态，返回 `totalRunning/totalPending/servers[]`，用于“调度监控/执行节点”看板。 |
 
 > 注意：ComfyUI 默认单线程顺序执行，`pendingCount`>0 时说明上一张仍在处理，新的请求会等待。必要时请切换到另一台 executor 或扩大 worker 数量后再在 config/executors.yaml 中声明。

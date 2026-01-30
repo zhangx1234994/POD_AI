@@ -4,7 +4,7 @@ from typing import List, Optional
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
@@ -23,12 +23,13 @@ from app.schemas.eval import (
     EvalRunCreate,
     EvalRunResponse,
     EvalRunListResponse,
+    EvalRunPurgeResponse,
     EvalAnnotationCreate,
     EvalAnnotationResponse,
 )
 from app.services.eval_service import get_eval_service
 from app.services.eval_seed import ensure_default_eval_workflow_versions
-from app.deps.auth import get_current_user
+from app.deps.auth import get_current_user, require_admin
 from app.models.user import User
 
 router = APIRouter(prefix="/evals")
@@ -229,3 +230,40 @@ async def list_annotations(
     query = select(EvalAnnotation).where(EvalAnnotation.run_id == run_id)
     result = db.execute(query)
     return result.scalars().all()
+
+
+@router.delete("/runs", response_model=EvalRunPurgeResponse)
+async def purge_eval_runs(
+    workflow_version_id: Optional[str] = Query(None),
+    confirm: bool = Query(False),
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Delete evaluation runs and related annotations.
+
+    Use `confirm=true` to avoid accidental deletion.
+    """
+    if not confirm:
+        raise HTTPException(status_code=400, detail="CONFIRM_REQUIRED")
+
+    filters = []
+    if workflow_version_id:
+        filters.append(EvalRun.workflow_version_id == workflow_version_id)
+
+    subquery = select(EvalRun.id)
+    if filters:
+        subquery = subquery.where(*filters)
+
+    deleted_annotations = db.execute(
+        delete(EvalAnnotation).where(EvalAnnotation.run_id.in_(subquery))
+    ).rowcount or 0
+    delete_runs_stmt = delete(EvalRun)
+    if filters:
+        delete_runs_stmt = delete_runs_stmt.where(*filters)
+    deleted_runs = db.execute(delete_runs_stmt).rowcount or 0
+    db.commit()
+
+    return EvalRunPurgeResponse(
+        deleted_runs=int(deleted_runs),
+        deleted_annotations=int(deleted_annotations),
+    )

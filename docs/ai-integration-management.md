@@ -4,7 +4,7 @@
 
 ## 目标
 
-1. **多厂商统一抽象**：支持 OpenAI、火山引擎、阿里云百炼、百度智能云、ComfyUI 自建算力等多源 AI 能力，通过配置即可扩展。
+1. **多厂商统一抽象**：支持 OpenAI、火山引擎、阿里云百炼、百度智能云、KIE 市场模型、ComfyUI 自建算力等多源 AI 能力，通过配置即可扩展。
 2. **运行时灵活调度**：任务提交后，调度器根据 action/工作流/执行节点状态选择最合适的 executor，并监控执行结果。
 3. **可视化管理**：独立的 Admin 页面管理工作流、执行节点、API Key、ComfyUI 工作流版本，使运营同学无需改代码即可切换产能。
 4. **密钥安全与可回滚**：支持 RAM 角色、STS、API Key 失效检测，提供配额跟踪与自动降级策略。
@@ -55,7 +55,7 @@
 - **能力目录 & 统一接口信息**：卡片展示 Ability ID、所属 provider、默认执行节点、能力类型、成本（`metadata.pricing`），并通过“统一能力接口”说明组件生成可复制的 `curl` 示例。
 - **实时测试 Tab**：根据能力 schema（含节点编号描述）渲染表单，支持上传图片、选择执行节点、覆盖默认参数。ComfyUI 能力会调用 `/api/admin/comfyui/models` 自动把 UNet/CLIP/VAE/LoRA 列表渲染为下拉框，避免手填。
 - **调用记录 Tab**：嵌入 `/api/admin/abilities/{abilityId}/logs` 数据，展示最近 N 次调用的状态、耗时、输出 OSS 链接、失败原因、traceId。点击可展开 Raw Response，辅助排查。
-- **ComfyUI 队列状态面板**：针对每个 ComfyUI 执行节点，展示 `running/pending/max` 以及错误提示（如 `COMFYUI_QUEUE_STATUS_ERROR`），并提供刷新按钮，帮助判断串行队列是否阻塞。
+- **ComfyUI 队列状态面板**：针对每个 ComfyUI 执行节点，展示 `running/pending/max` 以及错误提示（如 `COMFYUI_QUEUE_STATUS_ERROR`），提供手动刷新；“调度监控”还会聚合多节点队列汇总，便于统一看板排查。
 - **API Key 仓库**：提供列表 + 详情抽屉，支持录入、启用/禁用、备注限流策略；能力表单会检测 executor 是否缺少凭证并给出指引。
 - **能力详情空位**：提前预留成本、自检、SLA 等信息位，即使数据暂缺亦有 placeholder，提醒后续需要补齐。
 

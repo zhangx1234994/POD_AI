@@ -16,7 +16,14 @@ import type {
   SystemConfig,
   Workflow,
 } from '../types/admin';
-import type { EvalAnnotation, EvalDatasetItem, EvalRun, EvalRunListResponse, EvalWorkflowVersion } from '../types/eval';
+import type {
+  EvalAnnotation,
+  EvalDatasetItem,
+  EvalRun,
+  EvalRunListResponse,
+  EvalRunPurgeResponse,
+  EvalWorkflowVersion,
+} from '../types/eval';
 
 type AbilityContextPayload = {
   abilityId?: string | null;
@@ -432,4 +439,11 @@ export const adminApi = {
   getEvalRun: (runId: string) => request<EvalRun>(`/api/admin/evals/runs/${runId}`),
   createEvalAnnotation: (runId: string, payload: { rating: number; comment?: string; tags_json?: string[] }) =>
     request<EvalAnnotation>(`/api/admin/evals/runs/${runId}/annotations`, { method: 'POST', body: JSON.stringify(payload) }),
+  purgeEvalRuns: (params?: { workflow_version_id?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.workflow_version_id) qs.set('workflow_version_id', params.workflow_version_id);
+    qs.set('confirm', 'true');
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return request<EvalRunPurgeResponse>(`/api/admin/evals/runs${suffix}`, { method: 'DELETE' });
+  },
 };

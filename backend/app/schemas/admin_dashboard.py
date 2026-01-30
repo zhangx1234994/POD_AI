@@ -26,6 +26,19 @@ class DashboardTotals(BaseModel):
     failed_tasks: int
 
 
+class QueueOverview(BaseModel):
+    total_pending: int
+    total_running: int
+    task_pending: int
+    task_running: int
+    ability_pending: int
+    ability_running: int
+    eval_pending: int
+    eval_running: int
+    pending_batches: int
+    pending_batch_tasks: int
+
+
 class RecentTask(BaseModel):
     id: str
     user_id: str
@@ -49,6 +62,7 @@ class ExecutorHealth(BaseModel):
 
 class DashboardMetricsResponse(BaseModel):
     totals: DashboardTotals
+    queue_overview: QueueOverview
     status_buckets: list[TaskStatusBucket]
     today: TodaySummary
     recent_tasks: list[RecentTask]

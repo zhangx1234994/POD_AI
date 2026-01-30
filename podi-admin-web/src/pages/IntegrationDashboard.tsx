@@ -1141,6 +1141,17 @@ export function IntegrationDashboard({
     return map;
   }, [dashboardMetrics]);
   const runningQueueCount = statusCountMap.running ?? 0;
+  const queueOverview = dashboardMetrics?.queue_overview;
+  const pendingQueueTotal = queueOverview?.total_pending ?? dashboardMetrics?.totals.queue_depth ?? 0;
+  const runningQueueTotal = queueOverview?.total_running ?? runningQueueCount;
+  const pendingQueueSub = queueOverview
+    ? `任务 ${queueOverview.task_pending} · 能力 ${queueOverview.ability_pending} · 评测 ${queueOverview.eval_pending}`
+    : 'created/pending/queued';
+  const runningQueueSub = queueOverview
+    ? `任务 ${queueOverview.task_running} · 能力 ${queueOverview.ability_running} · 评测 ${queueOverview.eval_running}`
+    : 'running';
+  const pendingBatchValue = queueOverview?.pending_batches ?? dashboardMetrics?.totals.pending_batches ?? 0;
+  const pendingBatchSub = queueOverview ? `剩余 ${queueOverview.pending_batch_tasks} 条任务` : '未完成的 TaskBatch';
 
   const load = async () => {
     setLoading(true);
@@ -1281,42 +1292,16 @@ export function IntegrationDashboard({
     if (activeNav !== 'executors') return;
     // Warm cache for "channels" view, but avoid blocking initial render.
     refreshExecutorTraffic({ silent: true });
-    refreshComfyQueueSummary({ silent: true });
-  }, [activeNav, refreshExecutorTraffic, refreshComfyQueueSummary]);
+  }, [activeNav, refreshExecutorTraffic]);
 
   useEffect(() => {
-    if (activeNav !== 'executors') return;
-    let cancelled = false;
-    const run = async (silent?: boolean) => {
-      if (cancelled) return;
-      await refreshComfyQueueSummary({ silent });
-    };
-    void run(false);
-    const interval = window.setInterval(() => {
-      void run(true);
-    }, 15000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-  }, [activeNav, refreshComfyQueueSummary]);
-
-  useEffect(() => {
-    if (activeNav !== 'monitor') return;
-    let cancelled = false;
-    const run = async (silent?: boolean) => {
-      if (cancelled) return;
-      await refreshComfyQueueSummary({ silent });
-    };
-    void run(false);
-    const interval = window.setInterval(() => {
-      void run(true);
-    }, 15000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-  }, [activeNav, refreshComfyQueueSummary]);
+    if (activeNav !== 'executors' && activeNav !== 'monitor') return;
+    // Keep queue summary manual-refresh only.
+    setComfyQueueSummary(null);
+    setComfyQueueSummaryUpdatedAt(null);
+    setComfyQueueSummaryError(null);
+    setComfyQueueSummaryLoading(false);
+  }, [activeNav]);
 
   useEffect(() => {
     load();
@@ -1426,20 +1411,12 @@ export function IntegrationDashboard({
       setComfyQueueLoading(false);
       return;
     }
-    let cancelled = false;
-    const run = async (silent?: boolean) => {
-      if (cancelled) return;
-      await refreshComfyQueueStatus({ silent });
-    };
-    void run(false);
-    const interval = window.setInterval(() => {
-      void run(true);
-    }, 15000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-  }, [refreshComfyQueueStatus, selectedAbility?.provider, activeComfyExecutorId]);
+    // Manual refresh only; reset stale state when switching executor.
+    setComfyQueueStatus(null);
+    setComfyQueueError(null);
+    setComfyQueueUpdatedAt(null);
+    setComfyQueueLoading(false);
+  }, [selectedAbility?.provider, activeComfyExecutorId]);
 
   const copyTextToClipboard = async (value: string) => {
     try {
@@ -2723,7 +2700,7 @@ const normalizeErrorMessage = (message: string): string => {
               </>
             ) : (
               <p className="text-xs text-slate-500">
-                {comfyQueueLoading ? '正在获取队列状态…' : '暂无实时数据，稍后自动刷新。'}
+                {comfyQueueLoading ? '正在获取队列状态…' : '暂无实时数据，请点击刷新。'}
               </p>
             )}
           </div>
@@ -3196,9 +3173,9 @@ const normalizeErrorMessage = (message: string): string => {
             <Section id="monitor" title="运行监控" description="实时关注任务队列、当日执行概况以及节点健康状态。">
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <MetricCard label="累计任务" value={dashboardMetrics.totals.total_tasks} sub="历史累计" />
-                <MetricCard label="排队中" value={dashboardMetrics.totals.queue_depth} sub="created/pending/queued" />
-                <MetricCard label="执行中/回调中" value={runningQueueCount} sub="running" />
-                <MetricCard label="批次待处理" value={dashboardMetrics.totals.pending_batches} sub="未完成的 TaskBatch" />
+                <MetricCard label="排队中" value={pendingQueueTotal} sub={pendingQueueSub} />
+                <MetricCard label="执行中/回调中" value={runningQueueTotal} sub={runningQueueSub} />
+                <MetricCard label="批次待处理" value={pendingBatchValue} sub={pendingBatchSub} />
                 <MetricCard label="失败任务" value={dashboardMetrics.totals.failed_tasks} sub="含错误待复盘" />
                 <MetricCard
                   label="ComfyUI 排队"

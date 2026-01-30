@@ -4,6 +4,8 @@ import type { EvalRun } from '../../../types/eval';
 type Props = {
   results: EvalRun[];
   onAnnotate: (runId: string, payload: { rating: number; comment?: string }) => Promise<void> | void;
+  onClearRuns?: (scope: 'current' | 'all') => void;
+  clearing?: boolean;
 };
 
 const formatDuration = (ms?: number | null) => {
@@ -12,7 +14,7 @@ const formatDuration = (ms?: number | null) => {
   return `${(ms / 1000).toFixed(2)}s`;
 };
 
-export function EvaluationResultPanel({ results, onAnnotate }: Props) {
+export function EvaluationResultPanel({ results, onAnnotate, onClearRuns, clearing }: Props) {
   const sorted = useMemo(
     () => results.slice().sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
     [results],
@@ -42,12 +44,34 @@ export function EvaluationResultPanel({ results, onAnnotate }: Props) {
 
   return (
     <div className="flex-1 overflow-y-auto p-4">
-      <div className="mb-3 flex items-end justify-between">
+      <div className="mb-3 flex items-end justify-between gap-4">
         <div>
           <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">结果与打分</div>
           <div className="text-xs text-slate-700 dark:text-slate-400">评分 1-5，备注可选；结果会写入 MySQL。</div>
         </div>
-        <div className="text-xs text-slate-700 dark:text-slate-500">最近 {sorted.length} 条</div>
+        <div className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-500">
+          <span>最近 {sorted.length} 条</span>
+          {onClearRuns ? (
+            <>
+              <button
+                type="button"
+                onClick={() => onClearRuns('current')}
+                disabled={clearing}
+                className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 dark:hover:border-slate-700"
+              >
+                清空当前
+              </button>
+              <button
+                type="button"
+                onClick={() => onClearRuns('all')}
+                disabled={clearing}
+                className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-700 hover:border-rose-300 disabled:cursor-not-allowed disabled:opacity-60 dark:border-rose-900/60 dark:bg-rose-900/20 dark:text-rose-200"
+              >
+                清空全部
+              </button>
+            </>
+          ) : null}
+        </div>
       </div>
 
       <div className="space-y-4">

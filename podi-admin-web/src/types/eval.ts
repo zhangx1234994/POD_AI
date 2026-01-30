@@ -46,6 +46,11 @@ export type EvalRunListResponse = {
   items: EvalRun[];
 };
 
+export type EvalRunPurgeResponse = {
+  deleted_runs: number;
+  deleted_annotations: number;
+};
+
 export type EvalAnnotation = {
   id: string;
   run_id: string;
@@ -55,4 +60,3 @@ export type EvalAnnotation = {
   created_by: string;
   created_at: string;
 };
-

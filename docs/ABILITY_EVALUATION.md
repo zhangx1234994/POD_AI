@@ -25,6 +25,7 @@
 - `POST /api/admin/evals/runs`
 - `GET /api/admin/evals/runs`
 - `POST /api/admin/evals/runs/{run_id}/annotations`
+- `DELETE /api/admin/evals/runs?confirm=true&workflow_version_id=...`（清空评测历史，默认可选按 workflow 过滤）
 
 另提供“无需登录”的评测 API（给独立评测页面用）：
 

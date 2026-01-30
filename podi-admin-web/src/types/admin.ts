@@ -183,6 +183,19 @@ export interface DashboardTotals {
   failed_tasks: number;
 }
 
+export interface QueueOverview {
+  total_pending: number;
+  total_running: number;
+  task_pending: number;
+  task_running: number;
+  ability_pending: number;
+  ability_running: number;
+  eval_pending: number;
+  eval_running: number;
+  pending_batches: number;
+  pending_batch_tasks: number;
+}
+
 export interface TaskStatusBucket {
   status: string;
   count: number;
@@ -217,6 +230,7 @@ export interface ExecutorHealth {
 
 export interface DashboardMetrics {
   totals: DashboardTotals;
+  queue_overview: QueueOverview;
   status_buckets: TaskStatusBucket[];
   today: TodaySummary;
   recent_tasks: RecentTask[];
