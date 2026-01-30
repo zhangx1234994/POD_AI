@@ -927,6 +927,46 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
                     schema["fields"] = fields
                     row.parameters_schema = schema
                     dirty = True
+        if row.workflow_id in {"7601080398864449536", "7598559869544693760", "7598560946579046400"}:
+            # Ensure image URL field exists (some legacy rows were missing it).
+            schema = json.loads(json.dumps(row.parameters_schema or {}, ensure_ascii=False))
+            fields = schema.get("fields") if isinstance(schema, dict) else None
+            if isinstance(fields, list):
+                changed = False
+                has_url = any(isinstance(f, dict) and f.get("name") == "url" for f in fields)
+                has_Url = any(isinstance(f, dict) and f.get("name") == "Url" for f in fields)
+                if not has_url and has_Url:
+                    for f in fields:
+                        if isinstance(f, dict) and f.get("name") == "Url":
+                            f["name"] = "url"
+                            f["label"] = "图片 URL"
+                            f["required"] = True
+                            changed = True
+                            has_url = True
+                            break
+                if not has_url:
+                    fields.insert(
+                        0,
+                        {
+                            "name": "url",
+                            "label": "图片 URL",
+                            "type": "text",
+                            "required": True,
+                        },
+                    )
+                    changed = True
+                if has_Url:
+                    filtered = []
+                    for f in fields:
+                        if isinstance(f, dict) and f.get("name") == "Url":
+                            changed = True
+                            continue
+                        filtered.append(f)
+                    fields = filtered
+                if changed:
+                    schema["fields"] = fields
+                    row.parameters_schema = schema
+                    dirty = True
         if row.workflow_id in {
             "7597723984687267840",
             "7598587935331450880",
