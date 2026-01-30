@@ -876,6 +876,12 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
     },
 ]
 
+DEFAULT_OUTPUT_SCHEMA_BY_ID: dict[str, dict[str, Any]] = {
+    str(item.get("workflow_id")): item.get("output_schema") or {}
+    for item in DEFAULT_EVAL_WORKFLOW_VERSIONS
+    if item.get("workflow_id")
+}
+
 
 def ensure_default_eval_workflow_versions(session: Session) -> bool:
     """Insert missing default workflow versions. Returns True if any created."""
@@ -911,6 +917,37 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
         "7597702948247830528": "通用类",  # 8 steps
         "7597659369861283840": "通用类",  # multi-model gen
     }
+    def _coerce_schema(value: Any) -> dict[str, Any]:
+        if isinstance(value, dict):
+            return value
+        if isinstance(value, list):
+            return {"fields": value}
+        if isinstance(value, str):
+            raw = value.strip()
+            if not raw:
+                return {}
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError:
+                return {}
+            if isinstance(parsed, dict):
+                return parsed
+            if isinstance(parsed, list):
+                return {"fields": parsed}
+        return {}
+
+    def _schema_expects_callback(schema: dict[str, Any] | None) -> bool:
+        fields = schema.get("fields") if isinstance(schema, dict) else None
+        if not isinstance(fields, list):
+            return False
+        for f in fields:
+            if not isinstance(f, dict) or f.get("name") != "output":
+                continue
+            desc = str(f.get("description") or "")
+            if "task" in desc.lower() or "回调" in desc:
+                return True
+        return False
+
     rows = session.execute(select(EvalWorkflowVersion)).scalars().all()
     dirty = False
     for row in rows:
@@ -1062,24 +1099,30 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
             "7598848725942796288",
         }:
             # Ensure output schema hints callback task ids for new async workflows.
-            schema = json.loads(json.dumps(row.output_schema or {}, ensure_ascii=False))
-            fields = schema.get("fields") if isinstance(schema, dict) else None
-            if isinstance(fields, list):
-                changed = False
-                for f in fields:
-                    if not isinstance(f, dict) or f.get("name") != "output":
-                        continue
-                    desc = str(f.get("description") or "")
-                    if "回调" not in desc and "task" not in desc.lower():
-                        f["description"] = "回调 task id"
-                        changed = True
-                if changed:
-                    schema["fields"] = fields
-                    row.output_schema = schema
+            schema = _coerce_schema(row.output_schema or {})
+            desired = _coerce_schema(DEFAULT_OUTPUT_SCHEMA_BY_ID.get(row.workflow_id) or {})
+            if not schema or not _schema_expects_callback(schema):
+                if desired:
+                    row.output_schema = desired
                     dirty = True
+            else:
+                fields = schema.get("fields") if isinstance(schema, dict) else None
+                if isinstance(fields, list):
+                    changed = False
+                    for f in fields:
+                        if not isinstance(f, dict) or f.get("name") != "output":
+                            continue
+                        desc = str(f.get("description") or "")
+                        if "回调" not in desc and "task" not in desc.lower():
+                            f["description"] = "回调 task id"
+                            changed = True
+                    if changed:
+                        schema["fields"] = fields
+                        row.output_schema = schema
+                        dirty = True
         if row.workflow_id in PROMPT_OUTPUT_WORKFLOW_IDS:
             # Ensure prompt is documented in output schema.
-            schema = json.loads(json.dumps(row.output_schema or {}, ensure_ascii=False))
+            schema = _coerce_schema(row.output_schema or {})
             fields = schema.get("fields") if isinstance(schema, dict) else None
             if not isinstance(fields, list):
                 fields = []

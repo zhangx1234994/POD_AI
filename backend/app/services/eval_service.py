@@ -101,9 +101,18 @@ class EvalService:
         return run
 
     @staticmethod
-    def _workflow_expects_callback(output_schema: dict[str, Any] | None) -> bool:
+    def _workflow_expects_callback(output_schema: dict[str, Any] | list[Any] | str | None) -> bool:
         """Best-effort: infer whether a workflow returns a callback task id in `output`."""
-        schema = output_schema or {}
+        schema: dict[str, Any] | list[Any] | str = output_schema or {}
+        if isinstance(schema, str):
+            raw = schema.strip()
+            if raw:
+                try:
+                    schema = json.loads(raw)
+                except json.JSONDecodeError:
+                    schema = {}
+        if isinstance(schema, list):
+            schema = {"fields": schema}
         fields = schema.get("fields") if isinstance(schema, dict) else None
         if not isinstance(fields, list):
             return False
