@@ -458,18 +458,43 @@ class AbilityInvocationService:
         if not image_url and not image_base64:
             raise HTTPException(status_code=400, detail="IMAGE_REQUIRED")
 
-        def _as_int(name: str) -> int:
-            v = merged_inputs.get(name)
+        def _as_int(*keys: str) -> int:
+            v = None
+            for key in keys:
+                if key in merged_inputs:
+                    v = merged_inputs.get(key)
+                    break
+            if v is None:
+                return 0
+            # Accept strings like "200", "200px", " 200 " etc.
+            if isinstance(v, str):
+                raw = v.strip()
+                if not raw:
+                    return 0
+                # Keep only leading numeric portion.
+                num = ""
+                for ch in raw:
+                    if ch.isdigit():
+                        num += ch
+                    elif num:
+                        break
+                if not num:
+                    return 0
+                try:
+                    n = int(num)
+                    return n if n > 0 else 0
+                except Exception:
+                    return 0
             try:
-                n = int(str(v).strip())
+                n = int(v)
                 return n if n > 0 else 0
             except Exception:
                 return 0
 
-        left = _as_int("expand_left")
-        right = _as_int("expand_right")
-        top = _as_int("expand_top")
-        bottom = _as_int("expand_bottom")
+        left = _as_int("expand_left", "expandLeft", "left")
+        right = _as_int("expand_right", "expandRight", "right")
+        top = _as_int("expand_top", "expandTop", "top")
+        bottom = _as_int("expand_bottom", "expandBottom", "bottom")
 
         # Read source bytes (prefer base64; otherwise download from URL).
         src_bytes: bytes | None = None
