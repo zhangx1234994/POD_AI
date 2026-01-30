@@ -46,6 +46,7 @@ class CozeWorkflowClient:
         ext: Mapping[str, Any] | None = None,
         is_async: bool = False,
         request_id: str | None = None,
+        max_retries: int | None = None,
     ) -> dict[str, Any]:
         base_url, token, timeout = self._get_config()
         url = f"{base_url}/v1/workflow/run"
@@ -62,13 +63,14 @@ class CozeWorkflowClient:
         }
         if request_id:
             headers["X-Request-ID"] = request_id
+        retries = max_retries if isinstance(max_retries, int) and max_retries > 0 else 3
         last_invalid: str | None = None
-        for attempt in range(3):
+        for attempt in range(retries):
             try:
                 response = httpx.post(url, json=body, headers=headers, timeout=timeout)
             except httpx.HTTPError as exc:  # pragma: no cover - network errors
                 last_invalid = f"COZE_REQUEST_FAILED:{exc}"
-                if attempt < 2:
+                if attempt < retries - 1:
                     import time
 
                     time.sleep(0.6 * (1.8**attempt))
@@ -85,14 +87,14 @@ class CozeWorkflowClient:
                 except Exception:
                     snippet = ""
                 last_invalid = f"COZE_INVALID_RESPONSE status={response.status_code} body={snippet!r}"
-                if response.status_code in {502, 503, 504} and attempt < 2:
+                if response.status_code in {502, 503, 504} and attempt < retries - 1:
                     import time
 
                     time.sleep(0.6 * (1.8**attempt))
                     continue
                 raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=last_invalid) from exc
 
-            if response.status_code >= 500 and attempt < 2:
+            if response.status_code >= 500 and attempt < retries - 1:
                 last_invalid = f"COZE_HTTP_{response.status_code}:{payload if not isinstance(payload, dict) else payload.get('msg')}"
                 import time
 

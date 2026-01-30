@@ -382,7 +382,13 @@ class EvalService:
             # Fallback: if Coze blocks longer than our HTTP timeout (common for long-running
             # generation workflows), switch to async submit + run_history polling.
             try:
-                response = coze_client.run_workflow(workflow_id=workflow_id, parameters=coze_params, is_async=False)
+                response = coze_client.run_workflow(
+                    workflow_id=workflow_id,
+                    parameters=coze_params,
+                    is_async=False,
+                    request_id=run_id,
+                    max_retries=1,
+                )
             except HTTPException as exc:
                 detail = str(getattr(exc, "detail", "") or "")
                 lowered = detail.lower()
@@ -440,6 +446,8 @@ class EvalService:
                             workflow_id=workflow_id,
                             parameters=patched,
                             is_async=False,
+                            request_id=run_id,
+                            max_retries=1,
                         )
                         base_resp = response.get("BaseResp") or {}
                         status_code = base_resp.get("StatusCode")
@@ -618,11 +626,18 @@ class EvalService:
         execute_id: str | None = None
         debug_url: str | None = None
 
-        # 1) Submit (async) with retry+backoff.
+        # 1) Submit (async). Avoid aggressive retries to prevent duplicate jobs when
+        # network is flaky (Coze may still accept the first request).
         last_err: str | None = None
-        for attempt in range(3):
+        for attempt in range(2):
             try:
-                resp = coze_client.run_workflow(workflow_id=workflow_id, parameters=params, is_async=True)
+                resp = coze_client.run_workflow(
+                    workflow_id=workflow_id,
+                    parameters=params,
+                    is_async=True,
+                    request_id=run_id,
+                    max_retries=1,
+                )
                 base_resp = resp.get("BaseResp") or {}
                 status_code = base_resp.get("StatusCode")
                 code = resp.get("code")
@@ -639,9 +654,6 @@ class EvalService:
                             params = patched
                             continue
                     last_err = f"COZE_SUBMIT_FAILED code={code} statusCode={status_code} msg={msg}"
-                    if attempt < 2 and isinstance(msg, str) and _is_transient(msg):
-                        time.sleep(0.6 * (1.9**attempt))
-                        continue
                     return [], last_err, None, None
 
                 execute_id = str(resp.get("execute_id") or "").strip() or None
@@ -651,15 +663,9 @@ class EvalService:
                 last_err = "COZE_SUBMIT_MISSING_EXECUTE_ID"
             except HTTPException as exc:
                 last_err = str(exc.detail)
-                if attempt < 2 and _is_transient(last_err):
-                    time.sleep(0.6 * (1.9**attempt))
-                    continue
                 return [], last_err, None, None
             except Exception as exc:  # pragma: no cover - defensive
                 last_err = str(exc)
-                if attempt < 2:
-                    time.sleep(0.6 * (1.9**attempt))
-                    continue
                 return [], last_err, None, None
 
         if not execute_id:

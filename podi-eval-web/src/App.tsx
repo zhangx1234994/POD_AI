@@ -805,6 +805,7 @@ export function App() {
   const toAnchorId = (value: string) => `doc-cat-${String(value).replace(/\s+/g, '-')}`;
 
   const runTool = async () => {
+    if (isRunning) return;
     if (!selectedTool) return;
     const url = formUrl.trim();
     const requiresImage = toolFields.some((f) => f.name === 'url' || f.name === 'Url');
@@ -1505,7 +1506,7 @@ export function App() {
                   <Button
                     theme="primary"
                     loading={isRunning}
-                    disabled={requiresImage ? !formUrl.trim() : false}
+                    disabled={isRunning || (requiresImage ? !formUrl.trim() : false)}
                     onClick={() => void runTool()}
                   >
                     开始生成
