@@ -1133,6 +1133,14 @@ export function IntegrationDashboard({
     }),
     [executors, workflows, bindings, apiKeys, abilities],
   );
+  const statusCountMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const bucket of dashboardMetrics?.status_buckets || []) {
+      map[bucket.status] = bucket.count;
+    }
+    return map;
+  }, [dashboardMetrics]);
+  const runningQueueCount = statusCountMap.running ?? 0;
 
   const load = async () => {
     setLoading(true);
@@ -1278,6 +1286,23 @@ export function IntegrationDashboard({
 
   useEffect(() => {
     if (activeNav !== 'executors') return;
+    let cancelled = false;
+    const run = async (silent?: boolean) => {
+      if (cancelled) return;
+      await refreshComfyQueueSummary({ silent });
+    };
+    void run(false);
+    const interval = window.setInterval(() => {
+      void run(true);
+    }, 15000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [activeNav, refreshComfyQueueSummary]);
+
+  useEffect(() => {
+    if (activeNav !== 'monitor') return;
     let cancelled = false;
     const run = async (silent?: boolean) => {
       if (cancelled) return;
@@ -3172,8 +3197,22 @@ const normalizeErrorMessage = (message: string): string => {
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <MetricCard label="累计任务" value={dashboardMetrics.totals.total_tasks} sub="历史累计" />
                 <MetricCard label="排队中" value={dashboardMetrics.totals.queue_depth} sub="created/pending/queued" />
+                <MetricCard label="执行中/回调中" value={runningQueueCount} sub="running" />
                 <MetricCard label="批次待处理" value={dashboardMetrics.totals.pending_batches} sub="未完成的 TaskBatch" />
                 <MetricCard label="失败任务" value={dashboardMetrics.totals.failed_tasks} sub="含错误待复盘" />
+                <MetricCard
+                  label="ComfyUI 排队"
+                  value={comfyQueueSummary ? comfyQueueSummary.totalPending : '—'}
+                  sub={
+                    comfyExecutors.length === 0
+                      ? '未配置 ComfyUI 节点'
+                      : comfyQueueSummaryLoading
+                        ? '加载中'
+                        : comfyQueueSummary
+                          ? `running ${comfyQueueSummary.totalRunning}`
+                          : '等待刷新'
+                  }
+                />
               </div>
               <Row gutter={[16, 16]}>
                 <Col span={12}>
@@ -3202,6 +3241,96 @@ const normalizeErrorMessage = (message: string): string => {
                     </div>
                   </Card>
                 </Col>
+              </Row>
+              <Row gutter={[16, 16]}>
+                <Col span={24}>
+                  <Card
+                    title={
+                      <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                        <Space align="center">
+                          <span>ComfyUI 队列</span>
+                          <Typography.Text theme="secondary">跨节点汇总</Typography.Text>
+                        </Space>
+                        <Button
+                          size="small"
+                          variant="outline"
+                          onClick={() => refreshComfyQueueSummary()}
+                          loading={comfyQueueSummaryLoading}
+                          disabled={comfyExecutors.length === 0}
+                        >
+                          刷新
+                        </Button>
+                      </Space>
+                    }
+                    bordered
+                  >
+                    <Typography.Text theme="secondary">
+                      该队列来自 ComfyUI 节点自身的 /queue 状态，与内部任务队列分开统计。
+                    </Typography.Text>
+                    <div style={{ marginTop: 12 }} className="grid gap-4 sm:grid-cols-3">
+                      <MetricCard label="Running" value={comfyQueueSummary?.totalRunning ?? '—'} />
+                      <MetricCard label="Pending" value={comfyQueueSummary?.totalPending ?? '—'} />
+                      <MetricCard label="Total" value={comfyQueueSummary?.totalCount ?? '—'} />
+                    </div>
+                    <div style={{ marginTop: 12 }}>
+                      <Table
+                        rowKey="executorId"
+                        size="small"
+                        data={comfyQueueSummary?.servers || []}
+                        columns={[
+                          {
+                            colKey: 'executorId',
+                            title: '节点',
+                            cell: ({ row }) => {
+                              const ex = executors.find((item) => item.id === row.executorId);
+                              return (
+                                <Space direction="vertical" size={2}>
+                                  <Typography.Text>{ex?.name || row.executorId}</Typography.Text>
+                                  <Typography.Text theme="secondary">{row.executorId}</Typography.Text>
+                                </Space>
+                              );
+                            },
+                          },
+                          {
+                            colKey: 'baseUrl',
+                            title: 'Base URL',
+                            ellipsis: true,
+                          },
+                          { colKey: 'runningCount', title: 'Running', width: 120 },
+                          { colKey: 'pendingCount', title: 'Pending', width: 120 },
+                          {
+                            colKey: 'queueMaxSize',
+                            title: 'Max',
+                            width: 100,
+                            cell: ({ row }) => (typeof row.queueMaxSize === 'number' ? row.queueMaxSize : '—'),
+                          },
+                          {
+                            colKey: 'supported',
+                            title: '支持',
+                            width: 100,
+                            cell: ({ row }) => (row.supported === false ? '否' : '是'),
+                          },
+                          {
+                            colKey: 'message',
+                            title: '备注',
+                            ellipsis: true,
+                            cell: ({ row }) =>
+                              row.message ? <Typography.Text theme="warning">{row.message}</Typography.Text> : '—',
+                          },
+                        ]}
+                        empty={
+                          comfyQueueSummaryLoading ? (
+                            <Typography.Text theme="secondary">加载中…</Typography.Text>
+                          ) : (
+                            <Typography.Text theme="secondary">暂无队列数据。</Typography.Text>
+                          )
+                        }
+                      />
+                    </div>
+                  </Card>
+                </Col>
+              </Row>
+              <Row gutter={[16, 16]}>
                 <Col span={12}>
                   <Card
                     title={
