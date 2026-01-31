@@ -63,8 +63,13 @@ const formatDuration = (ms?: number | null) => {
 
 const fmtTime = (iso: string) => {
   try {
+    const raw = String(iso || '').trim();
+    if (!raw) return '—';
+    // If backend returns a naive ISO string (no timezone), treat it as UTC.
+    const hasTz = /Z$|[+-]\\d{2}:?\\d{2}$/.test(raw);
+    const normalized = hasTz ? raw : `${raw}Z`;
     // Force CN business timezone regardless of server/browser settings.
-    return new Date(iso).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
+    return new Date(normalized).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
   } catch {
     return iso;
   }
