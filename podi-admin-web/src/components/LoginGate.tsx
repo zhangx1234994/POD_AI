@@ -64,8 +64,18 @@ export function LoginGate({ children }: { children: React.ReactNode }) {
     }
     setLoading(true);
     setError(null);
+    let settled = false;
+    const timeoutId = window.setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      setLoading(false);
+      setError('登录超时，请检查网络或服务是否可用');
+    }, 20000);
     try {
       const resp = await adminAuthAPI.login(form.username, form.password);
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeoutId);
       localStorage.setItem(ACCESS_TOKEN_KEY, resp.accessToken);
       if (resp.refreshToken) {
         localStorage.setItem(REFRESH_TOKEN_KEY, resp.refreshToken);
@@ -73,9 +83,17 @@ export function LoginGate({ children }: { children: React.ReactNode }) {
       setToken(resp.accessToken);
       setForm({ username: '', password: '' });
     } catch (err) {
-      console.error('login failed', err);
-      setError(err instanceof Error ? err.message : '登录失败，请检查网络或服务状态');
+      if (!settled) {
+        settled = true;
+        window.clearTimeout(timeoutId);
+        console.error('login failed', err);
+        setError(err instanceof Error ? err.message : '登录失败，请检查网络或服务状态');
+      }
     } finally {
+      if (!settled) {
+        settled = true;
+        window.clearTimeout(timeoutId);
+      }
       setLoading(false);
     }
   };
