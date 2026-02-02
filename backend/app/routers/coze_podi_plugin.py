@@ -43,6 +43,25 @@ def _truthy(value: Any) -> bool:
     return False
 
 
+def _resolve_executor_info(executor_id: str | None) -> dict[str, Any]:
+    if not isinstance(executor_id, str) or not executor_id.strip():
+        return {}
+    executor_id = executor_id.strip()
+    info: dict[str, Any] = {"executorId": executor_id}
+    try:
+        with get_session() as session:
+            ex = session.get(Executor, executor_id)
+        if not ex:
+            return info
+        cfg = ex.config or {}
+        base_url = (ex.base_url or cfg.get("baseUrl") or cfg.get("base_url") or "").strip() or None
+        info["executorName"] = ex.name or None
+        info["executorBaseUrl"] = base_url
+    except Exception:
+        return info
+    return info
+
+
 def _is_internal_request(request: Request) -> bool:
     # NOTE: In our local single-host setup, Coze containers reach the host via
     # host.docker.internal and port-forwarding; remote_addr is commonly 127.0.0.1.
@@ -214,6 +233,9 @@ def _build_openapi(*, podi_server: str | None = None) -> dict[str, Any]:
             "videoUrls": {"type": "array", "items": {"type": "string"}, "description": "All video URLs (OSS preferred)."},
             "taskId": _nullable_str("Async task id (if submitted asynchronously)."),
             "taskStatus": _nullable_str("Async task status: queued/running/succeeded/failed."),
+            "executorId": _nullable_str("Assigned executor id (if resolved)."),
+            "executorName": _nullable_str("Assigned executor name (if resolved)."),
+            "executorBaseUrl": _nullable_str("Assigned executor base URL (if resolved)."),
             "expectedImageCount": {
                 "type": "integer",
                 "nullable": True,
@@ -672,6 +694,9 @@ def invoke_tool(
         "videoUrls",
         "taskId",
         "taskStatus",
+        "executorId",
+        "executorName",
+        "executorBaseUrl",
         "expectedImageCount",
         "logId",
         "requestId",
@@ -709,6 +734,11 @@ def invoke_tool(
     # ComfyUI tends to queue and can exceed Coze's single-node timeout. For robustness,
     # submit it as an async task and let Coze poll via `podi_task_get`.
     if provider_lower == "comfyui":
+        if not executor_id:
+            executor_id = ability_invocation_service._pick_comfyui_executor_id(ability, body)  # type: ignore[attr-defined]
+        if executor_id:
+            payload.executorId = executor_id
+        executor_info = _resolve_executor_info(executor_id)
 
         # Best-effort: we know batch for the common ComfyUI flows we expose.
         expected_images = 1
@@ -736,6 +766,7 @@ def invoke_tool(
                 "texts": ["submitted"],
                 "taskId": external_task_id or task.get("id"),
                 "taskStatus": task.get("status"),
+                **executor_info,
                 "expectedImageCount": expected_images,
                 "logId": task.get("log_id"),
                 "imageUrls": [],
@@ -748,6 +779,7 @@ def invoke_tool(
     # Commercial models that now return an async id + unified callback should also
     # be queued as AbilityTask so Coze can poll via /tasks/get.
     if force_async or (provider_lower in async_providers and api_type in async_api_types):
+        executor_info = _resolve_executor_info(executor_id)
         expected_images = (
             _coerce_positive_int(
                 body.get("n")
@@ -778,6 +810,7 @@ def invoke_tool(
                 "texts": ["submitted"],
                 "taskId": external_task_id or task.get("id"),
                 "taskStatus": task.get("status"),
+                **executor_info,
                 "expectedImageCount": expected_images,
                 "logId": task.get("log_id"),
                 "imageUrls": [],
@@ -801,6 +834,7 @@ def invoke_tool(
         (meta.get("executorId") if isinstance(meta, dict) else None)
         or executor_id
     )
+    executor_info = _resolve_executor_info(executor_hint if isinstance(executor_hint, str) else None)
     external_task_id = encode_task_id(
         task_id=str(resp_dict.get("requestId") or "").strip(),
         provider=provider,
@@ -859,6 +893,7 @@ def invoke_tool(
             "videoUrls": _all_urls(videos) if isinstance(videos, list) else [],
             "taskId": external_task_id or (str(provider_task_id).strip() if isinstance(provider_task_id, (str, int)) else None),
             "taskStatus": str(provider_task_status or resp_dict.get("status") or "").strip() or None,
+            **executor_info,
             "logId": resp_dict.get("logId"),
             "requestId": resp_dict.get("requestId"),
             "debugRequest": debug_request or None,
@@ -898,6 +933,20 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
         meta = req_payload.get("metadata")
         if isinstance(meta, dict):
             expected_images = meta.get("expectedImageCount")
+    executor_id = None
+    if isinstance(result_payload, dict):
+        meta = result_payload.get("metadata")
+        if isinstance(meta, dict):
+            executor_id = meta.get("executorId")
+    if not executor_id and isinstance(req_payload, dict):
+        executor_id = req_payload.get("executorId")
+    if not executor_id and isinstance(raw_task_id, str) and raw_task_id.strip().startswith("t1."):
+        parts = raw_task_id.strip().split(".")
+        if len(parts) >= 3:
+            candidate = parts[-2].strip()
+            if candidate:
+                executor_id = candidate
+    executor_info = _resolve_executor_info(executor_id if isinstance(executor_id, str) else None)
 
     # If we know this task should output multiple images (batch), give it a short grace
     # period so Coze polling is less likely to observe a "running" task too early.
@@ -925,6 +974,9 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
         "videoUrls",
         "taskId",
         "taskStatus",
+        "executorId",
+        "executorName",
+        "executorBaseUrl",
         "expectedImageCount",
         "logId",
         "requestId",
@@ -1012,6 +1064,7 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
             "videoUrls": _all_urls(videos) if isinstance(videos, list) else [],
             "taskId": external_task_id or task.get("id"),
             "taskStatus": status,
+            **executor_info,
             "expectedImageCount": expected_images,
             "logId": task.get("log_id"),
             "requestId": (result_payload.get("requestId") if isinstance(result_payload, dict) else None),
@@ -1027,6 +1080,7 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
             "texts": ["failed"],
             "taskId": external_task_id or task.get("id"),
             "taskStatus": status,
+            **executor_info,
             "expectedImageCount": expected_images,
             "logId": task.get("log_id"),
             "requestId": None,
@@ -1109,6 +1163,7 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
                                     "texts": [status or "running"],
                                     "taskId": task.get("id"),
                                     "taskStatus": status,
+                                    **executor_info,
                                     "expectedImageCount": expected_images,
                                     "logId": task.get("log_id"),
                                     "requestId": None,
@@ -1130,6 +1185,7 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
                                     "texts": [status or "running"],
                                     "taskId": task.get("id"),
                                     "taskStatus": status,
+                                    **executor_info,
                                     "expectedImageCount": expected_images,
                                     "logId": task.get("log_id"),
                                     "requestId": None,
@@ -1198,6 +1254,7 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
         "texts": [status or "running"],
         "taskId": external_task_id or task.get("id"),
         "taskStatus": status,
+        **executor_info,
         "expectedImageCount": expected_images,
         "logId": task.get("log_id"),
         "requestId": None,
