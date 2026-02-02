@@ -4,6 +4,8 @@ import { ADMIN_TOKEN_INVALID_EVENT } from '../services/adminApi';
 
 const ACCESS_TOKEN_KEY = 'podi_admin_access_token';
 const REFRESH_TOKEN_KEY = 'podi_admin_refresh_token';
+const TOKEN_INVALID_FLAG = 'podi_admin_token_invalid';
+const TOKEN_INVALID_AT_KEY = 'podi_admin_token_invalid_at';
 
 export function LoginGate({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
@@ -12,9 +14,19 @@ export function LoginGate({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const cached = localStorage.getItem(ACCESS_TOKEN_KEY);
-    if (cached) {
-      setToken(cached);
+    const invalidReason = localStorage.getItem(TOKEN_INVALID_FLAG);
+    if (invalidReason) {
+      localStorage.removeItem(ACCESS_TOKEN_KEY);
+      localStorage.removeItem(REFRESH_TOKEN_KEY);
+      localStorage.removeItem(TOKEN_INVALID_FLAG);
+      localStorage.removeItem(TOKEN_INVALID_AT_KEY);
+      setToken(null);
+      setError(invalidReason || '登录已失效，请重新登录');
+    } else {
+      const cached = localStorage.getItem(ACCESS_TOKEN_KEY);
+      if (cached) {
+        setToken(cached);
+      }
     }
 
     const handleTokenInvalid = (event: Event) => {

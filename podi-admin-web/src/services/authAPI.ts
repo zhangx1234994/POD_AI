@@ -25,11 +25,52 @@ function extractErrorMessage(statusText: string, bodyText: string): string {
 }
 
 function resolveAuthError(status: number, statusText: string, bodyText: string): string {
-  if (status === 502 || status === 503 || status === 504) return GATEWAY_ERROR_MESSAGE;
   const message = extractErrorMessage(statusText, bodyText);
-  if (status >= 500 && (!message || message === statusText)) return '服务异常，请稍后再试';
-  if (message) return message;
-  return statusText || `登录失败 (status=${status})`;
+  switch (status) {
+    case 400:
+      return message || '登录参数错误';
+    case 401:
+    case 403:
+      return message || '账号或密码错误';
+    case 404:
+      return message || '登录接口不存在或已下线';
+    case 408:
+      return message || '登录超时，请稍后再试';
+    case 409:
+      return message || '账号状态异常，请联系管理员';
+    case 413:
+      return message || '请求体过大';
+    case 422:
+      return message || '登录参数校验失败';
+    case 429:
+      return message || '登录过于频繁，请稍后再试';
+    case 502:
+    case 503:
+    case 504:
+      return GATEWAY_ERROR_MESSAGE;
+    default:
+      if (status >= 500) return message || '服务异常，请稍后再试';
+      return message || statusText || `登录失败 (status=${status})`;
+  }
+}
+
+function resolveNetworkError(err: unknown, timeoutMessage: string) {
+  if (err instanceof DOMException && err.name === 'AbortError') {
+    return timeoutMessage;
+  }
+  const message = String((err as any)?.message || err || '').trim();
+  const lower = message.toLowerCase();
+  if (!message) return '网络请求失败';
+  if (lower.includes('failed to fetch') || lower.includes('networkerror') || lower.includes('load failed') || lower.includes('fetch failed')) {
+    return '网络异常或服务不可达，请检查网络/网关配置';
+  }
+  if (lower.includes('cors')) {
+    return '跨域限制导致请求失败，请检查网关/域名配置';
+  }
+  if (lower.includes('ssl') || lower.includes('tls') || lower.includes('certificate')) {
+    return '证书或 TLS 配置异常，请检查服务端配置';
+  }
+  return message || '网络请求失败';
 }
 
 function withTimeout(options: RequestInit, timeoutMs: number) {
@@ -56,10 +97,7 @@ export const adminAuthAPI = {
       resp = await fetch(`${API_BASE}/api/auth/login`, options);
     } catch (err) {
       cancel();
-      if (err instanceof DOMException && err.name === 'AbortError') {
-        throw new Error('登录超时，请检查网络或服务是否可用');
-      }
-      throw new Error(String((err as any)?.message || err || '网络请求失败'));
+      throw new Error(resolveNetworkError(err, '登录超时，请检查网络或服务是否可用'));
     }
     cancel();
     if (!resp.ok) {
