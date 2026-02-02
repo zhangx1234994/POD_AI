@@ -508,7 +508,8 @@ class EvalService:
                 with get_session() as session:
                     task_row = session.get(AbilityTask, podi_task_id)
                 if task_row:
-                    self._poll_ability_task(run_id=run_id, task_id=podi_task_id, started=started)
+                    output_json = self._extract_output_json(parsed)
+                    self._poll_ability_task(run_id=run_id, task_id=podi_task_id, started=started, output_json=output_json)
                     return
                 # Fallback: if output is a raw ComfyUI id, resolve via a callback workflow.
                 callback_wf = settings.coze_comfyui_callback_workflow_id
@@ -956,7 +957,7 @@ class EvalService:
 
         return []
 
-    def _poll_ability_task(self, *, run_id: str, task_id: str, started: float) -> None:
+    def _poll_ability_task(self, *, run_id: str, task_id: str, started: float, output_json: Any | None = None) -> None:
         deadline = time.monotonic() + 60 * 20  # 20 minutes max
         interval = 1.5
         last_status: str | None = None
@@ -993,7 +994,7 @@ class EvalService:
                                 if isinstance(v, str) and v.strip():
                                     image_urls.append(v.strip())
                                     break
-                self._mark_succeeded(run_id, image_urls=image_urls, started=started)
+                self._mark_succeeded(run_id, image_urls=image_urls, output_json=output_json, started=started)
                 return
 
             if status == "failed":
@@ -1153,6 +1154,22 @@ class EvalService:
 
         if not isinstance(payload, dict):
             return None
+        if any(
+            key in payload
+            for key in (
+                "ip",
+                "prompt",
+                "servers",
+                "totalPending",
+                "totalRunning",
+                "totalCount",
+                "timestamp",
+                "run_status",
+                "debug_url",
+                "error_msg",
+            )
+        ):
+            return payload
         output = payload.get("output")
         if output is None:
             if any(k in payload for k in ("servers", "totalPending", "totalRunning", "totalCount", "timestamp")):

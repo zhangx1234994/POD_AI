@@ -235,6 +235,9 @@ def get_workflow_docs(
     lines.append("1) 先运行 Coze 工作流拿到 `data.output`（task id）")
     lines.append("2) 再轮询 task 结果，拿到最终图片 URL 列表并展示")
     lines.append("")
+    lines.append("回调工作流（通用类）：")
+    lines.append("- `ComfyUI 回调 · comfyui_huidiao` 输入 `taskid`，输出 `images` 数组。")
+    lines.append("")
     lines.append("task id 兼容格式：")
     lines.append("- 旧格式：`<raw_id>`（数据库/历史返回）")
     lines.append("- 新格式：`t1.<provider>.<executorId>.<raw_id>`（可解析，便于路由与排障）")
@@ -247,6 +250,13 @@ def get_workflow_docs(
     lines.append("")
     lines.append("当 Coze 执行失败或需要排查时，后端会透出 `debug_url`，可在 Coze Studio/Loop 中打开对应 run 的节点级日志。")
     lines.append("")
+    lines.append("## 注意事项（统一规则）")
+    lines.append("")
+    lines.append("- 图片类参数统一使用 URL（纯字符串），像素类参数仅传数字（不要带 `px`）。")
+    lines.append("- 回调类工作流的 `output` 为 task id，需轮询 `/api/coze/podi/tasks/get` 获取最终图片。")
+    lines.append("- ComfyUI 类工作流会额外返回 `ip`（执行节点），用于排障与路由判断。")
+    lines.append("- ComfyUI 队列汇总工具无需入参，直接返回各节点队列状态。")
+    lines.append("")
     lines.append("## 常见错误速查")
     lines.append("")
     lines.append("- `INTERNAL_ONLY`：PODI 拦截了非内网请求；配置 `COZE_TRUSTED_IPS` 或改用 `SERVICE_API_TOKEN`。")
@@ -258,6 +268,7 @@ def get_workflow_docs(
     lines.append("| 分类 | 功能 | workflow_id | 输出类型 | 备注 |")
     lines.append("|---|---|---:|---|---|")
     workflows: list[dict[str, Any]] = []
+    grouped: dict[str, list[EvalWorkflowVersion]] = {}
 
     for wf in rows:
         parameters = _normalize_fields(wf.parameters_schema or {})
@@ -278,68 +289,81 @@ def get_workflow_docs(
                 },
             }
         )
+        grouped.setdefault(wf.category, []).append(wf)
         lines.append(
             f"| {_md_escape(wf.category)} | {_md_escape(wf.name)} | `{_md_escape(wf.workflow_id)}` | `{_infer_output_kind(wf)}` | {_md_escape(wf.notes or '')} |"
         )
     lines.append("")
 
-    for wf in rows:
-        lines.append(f"## {wf.name}")
-        lines.append("")
-        lines.append(f"- 分类：`{wf.category}`")
-        lines.append(f"- workflow_id：`{wf.workflow_id}`")
-        lines.append(f"- 输出类型：`{_infer_output_kind(wf)}`（字段名固定为 `output`）")
-        if wf.notes:
-            lines.append(f"- 备注：{wf.notes}")
-        lines.append("")
-        lines.append("### 调用方法")
-        lines.append("")
-        lines.append("```json")
-        example_params = _example_parameters(_normalize_fields(wf.parameters_schema or {}))
-        lines.append(
-            json.dumps(
-                {"workflow_id": wf.workflow_id, "parameters": example_params},
-                ensure_ascii=False,
-                indent=2,
-            )
-        )
-        lines.append("```")
-        lines.append("")
-        lines.append("### 入参 parameters")
-        lines.append("")
-        fields = _normalize_fields(wf.parameters_schema or {})
-        if not fields:
-            lines.append("_无 schema（请在后台补齐 parameters_schema 以生成动态表单）。_")
-            lines.append("")
-        else:
-            lines.append("| 字段 | 必填 | 类型 | 默认值 | 可选项 | 描述 |")
-            lines.append("|---|---:|---|---|---|---|")
-            for f in fields:
-                name = str(f.get("name") or "")
-                required = "Y" if f.get("required") else ""
-                ftype = str(f.get("type") or "text")
-                default = str(f.get("defaultValue") or "")
-                opts = ""
-                options = f.get("options")
-                if isinstance(options, list) and options:
-                    rendered = []
-                    for o in options:
-                        if isinstance(o, dict):
-                            rendered.append(str(o.get("value") or o.get("label") or ""))
-                        else:
-                            rendered.append(str(o))
-                    opts = " / ".join([x for x in rendered if x])
-                desc = str(f.get("description") or "")
-                lines.append(
-                    f"| `{_md_escape(name)}` | {required} | `{_md_escape(ftype)}` | `{_md_escape(default)}` | {_md_escape(opts)} | {_md_escape(desc)} |"
-                )
-            lines.append("")
+    lines.append("## 目录")
+    lines.append("")
+    for category, items in grouped.items():
+        lines.append(f"- {category}（{len(items)}）")
+    lines.append("")
 
-        lines.append("### 出参 data")
+    lines.append("## 分类明细")
+    lines.append("")
+
+    for category, items in grouped.items():
+        lines.append(f"## {category}")
         lines.append("")
-        lines.append("Coze 返回结构中 `data` 可能是 JSON 字符串或对象，通常我们关注：")
-        lines.append("- `data.output`：图片 URL 或回调 task id（取决于该工作流的输出类型）")
-        lines.append("")
+        for wf in items:
+            lines.append(f"### {wf.name}")
+            lines.append("")
+            lines.append(f"- workflow_id：`{wf.workflow_id}`")
+            lines.append(f"- 输出类型：`{_infer_output_kind(wf)}`（主字段为 `output`，额外字段见出参说明）")
+            if wf.notes:
+                lines.append(f"- 备注：{wf.notes}")
+            lines.append("")
+            lines.append("#### 调用方法")
+            lines.append("")
+            lines.append("```json")
+            example_params = _example_parameters(_normalize_fields(wf.parameters_schema or {}))
+            lines.append(
+                json.dumps(
+                    {"workflow_id": wf.workflow_id, "parameters": example_params},
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+            lines.append("```")
+            lines.append("")
+            lines.append("#### 入参 parameters")
+            lines.append("")
+            fields = _normalize_fields(wf.parameters_schema or {})
+            if not fields:
+                lines.append("_无 schema（请在后台补齐 parameters_schema 以生成动态表单）。_")
+                lines.append("")
+            else:
+                lines.append("| 字段 | 必填 | 类型 | 默认值 | 可选项 | 描述 |")
+                lines.append("|---|---:|---|---|---|---|")
+                for f in fields:
+                    name = str(f.get("name") or "")
+                    required = "Y" if f.get("required") else ""
+                    ftype = str(f.get("type") or "text")
+                    default = str(f.get("defaultValue") or "")
+                    opts = ""
+                    options = f.get("options")
+                    if isinstance(options, list) and options:
+                        rendered = []
+                        for o in options:
+                            if isinstance(o, dict):
+                                rendered.append(str(o.get("value") or o.get("label") or ""))
+                            else:
+                                rendered.append(str(o))
+                        opts = " / ".join([x for x in rendered if x])
+                    desc = str(f.get("description") or "")
+                    lines.append(
+                        f"| `{_md_escape(name)}` | {required} | `{_md_escape(ftype)}` | `{_md_escape(default)}` | {_md_escape(opts)} | {_md_escape(desc)} |"
+                    )
+                lines.append("")
+
+            lines.append("#### 出参 data")
+            lines.append("")
+            lines.append("Coze 返回结构中 `data` 可能是 JSON 字符串或对象，通常我们关注：")
+            lines.append("- `data.output`：图片 URL 或回调 task id（取决于该工作流的输出类型）")
+            lines.append("- 其他字段：如 `prompt`、`ip`、`servers` 等（详见出参 schema）")
+            lines.append("")
 
     return {
         "markdown": "\n".join(lines),

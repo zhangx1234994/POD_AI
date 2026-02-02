@@ -100,6 +100,35 @@ const formatJsonPreview = (value: unknown, maxLen = 1200): string => {
   }
 };
 
+const extractOutputField = (value: unknown, key: string): string => {
+  try {
+    if (value == null) return '';
+    if (typeof value === 'string') {
+      const s = value.trim();
+      if (!s) return '';
+      if ((s.startsWith('{') && s.endsWith('}')) || (s.startsWith('[') && s.endsWith(']'))) {
+        try {
+          const parsed = JSON.parse(s);
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            const found = (parsed as Record<string, unknown>)[key];
+            return found == null ? '' : String(found);
+          }
+        } catch {
+          return '';
+        }
+      }
+      return '';
+    }
+    if (typeof value === 'object' && !Array.isArray(value)) {
+      const found = (value as Record<string, unknown>)[key];
+      return found == null ? '' : String(found);
+    }
+  } catch {
+    return '';
+  }
+  return '';
+};
+
 const renderOptionTags = (options?: Array<{ label: string; value: string } | string>): ReactNode => {
   if (!Array.isArray(options) || options.length === 0) return '—';
   return (
@@ -1574,6 +1603,7 @@ export function App() {
                     Number.isFinite(rawCount) && rawCount > 1 ? Math.min(Math.max(rawCount, 2), 12) : latest ? 1 : 0;
                   const imgs = latest ? filterImageUrls(latest.result_image_urls_json) : [];
                   const remain = latest ? Math.max(0, expectedCount - imgs.length) : 0;
+                  const outputIp = latest ? extractOutputField((latest as any).result_output_json, 'ip') : '';
 
                   return (
                     <Space direction="vertical" size="large" style={{ width: '100%' }}>
@@ -1621,6 +1651,14 @@ export function App() {
                                 <Typography.Text>{fmtTime(latest.created_at)}</Typography.Text>
                               </Space>
                             </Col>
+                            {outputIp ? (
+                              <Col xs={12} md={4}>
+                                <Space direction="vertical" size={2}>
+                                  <Typography.Text theme="secondary">执行节点</Typography.Text>
+                                  <Typography.Text style={{ fontFamily: 'monospace' }}>{outputIp}</Typography.Text>
+                                </Space>
+                              </Col>
+                            ) : null}
                             <Col xs={12} md={4}>
                               <Space direction="vertical" size={2}>
                                 <Typography.Text theme="secondary">操作</Typography.Text>
@@ -1834,6 +1872,7 @@ function HistoryRow({
   const jsonPreview = formatJsonPreview((run as any).result_output_json, 1200);
   const displayParams = filterDisplayParams(run.parameters_json as Record<string, unknown> | null);
   const paramsPreview = formatJsonPreview(displayParams, 1000);
+  const outputIp = extractOutputField((run as any).result_output_json, 'ip');
 
   // Sync state when the latest annotation changes due to refresh/polling.
   // Do not clobber an in-progress comment draft.
@@ -1863,6 +1902,11 @@ function HistoryRow({
               {run.podi_task_id ? (
                 <Typography.Text theme="secondary" style={{ fontFamily: 'monospace' }} ellipsis>
                   task: {run.podi_task_id}
+                </Typography.Text>
+              ) : null}
+              {outputIp ? (
+                <Typography.Text theme="secondary" style={{ fontFamily: 'monospace' }} ellipsis>
+                  ip: {outputIp}
                 </Typography.Text>
               ) : null}
               {run.coze_debug_url ? (

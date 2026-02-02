@@ -129,6 +129,12 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         if overrides:
             _apply_inputs(graph_payload, overrides)
         self._normalize_string_nodes(graph_payload)
+        workflow_meta = getattr(context.workflow, "extra_metadata", None) or {}
+        workflow_key = workflow_meta.get("workflow_key") or workflow_definition.get("workflow_key")
+        if workflow_key == "sifang_lianxu":
+            # ComfyUI may still execute unreferenced base64 nodes; drop them to avoid errors.
+            if isinstance(graph_payload, dict):
+                graph_payload.pop("104", None)
 
         # Avoid "same inputs => same outputs" surprises when users run the same workflow
         # repeatedly (e.g. "抽卡"). Many shared ComfyUI graphs ship with a fixed seed.
@@ -701,8 +707,8 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         # Prefer URL-based loading, but ComfyUI nodes often assume the URL loader returns
         # at least one image (e.g. ImageResize+ reads index 0). In real deployments,
         # the ComfyUI host may not be able to access our OSS/public domains, which causes
-        # "list index out of range" runtime errors. To make this workflow robust, we
-        # also provide a base64 fallback and re-wire the resize node to use it.
+        # "list index out of range" runtime errors. We still standardize on URL inputs
+        # and prefer uploading to the ComfyUI host instead of using base64 fallbacks.
         overrides["96"] = {"url": image_url}
 
         # Best effort: upload the image to the ComfyUI host and route via built-in LoadImage.
@@ -722,18 +728,10 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
                 overrides.setdefault(nid, {})["image"] = ["106", 0]
 
         if not uploaded:
-            base64_data = self._download_base64(image_url)
-            if base64_data:
-                overrides["104"] = {"base64_data": base64_data}
-                # Re-wire all downstream nodes that previously referenced the URL loader.
-                # This avoids ComfyUI runtime "list index out of range" when the ComfyUI host
-                # cannot access OSS/public URLs (LoadImagesFromURL returns an empty list).
-                for nid in ("64", "94", "102"):
-                    overrides.setdefault(nid, {})["image"] = ["104", 0]
-            else:
-                # Last resort: keep using the URL loader instead of the 1x1 base64 stub.
-                for nid in ("64", "94", "102"):
-                    overrides.setdefault(nid, {})["image"] = ["96", 0]
+            # Last resort: keep using the URL loader. We intentionally avoid base64 fallbacks
+            # so all image inputs stay URL-based.
+            for nid in ("64", "94", "102"):
+                overrides.setdefault(nid, {})["image"] = ["96", 0]
 
         prompt = self._as_text(params.get("prompt") or params.get("description"))
         if prompt:
@@ -981,15 +979,6 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             text = value.strip()
             return text or None
         return str(value).strip() or None
-
-    def _download_base64(self, url: str) -> str | None:
-        try:
-            response = httpx.get(url, timeout=30)
-            response.raise_for_status()
-        except httpx.HTTPError as exc:
-            self._logger.warning("Failed to fetch image for base64 fallback: %s", exc)
-            return None
-        return base64.b64encode(response.content).decode("ascii")
 
     @staticmethod
     def _normalize_string_nodes(graph: dict[str, Any]) -> None:

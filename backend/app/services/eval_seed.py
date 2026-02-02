@@ -39,6 +39,9 @@ DEPRECATED_EVAL_WORKFLOW_IDS: set[str] = {
     "7598558185544220672",  # tiqu_duoMoxing_2 (old)
     # 图裂变（旧商业模型版本）
     "7598844004557389824",  # Liebian_shangye_20260124_1_1
+    # 下线/作废
+    "7598560946579046400",  # tiqu_duoMoxing_2_2 (commercial + comfyui, deprecated)
+    "7597659369861283840",  # 多模型生图
 }
 
 # Evaluation UI category policy: keep the sidebar fixed to these groups.
@@ -56,13 +59,23 @@ PROMPT_OUTPUT_WORKFLOW_IDS: set[str] = {
     "7598545860393172992",  # tiqu_comfyui_20260123_2
     "7601080398864449536",  # tiqu_duoMoxing_2
     "7598559869544693760",  # tiqu_duoMoxing_20260130
-    "7598560946579046400",  # tiqu_duoMoxing_2_2
     "7597701996124045312",  # sibu_comfyui
     "7597702948247830528",  # zhongsu_comfyui
     "7598841920114130944",  # Liebian_comfyui_20260124_1
     "7598820684801769472",  # Liebian_comfyui_20260124
     "7601077530077954048",  # Liebian_shangye_20260130
     "7598848725942796288",  # Liebian_shangye_20260124_1_1_1
+}
+
+IP_OUTPUT_WORKFLOW_IDS: set[str] = {
+    "7597530887256801280",  # tiqu_comfyui_20260123
+    "7598545860393172992",  # tiqu_comfyui_20260123_2
+    "7598563505054154752",  # lianxu
+    "7598587935331450880",  # comfyuo_tukuozhan
+    "7597701996124045312",  # sibu_comfyui
+    "7597702948247830528",  # zhongsu_comfyui
+    "7598841920114130944",  # Liebian_comfyui_20260124_1
+    "7598820684801769472",  # Liebian_comfyui_20260124
 }
 
 
@@ -133,6 +146,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
             "fields": [
                 {"name": "output", "type": "text", "description": "回调 task id"},
                 {"name": "prompt", "type": "text", "description": "提示词反馈字符串"},
+                {"name": "ip", "type": "text", "description": "ComfyUI 执行节点 IP"},
             ]
         },
     },
@@ -164,6 +178,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
             "fields": [
                 {"name": "output", "type": "text", "description": "回调 task id"},
                 {"name": "prompt", "type": "text", "description": "提示词反馈字符串"},
+                {"name": "ip", "type": "text", "description": "ComfyUI 执行节点 IP"},
             ]
         },
     },
@@ -224,6 +239,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
             "fields": [
                 {"name": "output", "type": "text", "description": "回调 task id"},
                 {"name": "prompt", "type": "text", "description": "提示词反馈字符串"},
+                {"name": "ip", "type": "text", "description": "ComfyUI 执行节点 IP"},
             ]
         },
     },
@@ -282,7 +298,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         "output_schema": {
             "fields": [
                 {"name": "output", "type": "text", "description": "回调 task id"},
-                {"name": "prompt", "type": "text", "description": "提示词反馈字符串"},
+                {"name": "ip", "type": "text", "description": "ComfyUI 执行节点 IP"},
             ]
         },
     },
@@ -292,7 +308,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         "name": "花纹提取 · tiqu_duoMoxing_2_2",
         "version": "v1",
         "workflow_id": "7598560946579046400",
-        "status": "active",
+        "status": "inactive",
         "notes": "商业模型+ComfyUI 串联版本：为兼顾输出尺寸，速度更慢；输出 output 为回调 task id。",
         "parameters_schema": {
             "fields": [
@@ -344,7 +360,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         "output_schema": {
             "fields": [
                 {"name": "output", "type": "text", "description": "回调 task id"},
-                {"name": "prompt", "type": "text", "description": "提示词反馈字符串"},
+                {"name": "ip", "type": "text", "description": "ComfyUI 执行节点 IP"},
             ]
         },
     },
@@ -379,6 +395,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
             "fields": [
                 {"name": "output", "type": "text", "description": "回调 task id"},
                 {"name": "prompt", "type": "text", "description": "提示词反馈字符串"},
+                {"name": "ip", "type": "text", "description": "ComfyUI 执行节点 IP"},
             ]
         },
     },
@@ -392,7 +409,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         "notes": "默认 moxing=1(Banana Pro)。输出 output 为回调 task id。",
         "parameters_schema": {
             "fields": [
-                {"name": "url", "label": "图片 URL", "type": "text", "required": True},
+                {"name": "Url", "label": "图片 URL", "type": "text", "required": True},
                 {"name": "expand_left", "label": "左扩", "type": "text", "required": False, "defaultValue": "0", "description": "像素数值（纯数字，不要带 px）"},
                 {"name": "expand_right", "label": "右扩", "type": "text", "required": False, "defaultValue": "0", "description": "像素数值（纯数字，不要带 px）"},
                 {"name": "expand_top", "label": "上扩", "type": "text", "required": False, "defaultValue": "0", "description": "像素数值（纯数字，不要带 px）"},
@@ -415,6 +432,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
             "fields": [
                 {"name": "output", "type": "text", "description": "回调 task id"},
                 {"name": "prompt", "type": "text", "description": "提示词反馈字符串"},
+                {"name": "ip", "type": "text", "description": "ComfyUI 执行节点 IP"},
             ]
         },
     },
@@ -425,10 +443,10 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         "version": "v1",
         "workflow_id": "7598587935331450880",
         "status": "active",
-        "notes": "输入 url + 四向扩图像素；输出 output 为回调 task id。",
+        "notes": "输入 Url + 四向扩图像素；输出 output 为回调 task id。",
         "parameters_schema": {
             "fields": [
-                {"name": "url", "label": "图片 URL", "type": "text", "required": True},
+                {"name": "Url", "label": "图片 URL", "type": "text", "required": True},
                 {"name": "expand_left", "label": "左扩", "type": "text", "required": False, "defaultValue": "0", "description": "像素数值（纯数字，不要带 px）"},
                 {"name": "expand_right", "label": "右扩", "type": "text", "required": False, "defaultValue": "0", "description": "像素数值（纯数字，不要带 px）"},
                 {"name": "expand_top", "label": "上扩", "type": "text", "required": False, "defaultValue": "0", "description": "像素数值（纯数字，不要带 px）"},
@@ -439,6 +457,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
             "fields": [
                 {"name": "output", "type": "text", "description": "回调 task id"},
                 {"name": "prompt", "type": "text", "description": "提示词反馈字符串"},
+                {"name": "ip", "type": "text", "description": "ComfyUI 执行节点 IP"},
             ]
         },
     },
@@ -448,7 +467,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         "name": "多模型生图",
         "version": "v1",
         "workflow_id": "7597659369861283840",
-        "status": "active",
+        "status": "inactive",
         "notes": "moxing：1=Banana Pro，2=Flux2，3=Doubao 4.5。Flux2 更偏比例参数；其余更偏宽高参数。",
         "parameters_schema": {
             "fields": [
@@ -519,6 +538,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
             "fields": [
                 {"name": "output", "type": "text", "description": "回调 task id"},
                 {"name": "prompt", "type": "text", "description": "提示词反馈字符串"},
+                {"name": "ip", "type": "text", "description": "ComfyUI 执行节点 IP"},
             ]
         },
     },
@@ -835,11 +855,11 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
     # 不建议直接使用：ComfyUI 回调工作流（供后端兜底解析 images）
     {
         "category": "general",
-        "name": "ComfyUI 回调（不建议手动调用）",
+        "name": "ComfyUI 回调 · comfyui_huidiao",
         "version": "v1",
         "workflow_id": "7597556718159003648",
-        "status": "inactive",
-        "notes": "输入 taskid，输出 images 数组。建议直接由 PODI 轮询 ability_tasks。",
+        "status": "active",
+        "notes": "输入 taskid，输出 images 数组（回调工作流）。业务侧可直接调用该 workflow 获取图片。",
         "parameters_schema": {"fields": [{"name": "taskid", "label": "taskid", "type": "text", "required": True}]},
         "output_schema": {"fields": [{"name": "images", "type": "array", "description": "图片数组"}]},
     },
@@ -923,6 +943,17 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
         if row.workflow_id in DEPRECATED_EVAL_WORKFLOW_IDS and row.status != "inactive":
             row.status = "inactive"
             dirty = True
+        if row.workflow_id == "7597556718159003648":
+            # Ensure callback workflow is visible for developers.
+            if row.status != "active":
+                row.status = "active"
+                dirty = True
+            if row.name != "ComfyUI 回调 · comfyui_huidiao":
+                row.name = "ComfyUI 回调 · comfyui_huidiao"
+                dirty = True
+            if row.notes != "输入 taskid，输出 images 数组（回调工作流）。业务侧可直接调用该 workflow 获取图片。":
+                row.notes = "输入 taskid，输出 images 数组（回调工作流）。业务侧可直接调用该 workflow 获取图片。"
+                dirty = True
         normalized_category = _normalize_eval_category(row.category)
         if row.category != normalized_category:
             row.category = normalized_category
@@ -968,36 +999,36 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
                         row.parameters_schema = schema
                         dirty = True
         if row.workflow_id in {"7597723984687267840", "7598587935331450880"}:
-            # Normalize outpaint schema to use `url` as the canonical image key.
+            # Normalize outpaint schema to use `Url` as the canonical image key.
             schema = json.loads(json.dumps(row.parameters_schema or {}, ensure_ascii=False))
             fields = schema.get("fields") if isinstance(schema, dict) else None
             if isinstance(fields, list):
                 changed = False
-                has_url = False
+                has_Url = False
                 for f in fields:
                     if not isinstance(f, dict):
                         continue
-                    if f.get("name") == "url":
-                        has_url = True
-                if not has_url:
+                    if f.get("name") == "Url":
+                        has_Url = True
+                if not has_Url:
                     for f in fields:
-                        if isinstance(f, dict) and f.get("name") == "Url":
-                            f["name"] = "url"
+                        if isinstance(f, dict) and f.get("name") == "url":
+                            f["name"] = "Url"
                             f["label"] = "图片 URL"
                             f["required"] = True
                             changed = True
-                            has_url = True
+                            has_Url = True
                             break
-                if has_url:
+                if has_Url:
                     filtered = []
                     for f in fields:
                         if not isinstance(f, dict):
                             filtered.append(f)
                             continue
-                        if f.get("name") == "Url":
+                        if f.get("name") == "url":
                             changed = True
                             continue
-                        if f.get("name") == "url":
+                        if f.get("name") == "Url":
                             if f.get("required") is not True:
                                 f["required"] = True
                                 changed = True
@@ -1093,6 +1124,28 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
                 schema["fields"] = fields
                 row.output_schema = schema
                 dirty = True
+        if row.workflow_id in IP_OUTPUT_WORKFLOW_IDS:
+            # Ensure ComfyUI executor IP is documented in output schema.
+            schema = json.loads(json.dumps(row.output_schema or {}, ensure_ascii=False))
+            fields = schema.get("fields") if isinstance(schema, dict) else None
+            if not isinstance(fields, list):
+                fields = []
+            has_ip = any(isinstance(f, dict) and f.get("name") == "ip" for f in fields)
+            if not has_ip:
+                fields.append({"name": "ip", "type": "text", "description": "ComfyUI 执行节点 IP"})
+                schema["fields"] = fields
+                row.output_schema = schema
+                dirty = True
+        if row.workflow_id in {"7598563505054154752", "7598587935331450880"}:
+            # These workflows do not return prompt feedback; remove prompt field if present.
+            schema = json.loads(json.dumps(row.output_schema or {}, ensure_ascii=False))
+            fields = schema.get("fields") if isinstance(schema, dict) else None
+            if isinstance(fields, list):
+                filtered = [f for f in fields if not (isinstance(f, dict) and f.get("name") == "prompt")]
+                if filtered != fields:
+                    schema["fields"] = filtered
+                    row.output_schema = schema
+                    dirty = True
         if row.workflow_id in {
             "7598841920114130944",
             "7598820684801769472",
