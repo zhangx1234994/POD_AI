@@ -1793,7 +1793,7 @@ export function IntegrationDashboard({
       coze_workflow_id: abilityForm.coze_workflow_id || undefined,
       default_params: abilityForm.default_params ? parseJSON(abilityForm.default_params) : undefined,
       input_schema: abilityForm.input_schema ? parseJSON(abilityForm.input_schema) : undefined,
-      metadata: isEmptyRecord(nextMetadata) ? undefined : nextMetadata,
+      metadata: isEmptyRecord(nextMetadata) ? undefined : (nextMetadata as JsonRecord),
     };
     if (abilityForm.id) {
       await adminApi.updateAbility(abilityForm.id, payload);
@@ -5748,7 +5748,7 @@ const normalizeErrorMessage = (message: string): string => {
   );
 }
 
-function MetricCard({ label, value, sub }: { label: string; value: number; sub?: string }) {
+function MetricCard({ label, value, sub }: { label: string; value: number | string; sub?: string }) {
   return (
     <Card bordered>
       <Space direction="vertical" size="small">
