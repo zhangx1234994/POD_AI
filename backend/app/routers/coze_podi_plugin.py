@@ -19,6 +19,7 @@ from app.core.db import get_session
 from app.models.integration import Ability, AbilityTask, Executor
 from app.schemas import abilities as ability_schemas
 from app.services.ability_invocation import ability_invocation_service
+from app.services.ability_logs import ability_log_service
 from app.services.ability_seed import ensure_default_abilities
 from app.services.ability_task_service import get_ability_task_service
 from app.services.task_id_codec import decode_task_id, encode_task_id
@@ -1290,8 +1291,23 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
                             next_payload["status"] = "succeeded"
                             db_task.status = "succeeded"
                             db_task.result_payload = next_payload
+                            if not db_task.duration_ms and db_task.started_at:
+                                try:
+                                    db_task.duration_ms = int(
+                                        (datetime.now(timezone.utc) - db_task.started_at).total_seconds() * 1000
+                                    )
+                                except Exception:
+                                    pass
                             session.add(db_task)
                             session.commit()
+                            try:
+                                ability_log_service.finish_success(
+                                    db_task.log_id,
+                                    response_payload=next_payload,
+                                    duration_ms=db_task.duration_ms,
+                                )
+                            except Exception:
+                                pass
                             task = get_ability_task_service().to_dict(db_task)
                             status = task.get("status")
                             result_payload = task.get("result_payload") or {}

@@ -302,6 +302,7 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         # We wait for a terminal status (preferred) or for outputs to "stabilize" for a few polls.
         stable_polls = 0
         last_image_count: int | None = None
+        fallback_to_all = False
         while time.monotonic() - start < timeout:
             try:
                 resp = httpx.get(f"{base_url}/history/{prompt_id}", timeout=15)
@@ -322,15 +323,21 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             status = entry.get("status")
             outputs = entry.get("outputs") or {}
             image_count = 0
+            total_image_count = 0
             if isinstance(outputs, dict):
                 for node_id, info in outputs.items():
-                    if output_node_ids and str(node_id) not in output_node_ids:
-                        continue
                     if not isinstance(info, dict):
                         continue
                     imgs = info.get("images")
                     if isinstance(imgs, list):
+                        total_image_count += len(imgs)
+                    if output_node_ids and str(node_id) not in output_node_ids:
+                        continue
+                    if isinstance(imgs, list):
                         image_count += len(imgs)
+            if output_node_ids and image_count == 0 and total_image_count > 0:
+                image_count = total_image_count
+                fallback_to_all = True
 
             if last_image_count is not None and image_count == last_image_count and image_count > 0:
                 stable_polls += 1
@@ -398,6 +405,26 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
                         "mime": node_image.get("mime_type"),
                     }
                 )
+        if output_node_ids and not images and fallback_to_all and isinstance(outputs, dict):
+            for node_id, info in outputs.items():
+                if not isinstance(info, dict):
+                    continue
+                for node_image in info.get("images", []):
+                    filename = node_image.get("filename")
+                    subfolder = node_image.get("subfolder") or ""
+                    image_url = node_image.get("url")
+                    image_type = node_image.get("type") or node_image.get("image_type")
+                    images.append(
+                        {
+                            "nodeId": str(node_id),
+                            "filename": filename,
+                            "subfolder": subfolder,
+                            "type": image_type,
+                            "url": image_url or "",
+                            "base64": node_image.get("base64"),
+                            "mime": node_image.get("mime_type"),
+                        }
+                    )
         return {"images": images, "history": entry}
 
     def _extract_outputs(self, entry: dict[str, Any], *, output_node_ids: set[str] | None = None) -> dict[str, Any]:
@@ -408,10 +435,38 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         """
         outputs = entry.get("outputs") or {}
         images: list[dict[str, Any]] = []
+        total_image_count = 0
         if isinstance(outputs, dict):
             for node_id, info in outputs.items():
+                if not isinstance(info, dict):
+                    continue
+                imgs = info.get("images")
+                if isinstance(imgs, list):
+                    total_image_count += len(imgs)
                 if output_node_ids and str(node_id) not in output_node_ids:
                     continue
+                if not isinstance(imgs, list):
+                    continue
+                for node_image in imgs:
+                    if not isinstance(node_image, dict):
+                        continue
+                    filename = node_image.get("filename")
+                    subfolder = node_image.get("subfolder") or ""
+                    image_url = node_image.get("url")
+                    image_type = node_image.get("type") or node_image.get("image_type")
+                    images.append(
+                        {
+                            "nodeId": str(node_id),
+                            "filename": filename,
+                            "subfolder": subfolder,
+                            "type": image_type,
+                            "url": image_url or "",
+                            "base64": node_image.get("base64"),
+                            "mime": node_image.get("mime_type"),
+                        }
+                    )
+        if output_node_ids and not images and total_image_count > 0 and isinstance(outputs, dict):
+            for node_id, info in outputs.items():
                 if not isinstance(info, dict):
                     continue
                 imgs = info.get("images")
