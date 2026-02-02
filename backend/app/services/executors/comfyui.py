@@ -128,6 +128,7 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             )
         if overrides:
             _apply_inputs(graph_payload, overrides)
+        self._normalize_string_nodes(graph_payload)
 
         # Avoid "same inputs => same outputs" surprises when users run the same workflow
         # repeatedly (e.g. "抽卡"). Many shared ComfyUI graphs ship with a fixed seed.
@@ -720,14 +721,19 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             for nid in ("64", "94", "102"):
                 overrides.setdefault(nid, {})["image"] = ["106", 0]
 
-        base64_data = self._download_base64(image_url)
-        if base64_data:
-            overrides["104"] = {"base64_data": base64_data}
-            # Re-wire all downstream nodes that previously referenced the URL loader.
-            # This avoids ComfyUI runtime "list index out of range" when the ComfyUI host
-            # cannot access OSS/public URLs (LoadImagesFromURL returns an empty list).
-            for nid in ("64", "94", "102"):
-                overrides.setdefault(nid, {})["image"] = ["104", 0]
+        if not uploaded:
+            base64_data = self._download_base64(image_url)
+            if base64_data:
+                overrides["104"] = {"base64_data": base64_data}
+                # Re-wire all downstream nodes that previously referenced the URL loader.
+                # This avoids ComfyUI runtime "list index out of range" when the ComfyUI host
+                # cannot access OSS/public URLs (LoadImagesFromURL returns an empty list).
+                for nid in ("64", "94", "102"):
+                    overrides.setdefault(nid, {})["image"] = ["104", 0]
+            else:
+                # Last resort: keep using the URL loader instead of the 1x1 base64 stub.
+                for nid in ("64", "94", "102"):
+                    overrides.setdefault(nid, {})["image"] = ["96", 0]
 
         prompt = self._as_text(params.get("prompt") or params.get("description"))
         if prompt:
@@ -984,6 +990,20 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             self._logger.warning("Failed to fetch image for base64 fallback: %s", exc)
             return None
         return base64.b64encode(response.content).decode("ascii")
+
+    @staticmethod
+    def _normalize_string_nodes(graph: dict[str, Any]) -> None:
+        """Align custom String node inputs across ComfyUI node packs."""
+        for node in graph.values():
+            if not isinstance(node, dict):
+                continue
+            if node.get("class_type") != "String":
+                continue
+            inputs = node.get("inputs")
+            if not isinstance(inputs, dict):
+                continue
+            if "String" not in inputs and "inStr" in inputs:
+                inputs["String"] = inputs.get("inStr")
 
     def _upload_image_to_comfyui(self, base_url: str, image_url: str) -> str | None:
         """Upload a remote image to ComfyUI and return the LoadImage `image` filename."""

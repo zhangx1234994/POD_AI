@@ -550,7 +550,7 @@
   },
   "211": {
     "inputs": {
-      "inStr": "https://gips2.baidu.com/it/u=1674525583,3037683813&fm=3028&app=3028&f=JPEG&fmt=auto?w=1024&h=1024"
+      "String": "https://gips2.baidu.com/it/u=1674525583,3037683813&fm=3028&app=3028&f=JPEG&fmt=auto?w=1024&h=1024"
     },
     "class_type": "String",
     "_meta": {
