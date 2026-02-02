@@ -593,7 +593,10 @@ class AbilityInvocationService:
         images: _ImageBundle,
         context: _InvocationContext,
     ) -> dict[str, Any]:
-        from app.services import podi_image_tools
+        try:
+            from app.services import podi_image_tools
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"PODI_IMAGE_TOOLS_IMPORT_FAILED:{exc}") from exc
 
         key = ability.capability_key
         if key not in {"expand_mask_color", "set_dpi", "upscale_resize"}:
@@ -652,15 +655,21 @@ class AbilityInvocationService:
         if image_base64:
             import base64 as _b64
 
-            raw = image_base64.strip()
-            if "," in raw and "base64" in raw:
-                raw = raw.split(",", 1)[1]
-            src_bytes = _b64.b64decode(raw)
+            try:
+                raw = image_base64.strip()
+                if "," in raw and "base64" in raw:
+                    raw = raw.split(",", 1)[1]
+                src_bytes = _b64.b64decode(raw)
+            except Exception as exc:
+                raise HTTPException(status_code=400, detail="IMAGE_BASE64_INVALID") from exc
         else:
             src_source_url = str(image_url)
-            resp = httpx.get(src_source_url, timeout=60)
-            resp.raise_for_status()
-            src_bytes = resp.content
+            try:
+                resp = httpx.get(src_source_url, timeout=60)
+                resp.raise_for_status()
+                src_bytes = resp.content
+            except httpx.HTTPError as exc:
+                raise HTTPException(status_code=502, detail="IMAGE_DOWNLOAD_FAILED") from exc
 
         user_id = str(context.user.id if context.user else "system")
         asset: dict[str, Any] | None = None
@@ -861,6 +870,9 @@ class AbilityInvocationService:
             if combined_urls:
                 # Seedream 4.x image-to-image uses `image` (string or list).
                 merged_inputs["image"] = combined_urls[0] if len(combined_urls) == 1 else combined_urls
+            else:
+                # Guard against stray/empty image params coming from UI defaults.
+                merged_inputs.pop("image", None)
 
             # Volcengine supports multiple outputs via `n`. Some accounts/models enforce a
             # combined limit with reference images. We clamp to a conservative max=10.
