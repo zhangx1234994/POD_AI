@@ -199,6 +199,9 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
 
         output_node_ids = None
         raw_ids = workflow_definition.get("output_node_ids")
+        if not isinstance(raw_ids, list):
+            workflow_meta = getattr(context.workflow, "extra_metadata", None) or {}
+            raw_ids = workflow_meta.get("output_node_ids") or workflow_meta.get("outputNodeIds")
         if isinstance(raw_ids, list):
             output_node_ids = {str(x) for x in raw_ids if str(x).strip()}
 
@@ -497,18 +500,134 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         if self._looks_like_node_overrides(inputs):
             return inputs, None
         workflow_meta = getattr(context.workflow, "extra_metadata", None) or {}
+        mapping = workflow_meta.get("input_node_map") or workflow_meta.get("inputNodeMap")
+        mapped_overrides, mapped_error = self._build_metadata_inputs(mapping, inputs, context)
+
         workflow_key = workflow_meta.get("workflow_key") or workflow_definition.get("workflow_key")
+        base_overrides: dict[str, dict[str, Any]] | None = None
+        base_error: str | None = None
         if workflow_key == "sifang_lianxu":
-            return self._build_seamless_inputs(inputs, context)
-        if workflow_key == "yinhua_tiqu":
-            return self._build_pattern_extract_inputs(inputs, context, workflow_definition)
-        if workflow_key == "huawen_kuotu":
-            return self._build_pattern_expand_inputs(inputs, context, workflow_definition)
-        if workflow_key == "jisu_chuli":
-            return self._build_jisu_chuli_inputs(inputs, context, workflow_definition)
-        if workflow_key == "zhongsu_tisheng":
-            return self._build_jisu_chuli_inputs(inputs, context, workflow_definition)
-        return None, None
+            base_overrides, base_error = self._build_seamless_inputs(inputs, context)
+        elif workflow_key == "yinhua_tiqu":
+            base_overrides, base_error = self._build_pattern_extract_inputs(inputs, context, workflow_definition)
+        elif workflow_key == "huawen_kuotu":
+            base_overrides, base_error = self._build_pattern_expand_inputs(inputs, context, workflow_definition)
+        elif workflow_key in {"jisu_chuli", "zhongsu_tisheng"}:
+            base_overrides, base_error = self._build_jisu_chuli_inputs(inputs, context, workflow_definition)
+
+        if base_error:
+            return None, base_error
+        if mapped_error and not base_overrides:
+            return None, mapped_error
+
+        overrides = self._merge_overrides(base_overrides, mapped_overrides)
+        return overrides, None
+
+    @staticmethod
+    def _merge_overrides(
+        base: dict[str, dict[str, Any]] | None, extra: dict[str, dict[str, Any]] | None
+    ) -> dict[str, dict[str, Any]] | None:
+        if not base:
+            return extra
+        if not extra:
+            return base
+        for node_id, node_inputs in extra.items():
+            if node_id not in base:
+                base[node_id] = node_inputs
+                continue
+            base[node_id].update(node_inputs)
+        return base
+
+    def _build_metadata_inputs(
+        self, mapping: Any, params: dict[str, Any], context: ExecutionContext
+    ) -> tuple[dict[str, dict[str, Any]] | None, str | None]:
+        if not mapping or not isinstance(mapping, list):
+            return None, None
+        overrides: dict[str, dict[str, Any]] = {}
+        image_url: str | None = None
+        requires_image = False
+        image_fields = {"image", "imageurl", "image_url", "imagebase64", "image_base64", "imagelist", "image_list"}
+
+        for item in mapping:
+            if not isinstance(item, dict):
+                continue
+            field = item.get("field") or item.get("name") or item.get("param")
+            node_id = item.get("node_id") or item.get("nodeId")
+            input_key = item.get("input_key") or item.get("inputKey") or item.get("input")
+            value_type = item.get("value_type") or item.get("valueType") or item.get("type")
+            if not field or not node_id or not input_key:
+                continue
+
+            field_name = str(field).strip()
+            if not field_name:
+                continue
+
+            value = params.get(field_name)
+            field_key = field_name.lower()
+            if value is None and field_key in image_fields:
+                requires_image = True
+                if image_url is None:
+                    image_url, _ = self._resolve_image_source(params, context)
+                if field_key in {"imagebase64", "image_base64"}:
+                    value = self._normalize_base64(params.get(field_name))
+                else:
+                    value = image_url
+
+            if value is None:
+                continue
+
+            coerced = self._coerce_metadata_value(value, value_type)
+            if coerced is None and value is not None:
+                continue
+            overrides.setdefault(str(node_id), {})[str(input_key)] = coerced
+
+        if requires_image and not image_url:
+            return None, "COMFYUI_IMAGE_REQUIRED"
+        return (overrides or None), None
+
+    @staticmethod
+    def _coerce_metadata_value(value: Any, value_type: Any) -> Any:
+        if value_type is None:
+            return value
+        value_type = str(value_type).strip().lower()
+        if not value_type:
+            return value
+        if value_type in {"int", "integer"}:
+            raw = value
+            if isinstance(raw, str):
+                raw = raw.strip().lower().replace("px", "")
+            try:
+                return int(raw)
+            except (TypeError, ValueError):
+                return None
+        if value_type in {"float", "number"}:
+            raw = value
+            if isinstance(raw, str):
+                raw = raw.strip().lower().replace("px", "")
+            try:
+                return float(raw)
+            except (TypeError, ValueError):
+                return None
+        if value_type in {"bool", "boolean"}:
+            if isinstance(value, bool):
+                return value
+            if isinstance(value, (int, float)):
+                return bool(value)
+            if isinstance(value, str):
+                normalized = value.strip().lower()
+                if normalized in {"true", "1", "yes", "y", "on"}:
+                    return True
+                if normalized in {"false", "0", "no", "n", "off"}:
+                    return False
+            return None
+        if value_type in {"json", "object"}:
+            if isinstance(value, str):
+                try:
+                    return json.loads(value)
+                except json.JSONDecodeError:
+                    return None
+            return value
+        return value
 
     def _looks_like_node_overrides(self, payload: dict[str, Any]) -> bool:
         try:

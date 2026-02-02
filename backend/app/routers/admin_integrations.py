@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import time
+from datetime import datetime, timezone
 from typing import Any, Callable
 from uuid import uuid4
 
@@ -627,7 +628,14 @@ def get_comfyui_queue_status(executor_id: str = Query(..., alias="executorId")):
 @router.get("/comfyui/queue-summary", response_model=admin_tests.ComfyuiQueueSummaryResponse)
 def get_comfyui_queue_summary(executor_ids: list[str] | None = Query(None, alias="executorIds")):
     result = integration_test_service.get_comfyui_queue_summary(executor_ids=executor_ids)
+    result["timestamp"] = datetime.now(timezone.utc).isoformat()
     return admin_tests.ComfyuiQueueSummaryResponse(**result)
+
+
+@router.get("/comfyui/system-stats", response_model=admin_tests.ComfyuiSystemStatsResponse)
+def get_comfyui_system_stats(executor_id: str = Query(..., alias="executorId")):
+    result = integration_test_service.get_comfyui_system_stats(executor_id=executor_id)
+    return admin_tests.ComfyuiSystemStatsResponse(**result)
 
 
 def _apply_executor_api_keys(session, executor: Executor, api_key_ids: list[str] | None) -> None:

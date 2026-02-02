@@ -17,7 +17,7 @@ from sqlalchemy import select
 
 from app.constants.abilities import BAIDU_IMAGE_ABILITIES
 from app.core.db import get_session
-from app.models.integration import ApiKey, Executor
+from app.models.integration import ApiKey, Executor, Workflow
 from app.services.api_key_selector import bump_usage, mark_cooldown, pick_executor_api_key, pick_provider_api_key
 from app.services.executors import ExecutionContext, registry
 from app.services.media_ingest import media_ingest_service
@@ -38,6 +38,49 @@ class IntegrationTestService:
             _ = list(executor.api_keys)
             _ = list(executor.api_key_links)
             return executor
+
+    def _find_comfyui_workflow(self, workflow_key: str) -> Workflow | None:
+        key = str(workflow_key or "").strip()
+        if not key:
+            return None
+        try:
+            with get_session() as session:
+                rows = session.execute(select(Workflow)).scalars().all()
+        except Exception:
+            return None
+        for wf in rows:
+            meta = wf.extra_metadata or {}
+            meta_key = str(meta.get("workflow_key") or "").strip()
+            if meta_key == key:
+                return wf
+            if wf.id == key:
+                return wf
+            if wf.action == key:
+                return wf
+        return None
+
+    def _get_comfyui_workflow_metadata(self, workflow_key: str) -> dict[str, Any]:
+        record = self._find_comfyui_workflow(workflow_key)
+        if record and isinstance(record.extra_metadata, dict):
+            return record.extra_metadata
+        return {}
+
+    @staticmethod
+    def _normalize_comfyui_graph(definition: dict[str, Any] | None) -> dict[str, Any]:
+        if not definition:
+            return {}
+        graph = definition.get("graph")
+        if isinstance(graph, dict):
+            return graph
+        return definition
+
+    def _get_comfyui_workflow_graph(self, workflow_key: str) -> dict[str, Any]:
+        record = self._find_comfyui_workflow(workflow_key)
+        if record and isinstance(record.definition, dict) and record.definition:
+            graph = self._normalize_comfyui_graph(record.definition)
+            if graph:
+                return graph
+        return load_comfy_workflow(workflow_key)
 
     def run_baidu_image_process(
         self,
@@ -922,12 +965,13 @@ class IntegrationTestService:
         payload: dict[str, Any] = dict(workflow_params or {})
         workflow_definition = {
             "workflow_key": workflow_key,
-            "graph": load_comfy_workflow(workflow_key),
+            "graph": self._get_comfyui_workflow_graph(workflow_key),
         }
+        workflow_meta = self._get_comfyui_workflow_metadata(workflow_key)
         workflow = SimpleNamespace(
             id=f"{workflow_key}_submit",
             definition=workflow_definition,
-            extra_metadata={"workflow_key": workflow_key},
+            extra_metadata={"workflow_key": workflow_key, **(workflow_meta or {})},
         )
         context = ExecutionContext(
             task=SimpleNamespace(id=f"submit-{uuid4().hex}", user_id="admin-comfyui", assets=[]),
@@ -963,7 +1007,7 @@ class IntegrationTestService:
             # Make this explicit; otherwise callers will poll forever.
             raise HTTPException(status_code=502, detail=f"COMFYUI_SUBMIT_NODE_ERROR:{list(node_errors.keys())[:5]}")
 
-        return {
+        result: dict[str, Any] = {
             "provider": "comfyui",
             "executorId": executor.id,
             "baseUrl": base_url,
@@ -971,6 +1015,11 @@ class IntegrationTestService:
             "promptId": prompt_id,
             "raw": {"response": resp_json},
         }
+        if isinstance(workflow_meta, dict):
+            raw_ids = workflow_meta.get("output_node_ids") or workflow_meta.get("outputNodeIds")
+            if isinstance(raw_ids, list):
+                result["outputNodeIds"] = [str(x) for x in raw_ids if str(x).strip()]
+        return result
 
     def run_comfyui_workflow(
         self,
@@ -989,14 +1038,15 @@ class IntegrationTestService:
         timeout_value = payload.pop("timeout", None)
         workflow_definition = {
             "workflow_key": workflow_key,
-            "graph": load_comfy_workflow(workflow_key),
+            "graph": self._get_comfyui_workflow_graph(workflow_key),
         }
+        workflow_meta = self._get_comfyui_workflow_metadata(workflow_key)
         if isinstance(timeout_value, (int, float)) and timeout_value > 0:
             workflow_definition["timeout"] = max(60, min(int(timeout_value), 900))
         workflow = SimpleNamespace(
             id=f"{workflow_key}_test",
             definition=workflow_definition,
-            extra_metadata={"workflow_key": workflow_key},
+            extra_metadata={"workflow_key": workflow_key, **(workflow_meta or {})},
         )
         context = ExecutionContext(
             task=SimpleNamespace(id=f"test-{uuid4().hex}", user_id="admin-comfyui", assets=[]),
@@ -1017,7 +1067,7 @@ class IntegrationTestService:
         # Include executor info to simplify debugging/routing validation.
         config = executor.config or {}
         base_url = (executor.base_url or config.get("baseUrl") or config.get("base_url") or "").rstrip("/")
-        return {
+        result: dict[str, Any] = {
             "provider": "comfyui",
             "executorId": executor.id,
             "baseUrl": base_url,
@@ -1027,6 +1077,11 @@ class IntegrationTestService:
             "assets": assets,
             "raw": payload.get("raw"),
         }
+        if isinstance(workflow_meta, dict):
+            raw_ids = workflow_meta.get("output_node_ids") or workflow_meta.get("outputNodeIds")
+            if isinstance(raw_ids, list):
+                result["outputNodeIds"] = [str(x) for x in raw_ids if str(x).strip()]
+        return result
 
     def get_comfyui_model_catalog(self, *, executor_id: str) -> dict[str, Any]:
         executor = self._get_executor(executor_id)
@@ -1182,6 +1237,36 @@ class IntegrationTestService:
             "totalPending": total_pending,
             "totalCount": total_running + total_pending,
             "servers": servers,
+        }
+
+    def get_comfyui_system_stats(self, *, executor_id: str) -> dict[str, Any]:
+        executor = self._get_executor(executor_id)
+        if (executor.type or "").lower() != "comfyui":
+            raise HTTPException(status_code=400, detail="EXECUTOR_TYPE_NOT_COMFYUI")
+        config = executor.config or {}
+        base_url = (
+            executor.base_url
+            or config.get("baseUrl")
+            or config.get("base_url")
+            or ""
+        ).rstrip("/")
+        if not base_url:
+            raise HTTPException(status_code=400, detail="COMFYUI_BASE_URL_MISSING")
+        try:
+            response = httpx.get(f"{base_url}/system_stats", timeout=15)
+            response.raise_for_status()
+        except httpx.HTTPError as exc:  # pragma: no cover - defensive
+            self._logger.warning("Failed to fetch ComfyUI system stats: %s", exc)
+            raise HTTPException(status_code=502, detail="COMFYUI_SYSTEM_STATS_ERROR") from exc
+        data = response.json()
+        system = data.get("system") if isinstance(data, dict) else None
+        devices = data.get("devices") if isinstance(data, dict) else None
+        return {
+            "executorId": executor.id,
+            "baseUrl": base_url,
+            "system": system if isinstance(system, dict) else None,
+            "devices": devices if isinstance(devices, list) else None,
+            "raw": data if isinstance(data, dict) else None,
         }
 
     @staticmethod

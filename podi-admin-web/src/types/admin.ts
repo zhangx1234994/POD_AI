@@ -173,6 +173,7 @@ export interface ComfyuiQueueSummary {
   totalRunning: number;
   totalPending: number;
   totalCount: number;
+  timestamp?: string | null;
   servers: ComfyuiQueueStatus[];
 }
 

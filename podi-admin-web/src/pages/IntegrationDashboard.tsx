@@ -112,6 +112,22 @@ type ExecutorTraffic = {
   lastFailedAt?: string | null;
   p95Ms?: number | null;
 };
+
+type ComfyNode = {
+  id: string;
+  title: string;
+  classType: string;
+  inputs: string[];
+};
+
+const WORKFLOW_VALUE_TYPES = new Set(['string', 'int', 'float', 'bool', 'json']);
+
+type ComfyInputMapItem = {
+  field: string;
+  nodeId: string;
+  inputKey: string;
+  valueType?: string;
+};
 const statusOptions = [
   { value: 'inactive', label: '未启用' },
   { value: 'active', label: '启用' },
@@ -699,6 +715,145 @@ const parseJSON = (value?: string | JsonRecord): JsonRecord => {
   }
 };
 
+const safeParseJSON = (value?: string | JsonRecord): { ok: boolean; value: JsonRecord } => {
+  if (!value) return { ok: true, value: {} };
+  if (typeof value === 'object') return { ok: true, value };
+  try {
+    return { ok: true, value: JSON.parse(value) };
+  } catch {
+    return { ok: false, value: {} };
+  }
+};
+
+const extractComfyuiNodes = (definition?: string | JsonRecord): ComfyNode[] => {
+  const parsed = safeParseJSON(definition);
+  if (!parsed.ok) return [];
+  const record = parsed.value as Record<string, unknown>;
+  const graphCandidate = record?.graph;
+  const graph =
+    graphCandidate && typeof graphCandidate === 'object' ? (graphCandidate as Record<string, unknown>) : record;
+  if (!graph || typeof graph !== 'object') return [];
+  const nodes: ComfyNode[] = [];
+  Object.entries(graph).forEach(([id, node]) => {
+    if (!node || typeof node !== 'object') return;
+    const raw = node as Record<string, unknown>;
+    const classType = typeof raw.class_type === 'string' ? raw.class_type : '';
+    const meta = raw._meta as Record<string, unknown> | undefined;
+    const title = typeof meta?.title === 'string' ? meta.title : classType || id;
+    const inputs = raw.inputs && typeof raw.inputs === 'object' ? Object.keys(raw.inputs as Record<string, unknown>) : [];
+    nodes.push({ id: String(id), title, classType, inputs });
+  });
+  nodes.sort((a, b) => {
+    const na = Number(a.id);
+    const nb = Number(b.id);
+    if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
+    return a.id.localeCompare(b.id);
+  });
+  return nodes;
+};
+
+const normalizeInputNodeMap = (metadata?: JsonRecord | null): ComfyInputMapItem[] => {
+  if (!metadata || typeof metadata !== 'object') return [];
+  const raw = (metadata as Record<string, unknown>).input_node_map ?? (metadata as Record<string, unknown>).inputNodeMap;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null;
+      const record = item as Record<string, unknown>;
+      const field = typeof record.field === 'string' ? record.field : typeof record.name === 'string' ? record.name : '';
+      const nodeId = typeof record.node_id === 'string' ? record.node_id : typeof record.nodeId === 'string' ? record.nodeId : '';
+      const inputKey =
+        typeof record.input_key === 'string'
+          ? record.input_key
+          : typeof record.inputKey === 'string'
+            ? record.inputKey
+            : typeof record.input === 'string'
+              ? record.input
+              : '';
+      const valueType =
+        typeof record.value_type === 'string'
+          ? record.value_type
+          : typeof record.valueType === 'string'
+            ? record.valueType
+            : undefined;
+      if (!field || !nodeId || !inputKey) return null;
+      return {
+        field: field.trim(),
+        nodeId: String(nodeId).trim(),
+        inputKey: String(inputKey).trim(),
+        valueType: valueType ? valueType.trim() : undefined,
+      } as ComfyInputMapItem;
+    })
+    .filter((item): item is ComfyInputMapItem => Boolean(item && item.field && item.nodeId && item.inputKey));
+};
+
+const serializeInputNodeMap = (items: ComfyInputMapItem[]): JsonRecord[] => {
+  return items
+    .map((item) => {
+      const field = item.field.trim();
+      const nodeId = item.nodeId.trim();
+      const inputKey = item.inputKey.trim();
+      if (!field || !nodeId || !inputKey) return null;
+      const record: JsonRecord = {
+        field,
+        node_id: nodeId,
+        input_key: inputKey,
+      };
+      if (item.valueType && item.valueType.trim()) {
+        record.value_type = item.valueType.trim();
+      }
+      return record;
+    })
+    .filter((item): item is JsonRecord => Boolean(item));
+};
+
+const normalizeOutputNodeIds = (metadata?: JsonRecord | null): string[] => {
+  if (!metadata || typeof metadata !== 'object') return [];
+  const raw = (metadata as Record<string, unknown>).output_node_ids ?? (metadata as Record<string, unknown>).outputNodeIds;
+  if (!Array.isArray(raw)) return [];
+  return raw.map((item) => String(item).trim()).filter(Boolean);
+};
+
+const extractComfyuiVersionInfo = (executor?: Executor | null, system?: Record<string, unknown> | null) => {
+  if (system && typeof system === 'object') {
+    const pickSystem = (key: string) => (typeof (system as Record<string, unknown>)[key] === 'string' ? String((system as Record<string, unknown>)[key]).trim() : '');
+    return {
+      version: pickSystem('comfyui_version'),
+      customNodes: pickSystem('installed_templates_version'),
+      modelsHash: '',
+      loraHash: '',
+      syncRole: '',
+      lastSyncAt: '',
+    };
+  }
+  const config = (executor?.config || {}) as Record<string, unknown>;
+  const pick = (keys: string[]) => {
+    for (const key of keys) {
+      const value = config[key];
+      if (typeof value === 'string' && value.trim()) return value.trim();
+    }
+    return '';
+  };
+  return {
+    version: pick(['comfyui_version', 'comfyuiVersion', 'version']),
+    customNodes: pick(['custom_nodes_version', 'customNodesVersion', 'custom_nodes']),
+    modelsHash: pick(['models_hash', 'modelsHash']),
+    loraHash: pick(['lora_hash', 'loraHash']),
+    syncRole: pick(['sync_role', 'syncRole', 'role']),
+    lastSyncAt: pick(['last_sync_at', 'lastSyncAt']),
+  };
+};
+
+const extractComfyuiModelCounts = (catalog?: Record<string, string[]>) => {
+  const count = (key: string) => (Array.isArray(catalog?.[key]) ? catalog?.[key]?.length || 0 : 0);
+  return {
+    unet: count('unet'),
+    clip: count('clip'),
+    vae: count('vae'),
+    lora: count('lora'),
+  };
+};
+
 const normalizeTagList = (value: unknown): string[] => {
   const out: string[] = [];
   if (!value) return out;
@@ -789,6 +944,13 @@ export function IntegrationDashboard({
   const [executorForm, setExecutorForm] = useState<ExecutorFormState>(defaultExecutorForm);
   const [workflowForm, setWorkflowForm] = useState<WorkflowFormState>(defaultWorkflowForm);
   const [workflowFormAllowedExecutors, setWorkflowFormAllowedExecutors] = useState<string[]>([]);
+  const [workflowInputMap, setWorkflowInputMap] = useState<ComfyInputMapItem[]>([]);
+  const [workflowOutputNodeIds, setWorkflowOutputNodeIds] = useState<string[]>([]);
+  const [workflowInputPickerNodeId, setWorkflowInputPickerNodeId] = useState<string>('');
+  const [workflowInputPickerKeys, setWorkflowInputPickerKeys] = useState<string[]>([]);
+  const [workflowOutputPickerNodeId, setWorkflowOutputPickerNodeId] = useState<string>('');
+  const [workflowOutputShowAll, setWorkflowOutputShowAll] = useState(false);
+  const [workflowFormErrors, setWorkflowFormErrors] = useState<string[]>([]);
   const [bindingForm, setBindingForm] = useState<BindingFormState>(defaultBindingForm);
   const [apiKeyForm, setApiKeyForm] = useState<ApiKeyFormState>(defaultApiKeyForm);
   const [testForm, setTestForm] = useState<AbilityTestForm>(defaultTestForm);
@@ -798,6 +960,11 @@ export function IntegrationDashboard({
   const [comfyModelCache, setComfyModelCache] = useState<Record<string, Record<string, string[]>>>({});
   const [comfyModelLoading, setComfyModelLoading] = useState(false);
   const [comfyModelError, setComfyModelError] = useState<string | null>(null);
+  const [comfyModelLoadingByExecutor, setComfyModelLoadingByExecutor] = useState<Record<string, boolean>>({});
+  const [comfyModelErrorByExecutor, setComfyModelErrorByExecutor] = useState<Record<string, string>>({});
+  const [comfySystemCache, setComfySystemCache] = useState<Record<string, Record<string, unknown>>>({});
+  const [comfySystemLoadingByExecutor, setComfySystemLoadingByExecutor] = useState<Record<string, boolean>>({});
+  const [comfySystemErrorByExecutor, setComfySystemErrorByExecutor] = useState<Record<string, string>>({});
   const [comfyQueueStatus, setComfyQueueStatus] = useState<ComfyuiQueueStatus | null>(null);
   const [comfyQueueLoading, setComfyQueueLoading] = useState(false);
   const [comfyQueueError, setComfyQueueError] = useState<string | null>(null);
@@ -866,6 +1033,82 @@ export function IntegrationDashboard({
     () => executors.filter((executor) => (executor.type || '').toLowerCase().includes('comfyui')),
     [executors],
   );
+  const comfyWorkflowNodes = useMemo(
+    () => extractComfyuiNodes(workflowForm.definition),
+    [workflowForm.definition],
+  );
+  const comfyWorkflowNodeMap = useMemo(() => {
+    const map = new Map<string, ComfyNode>();
+    comfyWorkflowNodes.forEach((node) => map.set(node.id, node));
+    return map;
+  }, [comfyWorkflowNodes]);
+  const workflowDefinitionParse = useMemo(
+    () => safeParseJSON(workflowForm.definition),
+    [workflowForm.definition],
+  );
+  const workflowMetadataParse = useMemo(
+    () => safeParseJSON(workflowForm.metadata),
+    [workflowForm.metadata],
+  );
+  const workflowDefinitionError =
+    workflowForm.definition && !workflowDefinitionParse.ok ? 'Workflow JSON 解析失败，请检查格式。' : '';
+  const workflowMetadataError =
+    workflowForm.metadata && !workflowMetadataParse.ok ? 'metadata JSON 解析失败，请检查格式。' : '';
+  const workflowMappingErrors = useMemo(() => {
+    const errors: string[] = [];
+    if (workflowInputMap.length === 0 && workflowOutputNodeIds.length === 0) {
+      return errors;
+    }
+    if (!comfyWorkflowNodes.length) {
+      errors.push('未解析到节点，无法校验输入/输出映射，请先导入有效的 Workflow JSON。');
+      return errors;
+    }
+    const used = new Set<string>();
+    workflowInputMap.forEach((item, idx) => {
+      const prefix = `第 ${idx + 1} 条输入映射`;
+      if (!item.field || !item.field.trim()) {
+        errors.push(`${prefix}缺少参数名`);
+      }
+      if (!item.nodeId) {
+        errors.push(`${prefix}未选择节点`);
+        return;
+      }
+      const node = comfyWorkflowNodeMap.get(item.nodeId);
+      if (!node) {
+        errors.push(`${prefix}节点 #${item.nodeId} 不存在`);
+        return;
+      }
+      if (!item.inputKey) {
+        errors.push(`${prefix}未选择输入 Key`);
+      } else if (!node.inputs.includes(item.inputKey)) {
+        errors.push(`${prefix}输入 ${item.inputKey} 不在节点 #${item.nodeId} 的输入列表`);
+      }
+      const signature = `${item.nodeId}::${item.inputKey}`;
+      if (item.inputKey) {
+        if (used.has(signature)) {
+          errors.push(`${prefix}重复映射了节点 #${item.nodeId} 的输入 ${item.inputKey}`);
+        } else {
+          used.add(signature);
+        }
+      }
+      if (item.valueType && !WORKFLOW_VALUE_TYPES.has(item.valueType)) {
+        errors.push(`${prefix}类型 ${item.valueType} 不合法`);
+      }
+    });
+    workflowOutputNodeIds.forEach((nodeId) => {
+      if (!comfyWorkflowNodeMap.has(nodeId)) {
+        errors.push(`输出节点 #${nodeId} 不在当前 Workflow 中`);
+      }
+    });
+    return errors;
+  }, [workflowInputMap, workflowOutputNodeIds, comfyWorkflowNodes, comfyWorkflowNodeMap]);
+  const workflowSubmitDisabled =
+    !workflowForm.action?.trim() ||
+    !workflowForm.name?.trim() ||
+    !workflowForm.definition?.trim() ||
+    Boolean(workflowDefinitionError) ||
+    Boolean(workflowMetadataError) ||
+    workflowMappingErrors.length > 0;
   const comfyQueueByExecutor = useMemo(() => {
     const next: Record<string, ComfyuiQueueStatus> = {};
     for (const item of comfyQueueSummary?.servers || []) {
@@ -910,6 +1153,12 @@ export function IntegrationDashboard({
       { key: 'baseUrl', label: 'baseUrl', hint: '可选：与 Base URL 保持一致', placeholder: 'http://<ip>:8079' },
       { key: 'channel_key', label: 'channel_key', hint: '可选：用于多机/多中转站区分', placeholder: 'comfyui-158' },
       { key: 'tags', label: 'tags', hint: '可选：路由标签，逗号分隔', placeholder: 'gpu:4090, region:hz' },
+      { key: 'comfyui_version', label: 'comfyui_version', hint: '可选：ComfyUI 版本号', placeholder: 'v0.2.x / commit' },
+      { key: 'custom_nodes_version', label: 'custom_nodes_version', hint: '可选：自定义节点版本', placeholder: 'nodes-2026.02' },
+      { key: 'models_hash', label: 'models_hash', hint: '可选：模型清单 hash', placeholder: 'sha1:...' },
+      { key: 'lora_hash', label: 'lora_hash', hint: '可选：LoRA 清单 hash', placeholder: 'sha1:...' },
+      { key: 'sync_role', label: 'sync_role', hint: '可选：母/子服务器标记', placeholder: 'master / worker' },
+      { key: 'last_sync_at', label: 'last_sync_at', hint: '可选：最近同步时间', placeholder: '2026-02-02 12:00' },
     ];
     const kie = [
       { key: 'apiKey', label: 'apiKey', hint: '必填：KIE API Key', placeholder: 'sk-***' },
@@ -1440,6 +1689,62 @@ export function IntegrationDashboard({
     };
   }, [selectedAbility?.provider, activeComfyExecutorId, comfyModelCache]);
 
+  const refreshComfyuiModelCatalog = useCallback(
+    async (executorId: string, options?: { silent?: boolean }) => {
+      if (!executorId) return;
+      const silent = Boolean(options?.silent);
+      if (!silent) {
+        setComfyModelLoadingByExecutor((prev) => ({ ...prev, [executorId]: true }));
+      }
+      setComfyModelErrorByExecutor((prev) => ({ ...prev, [executorId]: '' }));
+      try {
+        const resp = await adminApi.getComfyuiModels(executorId);
+        setComfyModelCache((prev) => ({
+          ...prev,
+          [resp.executorId]: resp.models || {},
+        }));
+      } catch (error: any) {
+        console.error('Failed to load ComfyUI models:', error);
+        setComfyModelErrorByExecutor((prev) => ({
+          ...prev,
+          [executorId]: error?.message || '获取模型列表失败',
+        }));
+      } finally {
+        if (!silent) {
+          setComfyModelLoadingByExecutor((prev) => ({ ...prev, [executorId]: false }));
+        }
+      }
+    },
+    [],
+  );
+
+  const refreshComfyuiSystemStats = useCallback(
+    async (executorId: string, options?: { silent?: boolean }) => {
+      if (!executorId) return;
+      const silent = Boolean(options?.silent);
+      if (!silent) {
+        setComfySystemLoadingByExecutor((prev) => ({ ...prev, [executorId]: true }));
+      }
+      setComfySystemErrorByExecutor((prev) => ({ ...prev, [executorId]: '' }));
+      try {
+        const resp = await adminApi.getComfyuiSystemStats(executorId);
+        const system = (resp?.system && typeof resp.system === 'object' ? (resp.system as Record<string, unknown>) : {}) || {};
+        setComfySystemCache((prev) => ({ ...prev, [executorId]: system }));
+      } catch (error: any) {
+        console.error('Failed to load ComfyUI system stats:', error);
+        setComfySystemErrorByExecutor((prev) => ({
+          ...prev,
+          [executorId]: error?.message || '获取版本失败',
+        }));
+      } finally {
+        if (!silent) {
+          setComfySystemLoadingByExecutor((prev) => ({ ...prev, [executorId]: false }));
+        }
+      }
+    },
+    [],
+  );
+
   const refreshComfyQueueStatus = useCallback(
     async (options?: { silent?: boolean }) => {
       const silent = Boolean(options?.silent);
@@ -1488,7 +1793,7 @@ export function IntegrationDashboard({
         const response = await adminApi.getComfyuiQueueSummary(executorIds);
         setComfyQueueSummary(response);
         setComfyQueueSummaryError(null);
-        setComfyQueueSummaryUpdatedAt(new Date().toISOString());
+        setComfyQueueSummaryUpdatedAt(response.timestamp || new Date().toISOString());
       } catch (error) {
         console.error('load ComfyUI queue summary failed', error);
         setComfyQueueSummaryError(error instanceof Error ? error.message : '获取 ComfyUI 队列汇总失败');
@@ -1741,9 +2046,58 @@ export function IntegrationDashboard({
     return [];
   };
 
+  const syncWorkflowMetadata = useCallback(
+    (options?: {
+      inputMap?: ComfyInputMapItem[];
+      outputNodeIds?: string[];
+      allowedExecutorIds?: string[];
+    }) => {
+      setWorkflowForm((prev) => {
+        const base = prev.metadata ? parseJSON(prev.metadata) : {};
+        const metadata: Record<string, unknown> = { ...(base || {}) };
+        const allowed = options?.allowedExecutorIds ?? workflowFormAllowedExecutors;
+        if (allowed && allowed.length > 0) {
+          metadata.allowed_executor_ids = allowed;
+        } else {
+          delete metadata.allowed_executor_ids;
+        }
+        const inputMap = options?.inputMap ?? workflowInputMap;
+        if (inputMap && inputMap.length > 0) {
+          metadata.input_node_map = serializeInputNodeMap(inputMap);
+        } else {
+          delete metadata.input_node_map;
+        }
+        const outputIds = options?.outputNodeIds ?? workflowOutputNodeIds;
+        if (outputIds && outputIds.length > 0) {
+          metadata.output_node_ids = outputIds;
+        } else {
+          delete metadata.output_node_ids;
+        }
+        return { ...prev, metadata: stringifyJSON(metadata as JsonRecord) };
+      });
+    },
+    [workflowFormAllowedExecutors, workflowInputMap, workflowOutputNodeIds],
+  );
+
   useEffect(() => {
-    setWorkflowFormAllowedExecutors(extractAllowedExecutorIds(workflowForm.metadata));
+    const parsed = safeParseJSON(workflowForm.metadata);
+    if (!parsed.ok) return;
+    setWorkflowFormAllowedExecutors(extractAllowedExecutorIds(parsed.value));
+    setWorkflowInputMap(normalizeInputNodeMap(parsed.value));
+    setWorkflowOutputNodeIds(normalizeOutputNodeIds(parsed.value));
   }, [workflowForm.metadata]);
+
+  useEffect(() => {
+    if (workflowFormErrors.length === 0) return;
+    setWorkflowFormErrors([]);
+  }, [
+    workflowForm.action,
+    workflowForm.name,
+    workflowForm.definition,
+    workflowForm.metadata,
+    workflowInputMap,
+    workflowOutputNodeIds,
+  ]);
 
   const handleAbilitySubmit = async () => {
     if (
@@ -2393,29 +2747,137 @@ const normalizeErrorMessage = (message: string): string => {
     [executors, executorInlineConcurrency],
   );
 
+  const updateWorkflowInputMap = (index: number, patch: Partial<ComfyInputMapItem>) => {
+    const next = workflowInputMap.map((item, idx) => (idx === index ? { ...item, ...patch } : item));
+    setWorkflowInputMap(next);
+    syncWorkflowMetadata({ inputMap: next });
+  };
+
+  const addWorkflowInputMap = () => {
+    const next = [...workflowInputMap, { field: '', nodeId: '', inputKey: '', valueType: '' }];
+    setWorkflowInputMap(next);
+    syncWorkflowMetadata({ inputMap: next });
+  };
+
+  const removeWorkflowInputMap = (index: number) => {
+    const next = workflowInputMap.filter((_, idx) => idx !== index);
+    setWorkflowInputMap(next);
+    syncWorkflowMetadata({ inputMap: next });
+  };
+
+  const updateWorkflowOutputNodes = (next: string[]) => {
+    setWorkflowOutputNodeIds(next);
+    syncWorkflowMetadata({ outputNodeIds: next });
+  };
+
+  const pickWorkflowOutputNodes = (mode: 'save' | 'preview' | 'all' | 'clear') => {
+    if (mode === 'clear') {
+      updateWorkflowOutputNodes([]);
+      return;
+    }
+    if (mode === 'all') {
+      updateWorkflowOutputNodes(comfyWorkflowNodes.map((node) => node.id));
+      return;
+    }
+    const keyword = mode === 'save' ? 'saveimage' : 'preview';
+    const picked = comfyWorkflowNodes
+      .filter((node) => node.classType.toLowerCase().includes(keyword))
+      .map((node) => node.id);
+    updateWorkflowOutputNodes(picked);
+  };
+
+  const addWorkflowOutputNode = () => {
+    if (!workflowOutputPickerNodeId) return;
+    if (workflowOutputNodeIds.includes(workflowOutputPickerNodeId)) return;
+    updateWorkflowOutputNodes([...workflowOutputNodeIds, workflowOutputPickerNodeId]);
+  };
+
+  const removeWorkflowOutputNode = (nodeId: string) => {
+    updateWorkflowOutputNodes(workflowOutputNodeIds.filter((id) => id !== nodeId));
+  };
+
+  const addWorkflowInputMappingsForNode = () => {
+    const nodeId = workflowInputPickerNodeId;
+    if (!nodeId || workflowInputPickerKeys.length === 0) return;
+    const next = [...workflowInputMap];
+    const existing = new Set(next.map((item) => `${item.nodeId}::${item.inputKey}`));
+    workflowInputPickerKeys.forEach((key) => {
+      const signature = `${nodeId}::${key}`;
+      if (existing.has(signature)) return;
+      next.push({ field: key, nodeId, inputKey: key, valueType: '' });
+      existing.add(signature);
+    });
+    setWorkflowInputMap(next);
+    syncWorkflowMetadata({ inputMap: next });
+  };
+
   const handleWorkflowSubmit = async () => {
-    if (!workflowForm.name || !workflowForm.action) return;
+    const errors: string[] = [];
+    if (!workflowForm.action || !workflowForm.action.trim()) {
+      errors.push('请填写 Action');
+    }
+    if (!workflowForm.name || !workflowForm.name.trim()) {
+      errors.push('请填写名称');
+    }
+    if (!workflowForm.definition || !workflowForm.definition.trim()) {
+      errors.push('请先导入或粘贴 Workflow JSON');
+    }
+    if (workflowDefinitionError) {
+      errors.push(workflowDefinitionError);
+    }
+    if (workflowMetadataError) {
+      errors.push(workflowMetadataError);
+    }
+    if (workflowMappingErrors.length > 0) {
+      errors.push(...workflowMappingErrors);
+    }
+    if (errors.length > 0) {
+      setWorkflowFormErrors(errors);
+      return;
+    }
+    setWorkflowFormErrors([]);
     const { definition, metadata, ...rest } = workflowForm;
-    const definitionPayload = definition ? parseJSON(definition) : undefined;
-    const metadataPayload = metadata ? parseJSON(metadata) : {};
+    const definitionPayload = definition && workflowDefinitionParse.ok ? workflowDefinitionParse.value : undefined;
+    const metadataPayload = metadata && workflowMetadataParse.ok ? workflowMetadataParse.value : {};
     if (workflowFormAllowedExecutors.length > 0) {
       metadataPayload.allowed_executor_ids = workflowFormAllowedExecutors;
     } else {
       delete metadataPayload.allowed_executor_ids;
+    }
+    const inputMapPayload = serializeInputNodeMap(workflowInputMap);
+    if (inputMapPayload.length > 0) {
+      metadataPayload.input_node_map = inputMapPayload;
+    } else {
+      delete metadataPayload.input_node_map;
+    }
+    if (workflowOutputNodeIds.length > 0) {
+      metadataPayload.output_node_ids = workflowOutputNodeIds;
+    } else {
+      delete metadataPayload.output_node_ids;
     }
     const payload: Partial<Workflow> = {
       ...rest,
       ...(definitionPayload ? { definition: definitionPayload } : {}),
       ...(Object.keys(metadataPayload).length > 0 ? { metadata: metadataPayload } : {}),
     };
-    if (workflowForm.id) {
-      await adminApi.updateWorkflow(workflowForm.id, payload);
-    } else {
-      await adminApi.createWorkflow(payload);
-    }
-    setWorkflowForm(defaultWorkflowForm);
+    try {
+      if (workflowForm.id) {
+        await adminApi.updateWorkflow(workflowForm.id, payload);
+      } else {
+        await adminApi.createWorkflow(payload);
+      }
+      setWorkflowForm(defaultWorkflowForm);
     setWorkflowFormAllowedExecutors([]);
+    setWorkflowInputMap([]);
+    setWorkflowOutputNodeIds([]);
+    setWorkflowOutputPickerNodeId('');
+    setWorkflowOutputShowAll(false);
+    setWorkflowFormErrors([]);
     load();
+    } catch (error) {
+      console.error('save workflow failed', error);
+      setWorkflowFormErrors([extractErrorMessage(error) || '保存失败，请检查网络或参数']);
+    }
   };
 
   const handleBindingSubmit = async () => {
@@ -3618,6 +4080,7 @@ const normalizeErrorMessage = (message: string): string => {
                     const typeLower = (type || '').toLowerCase();
                     const isComfyGroup = typeLower.includes('comfyui');
                     const queueSummary = isComfyGroup ? comfyQueueSummary : null;
+                    const queueSummaryTimestamp = queueSummary?.timestamp || comfyQueueSummaryUpdatedAt;
                     return (
                       <div
                         key={`channel-group-${type}`}
@@ -3637,9 +4100,9 @@ const normalizeErrorMessage = (message: string): string => {
                                   : queueSummary
                                     ? `ComfyUI 队列：running ${queueSummary.totalRunning} · pending ${queueSummary.totalPending}`
                                     : 'ComfyUI 队列：—'}
-                                {comfyQueueSummaryUpdatedAt ? (
+                                {queueSummaryTimestamp ? (
                                   <span className="ml-2 text-[11px] text-slate-500">
-                                    更新：{formatDateTime(comfyQueueSummaryUpdatedAt)}
+                                    更新：{formatDateTime(queueSummaryTimestamp)}
                                   </span>
                                 ) : null}
                               </div>
@@ -3655,6 +4118,14 @@ const normalizeErrorMessage = (message: string): string => {
                               const metric = executorTraffic[ex.id];
                               const isComfyExecutor = (ex.type || '').toLowerCase().includes('comfyui');
                               const queueStatus = isComfyExecutor ? comfyQueueByExecutor[ex.id] : null;
+                              const modelCatalog = isComfyExecutor ? comfyModelCache[ex.id] : undefined;
+                              const modelCounts = isComfyExecutor ? extractComfyuiModelCounts(modelCatalog) : null;
+                              const systemInfo = isComfyExecutor ? comfySystemCache[ex.id] : undefined;
+                              const versionInfo = isComfyExecutor ? extractComfyuiVersionInfo(ex, systemInfo) : null;
+                              const modelLoading = Boolean(comfyModelLoadingByExecutor[ex.id]);
+                              const modelError = comfyModelErrorByExecutor[ex.id];
+                              const systemLoading = Boolean(comfySystemLoadingByExecutor[ex.id]);
+                              const systemError = comfySystemErrorByExecutor[ex.id];
                               return (
                                 <div
                                   key={`channel-${ex.id}`}
@@ -3724,6 +4195,57 @@ const normalizeErrorMessage = (message: string): string => {
                                       </div>
                                     )}
                                   </div>
+                                  {isComfyExecutor && (
+                                    <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                                      <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-300">
+                                        <div className="text-[10px] uppercase tracking-widest text-slate-500">ComfyUI 版本</div>
+                                        <div className="mt-1 text-sm font-semibold text-slate-900 dark:text-white">
+                                          {versionInfo?.version || '—'}
+                                        </div>
+                                        <div className="mt-1 text-[11px] text-slate-500">
+                                          节点：{versionInfo?.customNodes || '—'}
+                                        </div>
+                                        {systemError ? (
+                                          <div className="mt-1 text-[11px] text-rose-500">{systemError}</div>
+                                        ) : null}
+                                      </div>
+                                      <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-300">
+                                        <div className="text-[10px] uppercase tracking-widest text-slate-500">模型/LoRA</div>
+                                        <div className="mt-1 text-sm font-semibold text-slate-900 dark:text-white">
+                                          {modelCatalog ? `${modelCounts?.unet || 0}/${modelCounts?.lora || 0}` : '—'}
+                                        </div>
+                                        <div className="mt-1 text-[11px] text-slate-500">unet/lora</div>
+                                        {modelError ? (
+                                          <div className="mt-1 text-[11px] text-rose-500">{modelError}</div>
+                                        ) : null}
+                                      </div>
+                                      <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-300">
+                                        <div className="text-[10px] uppercase tracking-widest text-slate-500">同步标记</div>
+                                        <div className="mt-1 text-sm font-semibold text-slate-900 dark:text-white">
+                                          {versionInfo?.syncRole || '—'}
+                                        </div>
+                                        <div className="mt-1 text-[11px] text-slate-500">
+                                          {versionInfo?.lastSyncAt ? `更新：${versionInfo.lastSyncAt}` : '未标记时间'}
+                                        </div>
+                                        <div className="mt-2 grid grid-cols-2 gap-2">
+                                          <button
+                                            className="rounded border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700 hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200 dark:hover:bg-slate-900/60"
+                                            onClick={() => refreshComfyuiSystemStats(ex.id)}
+                                            disabled={systemLoading}
+                                          >
+                                            {systemLoading ? '同步中…' : '拉取版本'}
+                                          </button>
+                                          <button
+                                            className="rounded border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700 hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200 dark:hover:bg-slate-900/60"
+                                            onClick={() => refreshComfyuiModelCatalog(ex.id)}
+                                            disabled={modelLoading}
+                                          >
+                                            {modelLoading ? '同步中…' : '拉取模型'}
+                                          </button>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )}
                                 </div>
                               );
                             })}
@@ -3763,11 +4285,23 @@ const normalizeErrorMessage = (message: string): string => {
                             const changed = draft !== ex.max_concurrency;
                             const saving = Boolean(executorInlineSaving[ex.id]);
                             const err = executorInlineError[ex.id];
+                            const isComfyExecutor = (ex.type || '').toLowerCase().includes('comfyui');
+                            const systemInfo = isComfyExecutor ? comfySystemCache[ex.id] : undefined;
+                            const versionInfo = isComfyExecutor ? extractComfyuiVersionInfo(ex, systemInfo) : null;
+                            const modelCatalog = isComfyExecutor ? comfyModelCache[ex.id] : undefined;
+                            const modelCounts = isComfyExecutor ? extractComfyuiModelCounts(modelCatalog) : null;
+                            const modelLoading = Boolean(comfyModelLoadingByExecutor[ex.id]);
+                            const systemLoading = Boolean(comfySystemLoadingByExecutor[ex.id]);
                             return (
                               <tr key={ex.id}>
                                 <td style={{ padding: '10px 6px' }}>
                                   <div style={{ fontWeight: 600 }}>{ex.name}</div>
                                   <Typography.Text theme="secondary">{ex.base_url || '—'}</Typography.Text>
+                                  {isComfyExecutor && (
+                                    <div className="mt-1 text-[11px] text-slate-500">
+                                      版本：{versionInfo?.version || '—'} · 模型/LoRA：{modelCatalog ? `${modelCounts?.unet || 0}/${modelCounts?.lora || 0}` : '—'}
+                                    </div>
+                                  )}
                                 </td>
                                 <td style={{ padding: '10px 6px' }}>
                                   <Typography.Text theme="secondary">{ex.type}</Typography.Text>
@@ -3823,6 +4357,26 @@ const normalizeErrorMessage = (message: string): string => {
                                     >
                                       编辑
                                     </Button>
+                                    {isComfyExecutor && (
+                                      <>
+                                        <Button
+                                          size="small"
+                                          variant="text"
+                                          disabled={systemLoading}
+                                          onClick={() => refreshComfyuiSystemStats(ex.id)}
+                                        >
+                                          {systemLoading ? '同步中…' : '拉取版本'}
+                                        </Button>
+                                        <Button
+                                          size="small"
+                                          variant="text"
+                                          disabled={modelLoading}
+                                          onClick={() => refreshComfyuiModelCatalog(ex.id)}
+                                        >
+                                          {modelLoading ? '同步中…' : '拉取模型'}
+                                        </Button>
+                                      </>
+                                    )}
                                     <Button size="small" theme="danger" variant="text" onClick={() => handleDelete('executor', ex.id)}>
                                       删除
                                     </Button>
@@ -4934,13 +5488,13 @@ const normalizeErrorMessage = (message: string): string => {
         title="ComfyUI 模板"
         description="管理本地/云端多台 ComfyUI 服务器的 Workflow JSON，指定允许运行的节点，作为一类原子能力。后续 Workflow Builder 会基于这些模板拼装业务流程。"
       >
-        <div className="grid gap-6 lg:grid-cols-2">
-          <div className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 dark:border-slate-800 dark:bg-slate-900/40">
+        <div className="grid gap-6 lg:grid-cols-[320px_1fr] lg:items-start">
+          <div className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 dark:border-slate-800 dark:bg-slate-900/40 lg:sticky lg:top-4">
             <h3 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">工作流列表</h3>
-            <div className="overflow-x-auto">
-              <table>
+            <div className="max-h-[460px] overflow-auto">
+              <table className="w-full text-xs">
                 <thead>
-                  <tr className="text-left text-sm text-slate-700 dark:text-slate-400">
+                  <tr className="text-left text-[11px] text-slate-700 dark:text-slate-400">
                     <th>Action</th>
                     <th>名称</th>
                     <th>版本</th>
@@ -4953,9 +5507,9 @@ const normalizeErrorMessage = (message: string): string => {
                 <tbody>
                   {workflows.map((wf) => (
                     <tr key={wf.id}>
-                      <td className="text-sm text-slate-800 dark:text-slate-300">{wf.action}</td>
+                      <td className="text-slate-800 dark:text-slate-300">{wf.action}</td>
                       <td className="font-medium text-slate-900 dark:text-white">{wf.name}</td>
-                      <td className="text-sm text-slate-800 dark:text-slate-300">{wf.version}</td>
+                      <td className="text-slate-800 dark:text-slate-300">{wf.version}</td>
                       <td className="text-xs text-slate-700 dark:text-slate-400">
                         {(() => {
                           const allowedIds = extractAllowedExecutorIds(wf.metadata);
@@ -4977,12 +5531,17 @@ const normalizeErrorMessage = (message: string): string => {
                           className="text-sky-400"
                           onClick={() => {
                             const { definition, metadata, ...rest } = wf;
+                            const parsedMeta = (metadata ? parseJSON(metadata) : {}) as JsonRecord;
                             setWorkflowForm({
                               ...rest,
                               definition: stringifyJSON(definition),
                               metadata: stringifyJSON(metadata),
                             });
-                            setWorkflowFormAllowedExecutors(extractAllowedExecutorIds(metadata));
+                            setWorkflowFormAllowedExecutors(extractAllowedExecutorIds(parsedMeta));
+                            setWorkflowInputMap(normalizeInputNodeMap(parsedMeta));
+                            setWorkflowOutputNodeIds(normalizeOutputNodeIds(parsedMeta));
+                            setWorkflowOutputPickerNodeId('');
+                            setWorkflowOutputShowAll(false);
                           }}
                         >
                           编辑
@@ -5028,12 +5587,17 @@ const normalizeErrorMessage = (message: string): string => {
                   className={formControlFlexClass}
                 />
               </div>
-              <input
-                placeholder="状态，如 active/inactive"
-                value={workflowForm.status || ''}
+              <select
+                value={workflowForm.status || 'inactive'}
                 onChange={(e) => setWorkflowForm({ ...workflowForm, status: e.target.value })}
                 className={formControlClass}
-              />
+              >
+                {statusOptions.map((option) => (
+                  <option key={`workflow-status-${option.value}`} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
               <label className="block text-xs text-slate-700 dark:text-slate-400">
                 导入 JSON 文件
                 <input
@@ -5050,6 +5614,9 @@ const normalizeErrorMessage = (message: string): string => {
                 onChange={(e) => setWorkflowForm({ ...workflowForm, definition: e.target.value })}
                 className={`${formControlClass} font-mono text-xs`}
               />
+              {workflowDefinitionError ? (
+                <div className="text-xs text-rose-500">{workflowDefinitionError}</div>
+              ) : null}
               <textarea
                 rows={4}
                 placeholder="metadata JSON（参数映射、依赖等）"
@@ -5057,6 +5624,272 @@ const normalizeErrorMessage = (message: string): string => {
                 onChange={(e) => setWorkflowForm({ ...workflowForm, metadata: e.target.value })}
                 className={`${formControlClass} font-mono text-xs`}
               />
+              {workflowMetadataError ? (
+                <div className="text-xs text-rose-500">{workflowMetadataError}</div>
+              ) : null}
+              <div className="rounded-2xl border border-slate-200/70 bg-slate-50/80 p-3 space-y-3 dark:border-slate-800 dark:bg-slate-950/40">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-semibold text-slate-900 dark:text-white">节点映射（ComfyUI）</div>
+                  <div className="text-[11px] text-slate-500">
+                    {comfyWorkflowNodes.length > 0 ? `已解析 ${comfyWorkflowNodes.length} 个节点` : '未解析节点'}
+                  </div>
+                </div>
+                <p className="text-xs text-slate-600 dark:text-slate-400">
+                  选择需要对外暴露的输入/输出节点。未选择输出节点时默认返回全部输出；输入未填写时将使用 Workflow JSON
+                  默认值。
+                </p>
+                {comfyWorkflowNodes.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-3 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-950/50 dark:text-slate-500">
+                    请先导入或粘贴 ComfyUI Workflow JSON，保存后即可解析节点。
+                  </div>
+                ) : (
+                  <>
+                    <div className="rounded-2xl border border-slate-200/70 bg-white/70 p-3 space-y-2 dark:border-slate-800 dark:bg-slate-950/50">
+                      <div className="text-xs text-slate-700 dark:text-slate-300">快速按节点添加输入映射</div>
+                      <div className="space-y-2">
+                        <label className="block text-[11px] text-slate-600 dark:text-slate-400">输入节点（含 ID）</label>
+                        <select
+                          value={workflowInputPickerNodeId}
+                          onChange={(e) => {
+                            setWorkflowInputPickerNodeId(e.target.value);
+                            setWorkflowInputPickerKeys([]);
+                          }}
+                          className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white"
+                        >
+                          <option value="">选择输入节点（含 ID）</option>
+                          {comfyWorkflowNodes.map((node) => (
+                            <option key={`workflow-picker-node-${node.id}`} value={node.id}>
+                              #{node.id} · {node.title} · {node.classType}
+                            </option>
+                          ))}
+                        </select>
+                        <div className="flex items-center justify-between text-[11px] text-slate-600 dark:text-slate-400">
+                          <span>输入 Key（勾选）</span>
+                          <div className="space-x-2">
+                            <button
+                              className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                              onClick={() =>
+                                setWorkflowInputPickerKeys(
+                                  comfyWorkflowNodeMap.get(workflowInputPickerNodeId)?.inputs || [],
+                                )
+                              }
+                              disabled={!workflowInputPickerNodeId}
+                            >
+                              全选
+                            </button>
+                            <button
+                              className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                              onClick={() => setWorkflowInputPickerKeys([])}
+                              disabled={!workflowInputPickerNodeId}
+                            >
+                              清空
+                            </button>
+                          </div>
+                        </div>
+                        <div className="h-28 w-full overflow-auto rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white">
+                          {!workflowInputPickerNodeId ? (
+                            <div className="text-slate-500 dark:text-slate-500">请先选择节点</div>
+                          ) : (
+                            (comfyWorkflowNodeMap.get(workflowInputPickerNodeId)?.inputs || []).map((key) => (
+                              <label key={`workflow-picker-input-${workflowInputPickerNodeId}-${key}`} className="flex items-center gap-2 py-0.5">
+                                <input
+                                  type="checkbox"
+                                  checked={workflowInputPickerKeys.includes(key)}
+                                  onChange={(e) =>
+                                    setWorkflowInputPickerKeys((prev) =>
+                                      e.target.checked ? [...prev, key] : prev.filter((item) => item !== key),
+                                    )
+                                  }
+                                />
+                                <span>{key}</span>
+                              </label>
+                            ))
+                          )}
+                        </div>
+                        <button
+                          className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200 dark:hover:bg-slate-900/60"
+                          onClick={addWorkflowInputMappingsForNode}
+                          disabled={!workflowInputPickerNodeId || workflowInputPickerKeys.length === 0}
+                        >
+                          添加到映射
+                        </button>
+                      </div>
+                      <p className="text-[11px] text-slate-600 dark:text-slate-500">
+                        以节点 ID 为主进行配置；每个输入会自动生成一条映射，参数名默认等于输入 Key，可在下方表格继续调整。
+                      </p>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-slate-700 dark:text-slate-400">输入参数映射</span>
+                      <button
+                        className="rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200 dark:hover:bg-slate-900/60"
+                        onClick={addWorkflowInputMap}
+                      >
+                        添加映射
+                      </button>
+                    </div>
+                    {workflowInputMap.length === 0 ? (
+                      <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-3 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-950/50 dark:text-slate-500">
+                        尚未配置输入映射。可选择需要暴露给 Coze 的字段。
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <div className="grid grid-cols-[1.2fr_1fr_1fr_0.6fr_auto] gap-2 text-[11px] text-slate-500">
+                          <div>参数名</div>
+                          <div>节点</div>
+                          <div>输入 Key</div>
+                          <div>类型</div>
+                          <div></div>
+                        </div>
+                        {workflowInputMap.map((item, idx) => {
+                          const node = comfyWorkflowNodeMap.get(item.nodeId);
+                          const inputOptions = node?.inputs || [];
+                          return (
+                            <div key={`workflow-input-${idx}`} className="grid grid-cols-[1.2fr_1fr_1fr_0.6fr_auto] gap-2">
+                              <input
+                                value={item.field}
+                                onChange={(e) => updateWorkflowInputMap(idx, { field: e.target.value })}
+                                placeholder="参数名，如 prompt / width"
+                                className="rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white"
+                              />
+                              <select
+                                value={item.nodeId}
+                                onChange={(e) => updateWorkflowInputMap(idx, { nodeId: e.target.value, inputKey: '' })}
+                                className="rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white"
+                              >
+                                <option value="">选择节点</option>
+                                {comfyWorkflowNodes.map((nodeOption) => (
+                                  <option key={`workflow-node-${nodeOption.id}`} value={nodeOption.id}>
+                                    #{nodeOption.id} · {nodeOption.title}
+                                  </option>
+                                ))}
+                              </select>
+                              <select
+                                value={item.inputKey}
+                                onChange={(e) => updateWorkflowInputMap(idx, { inputKey: e.target.value })}
+                                disabled={!item.nodeId}
+                                className="rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 disabled:bg-slate-100 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white dark:disabled:bg-slate-900/40"
+                              >
+                                <option value="">选择输入</option>
+                                {inputOptions.map((key) => (
+                                  <option key={`workflow-input-${item.nodeId}-${key}`} value={key}>
+                                    {key}
+                                  </option>
+                                ))}
+                              </select>
+                              <select
+                                value={item.valueType || ''}
+                                onChange={(e) => updateWorkflowInputMap(idx, { valueType: e.target.value })}
+                                className="rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white"
+                              >
+                                <option value="">原样</option>
+                                <option value="string">string</option>
+                                <option value="int">int</option>
+                                <option value="float">float</option>
+                                <option value="bool">bool</option>
+                                <option value="json">json</option>
+                              </select>
+                              <button
+                                className="rounded border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200 dark:hover:bg-slate-900/60"
+                                onClick={() => removeWorkflowInputMap(idx)}
+                              >
+                                删除
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    <div className="mt-4 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-slate-700 dark:text-slate-400">输出节点映射（保存图片为主）</span>
+                        <div className="space-x-2 text-[11px]">
+                          <button
+                            className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                            onClick={() => setWorkflowOutputShowAll((prev) => !prev)}
+                          >
+                            {workflowOutputShowAll ? '仅显示 SaveImage' : '显示全部节点'}
+                          </button>
+                          <button
+                            className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                            onClick={() => updateWorkflowOutputNodes([])}
+                          >
+                            清空输出
+                          </button>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-[1fr_auto] gap-2">
+                        <select
+                          value={workflowOutputPickerNodeId}
+                          onChange={(e) => setWorkflowOutputPickerNodeId(e.target.value)}
+                          className="rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white"
+                        >
+                          <option value="">选择输出节点（含 ID）</option>
+                          {(workflowOutputShowAll
+                            ? comfyWorkflowNodes
+                            : comfyWorkflowNodes.filter((node) => node.classType.toLowerCase().includes('saveimage'))
+                          ).map((node) => (
+                            <option key={`workflow-output-picker-${node.id}`} value={node.id}>
+                              #{node.id} · {node.title} · {node.classType}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          className="rounded border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200 dark:hover:bg-slate-900/60"
+                          onClick={addWorkflowOutputNode}
+                          disabled={!workflowOutputPickerNodeId}
+                        >
+                          添加映射
+                        </button>
+                      </div>
+                      {workflowOutputNodeIds.length === 0 ? (
+                        <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-3 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-950/50 dark:text-slate-500">
+                          未选择输出节点时，默认返回全部输出（建议选择 SaveImage 节点）。
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          <div className="grid grid-cols-[1fr_auto] gap-2 text-[11px] text-slate-500">
+                            <div>已选输出节点</div>
+                            <div></div>
+                          </div>
+                          {workflowOutputNodeIds.map((nodeId) => {
+                            const node = comfyWorkflowNodeMap.get(nodeId);
+                            const label = node ? `#${node.id} · ${node.title} · ${node.classType}` : `#${nodeId}`;
+                            return (
+                              <div key={`workflow-output-picked-${nodeId}`} className="grid grid-cols-[1fr_auto] gap-2">
+                                <div className="rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white">
+                                  {label}
+                                </div>
+                                <button
+                                  className="rounded border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200 dark:hover:bg-slate-900/60"
+                                  onClick={() => removeWorkflowOutputNode(nodeId)}
+                                >
+                                  删除
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                      <p className="text-[11px] text-slate-600 dark:text-slate-500">
+                        输出建议只选 SaveImage 节点，避免返回无用的中间数据。
+                      </p>
+                    </div>
+                    {workflowMappingErrors.length > 0 ? (
+                      <div className="rounded-2xl border border-rose-200/80 bg-rose-50/80 p-3 text-xs text-rose-600 dark:border-rose-900/50 dark:bg-rose-950/30">
+                        <div className="font-semibold">映射校验未通过：</div>
+                        <ul className="mt-2 list-disc space-y-1 pl-5">
+                          {workflowMappingErrors.slice(0, 8).map((msg, idx) => (
+                            <li key={`workflow-map-error-${idx}`}>{msg}</li>
+                          ))}
+                        </ul>
+                        {workflowMappingErrors.length > 8 ? (
+                          <div className="mt-2">…共 {workflowMappingErrors.length} 条</div>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </>
+                )}
+              </div>
               <label className="block text-xs text-slate-700 dark:text-slate-400">
                 允许运行节点（多选）
                 {comfyExecutors.length > 0 ? (
@@ -5064,7 +5897,11 @@ const normalizeErrorMessage = (message: string): string => {
                     multiple
                     value={workflowFormAllowedExecutors}
                     onChange={(e) =>
-                      setWorkflowFormAllowedExecutors(Array.from(e.target.selectedOptions).map((option) => option.value))
+                      (() => {
+                        const next = Array.from(e.target.selectedOptions).map((option) => option.value);
+                        setWorkflowFormAllowedExecutors(next);
+                        syncWorkflowMetadata({ allowedExecutorIds: next });
+                      })()
                     }
                     className="mt-1 h-32 w-full rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white"
                   >
@@ -5083,8 +5920,27 @@ const normalizeErrorMessage = (message: string): string => {
                   用于限制某个 ComfyUI 工作流可以在哪些机器上执行；保存后会写入 metadata.allowed_executor_ids，调度器会据此路由。
                 </p>
               </label>
+              {workflowFormErrors.length > 0 ? (
+                <div className="rounded-2xl border border-rose-200/80 bg-rose-50/80 p-3 text-xs text-rose-600 dark:border-rose-900/50 dark:bg-rose-950/30">
+                  <div className="font-semibold">请先处理以下问题：</div>
+                  <ul className="mt-2 list-disc space-y-1 pl-5">
+                    {workflowFormErrors.slice(0, 8).map((msg, idx) => (
+                      <li key={`workflow-form-error-${idx}`}>{msg}</li>
+                    ))}
+                  </ul>
+                  {workflowFormErrors.length > 8 ? <div className="mt-2">…共 {workflowFormErrors.length} 条</div> : null}
+                </div>
+              ) : null}
               <div className="flex gap-3">
-                <button className="flex-1 rounded bg-sky-500/80 py-2 text-white" onClick={handleWorkflowSubmit}>
+                <button
+                  className={`flex-1 rounded py-2 text-white ${
+                    workflowSubmitDisabled
+                      ? 'bg-slate-400/60 text-slate-200 cursor-not-allowed'
+                      : 'bg-sky-500/80 hover:bg-sky-500'
+                  }`}
+                  onClick={handleWorkflowSubmit}
+                  disabled={workflowSubmitDisabled}
+                >
                   保存
                 </button>
                 {workflowForm.id && (
@@ -5093,6 +5949,11 @@ const normalizeErrorMessage = (message: string): string => {
                   onClick={() => {
                     setWorkflowForm(defaultWorkflowForm);
                     setWorkflowFormAllowedExecutors([]);
+                    setWorkflowInputMap([]);
+                    setWorkflowOutputNodeIds([]);
+                    setWorkflowOutputPickerNodeId('');
+                    setWorkflowOutputShowAll(false);
+                    setWorkflowFormErrors([]);
                   }}
                 >
                   取消

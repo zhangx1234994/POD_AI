@@ -161,4 +161,13 @@ class ComfyuiQueueSummaryResponse(BaseModel):
     totalRunning: int
     totalPending: int
     totalCount: int
+    timestamp: str | None = None
     servers: list[ComfyuiQueueStatusResponse]
+
+
+class ComfyuiSystemStatsResponse(BaseModel):
+    executorId: str
+    baseUrl: str
+    system: dict[str, Any] | None = None
+    devices: list[dict[str, Any]] | None = None
+    raw: dict[str, Any] | None = None

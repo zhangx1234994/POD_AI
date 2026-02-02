@@ -1195,9 +1195,10 @@ export function App() {
             <div>
               <Typography.Text strong>开发文档 · Coze 工作流</Typography.Text>
               <div>
-                <Typography.Text theme="secondary">
-                  从后端自动生成（active 工作流 + 入参/出参 schema）。{docsGeneratedAt ? `生成时间：${docsGeneratedAt}` : ''}
-                </Typography.Text>
+                      <Typography.Text theme="secondary">
+                        从后端自动生成（active 工作流 + 入参/出参 schema）。
+                        {docsGeneratedAt ? `生成时间：${fmtTime(docsGeneratedAt)}` : ''}
+                      </Typography.Text>
               </div>
             </div>
             <Space align="center">
@@ -2130,7 +2131,7 @@ function AdminWorkflowRow({
           {rowError ? <div className="mt-2 text-xs text-rose-300 break-words">{rowError}</div> : null}
 
           <div className="mt-3 text-xs text-slate-500">
-            更新时间：{wf.updated_at}
+            更新时间：{fmtTime(wf.updated_at)}
           </div>
         </div>
       </div>

@@ -30,6 +30,16 @@ from app.services.integration_test import integration_test_service
 
 router = APIRouter(prefix="/api/coze/podi", tags=["coze-plugin"])
 
+MAX_QUEUE_PER_EXECUTOR = 20
+ERR_CODE_COMFYUI_QUEUE_FULL = "Q1001"
+ERR_CODE_COMMERCIAL_QUEUE_FULL = "Q2001"
+
+
+def _format_task_error(code: str, message: str) -> str:
+    safe_message = " ".join(str(message).strip().split())
+    safe_message = safe_message.replace("|", "/")
+    return f"ERR|{code}|{safe_message}"
+
 
 def _truthy(value: Any) -> bool:
     if value is None:
@@ -720,6 +730,21 @@ def invoke_tool(
                 continue
             pruned[k] = v
         return pruned
+
+    def _queue_limit_response(code: str, message: str, executor_hint: str | None) -> dict[str, Any]:
+        executor_info = _resolve_executor_info(executor_hint if isinstance(executor_hint, str) else None)
+        task_error = _format_task_error(code, message)
+        return _prune(
+            {
+                "text": "queue_full",
+                "texts": [message],
+                "taskId": task_error,
+                "taskStatus": "failed",
+                **executor_info,
+                "debugRequest": None,
+                "debugResponse": message,
+            }
+        )
     provider_lower = provider.lower()
     ability_meta = ability.extra_metadata or {}
     api_type = str(ability_meta.get("api_type") or "").lower()
@@ -739,6 +764,27 @@ def invoke_tool(
         if executor_id:
             payload.executorId = executor_id
         executor_info = _resolve_executor_info(executor_id)
+        if executor_id:
+            pending_count = get_ability_task_service().count_pending_by_executor(
+                executor_id=executor_id,
+                providers=["comfyui"],
+                limit=MAX_QUEUE_PER_EXECUTOR,
+            )
+            if pending_count >= MAX_QUEUE_PER_EXECUTOR:
+                message = f"COMFYUI_QUEUE_FULL(limit={MAX_QUEUE_PER_EXECUTOR}, current={pending_count})"
+                return _queue_limit_response(ERR_CODE_COMFYUI_QUEUE_FULL, message, executor_id)
+            try:
+                queue_status = integration_test_service.get_comfyui_queue_status(executor_id=executor_id)
+                if queue_status.get("supported", True):
+                    running = int(queue_status.get("runningCount") or 0)
+                    pending = int(queue_status.get("pendingCount") or 0)
+                    total = running + pending
+                    if total >= MAX_QUEUE_PER_EXECUTOR:
+                        message = f"COMFYUI_QUEUE_FULL(limit={MAX_QUEUE_PER_EXECUTOR}, current={total})"
+                        return _queue_limit_response(ERR_CODE_COMFYUI_QUEUE_FULL, message, executor_id)
+            except Exception:
+                # If queue status fails, continue to submit instead of blocking.
+                pass
 
         # Best-effort: we know batch for the common ComfyUI flows we expose.
         expected_images = 1
@@ -779,6 +825,20 @@ def invoke_tool(
     # Commercial models that now return an async id + unified callback should also
     # be queued as AbilityTask so Coze can poll via /tasks/get.
     if force_async or (provider_lower in async_providers and api_type in async_api_types):
+        if not executor_id:
+            executor_id = ability.executor_id
+        if not executor_id:
+            executor_id = ability_invocation_service._pick_default_executor_id(provider_lower)  # type: ignore[attr-defined]
+        if executor_id:
+            payload.executorId = executor_id
+            pending_count = get_ability_task_service().count_pending_by_executor(
+                executor_id=executor_id,
+                providers=[provider_lower],
+                limit=MAX_QUEUE_PER_EXECUTOR,
+            )
+            if pending_count >= MAX_QUEUE_PER_EXECUTOR:
+                message = f"COMMERCIAL_QUEUE_FULL(limit={MAX_QUEUE_PER_EXECUTOR}, current={pending_count})"
+                return _queue_limit_response(ERR_CODE_COMMERCIAL_QUEUE_FULL, message, executor_id)
         executor_info = _resolve_executor_info(executor_id)
         expected_images = (
             _coerce_positive_int(
@@ -1282,6 +1342,11 @@ def get_comfyui_queue_summary(request: Request, body: dict[str, Any] | None = No
     for item in result.get("servers") or []:
         if not isinstance(item, dict):
             continue
+        if item.get("queueMaxSize") is None:
+            try:
+                item["queueMaxSize"] = int((item.get("runningCount") or 0) + (item.get("pendingCount") or 0))
+            except (TypeError, ValueError):
+                item["queueMaxSize"] = 0
         cleaned = {k: v for k, v in item.items() if v is not None}
         servers.append(cleaned)
     result["servers"] = servers

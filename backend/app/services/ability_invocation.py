@@ -932,19 +932,21 @@ class AbilityInvocationService:
                 workflow_params=workflow_params,
             )
             # Normalize into a provider_result shape that our response builder understands.
-            return {
+            result = {
                 **submitted,
                 "status": "running",
                 "state": "running",
                 "taskId": submitted.get("promptId"),
-                "outputNodeIds": metadata.get("output_node_ids"),
             }
+            if "outputNodeIds" not in result and isinstance(metadata.get("output_node_ids"), list):
+                result["outputNodeIds"] = metadata.get("output_node_ids")
+            return result
         result = integration_test_service.run_comfyui_workflow(
             executor_id=executor_id,
             workflow_key=workflow_key,
             workflow_params=workflow_params,
         )
-        if isinstance(metadata.get("output_node_ids"), list):
+        if "outputNodeIds" not in result and isinstance(metadata.get("output_node_ids"), list):
             result["outputNodeIds"] = metadata.get("output_node_ids")
         return result
 

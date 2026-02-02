@@ -197,6 +197,35 @@ class AbilityTaskService:
             return {"message": detail, "status_code": exc.status_code}
         return {"message": str(exc)}
 
+    def count_pending_by_executor(
+        self,
+        *,
+        executor_id: str | None,
+        providers: list[str] | None = None,
+        limit: int | None = None,
+    ) -> int:
+        if not executor_id:
+            return 0
+        normalized_executor = str(executor_id).strip()
+        if not normalized_executor:
+            return 0
+        with get_session() as session:
+            stmt = select(AbilityTask).where(AbilityTask.status.in_(["queued", "running"]))
+            if providers:
+                stmt = stmt.where(AbilityTask.ability_provider.in_([p for p in providers if p]))
+            tasks = session.execute(stmt).scalars().all()
+        count = 0
+        for task in tasks:
+            payload = task.request_payload or {}
+            if not isinstance(payload, dict):
+                continue
+            if str(payload.get("executorId") or "").strip() != normalized_executor:
+                continue
+            count += 1
+            if limit is not None and count >= limit:
+                return count
+        return count
+
     def to_dict(self, task: AbilityTask) -> dict[str, Any]:
         return {
             "id": task.id,

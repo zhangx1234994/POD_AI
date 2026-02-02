@@ -391,6 +391,10 @@ export const adminApi = {
     const suffix = params.toString() ? `?${params.toString()}` : '';
     return request<ComfyuiQueueSummary>(`/api/admin/comfyui/queue-summary${suffix}`);
   },
+  getComfyuiSystemStats: (executorId: string) =>
+    request<{ executorId: string; baseUrl: string; system?: Record<string, unknown> | null; devices?: Record<string, unknown>[] | null; raw?: JsonRecord | null }>(
+      `/api/admin/comfyui/system-stats?executorId=${encodeURIComponent(executorId)}`,
+    ),
 
   // Dashboard
   getDashboardMetrics: () => request<DashboardMetrics>('/api/admin/dashboard/metrics'),
