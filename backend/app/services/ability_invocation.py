@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import random
 import threading
 import time
 from copy import deepcopy
@@ -59,6 +60,8 @@ class AbilityInvocationService:
         self._executor_slots: dict[str, threading.BoundedSemaphore] = {}
         self._executor_slot_sizes: dict[str, int] = {}
         self._executor_slots_lock = threading.Lock()
+        self._rr_lock = threading.Lock()
+        self._rr_cursors: dict[str, int] = {}
 
     def _get_executor_slot(self, executor_id: str) -> threading.BoundedSemaphore | None:
         eid = (executor_id or "").strip()
@@ -130,6 +133,11 @@ class AbilityInvocationService:
         merged_inputs = self._merge_inputs(ability, payload)
         image_bundle = self._normalize_image_inputs(payload, merged_inputs)
         provider_key = ability.provider.lower()
+        metadata = ability.extra_metadata if isinstance(ability.extra_metadata, dict) else {}
+        fallback_to_default = metadata.get("fallback_to_default")
+        if fallback_to_default is None:
+            fallback_to_default = True
+        fallback_to_default = bool(fallback_to_default)
         executor_id = payload.executorId or ability.executor_id
         # For internal integrations (Coze/automation), we allow omitting executorId and
         # auto-pick an active executor by provider.
@@ -137,7 +145,11 @@ class AbilityInvocationService:
             # Different ComfyUI servers may have different custom nodes/models installed.
             # Route by action/workflow_key via workflow bindings when possible.
             executor_id = self._pick_comfyui_executor_id(ability, merged_inputs)
+            if not executor_id and not fallback_to_default:
+                raise HTTPException(status_code=400, detail="COMFYUI_EXECUTOR_NOT_MATCHED")
         if not executor_id and provider_key not in {"coze", "podi"}:
+            if provider_key == "comfyui" and not fallback_to_default:
+                raise HTTPException(status_code=400, detail="COMFYUI_EXECUTOR_NOT_MATCHED")
             executor_id = self._pick_default_executor_id(provider_key)
         if not executor_id and provider_key not in {"coze", "podi"}:
             raise HTTPException(status_code=400, detail="ABILITY_EXECUTOR_NOT_CONFIGURED")
@@ -270,6 +282,14 @@ class AbilityInvocationService:
                         return executor.id
 
         metadata = ability.extra_metadata if isinstance(ability.extra_metadata, dict) else {}
+        policy = str(metadata.get("routing_policy") or "").strip().lower()
+        if not policy:
+            policy = "auto"
+        required_tags = self._normalize_tags(metadata.get("required_tags"))
+        fallback_to_default = metadata.get("fallback_to_default")
+        if fallback_to_default is None:
+            fallback_to_default = True
+        fallback_to_default = bool(fallback_to_default)
         allowed_ids_raw = metadata.get("allowed_executor_ids")
         allowed_ids: list[str] = []
         if isinstance(allowed_ids_raw, list):
@@ -284,13 +304,18 @@ class AbilityInvocationService:
         actions = [action]
 
         if allowed_ids:
-            candidates = self._filter_active_comfyui_executors(allowed_ids)
-            if candidates:
-                if not route_by_queue or len(candidates) == 1:
-                    return candidates[0]
-                picked = self._pick_comfyui_executor_by_queue(candidates)
-                if picked:
-                    return picked
+            candidates = self._prepare_comfyui_candidates(allowed_ids, required_tags)
+            picked = self._select_comfyui_executor(
+                candidates,
+                policy=policy,
+                route_by_queue=route_by_queue,
+                ability_id=ability.id,
+                preferred_order=allowed_ids,
+            )
+            if picked:
+                return picked
+            if not fallback_to_default:
+                return None
 
         with get_session() as session:
             ensure_default_executors(session)
@@ -313,21 +338,146 @@ class AbilityInvocationService:
                     for binding in bindings
                     if binding.executor_id and binding.priority == max_priority
                 ]
-                candidates = self._filter_active_comfyui_executors(candidate_ids)
-                if candidates:
-                    if not route_by_queue or len(candidates) == 1:
-                        return candidates[0]
-                    picked = self._pick_comfyui_executor_by_queue(candidates)
-                    if picked:
-                        return picked
+                candidates = self._prepare_comfyui_candidates(candidate_ids, required_tags)
+                picked = self._select_comfyui_executor(
+                    candidates,
+                    policy=policy,
+                    route_by_queue=route_by_queue,
+                    ability_id=ability.id,
+                    preferred_order=candidate_ids,
+                )
+                if picked:
+                    return picked
 
         # Fallback: keep current single-host defaults predictable.
+        if not fallback_to_default:
+            return None
         if workflow_key in {"sifang_lianxu", "huawen_kuotu"}:
             return "executor_comfyui_seamless_117"
         if workflow_key in {"yinhua_tiqu", "jisu_chuli", "zhongsu_tisheng"}:
             return "executor_comfyui_pattern_extract_158"
         return None
 
+    @staticmethod
+    def _normalize_tags(value: Any) -> list[str]:
+        tags: list[str] = []
+        if value is None:
+            return tags
+        if isinstance(value, list):
+            for item in value:
+                if isinstance(item, str) and item.strip():
+                    tags.append(item.strip().lower())
+                elif item is not None:
+                    tags.append(str(item).strip().lower())
+        elif isinstance(value, str):
+            for part in value.replace(";", ",").split(","):
+                part = part.strip()
+                if part:
+                    tags.append(part.lower())
+        else:
+            tags.append(str(value).strip().lower())
+        return [t for t in tags if t]
+
+    def _extract_executor_tags(self, executor: Executor) -> set[str]:
+        tags: list[str] = []
+        cfg = executor.config or {}
+        raw = cfg.get("tags") if isinstance(cfg, dict) else None
+        if raw is None and isinstance(cfg, dict):
+            raw = cfg.get("tag")
+        tags.extend(self._normalize_tags(raw))
+        return {t for t in tags if t}
+
+    def _prepare_comfyui_candidates(self, executor_ids: list[str], required_tags: list[str]) -> list[Executor]:
+        ids = [str(item).strip() for item in executor_ids if isinstance(item, str) and item.strip()]
+        if not ids:
+            return []
+        with get_session() as session:
+            rows = (
+                session.execute(
+                    select(Executor).where(
+                        Executor.id.in_(ids),
+                        Executor.status == "active",
+                        Executor.type == "comfyui",
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        by_id = {row.id: row for row in rows}
+        ordered = [by_id[eid] for eid in ids if eid in by_id]
+        if not required_tags:
+            return ordered
+        required = {t.lower() for t in required_tags if t}
+        filtered = []
+        for ex in ordered:
+            tags = self._extract_executor_tags(ex)
+            if required.issubset(tags):
+                filtered.append(ex)
+        return filtered
+
+    def _select_comfyui_executor(
+        self,
+        candidates: list[Executor],
+        *,
+        policy: str,
+        route_by_queue: bool,
+        ability_id: str,
+        preferred_order: list[str] | None = None,
+    ) -> str | None:
+        if not candidates:
+            return None
+        policy = (policy or "auto").strip().lower()
+        if policy == "fixed":
+            if preferred_order:
+                by_id = {row.id: row for row in candidates}
+                for eid in preferred_order:
+                    if eid in by_id:
+                        return eid
+            return candidates[0].id
+        if policy == "weight":
+            return self._pick_comfyui_executor_by_weight(candidates)
+        if policy == "round_robin":
+            return self._pick_comfyui_executor_by_rr(candidates, ability_id)
+        if policy == "queue":
+            picked = self._pick_comfyui_executor_by_queue([row.id for row in candidates])
+            return picked or candidates[0].id
+        # auto
+        if route_by_queue:
+            picked = self._pick_comfyui_executor_by_queue([row.id for row in candidates])
+            if picked:
+                return picked
+        return candidates[0].id
+
+    def _pick_comfyui_executor_by_weight(self, candidates: list[Executor]) -> str | None:
+        total = 0
+        weights: list[tuple[int, str]] = []
+        for ex in candidates:
+            weight = int(ex.weight or 1)
+            if weight <= 0:
+                weight = 1
+            total += weight
+            weights.append((weight, ex.id))
+        if total <= 0:
+            return candidates[0].id
+        r = random.uniform(0, total)
+        upto = 0.0
+        for weight, eid in weights:
+            upto += weight
+            if r <= upto:
+                return eid
+        return candidates[0].id
+
+    def _pick_comfyui_executor_by_rr(self, candidates: list[Executor], ability_id: str) -> str | None:
+        ids = [row.id for row in candidates]
+        if not ids:
+            return None
+        key = f"{ability_id}:{','.join(ids)}"
+        with self._rr_lock:
+            idx = self._rr_cursors.get(key, -1) + 1
+            if idx >= len(ids):
+                idx = 0
+            self._rr_cursors[key] = idx
+            return ids[idx]
     def _filter_active_comfyui_executors(self, executor_ids: Iterable[str]) -> list[str]:
         ids = [str(item).strip() for item in executor_ids if isinstance(item, str) and str(item).strip()]
         if not ids:

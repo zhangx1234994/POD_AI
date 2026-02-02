@@ -188,6 +188,11 @@ const collectAbilityExecutorHints = (ability: Ability | null): string[] => {
   appendMany(metadata?.executor_tags);
   return Array.from(hints);
 };
+const extractExecutorTags = (executor: Executor): string[] => {
+  const cfg = (executor.config || {}) as Record<string, unknown>;
+  const raw = cfg.tags ?? cfg.tag;
+  return normalizeTagList(raw).map((item) => item.trim().toLowerCase()).filter(Boolean);
+};
 const resolveAbilityExecutors = (ability: Ability | null, availableExecutors: Executor[]): Executor[] => {
   if (!ability) return [];
   const hints = collectAbilityExecutorHints(ability);
@@ -198,13 +203,21 @@ const resolveAbilityExecutors = (ability: Ability | null, availableExecutors: Ex
     return normalizedHints.some((hint) => matchesExecutorHint(executorType, hint));
   });
   const metadata = (ability.metadata || {}) as Record<string, unknown>;
+  const requiredTags = normalizeTagList(metadata.required_tags).map((item) => item.trim().toLowerCase()).filter(Boolean);
+  const filterByTags = (list: Executor[]) => {
+    if (requiredTags.length === 0) return list;
+    return list.filter((executor) => {
+      const tags = new Set(extractExecutorTags(executor));
+      return requiredTags.every((tag) => tags.has(tag));
+    });
+  };
   const allowedExecutorIds = Array.isArray(metadata.allowed_executor_ids)
     ? metadata.allowed_executor_ids.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
     : [];
   if (ability.executor_id) {
     const pinned = availableExecutors.find((executor) => executor.id === ability.executor_id);
     if (pinned) {
-      const base = [pinned, ...matched.filter((executor) => executor.id !== pinned.id)];
+      const base = filterByTags([pinned, ...matched.filter((executor) => executor.id !== pinned.id)]);
       if (allowedExecutorIds.length > 0) {
         return base.filter((executor) => allowedExecutorIds.includes(executor.id));
       }
@@ -212,9 +225,9 @@ const resolveAbilityExecutors = (ability: Ability | null, availableExecutors: Ex
     }
   }
   if (allowedExecutorIds.length > 0) {
-    return matched.filter((executor) => allowedExecutorIds.includes(executor.id));
+    return filterByTags(matched).filter((executor) => allowedExecutorIds.includes(executor.id));
   }
-  return matched;
+  return filterByTags(matched);
 };
 
 const extractCozeWorkflowId = (ability: Ability | null): string => {
@@ -686,6 +699,56 @@ const parseJSON = (value?: string | JsonRecord): JsonRecord => {
   }
 };
 
+const normalizeTagList = (value: unknown): string[] => {
+  const out: string[] = [];
+  if (!value) return out;
+  if (Array.isArray(value)) {
+    value.forEach((item) => {
+      if (typeof item === 'string') {
+        const trimmed = item.trim();
+        if (trimmed) out.push(trimmed);
+      } else if (item !== null && item !== undefined) {
+        const trimmed = String(item).trim();
+        if (trimmed) out.push(trimmed);
+      }
+    });
+    return out;
+  }
+  if (typeof value === 'string') {
+    value
+      .replace(/;/g, ',')
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .forEach((item) => out.push(item));
+    return out;
+  }
+  const trimmed = String(value).trim();
+  if (trimmed) out.push(trimmed);
+  return out;
+};
+
+const parseRoutingMetadata = (metadata?: JsonRecord | null) => {
+  const record = (metadata || {}) as Record<string, unknown>;
+  const policy =
+    typeof record.routing_policy === 'string' && record.routing_policy.trim()
+      ? record.routing_policy.trim().toLowerCase()
+      : 'auto';
+  const allowed =
+    Array.isArray(record.allowed_executor_ids) ?
+      record.allowed_executor_ids.filter((id): id is string => typeof id === 'string' && id.trim().length > 0) :
+      [];
+  const required = normalizeTagList(record.required_tags);
+  const fallback =
+    typeof record.fallback_to_default === 'boolean' ? record.fallback_to_default : true;
+  return { policy, allowed, required, fallback };
+};
+
+const isEmptyRecord = (value?: Record<string, unknown> | null) => {
+  if (!value) return true;
+  return Object.keys(value).length === 0;
+};
+
 export function IntegrationDashboard({
   theme,
   onToggleTheme,
@@ -709,6 +772,10 @@ export function IntegrationDashboard({
   const [abilityForm, setAbilityForm] = useState<AbilityFormState>(defaultAbilityForm);
   const [abilityDialogOpen, setAbilityDialogOpen] = useState(false);
   const [selectedAbilityId, setSelectedAbilityId] = useState<string | null>(null);
+  const [abilityRoutingPolicy, setAbilityRoutingPolicy] = useState<string>('auto');
+  const [abilityAllowedExecutors, setAbilityAllowedExecutors] = useState<string[]>([]);
+  const [abilityRequiredTags, setAbilityRequiredTags] = useState<string>('');
+  const [abilityFallbackToDefault, setAbilityFallbackToDefault] = useState<boolean>(true);
   const [abilitySearch, setAbilitySearch] = useState('');
   const [abilityProviderFilter, setAbilityProviderFilter] = useState<string>('all');
   const [abilityStatusFilter, setAbilityStatusFilter] = useState<string>('all');
@@ -842,6 +909,7 @@ export function IntegrationDashboard({
       { key: 'provider', label: 'provider', hint: '可选，建议填写 comfyui', placeholder: 'comfyui' },
       { key: 'baseUrl', label: 'baseUrl', hint: '可选：与 Base URL 保持一致', placeholder: 'http://<ip>:8079' },
       { key: 'channel_key', label: 'channel_key', hint: '可选：用于多机/多中转站区分', placeholder: 'comfyui-158' },
+      { key: 'tags', label: 'tags', hint: '可选：路由标签，逗号分隔', placeholder: 'gpu:4090, region:hz' },
     ];
     const kie = [
       { key: 'apiKey', label: 'apiKey', hint: '必填：KIE API Key', placeholder: 'sk-***' },
@@ -1687,6 +1755,31 @@ export function IntegrationDashboard({
     ) {
       return;
     }
+    const baseMetadata = abilityForm.metadata ? parseJSON(abilityForm.metadata) : {};
+    const nextMetadata: Record<string, unknown> = { ...(baseMetadata || {}) };
+    if (abilityForm.provider === 'comfyui') {
+      const cleanedAllowed = abilityAllowedExecutors.filter((id) => id && id.trim());
+      const cleanedTags = normalizeTagList(abilityRequiredTags)
+        .map((item) => item.trim())
+        .filter(Boolean);
+      if (cleanedAllowed.length > 0) {
+        nextMetadata.allowed_executor_ids = cleanedAllowed;
+      } else {
+        delete nextMetadata.allowed_executor_ids;
+      }
+      if (cleanedTags.length > 0) {
+        nextMetadata.required_tags = cleanedTags;
+      } else {
+        delete nextMetadata.required_tags;
+      }
+      if (abilityRoutingPolicy && abilityRoutingPolicy !== 'auto') {
+        nextMetadata.routing_policy = abilityRoutingPolicy;
+      } else {
+        delete nextMetadata.routing_policy;
+      }
+      nextMetadata.fallback_to_default = Boolean(abilityFallbackToDefault);
+    }
+
     const payload: Partial<Ability> = {
       provider: abilityForm.provider,
       category: abilityForm.category,
@@ -1700,7 +1793,7 @@ export function IntegrationDashboard({
       coze_workflow_id: abilityForm.coze_workflow_id || undefined,
       default_params: abilityForm.default_params ? parseJSON(abilityForm.default_params) : undefined,
       input_schema: abilityForm.input_schema ? parseJSON(abilityForm.input_schema) : undefined,
-      metadata: abilityForm.metadata ? parseJSON(abilityForm.metadata) : undefined,
+      metadata: isEmptyRecord(nextMetadata) ? undefined : nextMetadata,
     };
     if (abilityForm.id) {
       await adminApi.updateAbility(abilityForm.id, payload);
@@ -1708,11 +1801,16 @@ export function IntegrationDashboard({
       await adminApi.createAbility({ ...payload, id: abilityForm.id || undefined });
     }
     setAbilityForm(defaultAbilityForm);
+    setAbilityRoutingPolicy('auto');
+    setAbilityAllowedExecutors([]);
+    setAbilityRequiredTags('');
+    setAbilityFallbackToDefault(true);
     setAbilityDialogOpen(false);
     load();
   };
 
   const handleAbilityEdit = (ability: Ability) => {
+    const routing = parseRoutingMetadata(ability.metadata as JsonRecord | null);
     setAbilityForm({
       ...ability,
       ability_type: ability.ability_type || abilityTypeOptions[0].value,
@@ -1721,6 +1819,10 @@ export function IntegrationDashboard({
       input_schema: formatJsonValue(ability.input_schema),
       metadata: formatJsonValue(ability.metadata),
     });
+    setAbilityRoutingPolicy(routing.policy || 'auto');
+    setAbilityAllowedExecutors(routing.allowed);
+    setAbilityRequiredTags(routing.required.join(', '));
+    setAbilityFallbackToDefault(routing.fallback);
     setAbilityDialogOpen(true);
   };
 
@@ -4359,6 +4461,10 @@ const normalizeErrorMessage = (message: string): string => {
                 theme="primary"
                 onClick={() => {
                   setAbilityForm(defaultAbilityForm);
+                  setAbilityRoutingPolicy('auto');
+                  setAbilityAllowedExecutors([]);
+                  setAbilityRequiredTags('');
+                  setAbilityFallbackToDefault(true);
                   setAbilityDialogOpen(true);
                 }}
               >
@@ -4615,6 +4721,90 @@ const normalizeErrorMessage = (message: string): string => {
                 />
               </Col>
             </Row>
+
+            {abilityForm.provider === 'comfyui' ? (
+              <div className="rounded-2xl border border-slate-200/70 bg-slate-50/40 p-4 dark:border-slate-800 dark:bg-slate-950/40">
+                <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                  <Typography.Text strong>ComfyUI 路由策略（面向非技术同学的配置）</Typography.Text>
+                  <Typography.Text theme="secondary">
+                    这些字段会写入 ability.metadata，用于控制“哪些节点可用、如何分配、是否允许回退默认节点”。
+                  </Typography.Text>
+
+                  <Row gutter={[12, 12]}>
+                    <Col span={12}>
+                      <Typography.Text theme="secondary">路由策略 routing_policy</Typography.Text>
+                      <Select
+                        value={abilityRoutingPolicy}
+                        onChange={(v) => setAbilityRoutingPolicy(String(v) || 'auto')}
+                        options={[
+                          { label: '自动（默认：跟随系统设置）', value: 'auto' },
+                          { label: '按队列最短（queue）', value: 'queue' },
+                          { label: '按权重随机（weight）', value: 'weight' },
+                          { label: '轮询（round_robin）', value: 'round_robin' },
+                          { label: '固定第一个（fixed）', value: 'fixed' },
+                        ]}
+                      />
+                      <Typography.Text theme="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
+                        建议：对性能敏感可用 weight/round_robin，想避开排队可用 queue。
+                      </Typography.Text>
+                    </Col>
+                    <Col span={12}>
+                      <Space align="center" size="small">
+                        <Typography.Text theme="secondary">回退到默认节点</Typography.Text>
+                        <Tooltip content="当没有符合条件的节点时，是否允许系统回退到默认/绑定节点。">
+                          <Typography.Text theme="secondary">?</Typography.Text>
+                        </Tooltip>
+                      </Space>
+                      <div style={{ marginTop: 8 }}>
+                        <Switch value={abilityFallbackToDefault} onChange={(v) => setAbilityFallbackToDefault(Boolean(v))} />
+                      </div>
+                      <Typography.Text theme="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
+                        关闭后：不匹配即报错，适合严格分机的生产能力。
+                      </Typography.Text>
+                    </Col>
+                  </Row>
+
+                  <div>
+                    <Typography.Text theme="secondary">允许运行节点（多选）</Typography.Text>
+                    {comfyExecutors.length > 0 ? (
+                      <select
+                        multiple
+                        value={abilityAllowedExecutors}
+                        onChange={(e) =>
+                          setAbilityAllowedExecutors(Array.from(e.target.selectedOptions).map((option) => option.value))
+                        }
+                        className="mt-2 h-32 w-full rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white"
+                      >
+                        {comfyExecutors.map((executor) => (
+                          <option key={`ability-executor-${executor.id}`} value={executor.id}>
+                            {executor.name} · {executor.base_url || executor.type}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <div className="mt-2 rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-slate-700 dark:border-slate-700 dark:bg-slate-950/40 dark:text-slate-500">
+                        还没有 ComfyUI 执行节点，请先在“执行节点”里新增。
+                      </div>
+                    )}
+                    <Typography.Text theme="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
+                      不选表示“允许系统自动匹配所有 ComfyUI 节点”。
+                    </Typography.Text>
+                  </div>
+
+                  <div>
+                    <Typography.Text theme="secondary">要求标签（required_tags，可多选）</Typography.Text>
+                    <Input
+                      value={abilityRequiredTags}
+                      onChange={(v) => setAbilityRequiredTags(String(v))}
+                      placeholder="例如：gpu:4090, region:hz, comfyui-158"
+                    />
+                    <Typography.Text theme="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
+                      逗号分隔。要求执行节点 config.tags 中包含全部标签。
+                    </Typography.Text>
+                  </div>
+                </Space>
+              </div>
+            ) : null}
 
             {abilityForm.provider === 'coze' ? (
               <div>
