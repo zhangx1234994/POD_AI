@@ -7,7 +7,7 @@
 | 文档 | 描述 | 状态 |
 |------|------|------|
 | [BUSINESS_MODEL.md](./BUSINESS_MODEL.md) | 业务建模文档，包含登录、存储、处理、积分等完整架构设计 | ✅ 完整 |
-| [architecture.md](./architecture.md) | 技术架构文档 | ✅ 完整 |
+| [architecture.md](./architecture.md) | 技术架构与边界总览（含抽象/解耦原则） | ✅ 最新 |
 | [api.md](./api.md) | API 接口概览（认证、媒资、任务、能力等模块） | ✅ 持续更新 |
 | [api/abilities.md](./api/abilities.md) | 统一能力 API & 回调/并发任务规范 | ✅ 最新 |
 
@@ -26,6 +26,7 @@
 |------|------|------|
 | [error-codes.md](./error-codes.md) | 错误码文档 | ✅ 完整 |
 | [comfyui/README.md](./comfyui/README.md) | ComfyUI 工作流与服务器运维手册 | ✅ 最新 |
+| [retrospectives/2026-02-03.md](./retrospectives/2026-02-03.md) | 复盘纪要（问题与准则提炼） | ✅ 最新 |
 
 ---
 
@@ -82,4 +83,4 @@
 
 ---
 
-*最后更新: 2026-01-15*
+*最后更新: 2026-02-03*
