@@ -10,12 +10,18 @@
 
 | 项目 | 说明 |
 |------|------|
-| API 基础 URL | `https://api.example.com`（线上环境）| 
+| API 基础 URL | `http://<backend-host>:8099`（以实际部署为准）|
 | 认证方式 | Bearer Token |
 | 请求格式 | JSON |
 | 响应格式 | JSON |
-| 支持协议 | HTTPS |
-| 超时时间 | 30秒 |
+| 支持协议 | HTTP/HTTPS |
+| 超时时间 | 30秒（业务侧建议自行设置） |
+
+### 2.5 参数契约（必须遵守）
+
+- **图片输入统一 `url`**（字符串，业务侧传 `url`，平台侧内部会转成 `imageUrl`）。
+- **像素参数必须为纯数字**（禁止 `px`）。
+- **枚举参数必须传 value**（禁止传 label）。
 
 ### 2.2 环境要求
 
@@ -129,7 +135,7 @@ pip install fastapi httpx
 |--------|------|------|------|
 | executorId | string | 否 | 执行器 ID |
 | inputs | object | 是 | 能力输入参数，根据不同能力的 inputSchema 定义 |
-| imageUrl | string | 否 | 图片 URL，支持 HTTP/HTTPS 和 OSS URL |
+| imageUrl | string | 否 | 图片 URL（业务侧统一传 `url` 字段时由服务端转换） |
 | imageBase64 | string | 否 | 图片 Base64 编码，需包含完整的 Data URL 格式 |
 | callbackUrl | string | 否 | 回调 URL，任务完成后系统会向该 URL 发送结果 |
 | callbackHeaders | object | 否 | 回调请求头，会在回调时添加到请求中 |
@@ -176,7 +182,7 @@ pip install fastapi httpx
 
 #### 3.3.1 接口信息
 
-- **URL**: `/api/ability_tasks/{task_id}`
+- **URL**: `/api/ability-tasks/{task_id}`
 - **方法**: GET
 - **认证**: Bearer Token
 - **路径参数**: `task_id` - 任务 ID
