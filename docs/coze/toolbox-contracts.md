@@ -105,11 +105,29 @@ taskStatus = failed
 - 工具调用会立刻返回 `taskId`（异步）
 - 由 `/api/coze/podi/tasks/get` 轮询结果
 - 队列满时直接返回错误码（Q1001）
+ - `/tasks/get` 会尽力返回 `executorId/executorBaseUrl`，方便定位具体服务器
 
 ### 9.2 KIE / Volcengine（商业模型）
 - 部分模型走异步并返回 `taskId`
 - 队列满时返回错误码（Q2001）
+ - 任务完成后仍会返回 `imageUrl/imageUrls`
 
 ### 9.3 Baidu
 - 多为同步返回图片
 - 若请求失败会返回 `debugResponse` 供排查
+
+## 10. /tasks/get 返回结构（简化）
+
+成功示例（核心字段）：
+
+```
+{
+  "taskId": "t1.comfyui.executor_xxx.<raw>",
+  "taskStatus": "succeeded",
+  "imageUrl": "https://...",
+  "imageUrls": ["https://..."],
+  "executorId": "executor_xxx",
+  "executorBaseUrl": "http://...",
+  "debugResponse": null
+}
+```
