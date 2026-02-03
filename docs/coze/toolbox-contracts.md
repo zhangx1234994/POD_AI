@@ -106,6 +106,14 @@ taskStatus = failed
 }
 ```
 
+示例（商业模型队列满）：
+```
+{
+  "taskId": "ERR|Q2001|COMMERCIAL_QUEUE_FULL(limit=20, current=21)",
+  "taskStatus": "failed"
+}
+```
+
 ## 7. 内部鉴权
 
 默认仅允许内网调用（否则 `401 INTERNAL_ONLY`）：
