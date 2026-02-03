@@ -62,6 +62,14 @@ POST /api/coze/podi/tools/{provider}/{capability_key}
 
 `taskId` 推荐格式：`t1.<provider>.<executorId>.<raw>`
 
+回调/轮询时序（建议）：
+1. Tool 提交 → 立即返回 `taskId`
+2. 业务侧等待 2~5 秒后开始轮询
+3. `/tasks/get` 返回 `taskStatus`：
+   - `queued/running`：继续轮询
+   - `succeeded`：读取 `imageUrl/imageUrls`
+   - `failed`：读取 `debugResponse` 与错误码
+
 ## 6. 队列与错误
 
 队列满时，工具返回：
@@ -72,6 +80,11 @@ taskStatus = failed
 ```
 
 错误码详见：`docs/standards/queue-and-error-standards.md`
+
+错误分层（业务理解）：
+- **客户端输入错误**：参数缺失/格式错误（直接报错）
+- **队列错误**：Q1001/Q2001，任务未提交
+- **执行错误**：第三方/执行节点异常（可重试）
 
 ## 7. 内部鉴权
 
