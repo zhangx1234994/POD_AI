@@ -35,6 +35,16 @@ POST /api/coze/podi/tools/{provider}/{capability_key}
 约束建议：
 - 业务侧 **只使用 `url`**，其他字段为历史兼容，不作为对外契约。
 
+## 3.1 参数流转（简化）
+
+```
+Coze 输入(url) → PODI 解析 → AbilityInvokeRequest.imageUrl → 执行器适配
+```
+
+说明：
+- 前端/Coze 只需提供 `url`
+- 后端会在统一入口将 `url` 写入 `imageUrl`
+
 ## 4. 输出契约（统一）
 
 所有工具返回统一结构（Coze 节点可用字段）：
