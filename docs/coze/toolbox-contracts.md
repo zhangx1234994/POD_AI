@@ -121,6 +121,34 @@ taskStatus = failed
 成功示例（核心字段）：
 
 ```
+
+## 11. /comfyui/queue-summary（队列汇总）
+
+### 入参
+- `executorIds`（可选，数组）：指定要查询的执行节点
+
+### 出参（简化）
+```
+{
+  "totalRunning": 3,
+  "totalPending": 7,
+  "totalCount": 10,
+  "servers": [
+    {
+      "executorId": "executor_comfyui_xxx",
+      "name": "ComfyUI-xxx",
+      "baseUrl": "http://...",
+      "runningCount": 1,
+      "pendingCount": 2
+    }
+  ],
+  "timestamp": "2026-02-03T..."
+}
+```
+
+### 用途
+- 在 Coze workflow 中作为“路由判断/限流”依据
+- 业务侧可根据 `totalCount` 判断是否延迟提交
 {
   "taskId": "t1.comfyui.executor_xxx.<raw>",
   "taskStatus": "succeeded",
