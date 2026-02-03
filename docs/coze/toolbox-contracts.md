@@ -56,6 +56,11 @@ POST /api/coze/podi/tools/{provider}/{capability_key}
 - `executorBaseUrl`：最终执行节点地址（便于排查）
 - `debugRequest/debugResponse`：厂商请求/响应摘要（用于排查，注意避免泄露敏感信息）
 
+快速定位建议：
+- `executorBaseUrl` 可定位到具体服务器
+- `debugResponse` 可直接看到上游返回错误
+- 结合 `taskId` 解析 executorId 可快速锁定问题节点
+
 ## 5. 异步流程（ComfyUI / 商业模型）
 
 1) 调用能力工具 → 返回 `taskId`  
