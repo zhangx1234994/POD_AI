@@ -28,6 +28,7 @@
 | [comfyui/README.md](./comfyui/README.md) | ComfyUI 工作流与服务器运维手册 | ✅ 最新 |
 | [admin/integration-dashboard.md](./admin/integration-dashboard.md) | 管理端功能说明（Integration Dashboard） | ✅ 最新 |
 | [eval/eval-platform.md](./eval/eval-platform.md) | 评测平台功能说明 | ✅ 最新 |
+| [coze/toolbox-contracts.md](./coze/toolbox-contracts.md) | Coze 工具箱契约说明 | ✅ 最新 |
 | [standards/abstraction-and-decoupling.md](./standards/abstraction-and-decoupling.md) | 抽象与解耦准则 | ✅ 最新 |
 | [standards/issue-improvement-log.md](./standards/issue-improvement-log.md) | 问题与优化记录（滚动） | ✅ 最新 |
 | [retrospectives/2026-02-03.md](./retrospectives/2026-02-03.md) | 复盘纪要（问题与准则提炼） | ✅ 最新 |

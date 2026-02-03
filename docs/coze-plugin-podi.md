@@ -33,6 +33,9 @@ Coze 需要导入一个 OpenAPI 文档，我们由 PODI 后端动态生成：
 - 图片输入统一为 `url`（字符串）。
 - 像素类字段必须为纯数字（禁用 `px`）。
 
+更完整的 Coze 工具箱契约说明见：
+- `docs/coze/toolbox-contracts.md`
+
 ### 调试输出（强烈推荐）
 Coze 只会展示 OpenAPI response schema 里声明过的字段。PODI 插件统一提供：
 - `debugRequest`：PODI 实际发送给厂商的请求 payload（截断）
