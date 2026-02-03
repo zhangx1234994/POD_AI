@@ -136,3 +136,7 @@ curl -X POST "$API_BASE/api/admin/evals/workflow-versions" \
 ## 上线前回归清单
 
 见：`docs/release-preflight.md`
+
+## 问题与优化记录
+
+- 详见 `docs/standards/issue-improvement-log.md`（滚动维护）。

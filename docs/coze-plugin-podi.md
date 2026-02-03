@@ -100,6 +100,10 @@ COZE_LOOP_BASE_URL=http://127.0.0.1:8082
 bash scripts/ensure_bridge_all.sh
 ```
 
+## 问题与优化记录
+
+- 详见 `docs/standards/issue-improvement-log.md`（滚动维护）。
+
 说明：
 - Coze Studio 支持通过 `/api/user/update_profile` 设置 `user_unique_name`（若冲突会跳过更新）。
 - Coze Loop 通过 `/api/foundation/v1/users/session` 获取 user_id 后再调用 `/users/:user_id/update_profile` 设置 `name`（作为唯一名）。

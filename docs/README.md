@@ -27,6 +27,7 @@
 | [error-codes.md](./error-codes.md) | 错误码文档 | ✅ 完整 |
 | [comfyui/README.md](./comfyui/README.md) | ComfyUI 工作流与服务器运维手册 | ✅ 最新 |
 | [standards/abstraction-and-decoupling.md](./standards/abstraction-and-decoupling.md) | 抽象与解耦准则 | ✅ 最新 |
+| [standards/issue-improvement-log.md](./standards/issue-improvement-log.md) | 问题与优化记录（滚动） | ✅ 最新 |
 | [retrospectives/2026-02-03.md](./retrospectives/2026-02-03.md) | 复盘纪要（问题与准则提炼） | ✅ 最新 |
 
 ---
