@@ -317,7 +317,11 @@ class EvalService:
                     # Sequential fan-out (stable mode).
                     for _ in range(fanout):
                         imgs, err, execute_id, debug_url = self._run_coze_async_item(
-                            workflow_id, coze_params, settings, expects_callback
+                            run_id,
+                            workflow_id,
+                            coze_params,
+                            settings,
+                            expects_callback,
                         )
                         if imgs:
                             all_images.extend(imgs)
@@ -333,6 +337,7 @@ class EvalService:
                         futures = [
                             pool.submit(
                                 self._run_coze_async_item,
+                                run_id,
                                 workflow_id,
                                 coze_params,
                                 settings,
@@ -395,7 +400,11 @@ class EvalService:
                 is_timeout = "coze_request_failed" in lowered and ("timed out" in lowered or "timeout" in lowered)
                 if is_timeout:
                     imgs, err, execute_id, debug_url = self._run_coze_async_item(
-                        workflow_id, coze_params, settings, expects_callback
+                        run_id,
+                        workflow_id,
+                        coze_params,
+                        settings,
+                        expects_callback,
                     )
                     with get_session() as session:
                         run = session.get(EvalRun, run_id)
@@ -595,6 +604,7 @@ class EvalService:
 
     def _run_coze_async_item(
         self,
+        run_id: str,
         workflow_id: str,
         coze_params: dict[str, Any],
         settings: Any,
