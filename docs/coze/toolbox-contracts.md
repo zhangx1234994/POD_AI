@@ -98,6 +98,14 @@ taskStatus = failed
 - 队列错误：延迟重试或切换节点（如支持）
 - 执行错误：记录 debugResponse，必要时人工介入
 
+示例（队列满）：
+```
+{
+  "taskId": "ERR|Q1001|COMFYUI_QUEUE_FULL(limit=20, current=23)",
+  "taskStatus": "failed"
+}
+```
+
 ## 7. 内部鉴权
 
 默认仅允许内网调用（否则 `401 INTERNAL_ONLY`）：
