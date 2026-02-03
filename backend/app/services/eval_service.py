@@ -299,10 +299,10 @@ class EvalService:
             if "bili" not in coze_params and "similarity" in coze_params:
                 coze_params["bili"] = coze_params.get("similarity")
             coze_params.pop("similarity", None)
-            # Some outpaint workflows expect capitalized `Url`.
+            # Outpaint workflows now use lowercase `url`; keep a compatibility alias if needed.
             if workflow_id in {"7597723984687267840", "7598587935331450880"}:
-                if "Url" not in coze_params and "url" in coze_params:
-                    coze_params["Url"] = coze_params.get("url")
+                if "url" not in coze_params and "Url" in coze_params:
+                    coze_params["url"] = coze_params.get("Url")
             fanout = self._pop_fanout_count(coze_params)
             if fanout > 1:
                 # Stable default: allow forcing sequential fan-out (max_workers=1) to

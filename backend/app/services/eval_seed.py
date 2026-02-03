@@ -409,7 +409,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         "notes": "默认 moxing=1(Banana Pro)。输出 output 为回调 task id。",
         "parameters_schema": {
             "fields": [
-                {"name": "Url", "label": "图片 URL", "type": "text", "required": True},
+                {"name": "url", "label": "图片 URL", "type": "text", "required": True},
                 {"name": "expand_left", "label": "左扩", "type": "text", "required": False, "defaultValue": "0", "description": "像素数值（纯数字，不要带 px）"},
                 {"name": "expand_right", "label": "右扩", "type": "text", "required": False, "defaultValue": "0", "description": "像素数值（纯数字，不要带 px）"},
                 {"name": "expand_top", "label": "上扩", "type": "text", "required": False, "defaultValue": "0", "description": "像素数值（纯数字，不要带 px）"},
@@ -443,10 +443,10 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         "version": "v1",
         "workflow_id": "7598587935331450880",
         "status": "active",
-        "notes": "输入 Url + 四向扩图像素；输出 output 为回调 task id。",
+        "notes": "输入 url + 四向扩图像素；输出 output 为回调 task id。",
         "parameters_schema": {
             "fields": [
-                {"name": "Url", "label": "图片 URL", "type": "text", "required": True},
+                {"name": "url", "label": "图片 URL", "type": "text", "required": True},
                 {"name": "expand_left", "label": "左扩", "type": "text", "required": False, "defaultValue": "0", "description": "像素数值（纯数字，不要带 px）"},
                 {"name": "expand_right", "label": "右扩", "type": "text", "required": False, "defaultValue": "0", "description": "像素数值（纯数字，不要带 px）"},
                 {"name": "expand_top", "label": "上扩", "type": "text", "required": False, "defaultValue": "0", "description": "像素数值（纯数字，不要带 px）"},
@@ -999,36 +999,36 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
                         row.parameters_schema = schema
                         dirty = True
         if row.workflow_id in {"7597723984687267840", "7598587935331450880"}:
-            # Normalize outpaint schema to use `Url` as the canonical image key.
+            # Normalize outpaint schema to use `url` as the canonical image key.
             schema = json.loads(json.dumps(row.parameters_schema or {}, ensure_ascii=False))
             fields = schema.get("fields") if isinstance(schema, dict) else None
             if isinstance(fields, list):
                 changed = False
-                has_Url = False
+                has_url = False
                 for f in fields:
                     if not isinstance(f, dict):
                         continue
-                    if f.get("name") == "Url":
-                        has_Url = True
-                if not has_Url:
+                    if f.get("name") == "url":
+                        has_url = True
+                if not has_url:
                     for f in fields:
-                        if isinstance(f, dict) and f.get("name") == "url":
-                            f["name"] = "Url"
+                        if isinstance(f, dict) and f.get("name") == "Url":
+                            f["name"] = "url"
                             f["label"] = "图片 URL"
                             f["required"] = True
                             changed = True
-                            has_Url = True
+                            has_url = True
                             break
-                if has_Url:
+                if has_url:
                     filtered = []
                     for f in fields:
                         if not isinstance(f, dict):
                             filtered.append(f)
                             continue
-                        if f.get("name") == "url":
+                        if f.get("name") == "Url":
                             changed = True
                             continue
-                        if f.get("name") == "Url":
+                        if f.get("name") == "url":
                             if f.get("required") is not True:
                                 f["required"] = True
                                 changed = True
