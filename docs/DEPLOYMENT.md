@@ -10,9 +10,9 @@
 > **固定端口（铁律）**：上述端口为统一约定，不要临时改动；若端口冲突，请先清理旧进程。
 
 ## 前置条件
-- 服务器已安装 Docker + Docker Compose（`docker compose version` 可用）
 - 云端 MySQL 可访问（后端使用 `backend/.env` 中的 `DATABASE_URL`）
 - 如需服务器本地构建前端：已安装 Node.js（建议 18+）与 npm
+- **无 Docker 场景优先**（云服务器常为虚拟化环境，无法安装 Docker）
 
 ## 一次性准备
 1) 配置后端环境变量文件（线上/开发机都一致）
@@ -35,7 +35,7 @@ cd podi-eval-web && npm install && npm run build
 ```
 构建完成后将 `dist/` 作为静态产物发布（配合反代到 `/api`）。
 
-## 一键部署（推荐）
+## 一键部署（Docker 可用时）
 在仓库根目录执行：
 ```bash
 bash scripts/deploy_prodlike.sh
@@ -47,7 +47,7 @@ bash scripts/deploy_prodlike.sh
 - 后端启动前自动执行 `alembic upgrade head`
 - 最后用 `/health` 做健康检查
 
-## 无 Docker（兜底方案）
+## 无 Docker（推荐）
 如果服务器没有 Docker，可以用“prod-like（无 docker）”脚本，效果同样是：
 - 前端不跑 `npm run dev`，使用静态构建产物 + 同源 `/api` 反代（Node 内置小代理）
 - 后端启动前自动跑迁移
@@ -60,6 +60,10 @@ bash scripts/deploy_prodlike_nodocker.sh
 - `8099` 后端
 - `8199` 管理端
 - `8200` 测评端
+
+## 部署检查清单（必须执行）
+
+见：`docs/deploy-checklist.md`
 
 ## 日志与排查
 ```bash
