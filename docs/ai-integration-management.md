@@ -9,6 +9,21 @@
 3. **可视化管理**：独立的 Admin 页面管理工作流、执行节点、API Key、ComfyUI 工作流版本，使运营同学无需改代码即可切换产能。
 4. **密钥安全与可回滚**：支持 RAM 角色、STS、API Key 失效检测，提供配额跟踪与自动降级策略。
 
+## 当前落地范围（已实现）
+
+- **能力定义**：`app/constants/abilities.py` 作为唯一数据源，种子写入 DB。
+- **执行节点**：`config/executors.yaml` 写入 DB，多机一致配置。
+- **能力调用/日志**：`/api/abilities`、`/api/abilities/{id}/invoke` + `ability_invocation_logs`。
+- **异步任务**：`/api/ability-tasks` + `AbilityTaskService`（含回调/轮询）。
+- **管理端**：Integration Dashboard 覆盖执行节点/能力/绑定/测试/日志。
+- **ComfyUI 管理**：`/api/admin/comfyui/models`、队列状态与能力测试。
+
+## 仍在规划/待补项
+
+- **任务调度器（通用任务系统）**：`/api/tasks/v1/*` 体系为规划项。
+- **自动化健康巡检**：周期任务自检与看板化展示。
+- **节点标签路由**：按 tags/能力 required_tags 做路由过滤。
+
 ## 数据实体与职责
 
 | 表 | 关键字段 | 说明 |
@@ -18,9 +33,11 @@
 | `workflow_bindings` | `action`、`workflow_id`、`executor_id`、`priority` | 将用户触发的 action 绑定到某个工作流 + 执行节点，可按优先级或 AB Test 切换。 |
 | `api_keys` | `provider`、`key`、`usage_count`、`expire_at` | 存储第三方密钥，供 executor 在发起请求时选择；同一 provider 可配置多把 key 并自动轮询。 |
 
-## 任务执行流程（拟定）
+## 任务执行流程（现状 + 规划）
 
-1. **任务入库**：`/api/tasks/v1/submit` 已落库任务与输入图片，并冻结积分。
+现状：主要入口是 **能力调用/异步任务**（`/api/abilities/*`、`/api/ability-tasks`），以下流程为规划中的“通用任务调度器”形态。
+
+1. **任务入库（规划）**：`/api/tasks/v1/submit` 计划用于通用任务入库与积分冻结。
 2. **调度器拉取**：新增 `task_dispatcher`（可由 Celery Beat/后台循环驱动）查找 `status=pending` 的任务。
 3. **解析 action**：根据任务的 `tool_action`：  
    a. 查找 `workflow_bindings` -> 过滤 `enabled=true`、`executor.status=active`；  

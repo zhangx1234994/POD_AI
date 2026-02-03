@@ -125,9 +125,9 @@ flowchart LR
 ### 运行与排查
 - `docs/TROUBLESHOOTING.md`
 - `docs/standards/queue-and-error-standards.md`
+- `docs/standards/abstraction-and-decoupling.md`
 
 ---
 
 > 本文件只描述“整体边界与契约”，不展开各平台子功能细节。  
 > 子功能详解请在对应平台文档中更新。
-
