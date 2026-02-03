@@ -48,6 +48,13 @@ POST /api/coze/podi/tools/{provider}/{capability_key}
 
 > 注意：Coze 只展示 OpenAPI schema 声明的字段，若需要输出新字段必须更新插件。
 
+输出字段说明（与后端一致）：
+- `imageUrl`：首张图片（优先 OSS）
+- `imageUrls`：全部图片列表
+- `taskId`：异步任务 ID（回调或轮询使用）
+- `taskStatus`：任务状态（queued/running/succeeded/failed）
+- `executorBaseUrl`：最终执行节点地址（便于排查）
+
 ## 5. 异步流程（ComfyUI / 商业模型）
 
 1) 调用能力工具 → 返回 `taskId`  
