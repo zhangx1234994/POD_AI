@@ -1,20 +1,35 @@
-# AI 能力评测（内部打分）
+# AI 能力评测（内部回归平台）
 
-目标：给内部同学一个极简页面，用 Coze 工作流跑图/跑任务，并对输出结果做 1-5 评分 + 备注，数据落到 MySQL 便于复盘与迭代提示词/Lora。
+> 版本：2026-02-03  
+> 定位：**评测链路与生产链路解耦**。评测平台只负责“验证与回归”，不直接替代生产能力。
 
-## 启动条件
+目标：给内部同学一个极简页面，用 Coze 工作流跑图/跑任务，并对输出结果做 1-5 评分 + 备注，数据落到 MySQL 便于复盘与迭代提示词/LoRA。
+
+## 启动条件（必备）
 
 - 后端需要可连上 MySQL，并完成迁移：`cd backend && alembic upgrade head`
-- 后端需要配置 Coze OpenAPI：
+- 后端需要配置 Coze OpenAPI（评测调用 Coze 的前提）：
   - `COZE_BASE_URL`：例如 `http://114.55.0.56:8888`
   - `COZE_API_TOKEN`：Coze 的 PAT（Bearer Token）
   - 也可复用 `SERVICE_API_TOKEN` 作为兜底 token（不建议线上长期依赖兜底）
-- 若评测人员“无需登录”使用独立页面：
+- 若评测人员“无需登录”使用独立页面（公开评测接口）：
   - `EVAL_PUBLIC_ENABLED=true`
   - （可选）`EVAL_PUBLIC_TOKEN=...`：前端请求需带 `X-Eval-Token` 或 `?token=...`
-  - （可选）`COZE_COMFYUI_CALLBACK_WORKFLOW_ID=...`：当工作流输出的是原始 ComfyUI taskid（不在 PODI ability_tasks）时用于兜底解析图片
+  - （可选）`EVAL_ADMIN_TOKEN=...`：用于 `/api/evals/admin/*` 管理接口（编辑 workflow 备注/状态）
+  - （可选）`COZE_COMFYUI_CALLBACK_WORKFLOW_ID=...`：当工作流输出的是原始 ComfyUI taskid 时用于兜底解析图片
+
+## 边界与契约（请先确认）
+
+- **图片参数统一用 `url`**（字符串）。
+- **像素参数必须是纯数字**（禁止 `px`）。
+- **回调类输出为 `taskId`**，必须能通过 `/api/coze/podi/tasks/get` 查询。
+- 评测只记录结果，不参与生产任务调度。
 
 ## 后端接口
+
+### A. 管理端鉴权（JWT）
+
+> 适用于 Admin Web（已登录）调用。
 
 均在管理端鉴权下使用（Admin Web 会自动带上 Bearer JWT）：
 
@@ -24,16 +39,28 @@
 - `POST /api/admin/evals/datasets`
 - `POST /api/admin/evals/runs`
 - `GET /api/admin/evals/runs`
+- `GET /api/admin/evals/runs/{run_id}`
 - `POST /api/admin/evals/runs/{run_id}/annotations`
-- `DELETE /api/admin/evals/runs?confirm=true&workflow_version_id=...`（清空评测历史，默认可选按 workflow 过滤）
+- `DELETE /api/admin/evals/runs?confirm=true&workflow_version_id=...`（清空评测历史，可选按 workflow 过滤）
 
-另提供“无需登录”的评测 API（给独立评测页面用）：
+### B. 评测公开接口（无需登录）
+
+> 适用于内部评测页面（`EVAL_PUBLIC_ENABLED=true`）。
 
 - `GET /api/evals/workflow-versions`
 - `POST /api/evals/runs`
 - `GET /api/evals/runs`
 - `GET /api/evals/runs/{run_id}`
 - `POST /api/evals/runs/{run_id}/annotations`
+- `POST /api/evals/uploads`（评测页上传图片，返回 OSS URL）
+- `GET /api/evals/docs/workflows`（自动生成的“评测工作流文档”）
+
+### C. 评测管理接口（无登录，仅 token）
+
+> 用 `EVAL_ADMIN_TOKEN` 鉴权（`X-Eval-Admin-Token` 或 `?admin_token=`）。
+
+- `GET /api/evals/admin/workflow-versions`
+- `PUT /api/evals/admin/workflow-versions/{workflow_version_id}`
 
 ## 工作流版本录入（Workflow Version）
 
@@ -63,13 +90,20 @@ curl -X POST "$API_BASE/api/admin/evals/workflow-versions" \
 
 约定：图片输入字段优先用 `url`（字符串）。
 
-## 运行与回调
+## 运行与回调（评测侧）
 
 - 页面点击“试运行”会创建一条 `eval_run` 记录，并后台执行 Coze `/v1/workflow/run`。
 - 如果工作流输出是 PODI 的 task_id（例如 ComfyUI 回调 ID），后端会自动轮询 `ability_tasks` 直到完成，并把图片 URL 写入 `result_image_urls_json`。
 - 对于 ComfyUI “submit-only” 类任务（先提交，任务保持 `running`），评测服务会在轮询阶段主动拉取对应 ComfyUI `/history/{promptId}`
   并 finalize 任务（写回 OSS 结果），避免出现“ComfyUI 已生成但页面不刷新”。
 - 评分与备注写入 `eval_annotation`。
+
+## 常见问题 & 排查
+
+- **401 / INTERNAL_ONLY**：Coze 调用 PODI 工具箱不在内网，需配置 `COZE_TRUSTED_IPS` 或使用 `SERVICE_API_TOKEN`。
+- **Missing required parameters**：workflow 必填项未传（常见 `url/width/height/prompt`）。
+- **回调 taskId 查不到**：检查 task 是否入库、以及 Coze/后端是否同一环境（DB/URL）。
+- **图片无预览**：检查 OSS URL 是否可访问，或回调是否落盘成功。
 
 ## 对接前校验清单（必做）
 

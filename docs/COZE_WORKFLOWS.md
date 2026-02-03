@@ -9,6 +9,7 @@
   - 直接出图类：`output` 为图片 URL。
   - **ComfyUI 回调类**：`output` 为 task id，需要二次查询才能拿到 `images[]`。
 - **debug_url**：Coze run 的调试链接（节点级日志/报错定位入口）。
+ - **参数契约**：图片输入统一为 `url`（小写字符串），像素类字段必须为纯数字（禁用 `px`）。
 
 ## 2. 网络与鉴权（最容易踩坑）
 
@@ -75,6 +76,7 @@ curl -sS -X POST "$COZE_BASE_URL/v1/workflow/run" \
 - `Missing required parameters`：Coze 工作流参数必填（常见：`prompt/height/width`），需要在 workflow 或调用方补齐。
 - `Missing required parameters: 'pdi'`：历史工作流把 `dpi` 写成了 `pdi`。当前规范统一为 `dpi`（不要再用 `pdi`）。
 - `502 Bad Gateway`：上游服务（KIE/ComfyUI）网关错误/超时；建议降低并发、检查上游健康与超时配置。
+- `ERR|Q1001|...` / `ERR|Q2001|...`：队列满错误，`taskId` 字段承载错误码（详见 `docs/standards/queue-and-error-standards.md`）。
 
 ## 7. ComfyUI 多输出节点说明（为什么会出现多张结果图？）
 
