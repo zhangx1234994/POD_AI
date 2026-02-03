@@ -32,6 +32,9 @@ POST /api/coze/podi/tools/{provider}/{capability_key}
 - 多图能力（KIE）可填写多行 URL，后端会拆成数组。
 - 后端对 `url/imageUrl/image_urls/input_urls` 做兼容解析（以第一个有效 URL 为主图）。
 
+约束建议：
+- 业务侧 **只使用 `url`**，其他字段为历史兼容，不作为对外契约。
+
 ## 4. 输出契约（统一）
 
 所有工具返回统一结构（Coze 节点可用字段）：
@@ -90,4 +93,3 @@ taskStatus = failed
 ### 9.3 Baidu
 - 多为同步返回图片
 - 若请求失败会返回 `debugResponse` 供排查
-
