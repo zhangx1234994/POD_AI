@@ -66,7 +66,8 @@ POST /api/coze/podi/tools/{provider}/{capability_key}
 1. Tool 提交 → 立即返回 `taskId`
 2. 业务侧等待 2~5 秒后开始轮询
 3. `/tasks/get` 返回 `taskStatus`：
-   - `queued/running`：继续轮询（建议 3~5 秒间隔，逐步退避）
+   - `queued`：任务已入队，继续轮询（建议 3~5 秒间隔，逐步退避）
+   - `running`：任务处理中，继续轮询（可适当放慢）
    - `succeeded`：读取 `imageUrl/imageUrls`
    - `failed`：读取 `debugResponse` 与错误码
 
