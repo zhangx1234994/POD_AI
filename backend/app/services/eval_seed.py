@@ -40,6 +40,7 @@ DEPRECATED_EVAL_WORKFLOW_IDS: set[str] = {
     # 下线/作废
     "7598560946579046400",  # tiqu_duoMoxing_2_2 (commercial + comfyui, deprecated)
     "7597659369861283840",  # 多模型生图
+    "7597421439045599232",  # shengtu_shangye (旧 ID，已更换)
 }
 
 # Evaluation UI category policy: keep the sidebar fixed to these groups.
@@ -57,7 +58,7 @@ PROMPT_OUTPUT_WORKFLOW_IDS: set[str] = {
     "7598545860393172992",  # tiqu_comfyui_20260123_2
     "7601080398864449536",  # tiqu_duoMoxing_2
     "7598559869544693760",  # tiqu_duoMoxing_20260130
-    "7597421439045599232",  # shengtu_shangye
+    "7602916576198656000",  # shengtu_shangye
     "7597701996124045312",  # sibu_comfyui
     "7597702948247830528",  # zhongsu_comfyui
     "7598841920114130944",  # Liebian_comfyui_20260124_1
@@ -465,7 +466,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         "category": "通用类",
         "name": "多模型生图 · shengtu_shangye",
         "version": "v1",
-        "workflow_id": "7597421439045599232",
+        "workflow_id": "7602916576198656000",
         "status": "active",
         "notes": "商业模型生图：moxing=1(Banana Pro)/2(Flux2)/3(Seedream 4.5)。输出 output 为回调 task id。",
         "parameters_schema": {
@@ -1015,8 +1016,8 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
             if row.notes != "输入 taskid，输出 images 数组（回调工作流）。业务侧可直接调用该 workflow 获取图片。":
                 row.notes = "输入 taskid，输出 images 数组（回调工作流）。业务侧可直接调用该 workflow 获取图片。"
                 dirty = True
-        if row.workflow_id == "7597421439045599232":
-            # This workflow id was previously misused; force-reset to the new shengtu_shangye spec.
+        if row.workflow_id == "7602916576198656000":
+            # Force-reset to the latest shengtu_shangye spec.
             desired = DEFAULT_EVAL_WORKFLOW_BY_ID.get(row.workflow_id)
             if desired:
                 desired_category = _normalize_eval_category(desired.get("category"))

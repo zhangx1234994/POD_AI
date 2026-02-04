@@ -76,9 +76,9 @@ def _build_params(workflow_id: str, item: dict[str, Any], sample_url: str) -> di
     # Workflow-specific required knobs.
     if workflow_id == "7598563505054154752":  # lianxu
         params.setdefault("patternType", "seamless")
-    if workflow_id in {"7597421439045599232", "7598559869544693760", "7598560946579046400"}:
+    if workflow_id in {"7602916576198656000", "7598559869544693760", "7598560946579046400"}:
         params.setdefault("moxing", "1")
-    if workflow_id in {"7598558185544220672", "7597421439045599232", "7598560946579046400"}:
+    if workflow_id in {"7598558185544220672", "7602916576198656000", "7598560946579046400"}:
         params.setdefault("prompt", "test")
     if workflow_id == "7598589746561941504":  # dpi
         # Some Coze versions used `pdi` by mistake; send both to be safe.

@@ -9,7 +9,7 @@ This script helps answer: where did the workflow put the output?
 
 Usage examples:
   python backend/scripts/debug_eval_workflow.py --workflow-id 7598587935331450880 --url "https://..." --params '{"expand_left":"0"}'
-  python backend/scripts/debug_eval_workflow.py --workflow-id 7597421439045599232 --url "https://..." --params '{"prompt":"...","moxing":"1"}'
+  python backend/scripts/debug_eval_workflow.py --workflow-id 7602916576198656000 --url "https://..." --params '{"prompt":"...","moxing":"1"}'
 """
 
 from __future__ import annotations
