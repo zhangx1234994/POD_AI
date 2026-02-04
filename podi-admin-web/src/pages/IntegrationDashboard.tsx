@@ -5327,7 +5327,27 @@ const normalizeErrorMessage = (message: string): string => {
                 {
                   colKey: 'display_name',
                   title: '名称',
-                  ellipsis: true,
+                  ellipsis: {
+                    props: { theme: 'light', placement: 'top' },
+                    content: ({ row }) => {
+                      const issues = getAbilitySchemaIssues(row as Ability);
+                      return (
+                        <div className="max-w-[360px] text-xs text-slate-900 dark:text-slate-100">
+                          <div className="font-semibold">{row.display_name}</div>
+                          <div className="mt-1 text-slate-600 dark:text-slate-400">{row.description || '—'}</div>
+                          {issues.length > 0 ? (
+                            <div className="mt-2 flex flex-wrap gap-1">
+                              {issues.map((issue) => (
+                                <Tag key={`${row.id}-tooltip-${issue}`} theme="warning" variant="light" size="small">
+                                  {issue}
+                                </Tag>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    },
+                  },
                   cell: ({ row }) => {
                     const issues = getAbilitySchemaIssues(row);
                     return (

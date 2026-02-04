@@ -43,6 +43,14 @@ def _as_int(value: Any | None) -> int:
         return 0
 
 
+def _is_missing_payload(payload: Any | None) -> bool:
+    if payload is None:
+        return True
+    if isinstance(payload, dict) and len(payload) == 0:
+        return True
+    return False
+
+
 def _build_default_seeds() -> list[AbilitySeed]:
     seeds: list[AbilitySeed] = []
     for capability_key, definition in BAIDU_IMAGE_ABILITIES.items():
@@ -182,9 +190,18 @@ def ensure_default_abilities(session: Session) -> bool:
                 merged_metadata = {**existing_metadata, **(seed.metadata or {})}
                 existing.extra_metadata = merged_metadata
                 updated = True
-            elif seed.metadata and not existing_metadata:
-                existing.extra_metadata = seed.metadata
-                updated = True
+            else:
+                if seed.input_schema and _is_missing_payload(existing.input_schema):
+                    existing.input_schema = seed.input_schema
+                    updated = True
+                if seed.default_params and _is_missing_payload(existing.default_params):
+                    existing.default_params = seed.default_params
+                    updated = True
+                if seed.metadata:
+                    merged_metadata = {**seed.metadata, **existing_metadata}
+                    if merged_metadata != existing_metadata:
+                        existing.extra_metadata = merged_metadata
+                        updated = True
             if updated:
                 session.add(existing)
                 changed = True
