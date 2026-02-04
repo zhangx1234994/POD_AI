@@ -54,6 +54,9 @@ ERR|Q2001|COMMERCIAL_QUEUE_FULL(limit=10, current=11)
 ## 5. 维护位置
 
 - 本规范文件：`docs/standards/queue-and-error-standards.md`
+- **错误契约总规范**：`docs/standards/error-contract.md`
+- **错误码总表**：`docs/standards/error-catalog.md`
 - 修改该标准时需同步更新：
   - Coze 插件返回逻辑
   - 业务接入文档
+  - 错误码总表

@@ -15,6 +15,13 @@ Python 代码遵循 Black + Ruff（4 空格、snake_case 模块、PascalCase Pyd
 ## 测试准则
 新增服务需在 `backend/tests` 编写 pytest 覆盖（优先覆盖任务调度状态流转、Aliyun OSS 上传、能力测试服务 `IntegrationTestService`）。前端使用 Vitest/React Testing Library 校验表单、任务中心刷新以及能力管理交互。管理端还需手动验证：登录后台→“能力管理”中新增条目→“能力测试”选择厂商→上传示例图运行。
 
+## 错误契约与文档硬性规范（必须执行）
+- **所有新增/修改接口必须枚举错误**：至少包含缺参/依赖失败/超时/并发限制等路径。
+- **文档必须包含请求 + 响应 + 错误**：评测端文档需同时包含“错误码总表 + 单功能错误列表”。
+- **必须更新错误码总表**：见 `docs/standards/error-catalog.md`（缺失即视为流程问题）。
+- **必须遵循错误契约规范**：见 `docs/standards/error-contract.md`。
+- **测试必须覆盖关键错误路径**：缺参 / 依赖失败 / 队列或并发限制 / 超时。
+
 ## 提交与 PR
 沿用 Conventional Commits（如 `feat: add ability catalog api`、`fix: refresh task center polling`），涉及模型/表结构须与 Alembic 迁移同一 PR 提交。PR 说明中列出变更摘要、配置/环境调整、手工测试步骤（含管理端截图），如修改凭证需在描述中同步文档。
 
