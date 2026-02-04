@@ -111,7 +111,7 @@ taskStatus = failed
 示例（队列满）：
 ```
 {
-  "taskId": "ERR|Q1001|COMFYUI_QUEUE_FULL(limit=20, current=23)",
+  "taskId": "ERR|Q1001|COMFYUI_QUEUE_FULL(limit=10, current=12)",
   "taskStatus": "failed"
 }
 ```
@@ -119,7 +119,7 @@ taskStatus = failed
 示例（商业模型队列满）：
 ```
 {
-  "taskId": "ERR|Q2001|COMMERCIAL_QUEUE_FULL(limit=20, current=21)",
+  "taskId": "ERR|Q2001|COMMERCIAL_QUEUE_FULL(limit=10, current=11)",
   "taskStatus": "failed"
 }
 ```

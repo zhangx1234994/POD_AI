@@ -6,13 +6,13 @@
 
 ## 1. 队列上限（统一标准）
 
-- **ComfyUI 单台服务器队列上限：20**
+- **ComfyUI 单台服务器队列上限：10**
   - 判断依据：`running + pending`（ComfyUI /queue/status）
-  - 超过或等于 20：直接返回错误（不再提交任务）
+  - 超过或等于 10：直接返回错误（不再提交任务）
 
-- **商业模型（Volcengine/KIE）单台服务器等待上限：20**
+- **商业模型（Volcengine/KIE）单台服务器等待上限：10**
   - 判断依据：PODI 内部 `AbilityTask` 队列（queued + running）
-  - 超过或等于 20：直接返回错误（不再提交任务）
+  - 超过或等于 10：直接返回错误（不再提交任务）
 
 ---
 
@@ -20,8 +20,8 @@
 
 | 场景 | 错误编号 | 说明 |
 | --- | --- | --- |
-| ComfyUI 队列已满 | `Q1001` | 单台 ComfyUI 队列 >= 20 |
-| 商业模型队列已满 | `Q2001` | 单台商业模型队列 >= 20 |
+| ComfyUI 队列已满 | `Q1001` | 单台 ComfyUI 队列 >= 10 |
+| 商业模型队列已满 | `Q2001` | 单台商业模型队列 >= 10 |
 
 ---
 
@@ -36,8 +36,8 @@ ERR|<错误编号>|<错误说明>
 
 ### 3.2 示例
 ```
-ERR|Q1001|COMFYUI_QUEUE_FULL(limit=20, current=23)
-ERR|Q2001|COMMERCIAL_QUEUE_FULL(limit=20, current=21)
+ERR|Q1001|COMFYUI_QUEUE_FULL(limit=10, current=12)
+ERR|Q2001|COMMERCIAL_QUEUE_FULL(limit=10, current=11)
 ```
 
 ---
@@ -57,4 +57,3 @@ ERR|Q2001|COMMERCIAL_QUEUE_FULL(limit=20, current=21)
 - 修改该标准时需同步更新：
   - Coze 插件返回逻辑
   - 业务接入文档
-

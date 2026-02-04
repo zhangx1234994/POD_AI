@@ -31,7 +31,7 @@ from app.services.integration_test import integration_test_service
 
 router = APIRouter(prefix="/api/coze/podi", tags=["coze-plugin"])
 
-MAX_QUEUE_PER_EXECUTOR = 20
+MAX_QUEUE_PER_EXECUTOR = 10
 ERR_CODE_COMFYUI_QUEUE_FULL = "Q1001"
 ERR_CODE_COMMERCIAL_QUEUE_FULL = "Q2001"
 
