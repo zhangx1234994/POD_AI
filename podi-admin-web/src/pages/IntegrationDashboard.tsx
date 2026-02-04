@@ -581,6 +581,10 @@ const getAbilitySchemaIssues = (ability: Ability | null): string[] => {
   if (!hasJsonContent(ability.default_params)) {
     issues.push('缺少默认参数');
   }
+  const pricing = parsePricingFromMetadata(ability.metadata as JsonRecord | null, ability.provider);
+  if (!pricing) {
+    issues.push('缺少计价');
+  }
   return issues;
 };
 
@@ -3327,11 +3331,17 @@ const normalizeErrorMessage = (message: string): string => {
         </div>
       );
     }
-    const showMetadataIssue = selectedAbilitySchemaIssues.includes('缺少 Metadata');
+    const showMetadataIssues = selectedAbilitySchemaIssues.filter((issue) =>
+      ['缺少 Metadata', '缺少计价'].includes(issue),
+    );
     return (
       <div className="space-y-4 text-xs text-slate-400">
-        {showMetadataIssue ? (
-          <Alert theme="warning" title="元信息缺失" message="尚未填写 metadata，建议补充 api_type、pricing、requirements 等字段。" />
+        {showMetadataIssues.length > 0 ? (
+          <Alert
+            theme="warning"
+            title="元信息缺失"
+            message={`尚未补齐：${showMetadataIssues.join(' / ')}。建议补充 api_type、pricing、requirements 等字段。`}
+          />
         ) : null}
         <div>
           <div className="text-slate-500">能力 Metadata</div>
