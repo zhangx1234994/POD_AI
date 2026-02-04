@@ -205,6 +205,63 @@ def get_workflow_docs(
             example[name] = "<required>" if f.get("required") else "<optional>"
         return example
 
+    def _render_schema_table(fields: list[dict[str, Any]], *, empty_hint: str) -> list[str]:
+        if not fields:
+            return [empty_hint, ""]
+        lines: list[str] = []
+        lines.append("| 字段 | 必填 | 类型 | 默认值 | 可选项 | 描述 |")
+        lines.append("|---|---:|---|---|---|---|")
+        for f in fields:
+            name = str(f.get("name") or "")
+            required = "Y" if f.get("required") else ""
+            ftype = str(f.get("type") or "text")
+            default = str(f.get("defaultValue") or "")
+            opts = ""
+            options = f.get("options")
+            if isinstance(options, list) and options:
+                rendered = []
+                for o in options:
+                    if isinstance(o, dict):
+                        rendered.append(str(o.get("value") or o.get("label") or ""))
+                    else:
+                        rendered.append(str(o))
+                opts = " / ".join([x for x in rendered if x])
+            desc = str(f.get("description") or "")
+            lines.append(
+                f"| `{_md_escape(name)}` | {required} | `{_md_escape(ftype)}` | `{_md_escape(default)}` | {_md_escape(opts)} | {_md_escape(desc)} |"
+            )
+        lines.append("")
+        return lines
+
+    def _workflow_error_hints(output_kind: str) -> list[str]:
+        hints = [
+            "`INTERNAL_ONLY`：非内网访问或缺少 SERVICE_API_TOKEN。",
+            "`COZE_FAILED` / `COZE_EXECUTION_FAILED`：Coze 返回 code!=0 或执行失败。",
+            "`COZE_RUN_*`：Coze run_status=failed/canceled/timeout 等。",
+            "`COZE_ASYNC_TIMEOUT` / `COZE_ASYNC_EMPTY`：异步轮询超时/无响应。",
+            "`COZE_WORKFLOW_ERROR`：工作流 output 内含错误字段。",
+            "`COZE_SUBMIT_FAILED` / `COZE_SUBMIT_MISSING_EXECUTE_ID`：提交失败或缺少 execute_id。",
+            "`COZE_HISTORY_FAILED`：Coze history 查询失败。",
+            "`WORKFLOW_VERSION_NOT_FOUND`：评测平台未找到对应 workflow 版本。",
+            "`FANOUT_EMPTY` / `FANOUT_PARTIAL_FAILED`：批量子任务全部失败或部分失败。",
+        ]
+        if output_kind == "callback_task_id":
+            hints.extend(
+                [
+                    "`TASK_ID_REQUIRED`：缺少 taskId。",
+                    "`TASK_NOT_FOUND`：任务不存在或已过期。",
+                    "`TASK_FAILED`：任务执行失败。",
+                    "`TASK_TIMEOUT`：任务超时。",
+                    "`TASK_IMAGES_EMPTY`：任务结果无图片。",
+                    "`CALLBACK_OUTPUT_EMPTY`：回调 task id 为空。",
+                    "`CALLBACK_IMAGES_EMPTY`：回调解析不到图片。",
+                    "`CALLBACK_TASK_NOT_RESOLVED`：task id 无法解析/失效。",
+                    "`COMFYUI_*`：ComfyUI 相关错误（如 `COMFYUI_SUBMIT_ERROR`、`COMFYUI_HISTORY_INVALID`）。",
+                    "`ERR|Q1001|...` / `ERR|Q2001|...`：并发/队列超限。",
+                ]
+            )
+        return hints
+
     lines: list[str] = []
     lines.append("# PODI 评测平台 · Coze 工作流调用文档")
     lines.append("")
@@ -263,15 +320,30 @@ def get_workflow_docs(
     lines.append("- `ERR|<CODE>|<message>`：用于队列/并发等强约束错误（回调 id 字段会直接返回该值）。")
     lines.append("- 其余错误多为**错误关键字**（如 `TASK_NOT_FOUND`），在 error_message 或 debugResponse 中出现。")
     lines.append("")
-    lines.append("### 错误码一览（必须掌握）")
+    lines.append("### 错误码一览（完整）")
     lines.append("| 编号 | 含义 | 典型场景 |")
     lines.append("|---|---|---|")
     lines.append("| Q1001 | ComfyUI 队列已满（单机 >= 10） | ComfyUI 并发超限 |")
     lines.append("| Q2001 | 商业模型队列已满（单机 >= 10） | 商业模型并发超限 |")
+    lines.append("| INTERNAL_ONLY | 仅内网可访问 | IP 未放行 |")
+    lines.append("| WORKFLOW_ID_MISSING | 缺少 workflow_id | 请求体缺字段 |")
+    lines.append("| WORKFLOW_VERSION_NOT_FOUND | workflow 版本不存在 | workflow_id 不在评测库 |")
+    lines.append("| FANOUT_EMPTY | 批量子任务全部失败 | fanout 模式 |")
+    lines.append("| FANOUT_PARTIAL_FAILED | 批量部分失败 | fanout 模式 |")
+    lines.append("| COZE_SUBMIT_FAILED | 提交 Coze 失败 | /v1/workflow/run 返回错误 |")
+    lines.append("| COZE_SUBMIT_MISSING_EXECUTE_ID | 缺少 execute_id | Coze 返回体异常 |")
+    lines.append("| COZE_HISTORY_FAILED | Coze history 失败 | /v1/workflow/history 异常 |")
+    lines.append("| COZE_EXECUTION_FAILED | Coze 执行失败 | run_status=failed |")
+    lines.append("| COZE_FAILED | Coze 执行失败 | code!=0 |")
+    lines.append("| COZE_RUN_* | Coze 状态异常 | run_status=failed/canceled/timeout |")
+    lines.append("| COZE_ASYNC_EMPTY | Coze 异步空响应 | async poll 返回空 |")
+    lines.append("| COZE_ASYNC_TIMEOUT | Coze 轮询超时 | async 超时 |")
+    lines.append("| COZE_WORKFLOW_ERROR | workflow error | output 内 error 字段 |")
     lines.append("| TASK_ID_REQUIRED | 缺少 taskId | /api/coze/podi/tasks/get |")
     lines.append("| TASK_NOT_FOUND | 任务不存在 | taskId 错误或被清理 |")
     lines.append("| TASK_FAILED | 任务执行失败 | 上游执行失败 |")
     lines.append("| TASK_TIMEOUT | 任务超时 | 超过轮询期限 |")
+    lines.append("| TASK_IMAGES_EMPTY | 任务无图片 | task 结果无 images |")
     lines.append("| CALLBACK_OUTPUT_EMPTY | 回调 task id 为空 | 工作流未返回 output |")
     lines.append("| CALLBACK_IMAGES_EMPTY | 回调解析不到图片 | 回调未产出 images |")
     lines.append("| CALLBACK_TASK_NOT_RESOLVED | task id 无法解析/失效 | 回调任务无法完成 |")
@@ -284,11 +356,10 @@ def get_workflow_docs(
     lines.append("| COMFYUI_STATUS_* | ComfyUI 状态异常 | status=error/unknown |")
     lines.append("| COMFYUI_IMAGES_EMPTY | ComfyUI 无输出图 | history 没有 images |")
     lines.append("| COMFYUI_ASSETS_EMPTY | OSS 入库为空 | 图片落盘失败 |")
-    lines.append("| COZE_FAILED | Coze 执行失败 | Coze 返回 code!=0 |")
-    lines.append("| COZE_RUN_* | Coze 状态异常 | run_status=failed 等 |")
-    lines.append("| COZE_ASYNC_TIMEOUT | Coze 轮询超时 | async 超时 |")
-    lines.append("| COZE_WORKFLOW_ERROR | Coze workflow error | output 内 error 字段 |")
-    lines.append("| INTERNAL_ONLY | 仅内网可访问 | IP 未放行 |")
+    lines.append("| COMFYUI_TIMEOUT | ComfyUI 轮询超时 | /history 超时 |")
+    lines.append("| COMFYUI_WORKFLOW_EMPTY | ComfyUI workflow 为空 | 工作流配置缺失 |")
+    lines.append("| COMFYUI_BASE_URL_MISSING | 缺少 ComfyUI Base URL | 执行节点未配置 |")
+    lines.append("| COMFYUI_IMAGE_REQUIRED | 缺少图片 | 需要图片输入 |")
     lines.append("")
     lines.append("### 补充说明")
     lines.append("- `Q1001/Q2001` 触发时，**回调 id 字段会返回 `ERR|Qxxxx|...`**，便于业务侧统一处理。")
@@ -362,38 +433,20 @@ def get_workflow_docs(
             lines.append("#### 入参 parameters")
             lines.append("")
             fields = _normalize_fields(wf.parameters_schema or {})
-            if not fields:
-                lines.append("_无 schema（请在后台补齐 parameters_schema 以生成动态表单）。_")
-                lines.append("")
-            else:
-                lines.append("| 字段 | 必填 | 类型 | 默认值 | 可选项 | 描述 |")
-                lines.append("|---|---:|---|---|---|---|")
-                for f in fields:
-                    name = str(f.get("name") or "")
-                    required = "Y" if f.get("required") else ""
-                    ftype = str(f.get("type") or "text")
-                    default = str(f.get("defaultValue") or "")
-                    opts = ""
-                    options = f.get("options")
-                    if isinstance(options, list) and options:
-                        rendered = []
-                        for o in options:
-                            if isinstance(o, dict):
-                                rendered.append(str(o.get("value") or o.get("label") or ""))
-                            else:
-                                rendered.append(str(o))
-                        opts = " / ".join([x for x in rendered if x])
-                    desc = str(f.get("description") or "")
-                    lines.append(
-                        f"| `{_md_escape(name)}` | {required} | `{_md_escape(ftype)}` | `{_md_escape(default)}` | {_md_escape(opts)} | {_md_escape(desc)} |"
-                    )
-                lines.append("")
+            lines.extend(_render_schema_table(fields, empty_hint="_无 schema（请在后台补齐 parameters_schema 以生成动态表单）。_"))
 
             lines.append("#### 出参 data")
             lines.append("")
-            lines.append("Coze 返回结构中 `data` 可能是 JSON 字符串或对象，通常我们关注：")
-            lines.append("- `data.output`：图片 URL 或回调 task id（取决于该工作流的输出类型）")
-            lines.append("- 其他字段：如 `prompt`、`ip`、`servers` 等（详见出参 schema）")
+            output_fields = _normalize_fields(wf.output_schema or {})
+            lines.extend(_render_schema_table(output_fields, empty_hint="_无 schema（请在后台补齐 output_schema 以生成文档）。_"))
+            lines.append("> Coze 返回结构中 `data` 可能是 JSON 字符串或对象。建议直接查看 `data` 的字段（以上表格）。")
+            lines.append("")
+
+            lines.append("#### 错误码")
+            lines.append("")
+            lines.append("可能出现以下错误（详见本文档「错误码一览」）：")
+            for hint in _workflow_error_hints(_infer_output_kind(wf)):
+                lines.append(f"- {hint}")
             lines.append("")
 
     return {
