@@ -26,8 +26,10 @@
 | 编号 | 含义 | 备注 |
 | --- | --- | --- |
 | AUTHORIZATION_REQUIRED | 缺少鉴权 | 401 |
+| UNAUTHORIZED | 未授权（评测公共接口） | 401 |
 | INVALID_TOKEN | token 无效 | 401 |
 | INVALID_TOKEN_PAYLOAD | token payload 异常 | 401 |
+| INVALID_CREDENTIALS | 登录凭证错误 | 401 |
 | USER_NOT_FOUND | 用户不存在 | 404 |
 | USER_INACTIVE | 用户被禁用 | 403 |
 | ADMIN_ONLY | 仅管理员可访问 | 403 |
@@ -45,9 +47,19 @@
 | WORKFLOW_VERSION_NOT_FOUND | workflow 版本不存在 | 404 |
 | WORKFLOW_NOT_FOUND | workflow 不存在 | 404 |
 | EXECUTOR_NOT_FOUND | 执行节点不存在 | 404 |
+| EXECUTOR_BUSY | 执行节点繁忙 | 409 |
+| EXECUTOR_ADAPTER_MISSING | 执行器适配缺失 | 500 |
+| EXECUTOR_TYPE_NOT_BAIDU | 执行器类型不匹配（百度） | 400 |
+| EXECUTOR_TYPE_NOT_COMFYUI | 执行器类型不匹配（ComfyUI） | 400 |
+| EXECUTOR_TYPE_NOT_KIE | 执行器类型不匹配（KIE） | 400 |
+| EXECUTOR_TYPE_NOT_VOLCENGINE | 执行器类型不匹配（火山） | 400 |
 | ABILITY_NOT_FOUND | 能力不存在 | 404 |
 | ABILITY_NOT_FOUND_OR_INACTIVE | 能力不存在或未激活 | 404 |
+| ABILITY_INACTIVE | 能力未激活 | 403 |
+| ABILITY_EXECUTOR_NOT_CONFIGURED | 能力未配置执行节点 | 400 |
 | ABILITY_LOG_NOT_FOUND | 能力日志不存在 | 404 |
+| ABILITY_LOG_NOT_COMFYUI | 日志非 ComfyUI | 400 |
+| INVALID_WORKFLOW_OR_EXECUTOR | workflow 或 executor 无效 | 400 |
 
 ---
 
@@ -64,6 +76,12 @@
 | COZE_ASYNC_TIMEOUT | 异步轮询超时 | |
 | COZE_ASYNC_EMPTY | 异步轮询空响应 | |
 | COZE_WORKFLOW_ERROR | workflow output 内含 error | |
+| COZE_WORKFLOW_ID_MISSING | 缺少 workflow_id | |
+| COZE_NOT_CONFIGURED | Coze 未配置 | |
+| COZE_REQUEST_FAILED | Coze 请求失败 | |
+| COZE_RESPONSE_NOT_JSON | Coze 返回非 JSON | |
+| COZE_INVALID_RESPONSE | Coze 返回体异常 | |
+| COZE_HTTP_* | Coze HTTP 非 200 | |
 | FANOUT_EMPTY | 批量子任务全部失败 | |
 | FANOUT_PARTIAL_FAILED | 批量部分失败 | |
 
@@ -107,6 +125,11 @@
 | COMFYUI_PROMPT_ID_REQUIRED | 缺少 prompt_id | |
 | COMFYUI_BASE_URL_REQUIRED | 缺少 base_url | |
 | COMFYUI_ERROR | ComfyUI 执行错误 | |
+| COMFYUI_EXECUTOR_NOT_MATCHED | 执行节点不匹配 | |
+| COMFYUI_NOT_READY | ComfyUI 未就绪 | |
+| COMFYUI_SYSTEM_STATS_ERROR | ComfyUI 系统状态异常 | |
+| COMFYUI_TEST_FAILED | ComfyUI 测试失败 | |
+| COMFYUI_WORKFLOW_KEY_MISSING | workflow_key 缺失 | |
 
 ---
 
@@ -115,11 +138,28 @@
 | 编号 | 含义 | 备注 |
 | --- | --- | --- |
 | BAIDU_TEST_FAILED | 百度测试失败 | |
+| BAIDU_API_ERROR | 百度 API 错误 | |
+| BAIDU_API_KEY_MISSING | 百度 API Key 缺失 | |
+| BAIDU_ENDPOINT_MISSING | 百度 endpoint 缺失 | |
+| BAIDU_TOKEN_ERROR | 百度 token 异常 | |
 | VOLCENGINE_REQUEST_FAILED | 火山请求失败 | |
+| VOLCENGINE_API_KEY_MISSING | 火山 API Key 缺失 | |
+| VOLCENGINE_HTTP_ERROR | 火山 HTTP 错误 | |
+| VOLCENGINE_HTTP_* | 火山 HTTP 非 200 | |
+| VOLCENGINE_API_TYPE_UNSUPPORTED | 火山 API 类型不支持 | |
+| VOLCENGINE_MODEL_REQUIRED | 火山模型必填 | |
 | KIE_TASK_CREATE_FAILED | KIE 创建任务失败 | |
 | KIE_TASK_ID_MISSING | KIE 返回 task id 为空 | |
+| KIE_API_KEY_MISSING | KIE API Key 缺失 | |
+| KIE_MODEL_REQUIRED | KIE 模型必填 | |
+| KIE_RESPONSE_INVALID | KIE 返回结构异常 | |
+| KIE_STATUS_EMPTY | KIE 状态为空 | |
+| KIE_STATUS_ERROR | KIE 状态异常 | |
 | IMAGE_DOWNLOAD_FAILED | 下载图片失败 | |
+| IMAGE_BASE64_INVALID | Base64 图片无效 | |
+| IMAGE_REQUIRED | 缺少图片 | |
 | PODI_IMAGE_TOOLS_IMPORT_FAILED | 图像工具导入失败 | |
+| PODI_UTILITY_UNSUPPORTED | 不支持的工具/能力 | |
 
 ---
 
