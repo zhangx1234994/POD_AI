@@ -50,6 +50,7 @@ export type WorkflowDoc = {
   output_kind?: string;
   parameters?: SchemaField[];
   outputs?: SchemaField[];
+  errors?: string[];
   request?: {
     method?: string;
     path?: string;

@@ -262,6 +262,9 @@ def get_workflow_docs(
             )
         return hints
 
+    def _strip_backticks(values: list[str]) -> list[str]:
+        return [value.replace("`", "") for value in values]
+
     lines: list[str] = []
     lines.append("# PODI 评测平台 · Coze 工作流调用文档")
     lines.append("")
@@ -375,15 +378,17 @@ def get_workflow_docs(
     for wf in rows:
         parameters = _normalize_fields(wf.parameters_schema or {})
         outputs = _normalize_fields(wf.output_schema or {})
+        output_kind = _infer_output_kind(wf)
         workflows.append(
             {
                 "category": wf.category,
                 "name": wf.name,
                 "workflow_id": wf.workflow_id,
                 "notes": wf.notes,
-                "output_kind": _infer_output_kind(wf),
+                "output_kind": output_kind,
                 "parameters": parameters,
                 "outputs": outputs,
+                "errors": _strip_backticks(_workflow_error_hints(output_kind)),
                 "request": {
                     "method": "POST",
                     "path": "/v1/workflow/run",
@@ -393,7 +398,7 @@ def get_workflow_docs(
         )
         grouped.setdefault(wf.category, []).append(wf)
         lines.append(
-            f"| {_md_escape(wf.category)} | {_md_escape(wf.name)} | `{_md_escape(wf.workflow_id)}` | `{_infer_output_kind(wf)}` | {_md_escape(wf.notes or '')} |"
+            f"| {_md_escape(wf.category)} | {_md_escape(wf.name)} | `{_md_escape(wf.workflow_id)}` | `{output_kind}` | {_md_escape(wf.notes or '')} |"
         )
     lines.append("")
 

@@ -1290,6 +1290,7 @@ export function App() {
                 {group.items.map((wf) => {
               const params = Array.isArray(wf.parameters) ? wf.parameters : [];
               const outputs = Array.isArray(wf.outputs) ? wf.outputs : [];
+              const errors = Array.isArray(wf.errors) ? wf.errors : [];
               const requestBody =
                 wf.request?.body ?? {
                   workflow_id: wf.workflow_id,
@@ -1347,6 +1348,21 @@ export function App() {
                         <Table rowKey="name" data={outputs} columns={outputColumns} size="small" bordered />
                       ) : (
                         <Typography.Text theme="secondary">默认关注 data.output（图片 URL 或回调 task id）</Typography.Text>
+                      )}
+                    </Space>
+
+                    <Space direction="vertical" size={4}>
+                      <Typography.Text strong>错误码</Typography.Text>
+                      {errors.length > 0 ? (
+                        <ul style={{ margin: 0, paddingLeft: 20 }}>
+                          {errors.map((item, idx) => (
+                            <li key={`${wf.workflow_id}-err-${idx}`}>
+                              <Typography.Text theme="secondary">{item}</Typography.Text>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <Typography.Text theme="secondary">详见“Markdown”视图中的错误码总表。</Typography.Text>
                       )}
                     </Space>
                   </Space>
