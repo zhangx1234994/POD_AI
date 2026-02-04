@@ -564,6 +564,26 @@ const parseAbilitySchemaFields = (schema?: JsonRecord | null): AbilitySchemaFiel
   return parsed;
 };
 
+const hasJsonContent = (value: unknown): boolean => {
+  if (!value || typeof value !== 'object') return false;
+  return Object.keys(value as Record<string, unknown>).length > 0;
+};
+
+const getAbilitySchemaIssues = (ability: Ability | null): string[] => {
+  if (!ability) return [];
+  const issues: string[] = [];
+  if (parseAbilitySchemaFields(ability.input_schema).length === 0) {
+    issues.push('缺少输入 Schema');
+  }
+  if (!hasJsonContent(ability.metadata)) {
+    issues.push('缺少 Metadata');
+  }
+  if (!hasJsonContent(ability.default_params)) {
+    issues.push('缺少默认参数');
+  }
+  return issues;
+};
+
 const formatSchemaValueForInput = (field: AbilitySchemaField, value: unknown): string | boolean => {
   if (field.type === 'switch') {
     if (typeof value === 'boolean') return value;
@@ -1319,6 +1339,10 @@ export function IntegrationDashboard({
   }, [globalAbilityLogTotal, globalAbilityLogs.length]);
   const abilitySchemaFields = useMemo(
     () => parseAbilitySchemaFields(selectedAbility?.input_schema),
+    [selectedAbility],
+  );
+  const selectedAbilitySchemaIssues = useMemo(
+    () => getAbilitySchemaIssues(selectedAbility),
     [selectedAbility],
   );
   const activeComfyExecutorId = useMemo(() => {
@@ -3184,6 +3208,13 @@ const normalizeErrorMessage = (message: string): string => {
     ];
     return (
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
+        {selectedAbilitySchemaIssues.length > 0 ? (
+          <Alert
+            theme="warning"
+            title="能力配置不完整"
+            message={`请补齐：${selectedAbilitySchemaIssues.join(' / ')}`}
+          />
+        ) : null}
         <Card bordered>
           <Space align="start" style={{ justifyContent: 'space-between', width: '100%' }}>
             <Space direction="vertical" size={2}>
@@ -3260,8 +3291,14 @@ const normalizeErrorMessage = (message: string): string => {
         </div>
       );
     }
+    const showParamIssues = selectedAbilitySchemaIssues.filter((issue) =>
+      ['缺少输入 Schema', '缺少默认参数'].includes(issue),
+    );
     return (
       <div className="space-y-4 text-xs text-slate-400">
+        {showParamIssues.length > 0 ? (
+          <Alert theme="warning" title="参数配置提醒" message={`尚未补齐：${showParamIssues.join(' / ')}`} />
+        ) : null}
         <div>
           <div className="text-slate-500">默认参数</div>
           {selectedAbility.default_params ? (
@@ -3290,8 +3327,12 @@ const normalizeErrorMessage = (message: string): string => {
         </div>
       );
     }
+    const showMetadataIssue = selectedAbilitySchemaIssues.includes('缺少 Metadata');
     return (
       <div className="space-y-4 text-xs text-slate-400">
+        {showMetadataIssue ? (
+          <Alert theme="warning" title="元信息缺失" message="尚未填写 metadata，建议补充 api_type、pricing、requirements 等字段。" />
+        ) : null}
         <div>
           <div className="text-slate-500">能力 Metadata</div>
           {selectedAbility.metadata ? (
@@ -5277,12 +5318,24 @@ const normalizeErrorMessage = (message: string): string => {
                   colKey: 'display_name',
                   title: '名称',
                   ellipsis: true,
-                  cell: ({ row }) => (
-                    <Space direction="vertical" size={2}>
-                      <Typography.Text strong>{row.display_name}</Typography.Text>
-                      <Typography.Text theme="secondary">{row.description || '—'}</Typography.Text>
-                    </Space>
-                  ),
+                  cell: ({ row }) => {
+                    const issues = getAbilitySchemaIssues(row);
+                    return (
+                      <Space direction="vertical" size={2}>
+                        <Typography.Text strong>{row.display_name}</Typography.Text>
+                        <Typography.Text theme="secondary">{row.description || '—'}</Typography.Text>
+                        {issues.length > 0 ? (
+                          <Space size="small" breakLine>
+                            {issues.map((issue) => (
+                              <Tag key={`${row.id}-${issue}`} theme="warning" variant="light" size="small">
+                                {issue}
+                              </Tag>
+                            ))}
+                          </Space>
+                        ) : null}
+                      </Space>
+                    );
+                  },
                 },
                 {
                   colKey: 'provider',
