@@ -1595,7 +1595,16 @@ export function IntegrationDashboard({
       if (metricsRes) setDashboardMetrics(metricsRes);
       if (logsRes) setDispatchLogs(logsRes.entries);
       if (configRes) setSystemConfig(configRes);
-      if (abilityRes) setAbilities(abilityRes);
+      if (abilityRes) {
+        const normalized = abilityRes.map((ability) => {
+          const extra = (ability as Ability & { extra_metadata?: JsonRecord | null }).extra_metadata;
+          return {
+            ...ability,
+            metadata: ability.metadata ?? extra ?? null,
+          };
+        });
+        setAbilities(normalized);
+      }
       if (abilityLogMetricsRes) setAbilityLogMetrics(abilityLogMetricsRes);
 
       if (abilityRes) {
