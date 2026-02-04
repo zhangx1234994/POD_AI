@@ -1299,6 +1299,12 @@ export function App() {
               const requestJson = JSON.stringify(requestBody, null, 2);
               const requestPath = wf.request?.path || '/v1/workflow/run';
               const requestMethod = wf.request?.method || 'POST';
+              const missingParams = params.length === 0;
+              const missingOutputs = outputs.length === 0;
+              const missingSchemaLabels = [
+                missingParams ? 'parameters_schema' : null,
+                missingOutputs ? 'output_schema' : null,
+              ].filter(Boolean);
 
                   return (
                     <Card key={wf.workflow_id} bordered>
@@ -1311,6 +1317,12 @@ export function App() {
                     </Space>
                     <Typography.Text theme="secondary">workflow_id: {wf.workflow_id}</Typography.Text>
                     {wf.notes ? <Typography.Text>备注：{wf.notes}</Typography.Text> : null}
+                    {missingSchemaLabels.length > 0 ? (
+                      <Alert
+                        theme="warning"
+                        message={`Schema 缺失：${missingSchemaLabels.join(' / ')}。请在评测管理端补齐，避免文档与表单不完整。`}
+                      />
+                    ) : null}
 
                     <Space direction="vertical" size={4}>
                       <Typography.Text strong>调用方式</Typography.Text>
@@ -2100,6 +2112,12 @@ function AdminWorkflowRow({
   const [rowError, setRowError] = useState<string>('');
 
   const dirty = name !== wf.name || notes !== (wf.notes || '') || category !== normalizeCategory(wf.category) || status !== wf.status;
+  const missingParamsSchema = !wf.parameters_schema || (Array.isArray(wf.parameters_schema) && wf.parameters_schema.length === 0);
+  const missingOutputSchema = !wf.output_schema || (Array.isArray(wf.output_schema) && wf.output_schema.length === 0);
+  const schemaMissingLabels = [
+    missingParamsSchema ? 'parameters_schema' : null,
+    missingOutputSchema ? 'output_schema' : null,
+  ].filter(Boolean);
 
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
@@ -2107,6 +2125,12 @@ function AdminWorkflowRow({
         <div className="min-w-0 flex-1">
           <div className="text-xs text-slate-500">workflow_id</div>
           <div className="mt-1 font-mono text-xs text-slate-300 break-all">{wf.workflow_id}</div>
+          {schemaMissingLabels.length > 0 ? (
+            <Alert
+              theme="warning"
+              message={`Schema 缺失：${schemaMissingLabels.join(' / ')}。请补齐以完善文档与表单。`}
+            />
+          ) : null}
 
           <div className="mt-3 grid gap-3 lg:grid-cols-2">
             <label className="block">
