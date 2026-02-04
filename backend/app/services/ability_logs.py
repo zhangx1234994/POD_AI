@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from dataclasses import dataclass
 from uuid import uuid4
 from typing import Any
 
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, select
 
 from app.core.db import get_session
 from app.models.integration import Ability, AbilityInvocationLog, Executor
@@ -144,6 +145,7 @@ class AbilityLogService:
         provider: str | None = None,
         capability_key: str | None = None,
         limit: int = 20,
+        offset: int = 0,
     ) -> list[AbilityInvocationLog]:
         """Return the most recent logs for an ability or provider/key pair."""
         with get_session() as session:
@@ -155,8 +157,31 @@ class AbilityLogService:
                     AbilityInvocationLog.ability_provider == provider,
                     AbilityInvocationLog.capability_key == capability_key,
                 )
-            stmt = stmt.order_by(desc(AbilityInvocationLog.created_at)).limit(max(1, min(limit, 100)))
+            stmt = (
+                stmt.order_by(desc(AbilityInvocationLog.created_at))
+                .offset(max(0, offset))
+                .limit(max(1, min(limit, 200)))
+            )
             return session.execute(stmt).scalars().all()
+
+    def count_logs(
+        self,
+        *,
+        ability_id: str | None = None,
+        provider: str | None = None,
+        capability_key: str | None = None,
+    ) -> int:
+        """Return total count for the same filters used in list_logs."""
+        with get_session() as session:
+            stmt = select(func.count(AbilityInvocationLog.id))
+            if ability_id:
+                stmt = stmt.where(AbilityInvocationLog.ability_id == ability_id)
+            elif provider and capability_key:
+                stmt = stmt.where(
+                    AbilityInvocationLog.ability_provider == provider,
+                    AbilityInvocationLog.capability_key == capability_key,
+                )
+            return int(session.execute(stmt).scalar() or 0)
 
     def get_log_by_workflow_run_id(self, workflow_run_id: str) -> AbilityInvocationLog | None:
         """Return the latest log that matches a workflow_run_id."""
@@ -205,6 +230,44 @@ class AbilityLogService:
                 session.commit()
         except Exception as exc:  # pragma: no cover - defensive
             self._logger.warning("Failed to finalize ability log %s: %s", log_id, exc)
+
+    def record_callback(
+        self,
+        log_id: int | None,
+        *,
+        status: str,
+        payload: dict[str, Any] | None,
+        response_payload: dict[str, Any] | None,
+        error_message: str | None,
+        started_at: datetime | None = None,
+        finished_at: datetime | None = None,
+        http_status: int | None = None,
+    ) -> None:
+        if not log_id:
+            return
+        try:
+            with get_session() as session:
+                log = session.get(AbilityInvocationLog, log_id)
+                if not log:
+                    return
+                log.callback_status = status
+                log.callback_http_status = http_status
+                if started_at:
+                    log.callback_started_at = started_at
+                if finished_at:
+                    log.callback_finished_at = finished_at
+                sanitized_payload = self._sanitize_payload(payload)
+                if sanitized_payload is not None:
+                    log.callback_payload = sanitized_payload
+                sanitized_response = self._sanitize_payload(response_payload)
+                if sanitized_response is not None:
+                    log.callback_response = sanitized_response
+                if error_message:
+                    log.callback_error = error_message
+                session.add(log)
+                session.commit()
+        except Exception as exc:  # pragma: no cover - defensive
+            self._logger.warning("Failed to record callback for log %s: %s", log_id, exc)
 
     def _sanitize_payload(self, payload: dict[str, Any] | None, *, depth: int = 0) -> dict[str, Any] | None:
         if payload is None:

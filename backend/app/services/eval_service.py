@@ -1043,6 +1043,7 @@ class EvalService:
             prompt_id = meta.get("promptId") or meta.get("taskId")
             base_url = meta.get("baseUrl")
             executor_id = meta.get("executorId")
+            output_node_ids = meta.get("outputNodeIds") or meta.get("output_node_ids")
             # Multi-ComfyUI support: prefer executor config if available.
             if isinstance(executor_id, str) and executor_id.strip():
                 try:
@@ -1084,7 +1085,10 @@ class EvalService:
             if not isinstance(entry, dict):
                 raise RuntimeError("COMFYUI_HISTORY_INVALID")
 
-            outputs = adapter._extract_outputs(entry)  # type: ignore[attr-defined]
+            output_node_set = None
+            if isinstance(output_node_ids, list):
+                output_node_set = {str(x) for x in output_node_ids if str(x).strip()}
+            outputs = adapter._extract_outputs(entry, output_node_ids=output_node_set)  # type: ignore[attr-defined]
             hist = outputs.get("history") if isinstance(outputs, dict) else None
             status_dict = hist.get("status") if isinstance(hist, dict) else None
             status_str = str((status_dict or {}).get("status_str") or "").lower()
@@ -1230,6 +1234,14 @@ class EvalService:
             run = session.get(EvalRun, run_id)
             if not run:
                 return
+            workflow_id = None
+            if run.workflow_version_id:
+                wf = session.get(EvalWorkflowVersion, run.workflow_version_id)
+                if wf and wf.workflow_id:
+                    workflow_id = str(wf.workflow_id)
+            # 连续图工作流只需要返回一张结果图；若有多个输出，取最后一个。
+            if workflow_id == "7598563505054154752" and len(cleaned) > 1:
+                cleaned = [cleaned[-1]]
             run.status = "succeeded"
             run.error_message = error_message
             run.result_image_urls_json = cleaned or []

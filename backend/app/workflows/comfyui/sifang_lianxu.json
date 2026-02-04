@@ -1,109 +1,265 @@
 {
-  "1": {
+  "41": {
+    "class_type": "DifferentialDiffusion",
     "inputs": {
-      "unet_name": "四方连续.safetensors",
-      "weight_dtype": "default"
-    },
-    "class_type": "UNETLoader",
-    "_meta": {
-      "title": "UNET加载器"
-    }
-  },
-  "2": {
-    "inputs": {
-      "clip_name1": "t5xxl_fp8_e4m3fn_scaled.safetensors",
-      "clip_name2": "clip_l.safetensors",
-      "type": "flux",
-      "device": "default"
-    },
-    "class_type": "DualCLIPLoader",
-    "_meta": {
-      "title": "双CLIP加载器"
-    }
-  },
-  "3": {
-    "inputs": {
-      "vae_name": "ae.safetensors"
-    },
-    "class_type": "VAELoader",
-    "_meta": {
-      "title": "VAE加载器"
-    }
-  },
-  "4": {
-    "inputs": {
-      "seed": 480661168654920,
-      "steps": 30,
-      "cfg": 1,
-      "sampler_name": "euler",
-      "scheduler": "normal",
-      "denoise": 1,
       "model": [
-        "41",
+        "1",
         0
       ],
-      "positive": [
-        "8",
-        0
-      ],
-      "negative": [
-        "8",
-        1
-      ],
-      "latent_image": [
-        "8",
-        2
-      ]
-    },
-    "class_type": "KSampler",
-    "_meta": {
-      "title": "K采样器"
+      "strength": 1
     }
   },
-  "5": {
+  "70": {
+    "class_type": "easy cleanGpuUsed",
     "inputs": {
-      "text": [
-        "42",
-        0
-      ],
-      "clip": [
-        "2",
+      "anything": [
+        "94",
         0
       ]
-    },
-    "class_type": "CLIPTextEncode",
-    "_meta": {
-      "title": "CLIP文本编码器"
-    }
-  },
-  "6": {
-    "inputs": {
-      "guidance": 30,
-      "conditioning": [
-        "5",
-        0
-      ]
-    },
-    "class_type": "FluxGuidance",
-    "_meta": {
-      "title": "Flux引导"
     }
   },
   "7": {
+    "class_type": "ConditioningZeroOut",
     "inputs": {
       "conditioning": [
         "5",
         0
       ]
-    },
-    "class_type": "ConditioningZeroOut",
-    "_meta": {
-      "title": "条件零化"
+    }
+  },
+  "42": {
+    "class_type": "StringConcatenate",
+    "inputs": {
+      "string_b": [
+        "70",
+        0
+      ],
+      "string_a": "3D material texture, ",
+      "delimiter": ""
+    }
+  },
+  "64": {
+    "class_type": "ImageToMask",
+    "inputs": {
+      "image": [
+        "104",
+        0
+      ],
+      "channel": "red"
+    }
+  },
+  "15": {
+    "class_type": "MathExpression|pysssss",
+    "inputs": {
+      "a": [
+        "12",
+        0
+      ],
+      "expression": "-a"
+    }
+  },
+  "6": {
+    "class_type": "FluxGuidance",
+    "inputs": {
+      "conditioning": [
+        "5",
+        0
+      ],
+      "guidance": 30
+    }
+  },
+  "65": {
+    "class_type": "MaskBlur+",
+    "inputs": {
+      "mask": [
+        "64",
+        0
+      ],
+      "amount": [
+        "78",
+        0
+      ],
+      "device": "auto"
+    }
+  },
+  "91": {
+    "class_type": "1hew_MaskMathOps",
+    "inputs": {
+      "mask_1": [
+        "10",
+        2
+      ],
+      "mask_2": [
+        "65",
+        0
+      ],
+      "operation": "subtract (a-b)"
+    }
+  },
+  "77": {
+    "class_type": "easy int",
+    "inputs": {
+      "value": 150
+    }
+  },
+  "10": {
+    "class_type": "LayerUtility: ImageShift",
+    "inputs": {
+      "image": [
+        "72",
+        0
+      ],
+      "shift_x": [
+        "12",
+        0
+      ],
+      "shift_y": [
+        "14",
+        0
+      ],
+      "border_mask_width": [
+        "77",
+        0
+      ],
+      "border_mask_blur": [
+        "78",
+        0
+      ],
+      "cyclic": true,
+      "background_color": "#000000"
+    }
+  },
+  "13": {
+    "class_type": "GetImageSize",
+    "inputs": {
+      "image": [
+        "72",
+        0
+      ]
+    }
+  },
+  "12": {
+    "class_type": "MathExpression|pysssss",
+    "inputs": {
+      "a": [
+        "13",
+        0
+      ],
+      "expression": "a/2"
+    }
+  },
+  "14": {
+    "class_type": "MathExpression|pysssss",
+    "inputs": {
+      "a": [
+        "13",
+        1
+      ],
+      "expression": [
+        "97",
+        0
+      ]
+    }
+  },
+  "16": {
+    "class_type": "MathExpression|pysssss",
+    "inputs": {
+      "a": [
+        "14",
+        0
+      ],
+      "expression": "-a"
+    }
+  },
+  "72": {
+    "class_type": "ImageResize+",
+    "inputs": {
+      "image": [
+        "102",
+        0
+      ],
+      "width": [
+        "74",
+        0
+      ],
+      "height": [
+        "75",
+        0
+      ],
+      "interpolation": "lanczos",
+      "method": "fill / crop",
+      "condition": "always",
+      "multiple_of": 0
+    }
+  },
+  "75": {
+    "class_type": "MathExpression|pysssss",
+    "inputs": {
+      "a": [
+        "73",
+        1
+      ],
+      "expression": "a//8*8"
+    }
+  },
+  "104": {
+    "class_type": "easy loadImageBase64",
+    "inputs": {
+      "base64_data": "",
+      "image_output": "Hide",
+      "save_prefix": "ComfyUI"
+    }
+  },
+  "78": {
+    "class_type": "easy int",
+    "inputs": {
+      "value": 40
+    }
+  },
+  "93": {
+    "class_type": "JanusModelLoader",
+    "inputs": {
+      "model_name": "deepseek-ai/Janus-Pro-1B"
+    }
+  },
+  "94": {
+    "class_type": "JanusImageUnderstanding",
+    "inputs": {
+      "model": [
+        "93",
+        0
+      ],
+      "processor": [
+        "93",
+        1
+      ],
+      "image": [
+        "96",
+        0
+      ],
+      "question": "Describe this image in detail.",
+      "seed": 1048293202175428,
+      "temperature": 0.8,
+      "top_p": 0.95,
+      "max_new_tokens": 512
+    }
+  },
+  "5": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "2",
+        0
+      ],
+      "text": [
+        "42",
+        0
+      ]
     }
   },
   "8": {
+    "class_type": "InpaintModelConditioning",
     "inputs": {
-      "noise_mask": true,
       "positive": [
         "6",
         0
@@ -123,45 +279,163 @@
       "mask": [
         "91",
         0
-      ]
-    },
-    "class_type": "InpaintModelConditioning",
-    "_meta": {
-      "title": "内补模型条件"
+      ],
+      "noise_mask": true
     }
   },
-  "10": {
+  "99": {
+    "class_type": "String",
     "inputs": {
-      "shift_x": [
-        "12",
+      "String": "a/2"
+    }
+  },
+  "97": {
+    "class_type": "easy ifElse",
+    "inputs": {
+      "on_true": [
+        "99",
         0
       ],
-      "shift_y": [
-        "14",
+      "on_false": [
+        "100",
         0
       ],
-      "cyclic": true,
-      "background_color": "#000000",
-      "border_mask_width": [
-        "77",
-        0
-      ],
-      "border_mask_blur": [
-        "78",
-        0
-      ],
-      "image": [
-        "72",
+      "boolean": true
+    }
+  },
+  "100": {
+    "class_type": "String",
+    "inputs": {
+      "String": "0"
+    }
+  },
+  "1": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "四方连续.safetensors",
+      "weight_dtype": "default"
+    }
+  },
+  "2": {
+    "class_type": "DualCLIPLoader",
+    "inputs": {
+      "clip_name1": "t5xxl_fp8_e4m3fn_scaled.safetensors",
+      "clip_name2": "clip_l.safetensors",
+      "type": "flux",
+      "device": "default"
+    }
+  },
+  "3": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "ae.safetensors"
+    }
+  },
+  "111": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": [
+        "11",
         0
       ]
-    },
-    "class_type": "LayerUtility: ImageShift",
-    "_meta": {
-      "title": "位移"
+    }
+  },
+  "73": {
+    "class_type": "GetImageSize",
+    "inputs": {
+      "image": [
+        "102",
+        0
+      ]
+    }
+  },
+  "74": {
+    "class_type": "MathExpression|pysssss",
+    "inputs": {
+      "a": [
+        "73",
+        0
+      ],
+      "expression": "a//8*8"
+    }
+  },
+  "96": {
+    "class_type": "LoadImagesFromURL",
+    "inputs": {
+      "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/eval/20260204/38070ed7-1770164305.png"
+    }
+  },
+  "102": {
+    "class_type": "ImageResize+",
+    "inputs": {
+      "image": [
+        "96",
+        0
+      ],
+      "width": 1024,
+      "height": 2048,
+      "interpolation": "lanczos",
+      "method": "fill / crop",
+      "condition": "always",
+      "multiple_of": 0
+    }
+  },
+  "4": {
+    "class_type": "KSampler",
+    "inputs": {
+      "model": [
+        "41",
+        0
+      ],
+      "positive": [
+        "8",
+        0
+      ],
+      "negative": [
+        "8",
+        1
+      ],
+      "latent_image": [
+        "8",
+        2
+      ],
+      "seed": 512755044685929,
+      "steps": 30,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "normal",
+      "denoise": 1
+    }
+  },
+  "17": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "4",
+        0
+      ],
+      "vae": [
+        "3",
+        0
+      ]
+    }
+  },
+  "69": {
+    "class_type": "easy cleanGpuUsed",
+    "inputs": {
+      "anything": [
+        "17",
+        0
+      ]
     }
   },
   "11": {
+    "class_type": "LayerUtility: ImageShift",
     "inputs": {
+      "image": [
+        "69",
+        0
+      ],
       "shift_x": [
         "15",
         0
@@ -173,429 +447,7 @@
       "cyclic": true,
       "background_color": "#000000",
       "border_mask_width": 0,
-      "border_mask_blur": 0,
-      "image": [
-        "69",
-        0
-      ]
-    },
-    "class_type": "LayerUtility: ImageShift",
-    "_meta": {
-      "title": "位移"
-    }
-  },
-  "12": {
-    "inputs": {
-      "expression": "a/2",
-      "a": [
-        "13",
-        0
-      ]
-    },
-    "class_type": "MathExpression|pysssss",
-    "_meta": {
-      "title": "数学表达式"
-    }
-  },
-  "13": {
-    "inputs": {
-      "image": [
-        "72",
-        0
-      ]
-    },
-    "class_type": "GetImageSize",
-    "_meta": {
-      "title": "获取图像尺寸"
-    }
-  },
-  "14": {
-    "inputs": {
-      "expression": [
-        "97",
-        0
-      ],
-      "a": [
-        "13",
-        1
-      ]
-    },
-    "class_type": "MathExpression|pysssss",
-    "_meta": {
-      "title": "数学表达式"
-    }
-  },
-  "15": {
-    "inputs": {
-      "expression": "-a",
-      "a": [
-        "12",
-        0
-      ]
-    },
-    "class_type": "MathExpression|pysssss",
-    "_meta": {
-      "title": "数学表达式"
-    }
-  },
-  "16": {
-    "inputs": {
-      "expression": "-a",
-      "a": [
-        "14",
-        0
-      ]
-    },
-    "class_type": "MathExpression|pysssss",
-    "_meta": {
-      "title": "数学表达式"
-    }
-  },
-  "17": {
-    "inputs": {
-      "samples": [
-        "4",
-        0
-      ],
-      "vae": [
-        "3",
-        0
-      ]
-    },
-    "class_type": "VAEDecode",
-    "_meta": {
-      "title": "VAE解码"
-    }
-  },
-  "41": {
-    "inputs": {
-      "strength": 1,
-      "model": [
-        "1",
-        0
-      ]
-    },
-    "class_type": "DifferentialDiffusion",
-    "_meta": {
-      "title": "差异扩散"
-    }
-  },
-  "42": {
-    "inputs": {
-      "string_a": "3D material texture, ",
-      "string_b": [
-        "70",
-        0
-      ],
-      "delimiter": ""
-    },
-    "class_type": "StringConcatenate",
-    "_meta": {
-      "title": "字符串连锁"
-    }
-  },
-  "64": {
-    "inputs": {
-      "channel": "red",
-      "image": [
-        "104",
-        0
-      ]
-    },
-    "class_type": "ImageToMask",
-    "_meta": {
-      "title": "图像到遮罩"
-    }
-  },
-  "65": {
-    "inputs": {
-      "amount": [
-        "78",
-        0
-      ],
-      "device": "auto",
-      "mask": [
-        "64",
-        0
-      ]
-    },
-    "class_type": "MaskBlur+",
-    "_meta": {
-      "title": "遮罩模糊"
-    }
-  },
-  "68": {
-    "inputs": {
-      "mask_opacity": 1,
-      "mask_color": "255, 255, 255",
-      "pass_through": false,
-      "image": [
-        "10",
-        0
-      ],
-      "mask": [
-        "91",
-        0
-      ]
-    },
-    "class_type": "ImageAndMaskPreview",
-    "_meta": {
-      "title": "图像与遮罩预览"
-    }
-  },
-  "69": {
-    "inputs": {
-      "anything": [
-        "17",
-        0
-      ]
-    },
-    "class_type": "easy cleanGpuUsed",
-    "_meta": {
-      "title": "清理GPU占用"
-    }
-  },
-  "70": {
-    "inputs": {
-      "anything": [
-        "94",
-        0
-      ]
-    },
-    "class_type": "easy cleanGpuUsed",
-    "_meta": {
-      "title": "清理GPU占用"
-    }
-  },
-  "72": {
-    "inputs": {
-      "width": [
-        "74",
-        0
-      ],
-      "height": [
-        "75",
-        0
-      ],
-      "interpolation": "lanczos",
-      "method": "fill / crop",
-      "condition": "always",
-      "multiple_of": 0,
-      "image": [
-        "102",
-        0
-      ]
-    },
-    "class_type": "ImageResize+",
-    "_meta": {
-      "title": "图像缩放"
-    }
-  },
-  "73": {
-    "inputs": {
-      "image": [
-        "102",
-        0
-      ]
-    },
-    "class_type": "GetImageSize",
-    "_meta": {
-      "title": "获取图像尺寸"
-    }
-  },
-  "74": {
-    "inputs": {
-      "expression": "a//8*8",
-      "a": [
-        "73",
-        0
-      ]
-    },
-    "class_type": "MathExpression|pysssss",
-    "_meta": {
-      "title": "数学表达式"
-    }
-  },
-  "75": {
-    "inputs": {
-      "expression": "a//8*8",
-      "a": [
-        "73",
-        1
-      ]
-    },
-    "class_type": "MathExpression|pysssss",
-    "_meta": {
-      "title": "数学表达式"
-    }
-  },
-  "77": {
-    "inputs": {
-      "value": 150
-    },
-    "class_type": "easy int",
-    "_meta": {
-      "title": "整数"
-    }
-  },
-  "78": {
-    "inputs": {
-      "value": 40
-    },
-    "class_type": "easy int",
-    "_meta": {
-      "title": "整数"
-    }
-  },
-  "91": {
-    "inputs": {
-      "operation": "subtract (a-b)",
-      "mask_1": [
-        "10",
-        2
-      ],
-      "mask_2": [
-        "65",
-        0
-      ]
-    },
-    "class_type": "1hew_MaskMathOps",
-    "_meta": {
-      "title": "Multi Mask Math Ops"
-    }
-  },
-  "93": {
-    "inputs": {
-      "model_name": "deepseek-ai/Janus-Pro-1B"
-    },
-    "class_type": "JanusModelLoader",
-    "_meta": {
-      "title": "Janus Model Loader"
-    }
-  },
-  "94": {
-    "inputs": {
-      "question": "Describe this image in detail.",
-      "seed": 750020397768820,
-      "temperature": 0.8,
-      "top_p": 0.95,
-      "max_new_tokens": 512,
-      "model": [
-        "93",
-        0
-      ],
-      "processor": [
-        "93",
-        1
-      ],
-      "image": [
-        "104",
-        0
-      ]
-    },
-    "class_type": "JanusImageUnderstanding",
-    "_meta": {
-      "title": "Janus Image Understanding"
-    }
-  },
-  "96": {
-    "inputs": {
-      "url": "https://"
-    },
-    "class_type": "LoadImagesFromURL",
-    "_meta": {
-      "title": "加载图像(URL)"
-    }
-  },
-  "97": {
-    "inputs": {
-      "boolean": true,
-      "on_true": [
-        "99",
-        0
-      ],
-      "on_false": [
-        "100",
-        0
-      ]
-    },
-    "class_type": "easy ifElse",
-    "_meta": {
-      "title": "是否判断"
-    }
-  },
-  "99": {
-    "inputs": {
-      "String": "a/2"
-    },
-    "class_type": "String",
-    "_meta": {
-      "title": "字符串"
-    }
-  },
-  "100": {
-    "inputs": {
-      "String": "0"
-    },
-    "class_type": "String",
-    "_meta": {
-      "title": "字符串"
-    }
-  },
-  "102": {
-    "inputs": {
-      "width": 1024,
-      "height": 1024,
-      "interpolation": "lanczos",
-      "method": "fill / crop",
-      "condition": "always",
-      "multiple_of": 0,
-      "image": [
-        "104",
-        0
-      ]
-    },
-    "class_type": "ImageResize+",
-    "_meta": {
-      "title": "图像缩放"
-    }
-  },
-  "104": {
-    "inputs": {
-      "base64_data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgYGAAAAAEAAH2FzhVAAAAAElFTkSuQmCC",
-      "image_output": "Hide",
-      "save_prefix": "ComfyUI"
-    },
-    "class_type": "easy loadImageBase64",
-    "_meta": {
-      "title": "加载图像（Base64）"
-    }
-  },
-  "106": {
-    "inputs": {
-      "image": "2.png"
-    },
-    "class_type": "LoadImage",
-    "_meta": {
-      "title": "加载图像"
-    }
-  },
-  "110": {
-    "inputs": {
-      "filename_prefix": "DPI_Image",
-      "dpi": 150,
-      "format": "png",
-      "quality": 100,
-      "mode": "save_and_pass",
-      "counter_offset": 0,
-      "images": [
-        "11",
-        0
-      ]
-    },
-    "class_type": "SaveImageWithDPI",
-    "_meta": {
-      "title": "Save Image with DPI"
+      "border_mask_blur": 0
     }
   }
 }

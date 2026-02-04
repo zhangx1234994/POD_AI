@@ -6,9 +6,13 @@ import csv
 import io
 import json
 from datetime import datetime, timedelta, timezone
+from typing import Any
 from uuid import uuid4
+from types import SimpleNamespace
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import and_, case, func, select
 
@@ -19,6 +23,8 @@ from app.schemas import admin_abilities as schemas
 from app.schemas import admin_ability_logs as log_schemas
 from app.services.ability_seed import ensure_default_abilities
 from app.services.ability_logs import ability_log_service
+from app.services.executors.base import ExecutionContext
+from app.services.executors.registry import registry
 
 router = APIRouter(prefix="/admin/abilities", dependencies=[Depends(require_admin)])
 
@@ -137,9 +143,17 @@ def delete_ability(ability_id: str) -> dict[str, str]:
 
 
 @router.get("/{ability_id}/logs", response_model=log_schemas.AbilityInvocationLogListResponse)
-def list_ability_logs(ability_id: str, limit: int = Query(20, ge=1, le=100)):
-    entries = ability_log_service.list_logs(ability_id=ability_id, limit=limit)
+def list_ability_logs(
+    ability_id: str,
+    limit: int = Query(20, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    total = ability_log_service.count_logs(ability_id=ability_id)
+    entries = ability_log_service.list_logs(ability_id=ability_id, limit=limit, offset=offset)
     return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
         "items": [log_schemas.AbilityInvocationLogRead.model_validate(entry) for entry in entries],
     }
 
@@ -147,19 +161,122 @@ def list_ability_logs(ability_id: str, limit: int = Query(20, ge=1, le=100)):
 @router.get("/logs", response_model=log_schemas.AbilityInvocationLogListResponse)
 def list_all_ability_logs(
     limit: int = Query(20, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     ability_id: str | None = Query(default=None, alias="abilityId"),
     provider: str | None = Query(default=None),
     capability_key: str | None = Query(default=None, alias="capabilityKey"),
 ):
+    total = ability_log_service.count_logs(
+        ability_id=ability_id,
+        provider=provider,
+        capability_key=capability_key,
+    )
     entries = ability_log_service.list_logs(
         ability_id=ability_id,
         provider=provider,
         capability_key=capability_key,
         limit=limit,
+        offset=offset,
     )
     return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
         "items": [log_schemas.AbilityInvocationLogRead.model_validate(entry) for entry in entries],
     }
+
+
+@router.post("/logs/{log_id}/resolve", response_model=log_schemas.AbilityInvocationLogRead)
+def resolve_comfyui_log(log_id: int):
+    with get_session() as session:
+        log = session.get(AbilityInvocationLog, log_id)
+        if not log:
+            raise HTTPException(status_code=404, detail="ABILITY_LOG_NOT_FOUND")
+        if (log.ability_provider or "").lower() != "comfyui":
+            raise HTTPException(status_code=400, detail="ABILITY_LOG_NOT_COMFYUI")
+        if log.result_assets:
+            return log_schemas.AbilityInvocationLogRead.model_validate(log)
+        payload = log.response_payload or {}
+        prompt_id = payload.get("promptId") or payload.get("taskId")
+        base_url = payload.get("baseUrl")
+        executor_id = payload.get("executorId") or payload.get("executor") or log.executor_id
+        output_node_ids = payload.get("outputNodeIds") or payload.get("output_node_ids")
+        if (not base_url or not prompt_id) and executor_id:
+            executor = session.get(Executor, str(executor_id))
+            if executor:
+                cfg = executor.config or {}
+                ex_base = (executor.base_url or cfg.get("baseUrl") or cfg.get("base_url") or "").strip()
+                if ex_base:
+                    base_url = ex_base
+        if not (isinstance(prompt_id, str) and prompt_id.strip()):
+            raise HTTPException(status_code=400, detail="COMFYUI_PROMPT_ID_REQUIRED")
+        if not (isinstance(base_url, str) and base_url.strip()):
+            raise HTTPException(status_code=400, detail="COMFYUI_BASE_URL_REQUIRED")
+
+    adapter = registry.get("comfyui")
+    if adapter is None:
+        raise HTTPException(status_code=500, detail="COMFYUI_ADAPTER_MISSING")
+
+    history_url = f"{base_url.rstrip('/')}/history/{prompt_id}"
+    resp = httpx.get(history_url, timeout=15)
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"COMFYUI_HISTORY_HTTP_{resp.status_code}")
+    data = resp.json()
+    entry = data.get(prompt_id) if isinstance(data, dict) else None
+    if not isinstance(entry, dict):
+        raise HTTPException(status_code=502, detail="COMFYUI_HISTORY_INVALID")
+
+    output_nodes = None
+    if isinstance(output_node_ids, list):
+        output_nodes = {str(x) for x in output_node_ids if str(x).strip()}
+
+    outputs = adapter._extract_outputs(entry, output_node_ids=output_nodes)  # type: ignore[attr-defined]
+    hist = outputs.get("history") if isinstance(outputs, dict) else None
+    status_dict = hist.get("status") if isinstance(hist, dict) else None
+    status_str = str((status_dict or {}).get("status_str") or "").lower()
+    if status_str and status_str != "success":
+        raise HTTPException(status_code=409, detail=f"COMFYUI_STATUS_{status_str}")
+
+    images = outputs.get("images") if isinstance(outputs, dict) else None
+    if not isinstance(images, list) or not images:
+        raise HTTPException(status_code=409, detail="COMFYUI_IMAGES_EMPTY")
+
+    ctx = ExecutionContext(
+        task=SimpleNamespace(id=f"log-{log_id}", user_id="admin", assets=[]),
+        workflow=SimpleNamespace(id="admin_log_resolve", definition={}, extra_metadata={}),
+        executor=SimpleNamespace(id=executor_id or "comfyui", base_url=base_url, config={}),
+        payload={},
+        api_key=None,
+    )
+    assets: list[dict[str, Any]] = []
+    for img in images:
+        if not isinstance(img, dict):
+            continue
+        source_url = img.get("url") or adapter._build_image_url(base_url.rstrip("/"), img)  # type: ignore[attr-defined]
+        base64_data = img.get("base64")
+        if source_url:
+            asset = adapter._store_remote_asset(source_url, ctx, tag="comfyui")  # type: ignore[attr-defined]
+        elif base64_data:
+            asset = adapter._store_base64_asset(base64_data, ctx, tag="comfyui")  # type: ignore[attr-defined]
+        else:
+            asset = None
+        if asset:
+            assets.append(asset)
+
+    if not assets:
+        raise HTTPException(status_code=409, detail="COMFYUI_ASSETS_EMPTY")
+
+    resolved_payload = dict(payload)
+    resolved_payload["assets"] = assets
+    resolved_payload["images"] = assets
+    resolved_payload["status"] = "succeeded"
+    ability_log_service.finish_success(log_id, response_payload=resolved_payload, duration_ms=log.duration_ms)
+
+    with get_session() as session:
+        refreshed = session.get(AbilityInvocationLog, log_id)
+        if not refreshed:
+            raise HTTPException(status_code=404, detail="ABILITY_LOG_NOT_FOUND")
+        return log_schemas.AbilityInvocationLogRead.model_validate(refreshed)
 
 
 def _parse_dt(value: str | None) -> datetime | None:
@@ -233,12 +350,14 @@ def export_ability_logs(
         data = [log_schemas.AbilityInvocationLogRead.model_validate(r).model_dump() for r in rows]
         filename = f"ability_logs_{start_dt.date().isoformat()}_{end_dt.date().isoformat()}.json"
         payload = json.dumps(
-            {
-                "generated_at": datetime.utcnow().isoformat() + "Z",
-                "window": {"start": start_dt.isoformat() + "Z", "end": end_dt.isoformat() + "Z"},
-                "count": len(data),
-                "items": data,
-            },
+            jsonable_encoder(
+                {
+                    "generated_at": datetime.utcnow().isoformat() + "Z",
+                    "window": {"start": start_dt.isoformat() + "Z", "end": end_dt.isoformat() + "Z"},
+                    "count": len(data),
+                    "items": data,
+                }
+            ),
             ensure_ascii=True,
         ).encode("utf-8")
         return Response(

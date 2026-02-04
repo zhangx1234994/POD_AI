@@ -30,6 +30,13 @@ class AbilityInvocationLogRead(BaseModel):
     response_payload: dict[str, Any] | None = None
     result_assets: list[dict[str, Any]] | None = None
     error_message: str | None = None
+    callback_status: str | None = None
+    callback_http_status: int | None = None
+    callback_payload: dict[str, Any] | None = None
+    callback_response: dict[str, Any] | None = None
+    callback_error: str | None = None
+    callback_started_at: datetime | None = None
+    callback_finished_at: datetime | None = None
     billing_unit: str | None = None
     unit_price: float | None = None
     currency: str | None = None
@@ -38,6 +45,9 @@ class AbilityInvocationLogRead(BaseModel):
 
 
 class AbilityInvocationLogListResponse(BaseModel):
+    total: int | None = None
+    limit: int | None = None
+    offset: int | None = None
     items: list[AbilityInvocationLogRead]
 
 

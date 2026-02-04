@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 from functools import lru_cache
+import logging
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 
 from app.core.config import get_settings
 from app.core.db import get_session
@@ -20,6 +22,20 @@ from app.schemas.abilities import AbilityInvokeRequest
 from app.services.ability_invocation import ability_invocation_service
 from app.services.task_id_codec import decode_task_id
 
+logger = logging.getLogger(__name__)
+
+CLEANUP_TTL_HOURS = 24
+CLEANUP_INTERVAL_SECONDS = 30 * 60
+MAX_QUEUE_PER_EXECUTOR = 10
+ERR_CODE_COMFYUI_QUEUE_FULL = "Q1001"
+ERR_CODE_COMMERCIAL_QUEUE_FULL = "Q2001"
+
+
+def _format_task_error(code: str, message: str) -> str:
+    safe_message = " ".join(str(message).strip().split())
+    safe_message = safe_message.replace("|", "/")
+    return f"ERR|{code}|{safe_message}"
+
 
 class AbilityTaskService:
     def __init__(self) -> None:
@@ -27,6 +43,8 @@ class AbilityTaskService:
         max_workers = max(1, settings.ability_task_max_workers)
         self._executor = ThreadPoolExecutor(max_workers=max_workers)
         self._lock = threading.Lock()
+        self._cleanup_stale_running_tasks()
+        self._start_cleanup_thread()
         self._resume_pending_tasks()
 
     def enqueue(self, *, ability_id: str, payload: AbilityInvokeRequest, user: User | None) -> AbilityTask:
@@ -34,6 +52,26 @@ class AbilityTaskService:
             ability = session.get(Ability, ability_id)
             if not ability or ability.status != "active":
                 raise HTTPException(status_code=404, detail="ABILITY_NOT_FOUND_OR_INACTIVE")
+            provider_lower = (ability.provider or "").lower()
+            executor_id = payload.executorId or ability.executor_id
+            if executor_id:
+                is_comfyui = provider_lower == "comfyui"
+                is_commercial = provider_lower in {"volcengine", "kie"}
+                is_async_flag = bool((ability.extra_metadata or {}).get("async_mode") or (ability.extra_metadata or {}).get("callback_mode"))
+                if is_comfyui or is_commercial or is_async_flag:
+                    pending_count = self.count_pending_by_executor(
+                        executor_id=executor_id,
+                        providers=[provider_lower] if provider_lower else None,
+                        limit=MAX_QUEUE_PER_EXECUTOR,
+                    )
+                    if pending_count >= MAX_QUEUE_PER_EXECUTOR:
+                        code = ERR_CODE_COMFYUI_QUEUE_FULL if is_comfyui else ERR_CODE_COMMERCIAL_QUEUE_FULL
+                        queue_name = "COMFYUI_QUEUE_FULL" if is_comfyui else "COMMERCIAL_QUEUE_FULL"
+                        message = f"{queue_name}(limit={MAX_QUEUE_PER_EXECUTOR}, current={pending_count})"
+                        raise HTTPException(status_code=429, detail=_format_task_error(code, message))
+            request_payload = payload.model_dump()
+            if executor_id and not request_payload.get("executorId"):
+                request_payload["executorId"] = executor_id
             task = AbilityTask(
                 id=uuid4().hex,
                 ability_id=ability.id,
@@ -43,7 +81,7 @@ class AbilityTaskService:
                 user_id=user.id if user else None,
                 user_name=user.username if user else None,
                 status="queued",
-                request_payload=payload.model_dump(),
+                request_payload=request_payload,
                 callback_url=payload.callbackUrl,
                 callback_headers=payload.callbackHeaders,
             )
@@ -107,6 +145,32 @@ class AbilityTaskService:
                 session.commit()
         for task_id in pending_ids:
             self._executor.submit(self._run_task, task_id)
+
+    def _cleanup_stale_running_tasks(self) -> None:
+        cutoff = datetime.utcnow() - timedelta(hours=CLEANUP_TTL_HOURS)
+        with get_session() as session:
+            stmt = (
+                delete(AbilityTask)
+                .where(AbilityTask.status == "running")
+                .where(func.coalesce(AbilityTask.started_at, AbilityTask.updated_at, AbilityTask.created_at) < cutoff)
+            )
+            result = session.execute(stmt)
+            session.commit()
+            deleted = result.rowcount or 0
+            if deleted:
+                logger.info("Cleaned %s stale running ability tasks (>%sh).", deleted, CLEANUP_TTL_HOURS)
+
+    def _start_cleanup_thread(self) -> None:
+        def _loop() -> None:
+            while True:
+                try:
+                    self._cleanup_stale_running_tasks()
+                except Exception as exc:  # pragma: no cover - best effort cleanup
+                    logger.warning("Cleanup stale ability tasks failed: %s", exc)
+                time.sleep(CLEANUP_INTERVAL_SECONDS)
+
+        thread = threading.Thread(target=_loop, daemon=True)
+        thread.start()
 
     @staticmethod
     def _is_comfyui_submitted_only(task: AbilityTask) -> bool:

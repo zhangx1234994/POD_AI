@@ -151,6 +151,13 @@ export interface AbilityInvocationLog {
   response_payload?: JsonRecord | null;
   result_assets?: StoredAsset[] | null;
   error_message?: string | null;
+  callback_status?: string | null;
+  callback_http_status?: number | null;
+  callback_payload?: JsonRecord | null;
+  callback_response?: JsonRecord | null;
+  callback_error?: string | null;
+  callback_started_at?: string | null;
+  callback_finished_at?: string | null;
   billing_unit?: string | null;
   unit_price?: number | null;
   currency?: string | null;
@@ -302,6 +309,9 @@ export interface SystemConfig {
 }
 
 export interface AbilityLogListResponse {
+  total?: number | null;
+  limit?: number | null;
+  offset?: number | null;
   items: AbilityInvocationLog[];
 }
 

@@ -1776,17 +1776,53 @@ class AbilityInvocationService:
         }
         thread = threading.Thread(
             target=self._post_callback,
-            args=(callback_url, callback_headers or {}, payload),
+            args=(callback_url, callback_headers or {}, payload, log_id),
             daemon=True,
         )
         thread.start()
 
-    def _post_callback(self, url: str, headers: dict[str, str], payload: dict[str, Any]) -> None:
+    def _post_callback(self, url: str, headers: dict[str, str], payload: dict[str, Any], log_id: int | None) -> None:
+        started_at = datetime.utcnow()
+        status = "success"
+        error_message = None
+        response_payload: dict[str, Any] | None = None
+        http_status: int | None = None
+
+        def _parse_response(resp: httpx.Response) -> dict[str, Any] | None:
+            if resp.content is None or len(resp.content) == 0:
+                return None
+            try:
+                parsed = resp.json()
+            except ValueError:
+                text = (resp.text or "").strip()
+                return {"text": text} if text else None
+            if isinstance(parsed, dict):
+                return parsed
+            return {"value": parsed}
+
         try:
             response = httpx.post(url, json=payload, headers=headers, timeout=15)
+            http_status = response.status_code
+            response_payload = _parse_response(response)
             response.raise_for_status()
         except Exception as exc:  # pragma: no cover - best effort webhook
+            status = "failed"
+            error_message = str(exc)
+            if isinstance(exc, httpx.HTTPStatusError):
+                http_status = exc.response.status_code
+                response_payload = _parse_response(exc.response)
             self._logger.warning("Callback POST to %s failed: %s", url, exc)
+        finally:
+            ability_log_service.record_callback(
+                log_id,
+                status=status,
+                payload=payload,
+                response_payload=response_payload,
+                error_message=error_message,
+                started_at=started_at,
+                finished_at=datetime.utcnow(),
+                http_status=http_status,
+            )
 
 
 ability_invocation_service = AbilityInvocationService()

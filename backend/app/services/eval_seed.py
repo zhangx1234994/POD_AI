@@ -33,8 +33,6 @@ if not LORA_OPTIONS:
 DEPRECATED_EVAL_WORKFLOW_IDS: set[str] = {
     # 提取类
     "7597535455856295936",  # 提示词提取 · tishici_tiqu
-    # 花纹提取类（旧的 space_id 误填版本，保留但不再展示）
-    "7597421439045599232",  # tiqu_duoMoxing_2 (wrong id, superseded by 7598558185544220672)
     # 花纹提取类（旧版本，已替换为 7601080398864449536）
     "7598558185544220672",  # tiqu_duoMoxing_2 (old)
     # 图裂变（旧商业模型版本）
@@ -59,6 +57,7 @@ PROMPT_OUTPUT_WORKFLOW_IDS: set[str] = {
     "7598545860393172992",  # tiqu_comfyui_20260123_2
     "7601080398864449536",  # tiqu_duoMoxing_2
     "7598559869544693760",  # tiqu_duoMoxing_20260130
+    "7597421439045599232",  # shengtu_shangye
     "7597701996124045312",  # sibu_comfyui
     "7597702948247830528",  # zhongsu_comfyui
     "7598841920114130944",  # Liebian_comfyui_20260124_1
@@ -461,7 +460,63 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
             ]
         },
     },
-    # 图略变类 / 多模型生图（Banana Pro / Flux2 / Doubao 4.5）
+    # 通用类 / 多模型生图（商业模型生图 · shengtu_shangye）
+    {
+        "category": "通用类",
+        "name": "多模型生图 · shengtu_shangye",
+        "version": "v1",
+        "workflow_id": "7597421439045599232",
+        "status": "active",
+        "notes": "商业模型生图：moxing=1(Banana Pro)/2(Flux2)/3(Seedream 4.5)。输出 output 为回调 task id。",
+        "parameters_schema": {
+            "fields": [
+                {"name": "url", "label": "图片 URL", "type": "text", "required": True},
+                {
+                    "name": "aspect_ratio",
+                    "label": "画幅比例",
+                    "type": "select",
+                    "required": False,
+                    "defaultValue": "1:1",
+                    "options": [
+                        {"label": "1:1", "value": "1:1"},
+                        {"label": "1:2", "value": "1:2"},
+                    ],
+                },
+                {
+                    "name": "resolution",
+                    "label": "分辨率",
+                    "type": "select",
+                    "required": False,
+                    "defaultValue": "1K",
+                    "options": [
+                        {"label": "1K", "value": "1K"},
+                        {"label": "2K", "value": "2K"},
+                        {"label": "4K", "value": "4K"},
+                    ],
+                },
+                {"name": "prompt", "label": "提示词", "type": "textarea", "required": False, "defaultValue": ""},
+                {
+                    "name": "moxing",
+                    "label": "模型",
+                    "type": "select",
+                    "required": False,
+                    "defaultValue": "1",
+                    "options": [
+                        {"label": "1 · Banana Pro", "value": "1"},
+                        {"label": "2 · Flux2 Pro", "value": "2"},
+                        {"label": "3 · Seedream 4.5", "value": "3"},
+                    ],
+                },
+            ]
+        },
+        "output_schema": {
+            "fields": [
+                {"name": "output", "type": "text", "description": "回调 task id"},
+                {"name": "prompt", "type": "text", "description": "提示词反馈字符串"},
+            ]
+        },
+    },
+    # 通用类 / 多模型生图（旧版，下线）
     {
         "category": "general",
         "name": "多模型生图",
@@ -871,6 +926,12 @@ DEFAULT_OUTPUT_SCHEMA_BY_ID: dict[str, dict[str, Any]] = {
     if item.get("workflow_id")
 }
 
+DEFAULT_EVAL_WORKFLOW_BY_ID: dict[str, dict[str, Any]] = {
+    str(item.get("workflow_id")): item
+    for item in DEFAULT_EVAL_WORKFLOW_VERSIONS
+    if item.get("workflow_id")
+}
+
 
 def ensure_default_eval_workflow_versions(session: Session) -> bool:
     """Insert missing default workflow versions. Returns True if any created."""
@@ -954,6 +1015,29 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
             if row.notes != "输入 taskid，输出 images 数组（回调工作流）。业务侧可直接调用该 workflow 获取图片。":
                 row.notes = "输入 taskid，输出 images 数组（回调工作流）。业务侧可直接调用该 workflow 获取图片。"
                 dirty = True
+        if row.workflow_id == "7597421439045599232":
+            # This workflow id was previously misused; force-reset to the new shengtu_shangye spec.
+            desired = DEFAULT_EVAL_WORKFLOW_BY_ID.get(row.workflow_id)
+            if desired:
+                desired_category = _normalize_eval_category(desired.get("category"))
+                if row.status != (desired.get("status") or "active"):
+                    row.status = desired.get("status") or "active"
+                    dirty = True
+                if row.name != desired.get("name"):
+                    row.name = desired.get("name")
+                    dirty = True
+                if row.notes != desired.get("notes"):
+                    row.notes = desired.get("notes")
+                    dirty = True
+                if row.category != desired_category:
+                    row.category = desired_category
+                    dirty = True
+                if row.parameters_schema != desired.get("parameters_schema"):
+                    row.parameters_schema = desired.get("parameters_schema")
+                    dirty = True
+                if row.output_schema != desired.get("output_schema"):
+                    row.output_schema = desired.get("output_schema")
+                    dirty = True
         normalized_category = _normalize_eval_category(row.category)
         if row.category != normalized_category:
             row.category = normalized_category

@@ -3,6 +3,7 @@ import type {
   AbilityListResponse,
   AbilityLogListResponse,
   AbilityLogMetricsResponse,
+  AbilityInvocationLog,
   ApiKey,
   Binding,
   DashboardMetrics,
@@ -407,17 +408,32 @@ export const adminApi = {
   updateAbility: (id: string, payload: Partial<Ability>) =>
     request<Ability>('/api/admin/abilities/' + id, { method: 'PUT', body: JSON.stringify(payload) }),
   deleteAbility: (id: string) => request<void>('/api/admin/abilities/' + id, { method: 'DELETE' }),
-  listAbilityLogs: (abilityId: string, limit = 20) =>
-    request<AbilityLogListResponse>(`/api/admin/abilities/${encodeURIComponent(abilityId)}/logs?limit=${limit}`),
-  listAllAbilityLogs: (options?: { limit?: number; abilityId?: string; provider?: string; capabilityKey?: string }) => {
+  listAbilityLogs: (abilityId: string, options?: { limit?: number; offset?: number }) => {
+    const params = new URLSearchParams();
+    params.set('limit', String(options?.limit ?? 20));
+    if (typeof options?.offset === 'number') params.set('offset', String(options.offset));
+    return request<AbilityLogListResponse>(
+      `/api/admin/abilities/${encodeURIComponent(abilityId)}/logs?${params.toString()}`,
+    );
+  },
+  listAllAbilityLogs: (options?: {
+    limit?: number;
+    offset?: number;
+    abilityId?: string;
+    provider?: string;
+    capabilityKey?: string;
+  }) => {
     const params = new URLSearchParams();
     const limit = options?.limit ?? 20;
     params.set('limit', String(limit));
+    if (typeof options?.offset === 'number') params.set('offset', String(options.offset));
     if (options?.abilityId) params.set('abilityId', options.abilityId);
     if (options?.provider) params.set('provider', options.provider);
     if (options?.capabilityKey) params.set('capabilityKey', options.capabilityKey);
     return request<AbilityLogListResponse>(`/api/admin/abilities/logs?${params.toString()}`);
   },
+  resolveAbilityLog: (logId: number) =>
+    request<AbilityInvocationLog>(`/api/admin/abilities/logs/${logId}/resolve`, { method: 'POST' }),
   getAbilityLogMetrics: (options?: { windowHours?: number; provider?: string; capabilityKey?: string; groupByExecutor?: boolean }) => {
     const params = new URLSearchParams();
     params.set('windowHours', String(options?.windowHours ?? 24));

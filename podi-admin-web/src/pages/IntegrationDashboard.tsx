@@ -309,7 +309,8 @@ const toImagePreview = (value?: string | null) => {
   if (!value) return '';
   return value.startsWith('data:') ? value : `data:image/png;base64,${value}`;
 };
-const abilityLogLimit = 12;
+const abilityLogPageSize = 20;
+const globalAbilityLogPageSize = 30;
 const parseDateValue = (value?: string | null): Date | null => {
   if (!value) return null;
   const raw = String(value).trim();
@@ -923,6 +924,8 @@ export function IntegrationDashboard({
   const contentRef = useRef<HTMLDivElement | null>(null);
   const [dashboardMetrics, setDashboardMetrics] = useState<DashboardMetrics | null>(null);
   const [dispatchLogs, setDispatchLogs] = useState<DispatchLogEntry[]>([]);
+  const [dispatchLogDetail, setDispatchLogDetail] = useState<DispatchLogEntry | null>(null);
+  const [dispatchLogDetailOpen, setDispatchLogDetailOpen] = useState(false);
   const [systemConfig, setSystemConfig] = useState<SystemConfig | null>(null);
   const [abilityForm, setAbilityForm] = useState<AbilityFormState>(defaultAbilityForm);
   const [abilityDialogOpen, setAbilityDialogOpen] = useState(false);
@@ -937,6 +940,8 @@ export function IntegrationDashboard({
   const [activeAbilityDetailTab, setActiveAbilityDetailTab] = useState<AbilityDetailTab>('overview');
   const [abilityLogDetail, setAbilityLogDetail] = useState<AbilityInvocationLog | null>(null);
   const [abilityLogDetailOpen, setAbilityLogDetailOpen] = useState(false);
+  const [abilityLogResolveLoading, setAbilityLogResolveLoading] = useState(false);
+  const [abilityLogResolveError, setAbilityLogResolveError] = useState<string | null>(null);
   const [globalAbilityLogProvider, setGlobalAbilityLogProvider] = useState<string>('all');
   const [globalAbilityLogSource, setGlobalAbilityLogSource] = useState<string>('all');
   const [globalAbilityLogStatus, setGlobalAbilityLogStatus] = useState<string>('all');
@@ -979,9 +984,17 @@ export function IntegrationDashboard({
   const [abilityLogs, setAbilityLogs] = useState<AbilityInvocationLog[]>([]);
   const [abilityLogsLoading, setAbilityLogsLoading] = useState(false);
   const [abilityLogsError, setAbilityLogsError] = useState<string | null>(null);
+  const [abilityLogTotal, setAbilityLogTotal] = useState<number | null>(null);
+  const [abilityLogsAutoRefresh, setAbilityLogsAutoRefresh] = useState(true);
+  const [abilityLogsUpdatedAt, setAbilityLogsUpdatedAt] = useState<string | null>(null);
   const [globalAbilityLogs, setGlobalAbilityLogs] = useState<AbilityInvocationLog[]>([]);
   const [globalAbilityLogsLoading, setGlobalAbilityLogsLoading] = useState(false);
   const [globalAbilityLogsError, setGlobalAbilityLogsError] = useState<string | null>(null);
+  const [globalAbilityLogTotal, setGlobalAbilityLogTotal] = useState<number | null>(null);
+  const [globalAbilityLogsAutoRefresh, setGlobalAbilityLogsAutoRefresh] = useState(true);
+  const [globalAbilityLogsUpdatedAt, setGlobalAbilityLogsUpdatedAt] = useState<string | null>(null);
+  const abilityLogsCountRef = useRef(0);
+  const globalAbilityLogsCountRef = useRef(0);
   const [abilityLogMetrics, setAbilityLogMetrics] = useState<AbilityLogMetricsResponse | null>(null);
   const [abilityLogMetricsLoading, setAbilityLogMetricsLoading] = useState(false);
   const [abilityLogMetricsError, setAbilityLogMetricsError] = useState<string | null>(null);
@@ -1292,6 +1305,18 @@ export function IntegrationDashboard({
     globalAbilityLogStatus,
     globalAbilityLogSearch,
   ]);
+  const abilityLogsHasMore = useMemo(() => {
+    if (abilityLogTotal !== null) {
+      return abilityLogs.length < abilityLogTotal;
+    }
+    return abilityLogs.length >= abilityLogPageSize;
+  }, [abilityLogTotal, abilityLogs.length]);
+  const globalAbilityLogsHasMore = useMemo(() => {
+    if (globalAbilityLogTotal !== null) {
+      return globalAbilityLogs.length < globalAbilityLogTotal;
+    }
+    return globalAbilityLogs.length >= globalAbilityLogPageSize;
+  }, [globalAbilityLogTotal, globalAbilityLogs.length]);
   const abilitySchemaFields = useMemo(
     () => parseAbilitySchemaFields(selectedAbility?.input_schema),
     [selectedAbility],
@@ -1828,10 +1853,12 @@ export function IntegrationDashboard({
       console.error('copy text failed', error);
     }
   };
-  const refreshAbilityLogs = useCallback(async (options?: { silent?: boolean }) => {
+  const refreshAbilityLogs = useCallback(
+    async (options?: { silent?: boolean; keepSize?: boolean }) => {
     if (!selectedAbility?.id) {
       setAbilityLogs([]);
       setAbilityLogsError(null);
+      setAbilityLogTotal(null);
       return;
     }
     const silent = options?.silent;
@@ -1839,8 +1866,14 @@ export function IntegrationDashboard({
       setAbilityLogsLoading(true);
     }
     try {
-      const response = await adminApi.listAbilityLogs(selectedAbility.id, abilityLogLimit);
-      setAbilityLogs(response.items);
+      const keepSize = Boolean(options?.keepSize);
+      const currentSize = abilityLogsCountRef.current;
+      const limit = keepSize ? Math.max(abilityLogPageSize, currentSize) : abilityLogPageSize;
+      const response = await adminApi.listAbilityLogs(selectedAbility.id, { limit, offset: 0 });
+      const items = response.items || [];
+      setAbilityLogs(items);
+      setAbilityLogTotal(typeof response.total === 'number' ? response.total : items.length);
+      setAbilityLogsUpdatedAt(new Date().toISOString());
       setAbilityLogsError(null);
     } catch (error) {
       console.error('load ability logs failed', error);
@@ -1850,20 +1883,50 @@ export function IntegrationDashboard({
         setAbilityLogsLoading(false);
       }
     }
-  }, [selectedAbility?.id]);
+    },
+    [selectedAbility?.id],
+  );
+
+  const loadMoreAbilityLogs = useCallback(async () => {
+    if (!selectedAbility?.id) return;
+    setAbilityLogsLoading(true);
+    try {
+      const offset = abilityLogs.length;
+      const response = await adminApi.listAbilityLogs(selectedAbility.id, { limit: abilityLogPageSize, offset });
+      const items = response.items || [];
+      setAbilityLogs((prev) => prev.concat(items));
+      setAbilityLogTotal(
+        typeof response.total === 'number' ? response.total : offset + items.length,
+      );
+      setAbilityLogsUpdatedAt(new Date().toISOString());
+      setAbilityLogsError(null);
+    } catch (error) {
+      console.error('load more ability logs failed', error);
+      setAbilityLogsError(error instanceof Error ? error.message : '加载更多调用记录失败');
+    } finally {
+      setAbilityLogsLoading(false);
+    }
+  }, [selectedAbility?.id, abilityLogs.length]);
 
   useEffect(() => {
     void refreshAbilityLogs();
   }, [refreshAbilityLogs]);
 
-  const refreshGlobalAbilityLogs = useCallback(async (options?: { silent?: boolean }) => {
+  const refreshGlobalAbilityLogs = useCallback(
+    async (options?: { silent?: boolean; keepSize?: boolean }) => {
     const silent = options?.silent;
     if (!silent) {
       setGlobalAbilityLogsLoading(true);
     }
     try {
-      const response = await adminApi.listAllAbilityLogs({ limit: 30 });
-      setGlobalAbilityLogs(response.items);
+      const keepSize = Boolean(options?.keepSize);
+      const currentSize = globalAbilityLogsCountRef.current;
+      const limit = keepSize ? Math.max(globalAbilityLogPageSize, currentSize) : globalAbilityLogPageSize;
+      const response = await adminApi.listAllAbilityLogs({ limit, offset: 0 });
+      const items = response.items || [];
+      setGlobalAbilityLogs(items);
+      setGlobalAbilityLogTotal(typeof response.total === 'number' ? response.total : items.length);
+      setGlobalAbilityLogsUpdatedAt(new Date().toISOString());
       setGlobalAbilityLogsError(null);
     } catch (error) {
       console.error('load global ability logs failed', error);
@@ -1873,27 +1936,74 @@ export function IntegrationDashboard({
         setGlobalAbilityLogsLoading(false);
       }
     }
-  }, []);
+    },
+    [],
+  );
+
+  const loadMoreGlobalAbilityLogs = useCallback(async () => {
+    setGlobalAbilityLogsLoading(true);
+    try {
+      const offset = globalAbilityLogs.length;
+      const response = await adminApi.listAllAbilityLogs({ limit: globalAbilityLogPageSize, offset });
+      const items = response.items || [];
+      setGlobalAbilityLogs((prev) => prev.concat(items));
+      setGlobalAbilityLogTotal(
+        typeof response.total === 'number' ? response.total : offset + items.length,
+      );
+      setGlobalAbilityLogsUpdatedAt(new Date().toISOString());
+      setGlobalAbilityLogsError(null);
+    } catch (error) {
+      console.error('load more global ability logs failed', error);
+      setGlobalAbilityLogsError(error instanceof Error ? error.message : '加载更多调用清单失败');
+    } finally {
+      setGlobalAbilityLogsLoading(false);
+    }
+  }, [globalAbilityLogs.length]);
+
+  const resolveAbilityLog = useCallback(async () => {
+    if (!abilityLogDetail) return;
+    setAbilityLogResolveLoading(true);
+    setAbilityLogResolveError(null);
+    try {
+      const updated = await adminApi.resolveAbilityLog(abilityLogDetail.id);
+      setAbilityLogDetail(updated);
+      await refreshAbilityLogs({ silent: true, keepSize: true });
+      await refreshGlobalAbilityLogs({ silent: true, keepSize: true });
+    } catch (error: any) {
+      console.error('resolve ability log failed', error);
+      setAbilityLogResolveError(error?.message || '回调解析失败');
+    } finally {
+      setAbilityLogResolveLoading(false);
+    }
+  }, [abilityLogDetail, refreshAbilityLogs, refreshGlobalAbilityLogs]);
 
   useEffect(() => {
     void refreshGlobalAbilityLogs();
   }, [refreshGlobalAbilityLogs]);
 
   useEffect(() => {
-    if (!selectedAbility?.id) return;
-    const interval = window.setInterval(() => {
-      void refreshAbilityLogs({ silent: true });
-    }, 10000);
-    return () => window.clearInterval(interval);
-  }, [selectedAbility?.id, refreshAbilityLogs]);
+    abilityLogsCountRef.current = abilityLogs.length;
+  }, [abilityLogs.length]);
 
   useEffect(() => {
-    if (activeNav !== 'ability-logs') return;
+    globalAbilityLogsCountRef.current = globalAbilityLogs.length;
+  }, [globalAbilityLogs.length]);
+
+  useEffect(() => {
+    if (!selectedAbility?.id || !abilityLogsAutoRefresh) return;
     const interval = window.setInterval(() => {
-      void refreshGlobalAbilityLogs({ silent: true });
+      void refreshAbilityLogs({ silent: true, keepSize: true });
+    }, 10000);
+    return () => window.clearInterval(interval);
+  }, [selectedAbility?.id, abilityLogsAutoRefresh, refreshAbilityLogs]);
+
+  useEffect(() => {
+    if (activeNav !== 'ability-logs' || !globalAbilityLogsAutoRefresh) return;
+    const interval = window.setInterval(() => {
+      void refreshGlobalAbilityLogs({ silent: true, keepSize: true });
     }, 12000);
     return () => window.clearInterval(interval);
-  }, [activeNav, refreshGlobalAbilityLogs]);
+  }, [activeNav, globalAbilityLogsAutoRefresh, refreshGlobalAbilityLogs]);
 
   const refreshPublicAbilities = useCallback(async () => {
     setPublicAbilitiesLoading(true);
@@ -3515,12 +3625,24 @@ const normalizeErrorMessage = (message: string): string => {
             <div>
               <Typography.Text strong>最近调用记录</Typography.Text>
               <div>
-                <Typography.Text theme="secondary">展示最近 {abilityLogLimit} 条测试/任务调用，便于排查链路</Typography.Text>
+                <Typography.Text theme="secondary">
+                  已加载 {abilityLogs.length}
+                  {typeof abilityLogTotal === 'number' ? ` / ${abilityLogTotal}` : ''} 条 · 自动刷新仅更新最近一页
+                </Typography.Text>
               </div>
             </div>
-            <Button variant="outline" loading={abilityLogsLoading} onClick={() => refreshAbilityLogs()}>
-              刷新
-            </Button>
+            <Space>
+              <Space align="center" size="small">
+                <Typography.Text theme="secondary">自动刷新</Typography.Text>
+                <Switch value={abilityLogsAutoRefresh} onChange={(v) => setAbilityLogsAutoRefresh(Boolean(v))} />
+              </Space>
+              {abilityLogsUpdatedAt ? (
+                <Typography.Text theme="secondary">更新：{formatDateTime(abilityLogsUpdatedAt)}</Typography.Text>
+              ) : null}
+              <Button variant="outline" loading={abilityLogsLoading} onClick={() => refreshAbilityLogs()}>
+                刷新
+              </Button>
+            </Space>
           </Space>
         }
       >
@@ -3573,6 +3695,35 @@ const normalizeErrorMessage = (message: string): string => {
                 ),
               },
               {
+                colKey: 'callback',
+                title: '回调',
+                width: 160,
+                cell: ({ row }) => {
+                  if (!row.callback_status && !row.callback_http_status && !row.callback_finished_at) {
+                    return <Typography.Text theme="secondary">—</Typography.Text>;
+                  }
+                  return (
+                    <Space direction="vertical" size={2}>
+                      {row.callback_status ? (
+                        <Tag theme={getAbilityLogStatusTag(row.callback_status).theme} variant="light">
+                          {getAbilityLogStatusTag(row.callback_status).text}
+                        </Tag>
+                      ) : null}
+                      {typeof row.callback_http_status === 'number' ? (
+                        <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                          HTTP {row.callback_http_status}
+                        </Typography.Text>
+                      ) : null}
+                      {row.callback_finished_at ? (
+                        <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                          {formatDateTime(row.callback_finished_at)}
+                        </Typography.Text>
+                      ) : null}
+                    </Space>
+                  );
+                },
+              },
+              {
                 colKey: 'result',
                 title: '结果',
                 minWidth: 240,
@@ -3606,6 +3757,7 @@ const normalizeErrorMessage = (message: string): string => {
                         variant="text"
                         onClick={() => {
                           setAbilityLogDetail(row);
+                          setAbilityLogResolveError(null);
                           setAbilityLogDetailOpen(true);
                         }}
                       >
@@ -3619,6 +3771,18 @@ const normalizeErrorMessage = (message: string): string => {
               },
             ]}
           />
+          <div className="flex items-center justify-between">
+            <Typography.Text theme="secondary">
+              {abilityLogsUpdatedAt ? `最近刷新：${formatDateTime(abilityLogsUpdatedAt)}` : '尚未刷新'}
+            </Typography.Text>
+            {abilityLogsHasMore ? (
+              <Button variant="outline" loading={abilityLogsLoading} onClick={() => loadMoreAbilityLogs()}>
+                加载更多
+              </Button>
+            ) : (
+              <Typography.Text theme="secondary">已加载全部</Typography.Text>
+            )}
+          </div>
         </Space>
       </Card>
     );
@@ -3768,7 +3932,7 @@ const normalizeErrorMessage = (message: string): string => {
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <MetricCard label="累计任务" value={dashboardMetrics.totals.total_tasks} sub="历史累计" />
                 <MetricCard label="排队中" value={pendingQueueTotal} sub={pendingQueueSub} />
-                <MetricCard label="执行中/回调中" value={runningQueueTotal} sub={runningQueueSub} />
+                <MetricCard label="执行中（含回调）" value={runningQueueTotal} sub={runningQueueSub} />
                 <MetricCard label="批次待处理" value={pendingBatchValue} sub={pendingBatchSub} />
                 <MetricCard label="失败任务" value={dashboardMetrics.totals.failed_tasks} sub="含错误待复盘" />
                 <MetricCard
@@ -3817,7 +3981,7 @@ const normalizeErrorMessage = (message: string): string => {
                 <Col span={24}>
                   <Card title="队列总览" bordered>
                     <Typography.Text theme="secondary">
-                      排队=created/pending/queued；执行=running。批次任务显示“待处理批次 / 剩余任务数”。
+                      排队=created/pending/queued；执行=running（含回调中）。批次任务显示“待处理批次 / 剩余任务数”。
                     </Typography.Text>
                     <div style={{ marginTop: 12 }}>
                       <Table
@@ -4701,10 +4865,20 @@ const normalizeErrorMessage = (message: string): string => {
               <div>
                 <Typography.Text strong>能力调用清单</Typography.Text>
                 <div>
-                  <Typography.Text theme="secondary">默认加载最近 30 条 · 支持导出最近 24h</Typography.Text>
+                  <Typography.Text theme="secondary">
+                    已加载 {globalAbilityLogs.length}
+                    {typeof globalAbilityLogTotal === 'number' ? ` / ${globalAbilityLogTotal}` : ''} 条 · 支持导出最近 24h
+                  </Typography.Text>
                 </div>
               </div>
               <Space>
+                <Space align="center" size="small">
+                  <Typography.Text theme="secondary">自动刷新</Typography.Text>
+                  <Switch value={globalAbilityLogsAutoRefresh} onChange={(v) => setGlobalAbilityLogsAutoRefresh(Boolean(v))} />
+                </Space>
+                {globalAbilityLogsUpdatedAt ? (
+                  <Typography.Text theme="secondary">更新：{formatDateTime(globalAbilityLogsUpdatedAt)}</Typography.Text>
+                ) : null}
                 <Button variant="outline" loading={globalAbilityLogsLoading} onClick={() => refreshGlobalAbilityLogs()}>
                   刷新
                 </Button>
@@ -4922,6 +5096,35 @@ const normalizeErrorMessage = (message: string): string => {
                   ),
                 },
                 {
+                  colKey: 'callback',
+                  title: '回调',
+                  width: 160,
+                  cell: ({ row }) => {
+                    if (!row.callback_status && !row.callback_http_status && !row.callback_finished_at) {
+                      return <Typography.Text theme="secondary">—</Typography.Text>;
+                    }
+                    return (
+                      <Space direction="vertical" size={2}>
+                        {row.callback_status ? (
+                          <Tag theme={getAbilityLogStatusTag(row.callback_status).theme} variant="light">
+                            {getAbilityLogStatusTag(row.callback_status).text}
+                          </Tag>
+                        ) : null}
+                        {typeof row.callback_http_status === 'number' ? (
+                          <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                            HTTP {row.callback_http_status}
+                          </Typography.Text>
+                        ) : null}
+                        {row.callback_finished_at ? (
+                          <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                            {formatDateTime(row.callback_finished_at)}
+                          </Typography.Text>
+                        ) : null}
+                      </Space>
+                    );
+                  },
+                },
+                {
                   colKey: 'cost',
                   title: '成本',
                   width: 140,
@@ -4977,6 +5180,7 @@ const normalizeErrorMessage = (message: string): string => {
                           variant="text"
                           onClick={() => {
                             setAbilityLogDetail(row);
+                            setAbilityLogResolveError(null);
                             setAbilityLogDetailOpen(true);
                           }}
                         >
@@ -4990,6 +5194,18 @@ const normalizeErrorMessage = (message: string): string => {
                 },
               ]}
             />
+            <div className="flex items-center justify-between">
+              <Typography.Text theme="secondary">
+                {globalAbilityLogsUpdatedAt ? `最近刷新：${formatDateTime(globalAbilityLogsUpdatedAt)}` : '尚未刷新'}
+              </Typography.Text>
+              {globalAbilityLogsHasMore ? (
+                <Button variant="outline" loading={globalAbilityLogsLoading} onClick={() => loadMoreGlobalAbilityLogs()}>
+                  加载更多
+                </Button>
+              ) : (
+                <Typography.Text theme="secondary">已加载全部</Typography.Text>
+              )}
+            </div>
           </Space>
         </Card>
       </Section>
@@ -6469,6 +6685,7 @@ const normalizeErrorMessage = (message: string): string => {
             <h3 className="text-white text-lg font-semibold">调度事件</h3>
             <span className="text-xs text-slate-500">最新 25 条</span>
           </div>
+          <div className="mt-2 text-xs text-slate-500">回执=调度事件 payload，点击“查看”可查看完整内容。</div>
           <div className="mt-3 overflow-x-auto">
             <table>
               <thead>
@@ -6476,8 +6693,9 @@ const normalizeErrorMessage = (message: string): string => {
                   <th>ID</th>
                   <th>任务</th>
                   <th>类型</th>
-                  <th>负载摘要</th>
+                  <th>回执摘要</th>
                   <th>时间</th>
+                  <th>详情</th>
                 </tr>
               </thead>
               <tbody>
@@ -6493,11 +6711,23 @@ const normalizeErrorMessage = (message: string): string => {
                     </td>
                     <td className="text-xs text-slate-400">{previewPayload(log.payload)}</td>
                     <td className="text-xs text-slate-400">{formatDate(log.created_at)}</td>
+                    <td>
+                      <Button
+                        size="small"
+                        variant="text"
+                        onClick={() => {
+                          setDispatchLogDetail(log);
+                          setDispatchLogDetailOpen(true);
+                        }}
+                      >
+                        查看
+                      </Button>
+                    </td>
                   </tr>
                 ))}
                 {dispatchLogs.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="text-center text-sm text-slate-500 py-4">
+                    <td colSpan={6} className="text-center text-sm text-slate-500 py-4">
                       暂无日志。
                     </td>
                   </tr>
@@ -6515,8 +6745,16 @@ const normalizeErrorMessage = (message: string): string => {
         width={860}
         confirmBtn={null}
         cancelBtn="关闭"
-        onClose={() => setAbilityLogDetailOpen(false)}
-        onCancel={() => setAbilityLogDetailOpen(false)}
+        onClose={() => {
+          setAbilityLogDetailOpen(false);
+          setAbilityLogResolveError(null);
+          setAbilityLogResolveLoading(false);
+        }}
+        onCancel={() => {
+          setAbilityLogDetailOpen(false);
+          setAbilityLogResolveError(null);
+          setAbilityLogResolveLoading(false);
+        }}
       >
         {abilityLogDetail ? (
           <Space direction="vertical" size="middle" style={{ width: '100%' }}>
@@ -6560,6 +6798,8 @@ const normalizeErrorMessage = (message: string): string => {
             </Row>
 
             {(() => {
+              const resolveMeta = (abilityLogDetail.response_payload || {}) as Record<string, any>;
+              const resolvePromptId = resolveMeta.promptId || resolveMeta.taskId;
               const previewUrl =
                 abilityLogDetail.stored_url ||
                 (abilityLogDetail.result_assets && abilityLogDetail.result_assets.length > 0
@@ -6567,7 +6807,25 @@ const normalizeErrorMessage = (message: string): string => {
                   : '') ||
                 '';
               const canPreviewImage = Boolean(previewUrl) && /\.(png|jpg|jpeg|webp|gif)(\?|#|$)/i.test(previewUrl);
-              if (!previewUrl) return null;
+              if (!previewUrl) {
+                if ((abilityLogDetail.ability_provider || '').toLowerCase() === 'comfyui' && resolvePromptId) {
+                  return (
+                    <div>
+                      <Typography.Text theme="secondary">结果预览</Typography.Text>
+                      <div style={{ marginTop: 8 }}>
+                        <Space direction="vertical" size="small">
+                          <Typography.Text theme="secondary">当前为提交态结果，尚未解析图片。</Typography.Text>
+                          {abilityLogResolveError ? <Alert theme="error" message={abilityLogResolveError} /> : null}
+                          <Button variant="outline" loading={abilityLogResolveLoading} onClick={resolveAbilityLog}>
+                            拉取回调结果
+                          </Button>
+                        </Space>
+                      </div>
+                    </div>
+                  );
+                }
+                return null;
+              }
               return (
                 <div>
                   <Typography.Text theme="secondary">结果预览</Typography.Text>
@@ -6579,6 +6837,7 @@ const normalizeErrorMessage = (message: string): string => {
                         打开结果链接
                       </Button>
                     )}
+                    {abilityLogResolveError ? <Alert theme="error" message={abilityLogResolveError} /> : null}
                   </div>
                 </div>
               );
@@ -6598,7 +6857,104 @@ const normalizeErrorMessage = (message: string): string => {
               </div>
             ) : null}
 
+            {(() => {
+              const hasCallback =
+                abilityLogDetail.callback_status ||
+                abilityLogDetail.callback_http_status ||
+                abilityLogDetail.callback_started_at ||
+                abilityLogDetail.callback_finished_at ||
+                abilityLogDetail.callback_payload ||
+                abilityLogDetail.callback_response ||
+                abilityLogDetail.callback_error;
+              if (!hasCallback) return null;
+              return (
+                <div>
+                  <Typography.Text theme="secondary">回调记录</Typography.Text>
+                  <Space direction="vertical" size="small" style={{ marginTop: 8, width: '100%' }}>
+                    <Space align="center" size="small">
+                      {abilityLogDetail.callback_status ? (
+                        <Tag theme={getAbilityLogStatusTag(abilityLogDetail.callback_status).theme} variant="light">
+                          {getAbilityLogStatusTag(abilityLogDetail.callback_status).text}
+                        </Tag>
+                      ) : null}
+                      {typeof abilityLogDetail.callback_http_status === 'number' ? (
+                        <Typography.Text theme="secondary">HTTP {abilityLogDetail.callback_http_status}</Typography.Text>
+                      ) : null}
+                      {abilityLogDetail.callback_started_at ? (
+                        <Typography.Text theme="secondary">
+                          开始：{formatDateTime(abilityLogDetail.callback_started_at)}
+                        </Typography.Text>
+                      ) : null}
+                      {abilityLogDetail.callback_finished_at ? (
+                        <Typography.Text theme="secondary">
+                          完成：{formatDateTime(abilityLogDetail.callback_finished_at)}
+                        </Typography.Text>
+                      ) : null}
+                    </Space>
+                    {abilityLogDetail.callback_payload ? (
+                      <div>
+                        <Typography.Text theme="secondary">Callback Request</Typography.Text>
+                        <CodeBlock value={formatRawResponse(abilityLogDetail.callback_payload)} maxHeight={240} />
+                      </div>
+                    ) : null}
+                    {abilityLogDetail.callback_response ? (
+                      <div>
+                        <Typography.Text theme="secondary">Callback Response</Typography.Text>
+                        <CodeBlock value={formatRawResponse(abilityLogDetail.callback_response)} maxHeight={240} />
+                      </div>
+                    ) : null}
+                    {abilityLogDetail.callback_error ? (
+                      <Alert theme="error" message={abilityLogDetail.callback_error} />
+                    ) : null}
+                  </Space>
+                </div>
+              );
+            })()}
+
             {abilityLogDetail.error_message ? <Alert theme="error" message={abilityLogDetail.error_message} /> : null}
+          </Space>
+        ) : null}
+      </Dialog>
+
+      <Dialog
+        header={dispatchLogDetail ? `调度回执详情 #${dispatchLogDetail.id}` : '调度回执详情'}
+        visible={dispatchLogDetailOpen}
+        width={820}
+        confirmBtn={null}
+        cancelBtn="关闭"
+        onClose={() => setDispatchLogDetailOpen(false)}
+        onCancel={() => setDispatchLogDetailOpen(false)}
+      >
+        {dispatchLogDetail ? (
+          <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+            <Row gutter={[12, 12]}>
+              <Col span={12}>
+                <Typography.Text theme="secondary">任务</Typography.Text>
+                <div>
+                  <Typography.Text strong>{dispatchLogDetail.tool_action || '—'}</Typography.Text>
+                </div>
+                <Typography.Text theme="secondary">{dispatchLogDetail.task_id || '—'}</Typography.Text>
+              </Col>
+              <Col span={12}>
+                <Typography.Text theme="secondary">事件类型</Typography.Text>
+                <div>
+                  <StatusPill status={dispatchLogDetail.event_type} />
+                </div>
+                <Typography.Text theme="secondary">{formatDate(dispatchLogDetail.created_at)}</Typography.Text>
+              </Col>
+              <Col span={12}>
+                <Typography.Text theme="secondary">任务状态</Typography.Text>
+                <div>{renderStatusTag(dispatchLogDetail.task_status)}</div>
+              </Col>
+            </Row>
+            {dispatchLogDetail.payload ? (
+              <div>
+                <Typography.Text theme="secondary">回执内容</Typography.Text>
+                <CodeBlock value={formatRawResponse(dispatchLogDetail.payload)} maxHeight={320} />
+              </div>
+            ) : (
+              <Typography.Text theme="secondary">无回执内容</Typography.Text>
+            )}
           </Space>
         ) : null}
       </Dialog>
