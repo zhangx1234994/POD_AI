@@ -1288,96 +1288,96 @@ export function App() {
                 </div>
 
                 {group.items.map((wf) => {
-              const params = Array.isArray(wf.parameters) ? wf.parameters : [];
-              const outputs = Array.isArray(wf.outputs) ? wf.outputs : [];
-              const errors = Array.isArray(wf.errors) ? wf.errors : [];
-              const requestBody =
-                wf.request?.body ?? {
-                  workflow_id: wf.workflow_id,
-                  parameters: {},
-                };
-              const requestJson = JSON.stringify(requestBody, null, 2);
-              const requestPath = wf.request?.path || '/v1/workflow/run';
-              const requestMethod = wf.request?.method || 'POST';
-              const missingParams = params.length === 0;
-              const missingOutputs = outputs.length === 0;
-              const missingSchemaLabels = [
-                missingParams ? 'parameters_schema' : null,
-                missingOutputs ? 'output_schema' : null,
-              ].filter(Boolean);
+                  const params = Array.isArray(wf.parameters) ? wf.parameters : [];
+                  const outputs = Array.isArray(wf.outputs) ? wf.outputs : [];
+                  const errors = Array.isArray(wf.errors) ? wf.errors : [];
+                  const requestBody =
+                    wf.request?.body ?? {
+                      workflow_id: wf.workflow_id,
+                      parameters: {},
+                    };
+                  const requestJson = JSON.stringify(requestBody, null, 2);
+                  const requestPath = wf.request?.path || '/v1/workflow/run';
+                  const requestMethod = wf.request?.method || 'POST';
+                  const missingParams = params.length === 0;
+                  const missingOutputs = outputs.length === 0;
+                  const missingSchemaLabels = [
+                    missingParams ? 'parameters_schema' : null,
+                    missingOutputs ? 'output_schema' : null,
+                  ].filter(Boolean);
 
                   return (
                     <Card key={wf.workflow_id} bordered>
-                  <Space direction="vertical" size="medium" style={{ width: '100%' }}>
-                    <Space align="center" style={{ flexWrap: 'wrap' }}>
-                      <Typography.Title level="h4" style={{ margin: 0 }}>
-                        {wf.name}
-                      </Typography.Title>
-                      <Tag variant="light">输出类型: {wf.output_kind || 'image_url'}</Tag>
-                    </Space>
-                    <Typography.Text theme="secondary">workflow_id: {wf.workflow_id}</Typography.Text>
-                    {wf.notes ? <Typography.Text>备注：{wf.notes}</Typography.Text> : null}
-                    {missingSchemaLabels.length > 0 ? (
-                      <Alert
-                        theme="warning"
-                        message={`Schema 缺失：${missingSchemaLabels.join(' / ')}。请在评测管理端补齐，避免文档与表单不完整。`}
-                      />
-                    ) : null}
+                      <Space direction="vertical" size="medium" style={{ width: '100%' }}>
+                        <Space align="center" style={{ flexWrap: 'wrap' }}>
+                          <Typography.Title level="h4" style={{ margin: 0 }}>
+                            {wf.name}
+                          </Typography.Title>
+                          <Tag variant="light">输出类型: {wf.output_kind || 'image_url'}</Tag>
+                        </Space>
+                        <Typography.Text theme="secondary">workflow_id: {wf.workflow_id}</Typography.Text>
+                        {wf.notes ? <Typography.Text>备注：{wf.notes}</Typography.Text> : null}
+                        {missingSchemaLabels.length > 0 ? (
+                          <Alert
+                            theme="warning"
+                            message={`Schema 缺失：${missingSchemaLabels.join(' / ')}。请在评测管理端补齐，避免文档与表单不完整。`}
+                          />
+                        ) : null}
 
-                    <Space direction="vertical" size={4}>
-                      <Typography.Text strong>调用方式</Typography.Text>
-                      <Typography.Text theme="secondary">
-                        {requestMethod} {requestPath}
-                      </Typography.Text>
-                      <pre
-                        style={{
-                          border: '1px solid var(--td-border-level-1-color)',
-                          background: 'var(--td-bg-color-secondarycontainer)',
-                          borderRadius: 8,
-                          padding: 12,
-                          fontFamily: 'monospace',
-                          fontSize: 12,
-                          whiteSpace: 'pre-wrap',
-                          margin: 0,
-                        }}
-                      >
-                        {requestJson}
-                      </pre>
-                    </Space>
+                        <Space direction="vertical" size={4}>
+                          <Typography.Text strong>调用方式</Typography.Text>
+                          <Typography.Text theme="secondary">
+                            {requestMethod} {requestPath}
+                          </Typography.Text>
+                          <pre
+                            style={{
+                              border: '1px solid var(--td-border-level-1-color)',
+                              background: 'var(--td-bg-color-secondarycontainer)',
+                              borderRadius: 8,
+                              padding: 12,
+                              fontFamily: 'monospace',
+                              fontSize: 12,
+                              whiteSpace: 'pre-wrap',
+                              margin: 0,
+                            }}
+                          >
+                            {requestJson}
+                          </pre>
+                        </Space>
 
-                    <Space direction="vertical" size={4}>
-                      <Typography.Text strong>入参 parameters</Typography.Text>
-                      {params.length > 0 ? (
-                        <Table rowKey="name" data={params} columns={paramColumns} size="small" bordered />
-                      ) : (
-                        <Typography.Text theme="secondary">无参数</Typography.Text>
-                      )}
-                    </Space>
+                        <Space direction="vertical" size={4}>
+                          <Typography.Text strong>入参 parameters</Typography.Text>
+                          {params.length > 0 ? (
+                            <Table rowKey="name" data={params} columns={paramColumns} size="small" bordered />
+                          ) : (
+                            <Typography.Text theme="secondary">无参数</Typography.Text>
+                          )}
+                        </Space>
 
-                    <Space direction="vertical" size={4}>
-                      <Typography.Text strong>出参 data</Typography.Text>
-                      {outputs.length > 0 ? (
-                        <Table rowKey="name" data={outputs} columns={outputColumns} size="small" bordered />
-                      ) : (
-                        <Typography.Text theme="secondary">默认关注 data.output（图片 URL 或回调 task id）</Typography.Text>
-                      )}
-                    </Space>
+                        <Space direction="vertical" size={4}>
+                          <Typography.Text strong>出参 data</Typography.Text>
+                          {outputs.length > 0 ? (
+                            <Table rowKey="name" data={outputs} columns={outputColumns} size="small" bordered />
+                          ) : (
+                            <Typography.Text theme="secondary">默认关注 data.output（图片 URL 或回调 task id）</Typography.Text>
+                          )}
+                        </Space>
 
-                    <Space direction="vertical" size={4}>
-                      <Typography.Text strong>错误码</Typography.Text>
-                      {errors.length > 0 ? (
-                        <ul style={{ margin: 0, paddingLeft: 20 }}>
-                          {errors.map((item, idx) => (
-                            <li key={`${wf.workflow_id}-err-${idx}`}>
-                              <Typography.Text theme="secondary">{item}</Typography.Text>
-                            </li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <Typography.Text theme="secondary">详见“Markdown”视图中的错误码总表。</Typography.Text>
-                      )}
-                    </Space>
-                  </Space>
+                        <Space direction="vertical" size={4}>
+                          <Typography.Text strong>错误码</Typography.Text>
+                          {errors.length > 0 ? (
+                            <ul style={{ margin: 0, paddingLeft: 20 }}>
+                              {errors.map((item, idx) => (
+                                <li key={`${wf.workflow_id}-err-${idx}`}>
+                                  <Typography.Text theme="secondary">{item}</Typography.Text>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <Typography.Text theme="secondary">详见“Markdown”视图中的错误码总表。</Typography.Text>
+                          )}
+                        </Space>
+                      </Space>
                     </Card>
                   );
                 })}
