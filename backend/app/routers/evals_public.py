@@ -29,7 +29,7 @@ from app.schemas.eval import (
     EvalRunResponse,
     EvalWorkflowVersionResponse,
 )
-from app.services.eval_seed import ensure_default_eval_workflow_versions
+from app.services.eval_seed import FISSION_WORKFLOW_IDS, ensure_default_eval_workflow_versions
 from app.services.eval_service import get_eval_service
 from app.services.oss import oss_service
 
@@ -195,6 +195,13 @@ def get_workflow_docs(
                 }
             )
         return normalized
+
+    def _filter_doc_fields(wf: EvalWorkflowVersion, fields: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        is_fission = wf.category == "图裂变" or str(wf.workflow_id) in FISSION_WORKFLOW_IDS
+        if is_fission:
+            internal_keys = {"count", "generateCount", "variantCount", "n"}
+            return [f for f in fields if str(f.get("name") or "") not in internal_keys]
+        return fields
 
     def _example_parameters(fields: list[dict[str, Any]]) -> dict[str, str]:
         example: dict[str, str] = {}
@@ -376,7 +383,7 @@ def get_workflow_docs(
     grouped: dict[str, list[EvalWorkflowVersion]] = {}
 
     for wf in rows:
-        parameters = _normalize_fields(wf.parameters_schema or {})
+        parameters = _filter_doc_fields(wf, _normalize_fields(wf.parameters_schema or {}))
         outputs = _normalize_fields(wf.output_schema or {})
         output_kind = _infer_output_kind(wf)
         workflows.append(
@@ -425,7 +432,9 @@ def get_workflow_docs(
             lines.append("#### 调用方法")
             lines.append("")
             lines.append("```json")
-            example_params = _example_parameters(_normalize_fields(wf.parameters_schema or {}))
+            example_params = _example_parameters(
+                _filter_doc_fields(wf, _normalize_fields(wf.parameters_schema or {}))
+            )
             lines.append(
                 json.dumps(
                     {"workflow_id": wf.workflow_id, "parameters": example_params},
@@ -437,8 +446,13 @@ def get_workflow_docs(
             lines.append("")
             lines.append("#### 入参 parameters")
             lines.append("")
-            fields = _normalize_fields(wf.parameters_schema or {})
+            fields = _filter_doc_fields(wf, _normalize_fields(wf.parameters_schema or {}))
             lines.extend(_render_schema_table(fields, empty_hint="_无 schema（请在后台补齐 parameters_schema 以生成动态表单）。_"))
+            if wf.category == "图裂变" or str(wf.workflow_id) in FISSION_WORKFLOW_IDS:
+                lines.append(
+                    "> 说明：`count` 为评测平台内部“裂变数量”控制参数，不属于 Coze workflow 入参，调用 Coze OpenAPI 请勿传递。"
+                )
+                lines.append("")
 
             lines.append("#### 出参 data")
             lines.append("")

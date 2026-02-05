@@ -19,6 +19,7 @@ from app.constants.abilities import BAIDU_IMAGE_ABILITIES
 from app.core.db import get_session
 from app.models.integration import ApiKey, Executor, Workflow
 from app.services.api_key_selector import bump_usage, mark_cooldown, pick_executor_api_key, pick_provider_api_key
+from app.services.comfyui_graph import normalize_comfyui_prompt_graph
 from app.services.executors import ExecutionContext, registry
 from app.services.media_ingest import media_ingest_service
 from app.services.oss import oss_service
@@ -67,12 +68,7 @@ class IntegrationTestService:
 
     @staticmethod
     def _normalize_comfyui_graph(definition: dict[str, Any] | None) -> dict[str, Any]:
-        if not definition:
-            return {}
-        graph = definition.get("graph")
-        if isinstance(graph, dict):
-            return graph
-        return definition
+        return normalize_comfyui_prompt_graph(definition)
 
     def _get_comfyui_workflow_graph(self, workflow_key: str) -> dict[str, Any]:
         record = self._find_comfyui_workflow(workflow_key)
@@ -1086,7 +1082,7 @@ class IntegrationTestService:
                 result["outputNodeIds"] = [str(x) for x in raw_ids if str(x).strip()]
         return result
 
-    def get_comfyui_model_catalog(self, *, executor_id: str) -> dict[str, Any]:
+    def get_comfyui_model_catalog(self, *, executor_id: str, include_nodes: bool = False) -> dict[str, Any]:
         executor = self._get_executor(executor_id)
         if (executor.type or "").lower() != "comfyui":
             raise HTTPException(status_code=400, detail="EXECUTOR_TYPE_NOT_COMFYUI")
@@ -1115,11 +1111,16 @@ class IntegrationTestService:
             "vae": self._extract_comfy_choices(data, "VAELoader", "vae_name"),
             "lora": self._extract_comfy_choices(data, "LoraLoaderModelOnly", "lora_name"),
         }
-        return {
+        result: dict[str, Any] = {
             "executorId": executor.id,
             "baseUrl": base_url,
             "models": catalog,
         }
+        if include_nodes:
+            node_keys = [str(key) for key in data.keys() if isinstance(key, str)]
+            result["nodeKeys"] = sorted(node_keys)
+            result["nodeCount"] = len(node_keys)
+        return result
 
     def get_comfyui_queue_status(self, *, executor_id: str) -> dict[str, Any]:
         executor = self._get_executor(executor_id)

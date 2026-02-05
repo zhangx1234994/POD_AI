@@ -71,6 +71,7 @@ export interface Ability {
   provider: string;
   category: string;
   capability_key: string;
+  version?: string | null;
   display_name: string;
   description?: string | null;
   status: string;
@@ -99,6 +100,7 @@ export interface PublicAbility {
   provider: string;
   category: string;
   capabilityKey: string;
+  version?: string | null;
   displayName: string;
   description?: string | null;
   status: string;
@@ -176,12 +178,87 @@ export interface ComfyuiQueueStatus {
   raw?: JsonRecord | null;
 }
 
+export interface ComfyuiModelCatalogResponse {
+  executorId: string;
+  baseUrl: string;
+  models: Record<string, string[]>;
+  nodeKeys?: string[] | null;
+  nodeCount?: number | null;
+}
+
 export interface ComfyuiQueueSummary {
   totalRunning: number;
   totalPending: number;
   totalCount: number;
   timestamp?: string | null;
   servers: ComfyuiQueueStatus[];
+}
+
+export interface ComfyuiLora {
+  id: number;
+  file_name: string;
+  display_name: string;
+  description?: string | null;
+  base_model?: string | null;
+  base_models?: string[] | null;
+  tags?: string[] | null;
+  trigger_words?: string[] | null;
+  status: string;
+  created_at?: string;
+  updated_at?: string;
+  installed?: boolean | null;
+}
+
+export interface ComfyuiLoraCatalogResponse {
+  executorId?: string | null;
+  baseUrl?: string | null;
+  installedFiles?: string[] | null;
+  untrackedFiles?: string[] | null;
+  items: ComfyuiLora[];
+}
+
+export interface ComfyuiModelCatalogItem {
+  id: number;
+  file_name: string;
+  display_name: string;
+  model_type: string;
+  description?: string | null;
+  source_url?: string | null;
+  download_url?: string | null;
+  tags?: string[] | null;
+  status: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ComfyuiModelCatalogResponse {
+  items: ComfyuiModelCatalogItem[];
+}
+
+export interface ComfyuiPluginCatalogItem {
+  id: number;
+  node_key: string;
+  display_name: string;
+  package_name?: string | null;
+  version?: string | null;
+  description?: string | null;
+  source_url?: string | null;
+  download_url?: string | null;
+  tags?: string[] | null;
+  status: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ComfyuiPluginCatalogResponse {
+  items: ComfyuiPluginCatalogItem[];
+}
+
+export interface ComfyuiServerDiffLog {
+  id: number;
+  baseline_executor_id: string;
+  payload?: JsonRecord | null;
+  created_at: string;
 }
 
 export interface DashboardTotals {

@@ -9,8 +9,15 @@ import type {
   DashboardMetrics,
   DispatchLogResponse,
   Executor,
+  ComfyuiModelCatalogResponse,
+  ComfyuiModelCatalogItem,
+  ComfyuiLora,
+  ComfyuiLoraCatalogResponse,
+  ComfyuiPluginCatalogItem,
+  ComfyuiPluginCatalogResponse,
   ComfyuiQueueStatus,
   ComfyuiQueueSummary,
+  ComfyuiServerDiffLog,
   JsonRecord,
   PublicAbility,
   StoredAsset,
@@ -378,10 +385,68 @@ export const adminApi = {
       COMFYUI_TIMEOUT_MS,
     ),
 
-  getComfyuiModels: (executorId: string) =>
-    request<{ executorId: string; baseUrl: string; models: Record<string, string[]> }>(
-      `/api/admin/comfyui/models?executorId=${encodeURIComponent(executorId)}`,
-    ),
+  getComfyuiModels: (executorId: string, options?: { includeNodes?: boolean }) => {
+    const params = new URLSearchParams();
+    params.set('executorId', executorId);
+    if (options?.includeNodes) params.set('includeNodes', 'true');
+    return request<ComfyuiModelCatalogResponse>(`/api/admin/comfyui/models?${params.toString()}`);
+  },
+  listComfyuiModelCatalog: (options?: { q?: string; type?: string; status?: string }) => {
+    const params = new URLSearchParams();
+    if (options?.q) params.set('q', options.q);
+    if (options?.type) params.set('type', options.type);
+    if (options?.status) params.set('status', options.status);
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    return request<ComfyuiModelCatalogResponse>(`/api/admin/comfyui/model-catalog${suffix}`);
+  },
+  createComfyuiModelCatalog: (payload: Partial<ComfyuiModelCatalogItem>) =>
+    request<ComfyuiModelCatalogItem>('/api/admin/comfyui/model-catalog', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  updateComfyuiModelCatalog: (id: number, payload: Partial<ComfyuiModelCatalogItem>) =>
+    request<ComfyuiModelCatalogItem>(`/api/admin/comfyui/model-catalog/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+  deleteComfyuiModelCatalog: (id: number) =>
+    request<void>(`/api/admin/comfyui/model-catalog/${id}`, { method: 'DELETE' }),
+  listComfyuiPluginCatalog: (options?: { q?: string; status?: string }) => {
+    const params = new URLSearchParams();
+    if (options?.q) params.set('q', options.q);
+    if (options?.status) params.set('status', options.status);
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    return request<ComfyuiPluginCatalogResponse>(`/api/admin/comfyui/plugin-catalog${suffix}`);
+  },
+  createComfyuiPluginCatalog: (payload: Partial<ComfyuiPluginCatalogItem>) =>
+    request<ComfyuiPluginCatalogItem>('/api/admin/comfyui/plugin-catalog', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  updateComfyuiPluginCatalog: (id: number, payload: Partial<ComfyuiPluginCatalogItem>) =>
+    request<ComfyuiPluginCatalogItem>(`/api/admin/comfyui/plugin-catalog/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+  deleteComfyuiPluginCatalog: (id: number) =>
+    request<void>(`/api/admin/comfyui/plugin-catalog/${id}`, { method: 'DELETE' }),
+  listComfyuiLoras: (options?: { executorId?: string; q?: string; status?: string; includeUntracked?: boolean }) => {
+    const params = new URLSearchParams();
+    if (options?.executorId) params.set('executorId', options.executorId);
+    if (options?.q) params.set('q', options.q);
+    if (options?.status) params.set('status', options.status);
+    if (typeof options?.includeUntracked === 'boolean') {
+      params.set('includeUntracked', options.includeUntracked ? 'true' : 'false');
+    }
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    return request<ComfyuiLoraCatalogResponse>(`/api/admin/comfyui/loras${suffix}`);
+  },
+  createComfyuiLora: (payload: Partial<ComfyuiLora>) =>
+    request<ComfyuiLora>('/api/admin/comfyui/loras', { method: 'POST', body: JSON.stringify(payload) }),
+  updateComfyuiLora: (id: number, payload: Partial<ComfyuiLora>) =>
+    request<ComfyuiLora>(`/api/admin/comfyui/loras/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
+  deleteComfyuiLora: (id: number) =>
+    request<void>(`/api/admin/comfyui/loras/${id}`, { method: 'DELETE' }),
   getComfyuiQueueStatus: (executorId: string) =>
     request<ComfyuiQueueStatus>(`/api/admin/comfyui/queue-status?executorId=${encodeURIComponent(executorId)}`),
   getComfyuiQueueSummary: (executorIds?: string[]) => {
@@ -392,6 +457,13 @@ export const adminApi = {
     const suffix = params.toString() ? `?${params.toString()}` : '';
     return request<ComfyuiQueueSummary>(`/api/admin/comfyui/queue-summary${suffix}`);
   },
+  saveComfyuiServerDiff: (payload: { baseline_executor_id: string; payload: JsonRecord }) =>
+    request<ComfyuiServerDiffLog>('/api/admin/comfyui/server-diff', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  listComfyuiServerDiff: (limit = 10) =>
+    request<ComfyuiServerDiffLog[]>(`/api/admin/comfyui/server-diff?limit=${limit}`),
   getComfyuiSystemStats: (executorId: string) =>
     request<{ executorId: string; baseUrl: string; system?: Record<string, unknown> | null; devices?: Record<string, unknown>[] | null; raw?: JsonRecord | null }>(
       `/api/admin/comfyui/system-stats?executorId=${encodeURIComponent(executorId)}`,

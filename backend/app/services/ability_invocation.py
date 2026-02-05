@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import logging
 import random
 import threading
@@ -21,7 +22,7 @@ import httpx
 
 from app.core.config import get_settings
 from app.core.db import get_session
-from app.models.integration import Ability, Executor, WorkflowBinding
+from app.models.integration import Ability, ComfyuiLora, Executor, WorkflowBinding
 from app.models.user import User
 from app.schemas import abilities as schemas
 from app.services.ability_logs import AbilityLogStartParams, ability_log_service
@@ -926,6 +927,7 @@ class AbilityInvocationService:
         if not workflow_key:
             raise HTTPException(status_code=400, detail="COMFYUI_WORKFLOW_KEY_MISSING")
         workflow_params = dict(merged_inputs)
+        self._apply_comfyui_lora_policy(ability, workflow_params)
         if images.image_url and "imageUrl" not in workflow_params:
             workflow_params["imageUrl"] = images.image_url
         if images.image_base64 and "imageBase64" not in workflow_params:
@@ -1627,6 +1629,7 @@ class AbilityInvocationService:
             provider=ability.provider,
             category=ability.category,
             capabilityKey=ability.capability_key,
+            version=ability.version or "v1",
             displayName=ability.display_name,
             description=ability.description,
             status=ability.status,
@@ -1669,6 +1672,126 @@ class AbilityInvocationService:
             if isinstance(value, (int, float)):
                 return str(value)
         return None
+
+    @staticmethod
+    def _get_first_string(payload: dict[str, Any], keys: Iterable[str]) -> str | None:
+        for key in keys:
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+            if isinstance(value, bool):
+                return "true" if value else "false"
+            if isinstance(value, (int, float)):
+                return str(value)
+        return None
+
+    @staticmethod
+    def _normalize_text_list(value: Any) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            items = re.split(r"[,;\n]+", value)
+            return [item.strip() for item in items if item.strip()]
+        if isinstance(value, (list, tuple, set)):
+            out: list[str] = []
+            for item in value:
+                if item is None:
+                    continue
+                if isinstance(item, str):
+                    trimmed = item.strip()
+                    if trimmed:
+                        out.append(trimmed)
+                else:
+                    trimmed = str(item).strip()
+                    if trimmed:
+                        out.append(trimmed)
+            return out
+        trimmed = str(value).strip()
+        return [trimmed] if trimmed else []
+
+    def _fetch_comfyui_lora(self, file_name: str) -> ComfyuiLora | None:
+        if not file_name:
+            return None
+        try:
+            with get_session() as session:
+                stmt = select(ComfyuiLora).where(ComfyuiLora.file_name == file_name)
+                return session.execute(stmt).scalar_one_or_none()
+        except Exception as exc:  # pragma: no cover - defensive
+            self._logger.warning("ComfyUI lora lookup failed: %s", exc)
+            return None
+
+    def _apply_comfyui_lora_policy(self, ability: Ability, workflow_params: dict[str, Any]) -> None:
+        metadata = ability.extra_metadata or {}
+        allowed_files = self._normalize_text_list(
+            metadata.get("allowed_lora_files")
+            or metadata.get("allowed_loras")
+            or metadata.get("lora_allow_files")
+        )
+        allowed_tags = self._normalize_text_list(
+            metadata.get("allowed_lora_tags") or metadata.get("lora_allow_tags")
+        )
+        allowed_base_models = self._normalize_text_list(
+            metadata.get("allowed_lora_base_models")
+            or metadata.get("allowed_base_models")
+            or metadata.get("lora_allow_base_models")
+        )
+        default_lora = self._get_first_string(
+            metadata,
+            ["default_lora", "lora_default", "defaultLora"],
+        )
+        policy = str(metadata.get("lora_policy") or "fallback").lower()
+
+        if not allowed_files and not allowed_tags and not allowed_base_models and not default_lora:
+            return
+
+        lora_value = self._get_first_string(workflow_params, ["lora_name", "lora", "loraName"])
+        if not lora_value:
+            if default_lora:
+                workflow_params["lora_name"] = default_lora
+            return
+
+        allowed = True
+        if allowed_files:
+            allowed = lora_value in set(allowed_files)
+
+        lora_record: ComfyuiLora | None = None
+        if allowed and (allowed_tags or allowed_base_models):
+            lora_record = self._fetch_comfyui_lora(lora_value)
+            if not lora_record:
+                allowed = False
+            else:
+                if allowed_tags:
+                    tag_set = {tag.strip() for tag in (lora_record.tags or []) if isinstance(tag, str)}
+                    allowed = bool(tag_set.intersection(set(allowed_tags)))
+                if allowed and allowed_base_models:
+                    base_models = [
+                        item.strip()
+                        for item in (lora_record.base_models or [])
+                        if isinstance(item, str) and item.strip()
+                    ]
+                    if not base_models and lora_record.base_model:
+                        base_models = [lora_record.base_model.strip()]
+                    allowed = bool(set(base_models).intersection(set(allowed_base_models)))
+
+        if allowed:
+            workflow_params["lora_name"] = lora_value
+            return
+
+        if policy == "ignore":
+            self._logger.warning("ComfyUI lora %s not allowed; dropped", lora_value)
+            workflow_params.pop("lora_name", None)
+            workflow_params.pop("lora", None)
+            workflow_params.pop("loraName", None)
+            return
+
+        if default_lora:
+            self._logger.warning("ComfyUI lora %s not allowed; fallback to %s", lora_value, default_lora)
+            workflow_params["lora_name"] = default_lora
+        else:
+            self._logger.warning("ComfyUI lora %s not allowed; dropped", lora_value)
+            workflow_params.pop("lora_name", None)
+            workflow_params.pop("lora", None)
+            workflow_params.pop("loraName", None)
 
     @staticmethod
     def _omit_large_fields(payload: dict[str, Any]) -> dict[str, Any]:

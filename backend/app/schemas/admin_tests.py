@@ -144,6 +144,8 @@ class ComfyuiModelCatalogResponse(BaseModel):
     executorId: str
     baseUrl: str
     models: dict[str, list[str]]
+    nodeKeys: list[str] | None = None
+    nodeCount: int | None = None
 
 
 class ComfyuiQueueStatusResponse(BaseModel):

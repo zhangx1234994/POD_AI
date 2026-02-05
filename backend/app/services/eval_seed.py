@@ -1,8 +1,8 @@
 """Seed default evaluation workflow versions.
 
 This is intentionally lightweight and safe to call on request:
-- It only inserts missing rows (by workflow_id).
-- It never mutates existing rows (to avoid surprising changes).
+- It inserts missing rows (by workflow_id).
+- It applies small, explicit normalizations for known workflows (schema fixes, category labels).
 """
 
 from __future__ import annotations
@@ -50,6 +50,14 @@ ALLOWED_EVAL_CATEGORIES: set[str] = {
     "四方/两方连续图类",
     "图裂变",
     "通用类",
+}
+
+# 图裂变（Fan-out）工作流：需要展示“裂变数量”参数。
+FISSION_WORKFLOW_IDS: set[str] = {
+    "7598841920114130944",  # Liebian_comfyui_20260124_1
+    "7598820684801769472",  # Liebian_comfyui_20260124
+    "7601077530077954048",  # Liebian_shangye_20260130
+    "7598848725942796288",  # Liebian_shangye_20260124_1_1_1
 }
 
 # Workflows whose output should include prompt feedback.
@@ -1039,6 +1047,16 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
                 if row.output_schema != desired.get("output_schema"):
                     row.output_schema = desired.get("output_schema")
                     dirty = True
+        if row.workflow_id == "7598848725942796288":
+            # Force-reset to the latest "裂变（商业有提示词）" spec (field list has changed).
+            desired = DEFAULT_EVAL_WORKFLOW_BY_ID.get(row.workflow_id)
+            if desired:
+                if row.parameters_schema != desired.get("parameters_schema"):
+                    row.parameters_schema = desired.get("parameters_schema")
+                    dirty = True
+                if row.output_schema != desired.get("output_schema"):
+                    row.output_schema = desired.get("output_schema")
+                    dirty = True
         normalized_category = _normalize_eval_category(row.category)
         if row.category != normalized_category:
             row.category = normalized_category
@@ -1051,12 +1069,7 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
             row.category = "图延伸类"
             dirty = True
         # Ensure "图裂变" workflows stay under their own category (for the sidebar).
-        if row.workflow_id in {
-            "7598841920114130944",
-            "7598820684801769472",
-            "7598844004557389824",
-            "7598848725942796288",
-        } and row.category != "图裂变":
+        if row.workflow_id in (FISSION_WORKFLOW_IDS | {"7598844004557389824"}) and row.category != "图裂变":
             row.category = "图裂变"
             dirty = True
         # Keep workflow names editable in the admin UI; do not force-reset names here.
@@ -1231,12 +1244,7 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
                     schema["fields"] = filtered
                     row.output_schema = schema
                     dirty = True
-        if row.workflow_id in {
-            "7598841920114130944",
-            "7598820684801769472",
-            "7601077530077954048",
-            "7598848725942796288",
-        }:
+        if row.workflow_id in FISSION_WORKFLOW_IDS:
             # Normalize similarity labels to avoid "重绘比例" ambiguity.
             schema = json.loads(json.dumps(row.parameters_schema or {}, ensure_ascii=False))
             fields = schema.get("fields") if isinstance(schema, dict) else None
@@ -1260,6 +1268,26 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
                             f["description"] = "与原图保持相似的百分比（越高越接近原图）。"
                             changed = True
                 if changed:
+                    schema["fields"] = fields
+                    row.parameters_schema = schema
+                    dirty = True
+        if row.workflow_id in FISSION_WORKFLOW_IDS:
+            # Ensure "裂变数量" (count) is present in schema for evaluation-only fan-out.
+            schema = json.loads(json.dumps(row.parameters_schema or {}, ensure_ascii=False))
+            fields = schema.get("fields") if isinstance(schema, dict) else None
+            if isinstance(fields, list):
+                has_count = any(isinstance(f, dict) and f.get("name") == "count" for f in fields)
+                if not has_count:
+                    fields.append(
+                        {
+                            "name": "count",
+                            "label": "裂变数量",
+                            "type": "text",
+                            "required": False,
+                            "defaultValue": "4",
+                            "description": "一次评测会触发 count 个子任务并聚合结果",
+                        }
+                    )
                     schema["fields"] = fields
                     row.parameters_schema = schema
                     dirty = True

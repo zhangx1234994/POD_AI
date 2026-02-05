@@ -13,6 +13,7 @@ class AbilityPublicInfo(BaseModel):
     provider: str
     category: str
     capabilityKey: str
+    version: str = Field(default="v1")
     displayName: str
     description: str | None = None
     status: str

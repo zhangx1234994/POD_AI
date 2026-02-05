@@ -41,6 +41,11 @@ import type {
   JsonRecord,
   JsonValue,
   PublicAbility,
+  ComfyuiModelCatalogItem,
+  ComfyuiPluginCatalogItem,
+  ComfyuiServerDiffLog,
+  ComfyuiLora,
+  ComfyuiLoraCatalogResponse,
   ComfyuiQueueStatus,
   ComfyuiQueueSummary,
   SystemConfig,
@@ -58,7 +63,7 @@ const navItems = [
   { id: 'ability-evals', label: '能力评测', description: 'Coze 工作流试运行 + 评分' },
   { id: 'executors', label: '执行节点', description: '节点配置与健康' },
   { id: 'ability-logs', label: '能力调用', description: '全局历史记录' },
-  { id: 'comfyui-templates', label: 'ComfyUI 模板', description: 'Workflow JSON 管理', advanced: true },
+  { id: 'comfyui-management', label: 'ComfyUI 管理', description: 'LoRA/模型/模板' },
   { id: 'workflow-builder', label: '工作流编排', description: 'Coze Studio 工作流 + Loop 观测', advanced: true },
   { id: 'bindings', label: '分配策略', description: 'action 绑定链路', advanced: true },
   { id: 'apikeys', label: 'API Keys', description: '凭证配额管理' },
@@ -120,6 +125,30 @@ type ComfyNode = {
   inputs: string[];
 };
 
+type ComfyNodeInputDetail = {
+  key: string;
+  value: unknown;
+  linked: boolean;
+  linkRef?: string;
+};
+
+type ComfyNodeDetail = {
+  id: string;
+  title: string;
+  classType: string;
+  inputs: ComfyNodeInputDetail[];
+};
+
+type ComfyGraphSource = 'prompt' | 'ui' | 'unknown';
+
+type ComfyDefinitionInfo = {
+  ok: boolean;
+  source: ComfyGraphSource;
+  graph: JsonRecord;
+  payload: JsonRecord;
+  hasGraphContainer: boolean;
+};
+
 const WORKFLOW_VALUE_TYPES = new Set(['string', 'int', 'float', 'bool', 'json']);
 
 type ComfyInputMapItem = {
@@ -128,10 +157,34 @@ type ComfyInputMapItem = {
   inputKey: string;
   valueType?: string;
 };
+
+type ComfyWorkflowDependencies = {
+  ok: boolean;
+  nodes: string[];
+  models: {
+    unet: string[];
+    clip: string[];
+    vae: string[];
+    lora: string[];
+  };
+  dynamic: {
+    unet: number;
+    clip: number;
+    vae: number;
+    lora: number;
+  };
+};
 const statusOptions = [
   { value: 'inactive', label: '未启用' },
   { value: 'active', label: '启用' },
   { value: 'deprecated', label: '下线' },
+];
+const comfyModelTypeOptions = [
+  { value: 'unet', label: 'UNET' },
+  { value: 'clip', label: 'CLIP' },
+  { value: 'vae', label: 'VAE' },
+  { value: 'controlnet', label: 'ControlNet' },
+  { value: 'other', label: '其他' },
 ];
 const apiKeyStatusOptions = [
   { value: 'active', label: '启用 (active)' },
@@ -257,10 +310,58 @@ const extractCozeWorkflowId = (ability: Ability | null): string => {
   return metaValue || '';
 };
 
+const bumpWorkflowVersion = (version?: string | null): string => {
+  const raw = (version || '').trim();
+  if (!raw) return 'v2';
+  const match = raw.match(/^v(\d+)$/i);
+  if (match) {
+    const next = Number(match[1]) + 1;
+    return `v${Number.isNaN(next) ? 2 : next}`;
+  }
+  const tail = raw.match(/(\d+)(?:\.(\d+))?$/);
+  if (tail) {
+    const major = Number(tail[1]);
+    const minor = tail[2] ? Number(tail[2]) : null;
+    if (!Number.isNaN(major)) {
+      if (minor !== null && !Number.isNaN(minor)) {
+        return raw.replace(/(\d+)\.(\d+)$/, `${major}.${minor + 1}`);
+      }
+      return raw.replace(/(\d+)$/, String(major + 1));
+    }
+  }
+  return `${raw}-copy`;
+};
+
+const buildWorkflowClonePayload = (workflow: Workflow) => {
+  const nextVersion = bumpWorkflowVersion(workflow.version);
+  const definition = workflow.definition && typeof workflow.definition === 'object'
+    ? JSON.parse(JSON.stringify(workflow.definition))
+    : workflow.definition;
+  const metadata = workflow.metadata && typeof workflow.metadata === 'object'
+    ? JSON.parse(JSON.stringify(workflow.metadata))
+    : {};
+  const currentKey = typeof metadata.workflow_key === 'string' ? metadata.workflow_key.trim() : '';
+  const versionSuffix = nextVersion.replace(/[^a-zA-Z0-9]/g, '_');
+  const trimmedKey = currentKey ? currentKey.replace(/([_-])v\d+$/i, '') : '';
+  const nextKeyBase = trimmedKey || workflow.action || workflow.name || 'comfyui_workflow';
+  const nextWorkflowKey = `${nextKeyBase}_${versionSuffix}`;
+  metadata.workflow_key = nextWorkflowKey;
+  if (definition && typeof definition === 'object' && 'workflow_key' in definition) {
+    (definition as JsonRecord).workflow_key = nextWorkflowKey;
+  }
+  return {
+    nextVersion,
+    nextWorkflowKey,
+    definition,
+    metadata,
+  };
+};
+
 const defaultAbilityForm: AbilityFormState = {
   provider: providerOptions[0].value,
   category: categoryOptions[0].value,
   capability_key: '',
+  version: 'v1',
   display_name: '',
   status: 'inactive',
   ability_type: abilityTypeOptions[0].value,
@@ -750,14 +851,123 @@ const safeParseJSON = (value?: string | JsonRecord): { ok: boolean; value: JsonR
   }
 };
 
-const extractComfyuiNodes = (definition?: string | JsonRecord): ComfyNode[] => {
+const isComfyUiDefinition = (record: Record<string, unknown>): boolean => {
+  const nodes = record.nodes;
+  if (!Array.isArray(nodes)) return false;
+  return nodes.some((node) => node && typeof node === 'object' && 'id' in (node as Record<string, unknown>));
+};
+
+const isComfyPromptGraph = (record: Record<string, unknown>): boolean => {
+  return Object.values(record).some((value) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+    return 'class_type' in (value as Record<string, unknown>);
+  });
+};
+
+const getComfyUiNodeTitle = (raw: Record<string, unknown>, classType: string, nodeId: string) => {
+  if (typeof raw.title === 'string' && raw.title.trim()) return raw.title.trim();
+  const props = raw.properties;
+  if (props && typeof props === 'object') {
+    const propTitle = (props as Record<string, unknown>)['Node name for S&R'];
+    if (typeof propTitle === 'string' && propTitle.trim()) return propTitle.trim();
+  }
+  return classType || nodeId;
+};
+
+const convertComfyUiToPromptGraph = (record: Record<string, unknown>): JsonRecord => {
+  const nodes = Array.isArray(record.nodes) ? (record.nodes as Array<Record<string, unknown>>) : [];
+  const links = Array.isArray(record.links) ? (record.links as Array<unknown>) : [];
+  const linkMap = new Map<string, { nodeId: string; slot: number }>();
+  links.forEach((item) => {
+    if (!Array.isArray(item) || item.length < 3) return;
+    const [linkId, fromNode, fromSlot] = item;
+    if (linkId === null || linkId === undefined) return;
+    linkMap.set(String(linkId), {
+      nodeId: String(fromNode),
+      slot: typeof fromSlot === 'number' ? fromSlot : Number(fromSlot) || 0,
+    });
+  });
+  const graph: JsonRecord = {};
+  nodes.forEach((rawNode) => {
+    if (!rawNode || typeof rawNode !== 'object') return;
+    const nodeIdRaw = rawNode.id;
+    if (nodeIdRaw === null || nodeIdRaw === undefined) return;
+    const nodeId = String(nodeIdRaw);
+    const classType = typeof rawNode.type === 'string' ? rawNode.type : '';
+    const inputs: JsonRecord = {};
+    const inputList = Array.isArray(rawNode.inputs) ? (rawNode.inputs as Array<Record<string, unknown>>) : null;
+    const widgetValues = Array.isArray(rawNode.widgets_values) ? rawNode.widgets_values : [];
+    let widgetIndex = 0;
+    if (inputList) {
+      inputList.forEach((input) => {
+        if (!input || typeof input !== 'object') return;
+        const key = typeof input.name === 'string' ? input.name : '';
+        const linkId = input.link;
+        const hasWidget = Boolean(input.widget);
+        const linkRef = linkId !== null && linkId !== undefined ? linkMap.get(String(linkId)) : undefined;
+        if (linkRef && key) {
+          inputs[key] = [linkRef.nodeId, linkRef.slot];
+        }
+        if (hasWidget) {
+          const widgetValue = widgetIndex < widgetValues.length ? widgetValues[widgetIndex] : undefined;
+          widgetIndex += 1;
+          if (!linkRef && key) {
+            inputs[key] = widgetValue;
+          }
+        }
+      });
+    } else if (rawNode.inputs && typeof rawNode.inputs === 'object') {
+      Object.assign(inputs, rawNode.inputs as Record<string, unknown>);
+    }
+    const nodePayload: JsonRecord = {
+      class_type: classType,
+      inputs,
+    };
+    const title = getComfyUiNodeTitle(rawNode, classType, nodeId);
+    if (title) {
+      nodePayload._meta = { title };
+    }
+    graph[nodeId] = nodePayload;
+  });
+  return graph;
+};
+
+const resolveComfyuiDefinition = (definition?: string | JsonRecord): ComfyDefinitionInfo => {
   const parsed = safeParseJSON(definition);
-  if (!parsed.ok) return [];
+  if (!parsed.ok) {
+    return { ok: false, source: 'unknown', graph: {}, payload: {}, hasGraphContainer: false };
+  }
   const record = parsed.value as Record<string, unknown>;
   const graphCandidate = record?.graph;
-  const graph =
-    graphCandidate && typeof graphCandidate === 'object' ? (graphCandidate as Record<string, unknown>) : record;
-  if (!graph || typeof graph !== 'object') return [];
+  if (graphCandidate && typeof graphCandidate === 'object' && !Array.isArray(graphCandidate)) {
+    return {
+      ok: true,
+      source: 'prompt',
+      graph: graphCandidate as JsonRecord,
+      payload: parsed.value,
+      hasGraphContainer: true,
+    };
+  }
+  if (isComfyUiDefinition(record)) {
+    return {
+      ok: true,
+      source: 'ui',
+      graph: convertComfyUiToPromptGraph(record),
+      payload: parsed.value,
+      hasGraphContainer: false,
+    };
+  }
+  if (isComfyPromptGraph(record)) {
+    return { ok: true, source: 'prompt', graph: parsed.value, payload: parsed.value, hasGraphContainer: false };
+  }
+  return { ok: true, source: 'unknown', graph: {}, payload: parsed.value, hasGraphContainer: false };
+};
+
+const extractComfyuiNodes = (definition?: string | JsonRecord): ComfyNode[] => {
+  const info = resolveComfyuiDefinition(definition);
+  if (!info.ok) return [];
+  const graph = info.graph as Record<string, unknown>;
+  if (!graph || typeof graph !== 'object' || Array.isArray(graph)) return [];
   const nodes: ComfyNode[] = [];
   Object.entries(graph).forEach(([id, node]) => {
     if (!node || typeof node !== 'object') return;
@@ -775,6 +985,107 @@ const extractComfyuiNodes = (definition?: string | JsonRecord): ComfyNode[] => {
     return a.id.localeCompare(b.id);
   });
   return nodes;
+};
+
+const extractComfyuiNodeDetails = (definition?: string | JsonRecord): ComfyNodeDetail[] => {
+  const info = resolveComfyuiDefinition(definition);
+  if (!info.ok) return [];
+  const graph = info.graph as Record<string, unknown>;
+  if (!graph || typeof graph !== 'object' || Array.isArray(graph)) return [];
+  const nodes: ComfyNodeDetail[] = [];
+  Object.entries(graph).forEach(([id, node]) => {
+    if (!node || typeof node !== 'object') return;
+    const raw = node as Record<string, unknown>;
+    const classType = typeof raw.class_type === 'string' ? raw.class_type : '';
+    const meta = raw._meta as Record<string, unknown> | undefined;
+    const title = typeof meta?.title === 'string' ? meta.title : classType || id;
+    const inputsObj = raw.inputs && typeof raw.inputs === 'object' ? (raw.inputs as Record<string, unknown>) : {};
+    const inputs = Object.entries(inputsObj).map(([key, value]) => {
+      let linked = false;
+      let linkRef: string | undefined;
+      if (Array.isArray(value) && value.length >= 2) {
+        const refNode = value[0];
+        const refIndex = value[1];
+        if (typeof refNode === 'string' || typeof refNode === 'number') {
+          linked = true;
+          linkRef = `#${refNode}${typeof refIndex === 'number' ? `:${refIndex}` : ''}`;
+        }
+      }
+      return { key, value, linked, linkRef };
+    });
+    inputs.sort((a, b) => a.key.localeCompare(b.key));
+    nodes.push({ id: String(id), title, classType, inputs });
+  });
+  nodes.sort((a, b) => {
+    const na = Number(a.id);
+    const nb = Number(b.id);
+    if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
+    return a.id.localeCompare(b.id);
+  });
+  return nodes;
+};
+
+const COMFY_MODEL_INPUTS: Record<string, Array<{ key: string; category: keyof ComfyWorkflowDependencies['models'] }>> = {
+  UNETLoader: [{ key: 'unet_name', category: 'unet' }],
+  CheckpointLoaderSimple: [{ key: 'ckpt_name', category: 'unet' }],
+  CLIPLoader: [{ key: 'clip_name', category: 'clip' }],
+  DualCLIPLoader: [
+    { key: 'clip_name1', category: 'clip' },
+    { key: 'clip_name2', category: 'clip' },
+  ],
+  VAELoader: [{ key: 'vae_name', category: 'vae' }],
+  LoraLoaderModelOnly: [{ key: 'lora_name', category: 'lora' }],
+  LoraLoader: [{ key: 'lora_name', category: 'lora' }],
+};
+
+const extractComfyuiWorkflowDependencies = (definition?: string | JsonRecord): ComfyWorkflowDependencies => {
+  const empty: ComfyWorkflowDependencies = {
+    ok: false,
+    nodes: [],
+    models: { unet: [], clip: [], vae: [], lora: [] },
+    dynamic: { unet: 0, clip: 0, vae: 0, lora: 0 },
+  };
+  const info = resolveComfyuiDefinition(definition);
+  if (!info.ok) return empty;
+  const graph = info.graph as Record<string, unknown>;
+  if (!graph || typeof graph !== 'object' || Array.isArray(graph)) return empty;
+  const nodes = new Set<string>();
+  const models = {
+    unet: new Set<string>(),
+    clip: new Set<string>(),
+    vae: new Set<string>(),
+    lora: new Set<string>(),
+  };
+  const dynamic = { unet: 0, clip: 0, vae: 0, lora: 0 };
+  Object.values(graph).forEach((rawNode) => {
+    if (!rawNode || typeof rawNode !== 'object') return;
+    const node = rawNode as Record<string, unknown>;
+    const classType = typeof node.class_type === 'string' ? node.class_type : '';
+    if (!classType) return;
+    nodes.add(classType);
+    const inputs = node.inputs && typeof node.inputs === 'object' ? (node.inputs as Record<string, unknown>) : null;
+    if (!inputs) return;
+    const mapping = COMFY_MODEL_INPUTS[classType] || [];
+    mapping.forEach((item) => {
+      const value = inputs[item.key];
+      if (typeof value === 'string' && value.trim()) {
+        models[item.category].add(value.trim());
+      } else if (value !== undefined && value !== null) {
+        dynamic[item.category] += 1;
+      }
+    });
+  });
+  return {
+    ok: true,
+    nodes: Array.from(nodes).sort(),
+    models: {
+      unet: Array.from(models.unet).sort(),
+      clip: Array.from(models.clip).sort(),
+      vae: Array.from(models.vae).sort(),
+      lora: Array.from(models.lora).sort(),
+    },
+    dynamic,
+  };
 };
 
 const normalizeInputNodeMap = (metadata?: JsonRecord | null): ComfyInputMapItem[] => {
@@ -879,6 +1190,18 @@ const extractComfyuiModelCounts = (catalog?: Record<string, string[]>) => {
   };
 };
 
+const diffMissingItems = (baseline: Set<string>, target?: string[] | null) => {
+  if (!baseline || baseline.size === 0) return [];
+  const targetSet = new Set((target || []).map((item) => String(item).trim()).filter(Boolean));
+  const missing: string[] = [];
+  baseline.forEach((item) => {
+    if (!targetSet.has(item)) {
+      missing.push(item);
+    }
+  });
+  return missing;
+};
+
 const normalizeTagList = (value: unknown): string[] => {
   const out: string[] = [];
   if (!value) return out;
@@ -908,6 +1231,18 @@ const normalizeTagList = (value: unknown): string[] => {
   return out;
 };
 
+const normalizeTextList = (value: unknown): string[] => {
+  if (typeof value === 'string') {
+    return normalizeTagList(value.replace(/[\n，]/g, ','));
+  }
+  return normalizeTagList(value);
+};
+
+const formatTextList = (value?: string[] | null) => {
+  if (!value || value.length === 0) return '';
+  return value.join(', ');
+};
+
 const parseRoutingMetadata = (metadata?: JsonRecord | null) => {
   const record = (metadata || {}) as Record<string, unknown>;
   const policy =
@@ -923,6 +1258,38 @@ const parseRoutingMetadata = (metadata?: JsonRecord | null) => {
     typeof record.fallback_to_default === 'boolean' ? record.fallback_to_default : true;
   return { policy, allowed, required, fallback };
 };
+
+const parseLoraMetadata = (metadata?: JsonRecord | null) => {
+  const record = (metadata || {}) as Record<string, unknown>;
+  const allowedFiles = normalizeTextList(
+    record.allowed_lora_files || record.allowed_loras || record.lora_allow_files,
+  );
+  const allowedTags = normalizeTextList(
+    record.allowed_lora_tags || record.lora_allow_tags,
+  );
+  const allowedBaseModels = normalizeTextList(
+    record.allowed_lora_base_models || record.allowed_base_models || record.lora_allow_base_models,
+  );
+  const defaultLora =
+    typeof record.default_lora === 'string' && record.default_lora.trim()
+      ? record.default_lora.trim()
+      : typeof record.lora_default === 'string' && record.lora_default.trim()
+        ? record.lora_default.trim()
+        : '';
+  const policy =
+    typeof record.lora_policy === 'string' && record.lora_policy.trim()
+      ? record.lora_policy.trim().toLowerCase()
+      : 'fallback';
+  return { allowedFiles, allowedTags, allowedBaseModels, defaultLora, policy };
+};
+
+const resolveLoraBaseModels = (record?: { base_models?: string[] | null; base_model?: string | null }) => {
+  const normalized = normalizeTextList(record?.base_models ?? record?.base_model);
+  return Array.from(new Set(normalized));
+};
+
+const COMFYUI_BASE_MODEL_STORAGE_KEY = 'comfyui.base_models.v1';
+const COMFYUI_BASELINE_STORAGE_KEY = 'comfyui.baseline_executor_id';
 
 const isEmptyRecord = (value?: Record<string, unknown> | null) => {
   if (!value) return true;
@@ -958,6 +1325,11 @@ export function IntegrationDashboard({
   const [abilityAllowedExecutors, setAbilityAllowedExecutors] = useState<string[]>([]);
   const [abilityRequiredTags, setAbilityRequiredTags] = useState<string>('');
   const [abilityFallbackToDefault, setAbilityFallbackToDefault] = useState<boolean>(true);
+  const [abilityLoraDefault, setAbilityLoraDefault] = useState<string>('');
+  const [abilityLoraAllowedFiles, setAbilityLoraAllowedFiles] = useState<string[]>([]);
+  const [abilityLoraAllowedTags, setAbilityLoraAllowedTags] = useState<string>('');
+  const [abilityLoraAllowedBaseModels, setAbilityLoraAllowedBaseModels] = useState<string[]>([]);
+  const [abilityLoraPolicy, setAbilityLoraPolicy] = useState<string>('fallback');
   const [abilitySearch, setAbilitySearch] = useState('');
   const [abilityProviderFilter, setAbilityProviderFilter] = useState<string>('all');
   const [abilityStatusFilter, setAbilityStatusFilter] = useState<string>('all');
@@ -979,6 +1351,9 @@ export function IntegrationDashboard({
   const [workflowInputPickerKeys, setWorkflowInputPickerKeys] = useState<string[]>([]);
   const [workflowOutputPickerNodeId, setWorkflowOutputPickerNodeId] = useState<string>('');
   const [workflowOutputShowAll, setWorkflowOutputShowAll] = useState(false);
+  const [workflowNodeSearch, setWorkflowNodeSearch] = useState<string>('');
+  const [workflowParamScope, setWorkflowParamScope] = useState<'internal' | 'all'>('internal');
+  const [workflowEditTab, setWorkflowEditTab] = useState<'base' | 'io' | 'params' | 'executors'>('base');
   const [workflowFormErrors, setWorkflowFormErrors] = useState<string[]>([]);
   const [bindingForm, setBindingForm] = useState<BindingFormState>(defaultBindingForm);
   const [apiKeyForm, setApiKeyForm] = useState<ApiKeyFormState>(defaultApiKeyForm);
@@ -987,6 +1362,8 @@ export function IntegrationDashboard({
   const [testLoading, setTestLoading] = useState(false);
   const [schemaValues, setSchemaValues] = useState<SchemaFormValues>({});
   const [comfyModelCache, setComfyModelCache] = useState<Record<string, Record<string, string[]>>>({});
+  const [comfyBaseModelCache, setComfyBaseModelCache] = useState<Record<string, string[]>>({});
+  const [comfyNodeCache, setComfyNodeCache] = useState<Record<string, string[]>>({});
   const [comfyModelLoading, setComfyModelLoading] = useState(false);
   const [comfyModelError, setComfyModelError] = useState<string | null>(null);
   const [comfyModelLoadingByExecutor, setComfyModelLoadingByExecutor] = useState<Record<string, boolean>>({});
@@ -1002,6 +1379,64 @@ export function IntegrationDashboard({
   const [comfyQueueSummaryLoading, setComfyQueueSummaryLoading] = useState(false);
   const [comfyQueueSummaryError, setComfyQueueSummaryError] = useState<string | null>(null);
   const [comfyQueueSummaryUpdatedAt, setComfyQueueSummaryUpdatedAt] = useState<string | null>(null);
+  const [comfyLoraSelectCache, setComfyLoraSelectCache] = useState<Record<string, ComfyuiLora[]>>({});
+  const [comfyuiManageTab, setComfyuiManageTab] = useState<'lora' | 'templates' | 'servers' | 'assets'>('lora');
+  const [comfyBaselineExecutorId, setComfyBaselineExecutorId] = useState<string>('');
+  const [comfyLoraCatalog, setComfyLoraCatalog] = useState<ComfyuiLoraCatalogResponse | null>(null);
+  const [comfyLoraLoading, setComfyLoraLoading] = useState(false);
+  const [comfyLoraError, setComfyLoraError] = useState<string | null>(null);
+  const [comfyLoraSaving, setComfyLoraSaving] = useState(false);
+  const [comfyLoraExecutorId, setComfyLoraExecutorId] = useState<string>('');
+  const [comfyLoraSearch, setComfyLoraSearch] = useState('');
+  const [comfyLoraStatusFilter, setComfyLoraStatusFilter] = useState<string>('all');
+  const [comfyLoraDialogOpen, setComfyLoraDialogOpen] = useState(false);
+  const [comfyLoraForm, setComfyLoraForm] = useState<Partial<ComfyuiLora>>({ status: 'active' });
+  const [comfyLoraTagsInput, setComfyLoraTagsInput] = useState('');
+  const [comfyLoraTriggersInput, setComfyLoraTriggersInput] = useState('');
+  const [comfyLoraFormError, setComfyLoraFormError] = useState<string | null>(null);
+  const [comfyServerForm, setComfyServerForm] = useState({
+    name: '',
+    base_url: '',
+    max_concurrency: 1,
+    weight: 1,
+    status: 'active',
+  });
+  const [comfyServerFormError, setComfyServerFormError] = useState<string | null>(null);
+  const [comfyServerSaving, setComfyServerSaving] = useState(false);
+  const [comfyServerRefreshing, setComfyServerRefreshing] = useState(false);
+  const [comfyDiffDialogOpen, setComfyDiffDialogOpen] = useState(false);
+  const [comfyDiffDialogTitle, setComfyDiffDialogTitle] = useState('');
+  const [comfyDiffDialogPayload, setComfyDiffDialogPayload] = useState<unknown>(null);
+  const [comfyDiffSaving, setComfyDiffSaving] = useState(false);
+  const [comfyDiffLogs, setComfyDiffLogs] = useState<ComfyuiServerDiffLog[]>([]);
+  const [comfyDiffLogsLoading, setComfyDiffLogsLoading] = useState(false);
+  const [comfyDiffLogsError, setComfyDiffLogsError] = useState<string | null>(null);
+  const [comfyModelCatalogItems, setComfyModelCatalogItems] = useState<ComfyuiModelCatalogItem[]>([]);
+  const [comfyModelCatalogLoading, setComfyModelCatalogLoading] = useState(false);
+  const [comfyModelCatalogError, setComfyModelCatalogError] = useState<string | null>(null);
+  const [comfyModelCatalogSearch, setComfyModelCatalogSearch] = useState('');
+  const [comfyModelCatalogStatus, setComfyModelCatalogStatus] = useState('all');
+  const [comfyModelCatalogType, setComfyModelCatalogType] = useState('all');
+  const [comfyModelDialogOpen, setComfyModelDialogOpen] = useState(false);
+  const [comfyModelSaving, setComfyModelSaving] = useState(false);
+  const [comfyModelFormError, setComfyModelFormError] = useState<string | null>(null);
+  const [comfyModelForm, setComfyModelForm] = useState<Partial<ComfyuiModelCatalogItem>>({
+    status: 'active',
+    model_type: 'unet',
+  });
+  const [comfyModelFormTags, setComfyModelFormTags] = useState('');
+  const [comfyPluginCatalogItems, setComfyPluginCatalogItems] = useState<ComfyuiPluginCatalogItem[]>([]);
+  const [comfyPluginCatalogLoading, setComfyPluginCatalogLoading] = useState(false);
+  const [comfyPluginCatalogError, setComfyPluginCatalogError] = useState<string | null>(null);
+  const [comfyPluginCatalogSearch, setComfyPluginCatalogSearch] = useState('');
+  const [comfyPluginCatalogStatus, setComfyPluginCatalogStatus] = useState('all');
+  const [comfyPluginDialogOpen, setComfyPluginDialogOpen] = useState(false);
+  const [comfyPluginSaving, setComfyPluginSaving] = useState(false);
+  const [comfyPluginFormError, setComfyPluginFormError] = useState<string | null>(null);
+  const [comfyPluginForm, setComfyPluginForm] = useState<Partial<ComfyuiPluginCatalogItem>>({
+    status: 'active',
+  });
+  const [comfyPluginFormTags, setComfyPluginFormTags] = useState('');
   const [uploadingImage, setUploadingImage] = useState(false);
   const [uploadedImage, setUploadedImage] = useState<UploadResult | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -1033,6 +1468,8 @@ export function IntegrationDashboard({
   const [executorInlineSaving, setExecutorInlineSaving] = useState<Record<string, boolean>>({});
   const [executorInlineError, setExecutorInlineError] = useState<Record<string, string>>({});
   const [executorFormError, setExecutorFormError] = useState<string | null>(null);
+  const baseModelCacheLoadedRef = useRef(false);
+  const baselineLoadedRef = useRef(false);
 
   const storedPreviewUrl = testResult?.storedUrl || (testResult?.assets && testResult.assets[0]?.ossUrl) || '';
   const fallbackResultUrl =
@@ -1053,7 +1490,7 @@ export function IntegrationDashboard({
       if (abilityProviderFilter !== 'all' && ability.provider !== abilityProviderFilter) return false;
       if (abilityStatusFilter !== 'all' && ability.status !== abilityStatusFilter) return false;
       if (!keyword) return true;
-      const haystack = `${ability.display_name} ${ability.capability_key} ${ability.description || ''}`.toLowerCase();
+      const haystack = `${ability.display_name} ${ability.capability_key} ${ability.version || ''} ${ability.description || ''}`.toLowerCase();
       return haystack.includes(keyword);
     });
   }, [abilities, abilityProviderFilter, abilityStatusFilter, abilitySearch]);
@@ -1070,8 +1507,46 @@ export function IntegrationDashboard({
     () => executors.filter((executor) => (executor.type || '').toLowerCase().includes('comfyui')),
     [executors],
   );
+  const comfyBaselineExecutor = useMemo(() => {
+    if (comfyBaselineExecutorId) {
+      return comfyExecutors.find((executor) => executor.id === comfyBaselineExecutorId) || null;
+    }
+    return comfyExecutors[0] || null;
+  }, [comfyBaselineExecutorId, comfyExecutors]);
+  const comfyLoraExecutor = useMemo(
+    () => comfyExecutors.find((executor) => executor.id === comfyLoraExecutorId) || null,
+    [comfyExecutors, comfyLoraExecutorId],
+  );
+  const comfyCachedBaseModels = useMemo(
+    () => (comfyLoraExecutorId ? comfyBaseModelCache[comfyLoraExecutorId] || [] : []),
+    [comfyBaseModelCache, comfyLoraExecutorId],
+  );
+  const comfyLoraBaseModels = useMemo(() => {
+    if (!comfyLoraExecutorId) return [];
+    const models = comfyModelCache[comfyLoraExecutorId] || {};
+    const cached = comfyCachedBaseModels;
+    const list = Array.isArray(models.unet) ? models.unet : [];
+    if (cached.length === 0) return list;
+    const merged = new Set(list);
+    cached.forEach((item) => merged.add(item));
+    return Array.from(merged);
+  }, [comfyCachedBaseModels, comfyModelCache, comfyLoraExecutorId]);
+  const comfyLoraFormBaseModels = useMemo(
+    () => resolveLoraBaseModels(comfyLoraForm),
+    [comfyLoraForm.base_models, comfyLoraForm.base_model],
+  );
+  const comfyLoraBaseModelOptions = useMemo(() => {
+    const merged = new Set(comfyLoraBaseModels);
+    comfyLoraFormBaseModels.forEach((model) => merged.add(model));
+    return Array.from(merged);
+  }, [comfyLoraBaseModels, comfyLoraFormBaseModels]);
   const comfyWorkflowNodes = useMemo(
     () => extractComfyuiNodes(workflowForm.definition),
+    [workflowForm.definition],
+  );
+  const workflowCanMap = comfyWorkflowNodes.length > 0;
+  const comfyWorkflowNodeDetails = useMemo(
+    () => extractComfyuiNodeDetails(workflowForm.definition),
     [workflowForm.definition],
   );
   const comfyWorkflowNodeMap = useMemo(() => {
@@ -1079,8 +1554,289 @@ export function IntegrationDashboard({
     comfyWorkflowNodes.forEach((node) => map.set(node.id, node));
     return map;
   }, [comfyWorkflowNodes]);
+  const workflowInterfaceNodeIds = useMemo(() => {
+    const set = new Set<string>();
+    workflowInputMap.forEach((item) => {
+      if (item.nodeId) set.add(item.nodeId);
+    });
+    workflowOutputNodeIds.forEach((nodeId) => {
+      if (nodeId) set.add(nodeId);
+    });
+    return set;
+  }, [workflowInputMap, workflowOutputNodeIds]);
+  const filteredWorkflowNodeDetails = useMemo(() => {
+    const keyword = workflowNodeSearch.trim().toLowerCase();
+    const base = workflowParamScope === 'internal'
+      ? comfyWorkflowNodeDetails.filter((node) => !workflowInterfaceNodeIds.has(node.id))
+      : comfyWorkflowNodeDetails;
+    if (!keyword) return base;
+    return base.filter((node) => {
+      const haystack = `${node.id} ${node.title} ${node.classType}`.toLowerCase();
+      return haystack.includes(keyword);
+    });
+  }, [comfyWorkflowNodeDetails, workflowInterfaceNodeIds, workflowNodeSearch, workflowParamScope]);
+  const comfyLoraItems = comfyLoraCatalog?.items || [];
+  const comfyLoraUntracked = comfyLoraCatalog?.untrackedFiles || [];
+  const comfyLoraInstalledCount = comfyLoraItems.filter((item) => item.installed).length;
+  const abilityFormComfyExecutorId = useMemo(() => {
+    if ((abilityForm.provider || '').toLowerCase() !== 'comfyui') return '';
+    const pinned = abilityForm.executor_id
+      ? comfyExecutors.find((executor) => executor.id === abilityForm.executor_id)
+      : null;
+    return pinned?.id || comfyExecutors[0]?.id || '';
+  }, [abilityForm.provider, abilityForm.executor_id, comfyExecutors]);
+  const abilityFormLoraOptions = useMemo(() => {
+    if (!abilityFormComfyExecutorId) return [];
+    return comfyLoraSelectCache[abilityFormComfyExecutorId] || [];
+  }, [abilityFormComfyExecutorId, comfyLoraSelectCache]);
+  const abilityFormBaseModelOptions = useMemo(() => {
+    if (!abilityFormComfyExecutorId) return [];
+    const catalog = comfyModelCache[abilityFormComfyExecutorId];
+    const cached = comfyBaseModelCache[abilityFormComfyExecutorId] || [];
+    const list = Array.isArray(catalog?.unet) ? catalog.unet : [];
+    if (cached.length === 0) return list;
+    const merged = new Set(list);
+    cached.forEach((item) => merged.add(item));
+    return Array.from(merged);
+  }, [abilityFormComfyExecutorId, comfyBaseModelCache, comfyModelCache]);
+  const abilityFormLoraSelectOptions = useMemo(() => {
+    const baseSet = new Set(abilityLoraAllowedBaseModels);
+    const filtered = baseSet.size > 0
+      ? abilityFormLoraOptions.filter((item) => {
+          const baseModels = resolveLoraBaseModels(item);
+          return baseModels.some((model) => baseSet.has(model));
+        })
+      : abilityFormLoraOptions;
+    return filtered.map((item) => {
+      const display = item.display_name || item.file_name;
+      const label = display !== item.file_name ? `${display} (${item.file_name})` : display;
+      return { value: item.file_name, label };
+    });
+  }, [abilityFormLoraOptions, abilityLoraAllowedBaseModels]);
+  const resolveComfyModelList = useCallback(
+    (executorId: string, key: string) => {
+      if (!executorId) return [];
+      const catalog = comfyModelCache[executorId] || {};
+      const list = Array.isArray(catalog[key]) ? catalog[key] : [];
+      if (key === 'unet') {
+        const cached = comfyBaseModelCache[executorId] || [];
+        if (cached.length === 0) return list;
+        const merged = new Set(list);
+        cached.forEach((item) => merged.add(item));
+        return Array.from(merged);
+      }
+      return list;
+    },
+    [comfyBaseModelCache, comfyModelCache],
+  );
+  const comfyBaselineSets = useMemo(() => {
+    const baselineId = comfyBaselineExecutor?.id || '';
+    const buildSet = (list: string[]) => new Set(list.map((item) => item.trim()).filter(Boolean));
+    return {
+      id: baselineId,
+      unet: buildSet(resolveComfyModelList(baselineId, 'unet')),
+      clip: buildSet(resolveComfyModelList(baselineId, 'clip')),
+      vae: buildSet(resolveComfyModelList(baselineId, 'vae')),
+      lora: buildSet(resolveComfyModelList(baselineId, 'lora')),
+      nodes: buildSet(comfyNodeCache[baselineId] || []),
+    };
+  }, [comfyBaselineExecutor, comfyNodeCache, resolveComfyModelList]);
+  const comfyWorkflowDepsMap = useMemo(() => {
+    const map: Record<string, ComfyWorkflowDependencies> = {};
+    workflows.forEach((wf) => {
+      if ((wf.type || '').toLowerCase().includes('comfyui')) {
+        map[wf.id] = extractComfyuiWorkflowDependencies(wf.definition);
+      }
+    });
+    return map;
+  }, [workflows]);
+  const comfyModelCatalogMap = useMemo(() => {
+    const map: Record<string, Record<string, ComfyuiModelCatalogItem>> = {};
+    comfyModelCatalogItems.forEach((item) => {
+      const type = (item.model_type || 'other').toLowerCase();
+      if (!map[type]) map[type] = {};
+      map[type][item.file_name] = item;
+    });
+    return map;
+  }, [comfyModelCatalogItems]);
+  const comfyPluginCatalogMap = useMemo(() => {
+    const map: Record<string, ComfyuiPluginCatalogItem> = {};
+    comfyPluginCatalogItems.forEach((item) => {
+      map[item.node_key] = item;
+    });
+    return map;
+  }, [comfyPluginCatalogItems]);
+  const comfyServersLoadedCount = useMemo(
+    () =>
+      comfyExecutors.filter((executor) => Boolean(comfyModelCache[executor.id]) && Boolean(comfyNodeCache[executor.id]))
+        .length,
+    [comfyExecutors, comfyModelCache, comfyNodeCache],
+  );
+  const resolveWorkflowExecutors = useCallback(
+    (workflow: Workflow) => {
+      if (!(workflow.type || '').toLowerCase().includes('comfyui')) return [];
+      const allowedIds = extractAllowedExecutorIds(workflow.metadata);
+      if (allowedIds.length === 0) return comfyExecutors;
+      return comfyExecutors.filter((executor) => allowedIds.includes(executor.id));
+    },
+    [comfyExecutors],
+  );
+  const buildComfyServerDiff = useCallback(
+    (executor: Executor) => {
+      const baselineId = comfyBaselineExecutor?.id || '';
+      const unetList = resolveComfyModelList(executor.id, 'unet');
+      const clipList = resolveComfyModelList(executor.id, 'clip');
+      const vaeList = resolveComfyModelList(executor.id, 'vae');
+      const loraList = resolveComfyModelList(executor.id, 'lora');
+      const nodeKeys = comfyNodeCache[executor.id] || [];
+      const missing = {
+        unet: diffMissingItems(comfyBaselineSets.unet, unetList),
+        clip: diffMissingItems(comfyBaselineSets.clip, clipList),
+        vae: diffMissingItems(comfyBaselineSets.vae, vaeList),
+        lora: diffMissingItems(comfyBaselineSets.lora, loraList),
+        nodes: diffMissingItems(comfyBaselineSets.nodes, nodeKeys),
+      };
+      const attachModel = (items: string[], type: string) =>
+        items.map((name) => {
+          const record = comfyModelCatalogMap[type]?.[name];
+          return {
+            name,
+            display_name: record?.display_name || null,
+            source_url: record?.source_url || null,
+            download_url: record?.download_url || null,
+          };
+        });
+      const attachPlugin = (items: string[]) =>
+        items.map((name) => {
+          const record = comfyPluginCatalogMap[name];
+          return {
+            name,
+            display_name: record?.display_name || null,
+            source_url: record?.source_url || null,
+            download_url: record?.download_url || null,
+          };
+        });
+      return {
+        baseline: {
+          id: baselineId,
+          name: comfyBaselineExecutor?.name || '',
+          baseUrl: comfyBaselineExecutor?.base_url || '',
+        },
+        server: {
+          id: executor.id,
+          name: executor.name,
+          baseUrl: executor.base_url || '',
+        },
+        missing,
+        missing_details: {
+          unet: attachModel(missing.unet, 'unet'),
+          clip: attachModel(missing.clip, 'clip'),
+          vae: attachModel(missing.vae, 'vae'),
+          lora: attachModel(missing.lora, 'lora'),
+          nodes: attachPlugin(missing.nodes),
+        },
+        totals: {
+          unet: unetList.length,
+          clip: clipList.length,
+          vae: vaeList.length,
+          lora: loraList.length,
+          nodes: nodeKeys.length,
+        },
+      };
+    },
+    [
+      comfyBaselineExecutor?.base_url,
+      comfyBaselineExecutor?.id,
+      comfyBaselineExecutor?.name,
+      comfyBaselineSets,
+      comfyModelCatalogMap,
+      comfyPluginCatalogMap,
+      comfyNodeCache,
+      resolveComfyModelList,
+    ],
+  );
+  const buildComfyDiffSnapshot = useCallback(() => {
+    if (!comfyBaselineExecutor?.id) return null;
+    return {
+      generatedAt: new Date().toISOString(),
+      baseline: {
+        id: comfyBaselineExecutor.id,
+        name: comfyBaselineExecutor.name,
+        baseUrl: comfyBaselineExecutor.base_url || '',
+      },
+      servers: comfyExecutors.map((executor) => ({
+        ...buildComfyServerDiff(executor),
+        isBaseline: executor.id === comfyBaselineExecutor.id,
+      })),
+    };
+  }, [buildComfyServerDiff, comfyBaselineExecutor, comfyExecutors]);
+  const handleSaveComfyDiffSnapshot = useCallback(async () => {
+    const snapshot = buildComfyDiffSnapshot();
+    if (!snapshot) {
+      alert('请先选择主服务器');
+      return;
+    }
+    if (!snapshot.baseline?.id) {
+      alert('缺少主服务器 ID');
+      return;
+    }
+    setComfyDiffSaving(true);
+    try {
+      await adminApi.saveComfyuiServerDiff({
+        baseline_executor_id: snapshot.baseline.id,
+        payload: snapshot,
+      });
+      alert('已保存对齐结果');
+    } catch (error: any) {
+      console.error('save comfyui server diff failed', error);
+      alert(error?.message || '保存失败');
+    } finally {
+      setComfyDiffSaving(false);
+    }
+  }, [buildComfyDiffSnapshot]);
+  const evaluateWorkflowOnExecutor = useCallback(
+    (deps: ComfyWorkflowDependencies, executor: Executor) => {
+      const nodeKeys = comfyNodeCache[executor.id] || [];
+      const nodesReady = nodeKeys.length > 0;
+      const unetList = resolveComfyModelList(executor.id, 'unet');
+      const clipList = resolveComfyModelList(executor.id, 'clip');
+      const vaeList = resolveComfyModelList(executor.id, 'vae');
+      const loraList = resolveComfyModelList(executor.id, 'lora');
+      const modelsReady = Boolean(comfyModelCache[executor.id]);
+      const missing = {
+        nodes: diffMissingItems(new Set(deps.nodes), nodeKeys),
+        unet: diffMissingItems(new Set(deps.models.unet), unetList),
+        clip: diffMissingItems(new Set(deps.models.clip), clipList),
+        vae: diffMissingItems(new Set(deps.models.vae), vaeList),
+        lora: diffMissingItems(new Set(deps.models.lora), loraList),
+      };
+      const hasDeps =
+        deps.nodes.length > 0 ||
+        deps.models.unet.length > 0 ||
+        deps.models.clip.length > 0 ||
+        deps.models.vae.length > 0 ||
+        deps.models.lora.length > 0;
+      const ok =
+        !hasDeps ||
+        (missing.nodes.length === 0 &&
+          missing.unet.length === 0 &&
+          missing.clip.length === 0 &&
+          missing.vae.length === 0 &&
+          missing.lora.length === 0);
+      return {
+        ready: nodesReady && modelsReady,
+        ok,
+        missing,
+      };
+    },
+    [comfyModelCache, comfyNodeCache, resolveComfyModelList],
+  );
   const workflowDefinitionParse = useMemo(
     () => safeParseJSON(workflowForm.definition),
+    [workflowForm.definition],
+  );
+  const workflowDefinitionInfo = useMemo(
+    () => resolveComfyuiDefinition(workflowForm.definition),
     [workflowForm.definition],
   );
   const workflowMetadataParse = useMemo(
@@ -1091,6 +1847,16 @@ export function IntegrationDashboard({
     workflowForm.definition && !workflowDefinitionParse.ok ? 'Workflow JSON 解析失败，请检查格式。' : '';
   const workflowMetadataError =
     workflowForm.metadata && !workflowMetadataParse.ok ? 'metadata JSON 解析失败，请检查格式。' : '';
+  const workflowDefinitionNotice = useMemo(() => {
+    if (!workflowForm.definition || !workflowDefinitionParse.ok) return '';
+    if (workflowDefinitionInfo.source === 'ui') {
+      return '检测到 ComfyUI UI JSON，保存时会自动转换为 Prompt Graph。';
+    }
+    if (workflowDefinitionInfo.source === 'unknown') {
+      return 'JSON 已解析，但未识别为 ComfyUI Workflow；节点解析可能为空。';
+    }
+    return '';
+  }, [workflowForm.definition, workflowDefinitionParse.ok, workflowDefinitionInfo.source]);
   const workflowMappingErrors = useMemo(() => {
     const errors: string[] = [];
     if (workflowInputMap.length === 0 && workflowOutputNodeIds.length === 0) {
@@ -1139,6 +1905,54 @@ export function IntegrationDashboard({
     });
     return errors;
   }, [workflowInputMap, workflowOutputNodeIds, comfyWorkflowNodes, comfyWorkflowNodeMap]);
+
+  const renderComfyDiffTag = useCallback(
+    (options: { baselineReady: boolean; targetReady: boolean; missing: string[]; okLabel?: string }) => {
+      const okLabel = options.okLabel || '齐全';
+      if (!options.baselineReady) {
+        return (
+          <Tag theme="warning" variant="light">
+            主服务器未拉取
+          </Tag>
+        );
+      }
+      if (!options.targetReady) {
+        return (
+          <Tag theme="warning" variant="light">
+            未拉取
+          </Tag>
+        );
+      }
+      if (options.missing.length === 0) {
+        return (
+          <Tag theme="success" variant="light">
+            {okLabel}
+          </Tag>
+        );
+      }
+      const content = (
+        <div className="max-w-xs text-xs leading-5">
+          {options.missing.join('、')}
+        </div>
+      );
+      return (
+        <Popup trigger="hover" placement="right" content={content}>
+          <Tag theme="danger" variant="light">
+            缺失 {options.missing.length}
+          </Tag>
+        </Popup>
+      );
+    },
+    [],
+  );
+  const comfyDiffDialogText = useMemo(() => {
+    if (!comfyDiffDialogPayload) return '';
+    try {
+      return JSON.stringify(comfyDiffDialogPayload, null, 2);
+    } catch {
+      return '';
+    }
+  }, [comfyDiffDialogPayload]);
   const workflowSubmitDisabled =
     !workflowForm.action?.trim() ||
     !workflowForm.name?.trim() ||
@@ -1345,6 +2159,10 @@ export function IntegrationDashboard({
     () => parseAbilitySchemaFields(selectedAbility?.input_schema),
     [selectedAbility],
   );
+  const abilitySchemaHasLora = useMemo(
+    () => abilitySchemaFields.some((field) => field.name === 'lora' || field.name === 'lora_name'),
+    [abilitySchemaFields],
+  );
   const selectedAbilitySchemaIssues = useMemo(
     () => getAbilitySchemaIssues(selectedAbility),
     [selectedAbility],
@@ -1369,10 +2187,40 @@ export function IntegrationDashboard({
       lora_name: toOptions(catalog.lora),
     } as Record<string, AbilitySchemaFieldOption[] | undefined>;
   }, [selectedAbility?.provider, activeComfyExecutorId, comfyModelCache]);
+  const comfyLoraOptionsByField = useMemo(() => {
+    if (selectedAbility?.provider !== 'comfyui' || !activeComfyExecutorId) return {};
+    const items = comfyLoraSelectCache[activeComfyExecutorId];
+    if (!items || items.length === 0) return {};
+    const loraMeta = parseLoraMetadata(selectedAbility.metadata as JsonRecord | null);
+    const allowedFiles = new Set(loraMeta.allowedFiles);
+    const allowedTags = new Set(loraMeta.allowedTags);
+    const allowedBaseModels = new Set(loraMeta.allowedBaseModels);
+    const filteredItems = items.filter((item) => {
+      if (allowedFiles.size > 0 && !allowedFiles.has(item.file_name)) return false;
+      if (allowedTags.size > 0) {
+        const tags = (item.tags || []).map((tag) => tag.trim());
+        if (!tags.some((tag) => allowedTags.has(tag))) return false;
+      }
+      if (allowedBaseModels.size > 0) {
+        const baseModels = resolveLoraBaseModels(item);
+        if (!baseModels.some((model) => allowedBaseModels.has(model))) return false;
+      }
+      return true;
+    });
+    const options = filteredItems.map((item) => {
+      const display = item.display_name || item.file_name;
+      const label = display !== item.file_name ? `${display} (${item.file_name})` : display;
+      return { value: item.file_name, label };
+    });
+    return {
+      lora: options,
+      lora_name: options,
+    } as Record<string, AbilitySchemaFieldOption[] | undefined>;
+  }, [selectedAbility?.provider, selectedAbility?.metadata, activeComfyExecutorId, comfyLoraSelectCache]);
   const renderedSchemaFields = useMemo(() => {
     if (!abilitySchemaFields.length) return abilitySchemaFields;
     return abilitySchemaFields.map((field) => {
-      const dynamicOptions = comfyModelOptionsByField[field.name];
+      const dynamicOptions = comfyLoraOptionsByField[field.name] || comfyModelOptionsByField[field.name];
       if (dynamicOptions && dynamicOptions.length > 0) {
         const preferSelect = field.type === 'select' || field.component === 'select';
         return {
@@ -1383,7 +2231,7 @@ export function IntegrationDashboard({
       }
       return field;
     });
-  }, [abilitySchemaFields, comfyModelOptionsByField]);
+  }, [abilitySchemaFields, comfyModelOptionsByField, comfyLoraOptionsByField]);
   const selectedAbilityTags = useMemo(
     () => (selectedAbility ? extractAbilityTags(selectedAbility) : []),
     [selectedAbility],
@@ -1634,6 +2482,11 @@ export function IntegrationDashboard({
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
+  const downloadJson = (data: unknown, filename: string) => {
+    const payload = JSON.stringify(data, null, 2);
+    downloadBlob(new Blob([payload], { type: 'application/json' }), filename);
+  };
+
   const refreshAbilityLogMetrics = async () => {
     setAbilityLogMetricsLoading(true);
     setAbilityLogMetricsError(null);
@@ -1751,8 +2604,104 @@ export function IntegrationDashboard({
     };
   }, [selectedAbility?.provider, activeComfyExecutorId, comfyModelCache]);
 
+  useEffect(() => {
+    if (selectedAbility?.provider !== 'comfyui' || !activeComfyExecutorId || !abilitySchemaHasLora) {
+      return;
+    }
+    if (comfyLoraSelectCache[activeComfyExecutorId]) return;
+    let cancelled = false;
+    adminApi
+      .listComfyuiLoras({
+        executorId: activeComfyExecutorId,
+        status: 'active',
+        includeUntracked: false,
+      })
+      .then((resp) => {
+        if (cancelled) return;
+        setComfyLoraSelectCache((prev) => ({ ...prev, [activeComfyExecutorId]: resp.items || [] }));
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.error('Failed to load ComfyUI LoRA catalog for schema:', error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAbility?.provider, activeComfyExecutorId, abilitySchemaHasLora, comfyLoraSelectCache]);
+
+  useEffect(() => {
+    if (!abilityDialogOpen) return;
+    if ((abilityForm.provider || '').toLowerCase() !== 'comfyui') return;
+    if (!abilityFormComfyExecutorId) return;
+    if (comfyLoraSelectCache[abilityFormComfyExecutorId]) return;
+    let cancelled = false;
+    adminApi
+      .listComfyuiLoras({
+        executorId: abilityFormComfyExecutorId,
+        status: 'active',
+        includeUntracked: false,
+      })
+      .then((resp) => {
+        if (cancelled) return;
+        setComfyLoraSelectCache((prev) => ({ ...prev, [abilityFormComfyExecutorId]: resp.items || [] }));
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.error('Failed to load ComfyUI LoRA catalog for ability form:', error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [abilityDialogOpen, abilityForm.provider, abilityFormComfyExecutorId, comfyLoraSelectCache]);
+
+  const mergeComfyBaseModels = useCallback((executorId: string, incoming: string[]) => {
+    if (!executorId) return;
+    const cleaned = incoming.map((item) => item.trim()).filter(Boolean);
+    if (cleaned.length === 0) return;
+    setComfyBaseModelCache((prev) => {
+      const existing = prev[executorId] || [];
+      const merged = Array.from(new Set([...existing, ...cleaned]));
+      return { ...prev, [executorId]: merged };
+    });
+    setComfyModelCache((prev) => {
+      const existing = prev[executorId] || {};
+      const existingList = Array.isArray(existing.unet) ? existing.unet : [];
+      const merged = Array.from(new Set([...existingList, ...cleaned]));
+      return { ...prev, [executorId]: { ...existing, unet: merged } };
+    });
+  }, []);
+
+  const removeComfyBaseModel = useCallback(
+    (executorId: string, model: string) => {
+      if (!executorId) return;
+      setComfyBaseModelCache((prev) => {
+        const existing = prev[executorId] || [];
+        const next = existing.filter((item) => item !== model);
+        return { ...prev, [executorId]: next };
+      });
+      setComfyModelCache((prev) => {
+        const existing = prev[executorId] || {};
+        const existingList = Array.isArray(existing.unet) ? existing.unet : [];
+        const next = existingList.filter((item) => item !== model);
+        return { ...prev, [executorId]: { ...existing, unet: next } };
+      });
+    },
+    [],
+  );
+
+  const clearComfyBaseModels = useCallback((executorId: string) => {
+    if (!executorId) return;
+    setComfyBaseModelCache((prev) => ({ ...prev, [executorId]: [] }));
+    setComfyModelCache((prev) => {
+      const existing = prev[executorId] || {};
+      const next = { ...existing };
+      if (next.unet) next.unet = [];
+      return { ...prev, [executorId]: next };
+    });
+  }, []);
+
   const refreshComfyuiModelCatalog = useCallback(
-    async (executorId: string, options?: { silent?: boolean }) => {
+    async (executorId: string, options?: { silent?: boolean; includeNodes?: boolean }) => {
       if (!executorId) return;
       const silent = Boolean(options?.silent);
       if (!silent) {
@@ -1760,10 +2709,21 @@ export function IntegrationDashboard({
       }
       setComfyModelErrorByExecutor((prev) => ({ ...prev, [executorId]: '' }));
       try {
-        const resp = await adminApi.getComfyuiModels(executorId);
+        const resp = await adminApi.getComfyuiModels(executorId, { includeNodes: options?.includeNodes });
+        const nextModels = resp.models || {};
+        const nextUnet = Array.isArray(nextModels.unet) ? nextModels.unet : [];
+        if (nextUnet.length > 0) {
+          mergeComfyBaseModels(resp.executorId, nextUnet);
+        }
+        if (resp.nodeKeys && Array.isArray(resp.nodeKeys)) {
+          setComfyNodeCache((prev) => ({
+            ...prev,
+            [resp.executorId]: resp.nodeKeys || [],
+          }));
+        }
         setComfyModelCache((prev) => ({
           ...prev,
-          [resp.executorId]: resp.models || {},
+          [resp.executorId]: { ...(prev[resp.executorId] || {}), ...nextModels, unet: nextUnet.length ? Array.from(new Set([...(prev[resp.executorId]?.unet || []), ...nextUnet])) : prev[resp.executorId]?.unet || [] },
         }));
       } catch (error: any) {
         console.error('Failed to load ComfyUI models:', error);
@@ -1775,6 +2735,211 @@ export function IntegrationDashboard({
         if (!silent) {
           setComfyModelLoadingByExecutor((prev) => ({ ...prev, [executorId]: false }));
         }
+      }
+    },
+    [mergeComfyBaseModels],
+  );
+
+  useEffect(() => {
+    if (!abilityDialogOpen) return;
+    if ((abilityForm.provider || '').toLowerCase() !== 'comfyui') return;
+    if (!abilityFormComfyExecutorId) return;
+    if (comfyModelCache[abilityFormComfyExecutorId]) return;
+    refreshComfyuiModelCatalog(abilityFormComfyExecutorId, { silent: true });
+  }, [abilityDialogOpen, abilityForm.provider, abilityFormComfyExecutorId, comfyModelCache, refreshComfyuiModelCatalog]);
+
+  const refreshComfyuiLoraCatalog = useCallback(
+    async (options?: { silent?: boolean }) => {
+      if (!comfyLoraExecutorId) {
+        setComfyLoraCatalog(null);
+        setComfyLoraError(null);
+        return;
+      }
+      const silent = Boolean(options?.silent);
+      if (!silent) {
+        setComfyLoraLoading(true);
+      }
+      setComfyLoraError(null);
+      try {
+        const resp = await adminApi.listComfyuiLoras({
+          executorId: comfyLoraExecutorId,
+          q: comfyLoraSearch.trim() || undefined,
+          status: comfyLoraStatusFilter !== 'all' ? comfyLoraStatusFilter : undefined,
+          includeUntracked: true,
+        });
+        setComfyLoraCatalog(resp);
+      } catch (error: any) {
+        console.error('Failed to load ComfyUI LoRA catalog:', error);
+        setComfyLoraError(error?.message || '获取 LoRA 清单失败');
+      } finally {
+        if (!silent) {
+          setComfyLoraLoading(false);
+        }
+      }
+    },
+    [comfyLoraExecutorId, comfyLoraSearch, comfyLoraStatusFilter],
+  );
+
+  const resetComfyModelForm = useCallback((seed?: Partial<ComfyuiModelCatalogItem>) => {
+    const next = seed || { status: 'active', model_type: 'unet' };
+    setComfyModelForm(next);
+    setComfyModelFormTags(formatTextList(next.tags));
+    setComfyModelFormError(null);
+  }, []);
+
+  const refreshComfyModelCatalog = useCallback(
+    async (options?: { silent?: boolean }) => {
+      const silent = Boolean(options?.silent);
+      if (!silent) setComfyModelCatalogLoading(true);
+      setComfyModelCatalogError(null);
+      try {
+        const resp = await adminApi.listComfyuiModelCatalog({
+          q: comfyModelCatalogSearch.trim() || undefined,
+          type: comfyModelCatalogType !== 'all' ? comfyModelCatalogType : undefined,
+          status: comfyModelCatalogStatus !== 'all' ? comfyModelCatalogStatus : undefined,
+        });
+        setComfyModelCatalogItems(resp.items || []);
+      } catch (error: any) {
+        console.error('Failed to load ComfyUI model catalog:', error);
+        setComfyModelCatalogError(error?.message || '获取模型清单失败');
+      } finally {
+        if (!silent) setComfyModelCatalogLoading(false);
+      }
+    },
+    [comfyModelCatalogSearch, comfyModelCatalogStatus, comfyModelCatalogType],
+  );
+
+  const handleComfyModelSave = useCallback(async () => {
+    const fileName = (comfyModelForm.file_name || '').trim();
+    const displayName = (comfyModelForm.display_name || '').trim();
+    const modelType = (comfyModelForm.model_type || '').trim() || 'unet';
+    if (!fileName || !displayName) {
+      setComfyModelFormError('请填写模型文件名与对外名称');
+      return;
+    }
+    setComfyModelSaving(true);
+    setComfyModelFormError(null);
+    try {
+      const payload: Partial<ComfyuiModelCatalogItem> = {
+        file_name: fileName,
+        display_name: displayName,
+        model_type: modelType,
+        description: comfyModelForm.description,
+        source_url: comfyModelForm.source_url,
+        download_url: comfyModelForm.download_url,
+        status: comfyModelForm.status || 'active',
+        tags: normalizeTextList(comfyModelFormTags),
+      };
+      if (comfyModelForm.id) {
+        await adminApi.updateComfyuiModelCatalog(comfyModelForm.id, payload);
+      } else {
+        await adminApi.createComfyuiModelCatalog(payload);
+      }
+      setComfyModelDialogOpen(false);
+      resetComfyModelForm();
+      refreshComfyModelCatalog({ silent: true });
+    } catch (error: any) {
+      console.error('save comfyui model catalog failed', error);
+      setComfyModelFormError(error?.message || '保存失败');
+    } finally {
+      setComfyModelSaving(false);
+    }
+  }, [comfyModelForm, comfyModelFormTags, refreshComfyModelCatalog, resetComfyModelForm]);
+
+  const handleComfyModelDelete = useCallback(
+    async (id: number) => {
+      await adminApi.deleteComfyuiModelCatalog(id);
+      refreshComfyModelCatalog({ silent: true });
+    },
+    [refreshComfyModelCatalog],
+  );
+
+  const resetComfyPluginForm = useCallback((seed?: Partial<ComfyuiPluginCatalogItem>) => {
+    const next = seed || { status: 'active' };
+    setComfyPluginForm(next);
+    setComfyPluginFormTags(formatTextList(next.tags));
+    setComfyPluginFormError(null);
+  }, []);
+
+  const refreshComfyPluginCatalog = useCallback(
+    async (options?: { silent?: boolean }) => {
+      const silent = Boolean(options?.silent);
+      if (!silent) setComfyPluginCatalogLoading(true);
+      setComfyPluginCatalogError(null);
+      try {
+        const resp = await adminApi.listComfyuiPluginCatalog({
+          q: comfyPluginCatalogSearch.trim() || undefined,
+          status: comfyPluginCatalogStatus !== 'all' ? comfyPluginCatalogStatus : undefined,
+        });
+        setComfyPluginCatalogItems(resp.items || []);
+      } catch (error: any) {
+        console.error('Failed to load ComfyUI plugin catalog:', error);
+        setComfyPluginCatalogError(error?.message || '获取插件清单失败');
+      } finally {
+        if (!silent) setComfyPluginCatalogLoading(false);
+      }
+    },
+    [comfyPluginCatalogSearch, comfyPluginCatalogStatus],
+  );
+
+  const handleComfyPluginSave = useCallback(async () => {
+    const nodeKey = (comfyPluginForm.node_key || '').trim();
+    const displayName = (comfyPluginForm.display_name || '').trim();
+    if (!nodeKey || !displayName) {
+      setComfyPluginFormError('请填写节点 key 与对外名称');
+      return;
+    }
+    setComfyPluginSaving(true);
+    setComfyPluginFormError(null);
+    try {
+      const payload: Partial<ComfyuiPluginCatalogItem> = {
+        node_key: nodeKey,
+        display_name: displayName,
+        package_name: comfyPluginForm.package_name,
+        version: comfyPluginForm.version,
+        description: comfyPluginForm.description,
+        source_url: comfyPluginForm.source_url,
+        download_url: comfyPluginForm.download_url,
+        status: comfyPluginForm.status || 'active',
+        tags: normalizeTextList(comfyPluginFormTags),
+      };
+      if (comfyPluginForm.id) {
+        await adminApi.updateComfyuiPluginCatalog(comfyPluginForm.id, payload);
+      } else {
+        await adminApi.createComfyuiPluginCatalog(payload);
+      }
+      setComfyPluginDialogOpen(false);
+      resetComfyPluginForm();
+      refreshComfyPluginCatalog({ silent: true });
+    } catch (error: any) {
+      console.error('save comfyui plugin catalog failed', error);
+      setComfyPluginFormError(error?.message || '保存失败');
+    } finally {
+      setComfyPluginSaving(false);
+    }
+  }, [comfyPluginForm, comfyPluginFormTags, refreshComfyPluginCatalog, resetComfyPluginForm]);
+
+  const handleComfyPluginDelete = useCallback(
+    async (id: number) => {
+      await adminApi.deleteComfyuiPluginCatalog(id);
+      refreshComfyPluginCatalog({ silent: true });
+    },
+    [refreshComfyPluginCatalog],
+  );
+
+  const refreshComfyDiffLogs = useCallback(
+    async (options?: { silent?: boolean }) => {
+      const silent = Boolean(options?.silent);
+      if (!silent) setComfyDiffLogsLoading(true);
+      setComfyDiffLogsError(null);
+      try {
+        const resp = await adminApi.listComfyuiServerDiff(12);
+        setComfyDiffLogs(resp || []);
+      } catch (error: any) {
+        console.error('Failed to load comfyui diff logs', error);
+        setComfyDiffLogsError(error?.message || '获取对齐记录失败');
+      } finally {
+        if (!silent) setComfyDiffLogsLoading(false);
       }
     },
     [],
@@ -1806,6 +2971,137 @@ export function IntegrationDashboard({
     },
     [],
   );
+
+  const refreshComfyuiServers = useCallback(async () => {
+    if (comfyExecutors.length === 0) return;
+    setComfyServerRefreshing(true);
+    await Promise.all(
+      comfyExecutors.map(async (executor) => {
+        await Promise.all([
+          refreshComfyuiSystemStats(executor.id, { silent: true }),
+          refreshComfyuiModelCatalog(executor.id, { silent: true, includeNodes: true }),
+        ]);
+      }),
+    );
+    setComfyServerRefreshing(false);
+  }, [comfyExecutors, refreshComfyuiModelCatalog, refreshComfyuiSystemStats]);
+
+  const handleComfyuiServerCreate = async () => {
+    const name = comfyServerForm.name.trim();
+    const baseUrl = comfyServerForm.base_url.trim();
+    if (!name) {
+      setComfyServerFormError('请填写服务器名称');
+      return;
+    }
+    if (!baseUrl || !(baseUrl.startsWith('http://') || baseUrl.startsWith('https://'))) {
+      setComfyServerFormError('Base URL 需以 http:// 或 https:// 开头');
+      return;
+    }
+    setComfyServerSaving(true);
+    setComfyServerFormError(null);
+    try {
+      await adminApi.createExecutor({
+        name,
+        type: 'comfyui',
+        base_url: baseUrl,
+        status: comfyServerForm.status || 'active',
+        weight: Math.max(1, Math.min(999, Number(comfyServerForm.weight) || 1)),
+        max_concurrency: Math.max(1, Math.min(50, Number(comfyServerForm.max_concurrency) || 1)),
+      });
+      setComfyServerForm({ name: '', base_url: '', max_concurrency: 1, weight: 1, status: 'active' });
+      await load();
+    } catch (error: any) {
+      console.error('create comfyui server failed', error);
+      setComfyServerFormError(error?.message || '新增失败');
+    } finally {
+      setComfyServerSaving(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeNav !== 'comfyui-management') return;
+    if (!comfyLoraExecutorId && comfyExecutors.length > 0) {
+      setComfyLoraExecutorId(comfyExecutors[0].id);
+    }
+  }, [activeNav, comfyExecutors, comfyLoraExecutorId]);
+
+  useEffect(() => {
+    if (activeNav !== 'comfyui-management') return;
+    if (!comfyLoraExecutorId) return;
+    if (!comfyModelCache[comfyLoraExecutorId]) {
+      refreshComfyuiModelCatalog(comfyLoraExecutorId, { silent: true });
+    }
+  }, [activeNav, comfyLoraExecutorId, comfyModelCache, refreshComfyuiModelCatalog]);
+
+  useEffect(() => {
+    if (activeNav !== 'comfyui-management') return;
+    refreshComfyuiLoraCatalog();
+  }, [activeNav, comfyLoraExecutorId, comfyLoraSearch, comfyLoraStatusFilter, refreshComfyuiLoraCatalog]);
+
+  useEffect(() => {
+    if (activeNav !== 'comfyui-management' || comfyuiManageTab !== 'assets') return;
+    refreshComfyModelCatalog();
+    refreshComfyPluginCatalog();
+  }, [
+    activeNav,
+    comfyuiManageTab,
+    comfyModelCatalogSearch,
+    comfyModelCatalogStatus,
+    comfyModelCatalogType,
+    comfyPluginCatalogSearch,
+    comfyPluginCatalogStatus,
+    refreshComfyModelCatalog,
+    refreshComfyPluginCatalog,
+  ]);
+
+  useEffect(() => {
+    if (activeNav !== 'comfyui-management' || comfyuiManageTab !== 'servers') return;
+    const baselineId = comfyBaselineExecutor?.id;
+    if (!baselineId) return;
+    if (!comfyModelCache[baselineId]) {
+      refreshComfyuiModelCatalog(baselineId, { silent: true, includeNodes: true });
+    }
+    if (!comfySystemCache[baselineId]) {
+      refreshComfyuiSystemStats(baselineId, { silent: true });
+    }
+    if (comfyModelCatalogItems.length === 0) {
+      refreshComfyModelCatalog({ silent: true });
+    }
+    if (comfyPluginCatalogItems.length === 0) {
+      refreshComfyPluginCatalog({ silent: true });
+    }
+    refreshComfyDiffLogs({ silent: true });
+  }, [
+    activeNav,
+    comfyuiManageTab,
+    comfyBaselineExecutor?.id,
+    comfyModelCache,
+    comfySystemCache,
+    comfyModelCatalogItems.length,
+    comfyPluginCatalogItems.length,
+    refreshComfyuiModelCatalog,
+    refreshComfyuiSystemStats,
+    refreshComfyModelCatalog,
+    refreshComfyPluginCatalog,
+    refreshComfyDiffLogs,
+  ]);
+
+  useEffect(() => {
+    if (activeNav !== 'comfyui-management' || comfyuiManageTab !== 'templates') return;
+    if (comfyExecutors.length === 0) return;
+    comfyExecutors.forEach((executor) => {
+      if (!comfyModelCache[executor.id] || !comfyNodeCache[executor.id]) {
+        refreshComfyuiModelCatalog(executor.id, { silent: true, includeNodes: true });
+      }
+    });
+  }, [
+    activeNav,
+    comfyuiManageTab,
+    comfyExecutors,
+    comfyModelCache,
+    comfyNodeCache,
+    refreshComfyuiModelCatalog,
+  ]);
 
   const refreshComfyQueueStatus = useCallback(
     async (options?: { silent?: boolean }) => {
@@ -2246,6 +3542,71 @@ export function IntegrationDashboard({
     workflowOutputNodeIds,
   ]);
 
+  useEffect(() => {
+    if (baseModelCacheLoadedRef.current) return;
+    baseModelCacheLoadedRef.current = true;
+    try {
+      const raw = localStorage.getItem(COMFYUI_BASE_MODEL_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = safeParseJSON(raw);
+      if (!parsed.ok || !parsed.value || typeof parsed.value !== 'object') return;
+      const record = parsed.value as Record<string, unknown>;
+      const normalized: Record<string, string[]> = {};
+      Object.entries(record).forEach(([executorId, value]) => {
+        const items = normalizeTextList(value);
+        if (items.length > 0) {
+          normalized[executorId] = Array.from(new Set(items));
+        }
+      });
+      if (Object.keys(normalized).length === 0) return;
+      setComfyBaseModelCache(normalized);
+      setComfyModelCache((prev) => {
+        const next = { ...prev };
+        Object.entries(normalized).forEach(([executorId, list]) => {
+          const existing = next[executorId] || {};
+          const merged = Array.from(new Set([...(existing.unet || []), ...list]));
+          next[executorId] = { ...existing, unet: merged };
+        });
+        return next;
+      });
+    } catch (error) {
+      console.warn('Failed to load comfy base model cache', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(COMFYUI_BASE_MODEL_STORAGE_KEY, JSON.stringify(comfyBaseModelCache));
+    } catch (error) {
+      console.warn('Failed to persist comfy base model cache', error);
+    }
+  }, [comfyBaseModelCache]);
+
+  useEffect(() => {
+    if (baselineLoadedRef.current) return;
+    if (comfyExecutors.length === 0) return;
+    baselineLoadedRef.current = true;
+    try {
+      const stored = localStorage.getItem(COMFYUI_BASELINE_STORAGE_KEY);
+      if (stored && comfyExecutors.some((executor) => executor.id === stored)) {
+        setComfyBaselineExecutorId(stored);
+        return;
+      }
+    } catch (error) {
+      console.warn('Failed to read comfy baseline id', error);
+    }
+    setComfyBaselineExecutorId(comfyExecutors[0]?.id || '');
+  }, [comfyExecutors]);
+
+  useEffect(() => {
+    if (!comfyBaselineExecutorId) return;
+    try {
+      localStorage.setItem(COMFYUI_BASELINE_STORAGE_KEY, comfyBaselineExecutorId);
+    } catch (error) {
+      console.warn('Failed to persist comfy baseline id', error);
+    }
+  }, [comfyBaselineExecutorId]);
+
   const handleAbilitySubmit = async () => {
     if (
       !abilityForm.provider ||
@@ -2279,12 +3640,44 @@ export function IntegrationDashboard({
         delete nextMetadata.routing_policy;
       }
       nextMetadata.fallback_to_default = Boolean(abilityFallbackToDefault);
+
+      const cleanedLoraFiles = abilityLoraAllowedFiles.filter((name) => name && name.trim());
+      const cleanedLoraTags = normalizeTagList(abilityLoraAllowedTags)
+        .map((item) => item.trim())
+        .filter(Boolean);
+      if (cleanedLoraFiles.length > 0) {
+        nextMetadata.allowed_lora_files = cleanedLoraFiles;
+      } else {
+        delete nextMetadata.allowed_lora_files;
+      }
+      if (cleanedLoraTags.length > 0) {
+        nextMetadata.allowed_lora_tags = cleanedLoraTags;
+      } else {
+        delete nextMetadata.allowed_lora_tags;
+      }
+      const cleanedBaseModels = abilityLoraAllowedBaseModels.filter((name) => name && name.trim());
+      if (cleanedBaseModels.length > 0) {
+        nextMetadata.allowed_lora_base_models = cleanedBaseModels;
+      } else {
+        delete nextMetadata.allowed_lora_base_models;
+      }
+      if (abilityLoraDefault && abilityLoraDefault.trim()) {
+        nextMetadata.default_lora = abilityLoraDefault.trim();
+      } else {
+        delete nextMetadata.default_lora;
+      }
+      if (abilityLoraPolicy && abilityLoraPolicy !== 'fallback') {
+        nextMetadata.lora_policy = abilityLoraPolicy;
+      } else {
+        delete nextMetadata.lora_policy;
+      }
     }
 
     const payload: Partial<Ability> = {
       provider: abilityForm.provider,
       category: abilityForm.category,
       capability_key: abilityForm.capability_key,
+      version: abilityForm.version || 'v1',
       display_name: abilityForm.display_name,
       description: abilityForm.description,
       status: abilityForm.status,
@@ -2306,14 +3699,21 @@ export function IntegrationDashboard({
     setAbilityAllowedExecutors([]);
     setAbilityRequiredTags('');
     setAbilityFallbackToDefault(true);
+    setAbilityLoraDefault('');
+    setAbilityLoraAllowedFiles([]);
+    setAbilityLoraAllowedTags('');
+    setAbilityLoraAllowedBaseModels([]);
+    setAbilityLoraPolicy('fallback');
     setAbilityDialogOpen(false);
     load();
   };
 
   const handleAbilityEdit = (ability: Ability) => {
     const routing = parseRoutingMetadata(ability.metadata as JsonRecord | null);
+    const loraMeta = parseLoraMetadata(ability.metadata as JsonRecord | null);
     setAbilityForm({
       ...ability,
+      version: ability.version || 'v1',
       ability_type: ability.ability_type || abilityTypeOptions[0].value,
       workflow_id: ability.workflow_id || undefined,
       default_params: formatJsonValue(ability.default_params),
@@ -2324,6 +3724,11 @@ export function IntegrationDashboard({
     setAbilityAllowedExecutors(routing.allowed);
     setAbilityRequiredTags(routing.required.join(', '));
     setAbilityFallbackToDefault(routing.fallback);
+    setAbilityLoraDefault(loraMeta.defaultLora || '');
+    setAbilityLoraAllowedFiles(loraMeta.allowedFiles || []);
+    setAbilityLoraAllowedTags((loraMeta.allowedTags || []).join(', '));
+    setAbilityLoraAllowedBaseModels(loraMeta.allowedBaseModels || []);
+    setAbilityLoraPolicy(loraMeta.policy || 'fallback');
     setAbilityDialogOpen(true);
   };
 
@@ -2872,6 +4277,74 @@ const normalizeErrorMessage = (message: string): string => {
     }
   };
 
+  const resetComfyLoraForm = (seed?: Partial<ComfyuiLora>) => {
+    const next = { status: 'active', ...(seed || {}) };
+    const baseModels = resolveLoraBaseModels(next);
+    setComfyLoraForm({ ...next, base_models: baseModels });
+    setComfyLoraTagsInput(formatTextList(next.tags));
+    setComfyLoraTriggersInput(formatTextList(next.trigger_words));
+    setComfyLoraFormError(null);
+  };
+
+  const handleComfyLoraSave = async () => {
+    const fileName = String(comfyLoraForm.file_name || '').trim();
+    const displayName = String(comfyLoraForm.display_name || '').trim();
+    if (!fileName) {
+      setComfyLoraFormError('请填写服务器上的 LoRA 文件名');
+      return;
+    }
+    if (!displayName) {
+      setComfyLoraFormError('请填写对外展示名称');
+      return;
+    }
+    const payload: Partial<ComfyuiLora> = {
+      file_name: fileName,
+      display_name: displayName,
+      description: String(comfyLoraForm.description || '').trim() || undefined,
+      status: String(comfyLoraForm.status || 'active'),
+    };
+    const baseModels = resolveLoraBaseModels(comfyLoraForm);
+    if (baseModels.length > 0) {
+      payload.base_models = baseModels;
+      if (baseModels.length === 1) {
+        payload.base_model = baseModels[0];
+      }
+    }
+    const tags = normalizeTextList(comfyLoraTagsInput);
+    const triggers = normalizeTextList(comfyLoraTriggersInput);
+    if (tags.length > 0) payload.tags = tags;
+    if (triggers.length > 0) payload.trigger_words = triggers;
+
+    setComfyLoraSaving(true);
+    setComfyLoraFormError(null);
+    try {
+      if (comfyLoraForm.id) {
+        await adminApi.updateComfyuiLora(Number(comfyLoraForm.id), payload);
+      } else {
+        await adminApi.createComfyuiLora(payload);
+      }
+      setComfyLoraDialogOpen(false);
+      resetComfyLoraForm();
+      await refreshComfyuiLoraCatalog();
+    } catch (error: any) {
+      console.error('save comfyui lora failed', error);
+      setComfyLoraFormError(error?.message || '保存失败，请检查网络或参数');
+    } finally {
+      setComfyLoraSaving(false);
+    }
+  };
+
+  const handleComfyLoraDelete = async (id: number) => {
+    if (!id) return;
+    try {
+      await adminApi.deleteComfyuiLora(id);
+      await refreshComfyuiLoraCatalog({ silent: true });
+    } catch (error: any) {
+      console.error('delete comfyui lora failed', error);
+      setComfyLoraError(error?.message || '删除 LoRA 失败');
+    }
+  };
+
   const saveExecutorConcurrency = useCallback(
     async (executorId: string) => {
       const executor = executors.find((ex) => ex.id === executorId);
@@ -2906,6 +4379,17 @@ const normalizeErrorMessage = (message: string): string => {
     syncWorkflowMetadata({ inputMap: next });
   };
 
+  const addWorkflowInputMapEntry = (nodeId: string, inputKey: string, fieldName?: string) => {
+    const next = [...workflowInputMap];
+    const signature = `${nodeId}::${inputKey}`;
+    const exists = next.some((item) => `${item.nodeId}::${item.inputKey}` === signature);
+    if (!exists) {
+      next.push({ field: fieldName?.trim() || inputKey, nodeId, inputKey, valueType: '' });
+      setWorkflowInputMap(next);
+      syncWorkflowMetadata({ inputMap: next });
+    }
+  };
+
   const removeWorkflowInputMap = (index: number) => {
     const next = workflowInputMap.filter((_, idx) => idx !== index);
     setWorkflowInputMap(next);
@@ -2915,6 +4399,42 @@ const normalizeErrorMessage = (message: string): string => {
   const updateWorkflowOutputNodes = (next: string[]) => {
     setWorkflowOutputNodeIds(next);
     syncWorkflowMetadata({ outputNodeIds: next });
+  };
+
+  const addWorkflowOutputNodeById = (nodeId: string) => {
+    if (!nodeId) return;
+    if (workflowOutputNodeIds.includes(nodeId)) return;
+    updateWorkflowOutputNodes([...workflowOutputNodeIds, nodeId]);
+  };
+
+  const updateWorkflowNodeInputValue = (nodeId: string, inputKey: string, value: unknown) => {
+    const info = resolveComfyuiDefinition(workflowForm.definition);
+    if (!info.ok || !info.graph) return;
+    const graph = { ...(info.graph as JsonRecord) };
+    const rawNode = graph[nodeId];
+    if (!rawNode || typeof rawNode !== 'object' || Array.isArray(rawNode)) return;
+    const node = { ...(rawNode as JsonRecord) };
+    const inputs =
+      node.inputs && typeof node.inputs === 'object'
+        ? { ...(node.inputs as JsonRecord) }
+        : {};
+    inputs[inputKey] = value as JsonValue;
+    node.inputs = inputs;
+    graph[nodeId] = node as JsonValue;
+    const payload = info.payload || {};
+    const workflowKey =
+      typeof (payload as Record<string, unknown>).workflow_key === 'string'
+        ? String((payload as Record<string, unknown>).workflow_key).trim()
+        : '';
+    let nextRecord: JsonRecord;
+    if (info.source === 'ui') {
+      nextRecord = workflowKey ? { workflow_key: workflowKey, graph } : { graph };
+    } else if (info.hasGraphContainer) {
+      nextRecord = { ...(payload as JsonRecord), graph };
+    } else {
+      nextRecord = graph;
+    }
+    setWorkflowForm((prev) => ({ ...prev, definition: stringifyJSON(nextRecord) }));
   };
 
   const pickWorkflowOutputNodes = (mode: 'save' | 'preview' | 'all' | 'clear') => {
@@ -2984,7 +4504,16 @@ const normalizeErrorMessage = (message: string): string => {
     }
     setWorkflowFormErrors([]);
     const { definition, metadata, ...rest } = workflowForm;
-    const definitionPayload = definition && workflowDefinitionParse.ok ? workflowDefinitionParse.value : undefined;
+    let definitionPayload = definition && workflowDefinitionParse.ok ? workflowDefinitionParse.value : undefined;
+    if (definitionPayload && workflowDefinitionInfo.ok && workflowDefinitionInfo.source === 'ui') {
+      const workflowKey =
+        typeof (workflowDefinitionInfo.payload as Record<string, unknown>).workflow_key === 'string'
+          ? String((workflowDefinitionInfo.payload as Record<string, unknown>).workflow_key).trim()
+          : '';
+      definitionPayload = workflowKey
+        ? { workflow_key: workflowKey, graph: workflowDefinitionInfo.graph }
+        : { graph: workflowDefinitionInfo.graph };
+    }
     const metadataPayload = metadata && workflowMetadataParse.ok ? workflowMetadataParse.value : {};
     if (workflowFormAllowedExecutors.length > 0) {
       metadataPayload.allowed_executor_ids = workflowFormAllowedExecutors;
@@ -3025,6 +4554,26 @@ const normalizeErrorMessage = (message: string): string => {
       console.error('save workflow failed', error);
       setWorkflowFormErrors([extractErrorMessage(error) || '保存失败，请检查网络或参数']);
     }
+  };
+
+  const handleWorkflowClone = (workflow: Workflow) => {
+    const { definition, metadata, nextVersion } = buildWorkflowClonePayload(workflow);
+    const parsedMeta = (metadata ? parseJSON(metadata) : {}) as JsonRecord;
+    const { definition: _ignoredDef, metadata: _ignoredMeta, ...rest } = workflow;
+    setWorkflowForm({
+      ...rest,
+      id: undefined,
+      version: nextVersion,
+      status: 'inactive',
+      definition: stringifyJSON(definition),
+      metadata: stringifyJSON(metadata),
+    });
+    setWorkflowFormAllowedExecutors(extractAllowedExecutorIds(parsedMeta));
+    setWorkflowInputMap(normalizeInputNodeMap(parsedMeta));
+    setWorkflowOutputNodeIds(normalizeOutputNodeIds(parsedMeta));
+    setWorkflowOutputPickerNodeId('');
+    setWorkflowOutputShowAll(false);
+    setWorkflowFormErrors([]);
   };
 
   const handleBindingSubmit = async () => {
@@ -3212,6 +4761,7 @@ const normalizeErrorMessage = (message: string): string => {
     }
     const baseItems = [
       { label: '能力 Key', value: selectedAbility.capability_key || '—' },
+      { label: '版本', value: selectedAbility.version || 'v1' },
       { label: '能力类型', value: getAbilityTypeLabel(selectedAbility.ability_type) || '—' },
       {
         label: '默认节点',
@@ -4791,7 +6341,7 @@ const normalizeErrorMessage = (message: string): string => {
           </Space>
         )}
       </Section>
-          )}
+        )}
 
           {activeNav === 'abilities' && (
       <Section
@@ -4808,7 +6358,7 @@ const normalizeErrorMessage = (message: string): string => {
           </p>
         </div>
       </Section>
-          )}
+        )}
 
           {activeNav === 'abilities' && (
       <Section
@@ -5390,6 +6940,7 @@ const normalizeErrorMessage = (message: string): string => {
                         {getAbilityTypeLabel(row.ability_type)}
                         {row.workflow_id ? ` · ${workflowLookup[row.workflow_id]?.name || row.workflow_id}` : ''}
                       </Typography.Text>
+                      {row.version ? <Typography.Text theme="secondary">版本 {row.version}</Typography.Text> : null}
                     </Space>
                   ),
                 },
@@ -5542,6 +7093,17 @@ const normalizeErrorMessage = (message: string): string => {
               </Col>
             </Row>
 
+            <Row gutter={[12, 12]}>
+              <Col span={6}>
+                <Typography.Text theme="secondary">版本</Typography.Text>
+                <Input
+                  value={abilityForm.version || 'v1'}
+                  onChange={(v) => setAbilityForm({ ...abilityForm, version: String(v) })}
+                  placeholder="例如 v1"
+                />
+              </Col>
+            </Row>
+
             <div>
               <Typography.Text theme="secondary">描述（选填）</Typography.Text>
               <Input
@@ -5663,6 +7225,108 @@ const normalizeErrorMessage = (message: string): string => {
                     <Typography.Text theme="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
                       逗号分隔。要求执行节点 config.tags 中包含全部标签。
                     </Typography.Text>
+                  </div>
+
+                  <div className="rounded-2xl border border-slate-200/70 bg-slate-50/70 p-4 dark:border-slate-800 dark:bg-slate-950/40">
+                    <Typography.Text className="text-sm font-semibold text-slate-900 dark:text-white">LoRA 绑定规则</Typography.Text>
+                    <Typography.Text theme="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
+                      用于限制能力可选 LoRA，并统一默认值（避免误选导致输出异常）。
+                    </Typography.Text>
+                    <Space direction="vertical" size="middle" style={{ width: '100%', marginTop: 12 }}>
+                      <div>
+                        <Typography.Text theme="secondary">默认 LoRA（不填则保持原参数）</Typography.Text>
+                        <input
+                          list="ability-lora-options"
+                          value={abilityLoraDefault}
+                          onChange={(e) => setAbilityLoraDefault(e.target.value)}
+                          placeholder="从 LoRA 清单选择或手动输入文件名"
+                          className={`${formControlClass} mt-2`}
+                        />
+                        <datalist id="ability-lora-options">
+                          {abilityFormLoraSelectOptions.map((option) => (
+                            <option key={`ability-lora-option-${option.value}`} value={option.value} />
+                          ))}
+                        </datalist>
+                      </div>
+                      <div>
+                        <Typography.Text theme="secondary">允许运行的 LoRA（多选）</Typography.Text>
+                        {abilityFormLoraSelectOptions.length > 0 ? (
+                          <select
+                            multiple
+                            value={abilityLoraAllowedFiles}
+                            onChange={(e) =>
+                              setAbilityLoraAllowedFiles(
+                                Array.from(e.target.selectedOptions).map((option) => option.value),
+                              )
+                            }
+                            className="mt-2 h-32 w-full rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white"
+                          >
+                            {abilityFormLoraSelectOptions.map((option) => (
+                              <option key={`ability-lora-${option.value}`} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <div className="mt-2 rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-3 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-950/40 dark:text-slate-500">
+                            LoRA 清单为空，请先在“ComfyUI 管理”中维护。
+                          </div>
+                        )}
+                        <Typography.Text theme="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
+                          不选表示“允许全部 LoRA”。
+                        </Typography.Text>
+                      </div>
+                      <div>
+                        <Typography.Text theme="secondary">允许运行的 LoRA 标签（逗号分隔）</Typography.Text>
+                        <Input
+                          value={abilityLoraAllowedTags}
+                          onChange={(v) => setAbilityLoraAllowedTags(String(v))}
+                          placeholder="例如：杯子, 毛毯, 服饰"
+                        />
+                        <Typography.Text theme="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
+                          标签会与 LoRA 清单匹配过滤，配合“允许运行的 LoRA”使用。
+                        </Typography.Text>
+                      </div>
+                      <div>
+                        <Typography.Text theme="secondary">允许运行的基座模型（多选）</Typography.Text>
+                        {abilityFormBaseModelOptions.length > 0 ? (
+                          <select
+                            multiple
+                            value={abilityLoraAllowedBaseModels}
+                            onChange={(e) =>
+                              setAbilityLoraAllowedBaseModels(
+                                Array.from(e.target.selectedOptions).map((option) => option.value),
+                              )
+                            }
+                            className="mt-2 h-28 w-full rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white"
+                          >
+                            {abilityFormBaseModelOptions.map((model) => (
+                              <option key={`ability-base-model-${model}`} value={model}>
+                                {model}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <div className="mt-2 rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-3 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-950/40 dark:text-slate-500">
+                            还未加载到基座模型清单，请刷新 ComfyUI 模型。
+                          </div>
+                        )}
+                        <Typography.Text theme="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
+                          不选表示不限制基座模型。
+                        </Typography.Text>
+                      </div>
+                      <div>
+                        <Typography.Text theme="secondary">不匹配时处理</Typography.Text>
+                        <Select
+                          value={abilityLoraPolicy}
+                          onChange={(v) => setAbilityLoraPolicy(String(v))}
+                          options={[
+                            { label: '回退到默认 LoRA', value: 'fallback' },
+                            { label: '直接忽略（使用原配置）', value: 'ignore' },
+                          ]}
+                        />
+                      </div>
+                    </Space>
                   </div>
                 </Space>
               </div>
@@ -5790,13 +7454,1232 @@ const normalizeErrorMessage = (message: string): string => {
         <AbilityEvaluationPage />
       </Section>
           )}
-          {activeNav === 'comfyui-templates' && (
+          {activeNav === 'comfyui-management' && (
       <Section
-        id="comfyui-templates"
-        title="ComfyUI 模板"
-        description="管理本地/云端多台 ComfyUI 服务器的 Workflow JSON，指定允许运行的节点，作为一类原子能力。后续 Workflow Builder 会基于这些模板拼装业务流程。"
+        id="comfyui-management"
+        title="ComfyUI 管理"
+        description="维护 ComfyUI 侧 LoRA/基座模型与工作流模板，并与能力配置保持一致。"
       >
-        <div className="grid gap-6 lg:grid-cols-[320px_1fr] lg:items-start">
+        <Space align="center" size="small" style={{ marginBottom: 16 }}>
+          <Button
+            variant={comfyuiManageTab === 'lora' ? 'outline' : 'text'}
+            theme={comfyuiManageTab === 'lora' ? 'primary' : 'default'}
+            onClick={() => setComfyuiManageTab('lora')}
+          >
+            素材库
+          </Button>
+          <Button
+            variant={comfyuiManageTab === 'assets' ? 'outline' : 'text'}
+            theme={comfyuiManageTab === 'assets' ? 'primary' : 'default'}
+            onClick={() => setComfyuiManageTab('assets')}
+          >
+            资源清单
+          </Button>
+          <Button
+            variant={comfyuiManageTab === 'servers' ? 'outline' : 'text'}
+            theme={comfyuiManageTab === 'servers' ? 'primary' : 'default'}
+            onClick={() => setComfyuiManageTab('servers')}
+          >
+            服务器
+          </Button>
+          <Button
+            variant={comfyuiManageTab === 'templates' ? 'outline' : 'text'}
+            theme={comfyuiManageTab === 'templates' ? 'primary' : 'default'}
+            onClick={() => setComfyuiManageTab('templates')}
+          >
+            模板管理
+          </Button>
+        </Space>
+        {comfyuiManageTab === 'lora' && (
+        <div className="space-y-4">
+          <Card bordered title="LoRA 素材库">
+            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+              <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                <Space align="center" size="middle">
+                  <div style={{ width: 260 }}>
+                    <Select
+                      value={comfyLoraExecutorId}
+                      onChange={(v) => setComfyLoraExecutorId(String(v))}
+                      options={[
+                        { label: '请选择 ComfyUI 执行节点', value: '' },
+                        ...comfyExecutors.map((executor) => ({
+                          label: `${executor.name} · ${executor.id}`,
+                          value: executor.id,
+                        })),
+                      ]}
+                    />
+                  </div>
+                  <Button
+                    variant="outline"
+                    disabled={!comfyLoraExecutorId || comfyLoraLoading}
+                    onClick={() => refreshComfyuiLoraCatalog()}
+                  >
+                    刷新 LoRA
+                  </Button>
+                  <Button
+                    variant="outline"
+                    disabled={!comfyLoraExecutorId}
+                    onClick={() => refreshComfyuiModelCatalog(comfyLoraExecutorId)}
+                  >
+                    刷新基座模型
+                  </Button>
+                </Space>
+                <Button
+                  theme="primary"
+                  onClick={() => {
+                    resetComfyLoraForm();
+                    setComfyLoraDialogOpen(true);
+                  }}
+                >
+                  新增 LoRA
+                </Button>
+              </Space>
+
+              {comfyLoraExecutor ? (
+                <div className="text-xs text-slate-600 dark:text-slate-400">
+                  当前节点：{comfyLoraExecutor.name} · {comfyLoraExecutor.id}{' '}
+                  {comfyLoraCatalog?.baseUrl ? `(${comfyLoraCatalog.baseUrl})` : ''}
+                </div>
+              ) : (
+                <Alert theme="warning" message="请先选择 ComfyUI 执行节点。" />
+              )}
+
+              {comfyLoraError ? <Alert theme="error" message={comfyLoraError} /> : null}
+
+              {comfyLoraExecutorId && comfyCachedBaseModels.length > 0 ? (
+                <div className="rounded-2xl border border-slate-200/70 bg-slate-50/60 p-3 text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-300">
+                  <div className="flex items-center justify-between">
+                    <div className="font-semibold">已缓存基座模型</div>
+                    <button
+                      className="text-[11px] text-slate-500 hover:text-slate-700 dark:hover:text-slate-200"
+                      onClick={() => clearComfyBaseModels(comfyLoraExecutorId)}
+                    >
+                      清空
+                    </button>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {comfyCachedBaseModels.map((model) => (
+                      <button
+                        key={`base-model-cache-${model}`}
+                        className="rounded-full border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-300 dark:hover:bg-slate-900/60"
+                        onClick={() => removeComfyBaseModel(comfyLoraExecutorId, model)}
+                      >
+                        × {model}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mt-2 text-[11px] text-slate-500">刷新基座模型仅做增补，不会清空已有缓存。</div>
+                </div>
+              ) : null}
+
+              <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                <Space align="center" size="small">
+                  <Input
+                    value={comfyLoraSearch}
+                    onChange={(v) => setComfyLoraSearch(String(v))}
+                    placeholder="搜索文件名/名称"
+                  />
+                  <Select
+                    value={comfyLoraStatusFilter}
+                    onChange={(v) => setComfyLoraStatusFilter(String(v))}
+                    options={[
+                      { label: '全部状态', value: 'all' },
+                      ...statusOptions.map((option) => ({ label: option.label, value: option.value })),
+                    ]}
+                  />
+                </Space>
+                <div className="text-xs text-slate-500">
+                  已入库 {comfyLoraItems.length} · 节点已安装 {comfyLoraInstalledCount}
+                </div>
+              </Space>
+
+              {comfyLoraUntracked.length > 0 ? (
+                <div className="rounded-2xl border border-dashed border-amber-300 bg-amber-50/60 p-3 text-xs text-amber-700">
+                  <div className="font-semibold">未入库 LoRA（来自执行节点）</div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {comfyLoraUntracked.map((name) => (
+                      <button
+                        key={`lora-missing-${name}`}
+                        className="rounded-full border border-amber-400/60 bg-white px-3 py-1 text-[11px] text-amber-700 hover:bg-amber-100"
+                        onClick={() => {
+                          resetComfyLoraForm({
+                            file_name: name,
+                            display_name: name.replace(/\.safetensors$/i, ''),
+                          });
+                          setComfyLoraDialogOpen(true);
+                        }}
+                      >
+                        + {name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="max-h-[480px] overflow-auto rounded-2xl border border-slate-200/70 dark:border-slate-800">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-slate-50 text-[11px] text-slate-600 dark:bg-slate-900/80 dark:text-slate-400">
+                    <tr className="text-left">
+                      <th className="px-3 py-2">名称</th>
+                      <th className="px-3 py-2">文件名</th>
+                      <th className="px-3 py-2">基座模型</th>
+                      <th className="px-3 py-2">触发词</th>
+                      <th className="px-3 py-2">标签</th>
+                      <th className="px-3 py-2">状态</th>
+                      <th className="px-3 py-2">安装</th>
+                      <th className="px-3 py-2 text-right">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {comfyLoraItems.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} className="px-4 py-6 text-center text-slate-500">
+                          {comfyLoraLoading ? '加载中…' : '暂无 LoRA 记录'}
+                        </td>
+                      </tr>
+                    ) : (
+                      comfyLoraItems.map((item) => (
+                        <tr key={`lora-${item.id}`} className="border-t border-slate-100 dark:border-slate-800">
+                          <td className="px-3 py-2 font-semibold text-slate-900 dark:text-white">{item.display_name}</td>
+                          <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{item.file_name}</td>
+                          <td className="px-3 py-2 text-slate-700 dark:text-slate-300">
+                            {(item.base_models && item.base_models.length > 0
+                              ? item.base_models.join(', ')
+                              : item.base_model) || '—'}
+                          </td>
+                          <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
+                            {item.trigger_words?.join(', ') || '—'}
+                          </td>
+                          <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{item.tags?.join(', ') || '—'}</td>
+                          <td className="px-3 py-2">{renderStatusTag(item.status)}</td>
+                          <td className="px-3 py-2">
+                            {item.installed ? (
+                              <Tag theme="success" variant="light">
+                                已安装
+                              </Tag>
+                            ) : (
+                              <Tag theme="default" variant="light">
+                                未安装
+                              </Tag>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-right space-x-2">
+                            <button
+                              className="text-sky-400"
+                              onClick={() => {
+                                resetComfyLoraForm(item);
+                                setComfyLoraDialogOpen(true);
+                              }}
+                            >
+                              编辑
+                            </button>
+                            <button
+                              className="text-red-400"
+                              onClick={() => handleComfyLoraDelete(item.id)}
+                            >
+                              删除
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Space>
+          </Card>
+
+          <Dialog
+            header={comfyLoraForm.id ? '编辑 LoRA' : '新增 LoRA'}
+            visible={comfyLoraDialogOpen}
+            width={640}
+            confirmBtn={comfyLoraSaving ? { loading: true } : undefined}
+            onClose={() => setComfyLoraDialogOpen(false)}
+            onConfirm={handleComfyLoraSave}
+          >
+            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+              <Row gutter={[12, 12]}>
+                <Col span={12}>
+                  <Typography.Text theme="secondary">LoRA 文件名（服务器）</Typography.Text>
+                  <Input
+                    value={comfyLoraForm.file_name || ''}
+                    onChange={(v) => setComfyLoraForm({ ...comfyLoraForm, file_name: String(v) })}
+                    placeholder="例如 xxx.safetensors"
+                    disabled={Boolean(comfyLoraForm.id)}
+                  />
+                </Col>
+                <Col span={12}>
+                  <Typography.Text theme="secondary">对外名称</Typography.Text>
+                  <Input
+                    value={comfyLoraForm.display_name || ''}
+                    onChange={(v) => setComfyLoraForm({ ...comfyLoraForm, display_name: String(v) })}
+                    placeholder="例如 杯子 / 毛毯"
+                  />
+                </Col>
+              </Row>
+
+              <Row gutter={[12, 12]}>
+                <Col span={12}>
+                  <Typography.Text theme="secondary">适用基座模型（UNET，可多选）</Typography.Text>
+                  {comfyLoraBaseModelOptions.length > 0 ? (
+                    <select
+                      multiple
+                      value={comfyLoraFormBaseModels}
+                      onChange={(e) => {
+                        const selected = Array.from(e.target.selectedOptions).map((option) => option.value);
+                        setComfyLoraForm({
+                          ...comfyLoraForm,
+                          base_models: selected,
+                          base_model: selected.length === 1 ? selected[0] : undefined,
+                        });
+                      }}
+                      className="mt-2 h-28 w-full rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white"
+                    >
+                      {comfyLoraBaseModelOptions.map((model) => (
+                        <option key={`base-model-${model}`} value={model}>
+                          {model}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <Input
+                      value={comfyLoraFormBaseModels.join(', ')}
+                      onChange={(v) =>
+                        setComfyLoraForm({
+                          ...comfyLoraForm,
+                          base_models: normalizeTextList(v),
+                          base_model: normalizeTextList(v)[0],
+                        })
+                      }
+                      placeholder="逗号分隔多个基座模型"
+                    />
+                  )}
+                  <Typography.Text theme="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
+                    可多选；若列表为空请先刷新基座模型。
+                  </Typography.Text>
+                </Col>
+                <Col span={12}>
+                  <Typography.Text theme="secondary">状态</Typography.Text>
+                  <Select
+                    value={comfyLoraForm.status || 'active'}
+                    onChange={(v) => setComfyLoraForm({ ...comfyLoraForm, status: String(v) })}
+                    options={statusOptions}
+                  />
+                </Col>
+              </Row>
+
+              <div>
+                <Typography.Text theme="secondary">触发词（逗号或换行分隔）</Typography.Text>
+                <Textarea
+                  value={comfyLoraTriggersInput}
+                  onChange={(v) => setComfyLoraTriggersInput(String(v))}
+                  autosize={{ minRows: 2, maxRows: 4 }}
+                  placeholder="例如: cup, 360, mockup"
+                />
+              </div>
+              <div>
+                <Typography.Text theme="secondary">标签（逗号或换行分隔）</Typography.Text>
+                <Textarea
+                  value={comfyLoraTagsInput}
+                  onChange={(v) => setComfyLoraTagsInput(String(v))}
+                  autosize={{ minRows: 2, maxRows: 4 }}
+                  placeholder="例如: 服饰, 杯子, 抱枕"
+                />
+              </div>
+              <div>
+                <Typography.Text theme="secondary">备注</Typography.Text>
+                <Textarea
+                  value={comfyLoraForm.description || ''}
+                  onChange={(v) => setComfyLoraForm({ ...comfyLoraForm, description: String(v) })}
+                  autosize={{ minRows: 3, maxRows: 6 }}
+                  placeholder="适用场景、注意事项"
+                />
+              </div>
+              {comfyLoraFormError ? <Alert theme="error" message={comfyLoraFormError} /> : null}
+            </Space>
+          </Dialog>
+        </div>
+        )}
+        {comfyuiManageTab === 'assets' && (
+        <div className="space-y-4">
+          <Card bordered title="模型清单">
+            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+              <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                <Space align="center" size="small">
+                  <Input
+                    value={comfyModelCatalogSearch}
+                    onChange={(v) => setComfyModelCatalogSearch(String(v))}
+                    placeholder="搜索文件名/名称"
+                  />
+                  <Select
+                    value={comfyModelCatalogType}
+                    onChange={(v) => setComfyModelCatalogType(String(v))}
+                    options={[
+                      { label: '全部类型', value: 'all' },
+                      ...comfyModelTypeOptions,
+                    ]}
+                  />
+                  <Select
+                    value={comfyModelCatalogStatus}
+                    onChange={(v) => setComfyModelCatalogStatus(String(v))}
+                    options={[
+                      { label: '全部状态', value: 'all' },
+                      ...statusOptions,
+                    ]}
+                  />
+                </Space>
+                <Button
+                  theme="primary"
+                  onClick={() => {
+                    resetComfyModelForm();
+                    setComfyModelDialogOpen(true);
+                  }}
+                >
+                  新增模型
+                </Button>
+              </Space>
+              {comfyModelCatalogError ? <Alert theme="error" message={comfyModelCatalogError} /> : null}
+              <div className="max-h-[360px] overflow-auto rounded-2xl border border-slate-200/70 dark:border-slate-800">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-slate-50 text-[11px] text-slate-600 dark:bg-slate-900/80 dark:text-slate-400">
+                    <tr className="text-left">
+                      <th className="px-3 py-2">名称</th>
+                      <th className="px-3 py-2">文件名</th>
+                      <th className="px-3 py-2">类型</th>
+                      <th className="px-3 py-2">下载</th>
+                      <th className="px-3 py-2">来源</th>
+                      <th className="px-3 py-2">状态</th>
+                      <th className="px-3 py-2 text-right">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {comfyModelCatalogItems.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="px-4 py-6 text-center text-slate-500">
+                          {comfyModelCatalogLoading ? '加载中…' : '暂无记录'}
+                        </td>
+                      </tr>
+                    ) : (
+                      comfyModelCatalogItems.map((item) => (
+                        <tr key={`model-${item.id}`} className="border-t border-slate-100 dark:border-slate-800">
+                          <td className="px-3 py-2 font-semibold text-slate-900 dark:text-white">{item.display_name}</td>
+                          <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{item.file_name}</td>
+                          <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{item.model_type}</td>
+                          <td className="px-3 py-2">
+                            {item.download_url ? (
+                              <Button
+                                size="small"
+                                variant="text"
+                                onClick={() => window.open(item.download_url || '', '_blank', 'noreferrer')}
+                              >
+                                打开
+                              </Button>
+                            ) : (
+                              '—'
+                            )}
+                          </td>
+                          <td className="px-3 py-2">
+                            {item.source_url ? (
+                              <Button
+                                size="small"
+                                variant="text"
+                                onClick={() => window.open(item.source_url || '', '_blank', 'noreferrer')}
+                              >
+                                打开
+                              </Button>
+                            ) : (
+                              '—'
+                            )}
+                          </td>
+                          <td className="px-3 py-2">{renderStatusTag(item.status)}</td>
+                          <td className="px-3 py-2 text-right space-x-2">
+                            <button
+                              className="text-sky-400"
+                              onClick={() => {
+                                resetComfyModelForm(item);
+                                setComfyModelDialogOpen(true);
+                              }}
+                            >
+                              编辑
+                            </button>
+                            <button className="text-red-400" onClick={() => handleComfyModelDelete(item.id)}>
+                              删除
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Space>
+          </Card>
+          <Dialog
+            header={comfyModelForm.id ? '编辑模型' : '新增模型'}
+            visible={comfyModelDialogOpen}
+            width={640}
+            confirmBtn={comfyModelSaving ? { loading: true } : undefined}
+            onClose={() => setComfyModelDialogOpen(false)}
+            onConfirm={handleComfyModelSave}
+          >
+            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+              <Row gutter={[12, 12]}>
+                <Col span={12}>
+                  <Typography.Text theme="secondary">模型文件名</Typography.Text>
+                  <Input
+                    value={comfyModelForm.file_name || ''}
+                    onChange={(v) => setComfyModelForm({ ...comfyModelForm, file_name: String(v) })}
+                    placeholder="例如 xxx.safetensors"
+                    disabled={Boolean(comfyModelForm.id)}
+                  />
+                </Col>
+                <Col span={12}>
+                  <Typography.Text theme="secondary">对外名称</Typography.Text>
+                  <Input
+                    value={comfyModelForm.display_name || ''}
+                    onChange={(v) => setComfyModelForm({ ...comfyModelForm, display_name: String(v) })}
+                    placeholder="例如 基座模型A"
+                  />
+                </Col>
+              </Row>
+              <Row gutter={[12, 12]}>
+                <Col span={12}>
+                  <Typography.Text theme="secondary">模型类型</Typography.Text>
+                  <Select
+                    value={comfyModelForm.model_type || 'unet'}
+                    onChange={(v) => setComfyModelForm({ ...comfyModelForm, model_type: String(v) })}
+                    options={comfyModelTypeOptions}
+                  />
+                </Col>
+                <Col span={12}>
+                  <Typography.Text theme="secondary">状态</Typography.Text>
+                  <Select
+                    value={comfyModelForm.status || 'active'}
+                    onChange={(v) => setComfyModelForm({ ...comfyModelForm, status: String(v) })}
+                    options={statusOptions}
+                  />
+                </Col>
+              </Row>
+              <div>
+                <Typography.Text theme="secondary">下载地址</Typography.Text>
+                <Input
+                  value={comfyModelForm.download_url || ''}
+                  onChange={(v) => setComfyModelForm({ ...comfyModelForm, download_url: String(v) })}
+                  placeholder="https://..."
+                />
+              </div>
+              <div>
+                <Typography.Text theme="secondary">来源地址</Typography.Text>
+                <Input
+                  value={comfyModelForm.source_url || ''}
+                  onChange={(v) => setComfyModelForm({ ...comfyModelForm, source_url: String(v) })}
+                  placeholder="https://..."
+                />
+              </div>
+              <div>
+                <Typography.Text theme="secondary">标签（逗号或换行分隔）</Typography.Text>
+                <Textarea
+                  value={comfyModelFormTags}
+                  onChange={(v) => setComfyModelFormTags(String(v))}
+                  autosize={{ minRows: 2, maxRows: 4 }}
+                />
+              </div>
+              <div>
+                <Typography.Text theme="secondary">备注</Typography.Text>
+                <Textarea
+                  value={comfyModelForm.description || ''}
+                  onChange={(v) => setComfyModelForm({ ...comfyModelForm, description: String(v) })}
+                  autosize={{ minRows: 3, maxRows: 5 }}
+                />
+              </div>
+              {comfyModelFormError ? <Alert theme="error" message={comfyModelFormError} /> : null}
+            </Space>
+          </Dialog>
+          <Card bordered title="插件清单">
+            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+              <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                <Space align="center" size="small">
+                  <Input
+                    value={comfyPluginCatalogSearch}
+                    onChange={(v) => setComfyPluginCatalogSearch(String(v))}
+                    placeholder="搜索节点 key/名称/包名"
+                  />
+                  <Select
+                    value={comfyPluginCatalogStatus}
+                    onChange={(v) => setComfyPluginCatalogStatus(String(v))}
+                    options={[
+                      { label: '全部状态', value: 'all' },
+                      ...statusOptions,
+                    ]}
+                  />
+                </Space>
+                <Button
+                  theme="primary"
+                  onClick={() => {
+                    resetComfyPluginForm();
+                    setComfyPluginDialogOpen(true);
+                  }}
+                >
+                  新增插件
+                </Button>
+              </Space>
+              {comfyPluginCatalogError ? <Alert theme="error" message={comfyPluginCatalogError} /> : null}
+              <div className="max-h-[360px] overflow-auto rounded-2xl border border-slate-200/70 dark:border-slate-800">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-slate-50 text-[11px] text-slate-600 dark:bg-slate-900/80 dark:text-slate-400">
+                    <tr className="text-left">
+                      <th className="px-3 py-2">节点 Key</th>
+                      <th className="px-3 py-2">名称</th>
+                      <th className="px-3 py-2">包名</th>
+                      <th className="px-3 py-2">版本</th>
+                      <th className="px-3 py-2">下载</th>
+                      <th className="px-3 py-2">来源</th>
+                      <th className="px-3 py-2">状态</th>
+                      <th className="px-3 py-2 text-right">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {comfyPluginCatalogItems.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} className="px-4 py-6 text-center text-slate-500">
+                          {comfyPluginCatalogLoading ? '加载中…' : '暂无记录'}
+                        </td>
+                      </tr>
+                    ) : (
+                      comfyPluginCatalogItems.map((item) => (
+                        <tr key={`plugin-${item.id}`} className="border-t border-slate-100 dark:border-slate-800">
+                          <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{item.node_key}</td>
+                          <td className="px-3 py-2 font-semibold text-slate-900 dark:text-white">{item.display_name}</td>
+                          <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{item.package_name || '—'}</td>
+                          <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{item.version || '—'}</td>
+                          <td className="px-3 py-2">
+                            {item.download_url ? (
+                              <Button
+                                size="small"
+                                variant="text"
+                                onClick={() => window.open(item.download_url || '', '_blank', 'noreferrer')}
+                              >
+                                打开
+                              </Button>
+                            ) : (
+                              '—'
+                            )}
+                          </td>
+                          <td className="px-3 py-2">
+                            {item.source_url ? (
+                              <Button
+                                size="small"
+                                variant="text"
+                                onClick={() => window.open(item.source_url || '', '_blank', 'noreferrer')}
+                              >
+                                打开
+                              </Button>
+                            ) : (
+                              '—'
+                            )}
+                          </td>
+                          <td className="px-3 py-2">{renderStatusTag(item.status)}</td>
+                          <td className="px-3 py-2 text-right space-x-2">
+                            <button
+                              className="text-sky-400"
+                              onClick={() => {
+                                resetComfyPluginForm(item);
+                                setComfyPluginDialogOpen(true);
+                              }}
+                            >
+                              编辑
+                            </button>
+                            <button className="text-red-400" onClick={() => handleComfyPluginDelete(item.id)}>
+                              删除
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Space>
+          </Card>
+          <Dialog
+            header={comfyPluginForm.id ? '编辑插件' : '新增插件'}
+            visible={comfyPluginDialogOpen}
+            width={640}
+            confirmBtn={comfyPluginSaving ? { loading: true } : undefined}
+            onClose={() => setComfyPluginDialogOpen(false)}
+            onConfirm={handleComfyPluginSave}
+          >
+            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+              <Row gutter={[12, 12]}>
+                <Col span={12}>
+                  <Typography.Text theme="secondary">节点 Key</Typography.Text>
+                  <Input
+                    value={comfyPluginForm.node_key || ''}
+                    onChange={(v) => setComfyPluginForm({ ...comfyPluginForm, node_key: String(v) })}
+                    placeholder="例如 ImageResize+"
+                    disabled={Boolean(comfyPluginForm.id)}
+                  />
+                </Col>
+                <Col span={12}>
+                  <Typography.Text theme="secondary">对外名称</Typography.Text>
+                  <Input
+                    value={comfyPluginForm.display_name || ''}
+                    onChange={(v) => setComfyPluginForm({ ...comfyPluginForm, display_name: String(v) })}
+                    placeholder="例如 图像缩放增强"
+                  />
+                </Col>
+              </Row>
+              <Row gutter={[12, 12]}>
+                <Col span={12}>
+                  <Typography.Text theme="secondary">包名</Typography.Text>
+                  <Input
+                    value={comfyPluginForm.package_name || ''}
+                    onChange={(v) => setComfyPluginForm({ ...comfyPluginForm, package_name: String(v) })}
+                    placeholder="例如 comfyui_essentials"
+                  />
+                </Col>
+                <Col span={12}>
+                  <Typography.Text theme="secondary">版本</Typography.Text>
+                  <Input
+                    value={comfyPluginForm.version || ''}
+                    onChange={(v) => setComfyPluginForm({ ...comfyPluginForm, version: String(v) })}
+                    placeholder="commit/tag"
+                  />
+                </Col>
+              </Row>
+              <Row gutter={[12, 12]}>
+                <Col span={12}>
+                  <Typography.Text theme="secondary">下载地址</Typography.Text>
+                  <Input
+                    value={comfyPluginForm.download_url || ''}
+                    onChange={(v) => setComfyPluginForm({ ...comfyPluginForm, download_url: String(v) })}
+                    placeholder="https://..."
+                  />
+                </Col>
+                <Col span={12}>
+                  <Typography.Text theme="secondary">来源地址</Typography.Text>
+                  <Input
+                    value={comfyPluginForm.source_url || ''}
+                    onChange={(v) => setComfyPluginForm({ ...comfyPluginForm, source_url: String(v) })}
+                    placeholder="https://..."
+                  />
+                </Col>
+              </Row>
+              <div>
+                <Typography.Text theme="secondary">标签（逗号或换行分隔）</Typography.Text>
+                <Textarea
+                  value={comfyPluginFormTags}
+                  onChange={(v) => setComfyPluginFormTags(String(v))}
+                  autosize={{ minRows: 2, maxRows: 4 }}
+                />
+              </div>
+              <div>
+                <Typography.Text theme="secondary">备注</Typography.Text>
+                <Textarea
+                  value={comfyPluginForm.description || ''}
+                  onChange={(v) => setComfyPluginForm({ ...comfyPluginForm, description: String(v) })}
+                  autosize={{ minRows: 3, maxRows: 5 }}
+                />
+              </div>
+              <div>
+                <Typography.Text theme="secondary">状态</Typography.Text>
+                <Select
+                  value={comfyPluginForm.status || 'active'}
+                  onChange={(v) => setComfyPluginForm({ ...comfyPluginForm, status: String(v) })}
+                  options={statusOptions}
+                />
+              </div>
+              {comfyPluginFormError ? <Alert theme="error" message={comfyPluginFormError} /> : null}
+            </Space>
+          </Dialog>
+        </div>
+        )}
+        {comfyuiManageTab === 'servers' && (
+        <div className="space-y-4">
+          <div className="text-sm text-slate-600 dark:text-slate-400">
+            选择一台“主服务器”作为基准，其它服务器会对比模型/插件是否缺失。差异只做提示，不会自动同步。
+          </div>
+          <div className="grid gap-6 lg:grid-cols-[2fr_1fr] lg:items-start">
+            <Card bordered title="服务器对比" style={{ width: '100%' }}>
+              <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                <Space align="center" size="small" style={{ justifyContent: 'space-between', width: '100%' }}>
+                  <Space align="center" size="small">
+                    <div style={{ width: 280 }}>
+                      <Select
+                        value={comfyBaselineExecutor?.id || ''}
+                        onChange={(v) => setComfyBaselineExecutorId(String(v))}
+                        options={[
+                          { label: '请选择主服务器', value: '' },
+                          ...comfyExecutors.map((executor) => ({
+                            label: `${executor.name} · ${executor.id}`,
+                            value: executor.id,
+                          })),
+                        ]}
+                      />
+                    </div>
+                    <Button
+                      variant="outline"
+                      disabled={comfyServerRefreshing || comfyExecutors.length === 0}
+                      onClick={refreshComfyuiServers}
+                    >
+                      {comfyServerRefreshing ? '刷新中…' : '刷新所有服务器'}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      disabled={!comfyBaselineExecutor?.id}
+                      onClick={() => {
+                        if (!comfyBaselineExecutor?.id) return;
+                        refreshComfyuiSystemStats(comfyBaselineExecutor.id);
+                        refreshComfyuiModelCatalog(comfyBaselineExecutor.id, { includeNodes: true });
+                      }}
+                    >
+                      刷新主服务器
+                    </Button>
+                    <Button
+                      variant="outline"
+                      disabled={!comfyBaselineExecutor?.id}
+                      onClick={() => {
+                        const snapshot = buildComfyDiffSnapshot();
+                        if (!snapshot) return;
+                        setComfyDiffDialogTitle('ComfyUI 服务器差异汇总');
+                        setComfyDiffDialogPayload(snapshot);
+                        setComfyDiffDialogOpen(true);
+                      }}
+                    >
+                      查看差异汇总
+                    </Button>
+                    <Button
+                      variant="outline"
+                      disabled={!comfyBaselineExecutor?.id}
+                      onClick={() => {
+                        const snapshot = buildComfyDiffSnapshot();
+                        if (!snapshot) return;
+                        const ts = new Date().toISOString().replace(/[:.]/g, '-');
+                        downloadJson(snapshot, `comfyui-diff-${ts}.json`);
+                      }}
+                    >
+                      导出差异
+                    </Button>
+                    <Button
+                      theme="primary"
+                      loading={comfyDiffSaving}
+                      disabled={!comfyBaselineExecutor?.id}
+                      onClick={handleSaveComfyDiffSnapshot}
+                    >
+                      保存对齐结果
+                    </Button>
+                  </Space>
+                  {comfyBaselineExecutor ? (
+                    <div className="text-xs text-slate-500">
+                      主服务器：{comfyBaselineExecutor.name} · {comfyBaselineExecutor.id}
+                    </div>
+                  ) : null}
+                </Space>
+
+                {comfyExecutors.length === 0 ? (
+                  <Alert theme="warning" message="还没有 ComfyUI 执行节点，请先新增服务器。" />
+                ) : (
+                  <div className="space-y-3">
+                    {comfyExecutors.map((executor) => {
+                      const isBaseline = executor.id === comfyBaselineExecutor?.id;
+                      const modelCatalog = comfyModelCache[executor.id];
+                      const modelCounts = extractComfyuiModelCounts(modelCatalog);
+                      const modelLoaded = Boolean(modelCatalog && Object.keys(modelCatalog).length > 0);
+                      const nodeKeys = comfyNodeCache[executor.id] || [];
+                      const nodesLoaded = nodeKeys.length > 0;
+                      const baselineCatalog = comfyBaselineExecutor?.id ? comfyModelCache[comfyBaselineExecutor.id] : null;
+                      const baselineUnetReady =
+                        Array.isArray(baselineCatalog?.unet) ||
+                        Boolean(
+                          comfyBaselineExecutor?.id && (comfyBaseModelCache[comfyBaselineExecutor.id] || []).length > 0,
+                        );
+                      const baselineClipReady = Array.isArray(baselineCatalog?.clip);
+                      const baselineVaeReady = Array.isArray(baselineCatalog?.vae);
+                      const baselineLoraReady = Array.isArray(baselineCatalog?.lora);
+                      const baselineNodesReady = Boolean(
+                        comfyBaselineExecutor?.id && (comfyNodeCache[comfyBaselineExecutor.id] || []).length > 0,
+                      );
+                      const diffSnapshot = buildComfyServerDiff(executor);
+                      const missingUnet = diffSnapshot.missing.unet;
+                      const missingClip = diffSnapshot.missing.clip;
+                      const missingVae = diffSnapshot.missing.vae;
+                      const missingLora = diffSnapshot.missing.lora;
+                      const missingNodes = diffSnapshot.missing.nodes;
+                      const systemInfo = comfySystemCache[executor.id];
+                      const versionInfo = extractComfyuiVersionInfo(executor, systemInfo);
+                      const systemLoading = Boolean(comfySystemLoadingByExecutor[executor.id]);
+                      const modelLoading = Boolean(comfyModelLoadingByExecutor[executor.id]);
+                      const systemError = comfySystemErrorByExecutor[executor.id];
+                      const modelError = comfyModelErrorByExecutor[executor.id];
+                      return (
+                        <div
+                          key={`comfy-server-${executor.id}`}
+                          className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 dark:border-slate-800 dark:bg-slate-900/40"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <div className="truncate font-semibold text-slate-900 dark:text-white">
+                                  {executor.name}
+                                </div>
+                                <StatusPill status={executor.status} />
+                                {isBaseline ? (
+                                  <Tag theme="primary" variant="light">
+                                    主服务器
+                                  </Tag>
+                                ) : null}
+                              </div>
+                              <div className="mt-1 truncate text-xs text-slate-600 dark:text-slate-400">
+                                {executor.base_url || '—'}
+                              </div>
+                              <div className="mt-1 text-xs text-slate-500">
+                                并发/权重：{executor.max_concurrency}/{executor.weight}
+                              </div>
+                            </div>
+                            <div className="shrink-0 text-right text-xs text-slate-500">
+                              <button
+                                className="rounded border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700 hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200 dark:hover:bg-slate-900/60"
+                                onClick={() => {
+                                  refreshComfyuiSystemStats(executor.id);
+                                  refreshComfyuiModelCatalog(executor.id, { includeNodes: true });
+                                }}
+                                disabled={systemLoading || modelLoading}
+                              >
+                                {systemLoading || modelLoading ? '刷新中…' : '刷新'}
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                            <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-300">
+                              <div className="text-[10px] uppercase tracking-widest text-slate-500">版本</div>
+                              <div className="mt-1 text-sm font-semibold text-slate-900 dark:text-white">
+                                {versionInfo?.version || '—'}
+                              </div>
+                              <div className="mt-1 text-[11px] text-slate-500">
+                                插件节点：{nodeKeys.length || '—'}
+                              </div>
+                              {versionInfo?.customNodes ? (
+                                <div className="mt-1 text-[11px] text-slate-500">
+                                  插件版本：{versionInfo.customNodes}
+                                </div>
+                              ) : null}
+                              {systemError ? <div className="mt-1 text-[11px] text-rose-500">{systemError}</div> : null}
+                            </div>
+                            <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-300">
+                                <div className="text-[10px] uppercase tracking-widest text-slate-500">模型 / LoRA</div>
+                                <div className="mt-1 text-sm font-semibold text-slate-900 dark:text-white">
+                                  {modelLoaded ? `${modelCounts.unet}/${modelCounts.lora}` : '—'}
+                                </div>
+                                <div className="mt-1 text-[11px] text-slate-500">unet/lora</div>
+                                {modelError ? <div className="mt-1 text-[11px] text-rose-500">{modelError}</div> : null}
+                              </div>
+                              <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-300">
+                                <div className="text-[10px] uppercase tracking-widest text-slate-500">差异提示</div>
+                                <div className="mt-1 text-[11px] text-slate-500">
+                                  {isBaseline ? '主服务器无需对比' : '对比模型 + 插件'}
+                                </div>
+                                <div className="mt-2 space-y-1 text-[11px] text-slate-600 dark:text-slate-400">
+                                <div className="flex items-center justify-between">
+                                  <span>UNET</span>
+                                  {isBaseline ? (
+                                    <Tag theme="success" variant="light">
+                                      主服务器
+                                    </Tag>
+                                  ) : (
+                                    renderComfyDiffTag({
+                                      baselineReady: baselineUnetReady,
+                                      targetReady: modelLoaded,
+                                      missing: missingUnet,
+                                    })
+                                  )}
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <span>CLIP</span>
+                                  {isBaseline ? (
+                                    <Tag theme="success" variant="light">
+                                      主服务器
+                                    </Tag>
+                                  ) : (
+                                    renderComfyDiffTag({
+                                      baselineReady: baselineClipReady,
+                                      targetReady: modelLoaded,
+                                      missing: missingClip,
+                                    })
+                                  )}
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <span>VAE</span>
+                                  {isBaseline ? (
+                                    <Tag theme="success" variant="light">
+                                      主服务器
+                                    </Tag>
+                                  ) : (
+                                    renderComfyDiffTag({
+                                      baselineReady: baselineVaeReady,
+                                      targetReady: modelLoaded,
+                                      missing: missingVae,
+                                    })
+                                  )}
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <span>LoRA</span>
+                                  {isBaseline ? (
+                                    <Tag theme="success" variant="light">
+                                      主服务器
+                                    </Tag>
+                                  ) : (
+                                    renderComfyDiffTag({
+                                      baselineReady: baselineLoraReady,
+                                      targetReady: modelLoaded,
+                                      missing: missingLora,
+                                    })
+                                  )}
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <span>插件节点</span>
+                                  {isBaseline ? (
+                                    <Tag theme="success" variant="light">
+                                      主服务器
+                                    </Tag>
+                                  ) : (
+                                    renderComfyDiffTag({
+                                      baselineReady: baselineNodesReady,
+                                      targetReady: nodesLoaded,
+                                      missing: missingNodes,
+                                      okLabel: '对齐',
+                                    })
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                          {!isBaseline && (
+                            <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
+                              <button
+                                className="rounded border border-slate-300 bg-white px-2 py-1 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-300 dark:hover:bg-slate-900/60"
+                                onClick={() => {
+                                  setComfyDiffDialogTitle(`${executor.name} · 差异明细`);
+                                  setComfyDiffDialogPayload({
+                                    ...diffSnapshot,
+                                    generatedAt: new Date().toISOString(),
+                                  });
+                                  setComfyDiffDialogOpen(true);
+                                }}
+                              >
+                                查看差异清单
+                              </button>
+                              <button
+                                className="rounded border border-slate-300 bg-white px-2 py-1 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-300 dark:hover:bg-slate-900/60"
+                                onClick={() => {
+                                  const ts = new Date().toISOString().replace(/[:.]/g, '-');
+                                  downloadJson(
+                                    { ...diffSnapshot, generatedAt: new Date().toISOString() },
+                                    `comfyui-diff-${executor.id}-${ts}.json`,
+                                  );
+                                }}
+                              >
+                                导出差异清单
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </Space>
+            </Card>
+            <div className="space-y-4">
+              <Card bordered title="新增 ComfyUI 服务器" style={{ width: '100%' }}>
+                <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                  <Input
+                    value={comfyServerForm.name}
+                    onChange={(v) => setComfyServerForm((prev) => ({ ...prev, name: String(v) }))}
+                    placeholder="服务器名称（如 ComfyUI-158）"
+                  />
+                  <Input
+                    value={comfyServerForm.base_url}
+                    onChange={(v) => setComfyServerForm((prev) => ({ ...prev, base_url: String(v) }))}
+                    placeholder="Base URL（例如 http://117.50.80.158:8079）"
+                  />
+                  <Row gutter={[12, 12]}>
+                    <Col span={12}>
+                      <Typography.Text theme="secondary">并发</Typography.Text>
+                      <InputNumber
+                        min={1}
+                        max={50}
+                        value={Number(comfyServerForm.max_concurrency)}
+                        onChange={(v) =>
+                          setComfyServerForm((prev) => ({
+                            ...prev,
+                            max_concurrency: Number(v) || 1,
+                          }))
+                        }
+                      />
+                    </Col>
+                    <Col span={12}>
+                      <Typography.Text theme="secondary">权重</Typography.Text>
+                      <InputNumber
+                        min={1}
+                        max={999}
+                        value={Number(comfyServerForm.weight)}
+                        onChange={(v) =>
+                          setComfyServerForm((prev) => ({
+                            ...prev,
+                            weight: Number(v) || 1,
+                          }))
+                        }
+                      />
+                    </Col>
+                  </Row>
+                  <div>
+                    <Typography.Text theme="secondary">状态</Typography.Text>
+                    <Select
+                      value={comfyServerForm.status || 'active'}
+                      onChange={(v) => setComfyServerForm((prev) => ({ ...prev, status: String(v) }))}
+                      options={statusOptions}
+                    />
+                  </div>
+                  {comfyServerFormError ? <Alert theme="error" message={comfyServerFormError} /> : null}
+                  <Button theme="primary" loading={comfyServerSaving} onClick={handleComfyuiServerCreate}>
+                    新增服务器
+                  </Button>
+                  <div className="text-xs text-slate-500">
+                    新增后会出现在“执行节点”列表中，可再配置权重/并发。
+                  </div>
+                </Space>
+              </Card>
+              <Card bordered title="最近对齐记录" style={{ width: '100%' }}>
+                <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                  <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                    <Typography.Text theme="secondary">最近保存的对齐快照（最多 12 条）。</Typography.Text>
+                    <Button size="small" variant="outline" onClick={() => refreshComfyDiffLogs()}>
+                      刷新
+                    </Button>
+                  </Space>
+                  {comfyDiffLogsError ? <Alert theme="error" message={comfyDiffLogsError} /> : null}
+                  <div className="max-h-[320px] overflow-auto rounded-2xl border border-slate-200/70 dark:border-slate-800">
+                    <table className="w-full text-xs">
+                      <thead className="sticky top-0 bg-slate-50 text-[11px] text-slate-600 dark:bg-slate-900/80 dark:text-slate-400">
+                        <tr className="text-left">
+                          <th className="px-3 py-2">时间</th>
+                          <th className="px-3 py-2">主服务器</th>
+                          <th className="px-3 py-2 text-right">操作</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {comfyDiffLogs.length === 0 ? (
+                          <tr>
+                            <td colSpan={3} className="px-4 py-6 text-center text-slate-500">
+                              {comfyDiffLogsLoading ? '加载中…' : '暂无记录'}
+                            </td>
+                          </tr>
+                        ) : (
+                          comfyDiffLogs.map((item) => (
+                            <tr key={`comfy-diff-log-${item.id}`} className="border-t border-slate-100 dark:border-slate-800">
+                              <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
+                                {item.created_at ? formatDateTime(item.created_at) : '—'}
+                              </td>
+                              <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
+                                {item.baseline_executor_id}
+                              </td>
+                              <td className="px-3 py-2 text-right space-x-2">
+                                <button
+                                  className="text-sky-400"
+                                  onClick={() => {
+                                    setComfyDiffDialogTitle('对齐记录详情');
+                                    setComfyDiffDialogPayload(item.payload || {});
+                                    setComfyDiffDialogOpen(true);
+                                  }}
+                                >
+                                  查看
+                                </button>
+                                <button
+                                  className="text-slate-500"
+                                  onClick={() => {
+                                    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+                                    downloadJson(item.payload || {}, `comfyui-diff-log-${item.id}-${ts}.json`);
+                                  }}
+                                >
+                                  导出
+                                </button>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </Space>
+              </Card>
+            </div>
+          </div>
+          <Dialog
+            header={comfyDiffDialogTitle || '差异明细'}
+            visible={comfyDiffDialogOpen}
+            width={720}
+            confirmBtn={{ content: '关闭' }}
+            onClose={() => setComfyDiffDialogOpen(false)}
+            onConfirm={() => setComfyDiffDialogOpen(false)}
+          >
+            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+              <Space align="center" size="small" style={{ justifyContent: 'space-between', width: '100%' }}>
+                <Typography.Text theme="secondary">导出/复制差异清单，方便给开发对齐服务器。</Typography.Text>
+                <Space size="small">
+                  <Button
+                    size="small"
+                    variant="outline"
+                    disabled={!comfyDiffDialogText}
+                    onClick={() => {
+                      if (!comfyDiffDialogText) return;
+                      copyTextToClipboard(comfyDiffDialogText);
+                    }}
+                  >
+                    复制 JSON
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="outline"
+                    disabled={!comfyDiffDialogPayload}
+                    onClick={() => {
+                      if (!comfyDiffDialogPayload) return;
+                      const ts = new Date().toISOString().replace(/[:.]/g, '-');
+                      downloadJson(comfyDiffDialogPayload, `comfyui-diff-${ts}.json`);
+                    }}
+                  >
+                    导出 JSON
+                  </Button>
+                </Space>
+              </Space>
+              <Textarea
+                value={comfyDiffDialogText}
+                readonly
+                autosize={{ minRows: 12, maxRows: 20 }}
+                className="font-mono text-xs"
+              />
+            </Space>
+          </Dialog>
+        </div>
+        )}
+        {comfyuiManageTab === 'templates' && (
+        <div className="space-y-4">
+          <div className="text-sm text-slate-600 dark:text-slate-400">
+            管理本地/云端多台 ComfyUI 服务器的 Workflow JSON，指定允许运行的节点，作为一类原子能力。
+          </div>
+          <Space align="center" size="small">
+            <Button
+              variant="outline"
+              disabled={comfyServerRefreshing || comfyExecutors.length === 0}
+              onClick={refreshComfyuiServers}
+            >
+              {comfyServerRefreshing ? '刷新中…' : '刷新服务器能力'}
+            </Button>
+            <Typography.Text theme="secondary">
+              已加载 {comfyServersLoadedCount}/{comfyExecutors.length} 台
+            </Typography.Text>
+          </Space>
+          <div className="grid gap-6 lg:grid-cols-[320px_1fr] lg:items-start">
           <div className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 dark:border-slate-800 dark:bg-slate-900/40 lg:sticky lg:top-4">
             <h3 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">工作流列表</h3>
             <div className="max-h-[460px] overflow-auto">
@@ -5807,6 +8690,7 @@ const normalizeErrorMessage = (message: string): string => {
                     <th>名称</th>
                     <th>版本</th>
                     <th>允许运行节点</th>
+                    <th>可运行服务器</th>
                     <th>状态</th>
                     <th>更新时间</th>
                     <th></th>
@@ -5828,6 +8712,69 @@ const normalizeErrorMessage = (message: string): string => {
                               return exec ? `${exec.name}` : id;
                             })
                             .join('、');
+                        })()}
+                      </td>
+                      <td className="text-xs text-slate-700 dark:text-slate-400">
+                        {(() => {
+                          if (!(wf.type || '').toLowerCase().includes('comfyui')) return '—';
+                          const deps = comfyWorkflowDepsMap[wf.id];
+                          if (!deps || !deps.ok) {
+                            return (
+                              <Tag theme="warning" variant="light">
+                                未解析
+                              </Tag>
+                            );
+                          }
+                          const candidates = resolveWorkflowExecutors(wf);
+                          if (candidates.length === 0) return '未绑定';
+                          const statuses = candidates.map((executor) => ({
+                            executor,
+                            status: evaluateWorkflowOnExecutor(deps, executor),
+                          }));
+                          const okServers = statuses.filter((item) => item.status.ok);
+                          const readyCount = statuses.filter((item) => item.status.ready).length;
+                          const summary = (
+                            <div className="space-y-2 text-xs text-slate-700">
+                              <div className="font-semibold">
+                                可运行 {okServers.length}/{candidates.length}
+                              </div>
+                              <div className="text-[11px] text-slate-500">
+                                已拉取 {readyCount}/{candidates.length} 台
+                              </div>
+                              <div className="space-y-1">
+                                {statuses.map((item) => {
+                                  const missing = item.status.missing;
+                                  const missingParts = [
+                                    missing.unet.length ? `UNET ${missing.unet.length}` : null,
+                                    missing.clip.length ? `CLIP ${missing.clip.length}` : null,
+                                    missing.vae.length ? `VAE ${missing.vae.length}` : null,
+                                    missing.lora.length ? `LoRA ${missing.lora.length}` : null,
+                                    missing.nodes.length ? `插件 ${missing.nodes.length}` : null,
+                                  ].filter(Boolean);
+                                  return (
+                                    <div key={`workflow-server-${wf.id}-${item.executor.id}`} className="flex justify-between gap-2">
+                                      <span>{item.executor.name}</span>
+                                      <span className="text-[11px] text-slate-500">
+                                        {item.status.ready ? (item.status.ok ? '可用' : missingParts.join(' · ')) : '未拉取'}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                              {(deps.dynamic.unet + deps.dynamic.clip + deps.dynamic.vae + deps.dynamic.lora) > 0 ? (
+                                <div className="text-[11px] text-amber-600">
+                                  含动态模型输入，未完全校验。
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                          return (
+                            <Popup trigger="hover" placement="right" content={summary}>
+                              <Tag theme={okServers.length > 0 ? 'success' : 'warning'} variant="light">
+                                {okServers.length}/{candidates.length}
+                              </Tag>
+                            </Popup>
+                          );
                         })()}
                       </td>
                       <td>
@@ -5854,6 +8801,12 @@ const normalizeErrorMessage = (message: string): string => {
                         >
                           编辑
                         </button>
+                        <button
+                          className="text-emerald-400"
+                          onClick={() => handleWorkflowClone(wf)}
+                        >
+                          复制为新版本
+                        </button>
                         <button className="text-red-400" onClick={() => handleDelete('workflow', wf.id)}>
                           删除
                         </button>
@@ -5868,6 +8821,53 @@ const normalizeErrorMessage = (message: string): string => {
             <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
               {workflowForm.id ? '编辑工作流' : '导入/新增工作流'}
             </h3>
+            <div className="flex flex-wrap gap-2">
+              <button
+                className="rounded border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200 dark:hover:bg-slate-900/60"
+                onClick={() => {
+                  const deps = extractComfyuiWorkflowDependencies(workflowForm.definition);
+                  if (!deps.ok) {
+                    alert('Workflow JSON 解析失败，无法导出依赖。');
+                    return;
+                  }
+                  const payload = {
+                    workflow: {
+                      id: workflowForm.id || '',
+                      action: workflowForm.action || '',
+                      name: workflowForm.name || '',
+                      version: workflowForm.version || '',
+                    },
+                    dependencies: deps,
+                    generatedAt: new Date().toISOString(),
+                  };
+                  const suffix = workflowForm.action || workflowForm.name || 'workflow';
+                  downloadJson(payload, `comfyui-workflow-deps-${suffix}.json`);
+                }}
+              >
+                导出依赖清单
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-2 text-xs">
+              {[
+                { id: 'base', label: '工作流' },
+                { id: 'io', label: '输入/输出' },
+                { id: 'params', label: '内部参数' },
+                { id: 'executors', label: '运行节点' },
+              ].map((tab) => (
+                <button
+                  key={`workflow-edit-tab-${tab.id}`}
+                  className={`rounded-full px-3 py-1 ${
+                    workflowEditTab === tab.id
+                      ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
+                      : 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200 dark:hover:bg-slate-900/60'
+                  }`}
+                  onClick={() => setWorkflowEditTab(tab.id as typeof workflowEditTab)}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+            {workflowEditTab === 'base' && (
             <div className="text-sm space-y-2">
               <input
                 placeholder="Action"
@@ -5925,6 +8925,9 @@ const normalizeErrorMessage = (message: string): string => {
               {workflowDefinitionError ? (
                 <div className="text-xs text-rose-500">{workflowDefinitionError}</div>
               ) : null}
+              {workflowDefinitionNotice ? (
+                <div className="text-xs text-amber-600">{workflowDefinitionNotice}</div>
+              ) : null}
               <textarea
                 rows={4}
                 placeholder="metadata JSON（参数映射、依赖等）"
@@ -5935,241 +8938,176 @@ const normalizeErrorMessage = (message: string): string => {
               {workflowMetadataError ? (
                 <div className="text-xs text-rose-500">{workflowMetadataError}</div>
               ) : null}
-              <div className="rounded-2xl border border-slate-200/70 bg-slate-50/80 p-3 space-y-3 dark:border-slate-800 dark:bg-slate-950/40">
-                <div className="flex items-center justify-between">
-                  <div className="text-sm font-semibold text-slate-900 dark:text-white">节点映射（ComfyUI）</div>
-                  <div className="text-[11px] text-slate-500">
-                    {comfyWorkflowNodes.length > 0 ? `已解析 ${comfyWorkflowNodes.length} 个节点` : '未解析节点'}
-                  </div>
-                </div>
-                <p className="text-xs text-slate-600 dark:text-slate-400">
-                  选择需要对外暴露的输入/输出节点。未选择输出节点时默认返回全部输出；输入未填写时将使用 Workflow JSON
-                  默认值。
-                </p>
-                {comfyWorkflowNodes.length === 0 ? (
-                  <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-3 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-950/50 dark:text-slate-500">
-                    请先导入或粘贴 ComfyUI Workflow JSON，保存后即可解析节点。
-                  </div>
-                ) : (
-                  <>
-                    <div className="rounded-2xl border border-slate-200/70 bg-white/70 p-3 space-y-2 dark:border-slate-800 dark:bg-slate-950/50">
-                      <div className="text-xs text-slate-700 dark:text-slate-300">快速按节点添加输入映射</div>
-                      <div className="space-y-2">
-                        <label className="block text-[11px] text-slate-600 dark:text-slate-400">输入节点（含 ID）</label>
-                        <select
-                          value={workflowInputPickerNodeId}
-                          onChange={(e) => {
-                            setWorkflowInputPickerNodeId(e.target.value);
-                            setWorkflowInputPickerKeys([]);
-                          }}
-                          className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white"
-                        >
-                          <option value="">选择输入节点（含 ID）</option>
-                          {comfyWorkflowNodes.map((node) => (
-                            <option key={`workflow-picker-node-${node.id}`} value={node.id}>
-                              #{node.id} · {node.title} · {node.classType}
-                            </option>
-                          ))}
-                        </select>
-                        <div className="flex items-center justify-between text-[11px] text-slate-600 dark:text-slate-400">
-                          <span>输入 Key（勾选）</span>
-                          <div className="space-x-2">
-                            <button
-                              className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
-                              onClick={() =>
-                                setWorkflowInputPickerKeys(
-                                  comfyWorkflowNodeMap.get(workflowInputPickerNodeId)?.inputs || [],
-                                )
-                              }
-                              disabled={!workflowInputPickerNodeId}
-                            >
-                              全选
-                            </button>
-                            <button
-                              className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
-                              onClick={() => setWorkflowInputPickerKeys([])}
-                              disabled={!workflowInputPickerNodeId}
-                            >
-                              清空
-                            </button>
-                          </div>
-                        </div>
-                        <div className="h-28 w-full overflow-auto rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white">
-                          {!workflowInputPickerNodeId ? (
-                            <div className="text-slate-500 dark:text-slate-500">请先选择节点</div>
-                          ) : (
-                            (comfyWorkflowNodeMap.get(workflowInputPickerNodeId)?.inputs || []).map((key) => (
-                              <label key={`workflow-picker-input-${workflowInputPickerNodeId}-${key}`} className="flex items-center gap-2 py-0.5">
-                                <input
-                                  type="checkbox"
-                                  checked={workflowInputPickerKeys.includes(key)}
-                                  onChange={(e) =>
-                                    setWorkflowInputPickerKeys((prev) =>
-                                      e.target.checked ? [...prev, key] : prev.filter((item) => item !== key),
-                                    )
-                                  }
-                                />
-                                <span>{key}</span>
-                              </label>
-                            ))
-                          )}
-                        </div>
-                        <button
-                          className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200 dark:hover:bg-slate-900/60"
-                          onClick={addWorkflowInputMappingsForNode}
-                          disabled={!workflowInputPickerNodeId || workflowInputPickerKeys.length === 0}
-                        >
-                          添加到映射
-                        </button>
-                      </div>
-                      <p className="text-[11px] text-slate-600 dark:text-slate-500">
-                        以节点 ID 为主进行配置；每个输入会自动生成一条映射，参数名默认等于输入 Key，可在下方表格继续调整。
-                      </p>
-                    </div>
+            </div>
+            )}
+            {workflowEditTab === 'io' && (
+              <div className="space-y-3">
+                {workflowCanMap ? (
+                  <div className="rounded-2xl border border-slate-200/70 bg-slate-50/80 p-3 space-y-3 dark:border-slate-800 dark:bg-slate-950/40">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs text-slate-700 dark:text-slate-400">输入参数映射</span>
-                      <button
-                        className="rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200 dark:hover:bg-slate-900/60"
-                        onClick={addWorkflowInputMap}
-                      >
-                        添加映射
-                      </button>
-                    </div>
-                    {workflowInputMap.length === 0 ? (
-                      <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-3 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-950/50 dark:text-slate-500">
-                        尚未配置输入映射。可选择需要暴露给 Coze 的字段。
+                      <div className="text-sm font-semibold text-slate-900 dark:text-white">节点映射（ComfyUI）</div>
+                      <div className="text-[11px] text-slate-500">
+                        {comfyWorkflowNodes.length > 0 ? `已解析 ${comfyWorkflowNodes.length} 个节点` : '未解析节点'}
                       </div>
-                    ) : (
-                      <div className="space-y-2">
-                        <div className="grid grid-cols-[1.2fr_1fr_1fr_0.6fr_auto] gap-2 text-[11px] text-slate-500">
-                          <div>参数名</div>
-                          <div>节点</div>
-                          <div>输入 Key</div>
-                          <div>类型</div>
-                          <div></div>
-                        </div>
-                        {workflowInputMap.map((item, idx) => {
-                          const node = comfyWorkflowNodeMap.get(item.nodeId);
-                          const inputOptions = node?.inputs || [];
-                          return (
-                            <div key={`workflow-input-${idx}`} className="grid grid-cols-[1.2fr_1fr_1fr_0.6fr_auto] gap-2">
-                              <input
-                                value={item.field}
-                                onChange={(e) => updateWorkflowInputMap(idx, { field: e.target.value })}
-                                placeholder="参数名，如 prompt / width"
-                                className="rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white"
-                              />
-                              <select
-                                value={item.nodeId}
-                                onChange={(e) => updateWorkflowInputMap(idx, { nodeId: e.target.value, inputKey: '' })}
-                                className="rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white"
-                              >
-                                <option value="">选择节点</option>
-                                {comfyWorkflowNodes.map((nodeOption) => (
-                                  <option key={`workflow-node-${nodeOption.id}`} value={nodeOption.id}>
-                                    #{nodeOption.id} · {nodeOption.title}
-                                  </option>
-                                ))}
-                              </select>
-                              <select
-                                value={item.inputKey}
-                                onChange={(e) => updateWorkflowInputMap(idx, { inputKey: e.target.value })}
-                                disabled={!item.nodeId}
-                                className="rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 disabled:bg-slate-100 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white dark:disabled:bg-slate-900/40"
-                              >
-                                <option value="">选择输入</option>
-                                {inputOptions.map((key) => (
-                                  <option key={`workflow-input-${item.nodeId}-${key}`} value={key}>
-                                    {key}
-                                  </option>
-                                ))}
-                              </select>
-                              <select
-                                value={item.valueType || ''}
-                                onChange={(e) => updateWorkflowInputMap(idx, { valueType: e.target.value })}
-                                className="rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white"
-                              >
-                                <option value="">原样</option>
-                                <option value="string">string</option>
-                                <option value="int">int</option>
-                                <option value="float">float</option>
-                                <option value="bool">bool</option>
-                                <option value="json">json</option>
-                              </select>
+                    </div>
+                    <p className="text-xs text-slate-600 dark:text-slate-400">
+                      选择需要对外暴露的输入/输出节点。未选择输出节点时默认返回全部输出；输入未填写时将使用 Workflow JSON
+                      默认值。
+                    </p>
+                    <div className="space-y-3">
+                      <div className="rounded-2xl border border-slate-200/70 bg-white/70 p-3 space-y-2 dark:border-slate-800 dark:bg-slate-950/50">
+                        <div className="text-xs text-slate-700 dark:text-slate-300">快速按节点添加输入映射</div>
+                        <div className="space-y-2">
+                          <label className="block text-[11px] text-slate-600 dark:text-slate-400">输入节点（含 ID）</label>
+                          <select
+                            value={workflowInputPickerNodeId}
+                            onChange={(e) => {
+                              setWorkflowInputPickerNodeId(e.target.value);
+                              setWorkflowInputPickerKeys([]);
+                            }}
+                            className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white"
+                          >
+                            <option value="">选择输入节点（含 ID）</option>
+                            {comfyWorkflowNodes.map((node) => (
+                              <option key={`workflow-picker-node-${node.id}`} value={node.id}>
+                                #{node.id} · {node.title} · {node.classType}
+                              </option>
+                            ))}
+                          </select>
+                          <div className="flex items-center justify-between text-[11px] text-slate-600 dark:text-slate-400">
+                            <span>输入 Key（勾选）</span>
+                            <div className="space-x-2">
                               <button
-                                className="rounded border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200 dark:hover:bg-slate-900/60"
-                                onClick={() => removeWorkflowInputMap(idx)}
+                                className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                                onClick={() =>
+                                  setWorkflowInputPickerKeys(
+                                    comfyWorkflowNodeMap.get(workflowInputPickerNodeId)?.inputs || [],
+                                  )
+                                }
+                                disabled={!workflowInputPickerNodeId}
                               >
-                                删除
+                                全选
+                              </button>
+                              <button
+                                className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                                onClick={() => setWorkflowInputPickerKeys([])}
+                                disabled={!workflowInputPickerNodeId}
+                              >
+                                清空
                               </button>
                             </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                    <div className="mt-4 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-slate-700 dark:text-slate-400">输出节点映射（保存图片为主）</span>
-                        <div className="space-x-2 text-[11px]">
+                          </div>
+                          <div className="h-28 w-full overflow-auto rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white">
+                            {!workflowInputPickerNodeId ? (
+                              <div className="text-slate-500 dark:text-slate-500">请先选择节点</div>
+                            ) : (
+                              (comfyWorkflowNodeMap.get(workflowInputPickerNodeId)?.inputs || []).map((key) => (
+                                <label
+                                  key={`workflow-picker-input-${workflowInputPickerNodeId}-${key}`}
+                                  className="flex items-center gap-2 py-0.5"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={workflowInputPickerKeys.includes(key)}
+                                    onChange={(e) =>
+                                      setWorkflowInputPickerKeys((prev) =>
+                                        e.target.checked ? [...prev, key] : prev.filter((item) => item !== key),
+                                      )
+                                    }
+                                  />
+                                  <span>{key}</span>
+                                </label>
+                              ))
+                            )}
+                          </div>
                           <button
-                            className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
-                            onClick={() => setWorkflowOutputShowAll((prev) => !prev)}
+                            className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200 dark:hover:bg-slate-900/60"
+                            onClick={addWorkflowInputMappingsForNode}
+                            disabled={!workflowInputPickerNodeId || workflowInputPickerKeys.length === 0}
                           >
-                            {workflowOutputShowAll ? '仅显示 SaveImage' : '显示全部节点'}
-                          </button>
-                          <button
-                            className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
-                            onClick={() => updateWorkflowOutputNodes([])}
-                          >
-                            清空输出
+                            添加到映射
                           </button>
                         </div>
+                        <p className="text-[11px] text-slate-600 dark:text-slate-500">
+                          以节点 ID 为主进行配置；每个输入会自动生成一条映射，参数名默认等于输入 Key，可在下方表格继续调整。
+                        </p>
                       </div>
-                      <div className="grid grid-cols-[1fr_auto] gap-2">
-                        <select
-                          value={workflowOutputPickerNodeId}
-                          onChange={(e) => setWorkflowOutputPickerNodeId(e.target.value)}
-                          className="rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white"
-                        >
-                          <option value="">选择输出节点（含 ID）</option>
-                          {(workflowOutputShowAll
-                            ? comfyWorkflowNodes
-                            : comfyWorkflowNodes.filter((node) => node.classType.toLowerCase().includes('saveimage'))
-                          ).map((node) => (
-                            <option key={`workflow-output-picker-${node.id}`} value={node.id}>
-                              #{node.id} · {node.title} · {node.classType}
-                            </option>
-                          ))}
-                        </select>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-slate-700 dark:text-slate-400">输入参数映射</span>
                         <button
-                          className="rounded border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200 dark:hover:bg-slate-900/60"
-                          onClick={addWorkflowOutputNode}
-                          disabled={!workflowOutputPickerNodeId}
+                          className="rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200 dark:hover:bg-slate-900/60"
+                          onClick={addWorkflowInputMap}
                         >
                           添加映射
                         </button>
                       </div>
-                      {workflowOutputNodeIds.length === 0 ? (
+                      {workflowInputMap.length === 0 ? (
                         <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-3 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-950/50 dark:text-slate-500">
-                          未选择输出节点时，默认返回全部输出（建议选择 SaveImage 节点）。
+                          尚未配置输入映射。可选择需要暴露给 Coze 的字段。
                         </div>
                       ) : (
                         <div className="space-y-2">
-                          <div className="grid grid-cols-[1fr_auto] gap-2 text-[11px] text-slate-500">
-                            <div>已选输出节点</div>
+                          <div className="grid grid-cols-[1.2fr_1fr_1fr_0.6fr_auto] gap-2 text-[11px] text-slate-500">
+                            <div>参数名</div>
+                            <div>节点</div>
+                            <div>输入 Key</div>
+                            <div>类型</div>
                             <div></div>
                           </div>
-                          {workflowOutputNodeIds.map((nodeId) => {
-                            const node = comfyWorkflowNodeMap.get(nodeId);
-                            const label = node ? `#${node.id} · ${node.title} · ${node.classType}` : `#${nodeId}`;
+                          {workflowInputMap.map((item, idx) => {
+                            const node = comfyWorkflowNodeMap.get(item.nodeId);
+                            const inputOptions = node?.inputs || [];
                             return (
-                              <div key={`workflow-output-picked-${nodeId}`} className="grid grid-cols-[1fr_auto] gap-2">
-                                <div className="rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white">
-                                  {label}
-                                </div>
+                              <div
+                                key={`workflow-input-${idx}`}
+                                className="grid grid-cols-[1.2fr_1fr_1fr_0.6fr_auto] gap-2"
+                              >
+                                <input
+                                  value={item.field}
+                                  onChange={(e) => updateWorkflowInputMap(idx, { field: e.target.value })}
+                                  placeholder="参数名，如 prompt / width"
+                                  className="rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white"
+                                />
+                                <select
+                                  value={item.nodeId}
+                                  onChange={(e) => updateWorkflowInputMap(idx, { nodeId: e.target.value, inputKey: '' })}
+                                  className="rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white"
+                                >
+                                  <option value="">选择节点</option>
+                                  {comfyWorkflowNodes.map((nodeOption) => (
+                                    <option key={`workflow-node-${nodeOption.id}`} value={nodeOption.id}>
+                                      #{nodeOption.id} · {nodeOption.title}
+                                    </option>
+                                  ))}
+                                </select>
+                                <select
+                                  value={item.inputKey}
+                                  onChange={(e) => updateWorkflowInputMap(idx, { inputKey: e.target.value })}
+                                  disabled={!item.nodeId}
+                                  className="rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 disabled:bg-slate-100 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white dark:disabled:bg-slate-900/40"
+                                >
+                                  <option value="">选择输入</option>
+                                  {inputOptions.map((key) => (
+                                    <option key={`workflow-input-${item.nodeId}-${key}`} value={key}>
+                                      {key}
+                                    </option>
+                                  ))}
+                                </select>
+                                <select
+                                  value={item.valueType || ''}
+                                  onChange={(e) => updateWorkflowInputMap(idx, { valueType: e.target.value })}
+                                  className="rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white"
+                                >
+                                  <option value="">原样</option>
+                                  <option value="string">string</option>
+                                  <option value="int">int</option>
+                                  <option value="float">float</option>
+                                  <option value="bool">bool</option>
+                                  <option value="json">json</option>
+                                </select>
                                 <button
                                   className="rounded border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200 dark:hover:bg-slate-900/60"
-                                  onClick={() => removeWorkflowOutputNode(nodeId)}
+                                  onClick={() => removeWorkflowInputMap(idx)}
                                 >
                                   删除
                                 </button>
@@ -6178,26 +9116,287 @@ const normalizeErrorMessage = (message: string): string => {
                           })}
                         </div>
                       )}
-                      <p className="text-[11px] text-slate-600 dark:text-slate-500">
-                        输出建议只选 SaveImage 节点，避免返回无用的中间数据。
-                      </p>
-                    </div>
-                    {workflowMappingErrors.length > 0 ? (
-                      <div className="rounded-2xl border border-rose-200/80 bg-rose-50/80 p-3 text-xs text-rose-600 dark:border-rose-900/50 dark:bg-rose-950/30">
-                        <div className="font-semibold">映射校验未通过：</div>
-                        <ul className="mt-2 list-disc space-y-1 pl-5">
-                          {workflowMappingErrors.slice(0, 8).map((msg, idx) => (
-                            <li key={`workflow-map-error-${idx}`}>{msg}</li>
-                          ))}
-                        </ul>
-                        {workflowMappingErrors.length > 8 ? (
-                          <div className="mt-2">…共 {workflowMappingErrors.length} 条</div>
-                        ) : null}
+                      <div className="mt-4 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs text-slate-700 dark:text-slate-400">输出节点映射（保存图片为主）</span>
+                          <div className="space-x-2 text-[11px]">
+                            <button
+                              className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                              onClick={() => setWorkflowOutputShowAll((prev) => !prev)}
+                            >
+                              {workflowOutputShowAll ? '仅显示 SaveImage' : '显示全部节点'}
+                            </button>
+                            <button
+                              className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                              onClick={() => updateWorkflowOutputNodes([])}
+                            >
+                              清空输出
+                            </button>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-[1fr_auto] gap-2">
+                          <select
+                            value={workflowOutputPickerNodeId}
+                            onChange={(e) => setWorkflowOutputPickerNodeId(e.target.value)}
+                            className="rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white"
+                          >
+                            <option value="">选择输出节点（含 ID）</option>
+                            {(workflowOutputShowAll
+                              ? comfyWorkflowNodes
+                              : comfyWorkflowNodes.filter((node) => node.classType.toLowerCase().includes('saveimage'))
+                            ).map((node) => (
+                              <option key={`workflow-output-picker-${node.id}`} value={node.id}>
+                                #{node.id} · {node.title} · {node.classType}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            className="rounded border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200 dark:hover:bg-slate-900/60"
+                            onClick={addWorkflowOutputNode}
+                            disabled={!workflowOutputPickerNodeId}
+                          >
+                            添加映射
+                          </button>
+                        </div>
+                        {workflowOutputNodeIds.length === 0 ? (
+                          <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-3 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-950/50 dark:text-slate-500">
+                            未选择输出节点时，默认返回全部输出（建议选择 SaveImage 节点）。
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            <div className="grid grid-cols-[1fr_auto] gap-2 text-[11px] text-slate-500">
+                              <div>已选输出节点</div>
+                              <div></div>
+                            </div>
+                            {workflowOutputNodeIds.map((nodeId) => {
+                              const node = comfyWorkflowNodeMap.get(nodeId);
+                              const label = node ? `#${node.id} · ${node.title} · ${node.classType}` : `#${nodeId}`;
+                              return (
+                                <div key={`workflow-output-picked-${nodeId}`} className="grid grid-cols-[1fr_auto] gap-2">
+                                  <div className="rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white">
+                                    {label}
+                                  </div>
+                                  <button
+                                    className="rounded border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200 dark:hover:bg-slate-900/60"
+                                    onClick={() => removeWorkflowOutputNode(nodeId)}
+                                  >
+                                    删除
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                        <p className="text-[11px] text-slate-600 dark:text-slate-500">
+                          输出建议只选 SaveImage 节点，避免返回无用的中间数据。
+                        </p>
                       </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-6 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-950/50 dark:text-slate-500">
+                    请先从左侧选择工作流或导入 Workflow JSON，再配置输入/输出节点。
+                  </div>
+                )}
+                {workflowMappingErrors.length > 0 ? (
+                  <div className="rounded-2xl border border-rose-200/80 bg-rose-50/80 p-3 text-xs text-rose-600 dark:border-rose-900/50 dark:bg-rose-950/30">
+                    <div className="font-semibold">映射校验未通过：</div>
+                    <ul className="mt-2 list-disc space-y-1 pl-5">
+                      {workflowMappingErrors.slice(0, 8).map((msg, idx) => (
+                        <li key={`workflow-map-error-${idx}`}>{msg}</li>
+                      ))}
+                    </ul>
+                    {workflowMappingErrors.length > 8 ? (
+                      <div className="mt-2">…共 {workflowMappingErrors.length} 条</div>
                     ) : null}
-                  </>
+                  </div>
+                ) : null}
+              </div>
+            )}
+            {workflowEditTab === 'params' && (
+              <div className="space-y-3">
+              {!workflowCanMap ? (
+                <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-6 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-950/50 dark:text-slate-500">
+                  请先从左侧选择工作流或导入 Workflow JSON，再调整内部节点参数。
+                </div>
+              ) : (
+                    <div className="rounded-2xl border border-slate-200/70 bg-white/70 p-3 space-y-3 dark:border-slate-800 dark:bg-slate-950/50">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <div className="text-xs font-semibold text-slate-800 dark:text-slate-200">工作流参数（内部节点）</div>
+                          <div className="text-[11px] text-slate-500">
+                            输入/输出节点作为能力接口；其他节点用于版本迭代与内部调参。
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 text-xs">
+                          <Input
+                            value={workflowNodeSearch}
+                            onChange={(v) => setWorkflowNodeSearch(String(v))}
+                            placeholder="搜索节点 ID / 名称 / 类型"
+                          />
+                          <Select
+                            value={workflowParamScope}
+                            onChange={(v) => setWorkflowParamScope(v === 'all' ? 'all' : 'internal')}
+                            options={[
+                              { label: '仅内部节点', value: 'internal' },
+                              { label: '全部节点', value: 'all' },
+                            ]}
+                          />
+                        </div>
+                      </div>
+                      {filteredWorkflowNodeDetails.length === 0 ? (
+                        <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-3 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-950/50 dark:text-slate-500">
+                          暂无可编辑节点，请先导入 Workflow JSON 或切换筛选条件。
+                        </div>
+                      ) : (
+                        <div className="max-h-[420px] space-y-2 overflow-auto pr-1">
+                          {filteredWorkflowNodeDetails.map((node) => {
+                            const isInterface = workflowInterfaceNodeIds.has(node.id);
+                            return (
+                              <div
+                                key={`workflow-node-detail-${node.id}`}
+                                className="rounded-2xl border border-slate-200/70 bg-white p-3 text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-300"
+                              >
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <div className="font-semibold text-slate-900 dark:text-white">
+                                    #{node.id} · {node.title} · {node.classType}
+                                  </div>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    {isInterface ? (
+                                      <Tag theme="primary" variant="light" size="small">
+                                        接口节点
+                                      </Tag>
+                                    ) : (
+                                      <Tag theme="default" variant="light" size="small">
+                                        内部节点
+                                      </Tag>
+                                    )}
+                                      <Button
+                                        size="small"
+                                        theme="default"
+                                        variant="text"
+                                        onClick={() => addWorkflowOutputNodeById(node.id)}
+                                      >
+                                        设为输出
+                                      </Button>
+                                  </div>
+                                </div>
+                                {node.inputs.length === 0 ? (
+                                  <div className="mt-2 text-[11px] text-slate-500">无可编辑参数</div>
+                                ) : (
+                                  <div className="mt-2 space-y-2">
+                                    {node.inputs.map((input) => {
+                                      if (input.linked) {
+                                        return (
+                                          <div key={`workflow-node-${node.id}-input-${input.key}`} className="flex items-center justify-between gap-3">
+                                            <span className="text-slate-600">{input.key}</span>
+                                            <span className="text-[11px] text-slate-400">连接 {input.linkRef || '上游节点'}</span>
+                                          </div>
+                                        );
+                                      }
+                                      const value = input.value;
+                                      if (typeof value === 'boolean') {
+                                        return (
+                                          <div key={`workflow-node-${node.id}-input-${input.key}`} className="flex items-center justify-between gap-3">
+                                            <span className="text-slate-600">{input.key}</span>
+                                            <div className="flex items-center gap-2">
+                                              <Button
+                                                size="small"
+                                                theme="default"
+                                                variant="text"
+                                                onClick={() => addWorkflowInputMapEntry(node.id, input.key)}
+                                              >
+                                                暴露为输入
+                                              </Button>
+                                              <Switch
+                                                value={value}
+                                                onChange={(v) => updateWorkflowNodeInputValue(node.id, input.key, Boolean(v))}
+                                              />
+                                            </div>
+                                          </div>
+                                        );
+                                      }
+                                      if (typeof value === 'number') {
+                                        return (
+                                          <div key={`workflow-node-${node.id}-input-${input.key}`} className="flex items-center justify-between gap-3">
+                                            <span className="text-slate-600">{input.key}</span>
+                                            <div className="flex items-center gap-2">
+                                              <Button
+                                                size="small"
+                                                theme="default"
+                                                variant="text"
+                                                onClick={() => addWorkflowInputMapEntry(node.id, input.key)}
+                                              >
+                                                暴露为输入
+                                              </Button>
+                                              <InputNumber
+                                                value={value}
+                                                onChange={(v) => updateWorkflowNodeInputValue(node.id, input.key, Number(v))}
+                                                placeholder="数值"
+                                              />
+                                            </div>
+                                          </div>
+                                        );
+                                      }
+                                      if (typeof value === 'string' || value === null || value === undefined) {
+                                        return (
+                                          <div key={`workflow-node-${node.id}-input-${input.key}`} className="flex items-center justify-between gap-3">
+                                            <span className="text-slate-600">{input.key}</span>
+                                            <div className="flex items-center gap-2">
+                                              <Button
+                                                size="small"
+                                                theme="default"
+                                                variant="text"
+                                                onClick={() => addWorkflowInputMapEntry(node.id, input.key)}
+                                              >
+                                                暴露为输入
+                                              </Button>
+                                              <Input
+                                                value={value ?? ''}
+                                                onChange={(v) => updateWorkflowNodeInputValue(node.id, input.key, String(v))}
+                                                placeholder="文本"
+                                              />
+                                            </div>
+                                          </div>
+                                        );
+                                      }
+                                      return (
+                                        <div key={`workflow-node-${node.id}-input-${input.key}`} className="space-y-1">
+                                          <div className="flex items-center justify-between gap-3">
+                                            <span className="text-slate-600">{input.key}</span>
+                                            <div className="flex items-center gap-2 text-[11px] text-slate-400">
+                                              <Button
+                                                size="small"
+                                                theme="default"
+                                                variant="text"
+                                                onClick={() => addWorkflowInputMapEntry(node.id, input.key)}
+                                              >
+                                                暴露为输入
+                                              </Button>
+                                              <span>复杂结构</span>
+                                            </div>
+                                          </div>
+                                          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-500 dark:border-slate-800 dark:bg-slate-900/50">
+                                            {JSON.stringify(value)}
+                                          </div>
+                                          <div className="text-[11px] text-slate-400">
+                                            复杂参数请在 JSON 编辑区修改。
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
                 )}
               </div>
+            )}
+            {workflowEditTab === 'executors' && (
               <label className="block text-xs text-slate-700 dark:text-slate-400">
                 允许运行节点（多选）
                 {comfyExecutors.length > 0 ? (
@@ -6228,6 +9427,7 @@ const normalizeErrorMessage = (message: string): string => {
                   用于限制某个 ComfyUI 工作流可以在哪些机器上执行；保存后会写入 metadata.allowed_executor_ids，调度器会据此路由。
                 </p>
               </label>
+            )}
               {workflowFormErrors.length > 0 ? (
                 <div className="rounded-2xl border border-rose-200/80 bg-rose-50/80 p-3 text-xs text-rose-600 dark:border-rose-900/50 dark:bg-rose-950/30">
                   <div className="font-semibold">请先处理以下问题：</div>
@@ -6271,6 +9471,7 @@ const normalizeErrorMessage = (message: string): string => {
             </div>
           </div>
         </div>
+        )}
       </Section>
           )}
           {activeNav === 'workflow-builder' && (

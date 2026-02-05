@@ -10,6 +10,22 @@
 
 > 修改 workflow 或能力时请同步更新本文档，并在 PR 描述中说明节点调整、LoRA 更换或默认参数变化，确保与 backend/app/workflows/comfyui/*.json 及 backend/app/constants/abilities.py 一致。
 
+## 管理端入口
+
+- 管理端「ComfyUI 管理」统一收口：`素材库` 维护 LoRA/基座模型，`资源清单` 维护模型/插件下载信息，`服务器` 维护多台 ComfyUI 机器对比，`模板管理` 维护 workflow JSON 与节点映射。
+- 对外原则：ComfyUI workflow 属于**原子能力**，能力配置与模板变更需同步记录本文档。
+  - 模板管理支持导入 ComfyUI UI JSON（含 nodes/links）或 Prompt Graph；UI JSON 保存时会自动转换为 Prompt Graph。
+  - 资源清单字段约定：`download_url` 填国内镜像地址，`source_url` 填官方/原始来源。
+  - 能力版本字段：`abilities.version` 默认 `v1`，新版本建议在 `capability_key` 上显式区分（例如 `_v2`），便于旧版本共存。
+  - 模板管理支持“复制为新版本”，会自动生成新的 workflow_key（原 key + 版本号），保存后即可与旧版本并行。
+
+## 待办 / 风险记录
+
+- LoRA 可能适用于多个基座模型：已新增 `base_models` 多选字段，旧 `base_model` 仅用于兼容。
+- “服务器”页已支持基准服务器（baseline）对比：缺失模型/插件时提示差异列表（插件以 `/object_info` 返回的节点名对比）。
+- TODO：提供一键同步/修复能力（模型/插件/配置），并补充更细粒度的插件版本校验规则。
+- TODO：为模型/插件补充“下载地址/来源”字段，便于后续手工对齐与运维追踪。
+
 ## 四方连续 · ComfyUI (workflow_key: sifang_lianxu)
 
 | 项目 | 说明 |
@@ -129,6 +145,17 @@
 5. 数据库刷新：修改完成后执行 ensure_default_executors/workflows/bindings/abilities（见 AGENTS.md），让管理端同步最新配置。
 6. 验证：在管理端“能力测试”上传样例，确认获得 storedUrl，必要时附图存档。
 
+## 冷启动脚本
+
+当新环境需要快速落地 ComfyUI 清单时，可使用脚本拉取基准服务器快照并可选写入 LoRA 目录：
+
+```bash
+python3 scripts/comfyui_cold_start_seed.py --executor-id executor_comfyui_xxx
+python3 scripts/comfyui_cold_start_seed.py --executor-id executor_comfyui_xxx --seed-loras
+```
+
+脚本会在 `reports/` 目录生成基准快照 JSON，LoRA 元信息会按 file_name 自动补齐为「对外名称」。
+
 ## 运维接口与诊断工具
 
 ### ComfyUI 原生 HTTP 接口
@@ -147,8 +174,24 @@
 
 | Endpoint | 说明 |
 | --- | --- |
-| `GET /api/admin/comfyui/models?executorId=...` | 由 admin API 代理 `/object_info`，并解析到 `UNETLoader/CLIPLoader/VAELoader/LoraLoaderModelOnly` 字段。管理端在渲染 schema 时会将 `component=select` 的字段改为下拉，并允许“自定义 LoRA”回退到手动输入。 |
+| `GET /api/admin/comfyui/models?executorId=...` | 由 admin API 代理 `/object_info`，并解析到 `UNETLoader/CLIPLoader/VAELoader/LoraLoaderModelOnly` 字段。管理端在渲染 schema 时会将 `component=select` 的字段改为下拉，并允许“自定义 LoRA”回退到手动输入。基座模型列表支持本地缓存增补。 |
+| `GET /api/admin/comfyui/loras?executorId=...` | LoRA 目录（数据库）+ 节点实装列表合并，返回 `items` 与 `untrackedFiles`，便于补齐 LoRA 元信息。 |
+| `POST /api/admin/comfyui/loras` | 新增/更新 LoRA 元信息（file_name/display_name/base_models/trigger_words 等）。 |
+| `PUT /api/admin/comfyui/loras/{id}` | 编辑 LoRA 元信息（不允许修改 file_name）。 |
+| `DELETE /api/admin/comfyui/loras/{id}` | 删除 LoRA 元信息。 |
 | `GET /api/admin/comfyui/queue-status?executorId=...` | 由 admin API 代理 `/queue/status`，统一展示 `runningCount/pendingCount/queueMaxSize`。测试面板提供手动刷新，方便排查串行 worker 是否被拖慢。 |
 | `GET /api/admin/comfyui/queue-summary?executorIds=...` | 汇总多台 ComfyUI 节点的队列状态，返回 `totalRunning/totalPending/servers[]`，用于“调度监控/执行节点”看板。 |
 
 > 注意：ComfyUI 默认单线程顺序执行，`pendingCount`>0 时说明上一张仍在处理，新的请求会等待。必要时请切换到另一台 executor 或扩大 worker 数量后再在 config/executors.yaml 中声明。
+
+### 能力级 LoRA 绑定规则（metadata）
+
+为避免 LoRA 误用，ComfyUI 能力可在 metadata 中配置以下字段（管理端已提供表单）：
+
+- `allowed_lora_files`: 允许的 LoRA 文件名列表（文件名为准）。
+- `allowed_lora_tags`: 允许的 LoRA 标签列表（来自 LoRA 目录）。
+- `allowed_lora_base_models`: 允许的基座模型列表（匹配 LoRA 的 base_models/base_model）。
+- `default_lora`: 默认 LoRA（当未传入或不匹配时使用）。
+- `lora_policy`: 不匹配处理策略，`fallback`（回退默认）/`ignore`（直接忽略）。
+
+后端会在调用 ComfyUI 前自动校验/回退，确保线上调用不受误配置影响。

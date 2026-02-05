@@ -183,9 +183,48 @@ const filterDisplayParams = (
   return Object.fromEntries(entries);
 };
 
+const INTERNAL_EVAL_DOC_KEYS = new Set(['count', 'generatecount', 'variantcount', 'n']);
+
+const isFissionWorkflow = (wf: EvalWorkflowVersion): boolean =>
+  normalizeCategory(wf?.category) === '图裂变';
+
+const sanitizeWorkflowDoc = (wf: WorkflowDoc): WorkflowDoc => {
+  if (normalizeCategory(wf.category) !== '图裂变') return wf;
+  const filteredParams = Array.isArray(wf.parameters)
+    ? wf.parameters.filter((param) => !INTERNAL_EVAL_DOC_KEYS.has(String(param.name || '').toLowerCase()))
+    : wf.parameters;
+  const requestBody = wf.request?.body;
+  const filteredRequest =
+    requestBody && typeof requestBody === 'object'
+      ? {
+          ...wf.request,
+          body: {
+            ...requestBody,
+            parameters:
+              requestBody && typeof requestBody === 'object' && !Array.isArray(requestBody)
+                ? Object.fromEntries(
+                    Object.entries((requestBody as any).parameters || {}).filter(
+                      ([key]) => !INTERNAL_EVAL_DOC_KEYS.has(String(key || '').toLowerCase()),
+                    ),
+                  )
+                : (requestBody as any).parameters,
+          },
+        }
+      : wf.request;
+  return {
+    ...wf,
+    parameters: filteredParams,
+    request: filteredRequest,
+  };
+};
+
 const buildCozeDoc = (wf: EvalWorkflowVersion, urlExample: string) => {
   const paramsExample: Record<string, unknown> = {};
-  for (const f of getFields(wf)) {
+  const fields = getFields(wf).filter((f) => {
+    if (!isFissionWorkflow(wf)) return true;
+    return !INTERNAL_EVAL_DOC_KEYS.has(String(f.name || '').toLowerCase());
+  });
+  for (const f of fields) {
     if (f.name === 'url') {
       paramsExample.url = urlExample || 'https://...';
       continue;
@@ -816,7 +855,7 @@ export function App() {
 
   const groupedDocs = useMemo(() => {
     const map = new Map<string, WorkflowDoc[]>();
-    for (const wf of docsWorkflows) {
+    for (const wf of docsWorkflows.map(sanitizeWorkflowDoc)) {
       const cat = normalizeCategory(wf.category);
       if (!map.has(cat)) map.set(cat, []);
       map.get(cat)!.push(wf);

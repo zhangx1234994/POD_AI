@@ -129,6 +129,70 @@ class ExecutorApiKey(Base):
     executor: Mapped[Executor] = relationship(back_populates="api_key_links")
     api_key: Mapped[ApiKey] = relationship(back_populates="executor_links")
 
+
+class ComfyuiLora(Base):
+    __tablename__ = "comfyui_lora_catalog"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    file_name: Mapped[str] = mapped_column(String(256), nullable=False, unique=True)
+    display_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    base_model: Mapped[str | None] = mapped_column(String(256))
+    base_models: Mapped[list[str] | None] = mapped_column(JSON)
+    tags: Mapped[list[str] | None] = mapped_column(JSON)
+    trigger_words: Mapped[list[str] | None] = mapped_column(JSON)
+    status: Mapped[str] = mapped_column(String(32), default="active", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+
+class ComfyuiModelCatalog(Base):
+    __tablename__ = "comfyui_model_catalog"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    file_name: Mapped[str] = mapped_column(String(256), nullable=False)
+    display_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    model_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    source_url: Mapped[str | None] = mapped_column(Text)
+    download_url: Mapped[str | None] = mapped_column(Text)
+    tags: Mapped[list[str] | None] = mapped_column(JSON)
+    status: Mapped[str] = mapped_column(String(32), default="active", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+
+class ComfyuiPluginCatalog(Base):
+    __tablename__ = "comfyui_plugin_catalog"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    node_key: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
+    display_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    package_name: Mapped[str | None] = mapped_column(String(128))
+    version: Mapped[str | None] = mapped_column(String(64))
+    description: Mapped[str | None] = mapped_column(Text)
+    source_url: Mapped[str | None] = mapped_column(Text)
+    download_url: Mapped[str | None] = mapped_column(Text)
+    tags: Mapped[list[str] | None] = mapped_column(JSON)
+    status: Mapped[str] = mapped_column(String(32), default="active", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+
+class ComfyuiServerDiffLog(Base):
+    __tablename__ = "comfyui_server_diff_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    baseline_executor_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
 class Ability(Base):
     __tablename__ = "abilities"
 
@@ -136,6 +200,7 @@ class Ability(Base):
     provider: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     category: Mapped[str] = mapped_column(String(64), nullable=False)
     capability_key: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    version: Mapped[str] = mapped_column(String(32), default="v1", nullable=False)
     display_name: Mapped[str] = mapped_column(String(128), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(32), default="inactive", nullable=False)

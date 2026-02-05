@@ -12,6 +12,7 @@ class AbilityBase(BaseModel):
     provider: str
     category: str
     capability_key: str
+    version: str = Field(default="v1")
     display_name: str
     description: str | None = None
     status: str = Field(default="inactive")
@@ -32,6 +33,7 @@ class AbilityUpdate(BaseModel):
     provider: str | None = None
     category: str | None = None
     capability_key: str | None = None
+    version: str | None = None
     display_name: str | None = None
     description: str | None = None
     status: str | None = None
@@ -66,6 +68,7 @@ class AbilityOption(BaseModel):
     provider: str
     category: str | None = None
     capability_key: str
+    version: str | None = None
     display_name: str
     description: str | None = None
     default_params: dict[str, Any] | None = None

@@ -138,3 +138,138 @@ class ApiKeyRead(ApiKeyBase):
     usage_count: int
     created_at: datetime
     updated_at: datetime
+
+
+class ComfyuiLoraBase(BaseModel):
+    file_name: str = Field(..., description="LoRA 文件名（服务器侧）")
+    display_name: str = Field(..., description="对外显示名称")
+    description: str | None = Field(default=None, description="备注说明")
+    base_model: str | None = Field(default=None, description="适用基座模型（UNET，单值兼容）")
+    base_models: list[str] | None = Field(default=None, description="适用基座模型列表（UNET，多选）")
+    tags: list[str] | None = Field(default=None, description="标签")
+    trigger_words: list[str] | None = Field(default=None, description="触发词/关键词")
+    status: str = Field(default="active", description="active/inactive")
+
+
+class ComfyuiLoraCreate(ComfyuiLoraBase):
+    id: int | None = None
+
+
+class ComfyuiLoraUpdate(BaseModel):
+    file_name: str | None = None
+    display_name: str | None = None
+    description: str | None = None
+    base_model: str | None = None
+    base_models: list[str] | None = None
+    tags: list[str] | None = None
+    trigger_words: list[str] | None = None
+    status: str | None = None
+
+
+class ComfyuiLoraRead(ComfyuiLoraBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    created_at: datetime
+    updated_at: datetime
+    installed: bool | None = None
+
+
+class ComfyuiLoraCatalogResponse(BaseModel):
+    executorId: str | None = None
+    baseUrl: str | None = None
+    installedFiles: list[str] | None = None
+    untrackedFiles: list[str] | None = None
+    items: list[ComfyuiLoraRead]
+
+
+class ComfyuiModelCatalogBase(BaseModel):
+    file_name: str = Field(..., description="模型文件名（与 ComfyUI 内一致）")
+    display_name: str = Field(..., description="对外显示名称")
+    model_type: str = Field(..., description="模型类型，例如 unet/clip/vae")
+    description: str | None = Field(default=None, description="备注说明")
+    source_url: str | None = Field(default=None, description="来源地址/文档")
+    download_url: str | None = Field(default=None, description="下载地址")
+    tags: list[str] | None = Field(default=None, description="标签")
+    status: str = Field(default="active", description="active/inactive")
+
+
+class ComfyuiModelCatalogCreate(ComfyuiModelCatalogBase):
+    id: int | None = None
+
+
+class ComfyuiModelCatalogUpdate(BaseModel):
+    file_name: str | None = None
+    display_name: str | None = None
+    model_type: str | None = None
+    description: str | None = None
+    source_url: str | None = None
+    download_url: str | None = None
+    tags: list[str] | None = None
+    status: str | None = None
+
+
+class ComfyuiModelCatalogRead(ComfyuiModelCatalogBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class ComfyuiModelCatalogResponse(BaseModel):
+    items: list[ComfyuiModelCatalogRead]
+
+
+class ComfyuiPluginCatalogBase(BaseModel):
+    node_key: str = Field(..., description="插件节点 key（来自 /object_info）")
+    display_name: str = Field(..., description="对外显示名称")
+    package_name: str | None = Field(default=None, description="插件包/仓库名称")
+    version: str | None = Field(default=None, description="插件版本/commit")
+    description: str | None = Field(default=None, description="备注说明")
+    source_url: str | None = Field(default=None, description="来源地址/文档")
+    download_url: str | None = Field(default=None, description="下载地址")
+    tags: list[str] | None = Field(default=None, description="标签")
+    status: str = Field(default="active", description="active/inactive")
+
+
+class ComfyuiPluginCatalogCreate(ComfyuiPluginCatalogBase):
+    id: int | None = None
+
+
+class ComfyuiPluginCatalogUpdate(BaseModel):
+    node_key: str | None = None
+    display_name: str | None = None
+    package_name: str | None = None
+    version: str | None = None
+    description: str | None = None
+    source_url: str | None = None
+    download_url: str | None = None
+    tags: list[str] | None = None
+    status: str | None = None
+
+
+class ComfyuiPluginCatalogRead(ComfyuiPluginCatalogBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class ComfyuiPluginCatalogResponse(BaseModel):
+    items: list[ComfyuiPluginCatalogRead]
+
+
+class ComfyuiServerDiffCreate(BaseModel):
+    baseline_executor_id: str = Field(..., description="主服务器 executor_id")
+    payload: dict[str, Any] = Field(default_factory=dict, description="差异快照 JSON")
+
+
+class ComfyuiServerDiffRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    baseline_executor_id: str
+    payload: dict[str, Any] | None = None
+    created_at: datetime

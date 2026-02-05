@@ -16,6 +16,7 @@ from PIL import Image
 from io import BytesIO
 
 from app.services.executors.base import ExecutionContext, ExecutionResult, ExecutorAdapter
+from app.services.comfyui_graph import normalize_comfyui_prompt_graph
 from app.services.media_ingest import media_ingest_service
 
 
@@ -112,7 +113,7 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             )
 
         workflow_definition = context.workflow.definition or {}
-        graph_payload = workflow_definition.get("graph") or workflow_definition
+        graph_payload = normalize_comfyui_prompt_graph(workflow_definition) or workflow_definition.get("graph") or workflow_definition
         if not graph_payload:
             return ExecutionResult(
                 success=False,

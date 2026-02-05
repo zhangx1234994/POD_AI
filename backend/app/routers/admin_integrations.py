@@ -3,18 +3,31 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from datetime import datetime, timezone
 from typing import Any, Callable
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import selectinload
 
 from app.core.db import get_session
 from app.deps.auth import require_admin
-from app.models.integration import Ability, ApiKey, Executor, ExecutorApiKey, Workflow, WorkflowBinding
+from app.models.integration import (
+    Ability,
+    ApiKey,
+    ComfyuiLora,
+    ComfyuiModelCatalog,
+    ComfyuiPluginCatalog,
+    ComfyuiServerDiffLog,
+    Executor,
+    ExecutorApiKey,
+    Workflow,
+    WorkflowBinding,
+)
 from app.schemas import admin_integrations as schemas
 from app.schemas import admin_tests, admin_workflows
 from app.services.ability_logs import AbilityLogStartParams, ability_log_service
@@ -24,6 +37,7 @@ from app.services.integration_test import integration_test_service
 from app.services.workflow_seed import ensure_default_bindings, ensure_default_workflows
 
 router = APIRouter(prefix="/admin", dependencies=[Depends(require_admin)])
+logger = logging.getLogger(__name__)
 
 
 def _generate_id(existing_id: str | None) -> str:
@@ -69,6 +83,65 @@ def _extract_error_payload(exc: Exception) -> dict[str, Any] | None:
     if isinstance(exc, HTTPException):
         return {"status_code": exc.status_code, "detail": exc.detail}
     return None
+
+
+def _normalize_comfyui_lora_payload(data: dict[str, Any]) -> dict[str, Any]:
+    if not data:
+        return data
+    base_models_raw = data.get("base_models")
+    if base_models_raw is not None:
+        if isinstance(base_models_raw, (list, tuple, set)):
+            base_models = [str(item).strip() for item in base_models_raw if str(item).strip()]
+        else:
+            trimmed = str(base_models_raw).strip()
+            base_models = [trimmed] if trimmed else []
+        data["base_models"] = base_models or None
+        if len(base_models) == 1:
+            data["base_model"] = base_models[0]
+        else:
+            data["base_model"] = None
+    else:
+        base_model = str(data.get("base_model") or "").strip()
+        if base_model:
+            data["base_model"] = base_model
+            data["base_models"] = [base_model]
+        else:
+            data.pop("base_model", None)
+    return data
+
+
+def _normalize_comfyui_model_payload(data: dict[str, Any]) -> dict[str, Any]:
+    if not data:
+        return data
+    for key in ("file_name", "display_name", "model_type"):
+        if key in data and isinstance(data[key], str):
+            data[key] = data[key].strip()
+    tags = data.get("tags")
+    if tags is not None:
+        if isinstance(tags, (list, tuple, set)):
+            cleaned = [str(item).strip() for item in tags if str(item).strip()]
+        else:
+            trimmed = str(tags).strip()
+            cleaned = [trimmed] if trimmed else []
+        data["tags"] = cleaned or None
+    return data
+
+
+def _normalize_comfyui_plugin_payload(data: dict[str, Any]) -> dict[str, Any]:
+    if not data:
+        return data
+    for key in ("node_key", "display_name", "package_name", "version"):
+        if key in data and isinstance(data[key], str):
+            data[key] = data[key].strip()
+    tags = data.get("tags")
+    if tags is not None:
+        if isinstance(tags, (list, tuple, set)):
+            cleaned = [str(item).strip() for item in tags if str(item).strip()]
+        else:
+            trimmed = str(tags).strip()
+            cleaned = [trimmed] if trimmed else []
+        data["tags"] = cleaned or None
+    return data
 
 
 def _run_with_logging(
@@ -614,9 +687,337 @@ def trigger_comfyui_workflow(payload: admin_workflows.ComfyuiWorkflowTriggerRequ
 
 
 @router.get("/comfyui/models", response_model=admin_tests.ComfyuiModelCatalogResponse)
-def list_comfyui_models(executor_id: str = Query(..., alias="executorId")):
-    result = integration_test_service.get_comfyui_model_catalog(executor_id=executor_id)
+def list_comfyui_models(
+    executor_id: str = Query(..., alias="executorId"),
+    include_nodes: bool = Query(False, alias="includeNodes"),
+):
+    result = integration_test_service.get_comfyui_model_catalog(
+        executor_id=executor_id,
+        include_nodes=include_nodes,
+    )
     return admin_tests.ComfyuiModelCatalogResponse(**result)
+
+
+@router.get("/comfyui/loras", response_model=schemas.ComfyuiLoraCatalogResponse)
+def list_comfyui_loras(
+    executor_id: str | None = Query(None, alias="executorId"),
+    query: str | None = Query(None, alias="q"),
+    status: str | None = Query(None),
+    include_untracked: bool = Query(True, alias="includeUntracked"),
+):
+    with get_session() as session:
+        loras: list[ComfyuiLora] = []
+        try:
+            stmt = select(ComfyuiLora)
+            if status:
+                stmt = stmt.where(ComfyuiLora.status == status)
+            if query:
+                keyword = f"%{query.strip()}%"
+                stmt = stmt.where(
+                    or_(
+                        ComfyuiLora.file_name.like(keyword),
+                        ComfyuiLora.display_name.like(keyword),
+                    )
+                )
+            loras = session.execute(stmt.order_by(ComfyuiLora.updated_at.desc())).scalars().all()
+        except SQLAlchemyError as exc:
+            logger.warning("comfyui lora catalog query failed: %s", exc)
+            loras = []
+
+        file_set: set[str] = set()
+        base_url: str | None = None
+        installed_files: list[str] | None = None
+        if executor_id:
+            try:
+                catalog = integration_test_service.get_comfyui_model_catalog(executor_id=executor_id)
+                raw_files = catalog.get("models", {}).get("lora") or []
+                file_set = {str(item) for item in raw_files if str(item).strip()}
+                installed_files = sorted(file_set)
+                base_url = catalog.get("baseUrl")
+            except HTTPException as exc:
+                logger.warning("comfyui lora catalog fetch failed: %s", exc.detail)
+                file_set = set()
+                installed_files = None
+                base_url = None
+
+        items: list[schemas.ComfyuiLoraRead] = []
+        for row in loras:
+            item = schemas.ComfyuiLoraRead.model_validate(row)
+            if executor_id:
+                item = item.model_copy(update={"installed": row.file_name in file_set})
+            items.append(item)
+
+        untracked_files: list[str] | None = None
+        if executor_id and include_untracked:
+            tracked = {row.file_name for row in loras}
+            untracked_files = sorted(file_set - tracked)
+
+        return schemas.ComfyuiLoraCatalogResponse(
+            executorId=executor_id,
+            baseUrl=base_url,
+            installedFiles=installed_files,
+            untrackedFiles=untracked_files,
+            items=items,
+        )
+
+
+@router.post("/comfyui/loras", response_model=schemas.ComfyuiLoraRead)
+def create_comfyui_lora(payload: schemas.ComfyuiLoraCreate) -> ComfyuiLora:
+    data = payload.model_dump(exclude_unset=True, exclude={"id"})
+    data = _normalize_comfyui_lora_payload(data)
+    with get_session() as session:
+        existing = session.execute(
+            select(ComfyuiLora).where(ComfyuiLora.file_name == payload.file_name)
+        ).scalar_one_or_none()
+        if existing:
+            for key, value in data.items():
+                setattr(existing, key, value)
+            session.add(existing)
+            session.commit()
+            session.refresh(existing)
+            return existing
+        lora = ComfyuiLora(**data)
+        session.add(lora)
+        session.commit()
+        session.refresh(lora)
+        return lora
+
+
+@router.put("/comfyui/loras/{lora_id}", response_model=schemas.ComfyuiLoraRead)
+def update_comfyui_lora(lora_id: int, payload: schemas.ComfyuiLoraUpdate) -> ComfyuiLora:
+    data = payload.model_dump(exclude_unset=True)
+    data.pop("file_name", None)
+    data = _normalize_comfyui_lora_payload(data)
+    with get_session() as session:
+        lora = session.get(ComfyuiLora, lora_id)
+        if not lora:
+            raise HTTPException(status_code=404, detail="NOT_FOUND")
+        for key, value in data.items():
+            setattr(lora, key, value)
+        session.add(lora)
+        session.commit()
+        session.refresh(lora)
+        return lora
+
+
+@router.delete("/comfyui/loras/{lora_id}")
+def delete_comfyui_lora(lora_id: int) -> dict[str, str]:
+    with get_session() as session:
+        lora = session.get(ComfyuiLora, lora_id)
+        if not lora:
+            raise HTTPException(status_code=404, detail="NOT_FOUND")
+        session.delete(lora)
+        session.commit()
+        return {"status": "deleted"}
+
+
+@router.get("/comfyui/model-catalog", response_model=schemas.ComfyuiModelCatalogResponse)
+def list_comfyui_model_catalog(
+    query: str | None = Query(None, alias="q"),
+    model_type: str | None = Query(None, alias="type"),
+    status: str | None = Query(None),
+):
+    with get_session() as session:
+        stmt = select(ComfyuiModelCatalog)
+        if status:
+            stmt = stmt.where(ComfyuiModelCatalog.status == status)
+        if model_type:
+            stmt = stmt.where(ComfyuiModelCatalog.model_type == model_type)
+        if query:
+            keyword = f"%{query.strip()}%"
+            stmt = stmt.where(
+                or_(
+                    ComfyuiModelCatalog.file_name.like(keyword),
+                    ComfyuiModelCatalog.display_name.like(keyword),
+                )
+            )
+        items = session.execute(stmt.order_by(ComfyuiModelCatalog.updated_at.desc())).scalars().all()
+        return schemas.ComfyuiModelCatalogResponse(
+            items=[schemas.ComfyuiModelCatalogRead.model_validate(item) for item in items]
+        )
+
+
+@router.post("/comfyui/model-catalog", response_model=schemas.ComfyuiModelCatalogRead)
+def create_comfyui_model_catalog(payload: schemas.ComfyuiModelCatalogCreate) -> ComfyuiModelCatalog:
+    data = payload.model_dump(exclude_unset=True, exclude={"id"})
+    data = _normalize_comfyui_model_payload(data)
+    with get_session() as session:
+        existing = session.execute(
+            select(ComfyuiModelCatalog).where(
+                ComfyuiModelCatalog.file_name == payload.file_name,
+                ComfyuiModelCatalog.model_type == payload.model_type,
+            )
+        ).scalar_one_or_none()
+        if existing:
+            for key, value in data.items():
+                setattr(existing, key, value)
+            session.add(existing)
+            session.commit()
+            session.refresh(existing)
+            return existing
+        row = ComfyuiModelCatalog(**data)
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        return row
+
+
+@router.put("/comfyui/model-catalog/{model_id}", response_model=schemas.ComfyuiModelCatalogRead)
+def update_comfyui_model_catalog(
+    model_id: int, payload: schemas.ComfyuiModelCatalogUpdate
+) -> ComfyuiModelCatalog:
+    data = payload.model_dump(exclude_unset=True)
+    data = _normalize_comfyui_model_payload(data)
+    with get_session() as session:
+        row = session.get(ComfyuiModelCatalog, model_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="NOT_FOUND")
+        for key, value in data.items():
+            setattr(row, key, value)
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        return row
+
+
+@router.delete("/comfyui/model-catalog/{model_id}")
+def delete_comfyui_model_catalog(model_id: int) -> dict[str, str]:
+    with get_session() as session:
+        row = session.get(ComfyuiModelCatalog, model_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="NOT_FOUND")
+        session.delete(row)
+        session.commit()
+        return {"status": "deleted"}
+
+
+@router.get("/comfyui/plugin-catalog", response_model=schemas.ComfyuiPluginCatalogResponse)
+def list_comfyui_plugin_catalog(
+    query: str | None = Query(None, alias="q"),
+    status: str | None = Query(None),
+):
+    with get_session() as session:
+        stmt = select(ComfyuiPluginCatalog)
+        if status:
+            stmt = stmt.where(ComfyuiPluginCatalog.status == status)
+        if query:
+            keyword = f"%{query.strip()}%"
+            stmt = stmt.where(
+                or_(
+                    ComfyuiPluginCatalog.node_key.like(keyword),
+                    ComfyuiPluginCatalog.display_name.like(keyword),
+                    ComfyuiPluginCatalog.package_name.like(keyword),
+                )
+            )
+        items = session.execute(stmt.order_by(ComfyuiPluginCatalog.updated_at.desc())).scalars().all()
+        return schemas.ComfyuiPluginCatalogResponse(
+            items=[schemas.ComfyuiPluginCatalogRead.model_validate(item) for item in items]
+        )
+
+
+@router.post("/comfyui/plugin-catalog", response_model=schemas.ComfyuiPluginCatalogRead)
+def create_comfyui_plugin_catalog(payload: schemas.ComfyuiPluginCatalogCreate) -> ComfyuiPluginCatalog:
+    data = payload.model_dump(exclude_unset=True, exclude={"id"})
+    data = _normalize_comfyui_plugin_payload(data)
+    with get_session() as session:
+        existing = session.execute(
+            select(ComfyuiPluginCatalog).where(ComfyuiPluginCatalog.node_key == payload.node_key)
+        ).scalar_one_or_none()
+        if existing:
+            for key, value in data.items():
+                setattr(existing, key, value)
+            session.add(existing)
+            session.commit()
+            session.refresh(existing)
+            return existing
+        row = ComfyuiPluginCatalog(**data)
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        return row
+
+
+@router.put("/comfyui/plugin-catalog/{plugin_id}", response_model=schemas.ComfyuiPluginCatalogRead)
+def update_comfyui_plugin_catalog(
+    plugin_id: int, payload: schemas.ComfyuiPluginCatalogUpdate
+) -> ComfyuiPluginCatalog:
+    data = payload.model_dump(exclude_unset=True)
+    data = _normalize_comfyui_plugin_payload(data)
+    with get_session() as session:
+        row = session.get(ComfyuiPluginCatalog, plugin_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="NOT_FOUND")
+        for key, value in data.items():
+            setattr(row, key, value)
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        return row
+
+
+@router.delete("/comfyui/plugin-catalog/{plugin_id}")
+def delete_comfyui_plugin_catalog(plugin_id: int) -> dict[str, str]:
+    with get_session() as session:
+        row = session.get(ComfyuiPluginCatalog, plugin_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="NOT_FOUND")
+        session.delete(row)
+        session.commit()
+        return {"status": "deleted"}
+
+
+@router.post("/comfyui/server-diff", response_model=schemas.ComfyuiServerDiffRead)
+def create_comfyui_server_diff(payload: schemas.ComfyuiServerDiffCreate) -> ComfyuiServerDiffLog:
+    data = payload.model_dump(exclude_unset=True)
+    with get_session() as session:
+        row = ComfyuiServerDiffLog(**data)
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+
+        baseline_id = payload.baseline_executor_id
+        now = datetime.utcnow().isoformat(timespec="seconds")
+        servers = payload.payload.get("servers") if isinstance(payload.payload, dict) else None
+        if isinstance(servers, list):
+            for entry in servers:
+                if not isinstance(entry, dict):
+                    continue
+                server = entry.get("server") if isinstance(entry.get("server"), dict) else {}
+                executor_id = server.get("id") if isinstance(server, dict) else None
+                if not executor_id:
+                    continue
+                executor = session.get(Executor, executor_id)
+                if not executor:
+                    continue
+                config = executor.config or {}
+                if executor_id == baseline_id:
+                    config["sync_role"] = "master"
+                    config["last_sync_at"] = now
+                else:
+                    config["sync_role"] = "worker"
+                    missing = entry.get("missing")
+                    if isinstance(missing, dict):
+                        empty = all(
+                            isinstance(missing.get(key), list) and len(missing.get(key)) == 0
+                            for key in ("unet", "clip", "vae", "lora", "nodes")
+                        )
+                        if empty:
+                            config["last_sync_at"] = now
+                executor.config = config
+                session.add(executor)
+            session.commit()
+        return row
+
+
+@router.get("/comfyui/server-diff", response_model=list[schemas.ComfyuiServerDiffRead])
+def list_comfyui_server_diff(limit: int = Query(10, ge=1, le=50)):
+    with get_session() as session:
+        items = (
+            session.execute(select(ComfyuiServerDiffLog).order_by(ComfyuiServerDiffLog.id.desc()).limit(limit))
+            .scalars()
+            .all()
+        )
+        return [schemas.ComfyuiServerDiffRead.model_validate(item) for item in items]
 
 
 @router.get("/comfyui/queue-status", response_model=admin_tests.ComfyuiQueueStatusResponse)

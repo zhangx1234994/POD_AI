@@ -39,9 +39,10 @@ curl -X POST "$COZE_BASE_URL/v1/workflow/run" \
 
 ## 裂变类工作流（Fan-out）
 
-评测平台支持“裂变数量”参数：
-- `count`：一次评测会触发 `count` 次 Coze workflow 执行，并把所有结果图聚合展示
-- `count` 是评测平台内部控制参数，不一定在 Coze workflow 的 schema 中出现，因此不会转发给 Coze
+评测平台内部支持“裂变数量”控制（`count`）：
+- `count` **不是** Coze workflow 的入参，也不会转发给 Coze
+- 仅用于评测端批量触发/聚合结果，业务接入文档会自动隐藏该字段
+- 外部调用 Coze OpenAPI 时 **不要** 传 `count`
 
 ## 示例：DPI 增分（图片输出）
 
