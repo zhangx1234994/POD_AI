@@ -31,6 +31,7 @@ from app.services.eval_service import EvalService  # noqa: E402
 DEFAULT_DOCS_URL = "http://127.0.0.1:8099/api/evals/docs/workflows"
 DEFAULT_UPLOAD_URL = "http://127.0.0.1:8099/api/evals/uploads"
 DEFAULT_TASK_GET_URL = "http://127.0.0.1:8099/api/coze/podi/tasks/get"
+DEFAULT_CALLBACK_POLL_SECONDS = 180
 
 DEFAULT_IMAGE_PATHS = [
     "tmp/expand_mask_preview.png",
@@ -294,6 +295,36 @@ def poll_task(task_get_url: str, service_token: str | None, task_id: str, max_wa
     return last, duration_ms
 
 
+def poll_callback_via_coze(
+    base_url: str,
+    token: str,
+    callback_workflow_id: str,
+    task_id: str,
+    max_wait: int,
+) -> Tuple[List[str], int, Dict[str, Any] | None]:
+    """Poll images via a Coze callback workflow when /tasks/get is not reachable."""
+    deadline = time.time() + max_wait
+    interval = 3.0
+    started = time.monotonic()
+    last_payload: Dict[str, Any] | None = None
+    images: List[str] = []
+    while time.time() < deadline and not images:
+        status_code, payload, _ = run_workflow(base_url, token, callback_workflow_id, {"taskid": task_id})
+        if isinstance(payload, dict):
+            parsed = EvalService._parse_coze_payload(payload)
+            images = _image_urls(parsed if isinstance(parsed, dict) else {"output": parsed})
+            last_payload = payload
+            if status_code != 200:
+                # Let it retry until timeout; callback might be temporarily unavailable.
+                pass
+            if images:
+                break
+        time.sleep(interval)
+        interval = min(interval * 1.4, 8.0)
+    duration_ms = int((time.monotonic() - started) * 1000)
+    return images, duration_ms, last_payload
+
+
 def _image_urls(parsed: Dict[str, Any]) -> List[str]:
     try:
         return EvalService._extract_image_urls(parsed)
@@ -309,6 +340,11 @@ def main() -> int:
     parser.add_argument("--image", action="append", default=[])
     parser.add_argument("--variants", default="normal,high,extreme")
     parser.add_argument("--poll", type=int, default=600, help="max seconds to poll callback tasks")
+    parser.add_argument(
+        "--callback-workflow-id",
+        default="",
+        help="Optional Coze callback workflow_id to resolve taskId when /tasks/get is not reachable.",
+    )
     parser.add_argument("--out", default="")
     parser.add_argument("--workflow-id", action="append", default=[])
     parser.add_argument("--max-workflows", type=int, default=0)
@@ -349,6 +385,12 @@ def main() -> int:
 
     variants = [v.strip() for v in args.variants.split(",") if v.strip()]
     callback_taskid = args.callback_taskid or os.getenv("COZE_CALLBACK_TASKID") or env.get("COZE_CALLBACK_TASKID") or ""
+    callback_workflow_id = (
+        args.callback_workflow_id
+        or os.getenv("COZE_COMFYUI_CALLBACK_WORKFLOW_ID")
+        or env.get("COZE_COMFYUI_CALLBACK_WORKFLOW_ID")
+        or ""
+    )
 
     results: List[Dict[str, Any]] = []
     for idx, wf in enumerate(workflows):
@@ -403,6 +445,25 @@ def main() -> int:
                         image_urls_out = [u for u in urls if isinstance(u, str) and u.strip()]
                     if task_result.get("poll_timeout") and not error_msg:
                         error_msg = "TASK_POLL_TIMEOUT"
+
+                # If /tasks/get is not reachable, fallback to Coze callback workflow.
+                if (
+                    not image_urls_out
+                    and isinstance(task_result, dict)
+                    and str(task_result.get("error") or "").startswith("HTTP Error 401")
+                    and callback_workflow_id
+                ):
+                    cb_images, cb_ms, cb_payload = poll_callback_via_coze(
+                        base_url, token, callback_workflow_id, output.strip(), args.poll
+                    )
+                    task_poll_ms += cb_ms
+                    if cb_images:
+                        image_urls_out = cb_images
+                        task_status = "succeeded"
+                        error_msg = None
+                    else:
+                        if not error_msg:
+                            error_msg = "CALLBACK_WORKFLOW_EMPTY"
 
             total_ms = request_ms + task_poll_ms
             if not error_msg and not failed_reason:

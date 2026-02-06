@@ -185,6 +185,24 @@ class ComfyuiPluginCatalog(Base):
     )
 
 
+class ComfyuiVersionCatalog(Base):
+    __tablename__ = "comfyui_version_catalog"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    version: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    commit_sha: Mapped[str | None] = mapped_column(String(64))
+    repo_url: Mapped[str | None] = mapped_column(Text)
+    source_url: Mapped[str | None] = mapped_column(Text)
+    download_url: Mapped[str | None] = mapped_column(Text)
+    released_at: Mapped[datetime | None] = mapped_column(DateTime)
+    notes: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(32), default="active", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+
 class ComfyuiServerDiffLog(Base):
     __tablename__ = "comfyui_server_diff_logs"
 

@@ -1,6 +1,6 @@
 # 管理端 · Integration Dashboard（子功能说明）
 
-> 版本：2026-02-03  
+> 版本：2026-02-05  
 > 目标：面向运营/研发，解释每个模块的**职责、输入输出、与后端契约**，同时标注注意事项。
 
 ## 1. 总览（Overview）
@@ -93,17 +93,74 @@
 - 输入统一 `url`
 - 回调类输出为 `taskId`
 
-## 8. 调用记录（Ability Logs）
+## 8. 能力调用（Ability Logs & Metrics）
 
 ### 职责
-- 查询最近调用记录
+- 指标与清单统一在一个功能内（Tab 切换）
+- 按能力聚合调用次数、成功率、耗时分位，评估稳定性与成本趋势
+- 查询最近调用记录（支持按厂商/能力/来源/状态筛选）
+- 快捷查看“失败/回调异常”
 - 快速定位失败原因
+- 展示回调 ID（便于业务侧查询任务状态）
 
 ### 后端接口
 - `GET /api/admin/abilities/{id}/logs`
 - `GET /api/admin/abilities/logs`
+- `GET /api/admin/abilities/logs/metrics`
 
-## 9. ComfyUI 队列状态（Queue）
+## 9. ComfyUI 管理
+
+### 职责
+- 维护 LoRA / 模型 / 插件资源清单
+- 维护 ComfyUI 版本清单（tag/commit/下载地址）
+- 多台 ComfyUI 服务器对齐（基准对比、差异快照）
+- 管理 ComfyUI 模板（Workflow JSON、依赖与允许运行节点）
+- 管理 Agent / Manifest / 任务下发（与 ComfyUI 服务器一致性同步）
+
+### 后端接口
+- `GET /api/admin/comfyui/loras`
+- `POST /api/admin/comfyui/loras`
+- `PUT /api/admin/comfyui/loras/{id}`
+- `DELETE /api/admin/comfyui/loras/{id}`
+- `GET /api/admin/comfyui/model-catalog`
+- `POST /api/admin/comfyui/model-catalog`
+- `PUT /api/admin/comfyui/model-catalog/{id}`
+- `DELETE /api/admin/comfyui/model-catalog/{id}`
+- `GET /api/admin/comfyui/plugin-catalog`
+- `POST /api/admin/comfyui/plugin-catalog`
+- `PUT /api/admin/comfyui/plugin-catalog/{id}`
+- `DELETE /api/admin/comfyui/plugin-catalog/{id}`
+- `GET /api/admin/comfyui/version-catalog`
+- `POST /api/admin/comfyui/version-catalog`
+- `PUT /api/admin/comfyui/version-catalog/{id}`
+- `DELETE /api/admin/comfyui/version-catalog/{id}`
+- `POST /api/admin/comfyui/version-catalog/sync`
+- `GET /api/admin/comfyui/models?executorId=...&includeNodes=true`
+- `GET /api/admin/comfyui/system-stats?executorId=...`
+- `POST /api/admin/comfyui/server-diff`
+- `GET /api/admin/comfyui/server-diff`
+- `GET /api/admin/comfyui/agents`
+- `POST /api/admin/comfyui/agents`
+- `PUT /api/admin/comfyui/agents/{agent_id}`
+- `DELETE /api/admin/comfyui/agents/{agent_id}`
+- `POST /api/admin/comfyui/agents/{agent_id}/token`
+- `GET /api/admin/comfyui/manifests`
+- `POST /api/admin/comfyui/manifests`
+- `GET /api/admin/comfyui/manifests/{id}`
+- `PUT /api/admin/comfyui/manifests/{id}`
+- `GET /api/admin/comfyui/tasks`
+- `POST /api/admin/comfyui/tasks`
+- `GET /api/admin/comfyui/tasks/{task_id}`
+- `POST /api/admin/comfyui/tasks/{task_id}/push`
+- `GET /api/admin/comfyui/tasks/{task_id}/events`
+- `GET /api/admin/comfyui/alerts`
+
+### 注意事项
+- 对齐快照只记录差异与建议清单；模型/插件的实际安装需由 ComfyUI 服务器侧执行。
+- 选择基准服务器后，再刷新各节点模型与插件列表，以保证对比准确。
+- 插件差异支持按仓库去重导出，便于任务下发时避免重复安装同一仓库。
+
+## 10. ComfyUI 队列状态（Queue）
 
 ### 职责
 - 展示节点运行中/排队数量
@@ -115,7 +172,6 @@
 ### 注意事项
 - 队列满会直接返回错误码（详见 `docs/standards/queue-and-error-standards.md`）
 
-## 10. 问题与优化记录
+## 11. 问题与优化记录
 
 详见 `docs/standards/issue-improvement-log.md`
-

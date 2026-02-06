@@ -5,7 +5,7 @@ from sqlalchemy import engine_from_config, pool
 
 from alembic import context
 from app.core.db import Base
-from app.models import task, integration, user, eval
+from app.models import task, integration, user, eval, agent_management
 
 config = context.config
 

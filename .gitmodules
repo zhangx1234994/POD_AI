@@ -1,8 +1,0 @@
-[submodule "coze-studio"]
-	path = coze-studio
-	url = https://github.com/coze-dev/coze-studio.git
-
-[submodule "coze-loop"]
-	path = coze-loop
-	url = https://github.com/coze-dev/coze-loop.git
-

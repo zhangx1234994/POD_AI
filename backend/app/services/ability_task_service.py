@@ -212,6 +212,7 @@ class AbilityTaskService:
                 ability_id=task_ability_id or "",
                 payload=request_model,
                 user=user,
+                task_id=task_id,
                 source="ability-task",
             )
             finished_at = datetime.utcnow()

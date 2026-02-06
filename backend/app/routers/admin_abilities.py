@@ -18,19 +18,100 @@ from sqlalchemy import and_, case, func, select
 
 from app.core.db import get_session
 from app.deps.auth import require_admin
-from app.models.integration import Ability, AbilityInvocationLog, Executor, Workflow
+from app.models.integration import Ability, AbilityInvocationLog, AbilityTask, Executor, Workflow
 from app.schemas import admin_abilities as schemas
 from app.schemas import admin_ability_logs as log_schemas
 from app.services.ability_seed import ensure_default_abilities
 from app.services.ability_logs import ability_log_service
 from app.services.executors.base import ExecutionContext
 from app.services.executors.registry import registry
+from app.services.task_id_codec import encode_task_id
 
 router = APIRouter(prefix="/admin/abilities", dependencies=[Depends(require_admin)])
 
 
 def _generate_id(existing_id: str | None) -> str:
     return existing_id or uuid4().hex
+
+
+def _extract_callback_id(response_payload: dict[str, Any] | None) -> str | None:
+    if not isinstance(response_payload, dict):
+        return None
+    candidates = ("callbackId", "callback_id", "taskId", "task_id", "promptId", "prompt_id")
+    containers = [response_payload]
+    data = response_payload.get("data")
+    if isinstance(data, dict):
+        containers.append(data)
+    metadata = response_payload.get("metadata")
+    if isinstance(metadata, dict):
+        containers.append(metadata)
+    result = response_payload.get("result")
+    if isinstance(result, dict):
+        containers.append(result)
+    raw = response_payload.get("raw")
+    if isinstance(raw, dict):
+        containers.append(raw)
+    for container in containers:
+        for key in candidates:
+            value = container.get(key)
+            if isinstance(value, (str, int)):
+                text = str(value).strip()
+                if text:
+                    return text
+    return None
+
+
+def _normalize_task_id(value: str | int | None, *, provider: str | None, executor_id: str | None) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.startswith("t1.") or text.startswith("ERR|"):
+        return text
+    return encode_task_id(task_id=text, provider=provider, executor_id=executor_id)
+
+
+def _load_callback_task_map(log_ids: list[int]) -> dict[int, str]:
+    if not log_ids:
+        return {}
+    with get_session() as session:
+        rows = session.execute(
+            select(AbilityTask.log_id, AbilityTask.id).where(AbilityTask.log_id.in_(log_ids))
+        ).all()
+    mapping: dict[int, str] = {}
+    for log_id, task_id in rows:
+        if log_id is None or not task_id:
+            continue
+        mapping[int(log_id)] = str(task_id)
+    return mapping
+
+
+def _attach_callback_ids(entries: list[AbilityInvocationLog]) -> list[AbilityInvocationLog]:
+    if not entries:
+        return entries
+    log_ids = [entry.id for entry in entries if entry and entry.id]
+    task_map = _load_callback_task_map(log_ids)
+    for entry in entries:
+        payload = entry.response_payload if isinstance(entry.response_payload, dict) else {}
+        executor_hint = entry.executor_id
+        if not executor_hint and isinstance(payload, dict):
+            for key in ("executorId", "executor", "executor_id"):
+                value = payload.get(key)
+                if isinstance(value, str) and value.strip():
+                    executor_hint = value.strip()
+                    break
+                if isinstance(value, (int, float)):
+                    executor_hint = str(value)
+                    break
+        raw_callback_id = task_map.get(entry.id) or _extract_callback_id(entry.response_payload)
+        callback_id = _normalize_task_id(
+            raw_callback_id,
+            provider=entry.ability_provider,
+            executor_id=executor_hint,
+        )
+        setattr(entry, "callback_id", callback_id)
+    return entries
 
 
 @router.get("", response_model=list[schemas.AbilityRead])
@@ -152,6 +233,7 @@ def list_ability_logs(
 ):
     total = ability_log_service.count_logs(ability_id=ability_id)
     entries = ability_log_service.list_logs(ability_id=ability_id, limit=limit, offset=offset)
+    entries = _attach_callback_ids(entries)
     return {
         "total": total,
         "limit": limit,
@@ -180,6 +262,7 @@ def list_all_ability_logs(
         limit=limit,
         offset=offset,
     )
+    entries = _attach_callback_ids(entries)
     return {
         "total": total,
         "limit": limit,
@@ -348,6 +431,8 @@ def export_ability_logs(
         stmt = stmt.order_by(AbilityInvocationLog.created_at.desc()).limit(limit)
         rows = session.execute(stmt).scalars().all()
 
+    rows = _attach_callback_ids(rows)
+
     if format == "json":
         data = [log_schemas.AbilityInvocationLogRead.model_validate(r).model_dump() for r in rows]
         filename = f"ability_logs_{start_dt.date().isoformat()}_{end_dt.date().isoformat()}.json"
@@ -391,6 +476,7 @@ def export_ability_logs(
                 "stored_url",
                 "error_message",
                 "task_id",
+                "callback_id",
                 "trace_id",
                 "workflow_run_id",
                 "request_payload",
@@ -420,6 +506,7 @@ def export_ability_logs(
                     r.stored_url or "",
                     (r.error_message or "").replace("\n", " ").strip(),
                     r.task_id or "",
+                    getattr(r, "callback_id", None) or "",
                     r.trace_id or "",
                     r.workflow_run_id or "",
                     json.dumps(r.request_payload, ensure_ascii=True) if r.request_payload is not None else "",

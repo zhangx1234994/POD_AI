@@ -12,7 +12,7 @@ Auth:
 - Prompts interactively if BRIDGE_EMAIL/BRIDGE_PASSWORD are not set.
 
 Notes:
-- Use a consistent host (recommend http://127.0.0.1:8888) to avoid cookie scope issues.
+- Use a consistent host and set COZE_BASE_URL to avoid cookie scope issues.
 """
 
 from __future__ import annotations
@@ -90,8 +90,9 @@ def main() -> None:
     args = ap.parse_args()
 
     dotenv = load_dotenv(REPO_ROOT / "backend" / ".env")
-    base = (os.getenv("COZE_BASE_URL") or dotenv.get("COZE_BASE_URL") or "http://127.0.0.1:8888").rstrip("/")
-    base = base.replace("localhost", "127.0.0.1")
+    base = (os.getenv("COZE_BASE_URL") or dotenv.get("COZE_BASE_URL") or "").rstrip("/")
+    if not base:
+        raise SystemExit("Missing COZE_BASE_URL (set env or backend/.env)")
 
     email = (os.getenv("BRIDGE_EMAIL") or dotenv.get("BRIDGE_EMAIL") or "").strip()
     password = (os.getenv("BRIDGE_PASSWORD") or dotenv.get("BRIDGE_PASSWORD") or "").strip()
@@ -126,4 +127,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

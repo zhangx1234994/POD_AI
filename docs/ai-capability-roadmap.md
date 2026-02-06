@@ -29,7 +29,7 @@
 
 | 需求 | 要点 |
 | --- | --- |
-| 可视化编排 | 以自部署 Coze Studio + Coze Loop 为主，必要时补充 React Flow 自研组件：需要节点拖拽、输入映射、条件/并行、调试模式（逐节点执行、回放）。 |
+| 可视化编排 | 以托管/官方 Coze Studio 为主，必要时补充 React Flow 自研组件：需要节点拖拽、输入映射、条件/并行、调试模式（逐节点执行、回放）。 |
 | 数据模型 | 规范 `workflow_definition`：`nodes`（引用 `ability_id` 或 `tool`）、`links`、`settings`（timeout/retry/concurrency）、`assets`（中间态存储）。 |
 | 调度执行 | TaskDispatcher 扩展为 DAG 执行器：根据节点依赖拓扑排序，支持并发执行、节点级重试/熔断；Trace ID 贯穿整条链路。 |
 | 监控诊断 | 统一 `workflow_runs` 表，记录 run_id、workflow_id、版本、状态、耗时、输入摘要；`workflow_run_nodes` 记录每个节点的状态/耗时/输出 URL；管理端提供可视化 timeline。 |

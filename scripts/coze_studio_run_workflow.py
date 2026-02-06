@@ -6,7 +6,7 @@ Coze open-source deployments typically expose *two* kinds of endpoints:
 2) Web-console endpoint: `/api/v1/workflow/run` (cookie auth, used by the UI)
 
 Usage:
-  COZE_BASE_URL=http://118.31.18.249:8888 \\
+  COZE_BASE_URL=https://<coze-host> \\
   COZE_PAT='pat_...' \\
   python3 scripts/coze_studio_run_workflow.py --workflow-id 7597530887256801280 \\
     --parameters '{"image_urls":"https://...","prompt":"..."}'
@@ -106,7 +106,7 @@ def main() -> int:
     dotenv = load_dotenv(REPO_ROOT / "backend" / ".env")
 
     ap = argparse.ArgumentParser()
-    base_url_default = (os.getenv("COZE_BASE_URL") or dotenv.get("COZE_BASE_URL") or "").strip() or "http://127.0.0.1:8888"
+    base_url_default = (os.getenv("COZE_BASE_URL") or dotenv.get("COZE_BASE_URL") or "").strip()
     ap.add_argument("--base-url", default=base_url_default)
     ap.add_argument("--workflow-id", required=True)
     ap.add_argument("--space-id", default="", help="Optional; only used by some UI endpoints.")
@@ -121,6 +121,8 @@ def main() -> int:
     args = ap.parse_args()
 
     base = str(args.base_url).rstrip("/")
+    if not base:
+        raise SystemExit("Missing COZE_BASE_URL (set env or --base-url)")
     try:
         parameters = json.loads(args.parameters) if args.parameters.strip() else {}
     except Exception:

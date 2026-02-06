@@ -1,92 +1,151 @@
-# POD AI Studio 文档目录
+# POD AI Studio 文档索引与目录说明
 
-## 文档索引
+本文件是文档总索引与目录用途说明，新增/更新文档请先补充这里，保证能快速定位。
 
-### 核心文档
+## 目录说明
 
-| 文档 | 描述 | 状态 |
-|------|------|------|
-| [BUSINESS_MODEL.md](./BUSINESS_MODEL.md) | 业务建模文档，包含登录、存储、处理、积分等完整架构设计 | ✅ 完整 |
-| [architecture.md](./architecture.md) | 技术架构与边界总览（含抽象/解耦原则） | ✅ 最新 |
-| [api.md](./api.md) | API 接口概览（认证、媒资、任务、能力等模块） | ✅ 持续更新 |
-| [api/abilities.md](./api/abilities.md) | 统一能力 API & 回调/并发任务规范 | ✅ 最新 |
+| 目录 | 用途 | 主要内容 |
+| --- | --- | --- |
+| `docs/` | 全局文档入口 | 架构/规划/流程/运维/规范等跨模块文档 |
+| `docs/admin/` | 管理端说明 | 管理端页面与功能说明 |
+| `docs/api/` | API 规范 | API 详细说明与示例 |
+| `docs/comfyui/` | ComfyUI 维护 | 工作流、节点映射、运维说明 |
+| `docs/coze/` | Coze 集成 | 插件/工具箱/工作流规范 |
+| `docs/eval/` | 评测平台 | 评测站点功能说明 |
+| `docs/retrospectives/` | 复盘记录 | 复盘纪要与行动项 |
+| `docs/standards/` | 工程规范 | 错误契约、SOP、架构准则 |
+| `docs/testing/` | 测试计划 | 测试计划与用例规范 |
+| `docs/wip/` | 草案/临时稿 | 未定稿内容（发布前需转正） |
 
-### 开发文档
-
-| 文档 | 描述 | 状态 |
-|------|------|------|
-| [development-guide.md](./development-guide.md) | 开发指南 | ✅ 完整 |
-| [task-submission-flow.md](./task-submission-flow.md) | 任务提交流程 | ✅ 完整 |
-| [smart-polling-mechanism.md](./smart-polling-mechanism.md) | 智能轮询机制 | ✅ 完整 |
-| [async-task-monitoring.md](./async-task-monitoring.md) | 异步任务监控 | ✅ 完整 |
-
-### 其他文档
-
-| 文档 | 描述 | 状态 |
-|------|------|------|
-| [error-codes.md](./error-codes.md) | 错误码文档 | ✅ 完整 |
-| [comfyui/README.md](./comfyui/README.md) | ComfyUI 工作流与服务器运维手册 | ✅ 最新 |
-| [admin/integration-dashboard.md](./admin/integration-dashboard.md) | 管理端功能说明（Integration Dashboard） | ✅ 最新 |
-| [eval/eval-platform.md](./eval/eval-platform.md) | 评测平台功能说明 | ✅ 最新 |
-| [coze/toolbox-contracts.md](./coze/toolbox-contracts.md) | Coze 工具箱契约说明 | ✅ 最新 |
-| [deploy-checklist.md](./deploy-checklist.md) | 部署检查清单（Server） | ✅ 最新 |
-| [standards/abstraction-and-decoupling.md](./standards/abstraction-and-decoupling.md) | 抽象与解耦准则 | ✅ 最新 |
-| [standards/issue-improvement-log.md](./standards/issue-improvement-log.md) | 问题与优化记录（滚动） | ✅ 最新 |
-| [retrospectives/2026-02-03.md](./retrospectives/2026-02-03.md) | 复盘纪要（问题与准则提炼） | ✅ 最新 |
-
----
-
-## 快速开始
-
-### 1. 业务流程概览
+## 文档树（两层）
 
 ```
-用户登录 → 选择工具 → 上传图片 → 配置参数 → 积分校验 → 提交任务
-                                                    ↓
-任务处理 ← 图片上传 ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ← ←
-                    ↓
-              结果展示 → 下载保存
+docs/
+├── ABILITY_EVALUATION.md
+├── BUSINESS_MODEL.md
+├── COMPONENT_INTERACTIONS.md
+├── COZE_INTEGRATION_GUIDE.md
+├── COZE_WORKFLOWS.md
+├── CREDENTIALS.md
+├── DEPLOYMENT.md
+├── README.md
+├── TODO_PLATFORM.md
+├── TROUBLESHOOTING.md
+├── UI_STANDARD.md
+├── admin
+│   └── integration-dashboard.md
+├── admin-system-plan.md
+├── ai-capability-roadmap.md
+├── ai-integration-management.md
+├── api
+│   └── abilities.md
+├── api.md
+├── architecture.md
+├── async-task-monitoring.md
+├── auth-plan.md
+├── backlog.md
+├── comfyui
+│   ├── agent-management.md
+│   └── README.md
+├── comfyui-routing-business.md
+├── comfyui-routing-technical.md
+├── coze
+│   ├── toolbox-contracts.md
+│   └── workflows.md
+├── coze-integration.md
+├── coze-plugin-podi.md
+├── deploy-checklist.md
+├── deploy-podi.md
+├── development-guide.md
+├── error-codes.md
+├── eval
+│   └── eval-platform.md
+├── release-preflight.md
+├── retrospectives
+│   └── 2026-02-03.md
+├── smart-polling-mechanism.md
+├── standards
+│   ├── abstraction-and-decoupling.md
+│   ├── error-catalog.md
+│   ├── error-contract.md
+│   ├── issue-improvement-log.md
+│   ├── queue-and-error-standards.md
+│   └── self-check-sop.md
+├── task-submission-flow.md
+├── testing
+│   └── COZE_WORKFLOW_TEST_PLAN.md
+├── wip
+│   └── admin-ia-draft.md
+└── workflow-platform-requirements.md
 ```
 
-### 2. 核心模块
+## 索引（按主题）
 
-#### 认证系统
-- **自有账号**: 用户名密码登录、手机验证码登录
-- **第三方SSO**: 跨平台单点登录（加密Ticket机制）
+### 入门与运维
+- `docs/development-guide.md`：开发指南
+- `docs/deploy-podi.md`：PODI 后端/管理端部署流程
+- `docs/DEPLOYMENT.md`：部署规范与结构
+- `docs/deploy-checklist.md`：部署检查清单
+- `docs/release-preflight.md`：发布前检查
+- `docs/TROUBLESHOOTING.md`：常见问题排查
+- `docs/CREDENTIALS.md`：凭证与密钥管理说明
 
-#### 积分系统
-- 积分账户管理
-- 任务消耗计算（支持VIP折扣、批量折扣）
-- 积分变动动画
+### 架构与业务
+- `docs/BUSINESS_MODEL.md`：业务建模文档
+- `docs/architecture.md`：技术架构与边界总览
+- `docs/COMPONENT_INTERACTIONS.md`：模块交互与依赖关系
+- `docs/workflow-platform-requirements.md`：工作流平台需求
+- `docs/ai-capability-roadmap.md`：能力演进路线图（规划）
+- `docs/ai-integration-management.md`：能力接入与管理策略
+- `docs/admin-system-plan.md`：管理端系统规划
+- `docs/auth-plan.md`：鉴权/权限规划
+- `docs/backlog.md`：需求/问题清单
+- `docs/TODO_PLATFORM.md`：平台待办与阶段目标
 
-#### 任务系统
-- 任务提交与状态管理
-- 智能轮询（页面可见性+用户活动检测）
-- 任务队列与并发控制
+### API 与规范
+- `docs/api.md`：API 总览
+- `docs/api/abilities.md`：统一能力 API 说明
+- `docs/error-codes.md`：错误码文档（历史草案，现行见 `docs/standards/error-catalog.md`）
+- `docs/standards/error-catalog.md`：错误码总表
+- `docs/standards/error-contract.md`：错误契约规范
+- `docs/standards/queue-and-error-standards.md`：队列与错误处理规范
+- `docs/standards/abstraction-and-decoupling.md`：抽象与解耦准则
+- `docs/standards/self-check-sop.md`：自检流程规范
+- `docs/standards/issue-improvement-log.md`：问题与优化记录
 
-### 3. 原子能力与图片处理架构
+### 任务流转与调度
+- `docs/task-submission-flow.md`：任务提交流程
+- `docs/smart-polling-mechanism.md`：智能轮询机制
+- `docs/async-task-monitoring.md`：异步任务监控
 
-```
-┌──────────────────────────────────────────────┐
-│                任务调度 / 能力中台               │
-├──────────────────────────────────────────────┤
-│  原子能力 (Baidu / Volcengine / KIE / …)      │
-│  ComfyUI 工作流（多节点，内含 LoRA/模型托管）    │
-│  统一能力 API / 回调 / 并发控制 / 成本统计        │
-│  能力调用日志 & 健康巡检                          │
-└──────────────────────────────────────────────┘
-```
+### 能力、评测与 ComfyUI
+- `docs/ABILITY_EVALUATION.md`：能力评测概览
+- `docs/eval/eval-platform.md`：评测平台说明
+- `docs/comfyui/README.md`：ComfyUI 工作流与运维
+- `docs/comfyui/agent-management.md`：ComfyUI 服务器管理（中台↔Agent 协议）
+- `docs/comfyui-routing-business.md`：ComfyUI 业务路由说明
+- `docs/comfyui-routing-technical.md`：ComfyUI 技术路由说明
 
-> 说明：统一能力接口 `GET|POST /api/abilities`、`/api/ability-tasks`、`/api/admin/abilities/{id}/logs` 等细节见 [docs/api/abilities.md](./api/abilities.md)。ComfyUI 的 workflow 版本、LoRA 枚举、队列状态等见 [docs/comfyui/README.md](./comfyui/README.md)。
+### Coze 集成
+- `docs/COZE_INTEGRATION_GUIDE.md`：Coze 集成指南
+- `docs/coze-integration.md`：Coze 集成说明（现行）
+- `docs/coze-plugin-podi.md`：PODI × Coze 插件接入
+- `docs/COZE_WORKFLOWS.md`：Coze 工作流说明
+- `docs/coze/toolbox-contracts.md`：工具箱契约说明
+- `docs/coze/workflows.md`：Coze 工作流配置示例
 
----
+### 管理端与 UI
+- `docs/admin/integration-dashboard.md`：管理端能力管理页说明
+- `docs/UI_STANDARD.md`：UI 规范
 
-## 文档贡献指南
+### 测试、复盘与草案
+- `docs/testing/COZE_WORKFLOW_TEST_PLAN.md`：Coze 工作流测试计划
+- `docs/retrospectives/2026-02-03.md`：复盘纪要
+- `docs/wip/admin-ia-draft.md`：管理端信息架构草案
 
-1. 新增文档请添加到对应分类
-2. 更新文档时请在文件头部更新版本号和日期
-3. 重大变更需要更新 `BUSINESS_MODEL.md`
+## 维护约定
+1. 新增文档必须补充到本索引。
+2. 规划/草案类文档请放入 `docs/wip/` 或在标题标明“计划”。
+3. 重大变更请同步更新 `docs/BUSINESS_MODEL.md` 与 `docs/architecture.md`。
 
----
-
-*最后更新: 2026-02-03*
+*最后更新: 2026-02-05*

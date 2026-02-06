@@ -16,7 +16,8 @@
 - **能力调用/日志**：`/api/abilities`、`/api/abilities/{id}/invoke` + `ability_invocation_logs`。
 - **异步任务**：`/api/ability-tasks` + `AbilityTaskService`（含回调/轮询）。
 - **管理端**：Integration Dashboard 覆盖执行节点/能力/绑定/测试/日志。
-- **ComfyUI 管理**：`/api/admin/comfyui/models`、队列状态与能力测试。
+- **ComfyUI 管理**：模型/LoRA/插件/版本目录（`/api/admin/comfyui/models`、`/loras`、`/model-catalog`、`/plugin-catalog`、`/version-catalog`），
+  服务器状态/对齐快照（`/api/admin/comfyui/system-stats`、`/server-diff`），Agent/Manifest/任务下发（`/api/admin/comfyui/agents`、`/manifests`、`/tasks`），以及队列状态与能力测试。
 
 ## 仍在规划/待补项
 
@@ -51,8 +52,9 @@
 6. **状态回写**：实时更新 `tasks.status/progress`，写入 `task_events`，生成输出 `task_assets` 并设置 `result_payload` 中的展示 URL。失败时写入 error_code，释放积分。
 7. **通知前端**：`notify_service` 广播任务状态、任务中心刷新信号。
 
-## ComfyUI 管理规划
+## ComfyUI 管理规划（部分已落地）
 
+- **Agent/Manifest/任务**：已支持 Agent 列表、清单版本化、任务下发与回执（详见 `docs/comfyui/agent-management.md`）。
 - **工作流版本库**：`workflows.definition` 存放 ComfyUI workflow JSON，`metadata` 记录节点哈希、依赖 checkpoint。Admin UI 需支持上传 `.json` 或直接编辑文本，版本号自动递增。
 - **节点同步**：新增后台接口 `/api/admin/workflows/{id}/deploy`，将 workflow 推送到目标 executor（通过其 `base_url` 和授权 token）。记录最近一次部署时间与校验结果。
 - **参数映射**：Workflow 可设置 `metadata.paramMapping`（如 `{ "prompt": "input.prompt", "image": "assets[0].url" }`），调度器据此把任务参数注入 ComfyUI 节点。
@@ -98,9 +100,9 @@
 
 ## API 与服务层扩展
 
-- **调度/执行接口**
-  - `POST /api/tasks/v1/dispatch`（已实现）触发单次调度；后续可由 Celery 定时触发或监听消息队列。
-  - `PATCH /api/tasks/v1/{id}` 支持更新 `status/progress/error`.
+- **调度/执行接口（规划）**
+  - `POST /api/tasks/v1/dispatch`：预留单次调度入口；后续可由 Celery 定时触发或监听消息队列。
+  - `PATCH /api/tasks/v1/{id}`：预留状态更新接口（`status/progress/error`）。
 - **Executor 适配层**：新增 `app/services/executors/base.py` 定义统一接口（`prepare_payload`, `execute`, `poll_result`）。不同 provider 写子类，通过 `executor.type` + `executor.config` 动态加载。
 - **健康检查**：Celery 周期任务 `executor_health_check` 调用每个节点的 `/health`，写回 `executors.health_status` 与 `last_heartbeat_at`。
 - **API Key 轮转**：在执行前调用 `api_key_service.acquire(provider)`，内部选择 usage 最低且未过期的 key 并自增 `usage_count`，若达到 `daily_quota` 自动禁用。

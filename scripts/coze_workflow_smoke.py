@@ -16,7 +16,7 @@ from urllib import error as urllib_error
 DEFAULT_DOCS_URL = "http://127.0.0.1:8099/api/evals/docs/workflows"
 DEFAULT_UPLOAD_URL = "http://127.0.0.1:8099/api/evals/uploads"
 DEFAULT_TASK_GET_URL = "http://127.0.0.1:8099/api/coze/podi/tasks/get"
-DEFAULT_IMAGE_PATH = "coze-studio/docker/volumes/minio/default_icon/default_app_icon.png"
+DEFAULT_IMAGE_PATH = ""
 
 IP_OUTPUT_WORKFLOW_IDS = {
     "7597530887256801280",
@@ -239,6 +239,9 @@ def main() -> int:
 
     image_url = args.image_url
     if not image_url:
+        if not args.image:
+            print("Missing image input; pass --image <path> or --image-url <url>.", file=sys.stderr)
+            return 2
         image_path = Path(args.image)
         if not image_path.exists():
             print(f"Image not found: {image_path}", file=sys.stderr)

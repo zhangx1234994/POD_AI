@@ -16,9 +16,6 @@ echo "== Ports =="
 check_port 8099   # backend
 check_port 8199   # admin web
 check_port 8080   # client web
-check_port 8888   # coze studio (optional)
-check_port 8082   # coze loop UI (optional)
-check_port 8890   # coze loop openapi (optional)
 
 echo
 echo "== Health =="

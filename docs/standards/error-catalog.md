@@ -102,7 +102,31 @@
 
 ---
 
-## 6. ComfyUI
+## 6. Agent/服务器管理
+
+| 编号 | 含义 | 备注 |
+| --- | --- | --- |
+| AGENT_TOKEN_REQUIRED | 缺少 Agent token | 401 |
+| AGENT_TOKEN_INVALID | Agent token 无效 | 401 |
+| AGENT_TOKEN_EXPIRED | Agent token 已过期 | 401 |
+| AGENT_TOKEN_KID_REQUIRED | 缺少 kid（多密钥模式） | 401 |
+| AGENT_TOKEN_KID_INVALID | kid 不存在 | 401 |
+| AGENT_TOKEN_SCOPE_INVALID | token scope 不匹配 | 403 |
+| AGENT_TOKEN_PAYLOAD_INVALID | token payload 异常 | 401 |
+| AGENT_NOT_FOUND | Agent 不存在 | 404 |
+| AGENT_ALREADY_EXISTS | Agent 已存在 | 409 |
+| AGENT_NOT_ALLOWED | Agent 被禁用/不在白名单 | 403 |
+| AGENT_BASE_URL_MISSING | Agent base_url 缺失 | 400 |
+| AGENT_MANIFEST_NOT_FOUND | Manifest 不存在 | 404 |
+| AGENT_MANIFEST_FORBIDDEN | Manifest 不匹配 task | 403 |
+| AGENT_TASK_NOT_FOUND | Task 不存在 | 404 |
+| AGENT_TASK_FORBIDDEN | Task 不属于该 Agent | 403 |
+| AGENT_TASK_EXPIRED | Task 已过期 | 409 |
+| AGENT_PUSH_FAILED | 任务推送失败 | 502 |
+
+---
+
+## 7. ComfyUI
 
 | 编号 | 含义 | 备注 |
 | --- | --- | --- |
@@ -130,10 +154,12 @@
 | COMFYUI_SYSTEM_STATS_ERROR | ComfyUI 系统状态异常 | |
 | COMFYUI_TEST_FAILED | ComfyUI 测试失败 | |
 | COMFYUI_WORKFLOW_KEY_MISSING | workflow_key 缺失 | |
+| COMFYUI_VERSION_SOURCE_INVALID | ComfyUI 版本源地址无效 | |
+| COMFYUI_VERSION_SYNC_FAILED | ComfyUI 版本同步失败 | |
 
 ---
 
-## 7. 第三方/媒资
+## 8. 第三方/媒资
 
 | 编号 | 含义 | 备注 |
 | --- | --- | --- |
@@ -163,7 +189,7 @@
 
 ---
 
-## 8. 维护要求
+## 9. 维护要求
 
 - 新增/变更错误码：必须更新本表 + 接口文档 + 测试
 - 若发现错误码缺失：**视为流程问题**，必须补齐

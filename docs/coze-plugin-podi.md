@@ -1,27 +1,27 @@
-# PODI × Coze：能力插件接入（本地单机）
+# PODI × Coze：能力插件接入
 
 ## 目标
 - 把 PODI 的所有“原子能力”在 Coze Studio 里作为 **Tools（插件工具）** 可选、可拖拽、可配置。
 - 不需要用户手工填大段 JSON；表单字段由 PODI `Ability.input_schema` 自动生成。
 
 ## 运行前提
-- PODI 后端在本机运行：`http://127.0.0.1:8099`
-- Coze Studio 已在 Docker/Lima 里运行：`http://127.0.0.1:8888`
+- PODI 后端可被 Coze Studio 访问（例如：`https://<podi-host>`）
+- Coze Studio 可用，并配置 `COZE_BASE_URL`
 
 ## 插件 OpenAPI 地址
 Coze 需要导入一个 OpenAPI 文档，我们由 PODI 后端动态生成：
 
-`http://host.docker.internal:8099/api/coze/podi/openapi.json`
+`https://<podi-host>/api/coze/podi/openapi.json`
 
 说明：
-- `host.docker.internal` 是 **Coze 容器访问宿主机** 的固定域名。
-- PODI 后端需要绑定 `0.0.0.0:8099`（已在 `scripts/dev_restart_backend.sh` 里做了）。
+- 若 Coze 运行在 Docker，PODI 在宿主机：使用 `http://host.docker.internal:8099/api/coze/podi/openapi.json`。
+- PODI 后端需要绑定 `0.0.0.0:8099`（本地开发时适用）。
 
 ## Coze Studio 导入步骤
-1. 打开 Coze Studio：`http://127.0.0.1:8888`
+1. 打开 Coze Studio：`COZE_BASE_URL`
 2. 进入插件管理（Plugin / Tools 管理页面）
 3. 选择“导入 OpenAPI / Import OpenAPI”
-4. 粘贴 OpenAPI 地址：`http://host.docker.internal:8099/api/coze/podi/openapi.json`
+4. 粘贴 OpenAPI 地址：`https://<podi-host>/api/coze/podi/openapi.json`
 5. 导入后，工具列表将出现 `PODI Abilities` 下的各个能力（一个能力一个 tool）
 
 ## 调用说明
@@ -87,7 +87,7 @@ export BRIDGE_ADMIN_PASSWORD='请设置一个强密码'
 bash scripts/ensure_bridge_admin.sh
 ```
 
-## 跳板账号（统一：PODI + Coze Studio + Coze Loop）
+## 跳板账号（统一：PODI + Coze Studio）
 为了“一个平台账号贯穿多个系统”，我们提供了一键脚本（不会打印密码）：
 
 1) 在 `backend/.env` 写入（或用环境变量注入）：
@@ -96,8 +96,7 @@ bash scripts/ensure_bridge_admin.sh
 BRIDGE_USERNAME=your_username
 BRIDGE_EMAIL=you@example.com
 BRIDGE_PASSWORD=your_password
-COZE_BASE_URL=http://127.0.0.1:8888
-COZE_LOOP_BASE_URL=http://127.0.0.1:8082
+COZE_BASE_URL=https://<coze-host>
 ```
 
 2) 执行：
@@ -112,4 +111,3 @@ bash scripts/ensure_bridge_all.sh
 
 说明：
 - Coze Studio 支持通过 `/api/user/update_profile` 设置 `user_unique_name`（若冲突会跳过更新）。
-- Coze Loop 通过 `/api/foundation/v1/users/session` 获取 user_id 后再调用 `/users/:user_id/update_profile` 设置 `name`（作为唯一名）。

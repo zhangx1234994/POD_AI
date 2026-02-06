@@ -5,15 +5,18 @@ from __future__ import annotations
 import json
 import logging
 import time
+from urllib.parse import urlparse
 from datetime import datetime, timezone
 from typing import Any, Callable
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+import httpx
 from sqlalchemy import or_, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import selectinload
 
+from app.core.config import get_settings
 from app.core.db import get_session
 from app.deps.auth import require_admin
 from app.models.integration import (
@@ -22,6 +25,7 @@ from app.models.integration import (
     ComfyuiLora,
     ComfyuiModelCatalog,
     ComfyuiPluginCatalog,
+    ComfyuiVersionCatalog,
     ComfyuiServerDiffLog,
     Executor,
     ExecutorApiKey,
@@ -143,6 +147,60 @@ def _normalize_comfyui_plugin_payload(data: dict[str, Any]) -> dict[str, Any]:
         data["tags"] = cleaned or None
     return data
 
+
+def _normalize_comfyui_version_payload(data: dict[str, Any]) -> dict[str, Any]:
+    if not data:
+        return data
+    for key in ("version", "commit_sha", "repo_url", "source_url", "download_url", "notes", "status"):
+        if key in data and isinstance(data[key], str):
+            data[key] = data[key].strip()
+    return data
+
+
+def _parse_github_repo(repo_url: str) -> tuple[str, str]:
+    parsed = urlparse(repo_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise HTTPException(status_code=400, detail="COMFYUI_VERSION_SOURCE_INVALID")
+    if "github.com" not in parsed.netloc:
+        raise HTTPException(status_code=400, detail="COMFYUI_VERSION_SOURCE_INVALID")
+    path = parsed.path.strip("/")
+    if path.endswith(".git"):
+        path = path[:-4]
+    parts = [part for part in path.split("/") if part]
+    if len(parts) < 2:
+        raise HTTPException(status_code=400, detail="COMFYUI_VERSION_SOURCE_INVALID")
+    return parts[0], parts[1]
+
+
+def _fetch_github_tags(repo_url: str, *, limit: int) -> list[dict[str, Any]]:
+    owner, repo = _parse_github_repo(repo_url)
+    settings = get_settings()
+    api_base = settings.comfyui_repo_api_base.rstrip("/")
+    headers = {"User-Agent": "podi-comfyui-version-sync/1.0"}
+    if settings.comfyui_repo_api_token:
+        headers["Authorization"] = f"Bearer {settings.comfyui_repo_api_token}"
+
+    tags: list[dict[str, Any]] = []
+    per_page = min(100, max(1, limit))
+    page = 1
+    while len(tags) < limit:
+        url = f"{api_base}/repos/{owner}/{repo}/tags"
+        try:
+            response = httpx.get(url, headers=headers, params={"per_page": per_page, "page": page}, timeout=15)
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            logger.warning("ComfyUI version sync failed: %s", exc)
+            raise HTTPException(status_code=502, detail="COMFYUI_VERSION_SYNC_FAILED") from exc
+        payload = response.json()
+        if not isinstance(payload, list):
+            raise HTTPException(status_code=502, detail="COMFYUI_VERSION_SYNC_FAILED")
+        if not payload:
+            break
+        tags.extend(payload)
+        if len(payload) < per_page:
+            break
+        page += 1
+    return tags[:limit]
 
 def _run_with_logging(
     payload: Any,
@@ -964,6 +1022,145 @@ def delete_comfyui_plugin_catalog(plugin_id: int) -> dict[str, str]:
         session.delete(row)
         session.commit()
         return {"status": "deleted"}
+
+
+@router.get("/comfyui/version-catalog", response_model=schemas.ComfyuiVersionCatalogResponse)
+def list_comfyui_version_catalog(
+    query: str | None = Query(None, alias="q"),
+    status: str | None = Query(None),
+):
+    with get_session() as session:
+        stmt = select(ComfyuiVersionCatalog)
+        if status:
+            stmt = stmt.where(ComfyuiVersionCatalog.status == status)
+        if query:
+            keyword = f"%{query.strip()}%"
+            stmt = stmt.where(
+                or_(
+                    ComfyuiVersionCatalog.version.like(keyword),
+                    ComfyuiVersionCatalog.commit_sha.like(keyword),
+                    ComfyuiVersionCatalog.repo_url.like(keyword),
+                )
+            )
+        items = session.execute(stmt.order_by(ComfyuiVersionCatalog.updated_at.desc())).scalars().all()
+        return schemas.ComfyuiVersionCatalogResponse(
+            items=[schemas.ComfyuiVersionCatalogRead.model_validate(item) for item in items]
+        )
+
+
+@router.post("/comfyui/version-catalog", response_model=schemas.ComfyuiVersionCatalogRead)
+def create_comfyui_version_catalog(payload: schemas.ComfyuiVersionCatalogCreate) -> ComfyuiVersionCatalog:
+    data = payload.model_dump(exclude_unset=True, exclude={"id"})
+    data = _normalize_comfyui_version_payload(data)
+    with get_session() as session:
+        existing = session.execute(
+            select(ComfyuiVersionCatalog).where(ComfyuiVersionCatalog.version == payload.version)
+        ).scalar_one_or_none()
+        if existing:
+            for key, value in data.items():
+                setattr(existing, key, value)
+            session.add(existing)
+            session.commit()
+            session.refresh(existing)
+            return existing
+        row = ComfyuiVersionCatalog(**data)
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        return row
+
+
+@router.put("/comfyui/version-catalog/{version_id}", response_model=schemas.ComfyuiVersionCatalogRead)
+def update_comfyui_version_catalog(
+    version_id: int, payload: schemas.ComfyuiVersionCatalogUpdate
+) -> ComfyuiVersionCatalog:
+    data = payload.model_dump(exclude_unset=True)
+    data.pop("version", None)
+    data = _normalize_comfyui_version_payload(data)
+    with get_session() as session:
+        row = session.get(ComfyuiVersionCatalog, version_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="NOT_FOUND")
+        for key, value in data.items():
+            setattr(row, key, value)
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        return row
+
+
+@router.delete("/comfyui/version-catalog/{version_id}")
+def delete_comfyui_version_catalog(version_id: int) -> dict[str, str]:
+    with get_session() as session:
+        row = session.get(ComfyuiVersionCatalog, version_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="NOT_FOUND")
+        session.delete(row)
+        session.commit()
+        return {"status": "deleted"}
+
+
+@router.post("/comfyui/version-catalog/sync", response_model=schemas.ComfyuiVersionCatalogSyncResponse)
+def sync_comfyui_version_catalog(limit: int = Query(50, ge=1, le=200)):
+    settings = get_settings()
+    repo_url = (settings.comfyui_repo_url or "").strip()
+    if not repo_url:
+        raise HTTPException(status_code=400, detail="COMFYUI_VERSION_SOURCE_INVALID")
+    tags = _fetch_github_tags(repo_url, limit=limit)
+    created = 0
+    updated = 0
+    with get_session() as session:
+        for item in tags:
+            if not isinstance(item, dict):
+                continue
+            version = str(item.get("name") or "").strip()
+            if not version:
+                continue
+            commit_sha = None
+            commit = item.get("commit")
+            if isinstance(commit, dict):
+                commit_sha = str(commit.get("sha") or "").strip() or None
+            download_url = str(item.get("zipball_url") or "").strip() or None
+            source_url = f"{repo_url.rstrip('/')}/tree/{version}"
+            row = session.execute(
+                select(ComfyuiVersionCatalog).where(ComfyuiVersionCatalog.version == version)
+            ).scalar_one_or_none()
+            if row:
+                changed = False
+                if commit_sha and not row.commit_sha:
+                    row.commit_sha = commit_sha
+                    changed = True
+                if repo_url and not row.repo_url:
+                    row.repo_url = repo_url
+                    changed = True
+                if source_url and not row.source_url:
+                    row.source_url = source_url
+                    changed = True
+                if download_url and not row.download_url:
+                    row.download_url = download_url
+                    changed = True
+                if changed:
+                    session.add(row)
+                    updated += 1
+                continue
+            row = ComfyuiVersionCatalog(
+                version=version,
+                commit_sha=commit_sha,
+                repo_url=repo_url,
+                source_url=source_url,
+                download_url=download_url,
+                status="active",
+            )
+            session.add(row)
+            created += 1
+        session.commit()
+    return schemas.ComfyuiVersionCatalogSyncResponse(
+        repo_url=repo_url,
+        fetched_at=datetime.utcnow(),
+        total=len(tags),
+        created=created,
+        updated=updated,
+    )
 
 
 @router.post("/comfyui/server-diff", response_model=schemas.ComfyuiServerDiffRead)

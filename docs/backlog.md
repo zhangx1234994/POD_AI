@@ -1,4 +1,4 @@
-# PODI 待办事项列表（2025-02-14）
+# PODI 待办事项列表（2026-02-05）
 
 > 注：勾选表示已完成，⚠ 表示高优先级；后续迭代时请更新日期与状态。
 
@@ -7,7 +7,8 @@
 - [ ] ⚠ AI 组件库 / Pipeline Builder：定义 `ai_components` 模型、管理端配置界面、TaskDispatcher 支持多阶段执行。
 - [ ] ⚠ 监控与告警：为 executors/pipeline 记录指标（成功率、耗时、错误码），管理端提供图表与告警阈值。
 - [ ] ⚠ 原子能力治理：为每个 Ability 补齐 `metadata.pricing`、`SLA`、`自检计划` 字段，并把“成本/成功率/最近自检”透出到管理端；实现 `IntegrationTestService` 的定时巡检与结果看板。
-- [ ] ⚠ Composable Workflow 可视化：Coze Studio + Coze Loop 已完成本地部署，后续要把节点级监控、断点调试、并发/重试配置全面接入，并推动 TaskDispatcher 支持节点依赖树与 trace_id。
+- [ ] ⚠ Composable Workflow 可视化：以托管/官方 Coze Studio 为主，后续要把节点级监控、断点调试、并发/重试配置全面接入，并推动 TaskDispatcher 支持节点依赖树与 trace_id。
+- [ ] ⚠ ComfyUI 资源清单补齐（下载/来源）：缺失基座模型与插件下载地址（例如 `四方连续.safetensors`、核心 custom_nodes 清单）。
 
 ## 中优先级
 - [ ] 管理端的用户 & 积分管理页面：包含用户列表、积分调整、账户冻结等操作。
@@ -27,4 +28,5 @@
 - [x] 百度图像处理执行器接入与测试接口 `/api/admin/tests/baidu/quality-upgrade`。
 - [x] 统一能力 API (`/api/abilities`, `/api/abilities/{id}/invoke`, `/api/ability-tasks`) 与能力日志 (`ability_invocation_logs`) 上线，支持回调、异步任务、成本字段。
 - [x] ComfyUI 运维能力落地：LoRA/模型下拉 (`/api/admin/comfyui/models`)、队列状态面板 (`/api/admin/comfyui/queue-status`)、多节点配置与日志透出。
+- [x] ComfyUI Agent 管理落地：Agent/Manifest/任务下发、事件回执与心跳告警（`/api/agent/*`、`/api/admin/comfyui/agents|manifests|tasks`）。
 - [x] 管理端“能力详情”抽屉重构：新增统一接口说明、实时测试、调用记录、成本占位、执行节点/LoRA 选择器。

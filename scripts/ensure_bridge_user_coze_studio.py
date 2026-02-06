@@ -3,7 +3,7 @@
 
 Reads credentials from env (preferred), falling back to `backend/.env`:
   - BRIDGE_USERNAME / BRIDGE_EMAIL / BRIDGE_PASSWORD
-  - COZE_BASE_URL (default: http://127.0.0.1:8888)
+  - COZE_BASE_URL (required)
 
 We intentionally do not print the password.
 """
@@ -28,7 +28,9 @@ from scripts._dotenv import load_dotenv  # noqa: E402
 
 def _read_settings() -> tuple[str, str, str, str]:
     dotenv = load_dotenv(REPO_ROOT / "backend" / ".env")
-    base_url = (os.getenv("COZE_BASE_URL") or dotenv.get("COZE_BASE_URL") or "http://127.0.0.1:8888").rstrip("/")
+    base_url = (os.getenv("COZE_BASE_URL") or dotenv.get("COZE_BASE_URL") or "").rstrip("/")
+    if not base_url:
+        raise SystemExit("Missing COZE_BASE_URL (set env or backend/.env)")
 
     username = (os.getenv("BRIDGE_USERNAME") or dotenv.get("BRIDGE_USERNAME") or "").strip()
     email = (os.getenv("BRIDGE_EMAIL") or dotenv.get("BRIDGE_EMAIL") or "").strip()

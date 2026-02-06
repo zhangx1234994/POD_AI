@@ -9,7 +9,7 @@ How it works:
 - Create (or update) a plugin whose OpenAPI document is our backend-generated spec.
 
 Env (preferred) or `backend/.env`:
-  - COZE_BASE_URL (default: http://127.0.0.1:8888)
+  - COZE_BASE_URL (required)
   - PODI_PUBLIC_BASE_URL (default: http://127.0.0.1:8099)  # where this script fetches openapi.json
   - BRIDGE_EMAIL / BRIDGE_PASSWORD
 """
@@ -64,7 +64,7 @@ def _load_cfg() -> dict[str, str]:
         return (os.getenv(key) or dotenv.get(key) or default).strip()
 
     cfg = {
-        "coze_base_url": get("COZE_BASE_URL", "http://127.0.0.1:8888").rstrip("/"),
+        "coze_base_url": get("COZE_BASE_URL").rstrip("/"),
         # For fetching openapi.json from the host (not from inside the container).
         "podi_public_base_url": get("PODI_PUBLIC_BASE_URL", "http://127.0.0.1:8099").rstrip("/"),
         "email": get("BRIDGE_EMAIL"),
@@ -75,6 +75,8 @@ def _load_cfg() -> dict[str, str]:
         "plugin_id": get("COZE_PLUGIN_ID", ""),
     }
     # Prompt interactively if missing; avoids writing secrets into repo files.
+    if not cfg["coze_base_url"]:
+        raise SystemExit("Missing COZE_BASE_URL; set env var or backend/.env")
     if not cfg["email"]:
         if not sys.stdin.isatty():
             raise SystemExit("Missing BRIDGE_EMAIL and stdin is not interactive; set env var BRIDGE_EMAIL.")

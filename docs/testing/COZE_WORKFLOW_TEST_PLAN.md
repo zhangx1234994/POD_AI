@@ -7,11 +7,19 @@
 - 目的：逐个工作流验证是否可跑通、是否返回预期字段（`output/prompt/ip`），并拉取回调任务状态。
 - 步骤：
   1) 启动本地后端与评测前端。
-  2) 执行 `python3 scripts/coze_workflow_smoke.py --poll 60`
+  2) 执行 `python3 scripts/coze_workflow_smoke.py --poll 60 --image <path>`（或传 `--image-url`）。
   3) 查看 `reports/coze_workflow_smoke_*.md`，确认“参数一致=是”。
 - 期望：
   - callback 类工作流返回 `output=task id`；
   - ComfyUI 类工作流额外返回 `ip`（执行节点）。
+
+## 1.1 回归脚本（批量/历史对比）
+- 工具：`scripts/eval_workflow_regression.py`
+- 目的：批量回归 Coze 工作流，支持在回调接口不可达时走 Coze 回调 workflow 兜底解析。
+- 示例：
+  - `python3 scripts/eval_workflow_regression.py --poll 600 --callback-workflow-id <workflow_id>`
+- 说明：
+  - 当 `/api/coze/podi/tasks/get` 不可达（如 401）时，会触发回调 workflow 轮询。
 
 ## 2. 入参/出参一致性（防“对接参数不一致”）
 - 覆盖点：
@@ -38,8 +46,8 @@
 
 ## 5. 队列上限/并发压力
 - 覆盖点：
-  - ComfyUI 队列上限（20）；
-  - 商业模型队列上限（20）。
+  - ComfyUI 队列上限（10）；
+  - 商业模型队列上限（10）。
 - 期望：
   - 超出上限时，工作流返回明确错误信息（通过 `output` 字段传递）。
 

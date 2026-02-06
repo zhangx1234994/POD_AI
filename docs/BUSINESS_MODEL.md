@@ -1347,7 +1347,7 @@ docs/
 ├── smart-polling-mechanism.md # 智能轮询机制
 ├── async-task-monitoring.md   # 异步任务监控
 ├── COMPONENT_INTERACTIONS.md  # 组件交互文档
-└── error-codes.md        # 错误码文档
+└── standards/error-catalog.md # 错误码总表（现行）
 
 src/
 ├── contexts/             # 状态管理

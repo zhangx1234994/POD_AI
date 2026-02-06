@@ -629,7 +629,7 @@ if __name__ == "__main__":
 ```python
 import httpx
 
-client = AbilityClient(base_url="http://localhost:8888", token="your-bearer-token")
+client = AbilityClient(base_url="https://<coze-host>", token="your-bearer-token")
 
 try:
     result = client.invoke_ability(

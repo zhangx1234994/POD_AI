@@ -22,6 +22,7 @@ from app.routers import (
     coze_podi_plugin,
     tasks,
     notify,
+    agent_management,
 )
 
 
@@ -59,6 +60,8 @@ def create_app() -> FastAPI:
     app.include_router(coze_podi_plugin.router)
     app.include_router(tasks.router, prefix="/api/tasks", tags=["tasks"])
     app.include_router(notify.router, tags=["notify"])
+    app.include_router(agent_management.agent_router)
+    app.include_router(agent_management.admin_router)
     return app
 
 

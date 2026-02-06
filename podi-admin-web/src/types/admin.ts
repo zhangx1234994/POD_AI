@@ -144,6 +144,7 @@ export interface AbilityInvocationLog {
   executor_type?: string | null;
   source: string;
   task_id?: string | null;
+  callback_id?: string | null;
   trace_id?: string | null;
   workflow_run_id?: string | null;
   status: string;
@@ -254,11 +255,113 @@ export interface ComfyuiPluginCatalogResponse {
   items: ComfyuiPluginCatalogItem[];
 }
 
+export interface ComfyuiVersionCatalogItem {
+  id: number;
+  version: string;
+  commit_sha?: string | null;
+  repo_url?: string | null;
+  source_url?: string | null;
+  download_url?: string | null;
+  released_at?: string | null;
+  notes?: string | null;
+  status: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ComfyuiVersionCatalogResponse {
+  items: ComfyuiVersionCatalogItem[];
+}
+
+export interface ComfyuiVersionCatalogSyncResponse {
+  repo_url: string;
+  fetched_at: string;
+  total: number;
+  created: number;
+  updated: number;
+}
+
 export interface ComfyuiServerDiffLog {
   id: number;
   baseline_executor_id: string;
   payload?: JsonRecord | null;
   created_at: string;
+}
+
+export interface ComfyuiAgent {
+  id: string;
+  name?: string | null;
+  role?: string | null;
+  host?: string | null;
+  baseUrl?: string | null;
+  base_url?: string | null;
+  status?: string | null;
+  allowed?: boolean | null;
+  last_seen_at?: string | null;
+  last_heartbeat_at?: string | null;
+  last_manifest_version?: string | null;
+  metrics?: JsonRecord | null;
+  config?: JsonRecord | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ComfyuiAgentManifest {
+  id: number;
+  role: string;
+  version: string;
+  status?: string | null;
+  downloadUrl?: string | null;
+  download_url?: string | null;
+  content?: JsonRecord | null;
+  notes?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ComfyuiAgentTask {
+  id: string;
+  agentId: string;
+  manifestId?: number | null;
+  manifestUrl?: string | null;
+  actions?: string[] | null;
+  status: string;
+  tokenNonce?: string | null;
+  pushedAt?: string | null;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  requestPayload?: JsonRecord | null;
+  resultPayload?: JsonRecord | null;
+  errorMessage?: string | null;
+  expiresAt?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ComfyuiAgentTaskEvent {
+  id: number;
+  taskId: string;
+  level: string;
+  message: string;
+  payload?: JsonRecord | null;
+  eventTime?: string | null;
+  created_at?: string;
+}
+
+export interface ComfyuiAgentAlert {
+  id: number;
+  agentId: string;
+  alertType: string;
+  message: string;
+  payload?: JsonRecord | null;
+  created_at?: string;
+}
+
+export interface ComfyuiAgentTokenResponse {
+  token: string;
+  expiresAt: string;
+  scope: string;
+  agentId: string;
 }
 
 export interface DashboardTotals {

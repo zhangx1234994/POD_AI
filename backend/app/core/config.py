@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     upload_token_secret: str = Field(default="change-me", env="UPLOAD_TOKEN_SECRET")
     upload_token_ttl: int = Field(default=3600, env="UPLOAD_TOKEN_TTL")
     admin_api_token: str | None = Field(default=None, env="ADMIN_API_TOKEN")
+    agent_jwt_secrets: str = Field(default="default:change-me", env="AGENT_JWT_SECRETS")
+    agent_jwt_default_kid: str = Field(default="default", env="AGENT_JWT_DEFAULT_KID")
+    agent_task_token_ttl: int = Field(default=600, env="AGENT_TASK_TOKEN_TTL")
+    agent_heartbeat_token_ttl: int = Field(default=3600, env="AGENT_HEARTBEAT_TOKEN_TTL")
+    agent_task_timeout_seconds: int = Field(default=3600, env="AGENT_TASK_TIMEOUT_SECONDS")
     jwt_secret_key: str = Field(default="super-secret", env="JWT_SECRET_KEY")
     jwt_access_token_expires: int = Field(default=3600, env="JWT_ACCESS_TOKEN_EXPIRES")
     jwt_refresh_token_expires: int = Field(default=604800, env="JWT_REFRESH_TOKEN_EXPIRES")
@@ -51,6 +56,8 @@ class Settings(BaseSettings):
     # Internal URL that Coze containers can use to call back into this backend.
     # Default is host.docker.internal for Lima/Docker setups.
     podi_internal_base_url: str = Field(default="http://host.docker.internal:8099", env="PODI_INTERNAL_BASE_URL")
+    # Base URL exposed to ComfyUI agents for fetching manifests from this backend.
+    agent_manifest_base_url: str | None = Field(default=None, env="AGENT_MANIFEST_BASE_URL")
     executor_config_path: str = Field(default="config/executors.yaml", env="EXECUTOR_CONFIG_PATH")
     ability_task_max_workers: int = Field(default=4, env="ABILITY_TASK_MAX_WORKERS")
     eval_run_max_workers: int = Field(default=6, env="EVAL_RUN_MAX_WORKERS")
@@ -76,6 +83,10 @@ class Settings(BaseSettings):
     # Soft target for ComfyUI queue depth per executor. Router will prefer nodes under this value.
     # Business-side schedulers can use this as a batch size hint.
     comfyui_queue_batch_size: int = Field(default=10, env="COMFYUI_QUEUE_BATCH_SIZE")
+    # ComfyUI repo info for version catalog sync.
+    comfyui_repo_url: str = Field(default="https://github.com/comfyanonymous/ComfyUI", env="COMFYUI_REPO_URL")
+    comfyui_repo_api_base: str = Field(default="https://api.github.com", env="COMFYUI_REPO_API_BASE")
+    comfyui_repo_api_token: str | None = Field(default=None, env="COMFYUI_REPO_API_TOKEN")
 
 
 @lru_cache

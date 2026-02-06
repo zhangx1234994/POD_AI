@@ -14,17 +14,26 @@
 
 - 管理端「ComfyUI 管理」统一收口：`素材库` 维护 LoRA/基座模型，`资源清单` 维护模型/插件下载信息，`服务器` 维护多台 ComfyUI 机器对比，`模板管理` 维护 workflow JSON 与节点映射。
 - 对外原则：ComfyUI workflow 属于**原子能力**，能力配置与模板变更需同步记录本文档。
+  - 服务器管理与 Agent 协议详见 `docs/comfyui/agent-management.md`。
   - 模板管理支持导入 ComfyUI UI JSON（含 nodes/links）或 Prompt Graph；UI JSON 保存时会自动转换为 Prompt Graph。
   - 资源清单字段约定：`download_url` 填国内镜像地址，`source_url` 填官方/原始来源。
   - 能力版本字段：`abilities.version` 默认 `v1`，新版本建议在 `capability_key` 上显式区分（例如 `_v2`），便于旧版本共存。
   - 模板管理支持“复制为新版本”，会自动生成新的 workflow_key（原 key + 版本号），保存后即可与旧版本并行。
+
+## 服务器对齐与资源清单
+
+- **资源清单**：模型/插件/版本元信息存于数据库（`comfyui_model_catalog` / `comfyui_plugin_catalog` / `comfyui_version_catalog`），用于补齐缺失项的下载/来源信息。
+- **服务器对齐**：管理端“服务器”页会拉取 `/api/admin/comfyui/models?includeNodes=true` 与 `/system_stats` 获取模型与节点列表，并以“基准服务器”做差异对比。
+- **对齐快照**：差异结果通过 `POST /api/admin/comfyui/server-diff` 入库，后台会标记基准服务器 `sync_role=master`，并在缺失为 0 时更新目标节点 `last_sync_at`。
+
+> 说明：本仓库提供差异检测与记录能力，模型/插件的实际安装需由 ComfyUI 服务器侧执行（外部工具/脚本）。
 
 ## 待办 / 风险记录
 
 - LoRA 可能适用于多个基座模型：已新增 `base_models` 多选字段，旧 `base_model` 仅用于兼容。
 - “服务器”页已支持基准服务器（baseline）对比：缺失模型/插件时提示差异列表（插件以 `/object_info` 返回的节点名对比）。
 - TODO：提供一键同步/修复能力（模型/插件/配置），并补充更细粒度的插件版本校验规则。
-- TODO：为模型/插件补充“下载地址/来源”字段，便于后续手工对齐与运维追踪。
+- TODO：持续补齐资源清单中的下载地址/来源/版本信息，便于对齐与运维追踪。
 
 ## 四方连续 · ComfyUI (workflow_key: sifang_lianxu)
 
@@ -147,14 +156,32 @@
 
 ## 冷启动脚本
 
-当新环境需要快速落地 ComfyUI 清单时，可使用脚本拉取基准服务器快照并可选写入 LoRA 目录：
+当新环境需要快速落地 ComfyUI 清单时，可使用脚本拉取基准服务器快照并按需补齐模型/插件/LoRA 目录：
 
 ```bash
 python3 scripts/comfyui_cold_start_seed.py --executor-id executor_comfyui_xxx
+python3 scripts/comfyui_cold_start_seed.py --executor-id executor_comfyui_xxx --seed-models --seed-plugins
 python3 scripts/comfyui_cold_start_seed.py --executor-id executor_comfyui_xxx --seed-loras
 ```
 
-脚本会在 `reports/` 目录生成基准快照 JSON，LoRA 元信息会按 file_name 自动补齐为「对外名称」。
+脚本会在 `reports/` 目录生成基准快照 JSON，模型/插件默认只补齐缺失条目，LoRA 元信息会按 file_name 自动补齐为「对外名称」。
+
+如果需要把“已安装的节点/模型”自动对齐到资源清单（补充下载地址/来源），可使用以下参数：
+
+```bash
+python3 scripts/comfyui_cold_start_seed.py --executor-id executor_comfyui_xxx --seed-models \
+  --model-source reports/comfyui_model_catalog_seed_20260205.json
+
+python3 scripts/comfyui_cold_start_seed.py --executor-id executor_comfyui_xxx --seed-plugins \
+  --plugin-list <custom-node-list.json> --node-map <extension-node-map.json>
+
+python3 scripts/comfyui_cold_start_seed.py --executor-id executor_comfyui_xxx --seed-models --seed-plugins \
+  --model-source reports/comfyui_model_catalog_seed_20260205.json \
+  --plugin-list <custom-node-list.json> --node-map <extension-node-map.json> \
+  --report reports/comfyui_missing_<executor>.json
+```
+
+> 说明：`custom-node-list.json` 与 `extension-node-map.json` 可来自外部插件清单项目；脚本仅更新当前服务器实际出现的节点/模型，并不会写入全量插件。生成的 `report` 会额外输出“按仓库聚合”的插件列表，便于下发任务时按仓库去重。
 
 ## 运维接口与诊断工具
 
@@ -174,13 +201,29 @@ python3 scripts/comfyui_cold_start_seed.py --executor-id executor_comfyui_xxx --
 
 | Endpoint | 说明 |
 | --- | --- |
-| `GET /api/admin/comfyui/models?executorId=...` | 由 admin API 代理 `/object_info`，并解析到 `UNETLoader/CLIPLoader/VAELoader/LoraLoaderModelOnly` 字段。管理端在渲染 schema 时会将 `component=select` 的字段改为下拉，并允许“自定义 LoRA”回退到手动输入。基座模型列表支持本地缓存增补。 |
+| `GET /api/admin/comfyui/models?executorId=...&includeNodes=true` | 代理 `/object_info`，解析 `UNETLoader/CLIPLoader/VAELoader/LoraLoaderModelOnly` 字段；`includeNodes` 会额外返回 `nodeKeys/nodeCount`，用于服务器对齐对比。 |
 | `GET /api/admin/comfyui/loras?executorId=...` | LoRA 目录（数据库）+ 节点实装列表合并，返回 `items` 与 `untrackedFiles`，便于补齐 LoRA 元信息。 |
 | `POST /api/admin/comfyui/loras` | 新增/更新 LoRA 元信息（file_name/display_name/base_models/trigger_words 等）。 |
 | `PUT /api/admin/comfyui/loras/{id}` | 编辑 LoRA 元信息（不允许修改 file_name）。 |
 | `DELETE /api/admin/comfyui/loras/{id}` | 删除 LoRA 元信息。 |
+| `GET /api/admin/comfyui/model-catalog` | 模型资源清单（UNET/CLIP/VAE/其他），用于补齐下载/来源信息。 |
+| `POST /api/admin/comfyui/model-catalog` | 新增/更新模型资源条目。 |
+| `PUT /api/admin/comfyui/model-catalog/{id}` | 编辑模型资源条目。 |
+| `DELETE /api/admin/comfyui/model-catalog/{id}` | 删除模型资源条目。 |
+| `GET /api/admin/comfyui/plugin-catalog` | 插件资源清单（节点名/包名/版本）。 |
+| `POST /api/admin/comfyui/plugin-catalog` | 新增/更新插件资源条目。 |
+| `PUT /api/admin/comfyui/plugin-catalog/{id}` | 编辑插件资源条目。 |
+| `DELETE /api/admin/comfyui/plugin-catalog/{id}` | 删除插件资源条目。 |
+| `GET /api/admin/comfyui/version-catalog` | ComfyUI 版本清单（tag/commit/下载地址）。 |
+| `POST /api/admin/comfyui/version-catalog` | 新增/更新版本条目。 |
+| `PUT /api/admin/comfyui/version-catalog/{id}` | 编辑版本条目。 |
+| `DELETE /api/admin/comfyui/version-catalog/{id}` | 删除版本条目。 |
+| `POST /api/admin/comfyui/version-catalog/sync` | 在线同步 ComfyUI 版本（默认 GitHub tag）。 |
 | `GET /api/admin/comfyui/queue-status?executorId=...` | 由 admin API 代理 `/queue/status`，统一展示 `runningCount/pendingCount/queueMaxSize`。测试面板提供手动刷新，方便排查串行 worker 是否被拖慢。 |
 | `GET /api/admin/comfyui/queue-summary?executorIds=...` | 汇总多台 ComfyUI 节点的队列状态，返回 `totalRunning/totalPending/servers[]`，用于“调度监控/执行节点”看板。 |
+| `GET /api/admin/comfyui/system-stats?executorId=...` | 代理 `/system_stats`，返回 ComfyUI 版本与设备信息（用于服务器对齐）。 |
+| `POST /api/admin/comfyui/server-diff` | 保存服务器对齐快照（基准节点 + 差异清单）。 |
+| `GET /api/admin/comfyui/server-diff` | 读取最近对齐记录（默认 10 条）。 |
 
 > 注意：ComfyUI 默认单线程顺序执行，`pendingCount`>0 时说明上一张仍在处理，新的请求会等待。必要时请切换到另一台 executor 或扩大 worker 数量后再在 config/executors.yaml 中声明。
 

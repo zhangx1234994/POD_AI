@@ -21,6 +21,7 @@ class AbilityInvocationLogRead(BaseModel):
     executor_type: str | None = None
     source: str
     task_id: str | None = None
+    callback_id: str | None = None
     trace_id: str | None = None
     workflow_run_id: str | None = None
     status: str

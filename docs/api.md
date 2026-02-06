@@ -27,6 +27,7 @@ POD AI Studio 提供了一套完整的RESTful API，用于用户认证、图像�
   - `abilities`：统一能力接口（详见下文）
   - `ability-tasks`：异步/批量任务
   - `admin/*`：管理端专用接口（执行节点、能力日志、ComfyUI 管理等）
+  - `agent/*`：ComfyUI Agent 管理（清单/任务回执/心跳）
   - `coze/podi/*`：Coze Studio 插件（内部集成用，OpenAPI + Tools）
 
 ### Coze 插件（内部集成）
@@ -795,7 +796,7 @@ export const useImageProcessing = () => {
 - `POST /api/ability-tasks`：与同步调用体一致，额外包含 `abilityId`，返回 `task_id` 与 `status=queued`。
 - `GET /api/ability-tasks/{taskId}`：查询任务状态；`resultPayload` 会在完成后附上 `AbilityInvokeResponse`。
 - `GET /api/ability-tasks`：分页查询当前账号的任务历史。
-- 同样支持 `callbackUrl`（任务完成后 POST，payload 中附 `result/error/logId`）。
+- 同样支持 `callbackUrl`（任务完成后 POST，payload 中附 `taskId/result/error/logId`）。
 - 并发控制：后端线程池大小由 `ABILITY_TASK_MAX_WORKERS` 决定（默认 4），单能力/节点再受 `executors.max_concurrency` 限制；ComfyUI 节点为串行 worker，需留意 `/api/admin/comfyui/queue-status`。
 
 ### 4. 调用日志 & 成本
@@ -803,12 +804,26 @@ export const useImageProcessing = () => {
 - `ability_invocation_logs` 记录每次调用：`ability_id/provider/executor_id/status/duration_ms/billing_unit/list_price/discount_price/cost_amount`.
 - `GET /api/admin/abilities/{abilityId}/logs?limit=12`（管理端）会返回日志记录，包含请求/响应摘要、OSS 输出、失败原因。
 - 成本策略：每个能力在 `metadata.pricing` 中声明币种、单位、对外价、折扣价；如未设置，默认回退为 ComfyUI ¥0.30/张。日志将记录本次调用的实际成本，便于生成报表。
-- 常见错误：若能力缺少执行节点、参数不合法、队列阻塞等，将返回 ABILITY 模块错误码（详见 `docs/error-codes.md`）；前端可根据 `code` 显示更友好的提示，管理端也会在“调用记录”中高亮失败条目。
+- 常见错误：若能力缺少执行节点、参数不合法、队列阻塞等，将返回 ABILITY 模块错误码（详见 `docs/standards/error-catalog.md` 与 `docs/standards/error-contract.md`）；前端可根据 `code` 显示更友好的提示，管理端也会在“调用记录”中高亮失败条目。
 
 ### 5. ComfyUI 辅助接口（管理端）
 
 - `GET /api/admin/comfyui/models?executorId=...`：代理 ComfyUI `/object_info`，返回可选 `unet/clip/vae/lora` 清单，管理端测试面板自动渲染为下拉框。
+- `GET /api/admin/comfyui/loras?executorId=...`：LoRA 目录（DB）+ 节点实装合并，返回 `items` 与 `untrackedFiles`。
+- `POST /api/admin/comfyui/loras` / `PUT /api/admin/comfyui/loras/{id}` / `DELETE /api/admin/comfyui/loras/{id}`：维护 LoRA 元信息。
+- `GET /api/admin/comfyui/model-catalog`：模型资源清单（UNET/CLIP/VAE/其他）。
+- `POST /api/admin/comfyui/model-catalog` / `PUT /api/admin/comfyui/model-catalog/{id}` / `DELETE /api/admin/comfyui/model-catalog/{id}`：维护模型资源条目。
+- `GET /api/admin/comfyui/plugin-catalog`：插件资源清单（节点名/包名/版本）。
+- `POST /api/admin/comfyui/plugin-catalog` / `PUT /api/admin/comfyui/plugin-catalog/{id}` / `DELETE /api/admin/comfyui/plugin-catalog/{id}`：维护插件资源条目。
 - `GET /api/admin/comfyui/queue-status?executorId=...`：代理 `/queue/status`，展示 `running/pending/max`。异常时返回 `COMFYUI_QUEUE_STATUS_ERROR`，通常表示目标节点离线或无响应。
 - `GET /api/admin/comfyui/queue-summary?executorIds=...`：跨节点汇总 ComfyUI 队列状态，返回 `totalRunning/totalPending/servers[]`，用于调度监控看板与集中排障。
+- `GET /api/admin/comfyui/system-stats?executorId=...`：代理 `/system_stats`，返回 ComfyUI 版本与设备信息。
+- `POST /api/admin/comfyui/server-diff` / `GET /api/admin/comfyui/server-diff`：保存/读取服务器对齐快照。
+- `GET/POST /api/admin/comfyui/agents` / `PUT/DELETE /api/admin/comfyui/agents/{agent_id}`：管理 Agent 基础信息。
+- `POST /api/admin/comfyui/agents/{agent_id}/token`：签发 Agent 心跳/告警 token。
+- `GET/POST /api/admin/comfyui/manifests` / `GET/PUT /api/admin/comfyui/manifests/{id}`：管理清单与版本。
+- `GET/POST /api/admin/comfyui/tasks` / `GET /api/admin/comfyui/tasks/{task_id}` / `POST /api/admin/comfyui/tasks/{task_id}/push` / `GET /api/admin/comfyui/tasks/{task_id}/events`：任务下发、推送与事件回执。
+- `GET /api/admin/comfyui/alerts`：查看 Agent 告警列表。
+- `GET /api/agent/docs/agent-protocol`：获取中台侧 Agent 协议 Markdown（用于双方同步）。
 
 > **建议**：客户端只需了解 `/api/abilities` + `/invoke` + `/ability-tasks` + `/auth`。其余 `/api/admin/*` 接口为后台/管理端占用，用于维护执行节点、工作流、API Key 仓库与调用日志。

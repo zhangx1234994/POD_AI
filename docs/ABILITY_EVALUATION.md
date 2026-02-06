@@ -9,7 +9,7 @@
 
 - 后端需要可连上 MySQL，并完成迁移：`cd backend && alembic upgrade head`
 - 后端需要配置 Coze OpenAPI（评测调用 Coze 的前提）：
-  - `COZE_BASE_URL`：例如 `http://114.55.0.56:8888`
+- `COZE_BASE_URL`：例如 `https://<coze-host>`
   - `COZE_API_TOKEN`：Coze 的 PAT（Bearer Token）
   - 也可复用 `SERVICE_API_TOKEN` 作为兜底 token（不建议线上长期依赖兜底）
 - 若评测人员“无需登录”使用独立页面（公开评测接口）：

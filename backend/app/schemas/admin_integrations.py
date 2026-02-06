@@ -261,6 +261,52 @@ class ComfyuiPluginCatalogResponse(BaseModel):
     items: list[ComfyuiPluginCatalogRead]
 
 
+class ComfyuiVersionCatalogBase(BaseModel):
+    version: str = Field(..., description="ComfyUI 版本号（tag/commit）")
+    commit_sha: str | None = Field(default=None, description="Git commit sha")
+    repo_url: str | None = Field(default=None, description="仓库地址")
+    source_url: str | None = Field(default=None, description="来源地址/文档")
+    download_url: str | None = Field(default=None, description="下载地址（zip/git）")
+    released_at: datetime | None = Field(default=None, description="发布时间")
+    notes: str | None = Field(default=None, description="备注说明")
+    status: str = Field(default="active", description="active/inactive")
+
+
+class ComfyuiVersionCatalogCreate(ComfyuiVersionCatalogBase):
+    id: int | None = None
+
+
+class ComfyuiVersionCatalogUpdate(BaseModel):
+    version: str | None = None
+    commit_sha: str | None = None
+    repo_url: str | None = None
+    source_url: str | None = None
+    download_url: str | None = None
+    released_at: datetime | None = None
+    notes: str | None = None
+    status: str | None = None
+
+
+class ComfyuiVersionCatalogRead(ComfyuiVersionCatalogBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class ComfyuiVersionCatalogResponse(BaseModel):
+    items: list[ComfyuiVersionCatalogRead]
+
+
+class ComfyuiVersionCatalogSyncResponse(BaseModel):
+    repo_url: str = Field(..., description="同步来源仓库")
+    fetched_at: datetime = Field(..., description="同步时间")
+    total: int = Field(..., description="获取到的版本数量")
+    created: int = Field(..., description="新增数量")
+    updated: int = Field(..., description="更新数量")
+
+
 class ComfyuiServerDiffCreate(BaseModel):
     baseline_executor_id: str = Field(..., description="主服务器 executor_id")
     payload: dict[str, Any] = Field(default_factory=dict, description="差异快照 JSON")

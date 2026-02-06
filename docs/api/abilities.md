@@ -257,6 +257,7 @@
   "abilityId": "...",
   "provider": "...",
   "requestId": "f61f2dd0f7dd4f479e7d97f6b0fa0f8b",
+  "taskId": "t1.comfyui.executor_xxx.f61f2dd0f7dd4f479e7d97f6b0fa0f8b",
   "logId": 12345,
   "durationMs": 842,
   "result": { "...AbilityInvokeResponse..." },
@@ -266,6 +267,7 @@
 ```
 
 失败时 `status`=`failed`，`error` 会包含 `status_code/detail`。如需鉴权，在 `callbackHeaders` 中传入自定义 Header 即可。
+`taskId` 字段为可解析格式（`t1.<provider>.<executorId>.<raw>`），用于快速定位执行节点。
 
 ### 各能力注意事项
 
@@ -323,7 +325,7 @@
 
 ## 4. 常见错误与排查
 
-统一能力接口使用统一错误响应（参照 `docs/error-codes.md`）。其中 ABILITY 模块最常见，可据此快速定位问题：
+统一能力接口使用统一错误响应（参照 `docs/standards/error-catalog.md` 与 `docs/standards/error-contract.md`）。其中 ABILITY 模块最常见，可据此快速定位问题：
 
 | 错误码 | 触发场景 | 排查建议 |
 | --- | --- | --- |
@@ -335,7 +337,7 @@
 | `ABILITY_010` ComfyUI 队列异常 | `/queue/status` 无响应或节点挂掉 | 检查 ComfyUI 服务器状态；必要时切换到备用节点。 |
 | `ABILITY_011` 能力成本配置缺失 | `metadata.pricing` 未设置且无默认值 | 在 `app/constants/abilities.py` 或管理端为能力配置 `pricing`。 |
 
-前端可根据 `error.code` 提示具体操作（示例见 `docs/error-codes.md`）。如需进一步排查：
+前端可根据 `error.code` 提示具体操作（示例见 `docs/standards/error-contract.md`）。如需进一步排查：
 - 查看 `ability_invocation_logs` 或 `/api/admin/abilities/{id}/logs`，日志中会有 `requestPayload/responsePayload` 摘要与 `error_detail`；
 - 对 ComfyUI 能力，结合 `/api/admin/comfyui/queue-status` 与服务器日志判断是否卡在队列；
 - 若配置了 `callbackUrl`，失败时会在回调 payload 的 `error` 中看到 `status_code/detail`。

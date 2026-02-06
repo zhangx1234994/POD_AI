@@ -15,9 +15,18 @@ import type {
   ComfyuiLoraCatalogResponse,
   ComfyuiPluginCatalogItem,
   ComfyuiPluginCatalogResponse,
+  ComfyuiVersionCatalogItem,
+  ComfyuiVersionCatalogResponse,
+  ComfyuiVersionCatalogSyncResponse,
   ComfyuiQueueStatus,
   ComfyuiQueueSummary,
   ComfyuiServerDiffLog,
+  ComfyuiAgent,
+  ComfyuiAgentAlert,
+  ComfyuiAgentManifest,
+  ComfyuiAgentTokenResponse,
+  ComfyuiAgentTask,
+  ComfyuiAgentTaskEvent,
   JsonRecord,
   PublicAbility,
   StoredAsset,
@@ -430,6 +439,33 @@ export const adminApi = {
     }),
   deleteComfyuiPluginCatalog: (id: number) =>
     request<void>(`/api/admin/comfyui/plugin-catalog/${id}`, { method: 'DELETE' }),
+  listComfyuiVersionCatalog: (options?: { q?: string; status?: string }) => {
+    const params = new URLSearchParams();
+    if (options?.q) params.set('q', options.q);
+    if (options?.status) params.set('status', options.status);
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    return request<ComfyuiVersionCatalogResponse>(`/api/admin/comfyui/version-catalog${suffix}`);
+  },
+  createComfyuiVersionCatalog: (payload: Partial<ComfyuiVersionCatalogItem>) =>
+    request<ComfyuiVersionCatalogItem>('/api/admin/comfyui/version-catalog', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  updateComfyuiVersionCatalog: (id: number, payload: Partial<ComfyuiVersionCatalogItem>) =>
+    request<ComfyuiVersionCatalogItem>(`/api/admin/comfyui/version-catalog/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+  deleteComfyuiVersionCatalog: (id: number) =>
+    request<void>(`/api/admin/comfyui/version-catalog/${id}`, { method: 'DELETE' }),
+  syncComfyuiVersionCatalog: (limit?: number) => {
+    const params = new URLSearchParams();
+    if (typeof limit === 'number') params.set('limit', String(limit));
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    return request<ComfyuiVersionCatalogSyncResponse>(`/api/admin/comfyui/version-catalog/sync${suffix}`, {
+      method: 'POST',
+    });
+  },
   listComfyuiLoras: (options?: { executorId?: string; q?: string; status?: string; includeUntracked?: boolean }) => {
     const params = new URLSearchParams();
     if (options?.executorId) params.set('executorId', options.executorId);
@@ -467,6 +503,92 @@ export const adminApi = {
   getComfyuiSystemStats: (executorId: string) =>
     request<{ executorId: string; baseUrl: string; system?: Record<string, unknown> | null; devices?: Record<string, unknown>[] | null; raw?: JsonRecord | null }>(
       `/api/admin/comfyui/system-stats?executorId=${encodeURIComponent(executorId)}`,
+    ),
+  listComfyuiAgents: (options?: { status?: string; role?: string; limit?: number }) => {
+    const params = new URLSearchParams();
+    if (options?.status) params.set('status', options.status);
+    if (options?.role) params.set('role', options.role);
+    if (typeof options?.limit === 'number') params.set('limit', String(options.limit));
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    return request<ComfyuiAgent[]>(`/api/admin/comfyui/agents${suffix}`);
+  },
+  createComfyuiAgent: (payload: Partial<ComfyuiAgent> & { id: string }) =>
+    request<ComfyuiAgent>('/api/admin/comfyui/agents', { method: 'POST', body: JSON.stringify(payload) }),
+  updateComfyuiAgent: (id: string, payload: Partial<ComfyuiAgent>) =>
+    request<ComfyuiAgent>(`/api/admin/comfyui/agents/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+  deleteComfyuiAgent: (id: string) =>
+    request<void>(`/api/admin/comfyui/agents/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  issueComfyuiAgentToken: (agentId: string, payload?: { ttlSeconds?: number }) =>
+    request<ComfyuiAgentTokenResponse>(`/api/admin/comfyui/agents/${encodeURIComponent(agentId)}/token`, {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
+    }),
+  listComfyuiAgentAlerts: (options?: { agentId?: string; alertType?: string; limit?: number }) => {
+    const params = new URLSearchParams();
+    if (options?.agentId) params.set('agent_id', options.agentId);
+    if (options?.alertType) params.set('alert_type', options.alertType);
+    if (typeof options?.limit === 'number') params.set('limit', String(options.limit));
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    return request<ComfyuiAgentAlert[]>(`/api/admin/comfyui/alerts${suffix}`);
+  },
+  listComfyuiManifests: (options?: { role?: string; status?: string; limit?: number }) => {
+    const params = new URLSearchParams();
+    if (options?.role) params.set('role', options.role);
+    if (options?.status) params.set('status', options.status);
+    if (typeof options?.limit === 'number') params.set('limit', String(options.limit));
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    return request<ComfyuiAgentManifest[]>(`/api/admin/comfyui/manifests${suffix}`);
+  },
+  getComfyuiManifest: (id: number) =>
+    request<ComfyuiAgentManifest>(`/api/admin/comfyui/manifests/${id}`),
+  createComfyuiManifest: (payload: Partial<ComfyuiAgentManifest>) =>
+    request<ComfyuiAgentManifest>('/api/admin/comfyui/manifests', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  updateComfyuiManifest: (id: number, payload: Partial<ComfyuiAgentManifest>) =>
+    request<ComfyuiAgentManifest>(`/api/admin/comfyui/manifests/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+  listComfyuiAgentTasks: (options?: { agentId?: string; status?: string; limit?: number }) => {
+    const params = new URLSearchParams();
+    if (options?.agentId) params.set('agent_id', options.agentId);
+    if (options?.status) params.set('status', options.status);
+    if (typeof options?.limit === 'number') params.set('limit', String(options.limit));
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    return request<ComfyuiAgentTask[]>(`/api/admin/comfyui/tasks${suffix}`);
+  },
+  createComfyuiAgentTask: (
+    payload: {
+      agentId: string;
+      actions: string[];
+      manifestId?: number | null;
+      manifestUrl?: string | null;
+      expiresAt?: string | null;
+      taskId?: string | null;
+    },
+    options?: { push?: boolean },
+  ) => {
+    const suffix = options?.push === false ? '?push=false' : '';
+    return request<ComfyuiAgentTask>(`/api/admin/comfyui/tasks${suffix}`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+  getComfyuiAgentTask: (taskId: string) =>
+    request<ComfyuiAgentTask>(`/api/admin/comfyui/tasks/${encodeURIComponent(taskId)}`),
+  pushComfyuiAgentTask: (taskId: string) =>
+    request<{ taskId: string; agentId: string; status: string; pushStatus: number; tokenExpiresAt: string }>(
+      `/api/admin/comfyui/tasks/${encodeURIComponent(taskId)}/push`,
+      { method: 'POST' },
+    ),
+  listComfyuiAgentTaskEvents: (taskId: string, limit = 50) =>
+    request<ComfyuiAgentTaskEvent[]>(
+      `/api/admin/comfyui/tasks/${encodeURIComponent(taskId)}/events?limit=${limit}`,
     ),
 
   // Dashboard

@@ -89,10 +89,25 @@
   - `GET/POST/PUT/DELETE /api/admin/api-keys`：集中维护各厂商 API Key，支持状态、配额等字段。
 - 后续调度器可根据这些配置将任务分发到不同节点/模型，管理端页面位于前端 `/admin/integrations`。
 
-## Coze Studio / Loop 集成
-- Coze Studio、Coze Loop 与现有 FastAPI 服务共用同一个 MySQL 集群（`DATABASE_URL`），保持一台服务器部署、统一账号登陆。
-- `.env` 新增 `COZE_BASE_URL`（默认 `http://127.0.0.1:8888`）、`COZE_LOOP_BASE_URL`（Loop 观测台地址）、`COZE_API_TOKEN`（平台服务账号 Token）、`COZE_DEFAULT_TIMEOUT`（秒，默认 180）以调用 `/v1/workflow/run`。
+## Coze Studio 集成
+- Coze Studio 作为外部平台接入，当前不在本仓库内维护本地源码包。
+- `.env` 需要配置：
+  - `COZE_BASE_URL`（例如 `https://<coze-host>`）
+  - `COZE_API_TOKEN`（平台服务账号 Token）
+  - `COZE_DEFAULT_TIMEOUT`（秒，默认 180）
+  - `COZE_LOOP_BASE_URL` 仅作为预留配置（如未启用 Loop 可不填）
 - Ability 表新增 `coze_workflow_id` 字段，管理端可在“能力目录”中为 provider=`coze` 的能力填写对应的 workflow id。调用 `/api/abilities/{id}/invoke` 时会直接命中 Coze 工作流而无需额外凭证，日志依然写入 `ability_invocation_logs`。
+
+## ComfyUI Agent 管理（服务器同步）
+- 中台对多台 ComfyUI 服务器使用 Agent 进行资源同步与任务回执。
+- `.env` 可配置：
+  - `AGENT_JWT_SECRETS`（逗号分隔，格式 `kid:secret`）
+  - `AGENT_JWT_DEFAULT_KID`（默认 kid）
+  - `AGENT_TASK_TOKEN_TTL`（秒，默认 600）
+  - `AGENT_HEARTBEAT_TOKEN_TTL`（秒，默认 3600）
+  - `AGENT_TASK_TIMEOUT_SECONDS`（任务超时，默认 3600）
+  - `AGENT_MANIFEST_BASE_URL`（Agent 拉取 manifest 的公网/内网地址）
+- 具体接口与字段见 `docs/comfyui/agent-management.md`。
 
 可以通过 `backend/scripts/test_oss_connection.py` 快速验证是否能够访问到配置的桶：
 

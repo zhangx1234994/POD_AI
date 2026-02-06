@@ -43,7 +43,13 @@ import type {
   PublicAbility,
   ComfyuiModelCatalogItem,
   ComfyuiPluginCatalogItem,
+  ComfyuiVersionCatalogItem,
   ComfyuiServerDiffLog,
+  ComfyuiAgent,
+  ComfyuiAgentAlert,
+  ComfyuiAgentManifest,
+  ComfyuiAgentTask,
+  ComfyuiAgentTaskEvent,
   ComfyuiLora,
   ComfyuiLoraCatalogResponse,
   ComfyuiQueueStatus,
@@ -80,6 +86,11 @@ const abilityDetailTabs = [
   { id: 'logs', label: '调用记录' },
 ] as const;
 type AbilityDetailTab = (typeof abilityDetailTabs)[number]['id'];
+const abilityLogTabs = [
+  { id: 'metrics', label: '指标' },
+  { id: 'logs', label: '调用清单' },
+] as const;
+type AbilityLogTab = (typeof abilityLogTabs)[number]['id'];
 
 const defaultExecutorForm: ExecutorFormState = { status: 'inactive', weight: 1, max_concurrency: 1 };
 const defaultWorkflowForm: WorkflowFormState = { action: '', name: '', version: 'v1', status: 'inactive', type: 'generic' };
@@ -475,9 +486,19 @@ const abilitySourceLabels: Record<string, string> = {
   'ability_api': '能力接口',
   'ability_task': '异步任务',
 };
+const comfyAgentActionLabels: Record<string, string> = {
+  sync_models: '同步模型',
+  sync_plugins: '同步插件',
+  sync_workflows: '同步工作流',
+  restart: '重启服务',
+};
 const formatAbilitySource = (value?: string | null) => {
   if (!value) return '未知来源';
   return abilitySourceLabels[value] ?? value;
+};
+const formatComfyAgentActions = (actions?: string[] | null) => {
+  if (!actions || actions.length === 0) return '—';
+  return actions.map((action) => comfyAgentActionLabels[action] || action).join('、');
 };
 const getAbilitySourceTagTheme = (value?: string | null) => {
   const v = value || '';
@@ -494,6 +515,12 @@ const formatTaskMarker = (value?: string | null) => {
   const trimmed = value.trim();
   if (trimmed.length <= 16) return trimmed;
   return `${trimmed.slice(0, 8)}…${trimmed.slice(-4)}`;
+};
+const truncateText = (value?: string | null, max = 60) => {
+  if (!value) return '';
+  const trimmed = value.trim();
+  if (trimmed.length <= max) return trimmed;
+  return `${trimmed.slice(0, max)}…`;
 };
 
 type SchemaFieldType = 'text' | 'textarea' | 'select' | 'number' | 'switch' | 'image';
@@ -1288,6 +1315,17 @@ const resolveLoraBaseModels = (record?: { base_models?: string[] | null; base_mo
   return Array.from(new Set(normalized));
 };
 
+const resolveAgentBaseUrl = (agent?: ComfyuiAgent | null) => {
+  if (!agent) return '';
+  return (
+    agent.baseUrl ||
+    agent.base_url ||
+    (agent.config && (agent.config as Record<string, unknown>).baseUrl as string) ||
+    (agent.config && (agent.config as Record<string, unknown>).base_url as string) ||
+    ''
+  );
+};
+
 const COMFYUI_BASE_MODEL_STORAGE_KEY = 'comfyui.base_models.v1';
 const COMFYUI_BASELINE_STORAGE_KEY = 'comfyui.baseline_executor_id';
 
@@ -1338,9 +1376,12 @@ export function IntegrationDashboard({
   const [abilityLogDetailOpen, setAbilityLogDetailOpen] = useState(false);
   const [abilityLogResolveLoading, setAbilityLogResolveLoading] = useState(false);
   const [abilityLogResolveError, setAbilityLogResolveError] = useState<string | null>(null);
+  const [abilityLogTab, setAbilityLogTab] = useState<AbilityLogTab>('logs');
   const [globalAbilityLogProvider, setGlobalAbilityLogProvider] = useState<string>('all');
   const [globalAbilityLogSource, setGlobalAbilityLogSource] = useState<string>('all');
   const [globalAbilityLogStatus, setGlobalAbilityLogStatus] = useState<string>('all');
+  const [globalAbilityLogCapabilityKey, setGlobalAbilityLogCapabilityKey] = useState<string>('all');
+  const [globalAbilityLogOnlyCallbackFailed, setGlobalAbilityLogOnlyCallbackFailed] = useState<boolean>(false);
   const [globalAbilityLogSearch, setGlobalAbilityLogSearch] = useState<string>('');
   const [executorForm, setExecutorForm] = useState<ExecutorFormState>(defaultExecutorForm);
   const [workflowForm, setWorkflowForm] = useState<WorkflowFormState>(defaultWorkflowForm);
@@ -1380,7 +1421,67 @@ export function IntegrationDashboard({
   const [comfyQueueSummaryError, setComfyQueueSummaryError] = useState<string | null>(null);
   const [comfyQueueSummaryUpdatedAt, setComfyQueueSummaryUpdatedAt] = useState<string | null>(null);
   const [comfyLoraSelectCache, setComfyLoraSelectCache] = useState<Record<string, ComfyuiLora[]>>({});
-  const [comfyuiManageTab, setComfyuiManageTab] = useState<'lora' | 'templates' | 'servers' | 'assets'>('lora');
+  const [comfyuiManageTab, setComfyuiManageTab] = useState<
+    'lora' | 'templates' | 'servers' | 'assets' | 'agents' | 'manifests' | 'tasks' | 'alerts'
+  >('lora');
+  const [comfyAgentList, setComfyAgentList] = useState<ComfyuiAgent[]>([]);
+  const [comfyAgentLoading, setComfyAgentLoading] = useState(false);
+  const [comfyAgentError, setComfyAgentError] = useState<string | null>(null);
+  const [comfyAgentDialogOpen, setComfyAgentDialogOpen] = useState(false);
+  const [comfyAgentSaving, setComfyAgentSaving] = useState(false);
+  const [comfyAgentForm, setComfyAgentForm] = useState<Partial<ComfyuiAgent>>({
+    status: 'active',
+    allowed: true,
+  });
+  const [comfyAgentConfigInput, setComfyAgentConfigInput] = useState('');
+  const [comfyAgentFormError, setComfyAgentFormError] = useState<string | null>(null);
+  const [comfyAgentStatusFilter, setComfyAgentStatusFilter] = useState('all');
+  const [comfyManifestList, setComfyManifestList] = useState<ComfyuiAgentManifest[]>([]);
+  const [comfyManifestLoading, setComfyManifestLoading] = useState(false);
+  const [comfyManifestError, setComfyManifestError] = useState<string | null>(null);
+  const [comfyManifestDialogOpen, setComfyManifestDialogOpen] = useState(false);
+  const [comfyManifestSaving, setComfyManifestSaving] = useState(false);
+  const [comfyManifestForm, setComfyManifestForm] = useState<Partial<ComfyuiAgentManifest>>({
+    status: 'active',
+  });
+  const [comfyManifestContentInput, setComfyManifestContentInput] = useState('');
+  const [comfyManifestFormError, setComfyManifestFormError] = useState<string | null>(null);
+  const [comfyManifestRoleFilter, setComfyManifestRoleFilter] = useState('');
+  const [comfyManifestStatusFilter, setComfyManifestStatusFilter] = useState('all');
+  const [comfyAgentTasks, setComfyAgentTasks] = useState<ComfyuiAgentTask[]>([]);
+  const [comfyAgentTasksLoading, setComfyAgentTasksLoading] = useState(false);
+  const [comfyAgentTasksError, setComfyAgentTasksError] = useState<string | null>(null);
+  const [comfyAgentTaskAgentFilter, setComfyAgentTaskAgentFilter] = useState('all');
+  const [comfyAgentTaskStatusFilter, setComfyAgentTaskStatusFilter] = useState('all');
+  const [comfyAgentTaskForm, setComfyAgentTaskForm] = useState({
+    taskId: '',
+    agentId: '',
+    manifestId: '',
+    manifestUrl: '',
+    actions: '',
+    expiresAt: '',
+  });
+  const [comfyAgentTaskPushAfterCreate, setComfyAgentTaskPushAfterCreate] = useState(true);
+  const [comfyAgentTaskSaving, setComfyAgentTaskSaving] = useState(false);
+  const [comfyAgentTaskFormError, setComfyAgentTaskFormError] = useState<string | null>(null);
+  const [comfyAgentTaskPushLoading, setComfyAgentTaskPushLoading] = useState<Record<string, boolean>>({});
+  const [comfyAgentTaskEvents, setComfyAgentTaskEvents] = useState<ComfyuiAgentTaskEvent[]>([]);
+  const [comfyAgentTaskEventsLoading, setComfyAgentTaskEventsLoading] = useState(false);
+  const [comfyAgentTaskEventsError, setComfyAgentTaskEventsError] = useState<string | null>(null);
+  const [comfyAgentTaskEventsDialogOpen, setComfyAgentTaskEventsDialogOpen] = useState(false);
+  const [comfyAgentTaskEventsTaskId, setComfyAgentTaskEventsTaskId] = useState('');
+  const [comfyAgentAlerts, setComfyAgentAlerts] = useState<ComfyuiAgentAlert[]>([]);
+  const [comfyAgentAlertsLoading, setComfyAgentAlertsLoading] = useState(false);
+  const [comfyAgentAlertsError, setComfyAgentAlertsError] = useState<string | null>(null);
+  const [comfyAgentAlertsAgentFilter, setComfyAgentAlertsAgentFilter] = useState('all');
+  const [comfyAgentAlertsTypeFilter, setComfyAgentAlertsTypeFilter] = useState('');
+  const [comfyAgentAlertsLimit, setComfyAgentAlertsLimit] = useState(50);
+  const [comfyAgentTokenDialogOpen, setComfyAgentTokenDialogOpen] = useState(false);
+  const [comfyAgentTokenAgentId, setComfyAgentTokenAgentId] = useState('');
+  const [comfyAgentTokenValue, setComfyAgentTokenValue] = useState('');
+  const [comfyAgentTokenExpiresAt, setComfyAgentTokenExpiresAt] = useState('');
+  const [comfyAgentTokenError, setComfyAgentTokenError] = useState<string | null>(null);
+  const [comfyAgentTokenLoading, setComfyAgentTokenLoading] = useState(false);
   const [comfyBaselineExecutorId, setComfyBaselineExecutorId] = useState<string>('');
   const [comfyLoraCatalog, setComfyLoraCatalog] = useState<ComfyuiLoraCatalogResponse | null>(null);
   const [comfyLoraLoading, setComfyLoraLoading] = useState(false);
@@ -1425,6 +1526,18 @@ export function IntegrationDashboard({
     model_type: 'unet',
   });
   const [comfyModelFormTags, setComfyModelFormTags] = useState('');
+  const [comfyVersionCatalogItems, setComfyVersionCatalogItems] = useState<ComfyuiVersionCatalogItem[]>([]);
+  const [comfyVersionCatalogLoading, setComfyVersionCatalogLoading] = useState(false);
+  const [comfyVersionCatalogError, setComfyVersionCatalogError] = useState<string | null>(null);
+  const [comfyVersionCatalogSearch, setComfyVersionCatalogSearch] = useState('');
+  const [comfyVersionCatalogStatus, setComfyVersionCatalogStatus] = useState('all');
+  const [comfyVersionDialogOpen, setComfyVersionDialogOpen] = useState(false);
+  const [comfyVersionSaving, setComfyVersionSaving] = useState(false);
+  const [comfyVersionSyncing, setComfyVersionSyncing] = useState(false);
+  const [comfyVersionFormError, setComfyVersionFormError] = useState<string | null>(null);
+  const [comfyVersionForm, setComfyVersionForm] = useState<Partial<ComfyuiVersionCatalogItem>>({
+    status: 'active',
+  });
   const [comfyPluginCatalogItems, setComfyPluginCatalogItems] = useState<ComfyuiPluginCatalogItem[]>([]);
   const [comfyPluginCatalogLoading, setComfyPluginCatalogLoading] = useState(false);
   const [comfyPluginCatalogError, setComfyPluginCatalogError] = useState<string | null>(null);
@@ -1457,6 +1570,9 @@ export function IntegrationDashboard({
   const [abilityLogMetrics, setAbilityLogMetrics] = useState<AbilityLogMetricsResponse | null>(null);
   const [abilityLogMetricsLoading, setAbilityLogMetricsLoading] = useState(false);
   const [abilityLogMetricsError, setAbilityLogMetricsError] = useState<string | null>(null);
+  const [abilityMetricsWindowHours, setAbilityMetricsWindowHours] = useState<number>(24);
+  const [abilityMetricsProvider, setAbilityMetricsProvider] = useState<string>('all');
+  const [abilityMetricsCapabilityKey, setAbilityMetricsCapabilityKey] = useState<string>('all');
   const [exportingAbilityLogs, setExportingAbilityLogs] = useState(false);
   const [publicAbilities, setPublicAbilities] = useState<PublicAbility[]>([]);
   const [publicAbilitiesLoading, setPublicAbilitiesLoading] = useState(false);
@@ -1484,6 +1600,32 @@ export function IntegrationDashboard({
     () => Array.from(new Set(abilities.map((ability) => ability.provider))).sort(),
     [abilities],
   );
+  const globalAbilityLogCapabilityOptions = useMemo(() => {
+    if (globalAbilityLogProvider === 'all') return [];
+    const seen = new Set<string>();
+    return abilities.reduce<{ label: string; value: string }[]>((acc, ability) => {
+      if (ability.provider !== globalAbilityLogProvider) return acc;
+      const key = ability.capability_key;
+      if (!key || seen.has(key)) return acc;
+      seen.add(key);
+      const label = ability.display_name ? `${ability.display_name}（${ability.capability_key}）` : ability.capability_key;
+      acc.push({ label, value: key });
+      return acc;
+    }, []);
+  }, [abilities, globalAbilityLogProvider]);
+  const abilityMetricsCapabilityOptions = useMemo(() => {
+    if (abilityMetricsProvider === 'all') return [];
+    const seen = new Set<string>();
+    return abilities.reduce<{ label: string; value: string }[]>((acc, ability) => {
+      if (ability.provider !== abilityMetricsProvider) return acc;
+      const key = ability.capability_key;
+      if (!key || seen.has(key)) return acc;
+      seen.add(key);
+      const label = ability.display_name ? `${ability.display_name}（${ability.capability_key}）` : ability.capability_key;
+      acc.push({ label, value: key });
+      return acc;
+    }, []);
+  }, [abilities, abilityMetricsProvider]);
   const filteredAbilities = useMemo(() => {
     const keyword = abilitySearch.trim().toLowerCase();
     return abilities.filter((ability) => {
@@ -1506,6 +1648,31 @@ export function IntegrationDashboard({
   const comfyExecutors = useMemo(
     () => executors.filter((executor) => (executor.type || '').toLowerCase().includes('comfyui')),
     [executors],
+  );
+  const comfyAgentMap = useMemo(() => {
+    const map = new Map<string, ComfyuiAgent>();
+    comfyAgentList.forEach((agent) => map.set(agent.id, agent));
+    return map;
+  }, [comfyAgentList]);
+  const comfyAgentOptions = useMemo(
+    () =>
+      comfyAgentList.map((agent) => ({
+        label: agent.name ? `${agent.name} · ${agent.id}` : agent.id,
+        value: agent.id,
+      })),
+    [comfyAgentList],
+  );
+  const comfyManifestOptions = useMemo(
+    () =>
+      comfyManifestList.map((manifest) => ({
+        label: `${manifest.role} · ${manifest.version}`,
+        value: String(manifest.id),
+      })),
+    [comfyManifestList],
+  );
+  const comfyAgentEditing = useMemo(
+    () => Boolean(comfyAgentForm.id && comfyAgentList.some((agent) => agent.id === comfyAgentForm.id)),
+    [comfyAgentForm.id, comfyAgentList],
   );
   const comfyBaselineExecutor = useMemo(() => {
     if (comfyBaselineExecutorId) {
@@ -1666,6 +1833,36 @@ export function IntegrationDashboard({
     });
     return map;
   }, [comfyPluginCatalogItems]);
+  const groupComfyMissingRepos = useCallback(
+    (nodes: string[]) => {
+      const repoMap: Record<
+        string,
+        { repo: string; source_url: string | null; download_url: string | null; nodes: string[] }
+      > = {};
+      const missingRepoNodes: string[] = [];
+      nodes.forEach((node) => {
+        const record = comfyPluginCatalogMap[node];
+        const repo = (record?.source_url || record?.download_url || '').trim();
+        if (!repo) {
+          missingRepoNodes.push(node);
+          return;
+        }
+        if (!repoMap[repo]) {
+          repoMap[repo] = {
+            repo,
+            source_url: record?.source_url || null,
+            download_url: record?.download_url || null,
+            nodes: [],
+          };
+        }
+        repoMap[repo].nodes.push(node);
+      });
+      const repos = Object.values(repoMap).sort((a, b) => a.repo.localeCompare(b.repo));
+      missingRepoNodes.sort();
+      return { repos, missingRepoNodes };
+    },
+    [comfyPluginCatalogMap],
+  );
   const comfyServersLoadedCount = useMemo(
     () =>
       comfyExecutors.filter((executor) => Boolean(comfyModelCache[executor.id]) && Boolean(comfyNodeCache[executor.id]))
@@ -1696,6 +1893,7 @@ export function IntegrationDashboard({
         lora: diffMissingItems(comfyBaselineSets.lora, loraList),
         nodes: diffMissingItems(comfyBaselineSets.nodes, nodeKeys),
       };
+      const missingRepoGroups = groupComfyMissingRepos(missing.nodes);
       const attachModel = (items: string[], type: string) =>
         items.map((name) => {
           const record = comfyModelCatalogMap[type]?.[name];
@@ -1735,6 +1933,7 @@ export function IntegrationDashboard({
           lora: attachModel(missing.lora, 'lora'),
           nodes: attachPlugin(missing.nodes),
         },
+        missing_repo_groups: missingRepoGroups,
         totals: {
           unet: unetList.length,
           clip: clipList.length,
@@ -1844,7 +2043,7 @@ export function IntegrationDashboard({
     [workflowForm.metadata],
   );
   const workflowDefinitionError =
-    workflowForm.definition && !workflowDefinitionParse.ok ? 'Workflow JSON 解析失败，请检查格式。' : '';
+    workflowForm.definition && !workflowDefinitionParse.ok ? '工作流 JSON 解析失败，请检查格式。' : '';
   const workflowMetadataError =
     workflowForm.metadata && !workflowMetadataParse.ok ? 'metadata JSON 解析失败，请检查格式。' : '';
   const workflowDefinitionNotice = useMemo(() => {
@@ -1853,7 +2052,7 @@ export function IntegrationDashboard({
       return '检测到 ComfyUI UI JSON，保存时会自动转换为 Prompt Graph。';
     }
     if (workflowDefinitionInfo.source === 'unknown') {
-      return 'JSON 已解析，但未识别为 ComfyUI Workflow；节点解析可能为空。';
+      return 'JSON 已解析，但未识别为 ComfyUI 工作流；节点解析可能为空。';
     }
     return '';
   }, [workflowForm.definition, workflowDefinitionParse.ok, workflowDefinitionInfo.source]);
@@ -1863,7 +2062,7 @@ export function IntegrationDashboard({
       return errors;
     }
     if (!comfyWorkflowNodes.length) {
-      errors.push('未解析到节点，无法校验输入/输出映射，请先导入有效的 Workflow JSON。');
+      errors.push('未解析到节点，无法校验输入/输出映射，请先导入有效的工作流 JSON。');
       return errors;
     }
     const used = new Set<string>();
@@ -1900,7 +2099,7 @@ export function IntegrationDashboard({
     });
     workflowOutputNodeIds.forEach((nodeId) => {
       if (!comfyWorkflowNodeMap.has(nodeId)) {
-        errors.push(`输出节点 #${nodeId} 不在当前 Workflow 中`);
+        errors.push(`输出节点 #${nodeId} 不在当前工作流中`);
       }
     });
     return errors;
@@ -2127,20 +2326,29 @@ export function IntegrationDashboard({
   const filteredGlobalAbilityLogs = useMemo(() => {
     const keyword = globalAbilityLogSearch.trim().toLowerCase();
     return globalAbilityLogs.filter((log) => {
+      const callbackStatus = (log.callback_status || '').toLowerCase();
+      const hasCallbackError =
+        callbackStatus === 'failed' ||
+        (typeof log.callback_http_status === 'number' && log.callback_http_status >= 400) ||
+        Boolean(log.callback_error);
       if (globalAbilityLogProvider !== 'all' && log.ability_provider !== globalAbilityLogProvider) return false;
+      if (globalAbilityLogCapabilityKey !== 'all' && log.capability_key !== globalAbilityLogCapabilityKey) return false;
       if (globalAbilityLogSource !== 'all' && log.source !== globalAbilityLogSource) return false;
       if (globalAbilityLogStatus !== 'all' && (log.status || '') !== globalAbilityLogStatus) return false;
+      if (globalAbilityLogOnlyCallbackFailed && !hasCallbackError) return false;
       if (!keyword) return true;
       const haystack = `${log.ability_name || ''} ${log.capability_key} ${log.ability_provider} ${log.executor_name || ''} ${
         log.executor_id || ''
-      } ${log.task_id || ''} ${log.trace_id || ''}`.toLowerCase();
+      } ${log.task_id || ''} ${log.callback_id || ''} ${log.trace_id || ''}`.toLowerCase();
       return haystack.includes(keyword);
     });
   }, [
     globalAbilityLogs,
     globalAbilityLogProvider,
+    globalAbilityLogCapabilityKey,
     globalAbilityLogSource,
     globalAbilityLogStatus,
+    globalAbilityLogOnlyCallbackFailed,
     globalAbilityLogSearch,
   ]);
   const abilityLogsHasMore = useMemo(() => {
@@ -2491,7 +2699,11 @@ export function IntegrationDashboard({
     setAbilityLogMetricsLoading(true);
     setAbilityLogMetricsError(null);
     try {
-      const res = await adminApi.getAbilityLogMetrics({ windowHours: 24 });
+      const res = await adminApi.getAbilityLogMetrics({
+        windowHours: abilityMetricsWindowHours,
+        provider: abilityMetricsProvider !== 'all' ? abilityMetricsProvider : undefined,
+        capabilityKey: abilityMetricsCapabilityKey !== 'all' ? abilityMetricsCapabilityKey : undefined,
+      });
       setAbilityLogMetrics(res);
     } catch (err: any) {
       console.error('Failed to load ability log metrics:', err);
@@ -2787,6 +2999,33 @@ export function IntegrationDashboard({
     setComfyModelFormError(null);
   }, []);
 
+  const resetComfyVersionForm = useCallback((seed?: Partial<ComfyuiVersionCatalogItem>) => {
+    const next = seed || { status: 'active' };
+    setComfyVersionForm(next);
+    setComfyVersionFormError(null);
+  }, []);
+
+  const refreshComfyVersionCatalog = useCallback(
+    async (options?: { silent?: boolean }) => {
+      const silent = Boolean(options?.silent);
+      if (!silent) setComfyVersionCatalogLoading(true);
+      setComfyVersionCatalogError(null);
+      try {
+        const resp = await adminApi.listComfyuiVersionCatalog({
+          q: comfyVersionCatalogSearch.trim() || undefined,
+          status: comfyVersionCatalogStatus !== 'all' ? comfyVersionCatalogStatus : undefined,
+        });
+        setComfyVersionCatalogItems(resp.items || []);
+      } catch (error: any) {
+        console.error('Failed to load ComfyUI version catalog:', error);
+        setComfyVersionCatalogError(error?.message || '获取版本清单失败');
+      } finally {
+        if (!silent) setComfyVersionCatalogLoading(false);
+      }
+    },
+    [comfyVersionCatalogSearch, comfyVersionCatalogStatus],
+  );
+
   const refreshComfyModelCatalog = useCallback(
     async (options?: { silent?: boolean }) => {
       const silent = Boolean(options?.silent);
@@ -2853,6 +3092,64 @@ export function IntegrationDashboard({
     },
     [refreshComfyModelCatalog],
   );
+
+  const handleComfyVersionSave = useCallback(async () => {
+    const version = (comfyVersionForm.version || '').trim();
+    if (!version) {
+      setComfyVersionFormError('请填写版本号');
+      return;
+    }
+    setComfyVersionSaving(true);
+    setComfyVersionFormError(null);
+    try {
+      const payload: Partial<ComfyuiVersionCatalogItem> = {
+        version,
+        commit_sha: comfyVersionForm.commit_sha || undefined,
+        repo_url: comfyVersionForm.repo_url || undefined,
+        source_url: comfyVersionForm.source_url || undefined,
+        download_url: comfyVersionForm.download_url || undefined,
+        released_at: comfyVersionForm.released_at || undefined,
+        notes: comfyVersionForm.notes || undefined,
+        status: comfyVersionForm.status || 'active',
+      };
+      if (comfyVersionForm.id) {
+        await adminApi.updateComfyuiVersionCatalog(comfyVersionForm.id, payload);
+      } else {
+        await adminApi.createComfyuiVersionCatalog(payload);
+      }
+      setComfyVersionDialogOpen(false);
+      resetComfyVersionForm();
+      refreshComfyVersionCatalog({ silent: true });
+    } catch (error: any) {
+      console.error('save comfyui version catalog failed', error);
+      setComfyVersionFormError(error?.message || '保存失败');
+    } finally {
+      setComfyVersionSaving(false);
+    }
+  }, [comfyVersionForm, refreshComfyVersionCatalog, resetComfyVersionForm]);
+
+  const handleComfyVersionDelete = useCallback(
+    async (id: number) => {
+      await adminApi.deleteComfyuiVersionCatalog(id);
+      refreshComfyVersionCatalog({ silent: true });
+    },
+    [refreshComfyVersionCatalog],
+  );
+
+  const handleComfyVersionSync = useCallback(async () => {
+    setComfyVersionSyncing(true);
+    setComfyVersionCatalogError(null);
+    try {
+      const resp = await adminApi.syncComfyuiVersionCatalog();
+      await refreshComfyVersionCatalog({ silent: true });
+      alert(`已同步：新增 ${resp.created} 条，更新 ${resp.updated} 条（共 ${resp.total} 条）`);
+    } catch (error: any) {
+      console.error('sync comfyui version catalog failed', error);
+      setComfyVersionCatalogError(error?.message || '同步失败');
+    } finally {
+      setComfyVersionSyncing(false);
+    }
+  }, [refreshComfyVersionCatalog]);
 
   const resetComfyPluginForm = useCallback((seed?: Partial<ComfyuiPluginCatalogItem>) => {
     const next = seed || { status: 'active' };
@@ -2927,6 +3224,295 @@ export function IntegrationDashboard({
     [refreshComfyPluginCatalog],
   );
 
+  const resetComfyAgentForm = useCallback((seed?: Partial<ComfyuiAgent>) => {
+    const next = seed || { status: 'active', allowed: true };
+    setComfyAgentForm(next);
+    setComfyAgentConfigInput(stringifyJSON(next.config as JsonRecord));
+    setComfyAgentFormError(null);
+  }, []);
+
+  const refreshComfyAgents = useCallback(
+    async (options?: { silent?: boolean }) => {
+      const silent = Boolean(options?.silent);
+      if (!silent) setComfyAgentLoading(true);
+      setComfyAgentError(null);
+      try {
+        const resp = await adminApi.listComfyuiAgents({
+          status: comfyAgentStatusFilter !== 'all' ? comfyAgentStatusFilter : undefined,
+        });
+        setComfyAgentList(resp || []);
+      } catch (error: any) {
+        console.error('Failed to load ComfyUI agents:', error);
+      setComfyAgentError(error?.message || '获取代理服务列表失败');
+      } finally {
+        if (!silent) setComfyAgentLoading(false);
+      }
+    },
+    [comfyAgentStatusFilter],
+  );
+
+  const handleComfyAgentSave = useCallback(async () => {
+    const id = String(comfyAgentForm.id || '').trim();
+    if (!id) {
+      setComfyAgentFormError('请填写代理服务ID');
+      return;
+    }
+    const baseUrl = String(comfyAgentForm.baseUrl || '').trim();
+    const configInput = comfyAgentConfigInput.trim();
+    if (configInput) {
+      const parsed = safeParseJSON(configInput);
+      if (!parsed.ok) {
+        setComfyAgentFormError('配置内容格式不正确（需 JSON）');
+        return;
+      }
+    }
+    setComfyAgentSaving(true);
+    setComfyAgentFormError(null);
+    try {
+      const payload: Partial<ComfyuiAgent> & { id: string } = {
+        id,
+        name: comfyAgentForm.name ? String(comfyAgentForm.name).trim() : undefined,
+        role: comfyAgentForm.role ? String(comfyAgentForm.role).trim() : undefined,
+        host: comfyAgentForm.host ? String(comfyAgentForm.host).trim() : undefined,
+        baseUrl: baseUrl || undefined,
+        status: comfyAgentForm.status || 'active',
+        allowed: typeof comfyAgentForm.allowed === 'boolean' ? comfyAgentForm.allowed : true,
+      };
+      if (configInput) {
+        payload.config = parseJSON(configInput);
+      }
+      if (comfyAgentList.some((item) => item.id === id)) {
+        await adminApi.updateComfyuiAgent(id, payload);
+      } else {
+        await adminApi.createComfyuiAgent(payload);
+      }
+      setComfyAgentDialogOpen(false);
+      resetComfyAgentForm();
+      refreshComfyAgents({ silent: true });
+    } catch (error: any) {
+      console.error('save comfyui agent failed', error);
+      setComfyAgentFormError(error?.message || '保存失败，请检查必填项');
+    } finally {
+      setComfyAgentSaving(false);
+    }
+  }, [comfyAgentForm, comfyAgentConfigInput, comfyAgentList, refreshComfyAgents, resetComfyAgentForm]);
+
+  const handleComfyAgentDelete = useCallback(
+    async (agentId: string) => {
+      await adminApi.deleteComfyuiAgent(agentId);
+      refreshComfyAgents({ silent: true });
+    },
+    [refreshComfyAgents],
+  );
+
+  const resetComfyManifestForm = useCallback((seed?: Partial<ComfyuiAgentManifest>) => {
+    const next = seed || { status: 'active' };
+    setComfyManifestForm(next);
+    setComfyManifestContentInput(stringifyJSON(next.content as JsonRecord));
+    setComfyManifestFormError(null);
+  }, []);
+
+  const refreshComfyManifests = useCallback(
+    async (options?: { silent?: boolean }) => {
+      const silent = Boolean(options?.silent);
+      if (!silent) setComfyManifestLoading(true);
+      setComfyManifestError(null);
+      try {
+        const resp = await adminApi.listComfyuiManifests({
+          role: comfyManifestRoleFilter.trim() || undefined,
+          status: comfyManifestStatusFilter !== 'all' ? comfyManifestStatusFilter : undefined,
+        });
+        setComfyManifestList(resp || []);
+      } catch (error: any) {
+        console.error('Failed to load ComfyUI manifests:', error);
+      setComfyManifestError(error?.message || '获取清单失败，请稍后重试');
+      } finally {
+        if (!silent) setComfyManifestLoading(false);
+      }
+    },
+    [comfyManifestRoleFilter, comfyManifestStatusFilter],
+  );
+
+  const handleComfyManifestSave = useCallback(async () => {
+    const role = String(comfyManifestForm.role || '').trim();
+    const version = String(comfyManifestForm.version || '').trim();
+    if (!role || !version) {
+      setComfyManifestFormError('请填写清单角色与版本号');
+      return;
+    }
+    const contentInput = comfyManifestContentInput.trim();
+    if (contentInput) {
+      const parsed = safeParseJSON(contentInput);
+      if (!parsed.ok) {
+        setComfyManifestFormError('清单内容格式不正确（需 JSON）');
+        return;
+      }
+    }
+    setComfyManifestSaving(true);
+    setComfyManifestFormError(null);
+    try {
+      const payload: Partial<ComfyuiAgentManifest> = {
+        role,
+        version,
+        status: comfyManifestForm.status || 'active',
+        downloadUrl: comfyManifestForm.downloadUrl || comfyManifestForm.download_url || undefined,
+        notes: comfyManifestForm.notes,
+      };
+      if (contentInput) payload.content = parseJSON(contentInput);
+      if (comfyManifestForm.id) {
+        await adminApi.updateComfyuiManifest(comfyManifestForm.id, payload);
+      } else {
+        await adminApi.createComfyuiManifest(payload);
+      }
+      setComfyManifestDialogOpen(false);
+      resetComfyManifestForm();
+      refreshComfyManifests({ silent: true });
+    } catch (error: any) {
+      console.error('save comfyui manifest failed', error);
+      setComfyManifestFormError(error?.message || '保存失败，请检查必填项');
+    } finally {
+      setComfyManifestSaving(false);
+    }
+  }, [comfyManifestForm, comfyManifestContentInput, refreshComfyManifests, resetComfyManifestForm]);
+
+  const refreshComfyAgentTasks = useCallback(
+    async (options?: { silent?: boolean }) => {
+      const silent = Boolean(options?.silent);
+      if (!silent) setComfyAgentTasksLoading(true);
+      setComfyAgentTasksError(null);
+      try {
+        const resp = await adminApi.listComfyuiAgentTasks({
+          agentId: comfyAgentTaskAgentFilter !== 'all' ? comfyAgentTaskAgentFilter : undefined,
+          status: comfyAgentTaskStatusFilter !== 'all' ? comfyAgentTaskStatusFilter : undefined,
+          limit: 50,
+        });
+        setComfyAgentTasks(resp || []);
+      } catch (error: any) {
+        console.error('Failed to load ComfyUI tasks:', error);
+        setComfyAgentTasksError(error?.message || '获取任务列表失败，请稍后重试');
+      } finally {
+        if (!silent) setComfyAgentTasksLoading(false);
+      }
+    },
+    [comfyAgentTaskAgentFilter, comfyAgentTaskStatusFilter],
+  );
+
+  const handleComfyAgentTaskCreate = useCallback(async () => {
+    const agentId = comfyAgentTaskForm.agentId.trim();
+    if (!agentId) {
+      setComfyAgentTaskFormError('请选择代理服务');
+      return;
+    }
+    const actions = normalizeTextList(comfyAgentTaskForm.actions);
+    if (actions.length === 0) {
+      setComfyAgentTaskFormError('请至少填写一个动作（同步模型/同步插件/同步工作流/重启服务）');
+      return;
+    }
+    const manifestId = comfyAgentTaskForm.manifestId ? Number(comfyAgentTaskForm.manifestId) : null;
+    const manifestUrl = comfyAgentTaskForm.manifestUrl.trim();
+    const payload = {
+      agentId,
+      actions,
+      manifestId: manifestId || undefined,
+      manifestUrl: manifestUrl || undefined,
+      expiresAt: comfyAgentTaskForm.expiresAt.trim() || undefined,
+      taskId: comfyAgentTaskForm.taskId.trim() || undefined,
+    };
+    setComfyAgentTaskSaving(true);
+    setComfyAgentTaskFormError(null);
+    try {
+      await adminApi.createComfyuiAgentTask(payload, { push: comfyAgentTaskPushAfterCreate });
+      setComfyAgentTaskForm({
+        taskId: '',
+        agentId,
+        manifestId: '',
+        manifestUrl: '',
+        actions: '',
+        expiresAt: '',
+      });
+      refreshComfyAgentTasks({ silent: true });
+    } catch (error: any) {
+      console.error('create comfyui task failed', error);
+      setComfyAgentTaskFormError(error?.message || '创建任务失败，请稍后重试');
+    } finally {
+      setComfyAgentTaskSaving(false);
+    }
+  }, [comfyAgentTaskForm, comfyAgentTaskPushAfterCreate, refreshComfyAgentTasks]);
+
+  const handleComfyAgentTaskPush = useCallback(
+    async (taskId: string) => {
+      setComfyAgentTaskPushLoading((prev) => ({ ...prev, [taskId]: true }));
+      try {
+        await adminApi.pushComfyuiAgentTask(taskId);
+        refreshComfyAgentTasks({ silent: true });
+      } catch (error) {
+        console.error('push comfyui task failed', error);
+      } finally {
+        setComfyAgentTaskPushLoading((prev) => ({ ...prev, [taskId]: false }));
+      }
+    },
+    [refreshComfyAgentTasks],
+  );
+
+  const openComfyAgentTaskEvents = useCallback(async (taskId: string) => {
+    setComfyAgentTaskEventsTaskId(taskId);
+    setComfyAgentTaskEventsDialogOpen(true);
+    setComfyAgentTaskEventsLoading(true);
+    setComfyAgentTaskEventsError(null);
+    try {
+      const resp = await adminApi.listComfyuiAgentTaskEvents(taskId, 50);
+      setComfyAgentTaskEvents(resp || []);
+    } catch (error: any) {
+      console.error('load comfyui task events failed', error);
+      setComfyAgentTaskEventsError(error?.message || '获取任务事件失败');
+    } finally {
+      setComfyAgentTaskEventsLoading(false);
+    }
+  }, []);
+
+  const refreshComfyAgentAlerts = useCallback(
+    async (options?: { silent?: boolean }) => {
+      const silent = Boolean(options?.silent);
+      if (!silent) setComfyAgentAlertsLoading(true);
+      setComfyAgentAlertsError(null);
+      try {
+        const resp = await adminApi.listComfyuiAgentAlerts({
+          agentId: comfyAgentAlertsAgentFilter !== 'all' ? comfyAgentAlertsAgentFilter : undefined,
+          alertType: comfyAgentAlertsTypeFilter.trim() || undefined,
+          limit: Math.max(1, Math.min(200, Number(comfyAgentAlertsLimit) || 50)),
+        });
+        setComfyAgentAlerts(resp || []);
+      } catch (error: any) {
+        console.error('Failed to load ComfyUI alerts:', error);
+      setComfyAgentAlertsError(error?.message || '获取告警失败，请稍后重试');
+      } finally {
+        if (!silent) setComfyAgentAlertsLoading(false);
+      }
+    },
+    [comfyAgentAlertsAgentFilter, comfyAgentAlertsTypeFilter, comfyAgentAlertsLimit],
+  );
+
+  const handleComfyAgentTokenIssue = useCallback(
+    async (agentId: string) => {
+      if (!agentId) return;
+      setComfyAgentTokenLoading(true);
+      setComfyAgentTokenError(null);
+      try {
+        const resp = await adminApi.issueComfyuiAgentToken(agentId);
+        setComfyAgentTokenAgentId(resp.agentId || agentId);
+        setComfyAgentTokenValue(resp.token || '');
+        setComfyAgentTokenExpiresAt(resp.expiresAt || '');
+        setComfyAgentTokenDialogOpen(true);
+      } catch (error: any) {
+        console.error('issue comfyui agent token failed', error);
+      setComfyAgentTokenError(error?.message || '签发访问令牌失败');
+      } finally {
+        setComfyAgentTokenLoading(false);
+      }
+    },
+    [],
+  );
+
   const refreshComfyDiffLogs = useCallback(
     async (options?: { silent?: boolean }) => {
       const silent = Boolean(options?.silent);
@@ -2994,7 +3580,7 @@ export function IntegrationDashboard({
       return;
     }
     if (!baseUrl || !(baseUrl.startsWith('http://') || baseUrl.startsWith('https://'))) {
-      setComfyServerFormError('Base URL 需以 http:// 或 https:// 开头');
+      setComfyServerFormError('服务地址需以 http:// 或 https:// 开头');
       return;
     }
     setComfyServerSaving(true);
@@ -3040,16 +3626,20 @@ export function IntegrationDashboard({
 
   useEffect(() => {
     if (activeNav !== 'comfyui-management' || comfyuiManageTab !== 'assets') return;
+    refreshComfyVersionCatalog();
     refreshComfyModelCatalog();
     refreshComfyPluginCatalog();
   }, [
     activeNav,
     comfyuiManageTab,
+    comfyVersionCatalogSearch,
+    comfyVersionCatalogStatus,
     comfyModelCatalogSearch,
     comfyModelCatalogStatus,
     comfyModelCatalogType,
     comfyPluginCatalogSearch,
     comfyPluginCatalogStatus,
+    refreshComfyVersionCatalog,
     refreshComfyModelCatalog,
     refreshComfyPluginCatalog,
   ]);
@@ -3102,6 +3692,49 @@ export function IntegrationDashboard({
     comfyNodeCache,
     refreshComfyuiModelCatalog,
   ]);
+
+  useEffect(() => {
+    if (activeNav !== 'comfyui-management' || comfyuiManageTab !== 'agents') return;
+    refreshComfyAgents();
+  }, [activeNav, comfyuiManageTab, refreshComfyAgents]);
+
+  useEffect(() => {
+    if (activeNav !== 'comfyui-management' || comfyuiManageTab !== 'manifests') return;
+    refreshComfyManifests();
+  }, [activeNav, comfyuiManageTab, refreshComfyManifests]);
+
+  useEffect(() => {
+    if (activeNav !== 'comfyui-management' || comfyuiManageTab !== 'tasks') return;
+    if (comfyAgentList.length === 0) {
+      refreshComfyAgents({ silent: true });
+    }
+    if (comfyManifestList.length === 0) {
+      refreshComfyManifests({ silent: true });
+    }
+    refreshComfyAgentTasks();
+  }, [
+    activeNav,
+    comfyuiManageTab,
+    comfyAgentList.length,
+    comfyManifestList.length,
+    refreshComfyAgents,
+    refreshComfyManifests,
+    refreshComfyAgentTasks,
+  ]);
+
+  useEffect(() => {
+    if (activeNav !== 'comfyui-management' || comfyuiManageTab !== 'alerts') return;
+    if (comfyAgentList.length === 0) {
+      refreshComfyAgents({ silent: true });
+    }
+    refreshComfyAgentAlerts();
+  }, [activeNav, comfyuiManageTab, comfyAgentList.length, refreshComfyAgents, refreshComfyAgentAlerts]);
+
+  useEffect(() => {
+    if (!comfyAgentTaskForm.agentId && comfyAgentList.length > 0) {
+      setComfyAgentTaskForm((prev) => ({ ...prev, agentId: comfyAgentList[0].id }));
+    }
+  }, [comfyAgentList, comfyAgentTaskForm.agentId]);
 
   const refreshComfyQueueStatus = useCallback(
     async (options?: { silent?: boolean }) => {
@@ -3311,6 +3944,40 @@ export function IntegrationDashboard({
   }, [abilityLogDetail, refreshAbilityLogs, refreshGlobalAbilityLogs]);
 
   useEffect(() => {
+    if (abilityMetricsProvider === 'all') {
+      if (abilityMetricsCapabilityKey !== 'all') {
+        setAbilityMetricsCapabilityKey('all');
+      }
+      return;
+    }
+    if (
+      abilityMetricsCapabilityKey !== 'all' &&
+      !abilities.some(
+        (ability) => ability.provider === abilityMetricsProvider && ability.capability_key === abilityMetricsCapabilityKey,
+      )
+    ) {
+      setAbilityMetricsCapabilityKey('all');
+    }
+  }, [abilities, abilityMetricsProvider, abilityMetricsCapabilityKey]);
+
+  useEffect(() => {
+    if (globalAbilityLogProvider === 'all') {
+      if (globalAbilityLogCapabilityKey !== 'all') {
+        setGlobalAbilityLogCapabilityKey('all');
+      }
+      return;
+    }
+    if (
+      globalAbilityLogCapabilityKey !== 'all' &&
+      !abilities.some(
+        (ability) => ability.provider === globalAbilityLogProvider && ability.capability_key === globalAbilityLogCapabilityKey,
+      )
+    ) {
+      setGlobalAbilityLogCapabilityKey('all');
+    }
+  }, [abilities, globalAbilityLogProvider, globalAbilityLogCapabilityKey]);
+
+  useEffect(() => {
     void refreshGlobalAbilityLogs();
   }, [refreshGlobalAbilityLogs]);
 
@@ -3321,6 +3988,11 @@ export function IntegrationDashboard({
   useEffect(() => {
     globalAbilityLogsCountRef.current = globalAbilityLogs.length;
   }, [globalAbilityLogs.length]);
+
+  useEffect(() => {
+    if (activeNav !== 'ability-logs' || abilityLogTab !== 'metrics') return;
+    void refreshAbilityLogMetrics();
+  }, [activeNav, abilityLogTab, abilityMetricsWindowHours, abilityMetricsProvider, abilityMetricsCapabilityKey]);
 
   useEffect(() => {
     if (!selectedAbility?.id || !abilityLogsAutoRefresh) return;
@@ -4487,7 +5159,7 @@ const normalizeErrorMessage = (message: string): string => {
       errors.push('请填写名称');
     }
     if (!workflowForm.definition || !workflowForm.definition.trim()) {
-      errors.push('请先导入或粘贴 Workflow JSON');
+      errors.push('请先导入或粘贴工作流 JSON');
     }
     if (workflowDefinitionError) {
       errors.push(workflowDefinitionError);
@@ -6467,17 +7139,144 @@ const normalizeErrorMessage = (message: string): string => {
       <Section
         id="ability-logs"
         title="能力调用记录"
-        description="展示最近能力调用日志（不限能力 ID），支持按厂商/来源/状态/关键词筛选与导出，便于回溯来源、节点与成本。"
+        description="同一模块内包含“指标”与“调用清单”，用于定位异常与归因。"
       >
         <Card bordered>
           <Space direction="vertical" size="large" style={{ width: '100%' }}>
+            <Tabs
+              value={abilityLogTab}
+              onChange={(v) => setAbilityLogTab(v as AbilityLogTab)}
+              list={abilityLogTabs.map((tab) => ({
+                label: tab.label,
+                value: tab.id,
+              }))}
+            />
+
+            {abilityLogTab === 'metrics' && (
+              <Space direction="vertical" size="large" style={{ width: '100%' }}>
+                <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                  <div>
+                    <Typography.Text strong>调用指标</Typography.Text>
+                    <div>
+                      <Typography.Text theme="secondary">
+                        窗口：近 {abilityMetricsWindowHours} 小时（前 8）
+                      </Typography.Text>
+                    </div>
+                  </div>
+                  <Space>
+                    <Button variant="outline" loading={abilityLogMetricsLoading} onClick={() => refreshAbilityLogMetrics()}>
+                      刷新指标
+                    </Button>
+                  </Space>
+                </Space>
+
+                {abilityLogMetricsError ? <Alert theme="error" message={abilityLogMetricsError} /> : null}
+
+                <Row gutter={[12, 12]}>
+                  <Col flex="160px">
+                    <Select
+                      value={abilityMetricsWindowHours}
+                      onChange={(v) => setAbilityMetricsWindowHours(Math.max(1, Number(v) || 24))}
+                      options={[
+                        { label: '近 6 小时', value: 6 },
+                        { label: '近 12 小时', value: 12 },
+                        { label: '近 24 小时', value: 24 },
+                        { label: '近 72 小时', value: 72 },
+                        { label: '近 7 天', value: 168 },
+                        { label: '近 30 天', value: 720 },
+                      ]}
+                    />
+                  </Col>
+                  <Col flex="180px">
+                    <Select
+                      value={abilityMetricsProvider}
+                      onChange={(v) => setAbilityMetricsProvider(String(v))}
+                      options={[
+                        { label: '全部厂商', value: 'all' },
+                        ...abilityProviders.map((p) => ({ label: getProviderLabel(p), value: p })),
+                      ]}
+                    />
+                  </Col>
+                  <Col flex="260px">
+                    <Select
+                      value={abilityMetricsCapabilityKey}
+                      onChange={(v) => setAbilityMetricsCapabilityKey(String(v))}
+                      disabled={abilityMetricsProvider === 'all'}
+                      options={[
+                        { label: abilityMetricsProvider === 'all' ? '请先选择厂商' : '全部能力', value: 'all' },
+                        ...abilityMetricsCapabilityOptions,
+                      ]}
+                    />
+                  </Col>
+                </Row>
+
+                {abilityLogMetrics?.buckets && abilityLogMetrics.buckets.length > 0 ? (
+                  <Card bordered title={`近 ${abilityLogMetrics.window_hours}h 指标（前 8）`}>
+                    <Table
+                      size="small"
+                      rowKey="__key"
+                      data={(abilityLogMetrics.buckets as AbilityLogMetricBucket[])
+                        .slice(0, 8)
+                        .map((b) => ({ ...b, __key: `${b.ability_provider}:${b.capability_key}` }))}
+                      columns={[
+                        {
+                          colKey: 'ability',
+                          title: '能力',
+                          cell: ({ row }) => (
+                            <Space direction="vertical" size={2}>
+                              <Typography.Text strong>{row.capability_key}</Typography.Text>
+                              <Typography.Text theme="secondary">{row.ability_provider}</Typography.Text>
+                            </Space>
+                          ),
+                        },
+                        {
+                          colKey: 'count',
+                          title: '次数',
+                          width: 120,
+                          cell: ({ row }) => (
+                            <Typography.Text theme="secondary">
+                              {row.count}（{row.success_count}/{row.failed_count}）
+                            </Typography.Text>
+                          ),
+                        },
+                        {
+                          colKey: 'success_rate',
+                          title: '成功率',
+                          width: 120,
+                          cell: ({ row }) => (
+                            <Typography.Text>
+                              {row.success_rate !== null && row.success_rate !== undefined ? `${(row.success_rate * 100).toFixed(1)}%` : '—'}
+                            </Typography.Text>
+                          ),
+                        },
+                        {
+                          colKey: 'p50',
+                          title: 'p50 / p95',
+                          width: 160,
+                          cell: ({ row }) => (
+                            <Typography.Text theme="secondary">
+                              {row.p50_duration_ms ?? '—'}ms / {row.p95_duration_ms ?? '—'}ms
+                            </Typography.Text>
+                          ),
+                        },
+                      ]}
+                    />
+                  </Card>
+                ) : (
+                  <Typography.Text theme="secondary">暂无指标数据。</Typography.Text>
+                )}
+              </Space>
+            )}
+
+            {abilityLogTab === 'logs' && (
+            <Space direction="vertical" size="large" style={{ width: '100%' }}>
             <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
               <div>
                 <Typography.Text strong>能力调用清单</Typography.Text>
                 <div>
                   <Typography.Text theme="secondary">
                     已加载 {globalAbilityLogs.length}
-                    {typeof globalAbilityLogTotal === 'number' ? ` / ${globalAbilityLogTotal}` : ''} 条 · 支持导出最近 24h
+                    {typeof globalAbilityLogTotal === 'number' ? ` / ${globalAbilityLogTotal}` : ''} 条 · 支持导出最近 24 小时
                   </Typography.Text>
                 </div>
               </div>
@@ -6492,16 +7291,27 @@ const normalizeErrorMessage = (message: string): string => {
                 <Button variant="outline" loading={globalAbilityLogsLoading} onClick={() => refreshGlobalAbilityLogs()}>
                   刷新
                 </Button>
-                <Button variant="outline" loading={abilityLogMetricsLoading} onClick={() => refreshAbilityLogMetrics()}>
-                  刷新指标
-                </Button>
+                {globalAbilityLogsHasMore ? (
+                  <Button variant="outline" loading={globalAbilityLogsLoading} onClick={() => loadMoreGlobalAbilityLogs()}>
+                    加载更多
+                  </Button>
+                ) : (
+                  <Typography.Text theme="secondary">已加载全部</Typography.Text>
+                )}
                 <Button
                   variant="outline"
                   loading={exportingAbilityLogs}
                   onClick={async () => {
                     setExportingAbilityLogs(true);
                     try {
-                      const blob = await adminApi.exportAbilityLogs({ format: 'csv', sinceHours: 24 });
+                      const blob = await adminApi.exportAbilityLogs({
+                        format: 'csv',
+                        sinceHours: 24,
+                        provider: globalAbilityLogProvider !== 'all' ? globalAbilityLogProvider : undefined,
+                        capabilityKey: globalAbilityLogCapabilityKey !== 'all' ? globalAbilityLogCapabilityKey : undefined,
+                        status: globalAbilityLogStatus !== 'all' ? globalAbilityLogStatus : undefined,
+                        source: globalAbilityLogSource !== 'all' ? globalAbilityLogSource : undefined,
+                      });
                       const filename = `ability_logs_24h_${new Date().toISOString().slice(0, 10)}.csv`;
                       downloadBlob(blob, filename);
                     } catch (err: any) {
@@ -6520,7 +7330,14 @@ const normalizeErrorMessage = (message: string): string => {
                   onClick={async () => {
                     setExportingAbilityLogs(true);
                     try {
-                      const blob = await adminApi.exportAbilityLogs({ format: 'json', sinceHours: 24 });
+                      const blob = await adminApi.exportAbilityLogs({
+                        format: 'json',
+                        sinceHours: 24,
+                        provider: globalAbilityLogProvider !== 'all' ? globalAbilityLogProvider : undefined,
+                        capabilityKey: globalAbilityLogCapabilityKey !== 'all' ? globalAbilityLogCapabilityKey : undefined,
+                        status: globalAbilityLogStatus !== 'all' ? globalAbilityLogStatus : undefined,
+                        source: globalAbilityLogSource !== 'all' ? globalAbilityLogSource : undefined,
+                      });
                       const filename = `ability_logs_24h_${new Date().toISOString().slice(0, 10)}.json`;
                       downloadBlob(blob, filename);
                     } catch (err: any) {
@@ -6537,13 +7354,29 @@ const normalizeErrorMessage = (message: string): string => {
             </Space>
 
             {globalAbilityLogsError ? <Alert theme="error" message={globalAbilityLogsError} /> : null}
-            {abilityLogMetricsError ? <Alert theme="error" message={abilityLogMetricsError} /> : null}
+
+            <Space align="center" size="large">
+              <Space align="center" size="small">
+                <Switch
+                  value={globalAbilityLogStatus === 'failed'}
+                  onChange={(v) => setGlobalAbilityLogStatus(v ? 'failed' : 'all')}
+                />
+                <Typography.Text theme="secondary">只看失败</Typography.Text>
+              </Space>
+              <Space align="center" size="small">
+                <Switch
+                  value={globalAbilityLogOnlyCallbackFailed}
+                  onChange={(v) => setGlobalAbilityLogOnlyCallbackFailed(Boolean(v))}
+                />
+                <Typography.Text theme="secondary">只看回调异常</Typography.Text>
+              </Space>
+            </Space>
 
             <Row gutter={[12, 12]}>
               <Col flex="auto">
                 <Input
                   value={globalAbilityLogSearch}
-                  placeholder="搜索：能力名/Key/节点/Trace/Task…"
+                  placeholder="搜索：能力名/Key/节点/追踪/任务/回调ID…"
                   onChange={(v) => setGlobalAbilityLogSearch(String(v))}
                   clearable
                 />
@@ -6578,61 +7411,18 @@ const normalizeErrorMessage = (message: string): string => {
                   ]}
                 />
               </Col>
-            </Row>
-
-            {abilityLogMetrics?.buckets && abilityLogMetrics.buckets.length > 0 ? (
-              <Card bordered title={`近 ${abilityLogMetrics.window_hours}h 指标（Top 8）`}>
-                <Table
-                  size="small"
-                  rowKey="__key"
-                  data={(abilityLogMetrics.buckets as AbilityLogMetricBucket[])
-                    .slice(0, 8)
-                    .map((b) => ({ ...b, __key: `${b.ability_provider}:${b.capability_key}` }))}
-                  columns={[
-                    {
-                      colKey: 'ability',
-                      title: '能力',
-                      cell: ({ row }) => (
-                        <Space direction="vertical" size={2}>
-                          <Typography.Text strong>{row.capability_key}</Typography.Text>
-                          <Typography.Text theme="secondary">{row.ability_provider}</Typography.Text>
-                        </Space>
-                      ),
-                    },
-                    {
-                      colKey: 'count',
-                      title: '次数',
-                      width: 120,
-                      cell: ({ row }) => (
-                        <Typography.Text theme="secondary">
-                          {row.count}（{row.success_count}/{row.failed_count}）
-                        </Typography.Text>
-                      ),
-                    },
-                    {
-                      colKey: 'success_rate',
-                      title: '成功率',
-                      width: 120,
-                      cell: ({ row }) => (
-                        <Typography.Text>
-                          {row.success_rate !== null && row.success_rate !== undefined ? `${(row.success_rate * 100).toFixed(1)}%` : '—'}
-                        </Typography.Text>
-                      ),
-                    },
-                    {
-                      colKey: 'p50',
-                      title: 'p50 / p95',
-                      width: 160,
-                      cell: ({ row }) => (
-                        <Typography.Text theme="secondary">
-                          {row.p50_duration_ms ?? '—'}ms / {row.p95_duration_ms ?? '—'}ms
-                        </Typography.Text>
-                      ),
-                    },
+              <Col flex="260px">
+                <Select
+                  value={globalAbilityLogCapabilityKey}
+                  onChange={(v) => setGlobalAbilityLogCapabilityKey(String(v))}
+                  disabled={globalAbilityLogProvider === 'all'}
+                  options={[
+                    { label: globalAbilityLogProvider === 'all' ? '请先选择厂商' : '全部能力', value: 'all' },
+                    ...globalAbilityLogCapabilityOptions,
                   ]}
                 />
-              </Card>
-            ) : null}
+              </Col>
+            </Row>
 
             <Table
               size="small"
@@ -6706,12 +7496,65 @@ const normalizeErrorMessage = (message: string): string => {
                   ),
                 },
                 {
+                  colKey: 'error_summary',
+                  title: '错误摘要',
+                  width: 220,
+                  cell: ({ row }) => {
+                    const message = row.error_message || row.callback_error || '';
+                    if (!message) {
+                      return <Typography.Text theme="secondary">—</Typography.Text>;
+                    }
+                    return (
+                      <Typography.Text theme="error" style={{ fontSize: 12 }}>
+                        {truncateText(message, 80)}
+                      </Typography.Text>
+                    );
+                  },
+                },
+                {
+                  colKey: 'callback_id',
+                  title: '回调ID',
+                  width: 260,
+                  cell: ({ row }) => {
+                    if (!row.callback_id) {
+                      return <Typography.Text theme="secondary">—</Typography.Text>;
+                    }
+                    return (
+                      <Space size="small">
+                        <Typography.Text
+                          theme="secondary"
+                          style={{ fontFamily: 'monospace', wordBreak: 'break-all' }}
+                        >
+                          {row.callback_id}
+                        </Typography.Text>
+                        <Button size="small" variant="text" onClick={() => copyTextToClipboard(row.callback_id || '')}>
+                          复制
+                        </Button>
+                      </Space>
+                    );
+                  },
+                },
+                {
                   colKey: 'callback',
                   title: '回调',
                   width: 160,
                   cell: ({ row }) => {
+                    const callbackConfiguredValue = (row.request_payload as any)?.callbackConfigured;
+                    const callbackConfigured =
+                      typeof callbackConfiguredValue === 'boolean' ? callbackConfiguredValue : null;
+                    const hasCallbackId = Boolean(row.callback_id);
                     if (!row.callback_status && !row.callback_http_status && !row.callback_finished_at) {
-                      return <Typography.Text theme="secondary">—</Typography.Text>;
+                      return (
+                        <Typography.Text theme="secondary">
+                          {callbackConfigured === true
+                            ? '待回调'
+                            : hasCallbackId
+                            ? '可查询'
+                            : callbackConfigured === false
+                            ? '未配置'
+                            : '—'}
+                        </Typography.Text>
+                      );
                     }
                     return (
                       <Space direction="vertical" size={2}>
@@ -6804,18 +7647,22 @@ const normalizeErrorMessage = (message: string): string => {
                 },
               ]}
             />
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-2">
               <Typography.Text theme="secondary">
                 {globalAbilityLogsUpdatedAt ? `最近刷新：${formatDateTime(globalAbilityLogsUpdatedAt)}` : '尚未刷新'}
               </Typography.Text>
-              {globalAbilityLogsHasMore ? (
-                <Button variant="outline" loading={globalAbilityLogsLoading} onClick={() => loadMoreGlobalAbilityLogs()}>
-                  加载更多
-                </Button>
-              ) : (
-                <Typography.Text theme="secondary">已加载全部</Typography.Text>
-              )}
+              <div className="flex justify-center">
+                {globalAbilityLogsHasMore ? (
+                  <Button variant="outline" loading={globalAbilityLogsLoading} onClick={() => loadMoreGlobalAbilityLogs()}>
+                    加载更多
+                  </Button>
+                ) : (
+                  <Typography.Text theme="secondary">已加载全部</Typography.Text>
+                )}
+              </div>
             </div>
+            </Space>
+            )}
           </Space>
         </Card>
       </Section>
@@ -7483,6 +8330,34 @@ const normalizeErrorMessage = (message: string): string => {
             服务器
           </Button>
           <Button
+            variant={comfyuiManageTab === 'agents' ? 'outline' : 'text'}
+            theme={comfyuiManageTab === 'agents' ? 'primary' : 'default'}
+            onClick={() => setComfyuiManageTab('agents')}
+          >
+            代理服务
+          </Button>
+          <Button
+            variant={comfyuiManageTab === 'manifests' ? 'outline' : 'text'}
+            theme={comfyuiManageTab === 'manifests' ? 'primary' : 'default'}
+            onClick={() => setComfyuiManageTab('manifests')}
+          >
+            清单
+          </Button>
+          <Button
+            variant={comfyuiManageTab === 'tasks' ? 'outline' : 'text'}
+            theme={comfyuiManageTab === 'tasks' ? 'primary' : 'default'}
+            onClick={() => setComfyuiManageTab('tasks')}
+          >
+            任务
+          </Button>
+          <Button
+            variant={comfyuiManageTab === 'alerts' ? 'outline' : 'text'}
+            theme={comfyuiManageTab === 'alerts' ? 'primary' : 'default'}
+            onClick={() => setComfyuiManageTab('alerts')}
+          >
+            告警
+          </Button>
+          <Button
             variant={comfyuiManageTab === 'templates' ? 'outline' : 'text'}
             theme={comfyuiManageTab === 'templates' ? 'primary' : 'default'}
             onClick={() => setComfyuiManageTab('templates')}
@@ -7802,6 +8677,206 @@ const normalizeErrorMessage = (message: string): string => {
         )}
         {comfyuiManageTab === 'assets' && (
         <div className="space-y-4">
+          <Card bordered title="ComfyUI 版本清单">
+            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+              <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                <Space align="center" size="small">
+                  <Input
+                    value={comfyVersionCatalogSearch}
+                    onChange={(v) => setComfyVersionCatalogSearch(String(v))}
+                    placeholder="搜索版本/commit/仓库"
+                  />
+                  <Select
+                    value={comfyVersionCatalogStatus}
+                    onChange={(v) => setComfyVersionCatalogStatus(String(v))}
+                    options={[
+                      { label: '全部状态', value: 'all' },
+                      ...statusOptions,
+                    ]}
+                  />
+                </Space>
+                <Space align="center" size="small">
+                  <Button
+                    variant="outline"
+                    loading={comfyVersionSyncing}
+                    onClick={handleComfyVersionSync}
+                  >
+                    同步线上版本
+                  </Button>
+                  <Button
+                    theme="primary"
+                    onClick={() => {
+                      resetComfyVersionForm();
+                      setComfyVersionDialogOpen(true);
+                    }}
+                  >
+                    新增版本
+                  </Button>
+                </Space>
+              </Space>
+              {comfyVersionCatalogError ? <Alert theme="error" message={comfyVersionCatalogError} /> : null}
+              <div className="max-h-[320px] overflow-auto rounded-2xl border border-slate-200/70 dark:border-slate-800">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-slate-50 text-[11px] text-slate-600 dark:bg-slate-900/80 dark:text-slate-400">
+                    <tr className="text-left">
+                      <th className="px-3 py-2">版本</th>
+                      <th className="px-3 py-2">提交哈希</th>
+                      <th className="px-3 py-2">下载</th>
+                      <th className="px-3 py-2">来源</th>
+                      <th className="px-3 py-2">状态</th>
+                      <th className="px-3 py-2">更新时间</th>
+                      <th className="px-3 py-2 text-right">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {comfyVersionCatalogItems.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="px-4 py-6 text-center text-slate-500">
+                          {comfyVersionCatalogLoading ? '加载中…' : '暂无记录'}
+                        </td>
+                      </tr>
+                    ) : (
+                      comfyVersionCatalogItems.map((item) => (
+                        <tr key={`comfyui-version-${item.id}`} className="border-t border-slate-100 dark:border-slate-800">
+                          <td className="px-3 py-2 font-semibold text-slate-900 dark:text-white">{item.version}</td>
+                          <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{item.commit_sha || '—'}</td>
+                          <td className="px-3 py-2">
+                            {item.download_url ? (
+                              <Button
+                                size="small"
+                                variant="text"
+                                onClick={() => window.open(item.download_url || '', '_blank', 'noreferrer')}
+                              >
+                                打开
+                              </Button>
+                            ) : (
+                              '—'
+                            )}
+                          </td>
+                          <td className="px-3 py-2">
+                            {item.source_url || item.repo_url ? (
+                              <Button
+                                size="small"
+                                variant="text"
+                                onClick={() =>
+                                  window.open(item.source_url || item.repo_url || '', '_blank', 'noreferrer')
+                                }
+                              >
+                                打开
+                              </Button>
+                            ) : (
+                              '—'
+                            )}
+                          </td>
+                          <td className="px-3 py-2">{renderStatusTag(item.status)}</td>
+                          <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
+                            {item.updated_at ? formatDateTime(item.updated_at) : '—'}
+                          </td>
+                          <td className="px-3 py-2 text-right space-x-2">
+                            <button
+                              className="text-sky-400"
+                              onClick={() => {
+                                resetComfyVersionForm(item);
+                                setComfyVersionDialogOpen(true);
+                              }}
+                            >
+                              编辑
+                            </button>
+                            <button className="text-red-400" onClick={() => handleComfyVersionDelete(item.id)}>
+                              删除
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Space>
+          </Card>
+          <Dialog
+            header={comfyVersionForm.id ? '编辑版本' : '新增版本'}
+            visible={comfyVersionDialogOpen}
+            width={680}
+            confirmBtn={comfyVersionSaving ? { loading: true } : undefined}
+            onClose={() => setComfyVersionDialogOpen(false)}
+            onConfirm={handleComfyVersionSave}
+          >
+            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+              <Row gutter={[12, 12]}>
+                <Col span={12}>
+                  <Typography.Text theme="secondary">版本号</Typography.Text>
+                  <Input
+                    value={comfyVersionForm.version || ''}
+                    onChange={(v) => setComfyVersionForm({ ...comfyVersionForm, version: String(v) })}
+                    placeholder="例如 v0.2.x 或 标签/提交"
+                    disabled={Boolean(comfyVersionForm.id)}
+                  />
+                </Col>
+                <Col span={12}>
+                  <Typography.Text theme="secondary">提交哈希</Typography.Text>
+                  <Input
+                    value={comfyVersionForm.commit_sha || ''}
+                    onChange={(v) => setComfyVersionForm({ ...comfyVersionForm, commit_sha: String(v) })}
+                    placeholder="可选"
+                  />
+                </Col>
+              </Row>
+              <Row gutter={[12, 12]}>
+                <Col span={12}>
+                  <Typography.Text theme="secondary">仓库地址</Typography.Text>
+                  <Input
+                    value={comfyVersionForm.repo_url || ''}
+                    onChange={(v) => setComfyVersionForm({ ...comfyVersionForm, repo_url: String(v) })}
+                    placeholder="https://github.com/..."
+                  />
+                </Col>
+                <Col span={12}>
+                  <Typography.Text theme="secondary">来源地址</Typography.Text>
+                  <Input
+                    value={comfyVersionForm.source_url || ''}
+                    onChange={(v) => setComfyVersionForm({ ...comfyVersionForm, source_url: String(v) })}
+                    placeholder="发布页/文档链接"
+                  />
+                </Col>
+              </Row>
+              <Row gutter={[12, 12]}>
+                <Col span={12}>
+                  <Typography.Text theme="secondary">下载地址</Typography.Text>
+                  <Input
+                    value={comfyVersionForm.download_url || ''}
+                    onChange={(v) => setComfyVersionForm({ ...comfyVersionForm, download_url: String(v) })}
+                    placeholder="zip 或 git 地址"
+                  />
+                </Col>
+                <Col span={12}>
+                  <Typography.Text theme="secondary">发布时间</Typography.Text>
+                  <Input
+                    value={comfyVersionForm.released_at || ''}
+                    onChange={(v) => setComfyVersionForm({ ...comfyVersionForm, released_at: String(v) })}
+                    placeholder="YYYY-MM-DDTHH:mm:ssZ"
+                  />
+                </Col>
+              </Row>
+              <div>
+                <Typography.Text theme="secondary">备注</Typography.Text>
+                <Textarea
+                  value={comfyVersionForm.notes || ''}
+                  onChange={(v) => setComfyVersionForm({ ...comfyVersionForm, notes: String(v) })}
+                  autosize={{ minRows: 3, maxRows: 5 }}
+                />
+              </div>
+              <div>
+                <Typography.Text theme="secondary">状态</Typography.Text>
+                <Select
+                  value={comfyVersionForm.status || 'active'}
+                  onChange={(v) => setComfyVersionForm({ ...comfyVersionForm, status: String(v) })}
+                  options={statusOptions}
+                />
+              </div>
+              {comfyVersionFormError ? <Alert theme="error" message={comfyVersionFormError} /> : null}
+            </Space>
+          </Dialog>
           <Card bordered title="模型清单">
             <Space direction="vertical" size="middle" style={{ width: '100%' }}>
               <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
@@ -8299,7 +9374,7 @@ const normalizeErrorMessage = (message: string): string => {
                       const baselineNodesReady = Boolean(
                         comfyBaselineExecutor?.id && (comfyNodeCache[comfyBaselineExecutor.id] || []).length > 0,
                       );
-                      const diffSnapshot = buildComfyServerDiff(executor);
+      const diffSnapshot = buildComfyServerDiff(executor);
                       const missingUnet = diffSnapshot.missing.unet;
                       const missingClip = diffSnapshot.missing.clip;
                       const missingVae = diffSnapshot.missing.vae;
@@ -8481,6 +9556,24 @@ const normalizeErrorMessage = (message: string): string => {
                               >
                                 导出差异清单
                               </button>
+                              <button
+                                className="rounded border border-slate-300 bg-white px-2 py-1 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-300 dark:hover:bg-slate-900/60"
+                                onClick={() => {
+                                  const ts = new Date().toISOString().replace(/[:.]/g, '-');
+                                  downloadJson(
+                                    {
+                                      generatedAt: new Date().toISOString(),
+                                      baseline: diffSnapshot.baseline,
+                                      server: diffSnapshot.server,
+                                      repos: diffSnapshot.missing_repo_groups?.repos || [],
+                                      missing_repo_nodes: diffSnapshot.missing_repo_groups?.missingRepoNodes || [],
+                                    },
+                                    `comfyui-repo-diff-${executor.id}-${ts}.json`,
+                                  );
+                                }}
+                              >
+                                导出仓库清单
+                              </button>
                             </div>
                           )}
                         </div>
@@ -8501,7 +9594,7 @@ const normalizeErrorMessage = (message: string): string => {
                   <Input
                     value={comfyServerForm.base_url}
                     onChange={(v) => setComfyServerForm((prev) => ({ ...prev, base_url: String(v) }))}
-                    placeholder="Base URL（例如 http://117.50.80.158:8079）"
+                    placeholder="服务地址（例如 http://117.50.80.158:8079）"
                   />
                   <Row gutter={[12, 12]}>
                     <Col span={12}>
@@ -8662,10 +9755,734 @@ const normalizeErrorMessage = (message: string): string => {
           </Dialog>
         </div>
         )}
+        {comfyuiManageTab === 'agents' && (
+        <div className="space-y-4">
+          <Card bordered title="代理服务列表">
+            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+              <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                <Space align="center" size="small">
+                  <Select
+                    value={comfyAgentStatusFilter}
+                    onChange={(v) => setComfyAgentStatusFilter(String(v))}
+                    options={[
+                      { label: '全部状态', value: 'all' },
+                      ...statusOptions.map((option) => ({ label: option.label, value: option.value })),
+                    ]}
+                  />
+                  <Button size="small" variant="outline" onClick={() => refreshComfyAgents()}>
+                    刷新
+                  </Button>
+                </Space>
+                <Button
+                  theme="primary"
+                  onClick={() => {
+                    resetComfyAgentForm();
+                    setComfyAgentDialogOpen(true);
+                  }}
+                >
+                  新增代理服务
+                </Button>
+              </Space>
+              {comfyAgentError ? <Alert theme="error" message={comfyAgentError} /> : null}
+              {comfyAgentTokenError && !comfyAgentTokenDialogOpen ? (
+                <Alert theme="error" message={comfyAgentTokenError} />
+              ) : null}
+              <div className="max-h-[420px] overflow-auto rounded-2xl border border-slate-200/70 dark:border-slate-800">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-slate-50 text-[11px] text-slate-600 dark:bg-slate-900/80 dark:text-slate-400">
+                    <tr className="text-left">
+                      <th className="px-3 py-2">代理服务ID</th>
+                      <th className="px-3 py-2">名称</th>
+                      <th className="px-3 py-2">角色</th>
+                      <th className="px-3 py-2">服务地址</th>
+                      <th className="px-3 py-2">状态</th>
+                      <th className="px-3 py-2">允许</th>
+                      <th className="px-3 py-2">心跳</th>
+                      <th className="px-3 py-2">清单版本</th>
+                      <th className="px-3 py-2">指标</th>
+                      <th className="px-3 py-2 text-right">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {comfyAgentList.length === 0 ? (
+                      <tr>
+                        <td colSpan={10} className="px-4 py-6 text-center text-slate-500">
+                          {comfyAgentLoading ? '加载中…' : '暂无代理服务'}
+                        </td>
+                      </tr>
+                    ) : (
+                      comfyAgentList.map((agent) => {
+                        const baseUrl = resolveAgentBaseUrl(agent);
+                        const metricsText = stringifyJSON(agent.metrics as JsonRecord);
+                        return (
+                          <tr key={`comfy-agent-${agent.id}`} className="border-t border-slate-100 dark:border-slate-800">
+                            <td className="px-3 py-2 text-slate-900 dark:text-white">{agent.id}</td>
+                            <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{agent.name || '—'}</td>
+                            <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{agent.role || '—'}</td>
+                            <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{baseUrl || '—'}</td>
+                            <td className="px-3 py-2">{renderStatusTag(agent.status)}</td>
+                            <td className="px-3 py-2">
+                              {agent.allowed ? (
+                                <Tag theme="success" variant="light">
+                                  允许
+                                </Tag>
+                              ) : (
+                                <Tag theme="warning" variant="light">
+                                  禁用
+                                </Tag>
+                              )}
+                            </td>
+                            <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
+                              {formatDateTime(agent.last_heartbeat_at || agent.last_seen_at)}
+                            </td>
+                            <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
+                              {agent.last_manifest_version || '—'}
+                            </td>
+                            <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
+                              {metricsText ? (
+                                <Popup
+                                  placement="right"
+                                  trigger="hover"
+                                  content={
+                                    <div className="max-w-[360px] whitespace-pre-wrap text-xs text-slate-700">
+                                      {metricsText}
+                                    </div>
+                                  }
+                                >
+                                  <button className="text-sky-400">查看</button>
+                                </Popup>
+                              ) : (
+                                '—'
+                              )}
+                            </td>
+                            <td className="px-3 py-2 text-right space-x-2">
+                              <button
+                                className="text-sky-400"
+                                onClick={() => {
+                                  resetComfyAgentForm({
+                                    ...agent,
+                                    baseUrl: baseUrl || undefined,
+                                  });
+                                  setComfyAgentDialogOpen(true);
+                                }}
+                              >
+                                编辑
+                              </button>
+                              <button
+                                className="text-emerald-400"
+                                disabled={comfyAgentTokenLoading}
+                                onClick={() => handleComfyAgentTokenIssue(agent.id)}
+                              >
+                                令牌
+                              </button>
+                              <button className="text-red-400" onClick={() => handleComfyAgentDelete(agent.id)}>
+                                删除
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Space>
+          </Card>
+
+          <Dialog
+            header={comfyAgentEditing ? '编辑代理服务' : '新增代理服务'}
+            visible={comfyAgentDialogOpen}
+            width={640}
+            confirmBtn={comfyAgentSaving ? { loading: true } : undefined}
+            onClose={() => setComfyAgentDialogOpen(false)}
+            onConfirm={handleComfyAgentSave}
+          >
+            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+              <Row gutter={[12, 12]}>
+                <Col span={12}>
+                  <Typography.Text theme="secondary">代理服务ID</Typography.Text>
+                  <Input
+                    value={comfyAgentForm.id || ''}
+                    onChange={(v) => setComfyAgentForm((prev) => ({ ...prev, id: String(v) }))}
+                    placeholder="例如 comfyui-158"
+                    disabled={comfyAgentEditing}
+                  />
+                </Col>
+                <Col span={12}>
+                  <Typography.Text theme="secondary">名称</Typography.Text>
+                  <Input
+                    value={comfyAgentForm.name || ''}
+                    onChange={(v) => setComfyAgentForm((prev) => ({ ...prev, name: String(v) }))}
+                    placeholder="例如 ComfyUI-158"
+                  />
+                </Col>
+              </Row>
+              <Row gutter={[12, 12]}>
+                <Col span={12}>
+                  <Typography.Text theme="secondary">角色</Typography.Text>
+                  <Input
+                    value={comfyAgentForm.role || ''}
+                    onChange={(v) => setComfyAgentForm((prev) => ({ ...prev, role: String(v) }))}
+                    placeholder="full / lite"
+                  />
+                </Col>
+                <Col span={12}>
+                  <Typography.Text theme="secondary">主机</Typography.Text>
+                  <Input
+                    value={comfyAgentForm.host || ''}
+                    onChange={(v) => setComfyAgentForm((prev) => ({ ...prev, host: String(v) }))}
+                    placeholder="117.50.80.158"
+                  />
+                </Col>
+              </Row>
+              <div>
+                <Typography.Text theme="secondary">服务地址</Typography.Text>
+                <Input
+                  value={comfyAgentForm.baseUrl || ''}
+                  onChange={(v) => setComfyAgentForm((prev) => ({ ...prev, baseUrl: String(v) }))}
+                  placeholder="http://117.50.80.158:18079"
+                />
+              </div>
+              <Row gutter={[12, 12]}>
+                <Col span={12}>
+                  <Typography.Text theme="secondary">状态</Typography.Text>
+                  <Select
+                    value={comfyAgentForm.status || 'active'}
+                    onChange={(v) => setComfyAgentForm((prev) => ({ ...prev, status: String(v) }))}
+                    options={statusOptions}
+                  />
+                </Col>
+                <Col span={12}>
+                  <Typography.Text theme="secondary">允许执行</Typography.Text>
+                  <div className="mt-2">
+                    <Switch
+                      value={Boolean(comfyAgentForm.allowed)}
+                      onChange={(value) => setComfyAgentForm((prev) => ({ ...prev, allowed: Boolean(value) }))}
+                    />
+                  </div>
+                </Col>
+              </Row>
+              <div>
+                <Typography.Text theme="secondary">扩展配置（JSON）</Typography.Text>
+                <Textarea
+                  value={comfyAgentConfigInput}
+                  onChange={(v) => setComfyAgentConfigInput(String(v))}
+                  autosize={{ minRows: 3, maxRows: 8 }}
+                  placeholder='{"baseUrl":"http://...","region":"hz"}'
+                />
+              </div>
+              {comfyAgentFormError ? <Alert theme="error" message={comfyAgentFormError} /> : null}
+            </Space>
+          </Dialog>
+
+          <Dialog
+            header={`访问令牌 · ${comfyAgentTokenAgentId || ''}`}
+            visible={comfyAgentTokenDialogOpen}
+            width={720}
+            confirmBtn={{ content: '关闭' }}
+            onClose={() => setComfyAgentTokenDialogOpen(false)}
+            onConfirm={() => setComfyAgentTokenDialogOpen(false)}
+          >
+            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+              {comfyAgentTokenError ? <Alert theme="error" message={comfyAgentTokenError} /> : null}
+              <div className="text-xs text-slate-500">
+                过期时间：{comfyAgentTokenExpiresAt ? formatDateTime(comfyAgentTokenExpiresAt) : '—'}
+              </div>
+              <Space align="center" size="small">
+                <Button
+                  size="small"
+                  variant="outline"
+                  disabled={!comfyAgentTokenValue}
+                  onClick={() => copyTextToClipboard(comfyAgentTokenValue)}
+                >
+                  复制令牌
+                </Button>
+              </Space>
+              <Textarea
+                value={comfyAgentTokenValue}
+                readonly
+                autosize={{ minRows: 6, maxRows: 10 }}
+                className="font-mono text-xs"
+              />
+            </Space>
+          </Dialog>
+        </div>
+        )}
+        {comfyuiManageTab === 'manifests' && (
+        <div className="space-y-4">
+          <Card bordered title="同步清单">
+            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+              <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                <Space align="center" size="small">
+                  <Input
+                    value={comfyManifestRoleFilter}
+                    onChange={(v) => setComfyManifestRoleFilter(String(v))}
+                    placeholder="过滤角色（如 full / lite）"
+                  />
+                  <Select
+                    value={comfyManifestStatusFilter}
+                    onChange={(v) => setComfyManifestStatusFilter(String(v))}
+                    options={[
+                      { label: '全部状态', value: 'all' },
+                      ...statusOptions.map((option) => ({ label: option.label, value: option.value })),
+                    ]}
+                  />
+                  <Button size="small" variant="outline" onClick={() => refreshComfyManifests()}>
+                    刷新
+                  </Button>
+                </Space>
+                <Button
+                  theme="primary"
+                  onClick={() => {
+                    resetComfyManifestForm();
+                    setComfyManifestDialogOpen(true);
+                  }}
+                >
+                  新增清单
+                </Button>
+              </Space>
+              {comfyManifestError ? <Alert theme="error" message={comfyManifestError} /> : null}
+              <div className="max-h-[420px] overflow-auto rounded-2xl border border-slate-200/70 dark:border-slate-800">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-slate-50 text-[11px] text-slate-600 dark:bg-slate-900/80 dark:text-slate-400">
+                    <tr className="text-left">
+                      <th className="px-3 py-2">ID</th>
+                      <th className="px-3 py-2">角色</th>
+                      <th className="px-3 py-2">版本</th>
+                      <th className="px-3 py-2">状态</th>
+                      <th className="px-3 py-2">清单地址</th>
+                      <th className="px-3 py-2">更新时间</th>
+                      <th className="px-3 py-2 text-right">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {comfyManifestList.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="px-4 py-6 text-center text-slate-500">
+                          {comfyManifestLoading ? '加载中…' : '暂无清单'}
+                        </td>
+                      </tr>
+                    ) : (
+                      comfyManifestList.map((manifest) => (
+                        <tr key={`comfy-manifest-${manifest.id}`} className="border-t border-slate-100 dark:border-slate-800">
+                          <td className="px-3 py-2 text-slate-900 dark:text-white">{manifest.id}</td>
+                          <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{manifest.role}</td>
+                          <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{manifest.version}</td>
+                          <td className="px-3 py-2">{renderStatusTag(manifest.status)}</td>
+                          <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
+                            {manifest.downloadUrl || manifest.download_url || '—'}
+                          </td>
+                          <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
+                            {manifest.updated_at ? formatDateTime(manifest.updated_at) : '—'}
+                          </td>
+                          <td className="px-3 py-2 text-right space-x-2">
+                            <button
+                              className="text-sky-400"
+                              onClick={() => {
+                                resetComfyManifestForm({
+                                  ...manifest,
+                                  downloadUrl: manifest.downloadUrl || manifest.download_url || undefined,
+                                });
+                                setComfyManifestDialogOpen(true);
+                              }}
+                            >
+                              编辑
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Space>
+          </Card>
+
+          <Dialog
+            header={comfyManifestForm.id ? '编辑清单' : '新增清单'}
+            visible={comfyManifestDialogOpen}
+            width={720}
+            confirmBtn={comfyManifestSaving ? { loading: true } : undefined}
+            onClose={() => setComfyManifestDialogOpen(false)}
+            onConfirm={handleComfyManifestSave}
+          >
+            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+              <Row gutter={[12, 12]}>
+                <Col span={12}>
+                  <Typography.Text theme="secondary">角色</Typography.Text>
+                  <Input
+                    value={comfyManifestForm.role || ''}
+                    onChange={(v) => setComfyManifestForm((prev) => ({ ...prev, role: String(v) }))}
+                    placeholder="full / lite"
+                  />
+                </Col>
+                <Col span={12}>
+                  <Typography.Text theme="secondary">版本号</Typography.Text>
+                  <Input
+                    value={comfyManifestForm.version || ''}
+                    onChange={(v) => setComfyManifestForm((prev) => ({ ...prev, version: String(v) }))}
+                    placeholder="2026.02.05-001"
+                  />
+                </Col>
+              </Row>
+              <Row gutter={[12, 12]}>
+                <Col span={12}>
+                  <Typography.Text theme="secondary">状态</Typography.Text>
+                  <Select
+                    value={comfyManifestForm.status || 'active'}
+                    onChange={(v) => setComfyManifestForm((prev) => ({ ...prev, status: String(v) }))}
+                    options={statusOptions}
+                  />
+                </Col>
+                <Col span={12}>
+                  <Typography.Text theme="secondary">清单地址</Typography.Text>
+                  <Input
+                    value={comfyManifestForm.downloadUrl || comfyManifestForm.download_url || ''}
+                    onChange={(v) =>
+                      setComfyManifestForm((prev) => ({ ...prev, downloadUrl: String(v) }))
+                    }
+                    placeholder="https://example.com/manifest.json"
+                  />
+                </Col>
+              </Row>
+              <div>
+                <Typography.Text theme="secondary">备注</Typography.Text>
+                <Input
+                  value={comfyManifestForm.notes || ''}
+                  onChange={(v) => setComfyManifestForm((prev) => ({ ...prev, notes: String(v) }))}
+                  placeholder="可选"
+                />
+              </div>
+              <div>
+                <Typography.Text theme="secondary">清单内容（JSON）</Typography.Text>
+                <Textarea
+                  value={comfyManifestContentInput}
+                  onChange={(v) => setComfyManifestContentInput(String(v))}
+                  autosize={{ minRows: 6, maxRows: 16 }}
+                  className="font-mono text-xs"
+                />
+              </div>
+              {comfyManifestFormError ? <Alert theme="error" message={comfyManifestFormError} /> : null}
+            </Space>
+          </Dialog>
+        </div>
+        )}
+        {comfyuiManageTab === 'tasks' && (
+        <div className="space-y-4">
+          <Card bordered title="任务下发">
+            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+              <Row gutter={[12, 12]}>
+                <Col span={12}>
+                  <Typography.Text theme="secondary">代理服务</Typography.Text>
+                  <Select
+                    value={comfyAgentTaskForm.agentId}
+                    onChange={(v) => setComfyAgentTaskForm((prev) => ({ ...prev, agentId: String(v) }))}
+                    options={[{ label: '请选择代理服务', value: '' }, ...comfyAgentOptions]}
+                  />
+                </Col>
+                <Col span={12}>
+                  <Typography.Text theme="secondary">同步清单</Typography.Text>
+                  <Select
+                    value={comfyAgentTaskForm.manifestId}
+                    onChange={(v) => setComfyAgentTaskForm((prev) => ({ ...prev, manifestId: String(v) }))}
+                    options={[{ label: '不绑定（手填 URL）', value: '' }, ...comfyManifestOptions]}
+                  />
+                </Col>
+              </Row>
+              <Row gutter={[12, 12]}>
+                <Col span={12}>
+                  <Typography.Text theme="secondary">清单地址</Typography.Text>
+                  <Input
+                    value={comfyAgentTaskForm.manifestUrl}
+                    onChange={(v) => setComfyAgentTaskForm((prev) => ({ ...prev, manifestUrl: String(v) }))}
+                    placeholder="可选：自定义清单地址"
+                  />
+                </Col>
+                <Col span={12}>
+                  <Typography.Text theme="secondary">任务编号（可选）</Typography.Text>
+                  <Input
+                    value={comfyAgentTaskForm.taskId}
+                    onChange={(v) => setComfyAgentTaskForm((prev) => ({ ...prev, taskId: String(v) }))}
+                    placeholder="留空自动生成"
+                  />
+                </Col>
+              </Row>
+              <Row gutter={[12, 12]}>
+                <Col span={12}>
+                  <Typography.Text theme="secondary">动作列表</Typography.Text>
+                  <Input
+                    value={comfyAgentTaskForm.actions}
+                    onChange={(v) => setComfyAgentTaskForm((prev) => ({ ...prev, actions: String(v) }))}
+                    placeholder="sync_models, sync_plugins, sync_workflows, restart"
+                  />
+                  <div className="mt-2 text-xs text-slate-500">
+                    动作对照：sync_models=同步模型，sync_plugins=同步插件，sync_workflows=同步工作流，restart=重启服务。
+                  </div>
+                </Col>
+                <Col span={12}>
+                  <Typography.Text theme="secondary">过期时间（可选）</Typography.Text>
+                  <Input
+                    value={comfyAgentTaskForm.expiresAt}
+                    onChange={(v) => setComfyAgentTaskForm((prev) => ({ ...prev, expiresAt: String(v) }))}
+                    placeholder="2026-02-05T23:59:59Z"
+                  />
+                </Col>
+              </Row>
+              <Space align="center" size="small">
+                <Switch
+                  value={comfyAgentTaskPushAfterCreate}
+                  onChange={(value) => setComfyAgentTaskPushAfterCreate(Boolean(value))}
+                />
+                <Typography.Text theme="secondary">创建后立即推送</Typography.Text>
+              </Space>
+              {comfyAgentTaskFormError ? <Alert theme="error" message={comfyAgentTaskFormError} /> : null}
+              <Button theme="primary" loading={comfyAgentTaskSaving} onClick={handleComfyAgentTaskCreate}>
+                创建任务
+              </Button>
+              <div className="text-xs text-slate-500">
+                动作列表将按逗号/换行分割；未设置过期时间时默认 60 分钟。
+              </div>
+            </Space>
+          </Card>
+
+          <Card bordered title="最近任务">
+            <Space direction="vertical" size="small" style={{ width: '100%' }}>
+              <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                <Space align="center" size="small">
+                  <Select
+                    value={comfyAgentTaskAgentFilter}
+                    onChange={(v) => setComfyAgentTaskAgentFilter(String(v))}
+                    options={[{ label: '全部代理服务', value: 'all' }, ...comfyAgentOptions]}
+                  />
+                  <Select
+                    value={comfyAgentTaskStatusFilter}
+                    onChange={(v) => setComfyAgentTaskStatusFilter(String(v))}
+                    options={[
+                      { label: '全部状态', value: 'all' },
+                      { label: '排队中', value: 'pending' },
+                      { label: '执行中', value: 'running' },
+                      { label: '成功', value: 'success' },
+                      { label: '失败', value: 'failed' },
+                      { label: '已拒绝', value: 'rejected' },
+                    ]}
+                  />
+                  <Button size="small" variant="outline" onClick={() => refreshComfyAgentTasks()}>
+                    刷新
+                  </Button>
+                </Space>
+                <Typography.Text theme="secondary">
+                  {comfyAgentTasks.length ? `共 ${comfyAgentTasks.length} 条` : '暂无任务'}
+                </Typography.Text>
+              </Space>
+              {comfyAgentTasksError ? <Alert theme="error" message={comfyAgentTasksError} /> : null}
+              <div className="max-h-[420px] overflow-auto rounded-2xl border border-slate-200/70 dark:border-slate-800">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-slate-50 text-[11px] text-slate-600 dark:bg-slate-900/80 dark:text-slate-400">
+                    <tr className="text-left">
+                      <th className="px-3 py-2">任务编号</th>
+                      <th className="px-3 py-2">代理服务</th>
+                      <th className="px-3 py-2">状态</th>
+                      <th className="px-3 py-2">动作</th>
+                      <th className="px-3 py-2">清单</th>
+                      <th className="px-3 py-2">过期</th>
+                      <th className="px-3 py-2">更新时间</th>
+                      <th className="px-3 py-2">失败原因</th>
+                      <th className="px-3 py-2 text-right">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {comfyAgentTasks.length === 0 ? (
+                      <tr>
+                        <td colSpan={9} className="px-4 py-6 text-center text-slate-500">
+                          {comfyAgentTasksLoading ? '加载中…' : '暂无任务'}
+                        </td>
+                      </tr>
+                    ) : (
+                      comfyAgentTasks.map((task) => {
+                        const manifest = task.manifestId
+                          ? comfyManifestList.find((item) => item.id === task.manifestId)
+                          : null;
+                        const manifestLabel = manifest
+                          ? `${manifest.role} · ${manifest.version}`
+                          : task.manifestUrl || '—';
+                        return (
+                          <tr key={`comfy-agent-task-${task.id}`} className="border-t border-slate-100 dark:border-slate-800">
+                            <td className="px-3 py-2 text-slate-900 dark:text-white">{task.id}</td>
+                            <td className="px-3 py-2 text-slate-700 dark:text-slate-300">
+                              {task.agentId}
+                            </td>
+                            <td className="px-3 py-2">{renderStatusTag(task.status)}</td>
+                            <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
+                              {formatComfyAgentActions(task.actions)}
+                            </td>
+                            <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{manifestLabel}</td>
+                            <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
+                              {formatDateTime(task.expiresAt)}
+                            </td>
+                            <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
+                              {formatDateTime(task.updated_at)}
+                            </td>
+                            <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
+                              {task.errorMessage || '—'}
+                            </td>
+                            <td className="px-3 py-2 text-right space-x-2">
+                              <button
+                                className="text-sky-400"
+                                disabled={Boolean(comfyAgentTaskPushLoading[task.id])}
+                                onClick={() => handleComfyAgentTaskPush(task.id)}
+                              >
+                                推送
+                              </button>
+                              <button className="text-slate-500" onClick={() => openComfyAgentTaskEvents(task.id)}>
+                                事件
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Space>
+          </Card>
+
+          <Dialog
+            header={`任务事件 · ${comfyAgentTaskEventsTaskId || ''}`}
+            visible={comfyAgentTaskEventsDialogOpen}
+            width={720}
+            confirmBtn={{ content: '关闭' }}
+            onClose={() => setComfyAgentTaskEventsDialogOpen(false)}
+            onConfirm={() => setComfyAgentTaskEventsDialogOpen(false)}
+          >
+            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+              {comfyAgentTaskEventsError ? <Alert theme="error" message={comfyAgentTaskEventsError} /> : null}
+              <div className="max-h-[360px] overflow-auto rounded-2xl border border-slate-200/70 dark:border-slate-800">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-slate-50 text-[11px] text-slate-600 dark:bg-slate-900/80 dark:text-slate-400">
+                    <tr className="text-left">
+                      <th className="px-3 py-2">时间</th>
+                      <th className="px-3 py-2">级别</th>
+                      <th className="px-3 py-2">内容</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {comfyAgentTaskEvents.length === 0 ? (
+                      <tr>
+                        <td colSpan={3} className="px-4 py-6 text-center text-slate-500">
+                          {comfyAgentTaskEventsLoading ? '加载中…' : '暂无事件'}
+                        </td>
+                      </tr>
+                    ) : (
+                      comfyAgentTaskEvents.map((event) => (
+                        <tr key={`comfy-agent-task-event-${event.id}`} className="border-t border-slate-100 dark:border-slate-800">
+                          <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
+                            {formatDateTime(event.created_at || event.eventTime)}
+                          </td>
+                          <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{event.level}</td>
+                          <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{event.message}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Space>
+          </Dialog>
+        </div>
+        )}
+        {comfyuiManageTab === 'alerts' && (
+        <div className="space-y-4">
+          <Card bordered title="代理服务告警">
+            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+              <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                <Space align="center" size="small">
+                  <Select
+                    value={comfyAgentAlertsAgentFilter}
+                    onChange={(v) => setComfyAgentAlertsAgentFilter(String(v))}
+                    options={[{ label: '全部代理服务', value: 'all' }, ...comfyAgentOptions]}
+                  />
+                  <Input
+                    value={comfyAgentAlertsTypeFilter}
+                    onChange={(v) => setComfyAgentAlertsTypeFilter(String(v))}
+                    placeholder="告警类型（如 disk_low）"
+                  />
+                  <InputNumber
+                    min={1}
+                    max={200}
+                    value={comfyAgentAlertsLimit}
+                    onChange={(value) => setComfyAgentAlertsLimit(Number(value) || 50)}
+                  />
+                  <Button size="small" variant="outline" onClick={() => refreshComfyAgentAlerts()}>
+                    刷新
+                  </Button>
+                </Space>
+                <Typography.Text theme="secondary">
+                  {comfyAgentAlerts.length ? `共 ${comfyAgentAlerts.length} 条` : '暂无告警'}
+                </Typography.Text>
+              </Space>
+              {comfyAgentAlertsError ? <Alert theme="error" message={comfyAgentAlertsError} /> : null}
+              <div className="max-h-[420px] overflow-auto rounded-2xl border border-slate-200/70 dark:border-slate-800">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-slate-50 text-[11px] text-slate-600 dark:bg-slate-900/80 dark:text-slate-400">
+                    <tr className="text-left">
+                      <th className="px-3 py-2">时间</th>
+                      <th className="px-3 py-2">代理服务</th>
+                      <th className="px-3 py-2">类型</th>
+                      <th className="px-3 py-2">内容</th>
+                      <th className="px-3 py-2">详情</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {comfyAgentAlerts.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-6 text-center text-slate-500">
+                          {comfyAgentAlertsLoading ? '加载中…' : '暂无告警'}
+                        </td>
+                      </tr>
+                    ) : (
+                      comfyAgentAlerts.map((alert) => {
+                        const payloadText = stringifyJSON(alert.payload as JsonRecord);
+                        return (
+                          <tr key={`comfy-agent-alert-${alert.id}`} className="border-t border-slate-100 dark:border-slate-800">
+                            <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
+                              {formatDateTime(alert.created_at)}
+                            </td>
+                            <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{alert.agentId}</td>
+                            <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{alert.alertType}</td>
+                            <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{alert.message || '—'}</td>
+                            <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
+                              {payloadText ? (
+                                <Popup
+                                  placement="left"
+                                  trigger="hover"
+                                  content={
+                                    <div className="max-w-[360px] whitespace-pre-wrap text-xs text-slate-700">
+                                      {payloadText}
+                                    </div>
+                                  }
+                                >
+                                  <button className="text-sky-400">查看</button>
+                                </Popup>
+                              ) : (
+                                '—'
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Space>
+          </Card>
+        </div>
+        )}
         {comfyuiManageTab === 'templates' && (
         <div className="space-y-4">
           <div className="text-sm text-slate-600 dark:text-slate-400">
-            管理本地/云端多台 ComfyUI 服务器的 Workflow JSON，指定允许运行的节点，作为一类原子能力。
+            管理本地/云端多台 ComfyUI 服务器的工作流 JSON，指定允许运行的节点，作为一类原子能力。
           </div>
           <Space align="center" size="small">
             <Button
@@ -8686,7 +10503,7 @@ const normalizeErrorMessage = (message: string): string => {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="text-left text-[11px] text-slate-700 dark:text-slate-400">
-                    <th>Action</th>
+                    <th>动作</th>
                     <th>名称</th>
                     <th>版本</th>
                     <th>允许运行节点</th>
@@ -8827,7 +10644,7 @@ const normalizeErrorMessage = (message: string): string => {
                 onClick={() => {
                   const deps = extractComfyuiWorkflowDependencies(workflowForm.definition);
                   if (!deps.ok) {
-                    alert('Workflow JSON 解析失败，无法导出依赖。');
+                    alert('工作流 JSON 解析失败，无法导出依赖。');
                     return;
                   }
                   const payload = {
@@ -8870,7 +10687,7 @@ const normalizeErrorMessage = (message: string): string => {
             {workflowEditTab === 'base' && (
             <div className="text-sm space-y-2">
               <input
-                placeholder="Action"
+                placeholder="动作标识"
                 value={workflowForm.action || ''}
                 onChange={(e) => setWorkflowForm({ ...workflowForm, action: e.target.value })}
                 className={formControlClass}
@@ -8951,7 +10768,7 @@ const normalizeErrorMessage = (message: string): string => {
                       </div>
                     </div>
                     <p className="text-xs text-slate-600 dark:text-slate-400">
-                      选择需要对外暴露的输入/输出节点。未选择输出节点时默认返回全部输出；输入未填写时将使用 Workflow JSON
+                      选择需要对外暴露的输入/输出节点。未选择输出节点时默认返回全部输出；输入未填写时将使用工作流 JSON
                       默认值。
                     </p>
                     <div className="space-y-3">
@@ -9195,7 +11012,7 @@ const normalizeErrorMessage = (message: string): string => {
                   </div>
                 ) : (
                   <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-6 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-950/50 dark:text-slate-500">
-                    请先从左侧选择工作流或导入 Workflow JSON，再配置输入/输出节点。
+                    请先从左侧选择工作流或导入工作流 JSON，再配置输入/输出节点。
                   </div>
                 )}
                 {workflowMappingErrors.length > 0 ? (
@@ -9217,7 +11034,7 @@ const normalizeErrorMessage = (message: string): string => {
               <div className="space-y-3">
               {!workflowCanMap ? (
                 <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-6 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-950/50 dark:text-slate-500">
-                  请先从左侧选择工作流或导入 Workflow JSON，再调整内部节点参数。
+                  请先从左侧选择工作流或导入工作流 JSON，再调整内部节点参数。
                 </div>
               ) : (
                     <div className="rounded-2xl border border-slate-200/70 bg-white/70 p-3 space-y-3 dark:border-slate-800 dark:bg-slate-950/50">
@@ -9246,7 +11063,7 @@ const normalizeErrorMessage = (message: string): string => {
                       </div>
                       {filteredWorkflowNodeDetails.length === 0 ? (
                         <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-3 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-950/50 dark:text-slate-500">
-                          暂无可编辑节点，请先导入 Workflow JSON 或切换筛选条件。
+                          暂无可编辑节点，请先导入工作流 JSON 或切换筛选条件。
                         </div>
                       ) : (
                         <div className="max-h-[420px] space-y-2 overflow-auto pr-1">
@@ -9478,7 +11295,7 @@ const normalizeErrorMessage = (message: string): string => {
       <Section
         id="workflow-builder"
         title="工作流编排"
-        description="Coze Studio + Coze Loop 承担原子能力的拖拽式编排与运行观测，统一账号、统一 Token，避免多套系统割裂。"
+        description="Coze Studio 承担原子能力的拖拽式编排，运行观测可选接入外部观测台，统一账号与 Token，避免多套系统割裂。"
       >
         {!systemConfig ? (
           <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6 text-sm text-slate-400">
@@ -9491,7 +11308,7 @@ const normalizeErrorMessage = (message: string): string => {
                 <div>
                   <div className="text-lg font-semibold text-white">Coze Studio · 工作流画布</div>
                   <p className="mt-2 text-sm text-slate-400">
-                    Studio 负责节点拖拽/运行调试，Loop 负责运行诊断。所有能力均在“能力目录”中填写 Coze Workflow ID，
+                    Studio 负责节点拖拽/运行调试，运行诊断可选接入外部观测台。所有能力均在“能力目录”中填写 Coze Workflow ID，
                     调度器即可根据 <code className="px-1">coze_workflow_id</code> 直接调用。
                   </p>
                   <div className="mt-3 grid gap-3 text-xs text-slate-400 md:grid-cols-3">
@@ -9500,7 +11317,7 @@ const normalizeErrorMessage = (message: string): string => {
                       <div className="font-mono text-sm text-white">{cozeBaseUrl || '未配置'}</div>
                     </div>
                     <div>
-                      <div className="text-slate-500">Loop Dashboard URL</div>
+                      <div className="text-slate-500">观测台 URL（可选）</div>
                       <div className="font-mono text-sm text-white">{cozeLoopUrl || '未配置'}</div>
                     </div>
                     <div>
@@ -9524,7 +11341,7 @@ const normalizeErrorMessage = (message: string): string => {
                     打开 Coze Studio
                   </Button>
                   <Button variant="outline" disabled={!cozeLoopUrl} onClick={handleOpenCozeLoop}>
-                    打开 Coze Loop
+                    打开观测台
                   </Button>
                 </Space>
               </div>
@@ -9533,7 +11350,9 @@ const normalizeErrorMessage = (message: string): string => {
                 <ol className="mt-2 list-decimal space-y-1 pl-4">
                   <li>在 Coze Studio 内创建 Workflow，复制 Workflow ID。</li>
                   <li>在“能力目录”中选择 provider=Coze 的能力，填写 <code className="px-1">Coze Workflow ID</code> 字段。</li>
-                  <li>保存后即可在本平台触发能力，日志会写入 <code className="px-1">ability_invocation_logs</code> 并可在 Loop 中回放。</li>
+                  <li>
+                    保存后即可在本平台触发能力，日志会写入 <code className="px-1">ability_invocation_logs</code> 并可在观测台中回放（如已接入）。
+                  </li>
                 </ol>
               </div>
             </div>
@@ -9702,7 +11521,7 @@ const normalizeErrorMessage = (message: string): string => {
             <Card title={bindingForm.id ? '编辑绑定' : '新增绑定'} bordered>
               <Space direction="vertical" size="medium" style={{ width: '100%' }}>
                 <Input
-                  placeholder="Action"
+                  placeholder="动作标识"
                   value={bindingForm.action || ''}
                   onChange={(value) => setBindingForm({ ...bindingForm, action: String(value) })}
                 />
@@ -10087,6 +11906,29 @@ const normalizeErrorMessage = (message: string): string => {
                     {abilityLogDetail.executor_name || abilityLogDetail.executor_type || abilityLogDetail.executor_id || '—'}
                   </Typography.Text>
                 </div>
+              </Col>
+            </Row>
+            <Row gutter={[12, 12]}>
+              <Col span={12}>
+                <Typography.Text theme="secondary">回调ID</Typography.Text>
+                <div>
+                  <Typography.Text style={{ fontFamily: 'monospace' }}>
+                    {abilityLogDetail.callback_id || '—'}
+                  </Typography.Text>
+                </div>
+              </Col>
+              <Col span={12}>
+                <Typography.Text theme="secondary">追踪ID</Typography.Text>
+                <div>
+                  <Typography.Text style={{ fontFamily: 'monospace' }}>
+                    {abilityLogDetail.trace_id || '—'}
+                  </Typography.Text>
+                </div>
+                {abilityLogDetail.workflow_run_id ? (
+                  <Typography.Text theme="secondary" style={{ display: 'block', marginTop: 4 }}>
+                    流程ID：<span style={{ fontFamily: 'monospace' }}>{abilityLogDetail.workflow_run_id}</span>
+                  </Typography.Text>
+                ) : null}
               </Col>
             </Row>
 

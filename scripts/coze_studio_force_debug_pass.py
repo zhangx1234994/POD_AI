@@ -38,7 +38,7 @@ def main() -> None:
     ap.add_argument("--root-password", default=os.getenv("COZE_MYSQL_ROOT_PASSWORD", ""))
     args = ap.parse_args()
 
-    dotenv = load_dotenv(REPO_ROOT / "coze-studio" / "docker" / ".env")
+    dotenv = load_dotenv(REPO_ROOT / "backend" / ".env")
     root_pw = args.root_password or os.getenv("MYSQL_ROOT_PASSWORD") or dotenv.get("MYSQL_ROOT_PASSWORD") or "root"
     db = args.db or os.getenv("MYSQL_DATABASE") or dotenv.get("MYSQL_DATABASE") or "opencoze"
 
@@ -85,4 +85,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

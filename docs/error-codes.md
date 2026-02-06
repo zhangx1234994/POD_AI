@@ -1,4 +1,9 @@
-# 错误码文档
+# 错误码文档（历史草案）
+
+> ⚠️ 本文件为历史草案，**已不作为现行规范**。  
+> 现行错误码总表与契约请以以下文档为准：
+> - `docs/standards/error-catalog.md`
+> - `docs/standards/error-contract.md`
 
 ## 1. 错误码格式
 

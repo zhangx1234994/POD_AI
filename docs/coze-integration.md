@@ -1,16 +1,19 @@
-# Coze Studio (Local) Integration
+# Coze Studio Integration
 
 This repo integrates PODI "atomic abilities" into Coze Studio as a Plugin (OpenAPI tools).
 
-Key URLs (local dev)
-- PODI backend: `http://127.0.0.1:8099`
-- PODI admin web: `http://127.0.0.1:8199`
-- Coze Studio web: `http://127.0.0.1:8888` (always use `127.0.0.1`, avoid `localhost` cookie issues)
+Key URLs
+- PODI backend: `https://<podi-host>` (local dev: `http://127.0.0.1:8099`)
+- PODI admin web: `https://<podi-host>` (local dev: `http://127.0.0.1:8199`)
+- Coze Studio web: `https://<coze-host>` (set `COZE_BASE_URL`)
 
 ## Plugin OpenAPI
 
 PODI exposes an OpenAPI document for Coze to import:
-- `GET http://127.0.0.1:8099/api/coze/podi/openapi.json`
+- `GET https://<podi-host>/api/coze/podi/openapi.json`
+
+If Coze runs in Docker and PODI runs on the host machine, use:
+- `GET http://host.docker.internal:8099/api/coze/podi/openapi.json`
 
 Each PODI Ability becomes one Coze tool:
 - `POST /api/coze/podi/tools/{provider}/{capability_key}`
@@ -72,20 +75,18 @@ PODI converts them internally based on `Ability.input_schema`:
 
 ## One-command: create/update + publish plugin
 
-1) Ensure services are up (Coze Studio via docker compose, PODI backend via uvicorn).
-2) Run:
+1) Ensure PODI backend is reachable from Coze Studio.
+2) Set `COZE_BASE_URL` + `COZE_API_TOKEN` (PAT) in `backend/.env` or env vars.
+3) Run:
 
 ```bash
 bash scripts/ensure_coze_plugin_podi.sh
 ```
 
 Notes:
-- Coze Studio requires "all tools debugged" before publishing. In this project we run
-  Coze internally, so the script force-marks draft tools as DebugPassed in Coze's MySQL
-  to avoid UI-debug friction.
-
-If you want to disable this behavior:
-- `COZE_FORCE_PASS_DEBUG=0 bash scripts/ensure_coze_plugin_podi.sh`
+- Hosted Coze Studio typically does not allow DB access, so `COZE_FORCE_PASS_DEBUG=0` is recommended.
+- Self-hosted Coze Studio can optionally use `scripts/coze_studio_force_debug_pass.py` to bypass
+  tool debug gating when needed.
 
 ## Troubleshooting
 

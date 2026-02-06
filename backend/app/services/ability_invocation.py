@@ -26,6 +26,7 @@ from app.models.integration import Ability, ComfyuiLora, Executor, WorkflowBindi
 from app.models.user import User
 from app.schemas import abilities as schemas
 from app.services.ability_logs import AbilityLogStartParams, ability_log_service
+from app.services.task_id_codec import encode_task_id
 from app.services.ability_seed import ensure_default_abilities
 from app.services.executor_seed import ensure_default_executors
 from app.services.integration_test import integration_test_service
@@ -125,6 +126,7 @@ class AbilityInvocationService:
         ability_id: str,
         payload: schemas.AbilityInvokeRequest,
         user: User | None,
+        task_id: str | None = None,
         source: str = "ability-api",
         request: Request | None = None,
     ) -> schemas.AbilityInvokeResponse:
@@ -162,6 +164,7 @@ class AbilityInvocationService:
             "hasImageBase64": bool(image_bundle.image_base64),
             "imageListCount": len(image_bundle.image_list),
             "metadata": payload.metadata,
+            "callbackConfigured": bool(payload.callbackUrl),
             "userId": user.id if user else (request.client.host if request else None),
         }
         log_id = ability_log_service.start_log(
@@ -184,6 +187,11 @@ class AbilityInvocationService:
         start = time.perf_counter()
         callback_url = payload.callbackUrl
         callback_headers = payload.callbackHeaders
+        callback_task_id = (
+            encode_task_id(task_id=task_id, provider=ability.provider, executor_id=executor_id)
+            if task_id
+            else None
+        )
         context = _InvocationContext(
             request_id=request_marker,
             source=source or "ability-api",
@@ -213,6 +221,8 @@ class AbilityInvocationService:
                     callback_headers=callback_headers,
                     ability=ability,
                     request_id=request_marker,
+                    executor_id=executor_id,
+                    task_id_override=callback_task_id,
                     log_id=log_id,
                     duration_ms=duration_ms,
                     status="failed",
@@ -236,6 +246,8 @@ class AbilityInvocationService:
                 callback_headers=callback_headers,
                 ability=ability,
                 request_id=request_marker,
+                executor_id=executor_id,
+                task_id_override=callback_task_id,
                 log_id=log_id,
                 duration_ms=duration_ms,
                 status="success",
@@ -1878,6 +1890,8 @@ class AbilityInvocationService:
         callback_headers: dict[str, str] | None,
         ability: Ability,
         request_id: str,
+        executor_id: str | None,
+        task_id_override: str | None,
         log_id: int | None,
         duration_ms: int | None,
         status: str,
@@ -1886,11 +1900,26 @@ class AbilityInvocationService:
     ) -> None:
         if not callback_url:
             return
+        if task_id_override:
+            raw_task_id = task_id_override
+        else:
+            raw_task_id = request_id
+            if isinstance(result_payload, dict):
+                meta = result_payload.get("metadata")
+                if isinstance(meta, dict):
+                    meta_task_id = meta.get("taskId")
+                    if isinstance(meta_task_id, (str, int)) and str(meta_task_id).strip():
+                        raw_task_id = str(meta_task_id).strip()
+        if raw_task_id.startswith("t1.") or raw_task_id.startswith("ERR|"):
+            callback_task_id = raw_task_id
+        else:
+            callback_task_id = encode_task_id(task_id=raw_task_id, provider=ability.provider, executor_id=executor_id)
         payload = {
             "status": status,
             "abilityId": ability.id,
             "provider": ability.provider,
             "requestId": request_id,
+            "taskId": callback_task_id,
             "logId": log_id,
             "durationMs": duration_ms,
             "result": result_payload,
