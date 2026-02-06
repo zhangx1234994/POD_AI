@@ -15,7 +15,7 @@ check_port() {
 echo "== Ports =="
 check_port 8099   # backend
 check_port 8199   # admin web
-check_port 8080   # client web
+check_port 8200   # eval web
 
 echo
 echo "== Health =="

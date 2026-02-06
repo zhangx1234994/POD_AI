@@ -186,7 +186,13 @@ def _fetch_github_tags(repo_url: str, *, limit: int) -> list[dict[str, Any]]:
     while len(tags) < limit:
         url = f"{api_base}/repos/{owner}/{repo}/tags"
         try:
-            response = httpx.get(url, headers=headers, params={"per_page": per_page, "page": page}, timeout=15)
+            response = httpx.get(
+                url,
+                headers=headers,
+                params={"per_page": per_page, "page": page},
+                timeout=15,
+                follow_redirects=True,
+            )
             response.raise_for_status()
         except httpx.HTTPError as exc:
             logger.warning("ComfyUI version sync failed: %s", exc)
