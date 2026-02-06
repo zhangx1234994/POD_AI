@@ -1179,10 +1179,21 @@ const normalizeOutputNodeIds = (metadata?: JsonRecord | null): string[] => {
 
 const extractComfyuiVersionInfo = (executor?: Executor | null, system?: Record<string, unknown> | null) => {
   if (system && typeof system === 'object') {
-    const pickSystem = (key: string) => (typeof (system as Record<string, unknown>)[key] === 'string' ? String((system as Record<string, unknown>)[key]).trim() : '');
+    const pickSystem = (key: string) =>
+      typeof (system as Record<string, unknown>)[key] === 'string'
+        ? String((system as Record<string, unknown>)[key]).trim()
+        : '';
+    const pickSystemAny = (keys: string[]) => {
+      for (const key of keys) {
+        const value = pickSystem(key);
+        if (value) return value;
+      }
+      return '';
+    };
     return {
-      version: pickSystem('comfyui_version'),
-      customNodes: pickSystem('installed_templates_version'),
+      version: pickSystemAny(['comfyui_version', 'version', 'comfyuiVersion']),
+      commit: pickSystemAny(['comfyui_commit', 'commit', 'git_commit', 'commit_sha']),
+      customNodes: pickSystemAny(['installed_templates_version', 'custom_nodes_version']),
       modelsHash: '',
       loraHash: '',
       syncRole: '',
@@ -1199,6 +1210,7 @@ const extractComfyuiVersionInfo = (executor?: Executor | null, system?: Record<s
   };
   return {
     version: pick(['comfyui_version', 'comfyuiVersion', 'version']),
+    commit: pick(['comfyui_commit', 'commit', 'git_commit', 'commit_sha']),
     customNodes: pick(['custom_nodes_version', 'customNodesVersion', 'custom_nodes']),
     modelsHash: pick(['models_hash', 'modelsHash']),
     loraHash: pick(['lora_hash', 'loraHash']),
@@ -1486,6 +1498,7 @@ export function IntegrationDashboard({
   const [comfyLoraCatalog, setComfyLoraCatalog] = useState<ComfyuiLoraCatalogResponse | null>(null);
   const [comfyLoraLoading, setComfyLoraLoading] = useState(false);
   const [comfyLoraError, setComfyLoraError] = useState<string | null>(null);
+  const [comfyLoraUntrackedLoaded, setComfyLoraUntrackedLoaded] = useState(false);
   const [comfyLoraSaving, setComfyLoraSaving] = useState(false);
   const [comfyLoraExecutorId, setComfyLoraExecutorId] = useState<string>('');
   const [comfyLoraSearch, setComfyLoraSearch] = useState('');
@@ -1531,6 +1544,7 @@ export function IntegrationDashboard({
   const [comfyVersionCatalogError, setComfyVersionCatalogError] = useState<string | null>(null);
   const [comfyVersionCatalogSearch, setComfyVersionCatalogSearch] = useState('');
   const [comfyVersionCatalogStatus, setComfyVersionCatalogStatus] = useState('all');
+  const [comfyVersionServerLoading, setComfyVersionServerLoading] = useState(false);
   const [comfyVersionDialogOpen, setComfyVersionDialogOpen] = useState(false);
   const [comfyVersionSaving, setComfyVersionSaving] = useState(false);
   const [comfyVersionSyncing, setComfyVersionSyncing] = useState(false);
@@ -1702,6 +1716,27 @@ export function IntegrationDashboard({
     () => resolveLoraBaseModels(comfyLoraForm),
     [comfyLoraForm.base_models, comfyLoraForm.base_model],
   );
+  const comfyServerVersionUsage = useMemo(() => {
+    const usage = new Map<string, string[]>();
+    comfyExecutors
+      .filter((executor) => (executor.type || '').toLowerCase() === 'comfyui')
+      .forEach((executor) => {
+        const system = comfySystemCache[executor.id];
+        const info = extractComfyuiVersionInfo(executor, system);
+        const label = executor.name || executor.id;
+        const register = (key?: string | null) => {
+          if (!key) return;
+          const trimmed = String(key).trim();
+          if (!trimmed) return;
+          const list = usage.get(trimmed) || [];
+          if (!list.includes(label)) list.push(label);
+          usage.set(trimmed, list);
+        };
+        register(info.version);
+        register(info.commit);
+      });
+    return usage;
+  }, [comfyExecutors, comfySystemCache]);
   const comfyLoraBaseModelOptions = useMemo(() => {
     const merged = new Set(comfyLoraBaseModels);
     comfyLoraFormBaseModels.forEach((model) => merged.add(model));
@@ -1744,7 +1779,12 @@ export function IntegrationDashboard({
   }, [comfyWorkflowNodeDetails, workflowInterfaceNodeIds, workflowNodeSearch, workflowParamScope]);
   const comfyLoraItems = comfyLoraCatalog?.items || [];
   const comfyLoraUntracked = comfyLoraCatalog?.untrackedFiles || [];
-  const comfyLoraInstalledCount = comfyLoraItems.filter((item) => item.installed).length;
+  const comfyLoraInstalledFiles = comfyLoraCatalog?.installedFiles || [];
+  const comfyLoraInstalledCount =
+    comfyLoraInstalledFiles.length > 0
+      ? comfyLoraInstalledFiles.length
+      : comfyLoraItems.filter((item) => item.installed).length;
+  const comfyLoraServerScanned = comfyLoraUntrackedLoaded;
   const abilityFormComfyExecutorId = useMemo(() => {
     if ((abilityForm.provider || '').toLowerCase() !== 'comfyui') return '';
     const pinned = abilityForm.executor_id
@@ -2961,25 +3001,26 @@ export function IntegrationDashboard({
   }, [abilityDialogOpen, abilityForm.provider, abilityFormComfyExecutorId, comfyModelCache, refreshComfyuiModelCatalog]);
 
   const refreshComfyuiLoraCatalog = useCallback(
-    async (options?: { silent?: boolean }) => {
-      if (!comfyLoraExecutorId) {
-        setComfyLoraCatalog(null);
-        setComfyLoraError(null);
+    async (options?: { silent?: boolean; includeUntracked?: boolean }) => {
+      const silent = Boolean(options?.silent);
+      const includeUntracked = Boolean(options?.includeUntracked);
+      if (includeUntracked && !comfyLoraExecutorId) {
+        setComfyLoraError('请先选择 ComfyUI 执行节点');
         return;
       }
-      const silent = Boolean(options?.silent);
       if (!silent) {
         setComfyLoraLoading(true);
       }
       setComfyLoraError(null);
       try {
         const resp = await adminApi.listComfyuiLoras({
-          executorId: comfyLoraExecutorId,
+          executorId: includeUntracked ? comfyLoraExecutorId : undefined,
           q: comfyLoraSearch.trim() || undefined,
           status: comfyLoraStatusFilter !== 'all' ? comfyLoraStatusFilter : undefined,
-          includeUntracked: true,
+          includeUntracked,
         });
         setComfyLoraCatalog(resp);
+        setComfyLoraUntrackedLoaded(includeUntracked);
       } catch (error: any) {
         console.error('Failed to load ComfyUI LoRA catalog:', error);
         setComfyLoraError(error?.message || '获取 LoRA 清单失败');
@@ -3150,6 +3191,7 @@ export function IntegrationDashboard({
       setComfyVersionSyncing(false);
     }
   }, [refreshComfyVersionCatalog]);
+
 
   const resetComfyPluginForm = useCallback((seed?: Partial<ComfyuiPluginCatalogItem>) => {
     const next = seed || { status: 'active' };
@@ -3558,6 +3600,20 @@ export function IntegrationDashboard({
     [],
   );
 
+  const refreshComfyVersionUsage = useCallback(async () => {
+    if (comfyExecutors.length === 0) return;
+    setComfyVersionServerLoading(true);
+    try {
+      await Promise.all(
+        comfyExecutors
+          .filter((executor) => (executor.type || '').toLowerCase() === 'comfyui')
+          .map((executor) => refreshComfyuiSystemStats(executor.id, { silent: true })),
+      );
+    } finally {
+      setComfyVersionServerLoading(false);
+    }
+  }, [comfyExecutors, refreshComfyuiSystemStats]);
+
   const refreshComfyuiServers = useCallback(async () => {
     if (comfyExecutors.length === 0) return;
     setComfyServerRefreshing(true);
@@ -3621,7 +3677,7 @@ export function IntegrationDashboard({
 
   useEffect(() => {
     if (activeNav !== 'comfyui-management') return;
-    refreshComfyuiLoraCatalog();
+    refreshComfyuiLoraCatalog({ includeUntracked: false });
   }, [activeNav, comfyLoraExecutorId, comfyLoraSearch, comfyLoraStatusFilter, refreshComfyuiLoraCatalog]);
 
   useEffect(() => {
@@ -4997,7 +5053,7 @@ const normalizeErrorMessage = (message: string): string => {
       }
       setComfyLoraDialogOpen(false);
       resetComfyLoraForm();
-      await refreshComfyuiLoraCatalog();
+      await refreshComfyuiLoraCatalog({ includeUntracked: comfyLoraUntrackedLoaded });
     } catch (error: any) {
       console.error('save comfyui lora failed', error);
       setComfyLoraFormError(error?.message || '保存失败，请检查网络或参数');
@@ -5010,7 +5066,7 @@ const normalizeErrorMessage = (message: string): string => {
     if (!id) return;
     try {
       await adminApi.deleteComfyuiLora(id);
-      await refreshComfyuiLoraCatalog({ silent: true });
+      await refreshComfyuiLoraCatalog({ silent: true, includeUntracked: comfyLoraUntrackedLoaded });
     } catch (error: any) {
       console.error('delete comfyui lora failed', error);
       setComfyLoraError(error?.message || '删除 LoRA 失败');
@@ -8386,10 +8442,10 @@ const normalizeErrorMessage = (message: string): string => {
                   </div>
                   <Button
                     variant="outline"
-                    disabled={!comfyLoraExecutorId || comfyLoraLoading}
-                    onClick={() => refreshComfyuiLoraCatalog()}
+                    disabled={comfyLoraLoading}
+                    onClick={() => refreshComfyuiLoraCatalog({ includeUntracked: false })}
                   >
-                    刷新 LoRA
+                    刷新库内 LoRA
                   </Button>
                   <Button
                     variant="outline"
@@ -8397,6 +8453,13 @@ const normalizeErrorMessage = (message: string): string => {
                     onClick={() => refreshComfyuiModelCatalog(comfyLoraExecutorId)}
                   >
                     刷新基座模型
+                  </Button>
+                  <Button
+                    variant="outline"
+                    disabled={!comfyLoraExecutorId || comfyLoraLoading}
+                    onClick={() => refreshComfyuiLoraCatalog({ includeUntracked: true })}
+                  >
+                    查看未入库 LoRA
                   </Button>
                 </Space>
                 <Button
@@ -8416,7 +8479,7 @@ const normalizeErrorMessage = (message: string): string => {
                   {comfyLoraCatalog?.baseUrl ? `(${comfyLoraCatalog.baseUrl})` : ''}
                 </div>
               ) : (
-                <Alert theme="warning" message="请先选择 ComfyUI 执行节点。" />
+                <Alert theme="warning" message="未选择执行节点，仅展示库内 LoRA；如需查看服务器安装/未入库，请先选择节点。" />
               )}
 
               {comfyLoraError ? <Alert theme="error" message={comfyLoraError} /> : null}
@@ -8464,11 +8527,12 @@ const normalizeErrorMessage = (message: string): string => {
                   />
                 </Space>
                 <div className="text-xs text-slate-500">
-                  已入库 {comfyLoraItems.length} · 节点已安装 {comfyLoraInstalledCount}
+                  已入库 {comfyLoraItems.length}
+                  {comfyLoraServerScanned ? ` · 服务器已安装 ${comfyLoraInstalledCount}` : ' · 未加载服务器清单'}
                 </div>
               </Space>
 
-              {comfyLoraUntracked.length > 0 ? (
+              {comfyLoraServerScanned && comfyLoraUntracked.length > 0 ? (
                 <div className="rounded-2xl border border-dashed border-amber-300 bg-amber-50/60 p-3 text-xs text-amber-700">
                   <div className="font-semibold">未入库 LoRA（来自执行节点）</div>
                   <div className="mt-2 flex flex-wrap gap-2">
@@ -8488,6 +8552,11 @@ const normalizeErrorMessage = (message: string): string => {
                       </button>
                     ))}
                   </div>
+                </div>
+              ) : null}
+              {comfyLoraServerScanned && comfyLoraUntracked.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 p-3 text-xs text-slate-500">
+                  未发现未入库 LoRA。
                 </div>
               ) : null}
 
@@ -8528,14 +8597,16 @@ const normalizeErrorMessage = (message: string): string => {
                           <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{item.tags?.join(', ') || '—'}</td>
                           <td className="px-3 py-2">{renderStatusTag(item.status)}</td>
                           <td className="px-3 py-2">
-                            {item.installed ? (
+                            {item.installed === true ? (
                               <Tag theme="success" variant="light">
                                 已安装
                               </Tag>
-                            ) : (
+                            ) : item.installed === false ? (
                               <Tag theme="default" variant="light">
                                 未安装
                               </Tag>
+                            ) : (
+                              <Typography.Text theme="secondary">未检测</Typography.Text>
                             )}
                           </td>
                           <td className="px-3 py-2 text-right space-x-2">
@@ -8698,10 +8769,17 @@ const normalizeErrorMessage = (message: string): string => {
                 <Space align="center" size="small">
                   <Button
                     variant="outline"
+                    loading={comfyVersionServerLoading}
+                    onClick={refreshComfyVersionUsage}
+                  >
+                    刷新服务器版本
+                  </Button>
+                  <Button
+                    variant="outline"
                     loading={comfyVersionSyncing}
                     onClick={handleComfyVersionSync}
                   >
-                    同步线上版本
+                    增量同步版本
                   </Button>
                   <Button
                     theme="primary"
@@ -8714,6 +8792,12 @@ const normalizeErrorMessage = (message: string): string => {
                   </Button>
                 </Space>
               </Space>
+              {comfyExecutors.some((executor) => (executor.type || '').toLowerCase() === 'comfyui') &&
+              comfyServerVersionUsage.size === 0 ? (
+                <Typography.Text theme="secondary">
+                  提示：点击“刷新服务器版本”后，会在列表中标记当前在用版本。
+                </Typography.Text>
+              ) : null}
               {comfyVersionCatalogError ? <Alert theme="error" message={comfyVersionCatalogError} /> : null}
               <div className="max-h-[320px] overflow-auto rounded-2xl border border-slate-200/70 dark:border-slate-800">
                 <table className="w-full text-xs">
@@ -8736,9 +8820,39 @@ const normalizeErrorMessage = (message: string): string => {
                         </td>
                       </tr>
                     ) : (
-                      comfyVersionCatalogItems.map((item) => (
+                      comfyVersionCatalogItems.map((item) => {
+                        const usage = new Set<string>();
+                        const addUsage = (key?: string | null) => {
+                          if (!key) return;
+                          const list = comfyServerVersionUsage.get(String(key).trim());
+                          if (!list) return;
+                          list.forEach((name) => usage.add(name));
+                        };
+                        addUsage(item.version);
+                        addUsage(item.commit_sha);
+                        const usageList = Array.from(usage);
+                        return (
                         <tr key={`comfyui-version-${item.id}`} className="border-t border-slate-100 dark:border-slate-800">
-                          <td className="px-3 py-2 font-semibold text-slate-900 dark:text-white">{item.version}</td>
+                          <td className="px-3 py-2 font-semibold text-slate-900 dark:text-white">
+                            <Space size="small">
+                              <span>{item.version}</span>
+                              {usageList.length > 0 ? (
+                                <Popup
+                                  placement="right"
+                                  trigger="hover"
+                                  content={
+                                    <div className="max-w-[320px] whitespace-pre-wrap text-xs text-slate-700">
+                                      在用服务器：{usageList.join('、')}
+                                    </div>
+                                  }
+                                >
+                                  <Tag theme="success" variant="light">
+                                    在用{usageList.length > 1 ? ` · ${usageList.length}台` : ''}
+                                  </Tag>
+                                </Popup>
+                              ) : null}
+                            </Space>
+                          </td>
                           <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{item.commit_sha || '—'}</td>
                           <td className="px-3 py-2">
                             {item.download_url ? (
@@ -8787,7 +8901,8 @@ const normalizeErrorMessage = (message: string): string => {
                             </button>
                           </td>
                         </tr>
-                      ))
+                      );
+                    })
                     )}
                   </tbody>
                 </table>
@@ -8937,7 +9052,9 @@ const normalizeErrorMessage = (message: string): string => {
                     ) : (
                       comfyModelCatalogItems.map((item) => (
                         <tr key={`model-${item.id}`} className="border-t border-slate-100 dark:border-slate-800">
-                          <td className="px-3 py-2 font-semibold text-slate-900 dark:text-white">{item.display_name}</td>
+                          <td className="px-3 py-2 font-semibold text-slate-900 dark:text-white">
+                            {item.display_name || item.file_name || '—'}
+                          </td>
                           <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{item.file_name}</td>
                           <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{item.model_type}</td>
                           <td className="px-3 py-2">
