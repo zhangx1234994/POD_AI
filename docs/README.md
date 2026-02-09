@@ -9,6 +9,7 @@
 | `docs/` | 全局文档入口 | 架构/规划/流程/运维/规范等跨模块文档 |
 | `docs/admin/` | 管理端说明 | 管理端页面与功能说明 |
 | `docs/api/` | API 规范 | API 详细说明与示例 |
+| `docs/api/INDEX.md` | 接口总索引 | 全量接口按模块分类汇总 |
 | `docs/comfyui/` | ComfyUI 维护 | 工作流、节点映射、运维说明 |
 | `docs/coze/` | Coze 集成 | 插件/工具箱/工作流规范 |
 | `docs/eval/` | 评测平台 | 评测站点功能说明 |
@@ -38,6 +39,19 @@ docs/
 ├── ai-capability-roadmap.md
 ├── ai-integration-management.md
 ├── api
+│   ├── INDEX.md
+│   ├── modules
+│   │   ├── overview.md
+│   │   ├── auth.md
+│   │   ├── media.md
+│   │   ├── abilities.md
+│   │   ├── coze.md
+│   │   ├── comfyui-admin.md
+│   │   ├── agent.md
+│   │   ├── eval.md
+│   │   ├── admin-core.md
+│   │   ├── tasks.md
+│   │   └── notify-wallet.md
 │   └── abilities.md
 ├── api.md
 ├── architecture.md
@@ -105,6 +119,7 @@ docs/
 
 ### API 与规范
 - `docs/api.md`：API 总览
+- `docs/api/INDEX.md`：接口总索引（按模块分类）
 - `docs/api/abilities.md`：统一能力 API 说明
 - `docs/error-codes.md`：错误码文档（历史草案，现行见 `docs/standards/error-catalog.md`）
 - `docs/standards/error-catalog.md`：错误码总表
@@ -150,4 +165,4 @@ docs/
 2. 规划/草案类文档请放入 `docs/wip/` 或在标题标明“计划”。
 3. 重大变更请同步更新 `docs/BUSINESS_MODEL.md` 与 `docs/architecture.md`。
 
-*最后更新: 2026-02-05*
+*最后更新: 2026-02-09*

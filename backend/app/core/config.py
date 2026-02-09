@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     agent_task_token_ttl: int = Field(default=600, env="AGENT_TASK_TOKEN_TTL")
     agent_heartbeat_token_ttl: int = Field(default=3600, env="AGENT_HEARTBEAT_TOKEN_TTL")
     agent_task_timeout_seconds: int = Field(default=3600, env="AGENT_TASK_TIMEOUT_SECONDS")
+    kie_task_timeout_seconds: int = Field(default=900, env="KIE_TASK_TIMEOUT_SECONDS")
     agent_debug_tokens: str | None = Field(default=None, env="AGENT_DEBUG_TOKENS")
     jwt_secret_key: str = Field(default="super-secret", env="JWT_SECRET_KEY")
     jwt_access_token_expires: int = Field(default=3600, env="JWT_ACCESS_TOKEN_EXPIRES")

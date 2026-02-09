@@ -1001,6 +1001,7 @@ class AbilityInvocationService:
             self._pop_url_list(
                 merged_inputs,
                 [
+                    "url",
                     "image_urls",
                     "image_url",
                     "imageUrl",
@@ -1022,6 +1023,11 @@ class AbilityInvocationService:
             )
         )
         url_candidates.extend(self._urls_from_image_bundle(images))
+        # Prefer the main image as the first entry (图1=主图).
+        if images.image_url and url_candidates:
+            primary = images.image_url.strip()
+            if primary:
+                url_candidates = [primary] + [u for u in url_candidates if u != primary]
         if array_target:
             existing_entries_value = input_payload.get(array_target)
             # KIE tools are inconsistent: some expect `["url1","url2"]`, others accept

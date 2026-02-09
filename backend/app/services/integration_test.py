@@ -511,7 +511,7 @@ class IntegrationTestService:
         extra_payload: dict[str, object] | None = None,
         # KIE "market" jobs are often slow (queue + generation). Empirically 50~80s is common.
         # Default to a longer timeout so sync tool calls can still return images.
-        poll_timeout: float = 180.0,
+        poll_timeout: float = 120.0,
         poll_interval: float = 2.5,
     ) -> dict[str, object]:
         executor = self._get_executor(executor_id)
@@ -846,6 +846,35 @@ class IntegrationTestService:
         if enforced_assets:
             stored_assets.extend(enforced_assets)
 
+        base_meta = {
+            "provider": "kie",
+            "model": model,
+            "taskId": task_id,
+            "state": state or (record.get("state") if isinstance(record, dict) else None),
+            "executorId": executor.id,
+            "baseUrl": base_url,
+            # Include request payload to diagnose field mapping issues.
+            "raw": {"response": detail_data, "request": payload},
+        }
+
+        if state == "fail":
+            return {
+                **base_meta,
+                "status": "failed",
+                "resultUrls": stored_urls or result_urls,
+                "resultObject": result_object,
+                "storedAssets": stored_assets,
+            }
+        # If KIE has not finished yet (or returned no images), mark it as running so
+        # downstream polling can finalize later via /tasks/get.
+        if state != "success" or not (stored_urls or result_urls):
+            return {
+                **base_meta,
+                "status": "running",
+                "resultUrls": stored_urls or result_urls,
+                "resultObject": result_object,
+                "storedAssets": stored_assets,
+            }
         return {
             "provider": "kie",
             "model": model,
@@ -857,26 +886,74 @@ class IntegrationTestService:
             "storedAssets": stored_assets,
             # Include request payload to diagnose field mapping issues.
             "raw": {"response": detail_data, "request": payload},
+            "status": "succeeded",
+            "executorId": executor.id,
+            "baseUrl": base_url,
         }
 
-    def _fetch_kie_task(self, base_url: str, headers: dict[str, str], task_id: str) -> dict:
+    def fetch_kie_market_result(
+        self, *, executor_id: str, task_id: str, timeout: float = 20.0, max_retries: int = 1
+    ) -> dict[str, object]:
+        executor = self._get_executor(executor_id)
+        api_key = self._pick_kie_api_key(executor)
+        if not api_key:
+            raise HTTPException(status_code=400, detail="KIE_API_KEY_MISSING")
+        base_url, headers = self._prepare_kie_client(executor, api_key=api_key)
+        detail_data = self._fetch_kie_task(
+            base_url, headers, task_id, timeout=timeout, max_retries=max_retries
+        )
+        state = self._extract_kie_state(detail_data)
+        result_urls, result_object = self._parse_kie_result(detail_data)
+        stored_assets: list[dict[str, object]] = []
+        stored_urls: list[str] = []
+        for index, remote_url in enumerate(result_urls or []):
+            asset = self._store_remote_asset(
+                remote_url,
+                user_id="admin-kie",
+                filename=f"kie-{task_id}-{index + 1}",
+                tag="kie-market",
+            )
+            if asset:
+                stored_assets.append(asset)
+                if isinstance(asset.get("ossUrl"), str):
+                    stored_urls.append(str(asset["ossUrl"]))
+        return {
+            "state": state,
+            "resultUrls": stored_urls or result_urls,
+            "storedAssets": stored_assets,
+            "resultObject": result_object,
+            "raw": {"response": detail_data},
+            "executorId": executor.id,
+            "baseUrl": base_url,
+        }
+
+    def _fetch_kie_task(
+        self,
+        base_url: str,
+        headers: dict[str, str],
+        task_id: str,
+        *,
+        timeout: float = 60.0,
+        max_retries: int = 3,
+    ) -> dict:
         detail_url = f"{base_url}/api/v1/jobs/recordInfo"
         response = None
         # KIE status calls can occasionally spike in latency or return transient gateway errors.
         # Retry a few times so Coze workflows don't fail due to a single timeout.
-        for attempt in range(3):
+        retries = max(1, int(max_retries))
+        for attempt in range(retries):
             try:
-                response = httpx.get(detail_url, headers=headers, params={"taskId": task_id}, timeout=60)
+                response = httpx.get(detail_url, headers=headers, params={"taskId": task_id}, timeout=timeout)
             except httpx.HTTPError as exc:  # pragma: no cover - defensive
                 # Backoff and retry on transient network errors/timeouts.
-                if attempt < 2:
+                if attempt < retries - 1:
                     time.sleep(0.8 * (1.6**attempt))
                     continue
                 raise HTTPException(status_code=502, detail=f"KIE_STATUS_HTTP_ERROR: {exc}") from exc
 
             # Treat upstream 5xx as transient; include snippet for diagnostics.
             if response.status_code >= 500:
-                if attempt < 2:
+                if attempt < retries - 1:
                     time.sleep(0.8 * (1.6**attempt))
                     continue
                 snippet = ""

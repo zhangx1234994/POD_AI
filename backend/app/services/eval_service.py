@@ -8,6 +8,7 @@ import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
 from functools import lru_cache
 from typing import Any
 from uuid import uuid4
@@ -22,6 +23,7 @@ from app.models.eval import EvalRun, EvalWorkflowVersion
 from app.models.integration import AbilityTask
 from app.services.ability_task_service import get_ability_task_service
 from app.services.coze_client import coze_client
+from app.services.integration_test import integration_test_service
 from app.services.task_id_codec import decode_task_id
 
 
@@ -961,6 +963,7 @@ class EvalService:
             attempts += 1
             if attempts % 3 == 0:
                 self._try_finalize_comfyui_task(task_id=task_id)
+                self._try_finalize_kie_task(task_id=task_id)
 
             time.sleep(interval)
             interval = min(interval * 1.3, 10.0)
@@ -1015,6 +1018,7 @@ class EvalService:
             if attempts % 3 == 0:
                 # Try to finalize ComfyUI submitted-only tasks.
                 self._try_finalize_comfyui_task(task_id=task_id)
+                self._try_finalize_kie_task(task_id=task_id)
 
             time.sleep(interval)
             interval = min(interval * 1.3, 10.0)
@@ -1156,6 +1160,89 @@ class EvalService:
                     session.add(db_task)
                     session.commit()
             return
+
+    def _try_finalize_kie_task(self, *, task_id: str) -> None:
+        """Best-effort: finalize a KIE task by polling recordInfo and ingesting outputs."""
+
+        with get_session() as session:
+            task_row = session.get(AbilityTask, task_id)
+            if not task_row:
+                return
+            if (task_row.ability_provider or "").lower() != "kie":
+                return
+            if task_row.status not in {"queued", "running"}:
+                return
+            result_payload = task_row.result_payload or {}
+            if not isinstance(result_payload, dict):
+                return
+            meta = result_payload.get("metadata") if isinstance(result_payload.get("metadata"), dict) else {}
+            kie_task_id = meta.get("taskId")
+            executor_id = meta.get("executorId")
+            settings = get_settings()
+            timeout_seconds = int(getattr(settings, "kie_task_timeout_seconds", 0) or 0)
+            started_at = task_row.started_at or task_row.created_at
+            if timeout_seconds > 0 and started_at:
+                elapsed = (datetime.utcnow() - started_at).total_seconds()
+                if elapsed > timeout_seconds:
+                    task_row.status = "failed"
+                    task_row.error_message = "KIE_TIMEOUT"
+                    task_row.finished_at = datetime.utcnow()
+                    try:
+                        task_row.duration_ms = int(elapsed * 1000)
+                    except Exception:
+                        pass
+                    session.add(task_row)
+                    session.commit()
+                    return
+            if not (isinstance(kie_task_id, str) and kie_task_id.strip()):
+                return
+            if not (isinstance(executor_id, str) and executor_id.strip()):
+                return
+
+        try:
+            fetched = integration_test_service.fetch_kie_market_result(
+                executor_id=executor_id.strip(),
+                task_id=kie_task_id.strip(),
+                timeout=18.0,
+                max_retries=1,
+            )
+        except Exception as exc:
+            self._logger.warning("eval finalize KIE task failed: %s", exc)
+            return
+
+        state = str(fetched.get("state") or "").lower()
+        urls = fetched.get("resultUrls") if isinstance(fetched.get("resultUrls"), list) else []
+        assets = fetched.get("storedAssets") if isinstance(fetched.get("storedAssets"), list) else []
+
+        with get_session() as session:
+            db_task = session.get(AbilityTask, task_id)
+            if not db_task:
+                return
+            if state == "success" and (urls or assets):
+                if not assets and urls:
+                    assets = [{"url": u} for u in urls if isinstance(u, str) and u.strip()]
+                next_payload = dict(db_task.result_payload or {})
+                next_payload["images"] = assets
+                next_payload["assets"] = assets
+                next_payload["status"] = "succeeded"
+                db_task.status = "succeeded"
+                db_task.result_payload = next_payload
+                if not db_task.duration_ms and db_task.started_at:
+                    try:
+                        db_task.duration_ms = int(
+                            (datetime.utcnow() - db_task.started_at).total_seconds() * 1000
+                        )
+                    except Exception:
+                        pass
+                session.add(db_task)
+                session.commit()
+                return
+            if state == "fail":
+                db_task.status = "failed"
+                db_task.error_message = "KIE_TASK_FAILED"
+                session.add(db_task)
+                session.commit()
+                return
 
     @staticmethod
     def _extract_output_json(payload: dict[str, Any]) -> Any:

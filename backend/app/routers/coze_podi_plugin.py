@@ -1158,6 +1158,186 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
     # Special-case: ComfyUI submitted-only tasks. If we already have promptId/baseUrl,
     # try to finalize on demand when Coze polls.
     if status in {"queued", "running"} and isinstance(result_payload, dict):
+        provider = str(result_payload.get("provider") or task.get("ability_provider") or "").lower()
+        # KIE: try a lightweight status pull to finalize long-running tasks.
+        if provider == "kie":
+            meta = result_payload.get("metadata") if isinstance(result_payload.get("metadata"), dict) else {}
+            kie_task_id = meta.get("taskId")
+            kie_executor_id = meta.get("executorId")
+            if isinstance(kie_task_id, str) and kie_task_id.strip() and isinstance(kie_executor_id, str) and kie_executor_id.strip():
+                try:
+                    with get_session() as session:
+                        db_task = session.get(AbilityTask, task_id.strip())
+                        if db_task and (db_task.ability_provider or "").lower() == "kie":
+                            settings = get_settings()
+                            timeout_seconds = int(getattr(settings, "kie_task_timeout_seconds", 0) or 0)
+                            started_at = db_task.started_at or db_task.created_at
+                            if timeout_seconds > 0 and started_at:
+                                elapsed = (datetime.utcnow() - started_at).total_seconds()
+                                if elapsed > timeout_seconds:
+                                    db_task.status = "failed"
+                                    db_task.error_message = "KIE_TIMEOUT"
+                                    db_task.finished_at = datetime.utcnow()
+                                    try:
+                                        db_task.duration_ms = int(elapsed * 1000)
+                                    except Exception:
+                                        pass
+                                    next_payload = dict(result_payload)
+                                    next_payload["status"] = "failed"
+                                    db_task.result_payload = next_payload
+                                    session.add(db_task)
+                                    session.commit()
+                                    task = get_ability_task_service().to_dict(db_task)
+                                    status = task.get("status")
+                                    result_payload = task.get("result_payload") or {}
+                                    # Return failed immediately on hard timeout.
+                                    return _prune(
+                                        {
+                                            "text": "failed",
+                                            "texts": ["failed"],
+                                            "taskId": external_task_id or task.get("id"),
+                                            "taskStatus": status,
+                                            **executor_info,
+                                            "expectedImageCount": expected_images,
+                                            "logId": task.get("log_id"),
+                                            "requestId": None,
+                                            "imageUrl": None,
+                                            "imageUrls": [],
+                                            "videoUrl": None,
+                                            "videoUrls": [],
+                                            "debugRequest": None,
+                                            "debugResponse": "KIE_TIMEOUT",
+                                        }
+                                    )
+                            fetched = integration_test_service.fetch_kie_market_result(
+                                executor_id=kie_executor_id.strip(),
+                                task_id=kie_task_id.strip(),
+                                timeout=18.0,
+                                max_retries=1,
+                            )
+                            state = str(fetched.get("state") or "").lower()
+                            urls = fetched.get("resultUrls") if isinstance(fetched.get("resultUrls"), list) else []
+                            assets = fetched.get("storedAssets") if isinstance(fetched.get("storedAssets"), list) else []
+                            if state == "success" and (urls or assets):
+                                if not assets and urls:
+                                    assets = [{"url": u} for u in urls if isinstance(u, str) and u.strip()]
+                                next_payload = dict(result_payload)
+                                next_payload["images"] = assets
+                                next_payload["assets"] = assets
+                                next_payload["status"] = "succeeded"
+                                db_task.status = "succeeded"
+                                db_task.result_payload = next_payload
+                                if not db_task.duration_ms and db_task.started_at:
+                                    try:
+                                        db_task.duration_ms = int(
+                                            (datetime.now(timezone.utc) - db_task.started_at).total_seconds() * 1000
+                                        )
+                                    except Exception:
+                                        pass
+                                session.add(db_task)
+                                session.commit()
+                                try:
+                                    ability_log_service.finish_success(
+                                        db_task.log_id,
+                                        response_payload=next_payload,
+                                        duration_ms=db_task.duration_ms,
+                                    )
+                                except Exception:
+                                    pass
+                                task = get_ability_task_service().to_dict(db_task)
+                                status = task.get("status")
+                                result_payload = task.get("result_payload") or {}
+                            elif state == "fail":
+                                db_task.status = "failed"
+                                db_task.error_message = "KIE_TASK_FAILED"
+                                session.add(db_task)
+                                session.commit()
+                                task = get_ability_task_service().to_dict(db_task)
+                                status = task.get("status")
+                                result_payload = task.get("result_payload") or {}
+                except Exception as exc:
+                    try:
+                        with get_session() as session:
+                            db_task = session.get(AbilityTask, task_id.strip())
+                            if db_task:
+                                db_task.error_message = str(exc)[:240]
+                                session.add(db_task)
+                                session.commit()
+                    except Exception:
+                        pass
+
+            if status == "succeeded" and isinstance(result_payload, dict):
+                texts = result_payload.get("texts") or []
+                images = result_payload.get("images") or []
+                videos = result_payload.get("videos") or []
+
+                def _first_url(items: list[dict[str, Any]]) -> str | None:
+                    for it in items:
+                        if not isinstance(it, dict):
+                            continue
+                        for k in ("ossUrl", "sourceUrl", "url"):
+                            v = it.get(k)
+                            if isinstance(v, str) and v.strip():
+                                return v.strip()
+                    return None
+
+                def _all_urls(items: list[dict[str, Any]]) -> list[str]:
+                    out: list[str] = []
+                    for it in items:
+                        if not isinstance(it, dict):
+                            continue
+                        for k in ("ossUrl", "sourceUrl", "url"):
+                            v = it.get(k)
+                            if isinstance(v, str) and v.strip():
+                                out.append(v.strip())
+                                break
+                    seen: set[str] = set()
+                    dedup: list[str] = []
+                    for u in out:
+                        if u in seen:
+                            continue
+                        seen.add(u)
+                        dedup.append(u)
+                    return dedup
+
+                return _prune(
+                    {
+                        "text": texts[0] if isinstance(texts, list) and texts else None,
+                        "texts": texts if isinstance(texts, list) else [],
+                        "imageUrl": _first_url(images) if isinstance(images, list) else None,
+                        "imageUrls": _all_urls(images) if isinstance(images, list) else [],
+                        "videoUrl": _first_url(videos) if isinstance(videos, list) else None,
+                        "videoUrls": _all_urls(videos) if isinstance(videos, list) else [],
+                        "taskId": external_task_id or task.get("id"),
+                        "taskStatus": status,
+                        **executor_info,
+                        "expectedImageCount": expected_images,
+                        "logId": task.get("log_id"),
+                        "requestId": (result_payload.get("requestId") if isinstance(result_payload, dict) else None),
+                        "debugRequest": None,
+                        "debugResponse": None,
+                    }
+                )
+            if status == "failed":
+                return _prune(
+                    {
+                        "text": "failed",
+                        "texts": ["failed"],
+                        "taskId": external_task_id or task.get("id"),
+                        "taskStatus": status,
+                        **executor_info,
+                        "expectedImageCount": expected_images,
+                        "logId": task.get("log_id"),
+                        "requestId": None,
+                        "imageUrl": None,
+                        "imageUrls": [],
+                        "videoUrl": None,
+                        "videoUrls": [],
+                        "debugRequest": None,
+                        "debugResponse": (task.get("error_message") if isinstance(task, dict) else None),
+                    }
+                )
+
         meta = result_payload.get("metadata") if isinstance(result_payload.get("metadata"), dict) else {}
         prompt_id = meta.get("promptId") or meta.get("taskId")
         base_url = meta.get("baseUrl")

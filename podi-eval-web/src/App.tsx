@@ -44,6 +44,13 @@ type EditorMark = {
   created_at: number;
 };
 
+type PromptHint = {
+  type: 'mark' | 'ref';
+  query: string;
+  start: number;
+  end: number;
+};
+
 // Keep the evaluation UI sidebar fixed to these 4 business-facing groups.
 const CATEGORY_ORDER = ['花纹提取类', '图延伸类', '四方/两方连续图类', '图裂变', '通用类'];
 
@@ -168,6 +175,19 @@ const buildEditorPrompt = (args: {
   const width = Number(imageSize.width || 0);
   const height = Number(imageSize.height || 0);
 
+  const prefix = [
+    '你是专业的图像编辑助手。',
+    '目标：在保持主图整体风格一致的前提下，仅根据标注与参考图完成指定修改。',
+    '注意：主图=图1，参考图从图2开始编号。',
+  ].join('\n');
+  const outputRules = [
+    '输出只需返回最终图片，不要输出解释性文字。',
+    '未标注区域保持不变，禁止引入无关元素。',
+    '如未明确指定画幅/分辨率，保持与主图一致。',
+    '参考图只用于风格/纹理/形象参考，不要直接拼贴。',
+    '严格遵循图像顺序规范（图1主图、图2/图3为参考图）。',
+  ].join('\n');
+
   const fmt = (v: number, total: number) => {
     const rounded = Math.round(v);
     if (total > 0) {
@@ -229,14 +249,31 @@ const buildEditorPrompt = (args: {
     return `${prefix}（${formatEditorToolLabel(mark.type)}）：无有效坐标`;
   };
 
+  const rewritePrompt = (text: string) =>
+    text.replace(/#(\d+)/g, (_, raw) => {
+      const idx = Number(raw);
+      if (Number.isNaN(idx)) return `#${raw}`;
+      return `图${idx + 1}`;
+    });
   const markLines = marks.length > 0 ? marks.map(describeMark).join('\n') : '无';
   const refLines =
-    refUrls.length > 0 ? refUrls.map((u, idx) => `#${idx + 1}: ${u}`).join('\n') : '无';
+    refUrls.length > 0 ? refUrls.map((u, idx) => `图${idx + 2}: ${u}`).join('\n') : '无';
   const sizeLine = width > 0 && height > 0 ? `width=${width}, height=${height}` : '未知';
+  const imageIndexLines = [
+    '图1=主图（原始上传图）',
+    ...refUrls.map((_, idx) => `图${idx + 2}=参考图#${idx + 1}（image_urls[${idx}]）`),
+    '顺序固定，不得重新理解或交换',
+  ].join('\n');
 
   return [
+    '【系统前缀】',
+    prefix,
+    '',
     '【用户指令】',
-    rawPrompt.trim() || '（空）',
+    rewritePrompt(rawPrompt.trim() || '（空）'),
+    '',
+    '【图像顺序规范】',
+    imageIndexLines,
     '',
     '【标注说明】',
     markLines,
@@ -246,6 +283,9 @@ const buildEditorPrompt = (args: {
     '',
     '【原图尺寸】',
     sizeLine,
+    '',
+    '【输出标准】',
+    outputRules,
   ].join('\n');
 };
 
@@ -374,13 +414,16 @@ const buildAiEditorDoc = (
   promptExample: string,
   refUrls: string[],
 ) => {
-  const prompt = promptExample || '【用户指令】\\n@标注1 把这段文字改成“新年快乐”\\n\\n【标注说明】\\n@标注1（矩形）：left=120(0.12), top=80(0.08), width=240(0.24), height=60(0.06)\\n\\n【参考图】\\n#1: https://...\\n\\n【原图尺寸】\\nwidth=1000, height=800';
+  const prompt =
+    promptExample ||
+    '【用户指令】\\n@标注1 把这段文字改成“新年快乐”，字体风格参考 图2\\n\\n【图像编号】\\n图1=主图\\n图2=参考图#1\\n\\n【标注说明】\\n@标注1（矩形）：left=120(0.12), top=80(0.08), width=240(0.24), height=60(0.06)\\n\\n【参考图】\\n图2: https://...\\n\\n【原图尺寸】\\nwidth=1000, height=800';
   const imageUrls = refUrls.length > 0 ? refUrls.join(',') : 'https://...';
   return [
     '【提示词重组方法】',
     '1) 用户在图片上完成标注，系统为每个标注分配 @标注1/@标注2…',
-    '2) 参考图按上传顺序编号为 #1/#2…，并用英文逗号拼接 image_urls',
-    '3) 最终 prompt = 用户指令 + 标注说明 + 参考图映射 + 原图尺寸（像素/比例）',
+    '2) 参考图按上传顺序编号为 #1/#2…（模型侧=图2/图3…，图1固定为主图）',
+    '3) prompt 内的 #1/#2 会自动改写成 图2/图3，保证模型能理解对应图片',
+    '4) 最终 prompt = 用户指令 + 图像编号 + 标注说明 + 参考图映射 + 原图尺寸（像素/比例）',
     '',
     '【调用示例】',
     'curl -X POST \"$COZE_BASE_URL/v1/workflow/run\" \\\\',
@@ -834,6 +877,7 @@ export function App() {
 
   const [editorTool, setEditorTool] = useState<EditorTool>('rect');
   const [editorPrompt, setEditorPrompt] = useState('');
+  const [editorPromptHint, setEditorPromptHint] = useState<PromptHint | null>(null);
   const [editorMarks, setEditorMarks] = useState<EditorMark[]>([]);
   const [editorRefs, setEditorRefs] = useState<string[]>([]);
   const [editorRefDraft, setEditorRefDraft] = useState('');
@@ -847,6 +891,7 @@ export function App() {
   const editorIdRef = useRef(1);
   const editorContainerRef = useRef<HTMLDivElement | null>(null);
   const editorImageRef = useRef<HTMLImageElement | null>(null);
+  const editorPromptRef = useRef<HTMLTextAreaElement | null>(null);
   const editorRefUploadRef = useRef<HTMLInputElement | null>(null);
 
   // Keep tool run history and global task list separate.
@@ -909,6 +954,80 @@ export function App() {
       imageSize: { width: editorImageMeta.naturalW, height: editorImageMeta.naturalH },
     });
   }, [editorPrompt, editorMarks, editorRefs, editorImageMeta, isAiEditor]);
+
+  const updateEditorPromptHint = useCallback(
+    (value: string) => {
+      if (!isAiEditor) {
+        setEditorPromptHint(null);
+        return;
+      }
+      const el = editorPromptRef.current;
+      const pos = el?.selectionStart ?? value.length;
+      const before = value.slice(0, pos);
+      const lastAt = before.lastIndexOf('@');
+      const lastHash = before.lastIndexOf('#');
+      const symbolIndex = Math.max(lastAt, lastHash);
+      if (symbolIndex < 0) {
+        setEditorPromptHint(null);
+        return;
+      }
+      const symbol = before[symbolIndex];
+      const query = before.slice(symbolIndex + 1);
+      if (/\s/.test(query)) {
+        setEditorPromptHint(null);
+        return;
+      }
+      setEditorPromptHint({
+        type: symbol === '@' ? 'mark' : 'ref',
+        query,
+        start: symbolIndex,
+        end: pos,
+      });
+    },
+    [isAiEditor],
+  );
+
+  const promptHintOptions = useMemo(() => {
+    if (!editorPromptHint) return [];
+    if (editorPromptHint.type === 'mark') {
+      return editorMarks
+        .map((mark, idx) => {
+          const name = mark.name || `标注${idx + 1}`;
+          return { label: `@${name}`, token: `@${name}` };
+        })
+        .filter((item) => !editorPromptHint.query || item.label.includes(editorPromptHint.query));
+    }
+    return editorRefs
+      .map((url, idx) => ({
+        label: `#${idx + 1}（图${idx + 2}）`,
+        token: `#${idx + 1}`,
+        url,
+      }))
+      .filter((item) => !editorPromptHint.query || item.label.includes(editorPromptHint.query));
+  }, [editorPromptHint, editorMarks, editorRefs]);
+
+  const applyPromptHint = useCallback(
+    (token: string) => {
+      const el = editorPromptRef.current;
+      const value = editorPrompt;
+      if (!el) return;
+      const start = editorPromptHint ? editorPromptHint.start : el.selectionStart ?? value.length;
+      const end = editorPromptHint ? editorPromptHint.end : el.selectionStart ?? value.length;
+      const next = `${value.slice(0, start)}${token}${value.slice(end)}`;
+      setEditorPrompt(next);
+      setEditorPromptHint(null);
+      window.requestAnimationFrame(() => {
+        try {
+          el.focus();
+          const cursor = start + token.length;
+          el.setSelectionRange(cursor, cursor);
+        } catch {
+          // ignore
+        }
+      });
+    },
+    [editorPrompt, editorPromptHint],
+  );
 
   const refreshMetrics = async () => {
     const resp = await evalApi.workflowMetrics().catch(() => ({ metrics: {} }));
@@ -1025,10 +1144,15 @@ export function App() {
         defaults[f.name] = '';
       }
     }
+    if (wf.workflow_id === AI_EDITOR_WORKFLOW_ID) {
+      defaults.aspect_ratio = '';
+      defaults.resolution = '';
+    }
     setFormParams(defaults);
     if (wf.workflow_id === AI_EDITOR_WORKFLOW_ID) {
       setEditorTool('rect');
       setEditorPrompt('');
+      setEditorPromptHint(null);
       setEditorMarks([]);
       setEditorRefs([]);
       setEditorRefDraft('');
@@ -1197,6 +1321,20 @@ export function App() {
       pushNotice('error', '请先填写提示词');
       return;
     }
+    if (isAiEditor) {
+      const refsCount = editorRefs.length;
+      const matches = Array.from(editorPrompt.matchAll(/#(\d+)/g));
+      if (matches.length > 0) {
+        const nums = matches
+          .map((m) => Number(m[1]))
+          .filter((n) => Number.isFinite(n) && n > 0);
+        const maxRef = nums.length > 0 ? Math.max(...nums) : 0;
+        if (maxRef > refsCount) {
+          pushNotice('error', `提示词引用了 #${maxRef}，但当前仅有 ${refsCount} 张参考图。`);
+          return;
+        }
+      }
+    }
 
     // Validate required fields in schema (except `prompt`: backend will fallback to " ").
     const missing: string[] = [];
@@ -1265,6 +1403,8 @@ export function App() {
       for (const [k, v] of Object.entries(formParams)) {
         if (isAiEditor && (k === 'prompt' || k === 'image_urls')) continue;
         if (v === '') continue;
+        if (isAiEditor && k === 'aspect_ratio' && String(v).trim() === 'auto') continue;
+        if (isAiEditor && k === 'resolution' && String(v).trim() === '1K') continue;
         if (typeof v === 'string') {
           parameters[k] = normalizeNumericParam(k, v);
         } else {
@@ -2126,7 +2266,7 @@ export function App() {
                                   style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 6, cursor: 'pointer' }}
                                   onClick={() => setLightbox({ url, title: `参考图 #${idx + 1}` })}
                                 />
-                                <Typography.Text theme="secondary">#{idx + 1}</Typography.Text>
+                                <Typography.Text theme="secondary">#{idx + 1}（图{idx + 2}）</Typography.Text>
                               </Space>
                               <Space>
                                 <Button
@@ -2157,13 +2297,54 @@ export function App() {
                   <Card bordered title="提示词（可用 @标注 / #参考图）">
                     <Space direction="vertical" size="small" style={{ width: '100%' }}>
                       <Textarea
+                        ref={editorPromptRef as any}
                         value={editorPrompt}
-                        onChange={(v) => setEditorPrompt(String(v))}
+                        onChange={(v) => {
+                          const next = String(v);
+                          setEditorPrompt(next);
+                          updateEditorPromptHint(next);
+                        }}
+                        onKeyup={() => updateEditorPromptHint(editorPromptRef.current?.value || editorPrompt)}
+                        onClick={() => updateEditorPromptHint(editorPromptRef.current?.value || editorPrompt)}
                         autosize={{ minRows: 4, maxRows: 10 }}
                         placeholder="例如：@标注1 把这段文字改成“新年快乐”，参考 #1 的字体风格"
                       />
+                      {editorPromptHint ? (
+                        <div
+                          style={{
+                            border: '1px solid var(--td-border-level-1-color)',
+                            borderRadius: 8,
+                            padding: 10,
+                            background: 'var(--td-bg-color-container)',
+                          }}
+                        >
+                          <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                            <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                              {editorPromptHint.type === 'mark' ? '选择可用标注' : '选择参考图（模型侧=图2/图3…）'}
+                            </Typography.Text>
+                            {promptHintOptions.length === 0 ? (
+                              <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                                {editorPromptHint.type === 'mark' ? '暂无标注可选。' : '暂无参考图可选。'}
+                              </Typography.Text>
+                            ) : (
+                              <Space breakLine>
+                                {promptHintOptions.map((item) => (
+                                  <Button
+                                    key={item.label}
+                                    size="small"
+                                    variant="outline"
+                                    onClick={() => applyPromptHint(item.token)}
+                                  >
+                                    {item.label}
+                                  </Button>
+                                ))}
+                              </Space>
+                            )}
+                          </Space>
+                        </div>
+                      ) : null}
                       <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
-                        提示词会自动拼接“标注说明 + 参考图映射 + 原图尺寸”，无需手动补充坐标。
+                        提示词会自动拼接“图像编号 + 标注说明 + 参考图映射 + 原图尺寸”，并将 #1/#2 改写为 图2/图3。
                       </Typography.Text>
                     </Space>
                   </Card>

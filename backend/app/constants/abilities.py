@@ -853,6 +853,7 @@ def _kie_metadata(
     requires_image_input: bool,
     input_array_target: str | None = None,
     supports_vision: bool | None = None,
+    auto_fill_size: bool | None = None,
 ) -> dict[str, Any]:
     metadata: dict[str, Any] = {
         "executor_type": "kie",
@@ -870,6 +871,8 @@ def _kie_metadata(
         metadata["supports_vision"] = True
     if input_array_target:
         metadata["input_array_target"] = input_array_target
+    if auto_fill_size is not None:
+        metadata["auto_fill_size"] = auto_fill_size
     return metadata
 
 
@@ -1102,6 +1105,7 @@ KIE_MARKET_ABILITIES: dict[str, AbilityDefinition] = {
             requires_image_input=True,
             input_array_target="image_input",
             supports_vision=True,
+            auto_fill_size=True,
         ),
     },
     "flux2_pro_image_to_image": {

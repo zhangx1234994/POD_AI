@@ -923,19 +923,31 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         "version": "v1",
         "workflow_id": "7604714915110060032",
         "status": "active",
-        "notes": "AI 图片编辑器：主图 + 标注 + 参考图，输出回调 task id。提示词需包含编辑意图。",
+        "notes": "AI 图片编辑器（业务接入版）：输入主图+标注+参考图，输出回调 task id。主图=图1，参考图从图2开始编号；提示词支持 @标注 与 #参考图（#1 对应 图2）。若不传画幅/分辨率则自动跟随原图尺寸。",
         "parameters_schema": {
             "fields": [
-                {"name": "url", "label": "主图 URL", "type": "text", "required": True},
+                {
+                    "name": "url",
+                    "label": "主图 URL",
+                    "type": "text",
+                    "required": True,
+                    "description": "必填。主图=图1；用于标注与编辑的原始图片。",
+                },
                 {
                     "name": "image_urls",
                     "label": "参考图 URLs（逗号分隔）",
                     "type": "text",
                     "required": False,
                     "defaultValue": "",
-                    "description": "多张参考图用英文逗号分隔，会按 #1/#2... 排序。",
+                    "description": "可选。多张参考图用英文逗号或换行分隔，会按 #1/#2... 排序（模型侧=图2/图3…）。",
                 },
-                {"name": "prompt", "label": "提示词（含 @ 标注 / # 参考图）", "type": "textarea", "required": True},
+                {
+                    "name": "prompt",
+                    "label": "提示词（含 @ 标注 / # 参考图）",
+                    "type": "textarea",
+                    "required": True,
+                    "description": "必填。示例：@标注1 把文字改成“新年快乐”；@标注2 纹理参考 #1（模型侧=图2）。",
+                },
                 {
                     "name": "output_format",
                     "label": "输出格式",
@@ -953,8 +965,9 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                     "label": "画幅比例",
                     "type": "select",
                     "required": False,
-                    "defaultValue": "auto",
+                    "defaultValue": "",
                     "options": [
+                        {"label": "跟随原图（默认）", "value": ""},
                         {"label": "auto", "value": "auto"},
                         {"label": "1:1", "value": "1:1"},
                         {"label": "4:3", "value": "4:3"},
@@ -962,18 +975,21 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                         {"label": "16:9", "value": "16:9"},
                         {"label": "9:16", "value": "9:16"},
                     ],
+                    "description": "可选。为空=跟随原图；手动选择将强制画幅比例。",
                 },
                 {
                     "name": "resolution",
                     "label": "分辨率",
                     "type": "select",
                     "required": False,
-                    "defaultValue": "1K",
+                    "defaultValue": "",
                     "options": [
+                        {"label": "跟随原图（默认）", "value": ""},
                         {"label": "1K", "value": "1K"},
                         {"label": "2K", "value": "2K"},
                         {"label": "4K", "value": "4K"},
                     ],
+                    "description": "可选。为空=跟随原图；手动选择将强制分辨率。",
                 },
             ]
         },
@@ -1117,6 +1133,16 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
                     dirty = True
         if row.workflow_id == "7598848725942796288":
             # Force-reset to the latest "裂变（商业有提示词）" spec (field list has changed).
+            desired = DEFAULT_EVAL_WORKFLOW_BY_ID.get(row.workflow_id)
+            if desired:
+                if row.parameters_schema != desired.get("parameters_schema"):
+                    row.parameters_schema = desired.get("parameters_schema")
+                    dirty = True
+                if row.output_schema != desired.get("output_schema"):
+                    row.output_schema = desired.get("output_schema")
+                    dirty = True
+        if row.workflow_id == "7604714915110060032":
+            # Ensure AI 图片编辑器参数表单与默认值保持最新。
             desired = DEFAULT_EVAL_WORKFLOW_BY_ID.get(row.workflow_id)
             if desired:
                 if row.parameters_schema != desired.get("parameters_schema"):
