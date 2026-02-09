@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
+import type { ReactNode, MouseEvent as ReactMouseEvent } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
@@ -32,8 +32,22 @@ type RunWithLatest = EvalRun & {
   latest_annotation?: { rating: number; comment?: string | null; created_at: string; created_by: string } | null;
 };
 
+type EditorTool = 'point' | 'rect' | 'circle' | 'freehand';
+
+type EditorPoint = { x: number; y: number };
+
+type EditorMark = {
+  id: string;
+  name: string;
+  type: EditorTool;
+  points: EditorPoint[];
+  created_at: number;
+};
+
 // Keep the evaluation UI sidebar fixed to these 4 business-facing groups.
 const CATEGORY_ORDER = ['花纹提取类', '图延伸类', '四方/两方连续图类', '图裂变', '通用类'];
+
+const AI_EDITOR_WORKFLOW_ID = '7604714915110060032';
 
 const normalizeCategory = (category: string | undefined | null): string => {
   const c = String(category || '').trim();
@@ -127,6 +141,112 @@ const extractOutputField = (value: unknown, key: string): string => {
     return '';
   }
   return '';
+};
+
+const formatEditorToolLabel = (tool: EditorTool): string => {
+  switch (tool) {
+    case 'point':
+      return '点选';
+    case 'rect':
+      return '矩形框选';
+    case 'circle':
+      return '圆形框选';
+    case 'freehand':
+      return '手绘';
+    default:
+      return '标注';
+  }
+};
+
+const buildEditorPrompt = (args: {
+  rawPrompt: string;
+  marks: EditorMark[];
+  refUrls: string[];
+  imageSize: { width: number; height: number };
+}): string => {
+  const { rawPrompt, marks, refUrls, imageSize } = args;
+  const width = Number(imageSize.width || 0);
+  const height = Number(imageSize.height || 0);
+
+  const fmt = (v: number, total: number) => {
+    const rounded = Math.round(v);
+    if (total > 0) {
+      return `${rounded}(${(v / total).toFixed(4)})`;
+    }
+    return String(rounded);
+  };
+
+  const describeMark = (mark: EditorMark, index: number): string => {
+    const label = mark.name || `标注${index + 1}`;
+    const prefix = `@${label}`;
+    const pts = mark.points || [];
+    if (mark.type === 'point' && pts[0]) {
+      const p = pts[0];
+      return `${prefix}（点）：x=${fmt(p.x, width)}, y=${fmt(p.y, height)}`;
+    }
+    if (mark.type === 'rect' && pts.length >= 2) {
+      const a = pts[0];
+      const b = pts[1];
+      const left = Math.min(a.x, b.x);
+      const top = Math.min(a.y, b.y);
+      const w = Math.abs(a.x - b.x);
+      const h = Math.abs(a.y - b.y);
+      return `${prefix}（矩形）：left=${fmt(left, width)}, top=${fmt(top, height)}, width=${fmt(w, width)}, height=${fmt(h, height)}`;
+    }
+    if (mark.type === 'circle' && pts.length >= 2) {
+      const c = pts[0];
+      const edge = pts[1];
+      const r = Math.sqrt((c.x - edge.x) ** 2 + (c.y - edge.y) ** 2);
+      return `${prefix}（圆形）：cx=${fmt(c.x, width)}, cy=${fmt(c.y, height)}, r=${fmt(r, Math.max(width, height))}`;
+    }
+    if (mark.type === 'freehand' && pts.length > 0) {
+      let minX = pts[0].x;
+      let maxX = pts[0].x;
+      let minY = pts[0].y;
+      let maxY = pts[0].y;
+      for (const p of pts) {
+        minX = Math.min(minX, p.x);
+        maxX = Math.max(maxX, p.x);
+        minY = Math.min(minY, p.y);
+        maxY = Math.max(maxY, p.y);
+      }
+      const sample: EditorPoint[] = [];
+      const step = Math.max(1, Math.floor(pts.length / 12));
+      for (let i = 0; i < pts.length; i += step) {
+        sample.push(pts[i]);
+      }
+      if (pts.length > 0 && sample[sample.length - 1] !== pts[pts.length - 1]) {
+        sample.push(pts[pts.length - 1]);
+      }
+      const sampleStr = sample
+        .map((p) => `(${fmt(p.x, width)},${fmt(p.y, height)})`)
+        .join(' ');
+      return `${prefix}（手绘）：bbox=[${fmt(minX, width)},${fmt(minY, height)}]-[${fmt(
+        maxX,
+        width,
+      )},${fmt(maxY, height)}] points=${sampleStr}`;
+    }
+    return `${prefix}（${formatEditorToolLabel(mark.type)}）：无有效坐标`;
+  };
+
+  const markLines = marks.length > 0 ? marks.map(describeMark).join('\n') : '无';
+  const refLines =
+    refUrls.length > 0 ? refUrls.map((u, idx) => `#${idx + 1}: ${u}`).join('\n') : '无';
+  const sizeLine = width > 0 && height > 0 ? `width=${width}, height=${height}` : '未知';
+
+  return [
+    '【用户指令】',
+    rawPrompt.trim() || '（空）',
+    '',
+    '【标注说明】',
+    markLines,
+    '',
+    '【参考图】',
+    refLines,
+    '',
+    '【原图尺寸】',
+    sizeLine,
+  ].join('\n');
 };
 
 const renderOptionTags = (options?: Array<{ label: string; value: string } | string>): ReactNode => {
@@ -246,6 +366,35 @@ const buildCozeDoc = (wf: EvalWorkflowVersion, urlExample: string) => {
     '  -H "Content-Type: application/json" \\',
     `  -d '${JSON.stringify({ workflow_id: wf.workflow_id, parameters: paramsExample }, null, 2)}'`,
   ].join('\n');
+};
+
+const buildAiEditorDoc = (
+  wf: EvalWorkflowVersion,
+  urlExample: string,
+  promptExample: string,
+  refUrls: string[],
+) => {
+  const prompt = promptExample || '【用户指令】\\n@标注1 把这段文字改成“新年快乐”\\n\\n【标注说明】\\n@标注1（矩形）：left=120(0.12), top=80(0.08), width=240(0.24), height=60(0.06)\\n\\n【参考图】\\n#1: https://...\\n\\n【原图尺寸】\\nwidth=1000, height=800';
+  const imageUrls = refUrls.length > 0 ? refUrls.join(',') : 'https://...';
+  return [
+    '【提示词重组方法】',
+    '1) 用户在图片上完成标注，系统为每个标注分配 @标注1/@标注2…',
+    '2) 参考图按上传顺序编号为 #1/#2…，并用英文逗号拼接 image_urls',
+    '3) 最终 prompt = 用户指令 + 标注说明 + 参考图映射 + 原图尺寸（像素/比例）',
+    '',
+    '【调用示例】',
+    'curl -X POST \"$COZE_BASE_URL/v1/workflow/run\" \\\\',
+    '  -H \"Authorization: Bearer $COZE_API_TOKEN\" \\\\',
+    '  -H \"Content-Type: application/json\" \\\\',
+    `  -d '${JSON.stringify(
+      {
+        workflow_id: wf.workflow_id,
+        parameters: { url: urlExample || 'https://...', image_urls: imageUrls, prompt },
+      },
+      null,
+      2,
+    )}'`,
+  ].join('\\n');
 };
 
 const isLikelyImageUrl = (url: string): boolean => {
@@ -683,6 +832,23 @@ export function App() {
   const [uploading, setUploading] = useState(false);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
 
+  const [editorTool, setEditorTool] = useState<EditorTool>('rect');
+  const [editorPrompt, setEditorPrompt] = useState('');
+  const [editorMarks, setEditorMarks] = useState<EditorMark[]>([]);
+  const [editorRefs, setEditorRefs] = useState<string[]>([]);
+  const [editorRefDraft, setEditorRefDraft] = useState('');
+  const [editorDrawing, setEditorDrawing] = useState<EditorMark | null>(null);
+  const [editorImageMeta, setEditorImageMeta] = useState({
+    displayW: 0,
+    displayH: 0,
+    naturalW: 0,
+    naturalH: 0,
+  });
+  const editorIdRef = useRef(1);
+  const editorContainerRef = useRef<HTMLDivElement | null>(null);
+  const editorImageRef = useRef<HTMLImageElement | null>(null);
+  const editorRefUploadRef = useRef<HTMLInputElement | null>(null);
+
   // Keep tool run history and global task list separate.
   // Otherwise, in-flight requests from one view can overwrite the other's list.
   const [toolRuns, setToolRuns] = useState<RunWithLatest[]>([]);
@@ -733,6 +899,16 @@ export function App() {
     () => toolFields.some((f) => f.name === 'url' || f.name === 'Url'),
     [toolFields],
   );
+  const isAiEditor = selectedTool?.workflow_id === AI_EDITOR_WORKFLOW_ID;
+  const editorPromptPreview = useMemo(() => {
+    if (!isAiEditor) return '';
+    return buildEditorPrompt({
+      rawPrompt: editorPrompt,
+      marks: editorMarks,
+      refUrls: editorRefs,
+      imageSize: { width: editorImageMeta.naturalW, height: editorImageMeta.naturalH },
+    });
+  }, [editorPrompt, editorMarks, editorRefs, editorImageMeta, isAiEditor]);
 
   const refreshMetrics = async () => {
     const resp = await evalApi.workflowMetrics().catch(() => ({ metrics: {} }));
@@ -850,7 +1026,138 @@ export function App() {
       }
     }
     setFormParams(defaults);
+    if (wf.workflow_id === AI_EDITOR_WORKFLOW_ID) {
+      setEditorTool('rect');
+      setEditorPrompt('');
+      setEditorMarks([]);
+      setEditorRefs([]);
+      setEditorRefDraft('');
+      setEditorDrawing(null);
+      setEditorImageMeta({ displayW: 0, displayH: 0, naturalW: 0, naturalH: 0 });
+      editorIdRef.current = 1;
+    }
     setActiveView('tool');
+  };
+
+  const syncEditorImageMeta = useCallback(() => {
+    const img = editorImageRef.current;
+    if (!img) return;
+    const rect = img.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    setEditorImageMeta({
+      displayW: rect.width,
+      displayH: rect.height,
+      naturalW: img.naturalWidth || rect.width,
+      naturalH: img.naturalHeight || rect.height,
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!isAiEditor || !formUrl.trim()) return;
+    syncEditorImageMeta();
+    const handleResize = () => syncEditorImageMeta();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [formUrl, isAiEditor, syncEditorImageMeta]);
+
+  useEffect(() => {
+    if (!isAiEditor) return;
+    if (!formUrl.trim()) {
+      setEditorMarks([]);
+      setEditorDrawing(null);
+    }
+  }, [formUrl, isAiEditor]);
+
+  const getEditorDisplayPoint = (evt: ReactMouseEvent): EditorPoint | null => {
+    const container = editorContainerRef.current;
+    if (!container) return null;
+    const rect = container.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
+    const x = Math.max(0, Math.min(rect.width, evt.clientX - rect.left));
+    const y = Math.max(0, Math.min(rect.height, evt.clientY - rect.top));
+    return { x, y };
+  };
+
+  const toEditorOrigPoint = (p: EditorPoint): EditorPoint => {
+    const { displayW, displayH, naturalW, naturalH } = editorImageMeta;
+    if (!displayW || !displayH) return p;
+    return {
+      x: (p.x * naturalW) / displayW,
+      y: (p.y * naturalH) / displayH,
+    };
+  };
+
+  const toEditorDisplayPoint = (p: EditorPoint): EditorPoint => {
+    const { displayW, displayH, naturalW, naturalH } = editorImageMeta;
+    if (!naturalW || !naturalH) return p;
+    return {
+      x: (p.x * displayW) / naturalW,
+      y: (p.y * displayH) / naturalH,
+    };
+  };
+
+  const createEditorMark = (tool: EditorTool, points: EditorPoint[]): EditorMark => {
+    const seq = editorIdRef.current++;
+    return {
+      id: `mark_${Date.now()}_${seq}`,
+      name: `标注${seq}`,
+      type: tool,
+      points,
+      created_at: Date.now(),
+    };
+  };
+
+  const handleEditorPointerDown = (evt: ReactMouseEvent) => {
+    if (!isAiEditor || !formUrl.trim()) return;
+    const displayPoint = getEditorDisplayPoint(evt);
+    if (!displayPoint) return;
+    const origPoint = toEditorOrigPoint(displayPoint);
+    if (editorTool === 'point') {
+      const mark = createEditorMark('point', [origPoint]);
+      setEditorMarks((prev) => [...prev, mark]);
+      return;
+    }
+    setEditorDrawing(createEditorMark(editorTool, [origPoint]));
+  };
+
+  const handleEditorPointerMove = (evt: ReactMouseEvent) => {
+    if (!editorDrawing) return;
+    const displayPoint = getEditorDisplayPoint(evt);
+    if (!displayPoint) return;
+    const origPoint = toEditorOrigPoint(displayPoint);
+    setEditorDrawing((prev) => {
+      if (!prev) return prev;
+      if (prev.type === 'freehand') {
+        const pts = prev.points;
+        const last = pts[pts.length - 1];
+        const dx = last ? origPoint.x - last.x : 0;
+        const dy = last ? origPoint.y - last.y : 0;
+        if (last && Math.hypot(dx, dy) < 4) return prev;
+        return { ...prev, points: [...pts, origPoint] };
+      }
+      return { ...prev, points: [prev.points[0], origPoint] };
+    });
+  };
+
+  const finalizeEditorDrawing = () => {
+    if (!editorDrawing) return;
+    const mark = editorDrawing;
+    let shouldAdd = true;
+    if (mark.type === 'rect' || mark.type === 'circle') {
+      if (mark.points.length < 2) shouldAdd = false;
+      else {
+        const a = mark.points[0];
+        const b = mark.points[1];
+        if (Math.hypot(a.x - b.x, a.y - b.y) < 6) shouldAdd = false;
+      }
+    }
+    if (mark.type === 'freehand' && mark.points.length < 2) {
+      shouldAdd = false;
+    }
+    if (shouldAdd) {
+      setEditorMarks((prev) => [...prev, mark]);
+    }
+    setEditorDrawing(null);
   };
 
   const groupedDocs = useMemo(() => {
@@ -886,12 +1193,17 @@ export function App() {
       pushNotice('error', '请先填写或上传图片 URL');
       return;
     }
+    if (isAiEditor && !editorPrompt.trim()) {
+      pushNotice('error', '请先填写提示词');
+      return;
+    }
 
     // Validate required fields in schema (except `prompt`: backend will fallback to " ").
     const missing: string[] = [];
     for (const f of getFields(selectedTool)) {
       if (!(f as any)?.required) continue;
       if (f.name === 'url' || f.name === 'Url' || f.name === 'prompt') continue;
+      if (isAiEditor && f.name === 'prompt') continue;
       const v = String((formParams as any)?.[f.name] ?? '').trim();
       if (!v) missing.push((f as any).label || f.name);
     }
@@ -938,7 +1250,20 @@ export function App() {
       if (requiresImage && url) {
         parameters.url = url;
       }
+      if (isAiEditor) {
+        const prompt = buildEditorPrompt({
+          rawPrompt: editorPrompt,
+          marks: editorMarks,
+          refUrls: editorRefs,
+          imageSize: { width: editorImageMeta.naturalW, height: editorImageMeta.naturalH },
+        });
+        parameters.prompt = prompt;
+        if (editorRefs.length > 0) {
+          parameters.image_urls = editorRefs.join(',');
+        }
+      }
       for (const [k, v] of Object.entries(formParams)) {
+        if (isAiEditor && (k === 'prompt' || k === 'image_urls')) continue;
         if (v === '') continue;
         if (typeof v === 'string') {
           parameters[k] = normalizeNumericParam(k, v);
@@ -1490,7 +1815,9 @@ export function App() {
 
   if (activeView === 'tool' && selectedTool) {
     const metric = metrics[selectedTool.id];
-    const doc = buildCozeDoc(selectedTool, formUrl.trim());
+    const doc = isAiEditor
+      ? buildAiEditorDoc(selectedTool, formUrl.trim(), editorPromptPreview, editorRefs)
+      : buildCozeDoc(selectedTool, formUrl.trim());
     return shell(
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
         <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
@@ -1534,126 +1861,518 @@ export function App() {
           {/* TDesign Grid uses a 12-column system; keep spans within 12 to avoid wrapping/empty gaps. */}
           <Col xs={12} xl={5}>
             <Card bordered title="测试参数">
-              <Space direction="vertical" size="large" style={{ width: '100%' }}>
-                {requiresImage ? (
-                  <>
-                    <Space direction="vertical" size={4} style={{ width: '100%' }}>
-                      <Typography.Text>
-                        图片 URL <Typography.Text theme="error">*</Typography.Text>
+              {isAiEditor ? (
+                <Space direction="vertical" size="large" style={{ width: '100%' }}>
+                  <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                    <Typography.Text>
+                      主图 URL <Typography.Text theme="error">*</Typography.Text>
+                    </Typography.Text>
+                    <Space align="center" style={{ width: '100%' }}>
+                      <div style={{ flex: 1 }}>
+                        <Input
+                          value={formUrl}
+                          onChange={(v) => setFormUrl(String(v))}
+                          placeholder="支持粘贴 URL 或上传本地图片"
+                          clearable
+                        />
+                      </div>
+                      <Button variant="outline" loading={uploading} onClick={() => uploadInputRef.current?.click()}>
+                        上传
+                      </Button>
+                      <input
+                        ref={uploadInputRef}
+                        type="file"
+                        accept="image/*"
+                        style={{ display: 'none' }}
+                        disabled={uploading}
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          setUploading(true);
+                          try {
+                            const res = await evalApi.uploadImage(file);
+                            setFormUrl(res.url);
+                          } catch (err) {
+                            console.error(err);
+                            pushNotice('error', String((err as any)?.message || err));
+                          } finally {
+                            setUploading(false);
+                            e.target.value = '';
+                          }
+                        }}
+                      />
+                    </Space>
+                  </Space>
+
+                  <Card bordered title="标注区域（点选 / 矩形 / 圆形 / 手绘）">
+                    <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                      <Space breakLine>
+                        {(['point', 'rect', 'circle', 'freehand'] as EditorTool[]).map((tool) => (
+                          <Button
+                            key={tool}
+                            size="small"
+                            theme={editorTool === tool ? 'primary' : 'default'}
+                            variant={editorTool === tool ? 'base' : 'outline'}
+                            onClick={() => setEditorTool(tool)}
+                          >
+                            {formatEditorToolLabel(tool)}
+                          </Button>
+                        ))}
+                        <Button
+                          size="small"
+                          variant="outline"
+                          onClick={() => {
+                            setEditorMarks([]);
+                            setEditorDrawing(null);
+                          }}
+                        >
+                          清空标注
+                        </Button>
+                      </Space>
+                      <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                        标注会生成 @标注1/@标注2…，可在提示词里直接使用。
                       </Typography.Text>
-                      <Space align="center" style={{ width: '100%' }}>
-                        <div style={{ flex: 1 }}>
-                          <Input
-                            value={formUrl}
-                            onChange={(v) => setFormUrl(String(v))}
-                            placeholder="支持粘贴 URL 或上传本地图片"
-                            clearable
+                      {formUrl.trim() ? (
+                        <div
+                          ref={editorContainerRef}
+                          style={{
+                            position: 'relative',
+                            width: '100%',
+                            border: '1px dashed var(--td-border-level-1-color)',
+                            borderRadius: 8,
+                            overflow: 'hidden',
+                            cursor: 'crosshair',
+                          }}
+                          onMouseDown={handleEditorPointerDown}
+                          onMouseMove={handleEditorPointerMove}
+                          onMouseUp={finalizeEditorDrawing}
+                          onMouseLeave={finalizeEditorDrawing}
+                        >
+                          <img
+                            ref={editorImageRef}
+                            src={formUrl.trim()}
+                            alt="input"
+                            style={{ width: '100%', height: 'auto', display: 'block' }}
+                            onLoad={syncEditorImageMeta}
                           />
+                          <svg
+                            width={editorImageMeta.displayW || '100%'}
+                            height={editorImageMeta.displayH || '100%'}
+                            style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' }}
+                          >
+                            {[...editorMarks, ...(editorDrawing ? [editorDrawing] : [])].map((mark, idx) => {
+                              const pts = mark.points.map(toEditorDisplayPoint);
+                              const label = mark.name || `标注${idx + 1}`;
+                              if (mark.type === 'point' && pts[0]) {
+                                return (
+                                  <g key={mark.id}>
+                                    <circle cx={pts[0].x} cy={pts[0].y} r={4} fill="#f97316" />
+                                    <text x={pts[0].x + 6} y={pts[0].y - 6} fontSize="12" fill="#f97316">
+                                      @{label}
+                                    </text>
+                                  </g>
+                                );
+                              }
+                              if ((mark.type === 'rect' || mark.type === 'circle') && pts.length >= 2) {
+                                const a = pts[0];
+                                const b = pts[1];
+                                const left = Math.min(a.x, b.x);
+                                const top = Math.min(a.y, b.y);
+                                const w = Math.abs(a.x - b.x);
+                                const h = Math.abs(a.y - b.y);
+                                if (mark.type === 'rect') {
+                                  return (
+                                    <g key={mark.id}>
+                                      <rect x={left} y={top} width={w} height={h} fill="none" stroke="#38bdf8" strokeWidth={2} />
+                                      <text x={left + 4} y={top - 6} fontSize="12" fill="#38bdf8">
+                                        @{label}
+                                      </text>
+                                    </g>
+                                  );
+                                }
+                                const cx = (a.x + b.x) / 2;
+                                const cy = (a.y + b.y) / 2;
+                                const r = Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2) / 2;
+                                return (
+                                  <g key={mark.id}>
+                                    <circle cx={cx} cy={cy} r={r} fill="none" stroke="#a855f7" strokeWidth={2} />
+                                    <text x={cx + r + 4} y={cy} fontSize="12" fill="#a855f7">
+                                      @{label}
+                                    </text>
+                                  </g>
+                                );
+                              }
+                              if (mark.type === 'freehand' && pts.length > 1) {
+                                const path = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
+                                const first = pts[0];
+                                return (
+                                  <g key={mark.id}>
+                                    <path d={path} fill="none" stroke="#22c55e" strokeWidth={2} />
+                                    <text x={first.x + 6} y={first.y - 6} fontSize="12" fill="#22c55e">
+                                      @{label}
+                                    </text>
+                                  </g>
+                                );
+                              }
+                              return null;
+                            })}
+                          </svg>
                         </div>
-                        <Button variant="outline" loading={uploading} onClick={() => uploadInputRef.current?.click()}>
+                      ) : (
+                        <Alert theme="info" message="请先上传主图，再进行标注。" />
+                      )}
+                    </Space>
+                  </Card>
+
+                  <Card bordered title={`标注列表（${editorMarks.length}）`}>
+                    {editorMarks.length === 0 ? (
+                      <Typography.Text theme="secondary">暂无标注。</Typography.Text>
+                    ) : (
+                      <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                        {editorMarks.map((mark, idx) => (
+                          <Space key={mark.id} align="center" style={{ width: '100%', justifyContent: 'space-between' }}>
+                            <Space align="center">
+                              <Input
+                                value={mark.name}
+                                style={{ width: 140 }}
+                                onChange={(v) =>
+                                  setEditorMarks((prev) =>
+                                    prev.map((m) => (m.id === mark.id ? { ...m, name: String(v) } : m)),
+                                  )
+                                }
+                              />
+                              <Tag variant="light">{formatEditorToolLabel(mark.type)}</Tag>
+                            </Space>
+                            <Space>
+                              <Button
+                                size="small"
+                                variant="outline"
+                                onClick={() =>
+                                  setEditorPrompt((prev) =>
+                                    `${prev}${prev.trim() ? ' ' : ''}@${mark.name || `标注${idx + 1}`}`.trim(),
+                                  )
+                                }
+                              >
+                                插入 @标注
+                              </Button>
+                              <Button
+                                size="small"
+                                theme="danger"
+                                variant="outline"
+                                onClick={() => setEditorMarks((prev) => prev.filter((m) => m.id !== mark.id))}
+                              >
+                                删除
+                              </Button>
+                            </Space>
+                          </Space>
+                        ))}
+                      </Space>
+                    )}
+                  </Card>
+
+                  <Card bordered title={`参考图（${editorRefs.length}）`}>
+                    <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                      <Space align="center" style={{ width: '100%' }}>
+                        <Input
+                          value={editorRefDraft}
+                          onChange={(v) => setEditorRefDraft(String(v))}
+                          placeholder="粘贴参考图 URL 后点击添加"
+                          clearable
+                        />
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            const url = editorRefDraft.trim();
+                            if (!url) return;
+                            setEditorRefs((prev) => (prev.includes(url) ? prev : [...prev, url]));
+                            setEditorRefDraft('');
+                          }}
+                        >
+                          添加
+                        </Button>
+                        <Button variant="outline" onClick={() => editorRefUploadRef.current?.click()}>
                           上传
                         </Button>
                         <input
-                          ref={uploadInputRef}
+                          ref={editorRefUploadRef}
                           type="file"
                           accept="image/*"
                           style={{ display: 'none' }}
-                          disabled={uploading}
                           onChange={async (e) => {
                             const file = e.target.files?.[0];
                             if (!file) return;
-                            setUploading(true);
                             try {
                               const res = await evalApi.uploadImage(file);
-                              setFormUrl(res.url);
+                              setEditorRefs((prev) => [...prev, res.url]);
                             } catch (err) {
                               console.error(err);
                               pushNotice('error', String((err as any)?.message || err));
                             } finally {
-                              setUploading(false);
                               e.target.value = '';
                             }
                           }}
                         />
                       </Space>
+                      {editorRefs.length === 0 ? (
+                        <Typography.Text theme="secondary">暂无参考图。</Typography.Text>
+                      ) : (
+                        <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                          {editorRefs.map((url, idx) => (
+                            <Space key={`${url}-${idx}`} align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                              <Space align="center">
+                                <img
+                                  src={url}
+                                  alt={`ref-${idx + 1}`}
+                                  style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 6, cursor: 'pointer' }}
+                                  onClick={() => setLightbox({ url, title: `参考图 #${idx + 1}` })}
+                                />
+                                <Typography.Text theme="secondary">#{idx + 1}</Typography.Text>
+                              </Space>
+                              <Space>
+                                <Button
+                                  size="small"
+                                  variant="outline"
+                                  onClick={() =>
+                                    setEditorPrompt((prev) => `${prev}${prev.trim() ? ' ' : ''}#${idx + 1}`.trim())
+                                  }
+                                >
+                                  插入 #参考图
+                                </Button>
+                                <Button
+                                  size="small"
+                                  theme="danger"
+                                  variant="outline"
+                                  onClick={() => setEditorRefs((prev) => prev.filter((_, i) => i !== idx))}
+                                >
+                                  删除
+                                </Button>
+                              </Space>
+                            </Space>
+                          ))}
+                        </Space>
+                      )}
                     </Space>
+                  </Card>
 
-                    {formUrl.trim() ? (
-                      <Card bordered title="原图预览">
-                        <img
-                          src={formUrl.trim()}
-                          alt="input"
-                          style={{ height: 240, width: '100%', objectFit: 'contain', cursor: 'pointer' }}
-                          onClick={() => setLightbox({ url: formUrl.trim(), title: '原图' })}
-                        />
-                      </Card>
-                    ) : null}
-                  </>
-                ) : null}
-
-                <Space direction="vertical" size="large" style={{ width: '100%' }}>
-                  {toolFields
-                    .filter((f) => f.name !== 'url' && f.name !== 'Url')
-                    .map((f) => (
-                      <ParamField
-                        key={f.name}
-                        field={f}
-                        value={formParams[f.name] ?? ''}
-                        onChange={(v) => setFormParams((p) => ({ ...p, [f.name]: v }))}
+                  <Card bordered title="提示词（可用 @标注 / #参考图）">
+                    <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                      <Textarea
+                        value={editorPrompt}
+                        onChange={(v) => setEditorPrompt(String(v))}
+                        autosize={{ minRows: 4, maxRows: 10 }}
+                        placeholder="例如：@标注1 把这段文字改成“新年快乐”，参考 #1 的字体风格"
                       />
-                    ))}
-                </Space>
-
-                <Space style={{ justifyContent: 'flex-end', width: '100%' }}>
-                  <Button
-                    theme="primary"
-                    loading={isRunning}
-                    disabled={isRunning || (requiresImage ? !formUrl.trim() : false)}
-                    onClick={() => void runTool()}
-                  >
-                    开始生成
-                  </Button>
-                </Space>
-
-                <Card
-                  bordered
-                  title={
-                    <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                      <Typography.Text strong>业务接入文档（Coze OpenAPI）</Typography.Text>
-                      <Button
-                        size="small"
-                        variant="outline"
-                        onClick={async () => {
-                          try {
-                            await navigator.clipboard.writeText(doc);
-                            pushNotice('success', '已复制到剪贴板');
-                          } catch {
-                            pushNotice('error', '复制失败（浏览器不支持或权限不足）');
-                          }
-                        }}
-                      >
-                        复制
-                      </Button>
+                      <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                        提示词会自动拼接“标注说明 + 参考图映射 + 原图尺寸”，无需手动补充坐标。
+                      </Typography.Text>
                     </Space>
-                  }
-                >
-                  <pre
-                    style={{
-                      maxHeight: 240,
-                      overflow: 'auto',
-                      border: '1px solid var(--td-border-level-1-color)',
-                      background: 'var(--td-bg-color-secondarycontainer)',
-                      borderRadius: 8,
-                      padding: 12,
-                      fontFamily: 'monospace',
-                      fontSize: 12,
-                      whiteSpace: 'pre',
-                    }}
+                  </Card>
+
+                  <Card bordered title="提示词重组预览（发送给 Coze）">
+                    <pre
+                      style={{
+                        maxHeight: 240,
+                        overflow: 'auto',
+                        border: '1px solid var(--td-border-level-1-color)',
+                        background: 'var(--td-bg-color-secondarycontainer)',
+                        borderRadius: 8,
+                        padding: 12,
+                        fontFamily: 'monospace',
+                        fontSize: 12,
+                        whiteSpace: 'pre-wrap',
+                      }}
+                    >
+                      {editorPromptPreview || '（暂无内容）'}
+                    </pre>
+                  </Card>
+
+                  <Card bordered title="高级参数（可选）">
+                    <Space direction="vertical" size="large" style={{ width: '100%' }}>
+                      {toolFields
+                        .filter((f) => !['url', 'Url', 'prompt', 'image_urls'].includes(f.name))
+                        .map((f) => (
+                          <ParamField
+                            key={f.name}
+                            field={f}
+                            value={formParams[f.name] ?? ''}
+                            onChange={(v) => setFormParams((p) => ({ ...p, [f.name]: v }))}
+                          />
+                        ))}
+                    </Space>
+                  </Card>
+
+                  <Space style={{ justifyContent: 'flex-end', width: '100%' }}>
+                    <Button
+                      theme="primary"
+                      loading={isRunning}
+                      disabled={isRunning || !formUrl.trim()}
+                      onClick={() => void runTool()}
+                    >
+                      开始生成
+                    </Button>
+                  </Space>
+
+                  <Card
+                    bordered
+                    title={
+                      <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                        <Typography.Text strong>业务接入文档（Coze OpenAPI）</Typography.Text>
+                        <Button
+                          size="small"
+                          variant="outline"
+                          onClick={async () => {
+                            try {
+                              await navigator.clipboard.writeText(doc);
+                              pushNotice('success', '已复制到剪贴板');
+                            } catch {
+                              pushNotice('error', '复制失败（浏览器不支持或权限不足）');
+                            }
+                          }}
+                        >
+                          复制
+                        </Button>
+                      </Space>
+                    }
                   >
-                    {doc}
-                  </pre>
-                </Card>
-              </Space>
+                    <pre
+                      style={{
+                        maxHeight: 260,
+                        overflow: 'auto',
+                        border: '1px solid var(--td-border-level-1-color)',
+                        background: 'var(--td-bg-color-secondarycontainer)',
+                        borderRadius: 8,
+                        padding: 12,
+                        fontFamily: 'monospace',
+                        fontSize: 12,
+                        whiteSpace: 'pre',
+                      }}
+                    >
+                      {doc}
+                    </pre>
+                  </Card>
+                </Space>
+              ) : (
+                <Space direction="vertical" size="large" style={{ width: '100%' }}>
+                  {requiresImage ? (
+                    <>
+                      <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                        <Typography.Text>
+                          图片 URL <Typography.Text theme="error">*</Typography.Text>
+                        </Typography.Text>
+                        <Space align="center" style={{ width: '100%' }}>
+                          <div style={{ flex: 1 }}>
+                            <Input
+                              value={formUrl}
+                              onChange={(v) => setFormUrl(String(v))}
+                              placeholder="支持粘贴 URL 或上传本地图片"
+                              clearable
+                            />
+                          </div>
+                          <Button variant="outline" loading={uploading} onClick={() => uploadInputRef.current?.click()}>
+                            上传
+                          </Button>
+                          <input
+                            ref={uploadInputRef}
+                            type="file"
+                            accept="image/*"
+                            style={{ display: 'none' }}
+                            disabled={uploading}
+                            onChange={async (e) => {
+                              const file = e.target.files?.[0];
+                              if (!file) return;
+                              setUploading(true);
+                              try {
+                                const res = await evalApi.uploadImage(file);
+                                setFormUrl(res.url);
+                              } catch (err) {
+                                console.error(err);
+                                pushNotice('error', String((err as any)?.message || err));
+                              } finally {
+                                setUploading(false);
+                                e.target.value = '';
+                              }
+                            }}
+                          />
+                        </Space>
+                      </Space>
+
+                      {formUrl.trim() ? (
+                        <Card bordered title="原图预览">
+                          <img
+                            src={formUrl.trim()}
+                            alt="input"
+                            style={{ height: 240, width: '100%', objectFit: 'contain', cursor: 'pointer' }}
+                            onClick={() => setLightbox({ url: formUrl.trim(), title: '原图' })}
+                          />
+                        </Card>
+                      ) : null}
+                    </>
+                  ) : null}
+
+                  <Space direction="vertical" size="large" style={{ width: '100%' }}>
+                    {toolFields
+                      .filter((f) => f.name !== 'url' && f.name !== 'Url')
+                      .map((f) => (
+                        <ParamField
+                          key={f.name}
+                          field={f}
+                          value={formParams[f.name] ?? ''}
+                          onChange={(v) => setFormParams((p) => ({ ...p, [f.name]: v }))}
+                        />
+                      ))}
+                  </Space>
+
+                  <Space style={{ justifyContent: 'flex-end', width: '100%' }}>
+                    <Button
+                      theme="primary"
+                      loading={isRunning}
+                      disabled={isRunning || (requiresImage ? !formUrl.trim() : false)}
+                      onClick={() => void runTool()}
+                    >
+                      开始生成
+                    </Button>
+                  </Space>
+
+                  <Card
+                    bordered
+                    title={
+                      <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                        <Typography.Text strong>业务接入文档（Coze OpenAPI）</Typography.Text>
+                        <Button
+                          size="small"
+                          variant="outline"
+                          onClick={async () => {
+                            try {
+                              await navigator.clipboard.writeText(doc);
+                              pushNotice('success', '已复制到剪贴板');
+                            } catch {
+                              pushNotice('error', '复制失败（浏览器不支持或权限不足）');
+                            }
+                          }}
+                        >
+                          复制
+                        </Button>
+                      </Space>
+                    }
+                  >
+                    <pre
+                      style={{
+                        maxHeight: 240,
+                        overflow: 'auto',
+                        border: '1px solid var(--td-border-level-1-color)',
+                        background: 'var(--td-bg-color-secondarycontainer)',
+                        borderRadius: 8,
+                        padding: 12,
+                        fontFamily: 'monospace',
+                        fontSize: 12,
+                        whiteSpace: 'pre',
+                      }}
+                    >
+                      {doc}
+                    </pre>
+                  </Card>
+                </Space>
+              )}
             </Card>
           </Col>
 

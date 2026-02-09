@@ -202,3 +202,21 @@
 - 根因：缺少“母机版本清单”与版本对齐策略
 - 改进：补充版本号采集、差异高亮与对齐建议（暂不做一键同步）
 - 状态：待规划
+
+## 2026-02-09
+
+1) **KIE 回调成功但无图片**
+- 范围：KIE 市场模型 / `/api/coze/podi/tasks/get`
+- 现象：`taskStatus=succeeded` 但 `imageUrls` 为空（示例 taskId：`t1.kie.executor_kie_market_default.0e860bd7681542dda28fcc001b2cf372`）
+- 影响：业务链路显示“成功但无结果”，需要人工排查
+- 根因（待确认）：KIE `recordInfo` 的 `resultJson` 未包含 `resultUrls` 或字段变更
+- 建议改进：保留原始 `recordInfo` 片段用于排查；必要时兼容 `data.resultUrls/resultUrl/outputUrls`
+- 状态：观察中（暂不改动，先记录）
+
+2) **Coze 工作流调用超时（7604714915110060032）**
+- 范围：Coze Studio 工作流执行
+- 现象：本地调用超时（请求未进入 workflow 执行阶段）
+- 影响：无法在本机复现/联调
+- 根因（待确认）：网络不可达或端口/路由策略阻断
+- 建议改进：在可直连 Coze 的服务器上执行联调；必要时增加连通性检查与超时日志
+- 状态：待确认

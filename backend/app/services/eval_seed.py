@@ -916,6 +916,74 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
             ]
         },
     },
+    # AI 图片编辑器（KIE nano-banana-pro 图生图编辑）
+    {
+        "category": "通用类",
+        "name": "AI 图片编辑器 · nano_banana_pro_edit",
+        "version": "v1",
+        "workflow_id": "7604714915110060032",
+        "status": "active",
+        "notes": "AI 图片编辑器：主图 + 标注 + 参考图，输出回调 task id。提示词需包含编辑意图。",
+        "parameters_schema": {
+            "fields": [
+                {"name": "url", "label": "主图 URL", "type": "text", "required": True},
+                {
+                    "name": "image_urls",
+                    "label": "参考图 URLs（逗号分隔）",
+                    "type": "text",
+                    "required": False,
+                    "defaultValue": "",
+                    "description": "多张参考图用英文逗号分隔，会按 #1/#2... 排序。",
+                },
+                {"name": "prompt", "label": "提示词（含 @ 标注 / # 参考图）", "type": "textarea", "required": True},
+                {
+                    "name": "output_format",
+                    "label": "输出格式",
+                    "type": "select",
+                    "required": False,
+                    "defaultValue": "png",
+                    "options": [
+                        {"label": "PNG", "value": "png"},
+                        {"label": "JPG", "value": "jpg"},
+                        {"label": "WEBP", "value": "webp"},
+                    ],
+                },
+                {
+                    "name": "aspect_ratio",
+                    "label": "画幅比例",
+                    "type": "select",
+                    "required": False,
+                    "defaultValue": "auto",
+                    "options": [
+                        {"label": "auto", "value": "auto"},
+                        {"label": "1:1", "value": "1:1"},
+                        {"label": "4:3", "value": "4:3"},
+                        {"label": "3:4", "value": "3:4"},
+                        {"label": "16:9", "value": "16:9"},
+                        {"label": "9:16", "value": "9:16"},
+                    ],
+                },
+                {
+                    "name": "resolution",
+                    "label": "分辨率",
+                    "type": "select",
+                    "required": False,
+                    "defaultValue": "1K",
+                    "options": [
+                        {"label": "1K", "value": "1K"},
+                        {"label": "2K", "value": "2K"},
+                        {"label": "4K", "value": "4K"},
+                    ],
+                },
+            ]
+        },
+        "output_schema": {
+            "fields": [
+                {"name": "output", "type": "text", "description": "回调 task id"},
+                {"name": "prompt", "type": "text", "description": "提示词反馈字符串"},
+            ]
+        },
+    },
     # 不建议直接使用：ComfyUI 回调工作流（供后端兜底解析 images）
     {
         "category": "general",

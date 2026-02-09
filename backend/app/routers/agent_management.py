@@ -11,6 +11,7 @@ from fastapi.responses import PlainTextResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 
+from app.core.config import get_settings
 from app.core.db import get_session
 from app.deps.auth import require_admin
 from app.models.agent_management import Agent, AgentAlert, AgentManifest, AgentTask, AgentTaskEvent
@@ -58,8 +59,20 @@ def _extract_bearer_token(request: Request) -> str:
     raise HTTPException(status_code=401, detail="AGENT_TOKEN_REQUIRED")
 
 
+def _is_debug_token(token: str) -> bool:
+    raw = (get_settings().agent_debug_tokens or "").strip()
+    if not raw or not token:
+        return False
+    for entry in raw.split(","):
+        if token == entry.strip():
+            return True
+    return False
+
+
 def _require_agent_token(request: Request, allowed_scopes: set[str] | None = None) -> dict[str, Any]:
     token = _extract_bearer_token(request)
+    if _is_debug_token(token):
+        return {"scope": "debug", "agent_id": None, "task_id": None, "debug": True}
     payload = agent_token_service.decode_token(token)
     if allowed_scopes:
         scope = payload.get("scope")
@@ -70,6 +83,15 @@ def _require_agent_token(request: Request, allowed_scopes: set[str] | None = Non
 
 @agent_router.post("/auth/verify", response_model=schemas.AgentAuthVerifyResponse)
 def verify_agent_token(payload: schemas.AgentAuthVerifyRequest) -> schemas.AgentAuthVerifyResponse:
+    if _is_debug_token(payload.token):
+        return schemas.AgentAuthVerifyResponse(
+            ok=True,
+            agentId=str(payload.agent_id or "debug"),
+            taskId=str(payload.task_id) if payload.task_id else None,
+            expiresAt=None,
+            scope="debug",
+            policy={"allow": True},
+        )
     decoded = agent_token_service.decode_token(payload.token)
     agent_id = decoded.get("agent_id")
     if not agent_id:
@@ -112,6 +134,12 @@ def get_manifest(
     manifest_id: int, request: Request, _: None = Depends(_document_bearer)
 ) -> schemas.AgentManifestRead:
     payload = _require_agent_token(request, allowed_scopes={"task"})
+    if payload.get("debug"):
+        with get_session() as session:
+            manifest = session.get(AgentManifest, manifest_id)
+            if not manifest:
+                raise HTTPException(status_code=404, detail="AGENT_MANIFEST_NOT_FOUND")
+            return schemas.AgentManifestRead.model_validate(manifest)
     task_id = payload.get("task_id")
     if not task_id:
         raise HTTPException(status_code=401, detail="AGENT_TOKEN_PAYLOAD_INVALID")
@@ -137,13 +165,13 @@ def report_task_event(
     _: None = Depends(_document_bearer),
 ) -> schemas.AgentTaskEventRead:
     decoded = _require_agent_token(request, allowed_scopes={"task"})
-    if str(decoded.get("task_id")) != task_id:
+    if not decoded.get("debug") and str(decoded.get("task_id")) != task_id:
         raise HTTPException(status_code=403, detail="AGENT_TASK_FORBIDDEN")
     with get_session() as session:
         task = session.get(AgentTask, task_id)
         if not task:
             raise HTTPException(status_code=404, detail="AGENT_TASK_NOT_FOUND")
-        if str(decoded.get("agent_id")) != task.agent_id:
+        if not decoded.get("debug") and str(decoded.get("agent_id")) != task.agent_id:
             raise HTTPException(status_code=403, detail="AGENT_TASK_FORBIDDEN")
         if task.expires_at and datetime.utcnow() > task.expires_at:
             raise HTTPException(status_code=409, detail="AGENT_TASK_EXPIRED")
@@ -165,13 +193,13 @@ def complete_task(
     _: None = Depends(_document_bearer),
 ) -> schemas.AgentTaskRead:
     decoded = _require_agent_token(request, allowed_scopes={"task"})
-    if str(decoded.get("task_id")) != task_id:
+    if not decoded.get("debug") and str(decoded.get("task_id")) != task_id:
         raise HTTPException(status_code=403, detail="AGENT_TASK_FORBIDDEN")
     with get_session() as session:
         task = session.get(AgentTask, task_id)
         if not task:
             raise HTTPException(status_code=404, detail="AGENT_TASK_NOT_FOUND")
-        if str(decoded.get("agent_id")) != task.agent_id:
+        if not decoded.get("debug") and str(decoded.get("agent_id")) != task.agent_id:
             raise HTTPException(status_code=403, detail="AGENT_TASK_FORBIDDEN")
         if task.expires_at and datetime.utcnow() > task.expires_at:
             raise HTTPException(status_code=409, detail="AGENT_TASK_EXPIRED")
@@ -188,13 +216,13 @@ def fail_task(
     _: None = Depends(_document_bearer),
 ) -> schemas.AgentTaskRead:
     decoded = _require_agent_token(request, allowed_scopes={"task"})
-    if str(decoded.get("task_id")) != task_id:
+    if not decoded.get("debug") and str(decoded.get("task_id")) != task_id:
         raise HTTPException(status_code=403, detail="AGENT_TASK_FORBIDDEN")
     with get_session() as session:
         task = session.get(AgentTask, task_id)
         if not task:
             raise HTTPException(status_code=404, detail="AGENT_TASK_NOT_FOUND")
-        if str(decoded.get("agent_id")) != task.agent_id:
+        if not decoded.get("debug") and str(decoded.get("agent_id")) != task.agent_id:
             raise HTTPException(status_code=403, detail="AGENT_TASK_FORBIDDEN")
         if task.expires_at and datetime.utcnow() > task.expires_at:
             raise HTTPException(status_code=409, detail="AGENT_TASK_EXPIRED")
@@ -215,7 +243,7 @@ def heartbeat(
 ) -> schemas.AgentHeartbeatResponse:
     decoded = _require_agent_token(request, allowed_scopes={"agent", "task"})
     token_agent = decoded.get("agent_id")
-    if token_agent and str(token_agent) != agent_id:
+    if not decoded.get("debug") and token_agent and str(token_agent) != agent_id:
         raise HTTPException(status_code=403, detail="AGENT_NOT_ALLOWED")
     with get_session() as session:
         agent = session.get(Agent, agent_id)
@@ -260,7 +288,7 @@ def alert(
 ) -> schemas.AgentAlertRead:
     decoded = _require_agent_token(request, allowed_scopes={"agent", "task"})
     token_agent = decoded.get("agent_id")
-    if token_agent and str(token_agent) != agent_id:
+    if not decoded.get("debug") and token_agent and str(token_agent) != agent_id:
         raise HTTPException(status_code=403, detail="AGENT_NOT_ALLOWED")
     agent = get_agent_or_404(agent_id)
     ensure_agent_allowed(agent)

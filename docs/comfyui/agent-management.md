@@ -88,6 +88,7 @@
 - 签名密钥由中台统一管理并分发给 Agent 用于验签（Agent 不生成 token）。
 - token `scope` 用于区分任务/心跳/告警；Agent 需按 scope 调用对应接口。
 - 心跳/告警 token 可由管理端接口签发：`POST /api/admin/comfyui/agents/{agent_id}/token`（默认 TTL=`AGENT_HEARTBEAT_TOKEN_TTL`）。
+- **开发环境临时白名单**：设置 `AGENT_DEBUG_TOKENS`（逗号分隔）后，`/api/agent/*` 会接受这些 token 直接通过鉴权（`scope=debug`）。仅限联调用途，线上必须移除。
 
 ### 4.2 握手校验接口
 - 中台提供 `POST /api/agent/auth/verify`。

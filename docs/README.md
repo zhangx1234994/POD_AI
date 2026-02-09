@@ -59,6 +59,7 @@ docs/
 ├── development-guide.md
 ├── error-codes.md
 ├── eval
+│   ├── ai-editor.md
 │   └── eval-platform.md
 ├── release-preflight.md
 ├── retrospectives
@@ -120,6 +121,7 @@ docs/
 
 ### 能力、评测与 ComfyUI
 - `docs/ABILITY_EVALUATION.md`：能力评测概览
+- `docs/eval/ai-editor.md`：AI 图片编辑器（标注与提示词重组方法）
 - `docs/eval/eval-platform.md`：评测平台说明
 - `docs/comfyui/README.md`：ComfyUI 工作流与运维
 - `docs/comfyui/agent-management.md`：ComfyUI 服务器管理（中台↔Agent 协议）
