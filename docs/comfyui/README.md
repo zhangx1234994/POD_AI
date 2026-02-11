@@ -28,6 +28,16 @@
 
 > 说明：本仓库提供差异检测与记录能力，模型/插件的实际安装需由 ComfyUI 服务器侧执行（外部工具/脚本）。
 
+## 并发与超时规则（必须知晓）
+
+- **队列满则拒绝**：同一 ComfyUI 节点的 `queued + running` 达到上限（默认 10）会直接拒绝新任务。  
+- **ComfyUI 不做硬超时失败**：排队等待属于正常状态，轮询超时只代表“同步等待上限”，会返回 `running` 继续由后续轮询收敛。  
+- **第三方能力仍有硬超时**：KIE/Volcengine 等不可控能力保持硬超时策略。  
+
+更多细节请参见：
+- `docs/comfyui-routing-business.md`
+- `docs/comfyui-routing-technical.md`
+
 ## 待办 / 风险记录
 
 - LoRA 可能适用于多个基座模型：已新增 `base_models` 多选字段，旧 `base_model` 仅用于兼容。

@@ -226,6 +226,25 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
                 status="failed",
                 error_message="COMFYUI_TIMEOUT",
             )
+        if outputs.get("timed_out"):
+            state = str(outputs.get("state") or "").lower()
+            if state in {"queued", "running", ""}:
+                status = state if state in {"queued", "running"} else "running"
+                return ExecutionResult(
+                    success=True,
+                    status=status,
+                    progress=0,
+                    result_payload={
+                        "executor": context.executor.id,
+                        "promptId": prompt_id,
+                        "assets": [],
+                        "raw": outputs,
+                        "submit": resp_json,
+                        "status": status,
+                        "state": state or status,
+                        "baseUrl": base_url,
+                    },
+                )
 
         assets = []
         for image in outputs.get("images", []):
@@ -306,6 +325,8 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
     ) -> dict[str, Any] | None:
         start = time.monotonic()
         last_data: dict[str, Any] | None = None
+        last_status_str: str | None = None
+        timed_out = False
         # Some ComfyUI builds create the history entry before all batch images are persisted.
         # We wait for a terminal status (preferred) or for outputs to "stabilize" for a few polls.
         stable_polls = 0
@@ -360,6 +381,8 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
 
             if isinstance(status, dict):
                 status_str = str(status.get("status_str") or "").lower()
+                if status_str:
+                    last_status_str = status_str
                 # "error" is terminal.
                 if status_str == "error":
                     break
@@ -378,6 +401,8 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             if not expected_images and stable_polls >= 2:
                 break
             time.sleep(1)
+        if time.monotonic() - start >= timeout:
+            timed_out = True
 
         if not last_data:
             return None
@@ -433,7 +458,7 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
                             "mime": node_image.get("mime_type"),
                         }
                     )
-        return {"images": images, "history": entry}
+        return {"images": images, "history": entry, "timed_out": timed_out, "state": last_status_str}
 
     def _extract_outputs(self, entry: dict[str, Any], *, output_node_ids: set[str] | None = None) -> dict[str, Any]:
         """Extract images from a ComfyUI history entry.

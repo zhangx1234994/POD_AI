@@ -78,14 +78,41 @@
 
 ---
 
-## 5. 队列查询接口
+## 5. 队列上限与超时策略（关键）
 
-### 5.1 Admin 接口
+### 5.1 队列上限（平台侧保护）
+- 平台会统计 **同一 executor 的 queued + running** 数量。
+- 达到上限后直接拒绝新任务（默认 10），返回 `429` 与错误码 `Q1001`。
+- 该上限是保护 ComfyUI 机器不被打爆的硬规则。
+
+实现位置：
+- `AbilityTaskService.enqueue`（`MAX_QUEUE_PER_EXECUTOR`）
+
+### 5.2 ComfyUI 不做硬超时失败
+- ComfyUI 是自建可观测服务，排队与执行时间可监控。  
+- **超时仅代表“同步等待的轮询上限”**，不会把任务判失败。  
+- 如果轮询超时但 ComfyUI 仍处于 queued/running，结果会返回 `status=running`，由后续轮询收敛。  
+
+实现位置：
+- `ComfyUIExecutorAdapter._poll_history` + `execute`（轮询超时返回 running）
+
+### 5.3 第三方能力仍保留硬超时
+- KIE/Volcengine/Baidu 等不可控，硬超时仍然保留。  
+- 例如 `KIE_TASK_TIMEOUT_SECONDS` 超时后直接失败。  
+
+配置位置：
+- `backend/app/core/config.py`
+
+---
+
+## 6. 队列查询接口
+
+### 6.1 Admin 接口
 - 单台：`GET /api/admin/comfyui/queue-status?executorId=xxx`
 - 汇总：`GET /api/admin/comfyui/queue-summary?executorIds=...`
   - 返回 `totalRunning / totalPending / totalCount / timestamp / servers[]`
 
-### 5.2 Coze 工具箱接口
+### 6.2 Coze 工具箱接口
 - `POST /api/coze/podi/comfyui/queue-summary`
   - body 可为空，可选 `executorIds`
   - 返回字段同上
@@ -94,7 +121,7 @@
 
 ---
 
-## 6. 返回结果中的 executor 信息
+## 7. 返回结果中的 executor 信息
 
 所有能力调用（Ability API / Coze 插件 / Admin 测试）都会在响应里携带：
 - `executorId`：实际执行节点
@@ -104,7 +131,7 @@
 
 ---
 
-## 7. 兼容行为与注意事项
+## 8. 兼容行为与注意事项
 
 - 若 `fallback_to_default=false` 且无匹配节点 → 直接报错
 - WorkflowBinding 只对 action 生效，且只取最高 priority
@@ -114,9 +141,9 @@
 
 ---
 
-## 8. 推荐配置模板
+## 9. 推荐配置模板
 
-### 8.1 Executor（示例）
+### 9.1 Executor（示例）
 ```json
 {
   "type": "comfyui",
@@ -129,7 +156,7 @@
 }
 ```
 
-### 8.2 Ability metadata（示例）
+### 9.2 Ability metadata（示例）
 ```json
 {
   "routing_policy": "queue",

@@ -1140,6 +1140,9 @@ class IntegrationTestService:
         if isinstance(assets, list) and assets:
             first = assets[0] or {}
             stored_url = first.get("ossUrl") or first.get("url")
+        status = payload.get("status") or payload.get("state")
+        if isinstance(status, str):
+            status = status.strip().lower() or None
         # Include executor info to simplify debugging/routing validation.
         config = executor.config or {}
         base_url = (executor.base_url or config.get("baseUrl") or config.get("base_url") or "").rstrip("/")
@@ -1153,6 +1156,9 @@ class IntegrationTestService:
             "assets": assets,
             "raw": payload.get("raw"),
         }
+        if status:
+            result["status"] = status
+            result["state"] = status
         if isinstance(workflow_meta, dict):
             raw_ids = workflow_meta.get("output_node_ids") or workflow_meta.get("outputNodeIds")
             if isinstance(raw_ids, list):
