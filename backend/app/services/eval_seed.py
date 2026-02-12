@@ -1202,6 +1202,47 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
                         f["options"] = desired_options
                         row.parameters_schema = schema
                         dirty = True
+        if row.workflow_id == "7598545860393172992":
+            schema = json.loads(json.dumps(row.parameters_schema or {}, ensure_ascii=False))
+            fields = schema.get("fields") if isinstance(schema, dict) else None
+            if isinstance(fields, list):
+                desired_field = {
+                    "name": "is_raw_prompt",
+                    "label": "提示词模式",
+                    "type": "select",
+                    "required": False,
+                    "defaultValue": "0",
+                    "options": [
+                        {"label": "0 · 用户提示词 + 系统提示词", "value": "0"},
+                        {"label": "1 · 仅使用用户提示词", "value": "1"},
+                    ],
+                    "description": "为空/0=拼接系统提示词；1=只使用用户提示词（系统提示词不生效）",
+                }
+                idx = None
+                existing = None
+                for i, f in enumerate(fields):
+                    if not isinstance(f, dict):
+                        continue
+                    if f.get("name") == "is_raw_prompt":
+                        idx = i
+                        existing = f
+                        break
+                if existing:
+                    if existing != desired_field:
+                        fields[idx] = desired_field
+                        row.parameters_schema = schema
+                        dirty = True
+                else:
+                    insert_at = None
+                    for i, f in enumerate(fields):
+                        if isinstance(f, dict) and f.get("name") == "prompt":
+                            insert_at = i + 1
+                            break
+                    if insert_at is None:
+                        insert_at = len(fields)
+                    fields.insert(insert_at, desired_field)
+                    row.parameters_schema = schema
+                    dirty = True
         if row.workflow_id in {"7597723984687267840", "7598587935331450880"}:
             # Normalize outpaint schema to use `url` as the canonical image key.
             schema = json.loads(json.dumps(row.parameters_schema or {}, ensure_ascii=False))
