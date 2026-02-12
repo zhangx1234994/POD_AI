@@ -128,6 +128,19 @@ curl -sS -X POST "$COZE_BASE_URL/v1/workflow/run" \
   }'
 ```
 
+## 10. 花纹提取 · tiqu_comfyui_20260123_2（新增 is_raw_prompt）
+
+- workflow_id：`7598545860393172992`
+- 出参：`output` 为回调 task id
+- 关键入参：
+  - `url`：图片地址（必填）
+  - `width/height`：输出尺寸（可空）
+  - `prompt`：用户提示词（可空）
+  - `is_raw_prompt`：提示词模式  
+    - 空/`0`：用户提示词 + 系统提示词（默认）  
+    - `1`：仅使用用户提示词（系统提示词不生效）
+  - `lora`：LoRA 选择（可选）
+
 ## 问题与优化记录
 
 - 详见 `docs/standards/issue-improvement-log.md`（滚动维护）。

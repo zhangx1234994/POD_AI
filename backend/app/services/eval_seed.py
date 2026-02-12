@@ -165,13 +165,25 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         "version": "v1",
         "workflow_id": "7598545860393172992",
         "status": "active",
-        "notes": "输出 output 为回调 task id。此版本在工作流侧支持提示词拼接（如启用对应输入字段）。",
+        "notes": "输出 output 为回调 task id。此版本支持 is_raw_prompt 控制提示词拼接。",
         "parameters_schema": {
             "fields": [
                 {"name": "url", "label": "图片 URL", "type": "text", "required": True},
                 {"name": "height", "label": "高度", "type": "text", "required": False, "defaultValue": ""},
                 {"name": "width", "label": "宽度", "type": "text", "required": False, "defaultValue": ""},
                 {"name": "prompt", "label": "提示词", "type": "textarea", "required": False, "defaultValue": ""},
+                {
+                    "name": "is_raw_prompt",
+                    "label": "提示词模式",
+                    "type": "select",
+                    "required": False,
+                    "defaultValue": "0",
+                    "options": [
+                        {"label": "0 · 用户提示词 + 系统提示词", "value": "0"},
+                        {"label": "1 · 仅使用用户提示词", "value": "1"},
+                    ],
+                    "description": "为空/0=拼接系统提示词；1=只使用用户提示词（系统提示词不生效）",
+                },
                 {
                     "name": "lora",
                     "label": "LoRA",
