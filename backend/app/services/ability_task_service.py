@@ -20,12 +20,16 @@ from app.models.integration import Ability, AbilityTask
 from app.models.user import User
 from app.schemas.abilities import AbilityInvokeRequest
 from app.services.ability_invocation import ability_invocation_service
+from app.services.ability_logs import ability_log_service
+from app.services.integration_test import integration_test_service
 from app.services.task_id_codec import decode_task_id
 
 logger = logging.getLogger(__name__)
 
 CLEANUP_TTL_HOURS = 24
 CLEANUP_INTERVAL_SECONDS = 30 * 60
+FINALIZE_INTERVAL_SECONDS = 30
+FINALIZE_BATCH_SIZE = 6
 MAX_QUEUE_PER_EXECUTOR = 10
 ERR_CODE_COMFYUI_QUEUE_FULL = "Q1001"
 ERR_CODE_COMMERCIAL_QUEUE_FULL = "Q2001"
@@ -45,6 +49,7 @@ class AbilityTaskService:
         self._lock = threading.Lock()
         self._cleanup_stale_running_tasks()
         self._start_cleanup_thread()
+        self._start_finalize_thread()
         self._resume_pending_tasks()
 
     def enqueue(self, *, ability_id: str, payload: AbilityInvokeRequest, user: User | None) -> AbilityTask:
@@ -172,6 +177,18 @@ class AbilityTaskService:
         thread = threading.Thread(target=_loop, daemon=True)
         thread.start()
 
+    def _start_finalize_thread(self) -> None:
+        def _loop() -> None:
+            while True:
+                try:
+                    self._finalize_running_kie_tasks()
+                except Exception as exc:  # pragma: no cover - best effort
+                    logger.warning("Finalize KIE tasks failed: %s", exc)
+                time.sleep(FINALIZE_INTERVAL_SECONDS)
+
+        thread = threading.Thread(target=_loop, daemon=True)
+        thread.start()
+
     @staticmethod
     def _is_comfyui_submitted_only(task: AbilityTask) -> bool:
         if (task.ability_provider or "").lower() != "comfyui":
@@ -185,6 +202,128 @@ class AbilityTaskService:
         prompt_id = meta.get("promptId") or meta.get("taskId")
         base_url = meta.get("baseUrl")
         return isinstance(prompt_id, str) and bool(prompt_id.strip()) and isinstance(base_url, str) and bool(base_url.strip())
+
+    def _finalize_running_kie_tasks(self) -> None:
+        settings = get_settings()
+        timeout_seconds = int(getattr(settings, "kie_task_timeout_seconds", 0) or 0)
+        now = datetime.utcnow()
+        with get_session() as session:
+            rows = (
+                session.execute(
+                    select(AbilityTask)
+                    .where(AbilityTask.status == "running")
+                    .where(AbilityTask.ability_provider == "kie")
+                    .order_by(AbilityTask.updated_at.asc())
+                    .limit(FINALIZE_BATCH_SIZE)
+                )
+                .scalars()
+                .all()
+            )
+
+        for task in rows:
+            result_payload = task.result_payload or {}
+            if not isinstance(result_payload, dict):
+                continue
+            meta = result_payload.get("metadata") if isinstance(result_payload.get("metadata"), dict) else {}
+            kie_task_id = meta.get("taskId") or result_payload.get("taskId")
+            executor_id = meta.get("executorId") or result_payload.get("executorId") or result_payload.get("executor")
+            if not (isinstance(kie_task_id, str) and kie_task_id.strip()):
+                continue
+            if not (isinstance(executor_id, str) and executor_id.strip()):
+                continue
+
+            started_at = task.started_at or task.created_at
+            if timeout_seconds > 0 and started_at:
+                elapsed = (now - started_at).total_seconds()
+                if elapsed > timeout_seconds:
+                    with get_session() as session:
+                        db_task = session.get(AbilityTask, task.id)
+                        if db_task:
+                            db_task.status = "failed"
+                            db_task.error_message = "KIE_TIMEOUT"
+                            db_task.finished_at = datetime.utcnow()
+                            try:
+                                db_task.duration_ms = int(elapsed * 1000)
+                            except Exception:
+                                pass
+                            session.add(db_task)
+                            session.commit()
+                            try:
+                                ability_log_service.finish_failure(
+                                    db_task.log_id,
+                                    error_message="KIE_TIMEOUT",
+                                    response_payload=result_payload,
+                                    duration_ms=db_task.duration_ms,
+                                )
+                            except Exception:
+                                pass
+                    continue
+
+            try:
+                fetched = integration_test_service.fetch_kie_market_result(
+                    executor_id=str(executor_id).strip(),
+                    task_id=str(kie_task_id).strip(),
+                    timeout=18.0,
+                    max_retries=1,
+                )
+            except Exception:
+                continue
+
+            state = str(fetched.get("state") or "").lower()
+            urls = fetched.get("resultUrls") if isinstance(fetched.get("resultUrls"), list) else []
+            assets = fetched.get("storedAssets") if isinstance(fetched.get("storedAssets"), list) else []
+
+            if state == "success" and (urls or assets):
+                if not assets and urls:
+                    assets = [{"url": u} for u in urls if isinstance(u, str) and u.strip()]
+                next_payload = dict(result_payload)
+                next_payload["images"] = assets
+                next_payload["assets"] = assets
+                next_payload["status"] = "succeeded"
+                next_payload["state"] = state
+                finished_at = datetime.utcnow()
+                with get_session() as session:
+                    db_task = session.get(AbilityTask, task.id)
+                    if not db_task:
+                        continue
+                    db_task.status = "succeeded"
+                    db_task.result_payload = next_payload
+                    db_task.finished_at = finished_at
+                    if not db_task.duration_ms and db_task.started_at:
+                        try:
+                            db_task.duration_ms = int((finished_at - db_task.started_at).total_seconds() * 1000)
+                        except Exception:
+                            pass
+                    session.add(db_task)
+                    session.commit()
+                    try:
+                        ability_log_service.finish_success(
+                            db_task.log_id,
+                            response_payload=next_payload,
+                            duration_ms=db_task.duration_ms,
+                        )
+                    except Exception:
+                        pass
+                continue
+
+            if state == "fail":
+                with get_session() as session:
+                    db_task = session.get(AbilityTask, task.id)
+                    if db_task:
+                        db_task.status = "failed"
+                        db_task.error_message = "KIE_TASK_FAILED"
+                        db_task.finished_at = datetime.utcnow()
+                        session.add(db_task)
+                        session.commit()
+                        try:
+                            ability_log_service.finish_failure(
+                                db_task.log_id,
+                                error_message="KIE_TASK_FAILED",
+                                response_payload=result_payload,
+                                duration_ms=db_task.duration_ms,
+                            )
+                        except Exception:
+                            pass
 
     def _run_task(self, task_id: str) -> None:
         started_at = datetime.utcnow()
