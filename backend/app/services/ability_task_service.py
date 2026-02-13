@@ -515,12 +515,6 @@ class AbilityTaskService:
                 return response.strip()
             if isinstance(response, dict):
                 code = response.get("code")
-                for key in ("msg", "message", "error_message", "error", "detail"):
-                    val = response.get(key)
-                    if isinstance(val, str) and val.strip():
-                        if code not in (None, ""):
-                            return f"{code} {val}".strip()
-                        return val.strip()
                 record = response.get("data")
                 if isinstance(record, dict):
                     fail_msg = record.get("failMsg") or record.get("failMessage")
@@ -539,6 +533,12 @@ class AbilityTaskService:
                             val = result_json.get(key)
                             if isinstance(val, str) and val.strip():
                                 return val.strip()
+                for key in ("msg", "message", "error_message", "error", "detail"):
+                    val = response.get(key)
+                    if isinstance(val, str) and val.strip():
+                        if code not in (None, ""):
+                            return f"{code} {val}".strip()
+                        return val.strip()
 
         # Some paths include parsed resultObject.
         result_object = payload.get("resultObject")

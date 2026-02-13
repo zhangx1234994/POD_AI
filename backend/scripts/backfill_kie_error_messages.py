@@ -22,7 +22,12 @@ from app.services.ability_task_service import AbilityTaskService
 def _should_backfill_error(message: str | None) -> bool:
     if message is None:
         return True
-    return str(message).strip().upper() in {"", "KIE_TASK_FAILED"}
+    normalized = str(message).strip().lower()
+    if normalized in {"", "kie_task_failed", "200 success", "200"}:
+        return True
+    if normalized.startswith("200 ") and "success" in normalized:
+        return True
+    return False
 
 
 def _extract_message(payload: dict[str, Any] | None) -> str | None:
@@ -43,6 +48,8 @@ def backfill(*, apply: bool, limit: int | None) -> None:
                 AbilityInvocationLog.error_message.is_(None),
                 AbilityInvocationLog.error_message == "",
                 AbilityInvocationLog.error_message == "KIE_TASK_FAILED",
+                AbilityInvocationLog.error_message == "200 success",
+                AbilityInvocationLog.error_message == "200",
             ),
         )
         if limit:
@@ -69,6 +76,8 @@ def backfill(*, apply: bool, limit: int | None) -> None:
                 AbilityTask.error_message.is_(None),
                 AbilityTask.error_message == "",
                 AbilityTask.error_message == "KIE_TASK_FAILED",
+                AbilityTask.error_message == "200 success",
+                AbilityTask.error_message == "200",
             ),
         )
         if limit:
