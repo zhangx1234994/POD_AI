@@ -6,6 +6,9 @@ import json
 import logging
 import secrets
 from datetime import datetime, timedelta, timezone
+import os
+import tempfile
+import time
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -27,6 +30,11 @@ class OssService:
         self._sts_client = self._build_sts_client()
         self._logger = logging.getLogger(__name__)
         self._bucket_client: oss2.Bucket | None = None
+        self._connect_timeout = max(5, int(self.settings.oss_connect_timeout or 120))
+        self._upload_retries = max(1, int(self.settings.oss_upload_retries or 1))
+        self._resumable_threshold = max(1, int(self.settings.oss_resumable_threshold_mb or 8)) * 1024 * 1024
+        self._resumable_part_size = max(1, int(self.settings.oss_resumable_part_size_mb or 8)) * 1024 * 1024
+        self._resumable_threads = max(1, int(self.settings.oss_resumable_threads or 1))
 
     def _build_sts_client(self) -> AcsClient | None:
         if not (self.settings.oss_access_key and self.settings.oss_secret_key and self.settings.oss_role_arn):
@@ -134,7 +142,12 @@ class OssService:
         if not endpoint.startswith("http"):
             endpoint = f"https://{endpoint}"
         auth = oss2.Auth(self.settings.oss_access_key, self.settings.oss_secret_key)
-        self._bucket_client = oss2.Bucket(auth, endpoint, self.settings.oss_bucket)
+        self._bucket_client = oss2.Bucket(
+            auth,
+            endpoint,
+            self.settings.oss_bucket,
+            connect_timeout=self._connect_timeout,
+        )
         return self._bucket_client
 
     def upload_bytes(
@@ -150,7 +163,68 @@ class OssService:
         headers = {}
         if content_type:
             headers["Content-Type"] = content_type
-        bucket.put_object(object_key, data, headers=headers or None)
+        size = len(data)
+        use_resumable = size >= self._resumable_threshold
+
+        def _should_retry(exc: Exception) -> bool:
+            if isinstance(exc, oss2.exceptions.ServerError):
+                return exc.status >= 500 or exc.status in {408, 429}
+            if isinstance(exc, oss2.exceptions.RequestError):
+                return True
+            if isinstance(exc, TimeoutError):
+                return True
+            if isinstance(exc, OSError):
+                return True
+            return False
+
+        def _sleep_for(attempt: int) -> None:
+            base = 0.6
+            delay = base * (2 ** attempt)
+            time.sleep(min(6, delay))
+
+        last_exc: Exception | None = None
+        for attempt in range(self._upload_retries):
+            try:
+                if use_resumable:
+                    with tempfile.NamedTemporaryFile(delete=False) as tmp:
+                        tmp.write(data)
+                        tmp.flush()
+                        os.fsync(tmp.fileno())
+                        tmp_path = tmp.name
+                    try:
+                        oss2.resumable_upload(
+                            bucket,
+                            object_key,
+                            tmp_path,
+                            headers=headers or None,
+                            multipart_threshold=self._resumable_part_size,
+                            part_size=self._resumable_part_size,
+                            num_threads=self._resumable_threads,
+                        )
+                    finally:
+                        try:
+                            os.remove(tmp_path)
+                        except OSError:
+                            pass
+                else:
+                    bucket.put_object(object_key, data, headers=headers or None)
+                last_exc = None
+                break
+            except Exception as exc:  # noqa: BLE001 - we re-raise if retry fails
+                last_exc = exc
+                if attempt >= self._upload_retries - 1 or not _should_retry(exc):
+                    break
+                self._logger.warning(
+                    "OSS upload failed, retrying (%s/%s) object=%s size=%s err=%s",
+                    attempt + 1,
+                    self._upload_retries,
+                    object_key,
+                    size,
+                    exc,
+                )
+                _sleep_for(attempt)
+        if last_exc is not None:
+            raise last_exc
         encoded_key = quote(object_key, safe="/")
         url = f"{self._public_domain.rstrip('/')}/{encoded_key}"
         return {
