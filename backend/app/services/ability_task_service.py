@@ -523,13 +523,19 @@ class AbilityTaskService:
                         return val.strip()
                 record = response.get("data")
                 if isinstance(record, dict):
+                    fail_msg = record.get("failMsg") or record.get("failMessage")
+                    if isinstance(fail_msg, str) and fail_msg.strip():
+                        fail_code = record.get("failCode") or record.get("code")
+                        if fail_code not in (None, ""):
+                            return f"{fail_code} {fail_msg}".strip()
+                        return fail_msg.strip()
                     for key in ("errorMsg", "errorMessage", "error", "msg", "message", "detail"):
                         val = record.get(key)
                         if isinstance(val, str) and val.strip():
                             return val.strip()
                     result_json = record.get("resultJson")
                     if isinstance(result_json, dict):
-                        for key in ("errorMsg", "errorMessage", "error", "msg", "message", "detail"):
+                        for key in ("failMsg", "failMessage", "errorMsg", "errorMessage", "error", "msg", "message", "detail"):
                             val = result_json.get(key)
                             if isinstance(val, str) and val.strip():
                                 return val.strip()
