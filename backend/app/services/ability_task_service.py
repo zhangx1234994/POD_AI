@@ -474,23 +474,75 @@ class AbilityTaskService:
                 continue
 
             if state == "fail":
+                error_message = self._extract_kie_error_message(fetched) or "KIE_TASK_FAILED"
                 with get_session() as session:
                     db_task = session.get(AbilityTask, task.id)
                     if db_task:
                         db_task.status = "failed"
-                        db_task.error_message = "KIE_TASK_FAILED"
+                        db_task.error_message = error_message
                         db_task.finished_at = datetime.utcnow()
                         session.add(db_task)
                         session.commit()
                         try:
                             ability_log_service.finish_failure(
                                 db_task.log_id,
-                                error_message="KIE_TASK_FAILED",
+                                error_message=error_message,
                                 response_payload=result_payload,
                                 duration_ms=db_task.duration_ms,
                             )
                         except Exception:
                             pass
+                continue
+
+    @staticmethod
+    def _extract_kie_error_message(payload: dict[str, Any] | None) -> str | None:
+        if not isinstance(payload, dict):
+            return None
+        # Prefer explicit error fields in the payload.
+        for key in ("error_message", "errorMessage", "error", "msg", "message", "detail"):
+            val = payload.get(key)
+            if isinstance(val, str) and val.strip():
+                code = payload.get("code")
+                if code not in (None, ""):
+                    return f"{code} {val}".strip()
+                return val.strip()
+
+        # Look into raw response from KIE.
+        raw = payload.get("raw")
+        if isinstance(raw, dict):
+            response = raw.get("response")
+            if isinstance(response, str) and response.strip():
+                return response.strip()
+            if isinstance(response, dict):
+                code = response.get("code")
+                for key in ("msg", "message", "error_message", "error", "detail"):
+                    val = response.get(key)
+                    if isinstance(val, str) and val.strip():
+                        if code not in (None, ""):
+                            return f"{code} {val}".strip()
+                        return val.strip()
+                record = response.get("data")
+                if isinstance(record, dict):
+                    for key in ("errorMsg", "errorMessage", "error", "msg", "message", "detail"):
+                        val = record.get(key)
+                        if isinstance(val, str) and val.strip():
+                            return val.strip()
+                    result_json = record.get("resultJson")
+                    if isinstance(result_json, dict):
+                        for key in ("errorMsg", "errorMessage", "error", "msg", "message", "detail"):
+                            val = result_json.get(key)
+                            if isinstance(val, str) and val.strip():
+                                return val.strip()
+
+        # Some paths include parsed resultObject.
+        result_object = payload.get("resultObject")
+        if isinstance(result_object, dict):
+            for key in ("errorMsg", "errorMessage", "error", "msg", "message", "detail"):
+                val = result_object.get(key)
+                if isinstance(val, str) and val.strip():
+                    return val.strip()
+
+        return None
 
     def _run_task(self, task_id: str) -> None:
         started_at = datetime.utcnow()
