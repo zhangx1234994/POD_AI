@@ -621,6 +621,8 @@ def list_run_batches(
     base_stmt = (
         select(
             batch_expr.label("batch_id"),
+            func.min(EvalRun.workflow_version_id).label("workflow_version_id"),
+            func.min(EvalWorkflowVersion.name).label("workflow_name"),
             func.count(EvalRun.id).label("total"),
             func.sum(completed_expr).label("completed"),
             func.sum(queued_expr).label("queued"),
@@ -630,6 +632,8 @@ def list_run_batches(
             func.max(EvalRun.created_at).label("latest_created_at"),
             func.max(EvalRun.updated_at).label("latest_updated_at"),
         )
+        .select_from(EvalRun)
+        .join(EvalWorkflowVersion, EvalWorkflowVersion.id == EvalRun.workflow_version_id, isouter=True)
         .where(batch_expr.is_not(None), batch_expr != "")
         .group_by(batch_expr)
     )
@@ -646,6 +650,8 @@ def list_run_batches(
         items.append(
             {
                 "batchId": str(row.batch_id or ""),
+                "workflowVersionId": str(row.workflow_version_id or "") if row.workflow_version_id else None,
+                "workflowName": str(row.workflow_name or "") if row.workflow_name else None,
                 "total": int(row.total or 0),
                 "completed": int(row.completed or 0),
                 "queued": int(row.queued or 0),

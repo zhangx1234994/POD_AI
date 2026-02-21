@@ -54,6 +54,7 @@
 返回字段（关键）：
 
 - `batchId`
+- `workflowVersionId/workflowName`
 - `total/completed/queued/running/succeeded/failed`
 - `latestCreatedAt/latestUpdatedAt`
 

@@ -123,6 +123,8 @@ export const evalApi = {
       total: number;
       items: Array<{
         batchId: string;
+        workflowVersionId?: string | null;
+        workflowName?: string | null;
         total: number;
         completed: number;
         queued: number;
