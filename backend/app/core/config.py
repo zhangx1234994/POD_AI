@@ -67,7 +67,12 @@ class Settings(BaseSettings):
     agent_manifest_base_url: str | None = Field(default=None, env="AGENT_MANIFEST_BASE_URL")
     executor_config_path: str = Field(default="config/executors.yaml", env="EXECUTOR_CONFIG_PATH")
     ability_task_max_workers: int = Field(default=4, env="ABILITY_TASK_MAX_WORKERS")
+    # Legacy total worker cap for eval runs (kept for backward compatibility).
     eval_run_max_workers: int = Field(default=6, env="EVAL_RUN_MAX_WORKERS")
+    # Eval run worker caps by provider lane.
+    eval_comfyui_run_max_workers: int = Field(default=2, env="EVAL_COMFYUI_RUN_MAX_WORKERS")
+    eval_commercial_run_max_workers: int = Field(default=4, env="EVAL_COMMERCIAL_RUN_MAX_WORKERS")
+    eval_default_run_max_workers: int = Field(default=2, env="EVAL_DEFAULT_RUN_MAX_WORKERS")
     # Fan-out concurrency for "裂变数量" runs (Coze async submit + polling).
     # Default to 1 (sequential) for stability; increase when infra is ready.
     eval_fanout_max_workers: int = Field(default=1, env="EVAL_FANOUT_MAX_WORKERS")

@@ -36,8 +36,19 @@ class EvalService:
     def __init__(self) -> None:
         self._logger = logging.getLogger(__name__)
         settings = get_settings()
-        max_workers = max(1, int(getattr(settings, "eval_run_max_workers", 6)))
-        self._executor = ThreadPoolExecutor(max_workers=max_workers)
+        total_workers = max(1, int(getattr(settings, "eval_run_max_workers", 6)))
+        comfyui_workers = max(1, int(getattr(settings, "eval_comfyui_run_max_workers", 2)))
+        commercial_workers = max(1, int(getattr(settings, "eval_commercial_run_max_workers", 4)))
+        default_workers = max(1, int(getattr(settings, "eval_default_run_max_workers", 2)))
+        # Keep each lane bounded; avoid accidental oversubscription when env is set too large.
+        comfyui_workers = min(comfyui_workers, total_workers)
+        commercial_workers = min(commercial_workers, total_workers)
+        default_workers = min(default_workers, total_workers)
+        self._lane_executors: dict[str, ThreadPoolExecutor] = {
+            "comfyui": ThreadPoolExecutor(max_workers=comfyui_workers),
+            "commercial": ThreadPoolExecutor(max_workers=commercial_workers),
+            "default": ThreadPoolExecutor(max_workers=default_workers),
+        }
         self._lock = threading.Lock()
         # Best-effort: never block API startup on evaluation bookkeeping.
         # (In reload mode, mapper initialization can be sensitive to import order.)
@@ -45,6 +56,60 @@ class EvalService:
             self._resume_pending_runs()
         except Exception as exc:  # pragma: no cover - defensive startup guard
             self._logger.warning("EvalService resume skipped: %s", exc)
+
+    @staticmethod
+    def _infer_provider_lane(
+        workflow_version: EvalWorkflowVersion | None,
+        parameters: dict[str, Any] | None,
+    ) -> str:
+        if isinstance(parameters, dict):
+            explicit = str(
+                parameters.get("__eval_provider_lane")
+                or parameters.get("__provider_lane")
+                or ""
+            ).strip().lower()
+            if explicit in {"comfyui", "commercial", "default"}:
+                return explicit
+            provider_hint = str(parameters.get("provider") or "").strip().lower()
+            if provider_hint in {"comfyui", "commercial", "kie", "volcengine"}:
+                return "comfyui" if provider_hint == "comfyui" else "commercial"
+            if "moxing" in parameters:
+                return "commercial"
+
+        name_text = ""
+        if workflow_version:
+            name_text = f"{workflow_version.name or ''} {workflow_version.notes or ''}".lower()
+        if "comfyui" in name_text:
+            return "comfyui"
+        commercial_keywords = (
+            "商业模型",
+            "commercial",
+            "kie",
+            "volc",
+            "火山",
+            "banana",
+            "flux",
+            "doubao",
+            "seedream",
+            "seedance",
+        )
+        if any(key in name_text for key in commercial_keywords):
+            return "commercial"
+        return "default"
+
+    @staticmethod
+    def _lane_from_parameters(parameters: dict[str, Any] | None) -> str:
+        if not isinstance(parameters, dict):
+            return "default"
+        lane = str(parameters.get("__eval_provider_lane") or "").strip().lower()
+        if lane in {"comfyui", "commercial", "default"}:
+            return lane
+        return "default"
+
+    def _submit_run(self, run_id: str, parameters: dict[str, Any] | None) -> None:
+        lane = self._lane_from_parameters(parameters)
+        executor = self._lane_executors.get(lane) or self._lane_executors["default"]
+        executor.submit(self._execute_run, run_id)
 
     def create_eval_run(
         self,
@@ -129,6 +194,7 @@ class EvalService:
             stripped = _strip_px(normalized_params.get(key))
             if stripped is not None:
                 normalized_params[key] = stripped
+        normalized_params["__eval_provider_lane"] = self._infer_provider_lane(workflow_version, normalized_params)
 
         run = EvalRun(
             id=uuid4().hex,
@@ -143,7 +209,7 @@ class EvalService:
         db.commit()
         db.refresh(run)
 
-        self._executor.submit(self._execute_run, run.id)
+        self._submit_run(run.id, normalized_params)
         return run
 
     @staticmethod
@@ -218,12 +284,15 @@ class EvalService:
 
     def _resume_pending_runs(self) -> None:
         """On process boot, re-queue runs left in queued/running."""
+        pending_rows: list[tuple[str, dict[str, Any] | None]] = []
         with get_session() as session:
-            pending_ids = (
-                session.execute(select(EvalRun.id).where(EvalRun.status.in_(["queued", "running"])))
-                .scalars()
+            pending_rows = (
+                session.execute(
+                    select(EvalRun.id, EvalRun.parameters_json).where(EvalRun.status.in_(["queued", "running"]))
+                )
                 .all()
             )
+            pending_ids = [str(row[0]) for row in pending_rows]
             if pending_ids:
                 session.execute(
                     EvalRun.__table__.update()
@@ -231,8 +300,8 @@ class EvalService:
                     .values(status="queued")
                 )
                 session.commit()
-        for run_id in pending_ids:
-            self._executor.submit(self._execute_run, run_id)
+        for run_id, parameters in pending_rows:
+            self._submit_run(str(run_id), parameters if isinstance(parameters, dict) else None)
 
     @staticmethod
     def _append_run_images(run_id: str, *, image_urls: list[str]) -> None:
@@ -297,6 +366,10 @@ class EvalService:
             # Fan-out (裂变数量): run the same workflow multiple times and aggregate images.
             # Note: `count` is an internal eval control param and is not sent to Coze.
             coze_params = run_parameters.copy()
+            # Internal scheduler flags for eval UI should never be sent to Coze.
+            coze_params.pop("__eval_batch_mode", None)
+            coze_params.pop("__batch_session_id", None)
+            coze_params.pop("__eval_provider_lane", None)
             # UI uses `similarity`; Coze workflows expect legacy `bili`.
             if "bili" not in coze_params and "similarity" in coze_params:
                 coze_params["bili"] = coze_params.get("similarity")
