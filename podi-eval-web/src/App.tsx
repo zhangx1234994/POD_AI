@@ -87,6 +87,18 @@ type LoraBatchItem = {
   runPrompt?: string;
 };
 
+type LoraBatchSession = {
+  batchId: string;
+  total: number;
+  completed: number;
+  queued: number;
+  running: number;
+  succeeded: number;
+  failed: number;
+  latestCreatedAt?: string | null;
+  latestUpdatedAt?: string | null;
+};
+
 // Keep the evaluation UI sidebar fixed to these 5 business-facing groups.
 const CATEGORY_ORDER = ['花纹提取类', '图延伸类', '四方/两方连续图类', '图裂变', '通用类'];
 
@@ -108,6 +120,19 @@ const fitLongestEdge = (width: number, height: number, longest = 1024): { width:
   const w = Math.max(1, Math.round(width * scale));
   const h = Math.max(1, Math.round(height * scale));
   return { width: w, height: h };
+};
+
+const inferFileNameFromUrl = (url: string): string => {
+  const raw = String(url || '').trim();
+  if (!raw) return '未命名图片';
+  try {
+    const u = new URL(raw);
+    const name = decodeURIComponent(String(u.pathname || '').split('/').pop() || '');
+    return name || '未命名图片';
+  } catch {
+    const name = decodeURIComponent(raw.split('?')[0].split('/').pop() || '');
+    return name || '未命名图片';
+  }
 };
 
 const loadImageSizeFromFile = async (file: File): Promise<{ width: number; height: number } | null> => {
@@ -1083,9 +1108,13 @@ export function App() {
   const [batchParamOverrides, setBatchParamOverrides] = useState<Record<string, string>>({});
   const [batchFiles, setBatchFiles] = useState<File[]>([]);
   const [batchSessionId, setBatchSessionId] = useState<string>('');
+  const [batchSessions, setBatchSessions] = useState<LoraBatchSession[]>([]);
   const [batchItems, setBatchItems] = useState<LoraBatchItem[]>([]);
   const [batchReviewMap, setBatchReviewMap] = useState<Record<string, LoraBatchReview>>({});
   const [batchSubmitting, setBatchSubmitting] = useState<boolean>(false);
+  const [batchLoadingSessions, setBatchLoadingSessions] = useState<boolean>(false);
+  const [batchLoadingItems, setBatchLoadingItems] = useState<boolean>(false);
+  const [batchStopping, setBatchStopping] = useState<boolean>(false);
   const batchStopRef = useRef<boolean>(false);
   const batchFileInputRef = useRef<HTMLInputElement | null>(null);
   const batchItemsRef = useRef<LoraBatchItem[]>([]);
@@ -1180,27 +1209,18 @@ export function App() {
       }),
     [batchFields, batchLoraFieldName, batchPromptField],
   );
-  const batchSessionOptions = useMemo(() => {
-    const map = new Map<string, { total: number; completed: number }>();
-    for (const item of batchItems) {
-      const id = String(item.batchId || '').trim();
-      if (!id) continue;
-      if (!map.has(id)) {
-        map.set(id, { total: 0, completed: 0 });
-      }
-      const stat = map.get(id)!;
-      stat.total += 1;
-      if (item.runStatus === 'succeeded' || item.runStatus === 'failed') stat.completed += 1;
-    }
-    return Array.from(map.entries()).map(([id, stat]) => ({
-      label: `${id}（完成 ${stat.completed}/${stat.total}）`,
-      value: id,
-    }));
-  }, [batchItems]);
+  const batchSessionOptions = useMemo(
+    () =>
+      batchSessions.map((item) => ({
+        label: `${item.batchId}（完成 ${item.completed}/${item.total}）`,
+        value: item.batchId,
+      })),
+    [batchSessions],
+  );
   const selectedBatchId = useMemo(() => {
-    if (batchSessionId && batchItems.some((item) => item.batchId === batchSessionId)) return batchSessionId;
-    return String(batchItems.find((item) => item.batchId)?.batchId || '');
-  }, [batchItems, batchSessionId]);
+    if (batchSessionId && batchSessions.some((item) => item.batchId === batchSessionId)) return batchSessionId;
+    return String(batchSessions[0]?.batchId || '');
+  }, [batchSessionId, batchSessions]);
   const visibleBatchItems = useMemo(
     () => (selectedBatchId ? batchItems.filter((item) => item.batchId === selectedBatchId) : []),
     [batchItems, selectedBatchId],
@@ -1529,6 +1549,125 @@ export function App() {
     }
   }, [selectedBatchWorkflow, batchAspectField, batchResolutionField, batchWidthField, batchHeightField]);
 
+  const mapRunToBatchItem = useCallback((run: EvalRun): LoraBatchItem | null => {
+    const params = ((run.parameters_json || {}) as Record<string, unknown>) || {};
+    const batchId = String(params.__batch_session_id || '').trim();
+    if (!batchId) return null;
+    const inputUrl =
+      String(
+        params.url ||
+          params.Url ||
+          params.URL ||
+          (Array.isArray(run.input_oss_urls_json) ? run.input_oss_urls_json[0] : '') ||
+          '',
+      ).trim() || '';
+    const fileName = String(params.__batch_file_name || '').trim() || inferFileNameFromUrl(inputUrl);
+    const sourceKey =
+      String(params.__batch_source_key || '').trim() || `${fileName}::${inputUrl || run.id}`;
+    const repeatIndexRaw = Number(params.__batch_repeat_index || 1);
+    const repeatIndex = Number.isFinite(repeatIndexRaw) && repeatIndexRaw > 0 ? Math.floor(repeatIndexRaw) : 1;
+    const statusRaw = String(run.status || '').toLowerCase();
+    let runStatus: LoraBatchRunStatus = 'unknown';
+    if (statusRaw === 'queued') runStatus = 'queued';
+    else if (statusRaw === 'running') runStatus = 'running';
+    else if (statusRaw === 'failed') runStatus = 'failed';
+    else if (statusRaw === 'succeeded' || statusRaw === 'success') runStatus = 'succeeded';
+    const outputUrls = Array.isArray(run.result_image_urls_json)
+      ? run.result_image_urls_json.map((u) => String(u || '').trim()).filter((u) => Boolean(u))
+      : [];
+    return {
+      key: run.id,
+      batchId,
+      sourceKey,
+      fileName,
+      repeatIndex,
+      status: runStatus === 'failed' ? 'failed' : 'submitted',
+      runId: run.id,
+      inputUrl,
+      error: runStatus === 'failed' ? String(run.error_message || '') : undefined,
+      runStatus,
+      outputCount: outputUrls.length,
+      outputUrls,
+      runPrompt: String(params.prompt || ''),
+      runError: runStatus === 'failed' ? String(run.error_message || '') : undefined,
+    };
+  }, []);
+
+  const loadBatchSessions = useCallback(async () => {
+    if (!selectedBatchWorkflow) {
+      setBatchSessions([]);
+      return;
+    }
+    setBatchLoadingSessions(true);
+    try {
+      const res = await evalApi.listRunBatches({
+        workflow_version_id: selectedBatchWorkflow.id,
+        mine_only: true,
+        limit: 120,
+        offset: 0,
+      });
+      const items = Array.isArray(res.items) ? (res.items as LoraBatchSession[]) : [];
+      setBatchSessions(items);
+      if (!batchSessionId && items[0]?.batchId) {
+        setBatchSessionId(items[0].batchId);
+      } else if (batchSessionId && !items.some((item) => item.batchId === batchSessionId)) {
+        setBatchSessionId(items[0]?.batchId || '');
+      }
+    } catch (err) {
+      pushNotice('error', `加载批次列表失败：${String((err as any)?.message || err || '')}`);
+    } finally {
+      setBatchLoadingSessions(false);
+    }
+  }, [selectedBatchWorkflow, batchSessionId, pushNotice]);
+
+  const loadBatchItems = useCallback(
+    async (batchId: string, opts?: { silent?: boolean }) => {
+      const id = String(batchId || '').trim();
+      if (!id) return;
+      if (!opts?.silent) setBatchLoadingItems(true);
+      try {
+        const pageSize = 200;
+        let offset = 0;
+        let total = 0;
+        const all: EvalRun[] = [];
+        do {
+          const res = await evalApi.listRuns({
+            workflow_version_id: selectedBatchWorkflow?.id,
+            batch_session_id: id,
+            batch_mode: true,
+            mine_only: true,
+            limit: pageSize,
+            offset,
+          });
+          const items = Array.isArray(res.items) ? res.items : [];
+          total = Number(res.total || 0);
+          all.push(...items);
+          offset += items.length;
+          if (items.length === 0) break;
+          if (offset >= 6000) break;
+        } while (offset < total);
+        const mapped = all
+          .map((run) => mapRunToBatchItem(run))
+          .filter((item): item is LoraBatchItem => Boolean(item))
+          .sort((a, b) => {
+            const source = String(a.sourceKey || '').localeCompare(String(b.sourceKey || ''));
+            if (source !== 0) return source;
+            return (a.repeatIndex || 1) - (b.repeatIndex || 1);
+          });
+        setBatchItems((prev) => {
+          const others = prev.filter((item) => item.batchId !== id);
+          const localUnsubmitted = prev.filter((item) => item.batchId === id && !item.runId);
+          return [...mapped, ...localUnsubmitted, ...others];
+        });
+      } catch (err) {
+        pushNotice('error', `加载批次明细失败：${String((err as any)?.message || err || '')}`);
+      } finally {
+        if (!opts?.silent) setBatchLoadingItems(false);
+      }
+    },
+    [selectedBatchWorkflow?.id, mapRunToBatchItem, pushNotice],
+  );
+
   const refreshBatchRunStatus = useCallback(async () => {
     const source = batchItemsRef.current || [];
     const candidates = source.filter(
@@ -1605,12 +1744,33 @@ export function App() {
 
   useEffect(() => {
     if (activeView !== 'loraBatch') return;
+    void loadBatchSessions();
+    const timer = window.setInterval(() => {
+      void loadBatchSessions();
+    }, 6000);
+    return () => window.clearInterval(timer);
+  }, [activeView, loadBatchSessions]);
+
+  useEffect(() => {
+    if (activeView !== 'loraBatch') return;
+    if (!selectedBatchId) return;
+    void loadBatchItems(selectedBatchId);
+  }, [activeView, selectedBatchId, loadBatchItems]);
+
+  useEffect(() => {
+    if (activeView !== 'loraBatch') return;
     const timer = window.setInterval(() => {
       void refreshBatchRunStatus();
+      if (selectedBatchId) {
+        void loadBatchItems(selectedBatchId, { silent: true });
+      }
     }, 3000);
     void refreshBatchRunStatus();
+    if (selectedBatchId) {
+      void loadBatchItems(selectedBatchId, { silent: true });
+    }
     return () => window.clearInterval(timer);
-  }, [activeView, refreshBatchRunStatus]);
+  }, [activeView, refreshBatchRunStatus, selectedBatchId, loadBatchItems]);
 
   useEffect(() => {
     if (activeView !== 'tool' || !selectedTool) return;
@@ -2028,25 +2188,43 @@ export function App() {
       return num || raw;
     };
 
-    const plans: Array<{ key: string; file: File; fileName: string; repeatIndex: number }> = [];
+    const currentBatchId = `batch_${Date.now()}`;
+    const plans: Array<{ key: string; file: File; fileName: string; repeatIndex: number; sourceKey: string }> = [];
     for (let i = 0; i < batchFiles.length; i += 1) {
       const file = batchFiles[i];
       for (let j = 1; j <= repeat; j += 1) {
+        const sourceKey = `${file.name}::${file.size}::${file.lastModified}`;
         plans.push({
-          key: `${i + 1}-${j}`,
+          key: `${currentBatchId}::${i + 1}-${j}`,
           file,
           fileName: file.name,
           repeatIndex: j,
+          sourceKey,
         });
       }
     }
-
-    const currentBatchId = `batch_${Date.now()}`;
     setBatchSessionId(currentBatchId);
+    setBatchSessions((prev) => {
+      if (prev.some((item) => item.batchId === currentBatchId)) return prev;
+      return [
+        {
+          batchId: currentBatchId,
+          total: plannedTotal,
+          completed: 0,
+          queued: plannedTotal,
+          running: 0,
+          succeeded: 0,
+          failed: 0,
+          latestCreatedAt: new Date().toISOString(),
+          latestUpdatedAt: new Date().toISOString(),
+        },
+        ...prev,
+      ];
+    });
     const newBatchItems = plans.map((item) => ({
         key: item.key,
         batchId: currentBatchId,
-        sourceKey: `${item.file.name}::${item.file.size}::${item.file.lastModified}`,
+        sourceKey: item.sourceKey,
         fileName: item.fileName,
         repeatIndex: item.repeatIndex,
         status: 'pending' as const,
@@ -2060,15 +2238,17 @@ export function App() {
       );
     };
 
-    const planByFile = new Map<string, Array<{ key: string; repeatIndex: number }>>();
+    const planByFile = new Map<string, Array<{ key: string; repeatIndex: number; fileName: string; sourceKey: string }>>();
     const fileOrder: File[] = [];
     for (const plan of plans) {
-      const fileKey = `${plan.fileName}::${plan.file.size}::${plan.file.lastModified}`;
+      const fileKey = plan.sourceKey;
       if (!planByFile.has(fileKey)) {
         planByFile.set(fileKey, []);
         fileOrder.push(plan.file);
       }
-      planByFile.get(fileKey)!.push({ key: plan.key, repeatIndex: plan.repeatIndex });
+      planByFile
+        .get(fileKey)!
+        .push({ key: plan.key, repeatIndex: plan.repeatIndex, fileName: plan.fileName, sourceKey: plan.sourceKey });
     }
 
     const fileSizeMap = new Map<string, { width: number; height: number } | null>();
@@ -2083,12 +2263,18 @@ export function App() {
     const buildParameters = (
       url: string,
       imageSize?: { width: number; height: number } | null,
+      planMeta?: { fileName: string; sourceKey: string; repeatIndex: number },
     ): Record<string, unknown> => {
       const parameters: Record<string, unknown> = {
         [selectedBatchWorkflowMeta.urlFieldName]: url,
         __eval_batch_mode: '1',
         __batch_session_id: currentBatchId,
       };
+      if (planMeta) {
+        parameters.__batch_file_name = String(planMeta.fileName || '');
+        parameters.__batch_source_key = String(planMeta.sourceKey || '');
+        parameters.__batch_repeat_index = String(planMeta.repeatIndex || 1);
+      }
       if (selectedBatchWorkflowMeta.urlFieldName !== 'url') {
         // Keep lower-case url for backward compatibility in existing workflow handlers.
         parameters.url = url;
@@ -2199,7 +2385,11 @@ export function App() {
             const run = await evalApi.createRun({
               workflow_version_id: selectedBatchWorkflow.id,
               input_oss_urls_json: [inputUrl],
-              parameters_json: buildParameters(inputUrl, imageSize),
+              parameters_json: buildParameters(inputUrl, imageSize, {
+                fileName: plan.fileName,
+                sourceKey: fileKey,
+                repeatIndex: plan.repeatIndex,
+              }),
             });
             updateItems([plan.key], {
               status: 'submitted',
@@ -2234,6 +2424,8 @@ export function App() {
       } else {
         pushNotice('success', '批量提交完成，系统会自动刷新“已完成”进度');
       }
+      await loadBatchSessions();
+      await loadBatchItems(currentBatchId, { silent: true });
     } catch (err) {
       pushNotice('error', String((err as any)?.message || err || '批量提交失败'));
     } finally {
@@ -2253,6 +2445,25 @@ export function App() {
       };
     });
   }, []);
+
+  const stopSelectedBatch = useCallback(async () => {
+    if (!selectedBatchId) {
+      pushNotice('error', '请先选择要停止的批次');
+      return;
+    }
+    if (!window.confirm(`确认停止批次 ${selectedBatchId} 的未完成任务吗？`)) return;
+    setBatchStopping(true);
+    try {
+      const res = await evalApi.stopRunBatch(selectedBatchId);
+      pushNotice('success', `已停止：评测任务 ${res.stoppedRuns} 条，能力任务 ${res.stoppedTasks} 条`);
+      await loadBatchSessions();
+      await loadBatchItems(selectedBatchId, { silent: true });
+    } catch (err) {
+      pushNotice('error', `停止批次失败：${String((err as any)?.message || err || '')}`);
+    } finally {
+      setBatchStopping(false);
+    }
+  }, [selectedBatchId, loadBatchSessions, loadBatchItems, pushNotice]);
 
   const exportBatchComparisonCsv = useCallback(
     (onlyUnsatisfied: boolean) => {
@@ -3230,6 +3441,9 @@ export function App() {
                       onChange={(v) => setBatchSessionId(String(v))}
                       disabled={batchSessionOptions.length === 0}
                     />
+                    <Typography.Text theme="secondary">
+                      {batchLoadingSessions ? '正在刷新批次列表…' : `历史批次 ${batchSessions.length} 个`}
+                    </Typography.Text>
                   </Space>
                 </Col>
                 <Col xs={6} md={3}>
@@ -3269,9 +3483,20 @@ export function App() {
                   </Space>
                 </Col>
                 <Col xs={12}>
-                  <Typography.Text theme="secondary">
-                    当前测试任务：{selectedBatchId || '未提交'}；提交中：{batchSummary.active}；队列/生成中：{batchSummary.queuedOrRunning}；失败：{batchSummary.failed}。
-                  </Typography.Text>
+                  <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                    <Typography.Text theme="secondary">
+                      当前测试任务：{selectedBatchId || '未提交'}；提交中：{batchSummary.active}；队列/生成中：{batchSummary.queuedOrRunning}；失败：{batchSummary.failed}。
+                    </Typography.Text>
+                    <Button
+                      theme="danger"
+                      variant="outline"
+                      disabled={!selectedBatchId || batchStopping || batchSummary.queuedOrRunning <= 0}
+                      loading={batchStopping}
+                      onClick={() => void stopSelectedBatch()}
+                    >
+                      停止本批次
+                    </Button>
+                  </Space>
                 </Col>
               </Row>
             </Card>
@@ -3285,12 +3510,13 @@ export function App() {
                 </Space>
               }
             >
-              <Table
-                size="small"
-                rowKey="key"
-                data={visibleBatchItems}
-                maxHeight={520}
-                empty={<Typography.Text theme="secondary">暂无批次任务。</Typography.Text>}
+                <Table
+                  size="small"
+                  rowKey="key"
+                  data={visibleBatchItems}
+                  loading={batchLoadingItems}
+                  maxHeight={520}
+                  empty={<Typography.Text theme="secondary">暂无批次任务。</Typography.Text>}
                 columns={[
                   {
                     colKey: 'file',

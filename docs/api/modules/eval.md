@@ -39,6 +39,34 @@
 
 查询评测 run 列表。
 
+常用查询参数：
+
+- `workflow_version_id`：按工作流版本过滤
+- `status`：按状态过滤（`queued/running/succeeded/failed`）
+- `batch_mode=true`：仅查询批测任务（`__eval_batch_mode=1`）
+- `batch_session_id`：按批次 ID 过滤（`__batch_session_id`）
+- `mine_only=true`：仅查询当前浏览器 rater 的任务
+
+### GET /api/evals/runs/batches
+
+查询批次汇总（按 `__batch_session_id` 聚合）。
+
+返回字段（关键）：
+
+- `batchId`
+- `total/completed/queued/running/succeeded/failed`
+- `latestCreatedAt/latestUpdatedAt`
+
+### POST /api/evals/runs/batches/{batch_id}/stop
+
+停止一个批次中尚未完成的任务（`queued/running -> failed`），并同步停止关联能力任务。
+
+返回字段（关键）：
+
+- `batchId`
+- `stoppedRuns`：本次停止的评测任务数
+- `stoppedTasks`：本次停止的能力任务数
+
 ### GET /api/evals/runs/{run_id}
 
 查询单个 run。

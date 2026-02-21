@@ -46,6 +46,8 @@
   - 单批上限 5000 条（图片数 * 测试次数），超过需分批执行
   - 提交进度卡展示：样本图片数、每图测试次数、计划执行条数、已提交执行、已完成执行、有图完成
   - 批次保留：历史批次会保留在页面中，可通过“查看批次”切换，不会因“清空图片”被删除
+  - 批次历史来源：页面优先从后端批次接口加载，不依赖当前浏览器内存；刷新页面后仍可查看历史批次
+  - 批次停止：支持“停止本批次”，会把该批次未完成任务置为失败，避免继续占用服务器资源
   - 自动做必填默认值检查：缺少默认参数时阻止提交并提示补齐能力配置
   - 后端调度隔离：ComfyUI 与商业模型（KIE/火山）分开并发池执行，互不占用执行槽位
   - 页面状态分离：
@@ -75,6 +77,8 @@
 - `GET /api/evals/workflow-versions?status=active`
 - `POST /api/evals/runs`
 - `GET /api/evals/runs`
+- `GET /api/evals/runs/batches`
+- `POST /api/evals/runs/batches/{batch_id}/stop`
 - `GET /api/evals/runs/{run_id}`
 - `POST /api/evals/runs/{run_id}/annotations`
 - `GET /api/evals/docs/workflows`

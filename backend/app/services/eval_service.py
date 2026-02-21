@@ -369,6 +369,9 @@ class EvalService:
             # Internal scheduler flags for eval UI should never be sent to Coze.
             coze_params.pop("__eval_batch_mode", None)
             coze_params.pop("__batch_session_id", None)
+            coze_params.pop("__batch_source_key", None)
+            coze_params.pop("__batch_file_name", None)
+            coze_params.pop("__batch_repeat_index", None)
             coze_params.pop("__eval_provider_lane", None)
             # UI uses `similarity`; Coze workflows expect legacy `bili`.
             if "bili" not in coze_params and "similarity" in coze_params:

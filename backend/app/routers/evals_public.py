@@ -13,12 +13,13 @@ from typing import Any
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, UploadFile, File
-from sqlalchemy import exists, func, select
+from sqlalchemy import case, exists, func, select, update
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.db import get_db
 from app.models.eval import EvalAnnotation, EvalRun, EvalWorkflowVersion
+from app.models.integration import AbilityTask
 from app.schemas.eval import (
     EvalAnnotationCreate,
     EvalAnnotationResponse,
@@ -67,6 +68,14 @@ def _get_or_set_rater_id(request: Request, response: Response) -> str:
         samesite="lax",
     )
     return rid
+
+
+def _batch_session_expr():
+    return func.json_unquote(func.json_extract(EvalRun.parameters_json, "$.__batch_session_id"))
+
+
+def _batch_mode_expr():
+    return func.json_unquote(func.json_extract(EvalRun.parameters_json, "$.__eval_batch_mode"))
 
 
 @router.get("/me")
@@ -548,6 +557,9 @@ def list_runs(
     request: Request,
     response: Response,
     workflow_version_id: str | None = Query(None),
+    batch_session_id: str | None = Query(None),
+    batch_mode: bool | None = Query(None),
+    mine_only: bool = Query(False),
     status: str | None = Query(None),
     unrated: bool | None = Query(None),
     limit: int = Query(50, le=200),
@@ -555,13 +567,24 @@ def list_runs(
     db: Session = Depends(get_db),
 ) -> EvalRunListResponse:
     _require_public_enabled(request)
-    _get_or_set_rater_id(request, response)
+    rater_id = _get_or_set_rater_id(request, response)
 
     stmt = select(EvalRun)
     count_stmt = select(func.count()).select_from(EvalRun)
     if workflow_version_id:
         stmt = stmt.where(EvalRun.workflow_version_id == workflow_version_id)
         count_stmt = count_stmt.where(EvalRun.workflow_version_id == workflow_version_id)
+    if mine_only:
+        stmt = stmt.where(EvalRun.created_by == rater_id)
+        count_stmt = count_stmt.where(EvalRun.created_by == rater_id)
+    if batch_mode is True:
+        batch_mode_expr = _batch_mode_expr()
+        stmt = stmt.where(batch_mode_expr.in_(["1", "true", "True"]))
+        count_stmt = count_stmt.where(batch_mode_expr.in_(["1", "true", "True"]))
+    if batch_session_id:
+        batch_expr = _batch_session_expr()
+        stmt = stmt.where(batch_expr == batch_session_id.strip())
+        count_stmt = count_stmt.where(batch_expr == batch_session_id.strip())
     if status:
         stmt = stmt.where(EvalRun.status == status)
         count_stmt = count_stmt.where(EvalRun.status == status)
@@ -573,6 +596,135 @@ def list_runs(
     total = int(db.execute(count_stmt).scalar_one())
     items = db.execute(stmt.order_by(EvalRun.created_at.desc()).offset(offset).limit(limit)).scalars().all()
     return EvalRunListResponse(total=total, items=items)
+
+
+@router.get("/runs/batches")
+def list_run_batches(
+    request: Request,
+    response: Response,
+    workflow_version_id: str | None = Query(None),
+    mine_only: bool = Query(True),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """List LoRA batch sessions grouped by `__batch_session_id`."""
+    _require_public_enabled(request)
+    rater_id = _get_or_set_rater_id(request, response)
+    batch_expr = _batch_session_expr()
+    completed_expr = case((EvalRun.status.in_(["succeeded", "failed"]), 1), else_=0)
+    queued_expr = case((EvalRun.status == "queued", 1), else_=0)
+    running_expr = case((EvalRun.status == "running", 1), else_=0)
+    succeeded_expr = case((EvalRun.status == "succeeded", 1), else_=0)
+    failed_expr = case((EvalRun.status == "failed", 1), else_=0)
+
+    base_stmt = (
+        select(
+            batch_expr.label("batch_id"),
+            func.count(EvalRun.id).label("total"),
+            func.sum(completed_expr).label("completed"),
+            func.sum(queued_expr).label("queued"),
+            func.sum(running_expr).label("running"),
+            func.sum(succeeded_expr).label("succeeded"),
+            func.sum(failed_expr).label("failed"),
+            func.max(EvalRun.created_at).label("latest_created_at"),
+            func.max(EvalRun.updated_at).label("latest_updated_at"),
+        )
+        .where(batch_expr.is_not(None), batch_expr != "")
+        .group_by(batch_expr)
+    )
+    if workflow_version_id:
+        base_stmt = base_stmt.where(EvalRun.workflow_version_id == workflow_version_id)
+    if mine_only:
+        base_stmt = base_stmt.where(EvalRun.created_by == rater_id)
+    total = int(db.execute(select(func.count()).select_from(base_stmt.subquery())).scalar_one())
+    rows = db.execute(base_stmt.order_by(func.max(EvalRun.created_at).desc()).offset(offset).limit(limit)).all()
+    items: list[dict[str, Any]] = []
+    for row in rows:
+        latest_created = row.latest_created_at.isoformat() if row.latest_created_at else None
+        latest_updated = row.latest_updated_at.isoformat() if row.latest_updated_at else None
+        items.append(
+            {
+                "batchId": str(row.batch_id or ""),
+                "total": int(row.total or 0),
+                "completed": int(row.completed or 0),
+                "queued": int(row.queued or 0),
+                "running": int(row.running or 0),
+                "succeeded": int(row.succeeded or 0),
+                "failed": int(row.failed or 0),
+                "latestCreatedAt": latest_created,
+                "latestUpdatedAt": latest_updated,
+            }
+        )
+    return {"total": total, "items": items}
+
+
+@router.post("/runs/batches/{batch_id}/stop")
+def stop_run_batch(
+    batch_id: str,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Stop queued/running runs in a batch and mark them failed."""
+    _require_public_enabled(request)
+    rater_id = _get_or_set_rater_id(request, response)
+    batch_key = str(batch_id or "").strip()
+    if not batch_key:
+        raise HTTPException(status_code=400, detail="BATCH_ID_REQUIRED")
+
+    batch_expr = _batch_session_expr()
+    rows = db.execute(
+        select(EvalRun.id, EvalRun.podi_task_id)
+        .where(batch_expr == batch_key)
+        .where(EvalRun.created_by == rater_id)
+        .where(EvalRun.status.in_(["queued", "running"]))
+    ).all()
+    if not rows:
+        return {"batchId": batch_key, "stoppedRuns": 0, "stoppedTasks": 0}
+
+    run_ids = [str(row.id) for row in rows]
+    task_ids = [
+        str(row.podi_task_id)
+        for row in rows
+        if isinstance(row.podi_task_id, str) and row.podi_task_id.strip()
+    ]
+    now = datetime.utcnow()
+    stopped_tasks = 0
+    if task_ids:
+        stopped_tasks = (
+            db.execute(
+                update(AbilityTask)
+                .where(AbilityTask.id.in_(task_ids))
+                .where(AbilityTask.status.in_(["queued", "running"]))
+                .values(
+                    status="failed",
+                    error_message="MANUAL_STOP_BY_OPERATOR",
+                    finished_at=now,
+                    updated_at=now,
+                )
+            ).rowcount
+            or 0
+        )
+    stopped_runs = (
+        db.execute(
+            update(EvalRun)
+            .where(EvalRun.id.in_(run_ids))
+            .where(EvalRun.status.in_(["queued", "running"]))
+            .values(
+                status="failed",
+                error_message="MANUAL_STOP_BY_OPERATOR",
+                updated_at=now,
+            )
+        ).rowcount
+        or 0
+    )
+    db.commit()
+    return {
+        "batchId": batch_key,
+        "stoppedRuns": int(stopped_runs),
+        "stoppedTasks": int(stopped_tasks),
+    }
 
 @router.get("/runs/with-latest-annotation", response_model=EvalRunWithLatestAnnotationListResponse)
 def list_runs_with_latest_annotation(

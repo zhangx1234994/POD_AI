@@ -92,15 +92,49 @@ export const evalApi = {
     input_oss_urls_json?: string[];
     parameters_json?: Record<string, unknown>;
   }) => request<EvalRun>('/api/evals/runs', { method: 'POST', body: JSON.stringify(payload) }),
-  listRuns: (params: { workflow_version_id?: string; limit?: number; offset?: number; status?: string; unrated?: boolean }) => {
+  listRuns: (params: {
+    workflow_version_id?: string;
+    batch_session_id?: string;
+    batch_mode?: boolean;
+    mine_only?: boolean;
+    limit?: number;
+    offset?: number;
+    status?: string;
+    unrated?: boolean;
+  }) => {
     const qs = new URLSearchParams();
     if (params.workflow_version_id) qs.set('workflow_version_id', params.workflow_version_id);
+    if (params.batch_session_id) qs.set('batch_session_id', params.batch_session_id);
+    if (params.batch_mode) qs.set('batch_mode', 'true');
+    if (params.mine_only) qs.set('mine_only', 'true');
     qs.set('limit', String(params.limit ?? 50));
     qs.set('offset', String(params.offset ?? 0));
     if (params.status) qs.set('status', params.status);
     if (params.unrated) qs.set('unrated', 'true');
     return request<EvalRunListResponse>(`/api/evals/runs?${qs.toString()}`);
   },
+  listRunBatches: (params: { workflow_version_id?: string; mine_only?: boolean; limit?: number; offset?: number }) => {
+    const qs = new URLSearchParams();
+    if (params.workflow_version_id) qs.set('workflow_version_id', params.workflow_version_id);
+    if (params.mine_only !== false) qs.set('mine_only', 'true');
+    qs.set('limit', String(params.limit ?? 50));
+    qs.set('offset', String(params.offset ?? 0));
+    return request<{
+      total: number;
+      items: Array<{
+        batchId: string;
+        total: number;
+        completed: number;
+        queued: number;
+        running: number;
+        succeeded: number;
+        failed: number;
+        latestCreatedAt?: string | null;
+        latestUpdatedAt?: string | null;
+      }>;
+    }>(`/api/evals/runs/batches?${qs.toString()}`);
+  },
+  stopRunBatch: (batchId: string) => request<{ batchId: string; stoppedRuns: number; stoppedTasks: number }>(`/api/evals/runs/batches/${encodeURIComponent(batchId)}/stop`, { method: 'POST' }),
   getRun: (runId: string) => request<EvalRun>(`/api/evals/runs/${runId}`),
   createAnnotation: (runId: string, payload: { rating: number; comment?: string }) =>
     request(`/api/evals/runs/${runId}/annotations`, { method: 'POST', body: JSON.stringify(payload) }),
