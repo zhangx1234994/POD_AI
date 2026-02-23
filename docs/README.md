@@ -74,10 +74,13 @@ docs/
 ├── error-codes.md
 ├── eval
 │   ├── ai-editor.md
+│   ├── lora-batch-decoupling-design.md
 │   └── eval-platform.md
 ├── release-preflight.md
 ├── retrospectives
-│   └── 2026-02-03.md
+│   ├── 2026-02-03.md
+│   ├── 2026-02-13.md
+│   └── 2026-02-21.md
 ├── smart-polling-mechanism.md
 ├── standards
 │   ├── abstraction-and-decoupling.md
@@ -137,6 +140,7 @@ docs/
 ### 能力、评测与 ComfyUI
 - `docs/ABILITY_EVALUATION.md`：能力评测概览
 - `docs/eval/ai-editor.md`：AI 图片编辑器（标注与提示词重组方法）
+- `docs/eval/lora-batch-decoupling-design.md`：LoRA 批测两阶段解耦设计（状态机与分步实施）
 - `docs/eval/eval-platform.md`：评测平台说明
 - `docs/comfyui/README.md`：ComfyUI 工作流与运维
 - `docs/comfyui/agent-management.md`：ComfyUI 服务器管理（中台↔Agent 协议）
@@ -158,6 +162,8 @@ docs/
 ### 测试、复盘与草案
 - `docs/testing/COZE_WORKFLOW_TEST_PLAN.md`：Coze 工作流测试计划
 - `docs/retrospectives/2026-02-03.md`：复盘纪要
+- `docs/retrospectives/2026-02-13.md`：复盘纪要（休假前记录）
+- `docs/retrospectives/2026-02-21.md`：复盘纪要（文档全量校正）
 - `docs/wip/admin-ia-draft.md`：管理端信息架构草案
 
 ## 维护约定
@@ -165,4 +171,4 @@ docs/
 2. 规划/草案类文档请放入 `docs/wip/` 或在标题标明“计划”。
 3. 重大变更请同步更新 `docs/BUSINESS_MODEL.md` 与 `docs/architecture.md`。
 
-*最后更新: 2026-02-09*
+*最后更新: 2026-02-23*

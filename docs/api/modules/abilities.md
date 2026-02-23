@@ -8,7 +8,7 @@
 ## 鉴权
 
 - **读取清单**：`GET /api/abilities` 无需登录。
-- **调用/任务**：需 `Authorization: Bearer <accessToken>`。
+- **调用/任务**：需 `Authorization: Bearer <accessToken>`，或使用 `SERVICE_API_TOKEN`。
 
 ---
 

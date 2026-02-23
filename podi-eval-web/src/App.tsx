@@ -1134,8 +1134,6 @@ export function App() {
   const [batchStopping, setBatchStopping] = useState<boolean>(false);
   const batchStopRef = useRef<boolean>(false);
   const batchFileInputRef = useRef<HTMLInputElement | null>(null);
-  const batchItemsRef = useRef<LoraBatchItem[]>([]);
-  const batchPollCursorRef = useRef<number>(0);
   const [batchUploadProgress, setBatchUploadProgress] = useState<LoraBatchUploadProgress>({
     batchId: '',
     totalFiles: 0,
@@ -1562,10 +1560,6 @@ export function App() {
   }, [selectedBatchWorkflow, batchFields, batchLoraFieldName]);
 
   useEffect(() => {
-    batchItemsRef.current = batchItems;
-  }, [batchItems]);
-
-  useEffect(() => {
     if (!selectedBatchWorkflow) return;
     if (batchAspectField) {
       const opts = normalizeFieldOptions(batchAspectField, { allowEmpty: true });
@@ -1595,50 +1589,6 @@ export function App() {
       setBatchCustomHeight('');
     }
   }, [selectedBatchWorkflow, batchAspectField, batchResolutionField, batchWidthField, batchHeightField]);
-
-  const mapRunToBatchItem = useCallback((run: EvalRun): LoraBatchItem | null => {
-    const params = ((run.parameters_json || {}) as Record<string, unknown>) || {};
-    const batchId = String(params.__batch_session_id || '').trim();
-    if (!batchId) return null;
-    const inputUrl =
-      String(
-        params.url ||
-          params.Url ||
-          params.URL ||
-          (Array.isArray(run.input_oss_urls_json) ? run.input_oss_urls_json[0] : '') ||
-          '',
-      ).trim() || '';
-    const fileName = String(params.__batch_file_name || '').trim() || inferFileNameFromUrl(inputUrl);
-    const sourceKey =
-      String(params.__batch_source_key || '').trim() || `${fileName}::${inputUrl || run.id}`;
-    const repeatIndexRaw = Number(params.__batch_repeat_index || 1);
-    const repeatIndex = Number.isFinite(repeatIndexRaw) && repeatIndexRaw > 0 ? Math.floor(repeatIndexRaw) : 1;
-    const statusRaw = String(run.status || '').toLowerCase();
-    let runStatus: LoraBatchRunStatus = 'unknown';
-    if (statusRaw === 'queued') runStatus = 'queued';
-    else if (statusRaw === 'running') runStatus = 'running';
-    else if (statusRaw === 'failed') runStatus = 'failed';
-    else if (statusRaw === 'succeeded' || statusRaw === 'success') runStatus = 'succeeded';
-    const outputUrls = Array.isArray(run.result_image_urls_json)
-      ? run.result_image_urls_json.map((u) => String(u || '').trim()).filter((u) => Boolean(u))
-      : [];
-    return {
-      key: run.id,
-      batchId,
-      sourceKey,
-      fileName,
-      repeatIndex,
-      status: runStatus === 'failed' ? 'failed' : 'submitted',
-      runId: run.id,
-      inputUrl,
-      error: runStatus === 'failed' ? String(run.error_message || '') : undefined,
-      runStatus,
-      outputCount: outputUrls.length,
-      outputUrls,
-      runPrompt: String(params.prompt || ''),
-      runError: runStatus === 'failed' ? String(run.error_message || '') : undefined,
-    };
-  }, []);
 
   const loadBatchSessions = useCallback(async (opts?: { silent?: boolean }) => {
     setBatchLoadingSessions(true);
@@ -1671,37 +1621,122 @@ export function App() {
       if (!id) return;
       if (!opts?.silent) setBatchLoadingItems(true);
       try {
-        const pageSize = 200;
-        let offset = 0;
-        let total = 0;
-        const all: EvalRun[] = [];
-        do {
-          const res = await evalApi.listRuns({
-            batch_session_id: id,
-            batch_mode: true,
-            mine_only: false,
-            limit: pageSize,
-            offset,
+        const repeatCount = Math.max(
+          1,
+          Number(batchSessions.find((item) => item.batchId === id)?.expectedRepeat || 0) || 1,
+        );
+        const fetchAllPages = async <T,>(
+          fetcher: (offset: number) => Promise<{ total: number; items: T[] }>,
+        ): Promise<T[]> => {
+          const pageSize = 200;
+          let offset = 0;
+          let total = 0;
+          const out: T[] = [];
+          do {
+            const res = await fetcher(offset);
+            const items = Array.isArray(res.items) ? res.items : [];
+            total = Number(res.total || 0);
+            out.push(...items);
+            offset += items.length;
+            if (items.length === 0) break;
+            if (offset >= 10000) break;
+          } while (offset < total);
+          return out;
+        };
+
+        const [runItems, assets] = await Promise.all([
+          fetchAllPages((offset) => evalApi.listBatchItems(id, { limit: 200, offset })),
+          fetchAllPages((offset) => evalApi.listBatchAssets(id, { limit: 200, offset })),
+        ]);
+
+        const mapped: LoraBatchItem[] = [];
+        const knownRunKeys = new Set<string>();
+        for (const row of runItems) {
+          const sourceKey = String(row.asset_source_key || row.asset_id || '').trim() || `asset_${row.asset_id}`;
+          const repeatIndexRaw = Number(row.repeat_index || 1);
+          const repeatIndex = Number.isFinite(repeatIndexRaw) && repeatIndexRaw > 0 ? Math.floor(repeatIndexRaw) : 1;
+          const itemStatusRaw = String(row.status || '').toLowerCase();
+          const runStatusRaw = String(row.run_status || '').toLowerCase();
+          let status: LoraBatchItemStatus = 'pending';
+          if (itemStatusRaw === 'submitting') status = 'submitting';
+          else if (itemStatusRaw === 'failed' || itemStatusRaw === 'canceled') status = 'failed';
+          else if (itemStatusRaw === 'submitted' || itemStatusRaw === 'running' || itemStatusRaw === 'succeeded') status = 'submitted';
+          let runStatus: LoraBatchRunStatus = 'unknown';
+          if (runStatusRaw === 'queued' || itemStatusRaw === 'submitted') runStatus = 'queued';
+          else if (runStatusRaw === 'running' || itemStatusRaw === 'running') runStatus = 'running';
+          else if (runStatusRaw === 'failed' || itemStatusRaw === 'failed' || itemStatusRaw === 'canceled') runStatus = 'failed';
+          else if (runStatusRaw === 'succeeded' || itemStatusRaw === 'succeeded') runStatus = 'succeeded';
+          const outputUrls = Array.isArray(row.run_output_urls_json)
+            ? row.run_output_urls_json.map((u) => String(u || '').trim()).filter((u) => Boolean(u))
+            : [];
+          const runId = row.eval_run_id ? String(row.eval_run_id) : undefined;
+          const key = runId || `${id}::${sourceKey}::${repeatIndex}`;
+          knownRunKeys.add(`${sourceKey}::${repeatIndex}`);
+          mapped.push({
+            key,
+            batchId: id,
+            sourceKey,
+            fileName: String(row.asset_file_name || '').trim() || inferFileNameFromUrl(String(row.asset_oss_url || '')),
+            repeatIndex,
+            status,
+            runId,
+            inputUrl: String(row.asset_oss_url || '').trim() || undefined,
+            error: String(row.error_message || row.run_error_message || '').trim() || undefined,
+            runStatus,
+            outputCount: outputUrls.length,
+            outputUrls,
+            runPrompt: String(row.run_prompt || '').trim() || undefined,
+            runError: String(row.run_error_message || row.error_message || '').trim() || undefined,
           });
-          const items = Array.isArray(res.items) ? res.items : [];
-          total = Number(res.total || 0);
-          all.push(...items);
-          offset += items.length;
-          if (items.length === 0) break;
-          if (offset >= 6000) break;
-        } while (offset < total);
-        const mapped = all
-          .map((run) => mapRunToBatchItem(run))
-          .filter((item): item is LoraBatchItem => Boolean(item))
-          .sort((a, b) => {
-            const source = String(a.sourceKey || '').localeCompare(String(b.sourceKey || ''));
-            if (source !== 0) return source;
-            return (a.repeatIndex || 1) - (b.repeatIndex || 1);
-          });
+        }
+
+        for (const asset of assets) {
+          const sourceKey = String(asset.source_key || '').trim() || `asset_${asset.id}`;
+          const fileName = String(asset.file_name || '').trim() || inferFileNameFromUrl(String(asset.oss_url || ''));
+          const inputUrl = String(asset.oss_url || '').trim() || undefined;
+          const uploadStatus = String(asset.upload_status || '').toLowerCase();
+          for (let repeatIndex = 1; repeatIndex <= repeatCount; repeatIndex += 1) {
+            const lookup = `${sourceKey}::${repeatIndex}`;
+            if (knownRunKeys.has(lookup)) continue;
+            if (uploadStatus === 'failed') {
+              mapped.push({
+                key: `${id}::${lookup}::upload_failed`,
+                batchId: id,
+                sourceKey,
+                fileName,
+                repeatIndex,
+                status: 'failed',
+                inputUrl,
+                error: String(asset.upload_error_message || asset.upload_error_code || '素材上传失败'),
+                runStatus: 'failed',
+                outputCount: 0,
+                outputUrls: [],
+              });
+              continue;
+            }
+            mapped.push({
+              key: `${id}::${lookup}::pending`,
+              batchId: id,
+              sourceKey,
+              fileName,
+              repeatIndex,
+              status: uploadStatus === 'uploading' ? 'uploading' : 'pending',
+              inputUrl,
+              outputCount: 0,
+              outputUrls: [],
+            });
+          }
+        }
+
+        mapped.sort((a, b) => {
+          const source = String(a.sourceKey || '').localeCompare(String(b.sourceKey || ''));
+          if (source !== 0) return source;
+          return (a.repeatIndex || 1) - (b.repeatIndex || 1);
+        });
+
         setBatchItems((prev) => {
           const others = prev.filter((item) => item.batchId !== id);
-          const localUnsubmitted = prev.filter((item) => item.batchId === id && !item.runId);
-          return [...mapped, ...localUnsubmitted, ...others];
+          return [...mapped, ...others];
         });
         setBatchItemsLoadError('');
       } catch (err) {
@@ -1712,82 +1747,8 @@ export function App() {
         if (!opts?.silent) setBatchLoadingItems(false);
       }
     },
-    [mapRunToBatchItem, pushNotice],
+    [batchSessions, pushNotice],
   );
-
-  const refreshBatchRunStatus = useCallback(async () => {
-    const source = batchItemsRef.current || [];
-    const candidates = source.filter(
-      (item) =>
-        item.status === 'submitted' &&
-        !!item.runId &&
-        (!item.runStatus || item.runStatus === 'queued' || item.runStatus === 'running' || item.runStatus === 'unknown'),
-    );
-    if (candidates.length === 0) return;
-
-    const pageSize = 24;
-    const start = batchPollCursorRef.current % candidates.length;
-    const page: LoraBatchItem[] = [];
-    for (let i = 0; i < Math.min(pageSize, candidates.length); i += 1) {
-      page.push(candidates[(start + i) % candidates.length]);
-    }
-    batchPollCursorRef.current += page.length;
-
-    const chunks: Array<LoraBatchItem[]> = [];
-    const queryConcurrency = 6;
-    for (let i = 0; i < page.length; i += queryConcurrency) {
-      chunks.push(page.slice(i, i + queryConcurrency));
-    }
-
-    const patchMap = new Map<string, Partial<LoraBatchItem>>();
-    for (const chunk of chunks) {
-      const results = await Promise.all(
-        chunk.map(async (item) => {
-          try {
-            const run = await evalApi.getRun(String(item.runId || ''));
-            const statusRaw = String(run.status || '').toLowerCase();
-            let runStatus: LoraBatchRunStatus = 'unknown';
-            if (statusRaw === 'queued') runStatus = 'queued';
-            else if (statusRaw === 'running') runStatus = 'running';
-            else if (statusRaw === 'failed') runStatus = 'failed';
-            else if (statusRaw === 'succeeded' || statusRaw === 'success') runStatus = 'succeeded';
-            const outputUrls = Array.isArray(run.result_image_urls_json)
-              ? run.result_image_urls_json.map((u) => String(u || '').trim()).filter((u) => Boolean(u))
-              : [];
-            return {
-              key: item.key,
-              patch: {
-                runStatus,
-                outputCount: outputUrls.length,
-                outputUrls,
-                runPrompt: String((run.parameters_json as any)?.prompt || ''),
-                runError: runStatus === 'failed' ? String(run.error_message || '') : undefined,
-              } satisfies Partial<LoraBatchItem>,
-            };
-          } catch (err) {
-            return {
-              key: item.key,
-              patch: {
-                runStatus: 'unknown',
-                runError: String((err as any)?.message || err || '状态查询失败'),
-              } satisfies Partial<LoraBatchItem>,
-            };
-          }
-        }),
-      );
-      for (const item of results) {
-        patchMap.set(item.key, item.patch);
-      }
-    }
-
-    if (patchMap.size === 0) return;
-    setBatchItems((prev) =>
-      prev.map((item) => {
-        const patch = patchMap.get(item.key);
-        return patch ? { ...item, ...patch } : item;
-      }),
-    );
-  }, []);
 
   useEffect(() => {
     if (activeView !== 'loraBatch') return;
@@ -1801,23 +1762,22 @@ export function App() {
   useEffect(() => {
     if (activeView !== 'loraBatch') return;
     if (!selectedBatchId) return;
+    if (batchSubmitting) return;
     void loadBatchItems(selectedBatchId);
-  }, [activeView, selectedBatchId, loadBatchItems]);
+  }, [activeView, selectedBatchId, loadBatchItems, batchSubmitting]);
 
   useEffect(() => {
     if (activeView !== 'loraBatch') return;
     const timer = window.setInterval(() => {
-      void refreshBatchRunStatus();
-      if (selectedBatchId) {
+      if (selectedBatchId && !batchSubmitting) {
         void loadBatchItems(selectedBatchId, { silent: true });
       }
-    }, 3000);
-    void refreshBatchRunStatus();
-    if (selectedBatchId) {
+    }, 5000);
+    if (selectedBatchId && !batchSubmitting) {
       void loadBatchItems(selectedBatchId, { silent: true });
     }
     return () => window.clearInterval(timer);
-  }, [activeView, refreshBatchRunStatus, selectedBatchId, loadBatchItems]);
+  }, [activeView, selectedBatchId, loadBatchItems, batchSubmitting]);
 
   useEffect(() => {
     if (activeView !== 'tool' || !selectedTool) return;
@@ -2235,7 +2195,34 @@ export function App() {
       return num || raw;
     };
 
-    const currentBatchId = `batch_${Date.now()}`;
+    const batchControlParams: Record<string, unknown> = {
+      ...effectiveParams,
+      __batch_size_mode: batchSizeMode,
+      __batch_aspect_ratio: batchAspectRatio,
+      __batch_resolution: batchResolution,
+      __batch_custom_width: batchCustomWidth,
+      __batch_custom_height: batchCustomHeight,
+      __batch_aspect_field: batchAspectField?.name || '',
+      __batch_resolution_field: batchResolutionField?.name || '',
+      __batch_width_field: batchWidthField?.name || '',
+      __batch_height_field: batchHeightField?.name || '',
+      __batch_aspect_options: batchAspectOptions.map((item) => item.value),
+    };
+
+    let currentBatchId = '';
+    try {
+      const created = await evalApi.createBatch({
+        workflow_version_id: selectedBatchWorkflow.id,
+        repeat_count: repeat,
+        parameters_json: batchControlParams,
+      });
+      currentBatchId = String(created.id || '').trim();
+      if (!currentBatchId) throw new Error('批次创建成功但未返回批次ID');
+    } catch (err) {
+      pushNotice('error', `创建批次失败：${String((err as any)?.message || err || '')}`);
+      return;
+    }
+
     const plans: Array<{ key: string; file: File; fileName: string; repeatIndex: number; sourceKey: string }> = [];
     for (let i = 0; i < batchFiles.length; i += 1) {
       const file = batchFiles[i];
@@ -2337,130 +2324,17 @@ export function App() {
       }),
     );
 
-    const buildParameters = (
-      url: string,
-      imageSize?: { width: number; height: number } | null,
-      planMeta?: { fileName: string; sourceKey: string; repeatIndex: number },
-    ): Record<string, unknown> => {
-      const parameters: Record<string, unknown> = {
-        [selectedBatchWorkflowMeta.urlFieldName]: url,
-        __eval_batch_mode: '1',
-        __batch_session_id: currentBatchId,
-        __batch_expected_total: String(plannedTotal),
-        __batch_expected_images: String(batchFiles.length),
-        __batch_expected_repeat: String(repeat),
-      };
-      if (planMeta) {
-        parameters.__batch_file_name = String(planMeta.fileName || '');
-        parameters.__batch_source_key = String(planMeta.sourceKey || '');
-        parameters.__batch_repeat_index = String(planMeta.repeatIndex || 1);
-        parameters.__batch_request_key = `${planMeta.sourceKey}::${planMeta.repeatIndex}`;
-      }
-      if (selectedBatchWorkflowMeta.urlFieldName !== 'url') {
-        // Keep lower-case url for backward compatibility in existing workflow handlers.
-        parameters.url = url;
-      }
-      for (const [k, v] of Object.entries(effectiveParams)) {
-        if (k === 'url' || k === 'Url') continue;
-        if (isBatchSizeFieldName(k)) continue;
-        const raw = String(v ?? '').trim();
-        if (!raw) continue;
-        parameters[k] = normalizeNumericParam(k, raw);
-      }
-
-      const chooseAutoAspect = (): string | undefined => {
-        if (!batchAspectField) return undefined;
-        if (batchAspectOptions.some((o) => o.value === '')) return '';
-        const autoOpt = batchAspectOptions.find((o) => o.value.toLowerCase() === 'auto');
-        if (autoOpt) return autoOpt.value;
-        if (imageSize && batchAspectOptions.length > 0) {
-          const target = imageSize.width / imageSize.height;
-          let best: { value: string; score: number } | null = null;
-          for (const opt of batchAspectOptions) {
-            const v = String(opt.value || '').trim();
-            const m = v.match(/^(\d+(?:\.\d+)?)\s*[:/]\s*(\d+(?:\.\d+)?)$/);
-            if (!m) continue;
-            const a = Number(m[1]);
-            const b = Number(m[2]);
-            if (!Number.isFinite(a) || !Number.isFinite(b) || a <= 0 || b <= 0) continue;
-            const ratio = a / b;
-            const score = Math.abs(ratio - target);
-            if (!best || score < best.score) best = { value: v, score };
-          }
-          if (best) return best.value;
-        }
-        return undefined;
-      };
-
-      if (batchSizeMode === 'preset_1k') {
-        if (batchResolutionField) {
-          const oneK = batchResolutionOptions.find((o) => String(o.value).toLowerCase() === '1k')?.value;
-          parameters[batchResolutionField.name] = oneK || '1K';
-          if (batchAspectField) {
-            const aspectValue = chooseAutoAspect();
-            if (aspectValue != null) parameters[batchAspectField.name] = aspectValue;
-          }
-        } else if (batchWidthField && batchHeightField && imageSize) {
-          const fit = fitLongestEdge(imageSize.width, imageSize.height, 1024);
-          if (fit) {
-            parameters[batchWidthField.name] = String(fit.width);
-            parameters[batchHeightField.name] = String(fit.height);
-          }
-        } else if (batchWidthField && batchHeightField) {
-          parameters[batchWidthField.name] = '1024';
-          parameters[batchHeightField.name] = '1024';
-        }
-      } else if (batchSizeMode === 'custom') {
-        if (batchAspectField && batchAspectRatio !== '') {
-          parameters[batchAspectField.name] = batchAspectRatio.trim();
-        }
-        if (batchResolutionField && batchResolution.trim()) {
-          parameters[batchResolutionField.name] = batchResolution.trim();
-        }
-        if (!batchResolutionField && batchWidthField && batchCustomWidth.trim()) {
-          parameters[batchWidthField.name] = normalizeNumericParam(batchWidthField.name, batchCustomWidth.trim());
-        }
-        if (!batchResolutionField && batchHeightField && batchCustomHeight.trim()) {
-          parameters[batchHeightField.name] = normalizeNumericParam(batchHeightField.name, batchCustomHeight.trim());
-        }
-      }
-      return parameters;
-    };
-
     batchStopRef.current = false;
     setBatchSubmitting(true);
-    let cursor = 0;
-    const nextFile = (): { file: File; sourceKey: string } | null => {
-      if (cursor >= fileOrder.length) return null;
-      const entry = fileOrder[cursor];
-      cursor += 1;
-      return entry;
-    };
 
     const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
-    const createRunWithRetry = async (payload: {
-      workflow_version_id: string;
-      input_oss_urls_json: string[];
-      parameters_json: Record<string, unknown>;
-    }) => {
-      const maxAttempts = 3;
-      let lastErr: unknown = null;
-      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-        try {
-          return await evalApi.createRun(payload);
-        } catch (err) {
-          lastErr = err;
-          if (attempt < maxAttempts) {
-            await sleep(300 * attempt);
-          }
-        }
-      }
-      throw lastErr;
-    };
     const uploadWithRetry = async (file: File, sourceKey: string) => {
       const maxAttempts = 2;
       let lastErr: unknown = null;
       for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        if (batchStopRef.current) {
+          throw new Error('已手动停止');
+        }
         try {
           const uploaded = await evalApi.uploadImage(file, {
             onProgress: (loaded) => {
@@ -2486,75 +2360,139 @@ export function App() {
       refreshBatchUploadProgress();
       throw lastErr;
     };
+    const upsertAssetsWithRetry = async (items: Array<Record<string, unknown>>) => {
+      const maxAttempts = 3;
+      let lastErr: unknown = null;
+      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        try {
+          await evalApi.upsertBatchAssets(currentBatchId, { items: items as any });
+          return;
+        } catch (err) {
+          lastErr = err;
+          if (attempt < maxAttempts) {
+            await sleep(300 * attempt);
+          }
+        }
+      }
+      throw lastErr;
+    };
 
-    const runWorker = async () => {
+    const uploadedSourceMap = new Map<string, { inputUrl: string; imageSize: { width: number; height: number } | null; fileName: string }>();
+    let uploadCursor = 0;
+    const nextUploadFile = (): { file: File; sourceKey: string } | null => {
+      if (uploadCursor >= fileOrder.length) return null;
+      const entry = fileOrder[uploadCursor];
+      uploadCursor += 1;
+      return entry;
+    };
+
+    const runUploadWorker = async () => {
       while (!batchStopRef.current) {
-        const fileEntry = nextFile();
+        const fileEntry = nextUploadFile();
         if (!fileEntry) break;
         const file = fileEntry.file;
         const fileKey = fileEntry.sourceKey;
         const imageSize = fileSizeMap.get(fileKey) || null;
         const filePlans = (planByFile.get(fileKey) || []).sort((a, b) => a.repeatIndex - b.repeatIndex);
         const keys = filePlans.map((item) => item.key);
-        updateItems(keys, { status: 'uploading', error: undefined });
-        let inputUrl = '';
+        const fileName = filePlans[0]?.fileName || file.name || 'unnamed';
+        updateItems(keys, { status: 'uploading', error: undefined, runError: undefined });
         try {
           const upload = await uploadWithRetry(file, fileKey);
-          inputUrl = String(upload.url || '');
+          const inputUrl = String(upload.url || '').trim();
           if (!inputUrl) throw new Error('上传成功但未返回 URL');
+          uploadedSourceMap.set(fileKey, { inputUrl, imageSize, fileName });
+          updateItems(keys, { status: 'pending', inputUrl, error: undefined });
+          await upsertAssetsWithRetry([
+            {
+              source_key: fileKey,
+              file_name: fileName,
+              oss_url: inputUrl,
+              object_key: String(upload.objectKey || ''),
+              size_bytes: Number(file.size || 0),
+              width: imageSize?.width || undefined,
+              height: imageSize?.height || undefined,
+              upload_status: 'uploaded',
+            },
+          ]);
         } catch (err) {
+          const errMsg = String((err as any)?.message || err || '上传失败');
           updateItems(keys, {
             status: 'failed',
-            error: String((err as any)?.message || err || '上传失败'),
+            error: errMsg,
           });
-          continue;
-        }
-
-        for (const plan of filePlans) {
-          if (batchStopRef.current) break;
-          updateItems([plan.key], { status: 'submitting', inputUrl, error: undefined });
           try {
-            const run = await createRunWithRetry({
-              workflow_version_id: selectedBatchWorkflow.id,
-              input_oss_urls_json: [inputUrl],
-              parameters_json: buildParameters(inputUrl, imageSize, {
-                fileName: plan.fileName,
-                sourceKey: fileKey,
-                repeatIndex: plan.repeatIndex,
-              }),
-            });
-            updateItems([plan.key], {
-              status: 'submitted',
-              runId: run.id,
-              inputUrl,
-              runStatus: 'queued',
-              runError: undefined,
-            });
-          } catch (err) {
-            updateItems([plan.key], {
-              status: 'failed',
-              error: String((err as any)?.message || err || '提交失败'),
-              inputUrl,
-              runStatus: undefined,
-            });
+            await upsertAssetsWithRetry([
+              {
+                source_key: fileKey,
+                file_name: fileName,
+                size_bytes: Number(file.size || 0),
+                width: imageSize?.width || undefined,
+                height: imageSize?.height || undefined,
+                upload_status: 'failed',
+                upload_error_code: 'BATCH_ASSET_UPLOAD_FAILED',
+                upload_error_message: errMsg,
+              },
+            ]);
+          } catch (saveErr) {
+            updateItems(keys, { error: `${errMsg}；登记失败：${String((saveErr as any)?.message || saveErr || '')}` });
           }
         }
       }
     };
 
+    let enteredSubmitPhase = false;
     try {
-      await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
+      // 阶段一：先把素材上传完，再进入任务提交，避免上传波动影响任务创建一致性。
+      await Promise.all(Array.from({ length: workerCount }, () => runUploadWorker()));
+      const uploadedCount = uploadedSourceMap.size;
+      const failedUploads = Math.max(0, totalUploadFiles - uploadedCount);
       if (batchStopRef.current) {
+        pushNotice('info', '批量任务已停止');
+      } else if (uploadedCount <= 0) {
+        pushNotice('error', '素材上传全部失败，未创建任何任务');
+      } else {
+        if (failedUploads > 0) {
+          pushNotice('info', `素材上传完成：成功 ${uploadedCount} 张，失败 ${failedUploads} 张，失败素材已跳过`);
+        } else {
+          pushNotice('success', `素材上传完成：${uploadedCount} 张，开始提交任务`);
+        }
+        // 阶段二：仅对上传成功的素材创建任务。
+        enteredSubmitPhase = true;
+        const uploadedKeySet = new Set<string>(Array.from(uploadedSourceMap.keys()));
+        setBatchItems((prev) =>
+          prev.map((item) => {
+            if (item.batchId !== currentBatchId) return item;
+            if (item.status !== 'pending') return item;
+            if (!uploadedKeySet.has(String(item.sourceKey || ''))) return item;
+            return { ...item, status: 'submitting', error: undefined };
+          }),
+        );
+        const submitResult = await evalApi.submitBatch(currentBatchId, { only_pending: true });
+        if (Number(submitResult.failed_items || 0) > 0) {
+          pushNotice(
+            'info',
+            `任务创建完成：已提交 ${Number(submitResult.submitted_items || 0)} 条，失败 ${Number(submitResult.failed_items || 0)} 条`,
+          );
+        }
+      }
+      if (batchStopRef.current) {
+        try {
+          await evalApi.stopRunBatch(currentBatchId);
+        } catch {
+          // ignore
+        }
         setBatchItems((prev) =>
           prev.map((item) =>
-            item.status === 'pending'
+            item.batchId === currentBatchId &&
+            (item.status === 'pending' || item.status === 'uploading' || item.status === 'submitting')
               ? { ...item, status: 'failed', error: '已手动停止（未提交）' }
               : item,
           ),
         );
         pushNotice('info', '批量提交已停止');
-      } else {
-        pushNotice('success', '批量提交完成，系统会自动刷新“已完成”进度');
+      } else if (enteredSubmitPhase) {
+        pushNotice('success', '批量提交完成，系统会自动刷新执行进度');
       }
       await loadBatchSessions();
       await loadBatchItems(currentBatchId, { silent: true });
@@ -3251,6 +3189,9 @@ export function App() {
             </Typography.Text>
             <Typography.Text theme="secondary">
               规则：一次“上传+点击提交”就是一个测试任务（批次）；每张图会按“测试次数”重复提交，降低单次随机性影响。单批上限 {LORA_BATCH_MAX_TASKS} 条。
+            </Typography.Text>
+            <Typography.Text theme="secondary">
+              执行顺序：先完成整批素材上传，再统一创建任务；上传失败素材会被自动跳过并标记失败，避免网络抖动影响任务创建一致性。
             </Typography.Text>
           </Space>
         </Card>

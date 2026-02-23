@@ -51,7 +51,7 @@
 | --- | --- |
 | 能力 ID | comfyui.sifang_lianxu |
 | Action | seamless |
-| 执行节点 | executor_comfyui_seamless_117 → http://117.50.216.233:8079 |
+| 执行节点 | executor_comfyui_seamless_117 → http://117.50.216.233:8079（示例，实际以管理端配置为准） |
 | Workflow 文件 | backend/app/workflows/comfyui/sifang_lianxu.json |
 | 超时设置 | 480 秒 (defaults.timeout) |
 | 核心模型 | UNETLoader: 四方连续.safetensors、DualCLIPLoader: t5xxl_fp8_e4m3fn_scaled.safetensors + clip_l.safetensors、VAE: ae.safetensors |
@@ -79,6 +79,8 @@
 
 - 若管理端回显“中心留白”，重点检查节点 96 是否拿到公网可访问的 URL、以及节点 104 是否被正确写入（后端日志会打印）。
 - Base64 默认值不要在 JSON 中清空；任何临时修改需记录在本文档。
+
+> 说明：执行节点与 URL 为当前快照，主服务器可能调整，请以管理端“执行节点”配置为准。
 
 ## 花纹扩图 · ComfyUI (workflow_key: huawen_kuotu)
 
@@ -125,7 +127,7 @@
 | --- | --- |
 | 能力 ID | comfyui.yinhua_tiqu |
 | Action | pattern_extract |
-| 执行节点 | executor_comfyui_pattern_extract_158 → http://117.50.80.158:8079 |
+| 执行节点 | executor_comfyui_pattern_extract_158 → http://117.50.80.158:8079（示例，实际以管理端配置为准） |
 | Workflow 文件 | backend/app/workflows/comfyui/yinhua_tiqu.json |
 | 超时设置 | 420 秒 (defaults.timeout) |
 | 核心模型 | UNETLoader: qwen_image_edit_2509_fp8_e4m3fn.safetensors、CLIP: qwen_2.5_vl_7b_fp8_scaled.safetensors、VAE: qwen_image_vae.safetensors、LoRA(节点 390) 默认 `杯子1124.safetensors`（可切换 T-Shirt / 毛毯 / 杯子等） |

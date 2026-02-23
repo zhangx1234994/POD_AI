@@ -42,7 +42,7 @@ In early testing we often run only one ComfyUI server to avoid custom-node misma
 You can force PODI to route all ComfyUI abilities to a single executor:
 
 ```
-COMFYUI_DEFAULT_EXECUTOR_ID=executor_comfyui_pattern_extract_158
+COMFYUI_DEFAULT_EXECUTOR_ID=executor_comfyui_pattern_extract_158  # 示例，实际以管理端配置为准
 ```
 
 This executor must exist and be `active`.
@@ -102,7 +102,7 @@ Notes:
 - Workflow/tool run failed with `..._API_KEY_MISSING`:
   - This means PODI backend does not have a usable vendor key for that provider.
   - Preferred: add keys in PODI admin and bind them to an executor (supports multiple keys + rotation).
-    - Create keys: `POST /admin/api-keys` (UI: Integration → API Keys)
+    - Create keys: `POST /api/admin/api-keys` (UI: Integration → API Keys)
     - Bind keys to executor: update executor's `api_key_ids` (UI: Integration → Executors)
   - Legacy fallback: executor `config.apiKey` from `config/executors.yaml` / `backend/.env`.
   - For Baidu (needs apiKey + secretKey), you can set executor config directly:

@@ -82,7 +82,8 @@
 
 ## 3) 临时积分接口（/api/op/v1 与 /api/os/v1）
 
-> 这是一组临时积分接口，后续会被正式服务替换。
+> 历史接口（已下线，仅保留文档记录），当前后端未启用。
+> 实际积分/钱包以 `/api/wallet/v1/*` 与 AbilityTask 结果为准。
 
 ### POST /api/op/v1/img/points-cost
 ### POST /api/os/v1/img/points-cost

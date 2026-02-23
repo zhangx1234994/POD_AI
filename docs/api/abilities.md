@@ -5,9 +5,10 @@
 
 ## 鉴权
 
-- 能力接口沿用系统登录逻辑，所有请求都需携带 `Authorization: Bearer <accessToken>`。
+- 能力接口沿用系统登录逻辑，所有请求需携带 `Authorization: Bearer <accessToken>`。
+- 若已配置 `SERVICE_API_TOKEN`，也可直接使用该 token（适用于内部服务间调用）。
 - 获取方式：
-  1. `POST http://localhost:8099/api/auth/login`，请求体（示例账号）：`{"username":"admin","password":"Admin123"}`。
+  1. `POST /api/auth/login`，账号密码由管理员分配（不要在文档内写死真实账号）。
   2. 响应返回 `accessToken`/`refreshToken`，将 `accessToken` 放入后续能力接口的 Authorization 头中。
   3. `POST /api/auth/refresh` 可用 `refreshToken` 换新 `accessToken`。
 
@@ -104,7 +105,7 @@
     }
   ],
   "metadata": {
-    "requestFrom": "podi-design-web",
+    "requestFrom": "podi-eval-web",
     "traceId": "optional-trace"
   }
 }

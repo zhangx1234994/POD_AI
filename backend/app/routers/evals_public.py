@@ -18,11 +18,29 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.db import get_db
-from app.models.eval import EvalAnnotation, EvalRun, EvalWorkflowVersion
+from app.models.eval import (
+    EvalAnnotation,
+    EvalBatchAsset,
+    EvalBatchRunItem,
+    EvalBatchSession,
+    EvalRun,
+    EvalWorkflowVersion,
+)
 from app.models.integration import AbilityTask
 from app.schemas.eval import (
     EvalAnnotationCreate,
     EvalAnnotationResponse,
+    EvalBatchAssetListResponse,
+    EvalBatchAssetResponse,
+    EvalBatchAssetUpsertRequest,
+    EvalBatchCreate,
+    EvalBatchRunItemListResponse,
+    EvalBatchRunItemResponse,
+    EvalBatchSessionListResponse,
+    EvalBatchSessionResponse,
+    EvalBatchStopResponse,
+    EvalBatchSubmitRequest,
+    EvalBatchSubmitResponse,
     EvalRunWithLatestAnnotationListResponse,
     EvalRunWithLatestAnnotationResponse,
     EvalRunCreate,
@@ -76,6 +94,374 @@ def _batch_session_expr():
 
 def _batch_mode_expr():
     return func.json_unquote(func.json_extract(EvalRun.parameters_json, "$.__eval_batch_mode"))
+
+
+def _ensure_batch_owner(batch: EvalBatchSession | None, rater_id: str) -> EvalBatchSession:
+    if not batch:
+        raise HTTPException(status_code=404, detail="BATCH_NOT_FOUND")
+    if batch.created_by != rater_id:
+        raise HTTPException(status_code=403, detail="BATCH_FORBIDDEN")
+    return batch
+
+
+def _touch_batch_counters(db: Session, batch_id: str) -> EvalBatchSession:
+    batch = db.get(EvalBatchSession, batch_id)
+    if not batch:
+        raise HTTPException(status_code=404, detail="BATCH_NOT_FOUND")
+
+    run_item_touched = False
+    if batch.status not in {"succeeded", "failed", "stopped"}:
+        run_items = db.execute(
+            select(EvalBatchRunItem).where(
+                EvalBatchRunItem.batch_session_id == batch_id,
+                EvalBatchRunItem.eval_run_id.is_not(None),
+                EvalBatchRunItem.status != "canceled",
+            )
+        ).scalars().all()
+        run_ids = [
+            str(item.eval_run_id).strip()
+            for item in run_items
+            if isinstance(item.eval_run_id, str) and str(item.eval_run_id).strip()
+        ]
+        if run_ids:
+            runs = db.execute(select(EvalRun).where(EvalRun.id.in_(run_ids))).scalars().all()
+            run_map = {str(run.id): run for run in runs}
+            for item in run_items:
+                run = run_map.get(str(item.eval_run_id or ""))
+                if not run:
+                    continue
+                mapped = item.status
+                if run.status == "queued":
+                    mapped = "submitted"
+                elif run.status == "running":
+                    mapped = "running"
+                elif run.status == "succeeded":
+                    mapped = "succeeded"
+                elif run.status == "failed":
+                    mapped = "failed"
+                if mapped != item.status:
+                    item.status = mapped
+                    item.updated_at = datetime.utcnow()
+                    run_item_touched = True
+                if run.status == "failed":
+                    err = str(run.error_message or item.error_message or "")
+                    if err != str(item.error_message or ""):
+                        item.error_message = err
+                        run_item_touched = True
+                    if not item.error_code:
+                        item.error_code = "RUN_FAILED"
+                        run_item_touched = True
+
+    uploaded_count = int(
+        db.execute(
+            select(func.count(EvalBatchAsset.id)).where(
+                EvalBatchAsset.batch_session_id == batch_id,
+                EvalBatchAsset.upload_status == "uploaded",
+            )
+        ).scalar_one()
+        or 0
+    )
+    upload_failed_count = int(
+        db.execute(
+            select(func.count(EvalBatchAsset.id)).where(
+                EvalBatchAsset.batch_session_id == batch_id,
+                EvalBatchAsset.upload_status == "failed",
+            )
+        ).scalar_one()
+        or 0
+    )
+    planned_image_count = int(
+        db.execute(
+            select(func.count(EvalBatchAsset.id)).where(EvalBatchAsset.batch_session_id == batch_id)
+        ).scalar_one()
+        or 0
+    )
+
+    submitted_count = int(
+        db.execute(
+            select(func.count(EvalBatchRunItem.id)).where(
+                EvalBatchRunItem.batch_session_id == batch_id,
+                EvalBatchRunItem.status.in_(["submitted", "running", "succeeded", "failed"]),
+            )
+        ).scalar_one()
+        or 0
+    )
+    running_count = int(
+        db.execute(
+            select(func.count(EvalBatchRunItem.id)).where(
+                EvalBatchRunItem.batch_session_id == batch_id,
+                EvalBatchRunItem.status.in_(["submitting", "submitted", "running"]),
+            )
+        ).scalar_one()
+        or 0
+    )
+    succeeded_count = int(
+        db.execute(
+            select(func.count(EvalBatchRunItem.id)).where(
+                EvalBatchRunItem.batch_session_id == batch_id,
+                EvalBatchRunItem.status == "succeeded",
+            )
+        ).scalar_one()
+        or 0
+    )
+    failed_count = int(
+        db.execute(
+            select(func.count(EvalBatchRunItem.id)).where(
+                EvalBatchRunItem.batch_session_id == batch_id,
+                EvalBatchRunItem.status == "failed",
+            )
+        ).scalar_one()
+        or 0
+    )
+    canceled_count = int(
+        db.execute(
+            select(func.count(EvalBatchRunItem.id)).where(
+                EvalBatchRunItem.batch_session_id == batch_id,
+                EvalBatchRunItem.status == "canceled",
+            )
+        ).scalar_one()
+        or 0
+    )
+
+    planned_run_count = planned_image_count * max(1, int(batch.repeat_count or 1))
+
+    next_status = batch.status
+    next_finished_at = batch.finished_at
+    if batch.status != "stopped":
+        if running_count > 0:
+            next_status = "running"
+        elif planned_run_count > 0 and (succeeded_count + failed_count + canceled_count) >= planned_run_count:
+            next_status = "succeeded" if failed_count == 0 else "failed"
+            next_finished_at = datetime.utcnow()
+        elif submitted_count > 0:
+            next_status = "running"
+        elif uploaded_count > 0:
+            next_status = "ready"
+        elif planned_image_count > 0:
+            next_status = "uploading"
+        else:
+            next_status = "draft"
+
+    before_snapshot = (
+        batch.status,
+        batch.finished_at,
+        batch.planned_image_count,
+        batch.planned_run_count,
+        batch.uploaded_count,
+        batch.upload_failed_count,
+        batch.submitted_count,
+        batch.running_count,
+        batch.succeeded_count,
+        batch.failed_count,
+        batch.canceled_count,
+    )
+    after_snapshot = (
+        next_status,
+        next_finished_at,
+        planned_image_count,
+        planned_run_count,
+        uploaded_count,
+        upload_failed_count,
+        submitted_count,
+        running_count,
+        succeeded_count,
+        failed_count,
+        canceled_count,
+    )
+    if before_snapshot != after_snapshot:
+        batch.status = next_status
+        batch.finished_at = next_finished_at
+        batch.planned_image_count = planned_image_count
+        batch.planned_run_count = planned_run_count
+        batch.uploaded_count = uploaded_count
+        batch.upload_failed_count = upload_failed_count
+        batch.submitted_count = submitted_count
+        batch.running_count = running_count
+        batch.succeeded_count = succeeded_count
+        batch.failed_count = failed_count
+        batch.canceled_count = canceled_count
+        batch.updated_at = datetime.utcnow()
+        db.add(batch)
+        run_item_touched = True
+    if run_item_touched:
+        db.flush()
+    return batch
+
+
+def _to_positive_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        iv = int(value)
+        return iv if iv > 0 else None
+    text = str(value).strip()
+    if not text:
+        return None
+    digits = ""
+    for ch in text:
+        if ch.isdigit():
+            digits += ch
+        elif digits:
+            break
+    if not digits:
+        return None
+    iv = int(digits)
+    return iv if iv > 0 else None
+
+
+def _fit_longest_edge(width: int | None, height: int | None, longest: int = 1024) -> tuple[int, int] | None:
+    w = _to_positive_int(width)
+    h = _to_positive_int(height)
+    if not w or not h:
+        return None
+    max_side = max(w, h)
+    if max_side <= 0:
+        return None
+    scale = float(longest) / float(max_side)
+    out_w = max(1, int(round(float(w) * scale)))
+    out_h = max(1, int(round(float(h) * scale)))
+    return out_w, out_h
+
+
+def _coerce_batch_base_params(params: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Split batch control params from workflow params."""
+
+    controls = {
+        "size_mode": str(params.get("__batch_size_mode") or "").strip().lower() or "preset_1k",
+        "aspect_ratio": str(params.get("__batch_aspect_ratio") or "").strip(),
+        "resolution": str(params.get("__batch_resolution") or "").strip(),
+        "custom_width": _to_positive_int(params.get("__batch_custom_width")),
+        "custom_height": _to_positive_int(params.get("__batch_custom_height")),
+        "aspect_field": str(params.get("__batch_aspect_field") or "").strip(),
+        "resolution_field": str(params.get("__batch_resolution_field") or "").strip(),
+        "width_field": str(params.get("__batch_width_field") or "").strip(),
+        "height_field": str(params.get("__batch_height_field") or "").strip(),
+    }
+    workflow_params = {k: v for k, v in params.items() if not str(k).startswith("__batch_")}
+    return workflow_params, controls
+
+
+def _resolve_size_field_names(workflow_params: dict[str, Any], controls: dict[str, Any]) -> dict[str, str]:
+    def _fallback(*candidates: str) -> str:
+        for name in candidates:
+            if name and name in workflow_params:
+                return name
+        return ""
+
+    aspect_field = str(controls.get("aspect_field") or "").strip() or _fallback("aspect_ratio", "aspectRatio")
+    resolution_field = str(controls.get("resolution_field") or "").strip() or _fallback("resolution")
+    width_field = str(controls.get("width_field") or "").strip() or _fallback("width")
+    height_field = str(controls.get("height_field") or "").strip() or _fallback("height")
+    return {
+        "aspect_field": aspect_field,
+        "resolution_field": resolution_field,
+        "width_field": width_field,
+        "height_field": height_field,
+    }
+
+
+def _apply_batch_size_params(
+    *,
+    workflow_params: dict[str, Any],
+    controls: dict[str, Any],
+    asset: EvalBatchAsset,
+) -> dict[str, Any]:
+    """Build per-asset params according to size strategy."""
+
+    params = workflow_params.copy()
+    field_names = _resolve_size_field_names(workflow_params, controls)
+    aspect_field = field_names["aspect_field"]
+    resolution_field = field_names["resolution_field"]
+    width_field = field_names["width_field"]
+    height_field = field_names["height_field"]
+    size_mode = str(controls.get("size_mode") or "preset_1k").strip().lower()
+    if size_mode not in {"original", "preset_1k", "custom"}:
+        size_mode = "preset_1k"
+
+    known_size_fields = {
+        "aspect_ratio",
+        "aspectRatio",
+        "resolution",
+        "width",
+        "height",
+    }
+    known_size_fields.update(
+        name for name in [aspect_field, resolution_field, width_field, height_field] if name
+    )
+
+    def _clear_size_fields() -> None:
+        for name in known_size_fields:
+            params.pop(name, None)
+
+    if size_mode == "original":
+        _clear_size_fields()
+        return params
+
+    if size_mode == "preset_1k":
+        if resolution_field:
+            if aspect_field:
+                aspect_value = str(controls.get("aspect_ratio") or "").strip()
+                if aspect_value:
+                    params[aspect_field] = aspect_value
+                else:
+                    params.pop(aspect_field, None)
+            params[resolution_field] = str(controls.get("resolution") or "1K").strip() or "1K"
+            if width_field:
+                params.pop(width_field, None)
+            if height_field:
+                params.pop(height_field, None)
+        else:
+            # Width/height mode workflow: map to longest edge = 1K.
+            params.pop(aspect_field, None)
+            if resolution_field:
+                params.pop(resolution_field, None)
+            fitted = _fit_longest_edge(asset.width, asset.height, 1024)
+            if fitted:
+                out_w, out_h = fitted
+                if width_field:
+                    params[width_field] = str(out_w)
+                if height_field:
+                    params[height_field] = str(out_h)
+        return params
+
+    # custom
+    if resolution_field:
+        resolution_value = str(controls.get("resolution") or "").strip()
+        if resolution_value:
+            params[resolution_field] = resolution_value
+        else:
+            params.pop(resolution_field, None)
+        if aspect_field:
+            aspect_value = str(controls.get("aspect_ratio") or "").strip()
+            if aspect_value:
+                params[aspect_field] = aspect_value
+            else:
+                params.pop(aspect_field, None)
+        if width_field:
+            params.pop(width_field, None)
+        if height_field:
+            params.pop(height_field, None)
+        return params
+
+    custom_w = _to_positive_int(controls.get("custom_width"))
+    custom_h = _to_positive_int(controls.get("custom_height"))
+    if width_field:
+        if custom_w:
+            params[width_field] = str(custom_w)
+        else:
+            params.pop(width_field, None)
+    if height_field:
+        if custom_h:
+            params[height_field] = str(custom_h)
+        else:
+            params.pop(height_field, None)
+    if aspect_field:
+        params.pop(aspect_field, None)
+    if resolution_field:
+        params.pop(resolution_field, None)
+    return params
 
 
 @router.get("/me")
@@ -530,6 +916,513 @@ def admin_update_workflow_version(
     db.commit()
     db.refresh(row)
     return row
+
+
+@router.post("/batches", response_model=EvalBatchSessionResponse)
+def create_batch(
+    request: Request,
+    response: Response,
+    payload: EvalBatchCreate,
+    db: Session = Depends(get_db),
+) -> EvalBatchSession:
+    _require_public_enabled(request)
+    created_by = _get_or_set_rater_id(request, response)
+    workflow = db.get(EvalWorkflowVersion, payload.workflow_version_id)
+    if not workflow:
+        raise HTTPException(status_code=404, detail="WORKFLOW_VERSION_NOT_FOUND")
+
+    meta = payload.metadata.copy() if isinstance(payload.metadata, dict) else {}
+    if payload.parameters_json is not None:
+        meta["parameters_json"] = payload.parameters_json
+    batch = EvalBatchSession(
+        id=f"batch_{int(datetime.utcnow().timestamp() * 1000)}_{uuid4().hex[:8]}",
+        workflow_version_id=payload.workflow_version_id,
+        created_by=created_by,
+        status="draft",
+        repeat_count=payload.repeat_count,
+        extra_metadata=meta or None,
+    )
+    db.add(batch)
+    db.commit()
+    db.refresh(batch)
+    return batch
+
+
+@router.get("/batches", response_model=EvalBatchSessionListResponse)
+def list_batches(
+    request: Request,
+    response: Response,
+    workflow_version_id: str | None = Query(None),
+    mine_only: bool = Query(True),
+    status: str | None = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+) -> EvalBatchSessionListResponse:
+    _require_public_enabled(request)
+    rater_id = _get_or_set_rater_id(request, response)
+    stmt = select(EvalBatchSession)
+    count_stmt = select(func.count()).select_from(EvalBatchSession)
+    if workflow_version_id:
+        stmt = stmt.where(EvalBatchSession.workflow_version_id == workflow_version_id)
+        count_stmt = count_stmt.where(EvalBatchSession.workflow_version_id == workflow_version_id)
+    if mine_only:
+        stmt = stmt.where(EvalBatchSession.created_by == rater_id)
+        count_stmt = count_stmt.where(EvalBatchSession.created_by == rater_id)
+    if status:
+        stmt = stmt.where(EvalBatchSession.status == status)
+        count_stmt = count_stmt.where(EvalBatchSession.status == status)
+    total = int(db.execute(count_stmt).scalar_one())
+    items = db.execute(
+        stmt.order_by(EvalBatchSession.created_at.desc()).offset(offset).limit(limit)
+    ).scalars().all()
+    touched = False
+    active_checked = False
+    for item in items:
+        if item.status in {"succeeded", "failed", "stopped"}:
+            continue
+        active_checked = True
+        before = (
+            item.status,
+            item.planned_image_count,
+            item.planned_run_count,
+            item.uploaded_count,
+            item.upload_failed_count,
+            item.submitted_count,
+            item.running_count,
+            item.succeeded_count,
+            item.failed_count,
+            item.canceled_count,
+        )
+        refreshed = _touch_batch_counters(db, item.id)
+        after = (
+            refreshed.status,
+            refreshed.planned_image_count,
+            refreshed.planned_run_count,
+            refreshed.uploaded_count,
+            refreshed.upload_failed_count,
+            refreshed.submitted_count,
+            refreshed.running_count,
+            refreshed.succeeded_count,
+            refreshed.failed_count,
+            refreshed.canceled_count,
+        )
+        if before != after:
+            touched = True
+    if touched or active_checked:
+        db.commit()
+        for item in items:
+            db.refresh(item)
+    return EvalBatchSessionListResponse(total=total, items=items)
+
+
+@router.get("/batches/{batch_id}", response_model=EvalBatchSessionResponse)
+def get_batch(
+    batch_id: str,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> EvalBatchSession:
+    _require_public_enabled(request)
+    rater_id = _get_or_set_rater_id(request, response)
+    batch = _ensure_batch_owner(db.get(EvalBatchSession, batch_id), rater_id)
+    batch = _touch_batch_counters(db, batch.id)
+    db.commit()
+    db.refresh(batch)
+    return batch
+
+
+@router.post("/batches/{batch_id}/assets", response_model=EvalBatchAssetListResponse)
+def upsert_batch_assets(
+    batch_id: str,
+    payload: EvalBatchAssetUpsertRequest,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> EvalBatchAssetListResponse:
+    _require_public_enabled(request)
+    rater_id = _get_or_set_rater_id(request, response)
+    batch = _ensure_batch_owner(db.get(EvalBatchSession, batch_id), rater_id)
+    if batch.status == "stopped":
+        raise HTTPException(status_code=409, detail="BATCH_STOPPED")
+    if not payload.items:
+        raise HTTPException(status_code=400, detail="BATCH_ASSETS_EMPTY")
+    if len(payload.items) > 5000:
+        raise HTTPException(status_code=400, detail="BATCH_ASSET_LIMIT_EXCEEDED")
+
+    allowed_status = {"pending", "uploading", "uploaded", "failed", "skipped"}
+    upserted_ids: list[str] = []
+    for item in payload.items:
+        status_value = str(item.upload_status or "uploaded").strip().lower()
+        if status_value not in allowed_status:
+            raise HTTPException(status_code=400, detail="BATCH_ASSET_UPLOAD_STATUS_INVALID")
+
+        row = db.execute(
+            select(EvalBatchAsset).where(
+                EvalBatchAsset.batch_session_id == batch.id,
+                EvalBatchAsset.source_key == item.source_key,
+            )
+        ).scalar_one_or_none()
+        if status_value == "uploaded":
+            incoming_url = str(item.oss_url or "").strip()
+            existing_url = str(row.oss_url or "").strip() if row else ""
+            if not incoming_url and not existing_url:
+                raise HTTPException(status_code=400, detail="BATCH_ASSET_URL_REQUIRED")
+        if row is None:
+            row = EvalBatchAsset(
+                id=uuid4().hex,
+                batch_session_id=batch.id,
+                source_key=item.source_key.strip(),
+                file_name=item.file_name.strip() or "unnamed",
+            )
+        row.file_name = item.file_name.strip() or row.file_name
+        row.oss_url = str(item.oss_url or "").strip() or None
+        row.object_key = str(item.object_key or "").strip() or None
+        row.size_bytes = item.size_bytes
+        row.width = item.width
+        row.height = item.height
+        row.upload_status = status_value
+        row.upload_error_code = str(item.upload_error_code or "").strip() or None
+        row.upload_error_message = str(item.upload_error_message or "").strip() or None
+        row.updated_at = datetime.utcnow()
+        db.add(row)
+        db.flush()
+        upserted_ids.append(row.id)
+
+    batch.status = "uploading"
+    batch.updated_at = datetime.utcnow()
+    _touch_batch_counters(db, batch.id)
+    db.commit()
+
+    items = db.execute(
+        select(EvalBatchAsset)
+        .where(EvalBatchAsset.id.in_(upserted_ids))
+        .order_by(EvalBatchAsset.created_at.desc())
+    ).scalars().all()
+    return EvalBatchAssetListResponse(total=len(items), items=items)
+
+
+@router.get("/batches/{batch_id}/assets", response_model=EvalBatchAssetListResponse)
+def list_batch_assets(
+    batch_id: str,
+    request: Request,
+    response: Response,
+    status: str | None = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+) -> EvalBatchAssetListResponse:
+    _require_public_enabled(request)
+    rater_id = _get_or_set_rater_id(request, response)
+    batch = _ensure_batch_owner(db.get(EvalBatchSession, batch_id), rater_id)
+    stmt = select(EvalBatchAsset).where(EvalBatchAsset.batch_session_id == batch.id)
+    count_stmt = select(func.count()).select_from(EvalBatchAsset).where(
+        EvalBatchAsset.batch_session_id == batch.id
+    )
+    if status:
+        stmt = stmt.where(EvalBatchAsset.upload_status == status)
+        count_stmt = count_stmt.where(EvalBatchAsset.upload_status == status)
+    total = int(db.execute(count_stmt).scalar_one())
+    items = db.execute(
+        stmt.order_by(EvalBatchAsset.created_at.asc()).offset(offset).limit(limit)
+    ).scalars().all()
+    return EvalBatchAssetListResponse(total=total, items=items)
+
+
+@router.post("/batches/{batch_id}/submit", response_model=EvalBatchSubmitResponse)
+def submit_batch(
+    batch_id: str,
+    payload: EvalBatchSubmitRequest,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> EvalBatchSubmitResponse:
+    _require_public_enabled(request)
+    rater_id = _get_or_set_rater_id(request, response)
+    batch = _ensure_batch_owner(db.get(EvalBatchSession, batch_id), rater_id)
+    if batch.status == "stopped":
+        raise HTTPException(status_code=409, detail="BATCH_STOPPED")
+
+    assets = db.execute(
+        select(EvalBatchAsset)
+        .where(EvalBatchAsset.batch_session_id == batch.id)
+        .where(EvalBatchAsset.upload_status == "uploaded")
+        .order_by(EvalBatchAsset.created_at.asc())
+    ).scalars().all()
+    if not assets:
+        raise HTTPException(status_code=400, detail="BATCH_NOT_READY")
+    if not batch.workflow_version_id:
+        raise HTTPException(status_code=400, detail="WORKFLOW_VERSION_NOT_FOUND")
+
+    base_params: dict[str, Any] = {}
+    if isinstance(batch.extra_metadata, dict):
+        maybe_params = batch.extra_metadata.get("parameters_json")
+        if isinstance(maybe_params, dict):
+            base_params = maybe_params.copy()
+    if isinstance(payload.parameters_json, dict):
+        base_params.update(payload.parameters_json)
+    workflow_base_params, batch_controls = _coerce_batch_base_params(base_params)
+
+    existing_items = db.execute(
+        select(EvalBatchRunItem).where(EvalBatchRunItem.batch_session_id == batch.id)
+    ).scalars().all()
+    item_map: dict[tuple[str, int], EvalBatchRunItem] = {
+        (str(item.asset_id), int(item.repeat_index)): item for item in existing_items
+    }
+
+    created_items = 0
+    submitted_items = 0
+    failed_items = 0
+    batch.status = "submitting"
+    batch.updated_at = datetime.utcnow()
+    db.add(batch)
+    db.flush()
+
+    for asset in assets:
+        for repeat_index in range(1, max(1, int(batch.repeat_count or 1)) + 1):
+            key = (asset.id, repeat_index)
+            item = item_map.get(key)
+            if item is None:
+                item = EvalBatchRunItem(
+                    id=uuid4().hex,
+                    batch_session_id=batch.id,
+                    asset_id=asset.id,
+                    repeat_index=repeat_index,
+                    status="pending",
+                )
+                db.add(item)
+                db.flush()
+                item_map[key] = item
+                created_items += 1
+            if payload.only_pending and item.eval_run_id:
+                continue
+            if batch.status == "stopped":
+                raise HTTPException(status_code=409, detail="BATCH_STOPPED")
+            params = _apply_batch_size_params(
+                workflow_params=workflow_base_params,
+                controls=batch_controls,
+                asset=asset,
+            )
+            params["__eval_batch_mode"] = "1"
+            params["__batch_session_id"] = batch.id
+            params["__batch_expected_total"] = str(batch.planned_run_count or (len(assets) * batch.repeat_count))
+            params["__batch_expected_images"] = str(batch.planned_image_count or len(assets))
+            params["__batch_expected_repeat"] = str(batch.repeat_count)
+            params["__batch_file_name"] = asset.file_name
+            params["__batch_source_key"] = asset.source_key
+            params["__batch_repeat_index"] = str(repeat_index)
+            params["__batch_request_key"] = f"{batch.id}::{asset.source_key}::{repeat_index}"
+            params.setdefault("url", asset.oss_url)
+            item.status = "submitting"
+            item.updated_at = datetime.utcnow()
+            db.add(item)
+            db.flush()
+            try:
+                run = get_eval_service().create_eval_run(
+                    workflow_version_id=batch.workflow_version_id,
+                    dataset_item_id=None,
+                    input_oss_urls=[str(asset.oss_url or "")] if asset.oss_url else None,
+                    parameters=params,
+                    created_by=rater_id,
+                    db=db,
+                )
+                item.eval_run_id = run.id
+                if run.status in {"failed"}:
+                    item.status = "failed"
+                    item.error_code = "BATCH_ITEM_SUBMIT_FAILED"
+                    item.error_message = str(run.error_message or "RUN_CREATE_FAILED")
+                    failed_items += 1
+                else:
+                    item.status = "submitted"
+                    item.error_code = None
+                    item.error_message = None
+                    submitted_items += 1
+            except Exception as exc:
+                item.status = "failed"
+                item.error_code = "BATCH_ITEM_SUBMIT_FAILED"
+                item.error_message = str(exc)
+                failed_items += 1
+            item.updated_at = datetime.utcnow()
+            db.add(item)
+
+    _touch_batch_counters(db, batch.id)
+    db.commit()
+    return EvalBatchSubmitResponse(
+        batch_id=batch.id,
+        created_items=created_items,
+        submitted_items=submitted_items,
+        failed_items=failed_items,
+    )
+
+
+@router.get("/batches/{batch_id}/items", response_model=EvalBatchRunItemListResponse)
+def list_batch_items(
+    batch_id: str,
+    request: Request,
+    response: Response,
+    status: str | None = Query(None),
+    limit: int = Query(200, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+) -> EvalBatchRunItemListResponse:
+    _require_public_enabled(request)
+    rater_id = _get_or_set_rater_id(request, response)
+    batch = _ensure_batch_owner(db.get(EvalBatchSession, batch_id), rater_id)
+    stmt = select(EvalBatchRunItem).where(EvalBatchRunItem.batch_session_id == batch.id)
+    count_stmt = select(func.count()).select_from(EvalBatchRunItem).where(
+        EvalBatchRunItem.batch_session_id == batch.id
+    )
+    if status:
+        stmt = stmt.where(EvalBatchRunItem.status == status)
+        count_stmt = count_stmt.where(EvalBatchRunItem.status == status)
+    total = int(db.execute(count_stmt).scalar_one())
+    items = db.execute(
+        stmt.order_by(EvalBatchRunItem.created_at.asc()).offset(offset).limit(limit)
+    ).scalars().all()
+
+    asset_ids = [str(item.asset_id) for item in items if item.asset_id]
+    asset_map: dict[str, EvalBatchAsset] = {}
+    if asset_ids:
+        assets = db.execute(select(EvalBatchAsset).where(EvalBatchAsset.id.in_(asset_ids))).scalars().all()
+        asset_map = {str(asset.id): asset for asset in assets}
+
+    run_ids = [item.eval_run_id for item in items if item.eval_run_id]
+    run_map: dict[str, EvalRun] = {}
+    if run_ids:
+        runs = db.execute(select(EvalRun).where(EvalRun.id.in_(run_ids))).scalars().all()
+        run_map = {str(run.id): run for run in runs}
+    touched = False
+    for item in items:
+        if item.status == "canceled":
+            continue
+        if not item.eval_run_id:
+            continue
+        run = run_map.get(str(item.eval_run_id))
+        if not run:
+            continue
+        mapped = item.status
+        if run.status == "queued":
+            mapped = "submitted"
+        elif run.status == "running":
+            mapped = "running"
+        elif run.status == "succeeded":
+            mapped = "succeeded"
+        elif run.status == "failed":
+            mapped = "failed"
+        if mapped != item.status:
+            item.status = mapped
+            item.updated_at = datetime.utcnow()
+            touched = True
+        if run.status == "failed":
+            item.error_code = item.error_code or "RUN_FAILED"
+            item.error_message = str(run.error_message or item.error_message or "")
+            touched = True
+    for item in items:
+        asset = asset_map.get(str(item.asset_id or ""))
+        run = run_map.get(str(item.eval_run_id or ""))
+        run_params = run.parameters_json if run and isinstance(run.parameters_json, dict) else {}
+        setattr(item, "asset_source_key", str(asset.source_key) if asset else None)
+        setattr(item, "asset_file_name", str(asset.file_name) if asset else None)
+        setattr(item, "asset_oss_url", str(asset.oss_url) if asset and asset.oss_url else None)
+        setattr(item, "run_status", str(run.status) if run and run.status else None)
+        setattr(item, "run_prompt", str(run_params.get("prompt") or "") if run else None)
+        setattr(
+            item,
+            "run_output_urls_json",
+            (
+                [str(url) for url in (run.result_image_urls_json or []) if isinstance(url, str) and str(url).strip()]
+                if run
+                else None
+            ),
+        )
+        setattr(item, "run_error_message", str(run.error_message or "") if run and run.error_message else None)
+    if touched:
+        _touch_batch_counters(db, batch.id)
+        db.commit()
+    return EvalBatchRunItemListResponse(total=total, items=items)
+
+
+@router.post("/batches/{batch_id}/stop", response_model=EvalBatchStopResponse)
+def stop_batch(
+    batch_id: str,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> EvalBatchStopResponse:
+    _require_public_enabled(request)
+    rater_id = _get_or_set_rater_id(request, response)
+    batch = _ensure_batch_owner(db.get(EvalBatchSession, batch_id), rater_id)
+    if batch.status == "stopped":
+        return EvalBatchStopResponse(
+            batch_id=batch.id,
+            stopped_run_items=0,
+            stopped_eval_runs=0,
+            stopped_ability_tasks=0,
+        )
+
+    now = datetime.utcnow()
+    batch.status = "stopped"
+    batch.finished_at = now
+    batch.updated_at = now
+    db.add(batch)
+    stopped_run_items = (
+        db.execute(
+            update(EvalBatchRunItem)
+            .where(EvalBatchRunItem.batch_session_id == batch.id)
+            .where(EvalBatchRunItem.status.in_(["pending", "submitting", "submitted", "running"]))
+            .values(status="canceled", error_code="BATCH_STOPPED", error_message="MANUAL_STOP_BY_OPERATOR", updated_at=now)
+        ).rowcount
+        or 0
+    )
+
+    run_ids = db.execute(
+        select(EvalBatchRunItem.eval_run_id).where(
+            EvalBatchRunItem.batch_session_id == batch.id,
+            EvalBatchRunItem.eval_run_id.is_not(None),
+        )
+    ).scalars().all()
+    run_ids = [str(run_id) for run_id in run_ids if isinstance(run_id, str) and run_id.strip()]
+
+    stopped_eval_runs = 0
+    stopped_ability_tasks = 0
+    if run_ids:
+        stopped_eval_runs = (
+            db.execute(
+                update(EvalRun)
+                .where(EvalRun.id.in_(run_ids))
+                .where(EvalRun.status.in_(["queued", "running"]))
+                .values(status="failed", error_message="MANUAL_STOP_BY_OPERATOR", updated_at=now)
+            ).rowcount
+            or 0
+        )
+        task_rows = db.execute(
+            select(EvalRun.podi_task_id).where(EvalRun.id.in_(run_ids), EvalRun.podi_task_id.is_not(None))
+        ).scalars().all()
+        task_ids = [str(task_id).strip() for task_id in task_rows if isinstance(task_id, str) and str(task_id).strip()]
+        if task_ids:
+            stopped_ability_tasks = (
+                db.execute(
+                    update(AbilityTask)
+                    .where(AbilityTask.id.in_(task_ids))
+                    .where(AbilityTask.status.in_(["queued", "running"]))
+                    .values(
+                        status="failed",
+                        error_message="MANUAL_STOP_BY_OPERATOR",
+                        finished_at=now,
+                        updated_at=now,
+                    )
+                ).rowcount
+                or 0
+            )
+
+    _touch_batch_counters(db, batch.id)
+    db.commit()
+    return EvalBatchStopResponse(
+        batch_id=batch.id,
+        stopped_run_items=int(stopped_run_items),
+        stopped_eval_runs=int(stopped_eval_runs),
+        stopped_ability_tasks=int(stopped_ability_tasks),
+    )
 
 
 @router.post("/runs", response_model=EvalRunResponse)

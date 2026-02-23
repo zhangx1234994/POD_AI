@@ -32,7 +32,7 @@
 
 ### 数据迁移
 1. 使用 Alembic 创建上述表，若已有用户数据则编写迁移脚本导入。
-2. 在设置文件中移除 `ADMIN_API_TOKEN`，改为 JWT 配置项：`JWT_SECRET`, `JWT_EXPIRES_IN`, `JWT_REFRESH_EXPIRES_IN` 等。
+2. `ADMIN_API_TOKEN` 已不再作为鉴权入口（配置项可保留但不使用），统一使用 JWT 配置项：`JWT_SECRET`, `JWT_EXPIRES_IN`, `JWT_REFRESH_EXPIRES_IN` 等。
 3. 迁移完成后，更新文档/配置信息告知各环境管理员账号的初始化方式。
 
 ## 前端设计
@@ -53,7 +53,7 @@
    - [x] 实现 SQLAlchemy 模型 `app/models/user.py` 与基础 Pydantic Schema (`app/schemas/auth.py` 中 `UserRead`)。
 2. **认证 API**
    - [x] 自建登录/刷新逻辑（`POST /api/auth/login`、`POST /api/auth/refresh`，参见 `app/routers/auth.py`）。
-   - [ ] 替换 `/api/admin/**` 的鉴权依赖，移除旧的 `X-Admin-Token`，统一通过 JWT 校验。
+   - [x] `/api/admin/**` 已统一使用 JWT + `require_admin`，不再使用 `X-Admin-Token`。
 3. **前端改造**
    - [ ] 新客户端：登录/注册页 + Token 存储。
    - [ ] 管理端登录页重写，后续扩展管理员管理界面。
@@ -62,6 +62,6 @@
    - [ ] 在 `AGENTS.md`、`README` 中记录新的环境变量与登录流程。
 
 ## 兼容性与过渡
-- 新旧方案并行期：保留 `X-Admin-Token` 作为后备（通过配置开关控制），确保切换期间不会阻塞管理端操作。
+- `X-Admin-Token` 方案已废弃，不再作为后备入口。
 - 客户端用户若尚未接入账号体系，可以先通过默认账户使用，逐步引导注册。
 - 等认证体系稳定后，再引入更复杂的功能：角色分级（如运营、财务）、操作审计、多因素验证等。

@@ -24,6 +24,7 @@
 6. **默认执行节点**（fallback_to_default=true 时）
    - 选择 type=comfyui 中 weight 最大的 active 节点
 
+> 注意：以上 fallback 是代码内的**硬编码默认值**。如主服务器变更，需要同步更新代码与本文档。  
 > 代码位置：`backend/app/services/ability_invocation.py`
 
 ---
@@ -147,7 +148,7 @@
 ```json
 {
   "type": "comfyui",
-  "base_url": "http://117.50.80.158:8079",
+  "base_url": "http://117.50.80.158:8079",  // 示例，实际以管理端配置为准
   "weight": 2,
   "max_concurrency": 2,
   "config": {

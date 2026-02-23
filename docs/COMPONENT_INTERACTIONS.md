@@ -1,5 +1,8 @@
 # POD AI Studio 组件交互与数据流
 
+> 说明：本文档描述的是**历史客户端（podi-design-web-dev）**的组件与交互流程，该客户端已移除。
+> 当前线上前端为 **podi-admin-web / podi-eval-web**，如需参考请以 `docs/admin/*`、`docs/eval/*` 与 `docs/api/*` 为准。
+
 ## 目录
 
 1. [组件关系总览](#1-组件关系总览)
@@ -101,7 +104,7 @@ sequenceDiagram
 
     Note over A,C: 检查登录状态
     A->>C: 调用login方法
-    C->>API: POST /auth/login
+    C->>API: POST /api/auth/login
 
     API-->>C: 返回 token + userInfo
     C->>S: localStorage.setItem('token')
@@ -113,7 +116,9 @@ sequenceDiagram
     L->>U: 跳转到Dashboard
 ```
 
-### 2.2 第三方SSO登录流程
+### 2.2 第三方SSO登录流程（规划/未落地）
+
+> 说明：当前未实现第三方 SSO，本节仅保留为历史规划参考。
 
 ```mermaid
 sequenceDiagram
@@ -133,7 +138,7 @@ sequenceDiagram
     S->>S: 验证数据格式
     S->>S: 生成签名 (HMAC-SHA256)
 
-    S->>API: POST /cross-platform/login
+    S->>API: POST /cross-platform/login  %% 规划接口，当前未实现
     API-->>S: 返回 token
 
     S->>localStorage: setItem('token', data.token)
@@ -146,28 +151,28 @@ sequenceDiagram
     S->>U: 跳转到Dashboard
 ```
 
-### 2.3 任务提交流程
+### 2.3 任务提交流程（统一能力 API）
 
 ```mermaid
 sequenceDiagram
     participant U as 用户
     participant P as Processor组件
     participant H as useTaskSubmission
-    participant S as ImageProcessingService
-    participant W as workflow.ts
+    participant S as AbilityService
+    participant W as abilityApi
     participant API as 后端API
 
     U->>P: 上传图片 + 配置参数
     P->>H: submitTask({action, params, ...})
 
-    H->>S: processImage(action, imageData, options)
+    H->>S: invokeAbility(abilityId, inputs, imageUrl)
 
-    Note over H: 1. 生成taskId
+    Note over H: 1. 生成 requestId / logId
     H->>H: 2. 计算积分消耗
 
-    H->>API: POST /image-processing?Action=xxx
-    Note over API: 3. 后端扣减积分
-    API-->>H: 返回 taskId
+    H->>API: POST /api/abilities/{abilityId}/invoke
+    Note over API: 3. 后端写入日志/可选扣减积分
+    API-->>H: 返回 logId / requestId / images
 
     H->>H: 4. 触发积分动画
     H->>H: 5. 刷新任务列表
@@ -175,24 +180,24 @@ sequenceDiagram
     H-->>P: 提交成功
     P->>U: 显示成功提示
 
-    Note over U: 任务进入后台处理
+    Note over U: 若为长耗时能力，则改用 /api/ability-tasks 异步提交
 ```
 
-### 2.4 任务状态轮询流程
+### 2.4 任务状态轮询流程（AbilityTask）
 
 ```mermaid
 sequenceDiagram
     participant T as TaskList组件
     participant H as useTaskListPolling
-    participant W as workflowApi
+    participant W as abilityTaskApi
     participant D as Dashboard
 
     T->>H: 初始化轮询
     H->>H: 设置定时器 (checkInterval=1000ms)
 
     loop 轮询周期
-        H->>W: GET /workflow-task/summary
-        W-->>H: 返回任务列表
+        H->>W: GET /api/ability-tasks?limit=20
+        W-->>H: 返回任务列表（queued/running/succeeded/failed）
 
         H->>H: 检查任务状态
         alt 有活跃任务
@@ -531,11 +536,11 @@ docs/
 ├── COMPONENT_INTERACTIONS.md  # 本文档
 ├── BUSINESS_MODEL.md          # 业务建模文档
 ├── architecture.md            # 架构文档
-└── api.md                     # API文档
+└── api.md                     # API 总览（最新）
 ```
 
 ---
 
-*文档版本: 1.0.0*
-*最后更新: 2024-01-06*
+*文档版本: 1.1.0*
+*最后更新: 2026-02-21*
 *维护者: POD AI Studio Team*

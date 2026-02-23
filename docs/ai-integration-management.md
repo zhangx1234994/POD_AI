@@ -21,7 +21,7 @@
 
 ## 仍在规划/待补项
 
-- **任务调度器（通用任务系统）**：`/api/tasks/v1/*` 体系为规划项。
+- **任务调度器（通用任务系统）**：`/api/tasks/v1/*` 体系为规划项，当前后端未开放，勿对外暴露。
 - **自动化健康巡检**：周期任务自检与看板化展示。
 - **节点标签路由**：按 tags/能力 required_tags 做路由过滤。
 
@@ -36,9 +36,9 @@
 
 ## 任务执行流程（现状 + 规划）
 
-现状：主要入口是 **能力调用/异步任务**（`/api/abilities/*`、`/api/ability-tasks`），以下流程为规划中的“通用任务调度器”形态。
+现状：主要入口是 **能力调用/异步任务**（`/api/abilities/*`、`/api/ability-tasks`），以下流程为规划中的“通用任务调度器”形态（未落地）。
 
-1. **任务入库（规划）**：`/api/tasks/v1/submit` 计划用于通用任务入库与积分冻结。
+1. **任务入库（规划）**：`/api/tasks/v1/submit` 计划用于通用任务入库与积分冻结（未实现）。
 2. **调度器拉取**：新增 `task_dispatcher`（可由 Celery Beat/后台循环驱动）查找 `status=pending` 的任务。
 3. **解析 action**：根据任务的 `tool_action`：  
    a. 查找 `workflow_bindings` -> 过滤 `enabled=true`、`executor.status=active`；  
@@ -101,8 +101,8 @@
 ## API 与服务层扩展
 
 - **调度/执行接口（规划）**
-  - `POST /api/tasks/v1/dispatch`：预留单次调度入口；后续可由 Celery 定时触发或监听消息队列。
-  - `PATCH /api/tasks/v1/{id}`：预留状态更新接口（`status/progress/error`）。
+  - `POST /api/tasks/v1/dispatch`：预留单次调度入口（未实现）；后续可由 Celery 定时触发或监听消息队列。
+  - `PATCH /api/tasks/v1/{id}`：预留状态更新接口（未实现，`status/progress/error`）。
 - **Executor 适配层**：新增 `app/services/executors/base.py` 定义统一接口（`prepare_payload`, `execute`, `poll_result`）。不同 provider 写子类，通过 `executor.type` + `executor.config` 动态加载。
 - **健康检查**：Celery 周期任务 `executor_health_check` 调用每个节点的 `/health`，写回 `executors.health_status` 与 `last_heartbeat_at`。
 - **API Key 轮转**：在执行前调用 `api_key_service.acquire(provider)`，内部选择 usage 最低且未过期的 key 并自增 `usage_count`，若达到 `daily_quota` 自动禁用。

@@ -1,5 +1,7 @@
 # POD AI Studio 业务建模文档
 
+> 注意：本文包含规划中的账号体系（短信登录/第三方 SSO/积分与钱包）。当前线上仅落地账号密码登录（`/api/auth/login`）与能力调用/AbilityTask 链路，规划内容仅作为设计参考。
+
 ## 目录
 
 1. [业务概述](#1-业务概述)
@@ -95,7 +97,7 @@ sequenceDiagram
     participant API as 后端API
     participant DB as 数据库
 
-    Note over U,DB: 场景1: 自有用户短信登录
+    Note over U,DB: 场景1: 自有用户短信登录（规划/未落地）
     U->>API: 发送手机号获取验证码
     API->>API: 调用阿里云短信服务发送验证码
     API->>DB: 缓存验证码(5分钟有效)
@@ -115,7 +117,7 @@ sequenceDiagram
 
     API-->>U: 返回Token和用户信息
 
-    Note over U,DB: 场景2: 第三方SSO登录
+    Note over U,DB: 场景2: 第三方SSO登录（规划/未落地）
     U->>API: 提交第三方Ticket(含手机号)
     API->>DB: 根据手机号查询用户
     alt 用户已存在(通过手机号匹配)
@@ -218,16 +220,16 @@ enum PointsType {
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
 │  ┌──────────────────────────────────────────────────────────┐   │
-│  │              自有用户认证（唯一方式）                        │   │
+│  │            自有用户认证（当前唯一方式）                      │   │
 │  │                                                          │   │
 │  │  ┌─────────────┐  ┌─────────────────────────────────┐   │   │
-│  │  │ 阿里云短信  │  │  手机号 + 验证码登录              │   │   │
-│  │  │  验证码服务 │  │  (首次登录自动创建用户)           │   │   │
+│  │  │ 账号/密码   │  │  管理端账号密码登录              │   │   │
+│  │  │  认证服务   │  │  (由管理员创建/维护)             │   │   │
 │  │  └─────────────┘  └─────────────────────────────────┘   │   │
 │  └──────────────────────────────────────────────────────────┘   │
 │                                                                  │
 │  ┌──────────────────────────────────────────────────────────┐   │
-│  │                     第三方SSO接入                          │   │
+│  │               第三方SSO接入（规划）                         │   │
 │  │                                                          │   │
 │  │  ┌─────────────┐  ┌─────────────────────────────────┐   │   │
 │  │  │ 加密Ticket  │  │  根据手机号判断/创建用户          │   │   │
@@ -238,7 +240,9 @@ enum PointsType {
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### 3.2 自有用户认证流程（短信验证码）
+### 3.2 自有用户认证流程（短信验证码，历史规划/未落地）
+
+> 说明：当前线上仅支持账号密码登录（`/api/auth/login`），短信验证码登录尚未实现。本节仅保留为历史规划参考，避免误用。
 
 ```mermaid
 sequenceDiagram
@@ -260,7 +264,7 @@ sequenceDiagram
     U->>L: 输入验证码
     L->>A: loginPhone(phone, code)
 
-    A->>API: POST /auth/login/phone
+    A->>API: POST /api/auth/login/phone  %% 规划接口，当前未实现
     API->>S: 验证验证码 + 查询用户
 
     alt 用户已存在
@@ -277,7 +281,9 @@ sequenceDiagram
     L->>U: 跳转到Dashboard
 ```
 
-### 3.3 第三方SSO认证流程
+### 3.3 第三方SSO认证流程（规划/未落地）
+
+> 说明：当前未实现第三方 SSO，本节仅保留为规划参考。
 
 ```mermaid
 sequenceDiagram
@@ -295,7 +301,7 @@ sequenceDiagram
     H->>H: 解密Ticket
     H->>H: 解析参数 (platform_id, user_id, mobile)
 
-    H->>API: POST /cross-platform/login
+    H->>API: POST /cross-platform/login  %% 规划接口，当前未实现
     API->>API: 验证签名
 
     API->>API: 根据手机号查询用户
@@ -316,6 +322,8 @@ sequenceDiagram
 ```
 
 ### 3.4 阿里云短信服务配置
+
+> 规划/未落地：当前线上未启用短信登录，以下配置仅供设计参考。
 
 ```typescript
 // 阿里云短信配置
@@ -340,6 +348,8 @@ const SMS_RATE_LIMITS = {
 ```
 
 ### 3.5 认证安全设计
+
+> 说明：以下为历史客户端的安全设计草案，现行鉴权以 `/api/auth/login` + JWT 为准。
 
 #### 3.5.1 Token管理
 ```typescript
@@ -368,6 +378,7 @@ http.interceptors.response.use(
 ```
 
 #### 3.5.2 SSO Ticket安全
+> 规划/未落地：当前未启用 SSO，Ticket 加密仅作为方案预留。
 ```typescript
 // Ticket加密参数
 const SSO_CONFIG = {
@@ -1272,36 +1283,40 @@ const FALLBACK_STRATEGIES: Record<string, Function> = {
 
 | 方法 | 路径 | 描述 | 认证 |
 |------|------|------|------|
-| POST | /api/os/v1/auth/login | 用户名密码登录 | 否 |
-| POST | /api/os/v1/auth/login/phone | 手机验证码登录 | 否 |
-| POST | /api/os/v1/auth/logout | 退出登录 | 是 |
-| GET | /api/os/v1/auth/token/me | 获取当前用户 | 是 |
-| POST | /api/os/v1/auth/sms/send | 发送短信验证码 | 否 |
-| POST | /api/os/v1/auth/cross-platform/login | 跨平台登录 | 否 |
+| POST | /api/auth/login | 用户名/邮箱登录 | 否 |
+| POST | /api/auth/refresh | 刷新 accessToken | 否 |
 
-### 9.2 图片处理相关
+### 10.2 统一能力调用
 
 | 方法 | 路径 | 描述 | 认证 |
 |------|------|------|------|
-| POST | /api/op/v1/image-processing | 提交图像处理任务 | 是 |
-| GET | /api/op/v1/workflow-task/summary | 获取任务列表 | 是 |
-| GET | /api/op/v1/workflow-task/detail/:taskId | 获取任务详情 | 是 |
-| POST | /api/op/v1/image-regenerate | 重绘/再生成任务 | 是 |
+| GET | /api/abilities | 能力清单（公开） | 否 |
+| GET | /api/abilities/{abilityId} | 单个能力详情 | 否 |
+| POST | /api/abilities/{abilityId}/invoke | 调用能力 | 是 |
+| POST | /api/ability-tasks | 异步任务提交 | 是 |
+| GET | /api/ability-tasks | 异步任务列表 | 是 |
+| GET | /api/ability-tasks/{taskId} | 异步任务详情 | 是 |
 
 ### 10.3 积分相关
 
 | 方法 | 路径 | 描述 | 认证 |
 |------|------|------|------|
-| POST | /api/op/v1/img/points-cost | 查询积分消耗 | 是 |
-| GET | /api/os/v1/points/statistics | 获取积分统计 | 是 |
-| GET | /api/os/v1/points/transactions | 获取积分交易记录 | 是 |
+| POST | /api/op/v1/img/points-cost | 查询积分消耗（临时） | 否 |
+| GET | /api/os/v1/points/statistics | 获取积分统计（临时） | 否 |
+| GET | /api/os/v1/points/transactions | 获取积分交易记录（临时） | 否 |
+
+> 说明：以上 `/api/op/v1` 与 `/api/os/v1` 为历史接口，当前后端未启用。
 
 ### 10.4 文件上传相关
 
 | 方法 | 路径 | 描述 | 认证 |
 |------|------|------|------|
-| POST | /api/op/v1/upload | 上传文件 | 是 |
-| GET | /api/op/v1/upload/token | 获取上传Token | 是 |
+| POST | /api/media/v1/upload-key | 获取上传 key | 否 |
+| POST | /api/media/v1/sts | 获取 STS 凭证 | 否 |
+| POST | /api/media/v1/oss-callback | OSS 回调 | 否 |
+| POST | /api/media/v1/signed-download | 生成下载签名 | 否 |
+
+> 说明：旧的 `/api/os/v1/auth/*`、`/api/op/v1/image-processing` 以及 `/api/op|os/v1/points*` 已下线，请以 `docs/api/INDEX.md` 为准。
 
 ---
 
@@ -1337,11 +1352,13 @@ const FALLBACK_STRATEGIES: Record<string, Function> = {
 
 ### A. 文件索引
 
+> 说明：以下 `src/` 目录为历史客户端结构示意，当前客户端已移除，仅保留参考。
+
 ```
 docs/
 ├── BUSINESS_MODEL.md      # 本业务建模文档
 ├── architecture.md        # 技术架构文档
-├── api.md                 # API接口文档
+├── api.md                 # API 总览（最新）
 ├── development-guide.md   # 开发指南
 ├── task-submission-flow.md# 任务提交流程
 ├── smart-polling-mechanism.md # 智能轮询机制
@@ -1383,9 +1400,9 @@ src/
 
 ---
 
-*文档版本: 1.1.0* (更新日期: 2024-01-06)
-*更新内容:*
-*- 登录认证改为阿里云短信验证码*
+*文档版本: 1.2.0* (更新日期: 2026-02-13)  
+*更新内容:*  
+*- 补充“规划/未落地”标注，避免误导；明确当前仅有账号密码登录与 Ability/AbilityTask 主链路。*
 *- 第三方用户通过手机号匹配/创建*
 *- 新用户默认100积分*
 *- 图片上传限制更新为5MB+，支持4K*

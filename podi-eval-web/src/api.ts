@@ -122,24 +122,150 @@ export const evalApi = {
     return request<{
       total: number;
       items: Array<{
-        batchId: string;
-        workflowVersionId?: string | null;
-        workflowName?: string | null;
-        total: number;
-        completed: number;
-        queued: number;
-        running: number;
-        succeeded: number;
-        failed: number;
-        expectedTotal?: number;
-        expectedImages?: number;
-        expectedRepeat?: number;
-        latestCreatedAt?: string | null;
-        latestUpdatedAt?: string | null;
+        id: string;
+        workflow_version_id?: string | null;
+        status?: string;
+        planned_image_count?: number;
+        repeat_count?: number;
+        planned_run_count?: number;
+        submitted_count?: number;
+        running_count?: number;
+        succeeded_count?: number;
+        failed_count?: number;
+        canceled_count?: number;
+        created_at?: string | null;
+        updated_at?: string | null;
       }>;
-    }>(`/api/evals/runs/batches?${qs.toString()}`);
+    }>(`/api/evals/batches?${qs.toString()}`).then((res) => ({
+      total: Number(res.total || 0),
+      items: (Array.isArray(res.items) ? res.items : []).map((item) => {
+        const planned = Number(item.planned_run_count || 0);
+        const succeeded = Number(item.succeeded_count || 0);
+        const failed = Number(item.failed_count || 0);
+        const canceled = Number(item.canceled_count || 0);
+        const running = Number(item.running_count || 0);
+        const submitted = Number(item.submitted_count || 0);
+        const completed = succeeded + failed + canceled;
+        const queued = Math.max(0, planned - completed - running);
+        return {
+          batchId: String(item.id || ''),
+          workflowVersionId: item.workflow_version_id ? String(item.workflow_version_id) : null,
+          workflowName: null,
+          total: planned,
+          completed,
+          queued,
+          running,
+          succeeded,
+          failed: failed + canceled,
+          expectedTotal: planned,
+          expectedImages: Number(item.planned_image_count || 0),
+          expectedRepeat: Number(item.repeat_count || 0),
+          latestCreatedAt: item.created_at || null,
+          latestUpdatedAt: item.updated_at || null,
+          submittedCount: submitted,
+          status: String(item.status || ''),
+        };
+      }),
+    }));
   },
-  stopRunBatch: (batchId: string) => request<{ batchId: string; stoppedRuns: number; stoppedTasks: number }>(`/api/evals/runs/batches/${encodeURIComponent(batchId)}/stop`, { method: 'POST' }),
+  stopRunBatch: (batchId: string) =>
+    request<{ batch_id: string; stopped_run_items: number; stopped_eval_runs: number; stopped_ability_tasks: number }>(
+      `/api/evals/batches/${encodeURIComponent(batchId)}/stop`,
+      { method: 'POST' },
+    ).then((res) => ({
+      batchId: String(res.batch_id || batchId),
+      stoppedRuns: Number(res.stopped_eval_runs || 0),
+      stoppedTasks: Number(res.stopped_ability_tasks || 0),
+      stoppedRunItems: Number(res.stopped_run_items || 0),
+    })),
+  createBatch: (payload: {
+    workflow_version_id: string;
+    repeat_count: number;
+    parameters_json?: Record<string, unknown>;
+    metadata?: Record<string, unknown>;
+  }) =>
+    request<{
+      id: string;
+      status: string;
+      planned_image_count: number;
+      repeat_count: number;
+      planned_run_count: number;
+      created_at: string;
+      updated_at: string;
+    }>(`/api/evals/batches`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  upsertBatchAssets: (
+    batchId: string,
+    payload: {
+      items: Array<{
+        source_key: string;
+        file_name: string;
+        oss_url?: string;
+        object_key?: string;
+        size_bytes?: number;
+        width?: number;
+        height?: number;
+        upload_status: string;
+        upload_error_code?: string;
+        upload_error_message?: string;
+      }>;
+    },
+  ) =>
+    request<{ total: number; items: Array<{ id: string; source_key: string; upload_status: string }> }>(
+      `/api/evals/batches/${encodeURIComponent(batchId)}/assets`,
+      { method: 'POST', body: JSON.stringify(payload) },
+    ),
+  listBatchAssets: (batchId: string, params?: { status?: string; limit?: number; offset?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.status) qs.set('status', params.status);
+    qs.set('limit', String(params?.limit ?? 200));
+    qs.set('offset', String(params?.offset ?? 0));
+    return request<{
+      total: number;
+      items: Array<{
+        id: string;
+        source_key: string;
+        file_name: string;
+        oss_url?: string | null;
+        upload_status: string;
+        upload_error_code?: string | null;
+        upload_error_message?: string | null;
+      }>;
+    }>(`/api/evals/batches/${encodeURIComponent(batchId)}/assets?${qs.toString()}`);
+  },
+  submitBatch: (batchId: string, payload?: { parameters_json?: Record<string, unknown>; only_pending?: boolean }) =>
+    request<{ batch_id: string; created_items: number; submitted_items: number; failed_items: number }>(
+      `/api/evals/batches/${encodeURIComponent(batchId)}/submit`,
+      { method: 'POST', body: JSON.stringify(payload || { only_pending: true }) },
+    ),
+  listBatchItems: (batchId: string, params?: { status?: string; limit?: number; offset?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.status) qs.set('status', params.status);
+    qs.set('limit', String(params?.limit ?? 200));
+    qs.set('offset', String(params?.offset ?? 0));
+    return request<{
+      total: number;
+      items: Array<{
+        id: string;
+        batch_session_id: string;
+        asset_id: string;
+        asset_source_key?: string | null;
+        asset_file_name?: string | null;
+        asset_oss_url?: string | null;
+        repeat_index: number;
+        eval_run_id?: string | null;
+        status: string;
+        run_status?: string | null;
+        run_prompt?: string | null;
+        run_output_urls_json?: string[] | null;
+        run_error_message?: string | null;
+        error_code?: string | null;
+        error_message?: string | null;
+      }>;
+    }>(`/api/evals/batches/${encodeURIComponent(batchId)}/items?${qs.toString()}`);
+  },
   getRun: (runId: string) => request<EvalRun>(`/api/evals/runs/${runId}`),
   createAnnotation: (runId: string, payload: { rating: number; comment?: string }) =>
     request(`/api/evals/runs/${runId}/annotations`, { method: 'POST', body: JSON.stringify(payload) }),

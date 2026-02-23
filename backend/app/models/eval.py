@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
@@ -106,3 +106,118 @@ class EvalAnnotation(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     
     run: Mapped[EvalRun] = relationship(back_populates="annotations")
+
+
+class EvalBatchSession(Base):
+    """Batch session for LoRA regression runs."""
+
+    __tablename__ = "eval_batch_session"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    workflow_version_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("eval_workflow_version.id", ondelete="SET NULL")
+    )
+    created_by: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(32), default="draft", nullable=False, index=True)
+
+    planned_image_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    repeat_count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    planned_run_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    uploaded_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    upload_failed_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    submitted_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    running_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    succeeded_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    failed_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    canceled_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    last_error_code: Mapped[str | None] = mapped_column(String(64))
+    last_error_message: Mapped[str | None] = mapped_column(Text)
+    extra_metadata: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSON)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    workflow_version: Mapped[EvalWorkflowVersion | None] = relationship()
+    assets: Mapped[list["EvalBatchAsset"]] = relationship(
+        back_populates="batch_session", cascade="all, delete-orphan"
+    )
+    run_items: Mapped[list["EvalBatchRunItem"]] = relationship(
+        back_populates="batch_session", cascade="all, delete-orphan"
+    )
+
+
+class EvalBatchAsset(Base):
+    """Uploaded source assets inside a batch session."""
+
+    __tablename__ = "eval_batch_asset"
+    __table_args__ = (
+        UniqueConstraint("batch_session_id", "source_key", name="uq_eval_batch_asset_source"),
+        Index("ix_eval_batch_asset_batch_upload_status", "batch_session_id", "upload_status"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    batch_session_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("eval_batch_session.id", ondelete="CASCADE"), nullable=False
+    )
+    source_key: Mapped[str] = mapped_column(String(191), nullable=False)
+    file_name: Mapped[str] = mapped_column(String(256), nullable=False)
+    oss_url: Mapped[str | None] = mapped_column(String(1024))
+    object_key: Mapped[str | None] = mapped_column(String(512))
+    size_bytes: Mapped[int | None] = mapped_column(Integer)
+    width: Mapped[int | None] = mapped_column(Integer)
+    height: Mapped[int | None] = mapped_column(Integer)
+    upload_status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False, index=True)
+    upload_error_code: Mapped[str | None] = mapped_column(String(64))
+    upload_error_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    batch_session: Mapped[EvalBatchSession] = relationship(back_populates="assets")
+    run_items: Mapped[list["EvalBatchRunItem"]] = relationship(
+        back_populates="asset", cascade="all, delete-orphan"
+    )
+
+
+class EvalBatchRunItem(Base):
+    """Expanded execution item (asset x repeat index)."""
+
+    __tablename__ = "eval_batch_run_item"
+    __table_args__ = (
+        UniqueConstraint(
+            "batch_session_id",
+            "asset_id",
+            "repeat_index",
+            name="uq_eval_batch_run_item_repeat",
+        ),
+        Index("ix_eval_batch_run_item_batch_status", "batch_session_id", "status"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    batch_session_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("eval_batch_session.id", ondelete="CASCADE"), nullable=False
+    )
+    asset_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("eval_batch_asset.id", ondelete="CASCADE"), nullable=False
+    )
+    repeat_index: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    eval_run_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("eval_run.id", ondelete="SET NULL"), index=True
+    )
+    status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False, index=True)
+    error_code: Mapped[str | None] = mapped_column(String(64))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    batch_session: Mapped[EvalBatchSession] = relationship(back_populates="run_items")
+    asset: Mapped[EvalBatchAsset] = relationship(back_populates="run_items")
+    eval_run: Mapped[EvalRun | None] = relationship()

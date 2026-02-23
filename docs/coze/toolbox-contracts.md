@@ -1,6 +1,6 @@
 # Coze 工具箱契约（PODI 插件）
 
-> 版本：2026-02-03  
+> 版本：2026-02-13  
 > 目标：明确 **Coze 调用 PODI 工具箱** 的统一输入/输出与回调契约，避免参数不一致。
 
 ## 1. OpenAPI 导入入口
@@ -143,12 +143,12 @@ taskStatus = failed
 - 工具调用会立刻返回 `taskId`（异步）
 - 由 `/api/coze/podi/tasks/get` 轮询结果
 - 队列满时直接返回错误码（Q1001）
- - `/tasks/get` 会尽力返回 `executorId/executorBaseUrl`，方便定位具体服务器
+  - `/tasks/get` 会尽力返回 `executorId/executorBaseUrl`，方便定位具体服务器
 
 ### 9.2 KIE / Volcengine（商业模型）
 - 部分模型走异步并返回 `taskId`
 - 队列满时返回错误码（Q2001）
- - 任务完成后仍会返回 `imageUrl/imageUrls`
+  - 任务完成后仍会返回 `imageUrl/imageUrls`
 
 ### 9.3 Baidu
 - 多为同步返回图片
@@ -158,6 +158,16 @@ taskStatus = failed
 
 成功示例（核心字段）：
 
+```
+{
+  "taskId": "t1.comfyui.executor_xxx.<raw>",
+  "taskStatus": "succeeded",
+  "imageUrl": "https://...",
+  "imageUrls": ["https://..."],
+  "executorId": "executor_xxx",
+  "executorBaseUrl": "http://...",
+  "debugResponse": null
+}
 ```
 
 ## 11. /comfyui/queue-summary（队列汇总）
@@ -187,13 +197,3 @@ taskStatus = failed
 ### 用途
 - 在 Coze workflow 中作为“路由判断/限流”依据
 - 业务侧可根据 `totalCount` 判断是否延迟提交
-{
-  "taskId": "t1.comfyui.executor_xxx.<raw>",
-  "taskStatus": "succeeded",
-  "imageUrl": "https://...",
-  "imageUrls": ["https://..."],
-  "executorId": "executor_xxx",
-  "executorBaseUrl": "http://...",
-  "debugResponse": null
-}
-```

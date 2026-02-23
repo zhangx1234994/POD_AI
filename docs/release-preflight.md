@@ -13,10 +13,11 @@ Goal: run these checks on the test machine before deploying to the production se
 
 ## 1) Multi-ComfyUI Connectivity
 
-From the PODI backend host (8099), confirm it can reach *each* ComfyUI executor baseUrl:
+From the PODI backend host (8099), confirm it can reach *each* ComfyUI executor baseUrl
+(以管理端“执行节点”配置为准，主服务器可能调整):
 
-- `http://117.50.80.158:8079/`
-- `http://117.50.216.233:8079/`
+- `http://<comfyui-host-1>:8079/`
+- `http://<comfyui-host-2>:8079/`
 
 If one host is not reachable, ComfyUI tasks may "generate but never refresh" because we
 cannot poll `/history/{promptId}` to finalize the job.
@@ -62,4 +63,3 @@ Steps:
 - Backend: `python3 -m pytest -q backend/tests`
 - Eval UI: `npm -C podi-eval-web run build`
 - Admin UI: `npm -C podi-admin-web run lint`
-

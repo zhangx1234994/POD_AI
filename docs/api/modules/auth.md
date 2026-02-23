@@ -24,7 +24,7 @@
 {
   "username": "admin",
   "email": "admin@example.com",
-  "password": "Admin123"
+  "password": "<your_password>"
 }
 ```
 
@@ -52,7 +52,7 @@
 ```bash
 curl -X POST http://127.0.0.1:8099/api/auth/login \
   -H "Content-Type: application/json" \
-  -d username:admin
+  -d '{"username":"admin","password":"<your_password>"}'
 ```
 
 ---
@@ -93,5 +93,5 @@ curl -X POST http://127.0.0.1:8099/api/auth/login \
 ```bash
 curl -X POST http://127.0.0.1:8099/api/auth/refresh \
   -H "Content-Type: application/json" \
-  -d {refreshToken:<refresh_token>}
+  -d '{"refreshToken":"<refresh_token>"}'
 ```

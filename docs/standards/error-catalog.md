@@ -60,6 +60,15 @@
 | ABILITY_LOG_NOT_FOUND | 能力日志不存在 | 404 |
 | ABILITY_LOG_NOT_COMFYUI | 日志非 ComfyUI | 400 |
 | INVALID_WORKFLOW_OR_EXECUTOR | workflow 或 executor 无效 | 400 |
+| BATCH_NOT_FOUND | 批测批次不存在 | 404 |
+| BATCH_FORBIDDEN | 批测批次无权限 | 403 |
+| BATCH_STOPPED | 批次已停止，不允许写入 | 409 |
+| BATCH_NOT_READY | 批次素材未就绪 | 400 |
+| BATCH_ASSETS_EMPTY | 素材列表为空 | 400 |
+| BATCH_ASSET_LIMIT_EXCEEDED | 素材条数超上限 | 400 |
+| BATCH_ASSET_UPLOAD_STATUS_INVALID | 素材上传状态非法 | 400 |
+| BATCH_ASSET_URL_REQUIRED | 上传成功素材缺少 URL | 400 |
+| BATCH_ITEM_SUBMIT_FAILED | 执行项提交失败 | 500 |
 
 ---
 

@@ -1,6 +1,9 @@
 # 异步任务 & 能力监控说明
 
-> 覆盖传统任务 (`/api/tasks`) 与 AbilityTask (`/api/ability-tasks`) 的监听、轮询与 UI 联动策略。版本：2026-01-15。
+> 说明：本文档包含历史客户端（已移除）的前端实现细节（hooks/组件路径）。
+> 现行实现请以 `podi-admin-web` / `podi-eval-web` 代码为准，本文件仅保留机制说明与原则。
+
+> 覆盖历史任务链路（`/api/tasks`，已下线）与 AbilityTask（`/api/ability-tasks`）的监听、轮询与 UI 联动策略。版本：2026-01-15。
 
 ## 1. 概述
 
@@ -81,7 +84,7 @@
 ### 前端处理
 - `useRealtimeNotifications` 将消息派发为 `CustomEvent`：`podi:task-status`、`podi:ability-task-status`、`podi:wallet-points`（常量位于 `src/constants/events.ts`）。
 - `useTaskSummaryData` 监听传统任务事件，`useAbilityTaskPolling`/`AbilityTaskContext` 监听 AbilityTask 事件，必要时触发立即轮询以获取最新 `resultPayload`。
-- `PointsProvider` 监听积分事件并更新余额。
+- `PointsProvider`（历史客户端）监听积分事件并更新余额。
 - 管理端 Ability Logs 抽屉通过 `logId` 匹配最新记录，实时 highlight。
 
 ## 6. 注意事项

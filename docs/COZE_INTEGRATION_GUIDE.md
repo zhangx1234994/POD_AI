@@ -11,7 +11,7 @@
 | 项目 | 说明 |
 |------|------|
 | API 基础 URL | `http://<backend-host>:8099`（以实际部署为准）|
-| 认证方式 | Bearer Token |
+| 认证方式 | Bearer Token（管理员 JWT 或 `SERVICE_API_TOKEN`） |
 | 请求格式 | JSON |
 | 响应格式 | JSON |
 | 支持协议 | HTTP/HTTPS |
@@ -38,7 +38,7 @@ pip install fastapi httpx
 
 ### 2.4 认证流程
 
-1. 向中台管理员申请 API Token
+1. 管理端账号登录获取 JWT，或由运维配置 `SERVICE_API_TOKEN`
 2. 在请求头中添加 `Authorization: Bearer {token}`
 3. 确保 Token 保密，定期更换
 
@@ -50,7 +50,7 @@ pip install fastapi httpx
 
 - **URL**: `/api/abilities`
 - **方法**: GET
-- **认证**: Bearer Token
+- **认证**: 可选（能力清单公开，调用能力需 Token）
 - **响应格式**: JSON
 
 ```json
@@ -507,7 +507,7 @@ class AbilityClient:
     
     def get_task_status(self, task_id):
         """查询任务状态"""
-        url = f"{self.base_url}/api/ability_tasks/{task_id}"
+        url = f"{self.base_url}/api/ability-tasks/{task_id}"
         response = self.client.get(url)
         response.raise_for_status()
         return response.json()
@@ -629,7 +629,7 @@ if __name__ == "__main__":
 ```python
 import httpx
 
-client = AbilityClient(base_url="https://<coze-host>", token="your-bearer-token")
+client = AbilityClient(base_url="https://<backend-host>", token="your-bearer-token")
 
 try:
     result = client.invoke_ability(

@@ -1,108 +1,79 @@
-# 任务提交与调度接口
+# 异步任务（AbilityTask）
 
 ## 用途
 
-- 旧任务链路（tasks/task_events）的提交与状态查询。
-- 与钱包冻结/扣费、通知系统联动。
+- 统一的异步任务提交与状态查询（能力调用长耗时场景）。
+- 适用于批量任务、ComfyUI/KIE 等需要轮询的能力。
 
 ## 鉴权
 
-- 当前接口未强制 Bearer（内部使用），生产建议通过网关限制。
+- 需要 `Authorization: Bearer <accessToken>`。
 
 ---
 
-## 1) 提交任务
+## 1) 提交任务（异步）
 
-### POST /api/tasks/v1/submit
+### POST /api/ability-tasks
 
 **请求体**（示例）
 
 ```json
 {
-  "taskId": "task_20260209_0001",
-  "userId": "u_123",
-  "action": "comfyui.yinhua_tiqu",
-  "points": 50,
-  "channel": "admin",
-  "inputPayload": {
-    "url": "https://podi.oss-cn-hangzhou.aliyuncs.com/test/input.png"
-  }
+  "abilityId": "comfyui_yinhua_tiqu",
+  "inputs": { "prompt": "提取印花" },
+  "imageUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/test/input.png"
 }
 ```
 
 **响应体**
 
 ```json
-{ "taskId": "task_20260209_0001", "status": "pending" }
+{ "id": "task_20260209_0001", "status": "queued", "createdAt": "2026-02-13T12:00:00Z" }
 ```
 
 **说明**
 
-- 会调用钱包冻结积分，并广播通知事件。
+- 任务进入后台执行队列，前端需轮询查询状态。
 
 ---
 
 ## 2) 查询任务状态
 
-### GET /api/tasks/v1/{task_id}
+### GET /api/ability-tasks/{task_id}
 
 **响应体**
 
 ```json
 {
-  "taskId": "task_20260209_0001",
+  "id": "task_20260209_0001",
   "status": "running",
-  "progress": 30,
-  "resultUrl": null
+  "resultAssets": [],
+  "errorMessage": null
 }
 ```
 
 ---
 
-## 3) 任务完成回执
+## 3) 任务列表
 
-### POST /api/tasks/v1/{task_id}/complete
-
-**参数**：`success=true/false`
-
-**说明**
-
-- 成功：确认扣费并广播通知
-- 失败：释放冻结并广播通知
-
-**错误**
-
-- `TASK_NOT_FOUND`
-- `HOLD_NOT_FOUND`
-
----
-
-## 4) 任务列表
-
-### GET /api/tasks/v1
+### GET /api/ability-tasks
 
 **参数**
 
-- `userId`（必填）
-- `action` / `status` / `page` / `size`
+- `limit`（1-200）
 
 **响应体**
 
 ```json
 {
   "items": [],
-  "total": 0,
-  "page": 0,
-  "size": 10
+  "total": 0
 }
 ```
 
 ---
 
-## 5) 调度
+## 4) 说明（旧链路）
 
-### POST /api/tasks/v1/dispatch
-
-**用途**：批量调度待处理任务（内部使用）。
-
-**参数**：`limit`（1-20）
+- 旧的 `/api/tasks/v1/*` 已下线，不再维护。
+- 统一使用 `/api/ability-tasks` 作为异步任务入口。

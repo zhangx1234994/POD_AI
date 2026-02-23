@@ -8,7 +8,7 @@
 
 ## 鉴权
 
-- **管理员 Bearer Token**（`Authorization: Bearer <admin_token>`）
+- **管理员 JWT**（`Authorization: Bearer <accessToken>`）
 
 ---
 
@@ -33,6 +33,8 @@
   "api_key_ids": []
 }
 ```
+
+> 说明：`base_url` 为示例，实际以管理端配置为准（主服务器可能调整）。
 
 ### PUT /api/admin/executors/{id}
 ### DELETE /api/admin/executors/{id}

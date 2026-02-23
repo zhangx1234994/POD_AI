@@ -148,4 +148,135 @@ class EvalRunPurgeResponse(BaseModel):
     deleted_annotations: int = Field(..., description="已删除的标注记录数")
 
 
+class EvalBatchCreate(BaseModel):
+    """Create a LoRA batch session."""
+
+    workflow_version_id: str = Field(..., description="工作流版本ID")
+    repeat_count: int = Field(1, ge=1, le=20, description="每张图重复次数")
+    parameters_json: Optional[dict[str, Any]] = Field(None, description="批次默认参数")
+    metadata: Optional[dict[str, Any]] = Field(None, description="附加元数据")
+
+
+class EvalBatchSubmitRequest(BaseModel):
+    """Submit uploaded assets into runnable items."""
+
+    parameters_json: Optional[dict[str, Any]] = Field(None, description="本次提交覆盖参数")
+    only_pending: bool = Field(True, description="仅提交待处理项")
+
+
+class EvalBatchSessionResponse(BaseModel):
+    id: str
+    workflow_version_id: Optional[str] = None
+    created_by: str
+    status: str
+    planned_image_count: int
+    repeat_count: int
+    planned_run_count: int
+    uploaded_count: int
+    upload_failed_count: int
+    submitted_count: int
+    running_count: int
+    succeeded_count: int
+    failed_count: int
+    canceled_count: int
+    last_error_code: Optional[str] = None
+    last_error_message: Optional[str] = None
+    extra_metadata: Optional[dict[str, Any]] = None
+    created_at: datetime
+    updated_at: datetime
+    finished_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class EvalBatchSessionListResponse(BaseModel):
+    total: int
+    items: List[EvalBatchSessionResponse]
+
+
+class EvalBatchAssetUpsertItem(BaseModel):
+    source_key: str = Field(..., description="素材唯一标识")
+    file_name: str = Field(..., description="文件名")
+    oss_url: Optional[str] = Field(None, description="素材 OSS URL")
+    object_key: Optional[str] = Field(None, description="OSS object key")
+    size_bytes: Optional[int] = Field(None, ge=0, description="文件大小")
+    width: Optional[int] = Field(None, ge=0, description="宽")
+    height: Optional[int] = Field(None, ge=0, description="高")
+    upload_status: str = Field("uploaded", description="上传状态")
+    upload_error_code: Optional[str] = Field(None, description="上传错误码")
+    upload_error_message: Optional[str] = Field(None, description="上传错误信息")
+
+
+class EvalBatchAssetUpsertRequest(BaseModel):
+    items: List[EvalBatchAssetUpsertItem]
+
+
+class EvalBatchAssetResponse(BaseModel):
+    id: str
+    batch_session_id: str
+    source_key: str
+    file_name: str
+    oss_url: Optional[str] = None
+    object_key: Optional[str] = None
+    size_bytes: Optional[int] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+    upload_status: str
+    upload_error_code: Optional[str] = None
+    upload_error_message: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class EvalBatchAssetListResponse(BaseModel):
+    total: int
+    items: List[EvalBatchAssetResponse]
+
+
+class EvalBatchRunItemResponse(BaseModel):
+    id: str
+    batch_session_id: str
+    asset_id: str
+    asset_source_key: Optional[str] = None
+    asset_file_name: Optional[str] = None
+    asset_oss_url: Optional[str] = None
+    repeat_index: int
+    eval_run_id: Optional[str] = None
+    status: str
+    run_status: Optional[str] = None
+    run_prompt: Optional[str] = None
+    run_output_urls_json: Optional[List[str]] = None
+    run_error_message: Optional[str] = None
+    error_code: Optional[str] = None
+    error_message: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class EvalBatchRunItemListResponse(BaseModel):
+    total: int
+    items: List[EvalBatchRunItemResponse]
+
+
+class EvalBatchStopResponse(BaseModel):
+    batch_id: str
+    stopped_run_items: int
+    stopped_eval_runs: int
+    stopped_ability_tasks: int
+
+
+class EvalBatchSubmitResponse(BaseModel):
+    batch_id: str
+    created_items: int
+    submitted_items: int
+    failed_items: int
+
+
 EvalRunWithLatestAnnotationResponse.model_rebuild()
