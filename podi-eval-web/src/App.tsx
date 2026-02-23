@@ -97,6 +97,9 @@ type LoraBatchSession = {
   running: number;
   succeeded: number;
   failed: number;
+  expectedTotal?: number;
+  expectedImages?: number;
+  expectedRepeat?: number;
   latestCreatedAt?: string | null;
   latestUpdatedAt?: string | null;
 };
@@ -1225,14 +1228,22 @@ export function App() {
     if (batchSessionId && batchSessions.some((item) => item.batchId === batchSessionId)) return batchSessionId;
     return String(batchSessions[0]?.batchId || '');
   }, [batchSessionId, batchSessions]);
+  const selectedBatchSession = useMemo(
+    () => batchSessions.find((item) => item.batchId === selectedBatchId) || null,
+    [batchSessions, selectedBatchId],
+  );
   const visibleBatchItems = useMemo(
     () => (selectedBatchId ? batchItems.filter((item) => item.batchId === selectedBatchId) : []),
     [batchItems, selectedBatchId],
   );
   const batchSummary = useMemo(() => {
     const total = visibleBatchItems.length;
-    const imageCount = new Set(visibleBatchItems.map((item) => item.sourceKey || item.fileName)).size;
-    const repeatCount = imageCount > 0 ? Math.max(...visibleBatchItems.map((item) => item.repeatIndex || 1), 1) : 0;
+    const imageCountRaw = new Set(visibleBatchItems.map((item) => item.sourceKey || item.fileName)).size;
+    const repeatCountRaw = imageCountRaw > 0 ? Math.max(...visibleBatchItems.map((item) => item.repeatIndex || 1), 1) : 0;
+    const imageCount = Number(selectedBatchSession?.expectedImages || 0) > 0 ? Number(selectedBatchSession?.expectedImages || 0) : imageCountRaw;
+    const repeatCount = Number(selectedBatchSession?.expectedRepeat || 0) > 0 ? Number(selectedBatchSession?.expectedRepeat || 0) : repeatCountRaw;
+    const plannedTotal = Number(selectedBatchSession?.expectedTotal || 0) > 0 ? Number(selectedBatchSession?.expectedTotal || 0) : total;
+    const missingSubmissions = Math.max(0, plannedTotal - total);
     const submitted = visibleBatchItems.filter((item) => item.status === 'submitted' && Boolean(item.runId)).length;
     const completed = visibleBatchItems.filter((item) => item.runStatus === 'succeeded' || item.runStatus === 'failed').length;
     const generated = visibleBatchItems.filter((item) => item.runStatus === 'succeeded' && (item.outputCount || 0) > 0).length;
@@ -1243,8 +1254,8 @@ export function App() {
         item.status === 'submitted' &&
         (!item.runStatus || item.runStatus === 'queued' || item.runStatus === 'running' || item.runStatus === 'unknown'),
     ).length;
-    return { total, imageCount, repeatCount, submitted, completed, generated, failed, active, queuedOrRunning };
-  }, [visibleBatchItems]);
+    return { total, imageCount, repeatCount, plannedTotal, missingSubmissions, submitted, completed, generated, failed, active, queuedOrRunning };
+  }, [visibleBatchItems, selectedBatchSession]);
   const buildBatchReviewKey = useCallback((runId: string, outputIndex: number) => `${runId}::${outputIndex}`, []);
   const batchReviewReasonOptions = useMemo(
     () => [
@@ -1601,7 +1612,7 @@ export function App() {
     setBatchLoadingSessions(true);
     try {
       const res = await evalApi.listRunBatches({
-        mine_only: true,
+        mine_only: false,
         limit: 200,
         offset: 0,
       });
@@ -1636,7 +1647,7 @@ export function App() {
           const res = await evalApi.listRuns({
             batch_session_id: id,
             batch_mode: true,
-            mine_only: true,
+            mine_only: false,
             limit: pageSize,
             offset,
           });
@@ -2280,11 +2291,15 @@ export function App() {
         [selectedBatchWorkflowMeta.urlFieldName]: url,
         __eval_batch_mode: '1',
         __batch_session_id: currentBatchId,
+        __batch_expected_total: String(plannedTotal),
+        __batch_expected_images: String(batchFiles.length),
+        __batch_expected_repeat: String(repeat),
       };
       if (planMeta) {
         parameters.__batch_file_name = String(planMeta.fileName || '');
         parameters.__batch_source_key = String(planMeta.sourceKey || '');
         parameters.__batch_repeat_index = String(planMeta.repeatIndex || 1);
+        parameters.__batch_request_key = `${planMeta.sourceKey}::${planMeta.repeatIndex}`;
       }
       if (selectedBatchWorkflowMeta.urlFieldName !== 'url') {
         // Keep lower-case url for backward compatibility in existing workflow handlers.
@@ -2367,6 +2382,42 @@ export function App() {
       return entry;
     };
 
+    const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
+    const createRunWithRetry = async (payload: {
+      workflow_version_id: string;
+      input_oss_urls_json: string[];
+      parameters_json: Record<string, unknown>;
+    }) => {
+      const maxAttempts = 3;
+      let lastErr: unknown = null;
+      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        try {
+          return await evalApi.createRun(payload);
+        } catch (err) {
+          lastErr = err;
+          if (attempt < maxAttempts) {
+            await sleep(300 * attempt);
+          }
+        }
+      }
+      throw lastErr;
+    };
+    const uploadWithRetry = async (file: File) => {
+      const maxAttempts = 2;
+      let lastErr: unknown = null;
+      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        try {
+          return await evalApi.uploadImage(file);
+        } catch (err) {
+          lastErr = err;
+          if (attempt < maxAttempts) {
+            await sleep(500 * attempt);
+          }
+        }
+      }
+      throw lastErr;
+    };
+
     const runWorker = async () => {
       while (!batchStopRef.current) {
         const fileEntry = nextFile();
@@ -2379,7 +2430,7 @@ export function App() {
         updateItems(keys, { status: 'uploading', error: undefined });
         let inputUrl = '';
         try {
-          const upload = await evalApi.uploadImage(file);
+          const upload = await uploadWithRetry(file);
           inputUrl = String(upload.url || '');
           if (!inputUrl) throw new Error('上传成功但未返回 URL');
         } catch (err) {
@@ -2394,7 +2445,7 @@ export function App() {
           if (batchStopRef.current) break;
           updateItems([plan.key], { status: 'submitting', inputUrl, error: undefined });
           try {
-            const run = await evalApi.createRun({
+            const run = await createRunWithRetry({
               workflow_version_id: selectedBatchWorkflow.id,
               input_oss_urls_json: [inputUrl],
               parameters_json: buildParameters(inputUrl, imageSize, {
@@ -2509,8 +2560,8 @@ export function App() {
           if (onlyUnsatisfied) continue;
           pushRow([
             String(item.batchId || selectedBatchId || ''),
-            String(selectedBatchWorkflow?.workflow_id || ''),
-            String(selectedBatchWorkflow?.name || ''),
+            String(selectedBatchSession?.workflowVersionId || ''),
+            String(selectedBatchSession?.workflowName || ''),
             String(batchLoraValue || ''),
             item.fileName,
             String(item.inputUrl || ''),
@@ -2533,8 +2584,8 @@ export function App() {
           if (onlyUnsatisfied && review.verdict !== 'unsatisfied') return;
           pushRow([
             String(item.batchId || selectedBatchId || ''),
-            String(selectedBatchWorkflow?.workflow_id || ''),
-            String(selectedBatchWorkflow?.name || ''),
+            String(selectedBatchSession?.workflowVersionId || ''),
+            String(selectedBatchSession?.workflowName || ''),
             String(batchLoraValue || ''),
             item.fileName,
             String(item.inputUrl || ''),
@@ -2575,7 +2626,7 @@ export function App() {
     },
     [
       visibleBatchItems,
-      selectedBatchWorkflow,
+      selectedBatchSession,
       batchLoraValue,
       selectedBatchId,
       buildBatchReviewKey,
@@ -3477,12 +3528,12 @@ export function App() {
                 <Col xs={6} md={3}>
                   <Space direction="vertical" size={2}>
                     <Typography.Text theme="secondary">计划执行条数</Typography.Text>
-                    <Typography.Text strong>{batchSummary.total}</Typography.Text>
+                    <Typography.Text strong>{batchSummary.plannedTotal}</Typography.Text>
                   </Space>
                 </Col>
                 <Col xs={6} md={3}>
                   <Space direction="vertical" size={2}>
-                    <Typography.Text theme="secondary">已提交执行</Typography.Text>
+                    <Typography.Text theme="secondary">已入库执行</Typography.Text>
                     <Typography.Text strong>{batchSummary.submitted}</Typography.Text>
                   </Space>
                 </Col>
@@ -3501,7 +3552,7 @@ export function App() {
                 <Col xs={12}>
                   <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
                     <Typography.Text theme="secondary">
-                      当前测试任务：{selectedBatchId || '未提交'}；提交中：{batchSummary.active}；队列/生成中：{batchSummary.queuedOrRunning}；失败：{batchSummary.failed}。
+                      当前测试任务：{selectedBatchId || '未提交'}；提交中：{batchSummary.active}；队列/生成中：{batchSummary.queuedOrRunning}；失败：{batchSummary.failed}；未入库：{batchSummary.missingSubmissions}。
                     </Typography.Text>
                     <Space>
                       <Button
@@ -3525,6 +3576,13 @@ export function App() {
                     </Space>
                   </Space>
                 </Col>
+                {batchSummary.missingSubmissions > 0 ? (
+                  <Col xs={12}>
+                    <Typography.Text theme="warning">
+                      检测到该批次有 {batchSummary.missingSubmissions} 条任务未入库（常见原因：上传失败或提交请求超时）。建议点击“刷新明细”后复测缺失样本。
+                    </Typography.Text>
+                  </Col>
+                ) : null}
               </Row>
             </Card>
 

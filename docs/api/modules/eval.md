@@ -56,6 +56,7 @@
 - `batchId`
 - `workflowVersionId/workflowName`
 - `total/completed/queued/running/succeeded/failed`
+- `expectedTotal/expectedImages/expectedRepeat`（批次声明的期望值）
 - `latestCreatedAt/latestUpdatedAt`
 
 ### POST /api/evals/runs/batches/{batch_id}/stop

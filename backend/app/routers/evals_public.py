@@ -13,7 +13,7 @@ from typing import Any
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, UploadFile, File
-from sqlalchemy import case, exists, func, select, update
+from sqlalchemy import Integer, case, exists, func, select, update
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -612,6 +612,18 @@ def list_run_batches(
     _require_public_enabled(request)
     rater_id = _get_or_set_rater_id(request, response)
     batch_expr = _batch_session_expr()
+    expected_total_expr = func.cast(
+        func.json_unquote(func.json_extract(EvalRun.parameters_json, "$.__batch_expected_total")),
+        Integer,
+    )
+    expected_images_expr = func.cast(
+        func.json_unquote(func.json_extract(EvalRun.parameters_json, "$.__batch_expected_images")),
+        Integer,
+    )
+    expected_repeat_expr = func.cast(
+        func.json_unquote(func.json_extract(EvalRun.parameters_json, "$.__batch_expected_repeat")),
+        Integer,
+    )
     completed_expr = case((EvalRun.status.in_(["succeeded", "failed"]), 1), else_=0)
     queued_expr = case((EvalRun.status == "queued", 1), else_=0)
     running_expr = case((EvalRun.status == "running", 1), else_=0)
@@ -629,6 +641,9 @@ def list_run_batches(
             func.sum(running_expr).label("running"),
             func.sum(succeeded_expr).label("succeeded"),
             func.sum(failed_expr).label("failed"),
+            func.max(expected_total_expr).label("expected_total"),
+            func.max(expected_images_expr).label("expected_images"),
+            func.max(expected_repeat_expr).label("expected_repeat"),
             func.max(EvalRun.created_at).label("latest_created_at"),
             func.max(EvalRun.updated_at).label("latest_updated_at"),
         )
@@ -658,6 +673,9 @@ def list_run_batches(
                 "running": int(row.running or 0),
                 "succeeded": int(row.succeeded or 0),
                 "failed": int(row.failed or 0),
+                "expectedTotal": int(row.expected_total or 0),
+                "expectedImages": int(row.expected_images or 0),
+                "expectedRepeat": int(row.expected_repeat or 0),
                 "latestCreatedAt": latest_created,
                 "latestUpdatedAt": latest_updated,
             }

@@ -131,6 +131,9 @@ export const evalApi = {
         running: number;
         succeeded: number;
         failed: number;
+        expectedTotal?: number;
+        expectedImages?: number;
+        expectedRepeat?: number;
         latestCreatedAt?: string | null;
         latestUpdatedAt?: string | null;
       }>;

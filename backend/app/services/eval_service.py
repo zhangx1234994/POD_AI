@@ -126,6 +126,14 @@ class EvalService:
             raise ValueError(f"Workflow version {workflow_version_id} not found")
 
         normalized_params = (parameters or {}).copy()
+        batch_request_key = str(normalized_params.get("__batch_request_key") or "").strip()
+        if batch_request_key:
+            req_key_expr = func.json_unquote(func.json_extract(EvalRun.parameters_json, "$.__batch_request_key"))
+            existing = db.execute(
+                select(EvalRun).where(req_key_expr == batch_request_key).limit(1)
+            ).scalar_one_or_none()
+            if existing:
+                return existing
         urls = [u for u in (input_oss_urls or []) if isinstance(u, str) and u.strip()]
         if urls:
             # Keep the convention: single image input uses `url` (string).
@@ -372,6 +380,10 @@ class EvalService:
             coze_params.pop("__batch_source_key", None)
             coze_params.pop("__batch_file_name", None)
             coze_params.pop("__batch_repeat_index", None)
+            coze_params.pop("__batch_request_key", None)
+            coze_params.pop("__batch_expected_total", None)
+            coze_params.pop("__batch_expected_images", None)
+            coze_params.pop("__batch_expected_repeat", None)
             coze_params.pop("__eval_provider_lane", None)
             # UI uses `similarity`; Coze workflows expect legacy `bili`.
             if "bili" not in coze_params and "similarity" in coze_params:
