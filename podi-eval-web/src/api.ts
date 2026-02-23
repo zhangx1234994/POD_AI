@@ -154,33 +154,57 @@ export const evalApi = {
     qs.set('offset', String(params.offset ?? 0));
     return request<{ total: number; items: any[] }>(`/api/evals/runs/with-latest-annotation?${qs.toString()}`);
   },
-  uploadImage: async (file: File) => {
-    const form = new FormData();
-    form.append('file', file);
-    const { options: timedOptions, cancel } = withTimeout(
-      { method: 'POST', body: form, credentials: 'include' },
-      30000,
-    );
-    let resp: Response;
-    try {
-      resp = await fetch(`${API_BASE}/api/evals/uploads`, timedOptions);
-    } catch (err) {
-      cancel();
-      if (err instanceof DOMException && err.name === 'AbortError') {
-        throw new Error('上传超时，请检查网络或服务是否可用');
-      }
-      throw new Error(String((err as any)?.message || err || '网络请求失败'));
-    }
-    cancel();
-    if (!resp.ok) {
-      const text = await resp.text();
-      const msg = resolveHttpError(resp.status, resp.statusText, text);
-      // When reverse proxies return an empty body, `new Error('')` becomes just "Error".
-      // Include status so the UI can show something actionable (413/502/etc).
-      throw new Error(`上传失败 (status=${resp.status}): ${msg}`);
-    }
-    return resp.json() as Promise<{ url: string; objectKey: string }>;
-  },
+  uploadImage: (file: File, opts?: { onProgress?: (loaded: number, total: number) => void; timeoutMs?: number }) =>
+    new Promise<{ url: string; objectKey: string }>((resolve, reject) => {
+      const form = new FormData();
+      form.append('file', file);
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${API_BASE}/api/evals/uploads`, true);
+      xhr.withCredentials = true;
+      xhr.timeout = Number(opts?.timeoutMs || 30000);
+
+      xhr.upload.onprogress = (evt) => {
+        if (!opts?.onProgress) return;
+        if (evt.lengthComputable) {
+          opts.onProgress(Math.max(0, evt.loaded || 0), Math.max(1, evt.total || file.size || 1));
+          return;
+        }
+        opts.onProgress(0, Math.max(1, file.size || 1));
+      };
+
+      xhr.onerror = () => {
+        reject(new Error('上传失败：网络异常或服务不可达'));
+      };
+      xhr.ontimeout = () => {
+        reject(new Error('上传超时，请检查网络或服务是否可用'));
+      };
+      xhr.onabort = () => {
+        reject(new Error('上传已中断，请重试'));
+      };
+      xhr.onload = () => {
+        const status = xhr.status || 0;
+        const bodyText = xhr.responseText || '';
+        if (status < 200 || status >= 300) {
+          const msg = resolveHttpError(status, xhr.statusText || '', bodyText);
+          reject(new Error(`上传失败 (status=${status}): ${msg}`));
+          return;
+        }
+        try {
+          const parsed = JSON.parse(bodyText || '{}') as { url?: string; objectKey?: string };
+          if (!parsed?.url) {
+            reject(new Error('上传失败：服务未返回可用 URL'));
+            return;
+          }
+          resolve({
+            url: String(parsed.url),
+            objectKey: String(parsed.objectKey || ''),
+          });
+        } catch {
+          reject(new Error('上传失败：响应格式异常'));
+        }
+      };
+      xhr.send(form);
+    }),
   adminListWorkflowVersions: async (adminToken: string) =>
     request<EvalWorkflowVersion[]>(`/api/evals/admin/workflow-versions`, { headers: { 'X-Eval-Admin-Token': adminToken } }),
   adminUpdateWorkflowVersion: async (adminToken: string, id: string, payload: Partial<EvalWorkflowVersion>) =>

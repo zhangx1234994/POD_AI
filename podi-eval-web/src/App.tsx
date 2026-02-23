@@ -104,6 +104,16 @@ type LoraBatchSession = {
   latestUpdatedAt?: string | null;
 };
 
+type LoraBatchUploadProgress = {
+  batchId: string;
+  totalFiles: number;
+  totalBytes: number;
+  uploadedFiles: number;
+  failedFiles: number;
+  activeFiles: number;
+  uploadedBytes: number;
+};
+
 // Keep the evaluation UI sidebar fixed to these 5 business-facing groups.
 const CATEGORY_ORDER = ['花纹提取类', '图延伸类', '四方/两方连续图类', '图裂变', '通用类'];
 
@@ -1126,6 +1136,19 @@ export function App() {
   const batchFileInputRef = useRef<HTMLInputElement | null>(null);
   const batchItemsRef = useRef<LoraBatchItem[]>([]);
   const batchPollCursorRef = useRef<number>(0);
+  const [batchUploadProgress, setBatchUploadProgress] = useState<LoraBatchUploadProgress>({
+    batchId: '',
+    totalFiles: 0,
+    totalBytes: 0,
+    uploadedFiles: 0,
+    failedFiles: 0,
+    activeFiles: 0,
+    uploadedBytes: 0,
+  });
+  const batchUploadCommittedBytesRef = useRef<number>(0);
+  const batchUploadInFlightRef = useRef<Map<string, number>>(new Map());
+  const batchUploadUploadedFilesRef = useRef<number>(0);
+  const batchUploadFailedFilesRef = useRef<number>(0);
 
   const workflowMap = useMemo(() => {
     const m: Record<string, EvalWorkflowVersion> = {};
@@ -1256,6 +1279,15 @@ export function App() {
     ).length;
     return { total, imageCount, repeatCount, plannedTotal, missingSubmissions, submitted, completed, generated, failed, active, queuedOrRunning };
   }, [visibleBatchItems, selectedBatchSession]);
+  const batchUploadFilePercent = useMemo(() => {
+    if (!batchUploadProgress.totalFiles) return 0;
+    const done = batchUploadProgress.uploadedFiles + batchUploadProgress.failedFiles;
+    return Math.max(0, Math.min(100, Math.round((done / batchUploadProgress.totalFiles) * 100)));
+  }, [batchUploadProgress]);
+  const batchUploadBytePercent = useMemo(() => {
+    if (!batchUploadProgress.totalBytes) return 0;
+    return Math.max(0, Math.min(100, Math.round((batchUploadProgress.uploadedBytes / batchUploadProgress.totalBytes) * 100)));
+  }, [batchUploadProgress]);
   const buildBatchReviewKey = useCallback((runId: string, outputIndex: number) => `${runId}::${outputIndex}`, []);
   const batchReviewReasonOptions = useMemo(
     () => [
@@ -2274,6 +2306,29 @@ export function App() {
       });
     }
 
+    const totalUploadFiles = fileOrder.length;
+    const totalUploadBytes = fileOrder.reduce((sum, item) => sum + Math.max(0, Number(item.file.size || 0)), 0);
+    batchUploadCommittedBytesRef.current = 0;
+    batchUploadInFlightRef.current = new Map();
+    batchUploadUploadedFilesRef.current = 0;
+    batchUploadFailedFilesRef.current = 0;
+    const refreshBatchUploadProgress = () => {
+      let inFlightLoadedBytes = 0;
+      for (const value of batchUploadInFlightRef.current.values()) {
+        inFlightLoadedBytes += Math.max(0, Number(value || 0));
+      }
+      setBatchUploadProgress({
+        batchId: currentBatchId,
+        totalFiles: totalUploadFiles,
+        totalBytes: totalUploadBytes,
+        uploadedFiles: batchUploadUploadedFilesRef.current,
+        failedFiles: batchUploadFailedFilesRef.current,
+        activeFiles: batchUploadInFlightRef.current.size,
+        uploadedBytes: batchUploadCommittedBytesRef.current + inFlightLoadedBytes,
+      });
+    };
+    refreshBatchUploadProgress();
+
     const fileSizeMap = new Map<string, { width: number; height: number } | null>();
     await Promise.all(
       fileOrder.map(async ({ file, sourceKey }) => {
@@ -2402,19 +2457,33 @@ export function App() {
       }
       throw lastErr;
     };
-    const uploadWithRetry = async (file: File) => {
+    const uploadWithRetry = async (file: File, sourceKey: string) => {
       const maxAttempts = 2;
       let lastErr: unknown = null;
       for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
         try {
-          return await evalApi.uploadImage(file);
+          const uploaded = await evalApi.uploadImage(file, {
+            onProgress: (loaded) => {
+              batchUploadInFlightRef.current.set(sourceKey, Math.min(Math.max(0, loaded || 0), Math.max(1, file.size || 1)));
+              refreshBatchUploadProgress();
+            },
+          });
+          batchUploadInFlightRef.current.delete(sourceKey);
+          batchUploadCommittedBytesRef.current += Math.max(0, Number(file.size || 0));
+          batchUploadUploadedFilesRef.current += 1;
+          refreshBatchUploadProgress();
+          return uploaded;
         } catch (err) {
           lastErr = err;
+          batchUploadInFlightRef.current.delete(sourceKey);
+          refreshBatchUploadProgress();
           if (attempt < maxAttempts) {
             await sleep(500 * attempt);
           }
         }
       }
+      batchUploadFailedFilesRef.current += 1;
+      refreshBatchUploadProgress();
       throw lastErr;
     };
 
@@ -2430,7 +2499,7 @@ export function App() {
         updateItems(keys, { status: 'uploading', error: undefined });
         let inputUrl = '';
         try {
-          const upload = await uploadWithRetry(file);
+          const upload = await uploadWithRetry(file, fileKey);
           inputUrl = String(upload.url || '');
           if (!inputUrl) throw new Error('上传成功但未返回 URL');
         } catch (err) {
@@ -3575,6 +3644,35 @@ export function App() {
                       </Button>
                     </Space>
                   </Space>
+                </Col>
+                <Col xs={12}>
+                  {batchUploadProgress.totalFiles > 0 &&
+                  (!selectedBatchId || selectedBatchId === batchUploadProgress.batchId) ? (
+                    <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                      <Typography.Text theme="secondary">
+                        上传进度：文件 {batchUploadProgress.uploadedFiles + batchUploadProgress.failedFiles}/{batchUploadProgress.totalFiles}（成功 {batchUploadProgress.uploadedFiles}，失败 {batchUploadProgress.failedFiles}，上传中 {batchUploadProgress.activeFiles}）
+                      </Typography.Text>
+                      <div style={{ width: '100%', height: 8, borderRadius: 999, background: 'var(--td-bg-color-secondarycontainer)' }}>
+                        <div
+                          style={{
+                            width: `${batchUploadFilePercent}%`,
+                            height: '100%',
+                            borderRadius: 999,
+                            background: 'var(--td-brand-color)',
+                            transition: 'width 0.2s ease',
+                          }}
+                        />
+                      </div>
+                      <Typography.Text theme="secondary">
+                        上传字节：{batchUploadBytePercent}%（{Math.round((batchUploadProgress.uploadedBytes || 0) / 1024 / 1024)}MB /{' '}
+                        {Math.round((batchUploadProgress.totalBytes || 0) / 1024 / 1024)}MB）
+                      </Typography.Text>
+                    </Space>
+                  ) : batchUploadProgress.totalFiles > 0 && selectedBatchId && selectedBatchId !== batchUploadProgress.batchId ? (
+                    <Typography.Text theme="secondary">该批次暂无本地上传进度，已切换为历史批次视图。</Typography.Text>
+                  ) : (
+                    <Typography.Text theme="secondary">上传进度：尚未开始。</Typography.Text>
+                  )}
                 </Col>
                 {batchSummary.missingSubmissions > 0 ? (
                   <Col xs={12}>
