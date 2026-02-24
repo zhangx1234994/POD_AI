@@ -1373,7 +1373,14 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
                         if resp.status_code != 200:
                             raise RuntimeError(f"COMFYUI_HISTORY_HTTP_{resp.status_code}")
                         data = resp.json()
-                        entry = data.get(prompt_id) if isinstance(data, dict) else None
+                        entry = None
+                        if isinstance(data, dict):
+                            prompt_entry = data.get(prompt_id)
+                            if isinstance(prompt_entry, dict):
+                                entry = prompt_entry
+                            elif isinstance(data.get("outputs"), dict):
+                                # Some ComfyUI deployments return the history entry directly.
+                                entry = data
                         if not isinstance(entry, dict):
                             raise RuntimeError("COMFYUI_HISTORY_INVALID")
 
@@ -1471,6 +1478,7 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
                             next_payload["status"] = "succeeded"
                             db_task.status = "succeeded"
                             db_task.result_payload = next_payload
+                            db_task.error_message = None
                             if not db_task.duration_ms and db_task.started_at:
                                 try:
                                     db_task.duration_ms = int(

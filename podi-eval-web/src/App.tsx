@@ -1131,6 +1131,7 @@ export function App() {
   const [batchLoadingItems, setBatchLoadingItems] = useState<boolean>(false);
   const [batchSessionLoadError, setBatchSessionLoadError] = useState<string>('');
   const [batchItemsLoadError, setBatchItemsLoadError] = useState<string>('');
+  const batchItemsLoadingRef = useRef<boolean>(false);
   const [batchStopping, setBatchStopping] = useState<boolean>(false);
   const batchStopRef = useRef<boolean>(false);
   const batchFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -1619,6 +1620,8 @@ export function App() {
     async (batchId: string, opts?: { silent?: boolean }) => {
       const id = String(batchId || '').trim();
       if (!id) return;
+      if (batchItemsLoadingRef.current) return;
+      batchItemsLoadingRef.current = true;
       if (!opts?.silent) setBatchLoadingItems(true);
       try {
         const repeatCount = Math.max(
@@ -1741,10 +1744,13 @@ export function App() {
         setBatchItemsLoadError('');
       } catch (err) {
         const msg = String((err as any)?.message || err || '');
-        setBatchItemsLoadError(msg || '加载失败');
-        if (!opts?.silent) pushNotice('error', `加载批次明细失败：${msg}`);
+        if (!opts?.silent) {
+          setBatchItemsLoadError(msg || '加载失败');
+          pushNotice('error', `加载批次明细失败：${msg}`);
+        }
       } finally {
         if (!opts?.silent) setBatchLoadingItems(false);
+        batchItemsLoadingRef.current = false;
       }
     },
     [batchSessions, pushNotice],
@@ -1773,9 +1779,6 @@ export function App() {
         void loadBatchItems(selectedBatchId, { silent: true });
       }
     }, 5000);
-    if (selectedBatchId && !batchSubmitting) {
-      void loadBatchItems(selectedBatchId, { silent: true });
-    }
     return () => window.clearInterval(timer);
   }, [activeView, selectedBatchId, loadBatchItems, batchSubmitting]);
 

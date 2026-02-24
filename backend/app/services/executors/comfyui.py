@@ -220,34 +220,81 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             expected_images=expected_images,
             output_node_ids=output_node_ids,
         )
+        pending_payload_base: dict[str, Any] = {
+            "executor": context.executor.id,
+            "promptId": prompt_id,
+            "assets": [],
+            "submit": resp_json,
+            "baseUrl": base_url,
+        }
+        if output_node_ids:
+            pending_payload_base["outputNodeIds"] = sorted(output_node_ids)
         if outputs is None:
+            # Prompt was already accepted by ComfyUI, but history is still unavailable.
+            # Keep task running so the background finalizer can continue polling.
+            pending_payload = dict(pending_payload_base)
+            pending_payload["status"] = "running"
+            pending_payload["state"] = "running"
             return ExecutionResult(
-                success=False,
-                status="failed",
-                error_message="COMFYUI_TIMEOUT",
+                success=True,
+                status="running",
+                progress=0,
+                result_payload=pending_payload,
             )
         if outputs.get("timed_out"):
             state = str(outputs.get("state") or "").lower()
+            if state == "error":
+                return ExecutionResult(
+                    success=False,
+                    status="failed",
+                    error_message="COMFYUI_ERROR",
+                )
             if state in {"queued", "running", ""}:
                 status = state if state in {"queued", "running"} else "running"
+                pending_payload = dict(pending_payload_base)
+                pending_payload["status"] = status
+                pending_payload["state"] = state or status
+                pending_payload["raw"] = outputs
                 return ExecutionResult(
                     success=True,
                     status=status,
                     progress=0,
-                    result_payload={
-                        "executor": context.executor.id,
-                        "promptId": prompt_id,
-                        "assets": [],
-                        "raw": outputs,
-                        "submit": resp_json,
-                        "status": status,
-                        "state": state or status,
-                        "baseUrl": base_url,
-                    },
+                    result_payload=pending_payload,
                 )
+            pending_payload = dict(pending_payload_base)
+            pending_payload["status"] = "running"
+            pending_payload["state"] = state or "running"
+            pending_payload["raw"] = outputs
+            return ExecutionResult(
+                success=True,
+                status="running",
+                progress=0,
+                result_payload=pending_payload,
+            )
+
+        state_now = str(outputs.get("state") or "").lower()
+        if state_now in {"error", "failed"}:
+            return ExecutionResult(
+                success=False,
+                status="failed",
+                error_message="COMFYUI_ERROR",
+            )
+
+        history_images = outputs.get("images") if isinstance(outputs.get("images"), list) else []
+        if not history_images:
+            pending_payload = dict(pending_payload_base)
+            pending_payload["status"] = "running"
+            pending_payload["state"] = state_now or "running"
+            pending_payload["raw"] = outputs
+            return ExecutionResult(
+                success=True,
+                status="running",
+                progress=0,
+                result_payload=pending_payload,
+            )
 
         assets = []
-        for image in outputs.get("images", []):
+        for image in history_images:
             source_url = image.get("url") or self._build_image_url(base_url, image)
             base64_data = image.get("base64")
             if source_url:
@@ -258,6 +305,17 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
                 continue
             if asset:
                 assets.append(asset)
+        if not assets:
+            pending_payload = dict(pending_payload_base)
+            pending_payload["status"] = "running"
+            pending_payload["state"] = state_now or "running"
+            pending_payload["raw"] = outputs
+            return ExecutionResult(
+                success=True,
+                status="running",
+                progress=0,
+                result_payload=pending_payload,
+            )
 
         return ExecutionResult(
             success=True,

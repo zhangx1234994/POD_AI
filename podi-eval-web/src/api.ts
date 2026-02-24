@@ -2,6 +2,7 @@ import type { EvalRun, EvalRunListResponse, EvalWorkflowVersion, WorkflowDoc } f
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
 const DEFAULT_TIMEOUT_MS = 15000;
+const BATCH_DETAIL_TIMEOUT_MS = 45000;
 const AUTH_INVALID_MESSAGE = '认证已失效，请重新登录';
 const GATEWAY_ERROR_MESSAGE = '服务不可达或网关异常，请稍后再试';
 
@@ -30,7 +31,12 @@ function extractErrorMessage(statusText: string, bodyText: string): string {
 }
 
 function resolveHttpError(status: number, statusText: string, bodyText: string): string {
-  if (status === 401 || status === 403) return AUTH_INVALID_MESSAGE;
+  if (status === 401) return AUTH_INVALID_MESSAGE;
+  if (status === 403) {
+    const message = extractErrorMessage(statusText, bodyText);
+    if (message === 'BATCH_FORBIDDEN') return '无权访问该批次';
+    return message || '无权访问';
+  }
   if (status === 502 || status === 503 || status === 504) return GATEWAY_ERROR_MESSAGE;
   const message = extractErrorMessage(statusText, bodyText);
   if (status >= 500 && (!message || message === statusText)) {
@@ -48,8 +54,8 @@ function withTimeout(options: RequestInit, timeoutMs: number) {
   };
 }
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const { options: timedOptions, cancel } = withTimeout(options, DEFAULT_TIMEOUT_MS);
+async function request<T>(path: string, options: RequestInit = {}, timeoutMs: number = DEFAULT_TIMEOUT_MS): Promise<T> {
+  const { options: timedOptions, cancel } = withTimeout(options, timeoutMs);
   let resp: Response;
   try {
     resp = await fetch(`${API_BASE}${path}`, {
@@ -116,7 +122,7 @@ export const evalApi = {
   listRunBatches: (params: { workflow_version_id?: string; mine_only?: boolean; limit?: number; offset?: number }) => {
     const qs = new URLSearchParams();
     if (params.workflow_version_id) qs.set('workflow_version_id', params.workflow_version_id);
-    if (params.mine_only !== false) qs.set('mine_only', 'true');
+    qs.set('mine_only', params.mine_only === false ? 'false' : 'true');
     qs.set('limit', String(params.limit ?? 50));
     qs.set('offset', String(params.offset ?? 0));
     return request<{
@@ -233,7 +239,7 @@ export const evalApi = {
         upload_error_code?: string | null;
         upload_error_message?: string | null;
       }>;
-    }>(`/api/evals/batches/${encodeURIComponent(batchId)}/assets?${qs.toString()}`);
+    }>(`/api/evals/batches/${encodeURIComponent(batchId)}/assets?${qs.toString()}`, {}, BATCH_DETAIL_TIMEOUT_MS);
   },
   submitBatch: (batchId: string, payload?: { parameters_json?: Record<string, unknown>; only_pending?: boolean }) =>
     request<{ batch_id: string; created_items: number; submitted_items: number; failed_items: number }>(
@@ -264,7 +270,7 @@ export const evalApi = {
         error_code?: string | null;
         error_message?: string | null;
       }>;
-    }>(`/api/evals/batches/${encodeURIComponent(batchId)}/items?${qs.toString()}`);
+    }>(`/api/evals/batches/${encodeURIComponent(batchId)}/items?${qs.toString()}`, {}, BATCH_DETAIL_TIMEOUT_MS);
   },
   getRun: (runId: string) => request<EvalRun>(`/api/evals/runs/${runId}`),
   createAnnotation: (runId: string, payload: { rating: number; comment?: string }) =>

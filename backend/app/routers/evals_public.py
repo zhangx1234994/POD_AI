@@ -104,6 +104,12 @@ def _ensure_batch_owner(batch: EvalBatchSession | None, rater_id: str) -> EvalBa
     return batch
 
 
+def _require_batch_exists(batch: EvalBatchSession | None) -> EvalBatchSession:
+    if not batch:
+        raise HTTPException(status_code=404, detail="BATCH_NOT_FOUND")
+    return batch
+
+
 def _touch_batch_counters(db: Session, batch_id: str) -> EvalBatchSession:
     batch = db.get(EvalBatchSession, batch_id)
     if not batch:
@@ -953,7 +959,7 @@ def list_batches(
     request: Request,
     response: Response,
     workflow_version_id: str | None = Query(None),
-    mine_only: bool = Query(True),
+    mine_only: bool = Query(False),
     status: str | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
@@ -1024,8 +1030,8 @@ def get_batch(
     db: Session = Depends(get_db),
 ) -> EvalBatchSession:
     _require_public_enabled(request)
-    rater_id = _get_or_set_rater_id(request, response)
-    batch = _ensure_batch_owner(db.get(EvalBatchSession, batch_id), rater_id)
+    _get_or_set_rater_id(request, response)
+    batch = _require_batch_exists(db.get(EvalBatchSession, batch_id))
     batch = _touch_batch_counters(db, batch.id)
     db.commit()
     db.refresh(batch)
@@ -1113,8 +1119,8 @@ def list_batch_assets(
     db: Session = Depends(get_db),
 ) -> EvalBatchAssetListResponse:
     _require_public_enabled(request)
-    rater_id = _get_or_set_rater_id(request, response)
-    batch = _ensure_batch_owner(db.get(EvalBatchSession, batch_id), rater_id)
+    _get_or_set_rater_id(request, response)
+    batch = _require_batch_exists(db.get(EvalBatchSession, batch_id))
     stmt = select(EvalBatchAsset).where(EvalBatchAsset.batch_session_id == batch.id)
     count_stmt = select(func.count()).select_from(EvalBatchAsset).where(
         EvalBatchAsset.batch_session_id == batch.id
@@ -1266,8 +1272,8 @@ def list_batch_items(
     db: Session = Depends(get_db),
 ) -> EvalBatchRunItemListResponse:
     _require_public_enabled(request)
-    rater_id = _get_or_set_rater_id(request, response)
-    batch = _ensure_batch_owner(db.get(EvalBatchSession, batch_id), rater_id)
+    _get_or_set_rater_id(request, response)
+    batch = _require_batch_exists(db.get(EvalBatchSession, batch_id))
     stmt = select(EvalBatchRunItem).where(EvalBatchRunItem.batch_session_id == batch.id)
     count_stmt = select(func.count()).select_from(EvalBatchRunItem).where(
         EvalBatchRunItem.batch_session_id == batch.id
@@ -1496,7 +1502,7 @@ def list_run_batches(
     request: Request,
     response: Response,
     workflow_version_id: str | None = Query(None),
-    mine_only: bool = Query(True),
+    mine_only: bool = Query(False),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
