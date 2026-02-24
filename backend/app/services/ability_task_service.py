@@ -31,6 +31,7 @@ CLEANUP_INTERVAL_SECONDS = 30 * 60
 # 回填线程默认每 8 秒扫描一次，避免 ComfyUI 任务在“已完成但未回填”状态停留过久。
 FINALIZE_INTERVAL_SECONDS = 8
 FINALIZE_BATCH_SIZE = 20
+COMFYUI_HISTORY_TIMEOUT_SECONDS = 6
 MAX_QUEUE_PER_EXECUTOR = 10
 ERR_CODE_COMFYUI_QUEUE_FULL = "Q1001"
 ERR_CODE_COMMERCIAL_QUEUE_FULL = "Q2001"
@@ -213,6 +214,22 @@ class AbilityTaskService:
             return images[:1]
         return images
 
+    @staticmethod
+    def _touch_running_task(task_id: str) -> None:
+        """Rotate finalize queue fairly: touched tasks move to the back by updated_at."""
+        if not task_id:
+            return
+        try:
+            with get_session() as session:
+                db_task = session.get(AbilityTask, task_id)
+                if not db_task or db_task.status != "running":
+                    return
+                db_task.updated_at = datetime.utcnow()
+                session.add(db_task)
+                session.commit()
+        except Exception:
+            return
+
     def _finalize_running_comfyui_tasks(self) -> None:
         with get_session() as session:
             rows = (
@@ -272,7 +289,7 @@ class AbilityTaskService:
 
             try:
                 history_url = f"{base_url.rstrip('/')}/history/{prompt_id}"
-                resp = httpx.get(history_url, timeout=15)
+                resp = httpx.get(history_url, timeout=COMFYUI_HISTORY_TIMEOUT_SECONDS)
                 if resp.status_code != 200:
                     raise RuntimeError(f"COMFYUI_HISTORY_HTTP_{resp.status_code}")
                 data = resp.json()
@@ -286,6 +303,7 @@ class AbilityTaskService:
                         entry = data
                 if not isinstance(entry, dict):
                     # History not ready yet (ComfyUI may still be writing prompt entry).
+                    self._touch_running_task(task.id)
                     continue
 
                 output_node_set = None
@@ -317,13 +335,16 @@ class AbilityTaskService:
                     continue
 
                 if status_str != "success":
+                    self._touch_running_task(task.id)
                     continue
 
                 images = outputs.get("images") if isinstance(outputs, dict) else None
                 if not isinstance(images, list) or not images:
+                    self._touch_running_task(task.id)
                     continue
                 images = self._limit_comfyui_output_images(task.capability_key, images)
                 if not images:
+                    self._touch_running_task(task.id)
                     continue
 
                 ctx = ExecutionContext(
@@ -350,6 +371,7 @@ class AbilityTaskService:
                         assets.append(asset)
 
                 if not assets:
+                    self._touch_running_task(task.id)
                     continue
 
                 finished_at = datetime.utcnow()
