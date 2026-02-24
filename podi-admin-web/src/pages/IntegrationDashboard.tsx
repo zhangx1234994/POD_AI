@@ -518,6 +518,11 @@ const resolveLogDurationMs = (row: AbilityInvocationLog): number | null => {
   const candidate = payload?.durationMs ?? payload?.duration_ms;
   return typeof candidate === 'number' ? candidate : null;
 };
+const getAbilityLogCallbackConfigured = (row: AbilityInvocationLog): boolean | null => {
+  const payload = getJsonRecord(row.request_payload);
+  const value = payload?.callbackConfigured;
+  return typeof value === 'boolean' ? value : null;
+};
 const isAbilityLogSuccessful = (status?: string | null): boolean => {
   const normalized = (status || '').trim().toLowerCase();
   return ['success', 'succeeded', 'completed', 'done', 'ok'].includes(normalized);
@@ -525,6 +530,55 @@ const isAbilityLogSuccessful = (status?: string | null): boolean => {
 const isAbilityLogFailed = (status?: string | null): boolean => {
   const normalized = (status || '').trim().toLowerCase();
   return ['failed', 'error', 'timeout', 'rejected'].includes(normalized);
+};
+const getAbilityLogSubmitTag = (row: AbilityInvocationLog) => {
+  const normalized = (row.status || '').trim().toLowerCase();
+  if (['failed', 'error', 'timeout', 'rejected'].includes(normalized)) {
+    return { theme: 'danger' as const, text: '提交失败' };
+  }
+  if (['running', 'processing', 'in_progress', 'queued', 'pending', 'created'].includes(normalized)) {
+    return { theme: 'warning' as const, text: '提交中' };
+  }
+  if (['success', 'succeeded', 'completed', 'done', 'ok'].includes(normalized)) {
+    return { theme: 'success' as const, text: '提交成功' };
+  }
+  if (['cancelled', 'canceled', 'stopped', 'aborted'].includes(normalized)) {
+    return { theme: 'default' as const, text: '已取消' };
+  }
+  return { theme: 'default' as const, text: row.status || '未知' };
+};
+const getAbilityLogCallbackStageTag = (row: AbilityInvocationLog) => {
+  const callbackConfigured = getAbilityLogCallbackConfigured(row);
+  const callbackStatus = (row.callback_status || '').trim().toLowerCase();
+  const callbackFailed =
+    isAbilityLogFailed(callbackStatus) ||
+    Boolean(row.callback_error) ||
+    (typeof row.callback_http_status === 'number' && row.callback_http_status >= 400);
+  const callbackFinished = Boolean(row.callback_finished_at);
+  if (callbackFailed) return { theme: 'danger' as const, text: '回调失败' };
+  if (isAbilityLogSuccessful(callbackStatus)) return { theme: 'success' as const, text: '回调成功' };
+  if (callbackStatus && ['running', 'processing', 'pending', 'queued'].includes(callbackStatus)) {
+    return { theme: 'warning' as const, text: '回调中' };
+  }
+  if (callbackFinished && typeof row.callback_http_status === 'number' && row.callback_http_status < 400) {
+    return { theme: 'success' as const, text: '回调成功' };
+  }
+
+  const hasCallbackId = Boolean(row.callback_id);
+  const previewUrl = resolvePrimaryLogPreviewUrl(row);
+  if (callbackConfigured === true) {
+    return { theme: 'warning' as const, text: '待回调' };
+  }
+  if (hasCallbackId) {
+    if (previewUrl) return { theme: 'success' as const, text: '结果已回填' };
+    if (isAbilityLogSuccessful(row.status)) return { theme: 'warning' as const, text: '结果回填中' };
+    if (isAbilityLogFailed(row.status)) return { theme: 'danger' as const, text: '执行失败' };
+    return { theme: 'default' as const, text: '可查询' };
+  }
+  if (callbackConfigured === false) {
+    return { theme: 'default' as const, text: '未配置' };
+  }
+  return { theme: 'default' as const, text: '—' };
 };
 const renderStatusTag = (status?: string | null) => {
   const normalized = (status || '').toLowerCase();
@@ -6109,14 +6163,15 @@ const normalizeErrorMessage = (message: string): string => {
               },
               {
                 colKey: 'status',
-                title: '状态',
+                title: '提交',
                 width: 160,
                 cell: ({ row }) => {
                   const durationMs = resolveLogDurationMs(row);
+                  const submitTag = getAbilityLogSubmitTag(row);
                   return (
                     <Space direction="vertical" size={2}>
-                      <Tag theme={getAbilityLogStatusTag(row.status).theme} variant="light">
-                        {getAbilityLogStatusTag(row.status).text}
+                      <Tag theme={submitTag.theme} variant="light">
+                        {submitTag.text}
                       </Tag>
                       {typeof durationMs === 'number' ? (
                         <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
@@ -6129,19 +6184,15 @@ const normalizeErrorMessage = (message: string): string => {
               },
               {
                 colKey: 'callback',
-                title: '回调',
+                title: '回调阶段',
                 width: 160,
                 cell: ({ row }) => {
-                  if (!row.callback_status && !row.callback_http_status && !row.callback_finished_at) {
-                    return <Typography.Text theme="secondary">—</Typography.Text>;
-                  }
+                  const callbackTag = getAbilityLogCallbackStageTag(row);
                   return (
                     <Space direction="vertical" size={2}>
-                      {row.callback_status ? (
-                        <Tag theme={getAbilityLogStatusTag(row.callback_status).theme} variant="light">
-                          {getAbilityLogStatusTag(row.callback_status).text}
-                        </Tag>
-                      ) : null}
+                      <Tag theme={callbackTag.theme} variant="light">
+                        {callbackTag.text}
+                      </Tag>
                       {typeof row.callback_http_status === 'number' ? (
                         <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
                           HTTP {row.callback_http_status}
@@ -7632,14 +7683,15 @@ const normalizeErrorMessage = (message: string): string => {
                 },
                 {
                   colKey: 'status',
-                  title: '状态',
+                  title: '提交',
                   width: 160,
                   cell: ({ row }) => {
                     const durationMs = resolveLogDurationMs(row);
+                    const submitTag = getAbilityLogSubmitTag(row);
                     return (
                       <Space direction="vertical" size={2}>
-                        <Tag theme={getAbilityLogStatusTag(row.status).theme} variant="light">
-                          {getAbilityLogStatusTag(row.status).text}
+                        <Tag theme={submitTag.theme} variant="light">
+                          {submitTag.text}
                         </Tag>
                         {typeof durationMs === 'number' ? (
                           <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
@@ -7691,33 +7743,15 @@ const normalizeErrorMessage = (message: string): string => {
                 },
                 {
                   colKey: 'callback',
-                  title: '回调',
+                  title: '回调阶段',
                   width: 160,
                   cell: ({ row }) => {
-                    const callbackConfiguredValue = (row.request_payload as any)?.callbackConfigured;
-                    const callbackConfigured =
-                      typeof callbackConfiguredValue === 'boolean' ? callbackConfiguredValue : null;
-                    const hasCallbackId = Boolean(row.callback_id);
-                    if (!row.callback_status && !row.callback_http_status && !row.callback_finished_at) {
-                      return (
-                        <Typography.Text theme="secondary">
-                          {callbackConfigured === true
-                            ? '待回调'
-                            : hasCallbackId
-                            ? '可查询'
-                            : callbackConfigured === false
-                            ? '未配置'
-                            : '—'}
-                        </Typography.Text>
-                      );
-                    }
+                    const callbackTag = getAbilityLogCallbackStageTag(row);
                     return (
                       <Space direction="vertical" size={2}>
-                        {row.callback_status ? (
-                          <Tag theme={getAbilityLogStatusTag(row.callback_status).theme} variant="light">
-                            {getAbilityLogStatusTag(row.callback_status).text}
-                          </Tag>
-                        ) : null}
+                        <Tag theme={callbackTag.theme} variant="light">
+                          {callbackTag.text}
+                        </Tag>
                         {typeof row.callback_http_status === 'number' ? (
                           <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
                             HTTP {row.callback_http_status}

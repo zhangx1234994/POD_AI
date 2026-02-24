@@ -157,6 +157,9 @@
 **一致性要求**
 
 - 日志状态使用 `pending/success/failed`（日志维度），不要与 AbilityTask 状态混用。
+- 管理端列表必须拆分为两段状态：`提交` 与 `回调阶段`。
+  - `提交`：基于 `status` 判断是否提交成功（提交中/提交成功/提交失败/已取消）。
+  - `回调阶段`：基于 `callback_status/callback_http_status/callback_finished_at/callback_id` 判断（待回调/回调成功/回调失败/结果回填中/结果已回填）。
 - 结果预览字段解析需按统一顺序兜底（`stored_url` → `result_assets` → `response_payload`）。
 - 成功但暂无预览时，UI 文案应为“结果回填中”，避免误判为无结果。
 
