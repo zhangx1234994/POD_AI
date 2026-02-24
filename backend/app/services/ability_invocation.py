@@ -1468,7 +1468,7 @@ class AbilityInvocationService:
         request_inputs: dict[str, Any] | None = None,
     ) -> schemas.AbilityInvokeResponse:
         provider = provider_result.get("provider", ability.provider)
-        status = str(provider_result.get("status") or "succeeded")
+        status = self._normalize_public_status(provider_result.get("status"))
         images = self._extract_output_assets(provider_result, target="image")
         videos = self._extract_output_assets(provider_result, target="video")
         texts = self._extract_texts(provider_result)
@@ -1500,6 +1500,20 @@ class AbilityInvocationService:
             metadata=self._clean_params(metadata) or None,
             raw=raw_payload if isinstance(raw_payload, dict) else None,
         )
+
+    def _normalize_public_status(self, raw_status: Any) -> str:
+        text = str(raw_status or "").strip().lower()
+        if text in {"success", "succeeded", "completed", "done", "ok"}:
+            return "succeeded"
+        if text in {"failed", "error", "timeout", "rejected"}:
+            return "failed"
+        if text in {"running", "processing", "in_progress"}:
+            return "running"
+        if text in {"queued", "pending", "created"}:
+            return "queued"
+        if text in {"cancelled", "canceled", "stopped", "aborted"}:
+            return "cancelled"
+        return "succeeded"
 
     def _extract_output_assets(self, payload: dict[str, Any], target: str) -> list[schemas.AbilityOutputAsset]:
         assets: list[schemas.AbilityOutputAsset] = []

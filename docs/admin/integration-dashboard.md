@@ -102,6 +102,9 @@
 - 快捷查看“失败/回调异常”
 - 快速定位失败原因
 - 展示回调 ID（便于业务侧查询任务状态）
+- 状态文案统一：成功/失败/执行中/排队中/已取消（兼容 `success/succeeded/completed/...`）
+- 结果预览统一兜底：优先 `stored_url`、其次 `result_assets`，再回退 `response_payload.images/assets/resultUrls`
+- 耗时展示统一优先 `duration_ms`（全链路耗时），仅历史脏数据时回退 `response_payload.durationMs`
 
 ### 后端接口
 - `GET /api/admin/abilities/{id}/logs`

@@ -140,6 +140,8 @@
 { "id": "agt_20260205_0001", "agentId": "comfyui-158", "status": "success" }
 ```
 
+> 约定：Agent 协议使用 `success`，与 AbilityTask 的 `succeeded` 不同；前端展示层需做统一映射。
+
 ---
 
 ## 6) 任务失败回执

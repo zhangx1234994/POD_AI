@@ -122,6 +122,7 @@
 | AGENT_TOKEN_KID_INVALID | kid 不存在 | 401 |
 | AGENT_TOKEN_SCOPE_INVALID | token scope 不匹配 | 403 |
 | AGENT_TOKEN_PAYLOAD_INVALID | token payload 异常 | 401 |
+| AGENT_TOKEN_PAYLOAD_MISMATCH | token 声明与请求体不一致 | 403 |
 | AGENT_NOT_FOUND | Agent 不存在 | 404 |
 | AGENT_ALREADY_EXISTS | Agent 已存在 | 409 |
 | AGENT_NOT_ALLOWED | Agent 被禁用/不在白名单 | 403 |

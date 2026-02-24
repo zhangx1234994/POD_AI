@@ -90,7 +90,7 @@ class AgentTaskRead(AgentTaskBase):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
     id: str
-    status: str
+    status: str = Field(description="任务状态：pending/running/success/failed/rejected")
     token_nonce: str | None = Field(default=None, alias="tokenNonce")
     pushed_at: datetime | None = Field(default=None, alias="pushedAt")
     started_at: datetime | None = Field(default=None, alias="startedAt")
@@ -134,7 +134,7 @@ class AgentAlertRead(AgentAlertCreate):
 
 
 class AgentHeartbeatRequest(BaseModel):
-    status: str | None = None
+    status: str | None = Field(default=None, description="agent 状态（建议 active/inactive）")
     metrics: dict[str, Any] | None = None
     payload: dict[str, Any] | None = None
     cpu: float | None = None

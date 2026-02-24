@@ -74,7 +74,7 @@ class AbilityOutputAsset(BaseModel):
 class AbilityInvokeResponse(BaseModel):
     abilityId: str
     provider: str
-    status: str = "succeeded"
+    status: str = Field(default="succeeded", description="统一状态：queued/running/succeeded/failed/cancelled")
     requestId: str
     logId: int | None = None
     durationMs: int | None = Field(default=None, description="执行耗时，毫秒")

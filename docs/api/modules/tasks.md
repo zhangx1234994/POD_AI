@@ -52,6 +52,12 @@
 }
 ```
 
+**状态约束**
+
+- 仅允许：`queued` / `running` / `succeeded` / `failed` / `cancelled`
+- 若为 `failed`，应返回 `errorMessage`（推荐）
+- 展示层若出现 `success/completed` 等历史值，必须按一致性准则做兼容映射（见 `docs/standards/interface-consistency.md`）
+
 ---
 
 ## 3) 任务列表
@@ -75,5 +81,6 @@
 
 ## 4) 说明（旧链路）
 
-- 旧的 `/api/tasks/v1/*` 已下线，不再维护。
-- 统一使用 `/api/ability-tasks` 作为异步任务入口。
+- `/api/tasks/v1/*` 仍保留为历史任务中心链路（内部兼容），状态口径为 `pending/running/completed/failed`。
+- 新需求一律使用 `/api/ability-tasks`（统一能力异步入口），状态口径为 `queued/running/succeeded/failed/cancelled`。
+- 同一页面若同时展示两类任务，必须先做状态映射再渲染，避免用户误解。

@@ -107,11 +107,14 @@ curl http://127.0.0.1:8099/api/coze/podi/openapi.json
 - `taskId` 兼容新旧格式：`t1.<provider>.<executor>.<hex>` 或 `<hex>`。
 - 若任务仍在运行，`taskStatus=running` 且 `imageUrls` 为空。
 - KIE 长耗时任务会先返回 `running`，后续轮询直至有结果或 `KIE_TIMEOUT`。
+- `taskStatus` 对外统一为：`queued` / `running` / `succeeded` / `failed`。
+- 队列强约束错误统一返回：`taskId = ERR|Qxxxx|...` 且 `taskStatus = failed`。
 
 **错误**
 
 - `TASK_ID_REQUIRED` / `TASK_NOT_FOUND`
 - `TASK_FAILED` / `TASK_TIMEOUT` / `KIE_TIMEOUT`
+- `ERR|Q1001|...` / `ERR|Q2001|...`（队列与并发限制，写在 taskId）
 
 ---
 

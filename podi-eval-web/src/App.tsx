@@ -2983,7 +2983,13 @@ export function App() {
       >
         {docsLoading ? (
           <Typography.Text theme="secondary">加载中…</Typography.Text>
-        ) : docsView === 'structured' && groupedDocs.length > 0 ? (
+        ) : (
+          <Space direction="vertical" size="large" style={{ width: '100%' }}>
+            <Alert
+              theme="info"
+              message="统一联调准则：taskStatus 只看 queued/running/succeeded/failed；队列限流错误会返回 ERR|Qxxxx|...；成功但暂未回填图片时按“结果回填中”处理，不要直接判失败。"
+            />
+          {docsView === 'structured' && groupedDocs.length > 0 ? (
           <Space direction="vertical" size="large" style={{ width: '100%' }}>
             <Card bordered>
               <Space direction="vertical" size={6} style={{ width: '100%' }}>
@@ -3107,7 +3113,7 @@ export function App() {
               </Space>
             ))}
           </Space>
-        ) : docsMarkdown ? (
+          ) : docsMarkdown ? (
           <div
             style={{
               maxHeight: '70vh',
@@ -3161,8 +3167,10 @@ export function App() {
               {docsMarkdown}
             </ReactMarkdown>
           </div>
-        ) : (
+          ) : (
           <Typography.Text theme="secondary">暂无文档内容。</Typography.Text>
+          )}
+          </Space>
         )}
       </Card>,
     );

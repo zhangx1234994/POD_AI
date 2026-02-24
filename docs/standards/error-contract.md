@@ -55,6 +55,7 @@ ERR|<CODE>|<message>
 
 - `docs/standards/error-catalog.md`：全量错误码表
 - `docs/standards/queue-and-error-standards.md`：队列/并发专项规则
+- `docs/standards/interface-consistency.md`：状态词、错误处理、预览回填统一准则
 - `AGENTS.md`：写明“必须补错误码与文档”的硬性准则
 
 ---

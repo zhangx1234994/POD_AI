@@ -25,6 +25,7 @@ Python 代码遵循 Black + Ruff（4 空格、snake_case 模块、PascalCase Pyd
 - **文档必须包含请求 + 响应 + 错误**：评测端文档需同时包含“错误码总表 + 单功能错误列表”。
 - **必须更新错误码总表**：见 `docs/standards/error-catalog.md`（缺失即视为流程问题）。
 - **必须遵循错误契约规范**：见 `docs/standards/error-contract.md`。
+- **必须遵循接口一致性准则**：见 `docs/standards/interface-consistency.md`（状态词、错误处理、结果回填口径统一）。
 - **测试必须覆盖关键错误路径**：缺参 / 依赖失败 / 队列或并发限制 / 超时。
 
 ## 提交与 PR

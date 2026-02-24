@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class AbilityInvocationLogRead(BaseModel):
@@ -24,14 +24,17 @@ class AbilityInvocationLogRead(BaseModel):
     callback_id: str | None = None
     trace_id: str | None = None
     workflow_run_id: str | None = None
-    status: str
+    status: str = Field(description="日志状态：pending/success/failed（日志维度）")
     duration_ms: int | None = None
     stored_url: str | None = None
     request_payload: dict[str, Any] | None = None
     response_payload: dict[str, Any] | None = None
     result_assets: list[dict[str, Any]] | None = None
-    error_message: str | None = None
-    callback_status: str | None = None
+    error_message: str | None = Field(default=None, description="失败错误码或可读信息")
+    callback_status: str | None = Field(
+        default=None,
+        description="回调状态：success/failed（可为空，表示未配置或未触发）",
+    )
     callback_http_status: int | None = None
     callback_payload: dict[str, Any] | None = None
     callback_response: dict[str, Any] | None = None

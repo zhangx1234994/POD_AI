@@ -108,6 +108,21 @@ def _require_internal(request: Request) -> None:
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="INTERNAL_ONLY")
 
 
+def _normalize_coze_task_status(raw_status: Any) -> str:
+    text = str(raw_status or "").strip().lower()
+    if text in {"success", "succeeded", "completed", "done", "ok"}:
+        return "succeeded"
+    if text in {"failed", "error", "timeout", "rejected"}:
+        return "failed"
+    if text in {"running", "processing", "in_progress"}:
+        return "running"
+    if text in {"queued", "pending", "created"}:
+        return "queued"
+    if text in {"cancelled", "canceled", "stopped", "aborted"}:
+        return "failed"
+    return "running"
+
+
 def _field_to_schema(field: dict[str, Any]) -> dict[str, Any]:
     ftype = (field.get("type") or "text").lower()
     schema: dict[str, Any]
@@ -727,6 +742,8 @@ def invoke_tool(
         for k, v in result.items():
             if k not in allowed_out_keys:
                 continue
+            if k == "taskStatus":
+                v = _normalize_coze_task_status(v)
             if v is None:
                 continue
             pruned[k] = v
@@ -1050,6 +1067,8 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
         for k, v in result.items():
             if k not in allowed_out_keys:
                 continue
+            if k == "taskStatus":
+                v = _normalize_coze_task_status(v)
             if v is None:
                 continue
             pruned[k] = v

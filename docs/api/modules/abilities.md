@@ -184,6 +184,14 @@
 - `resultPayload`：成功结果（含图片/视频/文本）
 - `errorMessage`：失败原因
 
+**一致性说明**
+
+- `AbilityTask.status` 与“能力调用日志 status”不是同一维度：
+  - AbilityTask：`queued/running/succeeded/failed/cancelled`
+  - Ability Log：`pending/success/failed`
+- 前端显示必须按统一映射渲染，避免把 `success` 与 `succeeded` 误判为不同结果。
+- 结果预览读取顺序统一见：`docs/standards/interface-consistency.md`。
+
 **错误**
 
 - `TASK_NOT_FOUND`

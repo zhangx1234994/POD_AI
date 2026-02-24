@@ -154,6 +154,12 @@
 - `ABILITY_LOG_NOT_FOUND` / `ABILITY_LOG_NOT_COMFYUI`
 - `COMFYUI_HISTORY_HTTP_*` / `COMFYUI_STATUS_*`
 
+**一致性要求**
+
+- 日志状态使用 `pending/success/failed`（日志维度），不要与 AbilityTask 状态混用。
+- 结果预览字段解析需按统一顺序兜底（`stored_url` → `result_assets` → `response_payload`）。
+- 成功但暂无预览时，UI 文案应为“结果回填中”，避免误判为无结果。
+
 ---
 
 ## 8) 管理端仪表盘

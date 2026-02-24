@@ -3,6 +3,8 @@
 > 版本：2026-02-13  
 > 目标：明确 **Coze 调用 PODI 工具箱** 的统一输入/输出与回调契约，避免参数不一致。
 
+统一准则参考：`docs/standards/interface-consistency.md`
+
 ## 1. OpenAPI 导入入口
 
 - `GET /api/coze/podi/openapi.json`
@@ -123,6 +125,9 @@ taskStatus = failed
   "taskStatus": "failed"
 }
 ```
+
+兼容说明：
+- 即使内部日志出现 `success/completed` 等词，Coze 对外 `taskStatus` 仍统一为 `queued/running/succeeded/failed`。
 
 ## 7. 内部鉴权
 

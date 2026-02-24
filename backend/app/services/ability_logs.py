@@ -311,11 +311,25 @@ class AbilityLogService:
                     if isinstance(value, str) and value:
                         asset_url = value
                         break
+        if not asset_url:
+            images = payload.get("images")
+            if isinstance(images, list):
+                for item in images:
+                    if isinstance(item, dict):
+                        value = item.get("ossUrl") or item.get("url") or item.get("sourceUrl")
+                        if isinstance(value, str) and value:
+                            asset_url = value
+                            break
         if asset_url:
             return asset_url
         result_urls = payload.get("resultUrls")
         if isinstance(result_urls, list) and result_urls:
             first = result_urls[0]
+            if isinstance(first, str):
+                return first
+        image_urls = payload.get("imageUrls")
+        if isinstance(image_urls, list) and image_urls:
+            first = image_urls[0]
             if isinstance(first, str):
                 return first
         image_url = payload.get("imageUrl")
@@ -327,6 +341,12 @@ class AbilityLogService:
         if not isinstance(payload, dict):
             return None
         assets = payload.get("assets") or payload.get("storedAssets")
+        if not isinstance(assets, list) or not assets:
+            assets = payload.get("images")
+        if not isinstance(assets, list) or not assets:
+            result_urls = payload.get("resultUrls") or payload.get("imageUrls")
+            if isinstance(result_urls, list):
+                assets = [{"url": url} for url in result_urls if isinstance(url, str) and url]
         if not isinstance(assets, list) or not assets:
             return None
         sanitized: list[dict[str, Any]] = []

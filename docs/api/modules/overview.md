@@ -46,6 +46,8 @@
 - **错误契约**与错误码总表：
   - `docs/standards/error-contract.md`
   - `docs/standards/error-catalog.md`
+- **接口一致性准则**（状态词/错误处理/预览回填统一口径）：
+  - `docs/standards/interface-consistency.md`
 - 队列类错误遵循强约束格式：`ERR|<CODE>|<message>`（如 `Q1001`）。
 
 ## 5. 任务/回调 ID 约定
@@ -60,3 +62,13 @@
 - **分页**：部分接口使用 `limit/offset`，部分使用 `page/size`；以接口说明为准。
 - **时间**：统一 ISO8601（UTC），管理端展示为本地时区。
 - **图片参数**：多数流程统一 `url`（字符串），详见评测与能力接口说明。
+
+## 7. 状态词总则（摘要）
+
+- `AbilityTask`：`queued/running/succeeded/failed/cancelled`
+- `Ability Log`：`pending/success/failed`
+- `Coze taskStatus`：`queued/running/succeeded/failed`
+- `Agent Task`：`pending/running/success/failed/rejected`
+- `历史任务中心(/api/tasks/v1)`：`pending/running/completed/failed`（兼容链路）
+
+> 详细规则与兼容映射见 `docs/standards/interface-consistency.md`。

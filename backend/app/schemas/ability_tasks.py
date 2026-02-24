@@ -22,12 +22,18 @@ class AbilityTaskRead(BaseModel):
     abilityName: str | None = Field(default=None, alias="ability_name")
     provider: str = Field(alias="ability_provider")
     capabilityKey: str | None = Field(default=None, alias="capability_key")
-    status: str
+    status: str = Field(
+        description="任务状态：queued/running/succeeded/failed/cancelled（统一契约）",
+    )
     logId: int | None = Field(default=None, alias="log_id")
     durationMs: int | None = Field(default=None, alias="duration_ms")
     requestPayload: dict[str, Any] | None = Field(default=None, alias="request_payload")
     resultPayload: dict[str, Any] | None = Field(default=None, alias="result_payload")
-    errorMessage: str | None = Field(default=None, alias="error_message")
+    errorMessage: str | None = Field(
+        default=None,
+        alias="error_message",
+        description="失败原因错误码或可读信息（如 TASK_NOT_FOUND / KIE_TIMEOUT）",
+    )
     callbackUrl: str | None = Field(default=None, alias="callback_url")
     createdAt: datetime = Field(alias="created_at")
     updatedAt: datetime = Field(alias="updated_at")

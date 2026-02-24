@@ -451,6 +451,81 @@ const formatDurationMs = (value?: number | null) => {
   if (value < 1000) return `${value}ms`;
   return `${(value / 1000).toFixed(2)}s`;
 };
+const getJsonRecord = (value: unknown): Record<string, any> | null => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, any>;
+};
+const collectAssetUrls = (assets: unknown): string[] => {
+  if (!Array.isArray(assets)) return [];
+  const urls: string[] = [];
+  assets.forEach((asset) => {
+    if (!asset || typeof asset !== 'object') return;
+    const row = asset as Record<string, any>;
+    const candidate = row.ossUrl || row.url || row.sourceUrl;
+    if (typeof candidate === 'string' && candidate.trim()) {
+      urls.push(candidate.trim());
+    }
+  });
+  return urls;
+};
+const collectStringUrls = (items: unknown): string[] => {
+  if (!Array.isArray(items)) return [];
+  const urls: string[] = [];
+  items.forEach((item) => {
+    if (typeof item === 'string' && item.trim()) {
+      urls.push(item.trim());
+      return;
+    }
+    if (!item || typeof item !== 'object') return;
+    const row = item as Record<string, any>;
+    const candidate = row.ossUrl || row.url || row.sourceUrl;
+    if (typeof candidate === 'string' && candidate.trim()) {
+      urls.push(candidate.trim());
+    }
+  });
+  return urls;
+};
+const dedupUrls = (items: string[]) => {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    if (!item || seen.has(item)) return false;
+    seen.add(item);
+    return true;
+  });
+};
+const resolveLogPreviewUrls = (row: AbilityInvocationLog): string[] => {
+  const responsePayload = getJsonRecord(row.response_payload);
+  const merged = dedupUrls([
+    ...(typeof row.stored_url === 'string' && row.stored_url.trim() ? [row.stored_url.trim()] : []),
+    ...collectAssetUrls(row.result_assets),
+    ...collectAssetUrls(responsePayload?.assets),
+    ...collectAssetUrls(responsePayload?.images),
+    ...collectStringUrls(responsePayload?.imageUrls),
+    ...collectStringUrls(responsePayload?.resultUrls),
+    ...(typeof responsePayload?.imageUrl === 'string' && responsePayload.imageUrl.trim()
+      ? [responsePayload.imageUrl.trim()]
+      : []),
+  ]);
+  return merged;
+};
+const resolvePrimaryLogPreviewUrl = (row: AbilityInvocationLog): string => {
+  const urls = resolveLogPreviewUrls(row);
+  return urls[0] || '';
+};
+const resolveLogDurationMs = (row: AbilityInvocationLog): number | null => {
+  if (typeof row.duration_ms === 'number') return row.duration_ms;
+  const payload = getJsonRecord(row.response_payload);
+  const candidate = payload?.durationMs ?? payload?.duration_ms;
+  return typeof candidate === 'number' ? candidate : null;
+};
+const isAbilityLogSuccessful = (status?: string | null): boolean => {
+  const normalized = (status || '').trim().toLowerCase();
+  return ['success', 'succeeded', 'completed', 'done', 'ok'].includes(normalized);
+};
+const isAbilityLogFailed = (status?: string | null): boolean => {
+  const normalized = (status || '').trim().toLowerCase();
+  return ['failed', 'error', 'timeout', 'rejected'].includes(normalized);
+};
 const renderStatusTag = (status?: string | null) => {
   const normalized = (status || '').toLowerCase();
   const theme =
@@ -472,10 +547,23 @@ const renderStatusTag = (status?: string | null) => {
   );
 };
 const getAbilityLogStatusTag = (status?: string | null) => {
-  const normalized = (status || '').toLowerCase();
-  if (normalized === 'success') return { theme: 'success' as const, text: 'success' };
-  if (normalized === 'failed') return { theme: 'danger' as const, text: 'failed' };
-  return { theme: 'default' as const, text: status || 'unknown' };
+  const normalized = (status || '').trim().toLowerCase();
+  if (['success', 'succeeded', 'completed', 'done', 'ok'].includes(normalized)) {
+    return { theme: 'success' as const, text: '成功' };
+  }
+  if (['failed', 'error', 'timeout', 'rejected'].includes(normalized)) {
+    return { theme: 'danger' as const, text: '失败' };
+  }
+  if (['running', 'processing', 'in_progress'].includes(normalized)) {
+    return { theme: 'warning' as const, text: '执行中' };
+  }
+  if (['queued', 'pending', 'created'].includes(normalized)) {
+    return { theme: 'warning' as const, text: '排队中' };
+  }
+  if (['cancelled', 'canceled', 'stopped', 'aborted'].includes(normalized)) {
+    return { theme: 'default' as const, text: '已取消' };
+  }
+  return { theme: 'default' as const, text: status || '未知' };
 };
 const abilitySourceLabels: Record<string, string> = {
   'admin-test': '控制台测试',
@@ -2368,7 +2456,7 @@ export function IntegrationDashboard({
     return globalAbilityLogs.filter((log) => {
       const callbackStatus = (log.callback_status || '').toLowerCase();
       const hasCallbackError =
-        callbackStatus === 'failed' ||
+        isAbilityLogFailed(callbackStatus) ||
         (typeof log.callback_http_status === 'number' && log.callback_http_status >= 400) ||
         Boolean(log.callback_error);
       if (globalAbilityLogProvider !== 'all' && log.ability_provider !== globalAbilityLogProvider) return false;
@@ -2391,6 +2479,10 @@ export function IntegrationDashboard({
     globalAbilityLogOnlyCallbackFailed,
     globalAbilityLogSearch,
   ]);
+  const abilityLogDetailDurationMs = useMemo(
+    () => (abilityLogDetail ? resolveLogDurationMs(abilityLogDetail) : null),
+    [abilityLogDetail],
+  );
   const abilityLogsHasMore = useMemo(() => {
     if (abilityLogTotal !== null) {
       return abilityLogs.length < abilityLogTotal;
@@ -6019,18 +6111,21 @@ const normalizeErrorMessage = (message: string): string => {
                 colKey: 'status',
                 title: '状态',
                 width: 160,
-                cell: ({ row }) => (
-                  <Space direction="vertical" size={2}>
-                    <Tag theme={getAbilityLogStatusTag(row.status).theme} variant="light">
-                      {getAbilityLogStatusTag(row.status).text}
-                    </Tag>
-                    {typeof row.duration_ms === 'number' ? (
-                      <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
-                        {row.duration_ms}ms
-                      </Typography.Text>
-                    ) : null}
-                  </Space>
-                ),
+                cell: ({ row }) => {
+                  const durationMs = resolveLogDurationMs(row);
+                  return (
+                    <Space direction="vertical" size={2}>
+                      <Tag theme={getAbilityLogStatusTag(row.status).theme} variant="light">
+                        {getAbilityLogStatusTag(row.status).text}
+                      </Tag>
+                      {typeof durationMs === 'number' ? (
+                        <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                          {durationMs}ms
+                        </Typography.Text>
+                      ) : null}
+                    </Space>
+                  );
+                },
               },
               {
                 colKey: 'callback',
@@ -6066,10 +6161,7 @@ const normalizeErrorMessage = (message: string): string => {
                 title: '结果',
                 minWidth: 240,
                 cell: ({ row }) => {
-                  const previewUrl =
-                    row.stored_url ||
-                    (row.result_assets && row.result_assets.length > 0 ? resolveAssetUrl(row.result_assets[0]) : '') ||
-                    '';
+                  const previewUrl = resolvePrimaryLogPreviewUrl(row);
                   const canPreviewImage = Boolean(previewUrl) && /\.(png|jpg|jpeg|webp|gif)(\?|#|$)/i.test(previewUrl);
                   return (
                     <Space size="small">
@@ -6102,7 +6194,11 @@ const normalizeErrorMessage = (message: string): string => {
                         详情
                       </Button>
                       {row.error_message ? <Typography.Text theme="error">{row.error_message}</Typography.Text> : null}
-                      {!previewUrl && !row.error_message ? <Typography.Text theme="secondary">—</Typography.Text> : null}
+                      {!previewUrl && !row.error_message ? (
+                        <Typography.Text theme="secondary">
+                          {isAbilityLogSuccessful(row.status) ? '结果回填中' : '—'}
+                        </Typography.Text>
+                      ) : null}
                     </Space>
                   );
                 },
@@ -7538,18 +7634,21 @@ const normalizeErrorMessage = (message: string): string => {
                   colKey: 'status',
                   title: '状态',
                   width: 160,
-                  cell: ({ row }) => (
-                    <Space direction="vertical" size={2}>
-                      <Tag theme={getAbilityLogStatusTag(row.status).theme} variant="light">
-                        {getAbilityLogStatusTag(row.status).text}
-                      </Tag>
-                      {typeof row.duration_ms === 'number' ? (
-                        <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
-                          {row.duration_ms}ms
-                        </Typography.Text>
-                      ) : null}
-                    </Space>
-                  ),
+                  cell: ({ row }) => {
+                    const durationMs = resolveLogDurationMs(row);
+                    return (
+                      <Space direction="vertical" size={2}>
+                        <Tag theme={getAbilityLogStatusTag(row.status).theme} variant="light">
+                          {getAbilityLogStatusTag(row.status).text}
+                        </Tag>
+                        {typeof durationMs === 'number' ? (
+                          <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                            {durationMs}ms
+                          </Typography.Text>
+                        ) : null}
+                      </Space>
+                    );
+                  },
                 },
                 {
                   colKey: 'error_summary',
@@ -7660,10 +7759,7 @@ const normalizeErrorMessage = (message: string): string => {
                   title: '结果',
                   minWidth: 220,
                   cell: ({ row }) => {
-                    const previewUrl =
-                      row.stored_url ||
-                      (row.result_assets && row.result_assets.length > 0 ? resolveAssetUrl(row.result_assets[0]) : '') ||
-                      '';
+                    const previewUrl = resolvePrimaryLogPreviewUrl(row);
                     const canPreviewImage = Boolean(previewUrl) && /\.(png|jpg|jpeg|webp|gif)(\?|#|$)/i.test(previewUrl);
                     return (
                       <Space size="small">
@@ -7696,7 +7792,11 @@ const normalizeErrorMessage = (message: string): string => {
                           详情
                         </Button>
                         {row.error_message ? <Typography.Text theme="error">{row.error_message}</Typography.Text> : null}
-                        {!previewUrl && !row.error_message ? <Typography.Text theme="secondary">—</Typography.Text> : null}
+                        {!previewUrl && !row.error_message ? (
+                          <Typography.Text theme="secondary">
+                            {isAbilityLogSuccessful(row.status) ? '结果回填中' : '—'}
+                          </Typography.Text>
+                        ) : null}
                       </Space>
                     );
                   },
@@ -7879,6 +7979,7 @@ const normalizeErrorMessage = (message: string): string => {
                   cell: ({ row }) => {
                     const latestLog = latestAbilityLogMap[row.id];
                     if (!latestLog) return <Typography.Text theme="secondary">—</Typography.Text>;
+                    const durationMs = resolveLogDurationMs(latestLog);
                     return (
                       <Space direction="vertical" size={2}>
                         <Typography.Text theme="secondary">{formatDateTime(latestLog.created_at)}</Typography.Text>
@@ -7886,8 +7987,8 @@ const normalizeErrorMessage = (message: string): string => {
                           <Tag theme={getAbilityLogStatusTag(latestLog.status).theme} variant="light" size="small">
                             {getAbilityLogStatusTag(latestLog.status).text}
                           </Tag>
-                          {typeof latestLog.duration_ms === 'number' ? (
-                            <Typography.Text theme="secondary">{latestLog.duration_ms}ms</Typography.Text>
+                          {typeof durationMs === 'number' ? (
+                            <Typography.Text theme="secondary">{durationMs}ms</Typography.Text>
                           ) : null}
                         </Space>
                       </Space>
@@ -12005,7 +12106,7 @@ const normalizeErrorMessage = (message: string): string => {
                   </Tag>
                 </div>
                 <Typography.Text theme="secondary">
-                  {formatDateTime(abilityLogDetail.created_at)} · {formatDurationMs(abilityLogDetail.duration_ms)}
+                  {formatDateTime(abilityLogDetail.created_at)} · {formatDurationMs(abilityLogDetailDurationMs)}
                 </Typography.Text>
               </Col>
               <Col span={12}>
@@ -12052,12 +12153,7 @@ const normalizeErrorMessage = (message: string): string => {
             {(() => {
               const resolveMeta = (abilityLogDetail.response_payload || {}) as Record<string, any>;
               const resolvePromptId = resolveMeta.promptId || resolveMeta.taskId;
-              const previewUrl =
-                abilityLogDetail.stored_url ||
-                (abilityLogDetail.result_assets && abilityLogDetail.result_assets.length > 0
-                  ? resolveAssetUrl(abilityLogDetail.result_assets[0])
-                  : '') ||
-                '';
+              const previewUrl = resolvePrimaryLogPreviewUrl(abilityLogDetail);
               const canPreviewImage = Boolean(previewUrl) && /\.(png|jpg|jpeg|webp|gif)(\?|#|$)/i.test(previewUrl);
               if (!previewUrl) {
                 if ((abilityLogDetail.ability_provider || '').toLowerCase() === 'comfyui' && resolvePromptId) {

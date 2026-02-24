@@ -130,6 +130,12 @@
 
 获取评测工作流文档（结构化 + Markdown）。
 
+文档内容必须与统一准则一致：
+
+- 状态词口径（任务状态 / 日志状态 / Coze taskStatus）
+- 错误码与强约束错误格式（`ERR|<CODE>|<message>`）
+- 成功但无预览时的展示策略（结果回填中）
+
 **错误（常见）**
 
 - `UNAUTHORIZED` / `INVALID_TOKEN`
