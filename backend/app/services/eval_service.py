@@ -1250,6 +1250,12 @@ class EvalService:
                 db_task.status = "succeeded"
                 db_task.result_payload = next_payload
                 db_task.error_message = None
+                db_task.finished_at = datetime.utcnow()
+                if not db_task.duration_ms and db_task.started_at:
+                    try:
+                        db_task.duration_ms = int((datetime.utcnow() - db_task.started_at).total_seconds() * 1000)
+                    except Exception:
+                        pass
                 session.add(db_task)
                 session.commit()
         except Exception as exc:
@@ -1328,6 +1334,7 @@ class EvalService:
                 next_payload["status"] = "succeeded"
                 db_task.status = "succeeded"
                 db_task.result_payload = next_payload
+                db_task.finished_at = datetime.utcnow()
                 if not db_task.duration_ms and db_task.started_at:
                     try:
                         db_task.duration_ms = int(
@@ -1341,6 +1348,7 @@ class EvalService:
             if state == "fail":
                 db_task.status = "failed"
                 db_task.error_message = "KIE_TASK_FAILED"
+                db_task.finished_at = datetime.utcnow()
                 session.add(db_task)
                 session.commit()
                 return

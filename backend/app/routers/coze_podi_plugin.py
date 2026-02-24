@@ -1258,6 +1258,7 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
                                 next_payload["status"] = "succeeded"
                                 db_task.status = "succeeded"
                                 db_task.result_payload = next_payload
+                                db_task.finished_at = datetime.utcnow()
                                 if not db_task.duration_ms and db_task.started_at:
                                     try:
                                         db_task.duration_ms = int(
@@ -1281,6 +1282,7 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
                             elif state == "fail":
                                 db_task.status = "failed"
                                 db_task.error_message = "KIE_TASK_FAILED"
+                                db_task.finished_at = datetime.utcnow()
                                 session.add(db_task)
                                 session.commit()
                                 task = get_ability_task_service().to_dict(db_task)
@@ -1445,6 +1447,7 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
                         if status_str == "error":
                             db_task.status = "failed"
                             db_task.error_message = "COMFYUI_ERROR"
+                            db_task.finished_at = datetime.utcnow()
                             session.add(db_task)
                             session.commit()
                             task = get_ability_task_service().to_dict(db_task)
@@ -1547,6 +1550,7 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
                             db_task.status = "succeeded"
                             db_task.result_payload = next_payload
                             db_task.error_message = None
+                            db_task.finished_at = datetime.utcnow()
                             if not db_task.duration_ms and db_task.started_at:
                                 try:
                                     db_task.duration_ms = int(
