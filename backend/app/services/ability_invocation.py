@@ -231,7 +231,6 @@ class AbilityInvocationService:
                 )
             raise
         duration_ms = int((time.perf_counter() - start) * 1000)
-        ability_log_service.finish_success(log_id, response_payload=provider_result, duration_ms=duration_ms)
         response_payload = self._build_response_payload(
             ability,
             request_marker,
@@ -239,6 +238,13 @@ class AbilityInvocationService:
             log_id,
             duration_ms=duration_ms,
             request_inputs=request_inputs,
+        )
+        # Keep ability logs structurally consistent across providers/sync modes:
+        # persist the normalized public response shape instead of provider-specific payload.
+        ability_log_service.finish_success(
+            log_id,
+            response_payload=response_payload.model_dump(exclude_none=True),
+            duration_ms=duration_ms,
         )
         if callback_url:
             self._schedule_callback(

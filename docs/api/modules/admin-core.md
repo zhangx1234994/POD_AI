@@ -162,6 +162,7 @@
   - `回调阶段`：基于 `callback_status/callback_http_status/callback_finished_at/callback_id` 判断（待回调/回调成功/回调失败/结果回填中/结果已回填）。
 - 结果预览字段解析需按统一顺序兜底（`stored_url` → `result_assets` → `response_payload`）。
 - 成功但暂无预览时，UI 文案应为“结果回填中”，避免误判为无结果。
+- `response_payload` 建议统一使用公开响应结构（`abilityId/provider/status/images/assets/metadata/...`），避免不同能力日志字段漂移。
 
 ---
 
