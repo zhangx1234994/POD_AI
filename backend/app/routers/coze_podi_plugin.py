@@ -123,6 +123,14 @@ def _normalize_coze_task_status(raw_status: Any) -> str:
     return "running"
 
 
+def _limit_comfyui_images(capability_key: Any, images: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    key = str(capability_key or "").strip().lower()
+    # 四方连续当前只保留最终成品图，忽略 workflow 偶发输出的额外图片。
+    if key == "sifang_lianxu":
+        return images[:1]
+    return images
+
+
 def _field_to_schema(field: dict[str, Any]) -> dict[str, Any]:
     ftype = (field.get("type") or "text").lower()
     schema: dict[str, Any]
@@ -1003,6 +1011,7 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
 
             raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
         task = get_ability_task_service().to_dict(task_row)
+    capability_key = task.get("capability_key")
     status = task.get("status")
     result_payload = task.get("result_payload") or {}
     req_payload = task.get("request_payload") or {}
@@ -1038,6 +1047,7 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
                 if not task_row:
                     break
                 task = get_ability_task_service().to_dict(task_row)
+            capability_key = task.get("capability_key")
             status = task.get("status")
             if status not in {"queued", "running"}:
                 break
@@ -1104,6 +1114,8 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
         texts = result_payload.get("texts") or []
         images = result_payload.get("images") or []
         videos = result_payload.get("videos") or []
+        if isinstance(images, list):
+            images = _limit_comfyui_images(capability_key, images)
 
         def _first_url(items: list[dict[str, Any]]) -> str | None:
             for it in items:
@@ -1463,6 +1475,26 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
                         images = outputs.get("images") if isinstance(outputs, dict) else None
                         if not isinstance(images, list) or not images:
                             # Some ComfyUI builds mark success before batch outputs are fully persisted.
+                            return _prune(
+                                {
+                                    "text": status or "running",
+                                    "texts": [status or "running"],
+                                    "taskId": task.get("id"),
+                                    "taskStatus": status,
+                                    **executor_info,
+                                    "expectedImageCount": expected_images,
+                                    "logId": task.get("log_id"),
+                                    "requestId": None,
+                                    "imageUrl": None,
+                                    "imageUrls": [],
+                                    "videoUrl": None,
+                                    "videoUrls": [],
+                                    "debugRequest": None,
+                                    "debugResponse": "COMFYUI_IMAGES_EMPTY",
+                                }
+                            )
+                        images = _limit_comfyui_images(capability_key, images)
+                        if not images:
                             return _prune(
                                 {
                                     "text": status or "running",

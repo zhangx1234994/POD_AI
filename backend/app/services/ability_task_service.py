@@ -28,8 +28,9 @@ logger = logging.getLogger(__name__)
 
 CLEANUP_TTL_HOURS = 24
 CLEANUP_INTERVAL_SECONDS = 30 * 60
-FINALIZE_INTERVAL_SECONDS = 30
-FINALIZE_BATCH_SIZE = 6
+# 回填线程默认每 8 秒扫描一次，避免 ComfyUI 任务在“已完成但未回填”状态停留过久。
+FINALIZE_INTERVAL_SECONDS = 8
+FINALIZE_BATCH_SIZE = 20
 MAX_QUEUE_PER_EXECUTOR = 10
 ERR_CODE_COMFYUI_QUEUE_FULL = "Q1001"
 ERR_CODE_COMMERCIAL_QUEUE_FULL = "Q2001"
@@ -204,6 +205,14 @@ class AbilityTaskService:
         base_url = meta.get("baseUrl")
         return isinstance(prompt_id, str) and bool(prompt_id.strip()) and isinstance(base_url, str) and bool(base_url.strip())
 
+    @staticmethod
+    def _limit_comfyui_output_images(capability_key: str | None, images: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        key = str(capability_key or "").strip().lower()
+        # 四方连续当前只需要最终成品图，忽略 workflow 偶发产出的额外图片。
+        if key == "sifang_lianxu":
+            return images[:1]
+        return images
+
     def _finalize_running_comfyui_tasks(self) -> None:
         with get_session() as session:
             rows = (
@@ -312,6 +321,9 @@ class AbilityTaskService:
 
                 images = outputs.get("images") if isinstance(outputs, dict) else None
                 if not isinstance(images, list) or not images:
+                    continue
+                images = self._limit_comfyui_output_images(task.capability_key, images)
+                if not images:
                     continue
 
                 ctx = ExecutionContext(

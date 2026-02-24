@@ -281,6 +281,9 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             )
 
         history_images = outputs.get("images") if isinstance(outputs.get("images"), list) else []
+        max_output_images = self._coerce_positive_int(workflow_definition.get("_max_output_images"))
+        if max_output_images:
+            history_images = history_images[:max_output_images]
         if not history_images:
             pending_payload = dict(pending_payload_base)
             pending_payload["status"] = "running"
@@ -785,6 +788,8 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         self, params: dict[str, Any], context: ExecutionContext
     ) -> tuple[dict[str, Any] | None, str | None]:
         overrides: dict[str, dict[str, Any]] = {}
+        workflow_definition = context.workflow.definition or {}
+        workflow_definition["_max_output_images"] = 1
         image_url, _ = self._resolve_image_source(params, context)
         if not image_url:
             return None, "COMFYUI_IMAGE_REQUIRED"

@@ -1126,6 +1126,7 @@ class EvalService:
                 return
             if (task_row.ability_provider or "").lower() != "comfyui":
                 return
+            capability_key = str(task_row.capability_key or "").strip().lower()
             if task_row.status not in {"queued", "running"}:
                 return
             result_payload = task_row.result_payload or {}
@@ -1207,6 +1208,10 @@ class EvalService:
             images = outputs.get("images") if isinstance(outputs, dict) else None
             if not isinstance(images, list) or not images:
                 return
+            if capability_key == "sifang_lianxu":
+                images = images[:1]
+                if not images:
+                    return
 
             ctx = ExecutionContext(
                 task=SimpleNamespace(id=task_id, user_id="eval", assets=[]),
