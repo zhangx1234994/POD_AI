@@ -1382,7 +1382,24 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
                                 # Some ComfyUI deployments return the history entry directly.
                                 entry = data
                         if not isinstance(entry, dict):
-                            raise RuntimeError("COMFYUI_HISTORY_INVALID")
+                            return _prune(
+                                {
+                                    "text": status or "running",
+                                    "texts": [status or "running"],
+                                    "taskId": task.get("id"),
+                                    "taskStatus": status,
+                                    **executor_info,
+                                    "expectedImageCount": expected_images,
+                                    "logId": task.get("log_id"),
+                                    "requestId": None,
+                                    "imageUrl": None,
+                                    "imageUrls": [],
+                                    "videoUrl": None,
+                                    "videoUrls": [],
+                                    "debugRequest": None,
+                                    "debugResponse": "COMFYUI_NOT_READY",
+                                }
+                            )
 
                         output_node_ids = None
                         if isinstance(meta, dict):

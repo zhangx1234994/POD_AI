@@ -1182,7 +1182,7 @@ class EvalService:
                     # Some ComfyUI deployments return the history entry directly.
                     entry = data
             if not isinstance(entry, dict):
-                raise RuntimeError("COMFYUI_HISTORY_INVALID")
+                return
 
             output_node_set = None
             if isinstance(output_node_ids, list):

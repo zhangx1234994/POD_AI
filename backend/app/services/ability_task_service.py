@@ -276,7 +276,8 @@ class AbilityTaskService:
                         # Some ComfyUI deployments return the history entry directly.
                         entry = data
                 if not isinstance(entry, dict):
-                    raise RuntimeError("COMFYUI_HISTORY_INVALID")
+                    # History not ready yet (ComfyUI may still be writing prompt entry).
+                    continue
 
                 output_node_set = None
                 if isinstance(output_node_ids, list):
