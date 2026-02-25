@@ -1,10 +1,37 @@
+import OSS from 'ali-oss';
 import type { EvalRun, EvalRunListResponse, EvalWorkflowVersion, WorkflowDoc } from './types';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
+const MEDIA_BASE = import.meta.env.VITE_MEDIA_BASE_URL ?? '/api/media';
 const DEFAULT_TIMEOUT_MS = 15000;
 const BATCH_DETAIL_TIMEOUT_MS = 45000;
 const AUTH_INVALID_MESSAGE = '认证已失效，请重新登录';
 const GATEWAY_ERROR_MESSAGE = '服务不可达或网关异常，请稍后再试';
+const OSS_META_TIMEOUT_MS = 15000;
+
+type UploadKeyResponse = {
+  uploadKey: string;
+  expiresAt: string;
+};
+
+type OssCredentials = {
+  accessKeyId: string;
+  accessKeySecret: string;
+  securityToken?: string | null;
+  endpoint: string;
+  publicDomain: string;
+  bucket: string;
+  region: string;
+};
+
+type OssCredentialResponse = {
+  ossCredentials: OssCredentials;
+  objectKey: string;
+  host: string;
+};
+
+let cachedUploadKey: { token: string; expiresAt: number; userId: string } | null = null;
+let cachedRaterId: string | null = null;
 
 function extractErrorMessage(statusText: string, bodyText: string): string {
   const text = (bodyText || '').trim();
@@ -85,6 +112,103 @@ async function request<T>(path: string, options: RequestInit = {}, timeoutMs: nu
     throw new Error(extractErrorMessage('', text) || '服务异常：响应不是 JSON');
   }
   return JSON.parse(text) as T;
+}
+
+async function mediaRequest<T>(path: string, payload: unknown): Promise<T> {
+  return request<T>(
+    `${MEDIA_BASE}${path}`,
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    },
+    OSS_META_TIMEOUT_MS,
+  );
+}
+
+function buildRandomId(): string {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return `eval-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+}
+
+function encodeObjectKey(key: string): string {
+  return String(key || '')
+    .split('/')
+    .map((segment) => encodeURIComponent(segment))
+    .join('/');
+}
+
+async function ensureEvalRaterId(): Promise<string> {
+  if (cachedRaterId) return cachedRaterId;
+  const me = await request<{ raterId: string }>('/api/evals/me');
+  const rid = String(me.raterId || '').trim() || 'eval-user';
+  cachedRaterId = rid;
+  return rid;
+}
+
+async function ensureUploadKey(userId: string): Promise<string> {
+  const now = Date.now();
+  if (
+    cachedUploadKey &&
+    cachedUploadKey.userId === userId &&
+    cachedUploadKey.expiresAt - now > 60 * 1000
+  ) {
+    return cachedUploadKey.token;
+  }
+  const response = await mediaRequest<UploadKeyResponse>('/v1/upload-key', { userId });
+  const expiresAt = Date.parse(String(response.expiresAt || ''));
+  cachedUploadKey = {
+    token: String(response.uploadKey || ''),
+    expiresAt: Number.isFinite(expiresAt) ? expiresAt : now + 10 * 60 * 1000,
+    userId,
+  };
+  return cachedUploadKey.token;
+}
+
+function createOssClient(credentials: OssCredentials, timeoutMs: number): any {
+  const config: Record<string, any> = {
+    region: credentials.region,
+    accessKeyId: credentials.accessKeyId,
+    accessKeySecret: credentials.accessKeySecret,
+    bucket: credentials.bucket,
+    timeout: timeoutMs,
+  };
+  const endpoint = String(credentials.endpoint || '').trim();
+  if (endpoint) {
+    const normalized = endpoint.startsWith('http') ? endpoint : `https://${endpoint}`;
+    config.endpoint = normalized;
+    if (normalized.startsWith('https://')) {
+      config.secure = true;
+    }
+  } else {
+    config.secure = true;
+  }
+  if (credentials.securityToken) {
+    config.stsToken = credentials.securityToken;
+  }
+  return new OSS(config);
+}
+
+function resolveUploadError(err: unknown): string {
+  const message = String((err as any)?.message || err || '').trim();
+  const lower = message.toLowerCase();
+  if (!message) return '上传失败：网络异常或服务不可达';
+  if (
+    lower.includes('timeout') ||
+    lower.includes('request timeout') ||
+    lower.includes('connection timeout')
+  ) {
+    return '上传超时，请稍后重试';
+  }
+  if (
+    lower.includes('failed to fetch') ||
+    lower.includes('network error') ||
+    lower.includes('load failed')
+  ) {
+    return '上传失败：网络异常或服务不可达';
+  }
+  return message;
 }
 
 export const evalApi = {
@@ -286,57 +410,63 @@ export const evalApi = {
     qs.set('offset', String(params.offset ?? 0));
     return request<{ total: number; items: any[] }>(`/api/evals/runs/with-latest-annotation?${qs.toString()}`);
   },
-  uploadImage: (file: File, opts?: { onProgress?: (loaded: number, total: number) => void; timeoutMs?: number }) =>
-    new Promise<{ url: string; objectKey: string }>((resolve, reject) => {
-      const form = new FormData();
-      form.append('file', file);
-      const xhr = new XMLHttpRequest();
-      xhr.open('POST', `${API_BASE}/api/evals/uploads`, true);
-      xhr.withCredentials = true;
-      xhr.timeout = Number(opts?.timeoutMs || 30000);
+  uploadImage: async (file: File, opts?: { onProgress?: (loaded: number, total: number) => void; timeoutMs?: number }) => {
+    const timeoutMs = Number(opts?.timeoutMs || 30000);
+    let userId = '';
+    try {
+      userId = await ensureEvalRaterId();
+    } catch (err) {
+      throw new Error(`上传准备失败（身份）: ${String((err as any)?.message || err || '未知错误')}`);
+    }
+    let uploadKey = '';
+    try {
+      uploadKey = await ensureUploadKey(userId);
+    } catch (err) {
+      throw new Error(`上传凭证失败（upload-key）: ${String((err as any)?.message || err || '未知错误')}`);
+    }
+    let credentialPayload: OssCredentialResponse;
+    try {
+      credentialPayload = await mediaRequest<OssCredentialResponse>('/v1/sts', {
+        uploadKey,
+        taskId: buildRandomId(),
+        action: 'eval-public-upload',
+        fileName: file.name,
+        mimeType: file.type || 'application/octet-stream',
+        fileSize: file.size,
+        channel: 'eval-web',
+      });
+    } catch (err) {
+      throw new Error(`上传凭证失败（sts）: ${String((err as any)?.message || err || '未知错误')}`);
+    }
 
-      xhr.upload.onprogress = (evt) => {
-        if (!opts?.onProgress) return;
-        if (evt.lengthComputable) {
-          opts.onProgress(Math.max(0, evt.loaded || 0), Math.max(1, evt.total || file.size || 1));
-          return;
-        }
-        opts.onProgress(0, Math.max(1, file.size || 1));
-      };
+    const totalBytes = Math.max(1, Number(file.size || 0));
+    const client = createOssClient(credentialPayload.ossCredentials, timeoutMs);
+    try {
+      await client.multipartUpload(credentialPayload.objectKey, file, {
+        parallel: 2,
+        progress: async (percent: number) => {
+          if (!opts?.onProgress) return;
+          const p = Number.isFinite(percent) ? Math.max(0, Math.min(1, percent)) : 0;
+          opts.onProgress(Math.round(totalBytes * p), totalBytes);
+        },
+      });
+    } catch (err) {
+      throw new Error(`直传OSS失败: ${resolveUploadError(err)}`);
+    }
 
-      xhr.onerror = () => {
-        reject(new Error('上传失败：网络异常或服务不可达'));
-      };
-      xhr.ontimeout = () => {
-        reject(new Error('上传超时，请检查网络或服务是否可用'));
-      };
-      xhr.onabort = () => {
-        reject(new Error('上传已中断，请重试'));
-      };
-      xhr.onload = () => {
-        const status = xhr.status || 0;
-        const bodyText = xhr.responseText || '';
-        if (status < 200 || status >= 300) {
-          const msg = resolveHttpError(status, xhr.statusText || '', bodyText);
-          reject(new Error(`上传失败 (status=${status}): ${msg}`));
-          return;
-        }
-        try {
-          const parsed = JSON.parse(bodyText || '{}') as { url?: string; objectKey?: string };
-          if (!parsed?.url) {
-            reject(new Error('上传失败：服务未返回可用 URL'));
-            return;
-          }
-          resolve({
-            url: String(parsed.url),
-            objectKey: String(parsed.objectKey || ''),
-          });
-        } catch {
-          reject(new Error('上传失败：响应格式异常'));
-        }
-      };
-      xhr.send(form);
-    }),
+    if (opts?.onProgress) {
+      opts.onProgress(totalBytes, totalBytes);
+    }
+    const domain = String(credentialPayload.ossCredentials.publicDomain || credentialPayload.host || '').trim();
+    if (!domain) {
+      throw new Error('上传成功但未返回可访问域名');
+    }
+    const url = `${domain.replace(/\/$/, '')}/${encodeObjectKey(credentialPayload.objectKey)}`;
+    return {
+      url,
+      objectKey: String(credentialPayload.objectKey || ''),
+    };
+  },
   adminListWorkflowVersions: async (adminToken: string) =>
     request<EvalWorkflowVersion[]>(`/api/evals/admin/workflow-versions`, { headers: { 'X-Eval-Admin-Token': adminToken } }),
   adminUpdateWorkflowVersion: async (adminToken: string, id: string, payload: Partial<EvalWorkflowVersion>) =>

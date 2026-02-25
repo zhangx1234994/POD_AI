@@ -1,0 +1,104 @@
+:root {
+  --podi-radius-sm: 8px;
+  --podi-radius-md: 12px;
+  --podi-radius-lg: 16px;
+  --podi-space-2: 8px;
+  --podi-space-3: 12px;
+  --podi-space-4: 16px;
+  --podi-space-6: 24px;
+  --podi-shadow-card: 0 6px 20px rgba(15, 23, 42, 0.08);
+  --podi-surface: var(--td-bg-color-page);
+  --podi-panel: var(--td-bg-color-container);
+  --podi-accent: var(--td-brand-color);
+  --podi-success: var(--td-success-color);
+  --podi-warning: var(--td-warning-color);
+  --podi-danger: var(--td-error-color);
+  --podi-info: var(--td-brand-color);
+}
+
+html.t-theme-dark {
+  --podi-shadow-card: 0 8px 28px rgba(2, 6, 23, 0.45);
+}
+
+.podi-shell__aside,
+.podi-shell__header {
+  border-color: var(--td-component-border);
+  background: var(--podi-panel);
+}
+
+.podi-shell__aside {
+  border-right: 1px solid var(--td-component-border);
+}
+
+.podi-shell__header {
+  border-bottom: 1px solid var(--td-component-border);
+}
+
+.podi-shell__content {
+  background: var(--podi-surface);
+}
+
+.podi-shell .t-card {
+  border-radius: var(--podi-radius-lg);
+  box-shadow: var(--podi-shadow-card);
+  border: 1px solid var(--td-border-level-1-color);
+  overflow: hidden;
+}
+
+.podi-shell .t-card__header {
+  padding-bottom: 12px;
+}
+
+.podi-shell .t-card__body {
+  padding-top: 16px;
+}
+
+.podi-shell .t-menu__item {
+  border-radius: var(--podi-radius-sm);
+}
+
+.podi-shell .t-menu__item.t-is-active {
+  background: var(--td-brand-color-1);
+  color: var(--td-brand-color);
+}
+
+.podi-filter-bar {
+  border: 1px solid var(--td-border-level-1-color);
+  border-radius: var(--podi-radius-md);
+  background: var(--td-bg-color-container);
+  padding: var(--podi-space-3);
+}
+
+.podi-action-bar {
+  border: 1px solid var(--td-border-level-1-color);
+  border-radius: var(--podi-radius-md);
+  background: var(--td-bg-color-container);
+  padding: var(--podi-space-3) var(--podi-space-4);
+}
+
+.podi-empty-state {
+  border: 1px dashed var(--td-border-level-2-color);
+  border-radius: var(--podi-radius-md);
+  background: var(--td-bg-color-container);
+  padding: var(--podi-space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--podi-space-2);
+}
+
+.podi-skeleton-block {
+  border-radius: var(--podi-radius-md);
+  border: 1px solid var(--td-border-level-1-color);
+  background: linear-gradient(90deg, rgba(148, 163, 184, 0.12), rgba(148, 163, 184, 0.2), rgba(148, 163, 184, 0.12));
+  background-size: 200% 100%;
+  animation: podiPulse 1.3s ease-in-out infinite;
+}
+
+@keyframes podiPulse {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}

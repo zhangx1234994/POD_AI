@@ -8,8 +8,6 @@ import {
   Dialog,
   Input,
   InputNumber,
-  Layout,
-  Menu,
   Popup,
   Row,
   Select,
@@ -61,6 +59,9 @@ import type {
 } from '../types/admin';
 import type { UploadResult } from '../types/media';
 import { AbilityEvaluationPage } from './AbilityEvaluation/AbilityEvaluationPage';
+import { AdminShell } from '../layouts/AdminShell';
+import { mapStatusToBadge } from '../features/admin/shared/status';
+import { ErrorState, PageHeader, StatusBadge } from '../features/admin/shared/ui';
 
 const navItems = [
   { id: 'overview', label: '总体概览', description: '指标、刷新、运行状态' },
@@ -78,6 +79,16 @@ const navItems = [
   { id: 'logs', label: '调度事件', description: '任务追踪', advanced: true },
 ] as const;
 type NavId = (typeof navItems)[number]['id'];
+const isNavId = (value: string): value is NavId => navItems.some((item) => item.id === value);
+const isAdvancedNav = (value: NavId) => Boolean((navItems.find((item) => item.id === value) as any)?.advanced);
+const readNavFromHash = (): NavId | null => {
+  if (typeof window === 'undefined') return null;
+  const hash = window.location.hash.replace(/^#/, '');
+  if (!hash) return null;
+  const params = new URLSearchParams(hash.includes('=') ? hash : `nav=${hash}`);
+  const value = params.get('nav') || hash;
+  return isNavId(value) ? value : null;
+};
 const abilityDetailTabs = [
   { id: 'overview', label: '概览' },
   { id: 'params', label: '参数' },
@@ -581,22 +592,10 @@ const getAbilityLogCallbackStageTag = (row: AbilityInvocationLog) => {
   return { theme: 'default' as const, text: '—' };
 };
 const renderStatusTag = (status?: string | null) => {
-  const normalized = (status || '').toLowerCase();
-  const theme =
-    normalized === 'succeeded' ||
-    normalized === 'success' ||
-    normalized === 'completed' ||
-    normalized === 'active' ||
-    normalized === 'on'
-      ? ('success' as const)
-      : normalized === 'failed' || normalized === 'error' || normalized === 'off'
-        ? ('danger' as const)
-        : normalized === 'running' || normalized === 'queued' || normalized === 'pending'
-          ? ('warning' as const)
-          : ('default' as const);
+  const meta = mapStatusToBadge(status);
   return (
-    <Tag theme={theme} variant="light">
-      {status || 'unknown'}
+    <Tag theme={meta.theme} variant="light">
+      {status || meta.text}
     </Tag>
   );
 };
@@ -1502,7 +1501,7 @@ export function IntegrationDashboard({
   const [abilities, setAbilities] = useState<Ability[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadErrors, setLoadErrors] = useState<string[]>([]);
-  const [activeNav, setActiveNav] = useState<NavId>(navItems[0].id);
+  const [activeNav, setActiveNav] = useState<NavId>(() => readNavFromHash() ?? navItems[0].id);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const [dashboardMetrics, setDashboardMetrics] = useState<DashboardMetrics | null>(null);
@@ -6284,102 +6283,83 @@ const normalizeErrorMessage = (message: string): string => {
     [showAdvanced],
   );
 
-  return (
-    <Layout style={{ height: '100vh' }}>
-      <Layout.Aside
-        style={{
-          width: 260,
-          borderRight: '1px solid var(--td-component-border)',
-          background: 'var(--td-bg-color-container)',
-          padding: 16,
-          overflow: 'auto',
-        }}
-      >
-        <Space direction="vertical" size="small" style={{ width: '100%' }}>
-          <div>
-            <Typography.Text theme="secondary">控制台</Typography.Text>
-            <Typography.Title level="h4" style={{ margin: '6px 0 0' }}>
-              AI 管理端
-            </Typography.Title>
-            <Typography.Text theme="secondary">集中管理执行节点、工作流、密钥与调度测试。</Typography.Text>
-          </div>
-          <Menu
-            value={activeNav}
-            theme={theme === 'dark' ? 'dark' : 'light'}
-            onChange={(value) => selectSection(value as NavId)}
-          >
-            {visibleNavItems.map((item) => (
-              <Menu.MenuItem key={item.id} value={item.id}>
-                <Tooltip content={item.description}>
-                  <span>{item.label}</span>
-                </Tooltip>
-              </Menu.MenuItem>
-            ))}
-          </Menu>
-        </Space>
-      </Layout.Aside>
+  useEffect(() => {
+    const syncFromHash = () => {
+      const navFromHash = readNavFromHash();
+      if (!navFromHash) return;
+      if (!showAdvanced && isAdvancedNav(navFromHash)) {
+        setActiveNav('overview');
+        return;
+      }
+      setActiveNav(navFromHash);
+    };
 
-      <Layout>
-        <Layout.Header
-          style={{
-            borderBottom: '1px solid var(--td-component-border)',
-            background: 'var(--td-bg-color-container)',
-            padding: '0 16px',
-          }}
-        >
-          <Space align="center" style={{ justifyContent: 'space-between', width: '100%', height: '100%' }}>
-            <Typography.Text strong>{navItems.find((x) => x.id === activeNav)?.label || '控制台'}</Typography.Text>
-            <Space>
-              <Space align="center" size="small">
-                <Typography.Text theme="secondary">高级</Typography.Text>
-                <Switch
-                  value={showAdvanced}
-                  onChange={(v) => {
-                    const next = Boolean(v);
-                    setShowAdvanced(next);
-                    if (!next) {
-                      const isAdvanced = Boolean((navItems.find((item) => item.id === activeNav) as any)?.advanced);
-                      if (isAdvanced) selectSection('overview');
-                    }
-                  }}
-                />
-              </Space>
-              <Button variant="outline" loading={loading} onClick={load}>
-                刷新
-              </Button>
-              <Button variant="outline" onClick={onToggleTheme}>
-                {theme === 'dark' ? '深色' : '浅色'}
-              </Button>
-            </Space>
+    syncFromHash();
+    window.addEventListener('hashchange', syncFromHash);
+    return () => window.removeEventListener('hashchange', syncFromHash);
+  }, [showAdvanced]);
+
+  useEffect(() => {
+    const nextHash = `nav=${activeNav}`;
+    const currentHash = window.location.hash.replace(/^#/, '');
+    if (currentHash === nextHash) return;
+    window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#${nextHash}`);
+  }, [activeNav]);
+
+  return (
+    <AdminShell
+      title="AI 管理端"
+      subtitle="集中管理执行节点、工作流、密钥与调度测试。"
+      theme={theme}
+      navItems={visibleNavItems.map((item) => ({ ...item }))}
+      activeNav={activeNav}
+      onSelectNav={(value) => selectSection(value as NavId)}
+      headerTitle={navItems.find((x) => x.id === activeNav)?.label || '控制台'}
+      contentRef={contentRef}
+      headerActions={
+        <Space>
+          <Space align="center" size="small">
+            <Typography.Text theme="secondary">高级</Typography.Text>
+            <Switch
+              value={showAdvanced}
+              onChange={(v) => {
+                const next = Boolean(v);
+                setShowAdvanced(next);
+                if (!next) {
+                  const isAdvanced = Boolean((navItems.find((item) => item.id === activeNav) as any)?.advanced);
+                  if (isAdvanced) selectSection('overview');
+                }
+              }}
+            />
           </Space>
-        </Layout.Header>
-        <Layout.Content style={{ padding: 16, overflow: 'hidden' }}>
-          <div ref={contentRef} style={{ height: '100%', overflow: 'auto' }}>
-            {loadErrors.length > 0 ? (
-              <div style={{ marginBottom: 16 }}>
-                <Alert
-                  theme="warning"
-                  title="部分数据加载失败"
-                  message={
-                    <div>
-                      <div style={{ marginBottom: 6 }}>
-                        不影响已加载模块，可点击右上角“刷新”重试；失败明细：
-                      </div>
-                      <ul style={{ margin: 0, paddingLeft: 18 }}>
-                        {loadErrors.slice(0, 6).map((msg) => (
-                          <li key={msg}>{msg}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  }
-                  operation={
-                    <Button size="small" variant="outline" onClick={load}>
-                      立即重试
-                    </Button>
-                  }
-                />
-              </div>
-            ) : null}
+          <Button variant="outline" loading={loading} onClick={load}>
+            刷新
+          </Button>
+          <Button variant="outline" onClick={onToggleTheme}>
+            {theme === 'dark' ? '深色' : '浅色'}
+          </Button>
+        </Space>
+      }
+    >
+      {loadErrors.length > 0 ? (
+        <div style={{ marginBottom: 16 }}>
+          <ErrorState title="部分数据加载失败">
+            <div style={{ marginBottom: 8 }}>
+              不影响已加载模块，可点击右上角“刷新”重试；失败明细：
+            </div>
+            <ul style={{ margin: 0, paddingLeft: 18 }}>
+              {loadErrors.slice(0, 6).map((msg) => (
+                <li key={msg}>{msg}</li>
+              ))}
+            </ul>
+            <div style={{ marginTop: 8 }}>
+              <Button size="small" variant="outline" onClick={load}>
+                立即重试
+              </Button>
+            </div>
+          </ErrorState>
+        </div>
+      ) : null}
           {activeNav === 'overview' && (
             <Section id="overview" title="总体概览" description="观察运行快照、调度指标与刷新入口。">
             <Card bordered>
@@ -12340,10 +12320,7 @@ const normalizeErrorMessage = (message: string): string => {
           </Space>
         ) : null}
       </Dialog>
-          </div>
-        </Layout.Content>
-      </Layout>
-    </Layout>
+    </AdminShell>
   );
 }
 
@@ -12375,12 +12352,7 @@ function Section({
   return (
     <section id={id} style={{ padding: '4px 0' }}>
       <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-        <div>
-          <Typography.Title level="h4" style={{ margin: 0 }}>
-            {title}
-          </Typography.Title>
-          {description ? <Typography.Text theme="secondary">{description}</Typography.Text> : null}
-        </div>
+        <PageHeader title={title} description={description} />
         <div>{children}</div>
       </Space>
     </section>
@@ -12388,7 +12360,7 @@ function Section({
 }
 
 function StatusPill({ status }: { status: string }) {
-  return renderStatusTag(status);
+  return <StatusBadge status={status} />;
 }
 
 function InfoCard({ title, items }: { title: string; items: { label: string; value: string }[] }) {

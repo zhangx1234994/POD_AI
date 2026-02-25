@@ -27,6 +27,9 @@ import {
 import zhCN from 'tdesign-react/es/locale/zh_CN';
 import { evalApi } from './api';
 import type { EvalRun, EvalWorkflowVersion, SchemaField, WorkflowDoc } from './types';
+import { EvalShell } from './layouts/EvalShell';
+import { StatusBadge } from './features/eval/shared/ui';
+import type { ThemeMode } from './types/ui';
 
 type RunWithLatest = EvalRun & {
   latest_annotation?: { rating: number; comment?: string | null; created_at: string; created_by: string } | null;
@@ -118,6 +121,21 @@ type LoraBatchUploadProgress = {
 
 // Keep the evaluation UI sidebar fixed to these 5 business-facing groups.
 const CATEGORY_ORDER = ['花纹提取类', '图延伸类', '四方/两方连续图类', '图裂变', '通用类'];
+type EvalView = 'home' | 'tool' | 'tasks' | 'admin' | 'docs' | 'loraBatch';
+const EVAL_VIEW_SET = new Set<EvalView>(['home', 'tool', 'tasks', 'admin', 'docs', 'loraBatch']);
+
+const readEvalQuery = () => {
+  if (typeof window === 'undefined') {
+    return { view: 'home' as EvalView, category: CATEGORY_ORDER[4], toolId: '' };
+  }
+  const params = new URLSearchParams(window.location.search);
+  const viewRaw = String(params.get('view') || '').trim();
+  const view = EVAL_VIEW_SET.has(viewRaw as EvalView) ? (viewRaw as EvalView) : ('home' as EvalView);
+  const categoryRaw = String(params.get('category') || '').trim();
+  const category = CATEGORY_ORDER.includes(categoryRaw) ? categoryRaw : CATEGORY_ORDER[4];
+  const toolId = String(params.get('tool') || '').trim();
+  return { view, category, toolId };
+};
 
 const AI_EDITOR_WORKFLOW_ID = '7604714915110060032';
 const LORA_BATCH_MAX_TASKS = 5000;
@@ -753,51 +771,41 @@ function ToolCard({
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') onClick();
       }}
-      style={{ cursor: 'pointer', height: '100%' }}
+      className="podi-eval-tool-card"
     >
-      <Card
-        bordered
-        style={{
-          height: '100%',
-          borderColor: active ? 'var(--td-brand-color)' : undefined,
-        }}
-      >
+      <Card bordered className="podi-eval-tool-card__panel" style={{ height: '100%', borderColor: active ? 'var(--td-brand-color)' : undefined }}>
+        <div className="podi-eval-tool-card__topline" />
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
           <Space align="start" style={{ justifyContent: 'space-between', width: '100%' }}>
             <Space direction="vertical" size={2} style={{ minWidth: 0 }}>
               <Typography.Text strong ellipsis>
                 {wf.name}
               </Typography.Text>
-              <Typography.Text theme="secondary" style={{ fontSize: 12 }} ellipsis>
+              <Typography.Text className="podi-eval-tool-card__workflow" ellipsis>
                 {wf.workflow_id}
               </Typography.Text>
             </Space>
             <Space direction="vertical" size={2} style={{ alignItems: 'flex-end' }}>
-              <Typography.Text>{ratingText}</Typography.Text>
+              <Typography.Text className="podi-eval-tool-card__score">{ratingText}</Typography.Text>
               <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
                 {ratingCountText}
               </Typography.Text>
             </Space>
           </Space>
 
-          <div
-            className="podi-clamp-2"
-            style={{
-              marginTop: 8,
-              fontSize: 12,
-              lineHeight: '18px',
-              minHeight: 36, // Reserve exactly 2 lines so all cards align.
-              color: 'var(--td-text-color-secondary)',
-            }}
-          >
-            {wf.notes || '—'}
-          </div>
+          <div className="podi-clamp-2 podi-eval-tool-card__desc">{wf.notes || '暂无说明，点击进入查看参数与结果。'}</div>
 
           <div style={{ marginTop: 12 }}>
             <Space breakLine>
               <Tag variant="light">{wf.version}</Tag>
-              <Tag variant="light">{normalizeCategory(wf.category)}</Tag>
+              <Tag theme="primary" variant="light">
+                {normalizeCategory(wf.category)}
+              </Tag>
             </Space>
+          </div>
+          <div className="podi-eval-tool-card__footer">
+            <Typography.Text>进入功能工作台</Typography.Text>
+            <Typography.Text theme="secondary">→</Typography.Text>
           </div>
         </div>
       </Card>
@@ -852,6 +860,44 @@ function ParamField({
       </Typography.Text>
       <Input value={value} onChange={(v) => onChange(String(v))} />
     </Space>
+  );
+}
+
+function StepGuide({
+  title,
+  hint,
+  steps,
+}: {
+  title: string;
+  hint?: string;
+  steps: Array<{ title: string; description: string }>;
+}) {
+  return (
+    <Card bordered>
+      <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+        <div>
+          <Typography.Text strong>{title}</Typography.Text>
+          {hint ? (
+            <div>
+              <Typography.Text theme="secondary">{hint}</Typography.Text>
+            </div>
+          ) : null}
+        </div>
+        <div className="podi-eval-step-grid">
+          {steps.map((step, idx) => (
+            <div key={step.title} className="podi-eval-step-card">
+              <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                <Tag theme="primary" variant="light">
+                  步骤 {idx + 1}
+                </Tag>
+                <Typography.Text strong>{step.title}</Typography.Text>
+                <Typography.Text theme="secondary">{step.description}</Typography.Text>
+              </Space>
+            </div>
+          ))}
+        </div>
+      </Space>
+    </Card>
   );
 }
 
@@ -913,7 +959,7 @@ function TaskTable({
             width: 150,
             cell: ({ row }) => (
               <Space direction="vertical" size={2}>
-                <Tag variant="light">{row.status}</Tag>
+                <StatusBadge status={row.status} />
                 <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
                   耗时：{formatDuration(row.duration_ms)}
                 </Typography.Text>
@@ -1041,8 +1087,6 @@ function SkeletonTile({ title, subtitle }: { title: string; subtitle?: string })
   );
 }
 
-type ThemeMode = 'light' | 'dark';
-
 function readTheme(): ThemeMode {
   const stored = window.localStorage.getItem('podi.eval.theme');
   return stored === 'dark' ? 'dark' : 'light';
@@ -1070,9 +1114,11 @@ export function App() {
   const [workflows, setWorkflows] = useState<EvalWorkflowVersion[]>([]);
   const [metrics, setMetrics] = useState<Record<string, { ratingCount: number; avgRating: number | null }>>({});
 
-  const [activeCategory, setActiveCategory] = useState<string>('通用类');
-  const [activeView, setActiveView] = useState<'home' | 'tool' | 'tasks' | 'admin' | 'docs' | 'loraBatch'>('home');
+  const initialQuery = useMemo(() => readEvalQuery(), []);
+  const [activeCategory, setActiveCategory] = useState<string>(initialQuery.category);
+  const [activeView, setActiveView] = useState<EvalView>(initialQuery.view);
   const [selectedTool, setSelectedTool] = useState<EvalWorkflowVersion | null>(null);
+  const [pendingToolId, setPendingToolId] = useState<string>(initialQuery.toolId);
 
   const [formUrl, setFormUrl] = useState('');
   const [formParams, setFormParams] = useState<Record<string, string>>({});
@@ -1180,6 +1226,30 @@ export function App() {
     const list = (grouped[activeCategory] || []).slice().sort((a, b) => a.name.localeCompare(b.name));
     return list;
   }, [grouped, activeCategory]);
+  const totalToolCount = workflows.length;
+
+  useEffect(() => {
+    if (!pendingToolId) return;
+    const matched = workflows.find((wf) => wf.id === pendingToolId);
+    if (!matched) return;
+    setSelectedTool(matched);
+    setActiveCategory(normalizeCategory(matched.category));
+    setActiveView('tool');
+    setPendingToolId('');
+  }, [pendingToolId, workflows]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    params.set('view', activeView);
+    params.set('category', activeCategory);
+    if (selectedTool?.id) params.set('tool', selectedTool.id);
+    else params.delete('tool');
+    const next = params.toString();
+    const current = window.location.search.replace(/^\?/, '');
+    if (next === current) return;
+    const suffix = next ? `?${next}` : '';
+    window.history.replaceState(null, '', `${window.location.pathname}${suffix}${window.location.hash}`);
+  }, [activeView, activeCategory, selectedTool?.id]);
 
   const loraBatchWorkflows = useMemo<LoraBatchWorkflowMeta[]>(() => {
     const metas: LoraBatchWorkflowMeta[] = [];
@@ -2418,7 +2488,7 @@ export function App() {
           }
         }
       }
-      throw lastErr;
+      throw new Error(`任务登记失败: ${String((lastErr as any)?.message || lastErr || '未知错误')}`);
     };
 
     const uploadedSourceMap = new Map<string, { inputUrl: string; imageSize: { width: number; height: number } | null; fileName: string }>();
@@ -2479,7 +2549,7 @@ export function App() {
               },
             ]);
           } catch (saveErr) {
-            updateItems(keys, { error: `${errMsg}；登记失败：${String((saveErr as any)?.message || saveErr || '')}` });
+            updateItems(keys, { error: `${errMsg}；失败状态回写失败：${String((saveErr as any)?.message || saveErr || '')}` });
           }
         }
       }
@@ -2743,100 +2813,56 @@ export function App() {
   }, [promptAdminToken]);
 
   const headerNavValue = activeView === 'tool' ? 'home' : activeView;
-
-  const header = (
-    <Layout.Header
-      style={{
-        borderBottom: '1px solid var(--td-component-border)',
-        background: 'var(--td-bg-color-container)',
-        padding: '0 24px',
-      }}
-    >
-      <Space align="center" style={{ justifyContent: 'space-between', width: '100%', height: '100%' }}>
-        <Space direction="vertical" size={2}>
-          <Typography.Text strong>PODI · 能力评测</Typography.Text>
-          <Typography.Text theme="secondary">工具箱式评测 · 免登录 · 评分沉淀</Typography.Text>
-        </Space>
-        <Space align="center">
+  const showCategorySidebar = activeView === 'home' || activeView === 'tool';
+  const shell = (content: ReactNode) => (
+    <ConfigProvider globalConfig={zhCN}>
+      <EvalShell
+        title="PODI · 能力评测"
+        subtitle="评测执行台 · 结果沉淀 · 任务追踪"
+        theme={theme}
+        showSidebar={showCategorySidebar}
+        sidebarTitle="功能分类"
+        sidebarSubtitle="仅在“功能评测”模块使用，用于筛选能力卡片。"
+        navItems={CATEGORY_ORDER.map((cat) => ({ id: cat, label: cat, count: (grouped[cat] || []).length }))}
+        activeNav={activeCategory}
+        onSelectNav={(next) => {
+          setActiveCategory(next);
+          setSelectedTool(null);
+          setActiveView('home');
+        }}
+        headerTabs={
           <Tabs
             value={headerNavValue}
             onChange={(v) => {
-              const next = String(v) as any;
+              const next = String(v) as EvalView | 'admin';
               if (next === 'admin') {
                 void openAdmin();
                 return;
               }
-              setActiveView(next);
+              setActiveView(next as EvalView);
               setSelectedTool(null);
             }}
           >
-            <Tabs.TabPanel value="home" label="工具箱" />
-            <Tabs.TabPanel value="loraBatch" label="LoRA批测" />
-            <Tabs.TabPanel value="tasks" label="任务管理" />
-            <Tabs.TabPanel value="docs" label="文档" />
-            <Tabs.TabPanel value="admin" label="维护" />
+            <Tabs.TabPanel value="home" label="功能评测" />
+            <Tabs.TabPanel value="loraBatch" label="批量回归" />
+            <Tabs.TabPanel value="tasks" label="任务追踪" />
+            <Tabs.TabPanel value="docs" label="接口文档" />
+            <Tabs.TabPanel value="admin" label="维护配置" />
           </Tabs>
-          <Button variant="outline" onClick={() => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}>
-            {theme === 'dark' ? '深色' : '浅色'}
-          </Button>
-          <Typography.Text theme="secondary">
-            raterId:{' '}
-            <span style={{ fontFamily: 'monospace' }}>{raterId || '...'}</span>
-          </Typography.Text>
-        </Space>
-      </Space>
-    </Layout.Header>
-  );
-
-  const shell = (content: ReactNode) => (
-    <ConfigProvider globalConfig={zhCN}>
-      <Layout style={{ height: '100vh' }}>
-        {header}
-        <Layout>
-          <Layout.Aside
-            style={{
-              width: 260,
-              borderRight: '1px solid var(--td-component-border)',
-              background: 'var(--td-bg-color-container)',
-              padding: 16,
-              overflow: 'auto',
-            }}
-          >
-            <Space direction="vertical" size="small" style={{ width: '100%' }}>
-              <div>
-                <Typography.Text theme="secondary">导航</Typography.Text>
-                <Typography.Title level="h5" style={{ margin: '6px 0 0' }}>
-                  测试大类
-                </Typography.Title>
-                <Typography.Text theme="secondary">选择分类后，右侧展示对应能力卡片。</Typography.Text>
-              </div>
-              <Menu
-                value={activeCategory}
-                theme={theme === 'dark' ? 'dark' : 'light'}
-                onChange={(value: string | number) => {
-                  const next = String(value);
-                  setActiveCategory(next);
-                  // Categories are the primary navigation for the toolbox.
-                  setSelectedTool(null);
-                  setActiveView('home');
-                }}
-              >
-                {CATEGORY_ORDER.map((cat) => (
-                  <Menu.MenuItem key={cat} value={cat}>
-                    <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                      <span>{cat}</span>
-                      <Typography.Text theme="secondary">{(grouped[cat] || []).length}</Typography.Text>
-                    </Space>
-                  </Menu.MenuItem>
-                  ))}
-                </Menu>
-            </Space>
-          </Layout.Aside>
-          <Layout.Content style={{ padding: 24, background: 'var(--td-bg-color-page)', overflow: 'auto' }}>
-            <div style={{ maxWidth: 1400, margin: '0 auto' }}>{content}</div>
-          </Layout.Content>
-        </Layout>
-      </Layout>
+        }
+        headerActions={
+          <>
+            <Button variant="outline" onClick={() => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}>
+              {theme === 'dark' ? '深色' : '浅色'}
+            </Button>
+            <Typography.Text theme="secondary">
+              raterId: <span style={{ fontFamily: 'monospace' }}>{raterId || '...'}</span>
+            </Typography.Text>
+          </>
+        }
+      >
+        {content}
+      </EvalShell>
       <Lightbox url={lightbox?.url || ''} title={lightbox?.title} onClose={() => setLightbox(null)} />
     </ConfigProvider>
   );
@@ -3247,6 +3273,16 @@ export function App() {
             </Typography.Text>
           </Space>
         </Card>
+        <StepGuide
+          title="批测流程"
+          hint="按固定流程执行，便于业务同学复盘问题和导出结果。"
+          steps={[
+            { title: '选择工作流与 LoRA', description: '先确认工作流版本、LoRA 和重复次数。' },
+            { title: '上传样本素材', description: '上传完成后统一创建任务，失败素材自动跳过。' },
+            { title: '观察提交与执行', description: '关注批次明细中的排队、成功、失败状态。' },
+            { title: '结果复核与导出', description: '标记满意/不满意并导出对照 CSV。' },
+          ]}
+        />
 
         <Row gutter={[12, 12]}>
           <Col xs={12} xl={5}>
@@ -3714,15 +3750,13 @@ export function App() {
                     width: 180,
                     cell: ({ row }: any) => {
                       const runStatus = String(row.runStatus || '');
-                      const statusTheme = row.status === 'failed' || runStatus === 'failed' ? 'danger' : runStatus === 'succeeded' ? 'success' : 'warning';
                       const text =
                         row.status === 'submitted'
                           ? formatLoraBatchRunStatusLabel(row.runStatus, row.outputCount)
                           : formatLoraBatchStatusLabel(row.status);
+                      const status = row.status === 'submitted' ? runStatus || row.status : row.status;
                       return (
-                        <Tag variant="light" theme={statusTheme}>
-                          {text}
-                        </Tag>
+                        <StatusBadge status={status} fallbackText={text} />
                       );
                     },
                   },
@@ -3908,6 +3942,16 @@ export function App() {
             </Space>
           </Space>
         </Card>
+        <StepGuide
+          title="单次评测流程"
+          hint="保持同一流程可以减少误操作，结果更容易横向对比。"
+          steps={[
+            { title: '准备输入', description: '填写 URL / 提示词 / 业务参数。' },
+            { title: '提交运行', description: '点击开始生成并等待状态变更。' },
+            { title: '查看结果', description: '右侧查看最新出图、错误信息与调试链接。' },
+            { title: '历史打标', description: '在底部历史记录中评分并沉淀备注。' },
+          ]}
+        />
 
         <Row gutter={[12, 12]}>
           {/* TDesign Grid uses a 12-column system; keep spans within 12 to avoid wrapping/empty gaps. */}
@@ -4476,7 +4520,6 @@ export function App() {
                 {(() => {
                   const latest = toolRuns[0] || null;
                   const status = String(latest?.status || '');
-                  const statusTheme = status === 'failed' ? 'danger' : status === 'succeeded' ? 'success' : 'warning';
                   const rawCount = Number((latest?.parameters_json as any)?.count);
                   const expectedCount =
                     Number.isFinite(rawCount) && rawCount > 1 ? Math.min(Math.max(rawCount, 2), 12) : latest ? 1 : 0;
@@ -4499,9 +4542,7 @@ export function App() {
                             <Col xs={12} md={4}>
                               <Space direction="vertical" size={2}>
                                 <Typography.Text theme="secondary">状态</Typography.Text>
-                                <Tag theme={statusTheme as any} variant="light">
-                                  {status || '—'}
-                                </Tag>
+                                <StatusBadge status={status} />
                               </Space>
                             </Col>
                             <Col xs={12} md={4}>
@@ -4710,13 +4751,27 @@ export function App() {
   // Home (toolbox) view
   return shell(
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
-      <div>
+      <div className="podi-eval-hero">
         <Typography.Title level="h4" style={{ margin: 0 }}>
-          {normalizeCategory(activeCategory)}
+          {normalizeCategory(activeCategory)} · 评测工具箱
         </Typography.Title>
         <Typography.Text theme="secondary">
-          点击卡片进入该功能的评测页面（左侧测试，右侧出图，底部打标）。
+          选择卡片直接进入功能工作台，完成参数配置、生成和历史打标。
         </Typography.Text>
+        <div className="podi-eval-hero__stats">
+          <div className="podi-eval-hero__stat">
+            <Typography.Text theme="secondary">当前分类工具</Typography.Text>
+            <Typography.Title level="h4" style={{ margin: '4px 0 0' }}>
+              {toolList.length}
+            </Typography.Title>
+          </div>
+          <div className="podi-eval-hero__stat">
+            <Typography.Text theme="secondary">全量工具</Typography.Text>
+            <Typography.Title level="h4" style={{ margin: '4px 0 0' }}>
+              {totalToolCount}
+            </Typography.Title>
+          </div>
+        </div>
       </div>
       {toolList.length === 0 ? <Alert theme="info" message="该分类暂无功能。" /> : null}
       <div className="podi-tool-grid">
@@ -4773,9 +4828,7 @@ function HistoryRow({
               run: {run.id}
             </Typography.Text>
             <div className="podi-history-row-head__meta-line">
-              <Tag size="small" variant="light">
-                {run.status}
-              </Tag>
+              <StatusBadge status={run.status} />
               <Typography.Text theme="secondary">耗时：{formatDuration(run.duration_ms)}</Typography.Text>
               <Typography.Text theme="secondary">{fmtTime(run.created_at)}</Typography.Text>
               {run.podi_task_id ? (
