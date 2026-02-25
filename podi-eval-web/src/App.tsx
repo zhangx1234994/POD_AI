@@ -91,12 +91,14 @@ type LoraBatchSession = {
   batchId: string;
   workflowVersionId?: string | null;
   workflowName?: string | null;
+  status?: string;
   total: number;
   completed: number;
   queued: number;
   running: number;
   succeeded: number;
   failed: number;
+  submittedCount?: number;
   expectedTotal?: number;
   expectedImages?: number;
   expectedRepeat?: number;
@@ -119,6 +121,10 @@ const CATEGORY_ORDER = ['花纹提取类', '图延伸类', '四方/两方连续�
 
 const AI_EDITOR_WORKFLOW_ID = '7604714915110060032';
 const LORA_BATCH_MAX_TASKS = 5000;
+const TERMINAL_BATCH_STATUS = new Set(['succeeded', 'failed', 'stopped']);
+
+const isTerminalBatchStatus = (status?: string | null): boolean =>
+  TERMINAL_BATCH_STATUS.has(String(status || '').toLowerCase());
 
 const isBatchSizeFieldName = (name: string): boolean =>
   name === 'aspect_ratio' ||
@@ -1592,7 +1598,7 @@ export function App() {
   }, [selectedBatchWorkflow, batchAspectField, batchResolutionField, batchWidthField, batchHeightField]);
 
   const loadBatchSessions = useCallback(async (opts?: { silent?: boolean }) => {
-    setBatchLoadingSessions(true);
+    if (!opts?.silent) setBatchLoadingSessions(true);
     try {
       const res = await evalApi.listRunBatches({
         mine_only: false,
@@ -1600,7 +1606,26 @@ export function App() {
         offset: 0,
       });
       const items = Array.isArray(res.items) ? (res.items as LoraBatchSession[]) : [];
-      setBatchSessions(items);
+      setBatchSessions((prev) => {
+        if (prev.length === items.length) {
+          const unchanged = prev.every((item, idx) => {
+            const next = items[idx];
+            return (
+              item.batchId === next.batchId &&
+              String(item.status || '') === String(next.status || '') &&
+              Number(item.total || 0) === Number(next.total || 0) &&
+              Number(item.completed || 0) === Number(next.completed || 0) &&
+              Number(item.queued || 0) === Number(next.queued || 0) &&
+              Number(item.running || 0) === Number(next.running || 0) &&
+              Number(item.succeeded || 0) === Number(next.succeeded || 0) &&
+              Number(item.failed || 0) === Number(next.failed || 0) &&
+              String(item.latestUpdatedAt || '') === String(next.latestUpdatedAt || '')
+            );
+          });
+          if (unchanged) return prev;
+        }
+        return items;
+      });
       setBatchSessionLoadError('');
       if (!batchSessionId && items[0]?.batchId) {
         setBatchSessionId(items[0].batchId);
@@ -1612,7 +1637,7 @@ export function App() {
       setBatchSessionLoadError(msg || '加载失败');
       if (!opts?.silent) pushNotice('error', `加载批次列表失败：${msg}`);
     } finally {
-      setBatchLoadingSessions(false);
+      if (!opts?.silent) setBatchLoadingSessions(false);
     }
   }, [batchSessionId, pushNotice]);
 
@@ -1759,11 +1784,13 @@ export function App() {
   useEffect(() => {
     if (activeView !== 'loraBatch') return;
     void loadBatchSessions();
+    const hasActiveBatch = batchSessions.some((item) => !isTerminalBatchStatus(item.status));
+    const intervalMs = hasActiveBatch || batchSubmitting ? 6000 : 15000;
     const timer = window.setInterval(() => {
       void loadBatchSessions({ silent: true });
-    }, 6000);
+    }, intervalMs);
     return () => window.clearInterval(timer);
-  }, [activeView, loadBatchSessions]);
+  }, [activeView, loadBatchSessions, batchSessions, batchSubmitting]);
 
   useEffect(() => {
     if (activeView !== 'loraBatch') return;
@@ -1775,12 +1802,13 @@ export function App() {
   useEffect(() => {
     if (activeView !== 'loraBatch') return;
     const timer = window.setInterval(() => {
-      if (selectedBatchId && !batchSubmitting) {
+      const selectedStatus = String(selectedBatchSession?.status || '');
+      if (selectedBatchId && !batchSubmitting && !isTerminalBatchStatus(selectedStatus)) {
         void loadBatchItems(selectedBatchId, { silent: true });
       }
     }, 5000);
     return () => window.clearInterval(timer);
-  }, [activeView, selectedBatchId, loadBatchItems, batchSubmitting]);
+  }, [activeView, selectedBatchId, loadBatchItems, batchSubmitting, selectedBatchSession?.status]);
 
   useEffect(() => {
     if (activeView !== 'tool' || !selectedTool) return;
@@ -2144,6 +2172,12 @@ export function App() {
       pushNotice('error', '请先选择 LoRA');
       return;
     }
+    const activeBatch = batchSessions.find((item) => !isTerminalBatchStatus(item.status));
+    if (activeBatch) {
+      setBatchSessionId(activeBatch.batchId);
+      pushNotice('info', `当前已有进行中的批次：${activeBatch.batchId}。请先等待完成或手动停止，再创建新批次。`);
+      return;
+    }
 
     const baseParams = buildWorkflowDefaultParams(selectedBatchWorkflow);
     const effectiveParams: Record<string, string> = {
@@ -2222,7 +2256,14 @@ export function App() {
       currentBatchId = String(created.id || '').trim();
       if (!currentBatchId) throw new Error('批次创建成功但未返回批次ID');
     } catch (err) {
-      pushNotice('error', `创建批次失败：${String((err as any)?.message || err || '')}`);
+      const msg = String((err as any)?.message || err || '');
+      if (msg.startsWith('BATCH_ACTIVE_EXISTS:')) {
+        const activeId = msg.split(':')[1] || '';
+        if (activeId) setBatchSessionId(activeId);
+        pushNotice('info', `已有进行中的批次：${activeId || '未知批次'}。请先完成或停止后再创建。`);
+      } else {
+        pushNotice('error', `创建批次失败：${msg}`);
+      }
       return;
     }
 

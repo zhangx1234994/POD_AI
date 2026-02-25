@@ -110,6 +110,52 @@ def _require_batch_exists(batch: EvalBatchSession | None) -> EvalBatchSession:
     return batch
 
 
+def _derive_batch_status(
+    *,
+    current_status: str,
+    planned_image_count: int,
+    uploaded_count: int,
+    upload_failed_count: int,
+    upload_in_progress_count: int,
+    repeat_count: int,
+    submitted_count: int,
+    running_count: int,
+    succeeded_count: int,
+    failed_count: int,
+    canceled_count: int,
+) -> str:
+    """Derive batch status from counters using runnable assets as source of truth."""
+    if current_status == "stopped":
+        return "stopped"
+
+    repeat = max(1, int(repeat_count or 1))
+    expected_run_count = max(0, int(uploaded_count or 0)) * repeat
+    terminal_run_count = (
+        max(0, int(succeeded_count or 0))
+        + max(0, int(failed_count or 0))
+        + max(0, int(canceled_count or 0))
+    )
+
+    if running_count > 0:
+        return "running"
+    if expected_run_count > 0 and terminal_run_count >= expected_run_count:
+        if failed_count > 0 or upload_failed_count > 0:
+            return "failed"
+        return "succeeded"
+    if submitted_count > 0:
+        return "running"
+    if upload_in_progress_count > 0:
+        return "uploading"
+    if uploaded_count > 0:
+        return "ready"
+    if upload_failed_count > 0 and planned_image_count > 0:
+        # All assets failed upload (or no runnable asset remains).
+        return "failed"
+    if planned_image_count > 0:
+        return "uploading"
+    return "draft"
+
+
 def _touch_batch_counters(db: Session, batch_id: str) -> EvalBatchSession:
     batch = db.get(EvalBatchSession, batch_id)
     if not batch:
@@ -182,6 +228,15 @@ def _touch_batch_counters(db: Session, batch_id: str) -> EvalBatchSession:
         ).scalar_one()
         or 0
     )
+    upload_in_progress_count = int(
+        db.execute(
+            select(func.count(EvalBatchAsset.id)).where(
+                EvalBatchAsset.batch_session_id == batch_id,
+                EvalBatchAsset.upload_status.in_(["pending", "uploading"]),
+            )
+        ).scalar_one()
+        or 0
+    )
 
     submitted_count = int(
         db.execute(
@@ -229,24 +284,24 @@ def _touch_batch_counters(db: Session, batch_id: str) -> EvalBatchSession:
         or 0
     )
 
-    planned_run_count = planned_image_count * max(1, int(batch.repeat_count or 1))
-
-    next_status = batch.status
-    next_finished_at = batch.finished_at
-    if batch.status != "stopped":
-        if running_count > 0:
-            next_status = "running"
-        elif planned_run_count > 0 and (succeeded_count + failed_count + canceled_count) >= planned_run_count:
-            next_status = "succeeded" if failed_count == 0 else "failed"
-            next_finished_at = datetime.utcnow()
-        elif submitted_count > 0:
-            next_status = "running"
-        elif uploaded_count > 0:
-            next_status = "ready"
-        elif planned_image_count > 0:
-            next_status = "uploading"
-        else:
-            next_status = "draft"
+    planned_run_count = uploaded_count * max(1, int(batch.repeat_count or 1))
+    next_status = _derive_batch_status(
+        current_status=str(batch.status or ""),
+        planned_image_count=planned_image_count,
+        uploaded_count=uploaded_count,
+        upload_failed_count=upload_failed_count,
+        upload_in_progress_count=upload_in_progress_count,
+        repeat_count=int(batch.repeat_count or 1),
+        submitted_count=submitted_count,
+        running_count=running_count,
+        succeeded_count=succeeded_count,
+        failed_count=failed_count,
+        canceled_count=canceled_count,
+    )
+    if next_status in {"succeeded", "failed", "stopped"}:
+        next_finished_at = batch.finished_at or datetime.utcnow()
+    else:
+        next_finished_at = None
 
     before_snapshot = (
         batch.status,
@@ -952,6 +1007,22 @@ def create_batch(
     if not workflow:
         raise HTTPException(status_code=404, detail="WORKFLOW_VERSION_NOT_FOUND")
 
+    # Enforce single active batch per creator to prevent accidental duplicate submissions.
+    active_batch = db.execute(
+        select(EvalBatchSession)
+        .where(
+            EvalBatchSession.created_by == created_by,
+            EvalBatchSession.status.in_(["uploading", "ready", "submitting", "running"]),
+        )
+        .order_by(EvalBatchSession.created_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    if active_batch:
+        raise HTTPException(
+            status_code=409,
+            detail=f"BATCH_ACTIVE_EXISTS:{active_batch.id}",
+        )
+
     meta = payload.metadata.copy() if isinstance(payload.metadata, dict) else {}
     if payload.parameters_json is not None:
         meta["parameters_json"] = payload.parameters_json
@@ -1226,7 +1297,7 @@ def submit_batch(
             )
             params["__eval_batch_mode"] = "1"
             params["__batch_session_id"] = batch.id
-            params["__batch_expected_total"] = str(batch.planned_run_count or (len(assets) * batch.repeat_count))
+            params["__batch_expected_total"] = str(len(assets) * max(1, int(batch.repeat_count or 1)))
             params["__batch_expected_images"] = str(batch.planned_image_count or len(assets))
             params["__batch_expected_repeat"] = str(batch.repeat_count)
             params["__batch_file_name"] = asset.file_name

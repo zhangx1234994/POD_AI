@@ -62,6 +62,7 @@
 | INVALID_WORKFLOW_OR_EXECUTOR | workflow 或 executor 无效 | 400 |
 | BATCH_NOT_FOUND | 批测批次不存在 | 404 |
 | BATCH_FORBIDDEN | 批测批次无权限 | 403 |
+| BATCH_ACTIVE_EXISTS | 已有进行中的批次，拒绝重复创建 | 409 |
 | BATCH_STOPPED | 批次已停止，不允许写入 | 409 |
 | BATCH_NOT_READY | 批次素材未就绪 | 400 |
 | BATCH_ASSETS_EMPTY | 素材列表为空 | 400 |

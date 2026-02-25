@@ -87,6 +87,8 @@
 - `stopped` 为终态；进入后禁止新增执行项
 - `ready -> submitting` 为唯一提交入口
 - `submitting/running` 允许转 `stopped`
+- `planned_run_count` 口径固定为 `uploaded_count * repeat_count`（只统计可执行素材）
+- 上传失败素材计入批次失败统计，但不计入计划执行总数
 
 ### 5.2 素材状态
 
@@ -116,6 +118,7 @@
 ### 7.1 批次
 
 - `POST /api/evals/batches`：创建批次
+  - 同一创建者存在进行中批次（uploading/ready/submitting/running）时返回 `409 BATCH_ACTIVE_EXISTS`
 - `GET /api/evals/batches`：批次列表
 - `GET /api/evals/batches/{batch_id}`：批次详情
 - `POST /api/evals/batches/{batch_id}/stop`：停止批次

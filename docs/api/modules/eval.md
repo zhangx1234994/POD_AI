@@ -51,6 +51,10 @@
 
 创建 LoRA 批测批次（新两阶段流程：先素材，后提交）。
 
+约束：
+
+- 同一浏览器身份（rater）若已有进行中批次（`uploading/ready/submitting/running`），将返回 `409 BATCH_ACTIVE_EXISTS:<batch_id>`，需先完成或停止当前批次。
+
 ### GET /api/evals/batches
 
 查询批次列表（支持 `mine_only/status/workflow_version_id`）。
@@ -99,7 +103,7 @@
 - `batchId`
 - `workflowVersionId/workflowName`
 - `total/completed/queued/running/succeeded/failed`
-- `expectedTotal/expectedImages/expectedRepeat`（批次声明的期望值）
+- `expectedTotal/expectedImages/expectedRepeat`（批次声明的期望值；其中 `expectedTotal=uploaded_count * repeat_count`，仅统计可执行素材）
 - `latestCreatedAt/latestUpdatedAt`
 
 ### POST /api/evals/runs/batches/{batch_id}/stop
@@ -142,6 +146,7 @@
 - `WORKFLOW_VERSION_NOT_FOUND`
 - `RUN_NOT_FOUND`
 - `BATCH_NOT_FOUND` / `BATCH_FORBIDDEN`
+- `BATCH_ACTIVE_EXISTS`
 - `BATCH_STOPPED` / `BATCH_NOT_READY`
 - `BATCH_ASSETS_EMPTY` / `BATCH_ASSET_LIMIT_EXCEEDED`
 - `BATCH_ASSET_UPLOAD_STATUS_INVALID` / `BATCH_ASSET_URL_REQUIRED`
