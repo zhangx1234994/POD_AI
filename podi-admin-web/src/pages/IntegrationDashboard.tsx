@@ -61,7 +61,7 @@ import type { UploadResult } from '../types/media';
 import { AbilityEvaluationPage } from './AbilityEvaluation/AbilityEvaluationPage';
 import { AdminShell } from '../layouts/AdminShell';
 import { mapStatusToBadge } from '../features/admin/shared/status';
-import { ErrorState, PageHeader, StatusBadge } from '../features/admin/shared/ui';
+import { ActionBar, ErrorState, PageHeader, StatusBadge } from '../features/admin/shared/ui';
 
 const navItems = [
   { id: 'overview', label: '总体概览', description: '指标、刷新、运行状态' },
@@ -6282,6 +6282,22 @@ const normalizeErrorMessage = (message: string): string => {
     () => navItems.filter((item) => !(item as any).advanced || showAdvanced),
     [showAdvanced],
   );
+  const activeNavMeta = useMemo(
+    () => visibleNavItems.find((item) => item.id === activeNav) || navItems.find((item) => item.id === activeNav),
+    [activeNav, visibleNavItems],
+  );
+  const navSelectOptions = useMemo(
+    () =>
+      visibleNavItems.map((item) => ({
+        label: Boolean((item as any).advanced) ? `${item.label}（高级）` : item.label,
+        value: item.id,
+      })),
+    [visibleNavItems],
+  );
+  const activeNavIndex = visibleNavItems.findIndex((item) => item.id === activeNav);
+  const prevNavMeta = activeNavIndex > 0 ? visibleNavItems[activeNavIndex - 1] : null;
+  const nextNavMeta =
+    activeNavIndex >= 0 && activeNavIndex < visibleNavItems.length - 1 ? visibleNavItems[activeNavIndex + 1] : null;
 
   useEffect(() => {
     const syncFromHash = () => {
@@ -6314,12 +6330,20 @@ const normalizeErrorMessage = (message: string): string => {
       navItems={visibleNavItems.map((item) => ({ ...item }))}
       activeNav={activeNav}
       onSelectNav={(value) => selectSection(value as NavId)}
-      headerTitle={navItems.find((x) => x.id === activeNav)?.label || '控制台'}
+      headerTitle={activeNavMeta?.label || '控制台'}
+      headerSubtitle={activeNavMeta?.description || '按模块管理执行节点、能力、任务与稳定性。'}
       contentRef={contentRef}
       headerActions={
         <Space>
+          <Select
+            style={{ width: 220 }}
+            size="small"
+            value={activeNav}
+            options={navSelectOptions}
+            onChange={(value) => selectSection(String(value) as NavId)}
+          />
           <Space align="center" size="small">
-            <Typography.Text theme="secondary">高级</Typography.Text>
+            <Typography.Text theme="secondary">显示高级模块</Typography.Text>
             <Switch
               value={showAdvanced}
               onChange={(v) => {
@@ -6331,6 +6355,9 @@ const normalizeErrorMessage = (message: string): string => {
                 }
               }}
             />
+            <Tag theme={showAdvanced ? 'primary' : 'default'} variant="light">
+              {showAdvanced ? '全部视图' : '核心视图'}
+            </Tag>
           </Space>
           <Button variant="outline" loading={loading} onClick={load}>
             刷新
@@ -6360,6 +6387,44 @@ const normalizeErrorMessage = (message: string): string => {
           </ErrorState>
         </div>
       ) : null}
+      <div style={{ marginBottom: 16 }}>
+        <ActionBar>
+          <Space direction="vertical" size={2}>
+            <Typography.Text strong>{activeNavMeta?.label || '当前模块'}</Typography.Text>
+            <Typography.Text theme="secondary">
+              {activeNavMeta?.description || '通过左侧导航切换模块，顶部仅保留全局动作。'}
+            </Typography.Text>
+            <Space size="small">
+              <Button
+                size="small"
+                variant="outline"
+                disabled={!prevNavMeta}
+                onClick={() => prevNavMeta && selectSection(prevNavMeta.id as NavId)}
+              >
+                上一模块
+              </Button>
+              <Button
+                size="small"
+                variant="outline"
+                disabled={!nextNavMeta}
+                onClick={() => nextNavMeta && selectSection(nextNavMeta.id as NavId)}
+              >
+                下一模块
+              </Button>
+            </Space>
+          </Space>
+          <Space align="center" size="small" style={{ flexWrap: 'wrap' }}>
+            <Tag variant="light" theme="primary">
+              节点 {summary.activeExecutors}/{summary.executors}
+            </Tag>
+            <Tag variant="light">能力 {summary.abilities || 0}</Tag>
+            <Tag variant="light">工作流 {summary.workflows}</Tag>
+            <Tag variant="light" theme={loadErrors.length > 0 ? 'danger' : 'success'}>
+              {loadErrors.length > 0 ? `异常 ${loadErrors.length}` : '状态正常'}
+            </Tag>
+          </Space>
+        </ActionBar>
+      </div>
           {activeNav === 'overview' && (
             <Section id="overview" title="总体概览" description="观察运行快照、调度指标与刷新入口。">
             <Card bordered>

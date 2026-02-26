@@ -2,6 +2,10 @@ import { expect, test } from '@playwright/test';
 
 test.describe('Admin shell visual regression', () => {
   test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => {
+      window.localStorage.setItem('podi_admin_access_token', 'playwright-token');
+      window.localStorage.removeItem('podi_admin_token_invalid');
+    });
     await page.route('**/api/**', async (route) => {
       await route.fulfill({
         status: 503,

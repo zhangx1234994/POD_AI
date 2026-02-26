@@ -28,7 +28,7 @@ import zhCN from 'tdesign-react/es/locale/zh_CN';
 import { evalApi } from './api';
 import type { EvalRun, EvalWorkflowVersion, SchemaField, WorkflowDoc } from './types';
 import { EvalShell } from './layouts/EvalShell';
-import { StatusBadge } from './features/eval/shared/ui';
+import { ActionBar, FilterBar, StatusBadge } from './features/eval/shared/ui';
 import type { ThemeMode } from './types/ui';
 
 type RunWithLatest = EvalRun & {
@@ -73,6 +73,45 @@ type LoraBatchReview = {
   note?: string;
 };
 
+type LoraBatchOutputReview = {
+  outputIndex: number;
+  verdict: LoraBatchReviewVerdict;
+  reason?: string;
+  note?: string;
+};
+
+type LoraBatchSubView = 'generation' | 'annotation';
+
+type LoraReviewGroupOutput = {
+  reviewKey: string;
+  runItemId: string;
+  runId?: string;
+  outputIndex: number;
+  url: string;
+  runStatus?: string;
+};
+
+type LoraReviewGroup = {
+  assetId: string;
+  sourceKey: string;
+  fileName: string;
+  inputUrl?: string;
+  groupStatus: 'has_output' | 'no_output' | 'failed' | string;
+  runTotal: number;
+  completed: number;
+  failed: number;
+  waiting: number;
+  lastError?: string;
+  outputs: LoraReviewGroupOutput[];
+};
+
+type LoraReviewProgress = {
+  pageSize: number;
+  currentPage: number;
+  completedPage: number;
+  updatedAt?: string;
+};
+
 type LoraBatchItem = {
   key: string;
   batchId?: string;
@@ -80,6 +119,8 @@ type LoraBatchItem = {
   fileName: string;
   repeatIndex: number;
   status: LoraBatchItemStatus;
+  failureStage?: 'upload' | 'submit' | 'run';
+  runItemId?: string;
   runId?: string;
   inputUrl?: string;
   error?: string;
@@ -87,6 +128,7 @@ type LoraBatchItem = {
   outputCount?: number;
   runError?: string;
   outputUrls?: string[];
+  outputReviews?: LoraBatchOutputReview[];
   runPrompt?: string;
 };
 
@@ -102,6 +144,8 @@ type LoraBatchSession = {
   succeeded: number;
   failed: number;
   submittedCount?: number;
+  uploadedCount?: number;
+  uploadFailedCount?: number;
   expectedTotal?: number;
   expectedImages?: number;
   expectedRepeat?: number;
@@ -143,6 +187,27 @@ const TERMINAL_BATCH_STATUS = new Set(['succeeded', 'failed', 'stopped']);
 
 const isTerminalBatchStatus = (status?: string | null): boolean =>
   TERMINAL_BATCH_STATUS.has(String(status || '').toLowerCase());
+
+const isUploadStageFailure = (item: LoraBatchItem): boolean => {
+  if (item.failureStage === 'upload') return true;
+  if (item.failureStage) return false;
+  if (item.status !== 'failed') return false;
+  if (item.runId) return false;
+  const msg = String(item.error || item.runError || '').toLowerCase();
+  return msg.includes('上传') || msg.includes('upload') || msg.includes('sts') || msg.includes('upload-key');
+};
+
+const buildBatchReviewKey = (runItemId: string, outputIndex: number): string =>
+  `${String(runItemId || '').trim()}::${Math.max(1, Number(outputIndex || 1))}`;
+
+const parseBatchReviewKey = (key: string): { runItemId: string; outputIndex: number } | null => {
+  const parts = String(key || '').split('::');
+  if (parts.length !== 2) return null;
+  const runItemId = String(parts[0] || '').trim();
+  const outputIndex = Number(parts[1] || 0);
+  if (!runItemId || !Number.isFinite(outputIndex) || outputIndex <= 0) return null;
+  return { runItemId, outputIndex: Math.floor(outputIndex) };
+};
 
 const isBatchSizeFieldName = (name: string): boolean =>
   name === 'aspect_ratio' ||
@@ -375,6 +440,49 @@ const formatLoraBatchRunStatusLabel = (status?: LoraBatchRunStatus, outputCount?
     default:
       return '状态未知';
   }
+};
+
+const formatBatchSessionStatusLabel = (status?: string | null): string => {
+  const value = String(status || '').toLowerCase();
+  switch (value) {
+    case 'draft':
+      return '草稿';
+    case 'uploading':
+      return '上传中';
+    case 'ready':
+      return '待提交';
+    case 'submitting':
+      return '提交中';
+    case 'running':
+      return '执行中';
+    case 'succeeded':
+      return '已完成';
+    case 'failed':
+      return '已失败';
+    case 'stopped':
+      return '已停止';
+    default:
+      return value || '未知';
+  }
+};
+
+const isEmptyDraftBatchSession = (item: LoraBatchSession): boolean => {
+  const status = String(item.status || '').toLowerCase();
+  if (status !== 'draft') return false;
+  const planned = Number(item.expectedTotal || item.total || 0);
+  const submitted = Number(item.submittedCount || 0);
+  const completed = Number(item.completed || 0);
+  return planned <= 0 && submitted <= 0 && completed <= 0;
+};
+
+const formatBatchSessionStatusDisplay = (item: LoraBatchSession): string => {
+  const status = String(item.status || '').toLowerCase();
+  if (status !== 'failed') return formatBatchSessionStatusLabel(item.status);
+  const uploadFailed = Math.max(0, Number(item.uploadFailedCount || 0));
+  const runFailed = Math.max(0, Number(item.failed || 0));
+  if (runFailed <= 0 && uploadFailed > 0) return '已完成（含上传失败）';
+  if (runFailed > 0) return '已完成（部分失败）';
+  return '已失败';
 };
 
 const formatLoraReviewVerdictLabel = (verdict: LoraBatchReviewVerdict): string => {
@@ -1174,16 +1282,36 @@ export function App() {
   const [batchCustomHeight, setBatchCustomHeight] = useState<string>('1024');
   const [batchParamOverrides, setBatchParamOverrides] = useState<Record<string, string>>({});
   const [batchFiles, setBatchFiles] = useState<File[]>([]);
+  const [loraBatchSubView, setLoraBatchSubView] = useState<LoraBatchSubView>('generation');
+  const [batchDetailExpanded, setBatchDetailExpanded] = useState<boolean>(false);
   const [batchSessionId, setBatchSessionId] = useState<string>('');
   const [batchSessions, setBatchSessions] = useState<LoraBatchSession[]>([]);
   const [batchItems, setBatchItems] = useState<LoraBatchItem[]>([]);
   const [batchReviewMap, setBatchReviewMap] = useState<Record<string, LoraBatchReview>>({});
+  const batchReviewMapRef = useRef<Record<string, LoraBatchReview>>({});
   const [batchSubmitting, setBatchSubmitting] = useState<boolean>(false);
   const [batchLoadingSessions, setBatchLoadingSessions] = useState<boolean>(false);
   const [batchLoadingItems, setBatchLoadingItems] = useState<boolean>(false);
   const [batchSessionLoadError, setBatchSessionLoadError] = useState<string>('');
   const [batchItemsLoadError, setBatchItemsLoadError] = useState<string>('');
+  const [batchReviewGroups, setBatchReviewGroups] = useState<LoraReviewGroup[]>([]);
+  const [batchReviewGroupLoading, setBatchReviewGroupLoading] = useState<boolean>(false);
+  const [batchReviewGroupError, setBatchReviewGroupError] = useState<string>('');
+  const [batchReviewPage, setBatchReviewPage] = useState<number>(1);
+  const [batchReviewTotalPages, setBatchReviewTotalPages] = useState<number>(0);
+  const [batchReviewTotalGroups, setBatchReviewTotalGroups] = useState<number>(0);
+  const [batchReviewProgress, setBatchReviewProgress] = useState<LoraReviewProgress>({
+    pageSize: 20,
+    currentPage: 1,
+    completedPage: 0,
+  });
+  const [showNoOutputGroups, setShowNoOutputGroups] = useState<boolean>(false);
+  const [batchReviewProgressSaving, setBatchReviewProgressSaving] = useState<boolean>(false);
+  const [batchReviewPageJumping, setBatchReviewPageJumping] = useState<boolean>(false);
+  const [batchExporting, setBatchExporting] = useState<'' | 'all' | 'unsatisfied'>('');
+  const batchSessionsLoadingRef = useRef<boolean>(false);
   const batchItemsLoadingRef = useRef<boolean>(false);
+  const batchReviewGroupLoadingRef = useRef<boolean>(false);
   const [batchStopping, setBatchStopping] = useState<boolean>(false);
   const batchStopRef = useRef<boolean>(false);
   const batchFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -1200,6 +1328,8 @@ export function App() {
   const batchUploadInFlightRef = useRef<Map<string, number>>(new Map());
   const batchUploadUploadedFilesRef = useRef<number>(0);
   const batchUploadFailedFilesRef = useRef<number>(0);
+  const batchReviewSaveTimersRef = useRef<Map<string, number>>(new Map());
+  const batchReviewSaveErrorKeysRef = useRef<Set<string>>(new Set());
 
   const workflowMap = useMemo(() => {
     const m: Record<string, EvalWorkflowVersion> = {};
@@ -1314,18 +1444,22 @@ export function App() {
       }),
     [batchFields, batchLoraFieldName, batchPromptField],
   );
+  const filteredBatchSessions = useMemo(
+    () => batchSessions.filter((item) => !isEmptyDraftBatchSession(item)),
+    [batchSessions],
+  );
   const batchSessionOptions = useMemo(
     () =>
-      batchSessions.map((item) => ({
+      filteredBatchSessions.map((item) => ({
         label: `${item.workflowName ? `${item.workflowName} · ` : ''}${item.batchId}（完成 ${item.completed}/${item.total}）`,
         value: item.batchId,
       })),
-    [batchSessions],
+    [filteredBatchSessions],
   );
   const selectedBatchId = useMemo(() => {
-    if (batchSessionId && batchSessions.some((item) => item.batchId === batchSessionId)) return batchSessionId;
-    return String(batchSessions[0]?.batchId || '');
-  }, [batchSessionId, batchSessions]);
+    if (batchSessionId && filteredBatchSessions.some((item) => item.batchId === batchSessionId)) return batchSessionId;
+    return String(filteredBatchSessions[0]?.batchId || '');
+  }, [batchSessionId, filteredBatchSessions]);
   const selectedBatchSession = useMemo(
     () => batchSessions.find((item) => item.batchId === selectedBatchId) || null,
     [batchSessions, selectedBatchId],
@@ -1334,26 +1468,69 @@ export function App() {
     () => (selectedBatchId ? batchItems.filter((item) => item.batchId === selectedBatchId) : []),
     [batchItems, selectedBatchId],
   );
+  const uploadFailedBatchItems = useMemo(
+    () => visibleBatchItems.filter((item) => isUploadStageFailure(item)),
+    [visibleBatchItems],
+  );
+  const visibleExecutionBatchItems = useMemo(
+    () => visibleBatchItems.filter((item) => !isUploadStageFailure(item)),
+    [visibleBatchItems],
+  );
   const batchSummary = useMemo(() => {
-    const total = visibleBatchItems.length;
-    const imageCountRaw = new Set(visibleBatchItems.map((item) => item.sourceKey || item.fileName)).size;
-    const repeatCountRaw = imageCountRaw > 0 ? Math.max(...visibleBatchItems.map((item) => item.repeatIndex || 1), 1) : 0;
-    const imageCount = Number(selectedBatchSession?.expectedImages || 0) > 0 ? Number(selectedBatchSession?.expectedImages || 0) : imageCountRaw;
-    const repeatCount = Number(selectedBatchSession?.expectedRepeat || 0) > 0 ? Number(selectedBatchSession?.expectedRepeat || 0) : repeatCountRaw;
-    const plannedTotal = Number(selectedBatchSession?.expectedTotal || 0) > 0 ? Number(selectedBatchSession?.expectedTotal || 0) : total;
-    const missingSubmissions = Math.max(0, plannedTotal - total);
-    const submitted = visibleBatchItems.filter((item) => item.status === 'submitted' && Boolean(item.runId)).length;
-    const completed = visibleBatchItems.filter((item) => item.runStatus === 'succeeded' || item.runStatus === 'failed').length;
-    const generated = visibleBatchItems.filter((item) => item.runStatus === 'succeeded' && (item.outputCount || 0) > 0).length;
-    const failed = visibleBatchItems.filter((item) => item.status === 'failed' || item.runStatus === 'failed').length;
-    const active = visibleBatchItems.filter((item) => item.status === 'uploading' || item.status === 'submitting').length;
-    const queuedOrRunning = visibleBatchItems.filter(
+    const total = visibleExecutionBatchItems.length;
+    const imageCountRaw = new Set(visibleExecutionBatchItems.map((item) => item.sourceKey || item.fileName)).size;
+    const repeatCountRaw = imageCountRaw > 0 ? Math.max(...visibleExecutionBatchItems.map((item) => item.repeatIndex || 1), 1) : 0;
+    const sessionImageCount = Number(selectedBatchSession?.expectedImages || 0);
+    const sessionRepeatCount = Number(selectedBatchSession?.expectedRepeat || 0);
+    const sessionPlannedTotal = Number(selectedBatchSession?.expectedTotal || selectedBatchSession?.total || 0);
+    const sessionSubmitted = Number(selectedBatchSession?.submittedCount || 0);
+    const sessionSucceeded = Number(selectedBatchSession?.succeeded || 0);
+    const sessionFailed = Number(selectedBatchSession?.failed || 0);
+    const sessionCompleted = sessionSucceeded + sessionFailed;
+    const sessionQueuedOrRunning = Math.max(0, Number(selectedBatchSession?.queued || 0) + Number(selectedBatchSession?.running || 0));
+    const sessionUploadFailed = Math.max(0, Number(selectedBatchSession?.uploadFailedCount || 0));
+    const sessionStatus = String(selectedBatchSession?.status || '').toLowerCase();
+    const hasItemDetails = total > 0 || uploadFailedBatchItems.length > 0;
+
+    const imageCount = sessionImageCount > 0 ? sessionImageCount : imageCountRaw;
+    const repeatCount = sessionRepeatCount > 0 ? sessionRepeatCount : repeatCountRaw;
+    const plannedTotal = sessionPlannedTotal > 0 ? sessionPlannedTotal : total;
+    const submittedFromItems = visibleExecutionBatchItems.filter((item) => item.status === 'submitted' && Boolean(item.runId)).length;
+    const completedFromItems = visibleExecutionBatchItems.filter((item) => item.runStatus === 'succeeded' || item.runStatus === 'failed').length;
+    const generatedFromItems = visibleExecutionBatchItems.filter((item) => item.runStatus === 'succeeded' && (item.outputCount || 0) > 0).length;
+    const failedFromItems = visibleExecutionBatchItems.filter((item) => item.status === 'failed' || item.runStatus === 'failed').length;
+    const activeFromItems = visibleExecutionBatchItems.filter((item) => item.status === 'uploading' || item.status === 'submitting').length;
+    const queuedOrRunningFromItems = visibleExecutionBatchItems.filter(
       (item) =>
         item.status === 'submitted' &&
         (!item.runStatus || item.runStatus === 'queued' || item.runStatus === 'running' || item.runStatus === 'unknown'),
     ).length;
-    return { total, imageCount, repeatCount, plannedTotal, missingSubmissions, submitted, completed, generated, failed, active, queuedOrRunning };
-  }, [visibleBatchItems, selectedBatchSession]);
+    const submitted = hasItemDetails ? submittedFromItems : sessionSubmitted;
+    const completed = hasItemDetails ? completedFromItems : sessionCompleted;
+    const generated = hasItemDetails ? generatedFromItems : sessionSucceeded;
+    const failed = hasItemDetails ? failedFromItems : sessionFailed;
+    const active = hasItemDetails
+      ? activeFromItems
+      : sessionStatus === 'uploading' || sessionStatus === 'ready' || sessionStatus === 'submitting'
+        ? Math.max(1, sessionQueuedOrRunning)
+        : 0;
+    const queuedOrRunning = hasItemDetails ? queuedOrRunningFromItems : sessionQueuedOrRunning;
+    const uploadFailed = hasItemDetails ? uploadFailedBatchItems.length : sessionUploadFailed;
+    const missingSubmissions = Math.max(0, plannedTotal - submitted - uploadFailed);
+    return { total, imageCount, repeatCount, plannedTotal, missingSubmissions, submitted, completed, generated, failed, active, queuedOrRunning, uploadFailed };
+  }, [visibleExecutionBatchItems, uploadFailedBatchItems.length, selectedBatchSession]);
+  const selectedBatchIsTerminal = useMemo(
+    () => isTerminalBatchStatus(String(selectedBatchSession?.status || '')),
+    [selectedBatchSession?.status],
+  );
+  const batchReviewPageOptions = useMemo(
+    () =>
+      Array.from({ length: Math.max(0, batchReviewTotalPages) }, (_, idx) => {
+        const value = idx + 1;
+        return { label: `第 ${value} 页`, value };
+      }),
+    [batchReviewTotalPages],
+  );
   const batchUploadFilePercent = useMemo(() => {
     if (!batchUploadProgress.totalFiles) return 0;
     const done = batchUploadProgress.uploadedFiles + batchUploadProgress.failedFiles;
@@ -1363,7 +1540,6 @@ export function App() {
     if (!batchUploadProgress.totalBytes) return 0;
     return Math.max(0, Math.min(100, Math.round((batchUploadProgress.uploadedBytes / batchUploadProgress.totalBytes) * 100)));
   }, [batchUploadProgress]);
-  const buildBatchReviewKey = useCallback((runId: string, outputIndex: number) => `${runId}::${outputIndex}`, []);
   const batchReviewReasonOptions = useMemo(
     () => [
       { label: '主体风格不一致', value: '主体风格不一致' },
@@ -1377,73 +1553,28 @@ export function App() {
     ],
     [],
   );
-  const batchComparisonGroups = useMemo(() => {
-    const map = new Map<
-      string,
-      {
-        key: string;
-        fileName: string;
-        inputUrl: string;
-        totalRuns: number;
-        completedRuns: number;
-        failedRuns: number;
-        waitingRuns: number;
-        outputCount: number;
-        lastError: string;
-        outputs: Array<{ reviewKey: string; runId: string; outputIndex: number; url: string }>;
+  useEffect(() => {
+    batchReviewMapRef.current = batchReviewMap;
+  }, [batchReviewMap]);
+
+  const actionableReviewGroups = useMemo(
+    () => batchReviewGroups.filter((group) => Array.isArray(group.outputs) && group.outputs.length > 0),
+    [batchReviewGroups],
+  );
+  const noOutputGroupCount = useMemo(
+    () => Math.max(0, batchReviewGroups.length - actionableReviewGroups.length),
+    [batchReviewGroups.length, actionableReviewGroups.length],
+  );
+
+  useEffect(
+    () => () => {
+      for (const timer of batchReviewSaveTimersRef.current.values()) {
+        window.clearTimeout(timer);
       }
-    >();
-    for (const item of visibleBatchItems) {
-      if (!item.inputUrl) continue;
-      const key = `${item.fileName}::${item.inputUrl}`;
-      if (!map.has(key)) {
-        map.set(key, {
-          key,
-          fileName: item.fileName,
-          inputUrl: item.inputUrl,
-          totalRuns: 0,
-          completedRuns: 0,
-          failedRuns: 0,
-          waitingRuns: 0,
-          outputCount: 0,
-          lastError: '',
-          outputs: [],
-        });
-      }
-      const group = map.get(key)!;
-      group.totalRuns += 1;
-      if (item.runStatus === 'succeeded' || item.runStatus === 'failed') {
-        group.completedRuns += 1;
-      } else if (
-        item.status === 'submitted' &&
-        (!item.runStatus || item.runStatus === 'queued' || item.runStatus === 'running' || item.runStatus === 'unknown')
-      ) {
-        group.waitingRuns += 1;
-      }
-      if (item.status === 'failed' || item.runStatus === 'failed') {
-        group.failedRuns += 1;
-      }
-      if (!group.lastError) {
-        const msg = String(item.runError || item.error || '').trim();
-        if (msg) group.lastError = msg;
-      }
-      const outputUrls = Array.isArray(item.outputUrls) ? item.outputUrls : [];
-      for (let idx = 0; idx < outputUrls.length; idx += 1) {
-        const outputIndex = idx + 1;
-        const runRef = String(item.runId || item.key);
-        group.outputs.push({
-          reviewKey: buildBatchReviewKey(runRef, outputIndex),
-          runId: String(item.runId || ''),
-          outputIndex,
-          url: outputUrls[idx],
-        });
-      }
-      group.outputCount += outputUrls.length;
-    }
-    const out = Array.from(map.values());
-    out.sort((a, b) => a.fileName.localeCompare(b.fileName));
-    return out;
-  }, [visibleBatchItems, buildBatchReviewKey]);
+      batchReviewSaveTimersRef.current.clear();
+    },
+    [],
+  );
 
   const toolFields = useMemo(() => getFields(selectedTool), [selectedTool]);
   const requiresImage = useMemo(
@@ -1668,6 +1799,8 @@ export function App() {
   }, [selectedBatchWorkflow, batchAspectField, batchResolutionField, batchWidthField, batchHeightField]);
 
   const loadBatchSessions = useCallback(async (opts?: { silent?: boolean }) => {
+    if (batchSessionsLoadingRef.current) return;
+    batchSessionsLoadingRef.current = true;
     if (!opts?.silent) setBatchLoadingSessions(true);
     try {
       const res = await evalApi.listRunBatches({
@@ -1697,19 +1830,20 @@ export function App() {
         return items;
       });
       setBatchSessionLoadError('');
-      if (!batchSessionId && items[0]?.batchId) {
-        setBatchSessionId(items[0].batchId);
-      } else if (batchSessionId && !items.some((item) => item.batchId === batchSessionId)) {
-        setBatchSessionId(items[0]?.batchId || '');
+      const selectable = items.filter((item) => !isEmptyDraftBatchSession(item));
+      if (!batchSessionId && selectable[0]?.batchId) {
+        setBatchSessionId(selectable[0].batchId);
+      } else if (batchSessionId && !selectable.some((item) => item.batchId === batchSessionId)) {
+        setBatchSessionId(selectable[0]?.batchId || '');
       }
     } catch (err) {
       const msg = String((err as any)?.message || err || '');
       setBatchSessionLoadError(msg || '加载失败');
-      if (!opts?.silent) pushNotice('error', `加载批次列表失败：${msg}`);
     } finally {
       if (!opts?.silent) setBatchLoadingSessions(false);
+      batchSessionsLoadingRef.current = false;
     }
-  }, [batchSessionId, pushNotice]);
+  }, [batchSessionId]);
 
   const loadBatchItems = useCallback(
     async (batchId: string, opts?: { silent?: boolean }) => {
@@ -1767,8 +1901,25 @@ export function App() {
           const outputUrls = Array.isArray(row.run_output_urls_json)
             ? row.run_output_urls_json.map((u) => String(u || '').trim()).filter((u) => Boolean(u))
             : [];
+          const outputReviews: LoraBatchOutputReview[] = [];
+          if (Array.isArray((row as any).run_output_reviews_json)) {
+            for (const rv of (row as any).run_output_reviews_json as any[]) {
+              const outputIndex = Number((rv as any)?.output_index || 0);
+              if (!Number.isFinite(outputIndex) || outputIndex <= 0) continue;
+              const verdictRaw = String((rv as any)?.verdict || '').trim().toLowerCase();
+              const verdict: LoraBatchReviewVerdict =
+                verdictRaw === 'satisfied' || verdictRaw === 'unsatisfied' ? (verdictRaw as LoraBatchReviewVerdict) : 'pending';
+              outputReviews.push({
+                outputIndex: Math.floor(outputIndex),
+                verdict,
+                reason: String((rv as any)?.reason || '').trim() || undefined,
+                note: String((rv as any)?.note || '').trim() || undefined,
+              });
+            }
+          }
           const runId = row.eval_run_id ? String(row.eval_run_id) : undefined;
-          const key = runId || `${id}::${sourceKey}::${repeatIndex}`;
+          const runItemId = String(row.id || '').trim();
+          const key = runItemId || runId || `${id}::${sourceKey}::${repeatIndex}`;
           knownRunKeys.add(`${sourceKey}::${repeatIndex}`);
           mapped.push({
             key,
@@ -1777,14 +1928,22 @@ export function App() {
             fileName: String(row.asset_file_name || '').trim() || inferFileNameFromUrl(String(row.asset_oss_url || '')),
             repeatIndex,
             status,
+            runItemId: runItemId || undefined,
             runId,
             inputUrl: String(row.asset_oss_url || '').trim() || undefined,
             error: String(row.error_message || row.run_error_message || '').trim() || undefined,
             runStatus,
             outputCount: outputUrls.length,
             outputUrls,
+            outputReviews,
             runPrompt: String(row.run_prompt || '').trim() || undefined,
             runError: String(row.run_error_message || row.error_message || '').trim() || undefined,
+            failureStage:
+              status === 'failed'
+                ? runId
+                  ? 'run'
+                  : 'submit'
+                : undefined,
           });
         }
 
@@ -1804,6 +1963,7 @@ export function App() {
                 fileName,
                 repeatIndex,
                 status: 'failed',
+                failureStage: 'upload',
                 inputUrl,
                 error: String(asset.upload_error_message || asset.upload_error_code || '素材上传失败'),
                 runStatus: 'failed',
@@ -1832,53 +1992,235 @@ export function App() {
           return (a.repeatIndex || 1) - (b.repeatIndex || 1);
         });
 
+        const runItemIds = new Set<string>();
+        const serverReviewMap: Record<string, LoraBatchReview> = {};
+        for (const item of mapped) {
+          const runItemId = String(item.runItemId || '').trim();
+          if (!runItemId) continue;
+          runItemIds.add(runItemId);
+          const reviews = Array.isArray(item.outputReviews) ? item.outputReviews : [];
+          for (const review of reviews) {
+            const outputIndex = Number(review.outputIndex || 0);
+            if (!Number.isFinite(outputIndex) || outputIndex <= 0) continue;
+            const reviewKey = buildBatchReviewKey(runItemId, outputIndex);
+            serverReviewMap[reviewKey] = {
+              verdict: review.verdict || 'pending',
+              reason: review.reason,
+              note: review.note,
+            };
+          }
+        }
+
         setBatchItems((prev) => {
           const others = prev.filter((item) => item.batchId !== id);
           return [...mapped, ...others];
         });
+        setBatchReviewMap((prev) => {
+          const next: Record<string, LoraBatchReview> = {};
+          for (const [key, value] of Object.entries(prev)) {
+            const parsed = parseBatchReviewKey(key);
+            if (!parsed) {
+              next[key] = value;
+              continue;
+            }
+            if (!runItemIds.has(parsed.runItemId)) {
+              next[key] = value;
+            }
+          }
+          return { ...next, ...serverReviewMap };
+        });
         setBatchItemsLoadError('');
       } catch (err) {
         const msg = String((err as any)?.message || err || '');
-        if (!opts?.silent) {
-          setBatchItemsLoadError(msg || '加载失败');
-          pushNotice('error', `加载批次明细失败：${msg}`);
-        }
+        setBatchItemsLoadError(msg || '加载失败');
       } finally {
         if (!opts?.silent) setBatchLoadingItems(false);
         batchItemsLoadingRef.current = false;
       }
     },
-    [batchSessions, pushNotice],
+    [batchSessions],
+  );
+
+  const loadBatchReviewGroups = useCallback(
+    async (
+      batchId: string,
+      page: number,
+      opts?: { silent?: boolean; followProgress?: boolean },
+    ) => {
+      const id = String(batchId || '').trim();
+      if (!id) return;
+      if (batchReviewGroupLoadingRef.current) return;
+      batchReviewGroupLoadingRef.current = true;
+      if (!opts?.silent) setBatchReviewGroupLoading(true);
+      try {
+        const fetchOne = async (targetPage: number) =>
+          evalApi.listBatchReviewGroups(id, { page: targetPage, page_size: 20 });
+
+        let resp = await fetchOne(Math.max(1, Number(page || 1)));
+        const progressCurrent = Number(resp.review_progress?.current_page || 1);
+        if (
+          opts?.followProgress &&
+          Number(resp.total_pages || 0) > 0 &&
+          progressCurrent > 0 &&
+          progressCurrent !== Number(resp.page || 1)
+        ) {
+          resp = await fetchOne(progressCurrent);
+        }
+
+        const groups: LoraReviewGroup[] = [];
+        const serverReviewMap: Record<string, LoraBatchReview> = {};
+        const pageRunItemIds = new Set<string>();
+        for (const row of Array.isArray(resp.items) ? resp.items : []) {
+          const outputs: LoraReviewGroupOutput[] = [];
+          for (const out of Array.isArray(row.outputs) ? row.outputs : []) {
+            const runItemId = String(out.run_item_id || '').trim();
+            const outputIndex = Number(out.output_index || 0);
+            if (!runItemId || !Number.isFinite(outputIndex) || outputIndex <= 0) continue;
+            const reviewKey = buildBatchReviewKey(runItemId, outputIndex);
+            outputs.push({
+              reviewKey,
+              runItemId,
+              runId: String(out.run_id || '').trim() || undefined,
+              outputIndex: Math.floor(outputIndex),
+              url: String(out.url || ''),
+              runStatus: String(out.run_status || '').trim() || undefined,
+            });
+            pageRunItemIds.add(runItemId);
+            const rawVerdict = String((out.review as any)?.verdict || '').trim().toLowerCase();
+            const verdict: LoraBatchReviewVerdict =
+              rawVerdict === 'unsatisfied' || rawVerdict === 'satisfied' ? (rawVerdict as LoraBatchReviewVerdict) : 'pending';
+            serverReviewMap[reviewKey] = {
+              verdict,
+              reason: String((out.review as any)?.reason || '').trim() || undefined,
+              note: String((out.review as any)?.note || '').trim() || undefined,
+            };
+          }
+          groups.push({
+            assetId: String(row.asset_id || ''),
+            sourceKey: String(row.source_key || ''),
+            fileName: String(row.file_name || ''),
+            inputUrl: String(row.input_url || '').trim() || undefined,
+            groupStatus: String(row.group_status || 'no_output'),
+            runTotal: Number(row.run_total || 0),
+            completed: Number(row.completed || 0),
+            failed: Number(row.failed || 0),
+            waiting: Number(row.waiting || 0),
+            lastError: String(row.last_error || '').trim() || undefined,
+            outputs,
+          });
+        }
+
+        setBatchReviewGroups(groups);
+        setBatchReviewPage(Math.max(1, Number(resp.page || 1)));
+        setBatchReviewTotalPages(Math.max(0, Number(resp.total_pages || 0)));
+        setBatchReviewTotalGroups(Math.max(0, Number(resp.total_groups || 0)));
+        setBatchReviewProgress({
+          pageSize: 20,
+          currentPage: Math.max(1, Number(resp.review_progress?.current_page || resp.page || 1)),
+          completedPage: Math.max(0, Number(resp.review_progress?.completed_page || 0)),
+          updatedAt: String(resp.review_progress?.updated_at || '').trim() || undefined,
+        });
+        setBatchReviewMap((prev) => {
+          const next: Record<string, LoraBatchReview> = {};
+          for (const [key, value] of Object.entries(prev)) {
+            const parsed = parseBatchReviewKey(key);
+            if (!parsed) {
+              next[key] = value;
+              continue;
+            }
+            if (!pageRunItemIds.has(parsed.runItemId)) {
+              next[key] = value;
+            }
+          }
+          return { ...next, ...serverReviewMap };
+        });
+        setBatchReviewGroupError('');
+      } catch (err) {
+        const msg = String((err as any)?.message || err || '');
+        setBatchReviewGroupError(msg || '加载失败');
+        if (!opts?.silent) pushNotice('error', `加载标注分页失败：${msg}`);
+      } finally {
+        if (!opts?.silent) setBatchReviewGroupLoading(false);
+        batchReviewGroupLoadingRef.current = false;
+      }
+    },
+    [pushNotice],
+  );
+
+  const saveBatchReviewProgress = useCallback(
+    async (
+      batchId: string,
+      payload: { currentPage: number; completedPage: number },
+      opts?: { silent?: boolean },
+    ) => {
+      const id = String(batchId || '').trim();
+      if (!id) return null;
+      try {
+        const res = await evalApi.saveBatchReviewProgress(id, {
+          current_page: Math.max(1, Number(payload.currentPage || 1)),
+          completed_page: Math.max(0, Number(payload.completedPage || 0)),
+          page_size: 20,
+        });
+        const nextProgress: LoraReviewProgress = {
+          pageSize: 20,
+          currentPage: Math.max(1, Number(res.review_progress?.current_page || payload.currentPage || 1)),
+          completedPage: Math.max(0, Number(res.review_progress?.completed_page || payload.completedPage || 0)),
+          updatedAt: String(res.review_progress?.updated_at || '').trim() || undefined,
+        };
+        setBatchReviewProgress(nextProgress);
+        return nextProgress;
+      } catch (err) {
+        if (!opts?.silent) {
+          pushNotice('error', `保存标注进度失败：${String((err as any)?.message || err || '未知错误')}`);
+        }
+        throw err;
+      }
+    },
+    [pushNotice],
   );
 
   useEffect(() => {
     if (activeView !== 'loraBatch') return;
-    void loadBatchSessions();
+    if (loraBatchSubView !== 'generation') return;
+    void loadBatchSessions({ silent: true });
     const hasActiveBatch = batchSessions.some((item) => !isTerminalBatchStatus(item.status));
-    const intervalMs = hasActiveBatch || batchSubmitting ? 6000 : 15000;
+    const intervalMs = hasActiveBatch || batchSubmitting ? 10000 : 20000;
     const timer = window.setInterval(() => {
       void loadBatchSessions({ silent: true });
     }, intervalMs);
     return () => window.clearInterval(timer);
-  }, [activeView, loadBatchSessions, batchSessions, batchSubmitting]);
+  }, [activeView, loraBatchSubView, loadBatchSessions, batchSessions, batchSubmitting]);
 
   useEffect(() => {
     if (activeView !== 'loraBatch') return;
+    if (loraBatchSubView !== 'generation') return;
     if (!selectedBatchId) return;
     if (batchSubmitting) return;
-    void loadBatchItems(selectedBatchId);
-  }, [activeView, selectedBatchId, loadBatchItems, batchSubmitting]);
+    if (!batchDetailExpanded) return;
+    void loadBatchItems(selectedBatchId, { silent: true });
+  }, [activeView, loraBatchSubView, selectedBatchId, loadBatchItems, batchSubmitting, batchDetailExpanded]);
 
   useEffect(() => {
     if (activeView !== 'loraBatch') return;
+    if (loraBatchSubView !== 'generation') return;
+    if (!batchDetailExpanded) return;
     const timer = window.setInterval(() => {
       const selectedStatus = String(selectedBatchSession?.status || '');
       if (selectedBatchId && !batchSubmitting && !isTerminalBatchStatus(selectedStatus)) {
         void loadBatchItems(selectedBatchId, { silent: true });
       }
-    }, 5000);
+    }, 20000);
     return () => window.clearInterval(timer);
-  }, [activeView, selectedBatchId, loadBatchItems, batchSubmitting, selectedBatchSession?.status]);
+  }, [activeView, loraBatchSubView, selectedBatchId, loadBatchItems, batchSubmitting, selectedBatchSession?.status, batchDetailExpanded]);
+
+  useEffect(() => {
+    if (activeView !== 'loraBatch') return;
+    if (loraBatchSubView !== 'annotation') return;
+    if (!selectedBatchId) return;
+    if (batchSubmitting) return;
+    if (!selectedBatchIsTerminal) return;
+    void loadBatchReviewGroups(selectedBatchId, batchReviewPage, { followProgress: true });
+  }, [activeView, loraBatchSubView, selectedBatchId, batchSubmitting, selectedBatchIsTerminal, batchReviewPage, loadBatchReviewGroups]);
 
   useEffect(() => {
     if (activeView !== 'tool' || !selectedTool) return;
@@ -1889,6 +2231,21 @@ export function App() {
     }, 2000);
     return () => window.clearInterval(timer);
   }, [activeView, selectedTool?.id, filterStatus, filterUnrated, toolRuns]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    setBatchReviewGroups([]);
+    setBatchReviewGroupError('');
+    setBatchReviewTotalGroups(0);
+    setBatchReviewTotalPages(0);
+    setBatchReviewPage(1);
+    setBatchReviewProgress({
+      pageSize: 20,
+      currentPage: 1,
+      completedPage: 0,
+      updatedAt: undefined,
+    });
+    setShowNoOutputGroups(false);
+  }, [selectedBatchId]);
 
   useEffect(() => {
     if (activeView !== 'tasks') return;
@@ -2516,7 +2873,7 @@ export function App() {
           const inputUrl = String(upload.url || '').trim();
           if (!inputUrl) throw new Error('上传成功但未返回 URL');
           uploadedSourceMap.set(fileKey, { inputUrl, imageSize, fileName });
-          updateItems(keys, { status: 'pending', inputUrl, error: undefined });
+          updateItems(keys, { status: 'pending', inputUrl, error: undefined, failureStage: undefined });
           await upsertAssetsWithRetry([
             {
               source_key: fileKey,
@@ -2533,6 +2890,7 @@ export function App() {
           const errMsg = String((err as any)?.message || err || '上传失败');
           updateItems(keys, {
             status: 'failed',
+            failureStage: 'upload',
             error: errMsg,
           });
           try {
@@ -2600,7 +2958,7 @@ export function App() {
           prev.map((item) =>
             item.batchId === currentBatchId &&
             (item.status === 'pending' || item.status === 'uploading' || item.status === 'submitting')
-              ? { ...item, status: 'failed', error: '已手动停止（未提交）' }
+              ? { ...item, status: 'failed', failureStage: 'submit', error: '已手动停止（未提交）' }
               : item,
           ),
         );
@@ -2617,18 +2975,151 @@ export function App() {
     }
   };
 
-  const updateBatchReview = useCallback((key: string, patch: Partial<LoraBatchReview>) => {
-    setBatchReviewMap((prev) => {
-      const current: LoraBatchReview = prev[key] || { verdict: 'pending' };
-      return {
-        ...prev,
-        [key]: {
+  const persistBatchReview = useCallback(
+    async (batchId: string, key: string, review: LoraBatchReview) => {
+      const parsed = parseBatchReviewKey(key);
+      if (!parsed) return;
+      const reason = String(review.reason || '').trim();
+      const note = String(review.note || '').trim();
+      const verdict: LoraBatchReviewVerdict =
+        review.verdict === 'satisfied' || review.verdict === 'unsatisfied' ? review.verdict : 'pending';
+      try {
+        await evalApi.upsertBatchOutputReviews(batchId, {
+          items: [
+            {
+              run_item_id: parsed.runItemId,
+              output_index: parsed.outputIndex,
+              verdict,
+              reason: reason || undefined,
+              note: note || undefined,
+            },
+          ],
+        });
+        batchReviewSaveErrorKeysRef.current.delete(key);
+      } catch (err) {
+        if (!batchReviewSaveErrorKeysRef.current.has(key)) {
+          batchReviewSaveErrorKeysRef.current.add(key);
+          pushNotice('error', `标注保存失败：${String((err as any)?.message || err || '未知错误')}`);
+        }
+      }
+    },
+    [pushNotice],
+  );
+
+  const queuePersistBatchReview = useCallback(
+    (batchId: string, key: string, review: LoraBatchReview) => {
+      if (!batchId) return;
+      const timers = batchReviewSaveTimersRef.current;
+      const prevTimer = timers.get(key);
+      if (prevTimer) window.clearTimeout(prevTimer);
+      const timer = window.setTimeout(() => {
+        timers.delete(key);
+        void persistBatchReview(batchId, key, review);
+      }, 450);
+      timers.set(key, timer);
+    },
+    [persistBatchReview],
+  );
+
+  const updateBatchReview = useCallback(
+    (key: string, patch: Partial<LoraBatchReview>) => {
+      const batchId = String(selectedBatchId || '').trim();
+      setBatchReviewMap((prev) => {
+        const current: LoraBatchReview = prev[key] || { verdict: 'pending' };
+        const next: LoraBatchReview = {
           ...current,
           ...patch,
-        },
-      };
-    });
-  }, []);
+        };
+        if (batchId) queuePersistBatchReview(batchId, key, next);
+        return {
+          ...prev,
+          [key]: next,
+        };
+      });
+    },
+    [queuePersistBatchReview, selectedBatchId],
+  );
+
+  const flushPendingBatchReviewSaves = useCallback(async () => {
+    const tasks: Promise<void>[] = [];
+    const timers = batchReviewSaveTimersRef.current;
+    const pendingEntries = Array.from(timers.entries());
+    for (const [key, timer] of pendingEntries) {
+      window.clearTimeout(timer);
+      timers.delete(key);
+      const review = batchReviewMapRef.current[key];
+      const batchId = String(selectedBatchId || '').trim();
+      if (!batchId || !review) continue;
+      tasks.push(persistBatchReview(batchId, key, review));
+    }
+    if (tasks.length > 0) {
+      await Promise.all(tasks);
+    }
+  }, [persistBatchReview, selectedBatchId]);
+
+  const jumpToBatchReviewPage = useCallback(
+    async (targetPage: number) => {
+      const batchId = String(selectedBatchId || '').trim();
+      if (!batchId) return;
+      const normalized = Math.max(1, Math.min(Math.max(1, batchReviewTotalPages || 1), Math.floor(targetPage)));
+      setBatchReviewPageJumping(true);
+      try {
+        await flushPendingBatchReviewSaves();
+        await saveBatchReviewProgress(
+          batchId,
+          {
+            currentPage: normalized,
+            completedPage: Math.min(batchReviewProgress.completedPage, normalized),
+          },
+          { silent: true },
+        );
+        await loadBatchReviewGroups(batchId, normalized, { silent: true });
+      } finally {
+        setBatchReviewPageJumping(false);
+      }
+    },
+    [
+      selectedBatchId,
+      batchReviewTotalPages,
+      flushPendingBatchReviewSaves,
+      saveBatchReviewProgress,
+      batchReviewProgress.completedPage,
+      loadBatchReviewGroups,
+    ],
+  );
+
+  const completeBatchReviewPage = useCallback(async () => {
+    const batchId = String(selectedBatchId || '').trim();
+    if (!batchId) return;
+    if (batchReviewTotalPages <= 0) return;
+    setBatchReviewProgressSaving(true);
+    try {
+      await flushPendingBatchReviewSaves();
+      const currentPage = Math.max(1, Number(batchReviewPage || 1));
+      const nextCompleted = Math.max(Number(batchReviewProgress.completedPage || 0), currentPage);
+      const nextPage = currentPage < batchReviewTotalPages ? currentPage + 1 : currentPage;
+      await saveBatchReviewProgress(batchId, { currentPage: nextPage, completedPage: nextCompleted }, { silent: true });
+      await loadBatchReviewGroups(batchId, nextPage, { silent: true });
+      if (nextPage !== currentPage) {
+        pushNotice('success', `第 ${currentPage} 页已完成，已进入第 ${nextPage} 页`);
+      } else {
+        pushNotice('success', '本批次已标注到最后一页');
+      }
+    } catch (err) {
+      pushNotice('error', `提交本页完成失败：${String((err as any)?.message || err || '未知错误')}`);
+    } finally {
+      setBatchReviewProgressSaving(false);
+    }
+  }, [
+    selectedBatchId,
+    batchReviewTotalPages,
+    flushPendingBatchReviewSaves,
+    batchReviewPage,
+    batchReviewProgress.completedPage,
+    saveBatchReviewProgress,
+    loadBatchReviewGroups,
+    pushNotice,
+  ]);
 
   const stopSelectedBatch = useCallback(async () => {
     if (!selectedBatchId) {
@@ -2650,110 +3141,134 @@ export function App() {
   }, [selectedBatchId, loadBatchSessions, loadBatchItems, pushNotice]);
 
   const exportBatchComparisonCsv = useCallback(
-    (onlyUnsatisfied: boolean) => {
-      const rows: string[][] = [];
-      rows.push([
-        'batch_id',
-        'workflow_id',
-        'workflow_name',
-        'lora',
-        'source_file_name',
-        'source_image_url',
-        'repeat_index',
-        'run_id',
-        'run_status',
-        'output_index',
-        'output_url',
-        'prompt',
-        'verdict',
-        'reason',
-        'note',
-        'run_error',
-      ]);
-
-      const pushRow = (cols: string[]) => rows.push(cols.map((v) => (v == null ? '' : String(v))));
-
-      for (const item of visibleBatchItems) {
-        const runId = String(item.runId || '');
-        const outputs = Array.isArray(item.outputUrls) ? item.outputUrls : [];
-        if (outputs.length === 0) {
-          const verdict = 'pending';
-          if (onlyUnsatisfied) continue;
-          pushRow([
-            String(item.batchId || selectedBatchId || ''),
-            String(selectedBatchSession?.workflowVersionId || ''),
-            String(selectedBatchSession?.workflowName || ''),
-            String(batchLoraValue || ''),
-            item.fileName,
-            String(item.inputUrl || ''),
-            String(item.repeatIndex),
-            runId,
-            String(item.runStatus || ''),
-            '',
-            '',
-            String(item.runPrompt || ''),
-            formatLoraReviewVerdictLabel(verdict),
-            '',
-            '',
-            String(item.error || item.runError || ''),
-          ]);
-          continue;
-        }
-        outputs.forEach((outputUrl, idx) => {
-          const reviewKey = buildBatchReviewKey(runId, idx + 1);
-          const review = batchReviewMap[reviewKey] || { verdict: 'pending' as LoraBatchReviewVerdict };
-          if (onlyUnsatisfied && review.verdict !== 'unsatisfied') return;
-          pushRow([
-            String(item.batchId || selectedBatchId || ''),
-            String(selectedBatchSession?.workflowVersionId || ''),
-            String(selectedBatchSession?.workflowName || ''),
-            String(batchLoraValue || ''),
-            item.fileName,
-            String(item.inputUrl || ''),
-            String(item.repeatIndex),
-            runId,
-            String(item.runStatus || ''),
-            String(idx + 1),
-            String(outputUrl || ''),
-            String(item.runPrompt || ''),
-            formatLoraReviewVerdictLabel(review.verdict),
-            String(review.reason || ''),
-            String(review.note || ''),
-            String(item.error || item.runError || ''),
-          ]);
-        });
+    async (onlyUnsatisfied: boolean) => {
+      const batchId = String(selectedBatchId || '').trim();
+      if (!batchId) {
+        pushNotice('error', '请先选择批次');
+        return;
       }
+      setBatchExporting(onlyUnsatisfied ? 'unsatisfied' : 'all');
+      try {
+        await flushPendingBatchReviewSaves();
+        const rows: string[][] = [];
+        rows.push([
+          'batch_id',
+          'workflow_id',
+          'workflow_name',
+          'lora',
+          'source_file_name',
+          'source_image_url',
+          'repeat_index',
+          'run_id',
+          'run_status',
+          'output_index',
+          'output_url',
+          'prompt',
+          'verdict',
+          'reason',
+          'note',
+          'run_error',
+        ]);
+        const pushRow = (cols: string[]) => rows.push(cols.map((v) => (v == null ? '' : String(v))));
 
-      const escapeCsv = (value: string) => {
-        const s = String(value || '');
-        if (s.includes(',') || s.includes('"') || s.includes('\n')) {
-          return `"${s.replace(/"/g, '""')}"`;
+        const firstPage = await evalApi.listBatchReviewGroups(batchId, { page: 1, page_size: 20 });
+        const totalPages = Math.max(0, Number(firstPage.total_pages || 0));
+        const completedPage = Math.max(0, Number(firstPage.review_progress?.completed_page || 0));
+
+        const consumePage = (resp: Awaited<ReturnType<typeof evalApi.listBatchReviewGroups>>, pageNo: number) => {
+          const pageDone = pageNo <= completedPage;
+          for (const group of Array.isArray(resp.items) ? resp.items : []) {
+            const outputs = Array.isArray(group.outputs) ? group.outputs : [];
+            if (outputs.length === 0) {
+              if (onlyUnsatisfied) continue;
+              pushRow([
+                batchId,
+                String(selectedBatchSession?.workflowVersionId || ''),
+                String(selectedBatchSession?.workflowName || ''),
+                String(batchLoraValue || ''),
+                String(group.file_name || ''),
+                String(group.input_url || ''),
+                '',
+                '',
+                String(group.group_status || ''),
+                '',
+                '',
+                '',
+                '无结果',
+                '',
+                '',
+                String(group.last_error || ''),
+              ]);
+              continue;
+            }
+            for (const output of outputs) {
+              const reviewRaw = String(output.review?.verdict || '').trim().toLowerCase();
+              const isUnsatisfied = reviewRaw === 'unsatisfied';
+              if (onlyUnsatisfied && !isUnsatisfied) continue;
+              const verdictLabel = isUnsatisfied ? '不满意' : pageDone ? '满意(默认)' : '未标注';
+              pushRow([
+                batchId,
+                String(selectedBatchSession?.workflowVersionId || ''),
+                String(selectedBatchSession?.workflowName || ''),
+                String(batchLoraValue || ''),
+                String(group.file_name || ''),
+                String(group.input_url || ''),
+                '',
+                String(output.run_id || ''),
+                String(output.run_status || ''),
+                String(output.output_index || ''),
+                String(output.url || ''),
+                '',
+                verdictLabel,
+                isUnsatisfied ? String(output.review?.reason || '') : '',
+                isUnsatisfied ? String(output.review?.note || '') : '',
+                String(group.last_error || ''),
+              ]);
+            }
+          }
+        };
+
+        if (totalPages === 0) {
+          consumePage(firstPage, 1);
+        } else {
+          consumePage(firstPage, 1);
+          for (let pageNo = 2; pageNo <= totalPages; pageNo += 1) {
+            const pageResp = await evalApi.listBatchReviewGroups(batchId, { page: pageNo, page_size: 20 });
+            consumePage(pageResp, pageNo);
+          }
         }
-        return s;
-      };
-      const csv = rows.map((r) => r.map(escapeCsv).join(',')).join('\n');
-      const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      const dt = new Date();
-      const stamp = `${dt.getFullYear()}${String(dt.getMonth() + 1).padStart(2, '0')}${String(dt.getDate()).padStart(2, '0')}_${String(dt.getHours()).padStart(2, '0')}${String(dt.getMinutes()).padStart(2, '0')}${String(dt.getSeconds()).padStart(2, '0')}`;
-      a.href = url;
-      a.download = onlyUnsatisfied ? `lora_batch_unsatisfied_${stamp}.csv` : `lora_batch_comparison_${stamp}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      pushNotice('success', onlyUnsatisfied ? '已导出不满意样本 CSV' : '已导出对照集 CSV');
+        if (onlyUnsatisfied && rows.length <= 1) {
+          pushNotice('info', '当前批次暂无“不满意”记录，未导出文件');
+          return;
+        }
+
+        const escapeCsv = (value: string) => {
+          const s = String(value || '');
+          if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+            return `"${s.replace(/"/g, '""')}"`;
+          }
+          return s;
+        };
+        const csv = rows.map((r) => r.map(escapeCsv).join(',')).join('\n');
+        const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const dt = new Date();
+        const stamp = `${dt.getFullYear()}${String(dt.getMonth() + 1).padStart(2, '0')}${String(dt.getDate()).padStart(2, '0')}_${String(dt.getHours()).padStart(2, '0')}${String(dt.getMinutes()).padStart(2, '0')}${String(dt.getSeconds()).padStart(2, '0')}`;
+        a.href = url;
+        a.download = onlyUnsatisfied ? `lora_batch_unsatisfied_${stamp}.csv` : `lora_batch_comparison_${stamp}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        pushNotice('success', onlyUnsatisfied ? '已导出不满意样本 CSV' : '已导出对照集 CSV');
+      } catch (err) {
+        pushNotice('error', `导出失败：${String((err as any)?.message || err || '未知错误')}`);
+      } finally {
+        setBatchExporting('');
+      }
     },
-    [
-      visibleBatchItems,
-      selectedBatchSession,
-      batchLoraValue,
-      selectedBatchId,
-      buildBatchReviewKey,
-      batchReviewMap,
-      pushNotice,
-    ],
+    [selectedBatchId, flushPendingBatchReviewSaves, selectedBatchSession, batchLoraValue, pushNotice],
   );
 
   const annotate = async (runId: string, rating: number, comment: string) => {
@@ -3278,12 +3793,19 @@ export function App() {
           hint="按固定流程执行，便于业务同学复盘问题和导出结果。"
           steps={[
             { title: '选择工作流与 LoRA', description: '先确认工作流版本、LoRA 和重复次数。' },
-            { title: '上传样本素材', description: '上传完成后统一创建任务，失败素材自动跳过。' },
-            { title: '观察提交与执行', description: '关注批次明细中的排队、成功、失败状态。' },
-            { title: '结果复核与导出', description: '标记满意/不满意并导出对照 CSV。' },
+            { title: '生成任务', description: '先完成整批素材上传，再统一创建任务。' },
+            { title: '等待批次结束', description: '批次结束后再进入标注，避免页面抖动。' },
+            { title: '结果标注', description: '仅标记不满意，按页完成并断点续标。' },
           ]}
         />
+        <Card bordered>
+          <Tabs value={loraBatchSubView} onChange={(v) => setLoraBatchSubView(String(v) as LoraBatchSubView)}>
+            <Tabs.TabPanel value="generation" label="生成任务" />
+            <Tabs.TabPanel value="annotation" label="结果标注" />
+          </Tabs>
+        </Card>
 
+        {loraBatchSubView === 'generation' ? (
         <Row gutter={[12, 12]}>
           <Col xs={12} xl={5}>
             <Card bordered title="批测参数">
@@ -3586,30 +4108,81 @@ export function App() {
                 <Col xs={12}>
                   <Space direction="vertical" size={4} style={{ width: '100%' }}>
                     <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                      <Typography.Text theme="secondary">查看批次</Typography.Text>
-                      <Button
-                        size="small"
-                        variant="outline"
-                        loading={batchLoadingSessions}
-                        onClick={() => void loadBatchSessions()}
-                      >
-                        刷新批次
-                      </Button>
+                      <Typography.Text theme="secondary">
+                        当前批次：{selectedBatchId || '未选择'}（点击下方列表切换）
+                      </Typography.Text>
+                      <Space>
+                        <Button
+                          size="small"
+                          variant="outline"
+                          loading={batchLoadingSessions}
+                          onClick={() => void loadBatchSessions()}
+                        >
+                          刷新批次
+                        </Button>
+                      </Space>
                     </Space>
-                    <Select
-                      value={selectedBatchId || ''}
-                      options={batchSessionOptions}
-                      placeholder={batchSessionOptions.length > 0 ? '请选择批次' : '暂无批次'}
-                      onChange={(v) => setBatchSessionId(String(v))}
-                      disabled={batchSessionOptions.length === 0}
-                    />
                     <Typography.Text theme="secondary">
-                      {batchLoadingSessions ? '正在刷新批次列表…' : `历史批次 ${batchSessions.length} 个`}
+                      {batchLoadingSessions ? '正在刷新批次列表…' : `历史批次 ${filteredBatchSessions.length} 个`}
                     </Typography.Text>
                     {batchSessionLoadError ? (
                       <Typography.Text theme="error">批次列表加载失败：{batchSessionLoadError}</Typography.Text>
                     ) : null}
                   </Space>
+                </Col>
+                <Col xs={12}>
+                  <Table
+                    size="small"
+                    rowKey="batchId"
+                    maxHeight={220}
+                    data={filteredBatchSessions.slice(0, 20)}
+                    onRowClick={(context: any) => setBatchSessionId(String(context?.row?.batchId || ''))}
+                    rowClassName={({ row }: any) =>
+                      String(row?.batchId || '') === selectedBatchId ? 'lora-batch-row lora-batch-row--active' : 'lora-batch-row'
+                    }
+                    empty={<Typography.Text theme="secondary">暂无历史批次。</Typography.Text>}
+                    columns={[
+                      {
+                        colKey: 'batchId',
+                        title: '批次',
+                        minWidth: 220,
+                        cell: ({ row }: any) => (
+                          <span style={{ fontFamily: 'monospace' }}>
+                            {row.batchId}
+                            {String(row.batchId || '') === selectedBatchId ? '（当前）' : ''}
+                          </span>
+                        ),
+                      },
+                      {
+                        colKey: 'status',
+                        title: '状态',
+                        width: 130,
+                        cell: ({ row }: any) => (
+                          <StatusBadge status={String(row.status || '').toLowerCase()} fallbackText={formatBatchSessionStatusDisplay(row as LoraBatchSession)} />
+                        ),
+                      },
+                      {
+                        colKey: 'progress',
+                        title: '进度',
+                        width: 180,
+                        cell: ({ row }: any) => (
+                          <Typography.Text theme="secondary">
+                            {Number(row.completed || 0)}/{Number(row.expectedTotal || row.total || 0)}
+                          </Typography.Text>
+                        ),
+                      },
+                      {
+                        colKey: 'updatedAt',
+                        title: '最近更新',
+                        minWidth: 170,
+                        cell: ({ row }: any) => (
+                          <Typography.Text theme="secondary">
+                            {fmtTime(row.latestUpdatedAt || row.latestCreatedAt)}
+                          </Typography.Text>
+                        ),
+                      },
+                    ]}
+                  />
                 </Col>
                 <Col xs={6} md={3}>
                   <Space direction="vertical" size={2}>
@@ -3647,18 +4220,32 @@ export function App() {
                     <Typography.Text strong>{batchSummary.generated}</Typography.Text>
                   </Space>
                 </Col>
+                <Col xs={6} md={3}>
+                  <Space direction="vertical" size={2}>
+                    <Typography.Text theme="secondary">上传失败</Typography.Text>
+                    <Typography.Text strong>{batchSummary.uploadFailed}</Typography.Text>
+                  </Space>
+                </Col>
                 <Col xs={12}>
                   <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
                     <Typography.Text theme="secondary">
-                      当前测试任务：{selectedBatchId || '未提交'}；提交中：{batchSummary.active}；队列/生成中：{batchSummary.queuedOrRunning}；失败：{batchSummary.failed}；未入库：{batchSummary.missingSubmissions}。
+                      当前测试任务：{selectedBatchId || '未提交'}；提交中：{batchSummary.active}；队列/生成中：{batchSummary.queuedOrRunning}；执行失败：{batchSummary.failed}；上传失败：{batchSummary.uploadFailed}；未入库：{batchSummary.missingSubmissions}。
                     </Typography.Text>
                     <Space>
                       <Button
                         size="small"
                         variant="outline"
-                        loading={batchLoadingItems}
                         disabled={!selectedBatchId}
-                        onClick={() => selectedBatchId && void loadBatchItems(selectedBatchId)}
+                        onClick={() => setBatchDetailExpanded((prev) => !prev)}
+                      >
+                        {batchDetailExpanded ? '收起排查明细' : '展开排查明细'}
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="outline"
+                        loading={batchLoadingItems}
+                        disabled={!selectedBatchId || !batchDetailExpanded}
+                        onClick={() => selectedBatchId && batchDetailExpanded && void loadBatchItems(selectedBatchId)}
                       >
                         刷新明细
                       </Button>
@@ -3674,6 +4261,13 @@ export function App() {
                     </Space>
                   </Space>
                 </Col>
+                {String(selectedBatchSession?.status || '').toLowerCase() === 'failed' ? (
+                  <Col xs={12}>
+                    <Typography.Text theme="warning">
+                      状态说明：这里的“失败”表示本批次存在失败项（执行失败或上传失败），不代表全部条目都失败。
+                    </Typography.Text>
+                  </Col>
+                ) : null}
                 <Col xs={12}>
                   {batchUploadProgress.totalFiles > 0 &&
                   (!selectedBatchId || selectedBatchId === batchUploadProgress.batchId) ? (
@@ -3710,25 +4304,37 @@ export function App() {
                     </Typography.Text>
                   </Col>
                 ) : null}
+                {!batchDetailExpanded ? (
+                  <Col xs={12}>
+                    <Typography.Text theme="secondary">默认不自动拉取逐条明细，避免页面频繁刷新。需要排查时再点击“展开排查明细”。</Typography.Text>
+                  </Col>
+                ) : null}
               </Row>
             </Card>
 
+            {batchDetailExpanded ? (
             <Card
               bordered
               title={
                 <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                  <Typography.Text strong>本批次明细</Typography.Text>
+                  <Typography.Text strong>本批次明细（排查专用）</Typography.Text>
                   <Space>
                     {batchItemsLoadError ? <Typography.Text theme="error">明细加载失败：{batchItemsLoadError}</Typography.Text> : null}
-                    <Typography.Text theme="secondary">本批次共 {visibleBatchItems.length} 条执行</Typography.Text>
+                    <Typography.Text theme="secondary">本批次共 {visibleExecutionBatchItems.length} 条执行</Typography.Text>
                   </Space>
                 </Space>
               }
             >
+                {uploadFailedBatchItems.length > 0 ? (
+                  <Alert
+                    theme="warning"
+                    message={`有 ${uploadFailedBatchItems.length} 条在上传阶段失败，未进入执行队列；请优先处理网络或上传凭证问题。`}
+                  />
+                ) : null}
                 <Table
                   size="small"
                   rowKey="key"
-                  data={visibleBatchItems}
+                  data={visibleExecutionBatchItems}
                   loading={batchLoadingItems}
                   maxHeight={520}
                   empty={<Typography.Text theme="secondary">暂无批次任务。</Typography.Text>}
@@ -3783,118 +4389,248 @@ export function App() {
                 ]}
               />
             </Card>
+            ) : null}
           </Col>
         </Row>
-
+        ) : (
         <Card
           bordered
           title={
             <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-              <Typography.Text strong>原图-结果对照与标注</Typography.Text>
+              <Typography.Text strong>结果标注（分页）</Typography.Text>
               <Space>
                 <Button
                   variant="outline"
-                  disabled={visibleBatchItems.length === 0}
-                  onClick={() => exportBatchComparisonCsv(false)}
+                  disabled={!selectedBatchId || !selectedBatchIsTerminal || batchExporting !== ''}
+                  loading={batchExporting === 'all'}
+                  onClick={() => void exportBatchComparisonCsv(false)}
                 >
-                  导出全部对照集
+                  导出全部
                 </Button>
                 <Button
                   variant="outline"
-                  disabled={visibleBatchItems.length === 0}
-                  onClick={() => exportBatchComparisonCsv(true)}
+                  disabled={!selectedBatchId || !selectedBatchIsTerminal || batchExporting !== ''}
+                  loading={batchExporting === 'unsatisfied'}
+                  onClick={() => void exportBatchComparisonCsv(true)}
                 >
-                  导出不满意样本
+                  导出不满意
                 </Button>
               </Space>
             </Space>
           }
         >
           <Space direction="vertical" size="large" style={{ width: '100%' }}>
-            <Typography.Text theme="secondary">
-              目的：把“本批次中的原图 + 多次结果 + 满意度标注”沉淀成可分析数据，后续用于定位 LoRA 素材覆盖缺口。
-            </Typography.Text>
-            {batchComparisonGroups.length > 0 ? (
-              <Space direction="vertical" size="large" style={{ width: '100%' }}>
-                {batchComparisonGroups.map((group) => (
-                  <div key={group.key} style={{ border: '1px solid var(--td-component-border)', borderRadius: 8, padding: 10 }}>
-                    <Space direction="vertical" size={6} style={{ width: '100%' }}>
-                      <Typography.Text strong>{group.fileName}</Typography.Text>
-                      <Typography.Text theme="secondary">
-                        完成 {group.completedRuns}/{group.totalRuns}；结果 {group.outputCount} 张；等待 {group.waitingRuns}；失败 {group.failedRuns}
-                      </Typography.Text>
-                      <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 6 }}>
-                        <div style={{ minWidth: 260 }}>
-                          <Typography.Text theme="secondary">原图</Typography.Text>
-                          <img
-                            src={group.inputUrl}
-                            alt="原图"
-                            style={{ width: 260, height: 260, objectFit: 'contain', border: '1px solid var(--td-component-border)' }}
-                            onClick={() => setLightbox({ url: group.inputUrl, title: '原图' })}
-                          />
-                        </div>
-                        {group.outputs.map((output) => {
-                          const review = batchReviewMap[output.reviewKey] || { verdict: 'pending' as LoraBatchReviewVerdict };
-                          return (
-                            <div key={output.reviewKey} style={{ minWidth: 280, maxWidth: 320 }}>
-                              <Space direction="vertical" size={6} style={{ width: '100%' }}>
-                                <Typography.Text theme="secondary">
-                                  结果图 {output.outputIndex}
-                                  {output.runId ? ` · 执行ID ${output.runId}` : ''}
-                                </Typography.Text>
-                                <Space>
-                                  <Button
-                                    size="small"
-                                    variant={review.verdict === 'satisfied' ? 'base' : 'outline'}
-                                    theme="success"
-                                    onClick={() => updateBatchReview(output.reviewKey, { verdict: 'satisfied' })}
-                                  >
-                                    满意
-                                  </Button>
-                                  <Button
-                                    size="small"
-                                    variant={review.verdict === 'unsatisfied' ? 'base' : 'outline'}
-                                    theme="danger"
-                                    onClick={() => updateBatchReview(output.reviewKey, { verdict: 'unsatisfied' })}
-                                  >
-                                    不满意
-                                  </Button>
-                                </Space>
-                                <img
-                                  src={output.url}
-                                  alt={`结果图${output.outputIndex}`}
-                                  style={{ width: 280, height: 260, objectFit: 'contain', border: '1px solid var(--td-component-border)' }}
-                                  onClick={() => setLightbox({ url: output.url, title: `结果图 ${output.outputIndex}` })}
-                                />
-                                <Select
-                                  value={review.reason || ''}
-                                  options={batchReviewReasonOptions}
-                                  placeholder="问题原因（可选）"
-                                  onChange={(v) => updateBatchReview(output.reviewKey, { reason: String(v) })}
-                                  clearable
-                                />
-                                <Input
-                                  value={review.note || ''}
-                                  placeholder="备注（可选）"
-                                  onChange={(v) => updateBatchReview(output.reviewKey, { note: String(v) })}
-                                />
-                              </Space>
-                            </div>
-                          );
-                        })}
-                      </div>
-                      {group.outputCount === 0 ? (
-                        <Alert theme="warning" message={group.lastError || '当前还没有结果图，请继续等待或检查失败原因。'} />
-                      ) : null}
-                    </Space>
-                  </div>
-                ))}
+            <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+              <Space direction="vertical" size={4}>
+                <Typography.Text theme="secondary">标注批次</Typography.Text>
+                <Select
+                  value={selectedBatchId || ''}
+                  options={batchSessionOptions}
+                  placeholder={batchSessionOptions.length > 0 ? '请选择批次' : '暂无可标注批次'}
+                  onChange={(v) => setBatchSessionId(String(v))}
+                  disabled={batchSessionOptions.length === 0}
+                  style={{ width: 520, maxWidth: '100%' }}
+                />
               </Space>
+              <Space>
+                <Button
+                  size="small"
+                  variant="outline"
+                  loading={batchLoadingSessions}
+                  onClick={() => void loadBatchSessions()}
+                >
+                  刷新批次
+                </Button>
+              </Space>
+            </Space>
+            {!selectedBatchId ? (
+              <Alert theme="info" message="请先选择要标注的批次。" />
+            ) : !selectedBatchIsTerminal ? (
+              <Alert
+                theme="warning"
+                message={`当前批次状态为 ${formatBatchSessionStatusLabel(selectedBatchSession?.status)}，请等待批次结束后再标注。`}
+              />
             ) : (
-              <Typography.Text theme="secondary">暂无可对照样本。请先提交批测并等待任务生成结果。</Typography.Text>
+            <Space direction="vertical" size="large" style={{ width: '100%' }}>
+              <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                <Space direction="vertical" size={4}>
+                  <Typography.Text theme="secondary">
+                    已完成页：{Math.min(batchReviewProgress.completedPage, Math.max(1, batchReviewTotalPages || 1))}/{Math.max(1, batchReviewTotalPages || 1)}
+                  </Typography.Text>
+                  <Typography.Text theme="secondary">
+                    当前页：第 {batchReviewPage} 页（共 {batchReviewTotalGroups} 组）
+                  </Typography.Text>
+                </Space>
+                <Space>
+                  <Button
+                    variant="outline"
+                    disabled={batchReviewPage <= 1 || batchReviewPageJumping || batchReviewGroupLoading}
+                    onClick={() => void jumpToBatchReviewPage(batchReviewPage - 1)}
+                  >
+                    上一页
+                  </Button>
+                  <Select
+                    value={batchReviewPage}
+                    options={batchReviewPageOptions}
+                    disabled={batchReviewTotalPages <= 0 || batchReviewPageJumping || batchReviewGroupLoading}
+                    onChange={(v) => void jumpToBatchReviewPage(Number(v || 1))}
+                    style={{ width: 140 }}
+                  />
+                  <Button
+                    variant="outline"
+                    disabled={batchReviewPage >= batchReviewTotalPages || batchReviewPageJumping || batchReviewGroupLoading}
+                    onClick={() => void jumpToBatchReviewPage(batchReviewPage + 1)}
+                  >
+                    下一页
+                  </Button>
+                  <Button
+                    theme="primary"
+                    loading={batchReviewProgressSaving}
+                    disabled={batchReviewTotalPages <= 0 || batchReviewGroupLoading}
+                    onClick={() => void completeBatchReviewPage()}
+                  >
+                    本页完成
+                  </Button>
+                </Space>
+              </Space>
+              {batchReviewGroupError ? <Alert theme="error" message={`分页加载失败：${batchReviewGroupError}`} /> : null}
+              {noOutputGroupCount > 0 ? (
+                <Alert
+                  theme="info"
+                  message={
+                    showNoOutputGroups
+                      ? `本页有 ${noOutputGroupCount} 组无结果项（通常是上传/提交失败）。已展示用于排查。`
+                      : `本页有 ${noOutputGroupCount} 组无结果项（通常是上传/提交失败），标注页默认隐藏。`
+                  }
+                  operation={
+                    <Button size="small" variant="outline" onClick={() => setShowNoOutputGroups((prev) => !prev)}>
+                      {showNoOutputGroups ? '隐藏无结果项' : '查看无结果项'}
+                    </Button>
+                  }
+                />
+              ) : null}
+              {(showNoOutputGroups ? batchReviewGroups : actionableReviewGroups).length === 0 ? (
+                <Typography.Text theme="secondary">本页无可标注结果图。</Typography.Text>
+              ) : (
+                <Space direction="vertical" size="large" style={{ width: '100%' }}>
+                  {(showNoOutputGroups ? batchReviewGroups : actionableReviewGroups).map((group) => (
+                    <div key={`${group.assetId}-${group.sourceKey}`} style={{ border: '1px solid var(--td-component-border)', borderRadius: 8, padding: 10 }}>
+                      <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                        <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                          <Typography.Text strong>{group.fileName || '未命名素材'}</Typography.Text>
+                          <Typography.Text theme="secondary">
+                            状态：{group.groupStatus}；完成 {group.completed}/{group.runTotal}；失败 {group.failed}；等待 {group.waiting}
+                          </Typography.Text>
+                        </Space>
+                        <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 6 }}>
+                          <div style={{ minWidth: 240 }}>
+                            <Typography.Text theme="secondary">原图</Typography.Text>
+                            {group.inputUrl ? (
+                              <img
+                                src={group.inputUrl}
+                                alt="原图"
+                                style={{ width: 240, height: 240, objectFit: 'contain', border: '1px solid var(--td-component-border)' }}
+                                onClick={() => setLightbox({ url: group.inputUrl || '', title: '原图' })}
+                              />
+                            ) : (
+                              <div style={{ width: 240, height: 240, border: '1px dashed var(--td-component-border)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <Typography.Text theme="secondary">无原图地址</Typography.Text>
+                              </div>
+                            )}
+                          </div>
+                          {group.outputs.map((output) => {
+                            const review = batchReviewMap[output.reviewKey] || { verdict: 'pending' as LoraBatchReviewVerdict };
+                            const isUnsatisfied = review.verdict === 'unsatisfied';
+                            return (
+                              <div key={output.reviewKey} style={{ minWidth: 300, maxWidth: 340 }}>
+                                <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                                  <Typography.Text theme="secondary">
+                                    结果图 {output.outputIndex}
+                                    {output.runId ? ` · 执行ID ${output.runId}` : ''}
+                                  </Typography.Text>
+                                  <Button
+                                    size="small"
+                                    theme="danger"
+                                    variant={isUnsatisfied ? 'base' : 'outline'}
+                                    onClick={() =>
+                                      updateBatchReview(output.reviewKey, {
+                                        verdict: isUnsatisfied ? 'pending' : 'unsatisfied',
+                                        reason: isUnsatisfied ? '' : review.reason,
+                                        note: isUnsatisfied ? '' : review.note,
+                                      })
+                                    }
+                                  >
+                                    {isUnsatisfied ? '取消不满意' : '标记不满意'}
+                                  </Button>
+                                  <img
+                                    src={output.url}
+                                    alt={`结果图${output.outputIndex}`}
+                                    style={{ width: 300, height: 240, objectFit: 'contain', border: '1px solid var(--td-component-border)' }}
+                                    onClick={() => setLightbox({ url: output.url, title: `结果图 ${output.outputIndex}` })}
+                                  />
+                                  {isUnsatisfied ? (
+                                    <>
+                                      <Select
+                                        value={review.reason || ''}
+                                        options={batchReviewReasonOptions}
+                                        placeholder="不满意原因（可选）"
+                                        onChange={(v) =>
+                                          updateBatchReview(output.reviewKey, {
+                                            verdict: 'unsatisfied',
+                                            reason: v == null ? '' : String(v),
+                                          })
+                                        }
+                                        clearable
+                                      />
+                                      <Input
+                                        value={review.note || ''}
+                                        placeholder="备注（可选）"
+                                        onChange={(v) =>
+                                          updateBatchReview(output.reviewKey, {
+                                            verdict: 'unsatisfied',
+                                            note: v == null ? '' : String(v),
+                                          })
+                                        }
+                                      />
+                                    </>
+                                  ) : (
+                                    <Typography.Text theme="success">默认满意</Typography.Text>
+                                  )}
+                                </Space>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        {group.outputs.length === 0 ? (
+                          <Alert theme="warning" message={group.lastError || '该组暂无结果图，暂不可标注。'} />
+                        ) : null}
+                      </Space>
+                    </div>
+                  ))}
+                </Space>
+              )}
+              <Space align="center" style={{ justifyContent: 'flex-end', width: '100%' }}>
+                <Typography.Text theme="secondary">底部翻页</Typography.Text>
+                <Button
+                  variant="outline"
+                  disabled={batchReviewPage <= 1 || batchReviewPageJumping || batchReviewGroupLoading}
+                  onClick={() => void jumpToBatchReviewPage(batchReviewPage - 1)}
+                >
+                  上一页
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled={batchReviewPage >= batchReviewTotalPages || batchReviewPageJumping || batchReviewGroupLoading}
+                  onClick={() => void jumpToBatchReviewPage(batchReviewPage + 1)}
+                >
+                  下一页
+                </Button>
+              </Space>
+            </Space>
             )}
           </Space>
         </Card>
+        )}
       </Space>,
     );
   }
@@ -4685,54 +5421,48 @@ export function App() {
           </Col>
         </Row>
 
-        <Card
-          bordered
-          title={
-            <div className="podi-card-titlebar">
-              <div className="podi-card-titlebar__left">
-                <Typography.Text strong>历史记录（打标区）</Typography.Text>
-                <div>
-                  <Typography.Text theme="secondary">每条记录包含原图 + 结果图；支持筛选与备注。</Typography.Text>
-                </div>
-              </div>
-              <div className="podi-card-titlebar__right">
-                <Select
-                  value={filterStatus}
-                  onChange={(v) => setFilterStatus(String(v))}
-                  style={{ width: 140 }}
-                  options={[
-                    { label: '全部状态', value: 'all' },
-                    { label: 'queued', value: 'queued' },
-                    { label: 'running', value: 'running' },
-                    { label: 'succeeded', value: 'succeeded' },
-                    { label: 'failed', value: 'failed' },
-                  ]}
-                />
-                <Select
-                  value={filterRating}
-                  onChange={(v) => setFilterRating(String(v))}
-                  style={{ width: 140 }}
-                  options={[
-                    { label: '全部评分', value: 'all' },
-                    ...[1, 2, 3, 4, 5].map((n) => ({ label: String(n), value: String(n) })),
-                  ]}
-                />
-                <div className="podi-inline">
-                  <Switch value={filterUnrated} onChange={(v) => setFilterUnrated(Boolean(v))} />
-                  <Typography.Text theme="secondary">未打分</Typography.Text>
-                </div>
-                <Input
-                  value={search}
-                  onChange={(v) => setSearch(String(v))}
-                  style={{ width: 240 }}
-                  placeholder="搜索备注/错误…"
-                  clearable
-                />
-              </div>
-            </div>
-          }
-        >
+        <Card bordered title={<Typography.Text strong>历史记录（打标区）</Typography.Text>}>
           <Space direction="vertical" size="large" style={{ width: '100%' }}>
+            <FilterBar
+              title="筛选器"
+              description="每条记录包含原图 + 结果图；支持筛选、评分与备注。"
+              controls={
+                <>
+                  <Select
+                    value={filterStatus}
+                    onChange={(v) => setFilterStatus(String(v))}
+                    style={{ width: 140 }}
+                    options={[
+                      { label: '全部状态', value: 'all' },
+                      { label: 'queued', value: 'queued' },
+                      { label: 'running', value: 'running' },
+                      { label: 'succeeded', value: 'succeeded' },
+                      { label: 'failed', value: 'failed' },
+                    ]}
+                  />
+                  <Select
+                    value={filterRating}
+                    onChange={(v) => setFilterRating(String(v))}
+                    style={{ width: 140 }}
+                    options={[
+                      { label: '全部评分', value: 'all' },
+                      ...[1, 2, 3, 4, 5].map((n) => ({ label: String(n), value: String(n) })),
+                    ]}
+                  />
+                  <div className="podi-inline">
+                    <Switch value={filterUnrated} onChange={(v) => setFilterUnrated(Boolean(v))} />
+                    <Typography.Text theme="secondary">未打分</Typography.Text>
+                  </div>
+                  <Input
+                    value={search}
+                    onChange={(v) => setSearch(String(v))}
+                    style={{ width: 240 }}
+                    placeholder="搜索备注/错误…"
+                    clearable
+                  />
+                </>
+              }
+            />
             {filteredRuns.map((run) => (
               <HistoryRow
                 key={run.id}
@@ -4773,6 +5503,20 @@ export function App() {
           </div>
         </div>
       </div>
+      <ActionBar
+        title={`功能卡片 · ${toolList.length} 个`}
+        description="保留高频入口，弱化“快速上手”占屏，直接进入操作。"
+        actions={
+          <Space>
+            <Button variant="outline" onClick={() => void refreshMetrics()}>
+              刷新评分
+            </Button>
+            <Button variant="outline" onClick={() => setActiveView('tasks')}>
+              查看任务追踪
+            </Button>
+          </Space>
+        }
+      />
       {toolList.length === 0 ? <Alert theme="info" message="该分类暂无功能。" /> : null}
       <div className="podi-tool-grid">
         {toolList.map((wf) => (

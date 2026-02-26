@@ -89,6 +89,83 @@
 
 - `asset_source_key / asset_file_name / asset_oss_url`
 - `run_status / run_prompt / run_output_urls_json / run_error_message`
+- `run_output_reviews_json`（逐张结果图标注，含 `output_index/verdict/reason/note/updated_at`）
+
+### GET /api/evals/batches/{batch_id}/review-groups
+
+结果标注页专用分页接口（固定每页 20 组，组=原图素材）。
+
+请求参数：
+
+- `page`：页码（从 1 开始）
+- `page_size`：固定 20（后端会归一为 20）
+
+返回字段（核心）：
+
+- `batch_id / page / page_size / total_groups / total_pages`
+- `review_progress.current_page / completed_page`
+- `items[]`（每组包含）
+  - `asset_id/source_key/file_name/input_url`
+  - `group_status`：`has_output/no_output/failed`
+  - `run_total/completed/failed/waiting`
+  - `outputs[]`：结果图列表（含 `run_item_id/run_id/output_index/url/review`）
+  - `last_error`
+
+约束：
+
+- 批次未结束（非 `succeeded/failed/stopped`）返回 `409 BATCH_REVIEW_NOT_READY`
+- `page > total_pages` 返回 `400 BATCH_REVIEW_PAGE_INVALID`
+
+### POST /api/evals/batches/{batch_id}/review-progress
+
+保存“断点续标”进度（页码），落库到 `eval_batch_session.metadata.review_state`。
+
+请求体示例：
+
+```json
+{
+  "current_page": 6,
+  "completed_page": 5,
+  "page_size": 20
+}
+```
+
+规则：
+
+- `completed_page <= current_page`
+- `page_size` 固定 20（传其他值也会按 20 存）
+
+返回字段：
+
+- `batch_id`
+- `review_progress`（`page_size/current_page/completed_page/updated_at`）
+
+### POST /api/evals/batches/{batch_id}/reviews
+
+批量写入“结果图逐张标注”（仅不满意 + 原因/备注，默认满意），用于页面刷新后回显。
+
+请求体示例：
+
+```json
+{
+  "items": [
+    {
+      "run_item_id": "b4f7d0a5d0d4460ea36a4c66dcd9f6a0",
+      "output_index": 1,
+      "verdict": "unsatisfied",
+      "reason": "细节结构错误",
+      "note": "耳朵轮廓偏差明显"
+    }
+  ]
+}
+```
+
+约束：
+
+- `run_item_id` 必须属于当前批次
+- `output_index` 从 1 开始
+- `verdict` 仅允许 `pending/satisfied/unsatisfied`
+- 当 `verdict=pending` 且 `reason/note` 为空时，后端会删除该条标注
 
 ### POST /api/evals/batches/{batch_id}/stop
 
@@ -156,6 +233,10 @@
 - `BATCH_ASSETS_EMPTY` / `BATCH_ASSET_LIMIT_EXCEEDED`
 - `BATCH_ASSET_UPLOAD_STATUS_INVALID` / `BATCH_ASSET_URL_REQUIRED`
 - `BATCH_ITEM_SUBMIT_FAILED`
+- `BATCH_REVIEWS_EMPTY` / `BATCH_REVIEWS_LIMIT_EXCEEDED`
+- `BATCH_REVIEW_RUN_ITEM_REQUIRED` / `BATCH_REVIEW_RUN_ITEM_INVALID`
+- `BATCH_REVIEW_VERDICT_INVALID`
+- `BATCH_REVIEW_NOT_READY` / `BATCH_REVIEW_PAGE_INVALID`
 
 ---
 

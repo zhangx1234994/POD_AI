@@ -34,6 +34,7 @@ export type AppShellProps = {
   activeNav: string;
   onSelectNav: (id: string) => void;
   headerTitle: string;
+  headerSubtitle?: string;
   headerActions?: ReactNode;
   contentRef?: RefObject<HTMLDivElement>;
   children: ReactNode;

@@ -9,7 +9,9 @@
   --podi-shadow-card: 0 6px 20px rgba(15, 23, 42, 0.08);
   --podi-surface: var(--td-bg-color-page);
   --podi-panel: var(--td-bg-color-container);
+  --podi-panel-muted: var(--td-bg-color-secondarycontainer);
   --podi-accent: var(--td-brand-color);
+  --podi-accent-soft: var(--td-brand-color-1);
   --podi-success: var(--td-success-color);
   --podi-warning: var(--td-warning-color);
   --podi-danger: var(--td-error-color);
@@ -58,11 +60,33 @@ html.t-theme-dark {
 }
 
 .podi-shell .t-menu__item.t-is-active {
-  background: var(--td-brand-color-1);
-  color: var(--td-brand-color);
+  background: var(--podi-accent-soft);
+  color: var(--podi-accent);
+}
+
+.podi-shell .t-menu__item:hover {
+  background: var(--podi-panel-muted);
+}
+
+.podi-shell__nav-section {
+  border: 1px solid var(--td-border-level-1-color);
+  border-radius: var(--podi-radius-md);
+  background: var(--td-bg-color-container);
+  padding: 8px;
+}
+
+.podi-shell__nav-empty {
+  border: 1px dashed var(--td-border-level-2-color);
+  border-radius: var(--podi-radius-sm);
+  padding: 10px;
+  background: var(--podi-panel-muted);
 }
 
 .podi-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--podi-space-2);
+  flex-wrap: wrap;
   border: 1px solid var(--td-border-level-1-color);
   border-radius: var(--podi-radius-md);
   background: var(--td-bg-color-container);
@@ -70,6 +94,10 @@ html.t-theme-dark {
 }
 
 .podi-action-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--podi-space-2);
+  flex-wrap: wrap;
   border: 1px solid var(--td-border-level-1-color);
   border-radius: var(--podi-radius-md);
   background: var(--td-bg-color-container);

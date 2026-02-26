@@ -221,3 +221,40 @@ class EvalBatchRunItem(Base):
     batch_session: Mapped[EvalBatchSession] = relationship(back_populates="run_items")
     asset: Mapped[EvalBatchAsset] = relationship(back_populates="run_items")
     eval_run: Mapped[EvalRun | None] = relationship()
+    output_reviews: Mapped[list["EvalBatchOutputReview"]] = relationship(
+        back_populates="run_item", cascade="all, delete-orphan"
+    )
+
+
+class EvalBatchOutputReview(Base):
+    """Per-output review for LoRA batch comparison results."""
+
+    __tablename__ = "eval_batch_output_review"
+    __table_args__ = (
+        UniqueConstraint("run_item_id", "output_index", name="uq_eval_batch_output_review_item_index"),
+        Index("ix_eval_batch_output_review_batch", "batch_session_id"),
+        Index("ix_eval_batch_output_review_eval_run_id", "eval_run_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    batch_session_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("eval_batch_session.id", ondelete="CASCADE"), nullable=False
+    )
+    run_item_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("eval_batch_run_item.id", ondelete="CASCADE"), nullable=False
+    )
+    eval_run_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("eval_run.id", ondelete="SET NULL"), nullable=True
+    )
+    output_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    verdict: Mapped[str] = mapped_column(String(16), default="pending", nullable=False)
+    reason: Mapped[str | None] = mapped_column(Text)
+    note: Mapped[str | None] = mapped_column(Text)
+    created_by: Mapped[str] = mapped_column(String(64), nullable=False)
+    updated_by: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    run_item: Mapped[EvalBatchRunItem] = relationship(back_populates="output_reviews")

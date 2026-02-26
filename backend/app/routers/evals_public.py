@@ -7,13 +7,14 @@ This router is intended for internal usage on a trusted network. You can:
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 from typing import Any
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, UploadFile, File
-from sqlalchemy import Integer, case, exists, func, select, update
+from sqlalchemy import Integer, case, delete, exists, func, select, update
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -21,6 +22,7 @@ from app.core.db import get_db
 from app.models.eval import (
     EvalAnnotation,
     EvalBatchAsset,
+    EvalBatchOutputReview,
     EvalBatchRunItem,
     EvalBatchSession,
     EvalRun,
@@ -34,6 +36,15 @@ from app.schemas.eval import (
     EvalBatchAssetResponse,
     EvalBatchAssetUpsertRequest,
     EvalBatchCreate,
+    EvalBatchReviewGroupItem,
+    EvalBatchReviewGroupListResponse,
+    EvalBatchReviewOutputItem,
+    EvalBatchReviewProgress,
+    EvalBatchReviewProgressRequest,
+    EvalBatchReviewProgressResponse,
+    EvalBatchOutputReviewListResponse,
+    EvalBatchOutputReviewResponse,
+    EvalBatchOutputReviewUpsertRequest,
     EvalBatchRunItemListResponse,
     EvalBatchRunItemResponse,
     EvalBatchSessionListResponse,
@@ -54,6 +65,7 @@ from app.services.oss import oss_service
 
 
 router = APIRouter(prefix="/api/evals", tags=["evals-public"])
+_BATCH_REVIEW_PAGE_SIZE = 20
 
 
 def _require_public_enabled(request: Request) -> None:
@@ -96,6 +108,36 @@ def _batch_mode_expr():
     return func.json_unquote(func.json_extract(EvalRun.parameters_json, "$.__eval_batch_mode"))
 
 
+def _is_missing_output_review_table(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return "eval_batch_output_review" in text and (
+        "doesn't exist" in text
+        or "no such table" in text
+        or "undefined table" in text
+    )
+
+
+def _load_output_reviews_by_run_items(
+    db: Session,
+    *,
+    run_item_ids: list[str],
+    batch_id: str | None = None,
+) -> list[EvalBatchOutputReview]:
+    if not run_item_ids:
+        return []
+    stmt = select(EvalBatchOutputReview).where(EvalBatchOutputReview.run_item_id.in_(run_item_ids))
+    if batch_id:
+        stmt = stmt.where(EvalBatchOutputReview.batch_session_id == batch_id)
+    stmt = stmt.order_by(EvalBatchOutputReview.output_index.asc(), EvalBatchOutputReview.updated_at.desc())
+    try:
+        return db.execute(stmt).scalars().all()
+    except SQLAlchemyError as exc:  # pragma: no cover - defensive downgrade path.
+        if _is_missing_output_review_table(exc):
+            db.rollback()
+            return []
+        raise
+
+
 def _ensure_batch_owner(batch: EvalBatchSession | None, rater_id: str) -> EvalBatchSession:
     if not batch:
         raise HTTPException(status_code=404, detail="BATCH_NOT_FOUND")
@@ -108,6 +150,82 @@ def _require_batch_exists(batch: EvalBatchSession | None) -> EvalBatchSession:
     if not batch:
         raise HTTPException(status_code=404, detail="BATCH_NOT_FOUND")
     return batch
+
+
+def _normalize_batch_review_progress(
+    review_state: dict[str, Any] | None,
+    *,
+    total_pages: int,
+) -> dict[str, Any]:
+    raw = review_state if isinstance(review_state, dict) else {}
+    def _as_int(value: Any, default: int) -> int:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    page_size = _BATCH_REVIEW_PAGE_SIZE
+    current_page = _as_int(raw.get("current_page"), 1)
+    completed_page = _as_int(raw.get("completed_page"), 0)
+    if current_page < 1:
+        current_page = 1
+    if completed_page < 0:
+        completed_page = 0
+    if total_pages > 0 and current_page > total_pages:
+        current_page = total_pages
+    if completed_page > current_page:
+        completed_page = current_page
+    if total_pages > 0 and completed_page > total_pages:
+        completed_page = total_pages
+    updated_raw = raw.get("updated_at")
+    updated_at = None
+    if isinstance(updated_raw, str) and updated_raw.strip():
+        updated_at = updated_raw.strip()
+    return {
+        "page_size": page_size,
+        "current_page": current_page,
+        "completed_page": completed_page,
+        "updated_at": updated_at,
+    }
+
+
+def _get_batch_review_progress(batch: EvalBatchSession, *, total_pages: int) -> dict[str, Any]:
+    metadata = batch.extra_metadata if isinstance(batch.extra_metadata, dict) else {}
+    review_state = metadata.get("review_state") if isinstance(metadata, dict) else None
+    return _normalize_batch_review_progress(review_state if isinstance(review_state, dict) else None, total_pages=total_pages)
+
+
+def _set_batch_review_progress(
+    batch: EvalBatchSession,
+    *,
+    current_page: int,
+    completed_page: int,
+    total_pages: int,
+) -> dict[str, Any]:
+    normalized = _normalize_batch_review_progress(
+        {
+            "page_size": _BATCH_REVIEW_PAGE_SIZE,
+            "current_page": current_page,
+            "completed_page": completed_page,
+            "updated_at": datetime.utcnow().isoformat() + "Z",
+        },
+        total_pages=total_pages,
+    )
+    metadata = batch.extra_metadata.copy() if isinstance(batch.extra_metadata, dict) else {}
+    metadata["review_state"] = normalized
+    batch.extra_metadata = metadata
+    batch.updated_at = datetime.utcnow()
+    return normalized
+
+
+def _parse_review_progress_updated_at(value: Any) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
 
 
 def _derive_batch_status(
@@ -347,6 +465,43 @@ def _touch_batch_counters(db: Session, batch_id: str) -> EvalBatchSession:
     if run_item_touched:
         db.flush()
     return batch
+
+
+def _cleanup_empty_draft_batches(db: Session, *, keep_recent_minutes: int = 10) -> int:
+    """Remove invalid draft batches that never uploaded any asset nor created any run item."""
+    threshold = datetime.utcnow() - timedelta(minutes=max(1, int(keep_recent_minutes or 1)))
+    candidates = (
+        db.execute(
+            select(EvalBatchSession.id)
+            .where(
+                EvalBatchSession.status == "draft",
+                EvalBatchSession.created_at < threshold,
+            )
+            .order_by(EvalBatchSession.created_at.asc())
+            .limit(200)
+        )
+        .scalars()
+        .all()
+    )
+    if not candidates:
+        return 0
+    deleted = 0
+    for batch_id in candidates:
+        asset_exists = db.execute(
+            select(exists().where(EvalBatchAsset.batch_session_id == batch_id))
+        ).scalar_one()
+        if asset_exists:
+            continue
+        run_exists = db.execute(
+            select(exists().where(EvalBatchRunItem.batch_session_id == batch_id))
+        ).scalar_one()
+        if run_exists:
+            continue
+        db.execute(delete(EvalBatchSession).where(EvalBatchSession.id == batch_id))
+        deleted += 1
+    if deleted > 0:
+        db.flush()
+    return deleted
 
 
 def _to_positive_int(value: Any) -> int | None:
@@ -1053,6 +1208,9 @@ def list_batches(
 ) -> EvalBatchSessionListResponse:
     _require_public_enabled(request)
     rater_id = _get_or_set_rater_id(request, response)
+    purged = _cleanup_empty_draft_batches(db)
+    if purged > 0:
+        db.commit()
     stmt = select(EvalBatchSession)
     count_stmt = select(func.count()).select_from(EvalBatchSession)
     if workflow_version_id:
@@ -1383,6 +1541,11 @@ def list_batch_items(
     if run_ids:
         runs = db.execute(select(EvalRun).where(EvalRun.id.in_(run_ids))).scalars().all()
         run_map = {str(run.id): run for run in runs}
+    review_map: dict[str, list[EvalBatchOutputReview]] = {}
+    run_item_ids = [str(item.id) for item in items if item.id]
+    for review in _load_output_reviews_by_run_items(db, run_item_ids=run_item_ids):
+        key = str(review.run_item_id)
+        review_map.setdefault(key, []).append(review)
     touched = False
     for item in items:
         if item.status == "canceled":
@@ -1427,11 +1590,364 @@ def list_batch_items(
                 else None
             ),
         )
+        setattr(
+            item,
+            "run_output_reviews_json",
+            [
+                EvalBatchOutputReviewResponse.model_validate(review).model_dump()
+                for review in review_map.get(str(item.id), [])
+            ],
+        )
         setattr(item, "run_error_message", str(run.error_message or "") if run and run.error_message else None)
     if touched:
         _touch_batch_counters(db, batch.id)
         db.commit()
     return EvalBatchRunItemListResponse(total=total, items=items)
+
+
+@router.get("/batches/{batch_id}/review-groups", response_model=EvalBatchReviewGroupListResponse)
+def list_batch_review_groups(
+    batch_id: str,
+    request: Request,
+    response: Response,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(_BATCH_REVIEW_PAGE_SIZE, ge=1, le=200),
+    db: Session = Depends(get_db),
+) -> EvalBatchReviewGroupListResponse:
+    _require_public_enabled(request)
+    _get_or_set_rater_id(request, response)
+    batch = _require_batch_exists(db.get(EvalBatchSession, batch_id))
+    batch = _touch_batch_counters(db, batch.id)
+    db.commit()
+    db.refresh(batch)
+    if str(batch.status or "").lower() not in {"succeeded", "failed", "stopped"}:
+        raise HTTPException(status_code=409, detail="BATCH_REVIEW_NOT_READY")
+
+    normalized_page_size = _BATCH_REVIEW_PAGE_SIZE if page_size != _BATCH_REVIEW_PAGE_SIZE else page_size
+    total_groups = int(
+        db.execute(
+            select(func.count(EvalBatchAsset.id)).where(EvalBatchAsset.batch_session_id == batch.id)
+        ).scalar_one()
+        or 0
+    )
+    total_pages = max(1, (total_groups + normalized_page_size - 1) // normalized_page_size) if total_groups > 0 else 0
+    if total_pages > 0 and page > total_pages:
+        raise HTTPException(status_code=400, detail="BATCH_REVIEW_PAGE_INVALID")
+    offset = (page - 1) * normalized_page_size
+
+    assets = (
+        db.execute(
+            select(EvalBatchAsset)
+            .where(EvalBatchAsset.batch_session_id == batch.id)
+            .order_by(EvalBatchAsset.created_at.asc(), EvalBatchAsset.id.asc())
+            .offset(offset)
+            .limit(normalized_page_size)
+        )
+        .scalars()
+        .all()
+    )
+    asset_ids = [str(asset.id) for asset in assets]
+
+    run_items: list[EvalBatchRunItem] = []
+    if asset_ids:
+        run_items = (
+            db.execute(
+                select(EvalBatchRunItem)
+                .where(
+                    EvalBatchRunItem.batch_session_id == batch.id,
+                    EvalBatchRunItem.asset_id.in_(asset_ids),
+                )
+                .order_by(EvalBatchRunItem.repeat_index.asc(), EvalBatchRunItem.created_at.asc())
+            )
+            .scalars()
+            .all()
+        )
+
+    run_ids = [
+        str(item.eval_run_id).strip()
+        for item in run_items
+        if isinstance(item.eval_run_id, str) and str(item.eval_run_id).strip()
+    ]
+    run_map: dict[str, EvalRun] = {}
+    if run_ids:
+        runs = db.execute(select(EvalRun).where(EvalRun.id.in_(run_ids))).scalars().all()
+        run_map = {str(run.id): run for run in runs}
+
+    run_item_ids = [str(item.id) for item in run_items if item.id]
+    review_rows = _load_output_reviews_by_run_items(
+        db,
+        run_item_ids=run_item_ids,
+        batch_id=batch.id,
+    )
+    review_map: dict[tuple[str, int], EvalBatchOutputReview] = {
+        (str(row.run_item_id), int(row.output_index)): row for row in review_rows
+    }
+
+    run_items_by_asset: dict[str, list[EvalBatchRunItem]] = {}
+    for item in run_items:
+        key = str(item.asset_id)
+        run_items_by_asset.setdefault(key, []).append(item)
+
+    group_items: list[EvalBatchReviewGroupItem] = []
+    for asset in assets:
+        asset_run_items = run_items_by_asset.get(str(asset.id), [])
+        outputs: list[EvalBatchReviewOutputItem] = []
+        run_total = len(asset_run_items)
+        completed = 0
+        failed = 0
+        waiting = 0
+        last_error = ""
+
+        for run_item in asset_run_items:
+            run = run_map.get(str(run_item.eval_run_id or ""))
+            run_status = str(run.status or run_item.status or "").lower() if run else str(run_item.status or "").lower()
+            if run_status in {"succeeded", "failed"}:
+                completed += 1
+            else:
+                waiting += 1
+            if run_status == "failed":
+                failed += 1
+            if not last_error:
+                err = str(run.error_message or run_item.error_message or "").strip() if run else str(run_item.error_message or "").strip()
+                if err:
+                    last_error = err
+
+            output_urls = (
+                [str(url).strip() for url in (run.result_image_urls_json or []) if isinstance(url, str) and str(url).strip()]
+                if run
+                else []
+            )
+            for idx, url in enumerate(output_urls):
+                output_index = idx + 1
+                review = review_map.get((str(run_item.id), output_index))
+                outputs.append(
+                    EvalBatchReviewOutputItem(
+                        run_item_id=str(run_item.id),
+                        run_id=str(run_item.eval_run_id) if run_item.eval_run_id else None,
+                        output_index=output_index,
+                        url=url,
+                        run_status=run_status or None,
+                        review=EvalBatchOutputReviewResponse.model_validate(review) if review else None,
+                    )
+                )
+
+        if outputs:
+            group_status = "has_output"
+        elif failed > 0:
+            group_status = "failed"
+        else:
+            group_status = "no_output"
+
+        group_items.append(
+            EvalBatchReviewGroupItem(
+                asset_id=str(asset.id),
+                source_key=str(asset.source_key or ""),
+                file_name=str(asset.file_name or ""),
+                input_url=str(asset.oss_url or "") or None,
+                group_status=group_status,
+                run_total=run_total,
+                completed=completed,
+                failed=failed,
+                waiting=waiting,
+                outputs=outputs,
+                last_error=last_error or None,
+            )
+        )
+
+    review_progress_raw = _get_batch_review_progress(batch, total_pages=total_pages)
+    review_progress = EvalBatchReviewProgress(
+        page_size=_BATCH_REVIEW_PAGE_SIZE,
+        current_page=int(review_progress_raw["current_page"]),
+        completed_page=int(review_progress_raw["completed_page"]),
+        updated_at=_parse_review_progress_updated_at(review_progress_raw.get("updated_at")),
+    )
+    return EvalBatchReviewGroupListResponse(
+        batch_id=batch.id,
+        page=page,
+        page_size=_BATCH_REVIEW_PAGE_SIZE,
+        total_groups=total_groups,
+        total_pages=total_pages,
+        review_progress=review_progress,
+        items=group_items,
+    )
+
+
+@router.post("/batches/{batch_id}/review-progress", response_model=EvalBatchReviewProgressResponse)
+def save_batch_review_progress(
+    batch_id: str,
+    payload: EvalBatchReviewProgressRequest,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> EvalBatchReviewProgressResponse:
+    _require_public_enabled(request)
+    _get_or_set_rater_id(request, response)
+    batch = _require_batch_exists(db.get(EvalBatchSession, batch_id))
+    batch = _touch_batch_counters(db, batch.id)
+    if str(batch.status or "").lower() not in {"succeeded", "failed", "stopped"}:
+        raise HTTPException(status_code=409, detail="BATCH_REVIEW_NOT_READY")
+
+    total_groups = int(
+        db.execute(
+            select(func.count(EvalBatchAsset.id)).where(EvalBatchAsset.batch_session_id == batch.id)
+        ).scalar_one()
+        or 0
+    )
+    total_pages = max(1, (total_groups + _BATCH_REVIEW_PAGE_SIZE - 1) // _BATCH_REVIEW_PAGE_SIZE) if total_groups > 0 else 0
+    if payload.completed_page > payload.current_page:
+        raise HTTPException(status_code=400, detail="BATCH_REVIEW_PAGE_INVALID")
+    if total_pages > 0 and payload.current_page > total_pages:
+        raise HTTPException(status_code=400, detail="BATCH_REVIEW_PAGE_INVALID")
+
+    normalized = _set_batch_review_progress(
+        batch,
+        current_page=int(payload.current_page),
+        completed_page=int(payload.completed_page),
+        total_pages=total_pages,
+    )
+    db.add(batch)
+    db.commit()
+    db.refresh(batch)
+    return EvalBatchReviewProgressResponse(
+        batch_id=batch.id,
+        review_progress=EvalBatchReviewProgress(
+            page_size=_BATCH_REVIEW_PAGE_SIZE,
+            current_page=int(normalized["current_page"]),
+            completed_page=int(normalized["completed_page"]),
+            updated_at=_parse_review_progress_updated_at(normalized.get("updated_at")),
+        ),
+    )
+
+
+@router.post("/batches/{batch_id}/reviews", response_model=EvalBatchOutputReviewListResponse)
+def upsert_batch_output_reviews(
+    batch_id: str,
+    payload: EvalBatchOutputReviewUpsertRequest,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> EvalBatchOutputReviewListResponse:
+    _require_public_enabled(request)
+    rater_id = _get_or_set_rater_id(request, response)
+    batch = _require_batch_exists(db.get(EvalBatchSession, batch_id))
+    if not payload.items:
+        raise HTTPException(status_code=400, detail="BATCH_REVIEWS_EMPTY")
+    if len(payload.items) > 2000:
+        raise HTTPException(status_code=400, detail="BATCH_REVIEWS_LIMIT_EXCEEDED")
+
+    run_item_ids = list(
+        {
+            str(item.run_item_id or "").strip()
+            for item in payload.items
+            if str(item.run_item_id or "").strip()
+        }
+    )
+    if not run_item_ids:
+        raise HTTPException(status_code=400, detail="BATCH_REVIEW_RUN_ITEM_REQUIRED")
+
+    run_items = (
+        db.execute(
+            select(EvalBatchRunItem).where(
+                EvalBatchRunItem.batch_session_id == batch.id,
+                EvalBatchRunItem.id.in_(run_item_ids),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    run_item_map = {str(item.id): item for item in run_items}
+    if len(run_item_map) != len(run_item_ids):
+        raise HTTPException(status_code=400, detail="BATCH_REVIEW_RUN_ITEM_INVALID")
+
+    existing_rows = (
+        db.execute(
+            select(EvalBatchOutputReview).where(
+                EvalBatchOutputReview.batch_session_id == batch.id,
+                EvalBatchOutputReview.run_item_id.in_(run_item_ids),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    row_map: dict[tuple[str, int], EvalBatchOutputReview] = {
+        (str(row.run_item_id), int(row.output_index)): row for row in existing_rows
+    }
+
+    allowed_verdicts = {"pending", "satisfied", "unsatisfied"}
+    touched_keys: set[tuple[str, int]] = set()
+    now = datetime.utcnow()
+
+    for item in payload.items:
+        run_item_id = str(item.run_item_id or "").strip()
+        if not run_item_id:
+            raise HTTPException(status_code=400, detail="BATCH_REVIEW_RUN_ITEM_REQUIRED")
+        run_item = run_item_map.get(run_item_id)
+        if run_item is None:
+            raise HTTPException(status_code=400, detail="BATCH_REVIEW_RUN_ITEM_INVALID")
+
+        output_index = int(item.output_index)
+        verdict = str(item.verdict or "pending").strip().lower()
+        if verdict not in allowed_verdicts:
+            raise HTTPException(status_code=400, detail="BATCH_REVIEW_VERDICT_INVALID")
+        reason = str(item.reason or "").strip() or None
+        note = str(item.note or "").strip() or None
+
+        key = (run_item_id, output_index)
+        row = row_map.get(key)
+        should_clear = verdict == "pending" and not reason and not note
+        if should_clear:
+            if row is not None:
+                db.delete(row)
+                touched_keys.add(key)
+                row_map.pop(key, None)
+            continue
+
+        if row is None:
+            row = EvalBatchOutputReview(
+                id=uuid4().hex,
+                batch_session_id=batch.id,
+                run_item_id=run_item_id,
+                eval_run_id=run_item.eval_run_id,
+                output_index=output_index,
+                verdict=verdict,
+                reason=reason,
+                note=note,
+                created_by=rater_id,
+                updated_by=rater_id,
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(row)
+            row_map[key] = row
+        else:
+            row.eval_run_id = run_item.eval_run_id
+            row.verdict = verdict
+            row.reason = reason
+            row.note = note
+            row.updated_by = rater_id
+            row.updated_at = now
+            db.add(row)
+        touched_keys.add(key)
+
+    db.commit()
+
+    rows: list[EvalBatchOutputReview] = []
+    if touched_keys:
+        touched_run_item_ids = list({run_item_id for run_item_id, _ in touched_keys})
+        touched_output_indexes = list({output_index for _, output_index in touched_keys})
+        rows = (
+            db.execute(
+                select(EvalBatchOutputReview)
+                .where(EvalBatchOutputReview.batch_session_id == batch.id)
+                .where(EvalBatchOutputReview.run_item_id.in_(touched_run_item_ids))
+                .where(EvalBatchOutputReview.output_index.in_(touched_output_indexes))
+                .order_by(EvalBatchOutputReview.updated_at.desc())
+            )
+            .scalars()
+            .all()
+        )
+        rows = [row for row in rows if (str(row.run_item_id), int(row.output_index)) in touched_keys]
+    return EvalBatchOutputReviewListResponse(total=len(rows), items=rows)
 
 
 @router.post("/batches/{batch_id}/stop", response_model=EvalBatchStopResponse)

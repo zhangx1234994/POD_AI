@@ -29,6 +29,9 @@
 ### 2.3 LoRA 批测
 
 - 入口：顶部导航 `LoRA批测`
+- 二级页签：
+  - **生成任务**：上传、提交、执行进度、失败统计
+  - **结果标注**：分页标注、断点续标、CSV 导出
 - 参数：
   - 工作流：仅可选“参数 schema 含 LoRA 字段且含 `url` 字段”的工作流
   - LoRA：优先读取 schema options；若未配置枚举值则允许手动输入
@@ -59,10 +62,17 @@
     - 已提交：仅表示 run 创建成功
     - 已完成：表示 run 状态已变为 succeeded/failed
     - 有图完成：表示 succeeded 且 `result_image_urls_json` 非空
-  - 对照标注：
-    - 以“原图”为一行，横向平铺“原图 + 全部结果图”（不再按第几次折叠拆分）
-    - 每张结果图可标注：满意 / 不满意 / 未标注，并可填写原因与备注
-    - 支持导出 CSV（全部对照集 / 仅不满意样本），用于后续训练覆盖分析
+  - 结果标注（批次结束后开启）：
+    - 标注页固定 **每页 20 组**（组=原图素材），只拉当前页，不再一次性加载全量
+    - 页面展示全部组（含无结果/失败组），但仅结果图可标注
+    - 标注策略改为**仅标记不满意**（默认满意），并可填写原因/备注
+    - 支持“本页完成”，会写入 `current_page/completed_page`，刷新后自动续标
+    - 标注与进度都持久化到数据库
+    - 支持导出 CSV（全部对照集 / 仅不满意样本）
+      - 有不满意记录：`不满意`
+      - 无不满意且页已完成：`满意(默认)`
+      - 无不满意且页未完成：`未标注`
+      - 无结果图：`无结果`
 
 ### 2.4 文档页
 
@@ -82,6 +92,9 @@
 - `GET /api/evals/workflow-versions?status=active`
 - `POST /api/evals/runs`
 - `GET /api/evals/runs`
+- `POST /api/evals/batches/{batch_id}/reviews`
+- `GET /api/evals/batches/{batch_id}/review-groups`
+- `POST /api/evals/batches/{batch_id}/review-progress`
 - `GET /api/evals/runs/batches`
 - `POST /api/evals/runs/batches/{batch_id}/stop`
 - `GET /api/evals/runs/{run_id}`

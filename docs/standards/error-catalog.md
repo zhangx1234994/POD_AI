@@ -70,6 +70,13 @@
 | BATCH_ASSET_UPLOAD_STATUS_INVALID | 素材上传状态非法 | 400 |
 | BATCH_ASSET_URL_REQUIRED | 上传成功素材缺少 URL | 400 |
 | BATCH_ITEM_SUBMIT_FAILED | 执行项提交失败 | 500 |
+| BATCH_REVIEWS_EMPTY | 批次标注写入请求为空 | 400 |
+| BATCH_REVIEWS_LIMIT_EXCEEDED | 批次标注写入条数超限 | 400 |
+| BATCH_REVIEW_RUN_ITEM_REQUIRED | 批次标注缺少执行项 ID | 400 |
+| BATCH_REVIEW_RUN_ITEM_INVALID | 批次标注执行项不属于当前批次 | 400 |
+| BATCH_REVIEW_VERDICT_INVALID | 批次标注 verdict 非法 | 400 |
+| BATCH_REVIEW_NOT_READY | 批次未结束，暂不可进入标注分页 | 409 |
+| BATCH_REVIEW_PAGE_INVALID | 标注分页页码非法（越界/completed_page > current_page） | 400 |
 
 ---
 

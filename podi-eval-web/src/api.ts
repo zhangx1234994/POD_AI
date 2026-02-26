@@ -258,6 +258,8 @@ export const evalApi = {
         planned_image_count?: number;
         repeat_count?: number;
         planned_run_count?: number;
+        uploaded_count?: number;
+        upload_failed_count?: number;
         submitted_count?: number;
         running_count?: number;
         succeeded_count?: number;
@@ -290,6 +292,8 @@ export const evalApi = {
           expectedTotal: planned,
           expectedImages: Number(item.planned_image_count || 0),
           expectedRepeat: Number(item.repeat_count || 0),
+          uploadedCount: Number(item.uploaded_count || 0),
+          uploadFailedCount: Number(item.upload_failed_count || 0),
           latestCreatedAt: item.created_at || null,
           latestUpdatedAt: item.updated_at || null,
           submittedCount: submitted,
@@ -390,12 +394,101 @@ export const evalApi = {
         run_status?: string | null;
         run_prompt?: string | null;
         run_output_urls_json?: string[] | null;
+        run_output_reviews_json?: Array<{
+          id: string;
+          run_item_id: string;
+          output_index: number;
+          verdict: string;
+          reason?: string | null;
+          note?: string | null;
+          updated_by?: string | null;
+          updated_at?: string | null;
+        }> | null;
         run_error_message?: string | null;
         error_code?: string | null;
         error_message?: string | null;
       }>;
     }>(`/api/evals/batches/${encodeURIComponent(batchId)}/items?${qs.toString()}`, {}, BATCH_DETAIL_TIMEOUT_MS);
   },
+  listBatchReviewGroups: (batchId: string, params?: { page?: number; page_size?: number }) => {
+    const qs = new URLSearchParams();
+    qs.set('page', String(Math.max(1, Number(params?.page || 1))));
+    qs.set('page_size', String(Math.max(1, Number(params?.page_size || 20))));
+    return request<{
+      batch_id: string;
+      page: number;
+      page_size: number;
+      total_groups: number;
+      total_pages: number;
+      review_progress: {
+        page_size: number;
+        current_page: number;
+        completed_page: number;
+        updated_at?: string | null;
+      };
+      items: Array<{
+        asset_id: string;
+        source_key: string;
+        file_name: string;
+        input_url?: string | null;
+        group_status: 'has_output' | 'no_output' | 'failed' | string;
+        run_total: number;
+        completed: number;
+        failed: number;
+        waiting: number;
+        outputs: Array<{
+          run_item_id: string;
+          run_id?: string | null;
+          output_index: number;
+          url: string;
+          run_status?: string | null;
+          review?: {
+            id: string;
+            run_item_id: string;
+            output_index: number;
+            verdict: string;
+            reason?: string | null;
+            note?: string | null;
+            updated_by?: string | null;
+            updated_at?: string | null;
+          } | null;
+        }>;
+        last_error?: string | null;
+      }>;
+    }>(`/api/evals/batches/${encodeURIComponent(batchId)}/review-groups?${qs.toString()}`, {}, BATCH_DETAIL_TIMEOUT_MS);
+  },
+  saveBatchReviewProgress: (
+    batchId: string,
+    payload: { current_page: number; completed_page: number; page_size?: number },
+  ) =>
+    request<{
+      batch_id: string;
+      review_progress: {
+        page_size: number;
+        current_page: number;
+        completed_page: number;
+        updated_at?: string | null;
+      };
+    }>(`/api/evals/batches/${encodeURIComponent(batchId)}/review-progress`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  upsertBatchOutputReviews: (
+    batchId: string,
+    payload: {
+      items: Array<{
+        run_item_id: string;
+        output_index: number;
+        verdict: 'pending' | 'satisfied' | 'unsatisfied';
+        reason?: string;
+        note?: string;
+      }>;
+    },
+  ) =>
+    request<{ total: number; items: Array<{ id: string; run_item_id: string; output_index: number; verdict: string }> }>(
+      `/api/evals/batches/${encodeURIComponent(batchId)}/reviews`,
+      { method: 'POST', body: JSON.stringify(payload) },
+    ),
   getRun: (runId: string) => request<EvalRun>(`/api/evals/runs/${runId}`),
   createAnnotation: (runId: string, payload: { rating: number; comment?: string }) =>
     request(`/api/evals/runs/${runId}/annotations`, { method: 'POST', body: JSON.stringify(payload) }),

@@ -250,6 +250,7 @@ class EvalBatchRunItemResponse(BaseModel):
     run_status: Optional[str] = None
     run_prompt: Optional[str] = None
     run_output_urls_json: Optional[List[str]] = None
+    run_output_reviews_json: Optional[List["EvalBatchOutputReviewResponse"]] = None
     run_error_message: Optional[str] = None
     error_code: Optional[str] = None
     error_message: Optional[str] = None
@@ -263,6 +264,90 @@ class EvalBatchRunItemResponse(BaseModel):
 class EvalBatchRunItemListResponse(BaseModel):
     total: int
     items: List[EvalBatchRunItemResponse]
+
+
+class EvalBatchOutputReviewResponse(BaseModel):
+    id: str
+    batch_session_id: str
+    run_item_id: str
+    eval_run_id: Optional[str] = None
+    output_index: int
+    verdict: str
+    reason: Optional[str] = None
+    note: Optional[str] = None
+    updated_by: str
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class EvalBatchOutputReviewUpsertItem(BaseModel):
+    run_item_id: str = Field(..., description="批次执行条目ID")
+    output_index: int = Field(..., ge=1, le=50, description="输出序号（从1开始）")
+    verdict: str = Field("pending", description="pending/satisfied/unsatisfied")
+    reason: Optional[str] = Field(None, description="不满意原因（可选）")
+    note: Optional[str] = Field(None, description="备注（可选）")
+
+
+class EvalBatchOutputReviewUpsertRequest(BaseModel):
+    items: List[EvalBatchOutputReviewUpsertItem]
+
+
+class EvalBatchOutputReviewListResponse(BaseModel):
+    total: int
+    items: List[EvalBatchOutputReviewResponse]
+
+
+class EvalBatchReviewProgress(BaseModel):
+    page_size: int = Field(20, description="分页大小（固定20）")
+    current_page: int = Field(1, ge=1, description="当前页")
+    completed_page: int = Field(0, ge=0, description="已完成页（默认满意）")
+    updated_at: Optional[datetime] = Field(None, description="进度更新时间")
+
+
+class EvalBatchReviewOutputItem(BaseModel):
+    run_item_id: str
+    run_id: Optional[str] = None
+    output_index: int
+    url: str
+    run_status: Optional[str] = None
+    review: Optional[EvalBatchOutputReviewResponse] = None
+
+
+class EvalBatchReviewGroupItem(BaseModel):
+    asset_id: str
+    source_key: str
+    file_name: str
+    input_url: Optional[str] = None
+    group_status: str = Field(..., description="has_output/no_output/failed")
+    run_total: int
+    completed: int
+    failed: int
+    waiting: int
+    outputs: List[EvalBatchReviewOutputItem]
+    last_error: Optional[str] = None
+
+
+class EvalBatchReviewGroupListResponse(BaseModel):
+    batch_id: str
+    page: int
+    page_size: int
+    total_groups: int
+    total_pages: int
+    review_progress: EvalBatchReviewProgress
+    items: List[EvalBatchReviewGroupItem]
+
+
+class EvalBatchReviewProgressRequest(BaseModel):
+    current_page: int = Field(..., ge=1, description="当前页")
+    completed_page: int = Field(..., ge=0, description="已完成页")
+    page_size: int = Field(20, ge=1, description="分页大小（固定20）")
+
+
+class EvalBatchReviewProgressResponse(BaseModel):
+    batch_id: str
+    review_progress: EvalBatchReviewProgress
 
 
 class EvalBatchStopResponse(BaseModel):
@@ -280,3 +365,4 @@ class EvalBatchSubmitResponse(BaseModel):
 
 
 EvalRunWithLatestAnnotationResponse.model_rebuild()
+EvalBatchRunItemResponse.model_rebuild()
