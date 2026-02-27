@@ -13,11 +13,13 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Request
+from sqlalchemy import or_
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import get_settings
 from app.core.db import get_session
-from app.models.integration import Ability, AbilityTask, Executor
+from app.models.integration import Ability, AbilityTask, ComfyuiLora, Executor
 from app.schemas import abilities as ability_schemas
 from app.services.ability_invocation import ability_invocation_service
 from app.services.ability_logs import ability_log_service
@@ -238,6 +240,32 @@ def _extract_urls_from_value(value: Any) -> list[str]:
     return dedup
 
 
+def _normalize_base_model_tag(value: Any) -> str:
+    if not isinstance(value, str):
+        return ""
+    return value.strip().lower().replace("-", "").replace("_", "").replace(" ", "")
+
+
+def _match_lora_base_model(row: ComfyuiLora, base_model_query: str | None) -> bool:
+    if not base_model_query:
+        return True
+    target = _normalize_base_model_tag(base_model_query)
+    if not target:
+        return True
+    values: list[str] = []
+    if isinstance(row.base_model, str) and row.base_model.strip():
+        values.append(row.base_model.strip())
+    if isinstance(row.base_models, list):
+        values.extend([str(item).strip() for item in row.base_models if str(item).strip()])
+    if not values:
+        return False
+    for item in values:
+        normalized = _normalize_base_model_tag(item)
+        if normalized == target or target in normalized or normalized in target:
+            return True
+    return False
+
+
 def _build_openapi(*, podi_server: str | None = None) -> dict[str, Any]:
     settings = get_settings()
     # This plugin runs on our backend. Coze must be able to reach this URL.
@@ -313,6 +341,31 @@ def _build_openapi(*, podi_server: str | None = None) -> dict[str, Any]:
                         "queueMaxSize": {"type": "integer", "nullable": True},
                         "supported": {"type": "boolean"},
                         "message": {"type": "string", "nullable": True},
+                    },
+                },
+            },
+        },
+    }
+    lora_catalog_schema: dict[str, Any] = {
+        "type": "object",
+        "properties": {
+            "executorId": {"type": "string", "nullable": True},
+            "baseUrl": {"type": "string", "nullable": True},
+            "count": {"type": "integer"},
+            "installedCount": {"type": "integer"},
+            "loraNames": {"type": "array", "items": {"type": "string"}},
+            "untrackedNames": {"type": "array", "items": {"type": "string"}},
+            "items": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "fileName": {"type": "string"},
+                        "displayName": {"type": "string"},
+                        "status": {"type": "string"},
+                        "installed": {"type": "boolean"},
+                        "baseModels": {"type": "array", "items": {"type": "string"}},
+                        "tags": {"type": "array", "items": {"type": "string"}},
                     },
                 },
             },
@@ -455,6 +508,38 @@ def _build_openapi(*, podi_server: str | None = None) -> dict[str, Any]:
             },
         }
     }
+    paths["/api/coze/podi/comfyui/lora-catalog"] = {
+        "post": {
+            "operationId": "podi_comfyui_lora_catalog",
+            "summary": "PODI · ComfyUI LoRA 查询",
+            "description": "查询 LoRA 目录，可按基座模型筛选；支持指定 executorId 返回当前服务器安装状态。",
+            "requestBody": {
+                "required": False,
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "executorId": {"type": "string", "nullable": True},
+                                "q": {"type": "string", "nullable": True},
+                                "status": {"type": "string", "nullable": True},
+                                "baseModel": {"type": "string", "nullable": True},
+                                "installedOnly": {"type": "boolean", "nullable": True},
+                                "includeUntracked": {"type": "boolean", "nullable": True},
+                                "limit": {"type": "integer", "nullable": True},
+                            },
+                        }
+                    }
+                },
+            },
+            "responses": {
+                "200": {
+                    "description": "LoRA catalog result",
+                    "content": {"application/json": {"schema": lora_catalog_schema}},
+                }
+            },
+        }
+    }
 
     return {
         "openapi": "3.0.0",
@@ -510,6 +595,8 @@ def _build_openapi_filtered(
     allowed = {f"/api/coze/podi/tools/{a.provider}/{a.capability_key}" for a in abilities}
     allowed.add("/api/coze/podi/tasks/get")
     allowed.add("/api/coze/podi/comfyui/queue-summary")
+    if "comfyui" in providers:
+        allowed.add("/api/coze/podi/comfyui/lora-catalog")
     doc["paths"] = {k: v for k, v in paths.items() if k in allowed}
     doc["info"]["title"] = title
     doc["info"]["description"] = description
@@ -1637,3 +1724,90 @@ def get_comfyui_queue_summary(request: Request, body: dict[str, Any] | None = No
     result["servers"] = servers
     result["timestamp"] = datetime.now(timezone.utc).isoformat()
     return result
+
+
+@router.post("/comfyui/lora-catalog")
+def get_comfyui_lora_catalog(request: Request, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    _require_internal(request)
+    body = body if isinstance(body, dict) else {}
+    executor_id = str(body.get("executorId") or "").strip() or None
+    query = str(body.get("q") or "").strip() or None
+    status = str(body.get("status") or "active").strip() or None
+    base_model = str(body.get("baseModel") or "").strip() or None
+    installed_only = _truthy(body.get("installedOnly"))
+    include_untracked = _truthy(body.get("includeUntracked"))
+    raw_limit = body.get("limit")
+    try:
+        limit = int(raw_limit) if raw_limit is not None else 500
+    except (TypeError, ValueError):
+        limit = 500
+    limit = max(1, min(limit, 5000))
+
+    with get_session() as session:
+        rows: list[ComfyuiLora] = []
+        try:
+            stmt = select(ComfyuiLora)
+            if status and status.lower() != "all":
+                stmt = stmt.where(ComfyuiLora.status == status)
+            if query:
+                keyword = f"%{query}%"
+                stmt = stmt.where(or_(ComfyuiLora.file_name.like(keyword), ComfyuiLora.display_name.like(keyword)))
+            rows = session.execute(stmt.order_by(ComfyuiLora.updated_at.desc()).limit(limit)).scalars().all()
+        except SQLAlchemyError:
+            rows = []
+
+    installed_set: set[str] = set()
+    base_url: str | None = None
+    if executor_id:
+        try:
+            catalog = integration_test_service.get_comfyui_model_catalog(executor_id=executor_id)
+            raw_files = catalog.get("models", {}).get("lora") or []
+            installed_set = {str(item).strip() for item in raw_files if str(item).strip()}
+            base_url = str(catalog.get("baseUrl") or "").strip() or None
+        except Exception:
+            installed_set = set()
+            base_url = None
+
+    items: list[dict[str, Any]] = []
+    tracked_files: set[str] = set()
+    for row in rows:
+        if not _match_lora_base_model(row, base_model):
+            continue
+        installed = row.file_name in installed_set if executor_id else False
+        if installed_only and executor_id and not installed:
+            continue
+        base_models: list[str] = []
+        if isinstance(row.base_models, list):
+            base_models = [str(item).strip() for item in row.base_models if str(item).strip()]
+        elif isinstance(row.base_model, str) and row.base_model.strip():
+            base_models = [row.base_model.strip()]
+        tags = [str(item).strip() for item in (row.tags or []) if str(item).strip()]
+        items.append(
+            {
+                "fileName": row.file_name,
+                "displayName": row.display_name or row.file_name,
+                "status": row.status,
+                "installed": installed,
+                "baseModels": base_models,
+                "tags": tags,
+            }
+        )
+        tracked_files.add(row.file_name)
+
+    untracked_names: list[str] = []
+    if include_untracked and executor_id and installed_set:
+        candidates = installed_set - tracked_files
+        if query:
+            lowered = query.lower()
+            candidates = {name for name in candidates if lowered in name.lower()}
+        untracked_names = sorted(candidates)[:limit]
+
+    return {
+        "executorId": executor_id,
+        "baseUrl": base_url,
+        "count": len(items),
+        "installedCount": sum(1 for item in items if item.get("installed")),
+        "loraNames": [item["fileName"] for item in items],
+        "untrackedNames": untracked_names,
+        "items": items,
+    }

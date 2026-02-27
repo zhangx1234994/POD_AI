@@ -139,3 +139,58 @@ curl http://127.0.0.1:8099/api/coze/podi/openapi.json
 **错误**
 
 - `COMFYUI_QUEUE_STATUS_ERROR` / `COMFYUI_QUEUE_STATUS_INVALID`
+
+---
+
+## 6) ComfyUI LoRA 查询（独立工具）
+
+### POST /api/coze/podi/comfyui/lora-catalog
+
+**用途**
+
+- 独立查询当前 LoRA 目录（给开发/工作流工具箱直接使用）。
+- 可按 `baseModel`（基座模型）筛选，避免模型与 LoRA 不匹配。
+- 传 `executorId` 时会返回该服务器安装状态（`installed=true/false`）。
+
+**请求体（示例）**
+
+```json
+{
+  "executorId": "executor_comfyui_seamless_117",
+  "baseModel": "qwen_image_edit",
+  "q": "印花",
+  "status": "active",
+  "installedOnly": false,
+  "includeUntracked": true,
+  "limit": 500
+}
+```
+
+**响应体（示例）**
+
+```json
+{
+  "executorId": "executor_comfyui_seamless_117",
+  "baseUrl": "http://117.50.216.233:8079",
+  "count": 2,
+  "installedCount": 1,
+  "loraNames": ["杯子1124.safetensors", "印花提取-YinHuaTiQu-Qwen-Image-Edit-LoRA_V1.safetensors"],
+  "untrackedNames": ["new_lora_xxx.safetensors"],
+  "items": [
+    {
+      "fileName": "杯子1124.safetensors",
+      "displayName": "杯子1124.safetensors",
+      "status": "active",
+      "installed": true,
+      "baseModels": ["qwen_image_edit"],
+      "tags": ["提取", "印花"]
+    }
+  ]
+}
+```
+
+**说明**
+
+- `loraNames` 可直接给工具箱做下拉选项。
+- `includeUntracked=true` 时会额外返回服务器已安装、但目录尚未建档的 LoRA（`untrackedNames`）。
+- 若未传 `executorId`，只返回目录数据，不做“是否安装”判定。

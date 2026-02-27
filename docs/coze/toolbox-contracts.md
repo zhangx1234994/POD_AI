@@ -22,6 +22,7 @@ POST /api/coze/podi/tools/{provider}/{capability_key}
 
 - `POST /api/coze/podi/tasks/get`：查询异步任务结果  
 - `POST /api/coze/podi/comfyui/queue-summary`：查询 ComfyUI 队列汇总
+- `POST /api/coze/podi/comfyui/lora-catalog`：查询 LoRA 列表（支持 `baseModel` 筛选与安装状态）
 
 ## 3. 输入契约（统一）
 
