@@ -316,18 +316,19 @@ class AbilityTaskService:
                 status_str = str((status_dict or {}).get("status_str") or "").lower()
 
                 if status_str == "error":
+                    comfy_error = self._extract_comfyui_error_detail(hist if isinstance(hist, dict) else entry)
                     with get_session() as session:
                         db_task = session.get(AbilityTask, task.id)
                         if db_task:
                             db_task.status = "failed"
-                            db_task.error_message = "COMFYUI_ERROR"
+                            db_task.error_message = comfy_error or "COMFYUI_ERROR"
                             db_task.finished_at = datetime.utcnow()
                             session.add(db_task)
                             session.commit()
                             try:
                                 ability_log_service.finish_failure(
                                     db_task.log_id,
-                                    error_message="COMFYUI_ERROR",
+                                    error_message=comfy_error or "COMFYUI_ERROR",
                                     response_payload=result_payload,
                                     duration_ms=db_task.duration_ms,
                                 )
@@ -662,6 +663,46 @@ class AbilityTaskService:
                 db_task.result_payload = None
                 session.add(db_task)
                 session.commit()
+
+    @staticmethod
+    def _extract_comfyui_error_detail(history_entry: dict[str, Any] | None) -> str | None:
+        if not isinstance(history_entry, dict):
+            return None
+        status = history_entry.get("status")
+        if not isinstance(status, dict):
+            return None
+        messages = status.get("messages")
+        if not isinstance(messages, list):
+            return None
+        for item in reversed(messages):
+            if not (isinstance(item, list) and len(item) >= 2):
+                continue
+            event = str(item[0] or "").strip().lower()
+            payload = item[1]
+            if event != "execution_error" or not isinstance(payload, dict):
+                continue
+            node_id = str(payload.get("node_id") or "").strip()
+            node_type = str(payload.get("node_type") or "").strip()
+            exc_type = str(payload.get("exception_type") or "").strip()
+            exc_msg = " ".join(str(payload.get("exception_message") or "").split())
+            details: list[str] = []
+            if node_id:
+                if node_type:
+                    details.append(f"node={node_id}:{node_type}")
+                else:
+                    details.append(f"node={node_id}")
+            elif node_type:
+                details.append(f"node={node_type}")
+            if exc_type:
+                details.append(f"type={exc_type}")
+            prefix = f"COMFYUI_ERROR({', '.join(details)})" if details else "COMFYUI_ERROR"
+            if exc_msg:
+                # Keep payload concise for task list/CSV readability.
+                if len(exc_msg) > 220:
+                    exc_msg = f"{exc_msg[:217]}..."
+                return f"{prefix}: {exc_msg}"
+            return prefix
+        return None
 
     @staticmethod
     def _format_error(exc: Exception) -> dict[str, Any]:

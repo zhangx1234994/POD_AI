@@ -791,7 +791,10 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         # Seamless workflow uses URL as source image (114 -> 96/113).
         # Keep node 104 untouched: it is a fixed mask input in this workflow.
         overrides.setdefault("114", {})["value"] = image_url
-        overrides["96"] = {"url": image_url}
+        # Add a fragment-only cache buster for LoadImagesFromURL.
+        # This avoids reusing a stale/empty cached output while keeping the real
+        # remote URL unchanged on server side (fragment is not sent in HTTP request).
+        overrides["96"] = {"url": self._append_cache_bust_fragment(image_url)}
         overrides.setdefault("102", {})["image"] = ["96", 0]
 
         prompt = self._as_text(params.get("prompt") or params.get("description"))
@@ -825,6 +828,19 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             overrides.setdefault("102", {}).update(node_inputs)
 
         return (overrides or None), None
+
+    @staticmethod
+    def _append_cache_bust_fragment(url: str) -> str:
+        try:
+            parsed = urlparse(url)
+            marker = f"podi_cb={time.time_ns()}"
+            if parsed.fragment:
+                fragment = f"{parsed.fragment}&{marker}"
+            else:
+                fragment = marker
+            return parsed._replace(fragment=fragment).geturl()
+        except Exception:
+            return url
 
     def _build_pattern_extract_inputs(
         self, params: dict[str, Any], context: ExecutionContext, workflow_definition: dict[str, Any]

@@ -26,7 +26,7 @@ def test_seamless_overrides_keep_mask_node_104_and_only_replace_source_url():
     assert error is None
     assert overrides is not None
     assert overrides["114"]["value"] == "https://example.com/input.png"
-    assert overrides["96"]["url"] == "https://example.com/input.png"
+    assert overrides["96"]["url"].startswith("https://example.com/input.png#podi_cb=")
     assert overrides["102"]["image"] == ["96", 0]
     assert "64" not in overrides
     assert context.workflow.definition["_max_output_images"] == 1
