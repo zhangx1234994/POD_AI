@@ -46,6 +46,9 @@ Invoke-External -FilePath $PythonExe -Arguments @("--version")
 
 Push-Location $Root
 try {
+  Write-Host "==> 安装桌面端依赖（含 PySide6）"
+  Invoke-External -FilePath $PythonExe -Arguments @("-m", "pip", "install", "-e", $Root)
+
   Write-Host "==> 安装/更新 PyInstaller"
   Invoke-External -FilePath $PythonExe -Arguments @("-m", "pip", "install", "--upgrade", "pyinstaller")
 
@@ -70,6 +73,11 @@ try {
     "--windowed",
     "--onefile",
     "--name", "podi-agent-gui",
+    "--collect-all", "PySide6",
+    "--collect-all", "shiboken6",
+    "--hidden-import", "PySide6.QtCore",
+    "--hidden-import", "PySide6.QtGui",
+    "--hidden-import", "PySide6.QtWidgets",
     "--distpath", $DistDir,
     "--workpath", (Join-Path $PyInstallerWorkDir "gui"),
     "--specpath", $PyInstallerWorkDir,
