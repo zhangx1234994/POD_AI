@@ -7,6 +7,7 @@ so we keep auth lightweight and rely on network isolation + optional service tok
 
 from __future__ import annotations
 
+import re
 import time
 from datetime import datetime, timezone
 from typing import Any
@@ -202,8 +203,16 @@ def _extract_urls_from_value(value: Any) -> list[str]:
         return []
     urls: list[str] = []
     if isinstance(value, str):
-        normalized = value.replace(",", "\n")
-        urls.extend([line.strip() for line in normalized.splitlines() if line.strip()])
+        # Keep commas inside URL query string (e.g. "...u=1,2&..."),
+        # only split commas that begin another URL.
+        for raw_line in value.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            for part in re.split(r"[，,](?=https?://)", line):
+                candidate = part.strip().strip("，,")
+                if candidate:
+                    urls.append(candidate)
     elif isinstance(value, (list, tuple, set)):
         for item in value:
             urls.extend(_extract_urls_from_value(item))

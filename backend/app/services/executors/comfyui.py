@@ -131,11 +131,6 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             _apply_inputs(graph_payload, overrides)
         self._normalize_string_nodes(graph_payload)
         workflow_meta = getattr(context.workflow, "extra_metadata", None) or {}
-        workflow_key = workflow_meta.get("workflow_key") or workflow_definition.get("workflow_key")
-        if workflow_key == "sifang_lianxu":
-            # ComfyUI may still execute unreferenced base64 nodes; drop them to avoid errors.
-            if isinstance(graph_payload, dict):
-                graph_payload.pop("104", None)
 
         # Avoid "same inputs => same outputs" surprises when users run the same workflow
         # repeatedly (e.g. "抽卡"). Many shared ComfyUI graphs ship with a fixed seed.
@@ -793,11 +788,11 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         image_url, _ = self._resolve_image_source(params, context)
         if not image_url:
             return None, "COMFYUI_IMAGE_REQUIRED"
-        # Seamless workflow now uses the new URL-only graph (114 -> 96/113).
+        # Seamless workflow uses URL as source image (114 -> 96/113).
+        # Keep node 104 untouched: it is a fixed mask input in this workflow.
         overrides.setdefault("114", {})["value"] = image_url
         overrides["96"] = {"url": image_url}
-        for nid in ("64", "94", "102"):
-            overrides.setdefault(nid, {})["image"] = ["96", 0]
+        overrides.setdefault("102", {})["image"] = ["96", 0]
 
         prompt = self._as_text(params.get("prompt") or params.get("description"))
         if prompt:
@@ -805,7 +800,13 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
 
         pattern_type = self._as_text(params.get("patternType") or params.get("pattern_type"))
         if pattern_type:
-            overrides.setdefault("97", {})["boolean"] = pattern_type.lower() != "twoway"
+            normalized = pattern_type.strip().lower().replace("_", "").replace("-", "").replace(" ", "")
+            twoway_aliases = {"twoway", "2way", "two", "二方连续", "两方连续"}
+            seamless_aliases = {"seamless", "4way", "fourway", "四方连续"}
+            if normalized in twoway_aliases:
+                overrides.setdefault("97", {})["boolean"] = False
+            elif normalized in seamless_aliases:
+                overrides.setdefault("97", {})["boolean"] = True
 
         size = self._coerce_positive_int(params.get("size") or params.get("output_size") or params.get("outputSize"))
         width = self._coerce_positive_int(params.get("width"))
