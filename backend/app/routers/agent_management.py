@@ -1467,6 +1467,12 @@ def get_monitoring_errors(window_hours: int = 24, limit: int = 100) -> schemas.A
             .all()
         )
 
+    def _safe_message(value: Any) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
     buckets: dict[tuple[str, str, str], schemas.AgentMonitoringErrorItem] = {}
     for row in ability_rows:
         status = str(row.status or "").lower()
@@ -1483,14 +1489,14 @@ def get_monitoring_errors(window_hours: int = 24, limit: int = 100) -> schemas.A
                 errorCode=error_code,
                 count=0,
                 lastOccurredAt=None,
-                sampleMessage=row.error_message,
+                sampleMessage=_safe_message(row.error_message),
             )
             buckets[key] = item
         item.count += 1
         if not item.last_occurred_at or (row.updated_at and row.updated_at > item.last_occurred_at):
             item.last_occurred_at = row.updated_at
-        if not item.sample_message and row.error_message:
-            item.sample_message = row.error_message
+        if not item.sample_message:
+            item.sample_message = _safe_message(row.error_message)
 
     for row in agent_rows:
         stage = derive_agent_task_status(
@@ -1512,14 +1518,14 @@ def get_monitoring_errors(window_hours: int = 24, limit: int = 100) -> schemas.A
                 errorCode=error_code,
                 count=0,
                 lastOccurredAt=None,
-                sampleMessage=row.error_message,
+                sampleMessage=_safe_message(row.error_message),
             )
             buckets[key] = item
         item.count += 1
         if not item.last_occurred_at or (row.updated_at and row.updated_at > item.last_occurred_at):
             item.last_occurred_at = row.updated_at
-        if not item.sample_message and row.error_message:
-            item.sample_message = row.error_message
+        if not item.sample_message:
+            item.sample_message = _safe_message(row.error_message)
 
     def _error_sort_key(item: schemas.AgentMonitoringErrorItem) -> tuple[int, float]:
         last = item.last_occurred_at
