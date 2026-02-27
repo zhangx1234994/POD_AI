@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     agent_task_token_ttl: int = Field(default=600, env="AGENT_TASK_TOKEN_TTL")
     agent_heartbeat_token_ttl: int = Field(default=3600, env="AGENT_HEARTBEAT_TOKEN_TTL")
     agent_task_timeout_seconds: int = Field(default=3600, env="AGENT_TASK_TIMEOUT_SECONDS")
+    agent_enroll_code_ttl_seconds: int = Field(default=600, env="AGENT_ENROLL_CODE_TTL_SECONDS")
+    agent_bootstrap_heartbeat_interval: int = Field(default=60, env="AGENT_BOOTSTRAP_HEARTBEAT_INTERVAL")
+    agent_bootstrap_install_key: str | None = Field(default=None, env="AGENT_BOOTSTRAP_INSTALL_KEY")
     kie_task_timeout_seconds: int = Field(default=900, env="KIE_TASK_TIMEOUT_SECONDS")
     agent_debug_tokens: str | None = Field(default=None, env="AGENT_DEBUG_TOKENS")
     jwt_secret_key: str = Field(default="super-secret", env="JWT_SECRET_KEY")
@@ -65,6 +68,11 @@ class Settings(BaseSettings):
     podi_internal_base_url: str = Field(default="http://host.docker.internal:8099", env="PODI_INTERNAL_BASE_URL")
     # Base URL exposed to ComfyUI agents for fetching manifests from this backend.
     agent_manifest_base_url: str | None = Field(default=None, env="AGENT_MANIFEST_BASE_URL")
+    # Local storage for uploaded desktop installer files (served by backend download endpoint).
+    desktop_release_storage_dir: str = Field(
+        default="runtime/desktop_releases",
+        env="DESKTOP_RELEASE_STORAGE_DIR",
+    )
     executor_config_path: str = Field(default="config/executors.yaml", env="EXECUTOR_CONFIG_PATH")
     ability_task_max_workers: int = Field(default=4, env="ABILITY_TASK_MAX_WORKERS")
     # Legacy total worker cap for eval runs (kept for backward compatibility).

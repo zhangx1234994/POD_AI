@@ -142,6 +142,7 @@ class AbilityLogService:
         self,
         *,
         ability_id: str | None = None,
+        ability_ids: list[str] | None = None,
         provider: str | None = None,
         capability_key: str | None = None,
         limit: int = 20,
@@ -150,13 +151,17 @@ class AbilityLogService:
         """Return the most recent logs for an ability or provider/key pair."""
         with get_session() as session:
             stmt = select(AbilityInvocationLog)
+            if ability_ids is not None:
+                normalized_ids = [item for item in ability_ids if item]
+                if not normalized_ids:
+                    return []
+                stmt = stmt.where(AbilityInvocationLog.ability_id.in_(normalized_ids))
             if ability_id:
                 stmt = stmt.where(AbilityInvocationLog.ability_id == ability_id)
-            elif provider and capability_key:
-                stmt = stmt.where(
-                    AbilityInvocationLog.ability_provider == provider,
-                    AbilityInvocationLog.capability_key == capability_key,
-                )
+            if provider:
+                stmt = stmt.where(AbilityInvocationLog.ability_provider == provider)
+            if capability_key:
+                stmt = stmt.where(AbilityInvocationLog.capability_key == capability_key)
             stmt = (
                 stmt.order_by(desc(AbilityInvocationLog.created_at))
                 .offset(max(0, offset))
@@ -168,19 +173,24 @@ class AbilityLogService:
         self,
         *,
         ability_id: str | None = None,
+        ability_ids: list[str] | None = None,
         provider: str | None = None,
         capability_key: str | None = None,
     ) -> int:
         """Return total count for the same filters used in list_logs."""
         with get_session() as session:
             stmt = select(func.count(AbilityInvocationLog.id))
+            if ability_ids is not None:
+                normalized_ids = [item for item in ability_ids if item]
+                if not normalized_ids:
+                    return 0
+                stmt = stmt.where(AbilityInvocationLog.ability_id.in_(normalized_ids))
             if ability_id:
                 stmt = stmt.where(AbilityInvocationLog.ability_id == ability_id)
-            elif provider and capability_key:
-                stmt = stmt.where(
-                    AbilityInvocationLog.ability_provider == provider,
-                    AbilityInvocationLog.capability_key == capability_key,
-                )
+            if provider:
+                stmt = stmt.where(AbilityInvocationLog.ability_provider == provider)
+            if capability_key:
+                stmt = stmt.where(AbilityInvocationLog.capability_key == capability_key)
             return int(session.execute(stmt).scalar() or 0)
 
     def get_log_by_workflow_run_id(self, workflow_run_id: str) -> AbilityInvocationLog | None:

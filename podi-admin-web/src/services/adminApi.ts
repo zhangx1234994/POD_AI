@@ -3,6 +3,8 @@ import type {
   AbilityListResponse,
   AbilityLogListResponse,
   AbilityLogMetricsResponse,
+  AbilityTemplateStateResponse,
+  AbilityTemplateValidateResponse,
   AbilityInvocationLog,
   ApiKey,
   Binding,
@@ -27,6 +29,17 @@ import type {
   ComfyuiAgentTokenResponse,
   ComfyuiAgentTask,
   ComfyuiAgentTaskEvent,
+  ComfyuiDesktopRelease,
+  ComfyuiEnrollCode,
+  ComfyuiManifestDriftResponse,
+  ComfyuiMonitoringSummary,
+  ComfyuiMonitoringQueuesResponse,
+  ComfyuiMonitoringErrorsResponse,
+  ComfyuiRepairJob,
+  ComfyuiRepairPlan,
+  ComfyuiResourceOptionsResponse,
+  ComfyuiRuntimePolicy,
+  ComfyuiRolePrimary,
   JsonRecord,
   PublicAbility,
   StoredAsset,
@@ -526,6 +539,19 @@ export const adminApi = {
       method: 'POST',
       body: JSON.stringify(payload || {}),
     }),
+  createComfyuiEnrollCode: (payload?: { role?: string; ttlSeconds?: number; note?: string; maxUses?: number }) =>
+    request<ComfyuiEnrollCode>('/api/admin/comfyui/agents/enroll-codes', {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
+    }),
+  listComfyuiEnrollCodes: (options?: { status?: string; role?: string; limit?: number }) => {
+    const params = new URLSearchParams();
+    if (options?.status) params.set('status', options.status);
+    if (options?.role) params.set('role', options.role);
+    if (typeof options?.limit === 'number') params.set('limit', String(options.limit));
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    return request<ComfyuiEnrollCode[]>(`/api/admin/comfyui/agents/enroll-codes${suffix}`);
+  },
   listComfyuiAgentAlerts: (options?: { agentId?: string; alertType?: string; limit?: number }) => {
     const params = new URLSearchParams();
     if (options?.agentId) params.set('agent_id', options.agentId);
@@ -551,6 +577,137 @@ export const adminApi = {
     }),
   updateComfyuiManifest: (id: number, payload: Partial<ComfyuiAgentManifest>) =>
     request<ComfyuiAgentManifest>(`/api/admin/comfyui/manifests/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+  publishComfyuiManifest: (id: number, payload?: { notes?: string }) =>
+    request<ComfyuiAgentManifest>(`/api/admin/comfyui/manifests/${id}/publish`, {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
+    }),
+  rollbackComfyuiManifest: (
+    id: number,
+    payload?: {
+      targetManifestId?: number;
+      notes?: string;
+    },
+  ) =>
+    request<ComfyuiAgentManifest>(`/api/admin/comfyui/manifests/${id}/rollback`, {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
+    }),
+  getComfyuiManifestDrift: (manifestId: number, agentId: string) =>
+    request<ComfyuiManifestDriftResponse>(
+      `/api/admin/comfyui/manifests/${manifestId}/drift?agent_id=${encodeURIComponent(agentId)}`,
+    ),
+  createComfyuiRepairPlan: (
+    manifestId: number,
+    payload?: { agentIds?: string[]; mode?: string },
+  ) =>
+    request<ComfyuiRepairPlan>(`/api/admin/comfyui/manifests/${manifestId}/repair-plan`, {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
+    }),
+  createComfyuiRepairJob: (payload: {
+    manifestId: number;
+    mode?: string;
+    push?: boolean;
+    items: Array<{ agentId: string; actions: string[]; missingItems?: Record<string, string[]> }>;
+  }) =>
+    request<ComfyuiRepairJob>('/api/admin/comfyui/repair-jobs', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  listComfyuiRepairJobs: (options?: { manifestId?: number; limit?: number }) => {
+    const params = new URLSearchParams();
+    if (typeof options?.manifestId === 'number') params.set('manifest_id', String(options.manifestId));
+    if (typeof options?.limit === 'number') params.set('limit', String(options.limit));
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    return request<ComfyuiRepairJob[]>(`/api/admin/comfyui/repair-jobs${suffix}`);
+  },
+  getComfyuiRepairJob: (jobId: string) =>
+    request<ComfyuiRepairJob>(`/api/admin/comfyui/repair-jobs/${encodeURIComponent(jobId)}`),
+  getComfyuiRolePrimary: (role: string) =>
+    request<ComfyuiRolePrimary>(`/api/admin/comfyui/roles/${encodeURIComponent(role)}/primary-agent`),
+  setComfyuiRolePrimary: (role: string, agentId: string) =>
+    request<ComfyuiRolePrimary>(`/api/admin/comfyui/roles/${encodeURIComponent(role)}/primary-agent`, {
+      method: 'POST',
+      body: JSON.stringify({ agentId }),
+    }),
+  getComfyuiMonitoringSummary: (windowHours = 24) =>
+    request<ComfyuiMonitoringSummary>(`/api/admin/comfyui/monitoring/summary?window_hours=${windowHours}`),
+  getComfyuiMonitoringQueues: (windowHours = 24) =>
+    request<ComfyuiMonitoringQueuesResponse>(`/api/admin/comfyui/monitoring/queues?window_hours=${windowHours}`),
+  getComfyuiMonitoringErrors: (windowHours = 24, limit = 100) =>
+    request<ComfyuiMonitoringErrorsResponse>(
+      `/api/admin/comfyui/monitoring/errors?window_hours=${windowHours}&limit=${limit}`,
+    ),
+  getComfyuiConcurrencyPolicy: () =>
+    request<ComfyuiRuntimePolicy>('/api/admin/comfyui/policies/concurrency'),
+  updateComfyuiConcurrencyPolicy: (payload: {
+    defaultPolicy?: JsonRecord;
+    laneOverrides?: JsonRecord;
+    nodeOverrides?: JsonRecord;
+    notes?: string;
+  }) =>
+    request<ComfyuiRuntimePolicy>('/api/admin/comfyui/policies/concurrency', {
+      method: 'PUT',
+      body: JSON.stringify(payload || {}),
+    }),
+  getComfyuiRetryPolicy: () =>
+    request<ComfyuiRuntimePolicy>('/api/admin/comfyui/policies/retry'),
+  updateComfyuiRetryPolicy: (payload: {
+    defaultPolicy?: JsonRecord;
+    laneOverrides?: JsonRecord;
+    nodeOverrides?: JsonRecord;
+    notes?: string;
+  }) =>
+    request<ComfyuiRuntimePolicy>('/api/admin/comfyui/policies/retry', {
+      method: 'PUT',
+      body: JSON.stringify(payload || {}),
+    }),
+  listComfyuiResourceOptions: (resourceType: 'lora' | 'model' | 'plugin' | 'version', options?: { status?: string; q?: string; limit?: number }) => {
+    const params = new URLSearchParams();
+    params.set('type', resourceType);
+    if (options?.status) params.set('status', options.status);
+    if (options?.q) params.set('q', options.q);
+    if (typeof options?.limit === 'number') params.set('limit', String(options.limit));
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    return request<ComfyuiResourceOptionsResponse>(`/api/admin/comfyui/resources/options${suffix}`);
+  },
+  getComfyuiDesktopReleaseDownloadUrl: (releaseId: number) =>
+    `${API_BASE}/api/admin/comfyui/desktop/releases/${releaseId}/download`,
+  getComfyuiDesktopLatestDownloadUrl: (params?: { os?: string; arch?: string; channel?: string }) => {
+    const query = new URLSearchParams();
+    if (params?.os) query.set('os', params.os);
+    if (params?.arch) query.set('arch', params.arch);
+    if (params?.channel) query.set('channel', params.channel);
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    return `${API_BASE}/api/admin/comfyui/desktop/releases/latest/download${suffix}`;
+  },
+  listComfyuiDesktopReleases: (options?: {
+    channel?: string;
+    osType?: string;
+    arch?: string;
+    status?: string;
+    limit?: number;
+  }) => {
+    const params = new URLSearchParams();
+    if (options?.channel) params.set('channel', options.channel);
+    if (options?.osType) params.set('os_type', options.osType);
+    if (options?.arch) params.set('arch', options.arch);
+    if (options?.status) params.set('status', options.status);
+    if (typeof options?.limit === 'number') params.set('limit', String(options.limit));
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    return request<ComfyuiDesktopRelease[]>(`/api/admin/comfyui/desktop/releases${suffix}`);
+  },
+  createComfyuiDesktopRelease: (payload: Partial<ComfyuiDesktopRelease>) =>
+    request<ComfyuiDesktopRelease>('/api/admin/comfyui/desktop/releases', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  updateComfyuiDesktopRelease: (releaseId: number, payload: Partial<ComfyuiDesktopRelease>) =>
+    request<ComfyuiDesktopRelease>(`/api/admin/comfyui/desktop/releases/${releaseId}`, {
       method: 'PUT',
       body: JSON.stringify(payload),
     }),
@@ -602,6 +759,26 @@ export const adminApi = {
   updateAbility: (id: string, payload: Partial<Ability>) =>
     request<Ability>('/api/admin/abilities/' + id, { method: 'PUT', body: JSON.stringify(payload) }),
   deleteAbility: (id: string) => request<void>('/api/admin/abilities/' + id, { method: 'DELETE' }),
+  getAbilityTemplateState: (abilityId: string) =>
+    request<AbilityTemplateStateResponse>(`/api/admin/abilities/${encodeURIComponent(abilityId)}/template`),
+  validateAbilityTemplate: (
+    abilityId: string,
+    payload?: { default_params?: JsonRecord; input_schema?: JsonRecord; metadata?: JsonRecord },
+  ) =>
+    request<AbilityTemplateValidateResponse>(`/api/admin/abilities/${encodeURIComponent(abilityId)}/template/validate`, {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
+    }),
+  publishAbilityTemplate: (abilityId: string, payload?: { version_label?: string; notes?: string }) =>
+    request<AbilityTemplateStateResponse>(`/api/admin/abilities/${encodeURIComponent(abilityId)}/template/publish`, {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
+    }),
+  rollbackAbilityTemplate: (abilityId: string, payload: { templateId: string; notes?: string }) =>
+    request<AbilityTemplateStateResponse>(`/api/admin/abilities/${encodeURIComponent(abilityId)}/template/rollback`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
   listAbilityLogs: (abilityId: string, options?: { limit?: number; offset?: number }) => {
     const params = new URLSearchParams();
     params.set('limit', String(options?.limit ?? 20));
@@ -616,6 +793,8 @@ export const adminApi = {
     abilityId?: string;
     provider?: string;
     capabilityKey?: string;
+    templateId?: string;
+    templatePublished?: boolean;
   }) => {
     const params = new URLSearchParams();
     const limit = options?.limit ?? 20;
@@ -624,6 +803,10 @@ export const adminApi = {
     if (options?.abilityId) params.set('abilityId', options.abilityId);
     if (options?.provider) params.set('provider', options.provider);
     if (options?.capabilityKey) params.set('capabilityKey', options.capabilityKey);
+    if (options?.templateId) params.set('templateId', options.templateId);
+    if (typeof options?.templatePublished === 'boolean') {
+      params.set('templatePublished', options.templatePublished ? 'true' : 'false');
+    }
     return request<AbilityLogListResponse>(`/api/admin/abilities/logs?${params.toString()}`);
   },
   resolveAbilityLog: (logId: number) =>
@@ -641,6 +824,8 @@ export const adminApi = {
     provider?: string;
     capabilityKey?: string;
     abilityId?: string;
+    templateId?: string;
+    templatePublished?: boolean;
     executorId?: string;
     status?: string;
     source?: string;
@@ -652,6 +837,10 @@ export const adminApi = {
     if (options?.provider) params.set('provider', options.provider);
     if (options?.capabilityKey) params.set('capabilityKey', options.capabilityKey);
     if (options?.abilityId) params.set('abilityId', options.abilityId);
+    if (options?.templateId) params.set('templateId', options.templateId);
+    if (typeof options?.templatePublished === 'boolean') {
+      params.set('templatePublished', options.templatePublished ? 'true' : 'false');
+    }
     if (options?.executorId) params.set('executorId', options.executorId);
     if (options?.status) params.set('status', options.status);
     if (options?.source) params.set('source', options.source);

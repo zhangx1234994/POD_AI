@@ -14,7 +14,15 @@ from sqlalchemy import select
 
 from app.core.config import get_settings
 from app.core.db import get_session
-from app.models.agent_management import Agent, AgentManifest, AgentTask, AgentTaskEvent, AgentAlert
+from app.models.agent_management import (
+    Agent,
+    AgentAlert,
+    AgentDesktopRelease,
+    AgentEnrollCode,
+    AgentManifest,
+    AgentTask,
+    AgentTaskEvent,
+)
 
 
 MAX_EVENT_MESSAGE_LENGTH = 4096
@@ -77,6 +85,13 @@ class AgentTokenService:
         }
         token = jwt.encode(payload, secret, algorithm="HS256", headers={"kid": kid})
         return AgentToken(token=token, expires_at=expires_at, nonce=nonce, kid=kid)
+
+    def get_keyset(self) -> list[dict[str, str]]:
+        return [
+            {"kid": kid, "secret": secret, "status": "active"}
+            for kid, secret in self._secrets.items()
+            if kid and secret
+        ]
 
     def decode_token(self, token: str, *, expected_scope: str | None = None) -> dict[str, Any]:
         try:
@@ -312,4 +327,193 @@ def list_recent_tasks(agent_id: str | None = None, limit: int = 20) -> list[Agen
         stmt = select(AgentTask).order_by(AgentTask.created_at.desc()).limit(limit)
         if agent_id:
             stmt = stmt.where(AgentTask.agent_id == agent_id)
+        return session.execute(stmt).scalars().all()
+
+
+def issue_enroll_code(
+    *,
+    role: str,
+    ttl_seconds: int,
+    note: str | None = None,
+    max_uses: int = 1,
+    created_by: str | None = None,
+) -> AgentEnrollCode:
+    now = datetime.utcnow()
+    expire_at = now + timedelta(seconds=max(60, int(ttl_seconds)))
+    token = f"enroll_{uuid4().hex}{uuid4().hex[:8]}"
+    code = AgentEnrollCode(
+        code=token,
+        role=(role or "full").strip() or "full",
+        status="active",
+        note=(note or "").strip() or None,
+        max_uses=max(1, int(max_uses or 1)),
+        used_count=0,
+        expires_at=expire_at,
+        created_by=(created_by or "").strip() or None,
+        created_at=now,
+        updated_at=now,
+    )
+    with get_session() as session:
+        session.add(code)
+        session.commit()
+        session.refresh(code)
+        return code
+
+
+def exchange_enroll_code(
+    *,
+    enroll_code: str,
+    machine_name: str | None = None,
+    base_url: str | None = None,
+    host: str | None = None,
+    preferred_agent_id: str | None = None,
+    payload: dict[str, Any] | None = None,
+) -> tuple[Agent, AgentEnrollCode]:
+    code_text = (enroll_code or "").strip()
+    if not code_text:
+        raise HTTPException(status_code=400, detail="AGENT_ENROLL_CODE_REQUIRED")
+    with get_session() as session:
+        code = session.execute(select(AgentEnrollCode).where(AgentEnrollCode.code == code_text)).scalar_one_or_none()
+        if not code:
+            raise HTTPException(status_code=404, detail="AGENT_ENROLL_CODE_NOT_FOUND")
+        if code.status != "active":
+            raise HTTPException(status_code=409, detail="AGENT_ENROLL_CODE_INACTIVE")
+        now = datetime.utcnow()
+        if code.expires_at and now > code.expires_at:
+            code.status = "expired"
+            session.add(code)
+            session.commit()
+            raise HTTPException(status_code=409, detail="AGENT_ENROLL_CODE_EXPIRED")
+        if code.used_count >= max(1, int(code.max_uses or 1)):
+            code.status = "used"
+            session.add(code)
+            session.commit()
+            raise HTTPException(status_code=409, detail="AGENT_ENROLL_CODE_USED")
+
+        role = (code.role or "full").strip() or "full"
+        agent = _upsert_agent_registration(
+            session=session,
+            role=role,
+            machine_name=machine_name,
+            base_url=base_url,
+            host=host,
+            preferred_agent_id=preferred_agent_id,
+            payload={
+                "enrollCode": code.code,
+                "payload": payload or {},
+            },
+            now=now,
+        )
+
+        code.used_count = int(code.used_count or 0) + 1
+        code.used_at = now
+        code.used_by_agent_id = agent.id
+        if code.used_count >= max(1, int(code.max_uses or 1)):
+            code.status = "used"
+        session.add(agent)
+        session.add(code)
+        session.commit()
+        session.refresh(agent)
+        session.refresh(code)
+        return agent, code
+
+
+def _upsert_agent_registration(
+    *,
+    session,
+    role: str,
+    machine_name: str | None,
+    base_url: str | None,
+    host: str | None,
+    preferred_agent_id: str | None,
+    payload: dict[str, Any] | None,
+    now: datetime,
+) -> Agent:
+    target_agent_id = (preferred_agent_id or "").strip()
+    agent = session.get(Agent, target_agent_id) if target_agent_id else None
+    if agent is None:
+        suffix = uuid4().hex[:10]
+        target_agent_id = target_agent_id or f"desktop_{role}_{suffix}"
+        agent = Agent(
+            id=target_agent_id,
+            name=(machine_name or target_agent_id).strip()[:128],
+            role=role,
+            host=(host or machine_name or "").strip()[:128] or None,
+            base_url=(base_url or "").strip() or None,
+            status="active",
+            allowed=True,
+            config={},
+            created_at=now,
+            updated_at=now,
+        )
+    else:
+        if not agent.role:
+            agent.role = role
+        if base_url:
+            agent.base_url = base_url.strip()
+        if host:
+            agent.host = host.strip()[:128]
+        if machine_name and not agent.name:
+            agent.name = machine_name.strip()[:128]
+        agent.allowed = True if agent.allowed is None else agent.allowed
+        agent.status = agent.status or "active"
+        agent.updated_at = now
+
+    cfg = agent.config if isinstance(agent.config, dict) else {}
+    cfg["bootstrap"] = {
+        "last_enrolled_at": now.isoformat() + "Z",
+        "machine_name": (machine_name or "").strip() or None,
+        "payload": payload or None,
+    }
+    agent.config = cfg
+    return agent
+
+
+def auto_exchange_install_key(
+    *,
+    role: str,
+    machine_name: str | None,
+    base_url: str | None,
+    host: str | None,
+    preferred_agent_id: str | None,
+    payload: dict[str, Any] | None,
+) -> Agent:
+    now = datetime.utcnow()
+    normalized_role = (role or "full").strip() or "full"
+    with get_session() as session:
+        agent = _upsert_agent_registration(
+            session=session,
+            role=normalized_role,
+            machine_name=machine_name,
+            base_url=base_url,
+            host=host,
+            preferred_agent_id=preferred_agent_id,
+            payload=payload,
+            now=now,
+        )
+        session.add(agent)
+        session.commit()
+        session.refresh(agent)
+        return agent
+
+
+def list_desktop_releases(
+    *,
+    channel: str | None = None,
+    os_type: str | None = None,
+    arch: str | None = None,
+    status: str | None = None,
+    limit: int = 50,
+) -> list[AgentDesktopRelease]:
+    with get_session() as session:
+        stmt = select(AgentDesktopRelease)
+        if channel:
+            stmt = stmt.where(AgentDesktopRelease.channel == channel)
+        if os_type:
+            stmt = stmt.where(AgentDesktopRelease.os_type == os_type)
+        if arch:
+            stmt = stmt.where(AgentDesktopRelease.arch == arch)
+        if status:
+            stmt = stmt.where(AgentDesktopRelease.status == status)
+        stmt = stmt.order_by(AgentDesktopRelease.updated_at.desc()).limit(min(200, max(1, limit)))
         return session.execute(stmt).scalars().all()

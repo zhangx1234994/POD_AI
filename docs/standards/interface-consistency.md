@@ -7,6 +7,21 @@
 
 ## 1. 状态词统一（按领域）
 
+### 1.0 双阶段状态契约（统一新增）
+
+所有“异步任务查询接口”推荐同时返回以下字段（兼容增量，不替换原 `status`）：
+
+- `submit_status`：`pending/submitting/submit_failed/submitted`
+- `callback_status`：`waiting/running/success/failed/not_configured`
+- `final_status`：`pending/running/success/failed/canceled`
+- `error_code`：标准错误码（可为空）
+
+目的：
+
+- `status` 保持领域兼容（历史字段不破坏）
+- 新字段解决“提交成功 ≠ 回调成功”的歧义
+- 前端展示统一依据 `final_status`，排障细分看 `submit_status/callback_status`
+
 ### 1.1 能力异步任务（`/api/ability-tasks`）
 
 - 允许状态：`queued` / `running` / `succeeded` / `failed` / `cancelled`
@@ -36,6 +51,18 @@
 
 - 允许状态：`pending` / `running` / `success` / `failed` / `rejected`
 - 说明：Agent 协议历史上使用 `success`，中台文档必须明确这不是 AbilityTask 的 `succeeded`。
+- 桌面端 bootstrap 接口（`/api/agent/bootstrap/*`）不返回任务状态，仅返回接入凭证与 keyset；
+  其失败语义统一落在 `AGENT_ENROLL_CODE_*` 和 `AGENT_TOKEN_*`。
+
+### 1.6 清单修复任务（`/api/admin/comfyui/repair-jobs*`）
+
+- `repair-jobs` 必须沿用双阶段字段：
+  - `submitStatus` / `callbackStatus` / `finalStatus`
+- 聚合任务 `status` 仅用于总览：
+  - `pending` / `running` / `succeeded` / `failed` / `partial`
+- 行项目 `status` 必须可追溯到实际任务：
+  - 有 `taskId` 时以任务状态推导
+  - 无 `taskId` 时仅允许 `skipped/failed`（禁止“假成功”）
 
 ### 1.5 历史任务中心（`/api/tasks/v1/*`，兼容链路）
 

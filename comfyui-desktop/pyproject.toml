@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "podi-comfyui-desktop"
+version = "0.1.0"
+description = "ComfyUI desktop agent (GUI + service) for PODI center"
+requires-python = ">=3.10"
+dependencies = [
+  "fastapi>=0.111.0,<1.0.0",
+  "httpx>=0.27.0,<1.0.0",
+  "pyjwt>=2.8.0,<3.0.0",
+  "pydantic>=2.7.0,<3.0.0",
+  "PySide6>=6.7.0,<7.0.0",
+  "uvicorn>=0.30.0,<1.0.0",
+]
+
+[project.scripts]
+comfyui-desktop-server = "agent_server.main:main"
+comfyui-desktop-gui = "app_gui.main:main"
+
+[tool.setuptools]
+packages = [
+  "agent_core",
+  "agent_server",
+  "app_gui",
+  "service_host",
+]

@@ -181,6 +181,10 @@
 **响应体**（状态字段）
 
 - `status`：`queued` / `running` / `succeeded` / `failed`
+- `submitStatus`：`pending/submitting/submit_failed/submitted`
+- `callbackStatus`：`waiting/running/success/failed/not_configured`
+- `finalStatus`：`pending/running/success/failed/canceled`
+- `errorCode`：标准错误码（可为空）
 - `resultPayload`：成功结果（含图片/视频/文本）
 - `errorMessage`：失败原因
 
@@ -195,6 +199,64 @@
 **错误**
 
 - `TASK_NOT_FOUND`
+
+---
+
+## 6) 管理端能力模板（新增）
+
+> 以下接口均为管理员接口（`/api/admin/abilities/*`），用于“能力配置模板化”，不影响线上调用链路。
+> 管理端入口：`能力目录` 列表可查看模板状态；`能力详情/测试 -> 元信息` 中可执行校验/发布/回滚。
+
+### GET /api/admin/abilities/{ability_id}/template
+
+用途：查看模板当前版本与历史快照。
+
+### POST /api/admin/abilities/{ability_id}/template/validate
+
+用途：校验模板结构（参数/schema/metadata），返回错误与警告。
+
+### POST /api/admin/abilities/{ability_id}/template/publish
+
+用途：把当前能力配置固化为模板快照并设为当前版本（可用于回滚基线）。
+
+### POST /api/admin/abilities/{ability_id}/template/rollback
+
+用途：按 `templateId` 回滚能力配置（`default_params/input_schema/metadata`）。
+
+**错误（新增）**
+
+- `ABILITY_TEMPLATE_INVALID`
+- `ABILITY_TEMPLATE_NOT_FOUND`
+
+### GET /api/admin/abilities/logs（补充）
+
+用途：查看全局能力调用清单（管理端“能力调用”页）。
+
+新增筛选参数：
+
+- `templateId`：按“能力当前模板版本 ID”筛选
+- `templatePublished`：按模板发布状态筛选（`true/false`）
+
+返回新增字段：
+
+- `abilityCurrentTemplateId`：能力当前模板版本 ID（可为空）
+- `abilityTemplateHistoryCount`：模板历史快照数量
+- `abilityTemplatePublished`：是否已发布模板
+
+### GET /api/admin/abilities/logs/export（补充）
+
+用途：导出全局能力调用清单（CSV/JSON）。
+
+新增筛选参数与 `/api/admin/abilities/logs` 一致：
+
+- `templateId`
+- `templatePublished`
+
+CSV 新增列：
+
+- `ability_current_template_id`
+- `ability_template_history_count`
+- `ability_template_published`
 
 ---
 

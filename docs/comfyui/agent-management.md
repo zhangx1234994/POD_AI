@@ -1,6 +1,6 @@
 # ComfyUI 服务器管理（中台 ↔ Agent 协议与实现规范）
 
-> 版本：2026-02-05
+> 版本：2026-02-26
 > 目标：用“可下发清单 + 主动推送任务 + 回执/心跳”统一多台 ComfyUI 服务器的模型/插件/工作流一致性。
 
 ## 实时接口文档（对外同步）
@@ -23,6 +23,7 @@
 - 拉取 Manifest 并按动作执行（模型/插件/工作流同步）。
 - 回传执行日志与成功/失败回执。
 - 定期心跳与异常告警。
+- 支持桌面端首次接入：注册码换凭证、密钥轮换。
 
 ### 1.3 通信与端口约定
 - Agent API **独立端口**（不与 ComfyUI 8079 冲突）。
@@ -76,6 +77,8 @@
 - 中台维护任务生命周期：
   - `pending → running → success / failed / rejected`
 - 每个任务记录日志与结果摘要。
+- 查询接口额外返回统一阶段字段（增量兼容）：
+  - `submitStatus` / `callbackStatus` / `finalStatus` / `errorCode`
 - **任务超时**：默认 **60 分钟**（超时后中台判定过期并返回 409；失败回执需由 Agent/人工补全）。
 
 ---
@@ -148,6 +151,12 @@
 ### 7.3 差异对比
 - “主清单 vs 子服务器清单”差异展示（可选）
 
+### 7.4 当前管理端可直接操作（2026-02-26）
+- 清单支持：草稿保存、发布、回滚、漂移对比（默认取同角色主节点或首个可用节点）。
+- 代理服务支持：设置“角色主节点”，用于后续同角色的默认漂移对比与灰度发布。
+- 任务列表支持：展示 `submitStatus/callbackStatus/finalStatus` 三段状态，避免“提交成功=业务完成”的误解。
+- 监控汇总支持：按窗口查看各队列总量、排队、失败率、平均等待、重试次数。
+
 ---
 
 ## 8. 扩展能力（后续）
@@ -165,12 +174,18 @@
 
 - 统一使用 `Authorization: Bearer <jwt>` 传递 token。
 - `POST /api/agent/auth/verify`
+- `POST /api/agent/bootstrap/exchange`
+- `POST /api/agent/bootstrap/auto-exchange`
+- `POST /api/agent/bootstrap/refresh-keys`
+- `GET /api/agent/bootstrap/releases`
 - `GET /api/agent/manifests/{manifest_id}`
 - `POST /api/agent/tasks/{task_id}/events`
 - `POST /api/agent/tasks/{task_id}/complete`
 - `POST /api/agent/tasks/{task_id}/failed`
 - `POST /api/agent/agents/{id}/heartbeat`
 - `POST /api/agent/agents/{id}/alerts`
+
+> 桌面端心跳 `payload` 中会带 `updateState` 摘要，管理端可直接看到升级状态（是否已应用成功）。
 
 ### 管理端调用（/api/admin/comfyui）
 
@@ -179,16 +194,44 @@
 - `PUT /api/admin/comfyui/agents/{agent_id}`
 - `DELETE /api/admin/comfyui/agents/{agent_id}`
 - `POST /api/admin/comfyui/agents/{agent_id}/token`
+- `POST /api/admin/comfyui/agents/enroll-codes`
+- `GET /api/admin/comfyui/agents/enroll-codes`
+
+> 零配置安装模式：中台需配置 `AGENT_BOOTSTRAP_INSTALL_KEY`，桌面端通过 `/api/agent/bootstrap/auto-exchange` 自动接入。
 - `GET /api/admin/comfyui/manifests`
 - `POST /api/admin/comfyui/manifests`
 - `GET /api/admin/comfyui/manifests/{id}`
 - `PUT /api/admin/comfyui/manifests/{id}`
+- `POST /api/admin/comfyui/manifests/{id}/publish`
+- `POST /api/admin/comfyui/manifests/{id}/rollback`
+- `GET /api/admin/comfyui/manifests/{id}/drift?agent_id=...`
+- `POST /api/admin/comfyui/manifests/{id}/repair-plan`
+- `POST /api/admin/comfyui/repair-jobs`
+- `GET /api/admin/comfyui/repair-jobs`
+- `GET /api/admin/comfyui/repair-jobs/{job_id}`
 - `GET /api/admin/comfyui/tasks`
 - `POST /api/admin/comfyui/tasks`
 - `GET /api/admin/comfyui/tasks/{task_id}`
 - `POST /api/admin/comfyui/tasks/{task_id}/push`
 - `GET /api/admin/comfyui/tasks/{task_id}/events`
 - `GET /api/admin/comfyui/alerts`
+- `GET /api/admin/comfyui/roles/{role}/primary-agent`
+- `POST /api/admin/comfyui/roles/{role}/primary-agent`
+- `GET /api/admin/comfyui/monitoring/summary?window_hours=24`
+- `GET /api/admin/comfyui/monitoring/queues?window_hours=24`
+- `GET /api/admin/comfyui/monitoring/errors?window_hours=24&limit=100`
+- `GET /api/admin/comfyui/policies/concurrency`
+- `PUT /api/admin/comfyui/policies/concurrency`
+- `GET /api/admin/comfyui/policies/retry`
+- `PUT /api/admin/comfyui/policies/retry`
+- `GET /api/admin/comfyui/resources/options?type=lora|model|plugin|version&status=active`
+- `GET /api/admin/comfyui/desktop/releases`
+- `POST /api/admin/comfyui/desktop/releases/upload?filename=<name>`
+- `POST /api/admin/comfyui/desktop/releases`
+- `PUT /api/admin/comfyui/desktop/releases/{release_id}`
+- `GET /api/admin/comfyui/desktop/releases/{release_id}/download`
+- `GET /api/admin/comfyui/desktop/releases/latest/download?os=windows&arch=x64&channel=stable`
+- `GET /api/agent/bootstrap/releases/files/{file_name}`
 
 ---
 
@@ -199,6 +242,9 @@
 - `agent_tasks`（task_id、agent_id、status、expires_at、result_payload）
 - `agent_task_events`（task_id、level、message、payload）
 - `agent_alerts`（agent_id、alert_type、message、payload）
+- `comfyui_repair_jobs`（manifest_id、mode、status、聚合计数）
+- `comfyui_repair_job_items`（agent_id、task_id、submit/callback/final、failed_items）
+- `comfyui_runtime_policies`（policy_type=concurrency/retry、payload）
 
 > 注：表名已与业务侧 `tasks` 表避让。
 

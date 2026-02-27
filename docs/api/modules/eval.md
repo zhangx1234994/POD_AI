@@ -19,6 +19,13 @@
 
 返回可评测的工作流列表（`status=active`）。
 
+新增字段（用于中台资源单一真源联动）：
+
+- `resourceBindings[]`
+  - `field`：参数字段名
+  - `resourceType`：`lora/model/plugin`
+  - `source`：资源目录接口（如 `/api/admin/comfyui/resources/options?...`）
+
 ### POST /api/evals/runs
 
 创建评测 run。
@@ -46,6 +53,13 @@
 - `batch_mode=true`：仅查询批测任务（`__eval_batch_mode=1`）
 - `batch_session_id`：按批次 ID 过滤（`__batch_session_id`）
 - `mine_only=true`：仅查询当前浏览器 rater 的任务
+
+统一状态字段（新增）：
+
+- `submit_status`：`pending/submitting/submit_failed/submitted`
+- `callback_status`：`waiting/running/success/failed/not_configured`
+- `final_status`：`pending/running/success/failed/canceled`
+- `error_code`：标准错误码（可为空）
 
 ### POST /api/evals/batches
 

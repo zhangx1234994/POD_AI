@@ -25,6 +25,22 @@ class AbilityTaskRead(BaseModel):
     status: str = Field(
         description="任务状态：queued/running/succeeded/failed/cancelled（统一契约）",
     )
+    submitStatus: str | None = Field(
+        default=None,
+        alias="submit_status",
+        description="提交阶段状态：pending/submitting/submit_failed/submitted",
+    )
+    callbackStatus: str | None = Field(
+        default=None,
+        alias="callback_status",
+        description="回调阶段状态：waiting/running/success/failed/not_configured",
+    )
+    finalStatus: str | None = Field(
+        default=None,
+        alias="final_status",
+        description="最终状态：pending/running/success/failed/canceled",
+    )
+    errorCode: str | None = Field(default=None, alias="error_code")
     logId: int | None = Field(default=None, alias="log_id")
     durationMs: int | None = Field(default=None, alias="duration_ms")
     requestPayload: dict[str, Any] | None = Field(default=None, alias="request_payload")

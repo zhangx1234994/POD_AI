@@ -138,6 +138,12 @@
 - `COMFYUI_VERSION_SOURCE_INVALID`
 - `COMFYUI_VERSION_SYNC_FAILED`
 
+### GET /api/admin/comfyui/resources/options?type=lora|model|plugin|version&status=active
+
+**用途**：为管理端/测评端提供统一下拉选项真源，避免静态枚举。
+
+---
+
 ---
 
 ## 5) 服务器信息与对齐
@@ -182,6 +188,14 @@
 
 **用途**：签发 agent token（scope=agent）。
 
+### POST /api/admin/comfyui/agents/enroll-codes
+### GET /api/admin/comfyui/agents/enroll-codes
+
+**用途**：生成/查看桌面端接入注册码（短效、单次或限次）。
+
+> 零配置安装模式可不走注册码：配置后端环境变量 `AGENT_BOOTSTRAP_INSTALL_KEY`，桌面端改用
+> `/api/agent/bootstrap/auto-exchange` 自动建联。
+
 ---
 
 ## 7) Manifest 管理
@@ -190,23 +204,75 @@
 ### POST /api/admin/comfyui/manifests
 ### GET /api/admin/comfyui/manifests/{id}
 ### PUT /api/admin/comfyui/manifests/{id}
+### POST /api/admin/comfyui/manifests/{id}/publish
+### POST /api/admin/comfyui/manifests/{id}/rollback
+### GET /api/admin/comfyui/manifests/{id}/drift?agent_id=...
+### POST /api/admin/comfyui/manifests/{id}/repair-plan
+
+`repair-plan` 用于把“漂移差异”转换为可执行动作（仅增量补齐，不自动删除）。
+
+请求体（示例）：
+
+```json
+{
+  "agentIds": ["comfyui-158"],
+  "mode": "additive"
+}
+```
+
+响应体包含：
+
+- `items[].actions`：建议动作（如 `sync_models/sync_plugins/sync_workflows/sync_comfyui`）
+- `items[].missingItems`：缺失资源明细
+- `summary`：可执行节点数、跳过节点数、动作总数
 
 **字段摘要**
 
 - `role`：服务器角色（full/lite 等）
 - `version`：清单版本
+- `status`：`draft/published/rolled_back`
 - `content`：模型/插件/工作流清单
 - `downloadUrl`：可选外部下载地址
 
+说明：
+
+- 发布（publish）会将同角色当前 `published` 清单自动标记为 `rolled_back`。
+- 回滚（rollback）可指定 `targetManifestId`，用于将历史版本重新置为 `published`。
+- 漂移对比（drift）会返回“清单期望值 vs 节点上报快照”的差异。
+
 ---
 
-## 8) 任务下发与回执（管理端侧）
+## 8) 漂移修复任务（新增）
+
+### POST /api/admin/comfyui/repair-jobs
+### GET /api/admin/comfyui/repair-jobs
+### GET /api/admin/comfyui/repair-jobs/{job_id}
+
+用途：将 repair-plan 下发为多节点任务，并聚合执行状态。
+
+聚合字段（与统一状态契约一致）：
+
+- `items[].submitStatus`
+- `items[].callbackStatus`
+- `items[].finalStatus`
+- `items[].failedItems`
+
+---
+
+## 9) 任务下发与回执（管理端侧）
 
 ### GET /api/admin/comfyui/tasks
 ### POST /api/admin/comfyui/tasks
 ### GET /api/admin/comfyui/tasks/{task_id}
 ### POST /api/admin/comfyui/tasks/{task_id}/push
 ### GET /api/admin/comfyui/tasks/{task_id}/events
+
+新增统一状态字段（查询接口）：
+
+- `submitStatus`：`pending/submitting/submit_failed/submitted`
+- `callbackStatus`：`waiting/running/success/failed/not_configured`
+- `finalStatus`：`pending/running/success/failed/canceled`
+- `errorCode`：标准错误码（可为空）
 
 **说明**
 
@@ -215,7 +281,7 @@
 
 ---
 
-## 9) 告警查询
+## 10) 告警查询
 
 ### GET /api/admin/comfyui/alerts
 
@@ -234,3 +300,60 @@
   }
 ]
 ```
+
+---
+
+## 11) 角色主节点与监控汇总（新增）
+
+### GET /api/admin/comfyui/roles/{role}/primary-agent
+### POST /api/admin/comfyui/roles/{role}/primary-agent
+
+用途：将“主服务器”从固定 IP 改为可切换指针（按角色维护）。
+
+### GET /api/admin/comfyui/monitoring/summary?window_hours=24
+### GET /api/admin/comfyui/monitoring/queues?window_hours=24
+### GET /api/admin/comfyui/monitoring/errors?window_hours=24&limit=100
+
+用途：统一查询多队列运行概况（按 provider + agent lane）：
+
+- `total/queued/running/succeeded/failed`
+- `avgWaitSeconds/failureRate/retryCount`
+
+---
+
+## 12) 运行策略中心（新增）
+
+### GET /api/admin/comfyui/policies/concurrency
+### PUT /api/admin/comfyui/policies/concurrency
+### GET /api/admin/comfyui/policies/retry
+### PUT /api/admin/comfyui/policies/retry
+
+用途：按平台/队列/节点维护并发与重试策略，策略持久化到中台数据库。
+
+---
+
+## 13) 桌面端版本发布（新增）
+
+### GET /api/admin/comfyui/desktop/releases
+### POST /api/admin/comfyui/desktop/releases/upload?filename=<file_name>
+### POST /api/admin/comfyui/desktop/releases
+### PUT /api/admin/comfyui/desktop/releases/{release_id}
+### GET /api/admin/comfyui/desktop/releases/{release_id}/download
+### GET /api/admin/comfyui/desktop/releases/latest/download?os=windows&arch=x64&channel=stable
+
+用途：维护桌面端安装包发布清单（版本、下载地址、校验值、最小兼容版本）。
+
+`/desktop/releases/upload` 说明：
+
+- 请求体：二进制流（`application/octet-stream`）
+- 查询参数：`filename`（可选，建议传 `PODI-ComfyUI-Agent-Setup.exe`）
+- 响应：`fileName/fileSize/sha256/downloadUrl`
+- 常见错误：
+  - `AGENT_DESKTOP_RELEASE_FILE_EMPTY`
+  - `AGENT_DESKTOP_RELEASE_FILE_TOO_LARGE`
+
+管理端操作建议：
+
+- 进入 `ComfyUI 管理 -> 桌面端部署`
+- 先发布 `Windows/x64` 的启用版本
+- 选择目标版本后复制“一键安装命令”给运维执行（命令内置 SHA256 校验）

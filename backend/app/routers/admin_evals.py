@@ -17,6 +17,7 @@ from app.models.eval import (
 from app.schemas.eval import (
     EvalWorkflowVersionCreate,
     EvalWorkflowVersionUpdate,
+    EvalWorkflowResourceBinding,
     EvalWorkflowVersionResponse,
     EvalDatasetItemCreate,
     EvalDatasetItemResponse,
@@ -35,6 +36,63 @@ from app.models.user import User
 router = APIRouter(prefix="/evals")
 
 
+def _extract_workflow_resource_bindings(schema: dict | None) -> list[EvalWorkflowResourceBinding]:
+    if not isinstance(schema, dict):
+        return []
+    fields = schema.get("fields")
+    if not isinstance(fields, list):
+        return []
+    result: list[EvalWorkflowResourceBinding] = []
+    for item in fields:
+        if not isinstance(item, dict):
+            continue
+        field_name = str(item.get("name") or "").strip()
+        if not field_name:
+            continue
+        explicit = str(item.get("resourceType") or item.get("resource_type") or "").strip().lower()
+        lowered = field_name.lower()
+        resource_type = ""
+        if explicit in {"lora", "model", "plugin"}:
+            resource_type = explicit
+        elif "lora" in lowered:
+            resource_type = "lora"
+        elif any(token in lowered for token in ("model", "checkpoint", "unet", "clip", "vae")):
+            resource_type = "model"
+        elif any(token in lowered for token in ("plugin", "node")):
+            resource_type = "plugin"
+        if not resource_type:
+            continue
+        result.append(
+            EvalWorkflowResourceBinding(
+                field=field_name,
+                resourceType=resource_type,
+                source=f"/api/admin/comfyui/resources/options?type={resource_type}&status=active",
+            )
+        )
+    unique: dict[str, EvalWorkflowResourceBinding] = {}
+    for row in result:
+        unique[row.field] = row
+    return list(unique.values())
+
+
+def _serialize_workflow_version(row: EvalWorkflowVersion) -> EvalWorkflowVersionResponse:
+    return EvalWorkflowVersionResponse(
+        id=row.id,
+        category=row.category,
+        name=row.name,
+        version=row.version,
+        coze_base_url=row.coze_base_url,
+        workflow_id=row.workflow_id,
+        parameters_schema=row.parameters_schema,
+        output_schema=row.output_schema,
+        notes=row.notes,
+        status=row.status,
+        resourceBindings=_extract_workflow_resource_bindings(row.parameters_schema),
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
 @router.post("/workflow-versions", response_model=EvalWorkflowVersionResponse)
 async def create_workflow_version(
     workflow_version: EvalWorkflowVersionCreate,
@@ -46,7 +104,7 @@ async def create_workflow_version(
     db.add(db_workflow_version)
     db.commit()
     db.refresh(db_workflow_version)
-    return db_workflow_version
+    return _serialize_workflow_version(db_workflow_version)
 
 
 @router.get("/workflow-versions", response_model=List[EvalWorkflowVersionResponse])
@@ -64,8 +122,8 @@ async def list_workflow_versions(
         query = query.where(EvalWorkflowVersion.category == category)
     if status:
         query = query.where(EvalWorkflowVersion.status == status)
-    result = db.execute(query)
-    return result.scalars().all()
+    result = db.execute(query).scalars().all()
+    return [_serialize_workflow_version(item) for item in result]
 
 
 @router.get("/workflow-versions/{workflow_version_id}", response_model=EvalWorkflowVersionResponse)
@@ -78,7 +136,7 @@ async def get_workflow_version(
     workflow_version = db.get(EvalWorkflowVersion, workflow_version_id)
     if not workflow_version:
         raise HTTPException(status_code=404, detail="Workflow version not found")
-    return workflow_version
+    return _serialize_workflow_version(workflow_version)
 
 
 @router.put("/workflow-versions/{workflow_version_id}", response_model=EvalWorkflowVersionResponse)
@@ -98,7 +156,7 @@ async def update_workflow_version(
     db.add(workflow_version)
     db.commit()
     db.refresh(workflow_version)
-    return workflow_version
+    return _serialize_workflow_version(workflow_version)
 
 
 @router.post("/datasets", response_model=EvalDatasetItemResponse)

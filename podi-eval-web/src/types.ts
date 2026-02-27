@@ -5,6 +5,11 @@ export type EvalWorkflowVersion = {
   version: string;
   workflow_id: string;
   parameters_schema?: Record<string, unknown> | null;
+  resourceBindings?: Array<{
+    field: string;
+    resourceType: 'lora' | 'model' | 'plugin' | string;
+    source: string;
+  }>;
   output_schema?: Record<string, unknown> | null;
   notes?: string | null;
   status: string;
@@ -23,6 +28,10 @@ export type EvalRun = {
   result_output_json?: unknown | null;
   error_message?: string | null;
   duration_ms?: number | null;
+  submit_status?: string | null;
+  callback_status?: string | null;
+  final_status?: string | null;
+  error_code?: string | null;
   created_by: string;
   created_at: string;
   updated_at: string;

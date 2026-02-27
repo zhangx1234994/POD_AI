@@ -139,6 +139,9 @@ export interface AbilityInvocationLog {
   ability_provider: string;
   capability_key: string;
   ability_name?: string | null;
+  ability_current_template_id?: string | null;
+  ability_template_history_count?: number | null;
+  ability_template_published?: boolean | null;
   executor_id?: string | null;
   executor_name?: string | null;
   executor_type?: string | null;
@@ -148,6 +151,9 @@ export interface AbilityInvocationLog {
   trace_id?: string | null;
   workflow_run_id?: string | null;
   status: string;
+  submit_status?: string | null;
+  final_status?: string | null;
+  error_code?: string | null;
   duration_ms?: number | null;
   stored_url?: string | null;
   request_payload?: JsonRecord | null;
@@ -319,6 +325,164 @@ export interface ComfyuiAgentManifest {
   updated_at?: string;
 }
 
+export interface ComfyuiManifestDriftCollection {
+  expected: string[];
+  reported: string[];
+  missing: string[];
+  extra: string[];
+}
+
+export interface ComfyuiManifestDriftResponse {
+  manifestId: number;
+  manifestVersion: string;
+  agentId: string;
+  agentLastManifestVersion?: string | null;
+  sameVersion: boolean;
+  hasSnapshot: boolean;
+  comfyui: JsonRecord;
+  models: ComfyuiManifestDriftCollection;
+  plugins: ComfyuiManifestDriftCollection;
+  workflows: ComfyuiManifestDriftCollection;
+}
+
+export interface ComfyuiRepairPlanItem {
+  agentId: string;
+  role?: string | null;
+  actions: string[];
+  missingItems: Record<string, string[]>;
+  reason?: string | null;
+}
+
+export interface ComfyuiRepairPlan {
+  manifestId: number;
+  manifestVersion: string;
+  mode: string;
+  generatedAt: string;
+  items: ComfyuiRepairPlanItem[];
+  summary: {
+    totalAgents: number;
+    executableAgents: number;
+    skippedAgents: number;
+    totalActions: number;
+  };
+}
+
+export interface ComfyuiRepairJobItem {
+  id: number;
+  agentId?: string | null;
+  taskId?: string | null;
+  status: string;
+  submitStatus?: string | null;
+  callbackStatus?: string | null;
+  finalStatus?: string | null;
+  actions: string[];
+  missingItems: Record<string, string[]>;
+  failedItems?: JsonRecord | null;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  updatedAt: string;
+}
+
+export interface ComfyuiRepairJob {
+  id: string;
+  manifestId: number;
+  mode: string;
+  status: string;
+  requestedAgentCount: number;
+  submittedTaskCount: number;
+  succeededTaskCount: number;
+  failedTaskCount: number;
+  skippedTaskCount: number;
+  createdBy?: string | null;
+  errorMessage?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  resultPayload?: JsonRecord | null;
+  items: ComfyuiRepairJobItem[];
+}
+
+export interface ComfyuiRolePrimary {
+  role: string;
+  agentId?: string | null;
+  baseUrl?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface ComfyuiMonitoringLane {
+  lane: string;
+  total: number;
+  queued: number;
+  running: number;
+  succeeded: number;
+  failed: number;
+  avgWaitSeconds: number;
+  failureRate: number;
+  retryCount: number;
+}
+
+export interface ComfyuiMonitoringSummary {
+  generatedAt: string;
+  windowHours: number;
+  lanes: ComfyuiMonitoringLane[];
+}
+
+export interface ComfyuiMonitoringQueueItem {
+  lane: string;
+  provider: string;
+  queued: number;
+  running: number;
+  total: number;
+  avgWaitSeconds: number;
+}
+
+export interface ComfyuiMonitoringQueuesResponse {
+  generatedAt: string;
+  windowHours: number;
+  items: ComfyuiMonitoringQueueItem[];
+}
+
+export interface ComfyuiMonitoringErrorItem {
+  provider: string;
+  stage: string;
+  errorCode: string;
+  count: number;
+  lastOccurredAt?: string | null;
+  sampleMessage?: string | null;
+}
+
+export interface ComfyuiMonitoringErrorsResponse {
+  generatedAt: string;
+  windowHours: number;
+  items: ComfyuiMonitoringErrorItem[];
+}
+
+export interface ComfyuiRuntimePolicy {
+  policyType: string;
+  defaultPolicy: JsonRecord;
+  laneOverrides: JsonRecord;
+  nodeOverrides: JsonRecord;
+  notes?: string | null;
+  updatedAt: string;
+}
+
+export interface ComfyuiResourceOption {
+  id: string;
+  key: string;
+  label: string;
+  resourceType: string;
+  status: string;
+  description?: string | null;
+  downloadUrl?: string | null;
+  metadata?: JsonRecord | null;
+}
+
+export interface ComfyuiResourceOptionsResponse {
+  resourceType: string;
+  status?: string | null;
+  total: number;
+  items: ComfyuiResourceOption[];
+}
+
 export interface ComfyuiAgentTask {
   id: string;
   agentId: string;
@@ -326,6 +490,10 @@ export interface ComfyuiAgentTask {
   manifestUrl?: string | null;
   actions?: string[] | null;
   status: string;
+  submitStatus?: string | null;
+  callbackStatus?: string | null;
+  finalStatus?: string | null;
+  errorCode?: string | null;
   tokenNonce?: string | null;
   pushedAt?: string | null;
   startedAt?: string | null;
@@ -362,6 +530,39 @@ export interface ComfyuiAgentTokenResponse {
   expiresAt: string;
   scope: string;
   agentId: string;
+}
+
+export interface ComfyuiEnrollCode {
+  id: number;
+  code: string;
+  role: string;
+  status: string;
+  note?: string | null;
+  maxUses: number;
+  usedCount: number;
+  expiresAt: string;
+  usedAt?: string | null;
+  usedByAgentId?: string | null;
+  createdBy?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ComfyuiDesktopRelease {
+  id: number;
+  channel: string;
+  version: string;
+  osType: string;
+  arch: string;
+  status: string;
+  downloadUrl: string;
+  sha256: string;
+  minAgentVersion?: string | null;
+  notes?: string | null;
+  payload?: JsonRecord | null;
+  publishedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface DashboardTotals {
@@ -513,4 +714,27 @@ export interface AbilityLogMetricBucket {
 export interface AbilityLogMetricsResponse {
   window_hours: number;
   buckets: AbilityLogMetricBucket[];
+}
+
+export interface AbilityTemplateSnapshot {
+  id: string;
+  version_label?: string | null;
+  action: string;
+  created_at: string;
+  notes?: string | null;
+  default_params?: JsonRecord | null;
+  input_schema?: JsonRecord | null;
+  metadata?: JsonRecord | null;
+}
+
+export interface AbilityTemplateStateResponse {
+  ability_id: string;
+  current_template_id?: string | null;
+  history: AbilityTemplateSnapshot[];
+}
+
+export interface AbilityTemplateValidateResponse {
+  ok: boolean;
+  errors: string[];
+  warnings: string[];
 }

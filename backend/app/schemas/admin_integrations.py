@@ -307,6 +307,24 @@ class ComfyuiVersionCatalogSyncResponse(BaseModel):
     updated: int = Field(..., description="更新数量")
 
 
+class ComfyuiResourceOptionItem(BaseModel):
+    id: str
+    key: str
+    label: str
+    resource_type: str = Field(alias="resourceType")
+    status: str
+    description: str | None = None
+    download_url: str | None = Field(default=None, alias="downloadUrl")
+    metadata: dict[str, Any] | None = None
+
+
+class ComfyuiResourceOptionsResponse(BaseModel):
+    resource_type: str = Field(alias="resourceType")
+    status: str | None = None
+    total: int
+    items: list[ComfyuiResourceOptionItem]
+
+
 class ComfyuiServerDiffCreate(BaseModel):
     baseline_executor_id: str = Field(..., description="主服务器 executor_id")
     payload: dict[str, Any] = Field(default_factory=dict, description="差异快照 JSON")

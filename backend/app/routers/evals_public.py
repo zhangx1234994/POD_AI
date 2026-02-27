@@ -57,11 +57,13 @@ from app.schemas.eval import (
     EvalRunCreate,
     EvalRunListResponse,
     EvalRunResponse,
+    EvalWorkflowResourceBinding,
     EvalWorkflowVersionResponse,
 )
 from app.services.eval_seed import FISSION_WORKFLOW_IDS, ensure_default_eval_workflow_versions
 from app.services.eval_service import get_eval_service
 from app.services.oss import oss_service
+from app.services.task_status_contract import derive_eval_run_status
 
 
 router = APIRouter(prefix="/api/evals", tags=["evals-public"])
@@ -106,6 +108,87 @@ def _batch_session_expr():
 
 def _batch_mode_expr():
     return func.json_unquote(func.json_extract(EvalRun.parameters_json, "$.__eval_batch_mode"))
+
+
+def _extract_workflow_resource_bindings(schema: dict[str, Any] | None) -> list[EvalWorkflowResourceBinding]:
+    if not isinstance(schema, dict):
+        return []
+    raw_fields = schema.get("fields")
+    if not isinstance(raw_fields, list):
+        return []
+    bindings: list[EvalWorkflowResourceBinding] = []
+    for field in raw_fields:
+        if not isinstance(field, dict):
+            continue
+        name = str(field.get("name") or "").strip()
+        if not name:
+            continue
+        lower_name = name.lower()
+        explicit_type = str(field.get("resourceType") or field.get("resource_type") or "").strip().lower()
+        resource_type = ""
+        if explicit_type in {"lora", "model", "plugin"}:
+            resource_type = explicit_type
+        elif "lora" in lower_name:
+            resource_type = "lora"
+        elif any(token in lower_name for token in ("model", "checkpoint", "unet", "clip", "vae")):
+            resource_type = "model"
+        elif any(token in lower_name for token in ("plugin", "node")):
+            resource_type = "plugin"
+        if not resource_type:
+            continue
+        source = f"/api/admin/comfyui/resources/options?type={resource_type}&status=active"
+        bindings.append(
+            EvalWorkflowResourceBinding(
+                field=name,
+                resourceType=resource_type,
+                source=source,
+            )
+        )
+    dedup: dict[str, EvalWorkflowResourceBinding] = {}
+    for item in bindings:
+        dedup[item.field] = item
+    return list(dedup.values())
+
+
+def _serialize_workflow_version(version: EvalWorkflowVersion) -> EvalWorkflowVersionResponse:
+    return EvalWorkflowVersionResponse(
+        id=version.id,
+        category=version.category,
+        name=version.name,
+        version=version.version,
+        coze_base_url=version.coze_base_url,
+        workflow_id=version.workflow_id,
+        parameters_schema=version.parameters_schema,
+        output_schema=version.output_schema,
+        notes=version.notes,
+        status=version.status,
+        resourceBindings=_extract_workflow_resource_bindings(version.parameters_schema),
+        created_at=version.created_at,
+        updated_at=version.updated_at,
+    )
+
+
+def _serialize_eval_run(run: EvalRun) -> EvalRunResponse:
+    has_result = bool(
+        (isinstance(run.result_image_urls_json, list) and len(run.result_image_urls_json) > 0)
+        or run.result_output_json is not None
+    )
+    stage = derive_eval_run_status(
+        status=run.status,
+        podi_task_id=run.podi_task_id,
+        error_message=run.error_message,
+        has_result=has_result,
+    )
+    payload = EvalRunResponse.model_validate(run).model_dump()
+    payload.update(
+        {
+            "submit_status": stage.submit_status,
+            "callback_status": stage.callback_status,
+            "final_status": stage.final_status,
+            "error_code": stage.error_code,
+        }
+    )
+    return EvalRunResponse.model_validate(payload)
 
 
 def _is_missing_output_review_table(exc: Exception) -> bool:
@@ -694,7 +777,7 @@ def list_workflow_versions(
     category: str | None = Query(None),
     status: str | None = Query("active"),
     db: Session = Depends(get_db),
-) -> list[EvalWorkflowVersion]:
+) -> list[EvalWorkflowVersionResponse]:
     _require_public_enabled(request)
     _get_or_set_rater_id(request, response)
     ensure_default_eval_workflow_versions(db)
@@ -703,7 +786,8 @@ def list_workflow_versions(
         stmt = stmt.where(EvalWorkflowVersion.category == category)
     if status:
         stmt = stmt.where(EvalWorkflowVersion.status == status)
-    return db.execute(stmt.order_by(EvalWorkflowVersion.category.asc(), EvalWorkflowVersion.created_at.desc())).scalars().all()
+    rows = db.execute(stmt.order_by(EvalWorkflowVersion.category.asc(), EvalWorkflowVersion.created_at.desc())).scalars().all()
+    return [_serialize_workflow_version(row) for row in rows]
 
 
 @router.get("/docs/workflows")
@@ -1120,13 +1204,14 @@ def admin_list_workflow_versions(
     request: Request,
     category: str | None = Query(None),
     db: Session = Depends(get_db),
-) -> list[EvalWorkflowVersion]:
+) -> list[EvalWorkflowVersionResponse]:
     _require_eval_admin(request)
     ensure_default_eval_workflow_versions(db)
     stmt = select(EvalWorkflowVersion)
     if category:
         stmt = stmt.where(EvalWorkflowVersion.category == category)
-    return db.execute(stmt.order_by(EvalWorkflowVersion.category.asc(), EvalWorkflowVersion.created_at.desc())).scalars().all()
+    rows = db.execute(stmt.order_by(EvalWorkflowVersion.category.asc(), EvalWorkflowVersion.created_at.desc())).scalars().all()
+    return [_serialize_workflow_version(row) for row in rows]
 
 
 @router.put("/admin/workflow-versions/{workflow_version_id}", response_model=EvalWorkflowVersionResponse)
@@ -1135,7 +1220,7 @@ def admin_update_workflow_version(
     request: Request,
     body: dict[str, Any],
     db: Session = Depends(get_db),
-) -> EvalWorkflowVersion:
+) -> EvalWorkflowVersionResponse:
     _require_eval_admin(request)
     row = db.get(EvalWorkflowVersion, workflow_version_id)
     if not row:
@@ -1146,7 +1231,7 @@ def admin_update_workflow_version(
     db.add(row)
     db.commit()
     db.refresh(row)
-    return row
+    return _serialize_workflow_version(row)
 
 
 @router.post("/batches", response_model=EvalBatchSessionResponse)
@@ -2039,7 +2124,7 @@ def create_run(
     response: Response,
     payload: EvalRunCreate,
     db: Session = Depends(get_db),
-) -> EvalRun:
+) -> EvalRunResponse:
     _require_public_enabled(request)
     created_by = _get_or_set_rater_id(request, response)
     run = get_eval_service().create_eval_run(
@@ -2050,7 +2135,7 @@ def create_run(
         created_by=created_by,
         db=db,
     )
-    return run
+    return _serialize_eval_run(run)
 
 
 @router.get("/runs", response_model=EvalRunListResponse)
@@ -2095,7 +2180,8 @@ def list_runs(
         count_stmt = count_stmt.where(~exists(subq))
 
     total = int(db.execute(count_stmt).scalar_one())
-    items = db.execute(stmt.order_by(EvalRun.created_at.desc()).offset(offset).limit(limit)).scalars().all()
+    rows = db.execute(stmt.order_by(EvalRun.created_at.desc()).offset(offset).limit(limit)).scalars().all()
+    items = [_serialize_eval_run(row) for row in rows]
     return EvalRunListResponse(total=total, items=items)
 
 
@@ -2307,7 +2393,7 @@ def list_runs_with_latest_annotation(
         items.append(
             EvalRunWithLatestAnnotationResponse.model_validate(
                 {
-                    **EvalRunResponse.model_validate(r).model_dump(),
+                    **_serialize_eval_run(r).model_dump(),
                     "latest_annotation": EvalAnnotationResponse.model_validate(latest_map.get(r.id)).model_dump()
                     if latest_map.get(r.id)
                     else None,
@@ -2323,13 +2409,13 @@ def get_run(
     request: Request,
     response: Response,
     db: Session = Depends(get_db),
-) -> EvalRun:
+) -> EvalRunResponse:
     _require_public_enabled(request)
     _get_or_set_rater_id(request, response)
     run = db.get(EvalRun, run_id)
     if not run:
         raise HTTPException(status_code=404, detail="NOT_FOUND")
-    return run
+    return _serialize_eval_run(run)
 
 
 @router.post("/runs/{run_id}/annotations", response_model=EvalAnnotationResponse)

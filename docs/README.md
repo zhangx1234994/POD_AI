@@ -60,6 +60,7 @@ docs/
 ├── backlog.md
 ├── comfyui
 │   ├── agent-management.md
+│   ├── desktop-agent.md
 │   └── README.md
 ├── comfyui-routing-business.md
 ├── comfyui-routing-technical.md
@@ -86,7 +87,9 @@ docs/
 │   ├── abstraction-and-decoupling.md
 │   ├── error-catalog.md
 │   ├── error-contract.md
+│   ├── interface-consistency.md
 │   ├── issue-improvement-log.md
+│   ├── platform-design-principles.md
 │   ├── queue-and-error-standards.md
 │   └── self-check-sop.md
 ├── task-submission-flow.md
@@ -127,8 +130,10 @@ docs/
 - `docs/error-codes.md`：错误码文档（历史草案，现行见 `docs/standards/error-catalog.md`）
 - `docs/standards/error-catalog.md`：错误码总表
 - `docs/standards/error-contract.md`：错误契约规范
+- `docs/standards/interface-consistency.md`：接口一致性准则（状态词/回填口径）
 - `docs/standards/queue-and-error-standards.md`：队列与错误处理规范
 - `docs/standards/abstraction-and-decoupling.md`：抽象与解耦准则
+- `docs/standards/platform-design-principles.md`：平台设计准则（稳定性优先）
 - `docs/standards/self-check-sop.md`：自检流程规范
 - `docs/standards/issue-improvement-log.md`：问题与优化记录
 
@@ -144,6 +149,7 @@ docs/
 - `docs/eval/eval-platform.md`：评测平台说明
 - `docs/comfyui/README.md`：ComfyUI 工作流与运维
 - `docs/comfyui/agent-management.md`：ComfyUI 服务器管理（中台↔Agent 协议）
+- `docs/comfyui/desktop-agent.md`：ComfyUI 桌面端代理（安装/接入/运维）
 - `docs/comfyui-routing-business.md`：ComfyUI 业务路由说明
 - `docs/comfyui-routing-technical.md`：ComfyUI 技术路由说明
 
@@ -171,4 +177,4 @@ docs/
 2. 规划/草案类文档请放入 `docs/wip/` 或在标题标明“计划”。
 3. 重大变更请同步更新 `docs/BUSINESS_MODEL.md` 与 `docs/architecture.md`。
 
-*最后更新: 2026-02-23*
+*最后更新: 2026-02-26*

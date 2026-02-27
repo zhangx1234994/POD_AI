@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
@@ -25,13 +26,158 @@ from app.services.ability_seed import ensure_default_abilities
 from app.services.ability_logs import ability_log_service
 from app.services.executors.base import ExecutionContext
 from app.services.executors.registry import registry
+from app.services.task_status_contract import derive_ability_log_status
 from app.services.task_id_codec import encode_task_id
 
 router = APIRouter(prefix="/admin/abilities", dependencies=[Depends(require_admin)])
+_TEMPLATE_REGISTRY_KEY = "__template_registry"
+_TEMPLATE_HISTORY_LIMIT = 100
 
 
 def _generate_id(existing_id: str | None) -> str:
     return existing_id or uuid4().hex
+
+
+def _sanitize_template_metadata(metadata: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(metadata, dict):
+        return {}
+    cleaned = dict(metadata)
+    cleaned.pop(_TEMPLATE_REGISTRY_KEY, None)
+    return cleaned
+
+
+def _get_template_registry(metadata: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(metadata, dict):
+        return {"current_template_id": None, "history": []}
+    registry = metadata.get(_TEMPLATE_REGISTRY_KEY)
+    if isinstance(registry, dict):
+        current = registry.get("current_template_id")
+        history = registry.get("history")
+        return {
+            "current_template_id": str(current).strip() if isinstance(current, str) and current.strip() else None,
+            "history": history if isinstance(history, list) else [],
+        }
+    return {"current_template_id": None, "history": []}
+
+
+def _set_template_registry(metadata: dict[str, Any] | None, registry: dict[str, Any]) -> dict[str, Any]:
+    target = dict(metadata) if isinstance(metadata, dict) else {}
+    target[_TEMPLATE_REGISTRY_KEY] = registry
+    return target
+
+
+def _snapshot_ability_template(
+    ability: Ability,
+    *,
+    action: str,
+    version_label: str | None = None,
+    notes: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "id": f"tpl_{datetime.utcnow():%Y%m%d%H%M%S}_{uuid4().hex[:8]}",
+        "version_label": (version_label or "").strip() or None,
+        "action": action,
+        "created_at": datetime.utcnow().isoformat() + "Z",
+        "notes": (notes or "").strip() or None,
+        "default_params": deepcopy(ability.default_params) if isinstance(ability.default_params, dict) else {},
+        "input_schema": deepcopy(ability.input_schema) if isinstance(ability.input_schema, dict) else {},
+        "metadata": deepcopy(_sanitize_template_metadata(ability.extra_metadata)),
+    }
+
+
+def _normalize_template_history(history: list[Any]) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for item in history:
+        if not isinstance(item, dict):
+            continue
+        template_id = str(item.get("id") or "").strip()
+        if not template_id:
+            continue
+        normalized.append(item)
+    normalized.sort(key=lambda row: str(row.get("created_at") or ""), reverse=True)
+    return normalized[:_TEMPLATE_HISTORY_LIMIT]
+
+
+def _validate_template_payload(
+    *,
+    default_params: dict[str, Any] | None,
+    input_schema: dict[str, Any] | None,
+    metadata: dict[str, Any] | None,
+) -> tuple[list[str], list[str]]:
+    errors: list[str] = []
+    warnings: list[str] = []
+    if default_params is not None and not isinstance(default_params, dict):
+        errors.append("default_params 必须是对象")
+    if input_schema is not None and not isinstance(input_schema, dict):
+        errors.append("input_schema 必须是对象")
+    if metadata is not None and not isinstance(metadata, dict):
+        errors.append("metadata 必须是对象")
+
+    schema = input_schema if isinstance(input_schema, dict) else {}
+    fields = schema.get("fields")
+    if fields is not None and not isinstance(fields, list):
+        errors.append("input_schema.fields 必须是数组")
+    if isinstance(fields, list):
+        for idx, field in enumerate(fields, start=1):
+            if not isinstance(field, dict):
+                errors.append(f"input_schema.fields[{idx}] 必须是对象")
+                continue
+            key = str(field.get("key") or "").strip()
+            if not key:
+                errors.append(f"input_schema.fields[{idx}] 缺少 key")
+            field_type = str(field.get("type") or "").strip().lower()
+            if not field_type:
+                warnings.append(f"input_schema.fields[{idx}] 未设置 type，前端将按 text 处理")
+
+    metadata_dict = metadata if isinstance(metadata, dict) else {}
+    api_type = str(metadata_dict.get("api_type") or "").strip()
+    if not api_type:
+        warnings.append("metadata.api_type 为空，路由分支可能无法自动识别")
+    model_id = str(metadata_dict.get("model_id") or "").strip()
+    if not model_id:
+        warnings.append("metadata.model_id 为空，后续排障定位成本较高")
+    return errors, warnings
+
+
+def _template_state_response(ability: Ability) -> schemas.AbilityTemplateStateResponse:
+    metadata = ability.extra_metadata if isinstance(ability.extra_metadata, dict) else {}
+    registry = _get_template_registry(metadata)
+    history = _normalize_template_history(registry.get("history") if isinstance(registry, dict) else [])
+    return schemas.AbilityTemplateStateResponse(
+        ability_id=ability.id,
+        current_template_id=registry.get("current_template_id"),
+        history=[schemas.AbilityTemplateSnapshot.model_validate(item) for item in history],
+    )
+
+
+def _resolve_template_snapshot(metadata: dict[str, Any] | None) -> tuple[str | None, int]:
+    registry = _get_template_registry(metadata)
+    current_template_id = registry.get("current_template_id")
+    history = _normalize_template_history(registry.get("history") if isinstance(registry, dict) else [])
+    return current_template_id, len(history)
+
+
+def _resolve_template_filtered_ability_ids(
+    *,
+    template_id: str | None,
+    template_published: bool | None,
+) -> list[str] | None:
+    normalized_template_id = (template_id or "").strip() or None
+    if normalized_template_id is None and template_published is None:
+        return None
+    with get_session() as session:
+        rows = session.execute(select(Ability.id, Ability.extra_metadata)).all()
+    matched_ids: list[str] = []
+    for ability_id, metadata in rows:
+        current_template_id, _history_count = _resolve_template_snapshot(metadata if isinstance(metadata, dict) else None)
+        if normalized_template_id and current_template_id != normalized_template_id:
+            continue
+        if template_published is True and not current_template_id:
+            continue
+        if template_published is False and current_template_id:
+            continue
+        matched_ids.append(str(ability_id))
+    return matched_ids
 
 
 def _extract_callback_id(response_payload: dict[str, Any] | None) -> str | None:
@@ -112,6 +258,66 @@ def _attach_callback_ids(entries: list[AbilityInvocationLog]) -> list[AbilityInv
         )
         setattr(entry, "callback_id", callback_id)
     return entries
+
+
+def _attach_stage_status(entries: list[AbilityInvocationLog]) -> list[AbilityInvocationLog]:
+    if not entries:
+        return entries
+    for entry in entries:
+        request_payload = entry.request_payload if isinstance(entry.request_payload, dict) else {}
+        callback_configured = request_payload.get("callbackConfigured")
+        if isinstance(callback_configured, str):
+            callback_configured = callback_configured.strip().lower() in {"1", "true", "yes", "y"}
+        elif not isinstance(callback_configured, bool):
+            callback_configured = None
+        stage = derive_ability_log_status(
+            log_status=entry.status,
+            callback_status=entry.callback_status,
+            callback_http_status=entry.callback_http_status,
+            callback_error=entry.callback_error,
+            callback_configured=callback_configured,
+            error_message=entry.error_message,
+        )
+        setattr(entry, "submit_status", stage.submit_status)
+        setattr(entry, "final_status", stage.final_status)
+        setattr(entry, "error_code", stage.error_code)
+    return entries
+
+
+def _load_template_summary_map(ability_ids: list[str]) -> dict[str, dict[str, Any]]:
+    if not ability_ids:
+        return {}
+    with get_session() as session:
+        rows = session.execute(
+            select(Ability.id, Ability.extra_metadata).where(Ability.id.in_(ability_ids))
+        ).all()
+    mapping: dict[str, dict[str, Any]] = {}
+    for ability_id, metadata in rows:
+        current_template_id, history_count = _resolve_template_snapshot(metadata if isinstance(metadata, dict) else None)
+        mapping[str(ability_id)] = {
+            "current_template_id": current_template_id,
+            "history_count": history_count,
+            "published": bool(current_template_id),
+        }
+    return mapping
+
+
+def _attach_template_summary(entries: list[AbilityInvocationLog]) -> list[AbilityInvocationLog]:
+    if not entries:
+        return entries
+    ability_ids = sorted({str(entry.ability_id) for entry in entries if entry and entry.ability_id})
+    summary_map = _load_template_summary_map(ability_ids)
+    for entry in entries:
+        ability_id = str(entry.ability_id) if entry and entry.ability_id else ""
+        summary = summary_map.get(ability_id) or {}
+        setattr(entry, "ability_current_template_id", summary.get("current_template_id"))
+        setattr(entry, "ability_template_history_count", int(summary.get("history_count") or 0))
+        setattr(entry, "ability_template_published", bool(summary.get("published")))
+    return entries
+
+
+def _enrich_log_entries(entries: list[AbilityInvocationLog]) -> list[AbilityInvocationLog]:
+    return _attach_template_summary(_attach_stage_status(_attach_callback_ids(entries)))
 
 
 @router.get("", response_model=list[schemas.AbilityRead])
@@ -225,6 +431,110 @@ def delete_ability(ability_id: str) -> dict[str, str]:
         return {"status": "deleted"}
 
 
+@router.get("/{ability_id}/template", response_model=schemas.AbilityTemplateStateResponse)
+def get_ability_template_state(ability_id: str) -> schemas.AbilityTemplateStateResponse:
+    with get_session() as session:
+        ability = session.get(Ability, ability_id)
+        if not ability:
+            raise HTTPException(status_code=404, detail="ABILITY_NOT_FOUND")
+        return _template_state_response(ability)
+
+
+@router.post("/{ability_id}/template/validate", response_model=schemas.AbilityTemplateValidateResponse)
+def validate_ability_template(
+    ability_id: str,
+    payload: schemas.AbilityTemplateValidateRequest | None = None,
+) -> schemas.AbilityTemplateValidateResponse:
+    with get_session() as session:
+        ability = session.get(Ability, ability_id)
+        if not ability:
+            raise HTTPException(status_code=404, detail="ABILITY_NOT_FOUND")
+        has_override = payload is not None and payload.model_dump(exclude_none=True) != {}
+        default_params = payload.default_params if has_override and payload else ability.default_params
+        input_schema = payload.input_schema if has_override and payload else ability.input_schema
+        metadata = payload.metadata if has_override and payload else _sanitize_template_metadata(ability.extra_metadata)
+        errors, warnings = _validate_template_payload(
+            default_params=default_params if isinstance(default_params, dict) else None,
+            input_schema=input_schema if isinstance(input_schema, dict) else None,
+            metadata=metadata if isinstance(metadata, dict) else None,
+        )
+        return schemas.AbilityTemplateValidateResponse(ok=len(errors) == 0, errors=errors, warnings=warnings)
+
+
+@router.post("/{ability_id}/template/publish", response_model=schemas.AbilityTemplateStateResponse)
+def publish_ability_template(
+    ability_id: str,
+    payload: schemas.AbilityTemplatePublishRequest | None = None,
+) -> schemas.AbilityTemplateStateResponse:
+    with get_session() as session:
+        ability = session.get(Ability, ability_id)
+        if not ability:
+            raise HTTPException(status_code=404, detail="ABILITY_NOT_FOUND")
+        errors, _warnings = _validate_template_payload(
+            default_params=ability.default_params if isinstance(ability.default_params, dict) else {},
+            input_schema=ability.input_schema if isinstance(ability.input_schema, dict) else {},
+            metadata=_sanitize_template_metadata(ability.extra_metadata),
+        )
+        if errors:
+            raise HTTPException(status_code=400, detail="ABILITY_TEMPLATE_INVALID")
+        metadata = ability.extra_metadata if isinstance(ability.extra_metadata, dict) else {}
+        registry = _get_template_registry(metadata)
+        history = _normalize_template_history(registry.get("history") if isinstance(registry, dict) else [])
+        snapshot = _snapshot_ability_template(
+            ability,
+            action="publish",
+            version_label=payload.version_label if payload else None,
+            notes=payload.notes if payload else None,
+        )
+        history = _normalize_template_history([snapshot] + history)
+        registry = {"current_template_id": snapshot["id"], "history": history}
+        ability.extra_metadata = _set_template_registry(metadata, registry)
+        session.add(ability)
+        session.commit()
+        session.refresh(ability)
+        return _template_state_response(ability)
+
+
+@router.post("/{ability_id}/template/rollback", response_model=schemas.AbilityTemplateStateResponse)
+def rollback_ability_template(
+    ability_id: str,
+    payload: schemas.AbilityTemplateRollbackRequest,
+) -> schemas.AbilityTemplateStateResponse:
+    with get_session() as session:
+        ability = session.get(Ability, ability_id)
+        if not ability:
+            raise HTTPException(status_code=404, detail="ABILITY_NOT_FOUND")
+        metadata = ability.extra_metadata if isinstance(ability.extra_metadata, dict) else {}
+        registry = _get_template_registry(metadata)
+        history = _normalize_template_history(registry.get("history") if isinstance(registry, dict) else [])
+        target = None
+        for item in history:
+            if str(item.get("id")) == payload.template_id:
+                target = item
+                break
+        if not target:
+            raise HTTPException(status_code=404, detail="ABILITY_TEMPLATE_NOT_FOUND")
+        backup = _snapshot_ability_template(
+            ability,
+            action="rollback_backup",
+            version_label=None,
+            notes=(payload.notes or "").strip() or f"rollback->{payload.template_id}",
+        )
+        restored_default_params = target.get("default_params")
+        restored_input_schema = target.get("input_schema")
+        restored_metadata = target.get("metadata")
+        ability.default_params = restored_default_params if isinstance(restored_default_params, dict) else {}
+        ability.input_schema = restored_input_schema if isinstance(restored_input_schema, dict) else {}
+        base_metadata = restored_metadata if isinstance(restored_metadata, dict) else {}
+        next_history = _normalize_template_history([backup] + history)
+        next_registry = {"current_template_id": payload.template_id, "history": next_history}
+        ability.extra_metadata = _set_template_registry(base_metadata, next_registry)
+        session.add(ability)
+        session.commit()
+        session.refresh(ability)
+        return _template_state_response(ability)
+
+
 @router.get("/{ability_id}/logs", response_model=log_schemas.AbilityInvocationLogListResponse)
 def list_ability_logs(
     ability_id: str,
@@ -233,7 +543,7 @@ def list_ability_logs(
 ):
     total = ability_log_service.count_logs(ability_id=ability_id)
     entries = ability_log_service.list_logs(ability_id=ability_id, limit=limit, offset=offset)
-    entries = _attach_callback_ids(entries)
+    entries = _enrich_log_entries(entries)
     return {
         "total": total,
         "limit": limit,
@@ -249,20 +559,28 @@ def list_all_ability_logs(
     ability_id: str | None = Query(default=None, alias="abilityId"),
     provider: str | None = Query(default=None),
     capability_key: str | None = Query(default=None, alias="capabilityKey"),
+    template_id: str | None = Query(default=None, alias="templateId"),
+    template_published: bool | None = Query(default=None, alias="templatePublished"),
 ):
+    template_ability_ids = _resolve_template_filtered_ability_ids(
+        template_id=template_id,
+        template_published=template_published,
+    )
     total = ability_log_service.count_logs(
         ability_id=ability_id,
+        ability_ids=template_ability_ids,
         provider=provider,
         capability_key=capability_key,
     )
     entries = ability_log_service.list_logs(
         ability_id=ability_id,
+        ability_ids=template_ability_ids,
         provider=provider,
         capability_key=capability_key,
         limit=limit,
         offset=offset,
     )
-    entries = _attach_callback_ids(entries)
+    entries = _enrich_log_entries(entries)
     return {
         "total": total,
         "limit": limit,
@@ -361,7 +679,8 @@ def resolve_comfyui_log(log_id: int):
         refreshed = session.get(AbilityInvocationLog, log_id)
         if not refreshed:
             raise HTTPException(status_code=404, detail="ABILITY_LOG_NOT_FOUND")
-        return log_schemas.AbilityInvocationLogRead.model_validate(refreshed)
+        enriched = _enrich_log_entries([refreshed])[0]
+        return log_schemas.AbilityInvocationLogRead.model_validate(enriched)
 
 
 def _parse_dt(value: str | None) -> datetime | None:
@@ -396,6 +715,8 @@ def export_ability_logs(
     provider: str | None = Query(default=None),
     capability_key: str | None = Query(default=None, alias="capabilityKey"),
     ability_id: str | None = Query(default=None, alias="abilityId"),
+    template_id: str | None = Query(default=None, alias="templateId"),
+    template_published: bool | None = Query(default=None, alias="templatePublished"),
     executor_id: str | None = Query(default=None, alias="executorId"),
     status: str | None = Query(default=None),
     source: str | None = Query(default=None),
@@ -411,6 +732,10 @@ def export_ability_logs(
     end_dt = _parse_dt(end) or datetime.utcnow()
 
     with get_session() as session:
+        template_ability_ids = _resolve_template_filtered_ability_ids(
+            template_id=template_id,
+            template_published=template_published,
+        )
         stmt = select(AbilityInvocationLog).where(
             AbilityInvocationLog.created_at >= start_dt,
             AbilityInvocationLog.created_at <= end_dt,
@@ -421,6 +746,12 @@ def export_ability_logs(
             stmt = stmt.where(AbilityInvocationLog.capability_key == capability_key)
         if ability_id:
             stmt = stmt.where(AbilityInvocationLog.ability_id == ability_id)
+        if template_ability_ids is not None:
+            if not template_ability_ids:
+                rows: list[AbilityInvocationLog] = []
+                stmt = None
+            else:
+                stmt = stmt.where(AbilityInvocationLog.ability_id.in_(template_ability_ids))
         if executor_id:
             stmt = stmt.where(AbilityInvocationLog.executor_id == executor_id)
         if status:
@@ -428,10 +759,11 @@ def export_ability_logs(
         if source:
             stmt = stmt.where(AbilityInvocationLog.source == source)
 
-        stmt = stmt.order_by(AbilityInvocationLog.created_at.desc()).limit(limit)
-        rows = session.execute(stmt).scalars().all()
+        if stmt is not None:
+            stmt = stmt.order_by(AbilityInvocationLog.created_at.desc()).limit(limit)
+            rows = session.execute(stmt).scalars().all()
 
-    rows = _attach_callback_ids(rows)
+    rows = _enrich_log_entries(rows)
 
     if format == "json":
         data = [log_schemas.AbilityInvocationLogRead.model_validate(r).model_dump() for r in rows]
@@ -464,10 +796,15 @@ def export_ability_logs(
                 "id",
                 "created_at",
                 "status",
+                "submit_status",
+                "final_status",
                 "ability_provider",
                 "capability_key",
                 "ability_id",
                 "ability_name",
+                "ability_current_template_id",
+                "ability_template_history_count",
+                "ability_template_published",
                 "executor_id",
                 "executor_name",
                 "executor_type",
@@ -475,6 +812,7 @@ def export_ability_logs(
                 "duration_ms",
                 "stored_url",
                 "error_message",
+                "error_code",
                 "task_id",
                 "callback_id",
                 "trace_id",
@@ -494,10 +832,15 @@ def export_ability_logs(
                     r.id,
                     r.created_at.isoformat() + "Z" if r.created_at else "",
                     r.status,
+                    getattr(r, "submit_status", "") or "",
+                    getattr(r, "final_status", "") or "",
                     r.ability_provider,
                     r.capability_key,
                     r.ability_id or "",
                     r.ability_name or "",
+                    getattr(r, "ability_current_template_id", None) or "",
+                    getattr(r, "ability_template_history_count", None) or 0,
+                    "true" if bool(getattr(r, "ability_template_published", False)) else "false",
                     r.executor_id or "",
                     r.executor_name or "",
                     r.executor_type or "",
@@ -505,6 +848,7 @@ def export_ability_logs(
                     r.duration_ms if r.duration_ms is not None else "",
                     r.stored_url or "",
                     (r.error_message or "").replace("\n", " ").strip(),
+                    getattr(r, "error_code", None) or "",
                     r.task_id or "",
                     getattr(r, "callback_id", None) or "",
                     r.trace_id or "",

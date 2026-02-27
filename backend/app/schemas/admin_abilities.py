@@ -79,3 +79,42 @@ class AbilityOption(BaseModel):
 
 class AbilityOptionListResponse(BaseModel):
     items: list[AbilityOption]
+
+
+class AbilityTemplateSnapshot(BaseModel):
+    id: str
+    version_label: str | None = None
+    action: str = "publish"
+    created_at: datetime
+    notes: str | None = None
+    default_params: dict[str, Any] | None = None
+    input_schema: dict[str, Any] | None = None
+    metadata: dict[str, Any] | None = None
+
+
+class AbilityTemplateStateResponse(BaseModel):
+    ability_id: str
+    current_template_id: str | None = None
+    history: list[AbilityTemplateSnapshot]
+
+
+class AbilityTemplatePublishRequest(BaseModel):
+    version_label: str | None = None
+    notes: str | None = None
+
+
+class AbilityTemplateRollbackRequest(BaseModel):
+    template_id: str = Field(..., alias="templateId")
+    notes: str | None = None
+
+
+class AbilityTemplateValidateRequest(BaseModel):
+    default_params: dict[str, Any] | None = None
+    input_schema: dict[str, Any] | None = None
+    metadata: dict[str, Any] | None = None
+
+
+class AbilityTemplateValidateResponse(BaseModel):
+    ok: bool
+    errors: list[str]
+    warnings: list[str]

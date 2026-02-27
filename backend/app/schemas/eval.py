@@ -36,14 +36,26 @@ class EvalWorkflowVersionUpdate(BaseModel):
     status: Optional[str] = Field(None, description="状态")
 
 
+class EvalWorkflowResourceBinding(BaseModel):
+    field: str = Field(..., description="参数字段名")
+    resource_type: str = Field(..., alias="resourceType", description="资源类型：lora/model/plugin")
+    source: str = Field(..., description="数据来源")
+
+
 class EvalWorkflowVersionResponse(EvalWorkflowVersionBase):
     """Schema for evaluation workflow version response."""
     id: str = Field(..., description="ID")
+    resource_bindings: list[EvalWorkflowResourceBinding] = Field(
+        default_factory=list,
+        alias="resourceBindings",
+        description="工作流参数与资源目录绑定",
+    )
     created_at: datetime = Field(..., description="创建时间")
     updated_at: datetime = Field(..., description="更新时间")
     
     class Config:
         from_attributes = True
+        populate_by_name = True
 
 
 class EvalDatasetItemBase(BaseModel):
@@ -96,6 +108,16 @@ class EvalRunCreate(BaseModel):
 class EvalRunResponse(EvalRunBase):
     """Schema for evaluation run response."""
     id: str = Field(..., description="ID")
+    submit_status: Optional[str] = Field(
+        None, description="提交阶段状态：pending/submitting/submit_failed/submitted"
+    )
+    callback_status: Optional[str] = Field(
+        None, description="回调阶段状态：waiting/running/success/failed/not_configured"
+    )
+    final_status: Optional[str] = Field(
+        None, description="最终状态：pending/running/success/failed/canceled"
+    )
+    error_code: Optional[str] = Field(None, description="标准错误码（可为空）")
     created_by: str = Field(..., description="创建者")
     created_at: datetime = Field(..., description="创建时间")
     updated_at: datetime = Field(..., description="更新时间")

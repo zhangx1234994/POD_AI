@@ -16,6 +16,9 @@ class AbilityInvocationLogRead(BaseModel):
     ability_provider: str
     capability_key: str
     ability_name: str | None = None
+    ability_current_template_id: str | None = Field(default=None, description="能力当前模板版本ID")
+    ability_template_history_count: int = Field(default=0, description="能力模板历史快照数量")
+    ability_template_published: bool = Field(default=False, description="能力是否已发布模板")
     executor_id: str | None = None
     executor_name: str | None = None
     executor_type: str | None = None
@@ -25,6 +28,15 @@ class AbilityInvocationLogRead(BaseModel):
     trace_id: str | None = None
     workflow_run_id: str | None = None
     status: str = Field(description="日志状态：pending/success/failed（日志维度）")
+    submit_status: str | None = Field(
+        default=None,
+        description="提交阶段状态：pending/submitting/submit_failed/submitted",
+    )
+    final_status: str | None = Field(
+        default=None,
+        description="最终状态：pending/running/success/failed/canceled",
+    )
+    error_code: str | None = Field(default=None, description="标准错误码（可为空）")
     duration_ms: int | None = None
     stored_url: str | None = None
     request_payload: dict[str, Any] | None = None

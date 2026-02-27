@@ -825,6 +825,123 @@ def list_comfyui_loras(
         )
 
 
+@router.get("/comfyui/resources/options", response_model=schemas.ComfyuiResourceOptionsResponse)
+def list_comfyui_resource_options(
+    resource_type: str = Query(..., alias="type"),
+    status: str | None = Query("active"),
+    query: str | None = Query(None, alias="q"),
+    limit: int = Query(500, ge=1, le=5000),
+):
+    normalized_type = (resource_type or "").strip().lower()
+    if normalized_type not in {"lora", "model", "plugin", "version"}:
+        raise HTTPException(status_code=400, detail="COMFYUI_RESOURCE_TYPE_INVALID")
+    keyword = f"%{(query or '').strip()}%" if (query or "").strip() else None
+    with get_session() as session:
+        items: list[schemas.ComfyuiResourceOptionItem] = []
+        if normalized_type == "lora":
+            stmt = select(ComfyuiLora)
+            if status:
+                stmt = stmt.where(ComfyuiLora.status == status)
+            if keyword:
+                stmt = stmt.where(or_(ComfyuiLora.file_name.like(keyword), ComfyuiLora.display_name.like(keyword)))
+            rows = session.execute(stmt.order_by(ComfyuiLora.updated_at.desc()).limit(limit)).scalars().all()
+            items = [
+                schemas.ComfyuiResourceOptionItem(
+                    id=f"lora:{row.id}",
+                    key=row.file_name,
+                    label=row.display_name or row.file_name,
+                    resourceType="lora",
+                    status=row.status,
+                    description=row.description,
+                    metadata={
+                        "baseModel": row.base_model,
+                        "baseModels": row.base_models or [],
+                        "tags": row.tags or [],
+                    },
+                )
+                for row in rows
+            ]
+        elif normalized_type == "model":
+            stmt = select(ComfyuiModelCatalog)
+            if status:
+                stmt = stmt.where(ComfyuiModelCatalog.status == status)
+            if keyword:
+                stmt = stmt.where(
+                    or_(ComfyuiModelCatalog.file_name.like(keyword), ComfyuiModelCatalog.display_name.like(keyword))
+                )
+            rows = session.execute(stmt.order_by(ComfyuiModelCatalog.updated_at.desc()).limit(limit)).scalars().all()
+            items = [
+                schemas.ComfyuiResourceOptionItem(
+                    id=f"model:{row.id}",
+                    key=row.file_name,
+                    label=row.display_name or row.file_name,
+                    resourceType="model",
+                    status=row.status,
+                    description=row.description,
+                    downloadUrl=row.download_url,
+                    metadata={"modelType": row.model_type, "tags": row.tags or []},
+                )
+                for row in rows
+            ]
+        elif normalized_type == "plugin":
+            stmt = select(ComfyuiPluginCatalog)
+            if status:
+                stmt = stmt.where(ComfyuiPluginCatalog.status == status)
+            if keyword:
+                stmt = stmt.where(
+                    or_(
+                        ComfyuiPluginCatalog.node_key.like(keyword),
+                        ComfyuiPluginCatalog.display_name.like(keyword),
+                        ComfyuiPluginCatalog.package_name.like(keyword),
+                    )
+                )
+            rows = session.execute(stmt.order_by(ComfyuiPluginCatalog.updated_at.desc()).limit(limit)).scalars().all()
+            items = [
+                schemas.ComfyuiResourceOptionItem(
+                    id=f"plugin:{row.id}",
+                    key=row.node_key,
+                    label=row.display_name or row.node_key,
+                    resourceType="plugin",
+                    status=row.status,
+                    description=row.description,
+                    downloadUrl=row.download_url,
+                    metadata={"packageName": row.package_name, "version": row.version, "tags": row.tags or []},
+                )
+                for row in rows
+            ]
+        else:
+            stmt = select(ComfyuiVersionCatalog)
+            if status:
+                stmt = stmt.where(ComfyuiVersionCatalog.status == status)
+            if keyword:
+                stmt = stmt.where(
+                    or_(
+                        ComfyuiVersionCatalog.version.like(keyword),
+                        ComfyuiVersionCatalog.commit_sha.like(keyword),
+                    )
+                )
+            rows = session.execute(stmt.order_by(ComfyuiVersionCatalog.updated_at.desc()).limit(limit)).scalars().all()
+            items = [
+                schemas.ComfyuiResourceOptionItem(
+                    id=f"version:{row.id}",
+                    key=row.version,
+                    label=row.version,
+                    resourceType="version",
+                    status=row.status,
+                    description=row.notes,
+                    downloadUrl=row.download_url,
+                    metadata={"commitSha": row.commit_sha, "repoUrl": row.repo_url},
+                )
+                for row in rows
+            ]
+        return schemas.ComfyuiResourceOptionsResponse(
+            resourceType=normalized_type,
+            status=status,
+            total=len(items),
+            items=items,
+        )
+
+
 @router.post("/comfyui/loras", response_model=schemas.ComfyuiLoraRead)
 def create_comfyui_lora(payload: schemas.ComfyuiLoraCreate) -> ComfyuiLora:
     data = payload.model_dump(exclude_unset=True, exclude={"id"})

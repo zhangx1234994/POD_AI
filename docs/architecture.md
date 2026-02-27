@@ -94,6 +94,11 @@ flowchart LR
 ### 3.4 Task / Log（任务与日志）
 - 任务用于异步处理，日志用于追溯
 - 统一写入 `ability_invocation_logs`，确保排查入口一致
+- 统一双阶段状态字段（增量兼容）：
+  - `submit_status`（提交阶段）
+  - `callback_status`（回填阶段）
+  - `final_status`（最终可展示状态）
+  - `error_code`（标准错误码）
 
 ### 3.5 Media Ingest（媒资落盘）
 - 任何 `url/base64` 都先入 OSS
@@ -114,6 +119,18 @@ flowchart LR
 ### 4.3 回调与轮询
 - 所有异步能力都必须可查询/可回调
 - `taskId` 返回格式可解析（`t1.<provider>.<executorId>.<raw>`）
+- ComfyUI（自有队列）与第三方平台（外部异步）必须分层处理：
+  - ComfyUI 以队列与事件为主，不用固定硬超时直接判死
+  - 第三方可采用软超时 + 补偿回填策略
+
+### 4.5 ComfyUI 多机同步（新增）
+- 清单版本生命周期：`draft -> published -> rolled_back`
+- 主服务器不写死 IP，改为“角色 + 主节点指针”
+- 发布默认灰度，失败可回滚，并提供清单漂移对比（期望 vs 节点快照）
+- 执行面以“桌面端代理服务（Windows 先行）”统一承接：
+  - 首次接入：注册码交换 `agent_id/agent_token/jwt_keys`
+  - 任务处理：本地验签 + `/api/agent/auth/verify` 双重校验
+  - 运维目标：安装即配置、体检通过即可接入中台
 
 ### 4.4 错误与队列标准
 详见 `docs/standards/queue-and-error-standards.md`

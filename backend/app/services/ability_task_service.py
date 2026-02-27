@@ -23,6 +23,7 @@ from app.services.ability_invocation import ability_invocation_service
 from app.services.ability_logs import ability_log_service
 from app.services.integration_test import integration_test_service
 from app.services.task_id_codec import decode_task_id
+from app.services.task_status_contract import derive_ability_task_status
 
 logger = logging.getLogger(__name__)
 
@@ -699,6 +700,12 @@ class AbilityTaskService:
         return count
 
     def to_dict(self, task: AbilityTask) -> dict[str, Any]:
+        stage = derive_ability_task_status(
+            status=task.status,
+            started_at=task.started_at,
+            finished_at=task.finished_at,
+            error_message=task.error_message,
+        )
         return {
             "id": task.id,
             "ability_id": task.ability_id,
@@ -706,6 +713,10 @@ class AbilityTaskService:
             "ability_provider": task.ability_provider,
             "capability_key": task.capability_key,
             "status": task.status,
+            "submit_status": stage.submit_status,
+            "callback_status": stage.callback_status,
+            "final_status": stage.final_status,
+            "error_code": stage.error_code,
             "log_id": task.log_id,
             "duration_ms": task.duration_ms,
             "request_payload": self._sanitize_payload(task.request_payload),

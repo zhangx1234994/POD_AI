@@ -25,6 +25,8 @@ import { uploadAbilityTestFile } from '../utils/ossUploader';
 import type {
   Ability,
   AbilityInvocationLog,
+  AbilityTemplateStateResponse,
+  AbilityTemplateValidateResponse,
   AbilityFormState,
   AbilityLogMetricsResponse,
   AbilityLogMetricBucket,
@@ -48,6 +50,12 @@ import type {
   ComfyuiAgentManifest,
   ComfyuiAgentTask,
   ComfyuiAgentTaskEvent,
+  ComfyuiDesktopRelease,
+  ComfyuiEnrollCode,
+  ComfyuiManifestDriftResponse,
+  ComfyuiMonitoringSummary,
+  ComfyuiRepairJob,
+  ComfyuiRepairPlan,
   ComfyuiLora,
   ComfyuiLoraCatalogResponse,
   ComfyuiQueueStatus,
@@ -214,6 +222,26 @@ const apiKeyStatusOptions = [
   { value: 'deprecated', label: '下线 (deprecated)' },
 ] as const;
 
+const comfyDesktopReleaseStatusOptions = [
+  { value: 'active', label: '启用' },
+  { value: 'inactive', label: '停用' },
+  { value: 'deprecated', label: '废弃' },
+] as const;
+const comfyDesktopUpdateStatusMeta: Record<string, { theme: 'success' | 'warning' | 'danger' | 'default'; text: string }> = {
+  up_to_date: { theme: 'success', text: '已是最新' },
+  update_available: { theme: 'warning', text: '可升级' },
+  apply_started: { theme: 'warning', text: '升级已触发' },
+  applying: { theme: 'warning', text: '升级中' },
+  applied: { theme: 'success', text: '升级完成' },
+  apply_failed: { theme: 'danger', text: '升级失败' },
+  apply_blocked_running_task: { theme: 'warning', text: '执行中暂缓升级' },
+  apply_not_supported: { theme: 'default', text: '当前系统不支持' },
+  check_failed: { theme: 'danger', text: '检查失败' },
+  no_release: { theme: 'default', text: '暂无可用版本' },
+  not_ready: { theme: 'default', text: '尚未接入' },
+  disabled: { theme: 'default', text: '自动更新关闭' },
+};
+
 const formControlClass =
   'w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500';
 const formControlFlexClass =
@@ -236,6 +264,41 @@ const getAbilityTypeLabel = (value?: string | null) => {
     return abilityTypeLabelMap.api ?? 'api';
   }
   return abilityTypeLabelMap[value] ?? value;
+};
+
+const isMockLikeRecord = (value?: string | null): boolean => {
+  const text = String(value || '').trim().toLowerCase();
+  if (!text) return false;
+  return /(^|[-_])mock([-_]|$)/.test(text) || text.includes('history_success_no_images');
+};
+
+const normalizeDesktopOsType = (value?: string | null): string => {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return '';
+  if (raw === 'windows' || raw === 'win' || raw === 'win32' || raw === 'win64') return 'windows';
+  if (raw === 'linux') return 'linux';
+  if (raw === 'darwin' || raw === 'mac' || raw === 'macos') return 'macos';
+  return raw;
+};
+
+const normalizeDesktopArch = (value?: string | null): string => {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return '';
+  if (raw === 'x64' || raw === 'amd64' || raw === 'x86_64') return 'x64';
+  if (raw === 'arm64' || raw === 'aarch64') return 'arm64';
+  return raw;
+};
+
+const comfyuiTabHelpText: Record<string, string> = {
+  lora: '素材库：维护 LoRA 条目，便于业务人员按名称选择。',
+  assets: '资源清单：维护模型/插件/ComfyUI 版本目录（下载地址、状态）。',
+  templates: '模板管理：维护可复用的工作流模板与节点映射。',
+  servers: '服务器：查看各节点与基线的差异，用于定位“哪台机缺资源”。',
+  manifests: '清单：定义某一角色服务器应达到的目标版本（发布标准）。',
+  tasks: '任务：把“清单/动作”下发到代理服务，并跟踪提交与回执。',
+  agents: '代理服务：管理可接入节点（地址、角色、启停白名单）。',
+  alerts: '告警：查看节点异常上报（磁盘、离线、同步失败等）。',
+  desktop: '桌面端部署：发布/下载安装包，查看各节点升级状态。',
 };
 const getCategoryLabel = (value: string) => categoryLabelMap[value] ?? value;
 const normalizeKey = (value?: string | null) => (value ? value.trim().toLowerCase().replace(/[\s_]+/g, '-') : '');
@@ -627,11 +690,103 @@ const abilitySourceLabels: Record<string, string> = {
   'ability_api': '能力接口',
   'ability_task': '异步任务',
 };
+type AbilityTemplateSummary = {
+  currentId: string | null;
+  historyCount: number;
+  latestAt: string | null;
+  latestAction: string | null;
+  latestLabel: string | null;
+};
+
+const resolveAbilityTemplateSummary = (ability: Ability): AbilityTemplateSummary => {
+  const metadata = (ability.metadata || {}) as JsonRecord;
+  const registry = metadata.__template_registry;
+  if (!registry || typeof registry !== 'object' || Array.isArray(registry)) {
+    return {
+      currentId: null,
+      historyCount: 0,
+      latestAt: null,
+      latestAction: null,
+      latestLabel: null,
+    };
+  }
+  const currentRaw = (registry as JsonRecord).current_template_id;
+  const currentId = typeof currentRaw === 'string' && currentRaw.trim() ? currentRaw.trim() : null;
+  const historyRaw = (registry as JsonRecord).history;
+  const historyList = Array.isArray(historyRaw)
+    ? historyRaw.filter((item): item is JsonRecord => Boolean(item && typeof item === 'object' && !Array.isArray(item)))
+    : [];
+  const latest = historyList[0] || null;
+  const latestAtRaw = latest?.created_at;
+  const latestAt = typeof latestAtRaw === 'string' && latestAtRaw.trim() ? latestAtRaw.trim() : null;
+  const latestActionRaw = latest?.action;
+  const latestAction = typeof latestActionRaw === 'string' && latestActionRaw.trim() ? latestActionRaw.trim() : null;
+  const latestLabelRaw = latest?.version_label;
+  const latestLabel = typeof latestLabelRaw === 'string' && latestLabelRaw.trim() ? latestLabelRaw.trim() : null;
+  return {
+    currentId,
+    historyCount: historyList.length,
+    latestAt,
+    latestAction,
+    latestLabel,
+  };
+};
+
 const comfyAgentActionLabels: Record<string, string> = {
   sync_models: '同步模型',
   sync_plugins: '同步插件',
   sync_workflows: '同步工作流',
   restart: '重启服务',
+};
+const asJsonRecord = (value: unknown): JsonRecord | null => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as JsonRecord;
+};
+const pickRecord = (source: JsonRecord | null, key: string): JsonRecord | null => {
+  if (!source) return null;
+  return asJsonRecord(source[key]);
+};
+const pickString = (source: JsonRecord | null, keys: string[]): string | null => {
+  if (!source) return null;
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  }
+  return null;
+};
+const getComfyDesktopUpdateSnapshot = (agent: ComfyuiAgent) => {
+  const config = asJsonRecord(agent.config || {});
+  const heartbeat = pickRecord(config, 'heartbeat');
+  const updateState = pickRecord(heartbeat, 'updateState') || pickRecord(config, 'updateState');
+  const payload = pickRecord(updateState, 'payload');
+  const runtime = pickRecord(heartbeat, 'runtime');
+  const status = pickString(updateState, ['status']) || '';
+  const rawCurrentVersion =
+    pickString(updateState, ['currentVersion', 'current_version']) ||
+    pickString(runtime, ['desktopVersion']) ||
+    pickString(config, ['agent_version', 'agentVersion']) ||
+    '—';
+  const currentVersion = rawCurrentVersion.replace(/^desktop-/, '');
+  const targetVersion = pickString(updateState, ['targetVersion', 'target_version']) || '—';
+  const updatedAt = pickString(updateState, ['updatedAt', 'updated_at']) || agent.last_heartbeat_at || agent.last_seen_at || null;
+  const failureReason =
+    pickString(updateState, ['error', 'message']) ||
+    pickString(payload, ['error', 'message', 'reason', 'detail']) ||
+    null;
+  return {
+    status,
+    currentVersion,
+    targetVersion,
+    updatedAt,
+    failureReason,
+  };
+};
+const getComfyDesktopUpdateTag = (status?: string | null) => {
+  const normalized = String(status || '').trim().toLowerCase();
+  if (!normalized) return { theme: 'default' as const, text: '未上报' };
+  return comfyDesktopUpdateStatusMeta[normalized] || { theme: 'default' as const, text: normalized };
 };
 const formatAbilitySource = (value?: string | null) => {
   if (!value) return '未知来源';
@@ -640,6 +795,10 @@ const formatAbilitySource = (value?: string | null) => {
 const formatComfyAgentActions = (actions?: string[] | null) => {
   if (!actions || actions.length === 0) return '—';
   return actions.map((action) => comfyAgentActionLabels[action] || action).join('、');
+};
+const isRolePrimaryAgent = (agent: ComfyuiAgent) => {
+  const config = (agent.config || {}) as JsonRecord;
+  return Boolean(config?.rolePrimary);
 };
 const getAbilitySourceTagTheme = (value?: string | null) => {
   const v = value || '';
@@ -1534,6 +1693,7 @@ export function IntegrationDashboard({
   const [globalAbilityLogSource, setGlobalAbilityLogSource] = useState<string>('all');
   const [globalAbilityLogStatus, setGlobalAbilityLogStatus] = useState<string>('all');
   const [globalAbilityLogCapabilityKey, setGlobalAbilityLogCapabilityKey] = useState<string>('all');
+  const [globalAbilityLogTemplatePublished, setGlobalAbilityLogTemplatePublished] = useState<string>('all');
   const [globalAbilityLogOnlyCallbackFailed, setGlobalAbilityLogOnlyCallbackFailed] = useState<boolean>(false);
   const [globalAbilityLogSearch, setGlobalAbilityLogSearch] = useState<string>('');
   const [executorForm, setExecutorForm] = useState<ExecutorFormState>(defaultExecutorForm);
@@ -1574,8 +1734,9 @@ export function IntegrationDashboard({
   const [comfyQueueSummaryError, setComfyQueueSummaryError] = useState<string | null>(null);
   const [comfyQueueSummaryUpdatedAt, setComfyQueueSummaryUpdatedAt] = useState<string | null>(null);
   const [comfyLoraSelectCache, setComfyLoraSelectCache] = useState<Record<string, ComfyuiLora[]>>({});
+  const [comfyShowTestNodes, setComfyShowTestNodes] = useState(false);
   const [comfyuiManageTab, setComfyuiManageTab] = useState<
-    'lora' | 'templates' | 'servers' | 'assets' | 'agents' | 'manifests' | 'tasks' | 'alerts'
+    'lora' | 'templates' | 'servers' | 'assets' | 'agents' | 'desktop' | 'manifests' | 'tasks' | 'alerts'
   >('lora');
   const [comfyAgentList, setComfyAgentList] = useState<ComfyuiAgent[]>([]);
   const [comfyAgentLoading, setComfyAgentLoading] = useState(false);
@@ -1594,13 +1755,26 @@ export function IntegrationDashboard({
   const [comfyManifestError, setComfyManifestError] = useState<string | null>(null);
   const [comfyManifestDialogOpen, setComfyManifestDialogOpen] = useState(false);
   const [comfyManifestSaving, setComfyManifestSaving] = useState(false);
+  const [comfyManifestActionLoading, setComfyManifestActionLoading] = useState<Record<number, boolean>>({});
+  const [comfyManifestEditorMode, setComfyManifestEditorMode] = useState<'wizard' | 'json'>('wizard');
+  const [comfyManifestIncludeInactive, setComfyManifestIncludeInactive] = useState(false);
   const [comfyManifestForm, setComfyManifestForm] = useState<Partial<ComfyuiAgentManifest>>({
-    status: 'active',
+    status: 'draft',
   });
   const [comfyManifestContentInput, setComfyManifestContentInput] = useState('');
   const [comfyManifestFormError, setComfyManifestFormError] = useState<string | null>(null);
   const [comfyManifestRoleFilter, setComfyManifestRoleFilter] = useState('');
   const [comfyManifestStatusFilter, setComfyManifestStatusFilter] = useState('all');
+  const [comfyManifestDriftDialogOpen, setComfyManifestDriftDialogOpen] = useState(false);
+  const [comfyManifestDriftLoading, setComfyManifestDriftLoading] = useState(false);
+  const [comfyManifestDriftError, setComfyManifestDriftError] = useState<string | null>(null);
+  const [comfyManifestDriftData, setComfyManifestDriftData] = useState<ComfyuiManifestDriftResponse | null>(null);
+  const [comfyManifestDriftTitle, setComfyManifestDriftTitle] = useState('');
+  const [comfyManifestDriftContext, setComfyManifestDriftContext] = useState<{ manifestId: number; agentId: string } | null>(null);
+  const [comfyRepairPlanLoading, setComfyRepairPlanLoading] = useState(false);
+  const [comfyRepairPlan, setComfyRepairPlan] = useState<ComfyuiRepairPlan | null>(null);
+  const [comfyRepairJobLoading, setComfyRepairJobLoading] = useState(false);
+  const [comfyRepairJobs, setComfyRepairJobs] = useState<ComfyuiRepairJob[]>([]);
   const [comfyAgentTasks, setComfyAgentTasks] = useState<ComfyuiAgentTask[]>([]);
   const [comfyAgentTasksLoading, setComfyAgentTasksLoading] = useState(false);
   const [comfyAgentTasksError, setComfyAgentTasksError] = useState<string | null>(null);
@@ -1635,6 +1809,34 @@ export function IntegrationDashboard({
   const [comfyAgentTokenExpiresAt, setComfyAgentTokenExpiresAt] = useState('');
   const [comfyAgentTokenError, setComfyAgentTokenError] = useState<string | null>(null);
   const [comfyAgentTokenLoading, setComfyAgentTokenLoading] = useState(false);
+  const [comfyAgentPrimarySaving, setComfyAgentPrimarySaving] = useState<Record<string, boolean>>({});
+  const [comfyEnrollCodes, setComfyEnrollCodes] = useState<ComfyuiEnrollCode[]>([]);
+  const [comfyEnrollCodesLoading, setComfyEnrollCodesLoading] = useState(false);
+  const [comfyEnrollCodesError, setComfyEnrollCodesError] = useState<string | null>(null);
+  const [comfyEnrollCodeRole, setComfyEnrollCodeRole] = useState('full');
+  const [comfyEnrollCodeTtlSeconds, setComfyEnrollCodeTtlSeconds] = useState(600);
+  const [comfyEnrollCodeMaxUses, setComfyEnrollCodeMaxUses] = useState(1);
+  const [comfyEnrollCodeNote, setComfyEnrollCodeNote] = useState('');
+  const [comfyEnrollCodeCreating, setComfyEnrollCodeCreating] = useState(false);
+  const [comfyDesktopReleases, setComfyDesktopReleases] = useState<ComfyuiDesktopRelease[]>([]);
+  const [comfyDesktopReleasesLoading, setComfyDesktopReleasesLoading] = useState(false);
+  const [comfyDesktopReleasesError, setComfyDesktopReleasesError] = useState<string | null>(null);
+  const [comfyDesktopReleaseStatusFilter, setComfyDesktopReleaseStatusFilter] = useState('all');
+  const [comfyDesktopInstallReleaseId, setComfyDesktopInstallReleaseId] = useState('');
+  const [comfyDesktopReleaseDialogOpen, setComfyDesktopReleaseDialogOpen] = useState(false);
+  const [comfyDesktopReleaseSaving, setComfyDesktopReleaseSaving] = useState(false);
+  const [comfyDesktopReleaseFormError, setComfyDesktopReleaseFormError] = useState<string | null>(null);
+  const [comfyDesktopReleaseForm, setComfyDesktopReleaseForm] = useState<Partial<ComfyuiDesktopRelease>>({
+    channel: 'stable',
+    osType: 'windows',
+    arch: 'x64',
+    status: 'active',
+  });
+  const [comfyDesktopReleasePayloadInput, setComfyDesktopReleasePayloadInput] = useState('');
+  const [comfyMonitoringSummary, setComfyMonitoringSummary] = useState<ComfyuiMonitoringSummary | null>(null);
+  const [comfyMonitoringLoading, setComfyMonitoringLoading] = useState(false);
+  const [comfyMonitoringError, setComfyMonitoringError] = useState<string | null>(null);
+  const [comfyMonitoringWindowHours, setComfyMonitoringWindowHours] = useState<number>(24);
   const [comfyBaselineExecutorId, setComfyBaselineExecutorId] = useState<string>('');
   const [comfyLoraCatalog, setComfyLoraCatalog] = useState<ComfyuiLoraCatalogResponse | null>(null);
   const [comfyLoraLoading, setComfyLoraLoading] = useState(false);
@@ -1725,6 +1927,14 @@ export function IntegrationDashboard({
   const [abilityLogMetrics, setAbilityLogMetrics] = useState<AbilityLogMetricsResponse | null>(null);
   const [abilityLogMetricsLoading, setAbilityLogMetricsLoading] = useState(false);
   const [abilityLogMetricsError, setAbilityLogMetricsError] = useState<string | null>(null);
+  const [abilityTemplateState, setAbilityTemplateState] = useState<AbilityTemplateStateResponse | null>(null);
+  const [abilityTemplateLoading, setAbilityTemplateLoading] = useState(false);
+  const [abilityTemplateError, setAbilityTemplateError] = useState<string | null>(null);
+  const [abilityTemplateActionLoading, setAbilityTemplateActionLoading] = useState(false);
+  const [abilityTemplateVersionLabel, setAbilityTemplateVersionLabel] = useState('');
+  const [abilityTemplateNotes, setAbilityTemplateNotes] = useState('');
+  const [abilityTemplateRollbackId, setAbilityTemplateRollbackId] = useState('');
+  const [abilityTemplateValidateResult, setAbilityTemplateValidateResult] = useState<AbilityTemplateValidateResponse | null>(null);
   const [abilityMetricsWindowHours, setAbilityMetricsWindowHours] = useState<number>(24);
   const [abilityMetricsProvider, setAbilityMetricsProvider] = useState<string>('all');
   const [abilityMetricsCapabilityKey, setAbilityMetricsCapabilityKey] = useState<string>('all');
@@ -1795,27 +2005,47 @@ export function IntegrationDashboard({
     if (!selectedAbilityId) return null;
     return abilities.find((ability) => ability.id === selectedAbilityId) ?? null;
   }, [abilities, selectedAbilityId]);
+  const abilityTemplateSummaryMap = useMemo(() => {
+    const map: Record<string, AbilityTemplateSummary> = {};
+    abilities.forEach((ability) => {
+      map[ability.id] = resolveAbilityTemplateSummary(ability);
+    });
+    return map;
+  }, [abilities]);
   const selectedAbilityMetadata = (selectedAbility?.metadata || {}) as Record<string, unknown>;
   const abilityExecutors = useMemo(
     () => resolveAbilityExecutors(selectedAbility, executors),
     [selectedAbility, executors],
   );
-  const comfyExecutors = useMemo(
-    () => executors.filter((executor) => (executor.type || '').toLowerCase().includes('comfyui')),
-    [executors],
+  const comfyExecutors = useMemo(() => {
+    const rows = executors.filter((executor) => (executor.type || '').toLowerCase().includes('comfyui'));
+    if (comfyShowTestNodes) return rows;
+    return rows.filter((executor) => !isMockLikeRecord(executor.id) && !isMockLikeRecord(executor.name));
+  }, [comfyShowTestNodes, executors]);
+  const comfyHiddenExecutorCount = useMemo(() => {
+    const total = executors.filter((executor) => (executor.type || '').toLowerCase().includes('comfyui')).length;
+    return Math.max(0, total - comfyExecutors.length);
+  }, [comfyExecutors.length, executors]);
+  const visibleComfyAgentList = useMemo(() => {
+    if (comfyShowTestNodes) return comfyAgentList;
+    return comfyAgentList.filter((agent) => !isMockLikeRecord(agent.id) && !isMockLikeRecord(agent.name));
+  }, [comfyAgentList, comfyShowTestNodes]);
+  const comfyHiddenAgentCount = useMemo(
+    () => Math.max(0, comfyAgentList.length - visibleComfyAgentList.length),
+    [comfyAgentList.length, visibleComfyAgentList.length],
   );
   const comfyAgentMap = useMemo(() => {
     const map = new Map<string, ComfyuiAgent>();
-    comfyAgentList.forEach((agent) => map.set(agent.id, agent));
+    visibleComfyAgentList.forEach((agent) => map.set(agent.id, agent));
     return map;
-  }, [comfyAgentList]);
+  }, [visibleComfyAgentList]);
   const comfyAgentOptions = useMemo(
     () =>
-      comfyAgentList.map((agent) => ({
+      visibleComfyAgentList.map((agent) => ({
         label: agent.name ? `${agent.name} · ${agent.id}` : agent.id,
         value: agent.id,
       })),
-    [comfyAgentList],
+    [visibleComfyAgentList],
   );
   const comfyManifestOptions = useMemo(
     () =>
@@ -1825,6 +2055,100 @@ export function IntegrationDashboard({
       })),
     [comfyManifestList],
   );
+  const comfyDesktopActiveRelease = useMemo(
+    () =>
+      comfyDesktopReleases.find(
+        (item) =>
+          item.status === 'active' &&
+          normalizeDesktopOsType(item.osType) === 'windows' &&
+          normalizeDesktopArch(item.arch) === 'x64',
+      ) || null,
+    [comfyDesktopReleases],
+  );
+  const comfyDesktopReleaseOptions = useMemo(() => {
+    const windows = comfyDesktopReleases
+      .filter((item) => normalizeDesktopOsType(item.osType) === 'windows' && normalizeDesktopArch(item.arch) === 'x64')
+      .map((item) => ({
+        label: `${item.version} · ${item.channel} · ${item.status === 'active' ? '启用' : '未启用'}`,
+        value: String(item.id),
+      }));
+    if (windows.length > 0) return windows;
+    return comfyDesktopReleases.map((item) => ({
+      label: `${item.version} · ${item.channel} · ${item.osType || 'unknown'}/${item.arch || 'unknown'}`,
+      value: String(item.id),
+    }));
+  }, [comfyDesktopReleases]);
+  const comfyDesktopHasWindowsX64Release = useMemo(
+    () =>
+      comfyDesktopReleases.some(
+        (item) => normalizeDesktopOsType(item.osType) === 'windows' && normalizeDesktopArch(item.arch) === 'x64',
+      ),
+    [comfyDesktopReleases],
+  );
+  const visibleComfyAgentTasks = useMemo(() => {
+    if (comfyShowTestNodes) return comfyAgentTasks;
+    return comfyAgentTasks.filter((task) => !isMockLikeRecord(task.agentId));
+  }, [comfyAgentTasks, comfyShowTestNodes]);
+  const visibleComfyAgentAlerts = useMemo(() => {
+    if (comfyShowTestNodes) return comfyAgentAlerts;
+    return comfyAgentAlerts.filter((item) => !isMockLikeRecord(item.agentId));
+  }, [comfyAgentAlerts, comfyShowTestNodes]);
+  const comfyDesktopSelectedRelease = useMemo(() => {
+    if (comfyDesktopInstallReleaseId) {
+      return comfyDesktopReleases.find((item) => String(item.id) === comfyDesktopInstallReleaseId) || null;
+    }
+    return comfyDesktopActiveRelease;
+  }, [comfyDesktopActiveRelease, comfyDesktopInstallReleaseId, comfyDesktopReleases]);
+  const comfyDesktopAgentRows = useMemo(
+    () =>
+      visibleComfyAgentList
+        .map((agent) => {
+          const update = getComfyDesktopUpdateSnapshot(agent);
+          return {
+            agent,
+            update,
+          };
+        })
+        .sort((a, b) => {
+          const left = new Date(a.update.updatedAt || a.agent.last_heartbeat_at || a.agent.last_seen_at || '').getTime();
+          const right = new Date(b.update.updatedAt || b.agent.last_heartbeat_at || b.agent.last_seen_at || '').getTime();
+          return (Number.isFinite(right) ? right : 0) - (Number.isFinite(left) ? left : 0);
+        }),
+    [visibleComfyAgentList],
+  );
+  const comfyDesktopCenterUrl = useMemo(() => {
+    if (typeof window === 'undefined') return 'http://117.50.80.158:8099';
+    try {
+      const current = new URL(window.location.origin);
+      current.port = '8099';
+      return current.toString().replace(/\/$/, '');
+    } catch (error) {
+      return 'http://117.50.80.158:8099';
+    }
+  }, []);
+  const comfyDesktopInstallCommand = useMemo(() => {
+    const releaseUrl = (comfyDesktopSelectedRelease?.downloadUrl || '').trim();
+    const sha256 = (comfyDesktopSelectedRelease?.sha256 || '').trim().toLowerCase();
+    if (!releaseUrl) {
+      return '请先在下方发布 Windows x64 安装包，并在上方选择目标版本。';
+    }
+    return [
+      '# 1) 下载安装包到本地',
+      '$installer = "$env:TEMP\\PODI-ComfyUI-Agent-Setup.exe"',
+      `Invoke-WebRequest -Uri "${releaseUrl}" -OutFile $installer`,
+      '',
+      '# 2) 校验 SHA256（不一致会中断）',
+      '$actual = (Get-FileHash $installer -Algorithm SHA256).Hash.ToLower()',
+      `$expected = "${sha256}"`,
+      'if ($actual -ne $expected) { throw "安装包校验失败，请重新下载" }',
+      '',
+      '# 3) 管理员静默安装',
+      'Start-Process $installer -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -Verb RunAs -Wait',
+      '',
+      '# 安装后代理服务会自动向中台发起握手：',
+      `# ${comfyDesktopCenterUrl}/api/agent/bootstrap/auto-exchange`,
+    ].join('\n');
+  }, [comfyDesktopCenterUrl, comfyDesktopSelectedRelease?.downloadUrl, comfyDesktopSelectedRelease?.sha256]);
   const comfyAgentEditing = useMemo(
     () => Boolean(comfyAgentForm.id && comfyAgentList.some((agent) => agent.id === comfyAgentForm.id)),
     [comfyAgentForm.id, comfyAgentList],
@@ -2014,6 +2338,42 @@ export function IntegrationDashboard({
     });
     return map;
   }, [comfyPluginCatalogItems]);
+  const comfyManifestWizardPreview = useMemo(() => {
+    const pickActive = <T extends { status?: string | null }>(items: T[]) =>
+      comfyManifestIncludeInactive ? items : items.filter((item) => (item.status || 'active') === 'active');
+    const models = pickActive(comfyModelCatalogItems).map((item) => item.file_name).filter(Boolean);
+    const loras = pickActive(comfyLoraItems).map((item) => item.file_name).filter(Boolean);
+    const plugins = pickActive(comfyPluginCatalogItems).map((item) => item.node_key).filter(Boolean);
+    const workflowKeys = workflows
+      .filter((workflow) => {
+        const isComfyWorkflow = (workflow.type || '').toLowerCase().includes('comfyui');
+        if (!isComfyWorkflow) return false;
+        if (comfyManifestIncludeInactive) return true;
+        return (workflow.status || 'active') === 'active';
+      })
+      .map((workflow) => workflow.action || workflow.id)
+      .filter(Boolean);
+    const activeVersion = pickActive(comfyVersionCatalogItems)[0];
+    const content: JsonRecord = {
+      source: 'catalog-wizard',
+      generatedAt: new Date().toISOString(),
+      comfyui: {
+        version: activeVersion?.version || '',
+        commit: activeVersion?.commit_sha || '',
+      },
+      models: Array.from(new Set([...models, ...loras])),
+      plugins: Array.from(new Set(plugins)),
+      workflows: Array.from(new Set(workflowKeys)),
+    };
+    return content;
+  }, [
+    comfyManifestIncludeInactive,
+    comfyModelCatalogItems,
+    comfyLoraItems,
+    comfyPluginCatalogItems,
+    comfyVersionCatalogItems,
+    workflows,
+  ]);
   const groupComfyMissingRepos = useCallback(
     (nodes: string[]) => {
       const repoMap: Record<
@@ -2333,6 +2693,14 @@ export function IntegrationDashboard({
       return '';
     }
   }, [comfyDiffDialogPayload]);
+  const comfyManifestDriftText = useMemo(() => {
+    if (!comfyManifestDriftData) return '';
+    try {
+      return JSON.stringify(comfyManifestDriftData, null, 2);
+    } catch {
+      return '';
+    }
+  }, [comfyManifestDriftData]);
   const workflowSubmitDisabled =
     !workflowForm.action?.trim() ||
     !workflowForm.name?.trim() ||
@@ -2516,11 +2884,13 @@ export function IntegrationDashboard({
       if (globalAbilityLogCapabilityKey !== 'all' && log.capability_key !== globalAbilityLogCapabilityKey) return false;
       if (globalAbilityLogSource !== 'all' && log.source !== globalAbilityLogSource) return false;
       if (globalAbilityLogStatus !== 'all' && (log.status || '') !== globalAbilityLogStatus) return false;
+      if (globalAbilityLogTemplatePublished === 'published' && !log.ability_template_published) return false;
+      if (globalAbilityLogTemplatePublished === 'unpublished' && log.ability_template_published) return false;
       if (globalAbilityLogOnlyCallbackFailed && !hasCallbackError) return false;
       if (!keyword) return true;
       const haystack = `${log.ability_name || ''} ${log.capability_key} ${log.ability_provider} ${log.executor_name || ''} ${
         log.executor_id || ''
-      } ${log.task_id || ''} ${log.callback_id || ''} ${log.trace_id || ''}`.toLowerCase();
+      } ${log.task_id || ''} ${log.callback_id || ''} ${log.trace_id || ''} ${log.ability_current_template_id || ''}`.toLowerCase();
       return haystack.includes(keyword);
     });
   }, [
@@ -2529,6 +2899,7 @@ export function IntegrationDashboard({
     globalAbilityLogCapabilityKey,
     globalAbilityLogSource,
     globalAbilityLogStatus,
+    globalAbilityLogTemplatePublished,
     globalAbilityLogOnlyCallbackFailed,
     globalAbilityLogSearch,
   ]);
@@ -3419,18 +3790,19 @@ export function IntegrationDashboard({
   }, []);
 
   const refreshComfyAgents = useCallback(
-    async (options?: { silent?: boolean }) => {
+    async (options?: { silent?: boolean; status?: string }) => {
       const silent = Boolean(options?.silent);
+      const statusFilter = options?.status ?? comfyAgentStatusFilter;
       if (!silent) setComfyAgentLoading(true);
       setComfyAgentError(null);
       try {
         const resp = await adminApi.listComfyuiAgents({
-          status: comfyAgentStatusFilter !== 'all' ? comfyAgentStatusFilter : undefined,
+          status: statusFilter !== 'all' ? statusFilter : undefined,
         });
         setComfyAgentList(resp || []);
       } catch (error: any) {
         console.error('Failed to load ComfyUI agents:', error);
-      setComfyAgentError(error?.message || '获取代理服务列表失败');
+        setComfyAgentError(error?.message || '获取代理服务列表失败');
       } finally {
         if (!silent) setComfyAgentLoading(false);
       }
@@ -3492,12 +3864,42 @@ export function IntegrationDashboard({
     [refreshComfyAgents],
   );
 
+  const handleComfyAgentSetPrimary = useCallback(
+    async (agent: ComfyuiAgent) => {
+      const role = String(agent.role || '').trim();
+      if (!role) {
+        setComfyAgentError('该代理服务未配置角色，无法设为主节点。');
+        return;
+      }
+      setComfyAgentPrimarySaving((prev) => ({ ...prev, [agent.id]: true }));
+      setComfyAgentError(null);
+      try {
+        await adminApi.setComfyuiRolePrimary(role, agent.id);
+        refreshComfyAgents({ silent: true });
+      } catch (error: any) {
+        console.error('set comfyui role primary failed', error);
+        setComfyAgentError(error?.message || '设置主节点失败，请稍后重试');
+      } finally {
+        setComfyAgentPrimarySaving((prev) => ({ ...prev, [agent.id]: false }));
+      }
+    },
+    [refreshComfyAgents],
+  );
+
   const resetComfyManifestForm = useCallback((seed?: Partial<ComfyuiAgentManifest>) => {
-    const next = seed || { status: 'active' };
+    const next = seed || { status: 'draft' };
     setComfyManifestForm(next);
     setComfyManifestContentInput(stringifyJSON(next.content as JsonRecord));
+    setComfyManifestEditorMode(seed?.id ? 'json' : 'wizard');
+    setComfyManifestIncludeInactive(false);
     setComfyManifestFormError(null);
   }, []);
+
+  const handleComfyManifestGenerateFromWizard = useCallback(() => {
+    setComfyManifestContentInput(stringifyJSON(comfyManifestWizardPreview));
+    setComfyManifestForm((prev) => ({ ...prev, content: comfyManifestWizardPreview }));
+    setComfyManifestEditorMode('json');
+  }, [comfyManifestWizardPreview]);
 
   const refreshComfyManifests = useCallback(
     async (options?: { silent?: boolean }) => {
@@ -3541,11 +3943,15 @@ export function IntegrationDashboard({
       const payload: Partial<ComfyuiAgentManifest> = {
         role,
         version,
-        status: comfyManifestForm.status || 'active',
+        status: comfyManifestForm.status || 'draft',
         downloadUrl: comfyManifestForm.downloadUrl || comfyManifestForm.download_url || undefined,
         notes: comfyManifestForm.notes,
       };
-      if (contentInput) payload.content = parseJSON(contentInput);
+      if (contentInput) {
+        payload.content = parseJSON(contentInput);
+      } else if (comfyManifestEditorMode === 'wizard') {
+        payload.content = comfyManifestWizardPreview;
+      }
       if (comfyManifestForm.id) {
         await adminApi.updateComfyuiManifest(comfyManifestForm.id, payload);
       } else {
@@ -3560,7 +3966,142 @@ export function IntegrationDashboard({
     } finally {
       setComfyManifestSaving(false);
     }
-  }, [comfyManifestForm, comfyManifestContentInput, refreshComfyManifests, resetComfyManifestForm]);
+  }, [
+    comfyManifestEditorMode,
+    comfyManifestForm,
+    comfyManifestContentInput,
+    comfyManifestWizardPreview,
+    refreshComfyManifests,
+    resetComfyManifestForm,
+  ]);
+
+  const handleComfyManifestPublish = useCallback(
+    async (manifestId: number) => {
+      setComfyManifestActionLoading((prev) => ({ ...prev, [manifestId]: true }));
+      setComfyManifestError(null);
+      try {
+        await adminApi.publishComfyuiManifest(manifestId);
+        refreshComfyManifests({ silent: true });
+      } catch (error: any) {
+        console.error('publish comfyui manifest failed', error);
+        setComfyManifestError(error?.message || '发布清单失败，请稍后重试');
+      } finally {
+        setComfyManifestActionLoading((prev) => ({ ...prev, [manifestId]: false }));
+      }
+    },
+    [refreshComfyManifests],
+  );
+
+  const handleComfyManifestRollback = useCallback(
+    async (manifestId: number) => {
+      setComfyManifestActionLoading((prev) => ({ ...prev, [manifestId]: true }));
+      setComfyManifestError(null);
+      try {
+        await adminApi.rollbackComfyuiManifest(manifestId);
+        refreshComfyManifests({ silent: true });
+      } catch (error: any) {
+        console.error('rollback comfyui manifest failed', error);
+        setComfyManifestError(error?.message || '回滚清单失败，请稍后重试');
+      } finally {
+        setComfyManifestActionLoading((prev) => ({ ...prev, [manifestId]: false }));
+      }
+    },
+    [refreshComfyManifests],
+  );
+
+  const handleOpenComfyManifestDrift = useCallback(
+    async (manifest: ComfyuiAgentManifest) => {
+      const candidates = visibleComfyAgentList.filter((agent) => {
+        if ((agent.allowed ?? true) === false) return false;
+        if (!manifest.role) return true;
+        return (agent.role || '').trim() === manifest.role;
+      });
+      const preferred = candidates.find((agent) => isRolePrimaryAgent(agent)) || candidates[0];
+      if (!preferred) {
+        setComfyManifestError('未找到可用代理服务，请先在“代理服务”中配置并启用对应角色。');
+        return;
+      }
+      setComfyManifestDriftDialogOpen(true);
+      setComfyManifestDriftError(null);
+      setComfyManifestDriftData(null);
+      setComfyRepairPlan(null);
+      setComfyManifestDriftLoading(true);
+      setComfyManifestDriftTitle(`${manifest.role} · ${manifest.version} · ${preferred.id}`);
+      setComfyManifestDriftContext({ manifestId: manifest.id, agentId: preferred.id });
+      try {
+        const drift = await adminApi.getComfyuiManifestDrift(manifest.id, preferred.id);
+        setComfyManifestDriftData(drift);
+      } catch (error: any) {
+        console.error('load comfyui manifest drift failed', error);
+        setComfyManifestDriftError(error?.message || '拉取差异失败，请稍后重试');
+      } finally {
+        setComfyManifestDriftLoading(false);
+      }
+    },
+    [visibleComfyAgentList],
+  );
+
+  const refreshComfyRepairJobs = useCallback(async () => {
+    try {
+      const jobs = await adminApi.listComfyuiRepairJobs({ limit: 20 });
+      setComfyRepairJobs(jobs || []);
+    } catch (error) {
+      console.error('load comfyui repair jobs failed', error);
+    }
+  }, []);
+
+  const handleComfyGenerateRepairPlan = useCallback(async () => {
+    if (!comfyManifestDriftContext) {
+      setComfyManifestDriftError('请先选择一个清单和目标节点后再生成修复计划。');
+      return;
+    }
+    setComfyRepairPlanLoading(true);
+    setComfyManifestDriftError(null);
+    try {
+      const plan = await adminApi.createComfyuiRepairPlan(comfyManifestDriftContext.manifestId, {
+        mode: 'additive',
+        agentIds: [comfyManifestDriftContext.agentId],
+      });
+      setComfyRepairPlan(plan);
+    } catch (error: any) {
+      console.error('create comfyui repair plan failed', error);
+      setComfyManifestDriftError(error?.message || '生成修复计划失败，请稍后重试。');
+    } finally {
+      setComfyRepairPlanLoading(false);
+    }
+  }, [comfyManifestDriftContext]);
+
+  const handleComfyCreateRepairJob = useCallback(async () => {
+    if (!comfyRepairPlan || !comfyRepairPlan.items?.length) {
+      setComfyManifestDriftError('修复计划为空，请先生成计划。');
+      return;
+    }
+    const executable = comfyRepairPlan.items.filter((item) => item.actions.length > 0);
+    if (executable.length === 0) {
+      setComfyManifestDriftError('当前节点无需修复，无需创建任务。');
+      return;
+    }
+    setComfyRepairJobLoading(true);
+    setComfyManifestDriftError(null);
+    try {
+      await adminApi.createComfyuiRepairJob({
+        manifestId: comfyRepairPlan.manifestId,
+        mode: comfyRepairPlan.mode,
+        push: true,
+        items: executable.map((item) => ({
+          agentId: item.agentId,
+          actions: item.actions,
+          missingItems: item.missingItems,
+        })),
+      });
+      await refreshComfyRepairJobs();
+    } catch (error: any) {
+      console.error('create comfyui repair job failed', error);
+      setComfyManifestDriftError(error?.message || '创建修复任务失败，请稍后重试。');
+    } finally {
+      setComfyRepairJobLoading(false);
+    }
+  }, [comfyRepairPlan, refreshComfyRepairJobs]);
 
   const refreshComfyAgentTasks = useCallback(
     async (options?: { silent?: boolean }) => {
@@ -3582,6 +4123,24 @@ export function IntegrationDashboard({
       }
     },
     [comfyAgentTaskAgentFilter, comfyAgentTaskStatusFilter],
+  );
+
+  const refreshComfyMonitoringSummary = useCallback(
+    async (options?: { silent?: boolean }) => {
+      const silent = Boolean(options?.silent);
+      if (!silent) setComfyMonitoringLoading(true);
+      setComfyMonitoringError(null);
+      try {
+        const summary = await adminApi.getComfyuiMonitoringSummary(comfyMonitoringWindowHours);
+        setComfyMonitoringSummary(summary);
+      } catch (error: any) {
+        console.error('load comfyui monitoring summary failed', error);
+        setComfyMonitoringError(error?.message || '获取监控汇总失败，请稍后重试');
+      } finally {
+        if (!silent) setComfyMonitoringLoading(false);
+      }
+    },
+    [comfyMonitoringWindowHours],
   );
 
   const handleComfyAgentTaskCreate = useCallback(async () => {
@@ -3698,6 +4257,151 @@ export function IntegrationDashboard({
       }
     },
     [],
+  );
+
+  const refreshComfyEnrollCodes = useCallback(
+    async (options?: { silent?: boolean }) => {
+      const silent = Boolean(options?.silent);
+      if (!silent) setComfyEnrollCodesLoading(true);
+      setComfyEnrollCodesError(null);
+      try {
+        const resp = await adminApi.listComfyuiEnrollCodes({ limit: 50 });
+        setComfyEnrollCodes(resp || []);
+      } catch (error: any) {
+        console.error('load comfy enroll codes failed', error);
+        setComfyEnrollCodesError(error?.message || '获取注册码失败');
+      } finally {
+        if (!silent) setComfyEnrollCodesLoading(false);
+      }
+    },
+    [],
+  );
+
+  const handleComfyEnrollCodeCreate = useCallback(async () => {
+    setComfyEnrollCodeCreating(true);
+    setComfyEnrollCodesError(null);
+    try {
+      await adminApi.createComfyuiEnrollCode({
+        role: comfyEnrollCodeRole || 'full',
+        ttlSeconds: Math.max(60, Math.min(7 * 24 * 3600, Number(comfyEnrollCodeTtlSeconds) || 600)),
+        maxUses: Math.max(1, Math.min(99, Number(comfyEnrollCodeMaxUses) || 1)),
+        note: comfyEnrollCodeNote.trim() || undefined,
+      });
+      setComfyEnrollCodeNote('');
+      refreshComfyEnrollCodes({ silent: true });
+    } catch (error: any) {
+      console.error('create comfy enroll code failed', error);
+      setComfyEnrollCodesError(error?.message || '生成注册码失败');
+    } finally {
+      setComfyEnrollCodeCreating(false);
+    }
+  }, [
+    comfyEnrollCodeMaxUses,
+    comfyEnrollCodeNote,
+    comfyEnrollCodeRole,
+    comfyEnrollCodeTtlSeconds,
+    refreshComfyEnrollCodes,
+  ]);
+
+  const refreshComfyDesktopReleases = useCallback(
+    async (options?: { silent?: boolean }) => {
+      const silent = Boolean(options?.silent);
+      if (!silent) setComfyDesktopReleasesLoading(true);
+      setComfyDesktopReleasesError(null);
+      try {
+        const resp = await adminApi.listComfyuiDesktopReleases({
+          status: comfyDesktopReleaseStatusFilter !== 'all' ? comfyDesktopReleaseStatusFilter : undefined,
+          limit: 100,
+        });
+        setComfyDesktopReleases(resp || []);
+      } catch (error: any) {
+        console.error('load comfy desktop releases failed', error);
+        setComfyDesktopReleasesError(error?.message || '获取安装包列表失败');
+      } finally {
+        if (!silent) setComfyDesktopReleasesLoading(false);
+      }
+    },
+    [comfyDesktopReleaseStatusFilter],
+  );
+
+  const resetComfyDesktopReleaseForm = useCallback((seed?: Partial<ComfyuiDesktopRelease>) => {
+    const next = seed || {
+      channel: 'stable',
+      osType: 'windows',
+      arch: 'x64',
+      status: 'active',
+    };
+    setComfyDesktopReleaseForm(next);
+    setComfyDesktopReleasePayloadInput(stringifyJSON(next.payload as JsonRecord));
+    setComfyDesktopReleaseFormError(null);
+  }, []);
+
+  const handleComfyDesktopReleaseSave = useCallback(async () => {
+    const version = String(comfyDesktopReleaseForm.version || '').trim();
+    const downloadUrl = String(comfyDesktopReleaseForm.downloadUrl || '').trim();
+    const sha256 = String(comfyDesktopReleaseForm.sha256 || '').trim();
+    if (!version || !downloadUrl || !sha256) {
+      setComfyDesktopReleaseFormError('请填写版本号、下载地址、SHA256。');
+      return;
+    }
+    if (comfyDesktopReleasePayloadInput.trim()) {
+      const parsed = safeParseJSON(comfyDesktopReleasePayloadInput.trim());
+      if (!parsed.ok) {
+        setComfyDesktopReleaseFormError('扩展参数格式不正确（需 JSON）。');
+        return;
+      }
+    }
+    setComfyDesktopReleaseSaving(true);
+    setComfyDesktopReleaseFormError(null);
+    try {
+      const payload: Partial<ComfyuiDesktopRelease> = {
+        channel: String(comfyDesktopReleaseForm.channel || 'stable').trim() || 'stable',
+        version,
+        osType: String(comfyDesktopReleaseForm.osType || 'windows').trim() || 'windows',
+        arch: String(comfyDesktopReleaseForm.arch || 'x64').trim() || 'x64',
+        status: String(comfyDesktopReleaseForm.status || 'active').trim() || 'active',
+        downloadUrl,
+        sha256,
+        minAgentVersion: String(comfyDesktopReleaseForm.minAgentVersion || '').trim() || undefined,
+        notes: String(comfyDesktopReleaseForm.notes || '').trim() || undefined,
+      };
+      if (comfyDesktopReleasePayloadInput.trim()) {
+        payload.payload = parseJSON(comfyDesktopReleasePayloadInput.trim());
+      }
+      if (comfyDesktopReleaseForm.id) {
+        await adminApi.updateComfyuiDesktopRelease(comfyDesktopReleaseForm.id, payload);
+      } else {
+        await adminApi.createComfyuiDesktopRelease(payload);
+      }
+      setComfyDesktopReleaseDialogOpen(false);
+      resetComfyDesktopReleaseForm();
+      refreshComfyDesktopReleases({ silent: true });
+    } catch (error: any) {
+      console.error('save comfy desktop release failed', error);
+      setComfyDesktopReleaseFormError(error?.message || '保存安装包失败');
+    } finally {
+      setComfyDesktopReleaseSaving(false);
+    }
+  }, [
+    comfyDesktopReleaseForm,
+    comfyDesktopReleasePayloadInput,
+    refreshComfyDesktopReleases,
+    resetComfyDesktopReleaseForm,
+  ]);
+
+  const handleToggleComfyDesktopReleaseStatus = useCallback(
+    async (release: ComfyuiDesktopRelease) => {
+      if (!release?.id) return;
+      const nextStatus = release.status === 'active' ? 'inactive' : 'active';
+      try {
+        await adminApi.updateComfyuiDesktopRelease(release.id, { status: nextStatus });
+        refreshComfyDesktopReleases({ silent: true });
+      } catch (error: any) {
+        console.error('toggle comfy desktop release status failed', error);
+        setComfyDesktopReleasesError(error?.message || '更新安装包状态失败');
+      }
+    },
+    [refreshComfyDesktopReleases],
   );
 
   const refreshComfyDiffLogs = useCallback(
@@ -3900,42 +4604,85 @@ export function IntegrationDashboard({
   }, [activeNav, comfyuiManageTab, refreshComfyAgents]);
 
   useEffect(() => {
+    if (activeNav !== 'comfyui-management' || comfyuiManageTab !== 'desktop') return;
+    refreshComfyEnrollCodes();
+    refreshComfyDesktopReleases();
+    refreshComfyAgents({ silent: true, status: 'all' });
+  }, [
+    activeNav,
+    comfyuiManageTab,
+    refreshComfyAgents,
+    refreshComfyDesktopReleases,
+    refreshComfyEnrollCodes,
+  ]);
+
+  useEffect(() => {
+    if (comfyDesktopReleaseOptions.length === 0) {
+      if (comfyDesktopInstallReleaseId) setComfyDesktopInstallReleaseId('');
+      return;
+    }
+    if (comfyDesktopInstallReleaseId && comfyDesktopReleaseOptions.some((item) => item.value === comfyDesktopInstallReleaseId)) {
+      return;
+    }
+    if (comfyDesktopActiveRelease?.id) {
+      setComfyDesktopInstallReleaseId(String(comfyDesktopActiveRelease.id));
+      return;
+    }
+    setComfyDesktopInstallReleaseId(comfyDesktopReleaseOptions[0].value);
+  }, [comfyDesktopActiveRelease?.id, comfyDesktopInstallReleaseId, comfyDesktopReleaseOptions]);
+
+  useEffect(() => {
     if (activeNav !== 'comfyui-management' || comfyuiManageTab !== 'manifests') return;
     refreshComfyManifests();
-  }, [activeNav, comfyuiManageTab, refreshComfyManifests]);
+    refreshComfyRepairJobs();
+  }, [activeNav, comfyuiManageTab, refreshComfyManifests, refreshComfyRepairJobs]);
 
   useEffect(() => {
     if (activeNav !== 'comfyui-management' || comfyuiManageTab !== 'tasks') return;
-    if (comfyAgentList.length === 0) {
+    if (visibleComfyAgentList.length === 0) {
       refreshComfyAgents({ silent: true });
     }
     if (comfyManifestList.length === 0) {
       refreshComfyManifests({ silent: true });
     }
     refreshComfyAgentTasks();
+    refreshComfyMonitoringSummary();
   }, [
     activeNav,
     comfyuiManageTab,
-    comfyAgentList.length,
+    visibleComfyAgentList.length,
     comfyManifestList.length,
     refreshComfyAgents,
     refreshComfyManifests,
     refreshComfyAgentTasks,
+    refreshComfyMonitoringSummary,
   ]);
 
   useEffect(() => {
     if (activeNav !== 'comfyui-management' || comfyuiManageTab !== 'alerts') return;
-    if (comfyAgentList.length === 0) {
+    if (visibleComfyAgentList.length === 0) {
       refreshComfyAgents({ silent: true });
     }
     refreshComfyAgentAlerts();
-  }, [activeNav, comfyuiManageTab, comfyAgentList.length, refreshComfyAgents, refreshComfyAgentAlerts]);
+  }, [activeNav, comfyuiManageTab, visibleComfyAgentList.length, refreshComfyAgents, refreshComfyAgentAlerts]);
 
   useEffect(() => {
-    if (!comfyAgentTaskForm.agentId && comfyAgentList.length > 0) {
-      setComfyAgentTaskForm((prev) => ({ ...prev, agentId: comfyAgentList[0].id }));
+    setAbilityTemplateState(null);
+    setAbilityTemplateError(null);
+    setAbilityTemplateValidateResult(null);
+    setAbilityTemplateVersionLabel('');
+    setAbilityTemplateNotes('');
+    setAbilityTemplateRollbackId('');
+  }, [selectedAbilityId]);
+
+  useEffect(() => {
+    if (visibleComfyAgentList.length === 0) return;
+    const selected = comfyAgentTaskForm.agentId;
+    const matched = selected ? visibleComfyAgentList.some((agent) => agent.id === selected) : false;
+    if (!selected || !matched) {
+      setComfyAgentTaskForm((prev) => ({ ...prev, agentId: visibleComfyAgentList[0].id }));
     }
-  }, [comfyAgentList, comfyAgentTaskForm.agentId]);
+  }, [visibleComfyAgentList, comfyAgentTaskForm.agentId]);
 
   const refreshComfyQueueStatus = useCallback(
     async (options?: { silent?: boolean }) => {
@@ -4609,6 +5356,99 @@ export function IntegrationDashboard({
     await adminApi.deleteAbility(id);
     load();
   };
+
+  const refreshAbilityTemplateState = useCallback(
+    async (abilityId?: string | null, options?: { silent?: boolean }) => {
+      const targetId = String(abilityId || '').trim();
+      if (!targetId) {
+        setAbilityTemplateState(null);
+        setAbilityTemplateError(null);
+        return;
+      }
+      const silent = Boolean(options?.silent);
+      if (!silent) setAbilityTemplateLoading(true);
+      setAbilityTemplateError(null);
+      try {
+        const state = await adminApi.getAbilityTemplateState(targetId);
+        setAbilityTemplateState(state);
+        setAbilityTemplateRollbackId((prev) => {
+          if (prev && state.history.some((item) => item.id === prev)) return prev;
+          return state.current_template_id || state.history[0]?.id || '';
+        });
+      } catch (error: any) {
+        console.error('load ability template state failed', error);
+        setAbilityTemplateError(error?.message || '获取能力模板状态失败');
+      } finally {
+        if (!silent) setAbilityTemplateLoading(false);
+      }
+    },
+    [],
+  );
+
+  const handleAbilityTemplateValidate = useCallback(async () => {
+    if (!selectedAbility?.id) return;
+    setAbilityTemplateActionLoading(true);
+    setAbilityTemplateError(null);
+    try {
+      const result = await adminApi.validateAbilityTemplate(selectedAbility.id);
+      setAbilityTemplateValidateResult(result);
+    } catch (error: any) {
+      console.error('validate ability template failed', error);
+      setAbilityTemplateError(error?.message || '模板校验失败');
+    } finally {
+      setAbilityTemplateActionLoading(false);
+    }
+  }, [selectedAbility]);
+
+  const handleAbilityTemplatePublish = useCallback(async () => {
+    if (!selectedAbility?.id) return;
+    setAbilityTemplateActionLoading(true);
+    setAbilityTemplateError(null);
+    try {
+      const state = await adminApi.publishAbilityTemplate(selectedAbility.id, {
+        version_label: abilityTemplateVersionLabel.trim() || undefined,
+        notes: abilityTemplateNotes.trim() || undefined,
+      });
+      setAbilityTemplateState(state);
+      setAbilityTemplateValidateResult(null);
+      setAbilityTemplateRollbackId(state.current_template_id || state.history[0]?.id || '');
+    } catch (error: any) {
+      console.error('publish ability template failed', error);
+      setAbilityTemplateError(error?.message || '发布模板失败');
+    } finally {
+      setAbilityTemplateActionLoading(false);
+    }
+  }, [abilityTemplateNotes, abilityTemplateVersionLabel, selectedAbility]);
+
+  const handleAbilityTemplateRollback = useCallback(async () => {
+    if (!selectedAbility?.id) return;
+    if (!abilityTemplateRollbackId.trim()) {
+      setAbilityTemplateError('请选择要回滚的模板版本。');
+      return;
+    }
+    setAbilityTemplateActionLoading(true);
+    setAbilityTemplateError(null);
+    try {
+      const state = await adminApi.rollbackAbilityTemplate(selectedAbility.id, {
+        templateId: abilityTemplateRollbackId.trim(),
+        notes: abilityTemplateNotes.trim() || undefined,
+      });
+      setAbilityTemplateState(state);
+      setAbilityTemplateValidateResult(null);
+      setAbilityTemplateRollbackId(state.current_template_id || state.history[0]?.id || '');
+    } catch (error: any) {
+      console.error('rollback ability template failed', error);
+      setAbilityTemplateError(error?.message || '模板回滚失败');
+    } finally {
+      setAbilityTemplateActionLoading(false);
+    }
+  }, [abilityTemplateNotes, abilityTemplateRollbackId, selectedAbility]);
+
+  useEffect(() => {
+    if (activeNav !== 'ability-tests' || activeAbilityDetailTab !== 'metadata') return;
+    if (!selectedAbility?.id) return;
+    refreshAbilityTemplateState(selectedAbility.id);
+  }, [activeAbilityDetailTab, activeNav, refreshAbilityTemplateState, selectedAbility?.id]);
 
   const handleTestFile = async (files: FileList | null) => {
     if (!files || !files[0]) return;
@@ -5783,6 +6623,128 @@ const normalizeErrorMessage = (message: string): string => {
             <p className="mt-1">暂无 metadata，建议补充 workflow_key、api_type、pricing、requirements 等信息。</p>
           )}
         </div>
+        <Card bordered title="能力模板版本">
+          <Space direction="vertical" size="small" style={{ width: '100%' }}>
+            <Typography.Text theme="secondary">
+              模板用于固化当前能力参数与元信息，支持校验、发布与回滚。
+            </Typography.Text>
+            <Space align="center" size="small">
+              <Button
+                size="small"
+                variant="outline"
+                loading={abilityTemplateLoading}
+                onClick={() => refreshAbilityTemplateState(selectedAbility.id)}
+              >
+                刷新
+              </Button>
+              <Button
+                size="small"
+                variant="outline"
+                loading={abilityTemplateActionLoading}
+                onClick={handleAbilityTemplateValidate}
+              >
+                校验模板
+              </Button>
+              <Button size="small" theme="primary" loading={abilityTemplateActionLoading} onClick={handleAbilityTemplatePublish}>
+                发布模板
+              </Button>
+            </Space>
+            <Row gutter={[12, 12]}>
+              <Col span={12}>
+                <Typography.Text theme="secondary">版本标签（选填）</Typography.Text>
+                <Input
+                  value={abilityTemplateVersionLabel}
+                  onChange={(v) => setAbilityTemplateVersionLabel(String(v))}
+                  placeholder="例如：2026-02-26-kie-v2"
+                />
+              </Col>
+              <Col span={12}>
+                <Typography.Text theme="secondary">
+                  当前版本：{abilityTemplateState?.current_template_id || '未发布'}
+                </Typography.Text>
+                <Select
+                  value={abilityTemplateRollbackId}
+                  onChange={(v) => setAbilityTemplateRollbackId(String(v))}
+                  options={[
+                    { label: '请选择要回滚的版本', value: '' },
+                    ...(abilityTemplateState?.history || []).map((item) => ({
+                      label: `${item.version_label || item.id} · ${item.action} · ${formatDateTime(item.created_at)}`,
+                      value: item.id,
+                    })),
+                  ]}
+                />
+              </Col>
+            </Row>
+            <div>
+              <Typography.Text theme="secondary">说明（发布/回滚备注）</Typography.Text>
+              <Textarea
+                value={abilityTemplateNotes}
+                onChange={(v) => setAbilityTemplateNotes(String(v))}
+                autosize={{ minRows: 2, maxRows: 4 }}
+                placeholder="例如：补齐 image_urls 规则 + 更新默认参数"
+              />
+            </div>
+            <Space align="center" size="small">
+              <Button
+                size="small"
+                variant="outline"
+                theme="warning"
+                loading={abilityTemplateActionLoading}
+                disabled={!abilityTemplateRollbackId}
+                onClick={handleAbilityTemplateRollback}
+              >
+                回滚到所选版本
+              </Button>
+            </Space>
+            {abilityTemplateError ? <Alert theme="error" message={abilityTemplateError} /> : null}
+            {abilityTemplateValidateResult ? (
+              <Alert
+                theme={abilityTemplateValidateResult.ok ? 'success' : 'warning'}
+                title={abilityTemplateValidateResult.ok ? '模板校验通过' : '模板校验未通过'}
+                message={[
+                  abilityTemplateValidateResult.errors.length > 0
+                    ? `错误：${abilityTemplateValidateResult.errors.join('；')}`
+                    : '错误：无',
+                  abilityTemplateValidateResult.warnings.length > 0
+                    ? `提醒：${abilityTemplateValidateResult.warnings.join('；')}`
+                    : '提醒：无',
+                ].join(' ｜ ')}
+              />
+            ) : null}
+            <div className="max-h-[240px] overflow-auto rounded-2xl border border-slate-200/70 dark:border-slate-800">
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-slate-50 text-[11px] text-slate-600 dark:bg-slate-900/80 dark:text-slate-400">
+                  <tr className="text-left">
+                    <th className="px-3 py-2">模板ID</th>
+                    <th className="px-3 py-2">标签</th>
+                    <th className="px-3 py-2">动作</th>
+                    <th className="px-3 py-2">时间</th>
+                    <th className="px-3 py-2">备注</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(abilityTemplateState?.history || []).length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="px-4 py-6 text-center text-slate-500">
+                        {abilityTemplateLoading ? '加载中…' : '暂无模板历史'}
+                      </td>
+                    </tr>
+                  ) : (
+                    (abilityTemplateState?.history || []).map((item) => (
+                      <tr key={`ability-template-${item.id}`} className="border-t border-slate-100 dark:border-slate-800">
+                        <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{item.id}</td>
+                        <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{item.version_label || '—'}</td>
+                        <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{item.action}</td>
+                        <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{formatDateTime(item.created_at)}</td>
+                        <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{item.notes || '—'}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </Space>
+        </Card>
         <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4 text-[11px] text-slate-400 space-y-1">
           <div className="text-[11px] uppercase tracking-widest text-slate-500">调度 / 成本要点</div>
           <p>能力类型：{getAbilityTypeLabel(selectedAbility.ability_type)}</p>
@@ -7559,6 +8521,10 @@ const normalizeErrorMessage = (message: string): string => {
                         capabilityKey: globalAbilityLogCapabilityKey !== 'all' ? globalAbilityLogCapabilityKey : undefined,
                         status: globalAbilityLogStatus !== 'all' ? globalAbilityLogStatus : undefined,
                         source: globalAbilityLogSource !== 'all' ? globalAbilityLogSource : undefined,
+                        templatePublished:
+                          globalAbilityLogTemplatePublished === 'all'
+                            ? undefined
+                            : globalAbilityLogTemplatePublished === 'published',
                       });
                       const filename = `ability_logs_24h_${new Date().toISOString().slice(0, 10)}.csv`;
                       downloadBlob(blob, filename);
@@ -7585,6 +8551,10 @@ const normalizeErrorMessage = (message: string): string => {
                         capabilityKey: globalAbilityLogCapabilityKey !== 'all' ? globalAbilityLogCapabilityKey : undefined,
                         status: globalAbilityLogStatus !== 'all' ? globalAbilityLogStatus : undefined,
                         source: globalAbilityLogSource !== 'all' ? globalAbilityLogSource : undefined,
+                        templatePublished:
+                          globalAbilityLogTemplatePublished === 'all'
+                            ? undefined
+                            : globalAbilityLogTemplatePublished === 'published',
                       });
                       const filename = `ability_logs_24h_${new Date().toISOString().slice(0, 10)}.json`;
                       downloadBlob(blob, filename);
@@ -7659,6 +8629,17 @@ const normalizeErrorMessage = (message: string): string => {
                   ]}
                 />
               </Col>
+              <Col flex="180px">
+                <Select
+                  value={globalAbilityLogTemplatePublished}
+                  onChange={(v) => setGlobalAbilityLogTemplatePublished(String(v))}
+                  options={[
+                    { label: '模板状态：全部', value: 'all' },
+                    { label: '已发布模板', value: 'published' },
+                    { label: '未发布模板', value: 'unpublished' },
+                  ]}
+                />
+              </Col>
               <Col flex="260px">
                 <Select
                   value={globalAbilityLogCapabilityKey}
@@ -7718,6 +8699,25 @@ const normalizeErrorMessage = (message: string): string => {
                     <Tag theme={getAbilitySourceTagTheme(row.source)} variant="light">
                       {formatAbilitySource(row.source)}
                     </Tag>
+                  ),
+                },
+                {
+                  colKey: 'template',
+                  title: '模板版本',
+                  width: 220,
+                  cell: ({ row }) => (
+                    <Space direction="vertical" size={2}>
+                      {row.ability_current_template_id ? (
+                        <Typography.Text style={{ fontFamily: 'monospace' }}>
+                          {formatTaskMarker(row.ability_current_template_id)}
+                        </Typography.Text>
+                      ) : (
+                        <Typography.Text theme="secondary">未发布模板</Typography.Text>
+                      )}
+                      <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                        历史 {row.ability_template_history_count ?? 0} 个版本
+                      </Typography.Text>
+                    </Space>
                   ),
                 },
                 {
@@ -8075,11 +9075,49 @@ const normalizeErrorMessage = (message: string): string => {
                   },
                 },
                 {
+                  colKey: 'template',
+                  title: '模板版本',
+                  width: 240,
+                  cell: ({ row }) => {
+                    const summary = abilityTemplateSummaryMap[row.id];
+                    if (!summary || (summary.historyCount === 0 && !summary.currentId)) {
+                      return <Typography.Text theme="secondary">未发布</Typography.Text>;
+                    }
+                    const label = summary.latestLabel || summary.currentId || '已发布';
+                    return (
+                      <Space direction="vertical" size={2}>
+                        <Space align="center" size={4}>
+                          <Tag theme={summary.currentId ? 'success' : 'warning'} variant="light" size="small">
+                            {summary.currentId ? '已发布' : '有历史'}
+                          </Tag>
+                          <Typography.Text theme="secondary">{label}</Typography.Text>
+                        </Space>
+                        <Typography.Text theme="secondary">
+                          历史 {summary.historyCount} 条
+                          {summary.latestAt ? ` · ${formatDateTime(summary.latestAt)}` : ''}
+                        </Typography.Text>
+                      </Space>
+                    );
+                  },
+                },
+                {
                   colKey: 'actions',
                   title: '操作',
-                  width: 180,
+                  width: 240,
                   cell: ({ row }) => (
                     <Space size="small">
+                      <Button
+                        size="small"
+                        variant="text"
+                        onClick={(event) => {
+                          event?.stopPropagation?.();
+                          setSelectedAbilityId(row.id);
+                          setActiveAbilityDetailTab('metadata');
+                          selectSection('ability-tests');
+                        }}
+                      >
+                        模板
+                      </Button>
                       <Button
                         size="small"
                         variant="text"
@@ -8543,63 +9581,92 @@ const normalizeErrorMessage = (message: string): string => {
         title="ComfyUI 管理"
         description="维护 ComfyUI 侧 LoRA/基座模型与工作流模板，并与能力配置保持一致。"
       >
-        <Space align="center" size="small" style={{ marginBottom: 16 }}>
-          <Button
-            variant={comfyuiManageTab === 'lora' ? 'outline' : 'text'}
-            theme={comfyuiManageTab === 'lora' ? 'primary' : 'default'}
-            onClick={() => setComfyuiManageTab('lora')}
-          >
-            素材库
-          </Button>
-          <Button
-            variant={comfyuiManageTab === 'assets' ? 'outline' : 'text'}
-            theme={comfyuiManageTab === 'assets' ? 'primary' : 'default'}
-            onClick={() => setComfyuiManageTab('assets')}
-          >
-            资源清单
-          </Button>
-          <Button
-            variant={comfyuiManageTab === 'servers' ? 'outline' : 'text'}
-            theme={comfyuiManageTab === 'servers' ? 'primary' : 'default'}
-            onClick={() => setComfyuiManageTab('servers')}
-          >
-            服务器
-          </Button>
-          <Button
-            variant={comfyuiManageTab === 'agents' ? 'outline' : 'text'}
-            theme={comfyuiManageTab === 'agents' ? 'primary' : 'default'}
-            onClick={() => setComfyuiManageTab('agents')}
-          >
-            代理服务
-          </Button>
-          <Button
-            variant={comfyuiManageTab === 'manifests' ? 'outline' : 'text'}
-            theme={comfyuiManageTab === 'manifests' ? 'primary' : 'default'}
-            onClick={() => setComfyuiManageTab('manifests')}
-          >
-            清单
-          </Button>
-          <Button
-            variant={comfyuiManageTab === 'tasks' ? 'outline' : 'text'}
-            theme={comfyuiManageTab === 'tasks' ? 'primary' : 'default'}
-            onClick={() => setComfyuiManageTab('tasks')}
-          >
-            任务
-          </Button>
-          <Button
-            variant={comfyuiManageTab === 'alerts' ? 'outline' : 'text'}
-            theme={comfyuiManageTab === 'alerts' ? 'primary' : 'default'}
-            onClick={() => setComfyuiManageTab('alerts')}
-          >
-            告警
-          </Button>
-          <Button
-            variant={comfyuiManageTab === 'templates' ? 'outline' : 'text'}
-            theme={comfyuiManageTab === 'templates' ? 'primary' : 'default'}
-            onClick={() => setComfyuiManageTab('templates')}
-          >
-            模板管理
-          </Button>
+        <Space direction="vertical" size="small" style={{ marginBottom: 16, width: '100%' }}>
+          <Space align="center" size="small">
+            <Typography.Text theme="secondary">资源目录：</Typography.Text>
+            <Button
+              variant={comfyuiManageTab === 'lora' ? 'outline' : 'text'}
+              theme={comfyuiManageTab === 'lora' ? 'primary' : 'default'}
+              onClick={() => setComfyuiManageTab('lora')}
+            >
+              素材库
+            </Button>
+            <Button
+              variant={comfyuiManageTab === 'assets' ? 'outline' : 'text'}
+              theme={comfyuiManageTab === 'assets' ? 'primary' : 'default'}
+              onClick={() => setComfyuiManageTab('assets')}
+            >
+              资源清单
+            </Button>
+            <Button
+              variant={comfyuiManageTab === 'templates' ? 'outline' : 'text'}
+              theme={comfyuiManageTab === 'templates' ? 'primary' : 'default'}
+              onClick={() => setComfyuiManageTab('templates')}
+            >
+              模板管理
+            </Button>
+          </Space>
+          <Space align="center" size="small">
+            <Typography.Text theme="secondary">同步发布：</Typography.Text>
+            <Button
+              variant={comfyuiManageTab === 'servers' ? 'outline' : 'text'}
+              theme={comfyuiManageTab === 'servers' ? 'primary' : 'default'}
+              onClick={() => setComfyuiManageTab('servers')}
+            >
+              服务器
+            </Button>
+            <Button
+              variant={comfyuiManageTab === 'manifests' ? 'outline' : 'text'}
+              theme={comfyuiManageTab === 'manifests' ? 'primary' : 'default'}
+              onClick={() => setComfyuiManageTab('manifests')}
+            >
+              清单发布
+            </Button>
+            <Button
+              variant={comfyuiManageTab === 'tasks' ? 'outline' : 'text'}
+              theme={comfyuiManageTab === 'tasks' ? 'primary' : 'default'}
+              onClick={() => setComfyuiManageTab('tasks')}
+            >
+              下发任务
+            </Button>
+          </Space>
+          <Space align="center" size="small" style={{ justifyContent: 'space-between', width: '100%' }}>
+            <Space align="center" size="small">
+              <Typography.Text theme="secondary">节点运维：</Typography.Text>
+              <Button
+                variant={comfyuiManageTab === 'agents' ? 'outline' : 'text'}
+                theme={comfyuiManageTab === 'agents' ? 'primary' : 'default'}
+                onClick={() => setComfyuiManageTab('agents')}
+              >
+                代理服务
+              </Button>
+              <Button
+                variant={comfyuiManageTab === 'alerts' ? 'outline' : 'text'}
+                theme={comfyuiManageTab === 'alerts' ? 'primary' : 'default'}
+                onClick={() => setComfyuiManageTab('alerts')}
+              >
+                告警
+              </Button>
+              <Button
+                variant={comfyuiManageTab === 'desktop' ? 'outline' : 'text'}
+                theme={comfyuiManageTab === 'desktop' ? 'primary' : 'default'}
+                onClick={() => setComfyuiManageTab('desktop')}
+              >
+                桌面端部署
+              </Button>
+            </Space>
+            <Space align="center" size="small">
+              <Switch value={comfyShowTestNodes} onChange={(v) => setComfyShowTestNodes(Boolean(v))} />
+              <Typography.Text theme="secondary">显示测试节点</Typography.Text>
+            </Space>
+          </Space>
+          <Alert
+            theme="info"
+            message={
+              `${comfyuiTabHelpText[comfyuiManageTab] || ''}` +
+              `${comfyHiddenExecutorCount > 0 || comfyHiddenAgentCount > 0 ? `（已隐藏测试数据：执行节点 ${comfyHiddenExecutorCount}，代理服务 ${comfyHiddenAgentCount}）` : ''}`
+            }
+          />
         </Space>
         {comfyuiManageTab === 'lora' && (
         <div className="space-y-4">
@@ -10094,6 +11161,7 @@ const normalizeErrorMessage = (message: string): string => {
                       <th className="px-3 py-2">服务地址</th>
                       <th className="px-3 py-2">状态</th>
                       <th className="px-3 py-2">允许</th>
+                      <th className="px-3 py-2">主节点</th>
                       <th className="px-3 py-2">心跳</th>
                       <th className="px-3 py-2">清单版本</th>
                       <th className="px-3 py-2">指标</th>
@@ -10101,16 +11169,17 @@ const normalizeErrorMessage = (message: string): string => {
                     </tr>
                   </thead>
                   <tbody>
-                    {comfyAgentList.length === 0 ? (
+                    {visibleComfyAgentList.length === 0 ? (
                       <tr>
-                        <td colSpan={10} className="px-4 py-6 text-center text-slate-500">
+                        <td colSpan={11} className="px-4 py-6 text-center text-slate-500">
                           {comfyAgentLoading ? '加载中…' : '暂无代理服务'}
                         </td>
                       </tr>
                     ) : (
-                      comfyAgentList.map((agent) => {
+                      visibleComfyAgentList.map((agent) => {
                         const baseUrl = resolveAgentBaseUrl(agent);
                         const metricsText = stringifyJSON(agent.metrics as JsonRecord);
+                        const primary = isRolePrimaryAgent(agent);
                         return (
                           <tr key={`comfy-agent-${agent.id}`} className="border-t border-slate-100 dark:border-slate-800">
                             <td className="px-3 py-2 text-slate-900 dark:text-white">{agent.id}</td>
@@ -10127,6 +11196,15 @@ const normalizeErrorMessage = (message: string): string => {
                                 <Tag theme="warning" variant="light">
                                   禁用
                                 </Tag>
+                              )}
+                            </td>
+                            <td className="px-3 py-2">
+                              {primary ? (
+                                <Tag theme="primary" variant="light">
+                                  是
+                                </Tag>
+                              ) : (
+                                <Typography.Text theme="secondary">—</Typography.Text>
                               )}
                             </td>
                             <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
@@ -10171,6 +11249,13 @@ const normalizeErrorMessage = (message: string): string => {
                                 onClick={() => handleComfyAgentTokenIssue(agent.id)}
                               >
                                 令牌
+                              </button>
+                              <button
+                                className="text-violet-500"
+                                disabled={primary || !agent.role || Boolean(comfyAgentPrimarySaving[agent.id])}
+                                onClick={() => handleComfyAgentSetPrimary(agent)}
+                              >
+                                {primary ? '主节点' : '设为主节点'}
                               </button>
                               <button className="text-red-400" onClick={() => handleComfyAgentDelete(agent.id)}>
                                 删除
@@ -10305,6 +11390,436 @@ const normalizeErrorMessage = (message: string): string => {
           </Dialog>
         </div>
         )}
+        {comfyuiManageTab === 'desktop' && (
+        <div className="space-y-4">
+          <Card bordered title="桌面端一键安装（Windows）">
+            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+              <Alert
+                theme="info"
+                message={`当前中台地址：${comfyDesktopCenterUrl}（安装包内已固定中台地址，安装后自动握手接入）`}
+              />
+              <div style={{ width: 440 }}>
+                <Typography.Text theme="secondary">选择安装版本（Windows / x64）</Typography.Text>
+                <Select
+                  value={comfyDesktopInstallReleaseId}
+                  onChange={(v) => setComfyDesktopInstallReleaseId(String(v))}
+                  options={comfyDesktopReleaseOptions.length > 0 ? comfyDesktopReleaseOptions : [{ label: '暂无可用版本', value: '' }]}
+                />
+              </div>
+              {!comfyDesktopHasWindowsX64Release && comfyDesktopReleases.length > 0 ? (
+                <Alert
+                  theme="warning"
+                  message="当前没有“Windows/x64”标准安装包，已回退展示其它平台版本。建议在下方发布一个 Windows x64 且状态为启用的版本。"
+                />
+              ) : null}
+              <Space align="center" size="small">
+                <Button size="small" variant="outline" onClick={() => copyTextToClipboard(comfyDesktopInstallCommand)}>
+                  复制安装命令
+                </Button>
+                <Button
+                  size="small"
+                  variant="outline"
+                  disabled={!comfyDesktopSelectedRelease?.downloadUrl}
+                  onClick={() => {
+                    const url = (comfyDesktopSelectedRelease?.downloadUrl || '').trim();
+                    if (!url) return;
+                    window.open(url, '_blank', 'noopener,noreferrer');
+                  }}
+                >
+                  下载安装包
+                </Button>
+                <Typography.Text theme="secondary">
+                  目标版本：{comfyDesktopSelectedRelease?.version || '未选择'}
+                </Typography.Text>
+                {comfyDesktopActiveRelease?.id && comfyDesktopSelectedRelease?.id === comfyDesktopActiveRelease.id ? (
+                  <Tag theme="success" variant="light">
+                    当前启用
+                  </Tag>
+                ) : null}
+              </Space>
+              <Textarea
+                value={comfyDesktopInstallCommand}
+                readonly
+                autosize={{ minRows: 6, maxRows: 12 }}
+                className="font-mono text-xs"
+              />
+            </Space>
+          </Card>
+
+          <Card bordered title="升级状态">
+            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+              <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                <Typography.Text theme="secondary">查看每台代理服务的桌面端版本、目标版本与升级状态。</Typography.Text>
+                <Button size="small" variant="outline" onClick={() => refreshComfyAgents({ status: 'all' })}>
+                  刷新
+                </Button>
+              </Space>
+              {comfyAgentError ? <Alert theme="error" message={comfyAgentError} /> : null}
+              <div className="max-h-[320px] overflow-auto rounded-2xl border border-slate-200/70 dark:border-slate-800">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-slate-50 text-[11px] text-slate-600 dark:bg-slate-900/80 dark:text-slate-400">
+                    <tr className="text-left">
+                      <th className="px-3 py-2">机器/代理</th>
+                      <th className="px-3 py-2">当前版本</th>
+                      <th className="px-3 py-2">目标版本</th>
+                      <th className="px-3 py-2">升级状态</th>
+                      <th className="px-3 py-2">最近心跳</th>
+                      <th className="px-3 py-2">失败原因</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {comfyDesktopAgentRows.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="px-4 py-6 text-center text-slate-500">
+                          {comfyAgentLoading ? '加载中…' : '暂无代理服务'}
+                        </td>
+                      </tr>
+                    ) : (
+                      comfyDesktopAgentRows.map(({ agent, update }) => {
+                        const statusTag = getComfyDesktopUpdateTag(update.status);
+                        const machineLabel = agent.name || agent.host || '未命名机器';
+                        return (
+                          <tr key={`comfy-desktop-agent-${agent.id}`} className="border-t border-slate-100 dark:border-slate-800">
+                            <td className="px-3 py-2">
+                              <div className="font-medium text-slate-900 dark:text-white">{machineLabel}</div>
+                              <div className="text-[11px] text-slate-500 dark:text-slate-400">{agent.id}</div>
+                            </td>
+                            <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{update.currentVersion || '—'}</td>
+                            <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{update.targetVersion || '—'}</td>
+                            <td className="px-3 py-2">
+                              <Tag theme={statusTag.theme} variant="light">
+                                {statusTag.text}
+                              </Tag>
+                            </td>
+                            <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
+                              {formatDateTime(agent.last_heartbeat_at || agent.last_seen_at)}
+                            </td>
+                            <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
+                              {update.failureReason || '—'}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Space>
+          </Card>
+
+          <Card bordered title="注册码（手动接入备用）">
+            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+              <Row gutter={[12, 12]}>
+                <Col span={6}>
+                  <Typography.Text theme="secondary">角色</Typography.Text>
+                  <Select
+                    value={comfyEnrollCodeRole}
+                    onChange={(v) => setComfyEnrollCodeRole(String(v))}
+                    options={[
+                      { label: '全量型（full）', value: 'full' },
+                      { label: '轻量型（lite）', value: 'lite' },
+                    ]}
+                  />
+                </Col>
+                <Col span={6}>
+                  <Typography.Text theme="secondary">有效期（秒）</Typography.Text>
+                  <InputNumber
+                    value={comfyEnrollCodeTtlSeconds}
+                    min={60}
+                    max={7 * 24 * 3600}
+                    onChange={(v) => setComfyEnrollCodeTtlSeconds(Number(v) || 600)}
+                  />
+                </Col>
+                <Col span={6}>
+                  <Typography.Text theme="secondary">最大使用次数</Typography.Text>
+                  <InputNumber
+                    value={comfyEnrollCodeMaxUses}
+                    min={1}
+                    max={99}
+                    onChange={(v) => setComfyEnrollCodeMaxUses(Number(v) || 1)}
+                  />
+                </Col>
+                <Col span={6}>
+                  <Typography.Text theme="secondary">备注</Typography.Text>
+                  <Input
+                    value={comfyEnrollCodeNote}
+                    onChange={(v) => setComfyEnrollCodeNote(String(v))}
+                    placeholder="例如：158 主机首装"
+                  />
+                </Col>
+              </Row>
+              <Space align="center" size="small">
+                <Button theme="primary" loading={comfyEnrollCodeCreating} onClick={handleComfyEnrollCodeCreate}>
+                  生成注册码
+                </Button>
+                <Button size="small" variant="outline" onClick={() => refreshComfyEnrollCodes()}>
+                  刷新
+                </Button>
+              </Space>
+              {comfyEnrollCodesError ? <Alert theme="error" message={comfyEnrollCodesError} /> : null}
+              <div className="max-h-[260px] overflow-auto rounded-2xl border border-slate-200/70 dark:border-slate-800">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-slate-50 text-[11px] text-slate-600 dark:bg-slate-900/80 dark:text-slate-400">
+                    <tr className="text-left">
+                      <th className="px-3 py-2">注册码</th>
+                      <th className="px-3 py-2">角色</th>
+                      <th className="px-3 py-2">状态</th>
+                      <th className="px-3 py-2">使用次数</th>
+                      <th className="px-3 py-2">过期时间</th>
+                      <th className="px-3 py-2 text-right">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {comfyEnrollCodes.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="px-4 py-6 text-center text-slate-500">
+                          {comfyEnrollCodesLoading ? '加载中…' : '暂无注册码'}
+                        </td>
+                      </tr>
+                    ) : (
+                      comfyEnrollCodes.map((item) => (
+                        <tr key={`comfy-enroll-${item.id}`} className="border-t border-slate-100 dark:border-slate-800">
+                          <td className="px-3 py-2 font-mono text-[11px] text-slate-800 dark:text-slate-200">{item.code}</td>
+                          <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{item.role}</td>
+                          <td className="px-3 py-2">{renderStatusTag(item.status)}</td>
+                          <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
+                            {item.usedCount}/{item.maxUses}
+                          </td>
+                          <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{formatDateTime(item.expiresAt)}</td>
+                          <td className="px-3 py-2 text-right">
+                            <button className="text-sky-400" onClick={() => copyTextToClipboard(item.code)}>
+                              复制
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Space>
+          </Card>
+
+          <Card bordered title="桌面端安装包版本">
+            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+              <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                <Space align="center" size="small">
+                  <Select
+                    value={comfyDesktopReleaseStatusFilter}
+                    onChange={(v) => setComfyDesktopReleaseStatusFilter(String(v))}
+                    options={[{ label: '全部状态', value: 'all' }, ...comfyDesktopReleaseStatusOptions.map((item) => ({
+                      label: item.label,
+                      value: item.value,
+                    }))]}
+                  />
+                  <Button size="small" variant="outline" onClick={() => refreshComfyDesktopReleases()}>
+                    刷新
+                  </Button>
+                </Space>
+                <Button
+                  theme="primary"
+                  onClick={() => {
+                    resetComfyDesktopReleaseForm();
+                    setComfyDesktopReleaseDialogOpen(true);
+                  }}
+                >
+                  新增安装包
+                </Button>
+              </Space>
+              {comfyDesktopReleasesError ? <Alert theme="error" message={comfyDesktopReleasesError} /> : null}
+              <div className="max-h-[360px] overflow-auto rounded-2xl border border-slate-200/70 dark:border-slate-800">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-slate-50 text-[11px] text-slate-600 dark:bg-slate-900/80 dark:text-slate-400">
+                    <tr className="text-left">
+                      <th className="px-3 py-2">版本</th>
+                      <th className="px-3 py-2">通道</th>
+                      <th className="px-3 py-2">状态</th>
+                      <th className="px-3 py-2">系统</th>
+                      <th className="px-3 py-2">下载地址</th>
+                      <th className="px-3 py-2">发布时间</th>
+                      <th className="px-3 py-2 text-right">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {comfyDesktopReleases.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="px-4 py-6 text-center text-slate-500">
+                          {comfyDesktopReleasesLoading ? '加载中…' : '暂无安装包版本'}
+                        </td>
+                      </tr>
+                    ) : (
+                      comfyDesktopReleases.map((item) => (
+                        <tr
+                          key={`comfy-desktop-release-${item.id}`}
+                          className={`border-t border-slate-100 cursor-pointer dark:border-slate-800 ${
+                            String(item.id) === comfyDesktopInstallReleaseId ? 'bg-sky-50/60 dark:bg-sky-900/20' : ''
+                          }`}
+                          onClick={() => setComfyDesktopInstallReleaseId(String(item.id))}
+                        >
+                          <td className="px-3 py-2 text-slate-900 dark:text-white">{item.version}</td>
+                          <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{item.channel}</td>
+                          <td className="px-3 py-2">{renderStatusTag(item.status)}</td>
+                          <td className="px-3 py-2 text-slate-700 dark:text-slate-300">
+                            {item.osType}/{item.arch}
+                          </td>
+                          <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{item.downloadUrl}</td>
+                          <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
+                            {item.publishedAt ? formatDateTime(item.publishedAt) : '—'}
+                          </td>
+                          <td className="px-3 py-2 text-right space-x-2">
+                            <button
+                              className="text-cyan-500"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                const url = (item.downloadUrl || '').trim();
+                                if (!url) return;
+                                window.open(url, '_blank', 'noopener,noreferrer');
+                              }}
+                            >
+                              下载
+                            </button>
+                            <button
+                              className="text-sky-400"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setComfyDesktopInstallReleaseId(String(item.id));
+                                resetComfyDesktopReleaseForm(item);
+                                setComfyDesktopReleaseDialogOpen(true);
+                              }}
+                            >
+                              编辑
+                            </button>
+                            <button
+                              className="text-emerald-500"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleToggleComfyDesktopReleaseStatus(item);
+                              }}
+                            >
+                              {item.status === 'active' ? '停用' : '启用'}
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Space>
+          </Card>
+
+          <Dialog
+            header={comfyDesktopReleaseForm.id ? '编辑安装包版本' : '新增安装包版本'}
+            visible={comfyDesktopReleaseDialogOpen}
+            width={760}
+            confirmBtn={comfyDesktopReleaseSaving ? { loading: true } : undefined}
+            onClose={() => setComfyDesktopReleaseDialogOpen(false)}
+            onConfirm={handleComfyDesktopReleaseSave}
+          >
+            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+              <Row gutter={[12, 12]}>
+                <Col span={12}>
+                  <Typography.Text theme="secondary">版本号</Typography.Text>
+                  <Input
+                    value={comfyDesktopReleaseForm.version || ''}
+                    onChange={(v) => setComfyDesktopReleaseForm((prev) => ({ ...prev, version: String(v) }))}
+                    placeholder="例如 0.1.0"
+                  />
+                </Col>
+                <Col span={12}>
+                  <Typography.Text theme="secondary">通道</Typography.Text>
+                  <Input
+                    value={comfyDesktopReleaseForm.channel || 'stable'}
+                    onChange={(v) => setComfyDesktopReleaseForm((prev) => ({ ...prev, channel: String(v) }))}
+                    placeholder="stable / beta"
+                  />
+                </Col>
+              </Row>
+              <Row gutter={[12, 12]}>
+                <Col span={8}>
+                  <Typography.Text theme="secondary">系统</Typography.Text>
+                  <Select
+                    value={comfyDesktopReleaseForm.osType || 'windows'}
+                    onChange={(v) => setComfyDesktopReleaseForm((prev) => ({ ...prev, osType: String(v) }))}
+                    options={[
+                      { label: 'Windows', value: 'windows' },
+                      { label: 'Linux', value: 'linux' },
+                      { label: 'macOS', value: 'macos' },
+                    ]}
+                  />
+                </Col>
+                <Col span={8}>
+                  <Typography.Text theme="secondary">架构</Typography.Text>
+                  <Select
+                    value={comfyDesktopReleaseForm.arch || 'x64'}
+                    onChange={(v) => setComfyDesktopReleaseForm((prev) => ({ ...prev, arch: String(v) }))}
+                    options={[
+                      { label: 'x64', value: 'x64' },
+                      { label: 'arm64', value: 'arm64' },
+                    ]}
+                  />
+                </Col>
+                <Col span={8}>
+                  <Typography.Text theme="secondary">状态</Typography.Text>
+                  <Select
+                    value={comfyDesktopReleaseForm.status || 'active'}
+                    onChange={(v) => setComfyDesktopReleaseForm((prev) => ({ ...prev, status: String(v) }))}
+                    options={comfyDesktopReleaseStatusOptions.map((item) => ({
+                      label: item.label,
+                      value: item.value,
+                    }))}
+                  />
+                </Col>
+              </Row>
+              <div>
+                <Typography.Text theme="secondary">下载地址</Typography.Text>
+                <Input
+                  value={comfyDesktopReleaseForm.downloadUrl || ''}
+                  onChange={(v) => setComfyDesktopReleaseForm((prev) => ({ ...prev, downloadUrl: String(v) }))}
+                  placeholder="https://..."
+                />
+              </div>
+              <Row gutter={[12, 12]}>
+                <Col span={12}>
+                  <Typography.Text theme="secondary">SHA256</Typography.Text>
+                  <Input
+                    value={comfyDesktopReleaseForm.sha256 || ''}
+                    onChange={(v) => setComfyDesktopReleaseForm((prev) => ({ ...prev, sha256: String(v) }))}
+                    placeholder="安装包校验值"
+                  />
+                </Col>
+                <Col span={12}>
+                  <Typography.Text theme="secondary">最小代理版本（可选）</Typography.Text>
+                  <Input
+                    value={comfyDesktopReleaseForm.minAgentVersion || ''}
+                    onChange={(v) => setComfyDesktopReleaseForm((prev) => ({ ...prev, minAgentVersion: String(v) }))}
+                    placeholder="例如 0.1.0"
+                  />
+                </Col>
+              </Row>
+              <div>
+                <Typography.Text theme="secondary">备注（可选）</Typography.Text>
+                <Input
+                  value={comfyDesktopReleaseForm.notes || ''}
+                  onChange={(v) => setComfyDesktopReleaseForm((prev) => ({ ...prev, notes: String(v) }))}
+                  placeholder="发布说明"
+                />
+              </div>
+              <div>
+                <Typography.Text theme="secondary">扩展参数（JSON，可选）</Typography.Text>
+                <Textarea
+                  value={comfyDesktopReleasePayloadInput}
+                  onChange={(v) => setComfyDesktopReleasePayloadInput(String(v))}
+                  autosize={{ minRows: 3, maxRows: 8 }}
+                  className="font-mono text-xs"
+                  placeholder='{"fileSize": 123456}'
+                />
+              </div>
+              {comfyDesktopReleaseFormError ? <Alert theme="error" message={comfyDesktopReleaseFormError} /> : null}
+            </Space>
+          </Dialog>
+        </div>
+        )}
         {comfyuiManageTab === 'manifests' && (
         <div className="space-y-4">
           <Card bordered title="同步清单">
@@ -10321,7 +11836,11 @@ const normalizeErrorMessage = (message: string): string => {
                     onChange={(v) => setComfyManifestStatusFilter(String(v))}
                     options={[
                       { label: '全部状态', value: 'all' },
-                      ...statusOptions.map((option) => ({ label: option.label, value: option.value })),
+                      { label: '草稿', value: 'draft' },
+                      { label: '已发布', value: 'published' },
+                      { label: '已回滚', value: 'rolled_back' },
+                      { label: '启用（兼容）', value: 'active' },
+                      { label: '停用（兼容）', value: 'inactive' },
                     ]}
                   />
                   <Button size="small" variant="outline" onClick={() => refreshComfyManifests()}>
@@ -10385,7 +11904,69 @@ const normalizeErrorMessage = (message: string): string => {
                             >
                               编辑
                             </button>
+                            <button
+                              className="text-emerald-500"
+                              disabled={Boolean(comfyManifestActionLoading[manifest.id]) || manifest.status === 'published'}
+                              onClick={() => handleComfyManifestPublish(manifest.id)}
+                            >
+                              发布
+                            </button>
+                            <button
+                              className="text-amber-500"
+                              disabled={Boolean(comfyManifestActionLoading[manifest.id])}
+                              onClick={() => handleComfyManifestRollback(manifest.id)}
+                            >
+                              回滚
+                            </button>
+                            <button className="text-violet-500" onClick={() => handleOpenComfyManifestDrift(manifest)}>
+                              漂移
+                            </button>
                           </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Space>
+          </Card>
+
+          <Card bordered title="修复任务（增量补齐）">
+            <Space direction="vertical" size="small" style={{ width: '100%' }}>
+              <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                <Typography.Text theme="secondary">从“漂移”一键生成后会自动出现在这里，便于追踪执行进度。</Typography.Text>
+                <Button size="small" variant="outline" onClick={() => refreshComfyRepairJobs()}>
+                  刷新
+                </Button>
+              </Space>
+              <div className="max-h-[260px] overflow-auto rounded-2xl border border-slate-200/70 dark:border-slate-800">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-slate-50 text-[11px] text-slate-600 dark:bg-slate-900/80 dark:text-slate-400">
+                    <tr className="text-left">
+                      <th className="px-3 py-2">任务号</th>
+                      <th className="px-3 py-2">清单</th>
+                      <th className="px-3 py-2">状态</th>
+                      <th className="px-3 py-2">提交/成功/失败</th>
+                      <th className="px-3 py-2">更新时间</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {comfyRepairJobs.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-6 text-center text-slate-500">
+                          暂无修复任务
+                        </td>
+                      </tr>
+                    ) : (
+                      comfyRepairJobs.map((job) => (
+                        <tr key={`repair-job-${job.id}`} className="border-t border-slate-100 dark:border-slate-800">
+                          <td className="px-3 py-2 text-slate-900 dark:text-white">{job.id}</td>
+                          <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{job.manifestId}</td>
+                          <td className="px-3 py-2">{renderStatusTag(job.status)}</td>
+                          <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
+                            {job.submittedTaskCount}/{job.succeededTaskCount}/{job.failedTaskCount}
+                          </td>
+                          <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{formatDateTime(job.updatedAt)}</td>
                         </tr>
                       ))
                     )}
@@ -10426,9 +12007,13 @@ const normalizeErrorMessage = (message: string): string => {
                 <Col span={12}>
                   <Typography.Text theme="secondary">状态</Typography.Text>
                   <Select
-                    value={comfyManifestForm.status || 'active'}
+                    value={comfyManifestForm.status || 'draft'}
                     onChange={(v) => setComfyManifestForm((prev) => ({ ...prev, status: String(v) }))}
-                    options={statusOptions}
+                    options={[
+                      { label: '草稿', value: 'draft' },
+                      { label: '已发布', value: 'published' },
+                      { label: '已回滚', value: 'rolled_back' },
+                    ]}
                   />
                 </Col>
                 <Col span={12}>
@@ -10450,6 +12035,55 @@ const normalizeErrorMessage = (message: string): string => {
                   placeholder="可选"
                 />
               </div>
+              <Space align="center" size="small">
+                <Button
+                  size="small"
+                  variant={comfyManifestEditorMode === 'wizard' ? 'outline' : 'text'}
+                  theme={comfyManifestEditorMode === 'wizard' ? 'primary' : 'default'}
+                  onClick={() => setComfyManifestEditorMode('wizard')}
+                >
+                  向导模式
+                </Button>
+                <Button
+                  size="small"
+                  variant={comfyManifestEditorMode === 'json' ? 'outline' : 'text'}
+                  theme={comfyManifestEditorMode === 'json' ? 'primary' : 'default'}
+                  onClick={() => setComfyManifestEditorMode('json')}
+                >
+                  JSON 高级模式
+                </Button>
+              </Space>
+              {comfyManifestEditorMode === 'wizard' ? (
+                <Card bordered size="small" title="清单构建向导">
+                  <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                    <Space align="center" size="small">
+                      <Switch
+                        value={comfyManifestIncludeInactive}
+                        onChange={(value) => setComfyManifestIncludeInactive(Boolean(value))}
+                      />
+                      <Typography.Text theme="secondary">包含停用资源（默认仅启用）</Typography.Text>
+                    </Space>
+                    <Typography.Text theme="secondary">
+                      将从资源目录自动生成清单：模型（含 LoRA）{` `}
+                      {Array.isArray((comfyManifestWizardPreview.models as unknown[]))
+                        ? (comfyManifestWizardPreview.models as unknown[]).length
+                        : 0}
+                      项，插件{` `}
+                      {Array.isArray((comfyManifestWizardPreview.plugins as unknown[]))
+                        ? (comfyManifestWizardPreview.plugins as unknown[]).length
+                        : 0}
+                      项，工作流{` `}
+                      {Array.isArray((comfyManifestWizardPreview.workflows as unknown[]))
+                        ? (comfyManifestWizardPreview.workflows as unknown[]).length
+                        : 0}
+                      项。
+                    </Typography.Text>
+                    <Button size="small" variant="outline" onClick={handleComfyManifestGenerateFromWizard}>
+                      生成清单内容
+                    </Button>
+                  </Space>
+                </Card>
+              ) : null}
               <div>
                 <Typography.Text theme="secondary">清单内容（JSON）</Typography.Text>
                 <Textarea
@@ -10460,6 +12094,88 @@ const normalizeErrorMessage = (message: string): string => {
                 />
               </div>
               {comfyManifestFormError ? <Alert theme="error" message={comfyManifestFormError} /> : null}
+            </Space>
+          </Dialog>
+
+          <Dialog
+            header={`清单漂移对比 · ${comfyManifestDriftTitle || ''}`}
+            visible={comfyManifestDriftDialogOpen}
+            width={760}
+            confirmBtn={{ content: '关闭' }}
+            onClose={() => setComfyManifestDriftDialogOpen(false)}
+            onConfirm={() => setComfyManifestDriftDialogOpen(false)}
+          >
+            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+              {comfyManifestDriftError ? <Alert theme="error" message={comfyManifestDriftError} /> : null}
+              {comfyManifestDriftLoading ? (
+                <Alert theme="info" message="正在拉取差异，请稍候…" />
+              ) : null}
+              <Space align="center" size="small" style={{ justifyContent: 'space-between', width: '100%' }}>
+                <Typography.Text theme="secondary">
+                  对比内容包含版本、模型、插件、工作流差异，便于判断是否需要补齐同步。
+                </Typography.Text>
+                <Space size="small">
+                  <Button
+                    size="small"
+                    variant="outline"
+                    disabled={!comfyManifestDriftText}
+                    onClick={() => copyTextToClipboard(comfyManifestDriftText)}
+                  >
+                    复制 JSON
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="outline"
+                    disabled={!comfyManifestDriftData}
+                    onClick={() => {
+                      if (!comfyManifestDriftData) return;
+                      const ts = new Date().toISOString().replace(/[:.]/g, '-');
+                      downloadJson(comfyManifestDriftData, `comfyui-manifest-drift-${ts}.json`);
+                    }}
+                  >
+                    导出 JSON
+                  </Button>
+                </Space>
+              </Space>
+              <Space align="center" size="small">
+                <Button
+                  size="small"
+                  variant="outline"
+                  loading={comfyRepairPlanLoading}
+                  onClick={handleComfyGenerateRepairPlan}
+                >
+                  生成修复计划
+                </Button>
+                <Button
+                  size="small"
+                  theme="primary"
+                  loading={comfyRepairJobLoading}
+                  disabled={!comfyRepairPlan}
+                  onClick={handleComfyCreateRepairJob}
+                >
+                  一键下发修复任务
+                </Button>
+              </Space>
+              {comfyRepairPlan ? (
+                <Alert
+                  theme="info"
+                  message={`修复计划：可执行 ${comfyRepairPlan.summary.executableAgents} 台，跳过 ${comfyRepairPlan.summary.skippedAgents} 台，动作总数 ${comfyRepairPlan.summary.totalActions}。`}
+                />
+              ) : null}
+              <Textarea
+                value={comfyManifestDriftText}
+                readonly
+                autosize={{ minRows: 10, maxRows: 20 }}
+                className="font-mono text-xs"
+              />
+              {comfyRepairPlan ? (
+                <Textarea
+                  value={JSON.stringify(comfyRepairPlan, null, 2)}
+                  readonly
+                  autosize={{ minRows: 8, maxRows: 16 }}
+                  className="font-mono text-xs"
+                />
+              ) : null}
             </Space>
           </Dialog>
         </div>
@@ -10542,6 +12258,75 @@ const normalizeErrorMessage = (message: string): string => {
             </Space>
           </Card>
 
+          <Card bordered title="链路监控汇总">
+            <Space direction="vertical" size="small" style={{ width: '100%' }}>
+              <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                <Space align="center" size="small">
+                  <Select
+                    value={String(comfyMonitoringWindowHours)}
+                    onChange={(v) => setComfyMonitoringWindowHours(Number(v) || 24)}
+                    options={[
+                      { label: '最近 24 小时', value: '24' },
+                      { label: '最近 72 小时', value: '72' },
+                      { label: '最近 168 小时', value: '168' },
+                    ]}
+                  />
+                  <Button size="small" variant="outline" onClick={() => refreshComfyMonitoringSummary()}>
+                    刷新
+                  </Button>
+                </Space>
+                <Typography.Text theme="secondary">
+                  {comfyMonitoringSummary?.generatedAt ? `更新时间：${formatDateTime(comfyMonitoringSummary.generatedAt)}` : '暂无数据'}
+                </Typography.Text>
+              </Space>
+              {comfyMonitoringError ? <Alert theme="error" message={comfyMonitoringError} /> : null}
+              <div className="max-h-[260px] overflow-auto rounded-2xl border border-slate-200/70 dark:border-slate-800">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-slate-50 text-[11px] text-slate-600 dark:bg-slate-900/80 dark:text-slate-400">
+                    <tr className="text-left">
+                      <th className="px-3 py-2">队列</th>
+                      <th className="px-3 py-2">总量</th>
+                      <th className="px-3 py-2">排队</th>
+                      <th className="px-3 py-2">执行中</th>
+                      <th className="px-3 py-2">成功</th>
+                      <th className="px-3 py-2">失败</th>
+                      <th className="px-3 py-2">失败率</th>
+                      <th className="px-3 py-2">平均等待(s)</th>
+                      <th className="px-3 py-2">重试次数</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {!comfyMonitoringSummary?.lanes?.length ? (
+                      <tr>
+                        <td colSpan={9} className="px-4 py-6 text-center text-slate-500">
+                          {comfyMonitoringLoading ? '加载中…' : '暂无监控数据'}
+                        </td>
+                      </tr>
+                    ) : (
+                      comfyMonitoringSummary.lanes.map((lane) => (
+                        <tr key={`monitor-lane-${lane.lane}`} className="border-t border-slate-100 dark:border-slate-800">
+                          <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{lane.lane}</td>
+                          <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{lane.total}</td>
+                          <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{lane.queued}</td>
+                          <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{lane.running}</td>
+                          <td className="px-3 py-2 text-emerald-600 dark:text-emerald-400">{lane.succeeded}</td>
+                          <td className="px-3 py-2 text-rose-600 dark:text-rose-400">{lane.failed}</td>
+                          <td className="px-3 py-2 text-slate-700 dark:text-slate-300">
+                            {Number.isFinite(lane.failureRate) ? `${(lane.failureRate * 100).toFixed(2)}%` : '—'}
+                          </td>
+                          <td className="px-3 py-2 text-slate-700 dark:text-slate-300">
+                            {Number.isFinite(lane.avgWaitSeconds) ? lane.avgWaitSeconds.toFixed(2) : '—'}
+                          </td>
+                          <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{lane.retryCount}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Space>
+          </Card>
+
           <Card bordered title="最近任务">
             <Space direction="vertical" size="small" style={{ width: '100%' }}>
               <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
@@ -10568,7 +12353,7 @@ const normalizeErrorMessage = (message: string): string => {
                   </Button>
                 </Space>
                 <Typography.Text theme="secondary">
-                  {comfyAgentTasks.length ? `共 ${comfyAgentTasks.length} 条` : '暂无任务'}
+                  {visibleComfyAgentTasks.length ? `共 ${visibleComfyAgentTasks.length} 条` : '暂无任务'}
                 </Typography.Text>
               </Space>
               {comfyAgentTasksError ? <Alert theme="error" message={comfyAgentTasksError} /> : null}
@@ -10578,7 +12363,9 @@ const normalizeErrorMessage = (message: string): string => {
                     <tr className="text-left">
                       <th className="px-3 py-2">任务编号</th>
                       <th className="px-3 py-2">代理服务</th>
-                      <th className="px-3 py-2">状态</th>
+                      <th className="px-3 py-2">提交阶段</th>
+                      <th className="px-3 py-2">回填阶段</th>
+                      <th className="px-3 py-2">最终状态</th>
                       <th className="px-3 py-2">动作</th>
                       <th className="px-3 py-2">清单</th>
                       <th className="px-3 py-2">过期</th>
@@ -10588,14 +12375,14 @@ const normalizeErrorMessage = (message: string): string => {
                     </tr>
                   </thead>
                   <tbody>
-                    {comfyAgentTasks.length === 0 ? (
+                    {visibleComfyAgentTasks.length === 0 ? (
                       <tr>
-                        <td colSpan={9} className="px-4 py-6 text-center text-slate-500">
+                        <td colSpan={11} className="px-4 py-6 text-center text-slate-500">
                           {comfyAgentTasksLoading ? '加载中…' : '暂无任务'}
                         </td>
                       </tr>
                     ) : (
-                      comfyAgentTasks.map((task) => {
+                      visibleComfyAgentTasks.map((task) => {
                         const manifest = task.manifestId
                           ? comfyManifestList.find((item) => item.id === task.manifestId)
                           : null;
@@ -10608,7 +12395,9 @@ const normalizeErrorMessage = (message: string): string => {
                             <td className="px-3 py-2 text-slate-700 dark:text-slate-300">
                               {task.agentId}
                             </td>
-                            <td className="px-3 py-2">{renderStatusTag(task.status)}</td>
+                            <td className="px-3 py-2">{renderStatusTag(task.submitStatus || task.status)}</td>
+                            <td className="px-3 py-2">{renderStatusTag(task.callbackStatus || 'waiting')}</td>
+                            <td className="px-3 py-2">{renderStatusTag(task.finalStatus || task.status)}</td>
                             <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
                               {formatComfyAgentActions(task.actions)}
                             </td>
@@ -10715,7 +12504,7 @@ const normalizeErrorMessage = (message: string): string => {
                   </Button>
                 </Space>
                 <Typography.Text theme="secondary">
-                  {comfyAgentAlerts.length ? `共 ${comfyAgentAlerts.length} 条` : '暂无告警'}
+                  {visibleComfyAgentAlerts.length ? `共 ${visibleComfyAgentAlerts.length} 条` : '暂无告警'}
                 </Typography.Text>
               </Space>
               {comfyAgentAlertsError ? <Alert theme="error" message={comfyAgentAlertsError} /> : null}
@@ -10731,14 +12520,14 @@ const normalizeErrorMessage = (message: string): string => {
                     </tr>
                   </thead>
                   <tbody>
-                    {comfyAgentAlerts.length === 0 ? (
+                    {visibleComfyAgentAlerts.length === 0 ? (
                       <tr>
                         <td colSpan={5} className="px-4 py-6 text-center text-slate-500">
                           {comfyAgentAlertsLoading ? '加载中…' : '暂无告警'}
                         </td>
                       </tr>
                     ) : (
-                      comfyAgentAlerts.map((alert) => {
+                      visibleComfyAgentAlerts.map((alert) => {
                         const payloadText = stringifyJSON(alert.payload as JsonRecord);
                         return (
                           <tr key={`comfy-agent-alert-${alert.id}`} className="border-t border-slate-100 dark:border-slate-800">
