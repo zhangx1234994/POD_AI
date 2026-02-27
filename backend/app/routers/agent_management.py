@@ -933,7 +933,7 @@ def update_desktop_release(
         return schemas.AgentDesktopReleaseRead.model_validate(release)
 
 
-@admin_router.get("/desktop/releases/{release_id}/download")
+@admin_router.get("/desktop/releases/{release_id:int}/download")
 def download_desktop_release(release_id: int) -> RedirectResponse:
     with get_session() as session:
         release = session.get(AgentDesktopRelease, release_id)
