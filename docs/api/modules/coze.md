@@ -25,6 +25,16 @@
 curl http://127.0.0.1:8099/api/coze/podi/openapi.json
 ```
 
+### GET /api/coze/podi/comfyui/lora/openapi.json
+
+**用途**：LoRA 查询专用工具箱（仅含 `POST /api/coze/podi/comfyui/lora-catalog`，不含任何执行能力）。
+
+**示例**
+
+```bash
+curl http://127.0.0.1:8099/api/coze/podi/comfyui/lora/openapi.json
+```
+
 ---
 
 ## 2) 能力列表（可选）

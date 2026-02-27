@@ -700,6 +700,20 @@ def get_comfyui_openapi(request: Request) -> dict[str, Any]:
     )
 
 
+@router.get("/comfyui/lora/openapi.json")
+def get_comfyui_lora_openapi(request: Request) -> dict[str, Any]:
+    """OpenAPI for PODI ComfyUI LoRA query-only plugin."""
+    _require_internal(request)
+    server = _server_from_request(request)
+    doc = _build_openapi(podi_server=server)
+    paths = doc.get("paths") or {}
+    allowed = {"/api/coze/podi/comfyui/lora-catalog"}
+    doc["paths"] = {k: v for k, v in paths.items() if k in allowed}
+    doc["info"]["title"] = "PODI ComfyUI LoRA 查询"
+    doc["info"]["description"] = "仅用于 LoRA 查询，不包含任何生图或执行类工具。"
+    return doc
+
+
 @router.get("/kie/openapi.json")
 def get_kie_openapi(request: Request) -> dict[str, Any]:
     """OpenAPI for PODI KIE plugin."""
