@@ -89,4 +89,6 @@ Write-Host ("- release_id : {0}" -f $releaseResp.id)
 Write-Host ("- version    : {0}" -f $releaseResp.version)
 Write-Host ("- download   : {0}" -f $releaseResp.downloadUrl)
 Write-Host ("- sha256     : {0}" -f $releaseResp.sha256)
-Write-Host ("- latest     : {0}" -f (Join-Url $CenterUrl "/api/admin/comfyui/desktop/releases/latest/download?os=windows&arch=x64&channel=$Channel"))
+$latestPath = '/api/admin/comfyui/desktop/releases/latest/download?os=windows`&arch=x64`&channel={0}' -f $Channel
+$latestUrl = Join-Url $CenterUrl $latestPath
+Write-Host ("- latest     : {0}" -f $latestUrl)
