@@ -1175,9 +1175,10 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             # Only keep final outputs from the known "SaveImage" node for this workflow.
             # Otherwise ComfyUI history may contain multiple intermediate previews.
             "output_node_ids": ["111"],
-            # Only 117 server has the required seamless-pattern custom nodes.
-            "allowed_executor_ids": ["executor_comfyui_seamless_117"],
-            "seed_version": 8,
+            # Route across both ComfyUI nodes (same plugin/model baseline).
+            "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
+            "routing_policy": "queue",
+            "seed_version": 9,
             "pricing": {
                 "currency": "CNY",
                 "unit": "per_image",
@@ -1209,9 +1210,9 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "action": "pattern_extract",
             "requires_image_input": True,
             "supports_vision": True,
-            # Only 158 server has the pattern-extract LoRA + nodes.
-            "allowed_executor_ids": ["executor_comfyui_pattern_extract_158"],
-            "seed_version": 5,
+            "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
+            "routing_policy": "queue",
+            "seed_version": 6,
             "lora_presets": PATTERN_EXTRACT_LORA_PRESETS,
             "pricing": {
                 "currency": "CNY",
@@ -1248,9 +1249,9 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "action": "pattern_expand",
             "requires_image_input": True,
             "supports_vision": True,
-            # Only 117 server has the required outpaint custom nodes.
-            "allowed_executor_ids": ["executor_comfyui_seamless_117"],
-            "seed_version": 4,
+            "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
+            "routing_policy": "queue",
+            "seed_version": 5,
             "pricing": {
                 "currency": "CNY",
                 "unit": "per_image",
@@ -1277,8 +1278,9 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "action": "image_edit_fast",
             "requires_image_input": True,
             "supports_vision": True,
-            "allowed_executor_ids": ["executor_comfyui_pattern_extract_158"],
-            "seed_version": 4,
+            "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
+            "routing_policy": "queue",
+            "seed_version": 5,
             "pricing": {
                 "currency": "CNY",
                 "unit": "per_image",
@@ -1305,8 +1307,9 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "action": "image_edit_medium",
             "requires_image_input": True,
             "supports_vision": True,
-            "allowed_executor_ids": ["executor_comfyui_pattern_extract_158"],
-            "seed_version": 4,
+            "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
+            "routing_policy": "queue",
+            "seed_version": 5,
             "pricing": {
                 "currency": "CNY",
                 "unit": "per_image",

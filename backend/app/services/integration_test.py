@@ -1291,6 +1291,13 @@ class IntegrationTestService:
             if executor_ids:
                 query = query.where(Executor.id.in_(executor_ids))
             executors = session.execute(query.order_by(Executor.id.asc())).scalars().all()
+        # Hide mock/test executors from ops queue summary.
+        executors = [
+            ex
+            for ex in executors
+            if not str(ex.id or "").startswith("executor_mock_")
+            and not bool((ex.config or {}).get("mock"))
+        ]
 
         servers: list[dict[str, Any]] = []
         total_running = 0
