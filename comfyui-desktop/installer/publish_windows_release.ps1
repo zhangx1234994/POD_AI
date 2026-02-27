@@ -18,6 +18,17 @@ function Join-Url([string]$Base, [string]$Path) {
   return ($Base.TrimEnd("/") + "/" + $Path.TrimStart("/"))
 }
 
+function Invoke-External {
+  param(
+    [string]$FilePath,
+    [string[]]$Arguments
+  )
+  & $FilePath @Arguments
+  if ($LASTEXITCODE -ne 0) {
+    throw "外部命令执行失败: $FilePath $($Arguments -join ' ')"
+  }
+}
+
 $InstallerDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = Split-Path -Parent $InstallerDir
 
@@ -28,7 +39,18 @@ if ([string]::IsNullOrWhiteSpace($Version)) {
 if (-not $SkipBuild) {
   Write-Host "==> 开始构建 Windows 安装包"
   $buildScript = Join-Path $InstallerDir "build_windows.ps1"
-  & powershell -ExecutionPolicy Bypass -File $buildScript -CenterUrl $CenterUrl -InstallKey $InstallKey
+  Invoke-External -FilePath "powershell.exe" -Arguments @(
+    "-NoLogo",
+    "-NoProfile",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    $buildScript,
+    "-CenterUrl",
+    $CenterUrl,
+    "-InstallKey",
+    $InstallKey
+  )
 }
 
 if ([string]::IsNullOrWhiteSpace($ExePath)) {
@@ -36,7 +58,7 @@ if ([string]::IsNullOrWhiteSpace($ExePath)) {
 }
 
 if (-not (Test-Path $ExePath)) {
-  throw "未找到安装包：$ExePath"
+  throw "未找到安装包：$ExePath。请先安装 Inno Setup 6（ISCC.exe）并重新执行打包。"
 }
 
 Write-Host "==> 登录中台"

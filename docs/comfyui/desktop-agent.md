@@ -65,6 +65,7 @@ powershell -ExecutionPolicy Bypass -File installer\publish_windows_release.ps1 `
 
 也可直接双击：
 
+- `installer\\build_windows.cmd`
 - `installer\\publish_windows_release.cmd`
 
 ## 4. 本地配置

@@ -89,6 +89,10 @@ powershell -ExecutionPolicy Bypass -File installer\build_windows.ps1 `
   -InstallKey "<中台安装密钥>"
 ```
 
+也可直接双击：
+
+- `installer\build_windows.cmd`
+
 If Inno Setup (`ISCC.exe`) is installed, it outputs:
 
 - `installer\build\windows\Output\PODI-ComfyUI-Agent-Setup.exe`
