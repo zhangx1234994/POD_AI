@@ -793,39 +793,11 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         image_url, _ = self._resolve_image_source(params, context)
         if not image_url:
             return None, "COMFYUI_IMAGE_REQUIRED"
-        # New seamless graph may route URL through node 114 (easy string) first.
-        # Keep this override to stay compatible with both old/new graph revisions.
+        # Seamless workflow now uses the new URL-only graph (114 -> 96/113).
         overrides.setdefault("114", {})["value"] = image_url
-        graph_payload = workflow_definition.get("graph") if isinstance(workflow_definition, dict) else None
-        has_local_image_node = isinstance(graph_payload, dict) and "106" in graph_payload
-        # Prefer URL-based loading, but ComfyUI nodes often assume the URL loader returns
-        # at least one image (e.g. ImageResize+ reads index 0). In real deployments,
-        # the ComfyUI host may not be able to access our OSS/public domains, which causes
-        # "list index out of range" runtime errors. We still standardize on URL inputs
-        # and prefer uploading to the ComfyUI host instead of using base64 fallbacks.
         overrides["96"] = {"url": image_url}
-
-        # Best effort: upload the image to the ComfyUI host and route via built-in LoadImage.
-        # This avoids relying on custom nodes and avoids requiring ComfyUI to have outbound
-        # internet access to our OSS/public domains.
-        try:
-            cfg = getattr(context.executor, "config", None) or {}
-            base_url = (
-                getattr(context.executor, "base_url", None) or cfg.get("baseUrl") or cfg.get("base_url") or ""
-            ).rstrip("/")
-            uploaded = self._upload_image_to_comfyui(base_url, image_url) if base_url else None
-        except Exception:
-            uploaded = None
-        if uploaded and has_local_image_node:
-            overrides["106"] = {"image": uploaded}
-            for nid in ("64", "94", "102"):
-                overrides.setdefault(nid, {})["image"] = ["106", 0]
-
-        if not uploaded or not has_local_image_node:
-            # Last resort: keep using the URL loader. We intentionally avoid base64 fallbacks
-            # so all image inputs stay URL-based.
-            for nid in ("64", "94", "102"):
-                overrides.setdefault(nid, {})["image"] = ["96", 0]
+        for nid in ("64", "94", "102"):
+            overrides.setdefault(nid, {})["image"] = ["96", 0]
 
         prompt = self._as_text(params.get("prompt") or params.get("description"))
         if prompt:
@@ -1087,46 +1059,6 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
                 continue
             if "String" not in inputs and "inStr" in inputs:
                 inputs["String"] = inputs.get("inStr")
-
-    def _upload_image_to_comfyui(self, base_url: str, image_url: str) -> str | None:
-        """Upload a remote image to ComfyUI and return the LoadImage `image` filename."""
-        if not base_url or not image_url:
-            return None
-        try:
-            resp = httpx.get(image_url, timeout=30)
-            resp.raise_for_status()
-        except httpx.HTTPError as exc:
-            self._logger.warning("Failed to download image for ComfyUI upload: %s", exc)
-            return None
-
-        filename_hint = self._extract_filename_hint(image_url)
-        if "." not in filename_hint:
-            filename_hint = f"{filename_hint}.png"
-        content_type = resp.headers.get("content-type") or "application/octet-stream"
-
-        try:
-            up = httpx.post(
-                f"{base_url.rstrip('/')}/upload/image",
-                data={"type": "input", "overwrite": "true"},
-                files={"image": (filename_hint, resp.content, content_type)},
-                timeout=60,
-            )
-            up.raise_for_status()
-            data = up.json()
-        except Exception as exc:
-            self._logger.warning("Failed to upload image to ComfyUI: %s", exc)
-            return None
-
-        if not isinstance(data, dict):
-            return None
-        name = data.get("name")
-        subfolder = data.get("subfolder") or ""
-        if not isinstance(name, str) or not name.strip():
-            return None
-        name = name.strip()
-        if isinstance(subfolder, str) and subfolder.strip():
-            return f"{subfolder.strip().rstrip('/')}/{name}"
-        return name
 
     @staticmethod
     def _normalize_remote_url(url: str | None) -> str | None:
