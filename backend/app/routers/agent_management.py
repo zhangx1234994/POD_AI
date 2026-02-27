@@ -1424,8 +1424,8 @@ def get_monitoring_summary(window_hours: int = 24) -> schemas.AgentMonitoringSum
     )
     lanes.append(agent_lane)
     return schemas.AgentMonitoringSummaryResponse(
-        generated_at=datetime.utcnow(),
-        window_hours=window_hours,
+        generatedAt=datetime.utcnow(),
+        windowHours=window_hours,
         lanes=lanes,
     )
 
@@ -1521,7 +1521,12 @@ def get_monitoring_errors(window_hours: int = 24, limit: int = 100) -> schemas.A
         if not item.sample_message and row.error_message:
             item.sample_message = row.error_message
 
-    items = sorted(buckets.values(), key=lambda item: (item.count, item.last_occurred_at or datetime.min), reverse=True)
+    def _error_sort_key(item: schemas.AgentMonitoringErrorItem) -> tuple[int, float]:
+        last = item.last_occurred_at
+        ts = last.timestamp() if isinstance(last, datetime) else 0.0
+        return (item.count, ts)
+
+    items = sorted(buckets.values(), key=_error_sort_key, reverse=True)
     return schemas.AgentMonitoringErrorsResponse(
         generatedAt=datetime.utcnow(),
         windowHours=window_hours,
