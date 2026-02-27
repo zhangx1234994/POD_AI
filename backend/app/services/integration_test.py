@@ -1063,9 +1063,8 @@ class IntegrationTestService:
             from app.services.executors.comfyui import _apply_inputs
 
             _apply_inputs(graph_payload, overrides)
-        # Keep consistent with adapter.execute (avoid base64 node for seamless workflow).
-        if workflow_key == "sifang_lianxu" and isinstance(graph_payload, dict):
-            graph_payload.pop("104", None)
+        # Keep consistent with adapter.execute: seamless workflow keeps node 104 as a
+        # fixed mask input. Do not mutate/remove it here.
         adapter._ensure_sampler_seed(graph_payload, context.payload or {})  # type: ignore[attr-defined]
 
         prompt_id = uuid4().hex
