@@ -61,8 +61,9 @@
 | 节点 | 描述 |
 | --- | --- |
 | 42 · StringConcatenate.string_a | 主提示词（能力表单 prompt）。 |
+| 114 · easy string.value | 输入图 URL 字符串（同时供 96 与 113 使用）。 |
 | 96 · LoadImagesFromURL.url | 参考图 URL（上传后端会自动回填）。 |
-| 104 · easy loadImageBase64.base64_data | Base64 输入；若只提供 URL，Executor 会先下载后写入，避免中心留白。 |
+| 113 · DoubaoAPINode.image_url | 结构描述节点，使用同一张输入图生成辅助提示词。 |
 | 97 · easy ifElse.boolean | 图案类型开关：true=四方连续、false=两方连续。 |
 | 102 · ImageResize+ | 输出尺寸；resolution 选择器控制预设比例，width/height 可手动覆盖。 |
 | 10 / 11 / 91 | ImageShift + MaskMath 组合，用于生成 seamless 条件区域。 |
@@ -77,8 +78,8 @@
 
 **调试备注**
 
-- 若管理端回显“中心留白”，重点检查节点 96 是否拿到公网可访问的 URL、以及节点 104 是否被正确写入（后端日志会打印）。
-- Base64 默认值不要在 JSON 中清空；任何临时修改需记录在本文档。
+- 若管理端回显“中心留白”，优先检查节点 114/96 是否收到同一张可访问 URL，以及节点 64 是否被后端覆盖为 URL 分支。
+- 线上执行会移除 node 104（Base64 分支），避免无关节点误触发导致报错。
 
 > 说明：执行节点与 URL 为当前快照，主服务器可能调整，请以管理端“执行节点”配置为准。
 

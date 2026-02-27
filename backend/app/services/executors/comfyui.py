@@ -793,6 +793,11 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         image_url, _ = self._resolve_image_source(params, context)
         if not image_url:
             return None, "COMFYUI_IMAGE_REQUIRED"
+        # New seamless graph may route URL through node 114 (easy string) first.
+        # Keep this override to stay compatible with both old/new graph revisions.
+        overrides.setdefault("114", {})["value"] = image_url
+        graph_payload = workflow_definition.get("graph") if isinstance(workflow_definition, dict) else None
+        has_local_image_node = isinstance(graph_payload, dict) and "106" in graph_payload
         # Prefer URL-based loading, but ComfyUI nodes often assume the URL loader returns
         # at least one image (e.g. ImageResize+ reads index 0). In real deployments,
         # the ComfyUI host may not be able to access our OSS/public domains, which causes
@@ -811,12 +816,12 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             uploaded = self._upload_image_to_comfyui(base_url, image_url) if base_url else None
         except Exception:
             uploaded = None
-        if uploaded:
+        if uploaded and has_local_image_node:
             overrides["106"] = {"image": uploaded}
             for nid in ("64", "94", "102"):
                 overrides.setdefault(nid, {})["image"] = ["106", 0]
 
-        if not uploaded:
+        if not uploaded or not has_local_image_node:
             # Last resort: keep using the URL loader. We intentionally avoid base64 fallbacks
             # so all image inputs stay URL-based.
             for nid in ("64", "94", "102"):
