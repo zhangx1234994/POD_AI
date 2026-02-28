@@ -564,9 +564,21 @@ def _build_openapi(*, podi_server: str | None = None) -> dict[str, Any]:
                         "schema": {
                             "type": "object",
                             "properties": {
-                                "status": {"type": "string", "default": "active"},
-                                "baseModel": {"type": "string", "nullable": True},
-                                "limit": {"type": "integer", "default": 500},
+                                "status": {
+                                    "type": "string",
+                                    "default": "active",
+                                    "description": "LoRA 状态 Status。默认 active。",
+                                },
+                                "baseModel": {
+                                    "type": "string",
+                                    "nullable": True,
+                                    "description": "基座模型 Base Model（可选）。如 qwen_image_edit/flux/sdxl。",
+                                },
+                                "limit": {
+                                    "type": "integer",
+                                    "default": 500,
+                                    "description": "返回上限 Limit，默认 500，最大 5000。",
+                                },
                             },
                         }
                     }
@@ -764,13 +776,19 @@ def _build_kie_catalog_openapi(request: Request) -> dict[str, Any]:
                                             "type": "string",
                                             "enum": ["all", "image", "video"],
                                             "default": "all",
+                                            "description": "模型类型 Media Type。all/image/video，默认 all。",
                                         },
                                         "status": {
                                             "type": "string",
                                             "enum": ["all", "active", "preview"],
                                             "default": "active",
+                                            "description": "模型状态 Status。默认 active。",
                                         },
-                                        "q": {"type": "string", "nullable": True},
+                                        "q": {
+                                            "type": "string",
+                                            "nullable": True,
+                                            "description": "关键字搜索 Keyword（可选）。",
+                                        },
                                     },
                                 }
                             }
@@ -796,7 +814,12 @@ def _build_kie_catalog_openapi(request: Request) -> dict[str, Any]:
                                 "schema": {
                                     "type": "object",
                                     "required": ["modelKey"],
-                                    "properties": {"modelKey": {"type": "string"}},
+                                    "properties": {
+                                        "modelKey": {
+                                            "type": "string",
+                                            "description": "模型标识 Model Key。例：nano_banana_2_image_to_image。",
+                                        }
+                                    },
                                 }
                             }
                         },

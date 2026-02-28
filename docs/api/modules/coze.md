@@ -1,6 +1,7 @@
 # Coze 插件接口
 
 > 工具箱总清单见：`docs/coze/toolbox-inventory.md`
+> 开发准则见：`docs/standards/coze-toolbox-development-standard.md`
 
 ## 用途
 

@@ -4,6 +4,7 @@
 > 目标：明确 **Coze 调用 PODI 工具箱** 的统一输入/输出与回调契约，避免参数不一致。
 
 统一准则参考：`docs/standards/interface-consistency.md`
+Coze 工具箱开发准则：`docs/standards/coze-toolbox-development-standard.md`
 
 ## 1. OpenAPI 导入入口
 

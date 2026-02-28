@@ -19,6 +19,19 @@ def test_kie_catalog_openapi_public_and_contains_query_tools():
     assert "/api/coze/podi/kie/models/schema" in paths
     default_list = paths["/api/coze/podi/kie/models/list/default"]["post"]
     assert "requestBody" in default_list
+    default_props = (
+        default_list["requestBody"]["content"]["application/json"]["schema"].get("properties") or {}
+    )
+    assert default_props["mediaType"]["description"]
+    assert default_props["status"]["description"]
+    assert default_props["q"]["description"]
+    schema_props = (
+        paths["/api/coze/podi/kie/models/schema"]["post"]["requestBody"]["content"]["application/json"]["schema"].get(
+            "properties"
+        )
+        or {}
+    )
+    assert schema_props["modelKey"]["description"]
 
 
 def test_kie_single_model_openapi_contains_zero_param_schema_tool():

@@ -26,7 +26,13 @@ def test_lora_openapi_exposes_zero_param_tool():
     assert resp.status_code == 200
     paths = resp.json().get("paths") or {}
     assert "/api/coze/podi/comfyui/lora-catalog/default" in paths
-    assert "requestBody" in (paths["/api/coze/podi/comfyui/lora-catalog/default"].get("post") or {})
+    op = paths["/api/coze/podi/comfyui/lora-catalog/default"].get("post") or {}
+    assert "requestBody" in op
+    schema = ((op["requestBody"]["content"]["application/json"]).get("schema") or {})
+    props = schema.get("properties") or {}
+    assert props["status"]["description"]
+    assert props["baseModel"]["description"]
+    assert props["limit"]["description"]
 
 
 def test_lora_default_supports_empty_json_payload():
