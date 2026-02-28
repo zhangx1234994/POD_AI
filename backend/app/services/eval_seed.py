@@ -488,37 +488,10 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         "version": "v1",
         "workflow_id": "7602916576198656000",
         "status": "active",
-        "notes": "商业模型生图：moxing=1(Banana Pro)/2(Flux2)/3(Seedream 4.5)。输出 output 为回调 task id。",
+        "notes": "商业模型生图：moxing=1(Banana Pro)/2(Flux2 Pro)/3(Seedream 4.5)/4(Banana 2)。参考图字段使用 cankaotu（会兼容映射 image_urls）。输出 output 为回调 task id。",
         "parameters_schema": {
             "fields": [
-                {"name": "url", "label": "图片 URL", "type": "text", "required": True},
-                {
-                    "name": "aspect_ratio",
-                    "label": "画幅比例",
-                    "type": "select",
-                    "required": False,
-                    "defaultValue": "",
-                    "options": [
-                        {"label": "原图比例（默认）", "value": ""},
-                        {"label": "1:1", "value": "1:1"},
-                        {"label": "1:2", "value": "1:2"},
-                    ],
-                    "description": "留空/默认=跟随原图比例",
-                },
-                {
-                    "name": "resolution",
-                    "label": "分辨率",
-                    "type": "select",
-                    "required": False,
-                    "defaultValue": "",
-                    "options": [
-                        {"label": "跟随原图（默认）", "value": ""},
-                        {"label": "1K", "value": "1K"},
-                        {"label": "2K", "value": "2K"},
-                        {"label": "4K", "value": "4K"},
-                    ],
-                    "description": "留空/默认=跟随原图尺寸",
-                },
+                {"name": "url", "label": "主图 URL", "type": "text", "required": True, "description": "主图（图1）。"},
                 {"name": "prompt", "label": "提示词", "type": "textarea", "required": False, "defaultValue": ""},
                 {
                     "name": "moxing",
@@ -526,11 +499,70 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                     "type": "select",
                     "required": False,
                     "defaultValue": "1",
+                    "description": "1=Banana Pro，2=Flux2 Pro，3=Seedream 4.5，4=Banana 2。",
                     "options": [
                         {"label": "1 · Banana Pro", "value": "1"},
                         {"label": "2 · Flux2 Pro", "value": "2"},
                         {"label": "3 · Seedream 4.5", "value": "3"},
+                        {"label": "4 · Banana 2", "value": "4"},
                     ],
+                },
+                {
+                    "name": "cankaotu",
+                    "label": "参考图 URLs（可选）",
+                    "type": "textarea",
+                    "required": False,
+                    "defaultValue": "",
+                    "supportedModels": ["1", "2", "4"],
+                    "description": "每行一个 URL（或英文逗号分隔）。仅模型 1/2/4 生效；会按图2/图3... 顺序传参。",
+                },
+                {
+                    "name": "aspect_ratio",
+                    "label": "画幅比例",
+                    "type": "select",
+                    "required": False,
+                    "defaultValue": "",
+                    "description": "模型 1/2/4 生效；模型 3（Seedream 4.5）忽略该参数。",
+                    "options": [
+                        {"label": "原图比例（默认）", "value": ""},
+                        {"label": "auto", "value": "auto"},
+                        {"label": "1:1", "value": "1:1"},
+                        {"label": "2:3", "value": "2:3"},
+                        {"label": "3:2", "value": "3:2"},
+                        {"label": "3:4", "value": "3:4"},
+                        {"label": "4:3", "value": "4:3"},
+                        {"label": "4:5", "value": "4:5"},
+                        {"label": "5:4", "value": "5:4"},
+                        {"label": "9:16", "value": "9:16"},
+                        {"label": "16:9", "value": "16:9"},
+                        {"label": "21:9", "value": "21:9"},
+                    ],
+                    "modelOptions": {
+                        "1": ["", "auto", "1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"],
+                        "2": ["", "auto", "1:1", "4:3", "3:4", "16:9", "9:16", "3:2", "2:3"],
+                        "3": [""],
+                        "4": ["", "auto", "1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"],
+                    },
+                },
+                {
+                    "name": "resolution",
+                    "label": "分辨率",
+                    "type": "select",
+                    "required": False,
+                    "defaultValue": "",
+                    "description": "模型 1/2/4 生效；模型 3（Seedream 4.5）忽略该参数。",
+                    "options": [
+                        {"label": "跟随原图（默认）", "value": ""},
+                        {"label": "1K", "value": "1K"},
+                        {"label": "2K", "value": "2K"},
+                        {"label": "4K", "value": "4K"},
+                    ],
+                    "modelOptions": {
+                        "1": ["", "1K", "2K", "4K"],
+                        "2": ["", "1K", "2K"],
+                        "3": [""],
+                        "4": ["", "1K", "2K", "4K"],
+                    },
                 },
             ]
         },
@@ -538,6 +570,29 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
             "fields": [
                 {"name": "output", "type": "text", "description": "回调 task id"},
                 {"name": "prompt", "type": "text", "description": "提示词反馈字符串"},
+            ]
+        },
+    },
+    {
+        "category": "通用类",
+        "name": "LoRA 查询 · lora_catalog_query",
+        "version": "v1",
+        "workflow_id": "7612002440056930304",
+        "status": "active",
+        "notes": "查询可用 LoRA 列表。无入参；输出 items（详情）与 lora_names（可直接作为 LoRA 入参）。",
+        "parameters_schema": {"fields": []},
+        "output_schema": {
+            "fields": [
+                {
+                    "name": "items",
+                    "type": "json",
+                    "description": "LoRA 详情列表（包含 fileName/displayName/status/baseModels/tags/installed）。",
+                },
+                {
+                    "name": "lora_names",
+                    "type": "array",
+                    "description": "LoRA 文件名列表（作为 LoRA 入参请优先使用该字段）。",
+                },
             ]
         },
     },
@@ -1124,8 +1179,8 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
             if row.notes != "输入 taskid，输出 images 数组（回调工作流）。业务侧可直接调用该 workflow 获取图片。":
                 row.notes = "输入 taskid，输出 images 数组（回调工作流）。业务侧可直接调用该 workflow 获取图片。"
                 dirty = True
-        if row.workflow_id == "7602916576198656000":
-            # Force-reset to the latest shengtu_shangye spec.
+        if row.workflow_id in {"7602916576198656000", "7612002440056930304"}:
+            # Force-reset critical workflows to the latest agreed schema.
             desired = DEFAULT_EVAL_WORKFLOW_BY_ID.get(row.workflow_id)
             if desired:
                 desired_category = _normalize_eval_category(desired.get("category"))

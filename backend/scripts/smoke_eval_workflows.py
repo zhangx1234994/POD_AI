@@ -59,9 +59,10 @@ def _first_sample_url() -> str:
 
 def _build_params(workflow_id: str, item: dict[str, Any], sample_url: str) -> dict[str, Any]:
     # Start with schema defaults.
-    params: dict[str, Any] = {"url": sample_url, "Url": sample_url, "URL": sample_url}
+    params: dict[str, Any] = {}
     schema = item.get("parameters_schema") or {}
     fields = schema.get("fields") if isinstance(schema, dict) else None
+    field_names: set[str] = set()
     if isinstance(fields, list):
         for f in fields:
             if not isinstance(f, dict):
@@ -69,15 +70,21 @@ def _build_params(workflow_id: str, item: dict[str, Any], sample_url: str) -> di
             name = str(f.get("name") or "").strip()
             if not name or name in params:
                 continue
+            field_names.add(name)
             dv = f.get("defaultValue")
             if isinstance(dv, (str, int, float, bool)):
                 params[name] = dv
+    if {"url", "Url", "URL"} & field_names:
+        params.setdefault("url", sample_url)
+        params.setdefault("Url", sample_url)
+        params.setdefault("URL", sample_url)
 
     # Workflow-specific required knobs.
     if workflow_id == "7598563505054154752":  # lianxu
         params.setdefault("patternType", "seamless")
     if workflow_id in {"7602916576198656000", "7598559869544693760", "7598560946579046400"}:
         params.setdefault("moxing", "1")
+        params.setdefault("cankaotu", sample_url)
     if workflow_id in {"7598558185544220672", "7602916576198656000", "7598560946579046400"}:
         params.setdefault("prompt", "test")
     if workflow_id == "7598589746561941504":  # dpi

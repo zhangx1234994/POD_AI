@@ -109,6 +109,28 @@
 - 像素参数必须为纯数字（禁止 `px`）
 - 枚举参数必须传 value
 
+### 4.1 多模型生图（`7602916576198656000`）参数约定
+
+- `moxing`：`1=Banana Pro`、`2=Flux2 Pro`、`3=Seedream 4.5`、`4=Banana 2`
+- `cankaotu`：参考图 URL 列表（每行一张或英文逗号分隔）
+  - 仅模型 `1/2/4` 生效
+  - 前端会兼容映射为 `image_urls`，保证历史调用不受影响
+- `aspect_ratio`（仅模型 `1/2/4` 生效）
+  - Banana Pro / Banana 2：`auto, 1:1, 2:3, 3:2, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9, 21:9`
+  - Flux2 Pro：`auto, 1:1, 4:3, 3:4, 16:9, 9:16, 3:2, 2:3`
+- `resolution`（仅模型 `1/2/4` 生效）
+  - Banana Pro / Banana 2：`1K, 2K, 4K`
+  - Flux2 Pro：`1K, 2K`
+- 模型 `3`（Seedream 4.5）不支持以上尺寸控制时，前端会自动忽略对应参数。
+
+### 4.2 LoRA 查询（`7612002440056930304`）参数约定
+
+- 入参：无
+- 出参：
+  - `items`：LoRA 详情列表（`fileName/displayName/status/baseModels/tags/installed`）
+  - `lora_names`：LoRA 文件名数组
+- 业务接入建议：后续调用需要 LoRA 入参时，优先使用 `lora_names` 中的值。
+
 ## 5. 注意事项
 
 - 如开启 `EVAL_PUBLIC_TOKEN`，前端请求需带 `X-Eval-Token` 或 URL `?token=`（当前前端未内置 header，需通过 URL 注入）。

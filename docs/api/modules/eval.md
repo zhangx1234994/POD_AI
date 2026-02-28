@@ -26,6 +26,22 @@
   - `resourceType`：`lora/model/plugin`
   - `source`：资源目录接口（如 `/api/admin/comfyui/resources/options?...`）
 
+重点工作流参数补充（通用类）：
+
+- `7602916576198656000`（多模型生图 · shengtu_shangye）
+  - `moxing`：`1=Banana Pro`、`2=Flux2 Pro`、`3=Seedream 4.5`、`4=Banana 2`
+  - `cankaotu`：参考图 URLs（每行/逗号分隔），仅 `1/2/4` 生效
+  - `aspect_ratio`：
+    - Banana Pro/Banana 2：`auto, 1:1, 2:3, 3:2, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9, 21:9`
+    - Flux2 Pro：`auto, 1:1, 4:3, 3:4, 16:9, 9:16, 3:2, 2:3`
+  - `resolution`：
+    - Banana Pro/Banana 2：`1K, 2K, 4K`
+    - Flux2 Pro：`1K, 2K`
+  - `output` 仍为统一回调 task id（使用 `/api/coze/podi/tasks/get` 查询结果）
+- `7612002440056930304`（LoRA 查询 · lora_catalog_query）
+  - 无入参
+  - 出参 `items`（详情）与 `lora_names`（可直接作为 LoRA 入参）
+
 ### POST /api/evals/runs
 
 创建评测 run。

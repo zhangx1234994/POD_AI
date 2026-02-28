@@ -182,6 +182,7 @@ const readEvalQuery = () => {
 };
 
 const AI_EDITOR_WORKFLOW_ID = '7604714915110060032';
+const SHENGTU_WORKFLOW_ID = '7602916576198656000';
 const LORA_BATCH_MAX_TASKS = 5000;
 const TERMINAL_BATCH_STATUS = new Set(['succeeded', 'failed', 'stopped']);
 
@@ -295,6 +296,55 @@ const normalizeFieldOptions = (field?: SchemaField | null, opts?: { allowEmpty?:
     if (!uniq.has(item.value)) uniq.set(item.value, item);
   }
   return Array.from(uniq.values());
+};
+
+const resolveModelAwareField = (
+  field: SchemaField,
+  modelValue: string,
+): {
+  optionsOverride?: LoraOption[];
+  disabled: boolean;
+  description: string;
+} => {
+  const descriptionRaw = String((field as any)?.description || '').trim();
+  const supportedModels = Array.isArray((field as any)?.supportedModels)
+    ? ((field as any).supportedModels as any[])
+        .map((item) => String(item ?? '').trim())
+        .filter((item) => item.length > 0)
+    : [];
+  const disabledByModel = supportedModels.length > 0 && modelValue.length > 0 && !supportedModels.includes(modelValue);
+
+  let optionsOverride: LoraOption[] | undefined;
+  const modelOptions = (field as any)?.modelOptions;
+  if (modelValue && modelOptions && typeof modelOptions === 'object') {
+    const selected = (modelOptions as Record<string, unknown>)[modelValue] ?? (modelOptions as Record<string, unknown>).default;
+    if (Array.isArray(selected)) {
+      const baseOptions = normalizeFieldOptions(field, { allowEmpty: true });
+      const baseMap = new Map(baseOptions.map((opt) => [opt.value, opt.label]));
+      const mapped: LoraOption[] = [];
+      for (const raw of selected) {
+        const value = typeof raw === 'string' ? raw.trim() : String((raw as any)?.value ?? '').trim();
+        const labelFromRaw =
+          typeof raw === 'string' ? '' : String((raw as any)?.label ?? '').trim();
+        const label = labelFromRaw || baseMap.get(value) || (value || '留空（默认）');
+        if (!mapped.some((item) => item.value === value)) {
+          mapped.push({ label, value });
+        }
+      }
+      optionsOverride = mapped;
+    }
+  }
+
+  let description = descriptionRaw;
+  if (disabledByModel) {
+    const hint = '当前模型不支持该参数，提交时会自动忽略。';
+    description = description ? `${description} ${hint}` : hint;
+  }
+  return {
+    optionsOverride,
+    disabled: disabledByModel,
+    description,
+  };
 };
 
 const buildWorkflowDefaultParams = (wf: EvalWorkflowVersion): Record<string, string> => {
@@ -925,14 +975,28 @@ function ParamField({
   field,
   value,
   onChange,
+  optionsOverride,
+  disabled,
+  description,
 }: {
   field: SchemaField;
   value: string;
   onChange: (v: string) => void;
+  optionsOverride?: LoraOption[];
+  disabled?: boolean;
+  description?: string;
 }) {
   const label = field.label ?? field.name;
   const required = Boolean(field.required);
-  const options = Array.isArray((field as any).options) ? ((field as any).options as any[]) : null;
+  const options = Array.isArray(optionsOverride)
+    ? optionsOverride
+    : Array.isArray((field as any).options)
+      ? ((field as any).options as any[]).map((opt) => ({
+          label: String((opt as any)?.label ?? (opt as any)?.value ?? opt),
+          value: String((opt as any)?.value ?? opt),
+        }))
+      : null;
+  const helperText = String(description ?? field.description ?? '').trim();
   const type = (field.type || '').toLowerCase();
 
   if (options && options.length > 0) {
@@ -944,8 +1008,10 @@ function ParamField({
         <Select
           value={value}
           onChange={(v) => onChange(String(v))}
-          options={options.map((opt) => ({ label: String(opt.label ?? opt.value), value: String(opt.value) }))}
+          options={options.map((opt) => ({ label: String((opt as any).label ?? (opt as any).value), value: String((opt as any).value) }))}
+          disabled={disabled}
         />
+        {helperText ? <Typography.Text theme="secondary">{helperText}</Typography.Text> : null}
       </Space>
     );
   }
@@ -956,7 +1022,13 @@ function ParamField({
         <Typography.Text>
           {label} {required ? <Typography.Text theme="error">*</Typography.Text> : null}
         </Typography.Text>
-        <Textarea value={value} onChange={(v) => onChange(String(v))} autosize={{ minRows: 3, maxRows: 8 }} />
+        <Textarea
+          value={value}
+          onChange={(v) => onChange(String(v))}
+          autosize={{ minRows: 3, maxRows: 8 }}
+          disabled={disabled}
+        />
+        {helperText ? <Typography.Text theme="secondary">{helperText}</Typography.Text> : null}
       </Space>
     );
   }
@@ -966,7 +1038,8 @@ function ParamField({
       <Typography.Text>
         {label} {required ? <Typography.Text theme="error">*</Typography.Text> : null}
       </Typography.Text>
-      <Input value={value} onChange={(v) => onChange(String(v))} />
+      <Input value={value} onChange={(v) => onChange(String(v))} disabled={disabled} />
+      {helperText ? <Typography.Text theme="secondary">{helperText}</Typography.Text> : null}
     </Space>
   );
 }
@@ -1582,6 +1655,43 @@ export function App() {
     [toolFields],
   );
   const isAiEditor = selectedTool?.workflow_id === AI_EDITOR_WORKFLOW_ID;
+  const isShengtuWorkflow = selectedTool?.workflow_id === SHENGTU_WORKFLOW_ID;
+  const selectedModelValue = useMemo(() => {
+    if (!isShengtuWorkflow) return '';
+    const raw = String((formParams as any)?.moxing ?? '').trim();
+    if (raw) return raw;
+    const modelField = toolFields.find((f) => f.name === 'moxing');
+    return String((modelField as any)?.defaultValue ?? '1').trim() || '1';
+  }, [isShengtuWorkflow, formParams, toolFields]);
+  const modelAwareFieldMap = useMemo(() => {
+    const map = new Map<string, { optionsOverride?: LoraOption[]; disabled: boolean; description: string }>();
+    for (const field of toolFields) {
+      map.set(field.name, resolveModelAwareField(field, selectedModelValue));
+    }
+    return map;
+  }, [toolFields, selectedModelValue]);
+
+  useEffect(() => {
+    if (!isShengtuWorkflow) return;
+    if (!selectedModelValue) return;
+    const next = { ...formParams };
+    let changed = false;
+    for (const field of toolFields) {
+      const view = modelAwareFieldMap.get(field.name);
+      if (!view) continue;
+      const current = String((next as any)[field.name] ?? '');
+      if (view.disabled && current.trim()) {
+        (next as any)[field.name] = '';
+        changed = true;
+        continue;
+      }
+      if (view.optionsOverride && view.optionsOverride.length > 0 && !view.optionsOverride.some((opt) => opt.value === current)) {
+        (next as any)[field.name] = view.optionsOverride[0].value;
+        changed = true;
+      }
+    }
+    if (changed) setFormParams(next);
+  }, [isShengtuWorkflow, selectedModelValue, modelAwareFieldMap, toolFields, formParams]);
   const editorPromptPreview = useMemo(() => {
     if (!isAiEditor) return '';
     return buildEditorPrompt({
@@ -2493,6 +2603,8 @@ export function App() {
       if (!(f as any)?.required) continue;
       if (f.name === 'url' || f.name === 'Url' || f.name === 'prompt') continue;
       if (isAiEditor && f.name === 'prompt') continue;
+      const modelAware = resolveModelAwareField(f, selectedModelValue);
+      if (modelAware.disabled) continue;
       const v = String((formParams as any)?.[f.name] ?? '').trim();
       if (!v) missing.push((f as any).label || f.name);
     }
@@ -2553,6 +2665,13 @@ export function App() {
       }
       for (const [k, v] of Object.entries(formParams)) {
         if (isAiEditor && (k === 'prompt' || k === 'image_urls')) continue;
+        if (isShengtuWorkflow) {
+          const field = toolFields.find((f) => f.name === k);
+          if (field) {
+            const modelAware = resolveModelAwareField(field, selectedModelValue);
+            if (modelAware.disabled) continue;
+          }
+        }
         if (v === '') continue;
         if (isAiEditor && k === 'aspect_ratio' && String(v).trim() === 'auto') continue;
         if (isAiEditor && k === 'resolution' && String(v).trim() === '1K') continue;
@@ -2560,6 +2679,26 @@ export function App() {
           parameters[k] = normalizeNumericParam(k, v);
         } else {
           parameters[k] = v;
+        }
+      }
+      if (isShengtuWorkflow) {
+        const parseRefs = (raw: string): string[] =>
+          String(raw || '')
+            .split(/[\n,]/g)
+            .map((item) => item.trim())
+            .filter((item) => item.length > 0);
+        const refRaw = String((formParams as any)?.cankaotu ?? (formParams as any)?.image_urls ?? '');
+        const refs = parseRefs(refRaw);
+        if (refs.length > 0) {
+          if (selectedModelValue === '3') {
+            pushNotice('info', 'Seedream 4.5 不支持参考图，已自动忽略 cankaotu。');
+            delete parameters.cankaotu;
+            delete parameters.image_urls;
+          } else {
+            const packed = refs.join(',');
+            parameters.cankaotu = packed;
+            parameters.image_urls = packed;
+          }
         }
       }
       await evalApi.createRun({
@@ -5185,14 +5324,21 @@ export function App() {
                   <Space direction="vertical" size="large" style={{ width: '100%' }}>
                     {toolFields
                       .filter((f) => f.name !== 'url' && f.name !== 'Url')
-                      .map((f) => (
-                        <ParamField
-                          key={f.name}
-                          field={f}
-                          value={formParams[f.name] ?? ''}
-                          onChange={(v) => setFormParams((p) => ({ ...p, [f.name]: v }))}
-                        />
-                      ))}
+                      .filter((f) => !(isShengtuWorkflow && f.name === 'image_urls'))
+                      .map((f) => {
+                        const modelAware = modelAwareFieldMap.get(f.name);
+                        return (
+                          <ParamField
+                            key={f.name}
+                            field={f}
+                            value={formParams[f.name] ?? ''}
+                            onChange={(v) => setFormParams((p) => ({ ...p, [f.name]: v }))}
+                            optionsOverride={modelAware?.optionsOverride}
+                            disabled={Boolean(modelAware?.disabled)}
+                            description={modelAware?.description}
+                          />
+                        );
+                      })}
                   </Space>
 
                   <Space style={{ justifyContent: 'flex-end', width: '100%' }}>
