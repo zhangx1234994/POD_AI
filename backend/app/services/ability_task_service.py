@@ -595,6 +595,17 @@ class AbilityTaskService:
 
         return None
 
+    @staticmethod
+    def _resolve_invoke_status(raw_status: str | None) -> str:
+        normalized = str(raw_status or "").strip().lower()
+        if normalized in {"queued", "running"}:
+            return "running"
+        if normalized in {"failed", "error", "timeout", "rejected"}:
+            return "failed"
+        if normalized in {"cancelled", "canceled", "stopped", "aborted"}:
+            return "cancelled"
+        return "succeeded"
+
     def _run_task(self, task_id: str) -> None:
         started_at = datetime.utcnow()
         request_payload: dict[str, Any] | None = None
@@ -632,15 +643,30 @@ class AbilityTaskService:
                 db_task = session.get(AbilityTask, task_id)
                 if not db_task:
                     return
+                resolved_status = self._resolve_invoke_status(response.status)
                 # Some abilities (e.g. long-running ComfyUI graphs) return status=running,
                 # meaning we only submitted the job and will finalize later via polling.
-                if (response.status or "").lower() in {"queued", "running"}:
+                if resolved_status == "running":
                     db_task.status = "running"
                     db_task.finished_at = None
                     db_task.duration_ms = None
                     db_task.result_payload = response.model_dump()
                     db_task.log_id = response.logId
                     db_task.error_message = None
+                elif resolved_status == "failed":
+                    db_task.status = "failed"
+                    db_task.finished_at = finished_at
+                    db_task.duration_ms = duration
+                    db_task.result_payload = response.model_dump()
+                    db_task.log_id = response.logId
+                    db_task.error_message = self._extract_kie_error_message(response.model_dump()) or "ABILITY_TASK_FAILED"
+                elif resolved_status == "cancelled":
+                    db_task.status = "cancelled"
+                    db_task.finished_at = finished_at
+                    db_task.duration_ms = duration
+                    db_task.result_payload = response.model_dump()
+                    db_task.log_id = response.logId
+                    db_task.error_message = "ABILITY_TASK_CANCELLED"
                 else:
                     db_task.status = "succeeded"
                     db_task.finished_at = finished_at

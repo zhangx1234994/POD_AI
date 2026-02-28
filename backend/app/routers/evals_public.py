@@ -818,11 +818,20 @@ def get_workflow_docs(
         schema = wf.output_schema or {}
         fields = schema.get("fields") if isinstance(schema, dict) else None
         if isinstance(fields, list):
+            has_json_field = False
             for f in fields:
-                if isinstance(f, dict) and f.get("name") == "output":
+                if not isinstance(f, dict):
+                    continue
+                name = str(f.get("name") or "").strip().lower()
+                f_type = str(f.get("type") or "").strip().lower()
+                if name == "output":
                     desc = str(f.get("description") or "")
                     if "task" in desc.lower() or "回调" in desc:
                         return "callback_task_id"
+                if f_type in {"json", "array", "object"} or name in {"items", "lora_names", "loraNames"}:
+                    has_json_field = True
+            if has_json_field:
+                return "json_output"
         return "image_url"
 
     def _coerce_schema(value: Any) -> dict[str, Any]:

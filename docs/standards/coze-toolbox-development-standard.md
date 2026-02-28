@@ -68,3 +68,20 @@
 - 禁止“新增字段无描述”。
 - 禁止“查询工具箱依赖必填参数才可运行”。
 - 禁止“返回结构含随机字段或 null 字段”。
+
+## 9. 输出归类与文档目录（必须）
+
+- 新增/改造工具前，必须先归类输出类型：
+  - `callback_task_id`：返回 taskId，需统一走 `/api/coze/podi/tasks/get`
+  - `image_url`：直接返回图片 URL
+  - `json_output`：直接返回结构化 JSON（如 `items/lora_names`、标签结果）
+- 评测端展示规则必须与输出类型一致，禁止“JSON 工具按图片工具渲染”。
+- 文档必须按目录同步：
+  - 接口明细：`docs/api/modules/*.md`
+  - 工具箱清单：`docs/coze/toolbox-inventory.md`
+  - 契约说明：`docs/coze/toolbox-contracts.md`
+  - 规范准则：`docs/standards/*.md`
+- 模型参数枚举必须按“模型维度”列清楚（不可只写“通用支持”），至少覆盖：
+  - `aspect_ratio`
+  - `resolution`
+  - 多图上限与字段名（`url/image_urls`）

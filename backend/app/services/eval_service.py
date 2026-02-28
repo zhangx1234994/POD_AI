@@ -1374,9 +1374,6 @@ class EvalService:
                 "totalRunning",
                 "totalCount",
                 "timestamp",
-                "run_status",
-                "debug_url",
-                "error_msg",
             )
         ):
             return payload
@@ -1384,6 +1381,40 @@ class EvalService:
         if output is None:
             if any(k in payload for k in ("servers", "totalPending", "totalRunning", "totalCount", "timestamp")):
                 return payload
+            # Some workflows return structured business data directly (without `output`),
+            # e.g. LoRA catalog query: {"items":[...], "lora_names":[...]}.
+            meta_keys = {
+                "run_status",
+                "debug_url",
+                "error_msg",
+                "status",
+                "state",
+                "taskId",
+                "task_id",
+                "podi_task_id",
+                "imageUrl",
+                "imageUrls",
+                "image_url",
+                "image_urls",
+                "url",
+                "urls",
+                "assets",
+                "videos",
+                "videoUrl",
+                "videoUrls",
+                "servers",
+                "totalPending",
+                "totalRunning",
+                "totalCount",
+                "timestamp",
+            }
+            business_payload = {
+                k: v
+                for k, v in payload.items()
+                if k not in meta_keys and not str(k).startswith("_")
+            }
+            if business_payload:
+                return business_payload
             return None
         if isinstance(output, (dict, list, int, float, bool)):
             return output

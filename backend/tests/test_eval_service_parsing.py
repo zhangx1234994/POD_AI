@@ -39,3 +39,27 @@ def test_extract_image_urls_excludes_coze_debug_url():
     urls = EvalService._extract_image_urls(parsed)
     assert urls == ["https://podi.oss-cn-hangzhou.aliyuncs.com/x.png"]
 
+
+def test_extract_output_json_keeps_business_payload_without_output_key():
+    from app.services.eval_service import EvalService
+
+    payload = {
+        "items": [{"fileName": "a.safetensors", "status": "active"}],
+        "lora_names": ["a.safetensors"],
+        "run_status": "Success",
+    }
+    out = EvalService._extract_output_json(payload)
+    assert isinstance(out, dict)
+    assert out.get("lora_names") == ["a.safetensors"]
+    assert "run_status" not in out
+
+
+def test_extract_output_json_returns_none_for_metadata_only_payload():
+    from app.services.eval_service import EvalService
+
+    payload = {
+        "run_status": "Success",
+        "debug_url": "http://coze/debug",
+        "status": "running",
+    }
+    assert EvalService._extract_output_json(payload) is None
