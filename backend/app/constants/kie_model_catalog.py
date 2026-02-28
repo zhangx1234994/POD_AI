@@ -94,7 +94,7 @@ KIE_MODEL_CATALOG: list[ModelDef] = [
         "docsUrl": "https://kie.ai/zh-CN/nano-banana-2",
         "summary": "新版 Nano Banana，多参考图上限更高。",
         "abilityProvider": "kie",
-        "abilityKey": None,
+        "abilityKey": "nano_banana_2_image_to_image",
         "pricingHint": "按 1K/2K/4K 分档计费（以 KIE 页面实时价格为准）。",
         "supports": {
             "multiImage": True,

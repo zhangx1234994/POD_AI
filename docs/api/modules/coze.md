@@ -57,6 +57,16 @@ curl http://127.0.0.1:8099/api/coze/podi/kie/catalog/openapi.json
 curl http://127.0.0.1:8099/api/coze/podi/kie/catalog/nano-banana-pro-image-to-image/openapi.json
 ```
 
+### GET /api/coze/podi/kie/execute/{model_key}/openapi.json
+
+**用途**：单模型执行工具箱（提交任务 + 任务轮询）。
+
+**示例**
+
+```bash
+curl http://127.0.0.1:8099/api/coze/podi/kie/execute/nano-banana-2-image-to-image/openapi.json
+```
+
 ---
 
 ## 2) 能力列表（可选）

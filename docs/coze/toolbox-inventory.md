@@ -57,6 +57,12 @@
 - 示例：`/api/coze/podi/kie/catalog/nano-banana-pro-image-to-image/openapi.json`
 - 用途：每个模型独立一个工具箱，便于业务按需发布/灰度。
 
+### 6.2 KIE 单模型执行工具箱（执行类，按模型拆分）
+
+- OpenAPI 模板：`/api/coze/podi/kie/execute/{model_key}/openapi.json`
+- 示例：`/api/coze/podi/kie/execute/nano-banana-2-image-to-image/openapi.json`
+- 用途：每个模型一个执行工具箱，入参与该模型能力 schema 一致，避免“查询工具箱误当执行工具箱”。
+
 ## 7) Baidu 工具箱（执行类）
 
 - OpenAPI：`/api/coze/podi/baidu/openapi.json`

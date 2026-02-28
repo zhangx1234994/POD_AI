@@ -81,3 +81,20 @@ def test_kie_models_schema_by_path_without_body():
     assert resp.status_code == 200
     data = resp.json()
     assert data["model"]["modelKey"] == "nano_banana_pro_image_to_image"
+
+
+def test_kie_single_model_execute_openapi_contains_ability_tool():
+    resp = client.get("/api/coze/podi/kie/execute/nano-banana-2-image-to-image/openapi.json")
+    assert resp.status_code == 200
+    data = resp.json()
+    paths = data.get("paths") or {}
+    assert "/api/coze/podi/tools/kie/nano_banana_2_image_to_image" in paths
+    assert "/api/coze/podi/tasks/get" in paths
+    tool_schema = (
+        paths["/api/coze/podi/tools/kie/nano_banana_2_image_to_image"]["post"]["requestBody"]["content"][
+            "application/json"
+        ]["schema"]
+    )
+    assert "url" in (tool_schema.get("properties") or {})
+    assert "image_url" not in (tool_schema.get("properties") or {})
+    assert "url" in (tool_schema.get("required") or [])

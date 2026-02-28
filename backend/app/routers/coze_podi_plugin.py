@@ -661,6 +661,20 @@ def _build_openapi_filtered(
             "nullable": True,
             "description": desc or "Input image URL (recommend OSS URL).",
         }
+        required = schema.get("required")
+        if isinstance(required, list):
+            replaced = False
+            new_required: list[str] = []
+            for item in required:
+                if item in image_keys:
+                    replaced = True
+                    if "url" not in new_required:
+                        new_required.append("url")
+                elif isinstance(item, str):
+                    if item not in new_required:
+                        new_required.append(item)
+            if replaced:
+                schema["required"] = new_required
         # Drop the legacy single-image keys from the schema to avoid confusing Coze users.
         # (Backend still accepts them for backward compatibility.)
         for k in image_keys:
@@ -898,6 +912,32 @@ def get_kie_single_model_openapi(request: Request, model_key: str) -> dict[str, 
     """OpenAPI for one KIE model only (query schema)."""
     normalized_key = _normalize_kie_model_key(model_key)
     return _build_kie_single_model_openapi(request, normalized_key)
+
+
+@router.get("/kie/execute/{model_key}/openapi.json")
+def get_kie_single_model_execute_openapi(request: Request, model_key: str) -> dict[str, Any]:
+    """OpenAPI for one KIE model execution toolbox."""
+    normalized_key = _normalize_kie_model_key(model_key)
+    model = get_kie_model(normalized_key)
+    if not model:
+        raise HTTPException(status_code=404, detail="KIE_MODEL_NOT_FOUND")
+    ability_key = str(model.get("abilityKey") or "").strip()
+    if not ability_key:
+        raise HTTPException(status_code=404, detail="KIE_ABILITY_NOT_CONFIGURED")
+    doc = _build_openapi_filtered(
+        request=request,
+        providers={"kie"},
+        title=f"PODI KIE 执行 · {model.get('displayName') or ability_key}",
+        description="单模型执行工具箱（含提交工具与任务轮询）。",
+        prefer_url_field=True,
+    )
+    paths = doc.get("paths") or {}
+    allowed = {
+        f"/api/coze/podi/tools/kie/{ability_key}",
+        "/api/coze/podi/tasks/get",
+    }
+    doc["paths"] = {k: v for k, v in paths.items() if k in allowed}
+    return doc
 
 
 @router.get("/kie/openapi.json")

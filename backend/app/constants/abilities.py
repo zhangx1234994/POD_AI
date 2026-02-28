@@ -801,6 +801,71 @@ def _build_kie_schema(capability_key: str) -> dict[str, Any]:
                 },
             ]
         }
+    if capability_key == "nano_banana_2_image_to_image":
+        return {
+            "fields": [
+                {
+                    "name": "image_url",
+                    "type": "image",
+                    "label": _compose_bilingual_label("主图 URL", "Primary Image URL"),
+                    "description": _compose_bilingual_label(
+                        "上传/填写主图（图1）。",
+                        "Upload/provide the primary image (Image 1).",
+                    ),
+                    "required": True,
+                },
+                {
+                    "name": "prompt",
+                    "type": "textarea",
+                    "label": _compose_bilingual_label("提示词", "Prompt"),
+                    "placeholder": _compose_bilingual_label("例如：保持主体不变，替换背景风格", "Describe desired edits"),
+                    "required": True,
+                },
+                {
+                    "name": "image_urls",
+                    "type": "textarea",
+                    "label": _compose_bilingual_label("参考图 URL 列表", "Reference Image URLs"),
+                    "description": _compose_bilingual_label(
+                        "可选：每行一个 URL（按顺序作为图2/图3...）。",
+                        "Optional: one URL per line (used as Image 2/3...).",
+                    ),
+                },
+                {
+                    "name": "aspect_ratio",
+                    "type": "select",
+                    "label": _compose_bilingual_label("画幅比例", "Aspect Ratio"),
+                    "options": ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9", "auto"],
+                    "description": _compose_bilingual_label("留空将按原图处理。", "Leave empty to keep input size."),
+                },
+                {
+                    "name": "resolution",
+                    "type": "select",
+                    "label": _compose_bilingual_label("分辨率", "Resolution"),
+                    "options": ["1K", "2K", "4K"],
+                    "description": _compose_bilingual_label("留空将按原图处理。", "Leave empty to keep input size."),
+                },
+                {
+                    "name": "google_search",
+                    "type": "switch",
+                    "label": _compose_bilingual_label("联网搜索增强", "Google Search"),
+                    "description": _compose_bilingual_label("可选：开启后增强事实参考。", "Optional: enable web grounding."),
+                    "default": False,
+                },
+                {
+                    "name": "output_format",
+                    "type": "select",
+                    "label": _compose_bilingual_label("输出格式", "Output Format"),
+                    "options": ["jpg", "png"],
+                    "default": "jpg",
+                },
+                {
+                    "name": "callBackUrl",
+                    "type": "text",
+                    "label": _compose_bilingual_label("回调地址", "Callback URL"),
+                    "placeholder": "https://your-domain.com/api/callback",
+                },
+            ]
+        }
     if capability_key == "sora2_pro_text_to_video":
         return {
             "fields": [
@@ -1175,6 +1240,41 @@ KIE_MARKET_ABILITIES: dict[str, AbilityDefinition] = {
             "pricing_tiers": [
                 {"label": "1K", "price": 0.025},
                 {"label": "2K", "price": 0.035},
+            ],
+        },
+    },
+    "nano_banana_2_image_to_image": {
+        "endpoint": "/api/v1/jobs/createTask",
+        "defaults": {
+            "model": "nano-banana-2",
+            "output_format": "jpg",
+            "google_search": False,
+        },
+        "display_name": "KIE · Nano Banana 2 图生图",
+        "description": "Nano Banana 2 图生图，支持更多参考图输入与多分辨率输出。",
+        "category": "image_generation",
+        "input_schema": _build_kie_schema("nano_banana_2_image_to_image"),
+        "metadata": _kie_metadata(
+            capability_key="nano_banana_2_image_to_image",
+            endpoint="/api/v1/jobs/createTask",
+            api_type="market_image_to_image",
+            model_id="nano-banana-2",
+            requires_image_input=True,
+            input_array_target="image_input",
+            supports_vision=True,
+            auto_fill_size=True,
+        )
+        | {
+            "pricing": {
+                "currency": "USD",
+                "unit": "per_image",
+                "list_price": 0.04,
+                "discount_price": 0.04,
+            },
+            "pricing_tiers": [
+                {"label": "1K", "price": 0.04},
+                {"label": "2K", "price": 0.04},
+                {"label": "4K", "price": 0.07},
             ],
         },
     },

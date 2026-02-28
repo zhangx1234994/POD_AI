@@ -214,6 +214,7 @@ taskStatus = failed
 
 - `GET /api/coze/podi/kie/catalog/openapi.json`
 - `GET /api/coze/podi/kie/catalog/{model_key}/openapi.json`（单模型）
+- `GET /api/coze/podi/kie/execute/{model_key}/openapi.json`（单模型执行）
 
 目的：
 
@@ -229,6 +230,11 @@ taskStatus = failed
 1. 直接导入 `GET /api/coze/podi/kie/catalog/{model_key}/openapi.json`。
 2. 仅调用 `POST /api/coze/podi/kie/models/{model_key}/schema`。
 3. 用返回的 `cozeSuggestion` 固化该模型输入模板。
+
+单模型执行工具箱模式：
+1. 导入 `GET /api/coze/podi/kie/execute/{model_key}/openapi.json`。
+2. 直接调用执行工具（`/tools/kie/{ability_key}`）提交任务。
+3. 统一使用 `/api/coze/podi/tasks/get` 轮询结果。
 
 关键规则：
 - `url` 固定表示主图（图1）。
