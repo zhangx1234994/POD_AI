@@ -19,6 +19,14 @@ def test_kie_catalog_openapi_public_and_contains_query_tools():
     assert "/api/coze/podi/kie/models/schema" in paths
 
 
+def test_kie_single_model_openapi_contains_zero_param_schema_tool():
+    resp = client.get("/api/coze/podi/kie/catalog/nano-banana-pro-image-to-image/openapi.json")
+    assert resp.status_code == 200
+    data = resp.json()
+    paths = data.get("paths") or {}
+    assert "/api/coze/podi/kie/models/nano_banana_pro_image_to_image/schema" in paths
+
+
 def test_kie_models_list_filter_by_media_type():
     resp = client.post(
         "/api/coze/podi/kie/models/list",
@@ -63,3 +71,13 @@ def test_kie_models_schema_not_found():
     )
     assert resp.status_code == 404
     assert resp.json().get("detail") == "KIE_MODEL_NOT_FOUND"
+
+
+def test_kie_models_schema_by_path_without_body():
+    resp = client.post(
+        "/api/coze/podi/kie/models/nano-banana-pro-image-to-image/schema",
+        headers=_internal_headers(),
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["model"]["modelKey"] == "nano_banana_pro_image_to_image"

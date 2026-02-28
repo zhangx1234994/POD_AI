@@ -22,9 +22,11 @@ POST /api/coze/podi/tools/{provider}/{capability_key}
 
 - `POST /api/coze/podi/tasks/get`：查询异步任务结果  
 - `POST /api/coze/podi/comfyui/queue-summary`：查询 ComfyUI 队列汇总
+- `POST /api/coze/podi/comfyui/lora-catalog/default`：LoRA 零参数查询（推荐）
 - `POST /api/coze/podi/comfyui/lora-catalog`：查询 LoRA 列表（支持 `baseModel` 筛选与安装状态）
 - `POST /api/coze/podi/kie/models/list`：查询 KIE 模型列表（图片/视频分开）
 - `POST /api/coze/podi/kie/models/schema`：查询指定 KIE 模型参数 schema + Coze 封装建议
+- `POST /api/coze/podi/kie/models/{model_key}/schema`：单模型零参数查询（用于一个模型一个工具箱）
 
 ## 3. 输入契约（统一）
 
@@ -211,6 +213,7 @@ taskStatus = failed
 独立 OpenAPI：
 
 - `GET /api/coze/podi/kie/catalog/openapi.json`
+- `GET /api/coze/podi/kie/catalog/{model_key}/openapi.json`（单模型）
 
 目的：
 
@@ -221,6 +224,11 @@ taskStatus = failed
 1. 调 `POST /api/coze/podi/kie/models/list` 选择模型。
 2. 调 `POST /api/coze/podi/kie/models/schema` 获取参数定义。
 3. 按 `cozeSuggestion.payloadTemplate` 组装 Coze 入参。
+
+单模型工具箱模式：
+1. 直接导入 `GET /api/coze/podi/kie/catalog/{model_key}/openapi.json`。
+2. 仅调用 `POST /api/coze/podi/kie/models/{model_key}/schema`。
+3. 用返回的 `cozeSuggestion` 固化该模型输入模板。
 
 关键规则：
 - `url` 固定表示主图（图1）。

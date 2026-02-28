@@ -544,6 +544,19 @@ def _build_openapi(*, podi_server: str | None = None) -> dict[str, Any]:
             },
         }
     }
+    paths["/api/coze/podi/comfyui/lora-catalog/default"] = {
+        "post": {
+            "operationId": "podi_comfyui_lora_catalog_default",
+            "summary": "PODI · ComfyUI LoRA 查询（零参数）",
+            "description": "直接返回已启用 LoRA 清单，无需任何输入参数。",
+            "responses": {
+                "200": {
+                    "description": "LoRA catalog result",
+                    "content": {"application/json": {"schema": lora_catalog_schema}},
+                }
+            },
+        }
+    }
 
     return {
         "openapi": "3.0.0",
@@ -763,6 +776,53 @@ def _build_kie_catalog_openapi(request: Request) -> dict[str, Any]:
     }
 
 
+def _normalize_kie_model_key(model_key: str | None) -> str:
+    raw = str(model_key or "").strip()
+    if not raw:
+        return ""
+    return raw.replace("-", "_")
+
+
+def _build_kie_single_model_openapi(request: Request, model_key: str) -> dict[str, Any]:
+    server = _server_from_request(request)
+    model = get_kie_model(model_key)
+    if not model:
+        raise HTTPException(status_code=404, detail="KIE_MODEL_NOT_FOUND")
+    display_name = str(model.get("displayName") or model_key)
+    path = f"/api/coze/podi/kie/models/{model_key}/schema"
+    schema_response: dict[str, Any] = {
+        "type": "object",
+        "properties": {
+            "model": {"type": "object"},
+            "cozeSuggestion": {"type": "object"},
+        },
+    }
+    return {
+        "openapi": "3.0.0",
+        "info": {
+            "title": f"PODI KIE · {display_name}",
+            "version": "0.1.0",
+            "description": f"{display_name} 专用参数查询工具箱。",
+        },
+        "servers": [{"url": server}],
+        "paths": {
+            path: {
+                "post": {
+                    "operationId": f"podi_kie_{model_key}_schema",
+                    "summary": f"PODI · {display_name} 参数查询",
+                    "description": "无需入参，直接返回该模型参数 schema 与 Coze 封装建议。",
+                    "responses": {
+                        "200": {
+                            "description": "Model schema",
+                            "content": {"application/json": {"schema": schema_response}},
+                        }
+                    },
+                }
+            }
+        },
+    }
+
+
 @router.get("/openapi.json")
 def get_openapi(request: Request) -> dict[str, Any]:
     _require_internal(request)
@@ -819,10 +879,10 @@ def get_comfyui_lora_openapi(request: Request) -> dict[str, Any]:
     server = _server_from_request(request)
     doc = _build_openapi(podi_server=server)
     paths = doc.get("paths") or {}
-    allowed = {"/api/coze/podi/comfyui/lora-catalog"}
+    allowed = {"/api/coze/podi/comfyui/lora-catalog/default"}
     doc["paths"] = {k: v for k, v in paths.items() if k in allowed}
     doc["info"]["title"] = "PODI ComfyUI LoRA 查询"
-    doc["info"]["description"] = "仅用于 LoRA 查询，不包含任何生图或执行类工具。"
+    doc["info"]["description"] = "仅用于 LoRA 查询（零参数），不包含任何生图或执行类工具。"
     return doc
 
 
@@ -831,6 +891,13 @@ def get_kie_catalog_openapi(request: Request) -> dict[str, Any]:
     """OpenAPI for PODI KIE model query-only plugin."""
     # Keep this OpenAPI public so Coze can import directly.
     return _build_kie_catalog_openapi(request)
+
+
+@router.get("/kie/catalog/{model_key}/openapi.json")
+def get_kie_single_model_openapi(request: Request, model_key: str) -> dict[str, Any]:
+    """OpenAPI for one KIE model only (query schema)."""
+    normalized_key = _normalize_kie_model_key(model_key)
+    return _build_kie_single_model_openapi(request, normalized_key)
 
 
 @router.get("/kie/openapi.json")
@@ -1946,6 +2013,12 @@ def get_comfyui_lora_catalog(request: Request, body: dict[str, Any] | None = Non
     }
 
 
+@router.post("/comfyui/lora-catalog/default")
+def get_comfyui_lora_catalog_default(request: Request) -> dict[str, Any]:
+    """Zero-parameter LoRA catalog for Coze toolbox."""
+    return get_comfyui_lora_catalog(request, {"status": "active"})
+
+
 @router.post("/kie/models/list")
 def get_kie_models_list(request: Request, body: dict[str, Any] | None = None) -> dict[str, Any]:
     _require_internal(request)
@@ -1969,6 +2042,18 @@ def get_kie_model_schema(request: Request, body: dict[str, Any] | None = None) -
     if not model_key:
         raise HTTPException(status_code=400, detail="KIE_MODEL_KEY_REQUIRED")
     model = get_kie_model(model_key)
+    if not model:
+        raise HTTPException(status_code=404, detail="KIE_MODEL_NOT_FOUND")
+    return {"model": model, "cozeSuggestion": build_coze_param_suggestion(model)}
+
+
+@router.post("/kie/models/{model_key}/schema")
+def get_kie_model_schema_by_path(request: Request, model_key: str) -> dict[str, Any]:
+    _require_internal(request)
+    normalized_key = _normalize_kie_model_key(model_key)
+    if not normalized_key:
+        raise HTTPException(status_code=400, detail="KIE_MODEL_KEY_REQUIRED")
+    model = get_kie_model(normalized_key)
     if not model:
         raise HTTPException(status_code=404, detail="KIE_MODEL_NOT_FOUND")
     return {"model": model, "cozeSuggestion": build_coze_param_suggestion(model)}

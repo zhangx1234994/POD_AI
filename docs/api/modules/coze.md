@@ -29,7 +29,7 @@ curl http://127.0.0.1:8099/api/coze/podi/openapi.json
 
 ### GET /api/coze/podi/comfyui/lora/openapi.json
 
-**用途**：LoRA 查询专用工具箱（仅含 `POST /api/coze/podi/comfyui/lora-catalog`，不含任何执行能力）。
+**用途**：LoRA 查询专用工具箱（仅含零参数接口 `POST /api/coze/podi/comfyui/lora-catalog/default`，不含任何执行能力）。
 
 **示例**
 
@@ -45,6 +45,16 @@ curl http://127.0.0.1:8099/api/coze/podi/comfyui/lora/openapi.json
 
 ```bash
 curl http://127.0.0.1:8099/api/coze/podi/kie/catalog/openapi.json
+```
+
+### GET /api/coze/podi/kie/catalog/{model_key}/openapi.json
+
+**用途**：单模型专用工具箱（每个模型一个独立工具箱，零参数查询 schema）。
+
+**示例**
+
+```bash
+curl http://127.0.0.1:8099/api/coze/podi/kie/catalog/nano-banana-pro-image-to-image/openapi.json
 ```
 
 ---
@@ -165,6 +175,23 @@ curl http://127.0.0.1:8099/api/coze/podi/kie/catalog/openapi.json
 ---
 
 ## 6) ComfyUI LoRA 查询（独立工具）
+
+### POST /api/coze/podi/comfyui/lora-catalog/default
+
+**用途**
+
+- 零参数直接返回 LoRA 目录（默认 `status=active`）。
+- 给 Coze 非技术同学直接用，不需要填筛选参数。
+
+**请求体**
+
+- 无
+
+**响应体**
+
+- 与 `/api/coze/podi/comfyui/lora-catalog` 相同。
+
+---
 
 ### POST /api/coze/podi/comfyui/lora-catalog
 
@@ -305,3 +332,22 @@ curl http://127.0.0.1:8099/api/coze/podi/kie/catalog/openapi.json
 
 - `KIE_MODEL_KEY_REQUIRED`
 - `KIE_MODEL_NOT_FOUND`
+
+---
+
+### POST /api/coze/podi/kie/models/{model_key}/schema
+
+**用途**
+
+- 单模型零参数查询接口（用于“一个模型一个工具箱”）。
+- 适配 `model_key` 支持 `-` 与 `_` 两种写法。
+
+**请求体**
+
+- 无
+
+**示例**
+
+```bash
+curl -X POST http://127.0.0.1:8099/api/coze/podi/kie/models/nano-banana-pro-image-to-image/schema
+```

@@ -1,6 +1,12 @@
 from types import SimpleNamespace
 
+from fastapi.testclient import TestClient
+
+from app.main import app
 from app.routers.coze_podi_plugin import _match_lora_base_model
+
+
+client = TestClient(app)
 
 
 def test_match_lora_base_model_accepts_single_and_list_values():
@@ -13,3 +19,10 @@ def test_match_lora_base_model_accepts_single_and_list_values():
 def test_match_lora_base_model_rejects_when_not_matched():
     row = SimpleNamespace(base_model="qwen_image_edit", base_models=["sdxl"])  # noqa: N806
     assert not _match_lora_base_model(row, "wan2.2")
+
+
+def test_lora_openapi_exposes_zero_param_tool():
+    resp = client.get("/api/coze/podi/comfyui/lora/openapi.json")
+    assert resp.status_code == 200
+    paths = (resp.json().get("paths") or {}).keys()
+    assert "/api/coze/podi/comfyui/lora-catalog/default" in paths

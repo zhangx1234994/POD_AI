@@ -29,7 +29,9 @@
 - 鉴权：
   - OpenAPI：公开可访问（便于 Coze 导入）
   - 查询接口：仅内网或 `SERVICE_API_TOKEN`
-- 关键接口：`POST /api/coze/podi/comfyui/lora-catalog`
+- 关键接口：
+  - `POST /api/coze/podi/comfyui/lora-catalog/default`（零参数，推荐）
+  - `POST /api/coze/podi/comfyui/lora-catalog`（高级筛选）
 
 ## 5) KIE 工具箱（执行类）
 
@@ -47,6 +49,13 @@
 - 关键接口：
   - `POST /api/coze/podi/kie/models/list`
   - `POST /api/coze/podi/kie/models/schema`
+  - `POST /api/coze/podi/kie/models/{model_key}/schema`（单模型零参数）
+
+### 6.1 KIE 单模型工具箱（查询类，按模型拆分）
+
+- OpenAPI 模板：`/api/coze/podi/kie/catalog/{model_key}/openapi.json`
+- 示例：`/api/coze/podi/kie/catalog/nano-banana-pro-image-to-image/openapi.json`
+- 用途：每个模型独立一个工具箱，便于业务按需发布/灰度。
 
 ## 7) Baidu 工具箱（执行类）
 
