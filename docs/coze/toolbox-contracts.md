@@ -1,6 +1,6 @@
 # Coze 工具箱契约（PODI 插件）
 
-> 版本：2026-02-13  
+> 版本：2026-03-01  
 > 目标：明确 **Coze 调用 PODI 工具箱** 的统一输入/输出与回调契约，避免参数不一致。
 
 统一准则参考：`docs/standards/interface-consistency.md`
@@ -24,6 +24,7 @@ POST /api/coze/podi/tools/{provider}/{capability_key}
 - `POST /api/coze/podi/comfyui/queue-summary`：查询 ComfyUI 队列汇总
 - `POST /api/coze/podi/comfyui/lora-catalog/default`：LoRA 零参数查询（推荐）
 - `POST /api/coze/podi/comfyui/lora-catalog`：查询 LoRA 列表（支持 `baseModel` 筛选与安装状态）
+- `POST /api/coze/podi/kie/models/list/default`：KIE 模型零参数列表（推荐）
 - `POST /api/coze/podi/kie/models/list`：查询 KIE 模型列表（图片/视频分开）
 - `POST /api/coze/podi/kie/models/schema`：查询指定 KIE 模型参数 schema + Coze 封装建议
 - `POST /api/coze/podi/kie/models/{model_key}/schema`：单模型零参数查询（用于一个模型一个工具箱）
@@ -222,9 +223,13 @@ taskStatus = failed
 - 避免不同模型（例如 Nano Banana 2 / Flux-2 / Sora2）参数枚举不一致导致误传。
 
 推荐接入步骤：
-1. 调 `POST /api/coze/podi/kie/models/list` 选择模型。
+1. 调 `POST /api/coze/podi/kie/models/list/default` 先拿零参数模型列表。
 2. 调 `POST /api/coze/podi/kie/models/schema` 获取参数定义。
 3. 按 `cozeSuggestion.payloadTemplate` 组装 Coze 入参。
+
+说明：
+- `list/default` 为零参数接口，专门给 Coze 工具箱使用，避免误传筛选参数导致导入报错。
+- `list` 保留为高级筛选接口（开发调试可选）。
 
 单模型工具箱模式：
 1. 直接导入 `GET /api/coze/podi/kie/catalog/{model_key}/openapi.json`。

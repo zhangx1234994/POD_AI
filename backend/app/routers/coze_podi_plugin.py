@@ -725,34 +725,11 @@ def _build_kie_catalog_openapi(request: Request) -> dict[str, Any]:
         },
         "servers": [{"url": server}],
         "paths": {
-            "/api/coze/podi/kie/models/list": {
+            "/api/coze/podi/kie/models/list/default": {
                 "post": {
-                    "operationId": "podi_kie_models_list",
-                    "summary": "PODI · KIE 模型列表",
-                    "description": "查询可用 KIE 模型（按图片/视频分类）。",
-                    "requestBody": {
-                        "required": False,
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "mediaType": {
-                                            "type": "string",
-                                            "enum": ["all", "image", "video"],
-                                            "default": "all",
-                                        },
-                                        "q": {"type": "string", "nullable": True},
-                                        "status": {
-                                            "type": "string",
-                                            "enum": ["all", "active", "preview"],
-                                            "default": "active",
-                                        },
-                                    },
-                                }
-                            }
-                        },
-                    },
+                    "operationId": "podi_kie_models_list_default",
+                    "summary": "PODI · KIE 模型列表（零参数）",
+                    "description": "返回启用中的 KIE 模型结构化列表（默认 all + active）。",
                     "responses": {
                         "200": {
                             "description": "Model list",
@@ -2073,6 +2050,13 @@ def get_kie_models_list(request: Request, body: dict[str, Any] | None = None) ->
     if status not in {"all", "active", "preview"}:
         status = "active"
     items = list_kie_models(media_type=media_type, keyword=keyword, status=status)
+    return {"count": len(items), "items": items}
+
+
+@router.post("/kie/models/list/default")
+def get_kie_models_list_default(request: Request) -> dict[str, Any]:
+    # Zero-parameter model list for Coze toolbox.
+    items = list_kie_models(media_type="all", keyword=None, status="active")
     return {"count": len(items), "items": items}
 
 

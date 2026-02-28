@@ -260,6 +260,15 @@ curl http://127.0.0.1:8099/api/coze/podi/kie/execute/nano-banana-2-image-to-imag
 
 > 该工具箱用于“动态拉模型参数”，方便 Coze/业务侧按模型渲染入参，不替代现有执行接口。
 
+**参数明细（查询工具箱）**
+
+| 接口 | 是否必填请求体 | 参数 |
+| --- | --- | --- |
+| `POST /api/coze/podi/kie/models/list/default` | 否 | 无（固定 `mediaType=all,status=active`） |
+| `POST /api/coze/podi/kie/models/list` | 否 | `mediaType`、`status`、`q` |
+| `POST /api/coze/podi/kie/models/schema` | 是 | `modelKey` |
+| `POST /api/coze/podi/kie/models/{model_key}/schema` | 否 | 无（模型写在 URL） |
+
 ### POST /api/coze/podi/kie/models/list
 
 **用途**
@@ -276,6 +285,17 @@ curl http://127.0.0.1:8099/api/coze/podi/kie/execute/nano-banana-2-image-to-imag
   "q": "banana"
 }
 ```
+
+### POST /api/coze/podi/kie/models/list/default
+
+**用途**
+
+- 零参数返回结构化模型列表（默认 `mediaType=all`、`status=active`）。
+- 推荐 Coze 工具箱直接使用这个接口，避免参数配置错误。
+
+**请求体**
+
+- 无
 
 **响应体（示例）**
 
@@ -361,3 +381,16 @@ curl http://127.0.0.1:8099/api/coze/podi/kie/execute/nano-banana-2-image-to-imag
 ```bash
 curl -X POST http://127.0.0.1:8099/api/coze/podi/kie/models/nano-banana-pro-image-to-image/schema
 ```
+
+---
+
+## 8) 最近新增工具箱（参数速查）
+
+> 更新时间：2026-03-01
+
+| 工具箱 | OpenAPI | 主要接口 | 必填参数 | 说明 |
+| --- | --- | --- | --- | --- |
+| ComfyUI LoRA 查询 | `/api/coze/podi/comfyui/lora/openapi.json` | `POST /api/coze/podi/comfyui/lora-catalog/default` | 无 | 零参数，直接返回 LoRA 清单 |
+| KIE 模型查询 | `/api/coze/podi/kie/catalog/openapi.json` | `POST /api/coze/podi/kie/models/list/default` | 无 | 零参数，返回结构化模型列表 |
+| KIE 单模型参数查询 | `/api/coze/podi/kie/catalog/{model_key}/openapi.json` | `POST /api/coze/podi/kie/models/{model_key}/schema` | 无 | 一模型一工具箱，直接出 schema |
+| KIE 单模型执行（示例：Nano Banana 2） | `/api/coze/podi/kie/execute/nano-banana-2-image-to-image/openapi.json` | `POST /api/coze/podi/tools/kie/nano_banana_2_image_to_image` | `prompt`、`url` | 提交执行任务，结果用 `/tasks/get` 轮询 |
