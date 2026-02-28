@@ -707,12 +707,29 @@ export interface AbilityLogMetricBucket {
   avg_duration_ms?: number | null;
   p50_duration_ms?: number | null;
   p95_duration_ms?: number | null;
+  total_cost?: number | null;
+  avg_cost?: number | null;
   last_success_at?: string | null;
   last_failed_at?: string | null;
 }
 
+export interface AbilityLogCostSummary {
+  key: string;
+  count: number;
+  total_cost?: number | null;
+  avg_cost?: number | null;
+}
+
 export interface AbilityLogMetricsResponse {
   window_hours: number;
+  total_count?: number | null;
+  total_success_count?: number | null;
+  total_failed_count?: number | null;
+  uncosted_count?: number | null;
+  total_cost?: number | null;
+  avg_cost_per_call?: number | null;
+  provider_totals?: AbilityLogCostSummary[];
+  currency_totals?: AbilityLogCostSummary[];
   buckets: AbilityLogMetricBucket[];
 }
 

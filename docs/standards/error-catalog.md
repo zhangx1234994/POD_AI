@@ -220,6 +220,8 @@
 | KIE_STATUS_EMPTY | KIE 状态为空 | |
 | KIE_STATUS_ERROR | KIE 状态异常 | |
 | KIE_TIMEOUT | KIE 任务硬超时 | 默认 15 分钟 |
+| KIE_MODEL_KEY_REQUIRED | KIE 查询缺少 modelKey | `/api/coze/podi/kie/models/schema` |
+| KIE_MODEL_NOT_FOUND | KIE 查询模型不存在 | `/api/coze/podi/kie/models/schema` |
 | IMAGE_DOWNLOAD_FAILED | 下载图片失败 | |
 | IMAGE_BASE64_INVALID | Base64 图片无效 | |
 | IMAGE_REQUIRED | 缺少图片 | |

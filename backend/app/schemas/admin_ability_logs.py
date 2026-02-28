@@ -82,11 +82,28 @@ class AbilityInvocationLogMetricBucket(BaseModel):
     avg_duration_ms: float | None = None
     p50_duration_ms: int | None = None
     p95_duration_ms: int | None = None
+    total_cost: float | None = None
+    avg_cost: float | None = None
 
     last_success_at: datetime | None = None
     last_failed_at: datetime | None = None
 
 
+class AbilityLogCostSummary(BaseModel):
+    key: str
+    count: int
+    total_cost: float | None = None
+    avg_cost: float | None = None
+
+
 class AbilityInvocationLogMetricsResponse(BaseModel):
     window_hours: int
+    total_count: int | None = None
+    total_success_count: int | None = None
+    total_failed_count: int | None = None
+    uncosted_count: int | None = None
+    total_cost: float | None = None
+    avg_cost_per_call: float | None = None
+    provider_totals: list[AbilityLogCostSummary] = Field(default_factory=list)
+    currency_totals: list[AbilityLogCostSummary] = Field(default_factory=list)
     buckets: list[AbilityInvocationLogMetricBucket]

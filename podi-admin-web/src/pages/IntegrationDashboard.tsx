@@ -8420,57 +8420,171 @@ const normalizeErrorMessage = (message: string): string => {
                   </Col>
                 </Row>
 
+                {abilityLogMetrics ? (
+                  <Row gutter={[12, 12]}>
+                    <Col xs={24} sm={12} lg={6}>
+                      <Card bordered>
+                        <Space direction="vertical" size={2}>
+                          <Typography.Text theme="secondary">调用总次数</Typography.Text>
+                          <Typography.Text style={{ fontSize: 20, fontWeight: 600 }}>
+                            {abilityLogMetrics.total_count ?? 0}
+                          </Typography.Text>
+                        </Space>
+                      </Card>
+                    </Col>
+                    <Col xs={24} sm={12} lg={6}>
+                      <Card bordered>
+                        <Space direction="vertical" size={2}>
+                          <Typography.Text theme="secondary">成功 / 失败</Typography.Text>
+                          <Typography.Text style={{ fontSize: 20, fontWeight: 600 }}>
+                            {(abilityLogMetrics.total_success_count ?? 0)} / {(abilityLogMetrics.total_failed_count ?? 0)}
+                          </Typography.Text>
+                        </Space>
+                      </Card>
+                    </Col>
+                    <Col xs={24} sm={12} lg={6}>
+                      <Card bordered>
+                        <Space direction="vertical" size={2}>
+                          <Typography.Text theme="secondary">总成本（估算）</Typography.Text>
+                          <Typography.Text style={{ fontSize: 20, fontWeight: 600 }}>
+                            {abilityLogMetrics.total_cost !== null && abilityLogMetrics.total_cost !== undefined
+                              ? abilityLogMetrics.total_cost.toFixed(4)
+                              : '—'}
+                          </Typography.Text>
+                        </Space>
+                      </Card>
+                    </Col>
+                    <Col xs={24} sm={12} lg={6}>
+                      <Card bordered>
+                        <Space direction="vertical" size={2}>
+                          <Typography.Text theme="secondary">单次均价（估算）</Typography.Text>
+                          <Typography.Text style={{ fontSize: 20, fontWeight: 600 }}>
+                            {abilityLogMetrics.avg_cost_per_call !== null && abilityLogMetrics.avg_cost_per_call !== undefined
+                              ? abilityLogMetrics.avg_cost_per_call.toFixed(4)
+                              : '—'}
+                          </Typography.Text>
+                        </Space>
+                      </Card>
+                    </Col>
+                    <Col xs={24} sm={12} lg={6}>
+                      <Card bordered>
+                        <Space direction="vertical" size={2}>
+                          <Typography.Text theme="secondary">未计价调用数</Typography.Text>
+                          <Typography.Text style={{ fontSize: 20, fontWeight: 600 }}>
+                            {abilityLogMetrics.uncosted_count ?? 0}
+                          </Typography.Text>
+                        </Space>
+                      </Card>
+                    </Col>
+                  </Row>
+                ) : null}
+
+                {abilityLogMetrics ? (
+                  <Alert
+                    theme="warning"
+                    message="成本为估算值；跨币种不做直接换算汇总。建议按厂商或币种筛选后查看。"
+                  />
+                ) : null}
+
+                {abilityLogMetrics ? (
+                  <Row gutter={[12, 12]}>
+                    <Col xs={24} lg={12}>
+                      <Card bordered title="按厂商成本（估算）">
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                          {(abilityLogMetrics.provider_totals || []).length === 0 ? (
+                            <Typography.Text theme="secondary">暂无</Typography.Text>
+                          ) : (
+                            (abilityLogMetrics.provider_totals || []).slice(0, 8).map((item) => (
+                              <Tag key={`provider-${item.key}`} variant="light">
+                                {item.key}：{item.total_cost !== null && item.total_cost !== undefined ? item.total_cost.toFixed(4) : '—'}
+                              </Tag>
+                            ))
+                          )}
+                        </div>
+                      </Card>
+                    </Col>
+                    <Col xs={24} lg={12}>
+                      <Card bordered title="按币种成本（估算）">
+                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                          {(abilityLogMetrics.currency_totals || []).length === 0 ? (
+                            <Typography.Text theme="secondary">暂无</Typography.Text>
+                          ) : (
+                            (abilityLogMetrics.currency_totals || []).slice(0, 8).map((item) => (
+                              <Tag key={`currency-${item.key}`} variant="light">
+                                {item.key}：{item.total_cost !== null && item.total_cost !== undefined ? item.total_cost.toFixed(4) : '—'}
+                              </Tag>
+                            ))
+                          )}
+                        </div>
+                      </Card>
+                    </Col>
+                  </Row>
+                ) : null}
+
                 {abilityLogMetrics?.buckets && abilityLogMetrics.buckets.length > 0 ? (
                   <Card bordered title={`近 ${abilityLogMetrics.window_hours}h 指标（前 8）`}>
-                    <Table
-                      size="small"
-                      rowKey="__key"
-                      data={(abilityLogMetrics.buckets as AbilityLogMetricBucket[])
-                        .slice(0, 8)
-                        .map((b) => ({ ...b, __key: `${b.ability_provider}:${b.capability_key}` }))}
-                      columns={[
-                        {
-                          colKey: 'ability',
-                          title: '能力',
-                          cell: ({ row }) => (
-                            <Space direction="vertical" size={2}>
-                              <Typography.Text strong>{row.capability_key}</Typography.Text>
-                              <Typography.Text theme="secondary">{row.ability_provider}</Typography.Text>
-                            </Space>
-                          ),
-                        },
-                        {
-                          colKey: 'count',
-                          title: '次数',
-                          width: 120,
-                          cell: ({ row }) => (
-                            <Typography.Text theme="secondary">
-                              {row.count}（{row.success_count}/{row.failed_count}）
-                            </Typography.Text>
-                          ),
-                        },
-                        {
-                          colKey: 'success_rate',
-                          title: '成功率',
-                          width: 120,
-                          cell: ({ row }) => (
-                            <Typography.Text>
-                              {row.success_rate !== null && row.success_rate !== undefined ? `${(row.success_rate * 100).toFixed(1)}%` : '—'}
-                            </Typography.Text>
-                          ),
-                        },
-                        {
-                          colKey: 'p50',
-                          title: 'p50 / p95',
-                          width: 160,
-                          cell: ({ row }) => (
-                            <Typography.Text theme="secondary">
-                              {row.p50_duration_ms ?? '—'}ms / {row.p95_duration_ms ?? '—'}ms
-                            </Typography.Text>
-                          ),
-                        },
-                      ]}
-                    />
+                    <div className="overflow-x-auto">
+                      <Table
+                        size="small"
+                        rowKey="__key"
+                        data={(abilityLogMetrics.buckets as AbilityLogMetricBucket[])
+                          .slice(0, 8)
+                          .map((b) => ({ ...b, __key: `${b.ability_provider}:${b.capability_key}` }))}
+                        columns={[
+                          {
+                            colKey: 'ability',
+                            title: '能力',
+                            cell: ({ row }) => (
+                              <Space direction="vertical" size={2}>
+                                <Typography.Text strong>{row.capability_key}</Typography.Text>
+                                <Typography.Text theme="secondary">{row.ability_provider}</Typography.Text>
+                              </Space>
+                            ),
+                          },
+                          {
+                            colKey: 'count',
+                            title: '次数',
+                            width: 120,
+                            cell: ({ row }) => (
+                              <Typography.Text theme="secondary">
+                                {row.count}（{row.success_count}/{row.failed_count}）
+                              </Typography.Text>
+                            ),
+                          },
+                          {
+                            colKey: 'success_rate',
+                            title: '成功率',
+                            width: 120,
+                            cell: ({ row }) => (
+                              <Typography.Text>
+                                {row.success_rate !== null && row.success_rate !== undefined ? `${(row.success_rate * 100).toFixed(1)}%` : '—'}
+                              </Typography.Text>
+                            ),
+                          },
+                          {
+                            colKey: 'p50',
+                            title: 'p50 / p95',
+                            width: 160,
+                            cell: ({ row }) => (
+                              <Typography.Text theme="secondary">
+                                {row.p50_duration_ms ?? '—'}ms / {row.p95_duration_ms ?? '—'}ms
+                              </Typography.Text>
+                            ),
+                          },
+                          {
+                            colKey: 'cost',
+                            title: '成本（总/均）',
+                            width: 160,
+                            cell: ({ row }) => (
+                              <Typography.Text theme="secondary">
+                                {row.total_cost !== null && row.total_cost !== undefined ? row.total_cost.toFixed(4) : '—'} /{' '}
+                                {row.avg_cost !== null && row.avg_cost !== undefined ? row.avg_cost.toFixed(4) : '—'}
+                              </Typography.Text>
+                            ),
+                          },
+                        ]}
+                      />
+                    </div>
                   </Card>
                 ) : (
                   <Typography.Text theme="secondary">暂无指标数据。</Typography.Text>

@@ -23,6 +23,8 @@ POST /api/coze/podi/tools/{provider}/{capability_key}
 - `POST /api/coze/podi/tasks/get`：查询异步任务结果  
 - `POST /api/coze/podi/comfyui/queue-summary`：查询 ComfyUI 队列汇总
 - `POST /api/coze/podi/comfyui/lora-catalog`：查询 LoRA 列表（支持 `baseModel` 筛选与安装状态）
+- `POST /api/coze/podi/kie/models/list`：查询 KIE 模型列表（图片/视频分开）
+- `POST /api/coze/podi/kie/models/schema`：查询指定 KIE 模型参数 schema + Coze 封装建议
 
 ## 3. 输入契约（统一）
 
@@ -203,3 +205,24 @@ taskStatus = failed
 ### 用途
 - 在 Coze workflow 中作为“路由判断/限流”依据
 - 业务侧可根据 `totalCount` 判断是否延迟提交
+
+## 12. KIE 查询工具箱（参数标准化）
+
+独立 OpenAPI：
+
+- `GET /api/coze/podi/kie/catalog/openapi.json`
+
+目的：
+
+- 让业务侧先查模型参数，再调用执行工具；
+- 避免不同模型（例如 Nano Banana 2 / Flux-2 / Sora2）参数枚举不一致导致误传。
+
+推荐接入步骤：
+1. 调 `POST /api/coze/podi/kie/models/list` 选择模型。
+2. 调 `POST /api/coze/podi/kie/models/schema` 获取参数定义。
+3. 按 `cozeSuggestion.payloadTemplate` 组装 Coze 入参。
+
+关键规则：
+- `url` 固定表示主图（图1）。
+- `image_urls` 表示参考图列表（图2、图3...），推荐每行一个 URL。
+- 枚举参数必须传 value；布尔参数传 `true/false`。

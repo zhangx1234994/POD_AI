@@ -898,6 +898,8 @@ def get_ability_log_metrics(
             func.sum(success_expr).label("ok_cnt"),
             func.sum(failed_expr).label("fail_cnt"),
             func.avg(AbilityInvocationLog.duration_ms).label("avg_ms"),
+            func.sum(AbilityInvocationLog.cost_amount).label("total_cost"),
+            func.avg(AbilityInvocationLog.cost_amount).label("avg_cost"),
             func.max(last_success_expr).label("last_ok_at"),
             func.max(last_failed_expr).label("last_fail_at"),
         ).where(AbilityInvocationLog.created_at >= since)
@@ -908,14 +910,64 @@ def get_ability_log_metrics(
         stmt = stmt.group_by(*group_cols).order_by(func.count(AbilityInvocationLog.id).desc()).limit(200)
         base_rows = session.execute(stmt).all()
 
+        total_stmt = select(
+            func.count(AbilityInvocationLog.id).label("total_cnt"),
+            func.sum(success_expr).label("total_ok_cnt"),
+            func.sum(failed_expr).label("total_fail_cnt"),
+            func.sum(case((AbilityInvocationLog.cost_amount.is_(None), 1), else_=0)).label("uncosted_cnt"),
+            func.sum(AbilityInvocationLog.cost_amount).label("total_cost"),
+            func.avg(AbilityInvocationLog.cost_amount).label("avg_cost"),
+        ).where(AbilityInvocationLog.created_at >= since)
+        if provider:
+            total_stmt = total_stmt.where(AbilityInvocationLog.ability_provider == provider)
+        if capability_key:
+            total_stmt = total_stmt.where(AbilityInvocationLog.capability_key == capability_key)
+        total_row = session.execute(total_stmt).one()
+
+        provider_cost_stmt = (
+            select(
+                AbilityInvocationLog.ability_provider.label("k"),
+                func.count(AbilityInvocationLog.id).label("cnt"),
+                func.sum(AbilityInvocationLog.cost_amount).label("total_cost"),
+                func.avg(AbilityInvocationLog.cost_amount).label("avg_cost"),
+            )
+            .where(AbilityInvocationLog.created_at >= since)
+            .group_by(AbilityInvocationLog.ability_provider)
+            .order_by(func.sum(AbilityInvocationLog.cost_amount).desc())
+            .limit(20)
+        )
+        if provider:
+            provider_cost_stmt = provider_cost_stmt.where(AbilityInvocationLog.ability_provider == provider)
+        if capability_key:
+            provider_cost_stmt = provider_cost_stmt.where(AbilityInvocationLog.capability_key == capability_key)
+        provider_cost_rows = session.execute(provider_cost_stmt).all()
+
+        currency_cost_stmt = (
+            select(
+                func.coalesce(AbilityInvocationLog.currency, "UNKNOWN").label("k"),
+                func.count(AbilityInvocationLog.id).label("cnt"),
+                func.sum(AbilityInvocationLog.cost_amount).label("total_cost"),
+                func.avg(AbilityInvocationLog.cost_amount).label("avg_cost"),
+            )
+            .where(AbilityInvocationLog.created_at >= since)
+            .group_by(func.coalesce(AbilityInvocationLog.currency, "UNKNOWN"))
+            .order_by(func.sum(AbilityInvocationLog.cost_amount).desc())
+            .limit(20)
+        )
+        if provider:
+            currency_cost_stmt = currency_cost_stmt.where(AbilityInvocationLog.ability_provider == provider)
+        if capability_key:
+            currency_cost_stmt = currency_cost_stmt.where(AbilityInvocationLog.capability_key == capability_key)
+        currency_cost_rows = session.execute(currency_cost_stmt).all()
+
         # Percentiles: fetch a bounded sample of durations per bucket, only for success.
         buckets: list[log_schemas.AbilityInvocationLogMetricBucket] = []
         for row in base_rows:
             # Row shape depends on group_by_executor
             if group_by_executor:
-                ability_provider, cap_key, exec_id, cnt, ok_cnt, fail_cnt, avg_ms, last_ok_at, last_fail_at = row
+                ability_provider, cap_key, exec_id, cnt, ok_cnt, fail_cnt, avg_ms, total_cost, avg_cost, last_ok_at, last_fail_at = row
             else:
-                ability_provider, cap_key, cnt, ok_cnt, fail_cnt, avg_ms, last_ok_at, last_fail_at = row
+                ability_provider, cap_key, cnt, ok_cnt, fail_cnt, avg_ms, total_cost, avg_cost, last_ok_at, last_fail_at = row
                 exec_id = None
 
             # Load sample durations (capped) to compute p50/p95.
@@ -959,9 +1011,40 @@ def get_ability_log_metrics(
                     avg_duration_ms=float(avg_ms) if avg_ms is not None else None,
                     p50_duration_ms=p50,
                     p95_duration_ms=p95,
+                    total_cost=float(total_cost) if total_cost is not None else None,
+                    avg_cost=float(avg_cost) if avg_cost is not None else None,
                     last_success_at=last_ok_at,
                     last_failed_at=last_fail_at,
                 )
             )
 
-    return log_schemas.AbilityInvocationLogMetricsResponse(window_hours=window_hours, buckets=buckets)
+    return log_schemas.AbilityInvocationLogMetricsResponse(
+        window_hours=window_hours,
+        total_count=int(total_row.total_cnt or 0),
+        total_success_count=int(total_row.total_ok_cnt or 0),
+        total_failed_count=int(total_row.total_fail_cnt or 0),
+        uncosted_count=int(total_row.uncosted_cnt or 0),
+        total_cost=float(total_row.total_cost) if total_row.total_cost is not None else None,
+        avg_cost_per_call=float(total_row.avg_cost) if total_row.avg_cost is not None else None,
+        provider_totals=[
+            log_schemas.AbilityLogCostSummary(
+                key=str(row.k),
+                count=int(row.cnt or 0),
+                total_cost=float(row.total_cost) if row.total_cost is not None else None,
+                avg_cost=float(row.avg_cost) if row.avg_cost is not None else None,
+            )
+            for row in provider_cost_rows
+            if row.k
+        ],
+        currency_totals=[
+            log_schemas.AbilityLogCostSummary(
+                key=str(row.k),
+                count=int(row.cnt or 0),
+                total_cost=float(row.total_cost) if row.total_cost is not None else None,
+                avg_cost=float(row.avg_cost) if row.avg_cost is not None else None,
+            )
+            for row in currency_cost_rows
+            if row.k
+        ],
+        buckets=buckets,
+    )

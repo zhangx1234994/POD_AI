@@ -63,3 +63,13 @@ Steps:
 - Backend: `python3 -m pytest -q backend/tests`
 - Eval UI: `npm -C podi-eval-web run build`
 - Admin UI: `npm -C podi-admin-web run lint`
+
+## 5) Pricing Completeness Audit (Cost Safety Gate)
+
+- Run pricing audit before release (avoid “调用成功但成本统计缺失”):
+  - 全量：`python3 backend/scripts/audit_ability_pricing.py`
+  - 指定厂商：`python3 backend/scripts/audit_ability_pricing.py --provider kie`
+  - JSON：`python3 backend/scripts/audit_ability_pricing.py --json`
+- Exit code:
+  - `0`：通过（无缺失）
+  - `2`：存在缺失项（需补齐 `metadata.pricing`）

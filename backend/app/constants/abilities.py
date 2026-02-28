@@ -66,7 +66,13 @@ def _baidu_metadata(capability_key: str, endpoint: str) -> dict[str, Any]:
         "request_endpoint": endpoint,
         "requires_image_input": True,
         "supports_vision": True,
-        "seed_version": 1,
+        "seed_version": 2,
+        "pricing": {
+            "currency": "CNY",
+            "unit": "per_image",
+            "list_price": 0.15,
+            "discount_price": 0.10,
+        },
         "reference": "https://ai.baidu.com/ai-doc/IMAGEPROCESS/Vk3bcxb07",
     }
 
@@ -265,6 +271,27 @@ def _volcengine_metadata(
         "request_endpoint": endpoint,
         "reference": reference,
     }
+    if api_type == "chat_completions":
+        metadata["pricing"] = {
+            "currency": "CNY",
+            "unit": "per_call",
+            "list_price": 0.08,
+            "discount_price": 0.05,
+        }
+    elif api_type == "image_generation":
+        metadata["pricing"] = {
+            "currency": "CNY",
+            "unit": "per_image",
+            "list_price": 0.45,
+            "discount_price": 0.30,
+        }
+    elif api_type == "video_generation":
+        metadata["pricing"] = {
+            "currency": "CNY",
+            "unit": "per_video",
+            "list_price": 2.00,
+            "discount_price": 1.50,
+        }
     if seed_version:
         metadata["seed_version"] = seed_version
     return metadata
@@ -862,7 +889,7 @@ def _kie_metadata(
         "model_id": model_id,
         "request_endpoint": endpoint,
         # Bump when changing built-in KIE schemas/metadata/defaults so ability_seed can refresh DB rows.
-        "seed_version": 5,
+        "seed_version": 6,
     }
     if requires_image_input:
         metadata["requires_image_input"] = True
@@ -1106,7 +1133,20 @@ KIE_MARKET_ABILITIES: dict[str, AbilityDefinition] = {
             input_array_target="image_input",
             supports_vision=True,
             auto_fill_size=True,
-        ),
+        )
+        | {
+            "pricing": {
+                "currency": "USD",
+                "unit": "per_image",
+                "list_price": 0.04,
+                "discount_price": 0.04,
+            },
+            "pricing_tiers": [
+                {"label": "1K", "price": 0.04},
+                {"label": "2K", "price": 0.04},
+                {"label": "4K", "price": 0.07},
+            ],
+        },
     },
     "flux2_pro_image_to_image": {
         "endpoint": "/api/v1/jobs/createTask",
@@ -1124,7 +1164,19 @@ KIE_MARKET_ABILITIES: dict[str, AbilityDefinition] = {
             model_id="flux-2/pro-image-to-image",
             requires_image_input=True,
             input_array_target="input_urls",
-        ),
+        )
+        | {
+            "pricing": {
+                "currency": "USD",
+                "unit": "per_image",
+                "list_price": 0.025,
+                "discount_price": 0.025,
+            },
+            "pricing_tiers": [
+                {"label": "1K", "price": 0.025},
+                {"label": "2K", "price": 0.035},
+            ],
+        },
     },
     "sora2_pro_text_to_video": {
         "endpoint": "/api/v1/jobs/createTask",
@@ -1147,7 +1199,19 @@ KIE_MARKET_ABILITIES: dict[str, AbilityDefinition] = {
             requires_image_input=False,
             input_array_target="image_input",
             supports_vision=True,
-        ),
+        )
+        | {
+            "pricing": {
+                "currency": "USD",
+                "unit": "per_video",
+                "list_price": 0.375,
+                "discount_price": 0.375,
+            },
+            "pricing_tiers": [
+                {"label": "10s", "price": 0.375},
+                {"label": "15-25s", "price": 0.675},
+            ],
+        },
     },
 }
 
@@ -1371,7 +1435,13 @@ PODI_UTILITY_ABILITIES: dict[str, AbilityDefinition] = {
             "action": "expand_mask_color",
             "requires_image_input": True,
             "supports_vision": True,
-            "seed_version": 1,
+            "seed_version": 2,
+            "pricing": {
+                "currency": "CNY",
+                "unit": "per_image",
+                "list_price": 0.03,
+                "discount_price": 0.02,
+            },
         },
     }
     ,
@@ -1403,7 +1473,13 @@ PODI_UTILITY_ABILITIES: dict[str, AbilityDefinition] = {
             "action": "set_dpi",
             "requires_image_input": True,
             "supports_vision": True,
-            "seed_version": 1,
+            "seed_version": 2,
+            "pricing": {
+                "currency": "CNY",
+                "unit": "per_image",
+                "list_price": 0.03,
+                "discount_price": 0.02,
+            },
         },
     },
     "upscale_resize": {
@@ -1442,7 +1518,13 @@ PODI_UTILITY_ABILITIES: dict[str, AbilityDefinition] = {
             "action": "upscale_resize",
             "requires_image_input": True,
             "supports_vision": True,
-            "seed_version": 1,
+            "seed_version": 2,
+            "pricing": {
+                "currency": "CNY",
+                "unit": "per_image",
+                "list_price": 0.03,
+                "discount_price": 0.02,
+            },
         },
     },
 }

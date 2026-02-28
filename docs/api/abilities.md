@@ -297,6 +297,11 @@
 | `volcengine_doubao_seedance_1_5_pro` | Seedance 1.5 图生视频 | `prompt` | 可选 `imageUrl`、`duration`、`camera_fixed`、`watermark` | 视频链接（`videos[]`） |
 
 > 参考图传参说明：PODI 会将 `image_urls/image_url` 同步写入火山参数 `reference_image_urls`（Ark API 识别的字段），用于图生图/风格参考。该参考属于“弱约束”，是否严格遵循取决于模型能力与提示词表达。
+>
+> 成本字段（估算，CNY，已写入 `metadata.pricing`）：
+> - 对话类：`¥0.05 / 次`（对外价 `¥0.08`）
+> - 图像类：`¥0.30 / 张`（对外价 `¥0.45`）
+> - 视频类：`¥1.50 / 次`（对外价 `¥2.00`）
 
 #### KIE 市场模型（provider=`kie`）
 
@@ -307,6 +312,11 @@
 | `kie_sora2_pro_text_to_video` | 文生视频 | `prompt` | `aspect_ratio`、`n_frames`、`size`、`remove_watermark`、`character_ids`、`callBackUrl` | 输出视频 URL + 任务状态 |
 
 > `image_urls` / `input_urls` 字段允许多行或 JSON 数组，接口会拆成数组并写入 `input_array_target`。返回体 `metadata` 携带 KIE 任务 `taskId/state`，`resultUrls` 为官方 CDN，`assets` 为落地后的 OSS。
+>
+> 成本字段（估算，USD，已写入 `metadata.pricing/pricing_tiers`）：
+> - Nano Banana Pro：1K/2K `$0.04`，4K `$0.07`
+> - Flux-2 Pro：1K `$0.025`，2K `$0.035`
+> - Sora2 Pro：10s `$0.375`，15-25s `$0.675`
 
 #### ComfyUI 工作流（provider=`comfyui`）
 
@@ -316,6 +326,12 @@
 | `comfyui_yinhua_tiqu` | 印花提取 | `image_url` + `workflow_key` | `prompt`、`negative_prompt`、`output_width/height`、`lora_name`（支持从 UI 下拉选择） | 1800×1800 设计稿 |
 
 > ComfyUI 能力会自动把上传的 OSS 地址写入 workflow `imageList`，并把厂商输出文件落盘到 OSS；`metadata.taskId` 为 prompt ID。未来若 ComfyUI 服务暴露更多模型/LoRA，前端会根据 `/api/admin/comfyui/models` 下拉选择。
+
+#### 其他能力成本基线（估算）
+
+- Baidu 图像处理：`¥0.10 / 张`（对外价 `¥0.15`）
+- PODI 工具类（扩边/设置 DPI/缩放）：`¥0.02 / 张`（对外价 `¥0.03`）
+- 如需发版前巡检，请执行：`python3 backend/scripts/audit_ability_pricing.py`
 
 ### 日志与耗时
 

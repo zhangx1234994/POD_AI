@@ -13,11 +13,15 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Request
+from fastapi import HTTPException
 from sqlalchemy import or_
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import get_settings
+from app.constants.kie_model_catalog import build_coze_param_suggestion
+from app.constants.kie_model_catalog import get_kie_model
+from app.constants.kie_model_catalog import list_kie_models
 from app.core.db import get_session
 from app.models.integration import Ability, AbilityTask, ComfyuiLora, Executor
 from app.schemas import abilities as ability_schemas
@@ -652,6 +656,113 @@ def _build_openapi_filtered(
     return doc
 
 
+def _build_kie_catalog_openapi(request: Request) -> dict[str, Any]:
+    server = _server_from_request(request)
+    list_schema: dict[str, Any] = {
+        "type": "object",
+        "properties": {
+            "count": {"type": "integer"},
+            "items": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "modelKey": {"type": "string"},
+                        "displayName": {"type": "string"},
+                        "providerModel": {"type": "string"},
+                        "mediaType": {"type": "string", "enum": ["image", "video"]},
+                        "status": {"type": "string"},
+                        "summary": {"type": "string"},
+                        "abilityKey": {"type": "string", "nullable": True},
+                        "docsUrl": {"type": "string"},
+                        "pricingHint": {"type": "string", "nullable": True},
+                        "supports": {"type": "object"},
+                    },
+                },
+            },
+        },
+    }
+    schema_response: dict[str, Any] = {
+        "type": "object",
+        "properties": {
+            "model": {"type": "object"},
+            "cozeSuggestion": {"type": "object"},
+        },
+    }
+    return {
+        "openapi": "3.0.0",
+        "info": {
+            "title": "PODI KIE 模型查询",
+            "version": "0.1.0",
+            "description": "查询 KIE 模型与参数定义，不执行任务。",
+        },
+        "servers": [{"url": server}],
+        "paths": {
+            "/api/coze/podi/kie/models/list": {
+                "post": {
+                    "operationId": "podi_kie_models_list",
+                    "summary": "PODI · KIE 模型列表",
+                    "description": "查询可用 KIE 模型（按图片/视频分类）。",
+                    "requestBody": {
+                        "required": False,
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "mediaType": {
+                                            "type": "string",
+                                            "enum": ["all", "image", "video"],
+                                            "default": "all",
+                                        },
+                                        "q": {"type": "string", "nullable": True},
+                                        "status": {
+                                            "type": "string",
+                                            "enum": ["all", "active", "preview"],
+                                            "default": "active",
+                                        },
+                                    },
+                                }
+                            }
+                        },
+                    },
+                    "responses": {
+                        "200": {
+                            "description": "Model list",
+                            "content": {"application/json": {"schema": list_schema}},
+                        }
+                    },
+                }
+            },
+            "/api/coze/podi/kie/models/schema": {
+                "post": {
+                    "operationId": "podi_kie_models_schema",
+                    "summary": "PODI · KIE 模型参数",
+                    "description": "按 modelKey 查询标准参数 schema 与 Coze 封装建议。",
+                    "requestBody": {
+                        "required": True,
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": ["modelKey"],
+                                    "properties": {"modelKey": {"type": "string"}},
+                                }
+                            }
+                        },
+                    },
+                    "responses": {
+                        "200": {
+                            "description": "Model schema",
+                            "content": {"application/json": {"schema": schema_response}},
+                        }
+                    },
+                }
+            },
+        },
+    }
+
+
 @router.get("/openapi.json")
 def get_openapi(request: Request) -> dict[str, Any]:
     _require_internal(request)
@@ -713,6 +824,13 @@ def get_comfyui_lora_openapi(request: Request) -> dict[str, Any]:
     doc["info"]["title"] = "PODI ComfyUI LoRA 查询"
     doc["info"]["description"] = "仅用于 LoRA 查询，不包含任何生图或执行类工具。"
     return doc
+
+
+@router.get("/kie/catalog/openapi.json")
+def get_kie_catalog_openapi(request: Request) -> dict[str, Any]:
+    """OpenAPI for PODI KIE model query-only plugin."""
+    # Keep this OpenAPI public so Coze can import directly.
+    return _build_kie_catalog_openapi(request)
 
 
 @router.get("/kie/openapi.json")
@@ -1826,3 +1944,31 @@ def get_comfyui_lora_catalog(request: Request, body: dict[str, Any] | None = Non
         "untrackedNames": untracked_names,
         "items": items,
     }
+
+
+@router.post("/kie/models/list")
+def get_kie_models_list(request: Request, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    _require_internal(request)
+    body = body if isinstance(body, dict) else {}
+    media_type = str(body.get("mediaType") or "all").strip().lower()
+    keyword = str(body.get("q") or "").strip() or None
+    status = str(body.get("status") or "active").strip().lower()
+    if media_type not in {"all", "image", "video"}:
+        media_type = "all"
+    if status not in {"all", "active", "preview"}:
+        status = "active"
+    items = list_kie_models(media_type=media_type, keyword=keyword, status=status)
+    return {"count": len(items), "items": items}
+
+
+@router.post("/kie/models/schema")
+def get_kie_model_schema(request: Request, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    _require_internal(request)
+    body = body if isinstance(body, dict) else {}
+    model_key = str(body.get("modelKey") or "").strip()
+    if not model_key:
+        raise HTTPException(status_code=400, detail="KIE_MODEL_KEY_REQUIRED")
+    model = get_kie_model(model_key)
+    if not model:
+        raise HTTPException(status_code=404, detail="KIE_MODEL_NOT_FOUND")
+    return {"model": model, "cozeSuggestion": build_coze_param_suggestion(model)}

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Input, Layout, Menu, Space, Tooltip, Typography } from "tdesign-react";
 import type { AppShellProps } from "../types/ui";
 
@@ -16,6 +16,15 @@ export function AdminShell({
   children,
 }: AppShellProps) {
   const [navKeyword, setNavKeyword] = useState("");
+  const [viewportWidth, setViewportWidth] = useState<number>(() => (typeof window === "undefined" ? 1440 : window.innerWidth));
+  const compactNav = viewportWidth < 1280;
+  const asideWidth = compactNav ? 208 : 260;
+
+  useEffect(() => {
+    const onResize = () => setViewportWidth(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
   const filteredNavItems = useMemo(() => {
     const keyword = navKeyword.trim().toLowerCase();
     if (!keyword) return navItems;
@@ -31,20 +40,20 @@ export function AdminShell({
 
   return (
     <Layout className="podi-shell" style={{ height: "100vh" }}>
-      <Layout.Aside className="podi-shell__aside" style={{ width: 260, padding: 16, overflow: "auto" }}>
+      <Layout.Aside className="podi-shell__aside" style={{ width: asideWidth, padding: compactNav ? 12 : 16, overflow: "auto" }}>
         <Space direction="vertical" size="small" style={{ width: "100%" }}>
           <div>
-            <Typography.Text theme="secondary">控制台</Typography.Text>
+            {!compactNav ? <Typography.Text theme="secondary">控制台</Typography.Text> : null}
             <Typography.Title level="h4" style={{ margin: "6px 0 0" }}>
               {title}
             </Typography.Title>
-            {subtitle ? <Typography.Text theme="secondary">{subtitle}</Typography.Text> : null}
+            {!compactNav && subtitle ? <Typography.Text theme="secondary">{subtitle}</Typography.Text> : null}
           </div>
           <Input
             size="small"
             clearable
             value={navKeyword}
-            placeholder="搜索模块（如：能力 / 监控）"
+            placeholder={compactNav ? "搜索模块" : "搜索模块（如：能力 / 监控）"}
             onChange={(value) => setNavKeyword(String(value))}
           />
           {!hasNavResult ? (
@@ -82,7 +91,7 @@ export function AdminShell({
       </Layout.Aside>
 
       <Layout>
-        <Layout.Header className="podi-shell__header" style={{ padding: "0 16px" }}>
+        <Layout.Header className="podi-shell__header" style={{ padding: compactNav ? "0 12px" : "0 16px" }}>
           <Space align="center" style={{ justifyContent: "space-between", width: "100%", height: "100%" }}>
             <Space direction="vertical" size={2}>
               <Typography.Text strong>{headerTitle}</Typography.Text>
@@ -91,7 +100,7 @@ export function AdminShell({
             {headerActions}
           </Space>
         </Layout.Header>
-        <Layout.Content className="podi-shell__content" style={{ padding: 16, overflow: "hidden" }}>
+        <Layout.Content className="podi-shell__content" style={{ padding: compactNav ? 12 : 16, overflow: "hidden" }}>
           <div ref={contentRef} style={{ height: "100%", overflow: "auto" }}>
             {children}
           </div>

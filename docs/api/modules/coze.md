@@ -1,5 +1,7 @@
 # Coze 插件接口
 
+> 工具箱总清单见：`docs/coze/toolbox-inventory.md`
+
 ## 用途
 
 - 将 PODI 能力以 Coze Studio Tools 形式暴露。
@@ -33,6 +35,16 @@ curl http://127.0.0.1:8099/api/coze/podi/openapi.json
 
 ```bash
 curl http://127.0.0.1:8099/api/coze/podi/comfyui/lora/openapi.json
+```
+
+### GET /api/coze/podi/kie/catalog/openapi.json
+
+**用途**：KIE 模型查询专用工具箱（仅查询模型与参数，不执行生图/生视频）。
+
+**示例**
+
+```bash
+curl http://127.0.0.1:8099/api/coze/podi/kie/catalog/openapi.json
 ```
 
 ---
@@ -204,3 +216,92 @@ curl http://127.0.0.1:8099/api/coze/podi/comfyui/lora/openapi.json
 - `loraNames` 可直接给工具箱做下拉选项。
 - `includeUntracked=true` 时会额外返回服务器已安装、但目录尚未建档的 LoRA（`untrackedNames`）。
 - 若未传 `executorId`，只返回目录数据，不做“是否安装”判定。
+
+---
+
+## 7) KIE 模型查询（独立工具）
+
+> 该工具箱用于“动态拉模型参数”，方便 Coze/业务侧按模型渲染入参，不替代现有执行接口。
+
+### POST /api/coze/podi/kie/models/list
+
+**用途**
+
+- 列出 KIE 可用模型（图片/视频分开）。
+- 返回每个模型的 `modelKey`、参数能力概览、文档地址、能力映射信息。
+
+**请求体（示例）**
+
+```json
+{
+  "mediaType": "image",
+  "status": "active",
+  "q": "banana"
+}
+```
+
+**响应体（示例）**
+
+```json
+{
+  "count": 2,
+  "items": [
+    {
+      "modelKey": "nano_banana_pro_image_to_image",
+      "displayName": "Nano Banana Pro 图生图",
+      "providerModel": "nano-banana-pro",
+      "mediaType": "image",
+      "status": "active",
+      "abilityKey": "nano_banana_pro_image_to_image",
+      "docsUrl": "https://kie.ai/zh-CN/nano-banana-pro"
+    }
+  ]
+}
+```
+
+### POST /api/coze/podi/kie/models/schema
+
+**用途**
+
+- 按 `modelKey` 查询标准化参数结构。
+- 同时返回 Coze 封装建议（必填参数、分隔规则、payload 模板）。
+
+**请求体（示例）**
+
+```json
+{
+  "modelKey": "nano_banana_pro_image_to_image"
+}
+```
+
+**响应体（示例）**
+
+```json
+{
+  "model": {
+    "modelKey": "nano_banana_pro_image_to_image",
+    "mediaType": "image",
+    "fields": [
+      { "name": "prompt", "type": "string", "required": true },
+      { "name": "url", "type": "string", "required": true },
+      { "name": "image_urls", "type": "string_list", "required": false }
+    ]
+  },
+  "cozeSuggestion": {
+    "requiredParams": ["prompt", "url"],
+    "transformRules": [
+      "`url` 为主图（图1）；`image_urls` 按顺序映射为图2、图3...",
+      "`image_urls` 建议用换行分隔；也支持逗号分隔（仅在 http 前拆分）"
+    ],
+    "payloadTemplate": {
+      "modelKey": "nano_banana_pro_image_to_image",
+      "inputs": { "prompt": "", "url": "", "image_urls": "" }
+    }
+  }
+}
+```
+
+**错误**
+
+- `KIE_MODEL_KEY_REQUIRED`
+- `KIE_MODEL_NOT_FOUND`

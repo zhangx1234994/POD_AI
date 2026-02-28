@@ -148,6 +148,11 @@
 ### GET /api/admin/abilities/logs/metrics
 
 - 参数：`windowHours`（1-720）、`provider`、`capabilityKey`、`groupByExecutor`
+- 返回新增（成本统计）：
+  - 顶层：`total_count`、`total_success_count`、`total_failed_count`、`uncosted_count`、`total_cost`、`avg_cost_per_call`
+  - 汇总：`provider_totals[]`、`currency_totals[]`（按厂商/币种的调用数、总成本、均成本）
+  - bucket：`total_cost`、`avg_cost`
+  - 说明：成本为估算值，来源于能力 `metadata.pricing` 与日志回填。
 
 **错误（常见）**
 
