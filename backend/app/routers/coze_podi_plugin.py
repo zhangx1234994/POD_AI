@@ -703,7 +703,8 @@ def get_comfyui_openapi(request: Request) -> dict[str, Any]:
 @router.get("/comfyui/lora/openapi.json")
 def get_comfyui_lora_openapi(request: Request) -> dict[str, Any]:
     """OpenAPI for PODI ComfyUI LoRA query-only plugin."""
-    _require_internal(request)
+    # Keep this OpenAPI public so Coze can import the toolbox URL directly.
+    # The real tool endpoint still performs internal/token auth checks.
     server = _server_from_request(request)
     doc = _build_openapi(podi_server=server)
     paths = doc.get("paths") or {}

@@ -521,7 +521,7 @@ class AbilityInvocationService:
             return None
         settings = get_settings()
         target = max(1, int(settings.comfyui_queue_batch_size or 10))
-        stats: list[tuple[int, str]] = []
+        stats: list[tuple[int, int, int, str]] = []
         for executor_id in executor_ids:
             try:
                 status = integration_test_service.get_comfyui_queue_status(executor_id=executor_id)
@@ -530,14 +530,29 @@ class AbilityInvocationService:
                 continue
             if not status.get("supported", True):
                 continue
-            total = int(status.get("runningCount") or 0) + int(status.get("pendingCount") or 0)
-            stats.append((total, executor_id))
+            running = int(status.get("runningCount") or 0)
+            pending = int(status.get("pendingCount") or 0)
+            total = running + pending
+            stats.append((total, pending, running, executor_id))
         if not stats:
             return None
         preferred = [item for item in stats if item[0] < target]
         pool = preferred or stats
-        pool.sort(key=lambda item: (item[0], item[1]))
-        return pool[0][1]
+        min_key = min((item[0], item[1], item[2]) for item in pool)
+        tied_ids = sorted(
+            item[3]
+            for item in pool
+            if (item[0], item[1], item[2]) == min_key
+        )
+        if len(tied_ids) == 1:
+            return tied_ids[0]
+        rr_key = f"queue:{','.join(tied_ids)}"
+        with self._rr_lock:
+            idx = self._rr_cursors.get(rr_key, -1) + 1
+            if idx >= len(tied_ids):
+                idx = 0
+            self._rr_cursors[rr_key] = idx
+            return tied_ids[idx]
 
     # -------- internal helpers -------- #
     def _dispatch_provider(
