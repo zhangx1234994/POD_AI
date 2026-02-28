@@ -519,6 +519,14 @@ class IntegrationTestService:
         if normalized_type not in {"kie", "kie-market", "kie_market"}:
             raise HTTPException(status_code=400, detail="EXECUTOR_TYPE_NOT_KIE")
 
+        # Normalize common field aliases for market models.
+        # Flux-2 expects input_urls; some callers still pass image_urls.
+        if isinstance(input_payload, dict):
+            if "input_urls" not in input_payload and "image_urls" in input_payload:
+                model_key = str(model or "").strip().lower()
+                if "flux-2" in model_key:
+                    input_payload["input_urls"] = input_payload.get("image_urls")
+
         # Keep a copy of user intent before we mutate `input_payload` for retries/fallbacks.
         # Some KIE models ignore or strictly validate these fields; we may post-process.
         desired_aspect_ratio = str((input_payload or {}).get("aspect_ratio") or "").strip()

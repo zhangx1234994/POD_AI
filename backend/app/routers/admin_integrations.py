@@ -231,7 +231,18 @@ def _run_with_logging(
         )
         raise
     duration_ms = int((time.perf_counter() - start_time) * 1000)
-    ability_log_service.finish_success(log_id, response_payload=result, duration_ms=duration_ms)
+    status_hint = str((result or {}).get("status") or "").strip().lower() if isinstance(result, dict) else ""
+    state_hint = str((result or {}).get("state") or "").strip().lower() if isinstance(result, dict) else ""
+    failed_states = {"failed", "fail", "error"}
+    if status_hint in failed_states or state_hint in failed_states:
+        ability_log_service.finish_failure(
+            log_id,
+            error_message=(result.get("detail") if isinstance(result, dict) else None) or "TEST_RUN_REPORTED_FAILED",
+            response_payload=result if isinstance(result, dict) else None,
+            duration_ms=duration_ms,
+        )
+    else:
+        ability_log_service.finish_success(log_id, response_payload=result, duration_ms=duration_ms)
     return result, log_id
 
 
