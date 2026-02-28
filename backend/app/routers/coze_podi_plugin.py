@@ -1928,7 +1928,8 @@ def get_comfyui_queue_summary(request: Request, body: dict[str, Any] | None = No
 
 @router.post("/comfyui/lora-catalog")
 def get_comfyui_lora_catalog(request: Request, body: dict[str, Any] | None = None) -> dict[str, Any]:
-    _require_internal(request)
+    # Query-only toolbox endpoint: keep it publicly callable for Coze debugging/import flows.
+    # No write side effects.
     body = body if isinstance(body, dict) else {}
     executor_id = str(body.get("executorId") or "").strip() or None
     query = str(body.get("q") or "").strip() or None
@@ -2021,7 +2022,8 @@ def get_comfyui_lora_catalog_default(request: Request) -> dict[str, Any]:
 
 @router.post("/kie/models/list")
 def get_kie_models_list(request: Request, body: dict[str, Any] | None = None) -> dict[str, Any]:
-    _require_internal(request)
+    # Query-only toolbox endpoint: keep it publicly callable for Coze debugging/import flows.
+    # No write side effects.
     body = body if isinstance(body, dict) else {}
     media_type = str(body.get("mediaType") or "all").strip().lower()
     keyword = str(body.get("q") or "").strip() or None
@@ -2036,7 +2038,8 @@ def get_kie_models_list(request: Request, body: dict[str, Any] | None = None) ->
 
 @router.post("/kie/models/schema")
 def get_kie_model_schema(request: Request, body: dict[str, Any] | None = None) -> dict[str, Any]:
-    _require_internal(request)
+    # Query-only toolbox endpoint: keep it publicly callable for Coze debugging/import flows.
+    # No write side effects.
     body = body if isinstance(body, dict) else {}
     model_key = str(body.get("modelKey") or "").strip()
     if not model_key:
@@ -2049,7 +2052,8 @@ def get_kie_model_schema(request: Request, body: dict[str, Any] | None = None) -
 
 @router.post("/kie/models/{model_key}/schema")
 def get_kie_model_schema_by_path(request: Request, model_key: str) -> dict[str, Any]:
-    _require_internal(request)
+    # Query-only toolbox endpoint: keep it publicly callable for Coze debugging/import flows.
+    # No write side effects.
     normalized_key = _normalize_kie_model_key(model_key)
     if not normalized_key:
         raise HTTPException(status_code=400, detail="KIE_MODEL_KEY_REQUIRED")
