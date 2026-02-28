@@ -229,6 +229,7 @@ taskStatus = failed
 
 说明：
 - `list/default` 为零参数接口，专门给 Coze 工具箱使用，避免误传筛选参数导致导入报错。
+- 若 Coze 环境要求必须带参数，可传默认值：`{"mediaType":"all","status":"active"}`。
 - `list` 保留为高级筛选接口（开发调试可选）。
 
 单模型工具箱模式：

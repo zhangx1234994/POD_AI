@@ -61,6 +61,14 @@ def _truthy(value: Any) -> bool:
     return False
 
 
+def _drop_none_deep(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {k: _drop_none_deep(v) for k, v in value.items() if v is not None}
+    if isinstance(value, list):
+        return [_drop_none_deep(v) for v in value]
+    return value
+
+
 def _resolve_executor_info(executor_id: str | None) -> dict[str, Any]:
     if not isinstance(executor_id, str) or not executor_id.strip():
         return {}
@@ -548,7 +556,22 @@ def _build_openapi(*, podi_server: str | None = None) -> dict[str, Any]:
         "post": {
             "operationId": "podi_comfyui_lora_catalog_default",
             "summary": "PODI · ComfyUI LoRA 查询（零参数）",
-            "description": "直接返回已启用 LoRA 清单，无需任何输入参数。",
+            "description": "直接返回已启用 LoRA 清单。可空参调用，也支持传入可选默认参数。",
+            "requestBody": {
+                "required": False,
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "status": {"type": "string", "default": "active"},
+                                "baseModel": {"type": "string", "nullable": True},
+                                "limit": {"type": "integer", "default": 500},
+                            },
+                        }
+                    }
+                },
+            },
             "responses": {
                 "200": {
                     "description": "LoRA catalog result",
@@ -729,7 +752,30 @@ def _build_kie_catalog_openapi(request: Request) -> dict[str, Any]:
                 "post": {
                     "operationId": "podi_kie_models_list_default",
                     "summary": "PODI · KIE 模型列表（零参数）",
-                    "description": "返回启用中的 KIE 模型结构化列表（默认 all + active）。",
+                    "description": "返回启用中的 KIE 模型结构化列表（默认 all + active，可空参）。",
+                    "requestBody": {
+                        "required": False,
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "mediaType": {
+                                            "type": "string",
+                                            "enum": ["all", "image", "video"],
+                                            "default": "all",
+                                        },
+                                        "status": {
+                                            "type": "string",
+                                            "enum": ["all", "active", "preview"],
+                                            "default": "active",
+                                        },
+                                        "q": {"type": "string", "nullable": True},
+                                    },
+                                }
+                            }
+                        },
+                    },
                     "responses": {
                         "200": {
                             "description": "Model list",
@@ -2020,7 +2066,8 @@ def get_comfyui_lora_catalog(request: Request, body: dict[str, Any] | None = Non
             candidates = {name for name in candidates if lowered in name.lower()}
         untracked_names = sorted(candidates)[:limit]
 
-    return {
+    return _drop_none_deep(
+        {
         "executorId": executor_id,
         "baseUrl": base_url,
         "count": len(items),
@@ -2028,13 +2075,20 @@ def get_comfyui_lora_catalog(request: Request, body: dict[str, Any] | None = Non
         "loraNames": [item["fileName"] for item in items],
         "untrackedNames": untracked_names,
         "items": items,
-    }
+        }
+    )
 
 
 @router.post("/comfyui/lora-catalog/default")
-def get_comfyui_lora_catalog_default(request: Request) -> dict[str, Any]:
+def get_comfyui_lora_catalog_default(request: Request, body: dict[str, Any] | None = None) -> dict[str, Any]:
     """Zero-parameter LoRA catalog for Coze toolbox."""
-    return get_comfyui_lora_catalog(request, {"status": "active"})
+    body = body if isinstance(body, dict) else {}
+    defaults = {
+        "status": body.get("status") or "active",
+        "baseModel": body.get("baseModel"),
+        "limit": body.get("limit"),
+    }
+    return get_comfyui_lora_catalog(request, defaults)
 
 
 @router.post("/kie/models/list")
@@ -2050,14 +2104,22 @@ def get_kie_models_list(request: Request, body: dict[str, Any] | None = None) ->
     if status not in {"all", "active", "preview"}:
         status = "active"
     items = list_kie_models(media_type=media_type, keyword=keyword, status=status)
-    return {"count": len(items), "items": items}
+    return _drop_none_deep({"count": len(items), "items": items})
 
 
 @router.post("/kie/models/list/default")
-def get_kie_models_list_default(request: Request) -> dict[str, Any]:
+def get_kie_models_list_default(request: Request, body: dict[str, Any] | None = None) -> dict[str, Any]:
     # Zero-parameter model list for Coze toolbox.
-    items = list_kie_models(media_type="all", keyword=None, status="active")
-    return {"count": len(items), "items": items}
+    body = body if isinstance(body, dict) else {}
+    media_type = str(body.get("mediaType") or "all").strip().lower()
+    keyword = str(body.get("q") or "").strip() or None
+    status = str(body.get("status") or "active").strip().lower()
+    if media_type not in {"all", "image", "video"}:
+        media_type = "all"
+    if status not in {"all", "active", "preview"}:
+        status = "active"
+    items = list_kie_models(media_type=media_type, keyword=keyword, status=status)
+    return _drop_none_deep({"count": len(items), "items": items})
 
 
 @router.post("/kie/models/schema")

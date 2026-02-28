@@ -24,5 +24,15 @@ def test_match_lora_base_model_rejects_when_not_matched():
 def test_lora_openapi_exposes_zero_param_tool():
     resp = client.get("/api/coze/podi/comfyui/lora/openapi.json")
     assert resp.status_code == 200
-    paths = (resp.json().get("paths") or {}).keys()
+    paths = resp.json().get("paths") or {}
     assert "/api/coze/podi/comfyui/lora-catalog/default" in paths
+    assert "requestBody" in (paths["/api/coze/podi/comfyui/lora-catalog/default"].get("post") or {})
+
+
+def test_lora_default_supports_empty_json_payload():
+    resp = client.post("/api/coze/podi/comfyui/lora-catalog/default", json={})
+    assert resp.status_code == 200
+    data = resp.json()
+    # Coze validator is strict; optional string fields should be omitted instead of null.
+    assert "executorId" not in data or data["executorId"] is not None
+    assert "baseUrl" not in data or data["baseUrl"] is not None

@@ -193,9 +193,17 @@ curl http://127.0.0.1:8099/api/coze/podi/kie/execute/nano-banana-2-image-to-imag
 - 零参数直接返回 LoRA 目录（默认 `status=active`）。
 - 给 Coze 非技术同学直接用，不需要填筛选参数。
 
-**请求体**
+**请求体（可选）**
 
-- 无
+```json
+{
+  "status": "active",
+  "baseModel": "",
+  "limit": 500
+}
+```
+
+不传也可直接调用。
 
 **响应体**
 
@@ -264,7 +272,7 @@ curl http://127.0.0.1:8099/api/coze/podi/kie/execute/nano-banana-2-image-to-imag
 
 | 接口 | 是否必填请求体 | 参数 |
 | --- | --- | --- |
-| `POST /api/coze/podi/kie/models/list/default` | 否 | 无（固定 `mediaType=all,status=active`） |
+| `POST /api/coze/podi/kie/models/list/default` | 否 | `mediaType`、`status`、`q`（可不传，默认 `all+active`） |
 | `POST /api/coze/podi/kie/models/list` | 否 | `mediaType`、`status`、`q` |
 | `POST /api/coze/podi/kie/models/schema` | 是 | `modelKey` |
 | `POST /api/coze/podi/kie/models/{model_key}/schema` | 否 | 无（模型写在 URL） |
@@ -293,9 +301,17 @@ curl http://127.0.0.1:8099/api/coze/podi/kie/execute/nano-banana-2-image-to-imag
 - 零参数返回结构化模型列表（默认 `mediaType=all`、`status=active`）。
 - 推荐 Coze 工具箱直接使用这个接口，避免参数配置错误。
 
-**请求体**
+**请求体（可选）**
 
-- 无
+```json
+{
+  "mediaType": "all",
+  "status": "active",
+  "q": ""
+}
+```
+
+不传也可直接调用。
 
 **响应体（示例）**
 

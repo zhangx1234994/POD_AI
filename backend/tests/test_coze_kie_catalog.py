@@ -18,7 +18,7 @@ def test_kie_catalog_openapi_public_and_contains_query_tools():
     assert "/api/coze/podi/kie/models/list/default" in paths
     assert "/api/coze/podi/kie/models/schema" in paths
     default_list = paths["/api/coze/podi/kie/models/list/default"]["post"]
-    assert "requestBody" not in default_list
+    assert "requestBody" in default_list
 
 
 def test_kie_single_model_openapi_contains_zero_param_schema_tool():
@@ -49,6 +49,8 @@ def test_kie_models_list_default_without_payload():
     assert resp.status_code == 200
     data = resp.json()
     assert data["count"] > 0
+    # Coze validator is strict; response should not contain null values.
+    assert all(item.get("abilityKey") is not None or "abilityKey" not in item for item in data.get("items") or [])
 
 
 def test_kie_models_schema_returns_coze_suggestion():
