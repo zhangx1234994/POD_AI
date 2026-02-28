@@ -38,8 +38,8 @@
   - `POST /api/coze/podi/comfyui/lora-catalog/default`（零参数，推荐）
   - `POST /api/coze/podi/comfyui/lora-catalog`（高级筛选）
 - 参数明细：
-  - `lora-catalog/default`：可空参；也支持 `status/baseModel/limit`（均可选）
-  - `lora-catalog`：`executorId`（可选），`baseModel`（可选），`q`（可选），`status`（可选），`installedOnly`（可选），`includeUntracked`（可选），`limit`（可选）
+  - `lora-catalog/default`：可空参；也支持 `status/baseModel/limit/functionalOnly`（均可选，`functionalOnly` 默认 true）
+  - `lora-catalog`：`executorId`（可选），`baseModel`（可选），`q`（可选），`status`（可选），`installedOnly`（可选），`includeUntracked`（可选），`limit`（可选），`functionalOnly`（可选）
 
 ## 5) KIE 工具箱（执行类）
 

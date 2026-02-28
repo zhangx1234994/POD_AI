@@ -200,7 +200,8 @@ curl http://127.0.0.1:8099/api/coze/podi/kie/execute/nano-banana-2-image-to-imag
 {
   "status": "active",
   "baseModel": "",
-  "limit": 500
+  "limit": 500,
+  "functionalOnly": true
 }
 ```
 
@@ -219,6 +220,7 @@ curl http://127.0.0.1:8099/api/coze/podi/kie/execute/nano-banana-2-image-to-imag
 - 独立查询当前 LoRA 目录（给开发/工作流工具箱直接使用）。
 - 可按 `baseModel`（基座模型）筛选，避免模型与 LoRA 不匹配。
 - 传 `executorId` 时会返回该服务器安装状态（`installed=true/false`）。
+- `functionalOnly=true` 时仅返回被当前能力/测评工作流使用的 LoRA（推荐）。
 
 **请求体（示例）**
 
@@ -230,7 +232,8 @@ curl http://127.0.0.1:8099/api/coze/podi/kie/execute/nano-banana-2-image-to-imag
   "status": "active",
   "installedOnly": false,
   "includeUntracked": true,
-  "limit": 500
+  "limit": 500,
+  "functionalOnly": false
 }
 ```
 

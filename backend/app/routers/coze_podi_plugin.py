@@ -32,6 +32,7 @@ from app.services.ability_task_service import get_ability_task_service
 from app.services.task_id_codec import decode_task_id, encode_task_id
 from app.services.executor_seed import ensure_default_executors
 from app.services.auth_service import auth_service
+from app.services.comfyui_lora_catalog_service import collect_functional_lora_names
 from app.services.executors.registry import registry
 from app.services.integration_test import integration_test_service
 
@@ -539,6 +540,11 @@ def _build_openapi(*, podi_server: str | None = None) -> dict[str, Any]:
                                 "installedOnly": {"type": "boolean", "nullable": True},
                                 "includeUntracked": {"type": "boolean", "nullable": True},
                                 "limit": {"type": "integer", "nullable": True},
+                                "functionalOnly": {
+                                    "type": "boolean",
+                                    "nullable": True,
+                                    "description": "仅返回功能可用 LoRA。默认 false。",
+                                },
                             },
                         }
                     }
@@ -578,6 +584,11 @@ def _build_openapi(*, podi_server: str | None = None) -> dict[str, Any]:
                                     "type": "integer",
                                     "default": 500,
                                     "description": "返回上限 Limit，默认 500，最大 5000。",
+                                },
+                                "functionalOnly": {
+                                    "type": "boolean",
+                                    "default": True,
+                                    "description": "仅返回功能可用 LoRA。默认 true。",
                                 },
                             },
                         }
@@ -2023,6 +2034,7 @@ def get_comfyui_lora_catalog(request: Request, body: dict[str, Any] | None = Non
     base_model = str(body.get("baseModel") or "").strip() or None
     installed_only = _truthy(body.get("installedOnly"))
     include_untracked = _truthy(body.get("includeUntracked"))
+    functional_only = _truthy(body.get("functionalOnly"))
     raw_limit = body.get("limit")
     try:
         limit = int(raw_limit) if raw_limit is not None else 500
@@ -2030,6 +2042,7 @@ def get_comfyui_lora_catalog(request: Request, body: dict[str, Any] | None = Non
         limit = 500
     limit = max(1, min(limit, 5000))
 
+    functional_names: set[str] = set()
     with get_session() as session:
         rows: list[ComfyuiLora] = []
         try:
@@ -2040,8 +2053,11 @@ def get_comfyui_lora_catalog(request: Request, body: dict[str, Any] | None = Non
                 keyword = f"%{query}%"
                 stmt = stmt.where(or_(ComfyuiLora.file_name.like(keyword), ComfyuiLora.display_name.like(keyword)))
             rows = session.execute(stmt.order_by(ComfyuiLora.updated_at.desc()).limit(limit)).scalars().all()
+            if functional_only:
+                functional_names = collect_functional_lora_names(session)
         except SQLAlchemyError:
             rows = []
+            functional_names = set()
 
     installed_set: set[str] = set()
     base_url: str | None = None
@@ -2058,6 +2074,8 @@ def get_comfyui_lora_catalog(request: Request, body: dict[str, Any] | None = Non
     items: list[dict[str, Any]] = []
     tracked_files: set[str] = set()
     for row in rows:
+        if functional_only and functional_names and row.file_name not in functional_names:
+            continue
         if not _match_lora_base_model(row, base_model):
             continue
         installed = row.file_name in installed_set if executor_id else False
@@ -2110,6 +2128,7 @@ def get_comfyui_lora_catalog_default(request: Request, body: dict[str, Any] | No
         "status": body.get("status") or "active",
         "baseModel": body.get("baseModel"),
         "limit": body.get("limit"),
+        "functionalOnly": body.get("functionalOnly", True),
     }
     return get_comfyui_lora_catalog(request, defaults)
 

@@ -33,6 +33,7 @@ def test_lora_openapi_exposes_zero_param_tool():
     assert props["status"]["description"]
     assert props["baseModel"]["description"]
     assert props["limit"]["description"]
+    assert props["functionalOnly"]["description"]
 
 
 def test_lora_default_supports_empty_json_payload():
