@@ -66,6 +66,7 @@ docs/
 ├── comfyui-routing-technical.md
 ├── coze
 │   ├── toolbox-contracts.md
+│   ├── toolbox-inventory.md
 │   └── workflows.md
 ├── coze-integration.md
 ├── coze-plugin-podi.md
@@ -85,6 +86,7 @@ docs/
 ├── smart-polling-mechanism.md
 ├── standards
 │   ├── abstraction-and-decoupling.md
+│   ├── coze-toolbox-development-standard.md
 │   ├── error-catalog.md
 │   ├── error-contract.md
 │   ├── interface-consistency.md
@@ -135,6 +137,7 @@ docs/
 - `docs/standards/abstraction-and-decoupling.md`：抽象与解耦准则
 - `docs/standards/platform-design-principles.md`：平台设计准则（稳定性优先）
 - `docs/standards/self-check-sop.md`：自检流程规范
+- `docs/standards/coze-toolbox-development-standard.md`：Coze 工具箱开发准则
 - `docs/standards/issue-improvement-log.md`：问题与优化记录
 
 ### 任务流转与调度
@@ -159,6 +162,7 @@ docs/
 - `docs/coze-plugin-podi.md`：PODI × Coze 插件接入
 - `docs/COZE_WORKFLOWS.md`：Coze 工作流说明
 - `docs/coze/toolbox-contracts.md`：工具箱契约说明
+- `docs/coze/toolbox-inventory.md`：工具箱清单（最新）
 - `docs/coze/workflows.md`：Coze 工作流配置示例
 
 ### 管理端与 UI
@@ -177,4 +181,4 @@ docs/
 2. 规划/草案类文档请放入 `docs/wip/` 或在标题标明“计划”。
 3. 重大变更请同步更新 `docs/BUSINESS_MODEL.md` 与 `docs/architecture.md`。
 
-*最后更新: 2026-02-26*
+*最后更新: 2026-03-02*
