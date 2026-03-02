@@ -60,6 +60,7 @@
    - `docs/api/modules/coze.md`
    - `docs/coze/toolbox-inventory.md`
    - `docs/coze/toolbox-contracts.md`
+   - `docs/README.md`（总索引）
 6. 回归测试通过（至少覆盖 Coze/KIE/ComfyUI 相关测试集）。
 
 ## 8. 禁止事项
@@ -85,3 +86,4 @@
   - `aspect_ratio`
   - `resolution`
   - 多图上限与字段名（`url/image_urls`）
+  - 若模型不支持该参数，必须明确“忽略/不生效”

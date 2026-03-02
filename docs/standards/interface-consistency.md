@@ -28,6 +28,7 @@
 - 约束：
   - 不得返回 `success/completed/done` 作为任务状态
   - 失败必须同时提供 `errorMessage`（可空但推荐）
+  - **上游失败不可标成功**：若原始响应明确失败（如 KIE `state=fail` / `status=failed`），必须落库为 `failed`。
 
 ### 1.2 能力调用日志（`/api/admin/abilities/logs*`）
 
@@ -100,6 +101,7 @@
   - 预览可见：`stored_url/result_assets` 已回填
 - 展示层必须区分：
   - 成功但无预览：显示“结果回填中”，禁止直接显示 `—`
+  - **JSON 能力不走图片回填**：若输出类型为 `json_output`，直接渲染结构化 JSON。
 
 ---
 
@@ -112,6 +114,18 @@
 3. `response_payload.assets[*]`
 4. `response_payload.images[*]`
 5. `response_payload.resultUrls[] / imageUrls[] / imageUrl`
+
+---
+
+## 4.1 输出类型归类（强制）
+
+所有工作流必须明确归类输出类型：
+
+- `callback_task_id`：`output` 为 task id，统一通过 `/api/coze/podi/tasks/get` 轮询结果
+- `image_url`：直接输出图片 URL（无需回调）
+- `json_output`：直接输出结构化 JSON（如 `items/lora_names`、标签结果）
+
+评测端/管理端展示层必须按上述类型选择渲染策略。
 
 ---
 
