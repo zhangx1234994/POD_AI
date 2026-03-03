@@ -13,6 +13,7 @@
 | `docs/comfyui/` | ComfyUI 维护 | 工作流、节点映射、运维说明 |
 | `docs/coze/` | Coze 集成 | 插件/工具箱/工作流规范 |
 | `docs/eval/` | 评测平台 | 评测站点功能说明 |
+| `docs/strategy/` | 战略规划 | 战略一页纸、主待办池、上下文清理 |
 | `docs/retrospectives/` | 复盘记录 | 复盘纪要与行动项 |
 | `docs/standards/` | 工程规范 | 错误契约、SOP、架构准则 |
 | `docs/testing/` | 测试计划 | 测试计划与用例规范 |
@@ -84,6 +85,11 @@ docs/
 │   ├── 2026-02-13.md
 │   └── 2026-02-21.md
 ├── smart-polling-mechanism.md
+├── strategy
+│   ├── README.md
+│   ├── context-cleanup-policy.md
+│   ├── strategy-one-page-2026q2.md
+│   └── todo-master-2026q2.md
 ├── standards
 │   ├── abstraction-and-decoupling.md
 │   ├── coze-toolbox-development-standard.md
@@ -156,6 +162,12 @@ docs/
 - `docs/comfyui-routing-business.md`：ComfyUI 业务路由说明
 - `docs/comfyui-routing-technical.md`：ComfyUI 技术路由说明
 
+### 战略规划（唯一入口）
+- `docs/strategy/README.md`：战略工作区说明
+- `docs/strategy/strategy-one-page-2026q2.md`：战略一页纸（目标/KPI/里程碑）
+- `docs/strategy/todo-master-2026q2.md`：唯一待办池（P0/P1/P2）
+- `docs/strategy/context-cleanup-policy.md`：上下文清理与归档规则
+
 ### Coze 集成
 - `docs/COZE_INTEGRATION_GUIDE.md`：Coze 集成指南
 - `docs/coze-integration.md`：Coze 集成说明（现行）
@@ -181,4 +193,4 @@ docs/
 2. 规划/草案类文档请放入 `docs/wip/` 或在标题标明“计划”。
 3. 重大变更请同步更新 `docs/BUSINESS_MODEL.md` 与 `docs/architecture.md`。
 
-*最后更新: 2026-03-02*
+*最后更新: 2026-03-04*
