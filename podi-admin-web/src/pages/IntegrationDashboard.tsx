@@ -289,13 +289,27 @@ const normalizeDesktopArch = (value?: string | null): string => {
   return raw;
 };
 
-const comfyuiTabHelpText: Record<string, string> = {
+type ComfyuiManageTab = 'lora' | 'templates' | 'servers' | 'assets' | 'agents' | 'desktop' | 'manifests' | 'tasks' | 'alerts';
+
+const comfyuiTabMeta: Record<ComfyuiManageTab, { label: string; group: '资源目录' | '同步发布' | '节点运维' }> = {
+  lora: { label: '素材库', group: '资源目录' },
+  assets: { label: '资源清单', group: '资源目录' },
+  templates: { label: '模板管理', group: '资源目录' },
+  servers: { label: '服务器', group: '同步发布' },
+  manifests: { label: '清单发布（版本）', group: '同步发布' },
+  tasks: { label: '下发任务（执行记录）', group: '同步发布' },
+  agents: { label: '代理服务', group: '节点运维' },
+  alerts: { label: '告警', group: '节点运维' },
+  desktop: { label: '桌面端部署', group: '节点运维' },
+};
+
+const comfyuiTabHelpText: Record<ComfyuiManageTab, string> = {
   lora: '素材库：维护 LoRA 条目，便于业务人员按名称选择。',
   assets: '资源清单：维护模型/插件/ComfyUI 版本目录（下载地址、状态）。',
   templates: '模板管理：维护可复用的工作流模板与节点映射。',
   servers: '服务器：查看各节点与基线的差异，用于定位“哪台机缺资源”。',
-  manifests: '清单：定义某一角色服务器应达到的目标版本（发布标准）。',
-  tasks: '任务：把“清单/动作”下发到代理服务，并跟踪提交与回执。',
+  manifests: '清单发布（版本）：定义角色服务器应达到的目标版本（发布标准）。',
+  tasks: '下发任务（执行记录）：把“清单/动作”下发到代理服务，并跟踪提交与回执。',
   agents: '代理服务：管理可接入节点（地址、角色、启停白名单）。',
   alerts: '告警：查看节点异常上报（磁盘、离线、同步失败等）。',
   desktop: '桌面端部署：发布/下载安装包，查看各节点升级状态。',
@@ -1735,9 +1749,7 @@ export function IntegrationDashboard({
   const [comfyQueueSummaryUpdatedAt, setComfyQueueSummaryUpdatedAt] = useState<string | null>(null);
   const [comfyLoraSelectCache, setComfyLoraSelectCache] = useState<Record<string, ComfyuiLora[]>>({});
   const [comfyShowTestNodes, setComfyShowTestNodes] = useState(false);
-  const [comfyuiManageTab, setComfyuiManageTab] = useState<
-    'lora' | 'templates' | 'servers' | 'assets' | 'agents' | 'desktop' | 'manifests' | 'tasks' | 'alerts'
-  >('lora');
+  const [comfyuiManageTab, setComfyuiManageTab] = useState<ComfyuiManageTab>('lora');
   const [comfyAgentList, setComfyAgentList] = useState<ComfyuiAgent[]>([]);
   const [comfyAgentLoading, setComfyAgentLoading] = useState(false);
   const [comfyAgentError, setComfyAgentError] = useState<string | null>(null);
@@ -7248,6 +7260,7 @@ const normalizeErrorMessage = (message: string): string => {
     () => visibleNavItems.find((item) => item.id === activeNav) || navItems.find((item) => item.id === activeNav),
     [activeNav, visibleNavItems],
   );
+  const activeComfyTabMeta = comfyuiTabMeta[comfyuiManageTab];
   const navSelectOptions = useMemo(
     () =>
       visibleNavItems.map((item) => ({
@@ -7296,9 +7309,9 @@ const normalizeErrorMessage = (message: string): string => {
       headerSubtitle={activeNavMeta?.description || '按模块管理执行节点、能力、任务与稳定性。'}
       contentRef={contentRef}
       headerActions={
-        <Space>
+        <Space align="center" size="small" style={{ flexWrap: 'wrap', justifyContent: 'flex-end', width: '100%' }}>
           <Select
-            style={{ width: 220 }}
+            style={{ width: 'min(100%, 220px)' }}
             size="small"
             value={activeNav}
             options={navSelectOptions}
@@ -7330,6 +7343,7 @@ const normalizeErrorMessage = (message: string): string => {
         </Space>
       }
     >
+      <div className="podi-admin-dashboard">
       {loadErrors.length > 0 ? (
         <div style={{ marginBottom: 16 }}>
           <ErrorState title="部分数据加载失败">
@@ -9642,7 +9656,7 @@ const normalizeErrorMessage = (message: string): string => {
               </Space>
 
               <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                <div style={{ width: 420 }}>
+                <div style={{ width: 'min(100%, 420px)' }}>
                   <Select
                     value={selectedAbilityId ?? ''}
                     onChange={(v) => setSelectedAbilityId(String(v) || null)}
@@ -9696,7 +9710,10 @@ const normalizeErrorMessage = (message: string): string => {
         description="维护 ComfyUI 侧 LoRA/基座模型与工作流模板，并与能力配置保持一致。"
       >
         <Space direction="vertical" size="small" style={{ marginBottom: 16, width: '100%' }}>
-          <Space align="center" size="small">
+          <div className="rounded-2xl border border-slate-200/70 bg-slate-50/70 px-3 py-2 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-300">
+            当前模块：<strong>{activeComfyTabMeta.label}</strong>（{activeComfyTabMeta.group}）
+          </div>
+          <Space align="center" size="small" style={{ flexWrap: 'wrap' }}>
             <Typography.Text theme="secondary">资源目录：</Typography.Text>
             <Button
               variant={comfyuiManageTab === 'lora' ? 'outline' : 'text'}
@@ -9720,7 +9737,7 @@ const normalizeErrorMessage = (message: string): string => {
               模板管理
             </Button>
           </Space>
-          <Space align="center" size="small">
+          <Space align="center" size="small" style={{ flexWrap: 'wrap' }}>
             <Typography.Text theme="secondary">同步发布：</Typography.Text>
             <Button
               variant={comfyuiManageTab === 'servers' ? 'outline' : 'text'}
@@ -9734,18 +9751,18 @@ const normalizeErrorMessage = (message: string): string => {
               theme={comfyuiManageTab === 'manifests' ? 'primary' : 'default'}
               onClick={() => setComfyuiManageTab('manifests')}
             >
-              清单发布
+              清单发布（版本）
             </Button>
             <Button
               variant={comfyuiManageTab === 'tasks' ? 'outline' : 'text'}
               theme={comfyuiManageTab === 'tasks' ? 'primary' : 'default'}
               onClick={() => setComfyuiManageTab('tasks')}
             >
-              下发任务
+              下发任务（执行记录）
             </Button>
           </Space>
-          <Space align="center" size="small" style={{ justifyContent: 'space-between', width: '100%' }}>
-            <Space align="center" size="small">
+          <Space align="center" size="small" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+            <Space align="center" size="small" style={{ flexWrap: 'wrap' }}>
               <Typography.Text theme="secondary">节点运维：</Typography.Text>
               <Button
                 variant={comfyuiManageTab === 'agents' ? 'outline' : 'text'}
@@ -9788,7 +9805,7 @@ const normalizeErrorMessage = (message: string): string => {
             <Space direction="vertical" size="middle" style={{ width: '100%' }}>
               <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
                 <Space align="center" size="middle">
-                  <div style={{ width: 260 }}>
+                  <div style={{ width: 'min(100%, 260px)' }}>
                     <Select
                       value={comfyLoraExecutorId}
                       onChange={(v) => setComfyLoraExecutorId(String(v))}
@@ -10757,7 +10774,7 @@ const normalizeErrorMessage = (message: string): string => {
               <Space direction="vertical" size="middle" style={{ width: '100%' }}>
                 <Space align="center" size="small" style={{ justifyContent: 'space-between', width: '100%' }}>
                   <Space align="center" size="small">
-                    <div style={{ width: 280 }}>
+                    <div style={{ width: 'min(100%, 280px)' }}>
                       <Select
                         value={comfyBaselineExecutor?.id || ''}
                         onChange={(v) => setComfyBaselineExecutorId(String(v))}
@@ -11512,7 +11529,7 @@ const normalizeErrorMessage = (message: string): string => {
                 theme="info"
                 message={`当前中台地址：${comfyDesktopCenterUrl}（安装包内已固定中台地址，安装后自动握手接入）`}
               />
-              <div style={{ width: 440 }}>
+              <div style={{ width: 'min(100%, 440px)' }}>
                 <Typography.Text theme="secondary">选择安装版本（Windows / x64）</Typography.Text>
                 <Select
                   value={comfyDesktopInstallReleaseId}
@@ -14288,6 +14305,7 @@ const normalizeErrorMessage = (message: string): string => {
           </Space>
         ) : null}
       </Dialog>
+      </div>
     </AdminShell>
   );
 }

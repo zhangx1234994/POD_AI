@@ -18,7 +18,8 @@ export function AdminShell({
   const [navKeyword, setNavKeyword] = useState("");
   const [viewportWidth, setViewportWidth] = useState<number>(() => (typeof window === "undefined" ? 1440 : window.innerWidth));
   const compactNav = viewportWidth < 1280;
-  const asideWidth = compactNav ? 208 : 260;
+  const narrowNav = viewportWidth < 1120;
+  const asideWidth = narrowNav ? 176 : compactNav ? 200 : 248;
 
   useEffect(() => {
     const onResize = () => setViewportWidth(window.innerWidth);
@@ -39,8 +40,8 @@ export function AdminShell({
   const hasNavResult = coreItems.length > 0 || advancedItems.length > 0;
 
   return (
-    <Layout className="podi-shell" style={{ height: "100vh" }}>
-      <Layout.Aside className="podi-shell__aside" style={{ width: asideWidth, padding: compactNav ? 12 : 16, overflow: "auto" }}>
+    <Layout className="podi-shell" style={{ height: "100vh", minWidth: 0 }}>
+      <Layout.Aside className="podi-shell__aside" style={{ width: asideWidth, padding: compactNav ? 10 : 14, overflow: "auto" }}>
         <Space direction="vertical" size="small" style={{ width: "100%" }}>
           <div>
             {!compactNav ? <Typography.Text theme="secondary">控制台</Typography.Text> : null}
@@ -90,18 +91,18 @@ export function AdminShell({
         </Space>
       </Layout.Aside>
 
-      <Layout>
-        <Layout.Header className="podi-shell__header" style={{ padding: compactNav ? "0 12px" : "0 16px" }}>
-          <Space align="center" style={{ justifyContent: "space-between", width: "100%", height: "100%" }}>
-            <Space direction="vertical" size={2}>
+      <Layout style={{ minWidth: 0 }}>
+        <Layout.Header className="podi-shell__header" style={{ padding: compactNav ? "8px 12px" : "8px 16px", height: "auto" }}>
+          <div className="podi-shell__header-inner">
+            <Space direction="vertical" size={2} style={{ minWidth: 0 }}>
               <Typography.Text strong>{headerTitle}</Typography.Text>
               {headerSubtitle ? <Typography.Text theme="secondary">{headerSubtitle}</Typography.Text> : null}
             </Space>
-            {headerActions}
-          </Space>
+            {headerActions ? <div className="podi-shell__header-actions">{headerActions}</div> : null}
+          </div>
         </Layout.Header>
-        <Layout.Content className="podi-shell__content" style={{ padding: compactNav ? 12 : 16, overflow: "hidden" }}>
-          <div ref={contentRef} style={{ height: "100%", overflow: "auto" }}>
+        <Layout.Content className="podi-shell__content" style={{ padding: compactNav ? 12 : 16, overflow: "hidden", minWidth: 0 }}>
+          <div className="podi-shell__content-scroll" ref={contentRef}>
             {children}
           </div>
         </Layout.Content>

@@ -40,6 +40,32 @@ html.t-theme-dark {
   background: var(--podi-surface);
 }
 
+.podi-shell .t-layout {
+  min-width: 0;
+}
+
+.podi-shell__header-inner {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.podi-shell__header-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex: 1 1 420px;
+  min-width: min(100%, 320px);
+}
+
+.podi-shell__content-scroll {
+  height: 100%;
+  overflow: auto;
+  min-width: 0;
+}
+
 .podi-shell .t-table th,
 .podi-shell .t-table td {
   word-break: break-word;
@@ -116,6 +142,11 @@ html.t-theme-dark {
   padding: var(--podi-space-3) var(--podi-space-4);
 }
 
+.podi-action-bar > .t-space {
+  flex-wrap: wrap;
+  row-gap: var(--podi-space-2);
+}
+
 .podi-empty-state {
   border: 1px dashed var(--td-border-level-2-color);
   border-radius: var(--podi-radius-md);
@@ -140,5 +171,27 @@ html.t-theme-dark {
   }
   to {
     background-position: -200% 0;
+  }
+}
+
+@media (max-width: 1366px) {
+  .podi-admin-dashboard .t-col-14,
+  .podi-admin-dashboard .t-col-12,
+  .podi-admin-dashboard .t-col-10,
+  .podi-admin-dashboard .t-col-8,
+  .podi-admin-dashboard .t-col-6,
+  .podi-admin-dashboard .t-col-4 {
+    flex: 0 0 100%;
+    max-width: 100%;
+  }
+
+  .podi-shell__header-actions {
+    justify-content: flex-start;
+    min-width: 100%;
+  }
+
+  .podi-shell__header-actions > .t-space {
+    width: 100%;
+    flex-wrap: wrap;
   }
 }
