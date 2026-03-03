@@ -290,8 +290,9 @@ const normalizeDesktopArch = (value?: string | null): string => {
 };
 
 type ComfyuiManageTab = 'lora' | 'templates' | 'servers' | 'assets' | 'agents' | 'desktop' | 'manifests' | 'tasks' | 'alerts';
+type ComfyuiTabGroup = '资源目录' | '同步发布' | '节点运维';
 
-const comfyuiTabMeta: Record<ComfyuiManageTab, { label: string; group: '资源目录' | '同步发布' | '节点运维' }> = {
+const comfyuiTabMeta: Record<ComfyuiManageTab, { label: string; group: ComfyuiTabGroup }> = {
   lora: { label: '素材库', group: '资源目录' },
   assets: { label: '资源清单', group: '资源目录' },
   templates: { label: '模板管理', group: '资源目录' },
@@ -302,6 +303,8 @@ const comfyuiTabMeta: Record<ComfyuiManageTab, { label: string; group: '资源�
   alerts: { label: '告警', group: '节点运维' },
   desktop: { label: '桌面端部署', group: '节点运维' },
 };
+const comfyuiTabOrder: ComfyuiManageTab[] = ['lora', 'assets', 'templates', 'servers', 'manifests', 'tasks', 'agents', 'alerts', 'desktop'];
+const comfyuiTabGroupOrder: ComfyuiTabGroup[] = ['资源目录', '同步发布', '节点运维'];
 
 const comfyuiTabHelpText: Record<ComfyuiManageTab, string> = {
   lora: '素材库：维护 LoRA 条目，便于业务人员按名称选择。',
@@ -7261,6 +7264,23 @@ const normalizeErrorMessage = (message: string): string => {
     [activeNav, visibleNavItems],
   );
   const activeComfyTabMeta = comfyuiTabMeta[comfyuiManageTab];
+  const comfyuiGroupMap = useMemo(() => {
+    const map: Record<ComfyuiTabGroup, ComfyuiManageTab[]> = {
+      资源目录: [],
+      同步发布: [],
+      节点运维: [],
+    };
+    for (const tab of comfyuiTabOrder) {
+      map[comfyuiTabMeta[tab].group].push(tab);
+    }
+    return map;
+  }, []);
+  const activeComfyGroupTabs = comfyuiGroupMap[activeComfyTabMeta.group];
+  const activeComfyTabIndex = comfyuiTabOrder.indexOf(comfyuiManageTab);
+  const prevComfyTab = activeComfyTabIndex > 0 ? comfyuiTabOrder[activeComfyTabIndex - 1] : null;
+  const nextComfyTab = activeComfyTabIndex >= 0 && activeComfyTabIndex < comfyuiTabOrder.length - 1
+    ? comfyuiTabOrder[activeComfyTabIndex + 1]
+    : null;
   const navSelectOptions = useMemo(
     () =>
       visibleNavItems.map((item) => ({
@@ -9713,84 +9733,57 @@ const normalizeErrorMessage = (message: string): string => {
           <div className="rounded-2xl border border-slate-200/70 bg-slate-50/70 px-3 py-2 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-300">
             当前模块：<strong>{activeComfyTabMeta.label}</strong>（{activeComfyTabMeta.group}）
           </div>
-          <Space align="center" size="small" style={{ flexWrap: 'wrap' }}>
-            <Typography.Text theme="secondary">资源目录：</Typography.Text>
-            <Button
-              variant={comfyuiManageTab === 'lora' ? 'outline' : 'text'}
-              theme={comfyuiManageTab === 'lora' ? 'primary' : 'default'}
-              onClick={() => setComfyuiManageTab('lora')}
-            >
-              素材库
-            </Button>
-            <Button
-              variant={comfyuiManageTab === 'assets' ? 'outline' : 'text'}
-              theme={comfyuiManageTab === 'assets' ? 'primary' : 'default'}
-              onClick={() => setComfyuiManageTab('assets')}
-            >
-              资源清单
-            </Button>
-            <Button
-              variant={comfyuiManageTab === 'templates' ? 'outline' : 'text'}
-              theme={comfyuiManageTab === 'templates' ? 'primary' : 'default'}
-              onClick={() => setComfyuiManageTab('templates')}
-            >
-              模板管理
-            </Button>
-          </Space>
-          <Space align="center" size="small" style={{ flexWrap: 'wrap' }}>
-            <Typography.Text theme="secondary">同步发布：</Typography.Text>
-            <Button
-              variant={comfyuiManageTab === 'servers' ? 'outline' : 'text'}
-              theme={comfyuiManageTab === 'servers' ? 'primary' : 'default'}
-              onClick={() => setComfyuiManageTab('servers')}
-            >
-              服务器
-            </Button>
-            <Button
-              variant={comfyuiManageTab === 'manifests' ? 'outline' : 'text'}
-              theme={comfyuiManageTab === 'manifests' ? 'primary' : 'default'}
-              onClick={() => setComfyuiManageTab('manifests')}
-            >
-              清单发布（版本）
-            </Button>
-            <Button
-              variant={comfyuiManageTab === 'tasks' ? 'outline' : 'text'}
-              theme={comfyuiManageTab === 'tasks' ? 'primary' : 'default'}
-              onClick={() => setComfyuiManageTab('tasks')}
-            >
-              下发任务（执行记录）
-            </Button>
-          </Space>
-          <Space align="center" size="small" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
-            <Space align="center" size="small" style={{ flexWrap: 'wrap' }}>
-              <Typography.Text theme="secondary">节点运维：</Typography.Text>
-              <Button
-                variant={comfyuiManageTab === 'agents' ? 'outline' : 'text'}
-                theme={comfyuiManageTab === 'agents' ? 'primary' : 'default'}
-                onClick={() => setComfyuiManageTab('agents')}
-              >
-                代理服务
-              </Button>
-              <Button
-                variant={comfyuiManageTab === 'alerts' ? 'outline' : 'text'}
-                theme={comfyuiManageTab === 'alerts' ? 'primary' : 'default'}
-                onClick={() => setComfyuiManageTab('alerts')}
-              >
-                告警
-              </Button>
-              <Button
-                variant={comfyuiManageTab === 'desktop' ? 'outline' : 'text'}
-                theme={comfyuiManageTab === 'desktop' ? 'primary' : 'default'}
-                onClick={() => setComfyuiManageTab('desktop')}
-              >
-                桌面端部署
-              </Button>
+          <div className="rounded-2xl border border-slate-200/70 bg-white px-3 py-3 dark:border-slate-800 dark:bg-slate-950/40">
+            <Space align="center" size="small" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+              <Space align="center" size="small" style={{ flexWrap: 'wrap' }}>
+                <div style={{ width: 'min(100%, 180px)' }}>
+                  <Typography.Text theme="secondary">分类</Typography.Text>
+                  <Select
+                    value={activeComfyTabMeta.group}
+                    onChange={(value) => {
+                      const group = String(value) as ComfyuiTabGroup;
+                      const first = comfyuiGroupMap[group]?.[0];
+                      if (first) setComfyuiManageTab(first);
+                    }}
+                    options={comfyuiTabGroupOrder.map((group) => ({ label: group, value: group }))}
+                  />
+                </div>
+                <div style={{ width: 'min(100%, 320px)' }}>
+                  <Typography.Text theme="secondary">模块</Typography.Text>
+                  <Select
+                    value={comfyuiManageTab}
+                    onChange={(value) => setComfyuiManageTab(String(value) as ComfyuiManageTab)}
+                    options={activeComfyGroupTabs.map((tab) => ({
+                      label: comfyuiTabMeta[tab].label,
+                      value: tab,
+                    }))}
+                  />
+                </div>
+                <Space align="center" size="small" style={{ paddingTop: 20 }}>
+                  <Button
+                    size="small"
+                    variant="outline"
+                    disabled={!prevComfyTab}
+                    onClick={() => prevComfyTab && setComfyuiManageTab(prevComfyTab)}
+                  >
+                    上一模块
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="outline"
+                    disabled={!nextComfyTab}
+                    onClick={() => nextComfyTab && setComfyuiManageTab(nextComfyTab)}
+                  >
+                    下一模块
+                  </Button>
+                </Space>
+              </Space>
+              <Space align="center" size="small" style={{ paddingTop: 20 }}>
+                <Switch value={comfyShowTestNodes} onChange={(v) => setComfyShowTestNodes(Boolean(v))} />
+                <Typography.Text theme="secondary">显示测试节点</Typography.Text>
+              </Space>
             </Space>
-            <Space align="center" size="small">
-              <Switch value={comfyShowTestNodes} onChange={(v) => setComfyShowTestNodes(Boolean(v))} />
-              <Typography.Text theme="secondary">显示测试节点</Typography.Text>
-            </Space>
-          </Space>
+          </div>
           <Alert
             theme="info"
             message={
