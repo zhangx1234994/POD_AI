@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Input, Layout, Menu, Space, Tooltip, Typography } from "tdesign-react";
+import { Button, Input, Layout, Menu, Space, Tooltip, Typography } from "tdesign-react";
 import type { AppShellProps } from "../types/ui";
 
 export function AdminShell({
@@ -15,10 +15,15 @@ export function AdminShell({
   contentRef,
   children,
 }: AppShellProps) {
+  const NAV_COMPACT_STORAGE_KEY = "podi.admin.nav.compact";
   const [navKeyword, setNavKeyword] = useState("");
   const [viewportWidth, setViewportWidth] = useState<number>(() => (typeof window === "undefined" ? 1440 : window.innerWidth));
-  const compactNav = viewportWidth < 1280;
-  const narrowNav = viewportWidth < 1120;
+  const [manualCompactNav, setManualCompactNav] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem(NAV_COMPACT_STORAGE_KEY) === "1";
+  });
+  const compactNav = manualCompactNav || viewportWidth < 1280;
+  const narrowNav = manualCompactNav || viewportWidth < 1120;
   const asideWidth = narrowNav ? 176 : compactNav ? 200 : 248;
 
   useEffect(() => {
@@ -26,6 +31,10 @@ export function AdminShell({
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(NAV_COMPACT_STORAGE_KEY, manualCompactNav ? "1" : "0");
+  }, [manualCompactNav]);
   const filteredNavItems = useMemo(() => {
     const keyword = navKeyword.trim().toLowerCase();
     if (!keyword) return navItems;
@@ -41,12 +50,22 @@ export function AdminShell({
 
   return (
     <Layout className="podi-shell" style={{ height: "100vh", minWidth: 0 }}>
-      <Layout.Aside className="podi-shell__aside" style={{ width: asideWidth, padding: compactNav ? 10 : 14, overflow: "auto" }}>
+      <Layout.Aside width={`${asideWidth}px`} className="podi-shell__aside" style={{ padding: compactNav ? 10 : 14, overflow: "auto" }}>
         <Space direction="vertical" size="small" style={{ width: "100%" }}>
           <div>
-            {!compactNav ? <Typography.Text theme="secondary">控制台</Typography.Text> : null}
-            <Typography.Title level="h4" style={{ margin: "6px 0 0" }}>
-              {title}
+            <Space align="center" style={{ justifyContent: "space-between", width: "100%" }}>
+              {!compactNav ? <Typography.Text theme="secondary">控制台</Typography.Text> : <span />}
+              <Button
+                size="small"
+                variant="text"
+                onClick={() => setManualCompactNav((prev) => !prev)}
+                style={{ padding: 0, minWidth: 0 }}
+              >
+                {manualCompactNav ? "展开侧栏" : "收紧侧栏"}
+              </Button>
+            </Space>
+            <Typography.Title level="h4" style={{ margin: "4px 0 0" }}>
+              {compactNav ? "AI 管理" : title}
             </Typography.Title>
             {!compactNav && subtitle ? <Typography.Text theme="secondary">{subtitle}</Typography.Text> : null}
           </div>
