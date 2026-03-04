@@ -1,5 +1,7 @@
 # 认证与用户接口
 
+> 当前状态：`/api/auth/login`、`/api/auth/refresh` 已上线；注册/会话管理/邀请码接口为 Q2 规划项（未上线）。
+
 ## 用途
 
 - 提供登录与刷新 token 能力。
@@ -95,3 +97,24 @@ curl -X POST http://127.0.0.1:8099/api/auth/refresh \
   -H "Content-Type: application/json" \
   -d '{"refreshToken":"<refresh_token>"}'
 ```
+
+---
+
+## 3) Q2 规划接口（未上线）
+
+> 方案见：`docs/strategy/auth-scheme-decision-2026q2.md` 与 `docs/wip/auth-billing-model-draft.md`。
+
+### POST /api/auth/register
+- 用途：邮箱 + 邀请码注册并返回登录态。
+- 预计错误：`INVITE_CODE_INVALID`、`USER_ALREADY_EXISTS`
+
+### POST /api/auth/logout
+- 用途：注销指定会话（使 refresh token 失效）。
+- 预计错误：`SESSION_NOT_FOUND`
+
+### GET /api/auth/sessions
+- 用途：查看当前账号会话列表（设备/IP/过期时间）。
+
+### POST /api/auth/invite-codes（管理端）
+- 用途：生成邀请码（时效、次数可控）。
+- 预计错误：`FORBIDDEN`、`INVITE_CODE_LIMIT_REACHED`

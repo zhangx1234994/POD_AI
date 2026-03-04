@@ -5,6 +5,8 @@
 - 提供任务状态通知（WebSocket/SSE）。
 - 临时积分与钱包扣费接口（占位实现，便于联调）。
 
+> 当前状态：`/api/wallet/v1/*` 仍以占位能力为主；Q2 将逐步替换为真实充值/账单/成本快照能力（见 `docs/wip/auth-billing-model-draft.md`）。
+
 ---
 
 ## 1) 通知
@@ -77,6 +79,29 @@
 **用途**：查询用户统计（占位实现）。
 
 **参数**：`userId`
+
+---
+
+## 4) Q2 规划接口（未上线）
+
+### GET /api/wallet/v1/balance
+- 用途：查询用户钱包余额（可用/冻结）。
+
+### POST /api/wallet/v1/recharge-orders
+- 用途：创建充值订单。
+- 预计错误：`RECHARGE_AMOUNT_INVALID`
+
+### GET /api/wallet/v1/recharge-orders/{order_no}
+- 用途：查询充值订单状态。
+
+### GET /api/wallet/v1/ledger
+- 用途：查询流水分页（支持按类型/时间筛选）。
+
+### GET /api/wallet/v1/bills
+- 用途：查询月账单汇总。
+
+### GET /api/wallet/v1/cost-snapshots
+- 用途：查询任务成本快照（按平台/模型）。
 
 ---
 
