@@ -10066,8 +10066,8 @@ const normalizeErrorMessage = (message: string): string => {
                 </div>
               </div>
             ) : null}
-            <Space align="center" size="small" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
-              <Space align="center" size="small" style={{ flexWrap: 'wrap' }}>
+            <div className="podi-comfy-module-bar">
+              <div className="podi-comfy-module-controls">
                 <div style={{ width: 'min(100%, 320px)' }}>
                   <Typography.Text theme="secondary">模块</Typography.Text>
                   <Select
@@ -10079,7 +10079,7 @@ const normalizeErrorMessage = (message: string): string => {
                     }))}
                   />
                 </div>
-                <Space align="center" size="small" style={{ paddingTop: 20 }}>
+                <Space align="center" size="small" className="podi-comfy-module-nav">
                   <Button
                     size="small"
                     variant="outline"
@@ -10097,12 +10097,12 @@ const normalizeErrorMessage = (message: string): string => {
                     下一模块
                   </Button>
                 </Space>
-              </Space>
-              <Space align="center" size="small" style={{ paddingTop: 20 }}>
+              </div>
+              <Space align="center" size="small" className="podi-comfy-module-switch">
                 <Switch value={comfyShowTestNodes} onChange={(v) => setComfyShowTestNodes(Boolean(v))} />
                 <Typography.Text theme="secondary">显示测试节点</Typography.Text>
               </Space>
-            </Space>
+            </div>
           </div>
           <Alert
             theme="info"
@@ -12826,7 +12826,7 @@ const normalizeErrorMessage = (message: string): string => {
                       <th className="px-3 py-2">任务编号</th>
                       <th className="px-3 py-2">代理服务</th>
                       <th className="px-3 py-2">提交阶段</th>
-                      <th className="px-3 py-2">回填阶段</th>
+                      <th className="px-3 py-2">回调阶段</th>
                       <th className="px-3 py-2">最终状态</th>
                       <th className="px-3 py-2">动作</th>
                       <th className="px-3 py-2">清单</th>
