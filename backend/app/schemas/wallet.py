@@ -14,6 +14,28 @@ class FreezeResponse(BaseModel):
     balance: int
 
 
+class ExpenseRecordRequest(BaseModel):
+    userId: str
+    points: int = Field(..., gt=0)
+    taskId: str | None = None
+    traceId: str | None = None
+    provider: str | None = None
+    modelKey: str | None = None
+    description: str | None = None
+
+
+class ExpenseRecordResponse(BaseModel):
+    transactionId: str
+    userId: str
+    deducted: int
+    balance: int
+    idempotent: bool
+    taskId: str | None = None
+    traceId: str | None = None
+    provider: str | None = None
+    modelKey: str | None = None
+
+
 class HoldActionRequest(BaseModel):
     holdId: str
 

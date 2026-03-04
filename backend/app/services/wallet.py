@@ -139,22 +139,23 @@ class WalletService:
         provider: str | None = None,
         model_key: str | None = None,
         trace_id: str | None = None,
-    ) -> None:
-        session.add(
-            WalletLedger(
-                user_id=user_id,
-                wallet_id=account.id,
-                biz_type=biz_type,
-                direction="in" if points_delta >= 0 else "out",
-                points=abs(points_delta),
-                balance_after=after_balance,
-                related_task_id=task_id,
-                trace_id=trace_id,
-                provider=provider,
-                model_key=model_key,
-                remark=remark,
-            )
+    ) -> WalletLedger:
+        row = WalletLedger(
+            user_id=user_id,
+            wallet_id=account.id,
+            biz_type=biz_type,
+            direction="in" if points_delta >= 0 else "out",
+            points=abs(points_delta),
+            balance_after=after_balance,
+            related_task_id=task_id,
+            trace_id=trace_id,
+            provider=provider,
+            model_key=model_key,
+            remark=remark,
         )
+        session.add(row)
+        session.flush()
+        return row
 
     def _freeze_db(self, user_id: str, task_id: str, points: int) -> tuple[str, int]:
         with get_session() as session:
@@ -423,6 +424,79 @@ class WalletService:
             "items": items,
         }
 
+    def _record_expense_db(
+        self,
+        *,
+        user_id: str,
+        points: int,
+        task_id: str | None = None,
+        trace_id: str | None = None,
+        provider: str | None = None,
+        model_key: str | None = None,
+        description: str | None = None,
+    ) -> dict:
+        with get_session() as session:
+            account = self._ensure_wallet_account_db(session, user_id)
+            existing_row = None
+            normalized_trace_id = str(trace_id or "").strip() or None
+            if normalized_trace_id:
+                existing_row = (
+                    session.execute(
+                        select(WalletLedger).where(
+                            WalletLedger.user_id == user_id,
+                            WalletLedger.biz_type == "consume",
+                            WalletLedger.direction == "out",
+                            WalletLedger.trace_id == normalized_trace_id,
+                        )
+                    )
+                    .scalars()
+                    .first()
+                )
+                if existing_row:
+                    session.commit()
+                    return {
+                        "transactionId": f"txn_{existing_row.id}",
+                        "userId": user_id,
+                        "deducted": int(existing_row.points),
+                        "balance": int(account.balance),
+                        "idempotent": True,
+                        "taskId": existing_row.related_task_id,
+                        "traceId": existing_row.trace_id,
+                        "provider": existing_row.provider,
+                        "modelKey": existing_row.model_key,
+                    }
+
+            if points > int(account.balance):
+                raise HTTPException(status_code=402, detail="WALLET_INSUFFICIENT")
+
+            account.balance = int(account.balance) - points
+            row = self._append_ledger_db(
+                session=session,
+                account=account,
+                user_id=user_id,
+                points_delta=-points,
+                after_balance=int(account.balance),
+                biz_type="consume",
+                task_id=task_id,
+                trace_id=normalized_trace_id,
+                provider=provider,
+                model_key=model_key,
+                remark=description or "manual consume",
+            )
+            session.add(account)
+            session.commit()
+            return {
+                "transactionId": f"txn_{row.id}",
+                "userId": user_id,
+                "deducted": points,
+                "balance": int(account.balance),
+                "idempotent": False,
+                "taskId": task_id,
+                "traceId": normalized_trace_id,
+                "provider": provider,
+                "modelKey": model_key,
+            }
+
     def _ensure_user_memory(self, user_id: str) -> None:
         self._memory_balance.setdefault(user_id, 500)
 
@@ -686,6 +760,67 @@ class WalletService:
             "items": snapshots,
         }
 
+    def _record_expense_memory(
+        self,
+        *,
+        user_id: str,
+        points: int,
+        task_id: str | None = None,
+        trace_id: str | None = None,
+        provider: str | None = None,
+        model_key: str | None = None,
+        description: str | None = None,
+    ) -> dict:
+        self._ensure_user_memory(user_id)
+        normalized_trace_id = str(trace_id or "").strip() or None
+        if normalized_trace_id:
+            for row in self._memory_ledger:
+                if (
+                    row.get("userId") == user_id
+                    and row.get("changeType") == "DECREASE"
+                    and row.get("traceId") == normalized_trace_id
+                ):
+                    return {
+                        "transactionId": str(row.get("id")),
+                        "userId": user_id,
+                        "deducted": abs(int(row.get("points") or 0)),
+                        "balance": int(self._memory_balance.get(user_id) or 0),
+                        "idempotent": True,
+                        "taskId": row.get("taskId"),
+                        "traceId": row.get("traceId"),
+                        "provider": row.get("provider"),
+                        "modelKey": row.get("modelKey"),
+                    }
+
+        if points > int(self._memory_balance.get(user_id) or 0):
+            raise HTTPException(status_code=402, detail="WALLET_INSUFFICIENT")
+
+        before = int(self._memory_balance[user_id])
+        self._memory_balance[user_id] = before - points
+        row = self._record_ledger_memory(
+            user_id=user_id,
+            change_type="DECREASE",
+            points=-points,
+            before_balance=before,
+            after_balance=self._memory_balance[user_id],
+            task_id=task_id,
+            trace_id=normalized_trace_id,
+            description=description or "manual consume",
+            provider=provider,
+            model_key=model_key,
+        )
+        return {
+            "transactionId": str(row.get("id")),
+            "userId": user_id,
+            "deducted": points,
+            "balance": int(self._memory_balance[user_id]),
+            "idempotent": False,
+            "taskId": task_id,
+            "traceId": normalized_trace_id,
+            "provider": provider,
+            "modelKey": model_key,
+        }
+
     def freeze(self, user_id: str, task_id: str, points: int) -> tuple[str, int]:
         if self._db_ready():
             try:
@@ -803,6 +938,40 @@ class WalletService:
             except SQLAlchemyError:
                 self._db_ready_cache = False
         return self._cost_snapshots_memory(user_id, provider=provider, model_key=model_key)
+
+    def record_expense(
+        self,
+        *,
+        user_id: str,
+        points: int,
+        task_id: str | None = None,
+        trace_id: str | None = None,
+        provider: str | None = None,
+        model_key: str | None = None,
+        description: str | None = None,
+    ) -> dict:
+        if self._db_ready():
+            try:
+                return self._record_expense_db(
+                    user_id=user_id,
+                    points=points,
+                    task_id=task_id,
+                    trace_id=trace_id,
+                    provider=provider,
+                    model_key=model_key,
+                    description=description,
+                )
+            except SQLAlchemyError:
+                self._db_ready_cache = False
+        return self._record_expense_memory(
+            user_id=user_id,
+            points=points,
+            task_id=task_id,
+            trace_id=trace_id,
+            provider=provider,
+            model_key=model_key,
+            description=description,
+        )
 
 
 wallet_service = WalletService()

@@ -86,6 +86,7 @@ Steps:
   - 会话注销后不可继续 refresh
 - 计费链路（若本次发版包含钱包改动）：
   - 成功任务扣费一次（无重复扣费）
+  - `POST /api/wallet/v1/expenses` 在相同 `userId+traceId` 下不重复扣费
   - 失败/取消任务不扣费
   - 账单明细可追溯 `task_id + trace_id`
   - 若配置了 `WALLET_CALLBACK_TOKEN`：未携带 token 的充值回调应返回 `RECHARGE_CALLBACK_UNAUTHORIZED`

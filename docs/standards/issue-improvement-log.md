@@ -30,6 +30,7 @@
   - 充值状态更新接口新增可选回调鉴权（`WALLET_CALLBACK_TOKEN`），支持 `X-Wallet-Callback-Token/Authorization Bearer`。
   - 充值状态更新接口新增可选 HMAC 签名校验（`WALLET_CALLBACK_SIGNING_SECRET` + 时间戳窗口），防止伪造/重放。
   - 充值状态回调可透传 `taskId/traceId/provider/modelKey` 并写入流水，便于对账与成本追踪。
+  - 新增 `POST /api/wallet/v1/expenses` 直接支出记账接口（`traceId` 幂等），满足“暂不开放充值、先做支出追踪”口径。
 - 状态：已完成（已补 DB 迁移与 DB 优先逻辑；未迁移环境自动回退内存）
 
 1) **中台内页在 1024~1366 宽度区间不易操作**

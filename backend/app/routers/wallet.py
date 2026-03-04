@@ -83,6 +83,20 @@ async def freeze_points(payload: schemas.FreezeRequest) -> schemas.FreezeRespons
     return schemas.FreezeResponse(holdId=hold_id, balance=balance)
 
 
+@router.post("/v1/expenses", response_model=schemas.ExpenseRecordResponse)
+async def record_expense(payload: schemas.ExpenseRecordRequest) -> schemas.ExpenseRecordResponse:
+    data = wallet_service.record_expense(
+        user_id=payload.userId,
+        points=payload.points,
+        task_id=payload.taskId,
+        trace_id=payload.traceId,
+        provider=payload.provider,
+        model_key=payload.modelKey,
+        description=payload.description,
+    )
+    return schemas.ExpenseRecordResponse(**data)
+
+
 @router.post("/v1/confirm")
 async def confirm_points(payload: schemas.HoldActionRequest) -> dict:
     points = wallet_service.confirm(payload.holdId)

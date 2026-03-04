@@ -63,6 +63,49 @@
 
 - `WALLET_INSUFFICIENT`（402）
 
+### POST /api/wallet/v1/expenses
+
+**用途**：直接记一笔支出流水并扣减余额（推荐，支出优先模式）。
+
+**请求体**
+
+```json
+{
+  "userId": "u_123",
+  "points": 50,
+  "taskId": "task_001",
+  "traceId": "trace_001",
+  "provider": "kie",
+  "modelKey": "nano-banana-2",
+  "description": "manual settle"
+}
+```
+
+**响应体**
+
+```json
+{
+  "transactionId": "txn_123",
+  "userId": "u_123",
+  "deducted": 50,
+  "balance": 450,
+  "idempotent": false,
+  "taskId": "task_001",
+  "traceId": "trace_001",
+  "provider": "kie",
+  "modelKey": "nano-banana-2"
+}
+```
+
+**规则**
+
+- `traceId` 可选；传入时按 `userId + traceId` 幂等。
+- 幂等命中时不重复扣费，返回 `idempotent=true`。
+
+**错误码**
+
+- `WALLET_INSUFFICIENT`（402）
+
 ### POST /api/wallet/v1/confirm
 
 **用途**：任务成功后确认扣费（扣除冻结积分）。

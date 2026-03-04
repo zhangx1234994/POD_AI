@@ -300,3 +300,55 @@ def test_bill_month_invalid() -> None:
     resp = client.get("/api/wallet/v1/bills", params={"userId": "u_cost_invalid_month", "month": "202603"})
     assert resp.status_code == 400
     assert resp.json().get("detail") == "BILL_MONTH_INVALID"
+
+
+def test_record_expense_and_idempotent_by_trace_id() -> None:
+    create_resp = client.post(
+        "/api/wallet/v1/expenses",
+        json={
+            "userId": "u_expense",
+            "points": 120,
+            "taskId": "task_exp_001",
+            "traceId": "trace_exp_001",
+            "provider": "kie",
+            "modelKey": "nano-banana-2",
+            "description": "manual settle",
+        },
+    )
+    assert create_resp.status_code == 200
+    data = create_resp.json()
+    assert data["deducted"] == 120
+    assert data["balance"] == 380
+    assert data["idempotent"] is False
+
+    dup_resp = client.post(
+        "/api/wallet/v1/expenses",
+        json={
+            "userId": "u_expense",
+            "points": 120,
+            "taskId": "task_exp_001",
+            "traceId": "trace_exp_001",
+            "provider": "kie",
+            "modelKey": "nano-banana-2",
+        },
+    )
+    assert dup_resp.status_code == 200
+    dup = dup_resp.json()
+    assert dup["idempotent"] is True
+    assert dup["balance"] == 380
+
+    ledger_resp = client.get("/api/wallet/v1/ledger", params={"userId": "u_expense"})
+    assert ledger_resp.status_code == 200
+    ledger = ledger_resp.json()
+    assert ledger["total"] == 1
+    assert ledger["items"][0]["points"] == -120
+    assert ledger["items"][0]["traceId"] == "trace_exp_001"
+
+
+def test_record_expense_insufficient() -> None:
+    resp = client.post(
+        "/api/wallet/v1/expenses",
+        json={"userId": "u_expense_insufficient", "points": 9999},
+    )
+    assert resp.status_code == 402
+    assert resp.json().get("detail") == "WALLET_INSUFFICIENT"
