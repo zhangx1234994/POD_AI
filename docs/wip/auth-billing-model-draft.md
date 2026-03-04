@@ -73,6 +73,18 @@
 | remark | varchar(255) | 否 | 备注 |
 | created_at | datetime | 是 | 发生时间 |
 
+## 2.2.1 冻结记录（wallet_holds）
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| id | varchar(64) | 是 | 冻结记录 ID（hold_id） |
+| wallet_id | bigint | 是 | 钱包 |
+| user_id | varchar(64) | 是 | 用户 |
+| related_task_id | varchar(64) | 否 | 对应任务 |
+| points | int | 是 | 冻结积分 |
+| status | enum(frozen, confirmed, released) | 是 | 冻结状态 |
+| created_at / updated_at | datetime | 是 | 审计字段 |
+
 ## 2.3 任务成本快照（task_cost_snapshots）
 
 | 字段 | 类型 | 必填 | 说明 |

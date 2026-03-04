@@ -83,6 +83,7 @@
 | WALLET_HOLD_NOT_FOUND | 冻结记录不存在或已处理 | 404 |
 | RECHARGE_AMOUNT_INVALID | 充值金额非法（<=0） | 400 |
 | RECHARGE_ORDER_NOT_FOUND | 充值订单不存在 | 404 |
+| BILL_MONTH_INVALID | 账单月份格式非法（需 YYYY-MM） | 400 |
 
 ---
 

@@ -3,9 +3,9 @@
 ## 用途
 
 - 提供任务状态通知（WebSocket/SSE）。
-- 提供钱包冻结、释放、充值、流水、账单、成本快照能力（当前为内存实现，重启后清空）。
+- 提供钱包冻结、释放、充值、流水、账单、成本快照能力（DB 优先；若钱包表未迁移则自动回退内存模式）。
 
-> 当前状态：`/api/wallet/v1/*` 已可联调完整钱包流程；生产持久化版本仍按 `docs/wip/auth-billing-model-draft.md` 推进。
+> 当前状态：`/api/wallet/v1/*` 已可联调完整钱包流程；`wallet_accounts/wallet_holds/wallet_ledger/recharge_orders` 迁移完成后自动进入持久化模式。
 
 ---
 
@@ -200,6 +200,10 @@
 **用途**：查询月账单汇总。
 
 **参数**：`userId`、`month`（可选，格式 `YYYY-MM`，默认当月）
+
+**错误码**
+
+- `BILL_MONTH_INVALID`（400）
 
 ### GET /api/wallet/v1/cost-snapshots
 

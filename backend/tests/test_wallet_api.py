@@ -102,3 +102,9 @@ def test_cost_snapshots_and_bill_summary() -> None:
     bill = bill_resp.json()
     assert bill["expense"] == 50
     assert bill["net"] <= 0
+
+
+def test_bill_month_invalid() -> None:
+    resp = client.get("/api/wallet/v1/bills", params={"userId": "u_cost_invalid_month", "month": "202603"})
+    assert resp.status_code == 400
+    assert resp.json().get("detail") == "BILL_MONTH_INVALID"

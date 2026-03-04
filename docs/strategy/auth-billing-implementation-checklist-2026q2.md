@@ -34,9 +34,9 @@
 ## 阶段 B：钱包基础
 
 ### B1. 数据库迁移
-- [ ] 新增表：`wallet_accounts`
-- [ ] 新增表：`wallet_ledger`
-- [ ] 新增表：`recharge_orders`
+- [x] 新增表：`wallet_accounts`
+- [x] 新增表：`wallet_ledger`
+- [x] 新增表：`recharge_orders`
 - [ ] 存量用户钱包初始化脚本
 
 ### B2. 后端接口
