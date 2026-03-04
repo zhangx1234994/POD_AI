@@ -7366,7 +7366,7 @@ const extractErrorMessage = (error: unknown): string => {
                       >
                         详情
                       </Button>
-                      {row.error_message ? <Typography.Text theme="error">{row.error_message}</Typography.Text> : null}
+                      {row.error_message ? <Typography.Text theme="error">{toDisplayErrorMessage(row.error_message)}</Typography.Text> : null}
                       {!previewUrl && !row.error_message ? (
                         <Typography.Text theme="secondary">
                           {isAbilityLogSuccessful(row.status) ? '结果回填中' : '—'}
@@ -9173,7 +9173,7 @@ const extractErrorMessage = (error: unknown): string => {
                         >
                           详情
                         </Button>
-                        {row.error_message ? <Typography.Text theme="error">{row.error_message}</Typography.Text> : null}
+                        {row.error_message ? <Typography.Text theme="error">{toDisplayErrorMessage(row.error_message)}</Typography.Text> : null}
                         {!previewUrl && !row.error_message ? (
                           <Typography.Text theme="secondary">
                             {isAbilityLogSuccessful(row.status) ? '结果回填中' : '—'}
@@ -13994,7 +13994,7 @@ const extractErrorMessage = (error: unknown): string => {
                           </div>
                         )}
                         {log.error_message && (
-                          <div className="mt-2 text-rose-300">错误：{log.error_message}</div>
+                          <div className="mt-2 text-rose-300">错误：{toDisplayErrorMessage(log.error_message)}</div>
                         )}
                       </div>
                     ))}
@@ -14576,14 +14576,14 @@ const extractErrorMessage = (error: unknown): string => {
                       </div>
                     ) : null}
                     {abilityLogDetail.callback_error ? (
-                      <Alert theme="error" message={abilityLogDetail.callback_error} />
+                      <Alert theme="error" message={toDisplayErrorMessage(abilityLogDetail.callback_error)} />
                     ) : null}
                   </Space>
                 </div>
               );
             })()}
 
-            {abilityLogDetail.error_message ? <Alert theme="error" message={abilityLogDetail.error_message} /> : null}
+            {abilityLogDetail.error_message ? <Alert theme="error" message={toDisplayErrorMessage(abilityLogDetail.error_message)} /> : null}
           </Space>
         ) : null}
       </Dialog>
