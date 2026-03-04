@@ -599,9 +599,10 @@ const buildEditorPrompt = (args: {
   rawPrompt: string;
   marks: EditorMark[];
   refUrls: string[];
+  mainUrl?: string;
   imageSize: { width: number; height: number };
 }): string => {
-  const { rawPrompt, marks, refUrls, imageSize } = args;
+  const { rawPrompt, marks, refUrls, mainUrl, imageSize } = args;
   const width = Number(imageSize.width || 0);
   const height = Number(imageSize.height || 0);
 
@@ -616,6 +617,8 @@ const buildEditorPrompt = (args: {
     '如未明确指定画幅/分辨率，保持与主图一致。',
     '参考图只用于风格/纹理/形象参考，不要直接拼贴。',
     '严格遵循图像顺序规范（图1主图、图2/图3为参考图）。',
+    '所有编辑动作只作用于图1；图2/图3仅提供参考，不可反向编辑。',
+    '若用户写“把主图/图1 的A换成图N”，含义是“在图1中替换A为图N特征”，禁止改写图N本身。',
   ].join('\n');
 
   const fmt = (v: number, total: number) => {
@@ -694,6 +697,10 @@ const buildEditorPrompt = (args: {
     ...refUrls.map((_, idx) => `图${idx + 2}=参考图#${idx + 1}（image_urls[${idx}]）`),
     '顺序固定，不得重新理解或交换',
   ].join('\n');
+  const imageUrlLines = [
+    `图1主图URL: ${String(mainUrl || '').trim() || '（未提供）'}`,
+    ...refUrls.map((u, idx) => `图${idx + 2}参考图URL: ${u}`),
+  ].join('\n');
 
   return [
     '【系统前缀】',
@@ -704,6 +711,9 @@ const buildEditorPrompt = (args: {
     '',
     '【图像顺序规范】',
     imageIndexLines,
+    '',
+    '【图像链接映射】',
+    imageUrlLines,
     '',
     '【标注说明】',
     markLines,
@@ -1755,9 +1765,10 @@ export function App() {
       rawPrompt: editorPrompt,
       marks: editorMarks,
       refUrls: editorRefs,
+      mainUrl: formUrl.trim(),
       imageSize: { width: editorImageMeta.naturalW, height: editorImageMeta.naturalH },
     });
-  }, [editorPrompt, editorMarks, editorRefs, editorImageMeta, isAiEditor]);
+  }, [editorPrompt, editorMarks, editorRefs, formUrl, editorImageMeta, isAiEditor]);
 
   const updateEditorPromptHint = useCallback(
     (value: string) => {
@@ -2713,6 +2724,7 @@ export function App() {
           rawPrompt: editorPrompt,
           marks: editorMarks,
           refUrls: editorRefs,
+          mainUrl: url,
           imageSize: { width: editorImageMeta.naturalW, height: editorImageMeta.naturalH },
         });
         parameters.prompt = prompt;
