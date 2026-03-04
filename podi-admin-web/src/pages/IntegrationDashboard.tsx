@@ -309,6 +309,20 @@ const comfyuiTabMeta: Record<ComfyuiManageTab, { label: string; group: ComfyuiTa
 };
 const comfyuiTabOrder: ComfyuiManageTab[] = ['lora', 'assets', 'templates', 'servers', 'manifests', 'tasks', 'agents', 'alerts', 'desktop'];
 const comfyuiTabGroupOrder: ComfyuiTabGroup[] = ['资源目录', '同步发布', '节点运维'];
+const comfyuiGroupMeta: Record<ComfyuiTabGroup, { hint: string; primaryTab: ComfyuiManageTab }> = {
+  资源目录: {
+    hint: '先维护 LoRA/模型/模板，确保资源口径一致。',
+    primaryTab: 'lora',
+  },
+  同步发布: {
+    hint: '再做服务器对比、清单发布与任务下发，完成版本治理。',
+    primaryTab: 'servers',
+  },
+  节点运维: {
+    hint: '最后看代理服务、告警与桌面端升级状态。',
+    primaryTab: 'agents',
+  },
+};
 const isComfyuiManageTab = (value: string): value is ComfyuiManageTab => comfyuiTabOrder.includes(value as ComfyuiManageTab);
 const readComfyuiTabFromHash = (): ComfyuiManageTab | null => {
   const params = readHashParams();
@@ -9754,20 +9768,29 @@ const normalizeErrorMessage = (message: string): string => {
             当前模块：<strong>{activeComfyTabMeta.label}</strong>（{activeComfyTabMeta.group}）
           </div>
           <div className="rounded-2xl border border-slate-200/70 bg-white px-3 py-3 dark:border-slate-800 dark:bg-slate-950/40">
+            <div className="podi-comfy-group-grid">
+              {comfyuiTabGroupOrder.map((group) => {
+                const groupTabs = comfyuiGroupMap[group];
+                const active = group === activeComfyTabMeta.group;
+                const leadTab = comfyuiGroupMeta[group].primaryTab;
+                return (
+                  <button
+                    key={`comfy-group-${group}`}
+                    type="button"
+                    className={`podi-comfy-group-card${active ? ' is-active' : ''}`}
+                    onClick={() => {
+                      const nextTab = groupTabs.includes(comfyuiManageTab) ? comfyuiManageTab : leadTab;
+                      setComfyuiManageTab(nextTab);
+                    }}
+                  >
+                    <div className="podi-comfy-group-card__title">{group}</div>
+                    <div className="podi-comfy-group-card__hint">{comfyuiGroupMeta[group].hint}</div>
+                  </button>
+                );
+              })}
+            </div>
             <Space align="center" size="small" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
               <Space align="center" size="small" style={{ flexWrap: 'wrap' }}>
-                <div style={{ width: 'min(100%, 180px)' }}>
-                  <Typography.Text theme="secondary">分类</Typography.Text>
-                  <Select
-                    value={activeComfyTabMeta.group}
-                    onChange={(value) => {
-                      const group = String(value) as ComfyuiTabGroup;
-                      const first = comfyuiGroupMap[group]?.[0];
-                      if (first) setComfyuiManageTab(first);
-                    }}
-                    options={comfyuiTabGroupOrder.map((group) => ({ label: group, value: group }))}
-                  />
-                </div>
                 <div style={{ width: 'min(100%, 320px)' }}>
                   <Typography.Text theme="secondary">模块</Typography.Text>
                   <Select
