@@ -178,10 +178,34 @@
   - Query：`?callback_token=<token>`
 - 未配置 `WALLET_CALLBACK_TOKEN` 时保持兼容，不强制校验。
 
+**签名（可选，推荐）**
+
+- 当后端配置 `WALLET_CALLBACK_SIGNING_SECRET` 时，必须额外携带：
+  - Header：`X-Wallet-Callback-Timestamp: <unix秒级时间戳>`
+  - Header：`X-Wallet-Callback-Signature: <hex(hmac_sha256)>`
+- 签名明文（`\n` 拼接）：
+  - `order_no`
+  - `timestamp`
+  - `status`
+  - `transactionId`
+  - `failReason`
+  - `taskId`
+  - `traceId`
+  - `provider`
+  - `modelKey`
+- `WALLET_CALLBACK_SIGNATURE_TTL_SECONDS`（默认 300 秒）控制签名过期窗口。
+
 **请求体**
 
 ```json
-{ "status": "paid", "transactionId": "txn_20260304_001" }
+{
+  "status": "paid",
+  "transactionId": "txn_20260304_001",
+  "taskId": "task_001",
+  "traceId": "trace_001",
+  "provider": "kie",
+  "modelKey": "nano-banana-2"
+}
 ```
 
 或
@@ -201,6 +225,8 @@
 - `RECHARGE_ORDER_NOT_FOUND`（404）
 - `RECHARGE_ORDER_STATUS_CONFLICT`（409）
 - `RECHARGE_CALLBACK_UNAUTHORIZED`（401，启用回调 token 且校验失败）
+- `RECHARGE_CALLBACK_SIGNATURE_INVALID`（401，启用签名且签名缺失/错误）
+- `RECHARGE_CALLBACK_SIGNATURE_EXPIRED`（401，启用签名且时间戳超窗）
 
 ### GET /api/wallet/v1/transactions
 
@@ -230,6 +256,7 @@
       "beforeBalance": 500,
       "afterBalance": 1500,
       "taskId": null,
+      "traceId": null,
       "description": "recharge:rc_...",
       "provider": null,
       "modelKey": null,

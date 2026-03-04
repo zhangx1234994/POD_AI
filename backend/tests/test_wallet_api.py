@@ -1,3 +1,7 @@
+import hashlib
+import hmac
+import time
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -12,11 +16,34 @@ client = TestClient(app)
 @pytest.fixture(autouse=True)
 def _reset_wallet(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.delenv("WALLET_CALLBACK_TOKEN", raising=False)
+    monkeypatch.delenv("WALLET_CALLBACK_SIGNING_SECRET", raising=False)
     get_settings.cache_clear()
     wallet_service.reset()
     yield
     monkeypatch.delenv("WALLET_CALLBACK_TOKEN", raising=False)
+    monkeypatch.delenv("WALLET_CALLBACK_SIGNING_SECRET", raising=False)
     get_settings.cache_clear()
+
+
+def _build_signature_payload(order_no: str, payload: dict, ts: int) -> str:
+    return "\n".join(
+        [
+            order_no,
+            str(ts),
+            str(payload.get("status") or ""),
+            str(payload.get("transactionId") or ""),
+            str(payload.get("failReason") or ""),
+            str(payload.get("taskId") or ""),
+            str(payload.get("traceId") or ""),
+            str(payload.get("provider") or ""),
+            str(payload.get("modelKey") or ""),
+        ]
+    )
+
+
+def _sign_payload(secret: str, order_no: str, payload: dict, ts: int) -> str:
+    content = _build_signature_payload(order_no, payload, ts)
+    return hmac.new(secret.encode("utf-8"), content.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
 def test_recharge_status_requires_callback_token_when_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -43,6 +70,68 @@ def test_recharge_status_requires_callback_token_when_enabled(monkeypatch: pytes
     )
     assert ok_resp.status_code == 200
     assert ok_resp.json()["status"] == "paid"
+
+
+def test_recharge_status_requires_callback_signature_when_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    signing_secret = "wallet_sign_123"
+    monkeypatch.setenv("WALLET_CALLBACK_SIGNING_SECRET", signing_secret)
+    get_settings.cache_clear()
+    create_resp = client.post(
+        "/api/wallet/v1/recharge-orders",
+        json={"userId": "u_sign", "amount": 90, "channel": "manual"},
+    )
+    assert create_resp.status_code == 200
+    order_no = create_resp.json()["orderNo"]
+
+    payload = {
+        "status": "paid",
+        "transactionId": "txn_sign_001",
+        "taskId": "task_sign_001",
+        "traceId": "trace_sign_001",
+        "provider": "kie",
+        "modelKey": "nano-banana-2",
+    }
+
+    missing_sig_resp = client.post(
+        f"/api/wallet/v1/recharge-orders/{order_no}/status",
+        json=payload,
+    )
+    assert missing_sig_resp.status_code == 401
+    assert missing_sig_resp.json().get("detail") == "RECHARGE_CALLBACK_SIGNATURE_INVALID"
+
+    expired_ts = int(time.time()) - 999
+    expired_sig = _sign_payload(signing_secret, order_no, payload, expired_ts)
+    expired_resp = client.post(
+        f"/api/wallet/v1/recharge-orders/{order_no}/status",
+        json=payload,
+        headers={
+            "X-Wallet-Callback-Timestamp": str(expired_ts),
+            "X-Wallet-Callback-Signature": expired_sig,
+        },
+    )
+    assert expired_resp.status_code == 401
+    assert expired_resp.json().get("detail") == "RECHARGE_CALLBACK_SIGNATURE_EXPIRED"
+
+    ts = int(time.time())
+    sig = _sign_payload(signing_secret, order_no, payload, ts)
+    ok_resp = client.post(
+        f"/api/wallet/v1/recharge-orders/{order_no}/status",
+        json=payload,
+        headers={
+            "X-Wallet-Callback-Timestamp": str(ts),
+            "X-Wallet-Callback-Signature": sig,
+        },
+    )
+    assert ok_resp.status_code == 200
+    assert ok_resp.json()["status"] == "paid"
+
+    ledger_resp = client.get("/api/wallet/v1/ledger", params={"userId": "u_sign"})
+    assert ledger_resp.status_code == 200
+    item = ledger_resp.json()["items"][0]
+    assert item["taskId"] == "task_sign_001"
+    assert item["traceId"] == "trace_sign_001"
+    assert item["provider"] == "kie"
+    assert item["modelKey"] == "nano-banana-2"
 
 
 def test_freeze_confirm_then_ledger_and_statistics() -> None:
@@ -95,7 +184,14 @@ def test_recharge_order_status_flow_and_transactions_compat() -> None:
 
     paid_resp = client.post(
         f"/api/wallet/v1/recharge-orders/{order['orderNo']}/status",
-        json={"status": "paid", "transactionId": "txn_mock_001"},
+        json={
+            "status": "paid",
+            "transactionId": "txn_mock_001",
+            "taskId": "task_rc_001",
+            "traceId": "trace_rc_001",
+            "provider": "kie",
+            "modelKey": "nano-banana-pro",
+        },
     )
     assert paid_resp.status_code == 200
     paid_order = paid_resp.json()
@@ -114,6 +210,10 @@ def test_recharge_order_status_flow_and_transactions_compat() -> None:
     tx = tx_resp.json()
     assert tx["total"] == 1
     assert tx["items"][0]["description"].startswith("recharge:")
+    assert tx["items"][0]["taskId"] == "task_rc_001"
+    assert tx["items"][0]["traceId"] == "trace_rc_001"
+    assert tx["items"][0]["provider"] == "kie"
+    assert tx["items"][0]["modelKey"] == "nano-banana-pro"
 
     balance_after_paid = client.get("/api/wallet/v1/balance", params={"userId": "u_recharge"})
     assert balance_after_paid.status_code == 200

@@ -1,6 +1,9 @@
 """Wallet Service 路由，占位实现。"""
 
 from datetime import datetime, timezone
+import hashlib
+import hmac
+import time
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
@@ -22,6 +25,56 @@ def _require_recharge_callback_token(request: Request) -> None:
     )
     if token != expected:
         raise HTTPException(status_code=401, detail="RECHARGE_CALLBACK_UNAUTHORIZED")
+
+
+def _build_callback_signing_payload(
+    *,
+    order_no: str,
+    payload: schemas.RechargeOrderStatusUpdateRequest,
+    timestamp: int,
+) -> str:
+    return "\n".join(
+        [
+            order_no,
+            str(timestamp),
+            str(payload.status or ""),
+            str(payload.transactionId or ""),
+            str(payload.failReason or ""),
+            str(payload.taskId or ""),
+            str(payload.traceId or ""),
+            str(payload.provider or ""),
+            str(payload.modelKey or ""),
+        ]
+    )
+
+
+def _require_recharge_callback_signature(
+    request: Request,
+    order_no: str,
+    payload: schemas.RechargeOrderStatusUpdateRequest,
+) -> None:
+    settings = get_settings()
+    signing_secret = (settings.wallet_callback_signing_secret or "").strip()
+    if not signing_secret:
+        return
+
+    signature = request.headers.get("X-Wallet-Callback-Signature") or request.query_params.get("callback_sig")
+    timestamp_raw = request.headers.get("X-Wallet-Callback-Timestamp") or request.query_params.get("callback_ts")
+    if not signature or not timestamp_raw:
+        raise HTTPException(status_code=401, detail="RECHARGE_CALLBACK_SIGNATURE_INVALID")
+    try:
+        timestamp = int(timestamp_raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=401, detail="RECHARGE_CALLBACK_SIGNATURE_INVALID") from exc
+
+    ttl = max(30, int(settings.wallet_callback_signature_ttl_seconds))
+    if abs(int(time.time()) - timestamp) > ttl:
+        raise HTTPException(status_code=401, detail="RECHARGE_CALLBACK_SIGNATURE_EXPIRED")
+
+    payload_str = _build_callback_signing_payload(order_no=order_no, payload=payload, timestamp=timestamp)
+    expected = hmac.new(signing_secret.encode("utf-8"), payload_str.encode("utf-8"), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(signature.strip().lower(), expected):
+        raise HTTPException(status_code=401, detail="RECHARGE_CALLBACK_SIGNATURE_INVALID")
 
 
 @router.post("/v1/freeze", response_model=schemas.FreezeResponse)
@@ -79,11 +132,16 @@ async def update_recharge_order_status(
     payload: schemas.RechargeOrderStatusUpdateRequest,
 ) -> schemas.RechargeOrderResponse:
     _require_recharge_callback_token(request)
+    _require_recharge_callback_signature(request, order_no, payload)
     order = wallet_service.update_recharge_order_status(
         order_no=order_no,
         status=payload.status,
         fail_reason=payload.failReason,
         transaction_id=payload.transactionId,
+        task_id=payload.taskId,
+        trace_id=payload.traceId,
+        provider=payload.provider,
+        model_key=payload.modelKey,
     )
     return schemas.RechargeOrderResponse(**order)
 

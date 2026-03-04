@@ -86,6 +86,8 @@
 | RECHARGE_STATUS_INVALID | 充值订单状态非法（仅支持 pending/paid/failed/canceled） | 400 |
 | RECHARGE_ORDER_STATUS_CONFLICT | 充值订单状态流转冲突（终态不可逆） | 409 |
 | RECHARGE_CALLBACK_UNAUTHORIZED | 充值回调鉴权失败（WALLET_CALLBACK_TOKEN 不匹配） | 401 |
+| RECHARGE_CALLBACK_SIGNATURE_INVALID | 充值回调签名非法（缺失/错误） | 401 |
+| RECHARGE_CALLBACK_SIGNATURE_EXPIRED | 充值回调签名过期（时间戳超窗） | 401 |
 | BILL_MONTH_INVALID | 账单月份格式非法（需 YYYY-MM） | 400 |
 
 ---

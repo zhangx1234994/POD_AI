@@ -31,6 +31,7 @@ class TransactionItem(BaseModel):
     beforeBalance: int
     afterBalance: int
     taskId: str | None = None
+    traceId: str | None = None
     description: str | None = None
     provider: str | None = None
     modelKey: str | None = None
@@ -85,6 +86,10 @@ class RechargeOrderStatusUpdateRequest(BaseModel):
     status: str
     failReason: str | None = None
     transactionId: str | None = None
+    taskId: str | None = None
+    traceId: str | None = None
+    provider: str | None = None
+    modelKey: str | None = None
 
 
 class BillResponse(BaseModel):

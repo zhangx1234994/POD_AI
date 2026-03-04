@@ -118,6 +118,7 @@ class WalletService:
             "beforeBalance": before_balance,
             "afterBalance": after_balance,
             "taskId": row.related_task_id,
+            "traceId": row.trace_id,
             "description": row.remark,
             "provider": row.provider,
             "modelKey": row.model_key,
@@ -285,6 +286,10 @@ class WalletService:
         status: str,
         fail_reason: str | None = None,
         transaction_id: str | None = None,
+        task_id: str | None = None,
+        trace_id: str | None = None,
+        provider: str | None = None,
+        model_key: str | None = None,
     ) -> dict:
         target_status = self._normalize_recharge_status(status)
         with get_session() as session:
@@ -310,7 +315,10 @@ class WalletService:
                         points_delta=int(order.amount),
                         after_balance=int(account.balance),
                         biz_type="recharge",
-                        task_id=None,
+                        task_id=task_id,
+                        trace_id=trace_id,
+                        provider=provider,
+                        model_key=model_key,
                         remark=f"recharge:{order.order_no}",
                     )
                     order.paid_at = datetime.utcnow()
@@ -427,6 +435,7 @@ class WalletService:
         before_balance: int,
         after_balance: int,
         task_id: str | None,
+        trace_id: str | None = None,
         description: str,
         provider: str | None = None,
         model_key: str | None = None,
@@ -439,6 +448,7 @@ class WalletService:
             "beforeBalance": before_balance,
             "afterBalance": after_balance,
             "taskId": task_id,
+            "traceId": trace_id,
             "description": description,
             "provider": provider,
             "modelKey": model_key,
@@ -559,6 +569,10 @@ class WalletService:
         status: str,
         fail_reason: str | None = None,
         transaction_id: str | None = None,
+        task_id: str | None = None,
+        trace_id: str | None = None,
+        provider: str | None = None,
+        model_key: str | None = None,
     ) -> dict:
         target_status = self._normalize_recharge_status(status)
         order = self._memory_orders.get(order_no)
@@ -584,8 +598,11 @@ class WalletService:
                     points=amount,
                     before_balance=before,
                     after_balance=self._memory_balance[user_id],
-                    task_id=None,
+                    task_id=task_id,
+                    trace_id=trace_id,
                     description=f"recharge:{order_no}",
+                    provider=provider,
+                    model_key=model_key,
                 )
                 order["paidAt"] = self._now_iso()
             order["status"] = "paid"
@@ -731,6 +748,10 @@ class WalletService:
         status: str,
         fail_reason: str | None = None,
         transaction_id: str | None = None,
+        task_id: str | None = None,
+        trace_id: str | None = None,
+        provider: str | None = None,
+        model_key: str | None = None,
     ) -> dict:
         if self._db_ready():
             try:
@@ -739,6 +760,10 @@ class WalletService:
                     status=status,
                     fail_reason=fail_reason,
                     transaction_id=transaction_id,
+                    task_id=task_id,
+                    trace_id=trace_id,
+                    provider=provider,
+                    model_key=model_key,
                 )
             except SQLAlchemyError:
                 self._db_ready_cache = False
@@ -747,6 +772,10 @@ class WalletService:
             status=status,
             fail_reason=fail_reason,
             transaction_id=transaction_id,
+            task_id=task_id,
+            trace_id=trace_id,
+            provider=provider,
+            model_key=model_key,
         )
 
     def ledger(self, user_id: str, page: int = 1, page_size: int = 20) -> dict:

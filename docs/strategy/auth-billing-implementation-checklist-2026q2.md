@@ -48,8 +48,8 @@
 ### B3. 回归检查
 - [x] 充值订单状态流转：pending -> paid/failed/canceled（含幂等与冲突保护）
 - [x] 充值回调接口支持可选 token 鉴权（`WALLET_CALLBACK_TOKEN`）
-- [ ] 流水与余额变动一致
-- [ ] 导出字段包含 `trace_id/related_task_id`
+- [x] 流水与余额变动一致
+- [x] 流水字段包含 `traceId/taskId/provider/modelKey`（状态回调可传入）
 
 ---
 
