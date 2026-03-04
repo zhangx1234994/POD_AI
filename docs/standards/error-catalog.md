@@ -79,6 +79,10 @@
 | BATCH_REVIEW_VERDICT_INVALID | 批次标注 verdict 非法 | 400 |
 | BATCH_REVIEW_NOT_READY | 批次未结束，暂不可进入标注分页 | 409 |
 | BATCH_REVIEW_PAGE_INVALID | 标注分页页码非法（越界/completed_page > current_page） | 400 |
+| WALLET_INSUFFICIENT | 钱包可用余额不足 | 402 |
+| WALLET_HOLD_NOT_FOUND | 冻结记录不存在或已处理 | 404 |
+| RECHARGE_AMOUNT_INVALID | 充值金额非法（<=0） | 400 |
+| RECHARGE_ORDER_NOT_FOUND | 充值订单不存在 | 404 |
 
 ---
 

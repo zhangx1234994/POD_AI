@@ -40,10 +40,10 @@
 - [ ] 存量用户钱包初始化脚本
 
 ### B2. 后端接口
-- [ ] `GET /api/wallet/v1/balance`
-- [ ] `POST /api/wallet/v1/recharge-orders`
-- [ ] `GET /api/wallet/v1/recharge-orders/{order_no}`
-- [ ] `GET /api/wallet/v1/ledger`
+- [x] `GET /api/wallet/v1/balance`（内存版，待数据库持久化）
+- [x] `POST /api/wallet/v1/recharge-orders`（内存版，待支付状态机）
+- [x] `GET /api/wallet/v1/recharge-orders/{order_no}`（内存版）
+- [x] `GET /api/wallet/v1/ledger`（内存版）
 
 ### B3. 回归检查
 - [ ] 充值订单状态流转：pending -> paid/failed/canceled
@@ -64,8 +64,8 @@
 - [ ] 重复回调幂等防重
 
 ### C3. 对外接口
-- [ ] `GET /api/wallet/v1/bills`
-- [ ] `GET /api/wallet/v1/cost-snapshots`
+- [x] `GET /api/wallet/v1/bills`（内存版）
+- [x] `GET /api/wallet/v1/cost-snapshots`（内存版）
 
 ### C4. 回归检查
 - [ ] 同一任务重复回调不会重复扣费
@@ -99,7 +99,7 @@
 ## 3) 发布门槛（硬性）
 
 - [ ] 新增接口文档已同步到 `docs/api/modules/auth.md` / `docs/api/modules/notify-wallet.md`
-- [ ] 错误码已同步到 `docs/standards/error-catalog.md`
+- [x] 错误码已同步到 `docs/standards/error-catalog.md`
 - [ ] 回归报告包含：成功路径 + 至少 5 条失败路径
 - [ ] `release-preflight` 补充认证/计费检查项
 

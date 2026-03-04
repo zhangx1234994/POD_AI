@@ -3,9 +3,9 @@
 ## 用途
 
 - 提供任务状态通知（WebSocket/SSE）。
-- 临时积分与钱包扣费接口（占位实现，便于联调）。
+- 提供钱包冻结、释放、充值、流水、账单、成本快照能力（当前为内存实现，重启后清空）。
 
-> 当前状态：`/api/wallet/v1/*` 仍以占位能力为主；Q2 将逐步替换为真实充值/账单/成本快照能力（见 `docs/wip/auth-billing-model-draft.md`）。
+> 当前状态：`/api/wallet/v1/*` 已可联调完整钱包流程；生产持久化版本仍按 `docs/wip/auth-billing-model-draft.md` 推进。
 
 ---
 
@@ -45,69 +45,186 @@
 **请求体**
 
 ```json
-{ "userId": "u_123", "taskId": "task_001", "points": 50 }
+{ "userId": "u_123", "taskId": "task_001", "action": "comfyui.yinhua_tiqu", "channel": "eval", "points": 50 }
 ```
+
+**响应体**
+
+```json
+{ "holdId": "hold_9fc0a3f7f8df8e", "balance": 450 }
+```
+
+**错误码**
+
+- `WALLET_INSUFFICIENT`（402）
 
 ### POST /api/wallet/v1/confirm
 
-**用途**：确认扣费。
+**用途**：任务成功后确认扣费（扣除冻结积分）。
 
 **请求体**
 
 ```json
-{ "holdId": "hold_001" }
+{ "holdId": "hold_9fc0a3f7f8df8e" }
 ```
+
+**响应体**
+
+```json
+{ "success": true, "deducted": 50 }
+```
+
+**错误码**
+
+- `WALLET_HOLD_NOT_FOUND`（404）
 
 ### POST /api/wallet/v1/release
 
-**用途**：释放冻结积分。
+**用途**：任务失败/取消后释放冻结积分。
 
 **请求体**
 
 ```json
-{ "holdId": "hold_001" }
+{ "holdId": "hold_9fc0a3f7f8df8e" }
 ```
 
-### GET /api/wallet/v1/transactions
+**响应体**
 
-**用途**：查询流水（占位实现）。
+```json
+{ "success": true, "released": "hold_9fc0a3f7f8df8e", "userId": "u_123", "balance": 500 }
+```
 
-**参数**：`userId`
+**错误码**
+
+- `WALLET_HOLD_NOT_FOUND`（404）
 
 ### GET /api/wallet/v1/statistics
 
-**用途**：查询用户统计（占位实现）。
+**用途**：查询用户积分统计。
 
 **参数**：`userId`
 
----
+**响应体**
 
-## 4) Q2 规划接口（未上线）
+```json
+{ "totalPoints": 500, "tempPoints": 0, "frozenPoints": 0, "grantedToday": 0 }
+```
 
 ### GET /api/wallet/v1/balance
-- 用途：查询用户钱包余额（可用/冻结）。
+
+**用途**：查询钱包余额（可用 + 冻结）。
+
+**参数**：`userId`
+
+**响应体**
+
+```json
+{ "userId": "u_123", "balance": 500, "frozenBalance": 0, "currency": "CNY" }
+```
 
 ### POST /api/wallet/v1/recharge-orders
-- 用途：创建充值订单。
-- 预计错误：`RECHARGE_AMOUNT_INVALID`
+
+**用途**：创建充值订单（联调模式会立即入账并写流水）。
+
+**请求体**
+
+```json
+{ "userId": "u_123", "amount": 1000, "channel": "manual" }
+```
+
+**响应体**
+
+```json
+{
+  "orderNo": "rc_20260304163030_9af812",
+  "userId": "u_123",
+  "amount": 1000,
+  "channel": "manual",
+  "status": "paid",
+  "createdAt": "2026-03-04T08:30:30.123456+00:00",
+  "paidAt": "2026-03-04T08:30:30.123456+00:00"
+}
+```
+
+**错误码**
+
+- `RECHARGE_AMOUNT_INVALID`（400）
 
 ### GET /api/wallet/v1/recharge-orders/{order_no}
-- 用途：查询充值订单状态。
+
+**用途**：查询充值订单状态。
+
+**错误码**
+
+- `RECHARGE_ORDER_NOT_FOUND`（404）
+
+### GET /api/wallet/v1/transactions
+
+**用途**：兼容旧接口，返回流水列表（不含分页字段）。
+
+**参数**：`userId`、`page`、`pageSize`
 
 ### GET /api/wallet/v1/ledger
-- 用途：查询流水分页（支持按类型/时间筛选）。
+
+**用途**：查询流水分页（推荐）。
+
+**参数**：`userId`、`page`、`pageSize`
+
+**响应体**
+
+```json
+{
+  "userId": "u_123",
+  "total": 2,
+  "page": 1,
+  "pageSize": 20,
+  "items": [
+    {
+      "id": "txn_1",
+      "changeType": "INCREASE",
+      "points": 1000,
+      "beforeBalance": 500,
+      "afterBalance": 1500,
+      "taskId": null,
+      "description": "recharge:rc_...",
+      "provider": null,
+      "modelKey": null,
+      "createdAt": "2026-03-04T08:30:30.123456+00:00"
+    }
+  ]
+}
+```
 
 ### GET /api/wallet/v1/bills
-- 用途：查询月账单汇总。
+
+**用途**：查询月账单汇总。
+
+**参数**：`userId`、`month`（可选，格式 `YYYY-MM`，默认当月）
 
 ### GET /api/wallet/v1/cost-snapshots
-- 用途：查询任务成本快照（按平台/模型）。
+
+**用途**：查询成本快照（当前从负向流水聚合）。
+
+**参数**：`userId`、`provider`（可选）、`modelKey`（可选）
+
+**响应体**
+
+```json
+{
+  "userId": "u_123",
+  "provider": null,
+  "modelKey": null,
+  "count": 1,
+  "totalPoints": 50,
+  "items": [{ "date": "2026-03-04", "provider": "unknown", "modelKey": "unknown", "points": 50, "taskId": "task_001" }]
+}
+```
 
 ---
 
 ## 3) 临时积分接口（/api/op/v1 与 /api/os/v1）
 
-> 历史接口（已下线，仅保留文档记录），当前后端未启用。
+> 历史接口（已下线，仅保留文档记录），当前后端未启用。  
 > 实际积分/钱包以 `/api/wallet/v1/*` 与 AbilityTask 结果为准。
 
 ### POST /api/op/v1/img/points-cost
