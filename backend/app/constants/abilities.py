@@ -489,6 +489,17 @@ PATTERN_EXTRACT_BLANKET_PROMPT = dedent(
 PATTERN_EXTRACT_BLANKET_PROMPT_SQUARE = PATTERN_EXTRACT_BLANKET_PROMPT
 PATTERN_EXTRACT_BLANKET_PROMPT_LANDSCAPE = PATTERN_EXTRACT_BLANKET_PROMPT
 PATTERN_EXTRACT_BLANKET_PROMPT_PORTRAIT = PATTERN_EXTRACT_BLANKET_PROMPT
+PATTERN_EXTRACT_GENERIC_QWEN2511_STEPS = [5000, 5500, 6000, 6500, 7000, 7500, 8000]
+PATTERN_EXTRACT_GENERIC_QWEN2511_PRESETS: list[dict[str, Any]] = [
+    {
+        "value": f"印花提取-通用_QwenImageEdit2511_{step}.safetensors",
+        "label": f"通用（QwenImageEdit2511 · {step}）",
+        "notes": f"通用全品类训练（QwenImageEdit2511，{step} checkpoint），适用于多材质印花提取回归对比。",
+        "prompt": PATTERN_EXTRACT_POSITIVE_DEFAULT,
+        "negative_prompt": PATTERN_EXTRACT_NEGATIVE_DEFAULT,
+    }
+    for step in PATTERN_EXTRACT_GENERIC_QWEN2511_STEPS
+]
 
 PATTERN_EXTRACT_LORA_PRESETS: list[dict[str, Any]] = [
     {
@@ -505,6 +516,7 @@ PATTERN_EXTRACT_LORA_PRESETS: list[dict[str, Any]] = [
         "prompt": PATTERN_EXTRACT_CUP_PROMPT,
         "negative_prompt": PATTERN_EXTRACT_NEGATIVE_DEFAULT,
     },
+    *PATTERN_EXTRACT_GENERIC_QWEN2511_PRESETS,
     {
         "value": "印花提取-毛毯1-1.safetensors",
         "label": "毛毯（1:1 正方形）",
@@ -1376,7 +1388,7 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "supports_vision": True,
             "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
             "routing_policy": "queue",
-            "seed_version": 6,
+            "seed_version": 7,
             "lora_presets": PATTERN_EXTRACT_LORA_PRESETS,
             "pricing": {
                 "currency": "CNY",

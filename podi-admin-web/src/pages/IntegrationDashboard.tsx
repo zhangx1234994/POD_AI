@@ -7896,42 +7896,44 @@ const extractErrorMessage = (error: unknown): string => {
 
           {activeNav === 'executors' && (
       <Section id="executors" title="执行节点" description="维护执行器的接入信息、并发能力与心跳状态。">
-        <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-          <Typography.Text theme="secondary">
-            同一能力可配置多条线路（多中转站 / 多 ComfyUI 服务器），后续调度会基于优先级与健康度自动切换。
-          </Typography.Text>
-          <Space>
-            <Button
-              size="small"
-              variant={executorsView === 'channels' ? 'base' : 'outline'}
-              onClick={() => setExecutorsView('channels')}
-            >
-              渠道视图
-            </Button>
-            <Button size="small" variant={executorsView === 'list' ? 'base' : 'outline'} onClick={() => setExecutorsView('list')}>
-              列表/编辑
-            </Button>
-            <Button
-              size="small"
-              variant="outline"
-              onClick={() => refreshExecutorTraffic()}
-              loading={executorTrafficLoading}
-              title="刷新近 24h 调用指标（成功率/失败/耗时）"
-            >
-              刷新指标
-            </Button>
-            <Button
-              size="small"
-              variant="outline"
-              onClick={() => refreshComfyQueueSummary()}
-              loading={comfyQueueSummaryLoading}
-              disabled={comfyExecutors.length === 0}
-              title="刷新 ComfyUI 队列汇总"
-            >
-              刷新队列
-            </Button>
+        <ActionBar>
+          <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+            <Typography.Text theme="secondary">
+              同一能力可配置多条线路（多中转站 / 多 ComfyUI 服务器），后续调度会基于优先级与健康度自动切换。
+            </Typography.Text>
+            <Space>
+              <Button
+                size="small"
+                variant={executorsView === 'channels' ? 'base' : 'outline'}
+                onClick={() => setExecutorsView('channels')}
+              >
+                渠道视图
+              </Button>
+              <Button size="small" variant={executorsView === 'list' ? 'base' : 'outline'} onClick={() => setExecutorsView('list')}>
+                列表/编辑
+              </Button>
+              <Button
+                size="small"
+                variant="outline"
+                onClick={() => refreshExecutorTraffic()}
+                loading={executorTrafficLoading}
+                title="刷新近 24h 调用指标（成功率/失败/耗时）"
+              >
+                刷新指标
+              </Button>
+              <Button
+                size="small"
+                variant="outline"
+                onClick={() => refreshComfyQueueSummary()}
+                loading={comfyQueueSummaryLoading}
+                disabled={comfyExecutors.length === 0}
+                title="刷新 ComfyUI 队列汇总"
+              >
+                刷新队列
+              </Button>
+            </Space>
           </Space>
-        </Space>
+        </ActionBar>
 
         {executorsView === 'channels' ? (
           <div className="space-y-4">
@@ -8588,21 +8590,23 @@ const extractErrorMessage = (error: unknown): string => {
 
             {abilityLogTab === 'metrics' && (
               <Space direction="vertical" size="large" style={{ width: '100%' }}>
-                <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                  <div>
-                    <Typography.Text strong>调用指标</Typography.Text>
+                <ActionBar>
+                  <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
                     <div>
-                      <Typography.Text theme="secondary">
-                        窗口：近 {abilityMetricsWindowHours} 小时（前 8）
-                      </Typography.Text>
+                      <Typography.Text strong>调用指标</Typography.Text>
+                      <div>
+                        <Typography.Text theme="secondary">
+                          窗口：近 {abilityMetricsWindowHours} 小时（前 8）
+                        </Typography.Text>
+                      </div>
                     </div>
-                  </div>
-                  <Space>
-                    <Button variant="outline" loading={abilityLogMetricsLoading} onClick={() => refreshAbilityLogMetrics()}>
-                      刷新指标
-                    </Button>
+                    <Space>
+                      <Button variant="outline" loading={abilityLogMetricsLoading} onClick={() => refreshAbilityLogMetrics()}>
+                        刷新指标
+                      </Button>
+                    </Space>
                   </Space>
-                </Space>
+                </ActionBar>
 
                 {abilityLogMetricsError ? <Alert theme="error" message={abilityLogMetricsError} /> : null}
 
@@ -8818,96 +8822,98 @@ const extractErrorMessage = (error: unknown): string => {
 
             {abilityLogTab === 'logs' && (
             <Space direction="vertical" size="large" style={{ width: '100%' }}>
-            <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-              <div>
-                <Typography.Text strong>能力调用清单</Typography.Text>
+            <ActionBar>
+              <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
                 <div>
-                  <Typography.Text theme="secondary">
-                    已加载 {globalAbilityLogs.length}
-                    {typeof globalAbilityLogTotal === 'number' ? ` / ${globalAbilityLogTotal}` : ''} 条 · 支持导出最近 24 小时
-                  </Typography.Text>
+                  <Typography.Text strong>能力调用清单</Typography.Text>
+                  <div>
+                    <Typography.Text theme="secondary">
+                      已加载 {globalAbilityLogs.length}
+                      {typeof globalAbilityLogTotal === 'number' ? ` / ${globalAbilityLogTotal}` : ''} 条 · 支持导出最近 24 小时
+                    </Typography.Text>
+                  </div>
                 </div>
-              </div>
-              <Space>
-                <Space align="center" size="small">
-                  <Typography.Text theme="secondary">自动刷新</Typography.Text>
-                  <Switch value={globalAbilityLogsAutoRefresh} onChange={(v) => setGlobalAbilityLogsAutoRefresh(Boolean(v))} />
-                </Space>
-                {globalAbilityLogsUpdatedAt ? (
-                  <Typography.Text theme="secondary">更新：{formatDateTime(globalAbilityLogsUpdatedAt)}</Typography.Text>
-                ) : null}
-                <Button variant="outline" loading={globalAbilityLogsLoading} onClick={() => refreshGlobalAbilityLogs()}>
-                  刷新
-                </Button>
-                {globalAbilityLogsHasMore ? (
-                  <Button variant="outline" loading={globalAbilityLogsLoading} onClick={() => loadMoreGlobalAbilityLogs()}>
-                    加载更多
+                <Space>
+                  <Space align="center" size="small">
+                    <Typography.Text theme="secondary">自动刷新</Typography.Text>
+                    <Switch value={globalAbilityLogsAutoRefresh} onChange={(v) => setGlobalAbilityLogsAutoRefresh(Boolean(v))} />
+                  </Space>
+                  {globalAbilityLogsUpdatedAt ? (
+                    <Typography.Text theme="secondary">更新：{formatDateTime(globalAbilityLogsUpdatedAt)}</Typography.Text>
+                  ) : null}
+                  <Button variant="outline" loading={globalAbilityLogsLoading} onClick={() => refreshGlobalAbilityLogs()}>
+                    刷新
                   </Button>
-                ) : (
-                  <Typography.Text theme="secondary">已加载全部</Typography.Text>
-                )}
-                <Button
-                  variant="outline"
-                  loading={exportingAbilityLogs}
-                  onClick={async () => {
-                    setExportingAbilityLogs(true);
-                    try {
-                      const blob = await adminApi.exportAbilityLogs({
-                        format: 'csv',
-                        sinceHours: 24,
-                        provider: globalAbilityLogProvider !== 'all' ? globalAbilityLogProvider : undefined,
-                        capabilityKey: globalAbilityLogCapabilityKey !== 'all' ? globalAbilityLogCapabilityKey : undefined,
-                        status: globalAbilityLogStatus !== 'all' ? globalAbilityLogStatus : undefined,
-                        source: globalAbilityLogSource !== 'all' ? globalAbilityLogSource : undefined,
-                        templatePublished:
-                          globalAbilityLogTemplatePublished === 'all'
-                            ? undefined
-                            : globalAbilityLogTemplatePublished === 'published',
-                      });
-                      const filename = `ability_logs_24h_${new Date().toISOString().slice(0, 10)}.csv`;
-                      downloadBlob(blob, filename);
-                    } catch (err: any) {
-                      console.error('Export ability logs failed:', err);
-                      setGlobalAbilityLogsError(err?.message || '导出失败');
-                    } finally {
-                      setExportingAbilityLogs(false);
-                    }
-                  }}
-                >
-                  导出 CSV
-                </Button>
-                <Button
-                  variant="outline"
-                  loading={exportingAbilityLogs}
-                  onClick={async () => {
-                    setExportingAbilityLogs(true);
-                    try {
-                      const blob = await adminApi.exportAbilityLogs({
-                        format: 'json',
-                        sinceHours: 24,
-                        provider: globalAbilityLogProvider !== 'all' ? globalAbilityLogProvider : undefined,
-                        capabilityKey: globalAbilityLogCapabilityKey !== 'all' ? globalAbilityLogCapabilityKey : undefined,
-                        status: globalAbilityLogStatus !== 'all' ? globalAbilityLogStatus : undefined,
-                        source: globalAbilityLogSource !== 'all' ? globalAbilityLogSource : undefined,
-                        templatePublished:
-                          globalAbilityLogTemplatePublished === 'all'
-                            ? undefined
-                            : globalAbilityLogTemplatePublished === 'published',
-                      });
-                      const filename = `ability_logs_24h_${new Date().toISOString().slice(0, 10)}.json`;
-                      downloadBlob(blob, filename);
-                    } catch (err: any) {
-                      console.error('Export ability logs failed:', err);
-                      setGlobalAbilityLogsError(err?.message || '导出失败');
-                    } finally {
-                      setExportingAbilityLogs(false);
-                    }
-                  }}
-                >
-                  导出 JSON
-                </Button>
+                  {globalAbilityLogsHasMore ? (
+                    <Button variant="outline" loading={globalAbilityLogsLoading} onClick={() => loadMoreGlobalAbilityLogs()}>
+                      加载更多
+                    </Button>
+                  ) : (
+                    <Typography.Text theme="secondary">已加载全部</Typography.Text>
+                  )}
+                  <Button
+                    variant="outline"
+                    loading={exportingAbilityLogs}
+                    onClick={async () => {
+                      setExportingAbilityLogs(true);
+                      try {
+                        const blob = await adminApi.exportAbilityLogs({
+                          format: 'csv',
+                          sinceHours: 24,
+                          provider: globalAbilityLogProvider !== 'all' ? globalAbilityLogProvider : undefined,
+                          capabilityKey: globalAbilityLogCapabilityKey !== 'all' ? globalAbilityLogCapabilityKey : undefined,
+                          status: globalAbilityLogStatus !== 'all' ? globalAbilityLogStatus : undefined,
+                          source: globalAbilityLogSource !== 'all' ? globalAbilityLogSource : undefined,
+                          templatePublished:
+                            globalAbilityLogTemplatePublished === 'all'
+                              ? undefined
+                              : globalAbilityLogTemplatePublished === 'published',
+                        });
+                        const filename = `ability_logs_24h_${new Date().toISOString().slice(0, 10)}.csv`;
+                        downloadBlob(blob, filename);
+                      } catch (err: any) {
+                        console.error('Export ability logs failed:', err);
+                        setGlobalAbilityLogsError(err?.message || '导出失败');
+                      } finally {
+                        setExportingAbilityLogs(false);
+                      }
+                    }}
+                  >
+                    导出 CSV
+                  </Button>
+                  <Button
+                    variant="outline"
+                    loading={exportingAbilityLogs}
+                    onClick={async () => {
+                      setExportingAbilityLogs(true);
+                      try {
+                        const blob = await adminApi.exportAbilityLogs({
+                          format: 'json',
+                          sinceHours: 24,
+                          provider: globalAbilityLogProvider !== 'all' ? globalAbilityLogProvider : undefined,
+                          capabilityKey: globalAbilityLogCapabilityKey !== 'all' ? globalAbilityLogCapabilityKey : undefined,
+                          status: globalAbilityLogStatus !== 'all' ? globalAbilityLogStatus : undefined,
+                          source: globalAbilityLogSource !== 'all' ? globalAbilityLogSource : undefined,
+                          templatePublished:
+                            globalAbilityLogTemplatePublished === 'all'
+                              ? undefined
+                              : globalAbilityLogTemplatePublished === 'published',
+                        });
+                        const filename = `ability_logs_24h_${new Date().toISOString().slice(0, 10)}.json`;
+                        downloadBlob(blob, filename);
+                      } catch (err: any) {
+                        console.error('Export ability logs failed:', err);
+                        setGlobalAbilityLogsError(err?.message || '导出失败');
+                      } finally {
+                        setExportingAbilityLogs(false);
+                      }
+                    }}
+                  >
+                    导出 JSON
+                  </Button>
+                </Space>
               </Space>
-            </Space>
+            </ActionBar>
 
             {globalAbilityLogsError ? <Alert theme="error" message={globalAbilityLogsError} /> : null}
 
@@ -14138,153 +14144,230 @@ const extractErrorMessage = (error: unknown): string => {
         title="API Key 仓库"
         description="统一管理百度、火山、OpenAI 等凭证，并为每个能力分配可用 Key 池，方便限流/欠费时快速切换。"
       >
-        <p className="mb-4 text-xs text-slate-700 dark:text-slate-500">
-          建议同一 Provider 维护多条 Key，搭配“分配策略”中的不同执行器，实现“主 Key + 备用 Key”或“高优先级/低优先级”模式。
-        </p>
-        <div className="grid gap-6 lg:grid-cols-2">
-          <div className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 dark:border-slate-800 dark:bg-slate-900/40">
-            <h3 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Key 列表</h3>
-            <div className="overflow-x-auto">
-              <table>
-                <thead>
-                  <tr className="text-left text-sm text-slate-700 dark:text-slate-400">
-                    <th>Provider</th>
-                    <th>名称</th>
-                    <th>状态</th>
-                    <th>日配额</th>
-                    <th>使用</th>
-                    <th>过期</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {apiKeys.map((key) => (
-                    <tr key={key.id}>
-                      <td className="text-sm text-slate-800 dark:text-slate-300">{key.provider}</td>
-                      <td className="text-sm text-slate-800 dark:text-slate-300">{key.name}</td>
-                      <td>
-                        <StatusPill status={key.status} />
-                      </td>
-                      <td className="text-sm text-slate-800 dark:text-slate-300">{key.daily_quota ?? '—'}</td>
-                      <td className="text-sm text-slate-800 dark:text-slate-300">{key.usage_count ?? 0}</td>
-                      <td className="text-xs text-slate-700 dark:text-slate-400">{key.expire_at || '—'}</td>
-                      <td className="text-right text-xs space-x-2">
-                        <button className="text-sky-400" onClick={() => setApiKeyForm(key)}>
+        <ActionBar>
+          <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+            <Space direction="vertical" size={4}>
+              <Typography.Text strong>凭证池总览</Typography.Text>
+              <Typography.Text theme="secondary">
+                建议同一 Provider 维护至少 2 个 Key，按“主/备”拆分，避免单个 Key 限流导致整体能力不可用。
+              </Typography.Text>
+            </Space>
+            <Space size="small" style={{ flexWrap: 'wrap' }}>
+              <Tag variant="light">总数 {apiKeys.length}</Tag>
+              <Tag variant="light" theme="success">
+                active {apiKeys.filter((item) => item.status === 'active').length}
+              </Tag>
+              <Tag variant="light" theme="warning">
+                disabled {apiKeys.filter((item) => item.status === 'disabled').length}
+              </Tag>
+            </Space>
+          </Space>
+        </ActionBar>
+
+        <Row gutter={[16, 16]}>
+          <Col xs={12} lg={7}>
+            <Card bordered title="Key 列表" style={{ width: '100%' }}>
+              <Table
+                size="small"
+                rowKey="id"
+                data={apiKeys}
+                columns={[
+                  {
+                    colKey: 'provider',
+                    title: 'Provider',
+                    width: 140,
+                    cell: ({ row }) => <Typography.Text>{getProviderLabel(row.provider)}</Typography.Text>,
+                  },
+                  {
+                    colKey: 'name',
+                    title: '名称',
+                    minWidth: 180,
+                    ellipsis: true,
+                    cell: ({ row }) => (
+                      <Space direction="vertical" size={2}>
+                        <Typography.Text>{row.name}</Typography.Text>
+                        <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                          {row.id}
+                        </Typography.Text>
+                      </Space>
+                    ),
+                  },
+                  {
+                    colKey: 'status',
+                    title: '状态',
+                    width: 120,
+                    cell: ({ row }) => <StatusPill status={row.status} />,
+                  },
+                  {
+                    colKey: 'quota',
+                    title: '配额/用量',
+                    width: 140,
+                    cell: ({ row }) => (
+                      <Typography.Text theme="secondary">
+                        {(row.usage_count ?? 0)}/{row.daily_quota ?? '—'}
+                      </Typography.Text>
+                    ),
+                  },
+                  {
+                    colKey: 'expire_at',
+                    title: '过期时间',
+                    width: 180,
+                    cell: ({ row }) => <Typography.Text theme="secondary">{row.expire_at ? formatDateTime(row.expire_at) : '—'}</Typography.Text>,
+                  },
+                  {
+                    colKey: 'actions',
+                    title: '操作',
+                    width: 160,
+                    cell: ({ row }) => (
+                      <Space size={4}>
+                        <Button size="small" variant="text" onClick={() => setApiKeyForm(row)}>
                           编辑
-                        </button>
-                        <button className="text-red-400" onClick={() => handleDelete('apikey', key.id)}>
+                        </Button>
+                        <Button size="small" theme="danger" variant="text" onClick={() => handleDelete('apikey', row.id)}>
                           删除
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-          <div className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 space-y-2 text-sm dark:border-slate-800 dark:bg-slate-900/40">
-            <h3 className="text-lg font-semibold text-slate-900 dark:text-white">{apiKeyForm.id ? '编辑 Key' : '新增 Key'}</h3>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-300">
-              <div className="font-semibold text-slate-900 dark:text-slate-100">怎么填？</div>
-              <div>Provider 选厂商；名称随便起；Key 值粘贴厂商给的 API Key；状态选 active 即可。</div>
-              <div className="mt-1 text-slate-600 dark:text-slate-400">日配额/当前用量/过期时间可先不填，后续需要做限流/轮换再补。</div>
-            </div>
-            <label className="text-xs text-slate-700 dark:text-slate-400">Provider</label>
-            <select
-              value={apiKeyForm.provider || ''}
-              onChange={(e) => setApiKeyForm({ ...apiKeyForm, provider: e.target.value })}
-              className={formControlClass}
-            >
-              <option value="">请选择厂商…</option>
-              {providerOptions
-                .filter((opt) => ['baidu', 'volcengine', 'kie', 'openai', 'aliyun', 'coze'].includes(opt.value))
-                .map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label} ({opt.value})
-                  </option>
-                ))}
-            </select>
-            <label className="text-xs text-slate-700 dark:text-slate-400">名称</label>
-            <input
-              placeholder="名称"
-              value={apiKeyForm.name || ''}
-              onChange={(e) => setApiKeyForm({ ...apiKeyForm, name: e.target.value })}
-              className={formControlClass}
-            />
-            {!apiKeyForm.id && (
-              <>
-                <label className="text-xs text-slate-700 dark:text-slate-400">Key 值</label>
-              <input
-                placeholder="粘贴 API Key（不会显示明文在列表里）"
-                value={apiKeyForm.key || ''}
-                onChange={(e) => setApiKeyForm({ ...apiKeyForm, key: e.target.value })}
-                className={formControlClass}
+                        </Button>
+                      </Space>
+                    ),
+                  },
+                ]}
+                empty={<Typography.Text theme="secondary">暂无 Key，请先新增。</Typography.Text>}
               />
-              </>
-            )}
-            <label className="text-xs text-slate-700 dark:text-slate-400">状态</label>
-            <select
-              value={apiKeyForm.status || 'active'}
-              onChange={(e) => setApiKeyForm({ ...apiKeyForm, status: e.target.value })}
-              className={formControlClass}
-            >
-              {apiKeyStatusOptions.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-            <div className="flex gap-3">
-              <input
-                type="number"
-                placeholder="日配额"
-                value={apiKeyForm.daily_quota ?? ''}
-                onChange={(e) =>
-                  setApiKeyForm({ ...apiKeyForm, daily_quota: e.target.value ? Number(e.target.value) : undefined })
-                }
-                className={formControlFlexClass}
-              />
-              <input
-                type="number"
-                placeholder="当前用量"
-                value={apiKeyForm.usage_count ?? ''}
-                onChange={(e) =>
-                  setApiKeyForm({ ...apiKeyForm, usage_count: e.target.value ? Number(e.target.value) : undefined })
-                }
-                className={formControlFlexClass}
-              />
-            </div>
-            <input
-              type="datetime-local"
-              value={apiKeyForm.expire_at ? new Date(apiKeyForm.expire_at).toISOString().slice(0, 16) : ''}
-              onChange={(e) =>
-                setApiKeyForm({
-                  ...apiKeyForm,
-                  expire_at: e.target.value ? new Date(e.target.value).toISOString() : undefined,
-                })
-              }
-              className={formControlClass}
-            />
-            <div className="flex gap-3">
-              <button className="flex-1 rounded bg-sky-500/80 py-2 text-white" onClick={handleApiKeySubmit}>
-                保存
-              </button>
-              {apiKeyForm.id && (
-                <button
-                  className="rounded border border-slate-300 bg-white px-4 py-2 text-slate-700 hover:bg-slate-50 dark:border-slate-500 dark:bg-transparent dark:text-slate-200"
-                  onClick={() => setApiKeyForm(defaultApiKeyForm)}
-                >
-                  取消
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
+            </Card>
+          </Col>
+
+          <Col xs={12} lg={5}>
+            <Card bordered title={apiKeyForm.id ? '编辑 Key' : '新增 Key'} style={{ width: '100%' }}>
+              <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                <Alert
+                  theme="info"
+                  message="Provider 选厂商，名称用于内部识别；新增时粘贴完整 Key，编辑模式下不会回显明文。"
+                />
+
+                <Row gutter={[12, 12]}>
+                  <Col span={6}>
+                    <Typography.Text theme="secondary">Provider</Typography.Text>
+                    <Select
+                      value={apiKeyForm.provider || ''}
+                      onChange={(v) => setApiKeyForm({ ...apiKeyForm, provider: String(v) })}
+                      options={[
+                        { label: '请选择厂商…', value: '' },
+                        ...providerOptions
+                          .filter((opt) => ['baidu', 'volcengine', 'kie', 'openai', 'aliyun', 'coze'].includes(opt.value))
+                          .map((opt) => ({
+                            label: `${opt.label} (${opt.value})`,
+                            value: opt.value,
+                          })),
+                      ]}
+                    />
+                  </Col>
+                  <Col span={6}>
+                    <Typography.Text theme="secondary">状态</Typography.Text>
+                    <Select
+                      value={apiKeyForm.status || 'active'}
+                      onChange={(v) => setApiKeyForm({ ...apiKeyForm, status: String(v) })}
+                      options={apiKeyStatusOptions.map((item) => ({ ...item }))}
+                    />
+                  </Col>
+                </Row>
+
+                <div>
+                  <Typography.Text theme="secondary">名称</Typography.Text>
+                  <Input
+                    value={apiKeyForm.name || ''}
+                    onChange={(v) => setApiKeyForm({ ...apiKeyForm, name: String(v) })}
+                    placeholder="例如：KIE-主账号"
+                  />
+                </div>
+
+                {!apiKeyForm.id ? (
+                  <div>
+                    <Typography.Text theme="secondary">Key 值</Typography.Text>
+                    <Input
+                      type="password"
+                      value={apiKeyForm.key || ''}
+                      onChange={(v) => setApiKeyForm({ ...apiKeyForm, key: String(v) })}
+                      placeholder="粘贴 API Key（保存后不展示明文）"
+                    />
+                  </div>
+                ) : (
+                  <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                    编辑模式不展示明文 Key；如需更换，请直接粘贴新值并保存。
+                  </Typography.Text>
+                )}
+
+                <Row gutter={[12, 12]}>
+                  <Col span={6}>
+                    <Typography.Text theme="secondary">日配额</Typography.Text>
+                    <InputNumber
+                      min={0}
+                      value={apiKeyForm.daily_quota ?? undefined}
+                      onChange={(v) =>
+                        setApiKeyForm({ ...apiKeyForm, daily_quota: v === undefined || v === null ? undefined : Number(v) })
+                      }
+                    />
+                  </Col>
+                  <Col span={6}>
+                    <Typography.Text theme="secondary">当前用量</Typography.Text>
+                    <InputNumber
+                      min={0}
+                      value={apiKeyForm.usage_count ?? undefined}
+                      onChange={(v) =>
+                        setApiKeyForm({ ...apiKeyForm, usage_count: v === undefined || v === null ? undefined : Number(v) })
+                      }
+                    />
+                  </Col>
+                </Row>
+
+                <div>
+                  <Typography.Text theme="secondary">过期时间（可选）</Typography.Text>
+                  <input
+                    type="datetime-local"
+                    value={apiKeyForm.expire_at ? new Date(apiKeyForm.expire_at).toISOString().slice(0, 16) : ''}
+                    onChange={(e) =>
+                      setApiKeyForm({
+                        ...apiKeyForm,
+                        expire_at: e.target.value ? new Date(e.target.value).toISOString() : undefined,
+                      })
+                    }
+                    className={formControlClass}
+                  />
+                </div>
+
+                <Space style={{ width: '100%' }}>
+                  <Button theme="primary" style={{ flex: 1 }} onClick={handleApiKeySubmit}>
+                    保存
+                  </Button>
+                  {apiKeyForm.id ? (
+                    <Button variant="outline" onClick={() => setApiKeyForm(defaultApiKeyForm)}>
+                      取消
+                    </Button>
+                  ) : null}
+                </Space>
+              </Space>
+            </Card>
+          </Col>
+        </Row>
       </Section>
           )}
 
       {activeNav === 'system' && systemConfig && (
         <Section id="system" title="系统配置" description="汇总环境信息、OSS 配置及安全参数，便于排障和入职交接。">
+          <ActionBar>
+            <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+              <Space direction="vertical" size={4}>
+                <Typography.Text strong>运行环境快照</Typography.Text>
+                <Typography.Text theme="secondary">本页只展示当前配置快照，变更请在对应模块操作后再回到这里核对。</Typography.Text>
+              </Space>
+              <Space size="small" style={{ flexWrap: 'wrap' }}>
+                <Tag variant="light">DB: {systemConfig.database.driver || 'default'}</Tag>
+                <Tag variant="light" theme="primary">Bucket: {systemConfig.oss.bucket}</Tag>
+                <Tag variant="light" theme={systemConfig.coze?.token_present ? 'success' : 'warning'}>
+                  Coze Token {systemConfig.coze?.token_present ? '已配置' : '未配置'}
+                </Tag>
+              </Space>
+            </Space>
+          </ActionBar>
+
           <div className={`grid gap-6 ${systemConfig.coze ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`}>
             <InfoCard
               title="数据库"
@@ -14323,32 +14406,42 @@ const extractErrorMessage = (error: unknown): string => {
               />
             )}
           </div>
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5">
-            <h3 className="text-white text-lg font-semibold">特性开关</h3>
-            <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+
+          <Card bordered title="特性开关">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               {Object.entries(systemConfig.feature_flags).map(([key, enabled]) => (
-                <div key={key} className="rounded-2xl border border-slate-800/80 bg-slate-950/40 p-4">
-                  <div className="text-sm font-semibold text-white">{key}</div>
-                  <div className="text-xs text-slate-400 mt-1">{enabled ? '启用' : '关闭'}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5">
-            <h3 className="text-white text-lg font-semibold mb-4">待办事项</h3>
-            <div className="space-y-3">
-              {systemConfig.todo_items.map((todo) => (
-                <div key={todo.title} className="rounded-2xl border border-slate-800/70 bg-slate-950/40 p-4">
-                  <div className="flex items-center justify-between">
-                    <div className="text-white font-medium">{todo.title}</div>
-                    <span className="text-xs text-slate-400 uppercase">{todo.severity}</span>
+                <div key={key} className="podi-overview-stat-item">
+                  <div className="podi-overview-stat-item__label">{key}</div>
+                  <div className="podi-overview-stat-item__value" style={{ fontSize: 18 }}>
+                    {enabled ? '启用' : '关闭'}
                   </div>
-                  <p className="text-sm text-slate-400 mt-2">{todo.description}</p>
-                  <div className="text-xs text-slate-500 mt-1">状态：{todo.status}</div>
                 </div>
               ))}
             </div>
-          </div>
+          </Card>
+
+          <Card bordered title="待办事项">
+            <Space direction="vertical" size="small" style={{ width: '100%' }}>
+              {systemConfig.todo_items.length === 0 ? (
+                <Typography.Text theme="secondary">当前无待办。</Typography.Text>
+              ) : (
+                systemConfig.todo_items.map((todo) => (
+                  <div key={todo.title} className="podi-empty-state">
+                    <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                      <Typography.Text strong>{todo.title}</Typography.Text>
+                      <Tag variant="light" theme={todo.severity === 'high' ? 'danger' : todo.severity === 'medium' ? 'warning' : 'default'}>
+                        {todo.severity}
+                      </Tag>
+                    </Space>
+                    <Typography.Text theme="secondary">{todo.description}</Typography.Text>
+                    <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                      状态：{todo.status}
+                    </Typography.Text>
+                  </div>
+                ))
+              )}
+            </Space>
+          </Card>
         </Section>
       )}
 
@@ -14358,62 +14451,81 @@ const extractErrorMessage = (error: unknown): string => {
         title="调度事件"
         description="追踪任务事件、调度动作与回调结果，便于排障和多用户并发分析。"
       >
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5">
-          <div className="flex items-center justify-between">
-            <h3 className="text-white text-lg font-semibold">调度事件</h3>
-            <span className="text-xs text-slate-500">最新 25 条</span>
-          </div>
-          <div className="mt-2 text-xs text-slate-500">回执=调度事件 payload，点击“查看”可查看完整内容。</div>
-          <div className="mt-3 overflow-x-auto">
-            <table>
-              <thead>
-                <tr className="text-left text-xs uppercase tracking-widest text-slate-500">
-                  <th>ID</th>
-                  <th>任务</th>
-                  <th>类型</th>
-                  <th>回执摘要</th>
-                  <th>时间</th>
-                  <th>详情</th>
-                </tr>
-              </thead>
-              <tbody>
-                {dispatchLogs.map((log) => (
-                  <tr key={log.id}>
-                    <td className="text-xs text-slate-500">{log.id}</td>
-                    <td className="text-sm text-white">
-                      <div className="font-semibold">{log.tool_action}</div>
-                      <div className="text-xs text-slate-500">{log.task_id}</div>
-                    </td>
-                    <td>
-                      <StatusPill status={log.event_type} />
-                    </td>
-                    <td className="text-xs text-slate-400">{previewPayload(log.payload)}</td>
-                    <td className="text-xs text-slate-400">{formatDate(log.created_at)}</td>
-                    <td>
-                      <Button
-                        size="small"
-                        variant="text"
-                        onClick={() => {
-                          setDispatchLogDetail(log);
-                          setDispatchLogDetailOpen(true);
-                        }}
-                      >
-                        查看
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-                {dispatchLogs.length === 0 && (
-                  <tr>
-                    <td colSpan={6} className="text-center text-sm text-slate-500 py-4">
-                      暂无日志。
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <Card
+          bordered
+          title={
+            <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+              <Space direction="vertical" size={2}>
+                <Typography.Text strong>调度事件</Typography.Text>
+                <Typography.Text theme="secondary">最新 25 条，包含任务动作、回执摘要与处理时间。</Typography.Text>
+              </Space>
+              <Tag variant="light">{dispatchLogs.length} 条</Tag>
+            </Space>
+          }
+        >
+          <Table
+            size="small"
+            rowKey="id"
+            data={dispatchLogs}
+            columns={[
+              {
+                colKey: 'id',
+                title: 'ID',
+                width: 80,
+                cell: ({ row }) => <Typography.Text theme="secondary">{row.id}</Typography.Text>,
+              },
+              {
+                colKey: 'task',
+                title: '任务',
+                minWidth: 260,
+                cell: ({ row }) => (
+                  <Space direction="vertical" size={2}>
+                    <Typography.Text strong>{row.tool_action}</Typography.Text>
+                    <Typography.Text theme="secondary" style={{ fontSize: 12, fontFamily: 'monospace' }}>
+                      {row.task_id}
+                    </Typography.Text>
+                  </Space>
+                ),
+              },
+              {
+                colKey: 'event_type',
+                title: '类型',
+                width: 140,
+                cell: ({ row }) => <StatusPill status={row.event_type} />,
+              },
+              {
+                colKey: 'payload',
+                title: '回执摘要',
+                minWidth: 240,
+                cell: ({ row }) => <Typography.Text theme="secondary">{previewPayload(row.payload)}</Typography.Text>,
+              },
+              {
+                colKey: 'created_at',
+                title: '时间',
+                width: 180,
+                cell: ({ row }) => <Typography.Text theme="secondary">{formatDate(row.created_at)}</Typography.Text>,
+              },
+              {
+                colKey: 'actions',
+                title: '详情',
+                width: 100,
+                cell: ({ row }) => (
+                  <Button
+                    size="small"
+                    variant="text"
+                    onClick={() => {
+                      setDispatchLogDetail(row);
+                      setDispatchLogDetailOpen(true);
+                    }}
+                  >
+                    查看
+                  </Button>
+                ),
+              },
+            ]}
+            empty={<Typography.Text theme="secondary">暂无日志。</Typography.Text>}
+          />
+        </Card>
       </Section>
       )}
 

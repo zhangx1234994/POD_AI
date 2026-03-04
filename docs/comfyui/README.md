@@ -132,7 +132,7 @@
 | 执行节点 | executor_comfyui_pattern_extract_158 → http://117.50.80.158:8079（示例，实际以管理端配置为准） |
 | Workflow 文件 | backend/app/workflows/comfyui/yinhua_tiqu.json |
 | 超时设置 | 420 秒 (defaults.timeout) |
-| 核心模型 | UNETLoader: qwen_image_edit_2509_fp8_e4m3fn.safetensors、CLIP: qwen_2.5_vl_7b_fp8_scaled.safetensors、VAE: qwen_image_vae.safetensors、LoRA(节点 390) 默认 `杯子1124.safetensors`（可切换 T-Shirt / 毛毯 / 杯子等） |
+| 核心模型 | UNETLoader: qwen_image_edit_2509_fp8_e4m3fn.safetensors、CLIP: qwen_2.5_vl_7b_fp8_scaled.safetensors、VAE: qwen_image_vae.safetensors、LoRA(节点 390) 默认 `杯子1124.safetensors`（支持 T-Shirt / 毛毯 / 杯子 / 通用 QwenImageEdit2511 5000~8000） |
 
 **关键节点**
 
@@ -158,6 +158,7 @@
 - 该版本移除了遮罩/预览分支，尺寸控制统一在节点 400。若需裁切或添加遮罩，请在 ComfyUI 端另行分支并记录新的 workflow 版本。
 - 四套正向模板（节点 111/427/428/429/430）分别服务于通用、T 恤、杯子、毛毯与全局 fallback，默认由能力 schema / metadata 自动驱动，无需在 JSON 内手动改 prompt。
 - 替换或新增 LoRA 时请同步更新 workflow JSON、`backend/app/constants/abilities.py` 中的 `PATTERN_EXTRACT_LORA_PRESETS`、`LORA_CATALOG.md` 以及本文档记录。
+- 2026-03-04：新增 `印花提取-通用_QwenImageEdit2511_{5000,5500,6000,6500,7000,7500,8000}.safetensors`，已纳入能力 preset、批量测评下拉与 LoRA 资源库。
 
 ## 版本更新指引
 

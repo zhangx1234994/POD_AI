@@ -7,6 +7,13 @@
 | `印花提取-YinHuaTiQu-Qwen-Image-Edit-LoRA_V1.safetensors` | 通用平面/家居/包装 | 保持原图比例 | `PATTERN_EXTRACT_POSITIVE_DEFAULT` | 原图尺寸训练 + “曲面展开/文字像素级/背景复刻”等八项指令 |
 | `T-Shirt-1-1.safetensors` | T 恤、卫衣等服饰 | 1:1 展开稿 | `PATTERN_EXTRACT_TSHIRT_PROMPT` | T 恤/卫衣 1:1 数据集，专注褶皱展平与底色取样 |
 | `杯子1124.safetensors` | 杯子、保温杯等圆柱面 | 原图比例，360° 展开 | `PATTERN_EXTRACT_CUP_PROMPT` | 圆柱体训练，自动展平 360° 并剥离手柄/高光 |
+| `印花提取-通用_QwenImageEdit2511_5000.safetensors` | 通用全品类 | 原图比例 | `PATTERN_EXTRACT_POSITIVE_DEFAULT` | QwenImageEdit2511 checkpoint（5000） |
+| `印花提取-通用_QwenImageEdit2511_5500.safetensors` | 通用全品类 | 原图比例 | `PATTERN_EXTRACT_POSITIVE_DEFAULT` | QwenImageEdit2511 checkpoint（5500） |
+| `印花提取-通用_QwenImageEdit2511_6000.safetensors` | 通用全品类 | 原图比例 | `PATTERN_EXTRACT_POSITIVE_DEFAULT` | QwenImageEdit2511 checkpoint（6000） |
+| `印花提取-通用_QwenImageEdit2511_6500.safetensors` | 通用全品类 | 原图比例 | `PATTERN_EXTRACT_POSITIVE_DEFAULT` | QwenImageEdit2511 checkpoint（6500） |
+| `印花提取-通用_QwenImageEdit2511_7000.safetensors` | 通用全品类 | 原图比例 | `PATTERN_EXTRACT_POSITIVE_DEFAULT` | QwenImageEdit2511 checkpoint（7000） |
+| `印花提取-通用_QwenImageEdit2511_7500.safetensors` | 通用全品类 | 原图比例 | `PATTERN_EXTRACT_POSITIVE_DEFAULT` | QwenImageEdit2511 checkpoint（7500） |
+| `印花提取-通用_QwenImageEdit2511_8000.safetensors` | 通用全品类 | 原图比例 | `PATTERN_EXTRACT_POSITIVE_DEFAULT` | QwenImageEdit2511 checkpoint（8000） |
 | `印花提取-毛毯1-1.safetensors` | 毛毯/抱枕（方形） | 1:1 | `PATTERN_EXTRACT_BLANKET_PROMPT` | 方形毛毯/抱枕，默认输出 1:1 |
 | `印花提取-毛毯2-1.safetensors` | 毛毯/围巾（横向） | 2:1 | `PATTERN_EXTRACT_BLANKET_PROMPT` | 横向 2:1 围巾/披毯，适合左右长条 |
 | `印花提取-毛毯1-2.safetensors` | 毛毯/挂布（纵向） | 1:2 | `PATTERN_EXTRACT_BLANKET_PROMPT` | 纵向 1:2 挂毯/帘布，适合上下长条 |
@@ -94,6 +101,14 @@
 - **适用范围**：杯子、保温杯、马克杯、圆柱类包装。
 - **正向提示词**：`PATTERN_EXTRACT_CUP_PROMPT`，见常量文件。
 - **提示**：高度依赖背景色精确还原，建议提交 360° 环绕或多视角素材验证。
+
+## 3.1 通用 QwenImageEdit2511 Checkpoint（5000~8000）
+
+- **文件名**：`印花提取-通用_QwenImageEdit2511_<checkpoint>.safetensors`
+- **当前已纳管 checkpoint**：5000 / 5500 / 6000 / 6500 / 7000 / 7500 / 8000
+- **适用范围**：全品类通用对比回归（同一素材批次横向比对不同 checkpoint）
+- **正向提示词**：统一使用 `PATTERN_EXTRACT_POSITIVE_DEFAULT`
+- **建议**：批量测评时固定其他参数（尺寸/提示词/迭代次数）只替换 LoRA，便于比较覆盖缺失素材。
 
 ## 4. 毛毯 / 挂布系列
 
