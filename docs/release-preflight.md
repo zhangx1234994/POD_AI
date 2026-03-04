@@ -88,3 +88,5 @@ Steps:
   - 成功任务扣费一次（无重复扣费）
   - 失败/取消任务不扣费
   - 账单明细可追溯 `task_id + trace_id`
+  - 若配置了 `WALLET_CALLBACK_TOKEN`：未携带 token 的充值回调应返回 `RECHARGE_CALLBACK_UNAUTHORIZED`
+  - 若配置了 `WALLET_CALLBACK_SIGNING_SECRET`：签名缺失/错误返回 `RECHARGE_CALLBACK_SIGNATURE_INVALID`，过期返回 `RECHARGE_CALLBACK_SIGNATURE_EXPIRED`
