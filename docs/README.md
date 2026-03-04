@@ -87,6 +87,7 @@ docs/
 ├── smart-polling-mechanism.md
 ├── strategy
 │   ├── README.md
+│   ├── auth-scheme-decision-2026q2.md
 │   ├── context-cleanup-policy.md
 │   ├── status-error-audit-2026q2.md
 │   ├── strategy-one-page-2026q2.md
@@ -168,6 +169,7 @@ docs/
 
 ### 战略规划（唯一入口）
 - `docs/strategy/README.md`：战略工作区说明
+- `docs/strategy/auth-scheme-decision-2026q2.md`：认证方案选型结论（Q2）
 - `docs/strategy/strategy-one-page-2026q2.md`：战略一页纸（目标/KPI/里程碑）
 - `docs/strategy/todo-master-2026q2.md`：唯一待办池（P0/P1/P2）
 - `docs/strategy/context-cleanup-policy.md`：上下文清理与归档规则
