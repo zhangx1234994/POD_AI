@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 import logging
+import math
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -16,7 +17,7 @@ from sqlalchemy import delete, func, select
 
 from app.core.config import get_settings
 from app.core.db import get_session
-from app.models.integration import Ability, AbilityTask
+from app.models.integration import Ability, AbilityInvocationLog, AbilityTask
 from app.models.user import User
 from app.schemas.abilities import AbilityInvokeRequest
 from app.services.ability_invocation import ability_invocation_service
@@ -24,6 +25,7 @@ from app.services.ability_logs import ability_log_service
 from app.services.integration_test import integration_test_service
 from app.services.task_id_codec import decode_task_id
 from app.services.task_status_contract import derive_ability_task_status
+from app.services.wallet import wallet_service
 
 logger = logging.getLogger(__name__)
 
@@ -405,6 +407,7 @@ class AbilityTaskService:
                         )
                     except Exception:
                         pass
+                    self._settle_success_wallet(task_id=task.id, db_task=db_task)
             except Exception as exc:
                 # Best-effort; keep task running but record last hint for operators.
                 with get_session() as session:
@@ -516,6 +519,7 @@ class AbilityTaskService:
                         )
                     except Exception:
                         pass
+                    self._settle_success_wallet(task_id=task.id, db_task=db_task)
                 continue
 
             if state == "fail":
@@ -606,6 +610,142 @@ class AbilityTaskService:
             return "cancelled"
         return "succeeded"
 
+    @staticmethod
+    def _safe_float(value: Any) -> float | None:
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _count_inputs(request_payload: dict[str, Any] | None) -> int:
+        payload = request_payload if isinstance(request_payload, dict) else {}
+        images = payload.get("images")
+        if isinstance(images, list) and images:
+            return len(images)
+        if payload.get("imageUrl") or payload.get("imageBase64"):
+            return 1
+        inputs = payload.get("inputs")
+        if isinstance(inputs, dict):
+            for key in ("image_input", "input_urls", "image_urls", "image_list"):
+                val = inputs.get(key)
+                if isinstance(val, list) and val:
+                    return len(val)
+            if inputs.get("url") or inputs.get("image_url"):
+                return 1
+        return 0
+
+    @staticmethod
+    def _count_outputs(result_payload: dict[str, Any] | None) -> int:
+        payload = result_payload if isinstance(result_payload, dict) else {}
+        count = 0
+        for key in ("images", "videos", "assets"):
+            val = payload.get(key)
+            if isinstance(val, list):
+                count += len(val)
+        return count
+
+    def _settle_success_wallet(self, *, task_id: str, db_task: AbilityTask) -> None:
+        settings = get_settings()
+        if not bool(getattr(settings, "wallet_auto_expense_enabled", True)):
+            return
+        user_id = str(db_task.user_id or "").strip()
+        if not user_id:
+            return
+
+        provider = str(db_task.ability_provider or "unknown")
+        model_key = str(db_task.capability_key or "unknown")
+        request_payload = db_task.request_payload if isinstance(db_task.request_payload, dict) else {}
+        result_payload = db_task.result_payload if isinstance(db_task.result_payload, dict) else {}
+        input_count = self._count_inputs(request_payload)
+        output_count = self._count_outputs(result_payload)
+
+        pricing_version = "v1"
+        currency = "USD"
+        total_cost: float | None = None
+        unit_cost: float | None = None
+
+        try:
+            with get_session() as session:
+                ability = session.get(Ability, db_task.ability_id)
+                metadata = ability.extra_metadata if ability and isinstance(ability.extra_metadata, dict) else {}
+                pricing = metadata.get("pricing") if isinstance(metadata, dict) else None
+                if isinstance(pricing, dict):
+                    pricing_version = str(
+                        pricing.get("version")
+                        or metadata.get("pricing_version")
+                        or metadata.get("seed_version")
+                        or "v1"
+                    )
+                    currency = str(pricing.get("currency") or "USD")
+                    fallback_cost = self._safe_float(pricing.get("discount_price"))
+                    if fallback_cost is None:
+                        fallback_cost = self._safe_float(pricing.get("list_price"))
+                    total_cost = fallback_cost
+
+                if db_task.log_id:
+                    log = session.get(AbilityInvocationLog, int(db_task.log_id))
+                    if log:
+                        if log.ability_provider:
+                            provider = str(log.ability_provider)
+                        if log.capability_key:
+                            model_key = str(log.capability_key)
+                        log_total = self._safe_float(log.cost_amount)
+                        if log_total is not None:
+                            total_cost = log_total
+                        log_unit = self._safe_float(log.unit_price)
+                        if log_unit is not None:
+                            unit_cost = log_unit
+                        if log.currency:
+                            currency = str(log.currency)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("settle wallet metadata lookup failed for ability task %s: %s", task_id, exc)
+
+        if unit_cost is None and total_cost is not None:
+            divisor = max(1, output_count)
+            unit_cost = total_cost / divisor
+
+        try:
+            wallet_service.record_task_cost_snapshot(
+                task_id=task_id,
+                user_id=user_id,
+                provider=provider,
+                model_key=model_key,
+                input_count=input_count,
+                output_count=output_count,
+                unit_cost=unit_cost,
+                total_cost=total_cost,
+                pricing_version=pricing_version,
+                currency=currency,
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("record task cost snapshot failed for ability task %s: %s", task_id, exc)
+
+        points = 0
+        if total_cost is not None and total_cost > 0:
+            rate = max(1, int(getattr(settings, "wallet_points_per_usd", 100) or 100))
+            points = max(1, int(math.ceil(float(total_cost) * rate)))
+        if points <= 0:
+            return
+
+        trace_id = f"ability_task:{task_id}"
+        try:
+            wallet_service.record_expense(
+                user_id=user_id,
+                points=points,
+                task_id=task_id,
+                trace_id=trace_id,
+                provider=provider,
+                model_key=model_key,
+                description=f"ability task settle:{task_id}",
+            )
+        except HTTPException as exc:
+            logger.warning("wallet settle rejected for ability task %s: %s", task_id, exc.detail)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("wallet settle failed for ability task %s: %s", task_id, exc)
+
     def _run_task(self, task_id: str) -> None:
         started_at = datetime.utcnow()
         request_payload: dict[str, Any] | None = None
@@ -643,6 +783,7 @@ class AbilityTaskService:
                 db_task = session.get(AbilityTask, task_id)
                 if not db_task:
                     return
+                should_settle = False
                 resolved_status = self._resolve_invoke_status(response.status)
                 # Some abilities (e.g. long-running ComfyUI graphs) return status=running,
                 # meaning we only submitted the job and will finalize later via polling.
@@ -674,8 +815,11 @@ class AbilityTaskService:
                     db_task.result_payload = response.model_dump()
                     db_task.log_id = response.logId
                     db_task.error_message = None
+                    should_settle = True
                 session.add(db_task)
                 session.commit()
+                if should_settle:
+                    self._settle_success_wallet(task_id=task_id, db_task=db_task)
         except Exception as exc:  # pragma: no cover - defensive
             finished_at = datetime.utcnow()
             error_detail = self._format_error(exc)

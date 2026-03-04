@@ -101,6 +101,8 @@
 
 - `traceId` 可选；传入时按 `userId + traceId` 幂等。
 - 幂等命中时不重复扣费，返回 `idempotent=true`。
+- 任务自动结算可通过 `WALLET_AUTO_EXPENSE_ENABLED` 开关控制（默认开启）。
+- 成本到积分换算默认使用 `WALLET_POINTS_PER_USD=100`（可配置）。
 
 **错误码**
 
@@ -373,6 +375,12 @@
   ]
 }
 ```
+
+### 任务成本快照（内部）
+
+- 能力任务成功后会写入 `task_cost_snapshots`（按 `task_id` 幂等）。
+- 关键字段：`provider/model_key/input_count/output_count/unit_cost/total_cost/pricing_version`。
+- 当前用于对账和成本追踪，不直接对业务侧开放独立接口。
 
 ---
 

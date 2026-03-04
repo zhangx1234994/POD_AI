@@ -400,3 +400,36 @@ def test_usage_summary_with_expense_and_income() -> None:
     assert summary["providers"][0]["key"] == "kie"
     assert summary["models"][0]["key"] == "nano-banana-2"
     assert len(summary["daily"]) >= 1
+
+
+def test_record_task_cost_snapshot_idempotent() -> None:
+    first = wallet_service.record_task_cost_snapshot(
+        task_id="ability_task_001",
+        user_id="u_cost_snapshot",
+        provider="kie",
+        model_key="nano-banana-2",
+        input_count=1,
+        output_count=2,
+        unit_cost=0.04,
+        total_cost=0.08,
+        pricing_version="kie-20260304",
+        currency="USD",
+    )
+    assert first["created"] is True
+    assert first["taskId"] == "ability_task_001"
+    assert first["totalCost"] == 0.08
+
+    second = wallet_service.record_task_cost_snapshot(
+        task_id="ability_task_001",
+        user_id="u_cost_snapshot",
+        provider="kie",
+        model_key="nano-banana-2",
+        input_count=1,
+        output_count=2,
+        unit_cost=0.04,
+        total_cost=0.08,
+        pricing_version="kie-20260304",
+        currency="USD",
+    )
+    assert second["created"] is False
+    assert second["taskId"] == "ability_task_001"

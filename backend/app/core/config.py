@@ -50,6 +50,8 @@ class Settings(BaseSettings):
     wallet_callback_token: str | None = Field(default=None, env="WALLET_CALLBACK_TOKEN")
     wallet_callback_signing_secret: str | None = Field(default=None, env="WALLET_CALLBACK_SIGNING_SECRET")
     wallet_callback_signature_ttl_seconds: int = Field(default=300, env="WALLET_CALLBACK_SIGNATURE_TTL_SECONDS")
+    wallet_auto_expense_enabled: bool = Field(default=True, env="WALLET_AUTO_EXPENSE_ENABLED")
+    wallet_points_per_usd: int = Field(default=100, env="WALLET_POINTS_PER_USD")
     # When Coze Studio runs on a different machine, its requests will not look like "internal"
     # (127.x/10.x/192.168.x/172.16.x). Allowlist its source IP(s) here.
     # Comma-separated, e.g. "1.2.3.4,5.6.7.8".

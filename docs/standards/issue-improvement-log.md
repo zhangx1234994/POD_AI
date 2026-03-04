@@ -32,6 +32,7 @@
   - 充值状态回调可透传 `taskId/traceId/provider/modelKey` 并写入流水，便于对账与成本追踪。
   - 新增 `POST /api/wallet/v1/expenses` 直接支出记账接口（`traceId` 幂等），满足“暂不开放充值、先做支出追踪”口径。
   - 新增 `GET /api/wallet/v1/usage-summary` 使用量统计接口（按天、Provider、Model 维度）。
+  - 新增 `task_cost_snapshots` 成本快照表（含 `pricing_version`），能力任务成功后自动写快照并触发钱包幂等扣费。
 - 状态：已完成（已补 DB 迁移与 DB 优先逻辑；未迁移环境自动回退内存）
 
 1) **中台内页在 1024~1366 宽度区间不易操作**

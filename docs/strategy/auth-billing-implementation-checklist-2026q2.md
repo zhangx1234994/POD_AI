@@ -60,12 +60,12 @@
 ## 阶段 C：任务成本入账
 
 ### C1. 数据库迁移
-- [ ] 新增表：`task_cost_snapshots`
-- [ ] 成本规则版本字段：`pricing_version`
+- [x] 新增表：`task_cost_snapshots`
+- [x] 成本规则版本字段：`pricing_version`
 
 ### C2. 后端逻辑
-- [ ] 任务完成后写成本快照
-- [ ] 成功任务扣费，失败/取消任务不扣费
+- [x] 任务完成后写成本快照（能力任务成功后按 task_id 幂等）
+- [x] 成功任务扣费，失败/取消任务不扣费（能力任务自动结算）
 - [ ] 重复回调幂等防重
 
 ### C3. 对外接口
@@ -73,9 +73,9 @@
 - [x] `GET /api/wallet/v1/cost-snapshots`（内存版）
 
 ### C4. 回归检查
-- [ ] 同一任务重复回调不会重复扣费
-- [ ] 账单汇总与流水可对齐
-- [ ] 成本字段可追溯到 provider/model/task
+- [x] 同一任务重复回调不会重复扣费（`traceId=ability_task:{task_id}`）
+- [x] 账单汇总与流水可对齐
+- [x] 成本字段可追溯到 provider/model/task
 
 ---
 
@@ -103,7 +103,7 @@
 
 ## 3) 发布门槛（硬性）
 
-- [ ] 新增接口文档已同步到 `docs/api/modules/auth.md` / `docs/api/modules/notify-wallet.md`
+- [x] 新增接口文档已同步到 `docs/api/modules/auth.md` / `docs/api/modules/notify-wallet.md`
 - [x] 错误码已同步到 `docs/standards/error-catalog.md`
 - [ ] 回归报告包含：成功路径 + 至少 5 条失败路径
 - [ ] `release-preflight` 补充认证/计费检查项

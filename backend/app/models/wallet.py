@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text
+from decimal import Decimal
+
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -88,3 +90,24 @@ class RechargeOrder(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
     )
+
+
+class TaskCostSnapshot(Base):
+    __tablename__ = "task_cost_snapshots"
+    __table_args__ = (
+        Index("ix_task_cost_snapshots_user_created", "user_id", "created_at"),
+        Index("ix_task_cost_snapshots_provider_model", "provider", "model_key"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    task_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    user_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    model_key: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    input_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    output_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    unit_cost: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
+    total_cost: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+    pricing_version: Mapped[str] = mapped_column(String(32), nullable=False, default="v1")
+    currency: Mapped[str] = mapped_column(String(16), nullable=False, default="USD")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)

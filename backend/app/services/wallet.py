@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from decimal import Decimal
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
@@ -13,7 +14,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.db import engine, get_session
-from app.models.wallet import RechargeOrder, WalletAccount, WalletHold, WalletLedger
+from app.models.wallet import RechargeOrder, TaskCostSnapshot, WalletAccount, WalletHold, WalletLedger
 
 
 RECHARGE_TERMINAL_STATUSES = {"paid", "failed", "canceled"}
@@ -27,6 +28,7 @@ class WalletService:
         self._memory_holds: dict[str, dict[str, Any]] = {}
         self._memory_ledger: list[dict[str, Any]] = []
         self._memory_orders: dict[str, dict] = {}
+        self._memory_task_cost_snapshots: dict[str, dict[str, Any]] = {}
 
     def reset(self) -> None:
         self._db_ready_cache = None
@@ -34,6 +36,7 @@ class WalletService:
         self._memory_holds = {}
         self._memory_ledger = []
         self._memory_orders = {}
+        self._memory_task_cost_snapshots = {}
 
     @staticmethod
     def _now_iso() -> str:
@@ -56,6 +59,16 @@ class WalletService:
         except Exception:
             self._db_ready_cache = False
         return self._db_ready_cache
+
+    @staticmethod
+    def _task_cost_table_ready() -> bool:
+        if os.getenv("PYTEST_CURRENT_TEST"):
+            return False
+        try:
+            inspector = inspect(engine)
+            return bool(inspector.has_table("task_cost_snapshots"))
+        except Exception:
+            return False
 
     @staticmethod
     def _normalize_page(page: int, page_size: int) -> tuple[int, int]:
@@ -98,6 +111,15 @@ class WalletService:
             "transactionId": order.transaction_id,
             "updatedAt": order.updated_at.isoformat() if order.updated_at else None,
         }
+
+    @staticmethod
+    def _to_decimal(value: float | int | str | Decimal | None, scale: str) -> Decimal | None:
+        if value is None:
+            return None
+        try:
+            return Decimal(str(value)).quantize(Decimal(scale))
+        except Exception:
+            return None
 
     @staticmethod
     def _normalize_recharge_status(status: str) -> str:
@@ -423,6 +445,67 @@ class WalletService:
             "totalPoints": sum(int(item.get("points") or 0) for item in items),
             "items": items,
         }
+
+    def _record_task_cost_snapshot_db(
+        self,
+        *,
+        task_id: str,
+        user_id: str,
+        provider: str,
+        model_key: str,
+        input_count: int,
+        output_count: int,
+        unit_cost: float | Decimal | None,
+        total_cost: float | Decimal | None,
+        pricing_version: str = "v1",
+        currency: str = "USD",
+    ) -> dict:
+        with get_session() as session:
+            existing = (
+                session.execute(select(TaskCostSnapshot).where(TaskCostSnapshot.task_id == task_id)).scalars().first()
+            )
+            if existing:
+                session.commit()
+                return {
+                    "taskId": existing.task_id,
+                    "userId": existing.user_id,
+                    "provider": existing.provider,
+                    "modelKey": existing.model_key,
+                    "inputCount": int(existing.input_count or 0),
+                    "outputCount": int(existing.output_count or 0),
+                    "unitCost": float(existing.unit_cost) if existing.unit_cost is not None else None,
+                    "totalCost": float(existing.total_cost) if existing.total_cost is not None else None,
+                    "pricingVersion": existing.pricing_version,
+                    "currency": existing.currency,
+                    "created": False,
+                }
+            row = TaskCostSnapshot(
+                task_id=task_id,
+                user_id=user_id,
+                provider=provider,
+                model_key=model_key,
+                input_count=max(0, int(input_count or 0)),
+                output_count=max(0, int(output_count or 0)),
+                unit_cost=self._to_decimal(unit_cost, "0.000001"),
+                total_cost=self._to_decimal(total_cost, "0.0001"),
+                pricing_version=(pricing_version or "v1")[:32],
+                currency=(currency or "USD")[:16],
+            )
+            session.add(row)
+            session.commit()
+            return {
+                "taskId": task_id,
+                "userId": user_id,
+                "provider": provider,
+                "modelKey": model_key,
+                "inputCount": max(0, int(input_count or 0)),
+                "outputCount": max(0, int(output_count or 0)),
+                "unitCost": float(unit_cost) if unit_cost is not None else None,
+                "totalCost": float(total_cost) if total_cost is not None else None,
+                "pricingVersion": (pricing_version or "v1")[:32],
+                "currency": (currency or "USD")[:16],
+                "created": True,
+            }
 
     def _usage_summary_db(self, user_id: str, window_days: int) -> dict:
         normalized_days = max(1, min(365, int(window_days or 30)))
@@ -915,6 +998,38 @@ class WalletService:
             "models": models,
         }
 
+    def _record_task_cost_snapshot_memory(
+        self,
+        *,
+        task_id: str,
+        user_id: str,
+        provider: str,
+        model_key: str,
+        input_count: int,
+        output_count: int,
+        unit_cost: float | Decimal | None,
+        total_cost: float | Decimal | None,
+        pricing_version: str = "v1",
+        currency: str = "USD",
+    ) -> dict:
+        existing = self._memory_task_cost_snapshots.get(task_id)
+        if existing:
+            return {**existing, "created": False}
+        data = {
+            "taskId": task_id,
+            "userId": user_id,
+            "provider": provider,
+            "modelKey": model_key,
+            "inputCount": max(0, int(input_count or 0)),
+            "outputCount": max(0, int(output_count or 0)),
+            "unitCost": float(unit_cost) if unit_cost is not None else None,
+            "totalCost": float(total_cost) if total_cost is not None else None,
+            "pricingVersion": (pricing_version or "v1")[:32],
+            "currency": (currency or "USD")[:16],
+        }
+        self._memory_task_cost_snapshots[task_id] = data
+        return {**data, "created": True}
+
     def _record_expense_memory(
         self,
         *,
@@ -1134,6 +1249,49 @@ class WalletService:
             provider=provider,
             model_key=model_key,
             description=description,
+        )
+
+    def record_task_cost_snapshot(
+        self,
+        *,
+        task_id: str,
+        user_id: str,
+        provider: str,
+        model_key: str,
+        input_count: int,
+        output_count: int,
+        unit_cost: float | Decimal | None,
+        total_cost: float | Decimal | None,
+        pricing_version: str = "v1",
+        currency: str = "USD",
+    ) -> dict:
+        if self._task_cost_table_ready():
+            try:
+                return self._record_task_cost_snapshot_db(
+                    task_id=task_id,
+                    user_id=user_id,
+                    provider=provider,
+                    model_key=model_key,
+                    input_count=input_count,
+                    output_count=output_count,
+                    unit_cost=unit_cost,
+                    total_cost=total_cost,
+                    pricing_version=pricing_version,
+                    currency=currency,
+                )
+            except SQLAlchemyError:
+                pass
+        return self._record_task_cost_snapshot_memory(
+            task_id=task_id,
+            user_id=user_id,
+            provider=provider,
+            model_key=model_key,
+            input_count=input_count,
+            output_count=output_count,
+            unit_cost=unit_cost,
+            total_cost=total_cost,
+            pricing_version=pricing_version,
+            currency=currency,
         )
 
 

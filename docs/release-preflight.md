@@ -88,6 +88,7 @@ Steps:
   - 成功任务扣费一次（无重复扣费）
   - `POST /api/wallet/v1/expenses` 在相同 `userId+traceId` 下不重复扣费
   - `GET /api/wallet/v1/usage-summary` 统计口径与 ledger 对齐
+  - 能力任务成功后应写入 `task_cost_snapshots`（含 `pricing_version`）
   - 失败/取消任务不扣费
   - 账单明细可追溯 `task_id + trace_id`
   - 若配置了 `WALLET_CALLBACK_TOKEN`：未携带 token 的充值回调应返回 `RECHARGE_CALLBACK_UNAUTHORIZED`
