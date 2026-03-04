@@ -106,6 +106,7 @@ docs/
 ├── testing
 │   └── COZE_WORKFLOW_TEST_PLAN.md
 ├── wip
+│   ├── auth-billing-model-draft.md
 │   └── admin-ia-draft.md
 └── workflow-platform-requirements.md
 ```
@@ -191,6 +192,7 @@ docs/
 - `docs/retrospectives/2026-02-13.md`：复盘纪要（休假前记录）
 - `docs/retrospectives/2026-02-21.md`：复盘纪要（文档全量校正）
 - `docs/wip/admin-ia-draft.md`：管理端信息架构草案
+- `docs/wip/auth-billing-model-draft.md`：认证与计费字段模型草案
 
 ## 维护约定
 1. 新增文档必须补充到本索引。
