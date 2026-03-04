@@ -88,6 +88,7 @@ docs/
 ├── strategy
 │   ├── README.md
 │   ├── context-cleanup-policy.md
+│   ├── status-error-audit-2026q2.md
 │   ├── strategy-one-page-2026q2.md
 │   └── todo-master-2026q2.md
 ├── standards
@@ -167,6 +168,7 @@ docs/
 - `docs/strategy/strategy-one-page-2026q2.md`：战略一页纸（目标/KPI/里程碑）
 - `docs/strategy/todo-master-2026q2.md`：唯一待办池（P0/P1/P2）
 - `docs/strategy/context-cleanup-policy.md`：上下文清理与归档规则
+- `docs/strategy/status-error-audit-2026q2.md`：状态与错误口径核对表（执行检查）
 
 ### Coze 集成
 - `docs/COZE_INTEGRATION_GUIDE.md`：Coze 集成指南
