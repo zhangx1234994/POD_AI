@@ -329,6 +329,13 @@ const comfyuiSyncStepMeta: Array<{ tab: ComfySyncStepTab; step: string; title: s
   { tab: 'manifests', step: '步骤 2', title: '清单发布', hint: '确认目标版本并发布清单。' },
   { tab: 'tasks', step: '步骤 3', title: '任务下发', hint: '下发并观察回执状态。' },
 ];
+type ComfySyncStepStatus = 'blocked' | 'pending' | 'in_progress' | 'done';
+const comfySyncStepStatusMeta: Record<ComfySyncStepStatus, { theme: 'warning' | 'primary' | 'default' | 'success'; text: string }> = {
+  blocked: { theme: 'warning', text: '前置未满足' },
+  pending: { theme: 'default', text: '待处理' },
+  in_progress: { theme: 'primary', text: '进行中' },
+  done: { theme: 'success', text: '已完成' },
+};
 const comfyuiSyncGuideMeta: Record<ComfySyncStepTab, { entry: string; done: string; failure: string }> = {
   servers: {
     entry: '至少有 1 台 ComfyUI 服务器，并选定主服务器作为基线。',
@@ -2182,17 +2189,50 @@ export function IntegrationDashboard({
     [comfyRepairJobs],
   );
   const comfySyncSteps = useMemo(
-    () =>
-      comfyuiSyncStepMeta.map((step) => {
+    () => {
+      const serversDone = Boolean(comfyBaselineExecutorId) && comfyDiffLogs.length > 0;
+      const manifestsDone = comfyPublishedManifestCount > 0;
+      const tasksDone = visibleComfyAgentTasks.length > 0 && comfyRunningTaskCount === 0;
+      return comfyuiSyncStepMeta.map((step) => {
+        let status: ComfySyncStepStatus = 'pending';
         if (step.tab === 'servers') {
-          return { ...step, metric: `${comfyExecutors.length} 台节点` };
+          status = serversDone ? 'done' : step.tab === comfyuiManageTab ? 'in_progress' : 'pending';
+        } else if (step.tab === 'manifests') {
+          if (!comfyBaselineExecutorId) {
+            status = 'blocked';
+          } else if (manifestsDone) {
+            status = 'done';
+          } else {
+            status = step.tab === comfyuiManageTab ? 'in_progress' : 'pending';
+          }
+        } else {
+          if (!manifestsDone) {
+            status = 'blocked';
+          } else if (tasksDone) {
+            status = 'done';
+          } else {
+            status = step.tab === comfyuiManageTab ? 'in_progress' : 'pending';
+          }
+        }
+        if (step.tab === 'servers') {
+          return { ...step, metric: `${comfyExecutors.length} 台节点`, status };
         }
         if (step.tab === 'manifests') {
-          return { ...step, metric: `${comfyPublishedManifestCount}/${comfyManifestList.length} 已发布` };
+          return { ...step, metric: `${comfyPublishedManifestCount}/${comfyManifestList.length} 已发布`, status };
         }
-        return { ...step, metric: `${comfyRunningTaskCount} 运行中 / ${visibleComfyAgentTasks.length} 总任务` };
-      }),
-    [comfyExecutors.length, comfyManifestList.length, comfyPublishedManifestCount, comfyRunningTaskCount, visibleComfyAgentTasks.length],
+        return { ...step, metric: `${comfyRunningTaskCount} 运行中 / ${visibleComfyAgentTasks.length} 总任务`, status };
+      });
+    },
+    [
+      comfyBaselineExecutorId,
+      comfyDiffLogs.length,
+      comfyExecutors.length,
+      comfyManifestList.length,
+      comfyPublishedManifestCount,
+      comfyRunningTaskCount,
+      comfyuiManageTab,
+      visibleComfyAgentTasks.length,
+    ],
   );
   const comfySyncCurrentStep = useMemo(
     () => comfySyncSteps.find((item) => item.tab === comfyuiManageTab) || null,
@@ -9887,6 +9927,7 @@ const normalizeErrorMessage = (message: string): string => {
               <div className="podi-comfy-sync-steps">
                 {comfySyncSteps.map((step) => {
                   const active = step.tab === comfyuiManageTab;
+                  const statusMeta = comfySyncStepStatusMeta[step.status];
                   return (
                     <button
                       key={`comfy-sync-step-${step.tab}`}
@@ -9896,11 +9937,16 @@ const normalizeErrorMessage = (message: string): string => {
                     >
                       <div className="podi-comfy-sync-step__head">
                         <span className="podi-comfy-sync-step__step">{step.step}</span>
-                        {active ? (
-                          <Tag size="small" theme="primary" variant="light">
-                            当前
+                        <Space align="center" size="small">
+                          <Tag size="small" theme={statusMeta.theme} variant="light">
+                            {statusMeta.text}
                           </Tag>
-                        ) : null}
+                          {active ? (
+                            <Tag size="small" theme="primary" variant="light">
+                              当前
+                            </Tag>
+                          ) : null}
+                        </Space>
                       </div>
                       <div className="podi-comfy-sync-step__title">{step.title}</div>
                       <div className="podi-comfy-sync-step__hint">{step.hint}</div>
