@@ -37,7 +37,7 @@
 - [x] 新增表：`wallet_accounts`
 - [x] 新增表：`wallet_ledger`
 - [x] 新增表：`recharge_orders`
-- [ ] 存量用户钱包初始化脚本
+- [x] 存量用户钱包初始化脚本（`python3 backend/scripts/init_wallet_accounts.py --apply`）
 
 ### B2. 后端接口
 - [x] `GET /api/wallet/v1/balance`（内存版，待数据库持久化）

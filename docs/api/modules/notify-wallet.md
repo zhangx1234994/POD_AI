@@ -7,6 +7,11 @@
 
 > 当前状态：`/api/wallet/v1/*` 已可联调完整钱包流程；`wallet_accounts/wallet_holds/wallet_ledger/recharge_orders` 迁移完成后自动进入持久化模式。
 
+**迁移与初始化建议**
+
+1. `cd backend && python3 -m alembic upgrade head`
+2. `python3 backend/scripts/init_wallet_accounts.py --apply`
+
 ---
 
 ## 1) 通知
