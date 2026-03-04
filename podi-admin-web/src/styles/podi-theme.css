@@ -201,6 +201,30 @@ html.t-theme-dark {
   transform: none;
 }
 
+.podi-login-session {
+  position: relative;
+}
+
+.podi-login-session__signout {
+  position: fixed;
+  top: 12px;
+  right: 14px;
+  z-index: 40;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--td-border-level-2-color);
+  background: color-mix(in srgb, var(--td-bg-color-container) 88%, #fff);
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.podi-login-session__signout:hover {
+  color: var(--td-text-color-primary);
+  border-color: var(--podi-accent);
+}
+
 .podi-shell .t-layout {
   min-width: 0;
 }
@@ -626,5 +650,10 @@ html.t-theme-dark {
 
   .podi-login__title {
     font-size: 28px;
+  }
+
+  .podi-login-session__signout {
+    top: 10px;
+    right: 10px;
   }
 }

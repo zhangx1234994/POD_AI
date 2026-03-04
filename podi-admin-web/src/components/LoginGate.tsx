@@ -172,17 +172,11 @@ export function LoginGate({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div>
-      <header className="flex items-center justify-between border-b border-slate-800 px-6 py-4 bg-slate-950/70">
-        <div>
-          <h2 className="text-lg font-semibold text-white">PODI 管理控制台</h2>
-          <p className="text-xs text-slate-400">独立入口 · 仅限管理员访问</p>
-        </div>
-        <button onClick={handleSignOut} className="text-sm text-slate-300 hover:text-white">
-          退出
-        </button>
-      </header>
-      <main className="p-6">{children}</main>
+    <div className="podi-login-session">
+      <button onClick={handleSignOut} className="podi-login-session__signout">
+        退出登录
+      </button>
+      {children}
     </div>
   );
 }
