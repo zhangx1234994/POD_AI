@@ -76,6 +76,10 @@ Steps:
 
 ## 6) Auth & Billing Gate (Q2)
 
+- 钱包迁移与初始化（若本次发版包含钱包改动）：
+  - `cd backend && python3 -m alembic upgrade head`
+  - `python3 backend/scripts/init_wallet_accounts.py --dry-run`
+  - `python3 backend/scripts/init_wallet_accounts.py --apply`
 - 认证链路（若本次发版包含认证改动）：
   - 登录成功 / 登录失败（错误码正确）
   - refresh 成功 / refresh 过期
