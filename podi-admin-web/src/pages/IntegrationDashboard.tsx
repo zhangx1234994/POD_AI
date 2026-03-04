@@ -73,19 +73,19 @@ import { mapStatusToBadge } from '../features/admin/shared/status';
 import { ActionBar, ErrorState, PageHeader, StatusBadge } from '../features/admin/shared/ui';
 
 const navItems = [
-  { id: 'overview', label: '总体概览', description: '指标、刷新、运行状态' },
-  { id: 'abilities', label: '能力目录', description: '原子能力列表与成本' },
-  { id: 'ability-tests', label: '能力详情/测试', description: '链路自检与演示' },
-  { id: 'ability-evals', label: '能力评测', description: 'Coze 工作流试运行 + 评分' },
-  { id: 'executors', label: '执行节点', description: '节点配置与健康' },
-  { id: 'ability-logs', label: '能力调用', description: '全局历史记录' },
-  { id: 'comfyui-management', label: 'ComfyUI 管理', description: 'LoRA/模型/模板' },
-  { id: 'workflow-builder', label: '工作流编排', description: 'Coze Studio 工作流 + Loop 观测', advanced: true },
-  { id: 'bindings', label: '分配策略', description: 'action 绑定链路', advanced: true },
-  { id: 'apikeys', label: 'API Keys', description: '凭证配额管理' },
-  { id: 'monitor', label: '调度监控', description: '队列/任务/节点健康' },
-  { id: 'system', label: '系统配置', description: '环境、OSS、待办' },
-  { id: 'logs', label: '调度事件', description: '任务追踪', advanced: true },
+  { id: 'overview', label: '总体概览', shortLabel: 'OV', description: '指标、刷新、运行状态' },
+  { id: 'abilities', label: '能力目录', shortLabel: 'AB', description: '原子能力列表与成本' },
+  { id: 'ability-tests', label: '能力详情/测试', shortLabel: 'TS', description: '链路自检与演示' },
+  { id: 'ability-evals', label: '能力评测', shortLabel: 'EV', description: 'Coze 工作流试运行 + 评分' },
+  { id: 'executors', label: '执行节点', shortLabel: 'EX', description: '节点配置与健康' },
+  { id: 'ability-logs', label: '能力调用', shortLabel: 'LG', description: '全局历史记录' },
+  { id: 'comfyui-management', label: 'ComfyUI 管理', shortLabel: 'CF', description: 'LoRA/模型/模板' },
+  { id: 'workflow-builder', label: '工作流编排', shortLabel: 'WF', description: 'Coze Studio 工作流 + Loop 观测', advanced: true },
+  { id: 'bindings', label: '分配策略', shortLabel: 'BD', description: 'action 绑定链路', advanced: true },
+  { id: 'apikeys', label: 'API Keys', shortLabel: 'AK', description: '凭证配额管理' },
+  { id: 'monitor', label: '调度监控', shortLabel: 'MO', description: '队列/任务/节点健康' },
+  { id: 'system', label: '系统配置', shortLabel: 'SY', description: '环境、OSS、待办' },
+  { id: 'logs', label: '调度事件', shortLabel: 'TL', description: '任务追踪', advanced: true },
 ] as const;
 type NavId = (typeof navItems)[number]['id'];
 const isNavId = (value: string): value is NavId => navItems.some((item) => item.id === value);
@@ -7422,11 +7422,6 @@ const extractErrorMessage = (error: unknown): string => {
     return map;
   }, []);
   const activeComfyGroupTabs = comfyuiGroupMap[activeComfyTabMeta.group];
-  const activeComfyTabIndex = comfyuiTabOrder.indexOf(comfyuiManageTab);
-  const prevComfyTab = activeComfyTabIndex > 0 ? comfyuiTabOrder[activeComfyTabIndex - 1] : null;
-  const nextComfyTab = activeComfyTabIndex >= 0 && activeComfyTabIndex < comfyuiTabOrder.length - 1
-    ? comfyuiTabOrder[activeComfyTabIndex + 1]
-    : null;
   const navSelectOptions = useMemo(
     () =>
       visibleNavItems.map((item) => ({
@@ -7436,9 +7431,7 @@ const extractErrorMessage = (error: unknown): string => {
     [visibleNavItems],
   );
   const activeNavIndex = visibleNavItems.findIndex((item) => item.id === activeNav);
-  const prevNavMeta = activeNavIndex > 0 ? visibleNavItems[activeNavIndex - 1] : null;
-  const nextNavMeta =
-    activeNavIndex >= 0 && activeNavIndex < visibleNavItems.length - 1 ? visibleNavItems[activeNavIndex + 1] : null;
+  const hasCompactNavSelect = activeNavIndex >= 0;
 
   useEffect(() => {
     const syncFromHash = () => {
@@ -7545,24 +7538,7 @@ const extractErrorMessage = (error: unknown): string => {
             <Typography.Text theme="secondary">
               {activeNavMeta?.description || '通过左侧导航切换模块，顶部仅保留全局动作。'}
             </Typography.Text>
-            <Space size="small">
-              <Button
-                size="small"
-                variant="outline"
-                disabled={!prevNavMeta}
-                onClick={() => prevNavMeta && selectSection(prevNavMeta.id as NavId)}
-              >
-                上一模块
-              </Button>
-              <Button
-                size="small"
-                variant="outline"
-                disabled={!nextNavMeta}
-                onClick={() => nextNavMeta && selectSection(nextNavMeta.id as NavId)}
-              >
-                下一模块
-              </Button>
-            </Space>
+            {hasCompactNavSelect ? <Typography.Text theme="secondary">请从左侧模块列表直接切换。</Typography.Text> : null}
           </Space>
           <Space align="center" size="small" style={{ flexWrap: 'wrap' }}>
             <Tag variant="light" theme="primary">
@@ -9890,7 +9866,9 @@ const extractErrorMessage = (error: unknown): string => {
           </div>
           <div className="rounded-2xl border border-slate-200/70 bg-white px-3 py-3 dark:border-slate-800 dark:bg-slate-950/40">
             <div className="podi-comfy-group-grid">
-              {comfyuiTabGroupOrder.map((group) => {
+              {comfyuiTabGroupOrder
+                .filter((group) => group !== '同步发布')
+                .map((group) => {
                 const groupTabs = comfyuiGroupMap[group];
                 const active = group === activeComfyTabMeta.group;
                 const leadTab = comfyuiGroupMeta[group].primaryTab;
@@ -9909,6 +9887,20 @@ const extractErrorMessage = (error: unknown): string => {
                   </button>
                 );
               })}
+            </div>
+            <div className="podi-comfy-subgroup-panel">
+              <div className="podi-comfy-subgroup-panel__title">二级流程：同步发布</div>
+              <button
+                type="button"
+                className={`podi-comfy-group-card podi-comfy-group-card--subgroup${activeComfyTabMeta.group === '同步发布' ? ' is-active' : ''}`}
+                onClick={() => {
+                  const nextTab = activeComfyTabMeta.group === '同步发布' ? comfyuiManageTab : comfyuiGroupMeta['同步发布'].primaryTab;
+                  setComfyuiManageTab(nextTab);
+                }}
+              >
+                <div className="podi-comfy-group-card__title">同步发布</div>
+                <div className="podi-comfy-group-card__hint">{comfyuiGroupMeta['同步发布'].hint}</div>
+              </button>
             </div>
             {activeComfyTabMeta.group === '同步发布' ? (
               <div className="podi-comfy-sync-steps">
@@ -10066,24 +10058,6 @@ const extractErrorMessage = (error: unknown): string => {
                     }))}
                   />
                 </div>
-                <Space align="center" size="small" className="podi-comfy-module-nav">
-                  <Button
-                    size="small"
-                    variant="outline"
-                    disabled={!prevComfyTab}
-                    onClick={() => prevComfyTab && setComfyuiManageTab(prevComfyTab)}
-                  >
-                    上一模块
-                  </Button>
-                  <Button
-                    size="small"
-                    variant="outline"
-                    disabled={!nextComfyTab}
-                    onClick={() => nextComfyTab && setComfyuiManageTab(nextComfyTab)}
-                  >
-                    下一模块
-                  </Button>
-                </Space>
               </div>
               <Space align="center" size="small" className="podi-comfy-module-switch">
                 <Switch value={comfyShowTestNodes} onChange={(v) => setComfyShowTestNodes(Boolean(v))} />

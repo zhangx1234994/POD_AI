@@ -22,6 +22,7 @@ export type StatusBadgeMeta = {
 export type AppShellNavItem = {
   id: string;
   label: string;
+  shortLabel?: string;
   description?: string;
   advanced?: boolean;
 };

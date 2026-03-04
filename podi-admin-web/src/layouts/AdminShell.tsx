@@ -23,11 +23,21 @@ export function AdminShell({
     return window.localStorage.getItem(NAV_COMPACT_STORAGE_KEY) === "1";
   });
   const compactNav = manualCompactNav || viewportWidth < 1280;
-  const narrowNav = manualCompactNav || viewportWidth < 1120;
-  const ultraNarrowNav = viewportWidth < 980;
-  const asideWidth = ultraNarrowNav ? 148 : narrowNav ? 176 : compactNav ? 200 : 248;
+  const iconOnlyNav = manualCompactNav || viewportWidth < 1040;
+  const ultraNarrowNav = viewportWidth < 920;
+  const asideWidth = ultraNarrowNav ? 76 : iconOnlyNav ? 88 : compactNav ? 204 : 248;
   const headerPadding = ultraNarrowNav ? "6px 10px" : compactNav ? "8px 12px" : "8px 16px";
   const contentPadding = ultraNarrowNav ? 10 : compactNav ? 12 : 16;
+  const compactTitle = iconOnlyNav ? "AI" : "AI 管理";
+
+  const renderNavContent = (label: string, shortLabel?: string) => {
+    if (!iconOnlyNav) return <span>{label}</span>;
+    const badge = (shortLabel || label || "M")
+      .replace(/\s+/g, "")
+      .slice(0, 2)
+      .toUpperCase();
+    return <span className="podi-shell__nav-badge">{badge}</span>;
+  };
 
   useEffect(() => {
     const onResize = () => setViewportWidth(window.innerWidth);
@@ -53,44 +63,50 @@ export function AdminShell({
 
   return (
     <Layout className="podi-shell" style={{ height: "100vh", minWidth: 0 }}>
-      <Layout.Aside width={`${asideWidth}px`} className="podi-shell__aside" style={{ padding: compactNav ? 10 : 14, overflow: "auto" }}>
+      <Layout.Aside
+        width={`${asideWidth}px`}
+        className={`podi-shell__aside${iconOnlyNav ? " podi-shell__aside--icon-only" : ""}`}
+        style={{ padding: compactNav ? 10 : 14, overflow: "auto" }}
+      >
         <Space direction="vertical" size="small" style={{ width: "100%" }}>
           <div>
             <Space align="center" style={{ justifyContent: "space-between", width: "100%" }}>
-              {!compactNav ? <Typography.Text theme="secondary">控制台</Typography.Text> : <span />}
+              {!iconOnlyNav ? <Typography.Text theme="secondary">控制台</Typography.Text> : <span />}
               <Button
                 size="small"
                 variant="text"
                 onClick={() => setManualCompactNav((prev) => !prev)}
                 style={{ padding: 0, minWidth: 0 }}
               >
-                {manualCompactNav ? "展开侧栏" : "收紧侧栏"}
+                {manualCompactNav ? "展开" : "收起"}
               </Button>
             </Space>
             <Typography.Title level="h4" style={{ margin: "4px 0 0" }}>
-              {ultraNarrowNav || compactNav ? "AI 管理" : title}
+              {ultraNarrowNav || compactNav ? compactTitle : title}
             </Typography.Title>
             {!ultraNarrowNav && !compactNav && subtitle ? <Typography.Text theme="secondary">{subtitle}</Typography.Text> : null}
           </div>
-          <Input
-            size="small"
-            clearable
-            value={navKeyword}
-            placeholder={compactNav ? "搜索模块" : "搜索模块（如：能力 / 监控）"}
-            onChange={(value) => setNavKeyword(String(value))}
-          />
+          {!iconOnlyNav ? (
+            <Input
+              size="small"
+              clearable
+              value={navKeyword}
+              placeholder={compactNav ? "搜索模块" : "搜索模块（如：能力 / 监控）"}
+              onChange={(value) => setNavKeyword(String(value))}
+            />
+          ) : null}
           {!hasNavResult ? (
             <div className="podi-shell__nav-empty">
               <Typography.Text theme="secondary">未找到匹配模块，请换个关键词。</Typography.Text>
             </div>
           ) : null}
           <div className="podi-shell__nav-section">
-            <Typography.Text theme="secondary">核心模块</Typography.Text>
+            {!iconOnlyNav ? <Typography.Text theme="secondary">核心模块</Typography.Text> : null}
             <Menu value={activeNav} theme={theme === "dark" ? "dark" : "light"} onChange={(value) => onSelectNav(String(value))}>
               {coreItems.map((item) => (
                 <Menu.MenuItem key={item.id} value={item.id}>
                   <Tooltip content={item.description || item.label}>
-                    <span>{item.label}</span>
+                    {renderNavContent(item.label, item.shortLabel)}
                   </Tooltip>
                 </Menu.MenuItem>
               ))}
@@ -98,12 +114,12 @@ export function AdminShell({
           </div>
           {advancedItems.length > 0 ? (
             <div className="podi-shell__nav-section">
-              <Typography.Text theme="secondary">高级模块</Typography.Text>
+              {!iconOnlyNav ? <Typography.Text theme="secondary">高级模块</Typography.Text> : null}
               <Menu value={activeNav} theme={theme === "dark" ? "dark" : "light"} onChange={(value) => onSelectNav(String(value))}>
                 {advancedItems.map((item) => (
                   <Menu.MenuItem key={item.id} value={item.id}>
                     <Tooltip content={item.description || item.label}>
-                      <span>{item.label}</span>
+                      {renderNavContent(item.label, item.shortLabel)}
                     </Tooltip>
                   </Menu.MenuItem>
                 ))}
