@@ -38,7 +38,7 @@
 5. `doing` 文档治理上线
 - 产物：归档目录、文档 owner、每周回顾机制
 - 验收：新增任务全部进入本待办池
-- 进展（2026-03-04）：已新增 owner 清单（`docs/strategy/doc-governance-owners-2026q2.md`），下一步补每周回顾记录模板。
+- 进展（2026-03-04）：已新增 owner 清单（`docs/strategy/doc-governance-owners-2026q2.md`）与每周回顾模板（`docs/strategy/weekly-review-template.md`）。
 
 ## P1（商用骨架，3-5 周）
 

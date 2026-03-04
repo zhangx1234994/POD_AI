@@ -93,7 +93,8 @@ docs/
 │   ├── doc-governance-owners-2026q2.md
 │   ├── status-error-audit-2026q2.md
 │   ├── strategy-one-page-2026q2.md
-│   └── todo-master-2026q2.md
+│   ├── todo-master-2026q2.md
+│   └── weekly-review-template.md
 ├── standards
 │   ├── abstraction-and-decoupling.md
 │   ├── coze-toolbox-development-standard.md
@@ -182,6 +183,7 @@ docs/
 - `docs/strategy/todo-master-2026q2.md`：唯一待办池（P0/P1/P2）
 - `docs/strategy/context-cleanup-policy.md`：上下文清理与归档规则
 - `docs/strategy/status-error-audit-2026q2.md`：状态与错误口径核对表（执行检查）
+- `docs/strategy/weekly-review-template.md`：每周回顾模板
 
 ### Coze 集成
 - `docs/COZE_INTEGRATION_GUIDE.md`：Coze 集成指南

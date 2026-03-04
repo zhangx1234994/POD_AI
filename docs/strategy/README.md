@@ -11,6 +11,7 @@
 - `status-error-audit-2026q2.md`：状态与错误口径核对表（P0-4 执行面）
 - `auth-scheme-decision-2026q2.md`：认证方案选型结论（Q2）
 - `auth-billing-implementation-checklist-2026q2.md`：认证与计费实施清单（开发顺序与门槛）
+- `weekly-review-template.md`：每周回顾模板（目标/待办/文档治理）
 
 ## 使用规则
 
