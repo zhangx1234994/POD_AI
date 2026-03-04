@@ -2158,6 +2158,10 @@ export function IntegrationDashboard({
       }),
     [comfyExecutors.length, comfyManifestList.length, comfyPublishedManifestCount, comfyRunningTaskCount, visibleComfyAgentTasks.length],
   );
+  const comfySyncCurrentStep = useMemo(
+    () => comfySyncSteps.find((item) => item.tab === comfyuiManageTab) || null,
+    [comfySyncSteps, comfyuiManageTab],
+  );
   const visibleComfyAgentAlerts = useMemo(() => {
     if (comfyShowTestNodes) return comfyAgentAlerts;
     return comfyAgentAlerts.filter((item) => !isMockLikeRecord(item.agentId));
@@ -9845,6 +9849,70 @@ const normalizeErrorMessage = (message: string): string => {
                 })}
               </div>
             ) : null}
+            {activeComfyTabMeta.group === '同步发布' ? (
+              <div className="podi-comfy-sync-action-bar">
+                <div className="podi-comfy-sync-action-bar__desc">
+                  <div className="podi-comfy-sync-action-bar__title">
+                    {comfySyncCurrentStep ? `${comfySyncCurrentStep.step} · ${comfySyncCurrentStep.title}` : '同步发布'}
+                  </div>
+                  <div className="podi-comfy-sync-action-bar__hint">
+                    {comfySyncCurrentStep?.hint || '按步骤执行，减少回滚与误下发。'}
+                  </div>
+                </div>
+                <Space align="center" size="small" style={{ flexWrap: 'wrap' }}>
+                  <Button
+                    size="small"
+                    variant="outline"
+                    onClick={() => {
+                      if (comfyuiManageTab === 'servers') {
+                        refreshComfyuiServers();
+                        return;
+                      }
+                      if (comfyuiManageTab === 'manifests') {
+                        refreshComfyManifests();
+                        return;
+                      }
+                      refreshComfyAgentTasks();
+                    }}
+                  >
+                    刷新当前步骤
+                  </Button>
+                  {comfyuiManageTab === 'servers' ? (
+                    <Button size="small" theme="primary" onClick={() => setComfyuiManageTab('manifests')}>
+                      下一步：清单发布
+                    </Button>
+                  ) : null}
+                  {comfyuiManageTab === 'manifests' ? (
+                    <Button
+                      size="small"
+                      theme="primary"
+                      onClick={() => {
+                        resetComfyManifestForm();
+                        setComfyManifestDialogOpen(true);
+                      }}
+                    >
+                      主操作：新增清单
+                    </Button>
+                  ) : null}
+                  {comfyuiManageTab === 'tasks' ? (
+                    <Button
+                      size="small"
+                      theme="primary"
+                      onClick={() => {
+                        const el = document.getElementById('comfy-task-create-card');
+                        if (el) {
+                          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                          return;
+                        }
+                        contentRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+                      }}
+                    >
+                      主操作：创建任务
+                    </Button>
+                  ) : null}
+                </Space>
+              </div>
+            ) : null}
             <Space align="center" size="small" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
               <Space align="center" size="small" style={{ flexWrap: 'wrap' }}>
                 <div style={{ width: 'min(100%, 320px)' }}>
@@ -12405,6 +12473,7 @@ const normalizeErrorMessage = (message: string): string => {
         )}
         {comfyuiManageTab === 'tasks' && (
         <div className="space-y-4">
+          <div id="comfy-task-create-card">
           <Card bordered title="任务下发">
             <Space direction="vertical" size="middle" style={{ width: '100%' }}>
               <Row gutter={[12, 12]}>
@@ -12480,6 +12549,7 @@ const normalizeErrorMessage = (message: string): string => {
               </div>
             </Space>
           </Card>
+          </div>
 
           <Card bordered title="链路监控汇总">
             <Space direction="vertical" size="small" style={{ width: '100%' }}>
