@@ -294,6 +294,7 @@ const normalizeDesktopArch = (value?: string | null): string => {
 };
 
 type ComfyuiManageTab = 'lora' | 'templates' | 'servers' | 'assets' | 'agents' | 'desktop' | 'manifests' | 'tasks' | 'alerts';
+type ComfySyncStepTab = 'servers' | 'manifests' | 'tasks';
 type ComfyuiTabGroup = '资源目录' | '同步发布' | '节点运维';
 
 const comfyuiTabMeta: Record<ComfyuiManageTab, { label: string; group: ComfyuiTabGroup }> = {
@@ -323,11 +324,28 @@ const comfyuiGroupMeta: Record<ComfyuiTabGroup, { hint: string; primaryTab: Comf
     primaryTab: 'agents',
   },
 };
-const comfyuiSyncStepMeta: Array<{ tab: ComfyuiManageTab; step: string; title: string; hint: string }> = [
+const comfyuiSyncStepMeta: Array<{ tab: ComfySyncStepTab; step: string; title: string; hint: string }> = [
   { tab: 'servers', step: '步骤 1', title: '服务器对比', hint: '确认节点可用与资源差异。' },
   { tab: 'manifests', step: '步骤 2', title: '清单发布', hint: '确认目标版本并发布清单。' },
   { tab: 'tasks', step: '步骤 3', title: '任务下发', hint: '下发并观察回执状态。' },
 ];
+const comfyuiSyncGuideMeta: Record<ComfySyncStepTab, { entry: string; done: string; failure: string }> = {
+  servers: {
+    entry: '至少有 1 台 ComfyUI 服务器，并选定主服务器作为基线。',
+    done: '主服务器差异已确认，并完成一次“保存对齐结果”。',
+    failure: '刷新失败先查节点地址/连通性；差异异常先导出差异，再到“节点运维 > 告警”排障。',
+  },
+  manifests: {
+    entry: '服务器差异已核对，明确目标角色（full/lite）与版本号。',
+    done: '至少 1 个目标清单已发布，可用于任务下发。',
+    failure: '发布失败先校验角色、版本与 JSON 内容；必要时回滚到最近稳定版本再重试。',
+  },
+  tasks: {
+    entry: '已选择代理服务 + 清单（或清单地址），动作列表已确认。',
+    done: '任务出现回执并进入最终状态（回调成功/失败）。',
+    failure: '长时间等待先看任务事件，再检查代理服务心跳与队列；修复后执行“推送”重试。',
+  },
+};
 const isComfyuiManageTab = (value: string): value is ComfyuiManageTab => comfyuiTabOrder.includes(value as ComfyuiManageTab);
 const readComfyuiTabFromHash = (): ComfyuiManageTab | null => {
   const params = readHashParams();
@@ -1833,7 +1851,10 @@ export function IntegrationDashboard({
     actions: '',
     expiresAt: '',
   });
+  const [comfyServersAssistOpen, setComfyServersAssistOpen] = useState(false);
+  const [comfyManifestsAssistOpen, setComfyManifestsAssistOpen] = useState(false);
   const [comfyAgentTaskPushAfterCreate, setComfyAgentTaskPushAfterCreate] = useState(true);
+  const [comfyTaskAdvancedOpen, setComfyTaskAdvancedOpen] = useState(false);
   const [comfyAgentTaskSaving, setComfyAgentTaskSaving] = useState(false);
   const [comfyAgentTaskFormError, setComfyAgentTaskFormError] = useState<string | null>(null);
   const [comfyAgentTaskPushLoading, setComfyAgentTaskPushLoading] = useState<Record<string, boolean>>({});
@@ -2145,6 +2166,21 @@ export function IntegrationDashboard({
       return status ? !doneSet.has(status) : true;
     }).length;
   }, [visibleComfyAgentTasks]);
+  const comfyRepairRunningCount = useMemo(() => {
+    const doneSet = new Set(['success', 'succeeded', 'completed', 'failed', 'error', 'cancelled', 'canceled', 'stopped']);
+    return comfyRepairJobs.filter((job) => {
+      const status = String(job.status || '').toLowerCase();
+      return status ? !doneSet.has(status) : true;
+    }).length;
+  }, [comfyRepairJobs]);
+  const comfyRepairFailedCount = useMemo(
+    () =>
+      comfyRepairJobs.filter((job) => {
+        const status = String(job.status || '').toLowerCase();
+        return status === 'failed' || status === 'error';
+      }).length,
+    [comfyRepairJobs],
+  );
   const comfySyncSteps = useMemo(
     () =>
       comfyuiSyncStepMeta.map((step) => {
@@ -2162,6 +2198,31 @@ export function IntegrationDashboard({
     () => comfySyncSteps.find((item) => item.tab === comfyuiManageTab) || null,
     [comfySyncSteps, comfyuiManageTab],
   );
+  const comfySyncCurrentGuide = useMemo(() => {
+    if (comfyuiManageTab !== 'servers' && comfyuiManageTab !== 'manifests' && comfyuiManageTab !== 'tasks') {
+      return null;
+    }
+    const baseGuide = comfyuiSyncGuideMeta[comfyuiManageTab];
+    const progress =
+      comfyuiManageTab === 'servers'
+        ? comfyBaselineExecutorId
+          ? `当前进度：已选主服务器 ${comfyBaselineExecutorId}`
+          : '当前进度：待选择主服务器'
+        : comfyuiManageTab === 'manifests'
+          ? `当前进度：已发布 ${comfyPublishedManifestCount}/${comfyManifestList.length} 个清单`
+          : `当前进度：运行中 ${comfyRunningTaskCount} / 总任务 ${visibleComfyAgentTasks.length}`;
+    return {
+      ...baseGuide,
+      progress,
+    };
+  }, [
+    comfyBaselineExecutorId,
+    comfyuiManageTab,
+    comfyManifestList.length,
+    comfyPublishedManifestCount,
+    comfyRunningTaskCount,
+    visibleComfyAgentTasks.length,
+  ]);
   const visibleComfyAgentAlerts = useMemo(() => {
     if (comfyShowTestNodes) return comfyAgentAlerts;
     return comfyAgentAlerts.filter((item) => !isMockLikeRecord(item.agentId));
@@ -9878,39 +9939,85 @@ const normalizeErrorMessage = (message: string): string => {
                     刷新当前步骤
                   </Button>
                   {comfyuiManageTab === 'servers' ? (
-                    <Button size="small" theme="primary" onClick={() => setComfyuiManageTab('manifests')}>
-                      下一步：清单发布
-                    </Button>
+                    <>
+                      <Button
+                        size="small"
+                        variant="outline"
+                        onClick={() => setComfyServersAssistOpen((prev) => !prev)}
+                      >
+                        {comfyServersAssistOpen ? '收起辅助面板' : '展开辅助面板'}
+                      </Button>
+                      <Button size="small" theme="primary" onClick={() => setComfyuiManageTab('manifests')}>
+                        下一步：清单发布
+                      </Button>
+                    </>
                   ) : null}
                   {comfyuiManageTab === 'manifests' ? (
-                    <Button
-                      size="small"
-                      theme="primary"
-                      onClick={() => {
-                        resetComfyManifestForm();
-                        setComfyManifestDialogOpen(true);
-                      }}
-                    >
-                      主操作：新增清单
-                    </Button>
+                    <>
+                      <Button
+                        size="small"
+                        variant="outline"
+                        onClick={() => setComfyManifestsAssistOpen((prev) => !prev)}
+                      >
+                        {comfyManifestsAssistOpen ? '收起修复任务' : '展开修复任务'}
+                      </Button>
+                      <Button
+                        size="small"
+                        theme="primary"
+                        onClick={() => {
+                          resetComfyManifestForm();
+                          setComfyManifestDialogOpen(true);
+                        }}
+                      >
+                        主操作：新增清单
+                      </Button>
+                    </>
                   ) : null}
                   {comfyuiManageTab === 'tasks' ? (
-                    <Button
-                      size="small"
-                      theme="primary"
-                      onClick={() => {
-                        const el = document.getElementById('comfy-task-create-card');
-                        if (el) {
-                          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                          return;
-                        }
-                        contentRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
-                      }}
-                    >
-                      主操作：创建任务
-                    </Button>
+                    <>
+                      <Button
+                        size="small"
+                        variant="outline"
+                        onClick={() => setComfyTaskAdvancedOpen((prev) => !prev)}
+                      >
+                        {comfyTaskAdvancedOpen ? '收起监控与历史' : '展开监控与历史'}
+                      </Button>
+                      <Button
+                        size="small"
+                        theme="primary"
+                        onClick={() => {
+                          const el = document.getElementById('comfy-task-create-card');
+                          if (el) {
+                            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            return;
+                          }
+                          contentRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+                        }}
+                      >
+                        主操作：创建任务
+                      </Button>
+                    </>
                   ) : null}
                 </Space>
+              </div>
+            ) : null}
+            {activeComfyTabMeta.group === '同步发布' && comfySyncCurrentGuide ? (
+              <div className="rounded-2xl border border-slate-200/70 bg-slate-50/70 px-3 py-3 dark:border-slate-800 dark:bg-slate-950/40">
+                <div className="text-xs text-slate-600 dark:text-slate-300">{comfySyncCurrentGuide.progress}</div>
+                <div className="mt-2 grid gap-2 xl:grid-cols-3">
+                  <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-800 dark:bg-slate-900/60">
+                    <div className="text-[11px] font-semibold text-slate-900 dark:text-white">进入条件</div>
+                    <div className="mt-1 text-xs text-slate-600 dark:text-slate-300">{comfySyncCurrentGuide.entry}</div>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-800 dark:bg-slate-900/60">
+                    <div className="text-[11px] font-semibold text-slate-900 dark:text-white">完成条件</div>
+                    <div className="mt-1 text-xs text-slate-600 dark:text-slate-300">{comfySyncCurrentGuide.done}</div>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-800 dark:bg-slate-900/60">
+                    <div className="text-[11px] font-semibold text-slate-900 dark:text-white">失败后建议</div>
+                    <div className="mt-1 text-xs text-slate-600 dark:text-slate-300">{comfySyncCurrentGuide.failure}</div>
+                  </div>
+                </div>
               </div>
             ) : null}
             <Space align="center" size="small" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
@@ -11238,130 +11345,137 @@ const normalizeErrorMessage = (message: string): string => {
                 )}
               </Space>
             </Card>
-            <div className="space-y-4">
-              <Card bordered title="新增 ComfyUI 服务器" style={{ width: '100%' }}>
-                <Space direction="vertical" size="small" style={{ width: '100%' }}>
-                  <Input
-                    value={comfyServerForm.name}
-                    onChange={(v) => setComfyServerForm((prev) => ({ ...prev, name: String(v) }))}
-                    placeholder="服务器名称（如 ComfyUI-158）"
-                  />
-                  <Input
-                    value={comfyServerForm.base_url}
-                    onChange={(v) => setComfyServerForm((prev) => ({ ...prev, base_url: String(v) }))}
-                    placeholder="服务地址（例如 http://117.50.80.158:8079）"
-                  />
-                  <Row gutter={[12, 12]}>
-                    <Col span={12}>
-                      <Typography.Text theme="secondary">并发</Typography.Text>
-                      <InputNumber
-                        min={1}
-                        max={50}
-                        value={Number(comfyServerForm.max_concurrency)}
-                        onChange={(v) =>
-                          setComfyServerForm((prev) => ({
-                            ...prev,
-                            max_concurrency: Number(v) || 1,
-                          }))
-                        }
-                      />
-                    </Col>
-                    <Col span={12}>
-                      <Typography.Text theme="secondary">权重</Typography.Text>
-                      <InputNumber
-                        min={1}
-                        max={999}
-                        value={Number(comfyServerForm.weight)}
-                        onChange={(v) =>
-                          setComfyServerForm((prev) => ({
-                            ...prev,
-                            weight: Number(v) || 1,
-                          }))
-                        }
-                      />
-                    </Col>
-                  </Row>
-                  <div>
-                    <Typography.Text theme="secondary">状态</Typography.Text>
-                    <Select
-                      value={comfyServerForm.status || 'active'}
-                      onChange={(v) => setComfyServerForm((prev) => ({ ...prev, status: String(v) }))}
-                      options={statusOptions}
+            {comfyServersAssistOpen ? (
+              <div className="space-y-4">
+                <Card bordered title="新增 ComfyUI 服务器" style={{ width: '100%' }}>
+                  <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                    <Input
+                      value={comfyServerForm.name}
+                      onChange={(v) => setComfyServerForm((prev) => ({ ...prev, name: String(v) }))}
+                      placeholder="服务器名称（如 ComfyUI-158）"
                     />
-                  </div>
-                  {comfyServerFormError ? <Alert theme="error" message={comfyServerFormError} /> : null}
-                  <Button theme="primary" loading={comfyServerSaving} onClick={handleComfyuiServerCreate}>
-                    新增服务器
-                  </Button>
-                  <div className="text-xs text-slate-500">
-                    新增后会出现在“执行节点”列表中，可再配置权重/并发。
-                  </div>
-                </Space>
-              </Card>
-              <Card bordered title="最近对齐记录" style={{ width: '100%' }}>
-                <Space direction="vertical" size="small" style={{ width: '100%' }}>
-                  <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                    <Typography.Text theme="secondary">最近保存的对齐快照（最多 12 条）。</Typography.Text>
-                    <Button size="small" variant="outline" onClick={() => refreshComfyDiffLogs()}>
-                      刷新
+                    <Input
+                      value={comfyServerForm.base_url}
+                      onChange={(v) => setComfyServerForm((prev) => ({ ...prev, base_url: String(v) }))}
+                      placeholder="服务地址（例如 http://117.50.80.158:8079）"
+                    />
+                    <Row gutter={[12, 12]}>
+                      <Col span={12}>
+                        <Typography.Text theme="secondary">并发</Typography.Text>
+                        <InputNumber
+                          min={1}
+                          max={50}
+                          value={Number(comfyServerForm.max_concurrency)}
+                          onChange={(v) =>
+                            setComfyServerForm((prev) => ({
+                              ...prev,
+                              max_concurrency: Number(v) || 1,
+                            }))
+                          }
+                        />
+                      </Col>
+                      <Col span={12}>
+                        <Typography.Text theme="secondary">权重</Typography.Text>
+                        <InputNumber
+                          min={1}
+                          max={999}
+                          value={Number(comfyServerForm.weight)}
+                          onChange={(v) =>
+                            setComfyServerForm((prev) => ({
+                              ...prev,
+                              weight: Number(v) || 1,
+                            }))
+                          }
+                        />
+                      </Col>
+                    </Row>
+                    <div>
+                      <Typography.Text theme="secondary">状态</Typography.Text>
+                      <Select
+                        value={comfyServerForm.status || 'active'}
+                        onChange={(v) => setComfyServerForm((prev) => ({ ...prev, status: String(v) }))}
+                        options={statusOptions}
+                      />
+                    </div>
+                    {comfyServerFormError ? <Alert theme="error" message={comfyServerFormError} /> : null}
+                    <Button theme="primary" loading={comfyServerSaving} onClick={handleComfyuiServerCreate}>
+                      新增服务器
                     </Button>
+                    <div className="text-xs text-slate-500">
+                      新增后会出现在“执行节点”列表中，可再配置权重/并发。
+                    </div>
                   </Space>
-                  {comfyDiffLogsError ? <Alert theme="error" message={comfyDiffLogsError} /> : null}
-                  <div className="max-h-[320px] overflow-auto rounded-2xl border border-slate-200/70 dark:border-slate-800">
-                    <table className="w-full text-xs">
-                      <thead className="sticky top-0 bg-slate-50 text-[11px] text-slate-600 dark:bg-slate-900/80 dark:text-slate-400">
-                        <tr className="text-left">
-                          <th className="px-3 py-2">时间</th>
-                          <th className="px-3 py-2">主服务器</th>
-                          <th className="px-3 py-2 text-right">操作</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {comfyDiffLogs.length === 0 ? (
-                          <tr>
-                            <td colSpan={3} className="px-4 py-6 text-center text-slate-500">
-                              {comfyDiffLogsLoading ? '加载中…' : '暂无记录'}
-                            </td>
+                </Card>
+                <Card bordered title="最近对齐记录" style={{ width: '100%' }}>
+                  <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                    <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                      <Typography.Text theme="secondary">最近保存的对齐快照（最多 12 条）。</Typography.Text>
+                      <Button size="small" variant="outline" onClick={() => refreshComfyDiffLogs()}>
+                        刷新
+                      </Button>
+                    </Space>
+                    {comfyDiffLogsError ? <Alert theme="error" message={comfyDiffLogsError} /> : null}
+                    <div className="max-h-[320px] overflow-auto rounded-2xl border border-slate-200/70 dark:border-slate-800">
+                      <table className="w-full text-xs">
+                        <thead className="sticky top-0 bg-slate-50 text-[11px] text-slate-600 dark:bg-slate-900/80 dark:text-slate-400">
+                          <tr className="text-left">
+                            <th className="px-3 py-2">时间</th>
+                            <th className="px-3 py-2">主服务器</th>
+                            <th className="px-3 py-2 text-right">操作</th>
                           </tr>
-                        ) : (
-                          comfyDiffLogs.map((item) => (
-                            <tr key={`comfy-diff-log-${item.id}`} className="border-t border-slate-100 dark:border-slate-800">
-                              <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
-                                {item.created_at ? formatDateTime(item.created_at) : '—'}
-                              </td>
-                              <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
-                                {item.baseline_executor_id}
-                              </td>
-                              <td className="px-3 py-2 text-right space-x-2">
-                                <button
-                                  className="text-sky-400"
-                                  onClick={() => {
-                                    setComfyDiffDialogTitle('对齐记录详情');
-                                    setComfyDiffDialogPayload(item.payload || {});
-                                    setComfyDiffDialogOpen(true);
-                                  }}
-                                >
-                                  查看
-                                </button>
-                                <button
-                                  className="text-slate-500"
-                                  onClick={() => {
-                                    const ts = new Date().toISOString().replace(/[:.]/g, '-');
-                                    downloadJson(item.payload || {}, `comfyui-diff-log-${item.id}-${ts}.json`);
-                                  }}
-                                >
-                                  导出
-                                </button>
+                        </thead>
+                        <tbody>
+                          {comfyDiffLogs.length === 0 ? (
+                            <tr>
+                              <td colSpan={3} className="px-4 py-6 text-center text-slate-500">
+                                {comfyDiffLogsLoading ? '加载中…' : '暂无记录'}
                               </td>
                             </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </Space>
-              </Card>
-            </div>
+                          ) : (
+                            comfyDiffLogs.map((item) => (
+                              <tr key={`comfy-diff-log-${item.id}`} className="border-t border-slate-100 dark:border-slate-800">
+                                <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
+                                  {item.created_at ? formatDateTime(item.created_at) : '—'}
+                                </td>
+                                <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
+                                  {item.baseline_executor_id}
+                                </td>
+                                <td className="px-3 py-2 text-right space-x-2">
+                                  <button
+                                    className="text-sky-400"
+                                    onClick={() => {
+                                      setComfyDiffDialogTitle('对齐记录详情');
+                                      setComfyDiffDialogPayload(item.payload || {});
+                                      setComfyDiffDialogOpen(true);
+                                    }}
+                                  >
+                                    查看
+                                  </button>
+                                  <button
+                                    className="text-slate-500"
+                                    onClick={() => {
+                                      const ts = new Date().toISOString().replace(/[:.]/g, '-');
+                                      downloadJson(item.payload || {}, `comfyui-diff-log-${item.id}-${ts}.json`);
+                                    }}
+                                  >
+                                    导出
+                                  </button>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </Space>
+                </Card>
+              </div>
+            ) : (
+              <Alert
+                theme="info"
+                message={`辅助面板已折叠：当前节点 ${comfyExecutors.length} 台，对齐记录 ${comfyDiffLogs.length} 条。需要新增服务器或查看历史对齐时，可在顶部“展开辅助面板”。`}
+              />
+            )}
           </div>
           <Dialog
             header={comfyDiffDialogTitle || '差异明细'}
@@ -12222,50 +12336,57 @@ const normalizeErrorMessage = (message: string): string => {
             </Space>
           </Card>
 
-          <Card bordered title="修复任务（增量补齐）">
-            <Space direction="vertical" size="small" style={{ width: '100%' }}>
-              <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                <Typography.Text theme="secondary">从“漂移”一键生成后会自动出现在这里，便于追踪执行进度。</Typography.Text>
-                <Button size="small" variant="outline" onClick={() => refreshComfyRepairJobs()}>
-                  刷新
-                </Button>
-              </Space>
-              <div className="max-h-[260px] overflow-auto rounded-2xl border border-slate-200/70 dark:border-slate-800">
-                <table className="w-full text-xs">
-                  <thead className="sticky top-0 bg-slate-50 text-[11px] text-slate-600 dark:bg-slate-900/80 dark:text-slate-400">
-                    <tr className="text-left">
-                      <th className="px-3 py-2">任务号</th>
-                      <th className="px-3 py-2">清单</th>
-                      <th className="px-3 py-2">状态</th>
-                      <th className="px-3 py-2">提交/成功/失败</th>
-                      <th className="px-3 py-2">更新时间</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {comfyRepairJobs.length === 0 ? (
-                      <tr>
-                        <td colSpan={5} className="px-4 py-6 text-center text-slate-500">
-                          暂无修复任务
-                        </td>
+          {comfyManifestsAssistOpen ? (
+            <Card bordered title="修复任务（增量补齐）">
+              <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                  <Typography.Text theme="secondary">从“漂移”一键生成后会自动出现在这里，便于追踪执行进度。</Typography.Text>
+                  <Button size="small" variant="outline" onClick={() => refreshComfyRepairJobs()}>
+                    刷新
+                  </Button>
+                </Space>
+                <div className="max-h-[260px] overflow-auto rounded-2xl border border-slate-200/70 dark:border-slate-800">
+                  <table className="w-full text-xs">
+                    <thead className="sticky top-0 bg-slate-50 text-[11px] text-slate-600 dark:bg-slate-900/80 dark:text-slate-400">
+                      <tr className="text-left">
+                        <th className="px-3 py-2">任务号</th>
+                        <th className="px-3 py-2">清单</th>
+                        <th className="px-3 py-2">状态</th>
+                        <th className="px-3 py-2">提交/成功/失败</th>
+                        <th className="px-3 py-2">更新时间</th>
                       </tr>
-                    ) : (
-                      comfyRepairJobs.map((job) => (
-                        <tr key={`repair-job-${job.id}`} className="border-t border-slate-100 dark:border-slate-800">
-                          <td className="px-3 py-2 text-slate-900 dark:text-white">{job.id}</td>
-                          <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{job.manifestId}</td>
-                          <td className="px-3 py-2">{renderStatusTag(job.status)}</td>
-                          <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
-                            {job.submittedTaskCount}/{job.succeededTaskCount}/{job.failedTaskCount}
+                    </thead>
+                    <tbody>
+                      {comfyRepairJobs.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="px-4 py-6 text-center text-slate-500">
+                            暂无修复任务
                           </td>
-                          <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{formatDateTime(job.updatedAt)}</td>
                         </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </Space>
-          </Card>
+                      ) : (
+                        comfyRepairJobs.map((job) => (
+                          <tr key={`repair-job-${job.id}`} className="border-t border-slate-100 dark:border-slate-800">
+                            <td className="px-3 py-2 text-slate-900 dark:text-white">{job.id}</td>
+                            <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{job.manifestId}</td>
+                            <td className="px-3 py-2">{renderStatusTag(job.status)}</td>
+                            <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
+                              {job.submittedTaskCount}/{job.succeededTaskCount}/{job.failedTaskCount}
+                            </td>
+                            <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{formatDateTime(job.updatedAt)}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </Space>
+            </Card>
+          ) : (
+            <Alert
+              theme="info"
+              message={`修复任务已折叠：运行中 ${comfyRepairRunningCount} 条，失败 ${comfyRepairFailedCount} 条。需要追踪修复回执时，可在顶部“展开修复任务”。`}
+            />
+          )}
 
           <Dialog
             header={comfyManifestForm.id ? '编辑清单' : '新增清单'}
@@ -12551,6 +12672,8 @@ const normalizeErrorMessage = (message: string): string => {
           </Card>
           </div>
 
+          {comfyTaskAdvancedOpen ? (
+          <>
           <Card bordered title="链路监控汇总">
             <Space direction="vertical" size="small" style={{ width: '100%' }}>
               <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
@@ -12725,6 +12848,13 @@ const normalizeErrorMessage = (message: string): string => {
               </div>
             </Space>
           </Card>
+          </>
+          ) : (
+            <Alert
+              theme="info"
+              message={`监控与历史已折叠：运行中 ${comfyRunningTaskCount} 条，总任务 ${visibleComfyAgentTasks.length} 条。可在顶部“展开监控与历史”查看详情。`}
+            />
+          )}
 
           <Dialog
             header={`任务事件 · ${comfyAgentTaskEventsTaskId || ''}`}
