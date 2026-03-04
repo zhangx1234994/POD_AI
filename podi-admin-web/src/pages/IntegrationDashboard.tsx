@@ -22,6 +22,7 @@ import {
 } from 'tdesign-react';
 import { adminApi } from '../services/adminApi';
 import { uploadAbilityTestFile } from '../utils/ossUploader';
+import { toDisplayErrorMessage } from '../utils/errorMessageMap';
 import type {
   Ability,
   AbilityInvocationLog,
@@ -6099,20 +6100,6 @@ const extractErrorMessage = (error: unknown): string => {
     return String(error);
   }
 };
-const normalizeErrorMessage = (message: string): string => {
-  if (!message) return '';
-  const trimmed = message.trim();
-  try {
-    const parsed = JSON.parse(trimmed);
-    if (parsed?.detail) {
-      return typeof parsed.detail === 'string' ? parsed.detail : JSON.stringify(parsed.detail);
-    }
-  } catch {
-    // ignore
-  }
-  return trimmed;
-};
-
   const handleExecutorSubmit = async () => {
     setExecutorFormError(null);
     const name = String(executorForm.name || '').trim();
@@ -12871,7 +12858,7 @@ const normalizeErrorMessage = (message: string): string => {
                               {formatDateTime(task.updated_at)}
                             </td>
                             <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
-                              {task.errorMessage || '—'}
+                              {task.errorMessage ? toDisplayErrorMessage(task.errorMessage) : '—'}
                             </td>
                             <td className="px-3 py-2 text-right space-x-2">
                               <button
