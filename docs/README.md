@@ -99,6 +99,7 @@ docs/
 │   ├── copywriting-system-v1.md
 │   ├── error-catalog.md
 │   ├── error-contract.md
+│   ├── error-message-map-v1.md
 │   ├── interface-consistency.md
 │   ├── issue-improvement-log.md
 │   ├── platform-design-principles.md
@@ -150,6 +151,7 @@ docs/
 - `docs/standards/self-check-sop.md`：自检流程规范
 - `docs/standards/coze-toolbox-development-standard.md`：Coze 工具箱开发准则
 - `docs/standards/copywriting-system-v1.md`：任务/结果/错误文案统一规范
+- `docs/standards/error-message-map-v1.md`：错误码到页面提示映射（高频优先）
 - `docs/standards/issue-improvement-log.md`：问题与优化记录
 
 ### 任务流转与调度

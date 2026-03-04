@@ -81,7 +81,7 @@
 3. `done` 制定认证方案选型结论（手机号/邮箱/邀请码）
 - 结论（2026-03-04）：已定稿（`docs/strategy/auth-scheme-decision-2026q2.md`），Q2 先落地“邮箱+邀请码”，手机号延期到 Q3。
 4. `doing` 完成文案规范初稿（至少覆盖任务、结果、错误三块）
-- 进展（2026-03-04）：已新增 `docs/standards/copywriting-system-v1.md` 初稿，待页面逐步落地。
+- 进展（2026-03-04）：已新增 `docs/standards/copywriting-system-v1.md` 与 `docs/standards/error-message-map-v1.md` 初稿，待页面逐步落地。
 
 ## 下周前可执行拆分（2026-03-04 版）
 
