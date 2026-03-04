@@ -3478,7 +3478,12 @@ export function App() {
         showSidebar={showCategorySidebar}
         sidebarTitle="功能分类"
         sidebarSubtitle="仅在“功能评测”模块使用，用于筛选能力卡片。"
-        navItems={CATEGORY_ORDER.map((cat) => ({ id: cat, label: cat, count: (grouped[cat] || []).length }))}
+        navItems={CATEGORY_ORDER.map((cat) => ({
+          id: cat,
+          label: cat,
+          shortLabel: String(cat || "评测").slice(0, 2),
+          count: (grouped[cat] || []).length,
+        }))}
         activeNav={activeCategory}
         onSelectNav={(next) => {
           setActiveCategory(next);

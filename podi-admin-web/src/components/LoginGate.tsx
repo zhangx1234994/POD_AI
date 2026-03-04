@@ -126,59 +126,42 @@ export function LoginGate({ children }: { children: React.ReactNode }) {
 
   if (!token) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top,_#dbeafe_0%,_#f8fafc_35%,_#e2e8f0_100%)] px-4 py-10">
-        <div className="grid w-full max-w-5xl overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_28px_80px_rgba(15,23,42,0.18)] lg:grid-cols-[1.1fr_1fr]">
-          <div className="relative hidden bg-[linear-gradient(145deg,#0f172a_0%,#1e293b_55%,#0f172a_100%)] p-10 text-slate-100 lg:block">
-            <div className="absolute right-[-40px] top-[-40px] h-40 w-40 rounded-full bg-cyan-400/20 blur-2xl" />
-            <div className="absolute bottom-[-50px] left-[-30px] h-44 w-44 rounded-full bg-indigo-400/20 blur-2xl" />
-            <p className="relative text-xs uppercase tracking-[0.3em] text-slate-400">PODI Console</p>
-            <h1 className="relative mt-4 text-3xl font-semibold leading-tight">
-              管理中台
-              <br />
-              统一控制入口
-            </h1>
-            <p className="relative mt-4 text-sm leading-7 text-slate-300">
-              在一个入口里管理执行节点、能力目录、ComfyUI 同步发布和任务追踪。
-            </p>
-            <ul className="relative mt-8 space-y-3 text-sm text-slate-200">
-              <li>• 节点与资源清单统一管理</li>
-              <li>• 回执、告警、版本差异可追踪</li>
-              <li>• 测评端和中台数据同源</li>
+      <div className="podi-login">
+        <div className="podi-login__card">
+          <div className="podi-login__intro">
+            <div className="podi-login__intro-tag">PODI Console</div>
+            <h1>管理中台统一入口</h1>
+            <p>统一管理执行节点、能力目录、ComfyUI 同步发布、任务回执与告警。</p>
+            <ul>
+              <li>配置、发布、执行、回填统一追踪</li>
+              <li>中台与测评端数据同源</li>
+              <li>异常状态可定位、可复盘</li>
             </ul>
           </div>
-          <div className="p-7 sm:p-10">
-            <div className="mb-6">
-              <p className="text-xs uppercase tracking-[0.26em] text-slate-400">Admin Access</p>
-              <h2 className="mt-2 text-3xl font-semibold text-slate-900">登录管理控制台</h2>
-              <p className="mt-2 text-sm text-slate-500">使用后台账号继续，建议仅在内网环境访问。</p>
-            </div>
-            <form className="space-y-5" onSubmit={handleSubmit}>
-              <div>
-                <label className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-500">用户名 / 邮箱</label>
+          <div className="podi-login__form-panel">
+            <div className="podi-login__title">登录管理控制台</div>
+            <div className="podi-login__subtitle">使用后台账号继续，建议仅在内网环境访问。</div>
+            <form className="podi-login__form" onSubmit={handleSubmit}>
+              <div className="podi-login__field">
+                <label>用户名 / 邮箱</label>
                 <input
                   type="text"
                   value={form.username}
                   onChange={(e) => setForm({ ...form, username: e.target.value })}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-900 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20"
                   placeholder="admin"
                 />
               </div>
-              <div>
-                <label className="mb-2 block text-xs uppercase tracking-[0.2em] text-slate-500">密码</label>
+              <div className="podi-login__field">
+                <label>密码</label>
                 <input
                   type="password"
                   value={form.password}
                   onChange={(e) => setForm({ ...form, password: e.target.value })}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-900 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20"
                   placeholder="••••••••"
                 />
               </div>
-              {error ? <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-500">{error}</p> : null}
-              <button
-                type="submit"
-                disabled={loading}
-                className="mt-2 w-full rounded-xl bg-gradient-to-r from-sky-600 to-blue-600 px-4 py-3 font-semibold text-white shadow-lg shadow-sky-500/20 transition hover:from-sky-500 hover:to-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
-              >
+              {error ? <div className="podi-login__error">{error}</div> : null}
+              <button type="submit" disabled={loading} className="podi-login__submit">
                 {loading ? '登录中...' : '进入控制台'}
               </button>
             </form>

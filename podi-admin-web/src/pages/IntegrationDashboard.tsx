@@ -7478,35 +7478,11 @@ const extractErrorMessage = (error: unknown): string => {
       contentRef={contentRef}
       headerActions={
         <Space align="center" size="small" style={{ flexWrap: 'wrap', justifyContent: 'flex-end', width: '100%' }}>
-          <Select
-            style={{ width: 'min(100%, 220px)' }}
-            size="small"
-            value={activeNav}
-            options={navSelectOptions}
-            onChange={(value) => selectSection(String(value) as NavId)}
-          />
-          <Space align="center" size="small">
-            <Typography.Text theme="secondary">显示高级模块</Typography.Text>
-            <Switch
-              value={showAdvanced}
-              onChange={(v) => {
-                const next = Boolean(v);
-                setShowAdvanced(next);
-                if (!next) {
-                  const isAdvanced = Boolean((navItems.find((item) => item.id === activeNav) as any)?.advanced);
-                  if (isAdvanced) selectSection('overview');
-                }
-              }}
-            />
-            <Tag theme={showAdvanced ? 'primary' : 'default'} variant="light">
-              {showAdvanced ? '全部视图' : '核心视图'}
-            </Tag>
-          </Space>
           <Button variant="outline" loading={loading} onClick={load}>
             刷新
           </Button>
           <Button variant="outline" onClick={onToggleTheme}>
-            {theme === 'dark' ? '深色' : '浅色'}
+            {theme === 'dark' ? '深色模式' : '浅色模式'}
           </Button>
         </Space>
       }
@@ -7533,11 +7509,37 @@ const extractErrorMessage = (error: unknown): string => {
       ) : null}
       <div style={{ marginBottom: 16 }}>
         <ActionBar>
-          <Space direction="vertical" size={2}>
+          <Space direction="vertical" size={4}>
             <Typography.Text strong>{activeNavMeta?.label || '当前模块'}</Typography.Text>
             <Typography.Text theme="secondary">
               {activeNavMeta?.description || '通过左侧导航切换模块，顶部仅保留全局动作。'}
             </Typography.Text>
+            <Space size="small" style={{ flexWrap: 'wrap' }}>
+              <Select
+                style={{ width: 220 }}
+                size="small"
+                value={activeNav}
+                options={navSelectOptions}
+                onChange={(value) => selectSection(String(value) as NavId)}
+              />
+              <Space align="center" size="small">
+                <Typography.Text theme="secondary">高级模块</Typography.Text>
+                <Switch
+                  value={showAdvanced}
+                  onChange={(v) => {
+                    const next = Boolean(v);
+                    setShowAdvanced(next);
+                    if (!next) {
+                      const isAdvanced = Boolean((navItems.find((item) => item.id === activeNav) as any)?.advanced);
+                      if (isAdvanced) selectSection('overview');
+                    }
+                  }}
+                />
+                <Tag theme={showAdvanced ? 'primary' : 'default'} variant="light">
+                  {showAdvanced ? '全部视图' : '核心视图'}
+                </Tag>
+              </Space>
+            </Space>
             {hasCompactNavSelect ? <Typography.Text theme="secondary">请从左侧模块列表直接切换。</Typography.Text> : null}
           </Space>
           <Space align="center" size="small" style={{ flexWrap: 'wrap' }}>
@@ -7554,6 +7556,32 @@ const extractErrorMessage = (error: unknown): string => {
       </div>
           {activeNav === 'overview' && (
             <Section id="overview" title="总体概览" description="观察运行快照、调度指标与刷新入口。">
+            <Card bordered style={{ marginBottom: 16 }}>
+              <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                <Typography.Text strong>统计看板</Typography.Text>
+                <Typography.Text theme="secondary">
+                  今日任务与系统队列总览（用于快速判断“是否异常堆积”）。
+                </Typography.Text>
+                <div className="podi-overview-stat-grid">
+                  <div className="podi-overview-stat-item">
+                    <div className="podi-overview-stat-item__label">今日新增</div>
+                    <div className="podi-overview-stat-item__value">{dashboardMetrics?.today.created ?? 0}</div>
+                  </div>
+                  <div className="podi-overview-stat-item">
+                    <div className="podi-overview-stat-item__label">今日完成</div>
+                    <div className="podi-overview-stat-item__value">{dashboardMetrics?.today.completed ?? 0}</div>
+                  </div>
+                  <div className="podi-overview-stat-item">
+                    <div className="podi-overview-stat-item__label">今日失败</div>
+                    <div className="podi-overview-stat-item__value">{dashboardMetrics?.today.failed ?? 0}</div>
+                  </div>
+                  <div className="podi-overview-stat-item">
+                    <div className="podi-overview-stat-item__label">队列等待</div>
+                    <div className="podi-overview-stat-item__value">{pendingQueueTotal}</div>
+                  </div>
+                </div>
+              </Space>
+            </Card>
             <Card bordered>
               <Space direction="vertical" size="small" style={{ width: '100%' }}>
                 <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>

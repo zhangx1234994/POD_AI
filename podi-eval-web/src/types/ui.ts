@@ -15,6 +15,7 @@ export type StatusBadgeMeta = {
 export type AppShellNavItem = {
   id: string;
   label: string;
+  shortLabel?: string;
   count?: number;
 };
 

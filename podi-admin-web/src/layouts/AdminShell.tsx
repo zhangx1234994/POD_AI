@@ -48,6 +48,11 @@ export function AdminShell({
     if (typeof window === "undefined") return;
     window.localStorage.setItem(NAV_COMPACT_STORAGE_KEY, manualCompactNav ? "1" : "0");
   }, [manualCompactNav]);
+  useEffect(() => {
+    if (!iconOnlyNav) return;
+    if (!navKeyword) return;
+    setNavKeyword("");
+  }, [iconOnlyNav, navKeyword]);
   const filteredNavItems = useMemo(() => {
     const keyword = navKeyword.trim().toLowerCase();
     if (!keyword) return navItems;
