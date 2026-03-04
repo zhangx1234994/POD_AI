@@ -281,6 +281,10 @@ html.t-theme-dark {
   color: var(--podi-accent);
 }
 
+.podi-shell .t-menu__item.t-is-active .podi-shell__nav-item-icon {
+  color: var(--podi-accent);
+}
+
 .podi-shell .t-menu__item:hover {
   background: var(--podi-panel-muted);
 }
@@ -293,6 +297,21 @@ html.t-theme-dark {
   justify-content: center;
   padding-left: 0;
   padding-right: 0;
+}
+
+.podi-shell__nav-item-inner {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.podi-shell__nav-item-icon {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--td-text-color-secondary);
 }
 
 .podi-shell__nav-badge {
@@ -364,6 +383,12 @@ html.t-theme-dark {
   margin-bottom: var(--podi-space-3);
 }
 
+.podi-comfy-level-label {
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--td-text-color-secondary);
+}
+
 .podi-comfy-group-card {
   border: 1px solid var(--td-border-level-1-color);
   border-radius: var(--podi-radius-md);
@@ -389,11 +414,37 @@ html.t-theme-dark {
   color: var(--td-text-color-primary);
 }
 
+.podi-comfy-group-card__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.podi-comfy-group-card__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 20px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--podi-accent);
+  background: color-mix(in srgb, var(--podi-accent-soft) 80%, #fff);
+  border: 1px solid color-mix(in srgb, var(--podi-accent) 25%, transparent);
+}
+
 .podi-comfy-group-card__hint {
   margin-top: 4px;
   font-size: 12px;
   color: var(--td-text-color-secondary);
   line-height: 1.45;
+}
+
+.podi-comfy-group-card__subnote {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--td-text-color-placeholder);
 }
 
 .podi-comfy-subgroup-panel {
@@ -410,7 +461,8 @@ html.t-theme-dark {
 }
 
 .podi-comfy-group-card--subgroup {
-  background: color-mix(in srgb, var(--podi-accent-soft) 35%, var(--td-bg-color-container));
+  background: color-mix(in srgb, var(--podi-accent-soft) 28%, var(--td-bg-color-container));
+  border-style: dashed;
 }
 
 .podi-overview-stat-grid {

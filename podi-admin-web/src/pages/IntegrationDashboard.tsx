@@ -20,6 +20,17 @@ import {
   Tooltip,
   Typography,
 } from 'tdesign-react';
+import {
+  ApiIcon,
+  AppIcon,
+  ChartBarIcon,
+  DashboardIcon,
+  FolderOpenIcon,
+  SettingIcon,
+  TaskIcon,
+  ToolsIcon,
+  ViewListIcon,
+} from 'tdesign-icons-react';
 import { adminApi } from '../services/adminApi';
 import { uploadAbilityTestFile } from '../utils/ossUploader';
 import { toDisplayErrorMessage } from '../utils/errorMessageMap';
@@ -88,6 +99,21 @@ const navItems = [
   { id: 'logs', label: '调度事件', shortLabel: 'TL', description: '任务追踪', advanced: true },
 ] as const;
 type NavId = (typeof navItems)[number]['id'];
+const navIconMap: Record<NavId, ReactNode> = {
+  overview: <DashboardIcon size="18px" />,
+  abilities: <AppIcon size="18px" />,
+  'ability-tests': <ToolsIcon size="18px" />,
+  'ability-evals': <ChartBarIcon size="18px" />,
+  executors: <ViewListIcon size="18px" />,
+  'ability-logs': <TaskIcon size="18px" />,
+  'comfyui-management': <FolderOpenIcon size="18px" />,
+  'workflow-builder': <TaskIcon size="18px" />,
+  bindings: <ViewListIcon size="18px" />,
+  apikeys: <ApiIcon size="18px" />,
+  monitor: <ChartBarIcon size="18px" />,
+  system: <SettingIcon size="18px" />,
+  logs: <TaskIcon size="18px" />,
+};
 const isNavId = (value: string): value is NavId => navItems.some((item) => item.id === value);
 const isAdvancedNav = (value: NavId) => Boolean((navItems.find((item) => item.id === value) as any)?.advanced);
 const readHashParams = (): URLSearchParams | null => {
@@ -324,6 +350,11 @@ const comfyuiGroupMeta: Record<ComfyuiTabGroup, { hint: string; primaryTab: Comf
     hint: '最后看代理服务、告警与桌面端升级状态。',
     primaryTab: 'agents',
   },
+};
+const comfyuiGroupBadge: Record<ComfyuiTabGroup, string> = {
+  资源目录: 'R1',
+  同步发布: 'R2',
+  节点运维: 'R3',
 };
 const comfyuiSyncStepMeta: Array<{ tab: ComfySyncStepTab; step: string; title: string; hint: string }> = [
   { tab: 'servers', step: '步骤 1', title: '服务器对比', hint: '确认节点可用与资源差异。' },
@@ -7470,7 +7501,7 @@ const extractErrorMessage = (error: unknown): string => {
       title="AI 管理端"
       subtitle="集中管理执行节点、工作流、密钥与调度测试。"
       theme={theme}
-      navItems={visibleNavItems.map((item) => ({ ...item }))}
+      navItems={visibleNavItems.map((item) => ({ ...item, icon: navIconMap[item.id as NavId] }))}
       activeNav={activeNav}
       onSelectNav={(value) => selectSection(value as NavId)}
       headerTitle={activeNavMeta?.label || '控制台'}
@@ -9893,10 +9924,9 @@ const extractErrorMessage = (error: unknown): string => {
             当前模块：<strong>{activeComfyTabMeta.label}</strong>（{activeComfyTabMeta.group}）
           </div>
           <div className="rounded-2xl border border-slate-200/70 bg-white px-3 py-3 dark:border-slate-800 dark:bg-slate-950/40">
+            <div className="podi-comfy-level-label">一级导航</div>
             <div className="podi-comfy-group-grid">
-              {comfyuiTabGroupOrder
-                .filter((group) => group !== '同步发布')
-                .map((group) => {
+              {comfyuiTabGroupOrder.map((group) => {
                 const groupTabs = comfyuiGroupMap[group];
                 const active = group === activeComfyTabMeta.group;
                 const leadTab = comfyuiGroupMeta[group].primaryTab;
@@ -9904,31 +9934,23 @@ const extractErrorMessage = (error: unknown): string => {
                   <button
                     key={`comfy-group-${group}`}
                     type="button"
-                    className={`podi-comfy-group-card${active ? ' is-active' : ''}`}
+                    className={`podi-comfy-group-card${active ? ' is-active' : ''}${group === '同步发布' ? ' podi-comfy-group-card--subgroup' : ''}`}
                     onClick={() => {
                       const nextTab = groupTabs.includes(comfyuiManageTab) ? comfyuiManageTab : leadTab;
                       setComfyuiManageTab(nextTab);
                     }}
                   >
-                    <div className="podi-comfy-group-card__title">{group}</div>
+                    <div className="podi-comfy-group-card__header">
+                      <span className="podi-comfy-group-card__badge">{comfyuiGroupBadge[group]}</span>
+                      <span className="podi-comfy-group-card__title">{group}</span>
+                    </div>
                     <div className="podi-comfy-group-card__hint">{comfyuiGroupMeta[group].hint}</div>
+                    {group === '同步发布' ? (
+                      <div className="podi-comfy-group-card__subnote">二级流程 · 服务器对比 / 清单发布 / 任务下发</div>
+                    ) : null}
                   </button>
                 );
               })}
-            </div>
-            <div className="podi-comfy-subgroup-panel">
-              <div className="podi-comfy-subgroup-panel__title">二级流程：同步发布</div>
-              <button
-                type="button"
-                className={`podi-comfy-group-card podi-comfy-group-card--subgroup${activeComfyTabMeta.group === '同步发布' ? ' is-active' : ''}`}
-                onClick={() => {
-                  const nextTab = activeComfyTabMeta.group === '同步发布' ? comfyuiManageTab : comfyuiGroupMeta['同步发布'].primaryTab;
-                  setComfyuiManageTab(nextTab);
-                }}
-              >
-                <div className="podi-comfy-group-card__title">同步发布</div>
-                <div className="podi-comfy-group-card__hint">{comfyuiGroupMeta['同步发布'].hint}</div>
-              </button>
             </div>
             {activeComfyTabMeta.group === '同步发布' ? (
               <div className="podi-comfy-sync-steps">

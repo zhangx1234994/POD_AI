@@ -111,7 +111,12 @@ export function AdminShell({
               {coreItems.map((item) => (
                 <Menu.MenuItem key={item.id} value={item.id}>
                   <Tooltip content={item.description || item.label}>
-                    {renderNavContent(item.label, item.shortLabel)}
+                    <span className="podi-shell__nav-item-inner">
+                      <span className="podi-shell__nav-item-icon">
+                        {item.icon || renderNavContent(item.label, item.shortLabel)}
+                      </span>
+                      {!iconOnlyNav ? <span>{item.label}</span> : null}
+                    </span>
                   </Tooltip>
                 </Menu.MenuItem>
               ))}
@@ -124,7 +129,12 @@ export function AdminShell({
                 {advancedItems.map((item) => (
                   <Menu.MenuItem key={item.id} value={item.id}>
                     <Tooltip content={item.description || item.label}>
-                      {renderNavContent(item.label, item.shortLabel)}
+                      <span className="podi-shell__nav-item-inner">
+                        <span className="podi-shell__nav-item-icon">
+                          {item.icon || renderNavContent(item.label, item.shortLabel)}
+                        </span>
+                        {!iconOnlyNav ? <span>{item.label}</span> : null}
+                      </span>
                     </Tooltip>
                   </Menu.MenuItem>
                 ))}

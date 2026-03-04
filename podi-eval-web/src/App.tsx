@@ -24,6 +24,14 @@ import {
   Typography,
   MessagePlugin,
 } from 'tdesign-react';
+import {
+  AiImageIcon,
+  ChartBubbleIcon,
+  ImageEditIcon,
+  LayersIcon,
+  ScanIcon,
+  TaskIcon,
+} from 'tdesign-icons-react';
 import zhCN from 'tdesign-react/es/locale/zh_CN';
 import { evalApi } from './api';
 import type { EvalRun, EvalWorkflowVersion, SchemaField, WorkflowDoc } from './types';
@@ -270,6 +278,46 @@ const normalizeCategory = (category: string | undefined | null): string => {
   if (c === 'general' || c === 'common') return '通用类';
   return '通用类';
 };
+
+const categoryVisualMeta: Record<string, { icon: ReactNode; accent: string; summary: string; cover: string }> = {
+  花纹提取类: {
+    icon: <ScanIcon size="18px" />,
+    accent: '#0ea5e9',
+    summary: '偏向纹理细节保留，重点验证边缘与纹路还原。',
+    cover: 'linear-gradient(120deg, rgba(14,165,233,0.18), rgba(2,132,199,0.08))',
+  },
+  图延伸类: {
+    icon: <ImageEditIcon size="18px" />,
+    accent: '#3b82f6',
+    summary: '关注主体连续性、边界自然过渡与风格一致性。',
+    cover: 'linear-gradient(120deg, rgba(59,130,246,0.18), rgba(30,64,175,0.08))',
+  },
+  '四方/两方连续图类': {
+    icon: <LayersIcon size="18px" />,
+    accent: '#6366f1',
+    summary: '重点看拼接缝是否消失、图案周期是否稳定。',
+    cover: 'linear-gradient(120deg, rgba(99,102,241,0.18), rgba(79,70,229,0.08))',
+  },
+  图裂变: {
+    icon: <ChartBubbleIcon size="18px" />,
+    accent: '#f59e0b',
+    summary: '强调多样性与可控变体，避免主体语义漂移。',
+    cover: 'linear-gradient(120deg, rgba(245,158,11,0.18), rgba(217,119,6,0.08))',
+  },
+  通用类: {
+    icon: <AiImageIcon size="18px" />,
+    accent: '#10b981',
+    summary: '通用编辑链路，用于跨模型参数联调与稳定性验证。',
+    cover: 'linear-gradient(120deg, rgba(16,185,129,0.18), rgba(5,150,105,0.08))',
+  },
+};
+
+const getCategoryVisual = (category: string | undefined | null) => {
+  const normalized = normalizeCategory(category);
+  return categoryVisualMeta[normalized] || categoryVisualMeta['通用类'];
+};
+
+const getCategoryNavIcon = (category: string): ReactNode => getCategoryVisual(category).icon;
 
 const normalizeFieldOptions = (field?: SchemaField | null, opts?: { allowEmpty?: boolean }): LoraOption[] => {
   const allowEmpty = Boolean(opts?.allowEmpty);
@@ -922,6 +970,8 @@ function ToolCard({
 }) {
   const ratingText = metric?.avgRating ? metric.avgRating.toFixed(2) : '—';
   const ratingCountText = metric?.ratingCount ? `${metric.ratingCount}票` : '未评分';
+  const visual = getCategoryVisual(wf.category);
+  const categoryName = normalizeCategory(wf.category);
   return (
     <div
       role="button"
@@ -934,6 +984,12 @@ function ToolCard({
     >
       <Card bordered className="podi-eval-tool-card__panel" style={{ height: '100%', borderColor: active ? 'var(--td-brand-color)' : undefined }}>
         <div className="podi-eval-tool-card__topline" />
+        <div className="podi-eval-tool-card__cover" style={{ background: visual.cover }}>
+          <span className="podi-eval-tool-card__cover-icon" style={{ color: visual.accent }}>
+            {visual.icon}
+          </span>
+          <span className="podi-eval-tool-card__cover-text">{categoryName}</span>
+        </div>
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
           <Space align="start" style={{ justifyContent: 'space-between', width: '100%' }}>
             <Space direction="vertical" size={2} style={{ minWidth: 0 }}>
@@ -958,7 +1014,7 @@ function ToolCard({
             <Space breakLine>
               <Tag variant="light">{wf.version}</Tag>
               <Tag theme="primary" variant="light">
-                {normalizeCategory(wf.category)}
+                {categoryName}
               </Tag>
             </Space>
           </div>
@@ -3482,6 +3538,7 @@ export function App() {
           id: cat,
           label: cat,
           shortLabel: String(cat || "评测").slice(0, 2),
+          icon: getCategoryNavIcon(cat),
           count: (grouped[cat] || []).length,
         }))}
         activeNav={activeCategory}
@@ -5631,15 +5688,23 @@ export function App() {
   }
 
   // Home (toolbox) view
+  const activeCategoryVisual = getCategoryVisual(activeCategory);
   return shell(
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
       <div className="podi-eval-hero">
-        <Typography.Title level="h4" style={{ margin: 0 }}>
-          {normalizeCategory(activeCategory)} · 评测工具箱
-        </Typography.Title>
-        <Typography.Text theme="secondary">
-          选择卡片直接进入功能工作台，完成参数配置、生成和历史打标。
-        </Typography.Text>
+        <div className="podi-eval-hero__headline">
+          <span className="podi-eval-hero__headline-icon" style={{ color: activeCategoryVisual.accent }}>
+            {activeCategoryVisual.icon}
+          </span>
+          <div>
+            <Typography.Title level="h4" style={{ margin: 0 }}>
+              {normalizeCategory(activeCategory)} · 评测工具箱
+            </Typography.Title>
+            <Typography.Text theme="secondary">
+              {activeCategoryVisual.summary}
+            </Typography.Text>
+          </div>
+        </div>
         <div className="podi-eval-hero__stats">
           <div className="podi-eval-hero__stat">
             <Typography.Text theme="secondary">当前分类工具</Typography.Text>
@@ -5653,6 +5718,42 @@ export function App() {
               {totalToolCount}
             </Typography.Title>
           </div>
+          <div className="podi-eval-hero__stat">
+            <Typography.Text theme="secondary">建议流程</Typography.Text>
+            <Typography.Title level="h4" style={{ margin: '4px 0 0' }}>
+              上传 → 生成 → 打标
+            </Typography.Title>
+          </div>
+        </div>
+      </div>
+      <div className="podi-eval-step-grid">
+        <div className="podi-eval-step-card">
+          <div className="podi-eval-step-card__title">
+            <span><ImageEditIcon size="16px" /></span>
+            <span>1. 选择能力</span>
+          </div>
+          <Typography.Text theme="secondary">按业务分类选工作流，确认支持的参数枚举。</Typography.Text>
+        </div>
+        <div className="podi-eval-step-card">
+          <div className="podi-eval-step-card__title">
+            <span><AiImageIcon size="16px" /></span>
+            <span>2. 执行生成</span>
+          </div>
+          <Typography.Text theme="secondary">上传样图并提交任务，观察提交状态与回填状态。</Typography.Text>
+        </div>
+        <div className="podi-eval-step-card">
+          <div className="podi-eval-step-card__title">
+            <span><TaskIcon size="16px" /></span>
+            <span>3. 批量回归</span>
+          </div>
+          <Typography.Text theme="secondary">大样本复测时优先用批量回归，减少随机性干扰。</Typography.Text>
+        </div>
+        <div className="podi-eval-step-card">
+          <div className="podi-eval-step-card__title">
+            <span><ChartBubbleIcon size="16px" /></span>
+            <span>4. 标注沉淀</span>
+          </div>
+          <Typography.Text theme="secondary">重点记录不满意样本，沉淀后反推训练素材缺口。</Typography.Text>
         </div>
       </div>
       <ActionBar

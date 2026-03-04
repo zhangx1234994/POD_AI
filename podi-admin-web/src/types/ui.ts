@@ -23,6 +23,7 @@ export type AppShellNavItem = {
   id: string;
   label: string;
   shortLabel?: string;
+  icon?: ReactNode;
   description?: string;
   advanced?: boolean;
 };

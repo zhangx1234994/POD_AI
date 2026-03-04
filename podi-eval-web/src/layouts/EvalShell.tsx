@@ -72,7 +72,10 @@ export function EvalShell({
                 {navItems.map((item) => (
                   <Menu.MenuItem key={item.id} value={item.id}>
                     <Space align="center" style={{ justifyContent: "space-between", width: "100%" }}>
-                      {renderNavContent(item.label, item.shortLabel)}
+                      <span className="podi-eval-shell__nav-item-inner">
+                        <span className="podi-eval-shell__nav-item-icon">{item.icon || renderNavContent(item.label, item.shortLabel)}</span>
+                        {!iconOnly ? <span>{item.label}</span> : null}
+                      </span>
                       {!iconOnly ? <Typography.Text theme="secondary">{item.count ?? 0}</Typography.Text> : null}
                     </Space>
                   </Menu.MenuItem>
