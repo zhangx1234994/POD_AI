@@ -323,6 +323,11 @@ const comfyuiGroupMeta: Record<ComfyuiTabGroup, { hint: string; primaryTab: Comf
     primaryTab: 'agents',
   },
 };
+const comfyuiSyncStepMeta: Array<{ tab: ComfyuiManageTab; step: string; title: string; hint: string }> = [
+  { tab: 'servers', step: '步骤 1', title: '服务器对比', hint: '确认节点可用与资源差异。' },
+  { tab: 'manifests', step: '步骤 2', title: '清单发布', hint: '确认目标版本并发布清单。' },
+  { tab: 'tasks', step: '步骤 3', title: '任务下发', hint: '下发并观察回执状态。' },
+];
 const isComfyuiManageTab = (value: string): value is ComfyuiManageTab => comfyuiTabOrder.includes(value as ComfyuiManageTab);
 const readComfyuiTabFromHash = (): ComfyuiManageTab | null => {
   const params = readHashParams();
@@ -2129,6 +2134,30 @@ export function IntegrationDashboard({
     if (comfyShowTestNodes) return comfyAgentTasks;
     return comfyAgentTasks.filter((task) => !isMockLikeRecord(task.agentId));
   }, [comfyAgentTasks, comfyShowTestNodes]);
+  const comfyPublishedManifestCount = useMemo(
+    () => comfyManifestList.filter((item) => String(item.status || '').toLowerCase() === 'published').length,
+    [comfyManifestList],
+  );
+  const comfyRunningTaskCount = useMemo(() => {
+    const doneSet = new Set(['success', 'succeeded', 'completed', 'failed', 'error', 'cancelled', 'canceled', 'stopped']);
+    return visibleComfyAgentTasks.filter((task) => {
+      const status = String(task.finalStatus || task.status || '').toLowerCase();
+      return status ? !doneSet.has(status) : true;
+    }).length;
+  }, [visibleComfyAgentTasks]);
+  const comfySyncSteps = useMemo(
+    () =>
+      comfyuiSyncStepMeta.map((step) => {
+        if (step.tab === 'servers') {
+          return { ...step, metric: `${comfyExecutors.length} 台节点` };
+        }
+        if (step.tab === 'manifests') {
+          return { ...step, metric: `${comfyPublishedManifestCount}/${comfyManifestList.length} 已发布` };
+        }
+        return { ...step, metric: `${comfyRunningTaskCount} 运行中 / ${visibleComfyAgentTasks.length} 总任务` };
+      }),
+    [comfyExecutors.length, comfyManifestList.length, comfyPublishedManifestCount, comfyRunningTaskCount, visibleComfyAgentTasks.length],
+  );
   const visibleComfyAgentAlerts = useMemo(() => {
     if (comfyShowTestNodes) return comfyAgentAlerts;
     return comfyAgentAlerts.filter((item) => !isMockLikeRecord(item.agentId));
@@ -9789,6 +9818,33 @@ const normalizeErrorMessage = (message: string): string => {
                 );
               })}
             </div>
+            {activeComfyTabMeta.group === '同步发布' ? (
+              <div className="podi-comfy-sync-steps">
+                {comfySyncSteps.map((step) => {
+                  const active = step.tab === comfyuiManageTab;
+                  return (
+                    <button
+                      key={`comfy-sync-step-${step.tab}`}
+                      type="button"
+                      className={`podi-comfy-sync-step${active ? ' is-active' : ''}`}
+                      onClick={() => setComfyuiManageTab(step.tab)}
+                    >
+                      <div className="podi-comfy-sync-step__head">
+                        <span className="podi-comfy-sync-step__step">{step.step}</span>
+                        {active ? (
+                          <Tag size="small" theme="primary" variant="light">
+                            当前
+                          </Tag>
+                        ) : null}
+                      </div>
+                      <div className="podi-comfy-sync-step__title">{step.title}</div>
+                      <div className="podi-comfy-sync-step__hint">{step.hint}</div>
+                      <div className="podi-comfy-sync-step__metric">{step.metric}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
             <Space align="center" size="small" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
               <Space align="center" size="small" style={{ flexWrap: 'wrap' }}>
                 <div style={{ width: 'min(100%, 320px)' }}>
