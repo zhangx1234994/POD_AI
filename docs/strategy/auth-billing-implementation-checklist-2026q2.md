@@ -41,8 +41,8 @@
 
 ### B2. 后端接口
 - [x] `GET /api/wallet/v1/balance`（内存版，待数据库持久化）
-- [x] `POST /api/wallet/v1/recharge-orders`（内存版，待支付状态机）
-- [x] `GET /api/wallet/v1/recharge-orders/{order_no}`（内存版）
+- [x] `POST /api/wallet/v1/recharge-orders`（内存版，待支付状态机；当前仅内部运维使用）
+- [x] `GET /api/wallet/v1/recharge-orders/{order_no}`（内存版；当前仅内部运维使用）
 - [x] `GET /api/wallet/v1/ledger`（内存版）
 
 ### B3. 回归检查
@@ -50,6 +50,7 @@
 - [x] 充值回调接口支持可选 token 鉴权（`WALLET_CALLBACK_TOKEN`）
 - [x] 流水与余额变动一致
 - [x] 流水字段包含 `traceId/taskId/provider/modelKey`（状态回调可传入）
+- [x] 业务侧口径：当前阶段只消费“支出流水”能力，充值链路归运维内控
 
 ---
 

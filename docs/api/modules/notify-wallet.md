@@ -129,7 +129,8 @@
 
 ### POST /api/wallet/v1/recharge-orders
 
-**用途**：创建充值订单（初始状态 `pending`，不立即入账）。
+**用途**：创建充值订单（初始状态 `pending`，不立即入账）。  
+**当前策略**：仅内部运维使用，业务侧暂不开放。
 
 **请求体**
 
@@ -160,7 +161,8 @@
 
 ### GET /api/wallet/v1/recharge-orders/{order_no}
 
-**用途**：查询充值订单状态。
+**用途**：查询充值订单状态。  
+**当前策略**：仅内部运维使用，业务侧暂不开放。
 
 **错误码**
 
@@ -168,7 +170,8 @@
 
 ### POST /api/wallet/v1/recharge-orders/{order_no}/status
 
-**用途**：支付回调/人工处理订单状态（`pending -> paid|failed|canceled`）。
+**用途**：支付回调/人工处理订单状态（`pending -> paid|failed|canceled`）。  
+**当前策略**：仅内部运维使用，业务侧暂不开放。
 
 **鉴权（可选）**
 
