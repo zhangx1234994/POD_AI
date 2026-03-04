@@ -285,6 +285,11 @@ html.t-theme-dark {
   color: var(--podi-accent);
 }
 
+.podi-shell__aside--icon-only .t-menu__item.t-is-active .podi-shell__nav-item-icon {
+  border-color: color-mix(in srgb, var(--podi-accent) 38%, var(--td-border-level-1-color));
+  background: color-mix(in srgb, var(--podi-accent-soft) 85%, #fff);
+}
+
 .podi-shell .t-menu__item:hover {
   background: var(--podi-panel-muted);
 }
@@ -297,6 +302,14 @@ html.t-theme-dark {
   justify-content: center;
   padding-left: 0;
   padding-right: 0;
+}
+
+.podi-shell__aside--icon-only .podi-shell__nav-item-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid var(--td-border-level-1-color);
+  background: color-mix(in srgb, var(--podi-accent-soft) 40%, var(--td-bg-color-container));
 }
 
 .podi-shell__nav-item-inner {
@@ -312,6 +325,13 @@ html.t-theme-dark {
   align-items: center;
   justify-content: center;
   color: var(--td-text-color-secondary);
+  flex-shrink: 0;
+}
+
+.podi-shell__nav-item-icon svg {
+  width: 16px;
+  height: 16px;
+  display: block;
 }
 
 .podi-shell__nav-badge {

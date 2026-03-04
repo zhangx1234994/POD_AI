@@ -54,6 +54,14 @@ html.t-theme-dark {
   justify-content: center;
 }
 
+.podi-eval-shell__aside--icon .podi-eval-shell__nav-item-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid var(--td-border-level-1-color);
+  background: color-mix(in srgb, var(--podi-accent-soft) 40%, var(--td-bg-color-container));
+}
+
 .podi-eval-shell__nav-item-inner {
   display: inline-flex;
   align-items: center;
@@ -67,6 +75,13 @@ html.t-theme-dark {
   align-items: center;
   justify-content: center;
   color: var(--td-text-color-secondary);
+  flex-shrink: 0;
+}
+
+.podi-eval-shell__nav-item-icon svg {
+  width: 16px;
+  height: 16px;
+  display: block;
 }
 
 .podi-eval-shell__nav-badge {
@@ -85,6 +100,11 @@ html.t-theme-dark {
 
 .podi-shell .t-menu__item.t-is-active .podi-eval-shell__nav-item-icon {
   color: var(--podi-accent);
+}
+
+.podi-eval-shell__aside--icon .t-menu__item.t-is-active .podi-eval-shell__nav-item-icon {
+  border-color: color-mix(in srgb, var(--podi-accent) 35%, var(--td-border-level-1-color));
+  background: color-mix(in srgb, var(--podi-accent-soft) 86%, #fff);
 }
 
 .podi-shell .t-card {

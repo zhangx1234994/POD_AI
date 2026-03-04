@@ -15,13 +15,9 @@ export function AdminShell({
   contentRef,
   children,
 }: AppShellProps) {
-  const NAV_COMPACT_STORAGE_KEY = "podi.admin.nav.compact";
   const [navKeyword, setNavKeyword] = useState("");
   const [viewportWidth, setViewportWidth] = useState<number>(() => (typeof window === "undefined" ? 1440 : window.innerWidth));
-  const [manualCompactNav, setManualCompactNav] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    return window.localStorage.getItem(NAV_COMPACT_STORAGE_KEY) === "1";
-  });
+  const [manualCompactNav, setManualCompactNav] = useState<boolean>(false);
   const compactNav = manualCompactNav || viewportWidth < 1280;
   const iconOnlyNav = manualCompactNav || viewportWidth < 1040;
   const ultraNarrowNav = viewportWidth < 920;
@@ -44,10 +40,6 @@ export function AdminShell({
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(NAV_COMPACT_STORAGE_KEY, manualCompactNav ? "1" : "0");
-  }, [manualCompactNav]);
   useEffect(() => {
     if (!iconOnlyNav) return;
     if (!navKeyword) return;
