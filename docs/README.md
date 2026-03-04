@@ -108,6 +108,7 @@ docs/
 ├── task-submission-flow.md
 ├── testing
 │   ├── AUTH_BILLING_TEST_PLAN.md
+│   ├── COMFYUI_TASK_STATE_REGRESSION_PLAN.md
 │   └── COZE_WORKFLOW_TEST_PLAN.md
 ├── wip
 │   ├── auth-billing-model-draft.md
@@ -195,6 +196,7 @@ docs/
 
 ### 测试、复盘与草案
 - `docs/testing/AUTH_BILLING_TEST_PLAN.md`：认证与计费回归测试计划
+- `docs/testing/COMFYUI_TASK_STATE_REGRESSION_PLAN.md`：ComfyUI 任务状态回归计划
 - `docs/testing/COZE_WORKFLOW_TEST_PLAN.md`：Coze 工作流测试计划
 - `docs/retrospectives/2026-02-03.md`：复盘纪要
 - `docs/retrospectives/2026-02-13.md`：复盘纪要（休假前记录）

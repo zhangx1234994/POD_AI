@@ -33,7 +33,7 @@
 4. `doing` 状态与错误口径统一落地检查
 - 产物：状态映射核对表 + 缺口清单
 - 验收：不存在“上游失败标成功”
-- 进展（2026-03-04）：已新增 `docs/strategy/status-error-audit-2026q2.md`，完成第一版核对矩阵与缺口优先级。
+- 进展（2026-03-04）：已新增 `docs/strategy/status-error-audit-2026q2.md`，完成第一版核对矩阵与缺口优先级；已补 `docs/testing/COMFYUI_TASK_STATE_REGRESSION_PLAN.md` 与错误映射在管理端/评测端的首轮落地。
 
 5. `todo` 文档治理上线
 - 产物：归档目录、文档 owner、每周回顾机制
@@ -81,7 +81,7 @@
 3. `done` 制定认证方案选型结论（手机号/邮箱/邀请码）
 - 结论（2026-03-04）：已定稿（`docs/strategy/auth-scheme-decision-2026q2.md`），Q2 先落地“邮箱+邀请码”，手机号延期到 Q3。
 4. `doing` 完成文案规范初稿（至少覆盖任务、结果、错误三块）
-- 进展（2026-03-04）：已新增 `docs/standards/copywriting-system-v1.md` 与 `docs/standards/error-message-map-v1.md` 初稿，待页面逐步落地。
+- 进展（2026-03-04）：已新增 `docs/standards/copywriting-system-v1.md` 与 `docs/standards/error-message-map-v1.md` 初稿，并已在管理端/评测端部分页面接入映射。
 
 ## 下周前可执行拆分（2026-03-04 版）
 
