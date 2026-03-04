@@ -78,7 +78,7 @@
 1. `doing` 完成 IA V1 草图并评审
 - 进展（2026-03-04）：已输出 IA 评审包（`docs/wip/admin-ia-draft.md`），待评审会确认“保留/调整/延期”结论。
 2. `doing` 确认充值与计费字段模型
-- 进展（2026-03-04）：已输出字段草案 + 接口草案 + 迁移顺序（`docs/wip/auth-billing-model-draft.md`），并新增实施清单（`docs/strategy/auth-billing-implementation-checklist-2026q2.md`）与回归计划（`docs/testing/AUTH_BILLING_TEST_PLAN.md`）；`/api/wallet/v1/balance|expenses|recharge-orders|ledger|bills|cost-snapshots` 已落地，当前为“DB 优先 + 未迁移环境回退内存”模式；充值状态机（`pending->paid/failed/canceled`）已接入，回调 token + 签名校验、`taskId/traceId/provider/modelKey` 流水追踪已补齐。当前业务口径调整为“以支出流水为主，充值链路仅内部运维使用”，支付网关对接延期。
+- 进展（2026-03-04）：已输出字段草案 + 接口草案 + 迁移顺序（`docs/wip/auth-billing-model-draft.md`），并新增实施清单（`docs/strategy/auth-billing-implementation-checklist-2026q2.md`）与回归计划（`docs/testing/AUTH_BILLING_TEST_PLAN.md`）；`/api/wallet/v1/balance|expenses|usage-summary|recharge-orders|ledger|bills|cost-snapshots` 已落地，当前为“DB 优先 + 未迁移环境回退内存”模式；充值状态机（`pending->paid/failed/canceled`）已接入，回调 token + 签名校验、`taskId/traceId/provider/modelKey` 流水追踪已补齐。当前业务口径调整为“以支出流水与使用量统计为主，充值链路仅内部运维使用”，支付网关对接延期。
 3. `done` 制定认证方案选型结论（手机号/邮箱/邀请码）
 - 结论（2026-03-04）：已定稿（`docs/strategy/auth-scheme-decision-2026q2.md`），Q2 先落地“邮箱+邀请码”，手机号延期到 Q3。
 4. `doing` 完成文案规范初稿（至少覆盖任务、结果、错误三块）

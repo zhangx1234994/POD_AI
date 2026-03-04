@@ -42,6 +42,7 @@
 ### B2. 后端接口
 - [x] `GET /api/wallet/v1/balance`（内存版，待数据库持久化）
 - [x] `POST /api/wallet/v1/expenses`（直接支出记账，支持 traceId 幂等）
+- [x] `GET /api/wallet/v1/usage-summary`（使用量统计：日趋势 + provider/model）
 - [x] `POST /api/wallet/v1/recharge-orders`（内存版，待支付状态机；当前仅内部运维使用）
 - [x] `GET /api/wallet/v1/recharge-orders/{order_no}`（内存版；当前仅内部运维使用）
 - [x] `GET /api/wallet/v1/ledger`（内存版）

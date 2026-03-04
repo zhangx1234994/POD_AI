@@ -352,3 +352,51 @@ def test_record_expense_insufficient() -> None:
     )
     assert resp.status_code == 402
     assert resp.json().get("detail") == "WALLET_INSUFFICIENT"
+
+
+def test_usage_summary_with_expense_and_income() -> None:
+    expense_a = client.post(
+        "/api/wallet/v1/expenses",
+        json={
+            "userId": "u_usage",
+            "points": 40,
+            "taskId": "task_usage_1",
+            "traceId": "trace_usage_1",
+            "provider": "kie",
+            "modelKey": "nano-banana-2",
+        },
+    )
+    assert expense_a.status_code == 200
+    expense_b = client.post(
+        "/api/wallet/v1/expenses",
+        json={
+            "userId": "u_usage",
+            "points": 20,
+            "taskId": "task_usage_2",
+            "traceId": "trace_usage_2",
+            "provider": "comfyui",
+            "modelKey": "yinhua_tiqu",
+        },
+    )
+    assert expense_b.status_code == 200
+
+    order = client.post(
+        "/api/wallet/v1/recharge-orders",
+        json={"userId": "u_usage", "amount": 100, "channel": "manual"},
+    ).json()
+    paid = client.post(
+        f"/api/wallet/v1/recharge-orders/{order['orderNo']}/status",
+        json={"status": "paid"},
+    )
+    assert paid.status_code == 200
+
+    summary_resp = client.get("/api/wallet/v1/usage-summary", params={"userId": "u_usage", "windowDays": 30})
+    assert summary_resp.status_code == 200
+    summary = summary_resp.json()
+    assert summary["totalExpensePoints"] == 60
+    assert summary["totalIncomePoints"] == 100
+    assert summary["expenseCount"] == 2
+    assert summary["incomeCount"] == 1
+    assert summary["providers"][0]["key"] == "kie"
+    assert summary["models"][0]["key"] == "nano-banana-2"
+    assert len(summary["daily"]) >= 1

@@ -341,6 +341,39 @@
 }
 ```
 
+### GET /api/wallet/v1/usage-summary
+
+**用途**：查询使用量统计（支出/收入汇总 + 按天趋势 + Provider/Model 维度）。
+
+**参数**
+
+- `userId`（必填）
+- `windowDays`（可选，1-365，默认 30）
+
+**响应体**
+
+```json
+{
+  "userId": "u_123",
+  "windowDays": 30,
+  "totalExpensePoints": 180,
+  "totalIncomePoints": 200,
+  "expenseCount": 4,
+  "incomeCount": 1,
+  "daily": [
+    { "date": "2026-03-04", "expensePoints": 180, "incomePoints": 200, "count": 5 }
+  ],
+  "providers": [
+    { "key": "kie", "count": 3, "points": 140 },
+    { "key": "comfyui", "count": 1, "points": 40 }
+  ],
+  "models": [
+    { "key": "nano-banana-2", "count": 2, "points": 100 },
+    { "key": "yinhua_tiqu", "count": 1, "points": 40 }
+  ]
+}
+```
+
 ---
 
 ## 3) 临时积分接口（/api/op/v1 与 /api/os/v1）

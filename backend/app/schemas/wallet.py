@@ -138,3 +138,28 @@ class CostSnapshotResponse(BaseModel):
     count: int
     totalPoints: int
     items: list[CostSnapshotItem]
+
+
+class UsageDimensionItem(BaseModel):
+    key: str
+    count: int
+    points: int
+
+
+class UsageDailyItem(BaseModel):
+    date: str
+    expensePoints: int
+    incomePoints: int
+    count: int
+
+
+class UsageSummaryResponse(BaseModel):
+    userId: str
+    windowDays: int
+    totalExpensePoints: int
+    totalIncomePoints: int
+    expenseCount: int
+    incomeCount: int
+    daily: list[UsageDailyItem]
+    providers: list[UsageDimensionItem]
+    models: list[UsageDimensionItem]

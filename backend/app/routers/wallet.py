@@ -188,3 +188,12 @@ async def list_cost_snapshots(
 ) -> schemas.CostSnapshotResponse:
     data = wallet_service.cost_snapshots(userId, provider=provider, model_key=modelKey)
     return schemas.CostSnapshotResponse(**data)
+
+
+@router.get("/v1/usage-summary", response_model=schemas.UsageSummaryResponse)
+async def get_usage_summary(
+    userId: str,
+    windowDays: int = Query(default=30, ge=1, le=365),
+) -> schemas.UsageSummaryResponse:
+    data = wallet_service.usage_summary(userId, window_days=windowDays)
+    return schemas.UsageSummaryResponse(**data)

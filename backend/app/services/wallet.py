@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
 
@@ -424,6 +424,82 @@ class WalletService:
             "items": items,
         }
 
+    def _usage_summary_db(self, user_id: str, window_days: int) -> dict:
+        normalized_days = max(1, min(365, int(window_days or 30)))
+        since = datetime.utcnow() - timedelta(days=normalized_days)
+        with get_session() as session:
+            self._ensure_wallet_account_db(session, user_id)
+            rows = (
+                session.execute(
+                    select(WalletLedger).where(
+                        WalletLedger.user_id == user_id,
+                        WalletLedger.created_at >= since,
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            session.commit()
+
+        expense_total = 0
+        income_total = 0
+        expense_count = 0
+        income_count = 0
+        daily_map: dict[str, dict[str, int]] = {}
+        provider_map: dict[str, dict[str, int]] = {}
+        model_map: dict[str, dict[str, int]] = {}
+
+        for row in rows:
+            points = int(row.points or 0)
+            date_key = row.created_at.date().isoformat() if row.created_at else ""
+            daily_entry = daily_map.setdefault(date_key, {"expensePoints": 0, "incomePoints": 0, "count": 0})
+            daily_entry["count"] += 1
+            if row.direction == "out":
+                expense_total += points
+                expense_count += 1
+                daily_entry["expensePoints"] += points
+                provider_key = row.provider or "unknown"
+                provider_entry = provider_map.setdefault(provider_key, {"count": 0, "points": 0})
+                provider_entry["count"] += 1
+                provider_entry["points"] += points
+                model_key = row.model_key or "unknown"
+                model_entry = model_map.setdefault(model_key, {"count": 0, "points": 0})
+                model_entry["count"] += 1
+                model_entry["points"] += points
+            else:
+                income_total += points
+                income_count += 1
+                daily_entry["incomePoints"] += points
+
+        daily = [
+            {
+                "date": key,
+                "expensePoints": value["expensePoints"],
+                "incomePoints": value["incomePoints"],
+                "count": value["count"],
+            }
+            for key, value in sorted(daily_map.items(), key=lambda kv: kv[0], reverse=True)
+        ]
+        providers = [
+            {"key": key, "count": value["count"], "points": value["points"]}
+            for key, value in sorted(provider_map.items(), key=lambda kv: (-kv[1]["points"], kv[0]))[:10]
+        ]
+        models = [
+            {"key": key, "count": value["count"], "points": value["points"]}
+            for key, value in sorted(model_map.items(), key=lambda kv: (-kv[1]["points"], kv[0]))[:10]
+        ]
+        return {
+            "userId": user_id,
+            "windowDays": normalized_days,
+            "totalExpensePoints": expense_total,
+            "totalIncomePoints": income_total,
+            "expenseCount": expense_count,
+            "incomeCount": income_count,
+            "daily": daily,
+            "providers": providers,
+            "models": models,
+        }
+
     def _record_expense_db(
         self,
         *,
@@ -760,6 +836,85 @@ class WalletService:
             "items": snapshots,
         }
 
+    def _usage_summary_memory(self, user_id: str, window_days: int) -> dict:
+        self._ensure_user_memory(user_id)
+        normalized_days = max(1, min(365, int(window_days or 30)))
+        since = datetime.now(timezone.utc) - timedelta(days=normalized_days)
+        rows = []
+        for row in self._memory_ledger:
+            if row.get("userId") != user_id:
+                continue
+            created_raw = str(row.get("createdAt") or "")
+            try:
+                created_at = datetime.fromisoformat(created_raw.replace("Z", "+00:00"))
+            except ValueError:
+                created_at = None
+            if created_at and created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+            if created_at and created_at < since:
+                continue
+            rows.append(row)
+
+        expense_total = 0
+        income_total = 0
+        expense_count = 0
+        income_count = 0
+        daily_map: dict[str, dict[str, int]] = {}
+        provider_map: dict[str, dict[str, int]] = {}
+        model_map: dict[str, dict[str, int]] = {}
+
+        for row in rows:
+            raw_points = int(row.get("points") or 0)
+            date_key = str(row.get("createdAt") or "")[:10]
+            daily_entry = daily_map.setdefault(date_key, {"expensePoints": 0, "incomePoints": 0, "count": 0})
+            daily_entry["count"] += 1
+            if raw_points < 0:
+                points = abs(raw_points)
+                expense_total += points
+                expense_count += 1
+                daily_entry["expensePoints"] += points
+                provider_key = str(row.get("provider") or "unknown")
+                provider_entry = provider_map.setdefault(provider_key, {"count": 0, "points": 0})
+                provider_entry["count"] += 1
+                provider_entry["points"] += points
+                model_key = str(row.get("modelKey") or "unknown")
+                model_entry = model_map.setdefault(model_key, {"count": 0, "points": 0})
+                model_entry["count"] += 1
+                model_entry["points"] += points
+            elif raw_points > 0:
+                income_total += raw_points
+                income_count += 1
+                daily_entry["incomePoints"] += raw_points
+
+        daily = [
+            {
+                "date": key,
+                "expensePoints": value["expensePoints"],
+                "incomePoints": value["incomePoints"],
+                "count": value["count"],
+            }
+            for key, value in sorted(daily_map.items(), key=lambda kv: kv[0], reverse=True)
+        ]
+        providers = [
+            {"key": key, "count": value["count"], "points": value["points"]}
+            for key, value in sorted(provider_map.items(), key=lambda kv: (-kv[1]["points"], kv[0]))[:10]
+        ]
+        models = [
+            {"key": key, "count": value["count"], "points": value["points"]}
+            for key, value in sorted(model_map.items(), key=lambda kv: (-kv[1]["points"], kv[0]))[:10]
+        ]
+        return {
+            "userId": user_id,
+            "windowDays": normalized_days,
+            "totalExpensePoints": expense_total,
+            "totalIncomePoints": income_total,
+            "expenseCount": expense_count,
+            "incomeCount": income_count,
+            "daily": daily,
+            "providers": providers,
+            "models": models,
+        }
+
     def _record_expense_memory(
         self,
         *,
@@ -938,6 +1093,14 @@ class WalletService:
             except SQLAlchemyError:
                 self._db_ready_cache = False
         return self._cost_snapshots_memory(user_id, provider=provider, model_key=model_key)
+
+    def usage_summary(self, user_id: str, window_days: int = 30) -> dict:
+        if self._db_ready():
+            try:
+                return self._usage_summary_db(user_id, window_days=window_days)
+            except SQLAlchemyError:
+                self._db_ready_cache = False
+        return self._usage_summary_memory(user_id, window_days=window_days)
 
     def record_expense(
         self,
