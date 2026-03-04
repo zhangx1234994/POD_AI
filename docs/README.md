@@ -94,6 +94,7 @@ docs/
 ├── standards
 │   ├── abstraction-and-decoupling.md
 │   ├── coze-toolbox-development-standard.md
+│   ├── copywriting-system-v1.md
 │   ├── error-catalog.md
 │   ├── error-contract.md
 │   ├── interface-consistency.md
@@ -145,6 +146,7 @@ docs/
 - `docs/standards/platform-design-principles.md`：平台设计准则（稳定性优先）
 - `docs/standards/self-check-sop.md`：自检流程规范
 - `docs/standards/coze-toolbox-development-standard.md`：Coze 工具箱开发准则
+- `docs/standards/copywriting-system-v1.md`：任务/结果/错误文案统一规范
 - `docs/standards/issue-improvement-log.md`：问题与优化记录
 
 ### 任务流转与调度
