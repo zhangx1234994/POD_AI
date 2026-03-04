@@ -129,7 +129,7 @@
 
 ### POST /api/wallet/v1/recharge-orders
 
-**用途**：创建充值订单（联调模式会立即入账并写流水）。
+**用途**：创建充值订单（初始状态 `pending`，不立即入账）。
 
 **请求体**
 
@@ -145,9 +145,12 @@
   "userId": "u_123",
   "amount": 1000,
   "channel": "manual",
-  "status": "paid",
+  "status": "pending",
   "createdAt": "2026-03-04T08:30:30.123456+00:00",
-  "paidAt": "2026-03-04T08:30:30.123456+00:00"
+  "paidAt": null,
+  "failReason": null,
+  "transactionId": null,
+  "updatedAt": "2026-03-04T08:30:30.123456+00:00"
 }
 ```
 
@@ -162,6 +165,33 @@
 **错误码**
 
 - `RECHARGE_ORDER_NOT_FOUND`（404）
+
+### POST /api/wallet/v1/recharge-orders/{order_no}/status
+
+**用途**：支付回调/人工处理订单状态（`pending -> paid|failed|canceled`）。
+
+**请求体**
+
+```json
+{ "status": "paid", "transactionId": "txn_20260304_001" }
+```
+
+或
+
+```json
+{ "status": "failed", "failReason": "payment_timeout" }
+```
+
+**规则**
+
+- `paid` 首次成功会入账并写 `wallet_ledger`，重复 `paid` 幂等不重复入账。
+- 终态订单（`paid/failed/canceled`）不可逆，跨终态更新返回冲突。
+
+**错误码**
+
+- `RECHARGE_STATUS_INVALID`（400）
+- `RECHARGE_ORDER_NOT_FOUND`（404）
+- `RECHARGE_ORDER_STATUS_CONFLICT`（409）
 
 ### GET /api/wallet/v1/transactions
 

@@ -16,6 +16,10 @@ from app.core.db import engine, get_session
 from app.models.wallet import RechargeOrder, WalletAccount, WalletHold, WalletLedger
 
 
+RECHARGE_TERMINAL_STATUSES = {"paid", "failed", "canceled"}
+RECHARGE_ALLOWED_STATUSES = {"pending", *RECHARGE_TERMINAL_STATUSES}
+
+
 class WalletService:
     def __init__(self) -> None:
         self._db_ready_cache: bool | None = None
@@ -90,7 +94,17 @@ class WalletService:
             "status": order.status,
             "createdAt": order.created_at.isoformat() if order.created_at else "",
             "paidAt": order.paid_at.isoformat() if order.paid_at else None,
+            "failReason": order.fail_reason,
+            "transactionId": order.transaction_id,
+            "updatedAt": order.updated_at.isoformat() if order.updated_at else None,
         }
+
+    @staticmethod
+    def _normalize_recharge_status(status: str) -> str:
+        normalized = str(status or "").strip().lower()
+        if normalized not in RECHARGE_ALLOWED_STATUSES:
+            raise HTTPException(status_code=400, detail="RECHARGE_STATUS_INVALID")
+        return normalized
 
     @staticmethod
     def _serialize_ledger_row(row: WalletLedger) -> dict:
@@ -240,32 +254,20 @@ class WalletService:
         if amount <= 0:
             raise HTTPException(status_code=400, detail="RECHARGE_AMOUNT_INVALID")
         with get_session() as session:
-            account = self._ensure_wallet_account_db(session, user_id)
+            self._ensure_wallet_account_db(session, user_id)
             order_no = f"rc_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}_{uuid4().hex[:6]}"
             now = datetime.utcnow()
-            account.balance = int(account.balance) + amount
             order = RechargeOrder(
                 order_no=order_no,
                 user_id=user_id,
                 amount=amount,
                 channel=channel or "manual",
-                status="paid",
-                paid_at=now,
+                status="pending",
+                paid_at=None,
                 created_at=now,
                 updated_at=now,
             )
             session.add(order)
-            self._append_ledger_db(
-                session=session,
-                account=account,
-                user_id=user_id,
-                points_delta=amount,
-                after_balance=int(account.balance),
-                biz_type="recharge",
-                task_id=None,
-                remark=f"recharge:{order_no}",
-            )
-            session.add(account)
             session.commit()
             session.refresh(order)
             return self._serialize_order(order)
@@ -275,6 +277,59 @@ class WalletService:
             order = session.execute(select(RechargeOrder).where(RechargeOrder.order_no == order_no)).scalars().first()
             if not order:
                 raise HTTPException(status_code=404, detail="RECHARGE_ORDER_NOT_FOUND")
+            return self._serialize_order(order)
+
+    def _update_recharge_order_status_db(
+        self,
+        order_no: str,
+        status: str,
+        fail_reason: str | None = None,
+        transaction_id: str | None = None,
+    ) -> dict:
+        target_status = self._normalize_recharge_status(status)
+        with get_session() as session:
+            order = session.execute(select(RechargeOrder).where(RechargeOrder.order_no == order_no)).scalars().first()
+            if not order:
+                raise HTTPException(status_code=404, detail="RECHARGE_ORDER_NOT_FOUND")
+            current_status = str(order.status or "").lower()
+            if current_status in RECHARGE_TERMINAL_STATUSES and current_status != target_status:
+                raise HTTPException(status_code=409, detail="RECHARGE_ORDER_STATUS_CONFLICT")
+            if target_status == "pending":
+                if current_status != "pending":
+                    raise HTTPException(status_code=409, detail="RECHARGE_ORDER_STATUS_CONFLICT")
+                return self._serialize_order(order)
+
+            if target_status == "paid":
+                account = self._ensure_wallet_account_db(session, order.user_id)
+                if current_status != "paid":
+                    account.balance = int(account.balance) + int(order.amount)
+                    self._append_ledger_db(
+                        session=session,
+                        account=account,
+                        user_id=order.user_id,
+                        points_delta=int(order.amount),
+                        after_balance=int(account.balance),
+                        biz_type="recharge",
+                        task_id=None,
+                        remark=f"recharge:{order.order_no}",
+                    )
+                    order.paid_at = datetime.utcnow()
+                    session.add(account)
+                order.status = "paid"
+                order.fail_reason = None
+                if transaction_id:
+                    order.transaction_id = transaction_id
+            elif target_status in {"failed", "canceled"}:
+                if current_status == "paid":
+                    raise HTTPException(status_code=409, detail="RECHARGE_ORDER_STATUS_CONFLICT")
+                order.status = target_status
+                order.fail_reason = fail_reason
+                if transaction_id:
+                    order.transaction_id = transaction_id
+            order.updated_at = datetime.utcnow()
+            session.add(order)
+            session.commit()
+            session.refresh(order)
             return self._serialize_order(order)
 
     def _ledger_db(self, user_id: str, page: int = 1, page_size: int = 20) -> dict:
@@ -476,34 +531,75 @@ class WalletService:
         if amount <= 0:
             raise HTTPException(status_code=400, detail="RECHARGE_AMOUNT_INVALID")
         order_no = f"rc_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}_{uuid4().hex[:6]}"
-        before = self._memory_balance[user_id]
-        self._memory_balance[user_id] += amount
         now = self._now_iso()
         order = {
             "orderNo": order_no,
             "userId": user_id,
             "amount": amount,
             "channel": channel,
-            "status": "paid",
+            "status": "pending",
             "createdAt": now,
-            "paidAt": now,
+            "paidAt": None,
+            "failReason": None,
+            "transactionId": None,
+            "updatedAt": now,
         }
         self._memory_orders[order_no] = order
-        self._record_ledger_memory(
-            user_id=user_id,
-            change_type="INCREASE",
-            points=amount,
-            before_balance=before,
-            after_balance=self._memory_balance[user_id],
-            task_id=None,
-            description=f"recharge:{order_no}",
-        )
         return order
 
     def _get_recharge_order_memory(self, order_no: str) -> dict:
         order = self._memory_orders.get(order_no)
         if not order:
             raise HTTPException(status_code=404, detail="RECHARGE_ORDER_NOT_FOUND")
+        return order
+
+    def _update_recharge_order_status_memory(
+        self,
+        order_no: str,
+        status: str,
+        fail_reason: str | None = None,
+        transaction_id: str | None = None,
+    ) -> dict:
+        target_status = self._normalize_recharge_status(status)
+        order = self._memory_orders.get(order_no)
+        if not order:
+            raise HTTPException(status_code=404, detail="RECHARGE_ORDER_NOT_FOUND")
+        current_status = str(order.get("status") or "").lower()
+        if current_status in RECHARGE_TERMINAL_STATUSES and current_status != target_status:
+            raise HTTPException(status_code=409, detail="RECHARGE_ORDER_STATUS_CONFLICT")
+        if target_status == "pending":
+            if current_status != "pending":
+                raise HTTPException(status_code=409, detail="RECHARGE_ORDER_STATUS_CONFLICT")
+            return order
+        if target_status == "paid":
+            if current_status != "paid":
+                user_id = str(order.get("userId") or "")
+                amount = int(order.get("amount") or 0)
+                self._ensure_user_memory(user_id)
+                before = self._memory_balance[user_id]
+                self._memory_balance[user_id] += amount
+                self._record_ledger_memory(
+                    user_id=user_id,
+                    change_type="INCREASE",
+                    points=amount,
+                    before_balance=before,
+                    after_balance=self._memory_balance[user_id],
+                    task_id=None,
+                    description=f"recharge:{order_no}",
+                )
+                order["paidAt"] = self._now_iso()
+            order["status"] = "paid"
+            order["failReason"] = None
+            if transaction_id:
+                order["transactionId"] = transaction_id
+        else:
+            if current_status == "paid":
+                raise HTTPException(status_code=409, detail="RECHARGE_ORDER_STATUS_CONFLICT")
+            order["status"] = target_status
+            order["failReason"] = fail_reason
+            if transaction_id:
+                order["transactionId"] = transaction_id
+        order["updatedAt"] = self._now_iso()
         return order
 
     def _ledger_memory(self, user_id: str, page: int = 1, page_size: int = 20) -> dict:
@@ -628,6 +724,30 @@ class WalletService:
             except SQLAlchemyError:
                 self._db_ready_cache = False
         return self._get_recharge_order_memory(order_no)
+
+    def update_recharge_order_status(
+        self,
+        order_no: str,
+        status: str,
+        fail_reason: str | None = None,
+        transaction_id: str | None = None,
+    ) -> dict:
+        if self._db_ready():
+            try:
+                return self._update_recharge_order_status_db(
+                    order_no=order_no,
+                    status=status,
+                    fail_reason=fail_reason,
+                    transaction_id=transaction_id,
+                )
+            except SQLAlchemyError:
+                self._db_ready_cache = False
+        return self._update_recharge_order_status_memory(
+            order_no=order_no,
+            status=status,
+            fail_reason=fail_reason,
+            transaction_id=transaction_id,
+        )
 
     def ledger(self, user_id: str, page: int = 1, page_size: int = 20) -> dict:
         if self._db_ready():

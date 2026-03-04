@@ -57,6 +57,20 @@ async def get_recharge_order(order_no: str) -> schemas.RechargeOrderResponse:
     return schemas.RechargeOrderResponse(**order)
 
 
+@router.post("/v1/recharge-orders/{order_no}/status", response_model=schemas.RechargeOrderResponse)
+async def update_recharge_order_status(
+    order_no: str,
+    payload: schemas.RechargeOrderStatusUpdateRequest,
+) -> schemas.RechargeOrderResponse:
+    order = wallet_service.update_recharge_order_status(
+        order_no=order_no,
+        status=payload.status,
+        fail_reason=payload.failReason,
+        transaction_id=payload.transactionId,
+    )
+    return schemas.RechargeOrderResponse(**order)
+
+
 @router.get("/v1/ledger", response_model=schemas.LedgerResponse)
 async def list_ledger(
     userId: str,

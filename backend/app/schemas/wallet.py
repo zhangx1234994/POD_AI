@@ -76,6 +76,15 @@ class RechargeOrderResponse(BaseModel):
     status: str
     createdAt: str
     paidAt: str | None = None
+    failReason: str | None = None
+    transactionId: str | None = None
+    updatedAt: str | None = None
+
+
+class RechargeOrderStatusUpdateRequest(BaseModel):
+    status: str
+    failReason: str | None = None
+    transactionId: str | None = None
 
 
 class BillResponse(BaseModel):

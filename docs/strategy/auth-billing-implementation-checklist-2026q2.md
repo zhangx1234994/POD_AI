@@ -46,7 +46,7 @@
 - [x] `GET /api/wallet/v1/ledger`（内存版）
 
 ### B3. 回归检查
-- [ ] 充值订单状态流转：pending -> paid/failed/canceled
+- [x] 充值订单状态流转：pending -> paid/failed/canceled（含幂等与冲突保护）
 - [ ] 流水与余额变动一致
 - [ ] 导出字段包含 `trace_id/related_task_id`
 
