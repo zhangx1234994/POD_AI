@@ -73,3 +73,14 @@ Steps:
 - Exit code:
   - `0`：通过（无缺失）
   - `2`：存在缺失项（需补齐 `metadata.pricing`）
+
+## 6) Auth & Billing Gate (Q2)
+
+- 认证链路（若本次发版包含认证改动）：
+  - 登录成功 / 登录失败（错误码正确）
+  - refresh 成功 / refresh 过期
+  - 会话注销后不可继续 refresh
+- 计费链路（若本次发版包含钱包改动）：
+  - 成功任务扣费一次（无重复扣费）
+  - 失败/取消任务不扣费
+  - 账单明细可追溯 `task_id + trace_id`
