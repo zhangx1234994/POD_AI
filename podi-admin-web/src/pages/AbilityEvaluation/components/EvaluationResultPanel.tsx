@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { EvalRun } from '../../../types/eval';
+import { toDisplayErrorMessage } from '../../../utils/errorMessageMap';
 
 type Props = {
   results: EvalRun[];
@@ -95,7 +96,9 @@ export function EvaluationResultPanel({ results, onAnnotate, onClearRuns, cleari
                       </a>
                     ) : null}
                   </div>
-                  {run.error_message ? <div className="mt-2 text-xs text-rose-700 dark:text-rose-400">{run.error_message}</div> : null}
+                  {run.error_message ? (
+                    <div className="mt-2 text-xs text-rose-700 dark:text-rose-400">{toDisplayErrorMessage(run.error_message)}</div>
+                  ) : null}
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="text-xs text-slate-700 dark:text-slate-400">评分</div>
