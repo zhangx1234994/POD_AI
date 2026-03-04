@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { ChartBubbleIcon, ImageEditIcon, TaskIcon } from 'tdesign-icons-react';
 import { adminApi } from '../../services/adminApi';
 import type { EvalDatasetItem, EvalRun, EvalWorkflowVersion } from '../../types/eval';
 import { EvaluationInputPanel } from './components/EvaluationInputPanel';
@@ -99,6 +100,12 @@ export function AbilityEvaluationPage() {
     () => (activeCategory ? datasetItems.filter((item) => item.category === activeCategory) : datasetItems),
     [datasetItems, activeCategory],
   );
+  const runningCount = useMemo(
+    () => evaluationResults.filter((r) => r.status === 'queued' || r.status === 'running').length,
+    [evaluationResults],
+  );
+  const succeededCount = useMemo(() => evaluationResults.filter((r) => r.status === 'succeeded').length, [evaluationResults]);
+  const failedCount = useMemo(() => evaluationResults.filter((r) => r.status === 'failed').length, [evaluationResults]);
 
   const refreshRuns = async (workflowId?: string) => {
     const wfId = workflowId ?? selectedWorkflow?.id;
@@ -407,7 +414,7 @@ export function AbilityEvaluationPage() {
   };
 
   return (
-    <div className="flex h-[calc(100vh-12rem)] min-h-[680px] overflow-hidden rounded-3xl border border-slate-200 bg-white/70 text-slate-900 dark:border-slate-800 dark:bg-slate-950/30 dark:text-slate-100">
+    <div className="podi-eval-workbench">
       <NoticeBar notice={notice} onClose={() => setNotice(null)} />
       <EvaluationSidebar
         workflows={workflows}
@@ -418,6 +425,44 @@ export function AbilityEvaluationPage() {
       />
 
       <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="podi-eval-workbench__summary">
+          <div className="podi-eval-workbench__summary-title">
+            <span className="podi-eval-workbench__summary-icon">
+              <ImageEditIcon size="18px" />
+            </span>
+            <div>
+              <div className="podi-eval-workbench__summary-name">能力评测工作台</div>
+              <div className="podi-eval-workbench__summary-desc">工作流试运行、结果打标与问题归档在同一视图完成。</div>
+            </div>
+          </div>
+          <div className="podi-eval-workbench__summary-metrics">
+            <div className="podi-eval-workbench__metric">
+              <div className="podi-eval-workbench__metric-label">工作流</div>
+              <div className="podi-eval-workbench__metric-value">{workflows.length}</div>
+            </div>
+            <div className="podi-eval-workbench__metric">
+              <div className="podi-eval-workbench__metric-label">样例数据</div>
+              <div className="podi-eval-workbench__metric-value">{filteredDatasetItems.length}</div>
+            </div>
+            <div className="podi-eval-workbench__metric">
+              <div className="podi-eval-workbench__metric-label">运行中</div>
+              <div className="podi-eval-workbench__metric-value">{runningCount}</div>
+            </div>
+            <div className="podi-eval-workbench__metric">
+              <div className="podi-eval-workbench__metric-label">成功 / 失败</div>
+              <div className="podi-eval-workbench__metric-value">
+                <span style={{ color: 'var(--td-success-color)' }}>{succeededCount}</span>
+                <span style={{ margin: '0 6px', color: 'var(--td-text-color-secondary)' }}>/</span>
+                <span style={{ color: 'var(--td-error-color)' }}>{failedCount}</span>
+              </div>
+            </div>
+          </div>
+          <div className="podi-eval-workbench__summary-steps">
+            <div><TaskIcon size="14px" /> 选工作流</div>
+            <div><ImageEditIcon size="14px" /> 配参数+样图</div>
+            <div><ChartBubbleIcon size="14px" /> 跑结果并打分</div>
+          </div>
+        </div>
         <EvaluationInputPanel
           selectedWorkflow={selectedWorkflow}
           selectedDatasetItem={selectedDatasetItem}

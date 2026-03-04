@@ -356,7 +356,7 @@ html.t-theme-dark {
   flex-wrap: wrap;
   border: 1px solid var(--td-border-level-1-color);
   border-radius: var(--podi-radius-md);
-  background: var(--td-bg-color-container);
+  background: color-mix(in srgb, var(--podi-accent-soft) 22%, var(--td-bg-color-container));
   padding: var(--podi-space-3);
 }
 
@@ -367,8 +367,135 @@ html.t-theme-dark {
   flex-wrap: wrap;
   border: 1px solid var(--td-border-level-1-color);
   border-radius: var(--podi-radius-md);
-  background: var(--td-bg-color-container);
+  background: linear-gradient(
+    130deg,
+    color-mix(in srgb, var(--podi-accent-soft) 30%, var(--td-bg-color-container)),
+    var(--td-bg-color-container)
+  );
   padding: var(--podi-space-3) var(--podi-space-4);
+}
+
+.podi-action-bar__inner,
+.podi-filter-bar__inner {
+  width: 100%;
+}
+
+.podi-page-header {
+  padding: 12px 14px;
+  border: 1px solid var(--td-border-level-1-color);
+  border-radius: var(--podi-radius-md);
+  background: color-mix(in srgb, var(--podi-accent-soft) 16%, var(--td-bg-color-container));
+}
+
+.podi-section {
+  border: 1px solid var(--td-border-level-1-color);
+  border-radius: var(--podi-radius-lg);
+  background: var(--td-bg-color-container);
+  padding: 10px 12px;
+}
+
+.podi-section__body {
+  min-width: 0;
+}
+
+.podi-metric-card {
+  background: color-mix(in srgb, var(--podi-accent-soft) 15%, var(--td-bg-color-container));
+}
+
+.podi-eval-workbench {
+  display: flex;
+  height: calc(100vh - 12rem);
+  min-height: 680px;
+  overflow: hidden;
+  border-radius: 24px;
+  border: 1px solid var(--td-border-level-1-color);
+  background: var(--td-bg-color-container);
+  color: var(--td-text-color-primary);
+}
+
+.podi-eval-workbench__summary {
+  border-bottom: 1px solid var(--td-border-level-1-color);
+  background: linear-gradient(
+    130deg,
+    color-mix(in srgb, var(--podi-accent-soft) 25%, var(--td-bg-color-container)),
+    var(--td-bg-color-container)
+  );
+  padding: 12px 16px;
+}
+
+.podi-eval-workbench__summary-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.podi-eval-workbench__summary-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--podi-accent);
+  background: color-mix(in srgb, var(--podi-accent-soft) 80%, #fff);
+}
+
+.podi-eval-workbench__summary-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--td-text-color-primary);
+}
+
+.podi-eval-workbench__summary-desc {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--td-text-color-secondary);
+}
+
+.podi-eval-workbench__summary-metrics {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.podi-eval-workbench__metric {
+  border: 1px solid var(--td-border-level-1-color);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--podi-accent-soft) 12%, var(--td-bg-color-container));
+  padding: 8px 10px;
+}
+
+.podi-eval-workbench__metric-label {
+  font-size: 11px;
+  color: var(--td-text-color-secondary);
+}
+
+.podi-eval-workbench__metric-value {
+  margin-top: 4px;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--td-text-color-primary);
+}
+
+.podi-eval-workbench__summary-steps {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--td-text-color-secondary);
+}
+
+.podi-eval-workbench__summary-steps > div {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--td-border-level-1-color);
+  background: color-mix(in srgb, var(--podi-accent-soft) 18%, var(--td-bg-color-container));
 }
 
 .podi-action-bar > .t-space {
@@ -652,6 +779,10 @@ html.t-theme-dark {
     grid-template-columns: 1fr;
   }
 
+  .podi-eval-workbench__summary-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .podi-overview-stat-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -674,6 +805,14 @@ html.t-theme-dark {
   }
 
   .podi-overview-stat-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .podi-eval-workbench {
+    min-height: 560px;
+  }
+
+  .podi-eval-workbench__summary-metrics {
     grid-template-columns: 1fr;
   }
 }

@@ -14661,7 +14661,7 @@ const extractErrorMessage = (error: unknown): string => {
 
 function MetricCard({ label, value, sub }: { label: string; value: number | string; sub?: string }) {
   return (
-    <Card bordered>
+    <Card bordered className="podi-metric-card">
       <Space direction="vertical" size="small">
         <Typography.Text theme="secondary">{label}</Typography.Text>
         <Typography.Title level="h2" style={{ margin: 0 }}>
@@ -14685,10 +14685,10 @@ function Section({
   children: ReactNode;
 }) {
   return (
-    <section id={id} style={{ padding: '4px 0' }}>
+    <section id={id} style={{ padding: '4px 0' }} className="podi-section">
       <Space direction="vertical" size="middle" style={{ width: '100%' }}>
         <PageHeader title={title} description={description} />
-        <div>{children}</div>
+        <div className="podi-section__body">{children}</div>
       </Space>
     </section>
   );
