@@ -2,12 +2,27 @@
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
+from app.core.config import get_settings
 from app.schemas import wallet as schemas
 from app.services.wallet import wallet_service
 
 router = APIRouter()
+
+
+def _require_recharge_callback_token(request: Request) -> None:
+    expected = (get_settings().wallet_callback_token or "").strip()
+    if not expected:
+        return
+    token = (
+        request.headers.get("X-Wallet-Callback-Token")
+        or request.query_params.get("callback_token")
+        or request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+    )
+    if token != expected:
+        raise HTTPException(status_code=401, detail="RECHARGE_CALLBACK_UNAUTHORIZED")
+
 
 @router.post("/v1/freeze", response_model=schemas.FreezeResponse)
 async def freeze_points(payload: schemas.FreezeRequest) -> schemas.FreezeResponse:
@@ -59,9 +74,11 @@ async def get_recharge_order(order_no: str) -> schemas.RechargeOrderResponse:
 
 @router.post("/v1/recharge-orders/{order_no}/status", response_model=schemas.RechargeOrderResponse)
 async def update_recharge_order_status(
+    request: Request,
     order_no: str,
     payload: schemas.RechargeOrderStatusUpdateRequest,
 ) -> schemas.RechargeOrderResponse:
+    _require_recharge_callback_token(request)
     order = wallet_service.update_recharge_order_status(
         order_no=order_no,
         status=payload.status,

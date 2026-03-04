@@ -27,6 +27,7 @@
   - `transactions` 保留兼容，新增 `ledger` 作为推荐接口；
   - 文档从“Q2 规划”改为“当前可联调 + 后续持久化计划”；
   - 充值链路改为状态机：创建 `pending`，通过 `/recharge-orders/{orderNo}/status` 流转到 `paid/failed/canceled`，并增加终态冲突保护与 `paid` 幂等。
+  - 充值状态更新接口新增可选回调鉴权（`WALLET_CALLBACK_TOKEN`），支持 `X-Wallet-Callback-Token/Authorization Bearer`。
 - 状态：已完成（已补 DB 迁移与 DB 优先逻辑；未迁移环境自动回退内存）
 
 1) **中台内页在 1024~1366 宽度区间不易操作**

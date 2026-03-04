@@ -170,6 +170,14 @@
 
 **用途**：支付回调/人工处理订单状态（`pending -> paid|failed|canceled`）。
 
+**鉴权（可选）**
+
+- 当后端配置 `WALLET_CALLBACK_TOKEN` 时，请求必须携带以下任一方式：
+  - Header：`X-Wallet-Callback-Token: <token>`
+  - Header：`Authorization: Bearer <token>`
+  - Query：`?callback_token=<token>`
+- 未配置 `WALLET_CALLBACK_TOKEN` 时保持兼容，不强制校验。
+
 **请求体**
 
 ```json
@@ -192,6 +200,7 @@
 - `RECHARGE_STATUS_INVALID`（400）
 - `RECHARGE_ORDER_NOT_FOUND`（404）
 - `RECHARGE_ORDER_STATUS_CONFLICT`（409）
+- `RECHARGE_CALLBACK_UNAUTHORIZED`（401，启用回调 token 且校验失败）
 
 ### GET /api/wallet/v1/transactions
 

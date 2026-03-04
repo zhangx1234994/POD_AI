@@ -1,5 +1,7 @@
+import pytest
 from fastapi.testclient import TestClient
 
+from app.core.config import get_settings
 from app.main import app
 from app.services.wallet import wallet_service
 
@@ -7,8 +9,40 @@ from app.services.wallet import wallet_service
 client = TestClient(app)
 
 
-def setup_function() -> None:
+@pytest.fixture(autouse=True)
+def _reset_wallet(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delenv("WALLET_CALLBACK_TOKEN", raising=False)
+    get_settings.cache_clear()
     wallet_service.reset()
+    yield
+    monkeypatch.delenv("WALLET_CALLBACK_TOKEN", raising=False)
+    get_settings.cache_clear()
+
+
+def test_recharge_status_requires_callback_token_when_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("WALLET_CALLBACK_TOKEN", "wallet_cb_123")
+    get_settings.cache_clear()
+    create_resp = client.post(
+        "/api/wallet/v1/recharge-orders",
+        json={"userId": "u_cb", "amount": 60, "channel": "manual"},
+    )
+    assert create_resp.status_code == 200
+    order_no = create_resp.json()["orderNo"]
+
+    missing_token_resp = client.post(
+        f"/api/wallet/v1/recharge-orders/{order_no}/status",
+        json={"status": "paid"},
+    )
+    assert missing_token_resp.status_code == 401
+    assert missing_token_resp.json().get("detail") == "RECHARGE_CALLBACK_UNAUTHORIZED"
+
+    ok_resp = client.post(
+        f"/api/wallet/v1/recharge-orders/{order_no}/status",
+        json={"status": "paid", "transactionId": "txn_cb_001"},
+        headers={"X-Wallet-Callback-Token": "wallet_cb_123"},
+    )
+    assert ok_resp.status_code == 200
+    assert ok_resp.json()["status"] == "paid"
 
 
 def test_freeze_confirm_then_ledger_and_statistics() -> None:
