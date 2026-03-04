@@ -89,12 +89,16 @@ const navItems = [
 type NavId = (typeof navItems)[number]['id'];
 const isNavId = (value: string): value is NavId => navItems.some((item) => item.id === value);
 const isAdvancedNav = (value: NavId) => Boolean((navItems.find((item) => item.id === value) as any)?.advanced);
-const readNavFromHash = (): NavId | null => {
+const readHashParams = (): URLSearchParams | null => {
   if (typeof window === 'undefined') return null;
   const hash = window.location.hash.replace(/^#/, '');
   if (!hash) return null;
-  const params = new URLSearchParams(hash.includes('=') ? hash : `nav=${hash}`);
-  const value = params.get('nav') || hash;
+  return new URLSearchParams(hash.includes('=') ? hash : `nav=${hash}`);
+};
+const readNavFromHash = (): NavId | null => {
+  const params = readHashParams();
+  if (!params) return null;
+  const value = params.get('nav') || '';
   return isNavId(value) ? value : null;
 };
 const abilityDetailTabs = [
@@ -305,6 +309,13 @@ const comfyuiTabMeta: Record<ComfyuiManageTab, { label: string; group: ComfyuiTa
 };
 const comfyuiTabOrder: ComfyuiManageTab[] = ['lora', 'assets', 'templates', 'servers', 'manifests', 'tasks', 'agents', 'alerts', 'desktop'];
 const comfyuiTabGroupOrder: ComfyuiTabGroup[] = ['资源目录', '同步发布', '节点运维'];
+const isComfyuiManageTab = (value: string): value is ComfyuiManageTab => comfyuiTabOrder.includes(value as ComfyuiManageTab);
+const readComfyuiTabFromHash = (): ComfyuiManageTab | null => {
+  const params = readHashParams();
+  if (!params) return null;
+  const value = params.get('comfyTab') || params.get('comfy_tab') || params.get('tab') || '';
+  return isComfyuiManageTab(value) ? value : null;
+};
 
 const comfyuiTabHelpText: Record<ComfyuiManageTab, string> = {
   lora: '素材库：维护 LoRA 条目，便于业务人员按名称选择。',
@@ -1752,7 +1763,7 @@ export function IntegrationDashboard({
   const [comfyQueueSummaryUpdatedAt, setComfyQueueSummaryUpdatedAt] = useState<string | null>(null);
   const [comfyLoraSelectCache, setComfyLoraSelectCache] = useState<Record<string, ComfyuiLora[]>>({});
   const [comfyShowTestNodes, setComfyShowTestNodes] = useState(false);
-  const [comfyuiManageTab, setComfyuiManageTab] = useState<ComfyuiManageTab>('lora');
+  const [comfyuiManageTab, setComfyuiManageTab] = useState<ComfyuiManageTab>(() => readComfyuiTabFromHash() ?? 'lora');
   const [comfyAgentList, setComfyAgentList] = useState<ComfyuiAgent[]>([]);
   const [comfyAgentLoading, setComfyAgentLoading] = useState(false);
   const [comfyAgentError, setComfyAgentError] = useState<string | null>(null);
@@ -7303,6 +7314,10 @@ const normalizeErrorMessage = (message: string): string => {
         return;
       }
       setActiveNav(navFromHash);
+      if (navFromHash === 'comfyui-management') {
+        const comfyTabFromHash = readComfyuiTabFromHash();
+        if (comfyTabFromHash) setComfyuiManageTab(comfyTabFromHash);
+      }
     };
 
     syncFromHash();
@@ -7311,11 +7326,16 @@ const normalizeErrorMessage = (message: string): string => {
   }, [showAdvanced]);
 
   useEffect(() => {
-    const nextHash = `nav=${activeNav}`;
+    const params = new URLSearchParams();
+    params.set('nav', activeNav);
+    if (activeNav === 'comfyui-management') {
+      params.set('comfyTab', comfyuiManageTab);
+    }
+    const nextHash = params.toString();
     const currentHash = window.location.hash.replace(/^#/, '');
     if (currentHash === nextHash) return;
     window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#${nextHash}`);
-  }, [activeNav]);
+  }, [activeNav, comfyuiManageTab]);
 
   return (
     <AdminShell
