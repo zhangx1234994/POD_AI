@@ -30,6 +30,7 @@ import type { EvalRun, EvalWorkflowVersion, SchemaField, WorkflowDoc } from './t
 import { EvalShell } from './layouts/EvalShell';
 import { ActionBar, FilterBar, StatusBadge } from './features/eval/shared/ui';
 import type { ThemeMode } from './types/ui';
+import { toDisplayErrorMessage } from './utils/errorMessageMap';
 
 type RunWithLatest = EvalRun & {
   latest_annotation?: { rating: number; comment?: string | null; created_at: string; created_by: string } | null;
@@ -1285,7 +1286,7 @@ export function App() {
   }, [theme]);
 
   const pushNotice = useCallback((type: 'error' | 'success' | 'info', message: string) => {
-    const content = message || '未知错误';
+    const content = toDisplayErrorMessage(message) || '未知错误';
     if (type === 'error') MessagePlugin.error({ content, duration: 5000 });
     else if (type === 'success') MessagePlugin.success({ content, duration: 3500 });
     else MessagePlugin.info({ content, duration: 3500 });
@@ -5489,7 +5490,7 @@ export function App() {
                             </Col>
                             {latest.error_message ? (
                               <Col span={12}>
-                                <Alert theme="error" message={latest.error_message} />
+                                <Alert theme="error" message={toDisplayErrorMessage(latest.error_message)} />
                               </Col>
                             ) : null}
                           </Row>
@@ -5522,7 +5523,7 @@ export function App() {
                             ))}
                           </>
                         ) : status === 'failed' ? (
-                          <Alert theme="error" message={`生成失败（run: ${latest.id}）：${latest.error_message || '—'}`} />
+                          <Alert theme="error" message={`生成失败（run: ${latest.id}）：${toDisplayErrorMessage(latest.error_message || '—')}`} />
                         ) : imgs.length === 0 ? (
                           <Card bordered title="输出">
                             {(() => {
@@ -5741,7 +5742,7 @@ function HistoryRow({
                 </Button>
               ) : null}
             </div>
-            {run.error_message ? <Alert theme="error" message={run.error_message} /> : null}
+            {run.error_message ? <Alert theme="error" message={toDisplayErrorMessage(run.error_message)} /> : null}
           </div>
 
           <div className="podi-history-row-head__rate">
