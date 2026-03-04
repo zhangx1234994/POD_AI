@@ -90,6 +90,7 @@ docs/
 │   ├── auth-billing-implementation-checklist-2026q2.md
 │   ├── auth-scheme-decision-2026q2.md
 │   ├── context-cleanup-policy.md
+│   ├── doc-governance-owners-2026q2.md
 │   ├── status-error-audit-2026q2.md
 │   ├── strategy-one-page-2026q2.md
 │   └── todo-master-2026q2.md
@@ -176,6 +177,7 @@ docs/
 - `docs/strategy/README.md`：战略工作区说明
 - `docs/strategy/auth-billing-implementation-checklist-2026q2.md`：认证与计费实施清单
 - `docs/strategy/auth-scheme-decision-2026q2.md`：认证方案选型结论（Q2）
+- `docs/strategy/doc-governance-owners-2026q2.md`：文档治理 owner 清单（Q2）
 - `docs/strategy/strategy-one-page-2026q2.md`：战略一页纸（目标/KPI/里程碑）
 - `docs/strategy/todo-master-2026q2.md`：唯一待办池（P0/P1/P2）
 - `docs/strategy/context-cleanup-policy.md`：上下文清理与归档规则

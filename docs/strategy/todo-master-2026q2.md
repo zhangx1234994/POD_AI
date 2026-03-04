@@ -35,9 +35,10 @@
 - 验收：不存在“上游失败标成功”
 - 进展（2026-03-04）：已新增 `docs/strategy/status-error-audit-2026q2.md`，完成第一版核对矩阵与缺口优先级；已补 `docs/testing/COMFYUI_TASK_STATE_REGRESSION_PLAN.md` 与错误映射在管理端/评测端的首轮落地。
 
-5. `todo` 文档治理上线
+5. `doing` 文档治理上线
 - 产物：归档目录、文档 owner、每周回顾机制
 - 验收：新增任务全部进入本待办池
+- 进展（2026-03-04）：已新增 owner 清单（`docs/strategy/doc-governance-owners-2026q2.md`），下一步补每周回顾记录模板。
 
 ## P1（商用骨架，3-5 周）
 
