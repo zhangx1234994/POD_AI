@@ -1,6 +1,6 @@
 # 评测平台（podi-eval-web）功能说明
 
-> 版本：2026-02-21  
+> 版本：2026-03-05  
 > 定位：内部回归验证与打分，不替代生产调用。
 
 ## 1. 页面结构
@@ -26,6 +26,10 @@
 - 运行列表每 2s 自动刷新（用于及时看到回调结果）
 - 支持筛选（状态/评分/未评分）与关键词搜索
 - 错误提示统一走“错误码映射”展示（可读文案 + 原错误码），减少联调歧义
+- 状态口径统一为三段：
+  - `submit_status`：提交阶段
+  - `callback_status`：回调/回填阶段
+  - `final_status`：最终结果阶段（用于页面主状态）
 
 ### 2.3 LoRA 批测
 
@@ -133,6 +137,7 @@
 - 出参：
   - `items`：LoRA 详情列表（`fileName/displayName/status/baseModels/tags/installed`）
   - `lora_names`：LoRA 文件名数组
+  - `loraNames`：`lora_names` 的 camelCase 兼容字段（两者等价）
 - 展示规则：评测页点击该工作流任务后，直接渲染 JSON 结果（不走图片回填）。
 - 业务接入建议：后续调用需要 LoRA 入参时，优先使用 `lora_names` 中的值。
 

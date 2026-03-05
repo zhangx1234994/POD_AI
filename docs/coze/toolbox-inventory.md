@@ -1,6 +1,6 @@
 # Coze 工具箱清单（PODI）
 
-> 更新时间：2026-03-01
+> 更新时间：2026-03-05
 > 
 > 说明：以下为当前后端实际可用的工具箱入口。导入 Coze 时使用 OpenAPI 地址；执行时按各工具箱里的接口调用。
 
@@ -37,6 +37,9 @@
 - 关键接口：
   - `POST /api/coze/podi/comfyui/lora-catalog/default`（零参数，推荐）
   - `POST /api/coze/podi/comfyui/lora-catalog`（高级筛选）
+- 返回字段兼容：
+  - LoRA 名称数组同时返回 `loraNames` 与 `lora_names`（推荐读取 `lora_names`）
+  - 未建档 LoRA 同时返回 `untrackedNames` 与 `untracked_names`
 - 参数明细：
   - `lora-catalog/default`：可空参；也支持 `status/baseModel/limit/functionalOnly`（均可选，`functionalOnly` 默认 true）
   - `lora-catalog`：`executorId`（可选），`baseModel`（可选），`q`（可选），`status`（可选），`installedOnly`（可选），`includeUntracked`（可选），`limit`（可选），`functionalOnly`（可选）
@@ -59,6 +62,9 @@
   - `POST /api/coze/podi/kie/models/list`（高级筛选）
   - `POST /api/coze/podi/kie/models/schema`
   - `POST /api/coze/podi/kie/models/{model_key}/schema`（单模型零参数）
+- 返回字段兼容：
+  - 模型键同时返回 `modelKeys` 与 `model_keys`
+  - 媒体类型同时返回 `mediaTypes` 与 `media_types`
 - 参数明细：
   - `models/list/default`：可空参；也支持 `mediaType/status/q`（均可选，默认 `all+active`）
   - `models/list`：`mediaType`（可选：`all|image|video`）、`status`（可选：`active|preview|all`）、`q`（可选）
@@ -92,6 +98,9 @@
 ### 2026-03-01
 - 调整：KIE 查询工具箱默认入口改为 `POST /api/coze/podi/kie/models/list/default`（零参数）
 - 调整：LoRA 查询与 KIE 查询接口参数明细补齐到文档
+
+### 2026-03-05
+- 调整：LoRA/KIE 查询接口补充 snake_case 兼容字段，便于 Coze 与中台统一解析。
 
 ## 7) Baidu 工具箱（执行类）
 
