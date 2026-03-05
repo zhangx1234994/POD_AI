@@ -35,6 +35,13 @@
 
 - 任务进入后台执行队列，前端需轮询查询状态。
 
+**错误（常见）**
+
+- `ABILITY_NOT_FOUND` / `ABILITY_INACTIVE`
+- `EXECUTOR_NOT_FOUND` / `EXECUTOR_NOT_AVAILABLE`
+- `QUEUE_FULL` / `COMFYUI_QUEUE_FULL`
+- `TASK_CREATE_FAILED`
+
 ---
 
 ## 2) 查询任务状态
@@ -58,6 +65,11 @@
 - 若为 `failed`，应返回 `errorMessage`（推荐）
 - 展示层若出现 `success/completed` 等历史值，必须按一致性准则做兼容映射（见 `docs/standards/interface-consistency.md`）
 
+**错误（常见）**
+
+- `TASK_NOT_FOUND`
+- `TASK_STATUS_UNKNOWN`
+
 ---
 
 ## 3) 任务列表
@@ -76,6 +88,11 @@
   "total": 0
 }
 ```
+
+**错误（常见）**
+
+- `INVALID_PAGINATION`
+- `UNAUTHORIZED`
 
 ---
 
