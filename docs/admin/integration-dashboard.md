@@ -29,6 +29,7 @@
 ### 职责
 - 配置 `input_schema` / 默认参数 / metadata
 - 统一能力调用入口：`/api/abilities`
+- 在同一页内完成“能力列表 + 能力详情 + 实时测试 + 调用记录”（工作区合并）
 
 ### 后端接口
 - `GET /api/admin/abilities`
@@ -92,6 +93,7 @@
 ### 注意事项
 - 输入统一 `url`
 - 回调类输出为 `taskId`
+- 2026-03-05 起，“能力详情/测试”已并入“能力管理”页内工作区；旧侧栏入口已下线，仅保留 hash 兼容（`#nav=ability-tests` 自动跳转到能力目录测试 Tab）。
 
 ## 8. 能力调用（Ability Logs & Metrics）
 

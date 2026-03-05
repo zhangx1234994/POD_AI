@@ -18,6 +18,12 @@ class TaskStageStatus:
     error_code: str | None = None
 
 
+def _with_default_error_code(code: str | None, fallback: str | None) -> str | None:
+    if code:
+        return code
+    return fallback
+
+
 def extract_error_code(error_message: str | None) -> str | None:
     text = (error_message or "").strip()
     if not text:
@@ -69,7 +75,7 @@ def derive_ability_task_status(
             submit_status="submitted" if started_at else "submit_failed",
             callback_status="failed",
             final_status="canceled",
-            error_code=error_code,
+            error_code=_with_default_error_code(error_code, "ABILITY_TASK_CANCELLED"),
         )
     if normalized in {"failed", "error", "rejected"}:
         submit_status = "submitted" if started_at or finished_at else "submit_failed"
@@ -77,7 +83,7 @@ def derive_ability_task_status(
             submit_status=submit_status,
             callback_status="failed",
             final_status="failed",
-            error_code=error_code,
+            error_code=_with_default_error_code(error_code, "ABILITY_TASK_FAILED"),
         )
     return TaskStageStatus(
         submit_status="pending",
@@ -110,11 +116,14 @@ def derive_ability_log_status(
     callback_running = raw_callback in {"running", "processing", "pending", "queued"}
 
     if raw_log in {"failed", "error"}:
+        default_error = "ABILITY_TASK_FAILED"
+        if callback_failed:
+            default_error = "CALLBACK_FAILED"
         return TaskStageStatus(
             submit_status="submit_failed",
             callback_status="failed" if callback_failed else "waiting",
             final_status="failed",
-            error_code=error_code,
+            error_code=_with_default_error_code(error_code, default_error),
         )
 
     submit_status = "submitted" if raw_log in {"success", "succeeded"} else "submitting"
@@ -133,7 +142,7 @@ def derive_ability_log_status(
             submit_status=submit_status,
             callback_status="failed",
             final_status="failed",
-            error_code=error_code,
+            error_code=_with_default_error_code(error_code, "CALLBACK_FAILED"),
         )
     if callback_success:
         return TaskStageStatus(

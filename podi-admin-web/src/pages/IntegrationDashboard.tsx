@@ -28,7 +28,6 @@ import {
   FolderOpenIcon,
   SettingIcon,
   TaskIcon,
-  ToolsIcon,
   ViewListIcon,
 } from 'tdesign-icons-react';
 import { adminApi } from '../services/adminApi';
@@ -86,7 +85,6 @@ import { ActionBar, ErrorState, PageHeader, StatusBadge } from '../features/admi
 const navItems = [
   { id: 'overview', label: '总体概览', shortLabel: 'OV', description: '指标、刷新、运行状态' },
   { id: 'abilities', label: '能力目录', shortLabel: 'AB', description: '原子能力列表与成本' },
-  { id: 'ability-tests', label: '能力详情/测试', shortLabel: 'TS', description: '链路自检与演示' },
   { id: 'ability-evals', label: '能力评测', shortLabel: 'EV', description: 'Coze 工作流试运行 + 评分' },
   { id: 'executors', label: '执行节点', shortLabel: 'EX', description: '节点配置与健康' },
   { id: 'ability-logs', label: '能力调用', shortLabel: 'LG', description: '全局历史记录' },
@@ -102,7 +100,6 @@ type NavId = (typeof navItems)[number]['id'];
 const navIconMap: Record<NavId, ReactNode> = {
   overview: <DashboardIcon size="18px" />,
   abilities: <AppIcon size="18px" />,
-  'ability-tests': <ToolsIcon size="18px" />,
   'ability-evals': <ChartBarIcon size="18px" />,
   executors: <ViewListIcon size="18px" />,
   'ability-logs': <TaskIcon size="18px" />,
@@ -126,6 +123,7 @@ const readNavFromHash = (): NavId | null => {
   const params = readHashParams();
   if (!params) return null;
   const value = params.get('nav') || '';
+  if (value === 'ability-tests') return 'abilities';
   return isNavId(value) ? value : null;
 };
 const abilityDetailTabs = [
@@ -5651,7 +5649,7 @@ export function IntegrationDashboard({
   }, [abilityTemplateNotes, abilityTemplateRollbackId, selectedAbility]);
 
   useEffect(() => {
-    if (activeNav !== 'ability-tests' || activeAbilityDetailTab !== 'metadata') return;
+    if (activeNav !== 'abilities' || activeAbilityDetailTab !== 'metadata') return;
     if (!selectedAbility?.id) return;
     refreshAbilityTemplateState(selectedAbility.id);
   }, [activeAbilityDetailTab, activeNav, refreshAbilityTemplateState, selectedAbility?.id]);
@@ -7426,6 +7424,70 @@ const extractErrorMessage = (error: unknown): string => {
     );
   };
 
+  const renderAbilityWorkbenchCard = () => {
+    if (abilities.length === 0) {
+      return (
+        <Alert
+          theme="warning"
+          title="暂无可用能力"
+          message="请先在能力列表新增并激活能力（例如：百度 · 无损放大），再执行详情测试。"
+        />
+      );
+    }
+    return (
+      <Card bordered title="能力详情 & 链路自检">
+        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+          <Space align="start" style={{ justifyContent: 'space-between', width: '100%' }}>
+            <Typography.Text theme="secondary">
+              选择能力后，可查看概览、参数、元数据，并直接运行测试/查看日志。
+            </Typography.Text>
+            {selectedAbility ? (
+              <Space direction="vertical" size={2} style={{ textAlign: 'right' }}>
+                <Typography.Text theme="secondary">Ability ID：{selectedAbility.id}</Typography.Text>
+                <Typography.Text theme="secondary">{selectedAbility.capability_key}</Typography.Text>
+              </Space>
+            ) : null}
+          </Space>
+
+          <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+            <div style={{ width: 'min(100%, 420px)' }}>
+              <Select
+                value={selectedAbilityId ?? ''}
+                onChange={(v) => setSelectedAbilityId(String(v) || null)}
+                options={[
+                  { label: '请选择（或在能力管理中新建）', value: '' },
+                  ...abilities.map((ability) => ({
+                    label: `${ability.display_name} · ${getProviderLabel(ability.provider)}`,
+                    value: ability.id,
+                  })),
+                ]}
+                placeholder="快速选择能力"
+              />
+            </div>
+            <Button variant="outline" onClick={() => selectSection('abilities')}>
+              前往能力管理
+            </Button>
+          </Space>
+
+          {!selectedAbility ? (
+            <Alert theme="info" message="暂未选择能力，请先在下拉框选择，或回到“能力管理”点击一行。" />
+          ) : (
+            <Tabs
+              theme="card"
+              value={activeAbilityDetailTab}
+              onChange={(v) => setActiveAbilityDetailTab(v as AbilityDetailTab)}
+              list={abilityDetailTabs.map((tab) => ({
+                value: tab.id,
+                label: tab.label,
+                panel: <div style={{ paddingTop: 12 }}>{renderAbilityDetailContent(tab.id)}</div>,
+              }))}
+            />
+          )}
+        </Space>
+      </Card>
+    );
+  };
+
   const selectSection = (id: NavId) => {
     setActiveNav(id);
     // Only the right content pane scrolls. Switching sections resets scroll.
@@ -7466,6 +7528,14 @@ const extractErrorMessage = (error: unknown): string => {
 
   useEffect(() => {
     const syncFromHash = () => {
+      const params = readHashParams();
+      const rawNav = params?.get('nav') || '';
+      if (rawNav === 'ability-tests') {
+        setActiveNav('abilities');
+        setActiveAbilityDetailTab('testing');
+        return;
+      }
+
       const navFromHash = readNavFromHash();
       if (!navFromHash) return;
       if (!showAdvanced && isAdvancedNav(navFromHash)) {
@@ -9457,7 +9527,7 @@ const extractErrorMessage = (error: unknown): string => {
                           event?.stopPropagation?.();
                           setSelectedAbilityId(row.id);
                           setActiveAbilityDetailTab('metadata');
-                          selectSection('ability-tests');
+                          selectSection('abilities');
                         }}
                       >
                         模板
@@ -9493,6 +9563,8 @@ const extractErrorMessage = (error: unknown): string => {
             />
           </div>
         </Card>
+
+        <div style={{ marginTop: 16 }}>{renderAbilityWorkbenchCard()}</div>
 
         <Dialog
           header={abilityForm.id ? '编辑能力' : '新增能力'}
@@ -9844,72 +9916,6 @@ const extractErrorMessage = (error: unknown): string => {
       </Section>
           )}
 
-          {activeNav === 'ability-tests' && (
-      <Section
-        id="ability-tests"
-        title="能力详情/测试"
-        description="选择在能力目录中配置好的接口，查看能力上下文、Schema、元信息，并在“实时测试”中一键巡检。"
-      >
-        {abilities.length === 0 ? (
-          <Alert
-            theme="warning"
-            title="暂无可用能力"
-            message="请先到“能力管理”新增能力并设为 active（例如：百度 · 无损放大），再回到这里进行测试。"
-          />
-        ) : (
-          <Card bordered title="能力详情 & 链路自检">
-            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-              <Space align="start" style={{ justifyContent: 'space-between', width: '100%' }}>
-                <Typography.Text theme="secondary">
-                  选择能力后，可查看概览、参数、元数据，并直接运行测试/查看日志。
-                </Typography.Text>
-                {selectedAbility ? (
-                  <Space direction="vertical" size={2} style={{ textAlign: 'right' }}>
-                    <Typography.Text theme="secondary">Ability ID：{selectedAbility.id}</Typography.Text>
-                    <Typography.Text theme="secondary">{selectedAbility.capability_key}</Typography.Text>
-                  </Space>
-                ) : null}
-              </Space>
-
-              <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                <div style={{ width: 'min(100%, 420px)' }}>
-                  <Select
-                    value={selectedAbilityId ?? ''}
-                    onChange={(v) => setSelectedAbilityId(String(v) || null)}
-                    options={[
-                      { label: '请选择（或在能力管理中新建）', value: '' },
-                      ...abilities.map((ability) => ({
-                        label: `${ability.display_name} · ${getProviderLabel(ability.provider)}`,
-                        value: ability.id,
-                      })),
-                    ]}
-                    placeholder="快速选择能力"
-                  />
-                </div>
-                <Button variant="outline" onClick={() => selectSection('abilities')}>
-                  前往能力管理
-                </Button>
-              </Space>
-
-              {!selectedAbility ? (
-                <Alert theme="info" message="暂未选择能力，请先在下拉框选择，或回到“能力管理”点击一行。" />
-              ) : (
-                <Tabs
-                  theme="card"
-                  value={activeAbilityDetailTab}
-                  onChange={(v) => setActiveAbilityDetailTab(v as AbilityDetailTab)}
-                  list={abilityDetailTabs.map((tab) => ({
-                    value: tab.id,
-                    label: tab.label,
-                    panel: <div style={{ paddingTop: 12 }}>{renderAbilityDetailContent(tab.id)}</div>,
-                  }))}
-                />
-              )}
-            </Space>
-          </Card>
-        )}
-      </Section>
-          )}
           {activeNav === 'ability-evals' && (
       <Section
         id="ability-evals"

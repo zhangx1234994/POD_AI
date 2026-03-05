@@ -9,6 +9,7 @@ set -euo pipefail
 BACKEND_URL="${BACKEND_URL:-http://127.0.0.1:8099}"
 ADMIN_URL="${ADMIN_URL:-http://127.0.0.1:8199}"
 EVAL_URL="${EVAL_URL:-http://127.0.0.1:8200}"
+RUN_STATUS_ERROR_CHECKS="${RUN_STATUS_ERROR_CHECKS:-0}"
 
 PASS_COUNT=0
 FAIL_COUNT=0
@@ -47,6 +48,7 @@ echo "== PODI Deploy Preflight =="
 echo "BACKEND_URL=$BACKEND_URL"
 echo "ADMIN_URL=$ADMIN_URL"
 echo "EVAL_URL=$EVAL_URL"
+echo "RUN_STATUS_ERROR_CHECKS=$RUN_STATUS_ERROR_CHECKS"
 echo ""
 
 # 1) Backend health
@@ -63,6 +65,15 @@ check_code "$EVAL_URL/api/evals/workflow-versions?status=active" "200 404" "Eval
 
 # 5) Optional: Coze OpenAPI (internal-only, 200 or 401 is acceptable)
 check_code "$BACKEND_URL/api/coze/podi/openapi.json" "200 401" "Coze OpenAPI"
+
+# 6) Optional: 状态/错误口径专项回归（会跑 pytest，耗时更长）
+if [[ "$RUN_STATUS_ERROR_CHECKS" == "1" ]]; then
+  if bash scripts/status_error_regression.sh; then
+    print_ok "Status/Error regression suite"
+  else
+    print_fail "Status/Error regression suite"
+  fi
+fi
 
 echo ""
 echo "Preflight result: PASS=$PASS_COUNT FAIL=$FAIL_COUNT"

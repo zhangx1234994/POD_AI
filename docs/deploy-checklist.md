@@ -24,6 +24,16 @@ EVAL_URL=http://127.0.0.1:8200 \
 bash scripts/deploy_preflight.sh
 ```
 
+如需发版前附带状态/错误专项回归（推荐夜间窗口）：
+
+```bash
+BACKEND_URL=http://127.0.0.1:8099 \
+ADMIN_URL=http://127.0.0.1:8199 \
+EVAL_URL=http://127.0.0.1:8200 \
+RUN_STATUS_ERROR_CHECKS=1 \
+bash scripts/deploy_preflight.sh
+```
+
 通过标准：
 - 后端 `/health` 返回 200
 - 管理端 `/api/admin/workflows` 不是 502（允许 401）
@@ -40,4 +50,3 @@ bash scripts/deploy_preflight.sh
 - [ ] 管理端能登录
 - [ ] 能力列表可加载
 - [ ] 评测端文档页可打开
-

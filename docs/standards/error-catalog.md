@@ -123,9 +123,13 @@
 | TASK_ID_REQUIRED | 缺少 taskId | |
 | TASK_NOT_FOUND | 任务不存在 | |
 | TASK_FAILED | 任务执行失败 | |
+| ABILITY_TASK_FAILED | 能力异步任务执行失败 | 任务中心/能力调用统一口径 |
+| ABILITY_TASK_CANCELLED | 能力异步任务被取消 | 任务中心/能力调用统一口径 |
 | TASK_TIMEOUT | 任务超时 | |
 | TASK_IMAGES_EMPTY | 任务无图片 | |
+| RUN_CREATE_FAILED | 任务创建失败（未进入执行） | 调度阶段错误 |
 | CALLBACK_OUTPUT_EMPTY | 回调 task id 为空 | |
+| CALLBACK_FAILED | 回调阶段失败（兜底错误码） | 无明确上游错误码时使用 |
 | CALLBACK_IMAGES_EMPTY | 回调解析不到图片 | |
 | CALLBACK_TASK_NOT_RESOLVED | task id 无法解析/失效 | |
 
@@ -223,6 +227,8 @@
 | VOLCENGINE_API_TYPE_UNSUPPORTED | 火山 API 类型不支持 | |
 | VOLCENGINE_MODEL_REQUIRED | 火山模型必填 | |
 | KIE_TASK_CREATE_FAILED | KIE 创建任务失败 | |
+| KIE_ABILITY_NOT_CONFIGURED | KIE 能力未配置（缺 workflow/model 参数） | 调度前校验失败 |
+| KIE_TASK_FAILED | KIE 任务执行失败 | 返回 state=failed/canceled 等 |
 | KIE_TASK_ID_MISSING | KIE 返回 task id 为空 | |
 | KIE_API_KEY_MISSING | KIE API Key 缺失 | |
 | KIE_MODEL_REQUIRED | KIE 模型必填 | |

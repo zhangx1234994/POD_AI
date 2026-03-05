@@ -18,6 +18,13 @@ def test_ability_task_status_success() -> None:
     assert stage.final_status == "success"
 
 
+def test_ability_task_status_failed_without_error_uses_fallback_code() -> None:
+    stage = derive_ability_task_status(status="failed", started_at=None, finished_at=None, error_message=None)
+    assert stage.submit_status == "submit_failed"
+    assert stage.final_status == "failed"
+    assert stage.error_code == "ABILITY_TASK_FAILED"
+
+
 def test_ability_log_status_callback_failed() -> None:
     stage = derive_ability_log_status(
         log_status="success",
@@ -29,6 +36,20 @@ def test_ability_log_status_callback_failed() -> None:
     assert stage.submit_status == "submitted"
     assert stage.final_status == "failed"
     assert stage.error_code == "CALLBACK_TIMEOUT"
+
+
+def test_ability_log_status_failed_without_error_uses_fallback_code() -> None:
+    stage = derive_ability_log_status(
+        log_status="failed",
+        callback_status=None,
+        callback_http_status=None,
+        callback_configured=None,
+        callback_error=None,
+        error_message=None,
+    )
+    assert stage.submit_status == "submit_failed"
+    assert stage.final_status == "failed"
+    assert stage.error_code == "ABILITY_TASK_FAILED"
 
 
 def test_eval_run_status_running_without_result() -> None:

@@ -15,6 +15,99 @@
 
 ---
 
+## 2026-03-05
+
+1) **能力“列表页”与“详情/测试页”双入口割裂**
+- 范围：管理端 / 能力管理 + 能力详情/测试
+- 现象：运维在能力列表选中后仍需切换到独立导航才能测试，路径断裂；新同学容易误解两个页面职责差异。
+- 影响：操作路径变长，联调效率下降；IA 与文档目标不一致。
+- 根因：历史阶段把“能力测试”独立成模块，后续未完成入口收敛。
+- 改进：
+  - 能力目录页内新增“能力详情/测试工作区”，统一承载概览/参数/元数据/测试/日志；
+  - 旧 `ability-tests` 导航改为兼容入口并提示迁移，不影响历史链接；
+  - 列表“模板”快捷操作改为直接回到能力目录工作区；
+  - 文档同步更新（IA 草案、战略待办池、管理端模块说明）。
+- 状态：已完成（迭代 1：入口合并与路由兼容）
+
+2) **旧 `ability-tests` 入口仍占侧栏认知空间**
+- 范围：管理端 / 信息架构（能力模块）
+- 现象：即使工作区已合并，侧栏仍展示旧入口，用户会误判为“两个不同功能”。
+- 影响：IA 收口不彻底，新同学学习成本增大。
+- 根因：第一轮仅做兼容迁移，未完成入口下线。
+- 改进：
+  - 下线旧侧栏入口，能力测试仅保留在“能力目录”工作区；
+  - 继续保留 hash 兼容（`#nav=ability-tests` 自动跳转测试 Tab）避免历史链接失效；
+  - 同步更新管理端模块文档与 IA 草案。
+- 状态：已完成（迭代 2：入口下线 + 兼容保留）
+
+3) **批量评测标注进度缺少契约回归**
+- 范围：后端 / Eval 批次标注接口
+- 现象：`review-groups/review-progress` 接口已有错误码约定，但缺单测保障，后续改动容易引入页码边界回归。
+- 影响：可能出现“页码越界/进度错位/错误码漂移”，影响联调稳定性。
+- 根因：前期以功能交付为主，未补对应契约测试。
+- 改进：
+  - 新增 `backend/tests/test_eval_review_progress_contract.py`；
+  - 覆盖默认进度、页码归一、进度持久化写入、`BATCH_NOT_FOUND`/`BATCH_FORBIDDEN` 错误码；
+  - 作为状态口径检查项纳入 P0-4 追踪。
+- 状态：已完成（单测已补，待端到端异常回归）
+
+4) **错误码总表与后端实现存在漂移**
+- 范围：文档治理 / `error-catalog` 维护
+- 现象：`check_error_catalog.py` 扫描发现 `ABILITY_TASK_FAILED/CANCELLED`、`RUN_CREATE_FAILED`、`KIE_ABILITY_NOT_CONFIGURED`、`KIE_TASK_FAILED` 未收录在总表。
+- 影响：联调时错误解释缺失，容易造成“后端抛错但文档查不到”的口径分裂。
+- 根因：新增错误路径落地后，文档补充不及时。
+- 改进：
+  - 已在 `docs/standards/error-catalog.md` 补齐上述 5 个错误码；
+  - 已执行 `python3 scripts/check_error_catalog.py`，校验通过；
+  - 纳入发布前文档校验步骤。
+- 状态：已完成
+
+5) **批量评测标注接口缺少 API 层错误契约回归**
+- 范围：后端 / `/api/evals/batches/{id}/review-groups|review-progress`
+- 现象：此前只有函数级单测，缺少 HTTP 层状态码与错误码回归。
+- 影响：接口层改动可能造成 400/409 语义漂移而不易被发现。
+- 根因：阶段性以业务交付为主，测试层级不完整。
+- 改进：
+  - 新增 `backend/tests/test_eval_review_api_contract.py`；
+  - 覆盖 `BATCH_REVIEW_NOT_READY`、`BATCH_REVIEW_PAGE_INVALID`、`page_size=20` 归一；
+  - 将该用例纳入状态/错误专项回归集合。
+- 状态：已完成
+
+6) **发版前状态/错误回归缺少一键入口**
+- 范围：发布流程 / preflight
+- 现象：状态/错误专项测试需要手动拼多条命令，容易漏跑。
+- 影响：发版前检查不稳定，回归结果不可复现。
+- 根因：缺统一脚本与 preflight 接入点。
+- 改进：
+  - 新增 `scripts/status_error_regression.sh`（错误码目录 + 关键 pytest 套件）；
+  - `scripts/deploy_preflight.sh` 新增开关 `RUN_STATUS_ERROR_CHECKS=1` 触发专项回归；
+  - 保持默认关闭，避免影响日常快速探活。
+- 状态：已完成
+
+7) **线上历史失败日志缺少 error_code**
+- 范围：能力调用日志 / 状态映射
+- 现象：部分 `status=failed` 记录仅有 `error_message`，`error_code` 为空。
+- 影响：前端错误聚合与导出统计难以按错误码归因。
+- 根因：上游错误消息不含标准 `ERR|CODE|...` 时，状态映射未提供兜底码。
+- 改进：
+  - `derive_ability_task_status/derive_ability_log_status` 增加失败兜底错误码：
+    - `ABILITY_TASK_FAILED`
+    - `ABILITY_TASK_CANCELLED`
+    - `CALLBACK_FAILED`
+  - 同步补齐 `error-catalog`。
+- 状态：已完成（待部署验证线上新日志）
+
+8) **Coze 查询接口字段命名兼容性不足**
+- 范围：Coze 工具箱 / 查询类接口
+- 现象：部分业务侧按 snake_case 读取字段，当前接口主要返回 camelCase，易出现“字段读不到”。
+- 影响：同一接口在不同接入方上表现不一致，增加联调成本。
+- 根因：历史演进过程中字段命名规范未统一，兼容字段未完整保留。
+- 改进：
+  - LoRA 查询补充 `lora_names`、`untracked_names`；
+  - KIE 模型查询补充 `model_keys`、`media_types`；
+  - 保留既有 camelCase 字段，保证增量兼容。
+- 状态：已完成（待部署）
+
 ## 2026-03-04
 
 0) **钱包接口“文档已规划但接口未实装”**

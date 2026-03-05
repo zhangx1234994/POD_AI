@@ -12,7 +12,7 @@
 | Coze 任务查询 | `/api/coze/podi/tasks/get`、测评端文档页 | 已落地（任务状态收敛） | 主要错误码已定义 | 已同步但有历史漂移风险 | 需补自动化 | ⚠️ 需巡检 |
 | ComfyUI 任务下发 | `/api/admin/comfyui/tasks*`、ComfyUI 管理页 | 已落地（提交/回调/最终） | 已收敛，已接入错误映射 | 已同步 | 已有专项回归计划 | ⚠️ 回归待执行 |
 | 修复任务 | `/api/admin/comfyui/repair-jobs*` | 已落地 | 失败项语义已分层 | 已同步 | 已有专项回归计划 | ⚠️ 回归待执行 |
-| 批量评测/标注 | `/api/evals/batches/*` | 分页与进度已落地 | 需补“未结束不可标注”全链路错误演示 | 已同步 | 需补异常回归 | ⚠️ 需补齐 |
+| 批量评测/标注 | `/api/evals/batches/*` | 分页与进度已落地 | 需补“未结束不可标注”全链路错误演示 | 已同步 | 已补函数层+API层契约测试，待线上大样本回归 | ⚠️ 需补齐 |
 | 桌面端 Agent | `/api/agent/*`、管理端桌面端部署页 | bootstrap 与任务口径分离 | 主要错误码可用，缺部署失败模板 | 部分同步 | 缺契约自动回归 | ⚠️ 需补齐 |
 
 图例：
@@ -41,6 +41,11 @@
 2. `done` 增补 ComfyUI 任务/修复任务回归用例清单（成功/失败/重试/超时）。
 3. `done` 更新错误码映射文档（`docs/standards/error-message-map-v1.md`）。
 4. `done` 在 `docs/admin/integration-dashboard.md` 与 `docs/eval/eval-platform.md` 补充状态/错误判读文案。
+5. `done` 补充评测批次标注进度契约单测（`backend/tests/test_eval_review_progress_contract.py`），覆盖默认值、页码归一、404/403 错误码。
+6. `done` 执行错误码目录扫描并补齐缺口（`scripts/check_error_catalog.py` 通过，新增 5 个错误码条目）。
+7. `done` 输出回归报告（`docs/testing/STATUS_ERROR_REGRESSION_REPORT_2026-03-05.md`），沉淀覆盖清单与剩余风险。
+8. `done` 补充批量评测标注 API 契约回归（`backend/tests/test_eval_review_api_contract.py`，覆盖 400/409 与分页归一口径）。
+9. `done` 补充失败兜底错误码映射（`ABILITY_TASK_FAILED/ABILITY_TASK_CANCELLED/CALLBACK_FAILED`），减少线上 `error_code` 为空的失败记录。
 
 ## 4. 退出条件（Done 定义）
 

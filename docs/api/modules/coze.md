@@ -246,7 +246,9 @@ curl http://127.0.0.1:8099/api/coze/podi/kie/execute/nano-banana-2-image-to-imag
   "count": 2,
   "installedCount": 1,
   "loraNames": ["杯子1124.safetensors", "印花提取-YinHuaTiQu-Qwen-Image-Edit-LoRA_V1.safetensors"],
+  "lora_names": ["杯子1124.safetensors", "印花提取-YinHuaTiQu-Qwen-Image-Edit-LoRA_V1.safetensors"],
   "untrackedNames": ["new_lora_xxx.safetensors"],
+  "untracked_names": ["new_lora_xxx.safetensors"],
   "items": [
     {
       "fileName": "杯子1124.safetensors",
@@ -263,6 +265,7 @@ curl http://127.0.0.1:8099/api/coze/podi/kie/execute/nano-banana-2-image-to-imag
 **说明**
 
 - `loraNames` 可直接给工具箱做下拉选项。
+- 同时返回 `lora_names`（snake_case 兼容字段），业务可二选一读取。
 - `includeUntracked=true` 时会额外返回服务器已安装、但目录尚未建档的 LoRA（`untrackedNames`）。
 - 若未传 `executorId`，只返回目录数据，不做“是否安装”判定。
 
@@ -322,6 +325,10 @@ curl http://127.0.0.1:8099/api/coze/podi/kie/execute/nano-banana-2-image-to-imag
 ```json
 {
   "count": 2,
+  "modelKeys": ["nano_banana_pro_image_to_image", "nano_banana_2_image_to_image"],
+  "model_keys": ["nano_banana_pro_image_to_image", "nano_banana_2_image_to_image"],
+  "mediaTypes": ["image"],
+  "media_types": ["image"],
   "items": [
     {
       "modelKey": "nano_banana_pro_image_to_image",
@@ -335,6 +342,11 @@ curl http://127.0.0.1:8099/api/coze/podi/kie/execute/nano-banana-2-image-to-imag
   ]
 }
 ```
+
+说明：
+
+- `modelKeys/model_keys` 是模型 key 快捷数组，便于 Coze 下拉框直接绑定。
+- `mediaTypes/media_types` 是当前结果集包含的媒体类型集合。
 
 ### POST /api/coze/podi/kie/models/schema
 

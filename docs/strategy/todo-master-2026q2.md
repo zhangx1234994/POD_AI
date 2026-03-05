@@ -29,11 +29,20 @@
 - 产物：一级导航、二级页面、主工作区定义
 - 验收：侧边栏与页面框架统一
  - 进展（2026-03-04）：已完成 strategy 文档骨架与管理端响应式第一轮改造；ComfyUI 管理已落地“分类 + 模块”二级导航，并完成“同步发布”三步面板、单主 CTA、次级面板折叠、失败后建议文案；已补超窄屏自适配与状态列命名统一，下一步做 IA 评审与模块拆分图
+ - 进展（2026-03-05）：已完成“能力详情/测试并入能力目录”迭代1：能力目录内新增统一工作区，旧 `ability-tests` 入口保留兼容提示，路由可回退不影响联调。
+ - 进展（2026-03-05）：已完成“能力详情/测试并入能力目录”迭代2：旧侧栏入口下线，保留 `#nav=ability-tests` 兼容跳转到能力目录测试 Tab，并同步迁移文档说明。
 
 4. `doing` 状态与错误口径统一落地检查
 - 产物：状态映射核对表 + 缺口清单
 - 验收：不存在“上游失败标成功”
 - 进展（2026-03-04）：已新增 `docs/strategy/status-error-audit-2026q2.md`，完成第一版核对矩阵与缺口优先级；已补 `docs/testing/COMFYUI_TASK_STATE_REGRESSION_PLAN.md` 与错误映射在管理端/评测端的首轮落地。
+- 进展（2026-03-05）：已新增 `backend/tests/test_eval_review_progress_contract.py`，补齐批量评测标注进度的关键契约单测（页码归一、默认值、403/404 错误码）。
+- 进展（2026-03-05）：已补齐错误码总表缺口（`ABILITY_TASK_FAILED/CANCELLED`、`RUN_CREATE_FAILED`、`KIE_ABILITY_NOT_CONFIGURED`、`KIE_TASK_FAILED`），并通过 `scripts/check_error_catalog.py` 校验。
+- 进展（2026-03-05）：已产出状态/错误回归报告 `docs/testing/STATUS_ERROR_REGRESSION_REPORT_2026-03-05.md`，明确已覆盖项与剩余线上风险。
+- 进展（2026-03-05）：已补 API 层契约回归 `backend/tests/test_eval_review_api_contract.py`，覆盖 `review-groups/review-progress` 的 400/409 关键错误场景与分页归一逻辑。
+- 进展（2026-03-05）：已新增线上冒烟清单 `docs/testing/STATUS_ERROR_ONLINE_SMOKE_CHECKLIST.md`，用于发布后快速核对状态/错误语义一致性。
+- 进展（2026-03-05）：已新增 `scripts/status_error_regression.sh`，并接入 `scripts/deploy_preflight.sh`（可通过 `RUN_STATUS_ERROR_CHECKS=1` 打开专项回归）。
+- 进展（2026-03-05）：已补“失败兜底错误码”映射（`ABILITY_TASK_FAILED/ABILITY_TASK_CANCELLED/CALLBACK_FAILED`）与 Coze 查询接口 snake_case 兼容字段，降低联调歧义。
 
 5. `doing` 文档治理上线
 - 产物：归档目录、文档 owner、每周回顾机制

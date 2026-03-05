@@ -2114,7 +2114,9 @@ def get_comfyui_lora_catalog(request: Request, body: dict[str, Any] | None = Non
         "count": len(items),
         "installedCount": sum(1 for item in items if item.get("installed")),
         "loraNames": [item["fileName"] for item in items],
+        "lora_names": [item["fileName"] for item in items],
         "untrackedNames": untracked_names,
+        "untracked_names": untracked_names,
         "items": items,
         }
     )
@@ -2146,7 +2148,17 @@ def get_kie_models_list(request: Request, body: dict[str, Any] | None = None) ->
     if status not in {"all", "active", "preview"}:
         status = "active"
     items = list_kie_models(media_type=media_type, keyword=keyword, status=status)
-    return _drop_none_deep({"count": len(items), "items": items})
+    model_keys = [str(item.get("modelKey") or "").strip() for item in items if str(item.get("modelKey") or "").strip()]
+    return _drop_none_deep(
+        {
+            "count": len(items),
+            "items": items,
+            "modelKeys": model_keys,
+            "model_keys": model_keys,
+            "mediaTypes": sorted({str(item.get("mediaType") or "").strip() for item in items if str(item.get("mediaType") or "").strip()}),
+            "media_types": sorted({str(item.get("mediaType") or "").strip() for item in items if str(item.get("mediaType") or "").strip()}),
+        }
+    )
 
 
 @router.post("/kie/models/list/default")
@@ -2161,7 +2173,17 @@ def get_kie_models_list_default(request: Request, body: dict[str, Any] | None = 
     if status not in {"all", "active", "preview"}:
         status = "active"
     items = list_kie_models(media_type=media_type, keyword=keyword, status=status)
-    return _drop_none_deep({"count": len(items), "items": items})
+    model_keys = [str(item.get("modelKey") or "").strip() for item in items if str(item.get("modelKey") or "").strip()]
+    return _drop_none_deep(
+        {
+            "count": len(items),
+            "items": items,
+            "modelKeys": model_keys,
+            "model_keys": model_keys,
+            "mediaTypes": sorted({str(item.get("mediaType") or "").strip() for item in items if str(item.get("mediaType") or "").strip()}),
+            "media_types": sorted({str(item.get("mediaType") or "").strip() for item in items if str(item.get("mediaType") or "").strip()}),
+        }
+    )
 
 
 @router.post("/kie/models/schema")
