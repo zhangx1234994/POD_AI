@@ -15,6 +15,24 @@
 
 ---
 
+## 2026-03-06
+
+1) **PODI 扩边占位工具异常被 Coze 视为裸 500**
+2) **高质量缩放在 Windows 节点偶发权限错误**
+- 范围：PODI 工具 / `upscale_resize`（实际共用 OSS 分片上传链路）
+- 现象：报错 `[Errno 13] Permission denied: 'C:\Users\Administrator\.py-oss-upload\...'`。
+- 影响：高质量缩放、大图上传等使用 `oss2.resumable_upload` 的能力会随机失败。
+- 根因：OSS SDK 默认把断点续传记录写到用户目录 `.py-oss-upload`；Windows 服务器上的该目录权限/占用不稳定。
+- 改进：将 resumable store 显式切到系统临时目录 `tempfile.gettempdir()/podi-oss-upload`，避免依赖用户目录权限。
+- 状态：已完成
+
+- 范围：PODI 工具 / `expand_mask_color`
+- 现象：Coze 工作流节点报 `execute tool failed ... status=500 Internal Server Error`，只能看到节点失败，看不到明确原因。
+- 影响：联调侧无法区分是图片处理失败还是 OSS 上传失败，排障成本高。
+- 根因：`expand_mask_color` 在图像渲染与 OSS 上传阶段未做细分异常兜底，未命中时直接冒泡成 500。
+- 改进：补标准错误码 `EXPAND_MASK_RENDER_FAILED`、`EXPAND_MASK_UPLOAD_FAILED`，并在日志中记录 `request_id/image_url/expand params/output size`。
+- 状态：已完成
+
 ## 2026-03-05
 
 1) **能力“列表页”与“详情/测试页”双入口割裂**

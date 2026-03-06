@@ -14,6 +14,7 @@ from typing import Any
 from urllib.parse import quote
 
 import oss2
+from oss2 import ResumableStore
 from aliyunsdkcore.client import AcsClient
 from aliyunsdksts.request.v20150401.AssumeRoleRequest import AssumeRoleRequest
 
@@ -35,6 +36,8 @@ class OssService:
         self._resumable_threshold = max(1, int(self.settings.oss_resumable_threshold_mb or 8)) * 1024 * 1024
         self._resumable_part_size = max(1, int(self.settings.oss_resumable_part_size_mb or 8)) * 1024 * 1024
         self._resumable_threads = max(1, int(self.settings.oss_resumable_threads or 1))
+        self._resumable_store_root = Path(tempfile.gettempdir()) / 'podi-oss-upload'
+        self._resumable_store: ResumableStore | None = None
 
     def _build_sts_client(self) -> AcsClient | None:
         if not (self.settings.oss_access_key and self.settings.oss_secret_key and self.settings.oss_role_arn):
@@ -133,6 +136,17 @@ class OssService:
         expires = int((datetime.utcnow() + timedelta(seconds=ttl)).timestamp())
         return f"{self._public_domain}/{object_key}?token=mock&expires={expires}"
 
+    def _get_resumable_store(self) -> ResumableStore | None:
+        if self._resumable_store is not None:
+            return self._resumable_store
+        try:
+            self._resumable_store_root.mkdir(parents=True, exist_ok=True)
+            self._resumable_store = ResumableStore(root=str(self._resumable_store_root))
+        except Exception as exc:  # noqa: BLE001 - fallback to sdk default if temp dir init fails
+            self._logger.warning("OSS resumable store init failed, fallback to default root: %s", exc)
+            self._resumable_store = None
+        return self._resumable_store
+
     def _get_bucket(self) -> oss2.Bucket:
         if self._bucket_client is not None:
             return self._bucket_client
@@ -196,6 +210,7 @@ class OssService:
                             bucket,
                             object_key,
                             tmp_path,
+                            store=self._get_resumable_store(),
                             headers=headers or None,
                             multipart_threshold=self._resumable_part_size,
                             part_size=self._resumable_part_size,

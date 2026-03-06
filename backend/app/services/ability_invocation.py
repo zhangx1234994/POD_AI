@@ -717,21 +717,43 @@ class AbilityInvocationService:
                 in_w, in_h = _im.size
             except Exception:
                 in_w, in_h = None, None
-            out_bytes = podi_image_tools.expand_with_color(
-                image_bytes=src_bytes,
-                expand_left=left,
-                expand_right=right,
-                expand_top=top,
-                expand_bottom=bottom,
-            )
+            try:
+                out_bytes = podi_image_tools.expand_with_color(
+                    image_bytes=src_bytes,
+                    expand_left=left,
+                    expand_right=right,
+                    expand_top=top,
+                    expand_bottom=bottom,
+                )
+            except Exception as exc:
+                self._logger.exception(
+                    "expand_mask_color render failed request_id=%s image_url=%s expand=(%s,%s,%s,%s)",
+                    context.request_id,
+                    src_source_url,
+                    left,
+                    right,
+                    top,
+                    bottom,
+                )
+                raise HTTPException(status_code=502, detail="EXPAND_MASK_RENDER_FAILED") from exc
             out_w = (int(in_w) + left + right) if isinstance(in_w, int) else None
             out_h = (int(in_h) + top + bottom) if isinstance(in_h, int) else None
-            upload = oss_service.upload_bytes(
-                user_id=user_id,
-                filename="expand_mask.png",
-                data=out_bytes,
-                content_type="image/png",
-            )
+            try:
+                upload = oss_service.upload_bytes(
+                    user_id=user_id,
+                    filename="expand_mask.png",
+                    data=out_bytes,
+                    content_type="image/png",
+                )
+            except Exception as exc:
+                self._logger.exception(
+                    "expand_mask_color upload failed request_id=%s image_url=%s output_size=(%s,%s)",
+                    context.request_id,
+                    src_source_url,
+                    out_w,
+                    out_h,
+                )
+                raise HTTPException(status_code=502, detail="EXPAND_MASK_UPLOAD_FAILED") from exc
             asset = {
                 "sourceUrl": src_source_url,
                 "ossUrl": upload.get("url"),
