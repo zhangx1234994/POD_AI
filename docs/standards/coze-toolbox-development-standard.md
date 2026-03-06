@@ -83,6 +83,7 @@
   - 契约说明：`docs/coze/toolbox-contracts.md`
   - 规范准则：`docs/standards/*.md`
 - 模型参数枚举必须按“模型维度”列清楚（不可只写“通用支持”），至少覆盖：
+  - **展示文案与真实传值必须分开写**：如 `跟随原图（默认）/原图比例（默认）` 只能作为 UI label，真实传值必须是空字符串、`omit` 或模型枚举值。
   - `aspect_ratio`
   - `resolution`
   - 多图上限与字段名（`url/image_urls`）

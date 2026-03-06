@@ -32,11 +32,13 @@
   - `moxing`：`1=Banana Pro`、`2=Flux2 Pro`、`3=Seedream 4.5`、`4=Banana 2`
   - `cankaotu`：参考图 URLs（每行/逗号分隔），仅 `1/2/4` 生效
   - `aspect_ratio`（按模型枚举）：
+    - `原图比例（默认）` 仅是前端展示文案；实际调用应传空字符串或直接不传，不能把中文文案本身传给模型。
     - Banana Pro（`moxing=1`）：`auto, 1:1, 2:3, 3:2, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9, 21:9`
     - Flux2 Pro（`moxing=2`）：`auto, 1:1, 4:3, 3:4, 16:9, 9:16, 3:2, 2:3`
     - Seedream 4.5（`moxing=3`）：忽略该参数（仅保留空值）
     - Banana 2（`moxing=4`）：`auto, 1:1, 2:3, 3:2, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9, 21:9`
   - `resolution`（按模型枚举）：
+    - `跟随原图（默认）` 仅是前端展示文案；实际调用应传空字符串或直接不传，不能把中文文案本身传给模型。
     - Banana Pro（`moxing=1`）：`1K, 2K, 4K`
     - Flux2 Pro（`moxing=2`）：`1K, 2K`
     - Seedream 4.5（`moxing=3`）：忽略该参数（仅保留空值）

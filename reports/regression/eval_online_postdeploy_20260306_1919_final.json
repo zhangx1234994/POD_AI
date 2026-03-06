@@ -1,0 +1,3040 @@
+{
+  "generated_at": "2026-03-06T11:39:24.205066Z",
+  "summary": {
+    "total": 24,
+    "ok": 24,
+    "fail": 0
+  },
+  "results": [
+    {
+      "workflow_version_id": "8fab2cbd6321406a8185e997e3472fb2",
+      "workflow_id": "7598563505054154752",
+      "name": "两方四方连续图",
+      "category": "四方/两方连续图类",
+      "body": {
+        "workflow_version_id": "8fab2cbd6321406a8185e997e3472fb2",
+        "parameters_json": {
+          "height": "1024",
+          "width": "1024",
+          "patternType": "seamless"
+        },
+        "input_oss_urls_json": [
+          "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+        ]
+      },
+      "via_eval_proxy": {
+        "phase": "done",
+        "error": null,
+        "run": {
+          "workflow_version_id": "8fab2cbd6321406a8185e997e3472fb2",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "width": "1024",
+            "height": "1024",
+            "patternType": "seamless",
+            "__eval_provider_lane": "default"
+          },
+          "status": "queued",
+          "coze_execute_id": null,
+          "coze_debug_url": null,
+          "podi_task_id": null,
+          "result_image_urls_json": null,
+          "result_output_json": null,
+          "error_message": null,
+          "duration_ms": null,
+          "id": "e643c418de7547b19b9b73b98c739b10",
+          "submit_status": "pending",
+          "callback_status": "waiting",
+          "final_status": "pending",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:23:55",
+          "updated_at": "2026-03-06T11:23:55"
+        },
+        "detail": {
+          "workflow_version_id": "8fab2cbd6321406a8185e997e3472fb2",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "width": "1024",
+            "height": "1024",
+            "patternType": "seamless",
+            "__eval_provider_lane": "default"
+          },
+          "status": "succeeded",
+          "coze_execute_id": "7614101857639596032",
+          "coze_debug_url": "http://114.55.0.56:8888/work_flow?execute_id=7614101857639596032&execute_mode=2&space_id=7597421439045599232&workflow_id=7598563505054154752",
+          "podi_task_id": "319ec07e83b14e2eb68fb29f5d65b469",
+          "result_image_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/eval/20260306/4945d5f5-1772767516.png"
+          ],
+          "result_output_json": {
+            "ip": "http://117.50.80.158:8079",
+            "output": "t1.comfyui.executor_comfyui_pattern_extract_158.319ec07e83b14e2eb68fb29f5d65b469"
+          },
+          "error_message": null,
+          "duration_ms": 97984,
+          "id": "e643c418de7547b19b9b73b98c739b10",
+          "submit_status": "submitted",
+          "callback_status": "success",
+          "final_status": "success",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:23:55",
+          "updated_at": "2026-03-06T11:25:33"
+        }
+      },
+      "result_source": "eval-proxy",
+      "duration_sec": 106.4,
+      "status": "succeeded",
+      "submit_status": "submitted",
+      "callback_status": "success",
+      "final_status": "success",
+      "error_code": null,
+      "error_message": null,
+      "output_count": 1,
+      "final_source": "initial-pass"
+    },
+    {
+      "workflow_version_id": "f400ba237aa94be0b13eb98e3c3bf667",
+      "workflow_id": "7598587935331450880",
+      "name": "ComfyUI 扩图",
+      "category": "图延伸类",
+      "body": {
+        "workflow_version_id": "f400ba237aa94be0b13eb98e3c3bf667",
+        "parameters_json": {
+          "expand_left": "0",
+          "expand_right": "0",
+          "expand_top": "0",
+          "expand_bottom": "0"
+        },
+        "input_oss_urls_json": [
+          "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+        ]
+      },
+      "via_eval_proxy": {
+        "phase": "done",
+        "error": null,
+        "run": {
+          "workflow_version_id": "f400ba237aa94be0b13eb98e3c3bf667",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "expand_top": "0",
+            "expand_left": "0",
+            "expand_right": "0",
+            "expand_bottom": "0",
+            "__eval_provider_lane": "comfyui"
+          },
+          "status": "queued",
+          "coze_execute_id": null,
+          "coze_debug_url": null,
+          "podi_task_id": null,
+          "result_image_urls_json": null,
+          "result_output_json": null,
+          "error_message": null,
+          "duration_ms": null,
+          "id": "574c84742ac24b8d870939f490157a70",
+          "submit_status": "pending",
+          "callback_status": "waiting",
+          "final_status": "pending",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:25:42",
+          "updated_at": "2026-03-06T11:25:42"
+        },
+        "detail": {
+          "workflow_version_id": "f400ba237aa94be0b13eb98e3c3bf667",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "expand_top": "0",
+            "expand_left": "0",
+            "expand_right": "0",
+            "expand_bottom": "0",
+            "__eval_provider_lane": "comfyui"
+          },
+          "status": "succeeded",
+          "coze_execute_id": "7614102313635938304",
+          "coze_debug_url": "http://114.55.0.56:8888/work_flow?execute_id=7614102313635938304&execute_mode=2&space_id=7597421439045599232&workflow_id=7598587935331450880",
+          "podi_task_id": "a8a2950cbbbb4643add70e20381a36d0",
+          "result_image_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/admin-comfyui/20260306/6670159c-1772767576.png"
+          ],
+          "result_output_json": {
+            "ip": "http://117.50.216.233:8079",
+            "output": "t1.comfyui.executor_comfyui_seamless_117.a8a2950cbbbb4643add70e20381a36d0"
+          },
+          "error_message": null,
+          "duration_ms": 37125,
+          "id": "574c84742ac24b8d870939f490157a70",
+          "submit_status": "submitted",
+          "callback_status": "success",
+          "final_status": "success",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:25:42",
+          "updated_at": "2026-03-06T11:26:19"
+        }
+      },
+      "result_source": "eval-proxy",
+      "duration_sec": 38.2,
+      "status": "succeeded",
+      "submit_status": "submitted",
+      "callback_status": "success",
+      "final_status": "success",
+      "error_code": null,
+      "error_message": null,
+      "output_count": 1,
+      "final_source": "initial-pass"
+    },
+    {
+      "workflow_version_id": "7a90072e6d6843bda6f8b05a311fccbe",
+      "workflow_id": "7597723984687267840",
+      "name": "商业模型 扩图",
+      "category": "图延伸类",
+      "body": {
+        "workflow_version_id": "7a90072e6d6843bda6f8b05a311fccbe",
+        "parameters_json": {
+          "expand_left": "0",
+          "expand_right": "0",
+          "expand_top": "0",
+          "expand_bottom": "0",
+          "moxing": "1"
+        },
+        "input_oss_urls_json": [
+          "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+        ]
+      },
+      "via_eval_proxy": {
+        "phase": "done",
+        "error": null,
+        "run": {
+          "workflow_version_id": "7a90072e6d6843bda6f8b05a311fccbe",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "moxing": "1",
+            "expand_top": "0",
+            "expand_left": "0",
+            "expand_right": "0",
+            "expand_bottom": "0",
+            "__eval_provider_lane": "commercial"
+          },
+          "status": "queued",
+          "coze_execute_id": null,
+          "coze_debug_url": null,
+          "podi_task_id": null,
+          "result_image_urls_json": null,
+          "result_output_json": null,
+          "error_message": null,
+          "duration_ms": null,
+          "id": "a89efc60d6a34fccb961daaa7604b568",
+          "submit_status": "pending",
+          "callback_status": "waiting",
+          "final_status": "pending",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:26:20",
+          "updated_at": "2026-03-06T11:26:20"
+        },
+        "detail": {
+          "workflow_version_id": "7a90072e6d6843bda6f8b05a311fccbe",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "moxing": "1",
+            "expand_top": "0",
+            "expand_left": "0",
+            "expand_right": "0",
+            "expand_bottom": "0",
+            "__eval_provider_lane": "commercial"
+          },
+          "status": "succeeded",
+          "coze_execute_id": "7614102477800996864",
+          "coze_debug_url": "http://114.55.0.56:8888/work_flow?execute_id=7614102477800996864&execute_mode=2&space_id=7597421439045599232&workflow_id=7597723984687267840",
+          "podi_task_id": "49046f0f15184ab9bd39c0444c30077a",
+          "result_image_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/admin-kie/20260306/b6eb85ee-1772767664.png"
+          ],
+          "result_output_json": "t1.kie.executor_kie_market_default.49046f0f15184ab9bd39c0444c30077a",
+          "error_message": null,
+          "duration_ms": 94390,
+          "id": "a89efc60d6a34fccb961daaa7604b568",
+          "submit_status": "submitted",
+          "callback_status": "success",
+          "final_status": "success",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:26:20",
+          "updated_at": "2026-03-06T11:27:54"
+        }
+      },
+      "result_source": "eval-proxy",
+      "duration_sec": 103.3,
+      "status": "succeeded",
+      "submit_status": "submitted",
+      "callback_status": "success",
+      "final_status": "success",
+      "error_code": null,
+      "error_message": null,
+      "output_count": 1,
+      "final_source": "initial-pass"
+    },
+    {
+      "workflow_version_id": "a65f2db99e264ba2a0fb9a1935e832a7",
+      "workflow_id": "7601077530077954048",
+      "name": "图裂变 ·商业模型免提示词",
+      "category": "图裂变",
+      "body": {
+        "workflow_version_id": "a65f2db99e264ba2a0fb9a1935e832a7",
+        "parameters_json": {
+          "aspect_ratio": "1:1",
+          "resolution": "1K",
+          "bili": "50%",
+          "moxing": "1"
+        },
+        "input_oss_urls_json": [
+          "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+        ]
+      },
+      "via_eval_proxy": {
+        "phase": "done",
+        "error": null,
+        "run": {
+          "workflow_version_id": "a65f2db99e264ba2a0fb9a1935e832a7",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "bili": "50%",
+            "moxing": "1",
+            "resolution": "1K",
+            "aspect_ratio": "1:1",
+            "__eval_provider_lane": "commercial"
+          },
+          "status": "queued",
+          "coze_execute_id": null,
+          "coze_debug_url": null,
+          "podi_task_id": null,
+          "result_image_urls_json": null,
+          "result_output_json": null,
+          "error_message": null,
+          "duration_ms": null,
+          "id": "c4a8021a1abb47159f9dd29bfd283be8",
+          "submit_status": "pending",
+          "callback_status": "waiting",
+          "final_status": "pending",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:28:03",
+          "updated_at": "2026-03-06T11:28:03"
+        },
+        "detail": {
+          "workflow_version_id": "a65f2db99e264ba2a0fb9a1935e832a7",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "bili": "50%",
+            "moxing": "1",
+            "resolution": "1K",
+            "aspect_ratio": "1:1",
+            "__eval_provider_lane": "commercial"
+          },
+          "status": "failed",
+          "coze_execute_id": "7614102922678239232",
+          "coze_debug_url": "http://114.55.0.56:8888/work_flow?execute_id=7614102922678239232&execute_mode=2&space_id=7597421439045599232&workflow_id=7601077530077954048",
+          "podi_task_id": "0c528cdfd1d54be08c840cf8b7b7a696",
+          "result_image_urls_json": null,
+          "result_output_json": null,
+          "error_message": "image_input file type not supported",
+          "duration_ms": 36438,
+          "id": "c4a8021a1abb47159f9dd29bfd283be8",
+          "submit_status": "submitted",
+          "callback_status": "failed",
+          "final_status": "failed",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:28:03",
+          "updated_at": "2026-03-06T11:28:40"
+        }
+      },
+      "result_source": "failed",
+      "duration_sec": 38.3,
+      "via_backend": {
+        "phase": "done",
+        "error": null,
+        "run": {
+          "workflow_version_id": "a65f2db99e264ba2a0fb9a1935e832a7",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "bili": "50%",
+            "moxing": "1",
+            "resolution": "1K",
+            "aspect_ratio": "1:1",
+            "__eval_provider_lane": "commercial"
+          },
+          "status": "queued",
+          "coze_execute_id": null,
+          "coze_debug_url": null,
+          "podi_task_id": null,
+          "result_image_urls_json": null,
+          "result_output_json": null,
+          "error_message": null,
+          "duration_ms": null,
+          "id": "7a890b6867cb41fd864550bcda7d9880",
+          "submit_status": "pending",
+          "callback_status": "waiting",
+          "final_status": "pending",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:28:41",
+          "updated_at": "2026-03-06T11:28:41"
+        },
+        "detail": {
+          "workflow_version_id": "a65f2db99e264ba2a0fb9a1935e832a7",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "bili": "50%",
+            "moxing": "1",
+            "resolution": "1K",
+            "aspect_ratio": "1:1",
+            "__eval_provider_lane": "commercial"
+          },
+          "status": "failed",
+          "coze_execute_id": "7614103085736001536",
+          "coze_debug_url": "http://114.55.0.56:8888/work_flow?execute_id=7614103085736001536&execute_mode=2&space_id=7597421439045599232&workflow_id=7601077530077954048",
+          "podi_task_id": "e346d2df1902462bb657621c8b36f2ee",
+          "result_image_urls_json": null,
+          "result_output_json": null,
+          "error_message": "image_input file type not supported",
+          "duration_ms": 27750,
+          "id": "7a890b6867cb41fd864550bcda7d9880",
+          "submit_status": "submitted",
+          "callback_status": "failed",
+          "final_status": "failed",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:28:41",
+          "updated_at": "2026-03-06T11:29:09"
+        }
+      },
+      "status": "succeeded",
+      "submit_status": "submitted",
+      "callback_status": "success",
+      "final_status": "success",
+      "error_code": null,
+      "error_message": null,
+      "output_count": 1,
+      "run_id": "a3b25050c2ae4bc19a68b337db4b18ae",
+      "source": "eval-proxy",
+      "initial_error_message": "image_input file type not supported",
+      "initial_result_source": "failed",
+      "final_source": "png-retry",
+      "note": "首轮回归入参组织不规范，PNG + 正确传值补跑成功"
+    },
+    {
+      "workflow_version_id": "914c5ab4d01c43f799d2dfa50994df1e",
+      "workflow_id": "7598848725942796288",
+      "name": "图裂变 · 商业模型有提示词",
+      "category": "图裂变",
+      "body": {
+        "workflow_version_id": "914c5ab4d01c43f799d2dfa50994df1e",
+        "parameters_json": {
+          "aspect_ratio": "1:1",
+          "resolution": "1K",
+          "bili": "50%",
+          "moxing": "1",
+          "prompt": "test prompt"
+        },
+        "input_oss_urls_json": [
+          "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+        ]
+      },
+      "via_eval_proxy": {
+        "phase": "done",
+        "error": null,
+        "run": {
+          "workflow_version_id": "914c5ab4d01c43f799d2dfa50994df1e",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "bili": "50%",
+            "moxing": "1",
+            "prompt": "test prompt",
+            "resolution": "1K",
+            "aspect_ratio": "1:1",
+            "__eval_provider_lane": "commercial"
+          },
+          "status": "queued",
+          "coze_execute_id": null,
+          "coze_debug_url": null,
+          "podi_task_id": null,
+          "result_image_urls_json": null,
+          "result_output_json": null,
+          "error_message": null,
+          "duration_ms": null,
+          "id": "86f48d6dbf37409291ecd7210708e354",
+          "submit_status": "pending",
+          "callback_status": "waiting",
+          "final_status": "pending",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:29:11",
+          "updated_at": "2026-03-06T11:29:11"
+        },
+        "detail": {
+          "workflow_version_id": "914c5ab4d01c43f799d2dfa50994df1e",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "bili": "50%",
+            "moxing": "1",
+            "prompt": "test prompt",
+            "resolution": "1K",
+            "aspect_ratio": "1:1",
+            "__eval_provider_lane": "commercial"
+          },
+          "status": "failed",
+          "coze_execute_id": "7614103211254743040",
+          "coze_debug_url": "http://114.55.0.56:8888/work_flow?execute_id=7614103211254743040&execute_mode=2&space_id=7597421439045599232&workflow_id=7598848725942796288",
+          "podi_task_id": "28a4f618c54f48d589afce3b5403706d",
+          "result_image_urls_json": null,
+          "result_output_json": null,
+          "error_message": "image_input file type not supported",
+          "duration_ms": 26811,
+          "id": "86f48d6dbf37409291ecd7210708e354",
+          "submit_status": "submitted",
+          "callback_status": "failed",
+          "final_status": "failed",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:29:11",
+          "updated_at": "2026-03-06T11:29:38"
+        }
+      },
+      "result_source": "failed",
+      "duration_sec": 28.8,
+      "via_backend": {
+        "phase": "done",
+        "error": null,
+        "run": {
+          "workflow_version_id": "914c5ab4d01c43f799d2dfa50994df1e",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "bili": "50%",
+            "moxing": "1",
+            "prompt": "test prompt",
+            "resolution": "1K",
+            "aspect_ratio": "1:1",
+            "__eval_provider_lane": "commercial"
+          },
+          "status": "queued",
+          "coze_execute_id": null,
+          "coze_debug_url": null,
+          "podi_task_id": null,
+          "result_image_urls_json": null,
+          "result_output_json": null,
+          "error_message": null,
+          "duration_ms": null,
+          "id": "db693ec44044469e94ae2724ed9dd8eb",
+          "submit_status": "pending",
+          "callback_status": "waiting",
+          "final_status": "pending",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:29:39",
+          "updated_at": "2026-03-06T11:29:39"
+        },
+        "detail": {
+          "workflow_version_id": "914c5ab4d01c43f799d2dfa50994df1e",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "bili": "50%",
+            "moxing": "1",
+            "prompt": "test prompt",
+            "resolution": "1K",
+            "aspect_ratio": "1:1",
+            "__eval_provider_lane": "commercial"
+          },
+          "status": "failed",
+          "coze_execute_id": "7614103335045431296",
+          "coze_debug_url": "http://114.55.0.56:8888/work_flow?execute_id=7614103335045431296&execute_mode=2&space_id=7597421439045599232&workflow_id=7598848725942796288",
+          "podi_task_id": "113f91fd7ab1400ead7fa6fc49f5b7a8",
+          "result_image_urls_json": null,
+          "result_output_json": null,
+          "error_message": "image_input file type not supported",
+          "duration_ms": 31796,
+          "id": "db693ec44044469e94ae2724ed9dd8eb",
+          "submit_status": "submitted",
+          "callback_status": "failed",
+          "final_status": "failed",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:29:39",
+          "updated_at": "2026-03-06T11:30:11"
+        }
+      },
+      "status": "succeeded",
+      "submit_status": "submitted",
+      "callback_status": "success",
+      "final_status": "success",
+      "error_code": null,
+      "error_message": null,
+      "output_count": 1,
+      "run_id": "8f13a6bec9f345b68210490556218a90",
+      "source": "backend-direct",
+      "initial_error_message": "image_input file type not supported",
+      "initial_result_source": "failed",
+      "final_source": "png-retry",
+      "note": "首轮回归入参组织不规范，PNG + 正确传值补跑成功"
+    },
+    {
+      "workflow_version_id": "5974e368f4f5415c9a0e9ab1a5c1208e",
+      "workflow_id": "7598820684801769472",
+      "name": "图裂变 ·comfyui提示词",
+      "category": "图裂变",
+      "body": {
+        "workflow_version_id": "5974e368f4f5415c9a0e9ab1a5c1208e",
+        "parameters_json": {
+          "height": "1024",
+          "width": "1024",
+          "bili": "50%",
+          "prompt": "test prompt"
+        },
+        "input_oss_urls_json": [
+          "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+        ]
+      },
+      "via_eval_proxy": {
+        "phase": "done",
+        "error": null,
+        "run": {
+          "workflow_version_id": "5974e368f4f5415c9a0e9ab1a5c1208e",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "bili": "50%",
+            "width": "1024",
+            "height": "1024",
+            "prompt": "test prompt",
+            "__eval_provider_lane": "comfyui"
+          },
+          "status": "queued",
+          "coze_execute_id": null,
+          "coze_debug_url": null,
+          "podi_task_id": null,
+          "result_image_urls_json": null,
+          "result_output_json": null,
+          "error_message": null,
+          "duration_ms": null,
+          "id": "3cdaebc4c184475a8ce33df84fa2cd70",
+          "submit_status": "pending",
+          "callback_status": "waiting",
+          "final_status": "pending",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:30:12",
+          "updated_at": "2026-03-06T11:30:12"
+        },
+        "detail": {
+          "workflow_version_id": "5974e368f4f5415c9a0e9ab1a5c1208e",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "bili": "50%",
+            "width": "1024",
+            "height": "1024",
+            "prompt": "test prompt",
+            "__eval_provider_lane": "comfyui"
+          },
+          "status": "succeeded",
+          "coze_execute_id": "7614103473704927232",
+          "coze_debug_url": "http://114.55.0.56:8888/work_flow?execute_id=7614103473704927232&execute_mode=2&space_id=7597421439045599232&workflow_id=7598820684801769472",
+          "podi_task_id": "d76334bdb2984399ad8db79db5a5db7d",
+          "result_image_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/admin-comfyui/20260306/e832f6d4-1772767894.png"
+          ],
+          "result_output_json": {
+            "ip": "http://117.50.80.158:8079",
+            "output": "t1.comfyui.executor_comfyui_pattern_extract_158.d76334bdb2984399ad8db79db5a5db7d",
+            "prompt": "# 生图创作指令（相似度50%）\n- **色彩重组逻辑：** 执行主体与背景颜色位置互换：将原白色杯身替换为桌面的深绿色调，粉色把手改为白色；背景深绿色桌面替换为原杯身的米白色，粉色包装盒调整为深粉色；杯身图案的粉色填充与黑色线条互换，小装饰图案从粉色改为白色，保持原有的暖冷色阶与活泼甜美的色彩情感。\n- **主体造型细节：** 锁死水杯+Hello Kitty&Jisoo联名IP的核心身份，重构造型：水杯从倾斜改为直立放置，杯盖吸管侧转90度，取消原吸管朝上的状态；Hello Kitty与Jisoo的姿态从原低头依偎改为抬手击掌的互动动态，Jisoo的发型微调为半扎发，Hello Kitty的蝴蝶结从粉色改为深绿色，造型100%焕然一新。\n- **细节与创新：** 维持原图50%的构图平衡感，原右下的毛绒挂件位移至画面左下，原右上的包装盒位移至画面左上；杯身的小装饰图案（Hello Kitty头、小蛋糕等）沿杯身环形重新排列，无位置重叠；加入10%新元素：在毛绒挂件旁散落3颗迷你粉色绒球，在桌面添加2条淡粉色流动纤维线条，提升画面灵动感。\n- **审美约束：** 2D平面艺术，像素级匹配原图的卡通平涂笔触质感，保持绝对平面感，严禁添加3D阴影与立体效果。"
+          },
+          "error_message": null,
+          "duration_ms": 92594,
+          "id": "3cdaebc4c184475a8ce33df84fa2cd70",
+          "submit_status": "submitted",
+          "callback_status": "success",
+          "final_status": "success",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:30:12",
+          "updated_at": "2026-03-06T11:31:44"
+        }
+      },
+      "result_source": "eval-proxy",
+      "duration_sec": 94.9,
+      "status": "succeeded",
+      "submit_status": "submitted",
+      "callback_status": "success",
+      "final_status": "success",
+      "error_code": null,
+      "error_message": null,
+      "output_count": 1,
+      "final_source": "initial-pass"
+    },
+    {
+      "workflow_version_id": "6f45ce9ec9c34499a3f4836f72d07129",
+      "workflow_id": "7598841920114130944",
+      "name": "图裂变 · comfyui无提示词",
+      "category": "图裂变",
+      "body": {
+        "workflow_version_id": "6f45ce9ec9c34499a3f4836f72d07129",
+        "parameters_json": {
+          "height": "1024",
+          "width": "1024",
+          "bili": "50%"
+        },
+        "input_oss_urls_json": [
+          "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+        ]
+      },
+      "via_eval_proxy": {
+        "phase": "done",
+        "error": null,
+        "run": {
+          "workflow_version_id": "6f45ce9ec9c34499a3f4836f72d07129",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "bili": "50%",
+            "width": "1024",
+            "height": "1024",
+            "__eval_provider_lane": "comfyui"
+          },
+          "status": "queued",
+          "coze_execute_id": null,
+          "coze_debug_url": null,
+          "podi_task_id": null,
+          "result_image_urls_json": null,
+          "result_output_json": null,
+          "error_message": null,
+          "duration_ms": null,
+          "id": "2c22aeee3ea946a486ba81dd9e0aa546",
+          "submit_status": "pending",
+          "callback_status": "waiting",
+          "final_status": "pending",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:31:46",
+          "updated_at": "2026-03-06T11:31:46"
+        },
+        "detail": {
+          "workflow_version_id": "6f45ce9ec9c34499a3f4836f72d07129",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "bili": "50%",
+            "width": "1024",
+            "height": "1024",
+            "__eval_provider_lane": "comfyui"
+          },
+          "status": "succeeded",
+          "coze_execute_id": "7614103881122840576",
+          "coze_debug_url": "http://114.55.0.56:8888/work_flow?execute_id=7614103881122840576&execute_mode=2&space_id=7597421439045599232&workflow_id=7598841920114130944",
+          "podi_task_id": "356476903ab242e59957d01131535636",
+          "result_image_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/admin-comfyui/20260306/550011d6-1772767968.png"
+          ],
+          "result_output_json": {
+            "ip": "http://117.50.216.233:8079",
+            "output": "t1.comfyui.executor_comfyui_seamless_117.356476903ab242e59957d01131535636",
+            "prompt": "**原图修改意见：**  \n1. **色彩重组逻辑**：  \n   - 原水杯主体白色（占比约70%）与背景深绿色（占比约10%）执行“基底互换”：水杯主体变更为深绿色（原背景色），背景整体转为白色；  \n   - 粉色系元素（原水杯把手、吸管盖、小图案）作为“色彩桥梁”保留，其中水杯的粉色把手调整为渐变透明效果（从杯身深绿向杯口半透明粉色过渡），吸管盖改为“爱心形粉色金属吸管”（增加10%新元素），小图案（冰淇淋、桃子等）在深绿杯身表面重新排列为“三角星轨迹分布”。  \n\n2. **主体造型细节**：  \n   - 杯身卡通形象（Hello Kitty与女孩）改为动态互动姿态：女孩从静态依偎变为“侧身托腮+手指轻点Hello Kitty头顶”的俏皮姿势，Hello Kitty从“低头凝视”变为“仰头吐泡泡”（泡泡为粉色半透明小水滴，增强灵动感）；  \n   - 文字“HELLO KITTY & JISOO”调整为“JISOO & HELLO KITTY”斜体环绕布局，字体边缘添加“粉色描边+浅金渐变”。  \n\n3. **细节与创新**：  \n   - 配景素材位移：原粉色毛绒挂件从右下调整至右上（与粉色盒子形成对称分布），挂件表面新增“六边形镂空花纹”（模拟冰晶切割），原深绿桌面背景的10%留白处，加入“5颗漂浮的粉色樱花花瓣”（符合10%新元素要求）；  \n   - 深色线条（原文字/轮廓）全部替换为“浅金色勾边+深粉内阴影”，形成“复古手绘”质感，水杯杯口原黑色阴影改为“白色描边+浅粉高光”，强化平面艺术感。  \n\n4. **审美约束**：  \n   采用“平铺式平面插画”风格，水杯与挂件的立体感仅通过“色彩渐变+线条粗细变化”体现，拒绝任何3D阴影；所有元素（水杯、挂件、文字）保持矢量化轮廓，禁止像素级模糊效果。"
+          },
+          "error_message": null,
+          "duration_ms": 66813,
+          "id": "2c22aeee3ea946a486ba81dd9e0aa546",
+          "submit_status": "submitted",
+          "callback_status": "success",
+          "final_status": "success",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:31:46",
+          "updated_at": "2026-03-06T11:32:53"
+        }
+      },
+      "result_source": "eval-proxy",
+      "duration_sec": 69.7,
+      "status": "succeeded",
+      "submit_status": "submitted",
+      "callback_status": "success",
+      "final_status": "success",
+      "error_code": null,
+      "error_message": null,
+      "output_count": 1,
+      "final_source": "initial-pass"
+    },
+    {
+      "workflow_version_id": "cfd56c49451647ca9adb4b92ddef5759",
+      "workflow_id": "7601080398864449536",
+      "name": "花纹提取 · 商业模型有提示词",
+      "category": "花纹提取类",
+      "body": {
+        "workflow_version_id": "cfd56c49451647ca9adb4b92ddef5759",
+        "parameters_json": {
+          "moxing": "1",
+          "aspect_ratio": "auto",
+          "resolution": "1K",
+          "prompt": "test prompt"
+        },
+        "input_oss_urls_json": [
+          "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+        ]
+      },
+      "via_eval_proxy": {
+        "phase": "done",
+        "error": null,
+        "run": {
+          "workflow_version_id": "cfd56c49451647ca9adb4b92ddef5759",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "moxing": "1",
+            "prompt": "test prompt",
+            "resolution": "1K",
+            "aspect_ratio": "auto",
+            "__eval_provider_lane": "commercial"
+          },
+          "status": "queued",
+          "coze_execute_id": null,
+          "coze_debug_url": null,
+          "podi_task_id": null,
+          "result_image_urls_json": null,
+          "result_output_json": null,
+          "error_message": null,
+          "duration_ms": null,
+          "id": "611f4cc92a204c4a8145fecef87c47bb",
+          "submit_status": "pending",
+          "callback_status": "waiting",
+          "final_status": "pending",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:32:56",
+          "updated_at": "2026-03-06T11:32:56"
+        },
+        "detail": {
+          "workflow_version_id": "cfd56c49451647ca9adb4b92ddef5759",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "moxing": "1",
+            "prompt": "test prompt",
+            "resolution": "1K",
+            "aspect_ratio": "auto",
+            "__eval_provider_lane": "commercial"
+          },
+          "status": "failed",
+          "coze_execute_id": "7614104181141405696",
+          "coze_debug_url": "http://114.55.0.56:8888/work_flow?execute_id=7614104181141405696&execute_mode=2&space_id=7597421439045599232&workflow_id=7601080398864449536",
+          "podi_task_id": "4febf8c281024ec78315ba773b0d0a41",
+          "result_image_urls_json": null,
+          "result_output_json": null,
+          "error_message": "image_input file type not supported",
+          "duration_ms": 7155,
+          "id": "611f4cc92a204c4a8145fecef87c47bb",
+          "submit_status": "submitted",
+          "callback_status": "failed",
+          "final_status": "failed",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:32:56",
+          "updated_at": "2026-03-06T11:33:03"
+        }
+      },
+      "result_source": "failed",
+      "duration_sec": 9.9,
+      "via_backend": {
+        "phase": "done",
+        "error": null,
+        "run": {
+          "workflow_version_id": "cfd56c49451647ca9adb4b92ddef5759",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "moxing": "1",
+            "prompt": "test prompt",
+            "resolution": "1K",
+            "aspect_ratio": "auto",
+            "__eval_provider_lane": "commercial"
+          },
+          "status": "queued",
+          "coze_execute_id": null,
+          "coze_debug_url": null,
+          "podi_task_id": null,
+          "result_image_urls_json": null,
+          "result_output_json": null,
+          "error_message": null,
+          "duration_ms": null,
+          "id": "5be053401f1d467a9873a60cb5db4c26",
+          "submit_status": "pending",
+          "callback_status": "waiting",
+          "final_status": "pending",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:33:06",
+          "updated_at": "2026-03-06T11:33:06"
+        },
+        "detail": {
+          "workflow_version_id": "cfd56c49451647ca9adb4b92ddef5759",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "moxing": "1",
+            "prompt": "test prompt",
+            "resolution": "1K",
+            "aspect_ratio": "auto",
+            "__eval_provider_lane": "commercial"
+          },
+          "status": "failed",
+          "coze_execute_id": "7614104222723735552",
+          "coze_debug_url": "http://114.55.0.56:8888/work_flow?execute_id=7614104222723735552&execute_mode=2&space_id=7597421439045599232&workflow_id=7601080398864449536",
+          "podi_task_id": "f34e64613e364c53ab05c77ed7bf7c86",
+          "result_image_urls_json": null,
+          "result_output_json": null,
+          "error_message": "image_input file type not supported",
+          "duration_ms": 7092,
+          "id": "5be053401f1d467a9873a60cb5db4c26",
+          "submit_status": "submitted",
+          "callback_status": "failed",
+          "final_status": "failed",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:33:06",
+          "updated_at": "2026-03-06T11:33:13"
+        }
+      },
+      "status": "succeeded",
+      "submit_status": "submitted",
+      "callback_status": "success",
+      "final_status": "success",
+      "error_code": null,
+      "error_message": null,
+      "output_count": 0,
+      "run_id": "2a2177c383344a3b8f862b8b370f9ae2",
+      "source": "backend-direct",
+      "initial_error_message": "image_input file type not supported",
+      "initial_result_source": "failed",
+      "final_source": "png-retry",
+      "note": "首轮回归入参组织不规范，PNG + 正确传值补跑成功"
+    },
+    {
+      "workflow_version_id": "0a66959c448f43e5aacc668a49855733",
+      "workflow_id": "7598559869544693760",
+      "name": "花纹提取·商业模型免提示词",
+      "category": "花纹提取类",
+      "body": {
+        "workflow_version_id": "0a66959c448f43e5aacc668a49855733",
+        "parameters_json": {
+          "moxing": "1",
+          "height": "1024",
+          "width": "1024",
+          "aspect_ratio": "auto",
+          "resolution": "1K"
+        },
+        "input_oss_urls_json": [
+          "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+        ]
+      },
+      "via_eval_proxy": {
+        "phase": "done",
+        "error": null,
+        "run": {
+          "workflow_version_id": "0a66959c448f43e5aacc668a49855733",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "width": "1024",
+            "height": "1024",
+            "moxing": "1",
+            "resolution": "1K",
+            "aspect_ratio": "auto",
+            "__eval_provider_lane": "commercial"
+          },
+          "status": "queued",
+          "coze_execute_id": null,
+          "coze_debug_url": null,
+          "podi_task_id": null,
+          "result_image_urls_json": null,
+          "result_output_json": null,
+          "error_message": null,
+          "duration_ms": null,
+          "id": "5c3f47b1b4624a48b36998121b2b2806",
+          "submit_status": "pending",
+          "callback_status": "waiting",
+          "final_status": "pending",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:33:16",
+          "updated_at": "2026-03-06T11:33:16"
+        },
+        "detail": {
+          "workflow_version_id": "0a66959c448f43e5aacc668a49855733",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "width": "1024",
+            "height": "1024",
+            "moxing": "1",
+            "resolution": "1K",
+            "aspect_ratio": "auto",
+            "__eval_provider_lane": "commercial"
+          },
+          "status": "failed",
+          "coze_execute_id": "7614104265325281280",
+          "coze_debug_url": "http://114.55.0.56:8888/work_flow?execute_id=7614104265325281280&execute_mode=2&space_id=7597421439045599232&workflow_id=7598559869544693760",
+          "podi_task_id": "9c06e6b3d8d04f3c819c93faeada7774",
+          "result_image_urls_json": null,
+          "result_output_json": null,
+          "error_message": "image_input file type not supported",
+          "duration_ms": 6891,
+          "id": "5c3f47b1b4624a48b36998121b2b2806",
+          "submit_status": "submitted",
+          "callback_status": "failed",
+          "final_status": "failed",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:33:16",
+          "updated_at": "2026-03-06T11:33:23"
+        }
+      },
+      "result_source": "failed",
+      "duration_sec": 9.9,
+      "via_backend": {
+        "phase": "done",
+        "error": null,
+        "run": {
+          "workflow_version_id": "0a66959c448f43e5aacc668a49855733",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "width": "1024",
+            "height": "1024",
+            "moxing": "1",
+            "resolution": "1K",
+            "aspect_ratio": "auto",
+            "__eval_provider_lane": "commercial"
+          },
+          "status": "queued",
+          "coze_execute_id": null,
+          "coze_debug_url": null,
+          "podi_task_id": null,
+          "result_image_urls_json": null,
+          "result_output_json": null,
+          "error_message": null,
+          "duration_ms": null,
+          "id": "b7a0f7e8a34d4b5db3d2829f6b0d33b2",
+          "submit_status": "pending",
+          "callback_status": "waiting",
+          "final_status": "pending",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:33:26",
+          "updated_at": "2026-03-06T11:33:26"
+        },
+        "detail": {
+          "workflow_version_id": "0a66959c448f43e5aacc668a49855733",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "width": "1024",
+            "height": "1024",
+            "moxing": "1",
+            "resolution": "1K",
+            "aspect_ratio": "auto",
+            "__eval_provider_lane": "commercial"
+          },
+          "status": "failed",
+          "coze_execute_id": "7614104307972964352",
+          "coze_debug_url": "http://114.55.0.56:8888/work_flow?execute_id=7614104307972964352&execute_mode=2&space_id=7597421439045599232&workflow_id=7598559869544693760",
+          "podi_task_id": "ef4f8d438a9b4b6c91291612b005ffbe",
+          "result_image_urls_json": null,
+          "result_output_json": null,
+          "error_message": "image_input file type not supported",
+          "duration_ms": 7094,
+          "id": "b7a0f7e8a34d4b5db3d2829f6b0d33b2",
+          "submit_status": "submitted",
+          "callback_status": "failed",
+          "final_status": "failed",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:33:26",
+          "updated_at": "2026-03-06T11:33:33"
+        }
+      },
+      "status": "succeeded",
+      "submit_status": "submitted",
+      "callback_status": "success",
+      "final_status": "success",
+      "error_code": null,
+      "error_message": null,
+      "output_count": 1,
+      "run_id": "133914f7246c48329be4f370108d42b2",
+      "source": "backend-direct",
+      "initial_error_message": "image_input file type not supported",
+      "initial_result_source": "failed",
+      "final_source": "png-retry",
+      "note": "首轮回归入参组织不规范，PNG + 正确传值补跑成功"
+    },
+    {
+      "workflow_version_id": "afb16b3d6e5a453a9c5fd704046a1f3f",
+      "workflow_id": "7598545860393172992",
+      "name": "花纹提取—comfyui提示词版本",
+      "category": "花纹提取类",
+      "body": {
+        "workflow_version_id": "afb16b3d6e5a453a9c5fd704046a1f3f",
+        "parameters_json": {
+          "height": "1024",
+          "width": "1024",
+          "prompt": "test prompt",
+          "is_raw_prompt": "0",
+          "lora": "T-Shirt-1-1.safetensors"
+        },
+        "input_oss_urls_json": [
+          "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+        ]
+      },
+      "via_eval_proxy": {
+        "phase": "done",
+        "error": null,
+        "run": {
+          "workflow_version_id": "afb16b3d6e5a453a9c5fd704046a1f3f",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "lora": "T-Shirt-1-1.safetensors",
+            "width": "1024",
+            "height": "1024",
+            "prompt": "test prompt",
+            "is_raw_prompt": "0",
+            "__eval_provider_lane": "comfyui"
+          },
+          "status": "queued",
+          "coze_execute_id": null,
+          "coze_debug_url": null,
+          "podi_task_id": null,
+          "result_image_urls_json": null,
+          "result_output_json": null,
+          "error_message": null,
+          "duration_ms": null,
+          "id": "50ceb8ed111c42b1ba37bed1c0354e78",
+          "submit_status": "pending",
+          "callback_status": "waiting",
+          "final_status": "pending",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:33:36",
+          "updated_at": "2026-03-06T11:33:36"
+        },
+        "detail": {
+          "workflow_version_id": "afb16b3d6e5a453a9c5fd704046a1f3f",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "lora": "T-Shirt-1-1.safetensors",
+            "width": "1024",
+            "height": "1024",
+            "prompt": "test prompt",
+            "is_raw_prompt": "0",
+            "__eval_provider_lane": "comfyui"
+          },
+          "status": "succeeded",
+          "coze_execute_id": "7614104350813585408",
+          "coze_debug_url": "http://114.55.0.56:8888/work_flow?execute_id=7614104350813585408&execute_mode=2&space_id=7597421439045599232&workflow_id=7598545860393172992",
+          "podi_task_id": "448f1c5e95f74ecca7009940fef6ff10",
+          "result_image_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/admin-comfyui/20260306/dff01b65-1772768053.png"
+          ],
+          "result_output_json": {
+            "ip": "http://117.50.80.158:8079",
+            "output": "t1.comfyui.executor_comfyui_pattern_extract_158.448f1c5e95f74ecca7009940fef6ff10",
+            "prompt": "**1. 核心提取与展平提示词**\n> *图案提取，识别图中的目标物品，并提取其表面的印花/图案，生成满足平面印刷标准的2D文件。高清，32K，精准识别原图中的色值，提取出来的图片100%还原原图中的色彩。彻底消除因物品立体形状、曲面弧度或拍摄角度造成的透视压缩、边缘拉伸、褶皱、接缝扭曲及各方向的形变。将整个图案区域精准“展开”为一个完整的2D矩形平面图，确保接缝处无缝对接（如适用），所有元素必须处于同一视觉平面，无弯曲、无拉伸、无重叠，无褶皱*, high quality, detailed, sharp focus,\n\n**2. 区域判断与透视修复提示词**\n> 若物品表面带有“环绕式/全包围图案”，需将其完整展开为360°无缝平面图。\n> 若图案仅覆盖物品的局部（如仅正面/背面/侧面），则仅精确提取该区域并展平。\n> 必须修复因原实物造型或拍摄视角导致的左右图案大小不一、上下比例失真、文字/线条倾斜等透视畸变问题。\n\n**3. 特别强调（负面与输出约束）**\n> 特别强调：\n> *禁止添加任何原图不存在的新元素，包括但不限于边框、水印、logo、说明文字等。\n> *禁止裁切核心主体，如图案中的文字内容、插画主体、装饰性元素（如气泡框、动植物纹理等）必须完整保留，绝不得因展平或校正操作而导致画面残缺或被切割。\n> *最终输出必须是“纯净的平面图案 + 纯色背景”，彻底去除原物品的结构轮廓，无立体阴影、无材质折痕、无环境光反射/高光、无原实物照片的残影。\ntest prompt"
+          },
+          "error_message": null,
+          "duration_ms": 45030,
+          "id": "50ceb8ed111c42b1ba37bed1c0354e78",
+          "submit_status": "submitted",
+          "callback_status": "success",
+          "final_status": "success",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:33:36",
+          "updated_at": "2026-03-06T11:34:21"
+        }
+      },
+      "result_source": "eval-proxy",
+      "duration_sec": 48.0,
+      "status": "succeeded",
+      "submit_status": "submitted",
+      "callback_status": "success",
+      "final_status": "success",
+      "error_code": null,
+      "error_message": null,
+      "output_count": 1,
+      "final_source": "initial-pass"
+    },
+    {
+      "workflow_version_id": "fc81bf10553644d883ae4e608728c814",
+      "workflow_id": "7597530887256801280",
+      "name": "花纹提取—comfyui无提示词版本",
+      "category": "花纹提取类",
+      "body": {
+        "workflow_version_id": "fc81bf10553644d883ae4e608728c814",
+        "parameters_json": {
+          "width": "1024",
+          "height": "1024",
+          "lora": "T-Shirt-1-1.safetensors"
+        },
+        "input_oss_urls_json": [
+          "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+        ]
+      },
+      "via_eval_proxy": {
+        "phase": "done",
+        "error": null,
+        "run": {
+          "workflow_version_id": "fc81bf10553644d883ae4e608728c814",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "lora": "T-Shirt-1-1.safetensors",
+            "width": "1024",
+            "height": "1024",
+            "__eval_provider_lane": "comfyui"
+          },
+          "status": "queued",
+          "coze_execute_id": null,
+          "coze_debug_url": null,
+          "podi_task_id": null,
+          "result_image_urls_json": null,
+          "result_output_json": null,
+          "error_message": null,
+          "duration_ms": null,
+          "id": "0ebe455b72ab4069b7d13122feb934c4",
+          "submit_status": "pending",
+          "callback_status": "waiting",
+          "final_status": "pending",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:34:24",
+          "updated_at": "2026-03-06T11:34:24"
+        },
+        "detail": {
+          "workflow_version_id": "fc81bf10553644d883ae4e608728c814",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "lora": "T-Shirt-1-1.safetensors",
+            "width": "1024",
+            "height": "1024",
+            "__eval_provider_lane": "comfyui"
+          },
+          "status": "succeeded",
+          "coze_execute_id": "7614104557001375744",
+          "coze_debug_url": "http://114.55.0.56:8888/work_flow?execute_id=7614104557001375744&execute_mode=2&space_id=7597421439045599232&workflow_id=7597530887256801280",
+          "podi_task_id": "c3efed43e4444edaad77dc5432560d4c",
+          "result_image_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/admin-comfyui/20260306/8ed6a0b3-1772768110.png"
+          ],
+          "result_output_json": {
+            "ip": "http://117.50.216.233:8079",
+            "output": "t1.comfyui.executor_comfyui_seamless_117.c3efed43e4444edaad77dc5432560d4c",
+            "prompt": "任务：2D平面印花提取与还原 核心指令：执行正交投影，将原图彻底展平为二维平面设计稿。消除所有透视形变、物理褶皱、中心鼓包及阴影。 文字锁定：像素级精准还原所有中英文及符号，禁止AI修补或改写。保持原始字体、排版、行距、字间距及文字路径完全一致。 背景还原：精准取样原图布料底色作为全局纯色背景。背景需均匀无渐变、无噪点。 细节处理：移除所有物理材质（绒毛、针织纹、流苏、缝线），但必须保留设计自带的艺术肌理（如水彩、木纹、渐变色）。 质量标准：高清晰度，边缘锐利，100%忠于原作，无环境干扰，纯净印刷原稿。"
+          },
+          "error_message": null,
+          "duration_ms": 55390,
+          "id": "0ebe455b72ab4069b7d13122feb934c4",
+          "submit_status": "submitted",
+          "callback_status": "success",
+          "final_status": "success",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:34:24",
+          "updated_at": "2026-03-06T11:35:19"
+        }
+      },
+      "result_source": "eval-proxy",
+      "duration_sec": 57.2,
+      "status": "succeeded",
+      "submit_status": "submitted",
+      "callback_status": "success",
+      "final_status": "success",
+      "error_code": null,
+      "error_message": null,
+      "output_count": 1,
+      "final_source": "initial-pass"
+    },
+    {
+      "workflow_version_id": "647f305c499844c882e0a45fc2f6f575",
+      "workflow_id": "7612002440056930304",
+      "name": "LoRA 查询 · lora_catalog_query",
+      "category": "通用类",
+      "body": {
+        "workflow_version_id": "647f305c499844c882e0a45fc2f6f575"
+      },
+      "via_eval_proxy": {
+        "phase": "done",
+        "error": null,
+        "run": {
+          "workflow_version_id": "647f305c499844c882e0a45fc2f6f575",
+          "dataset_item_id": null,
+          "input_oss_urls_json": null,
+          "parameters_json": {
+            "__eval_provider_lane": "default"
+          },
+          "status": "queued",
+          "coze_execute_id": null,
+          "coze_debug_url": null,
+          "podi_task_id": null,
+          "result_image_urls_json": null,
+          "result_output_json": null,
+          "error_message": null,
+          "duration_ms": null,
+          "id": "e5154282b6d546909f0b95cf37df434c",
+          "submit_status": "pending",
+          "callback_status": "waiting",
+          "final_status": "pending",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:35:21",
+          "updated_at": "2026-03-06T11:35:21"
+        },
+        "detail": {
+          "workflow_version_id": "647f305c499844c882e0a45fc2f6f575",
+          "dataset_item_id": null,
+          "input_oss_urls_json": null,
+          "parameters_json": {
+            "__eval_provider_lane": "default"
+          },
+          "status": "succeeded",
+          "coze_execute_id": "7614104803672588288",
+          "coze_debug_url": "http://114.55.0.56:8888/work_flow?execute_id=7614104803672588288&execute_mode=2&space_id=7597421439045599232&workflow_id=7612002440056930304",
+          "podi_task_id": null,
+          "result_image_urls_json": [],
+          "result_output_json": {
+            "items": [
+              {
+                "tags": [
+                  "印花提取",
+                  "通用",
+                  "QwenImageEdit2511",
+                  "5000"
+                ],
+                "status": "active",
+                "fileName": "印花提取-通用_QwenImageEdit2511_5000.safetensors",
+                "installed": false,
+                "baseModels": [
+                  "qwen_image_edit_2509_fp8_e4m3fn.safetensors"
+                ],
+                "displayName": "通用 QwenImageEdit2511 5000"
+              },
+              {
+                "tags": [
+                  "印花提取",
+                  "通用",
+                  "QwenImageEdit2511",
+                  "5500"
+                ],
+                "status": "active",
+                "fileName": "印花提取-通用_QwenImageEdit2511_5500.safetensors",
+                "installed": false,
+                "baseModels": [
+                  "qwen_image_edit_2509_fp8_e4m3fn.safetensors"
+                ],
+                "displayName": "通用 QwenImageEdit2511 5500"
+              },
+              {
+                "tags": [
+                  "印花提取",
+                  "通用",
+                  "QwenImageEdit2511",
+                  "6000"
+                ],
+                "status": "active",
+                "fileName": "印花提取-通用_QwenImageEdit2511_6000.safetensors",
+                "installed": false,
+                "baseModels": [
+                  "qwen_image_edit_2509_fp8_e4m3fn.safetensors"
+                ],
+                "displayName": "通用 QwenImageEdit2511 6000"
+              },
+              {
+                "tags": [
+                  "印花提取",
+                  "通用",
+                  "QwenImageEdit2511",
+                  "6500"
+                ],
+                "status": "active",
+                "fileName": "印花提取-通用_QwenImageEdit2511_6500.safetensors",
+                "installed": false,
+                "baseModels": [
+                  "qwen_image_edit_2509_fp8_e4m3fn.safetensors"
+                ],
+                "displayName": "通用 QwenImageEdit2511 6500"
+              },
+              {
+                "tags": [
+                  "印花提取",
+                  "通用",
+                  "QwenImageEdit2511",
+                  "7000"
+                ],
+                "status": "active",
+                "fileName": "印花提取-通用_QwenImageEdit2511_7000.safetensors",
+                "installed": false,
+                "baseModels": [
+                  "qwen_image_edit_2509_fp8_e4m3fn.safetensors"
+                ],
+                "displayName": "通用 QwenImageEdit2511 7000"
+              },
+              {
+                "tags": [
+                  "印花提取",
+                  "通用",
+                  "QwenImageEdit2511",
+                  "7500"
+                ],
+                "status": "active",
+                "fileName": "印花提取-通用_QwenImageEdit2511_7500.safetensors",
+                "installed": false,
+                "baseModels": [
+                  "qwen_image_edit_2509_fp8_e4m3fn.safetensors"
+                ],
+                "displayName": "通用 QwenImageEdit2511 7500"
+              },
+              {
+                "tags": [
+                  "印花提取",
+                  "通用",
+                  "QwenImageEdit2511",
+                  "8000"
+                ],
+                "status": "active",
+                "fileName": "印花提取-通用_QwenImageEdit2511_8000.safetensors",
+                "installed": false,
+                "baseModels": [
+                  "qwen_image_edit_2509_fp8_e4m3fn.safetensors"
+                ],
+                "displayName": "通用 QwenImageEdit2511 8000"
+              },
+              {
+                "tags": [],
+                "status": "active",
+                "fileName": "印花提取-毛毯2-1.safetensors",
+                "installed": false,
+                "baseModels": [
+                  "qwen-image-2512-fp8.safetensors",
+                  "qwen_image_edit_2511_bf16.safetensors",
+                  "qwen_image_edit_2511_fp8mixed.safetensors"
+                ],
+                "displayName": "印花提取-毛毯2-1"
+              },
+              {
+                "tags": [],
+                "status": "active",
+                "fileName": "印花提取-毛毯1-2.safetensors",
+                "installed": false,
+                "baseModels": [
+                  "qwen-image-2512-fp8.safetensors"
+                ],
+                "displayName": "印花提取-毛毯1-2"
+              },
+              {
+                "tags": [],
+                "status": "active",
+                "fileName": "印花提取-毛毯1-1.safetensors",
+                "installed": false,
+                "baseModels": [
+                  "qwen-image-2512-fp8.safetensors",
+                  "qwen_image_edit_2511_bf16.safetensors",
+                  "qwen_image_edit_2511_fp8mixed.safetensors"
+                ],
+                "displayName": "印花提取-毛毯1-1"
+              },
+              {
+                "tags": [],
+                "status": "active",
+                "fileName": "杯子1124.safetensors",
+                "installed": false,
+                "baseModels": [
+                  "qwen-image-2512-fp8.safetensors",
+                  "qwen_image_edit_2511_bf16.safetensors",
+                  "qwen_image_edit_2511_fp8mixed.safetensors"
+                ],
+                "displayName": "杯子1124"
+              },
+              {
+                "tags": [],
+                "status": "active",
+                "fileName": "T-Shirt-1-1.safetensors",
+                "installed": false,
+                "baseModels": [
+                  "qwen-image-2512-fp8.safetensors",
+                  "qwen_image_edit_2511_bf16.safetensors",
+                  "qwen_image_edit_2511_fp8mixed.safetensors"
+                ],
+                "displayName": "T-Shirt-1-1"
+              }
+            ],
+            "lora_names": [
+              "印花提取-通用_QwenImageEdit2511_5000.safetensors",
+              "印花提取-通用_QwenImageEdit2511_5500.safetensors",
+              "印花提取-通用_QwenImageEdit2511_6000.safetensors",
+              "印花提取-通用_QwenImageEdit2511_6500.safetensors",
+              "印花提取-通用_QwenImageEdit2511_7000.safetensors",
+              "印花提取-通用_QwenImageEdit2511_7500.safetensors",
+              "印花提取-通用_QwenImageEdit2511_8000.safetensors",
+              "印花提取-毛毯2-1.safetensors",
+              "印花提取-毛毯1-2.safetensors",
+              "印花提取-毛毯1-1.safetensors",
+              "杯子1124.safetensors",
+              "T-Shirt-1-1.safetensors"
+            ]
+          },
+          "error_message": null,
+          "duration_ms": 1688,
+          "id": "e5154282b6d546909f0b95cf37df434c",
+          "submit_status": "submitting",
+          "callback_status": "success",
+          "final_status": "success",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:35:21",
+          "updated_at": "2026-03-06T11:35:23"
+        }
+      },
+      "result_source": "eval-proxy",
+      "duration_sec": 3.6,
+      "status": "succeeded",
+      "submit_status": "submitting",
+      "callback_status": "success",
+      "final_status": "success",
+      "error_code": null,
+      "error_message": null,
+      "output_count": 0,
+      "final_source": "initial-pass"
+    },
+    {
+      "workflow_version_id": "61bf246dc38f424d9f80b7b8fd863074",
+      "workflow_id": "7604714915110060032",
+      "name": "AI 图片编辑器 · nano_banana_pro_edit",
+      "category": "通用类",
+      "body": {
+        "workflow_version_id": "61bf246dc38f424d9f80b7b8fd863074",
+        "parameters_json": {
+          "prompt": "test prompt",
+          "output_format": "png",
+          "aspect_ratio": "跟随原图（默认）",
+          "resolution": "跟随原图（默认）"
+        },
+        "input_oss_urls_json": [
+          "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+        ]
+      },
+      "via_eval_proxy": {
+        "phase": "done",
+        "error": null,
+        "run": {
+          "workflow_version_id": "61bf246dc38f424d9f80b7b8fd863074",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "prompt": "test prompt",
+            "resolution": "跟随原图（默认）",
+            "aspect_ratio": "跟随原图（默认）",
+            "output_format": "png",
+            "__eval_provider_lane": "commercial"
+          },
+          "status": "queued",
+          "coze_execute_id": null,
+          "coze_debug_url": null,
+          "podi_task_id": null,
+          "result_image_urls_json": null,
+          "result_output_json": null,
+          "error_message": null,
+          "duration_ms": null,
+          "id": "bac0a34acf514d99944d06d536f07cd2",
+          "submit_status": "pending",
+          "callback_status": "waiting",
+          "final_status": "pending",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:35:25",
+          "updated_at": "2026-03-06T11:35:25"
+        },
+        "detail": {
+          "workflow_version_id": "61bf246dc38f424d9f80b7b8fd863074",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "prompt": "test prompt",
+            "resolution": "跟随原图（默认）",
+            "aspect_ratio": "跟随原图（默认）",
+            "output_format": "png",
+            "__eval_provider_lane": "commercial"
+          },
+          "status": "failed",
+          "coze_execute_id": "7614104818260377600",
+          "coze_debug_url": "http://114.55.0.56:8888/work_flow?execute_id=7614104818260377600&execute_mode=2&space_id=7597421439045599232&workflow_id=7604714915110060032",
+          "podi_task_id": "e5cc8d2cc33a4ae0979ca7457b78ced3",
+          "result_image_urls_json": null,
+          "result_output_json": null,
+          "error_message": "image_input file type not supported",
+          "duration_ms": 6875,
+          "id": "bac0a34acf514d99944d06d536f07cd2",
+          "submit_status": "submitted",
+          "callback_status": "failed",
+          "final_status": "failed",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:35:25",
+          "updated_at": "2026-03-06T11:35:32"
+        }
+      },
+      "result_source": "failed",
+      "duration_sec": 9.9,
+      "via_backend": {
+        "phase": "done",
+        "error": null,
+        "run": {
+          "workflow_version_id": "61bf246dc38f424d9f80b7b8fd863074",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "prompt": "test prompt",
+            "resolution": "跟随原图（默认）",
+            "aspect_ratio": "跟随原图（默认）",
+            "output_format": "png",
+            "__eval_provider_lane": "commercial"
+          },
+          "status": "queued",
+          "coze_execute_id": null,
+          "coze_debug_url": null,
+          "podi_task_id": null,
+          "result_image_urls_json": null,
+          "result_output_json": null,
+          "error_message": null,
+          "duration_ms": null,
+          "id": "47d8af81955a4321b6d9c684369033c5",
+          "submit_status": "pending",
+          "callback_status": "waiting",
+          "final_status": "pending",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:35:35",
+          "updated_at": "2026-03-06T11:35:35"
+        },
+        "detail": {
+          "workflow_version_id": "61bf246dc38f424d9f80b7b8fd863074",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "prompt": "test prompt",
+            "resolution": "跟随原图（默认）",
+            "aspect_ratio": "跟随原图（默认）",
+            "output_format": "png",
+            "__eval_provider_lane": "commercial"
+          },
+          "status": "failed",
+          "coze_execute_id": "7614104860614459392",
+          "coze_debug_url": "http://114.55.0.56:8888/work_flow?execute_id=7614104860614459392&execute_mode=2&space_id=7597421439045599232&workflow_id=7604714915110060032",
+          "podi_task_id": "3202ec3687974dbdb0abe7630bbdccaf",
+          "result_image_urls_json": null,
+          "result_output_json": null,
+          "error_message": "image_input file type not supported",
+          "duration_ms": 6984,
+          "id": "47d8af81955a4321b6d9c684369033c5",
+          "submit_status": "submitted",
+          "callback_status": "failed",
+          "final_status": "failed",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:35:35",
+          "updated_at": "2026-03-06T11:35:42"
+        }
+      },
+      "status": "succeeded",
+      "submit_status": "submitted",
+      "callback_status": "success",
+      "final_status": "success",
+      "error_code": null,
+      "error_message": null,
+      "output_count": 0,
+      "run_id": "9298f83b02e746a3a01345a825eb0aea",
+      "source": "backend-direct",
+      "initial_error_message": "image_input file type not supported",
+      "initial_result_source": "failed",
+      "final_source": "png-retry",
+      "note": "首轮回归入参组织不规范，PNG + 正确传值补跑成功"
+    },
+    {
+      "workflow_version_id": "12836b6b371f420794bce0824d1a267d",
+      "workflow_id": "7602916576198656000",
+      "name": "多模型生图 · shengtu_shangye",
+      "category": "通用类",
+      "body": {
+        "workflow_version_id": "12836b6b371f420794bce0824d1a267d",
+        "parameters_json": {
+          "prompt": "test prompt",
+          "moxing": "1",
+          "cankaotu": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+          "aspect_ratio": "原图比例（默认）",
+          "resolution": "跟随原图（默认）"
+        },
+        "input_oss_urls_json": [
+          "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+        ]
+      },
+      "via_eval_proxy": {
+        "phase": "done",
+        "error": null,
+        "run": {
+          "workflow_version_id": "12836b6b371f420794bce0824d1a267d",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "moxing": "1",
+            "prompt": "test prompt",
+            "cankaotu": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "resolution": "跟随原图（默认）",
+            "aspect_ratio": "原图比例（默认）",
+            "__eval_provider_lane": "commercial"
+          },
+          "status": "queued",
+          "coze_execute_id": null,
+          "coze_debug_url": null,
+          "podi_task_id": null,
+          "result_image_urls_json": null,
+          "result_output_json": null,
+          "error_message": null,
+          "duration_ms": null,
+          "id": "21bce74d284b46f1bbd61bcda8629926",
+          "submit_status": "pending",
+          "callback_status": "waiting",
+          "final_status": "pending",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:35:44",
+          "updated_at": "2026-03-06T11:35:44"
+        },
+        "detail": {
+          "workflow_version_id": "12836b6b371f420794bce0824d1a267d",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "moxing": "1",
+            "prompt": "test prompt",
+            "cankaotu": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "resolution": "跟随原图（默认）",
+            "aspect_ratio": "原图比例（默认）",
+            "__eval_provider_lane": "commercial"
+          },
+          "status": "failed",
+          "coze_execute_id": "7614104903375388672",
+          "coze_debug_url": "http://114.55.0.56:8888/work_flow?execute_id=7614104903375388672&execute_mode=2&space_id=7597421439045599232&workflow_id=7602916576198656000",
+          "podi_task_id": "3c4e997491ab4cb09af6ee840a65e7bd",
+          "result_image_urls_json": null,
+          "result_output_json": null,
+          "error_message": "image_input file type not supported",
+          "duration_ms": 7032,
+          "id": "21bce74d284b46f1bbd61bcda8629926",
+          "submit_status": "submitted",
+          "callback_status": "failed",
+          "final_status": "failed",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:35:44",
+          "updated_at": "2026-03-06T11:35:52"
+        }
+      },
+      "result_source": "failed",
+      "duration_sec": 9.9,
+      "via_backend": {
+        "phase": "done",
+        "error": null,
+        "run": {
+          "workflow_version_id": "12836b6b371f420794bce0824d1a267d",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "moxing": "1",
+            "prompt": "test prompt",
+            "cankaotu": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "resolution": "跟随原图（默认）",
+            "aspect_ratio": "原图比例（默认）",
+            "__eval_provider_lane": "commercial"
+          },
+          "status": "queued",
+          "coze_execute_id": null,
+          "coze_debug_url": null,
+          "podi_task_id": null,
+          "result_image_urls_json": null,
+          "result_output_json": null,
+          "error_message": null,
+          "duration_ms": null,
+          "id": "c5be9acb8ca2429285cb950aa73a5078",
+          "submit_status": "pending",
+          "callback_status": "waiting",
+          "final_status": "pending",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:35:54",
+          "updated_at": "2026-03-06T11:35:54"
+        },
+        "detail": {
+          "workflow_version_id": "12836b6b371f420794bce0824d1a267d",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "moxing": "1",
+            "prompt": "test prompt",
+            "cankaotu": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "resolution": "跟随原图（默认）",
+            "aspect_ratio": "原图比例（默认）",
+            "__eval_provider_lane": "commercial"
+          },
+          "status": "failed",
+          "coze_execute_id": "7614104945838522368",
+          "coze_debug_url": "http://114.55.0.56:8888/work_flow?execute_id=7614104945838522368&execute_mode=2&space_id=7597421439045599232&workflow_id=7602916576198656000",
+          "podi_task_id": "e831d7e7fa4a4ff183e422bf97e1e8f4",
+          "result_image_urls_json": null,
+          "result_output_json": null,
+          "error_message": "image_input file type not supported",
+          "duration_ms": 7016,
+          "id": "c5be9acb8ca2429285cb950aa73a5078",
+          "submit_status": "submitted",
+          "callback_status": "failed",
+          "final_status": "failed",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:35:54",
+          "updated_at": "2026-03-06T11:36:02"
+        }
+      },
+      "status": "succeeded",
+      "submit_status": "submitted",
+      "callback_status": "success",
+      "final_status": "success",
+      "error_code": null,
+      "error_message": null,
+      "output_count": 0,
+      "run_id": "190532edce694c6bbbeb2f93b08356c7",
+      "source": "backend-direct",
+      "initial_error_message": "image_input file type not supported",
+      "initial_result_source": "failed",
+      "final_source": "png-retry",
+      "note": "首轮回归入参组织不规范，PNG + 正确传值补跑成功"
+    },
+    {
+      "workflow_version_id": "d8fc9272f2c14e778e7b5deb45c16b8c",
+      "workflow_id": "7600254097513512960",
+      "name": "图片打标签 · Biaoqian_tiqu_3",
+      "category": "通用类",
+      "body": {
+        "workflow_version_id": "d8fc9272f2c14e778e7b5deb45c16b8c",
+        "input_oss_urls_json": [
+          "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+        ]
+      },
+      "via_eval_proxy": {
+        "phase": "done",
+        "error": null,
+        "run": {
+          "workflow_version_id": "d8fc9272f2c14e778e7b5deb45c16b8c",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "__eval_provider_lane": "default"
+          },
+          "status": "queued",
+          "coze_execute_id": null,
+          "coze_debug_url": null,
+          "podi_task_id": null,
+          "result_image_urls_json": null,
+          "result_output_json": null,
+          "error_message": null,
+          "duration_ms": null,
+          "id": "6670cb655dae41628b87fc25a0b2c6b3",
+          "submit_status": "pending",
+          "callback_status": "waiting",
+          "final_status": "pending",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:36:04",
+          "updated_at": "2026-03-06T11:36:04"
+        },
+        "detail": {
+          "workflow_version_id": "d8fc9272f2c14e778e7b5deb45c16b8c",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "__eval_provider_lane": "default"
+          },
+          "status": "succeeded",
+          "coze_execute_id": "7614104988490399744",
+          "coze_debug_url": "http://114.55.0.56:8888/work_flow?execute_id=7614104988490399744&execute_mode=2&space_id=7597421439045599232&workflow_id=7600254097513512960",
+          "podi_task_id": null,
+          "result_image_urls_json": [],
+          "result_output_json": {
+            "main_color": "白色",
+            "color_ratio": {
+              "白色": 0.6,
+              "粉色": 0.3
+            },
+            "person_info": [
+              "金智秀",
+              "Hello Kitty"
+            ],
+            "core_elements": [
+              "卡通保温杯",
+              "毛绒挂件",
+              "粉色包装盒",
+              "Hello Kitty图案",
+              "JISOO卡通形象"
+            ],
+            "person_source": "Hello Kitty × BLACKPINK JISOO联名周边",
+            "style_keywords": {
+              "elements": [
+                "联名周边",
+                "萌系设计",
+                "可爱风格"
+              ],
+              "art_style": [
+                "写实摄影",
+                "二次元卡通",
+                "商品摄影"
+              ]
+            },
+            "secondary_color": "粉色"
+          },
+          "error_message": null,
+          "duration_ms": 17125,
+          "id": "6670cb655dae41628b87fc25a0b2c6b3",
+          "submit_status": "submitting",
+          "callback_status": "success",
+          "final_status": "success",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:36:04",
+          "updated_at": "2026-03-06T11:36:22"
+        }
+      },
+      "result_source": "eval-proxy",
+      "duration_sec": 19.4,
+      "status": "succeeded",
+      "submit_status": "submitting",
+      "callback_status": "success",
+      "final_status": "success",
+      "error_code": null,
+      "error_message": null,
+      "output_count": 0,
+      "final_source": "initial-pass"
+    },
+    {
+      "workflow_version_id": "deba9918233945c793c8ab0c83862608",
+      "workflow_id": "7601054603211177984",
+      "name": "ComfyUI 队列监控 · comfyui_duilie",
+      "category": "通用类",
+      "body": {
+        "workflow_version_id": "deba9918233945c793c8ab0c83862608"
+      },
+      "via_eval_proxy": {
+        "phase": "done",
+        "error": null,
+        "run": {
+          "workflow_version_id": "deba9918233945c793c8ab0c83862608",
+          "dataset_item_id": null,
+          "input_oss_urls_json": null,
+          "parameters_json": {
+            "__eval_provider_lane": "comfyui"
+          },
+          "status": "queued",
+          "coze_execute_id": null,
+          "coze_debug_url": null,
+          "podi_task_id": null,
+          "result_image_urls_json": null,
+          "result_output_json": null,
+          "error_message": null,
+          "duration_ms": null,
+          "id": "6a05620d03d74ba383629e3966403f99",
+          "submit_status": "pending",
+          "callback_status": "waiting",
+          "final_status": "pending",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:36:24",
+          "updated_at": "2026-03-06T11:36:24"
+        },
+        "detail": {
+          "workflow_version_id": "deba9918233945c793c8ab0c83862608",
+          "dataset_item_id": null,
+          "input_oss_urls_json": null,
+          "parameters_json": {
+            "__eval_provider_lane": "comfyui"
+          },
+          "status": "succeeded",
+          "coze_execute_id": "7614105071529230336",
+          "coze_debug_url": "http://114.55.0.56:8888/work_flow?execute_id=7614105071529230336&execute_mode=2&space_id=7597421439045599232&workflow_id=7601054603211177984",
+          "podi_task_id": null,
+          "result_image_urls_json": [],
+          "result_output_json": {
+            "servers": [
+              {
+                "baseUrl": "http://117.50.80.158:8079",
+                "message": null,
+                "supported": true,
+                "executorId": "executor_comfyui_pattern_extract_158",
+                "pendingCount": 0,
+                "queueMaxSize": 0,
+                "runningCount": 0
+              },
+              {
+                "baseUrl": "http://117.50.216.233:8079",
+                "message": null,
+                "supported": true,
+                "executorId": "executor_comfyui_seamless_117",
+                "pendingCount": 0,
+                "queueMaxSize": 0,
+                "runningCount": 0
+              }
+            ],
+            "timestamp": "2026-03-06T11:36:27.730240+00:00",
+            "totalCount": 0,
+            "totalPending": 0,
+            "totalRunning": 0
+          },
+          "error_message": null,
+          "duration_ms": 4250,
+          "id": "6a05620d03d74ba383629e3966403f99",
+          "submit_status": "submitting",
+          "callback_status": "success",
+          "final_status": "success",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:36:24",
+          "updated_at": "2026-03-06T11:36:28"
+        }
+      },
+      "result_source": "eval-proxy",
+      "duration_sec": 6.8,
+      "status": "succeeded",
+      "submit_status": "submitting",
+      "callback_status": "success",
+      "final_status": "success",
+      "error_code": null,
+      "error_message": null,
+      "output_count": 0,
+      "final_source": "initial-pass"
+    },
+    {
+      "workflow_version_id": "3eedabb0ea05468ca4454baa411a2bc0",
+      "workflow_id": "7600254796297142272",
+      "name": "图片打标签 · Biaoqian_tiqu_3_1",
+      "category": "通用类",
+      "body": {
+        "workflow_version_id": "3eedabb0ea05468ca4454baa411a2bc0",
+        "input_oss_urls_json": [
+          "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+        ]
+      },
+      "via_eval_proxy": {
+        "phase": "done",
+        "error": null,
+        "run": {
+          "workflow_version_id": "3eedabb0ea05468ca4454baa411a2bc0",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "__eval_provider_lane": "default"
+          },
+          "status": "queued",
+          "coze_execute_id": null,
+          "coze_debug_url": null,
+          "podi_task_id": null,
+          "result_image_urls_json": null,
+          "result_output_json": null,
+          "error_message": null,
+          "duration_ms": null,
+          "id": "09cacbb8ef3f4c5bb25b40e453033e93",
+          "submit_status": "pending",
+          "callback_status": "waiting",
+          "final_status": "pending",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:36:30",
+          "updated_at": "2026-03-06T11:36:30"
+        },
+        "detail": {
+          "workflow_version_id": "3eedabb0ea05468ca4454baa411a2bc0",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "__eval_provider_lane": "default"
+          },
+          "status": "succeeded",
+          "coze_execute_id": "7614105101849853952",
+          "coze_debug_url": "http://114.55.0.56:8888/work_flow?execute_id=7614105101849853952&execute_mode=2&space_id=7597421439045599232&workflow_id=7600254796297142272",
+          "podi_task_id": null,
+          "result_image_urls_json": [],
+          "result_output_json": {
+            "main_color": "#ffffff",
+            "person_info": [
+              "Hello Kitty",
+              "卡通化Jisoo形象"
+            ],
+            "core_elements": [
+              "Hello Kitty联名水杯",
+              "白色毛绒挂件",
+              "粉色包装盒",
+              "深绿色桌面"
+            ],
+            "person_source": "Hello Kitty x Jisoo联名系列",
+            "style_keywords": {
+              "elements": [
+                "卡通IP图案",
+                "毛绒材质",
+                "粉色装饰"
+              ],
+              "art_style": [
+                "可爱风",
+                "卡通化",
+                "甜美风格"
+              ]
+            }
+          },
+          "error_message": null,
+          "duration_ms": 11922,
+          "id": "09cacbb8ef3f4c5bb25b40e453033e93",
+          "submit_status": "submitting",
+          "callback_status": "success",
+          "final_status": "success",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:36:30",
+          "updated_at": "2026-03-06T11:36:43"
+        }
+      },
+      "result_source": "eval-proxy",
+      "duration_sec": 13.1,
+      "status": "succeeded",
+      "submit_status": "submitting",
+      "callback_status": "success",
+      "final_status": "success",
+      "error_code": null,
+      "error_message": null,
+      "output_count": 0,
+      "final_source": "initial-pass"
+    },
+    {
+      "workflow_version_id": "b072872a56354996a98d1a4d605b4dea",
+      "workflow_id": "7597767702970630144",
+      "name": "图片打标签 · Biaoqian_tiqu",
+      "category": "通用类",
+      "body": {
+        "workflow_version_id": "b072872a56354996a98d1a4d605b4dea",
+        "input_oss_urls_json": [
+          "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+        ]
+      },
+      "via_eval_proxy": {
+        "phase": "done",
+        "error": null,
+        "run": {
+          "workflow_version_id": "b072872a56354996a98d1a4d605b4dea",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "__eval_provider_lane": "default"
+          },
+          "status": "queued",
+          "coze_execute_id": null,
+          "coze_debug_url": null,
+          "podi_task_id": null,
+          "result_image_urls_json": null,
+          "result_output_json": null,
+          "error_message": null,
+          "duration_ms": null,
+          "id": "e3f23ab00dd3492bb05c8252e12aacc3",
+          "submit_status": "pending",
+          "callback_status": "waiting",
+          "final_status": "pending",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:36:44",
+          "updated_at": "2026-03-06T11:36:44"
+        },
+        "detail": {
+          "workflow_version_id": "b072872a56354996a98d1a4d605b4dea",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "__eval_provider_lane": "default"
+          },
+          "status": "succeeded",
+          "coze_execute_id": "7614105156866539520",
+          "coze_debug_url": "http://114.55.0.56:8888/work_flow?execute_id=7614105156866539520&execute_mode=2&space_id=7597421439045599232&workflow_id=7597767702970630144",
+          "podi_task_id": null,
+          "result_image_urls_json": [],
+          "result_output_json": {
+            "main_color": "白色",
+            "person_info": [
+              "Hello Kitty",
+              "JISOO（卡通形象）"
+            ],
+            "core_elements": [
+              "Hello Kitty联名水杯",
+              "白色毛绒挂件",
+              "粉色盒子"
+            ],
+            "person_source": "Hello Kitty & JISOO联名周边",
+            "style_keywords": {
+              "elements": [
+                "卡通图案",
+                "毛绒材质",
+                "粉色装饰"
+              ],
+              "art_style": [
+                "可爱风",
+                "卡通插画",
+                "萌系风格"
+              ]
+            }
+          },
+          "error_message": null,
+          "duration_ms": 12359,
+          "id": "e3f23ab00dd3492bb05c8252e12aacc3",
+          "submit_status": "submitting",
+          "callback_status": "success",
+          "final_status": "success",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:36:44",
+          "updated_at": "2026-03-06T11:36:56"
+        }
+      },
+      "result_source": "eval-proxy",
+      "duration_sec": 13.1,
+      "status": "succeeded",
+      "submit_status": "submitting",
+      "callback_status": "success",
+      "final_status": "success",
+      "error_code": null,
+      "error_message": null,
+      "output_count": 0,
+      "final_source": "initial-pass"
+    },
+    {
+      "workflow_version_id": "cd48c53cf30946fb9e2d6234bde5660b",
+      "workflow_id": "7598080013539213312",
+      "name": "图片打标签 · Biaoqian_tiqu_1",
+      "category": "通用类",
+      "body": {
+        "workflow_version_id": "cd48c53cf30946fb9e2d6234bde5660b",
+        "input_oss_urls_json": [
+          "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+        ]
+      },
+      "via_eval_proxy": {
+        "phase": "done",
+        "error": null,
+        "run": {
+          "workflow_version_id": "cd48c53cf30946fb9e2d6234bde5660b",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "__eval_provider_lane": "default"
+          },
+          "status": "queued",
+          "coze_execute_id": null,
+          "coze_debug_url": null,
+          "podi_task_id": null,
+          "result_image_urls_json": null,
+          "result_output_json": null,
+          "error_message": null,
+          "duration_ms": null,
+          "id": "17d60249d217410d8e5c2fb5c74e4e5c",
+          "submit_status": "pending",
+          "callback_status": "waiting",
+          "final_status": "pending",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:36:57",
+          "updated_at": "2026-03-06T11:36:57"
+        },
+        "detail": {
+          "workflow_version_id": "cd48c53cf30946fb9e2d6234bde5660b",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "__eval_provider_lane": "default"
+          },
+          "status": "succeeded",
+          "coze_execute_id": "7614105213158293504",
+          "coze_debug_url": "http://114.55.0.56:8888/work_flow?execute_id=7614105213158293504&execute_mode=2&space_id=7597421439045599232&workflow_id=7598080013539213312",
+          "podi_task_id": null,
+          "result_image_urls_json": [],
+          "result_output_json": {
+            "main_color": "白色",
+            "color_ratio": {
+              "白色": 0.55,
+              "粉色": 0.2
+            },
+            "person_info": [
+              "金智秀（JISOO）",
+              "Hello Kitty"
+            ],
+            "core_elements": [
+              "Hello Kitty联名保温杯",
+              "白色毛绒挂饰",
+              "带粉色把手的吸管杯",
+              "粉色联名包装盒",
+              "卡通人物印花"
+            ],
+            "person_source": "BLACKPINK、三丽鸥（Sanrio）",
+            "style_keywords": {
+              "elements": [
+                "明星IP联名",
+                "桌面静物陈列",
+                "卡通周边产品"
+              ],
+              "art_style": [
+                "写实产品摄影",
+                "可爱风格",
+                "特写拍摄"
+              ]
+            },
+            "secondary_color": "粉色"
+          },
+          "error_message": null,
+          "duration_ms": 28608,
+          "id": "17d60249d217410d8e5c2fb5c74e4e5c",
+          "submit_status": "submitting",
+          "callback_status": "success",
+          "final_status": "success",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:36:57",
+          "updated_at": "2026-03-06T11:37:25"
+        }
+      },
+      "result_source": "eval-proxy",
+      "duration_sec": 32.0,
+      "status": "succeeded",
+      "submit_status": "submitting",
+      "callback_status": "success",
+      "final_status": "success",
+      "error_code": null,
+      "error_message": null,
+      "output_count": 0,
+      "final_source": "initial-pass"
+    },
+    {
+      "workflow_version_id": "8b890aeaa31f476fb0faf1aaa2f93393",
+      "workflow_id": "7598589746561941504",
+      "name": "DPI 增分",
+      "category": "通用类",
+      "body": {
+        "workflow_version_id": "8b890aeaa31f476fb0faf1aaa2f93393",
+        "parameters_json": {
+          "dpi": "300"
+        },
+        "input_oss_urls_json": [
+          "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+        ]
+      },
+      "via_eval_proxy": {
+        "phase": "done",
+        "error": null,
+        "run": {
+          "workflow_version_id": "8b890aeaa31f476fb0faf1aaa2f93393",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "dpi": "300",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "__eval_provider_lane": "default"
+          },
+          "status": "queued",
+          "coze_execute_id": null,
+          "coze_debug_url": null,
+          "podi_task_id": null,
+          "result_image_urls_json": null,
+          "result_output_json": null,
+          "error_message": null,
+          "duration_ms": null,
+          "id": "3484f9f70a884b7790057ae10f09d186",
+          "submit_status": "pending",
+          "callback_status": "waiting",
+          "final_status": "pending",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:37:29",
+          "updated_at": "2026-03-06T11:37:29"
+        },
+        "detail": {
+          "workflow_version_id": "8b890aeaa31f476fb0faf1aaa2f93393",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "dpi": "300",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "__eval_provider_lane": "default"
+          },
+          "status": "succeeded",
+          "coze_execute_id": "7614105350513360896",
+          "coze_debug_url": "http://114.55.0.56:8888/work_flow?execute_id=7614105350513360896&execute_mode=2&space_id=7597421439045599232&workflow_id=7598589746561941504",
+          "podi_task_id": null,
+          "result_image_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/service/20260306/6312b168-1772768251.jpg"
+          ],
+          "result_output_json": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/service/20260306/6312b168-1772768251.jpg",
+          "error_message": null,
+          "duration_ms": 3578,
+          "id": "3484f9f70a884b7790057ae10f09d186",
+          "submit_status": "submitting",
+          "callback_status": "success",
+          "final_status": "success",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:37:29",
+          "updated_at": "2026-03-06T11:37:32"
+        }
+      },
+      "result_source": "eval-proxy",
+      "duration_sec": 6.7,
+      "status": "succeeded",
+      "submit_status": "submitting",
+      "callback_status": "success",
+      "final_status": "success",
+      "error_code": null,
+      "error_message": null,
+      "output_count": 1,
+      "final_source": "initial-pass"
+    },
+    {
+      "workflow_version_id": "6387c78165e14625b43082219e147744",
+      "workflow_id": "7597760543788630016",
+      "name": "8K 高清放大",
+      "category": "通用类",
+      "body": {
+        "workflow_version_id": "6387c78165e14625b43082219e147744",
+        "parameters_json": {
+          "bianchang": "4096"
+        },
+        "input_oss_urls_json": [
+          "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+        ]
+      },
+      "via_eval_proxy": {
+        "phase": "done",
+        "error": null,
+        "run": {
+          "workflow_version_id": "6387c78165e14625b43082219e147744",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "bianchang": "4096",
+            "__eval_provider_lane": "default"
+          },
+          "status": "queued",
+          "coze_execute_id": null,
+          "coze_debug_url": null,
+          "podi_task_id": null,
+          "result_image_urls_json": null,
+          "result_output_json": null,
+          "error_message": null,
+          "duration_ms": null,
+          "id": "4ecfc0d0af8a4eeca07b8f0ef12b66d0",
+          "submit_status": "pending",
+          "callback_status": "waiting",
+          "final_status": "pending",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:37:35",
+          "updated_at": "2026-03-06T11:37:35"
+        },
+        "detail": {
+          "workflow_version_id": "6387c78165e14625b43082219e147744",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "bianchang": "4096",
+            "__eval_provider_lane": "default"
+          },
+          "status": "succeeded",
+          "coze_execute_id": "7614105379441475584",
+          "coze_debug_url": "http://114.55.0.56:8888/work_flow?execute_id=7614105379441475584&execute_mode=2&space_id=7597421439045599232&workflow_id=7597760543788630016",
+          "podi_task_id": null,
+          "result_image_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/service/20260306/89cab1a1-1772768259.png"
+          ],
+          "result_output_json": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/service/20260306/89cab1a1-1772768259.png",
+          "error_message": null,
+          "duration_ms": 17313,
+          "id": "4ecfc0d0af8a4eeca07b8f0ef12b66d0",
+          "submit_status": "submitting",
+          "callback_status": "success",
+          "final_status": "success",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:37:35",
+          "updated_at": "2026-03-06T11:37:53"
+        }
+      },
+      "result_source": "eval-proxy",
+      "duration_sec": 19.3,
+      "status": "succeeded",
+      "submit_status": "submitting",
+      "callback_status": "success",
+      "final_status": "success",
+      "error_code": null,
+      "error_message": null,
+      "output_count": 1,
+      "final_source": "initial-pass"
+    },
+    {
+      "workflow_version_id": "cf2ddeabd62245fca6e78310b369231a",
+      "workflow_id": "7597701996124045312",
+      "name": "四步急速生图",
+      "category": "通用类",
+      "body": {
+        "workflow_version_id": "cf2ddeabd62245fca6e78310b369231a",
+        "parameters_json": {
+          "width": "1024",
+          "height": "1024",
+          "prompt": "test prompt"
+        },
+        "input_oss_urls_json": [
+          "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+        ]
+      },
+      "via_eval_proxy": {
+        "phase": "done",
+        "error": null,
+        "run": {
+          "workflow_version_id": "cf2ddeabd62245fca6e78310b369231a",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "width": "1024",
+            "height": "1024",
+            "prompt": "test prompt",
+            "__eval_provider_lane": "default"
+          },
+          "status": "queued",
+          "coze_execute_id": null,
+          "coze_debug_url": null,
+          "podi_task_id": null,
+          "result_image_urls_json": null,
+          "result_output_json": null,
+          "error_message": null,
+          "duration_ms": null,
+          "id": "9eaade0aca9847b4b1fc98c88d31beaa",
+          "submit_status": "pending",
+          "callback_status": "waiting",
+          "final_status": "pending",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:37:55",
+          "updated_at": "2026-03-06T11:37:55"
+        },
+        "detail": {
+          "workflow_version_id": "cf2ddeabd62245fca6e78310b369231a",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "width": "1024",
+            "height": "1024",
+            "prompt": "test prompt",
+            "__eval_provider_lane": "default"
+          },
+          "status": "succeeded",
+          "coze_execute_id": "7614105462434168832",
+          "coze_debug_url": "http://114.55.0.56:8888/work_flow?execute_id=7614105462434168832&execute_mode=2&space_id=7597421439045599232&workflow_id=7597701996124045312",
+          "podi_task_id": "9d8a3940b2eb418b87cb8c48602081ed",
+          "result_image_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/admin-comfyui/20260306/8448fbb6-1772768301.png"
+          ],
+          "result_output_json": {
+            "ip": "http://117.50.80.158:8079",
+            "output": "t1.comfyui.executor_comfyui_pattern_extract_158.9d8a3940b2eb418b87cb8c48602081ed",
+            "prompt": "test prompt"
+          },
+          "error_message": null,
+          "duration_ms": 35328,
+          "id": "9eaade0aca9847b4b1fc98c88d31beaa",
+          "submit_status": "submitted",
+          "callback_status": "success",
+          "final_status": "success",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:37:55",
+          "updated_at": "2026-03-06T11:38:30"
+        }
+      },
+      "result_source": "eval-proxy",
+      "duration_sec": 38.2,
+      "status": "succeeded",
+      "submit_status": "submitted",
+      "callback_status": "success",
+      "final_status": "success",
+      "error_code": null,
+      "error_message": null,
+      "output_count": 1,
+      "final_source": "initial-pass"
+    },
+    {
+      "workflow_version_id": "4608d9b06fe54631900ee287615a8928",
+      "workflow_id": "7597702948247830528",
+      "name": "八步急速生图",
+      "category": "通用类",
+      "body": {
+        "workflow_version_id": "4608d9b06fe54631900ee287615a8928",
+        "parameters_json": {
+          "width": "1024",
+          "height": "1024",
+          "prompt": "test prompt"
+        },
+        "input_oss_urls_json": [
+          "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+        ]
+      },
+      "via_eval_proxy": {
+        "phase": "done",
+        "error": null,
+        "run": {
+          "workflow_version_id": "4608d9b06fe54631900ee287615a8928",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "width": "1024",
+            "height": "1024",
+            "prompt": "test prompt",
+            "__eval_provider_lane": "default"
+          },
+          "status": "queued",
+          "coze_execute_id": null,
+          "coze_debug_url": null,
+          "podi_task_id": null,
+          "result_image_urls_json": null,
+          "result_output_json": null,
+          "error_message": null,
+          "duration_ms": null,
+          "id": "38c7242b2b934c43b644661d8f33c0df",
+          "submit_status": "pending",
+          "callback_status": "waiting",
+          "final_status": "pending",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:38:33",
+          "updated_at": "2026-03-06T11:38:33"
+        },
+        "detail": {
+          "workflow_version_id": "4608d9b06fe54631900ee287615a8928",
+          "dataset_item_id": null,
+          "input_oss_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg"
+          ],
+          "parameters_json": {
+            "URL": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "Url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "url": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/c7a9efb14e6241b9866e6d50b3b0f598/20260306/3cea93e7-1772767434.jpg",
+            "width": "1024",
+            "height": "1024",
+            "prompt": "test prompt",
+            "__eval_provider_lane": "default"
+          },
+          "status": "succeeded",
+          "coze_execute_id": "7614105627815575552",
+          "coze_debug_url": "http://114.55.0.56:8888/work_flow?execute_id=7614105627815575552&execute_mode=2&space_id=7597421439045599232&workflow_id=7597702948247830528",
+          "podi_task_id": "3e198159a38f4ad6991975458f98358b",
+          "result_image_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/admin-comfyui/20260306/ef01b409-1772768352.png"
+          ],
+          "result_output_json": {
+            "ip": "http://117.50.216.233:8079",
+            "output": "t1.comfyui.executor_comfyui_seamless_117.3e198159a38f4ad6991975458f98358b",
+            "prompt": "test prompt"
+          },
+          "error_message": null,
+          "duration_ms": 44609,
+          "id": "38c7242b2b934c43b644661d8f33c0df",
+          "submit_status": "submitted",
+          "callback_status": "success",
+          "final_status": "success",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:38:33",
+          "updated_at": "2026-03-06T11:39:18"
+        }
+      },
+      "result_source": "eval-proxy",
+      "duration_sec": 47.8,
+      "status": "succeeded",
+      "submit_status": "submitted",
+      "callback_status": "success",
+      "final_status": "success",
+      "error_code": null,
+      "error_message": null,
+      "output_count": 1,
+      "final_source": "initial-pass"
+    },
+    {
+      "workflow_version_id": "ee4efd55b8be4b00982b62fdea5c7041",
+      "workflow_id": "7597556718159003648",
+      "name": "ComfyUI 回调 · comfyui_huidiao",
+      "category": "通用类",
+      "body": {
+        "workflow_version_id": "ee4efd55b8be4b00982b62fdea5c7041",
+        "parameters_json": {
+          "taskid": "dfbb0cc26a31491ca7ecbc8898349b04"
+        }
+      },
+      "via_eval_proxy": {
+        "phase": "done",
+        "error": null,
+        "run": {
+          "workflow_version_id": "ee4efd55b8be4b00982b62fdea5c7041",
+          "dataset_item_id": null,
+          "input_oss_urls_json": null,
+          "parameters_json": {
+            "taskid": "dfbb0cc26a31491ca7ecbc8898349b04",
+            "__eval_provider_lane": "comfyui"
+          },
+          "status": "queued",
+          "coze_execute_id": null,
+          "coze_debug_url": null,
+          "podi_task_id": null,
+          "result_image_urls_json": null,
+          "result_output_json": null,
+          "error_message": null,
+          "duration_ms": null,
+          "id": "583fd0b58dbc4196902e1f1d6298df4d",
+          "submit_status": "pending",
+          "callback_status": "waiting",
+          "final_status": "pending",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:39:21",
+          "updated_at": "2026-03-06T11:39:21"
+        },
+        "detail": {
+          "workflow_version_id": "ee4efd55b8be4b00982b62fdea5c7041",
+          "dataset_item_id": null,
+          "input_oss_urls_json": null,
+          "parameters_json": {
+            "taskid": "dfbb0cc26a31491ca7ecbc8898349b04",
+            "__eval_provider_lane": "comfyui"
+          },
+          "status": "succeeded",
+          "coze_execute_id": "7614105832250146816",
+          "coze_debug_url": "http://114.55.0.56:8888/work_flow?execute_id=7614105832250146816&execute_mode=2&space_id=7597421439045599232&workflow_id=7597556718159003648",
+          "podi_task_id": null,
+          "result_image_urls_json": [
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/admin-comfyui/20260305/e35b47a5-1772689603.png"
+          ],
+          "result_output_json": {
+            "images": "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/admin-comfyui/20260305/e35b47a5-1772689603.png"
+          },
+          "error_message": null,
+          "duration_ms": 1750,
+          "id": "583fd0b58dbc4196902e1f1d6298df4d",
+          "submit_status": "submitting",
+          "callback_status": "success",
+          "final_status": "success",
+          "error_code": null,
+          "created_by": "c7a9efb14e6241b9866e6d50b3b0f598",
+          "created_at": "2026-03-06T11:39:21",
+          "updated_at": "2026-03-06T11:39:23"
+        }
+      },
+      "result_source": "eval-proxy",
+      "duration_sec": 3.6,
+      "status": "succeeded",
+      "submit_status": "submitting",
+      "callback_status": "success",
+      "final_status": "success",
+      "error_code": null,
+      "error_message": null,
+      "output_count": 1,
+      "final_source": "initial-pass"
+    }
+  ]
+}
