@@ -714,6 +714,51 @@ def _comfyui_jisu_chuli_schema() -> dict[str, Any]:
     }
 
 
+def _comfyui_multi_image_fusion_schema() -> dict[str, Any]:
+    return {
+        "fields": [
+            {
+                "name": "image_url",
+                "type": "image",
+                "label": _compose_bilingual_label("主图 URL", "Primary Image URL"),
+                "description": "节点 422 · LoadImagesFromURL.url（image1）",
+                "required": True,
+            },
+            {
+                "name": "image_urls",
+                "type": "textarea",
+                "label": _compose_bilingual_label("附加图片 URLs", "Additional Image URLs"),
+                "description": _compose_bilingual_label(
+                    "可选，最多再提供 2 张；按顺序映射到节点 421/416（image2/image3）。未提供时自动复用主图或最后一张。",
+                    "Optional, provide up to 2 more URLs; mapped to nodes 421/416 (image2/image3). Missing slots reuse the primary or last provided image.",
+                ),
+                "required": False,
+            },
+            {
+                "name": "prompt",
+                "type": "textarea",
+                "label": _compose_bilingual_label("正向提示词", "Positive Prompt"),
+                "description": "节点 379 · TextEncodeQwenImageEditPlus.prompt",
+                "required": False,
+            },
+            {
+                "name": "negative_prompt",
+                "type": "textarea",
+                "label": _compose_bilingual_label("反向提示词", "Negative Prompt"),
+                "description": "节点 372 · TextEncodeQwenImageEditPlus.prompt",
+                "required": False,
+            },
+            {
+                "name": "lora",
+                "type": "text",
+                "label": _compose_bilingual_label("LoRA 文件名", "LoRA Name"),
+                "description": "节点 89 · LoraLoaderModelOnly.lora_name（可选，不填使用工作流默认值）",
+                "required": False,
+            },
+        ]
+    }
+
+
 def _build_kie_schema(capability_key: str) -> dict[str, Any]:
     if capability_key == "nano_banana_pro_image_to_image":
         return {
@@ -1492,6 +1537,34 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
                 "list_price": 0.6,
                 "discount_price": 0.35
             }
+        },
+    },
+    "duotu_ronghe": {
+        "defaults": {
+            "workflow_key": "duotu_ronghe",
+            "timeout": 360,
+        },
+        "display_name": "ComfyUI · 多图融合",
+        "description": "输入 2~3 张图片，基于 Qwen Image Edit / Flux Kontext 做多图融合，输出 1 张融合图。",
+        "category": "image_generation",
+        "input_schema": _comfyui_multi_image_fusion_schema(),
+        "metadata": {
+            "executor_type": "comfyui",
+            "executor_tag": "comfyui",
+            "api_type": "comfyui_workflow",
+            "workflow_key": "duotu_ronghe",
+            "action": "multi_image_fusion",
+            "requires_image_input": True,
+            "supports_vision": True,
+            "allowed_executor_ids": ["executor_comfyui_pattern_extract_158", "executor_comfyui_seamless_117"],
+            "routing_policy": "queue",
+            "seed_version": 1,
+            "pricing": {
+                "currency": "CNY",
+                "unit": "per_image",
+                "list_price": 0.6,
+                "discount_price": 0.35,
+            },
         },
     },
 }

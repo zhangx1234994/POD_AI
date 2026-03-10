@@ -76,6 +76,20 @@ def _build_workflow_seeds() -> list[WorkflowSeed]:
                 "description": "ComfyUI workflow for pattern extraction / design flattening.",
             },
         ),
+        WorkflowSeed(
+            id="workflow_comfyui_duotu_ronghe_v1",
+            action="multi_image_fusion",
+            name="多图融合 · ComfyUI",
+            version="v1",
+            type="comfyui",
+            status="active",
+            workflow_key="duotu_ronghe",
+            metadata={
+                "workflow_key": "duotu_ronghe",
+                "description": "ComfyUI workflow for multi-image fusion / compositing.",
+                "output_node_ids": ["357"],
+            },
+        ),
     ]
 
 
@@ -107,6 +121,15 @@ def _build_binding_seeds() -> list[WorkflowBindingSeed]:
             priority=100,
             enabled=True,
             metadata={"notes": "Default binding for ComfyUI 印花提取 workflow (117.50.80.158:8079)"},
+        ),
+        WorkflowBindingSeed(
+            id="binding_multi_image_fusion_comfyui_v1",
+            action="multi_image_fusion",
+            workflow_id="workflow_comfyui_duotu_ronghe_v1",
+            executor_id="executor_comfyui_pattern_extract_158",
+            priority=100,
+            enabled=True,
+            metadata={"notes": "Default binding for ComfyUI 多图融合 workflow (117.50.80.158:8079)"},
         ),
     ]
 

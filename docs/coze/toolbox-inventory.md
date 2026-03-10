@@ -102,6 +102,9 @@
 ### 2026-03-05
 - 调整：LoRA/KIE 查询接口补充 snake_case 兼容字段，便于 Coze 与中台统一解析。
 
+### 2026-03-10
+- 新增：`ComfyUI · 多图融合` 能力，已进入通用能力工具箱与 ComfyUI 工具箱。
+
 ## 7) Baidu 工具箱（执行类）
 
 - OpenAPI：`/api/coze/podi/baidu/openapi.json`

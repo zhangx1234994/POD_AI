@@ -1,0 +1,298 @@
+{
+  "37": {
+    "inputs": {
+      "unet_name": "qwen_image_edit_2511_fp8mixed.safetensors",
+      "weight_dtype": "fp8_e4m3fn"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "UNet加载器"
+    }
+  },
+  "38": {
+    "inputs": {
+      "clip_name": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "type": "qwen_image",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "加载CLIP"
+    }
+  },
+  "39": {
+    "inputs": {
+      "vae_name": "qwen_image_vae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "加载VAE"
+    }
+  },
+  "66": {
+    "inputs": {
+      "shift": 3,
+      "model": [
+        "89",
+        0
+      ]
+    },
+    "class_type": "ModelSamplingAuraFlow",
+    "_meta": {
+      "title": "采样算法（AuraFlow）"
+    }
+  },
+  "75": {
+    "inputs": {
+      "strength": 1,
+      "model": [
+        "66",
+        0
+      ]
+    },
+    "class_type": "CFGNorm",
+    "_meta": {
+      "title": "CFG归一化"
+    }
+  },
+  "89": {
+    "inputs": {
+      "lora_name": "Qwen-Image-Edit-2509-Lightning-4steps-V1.0-bf16.safetensors",
+      "strength_model": 1,
+      "model": [
+        "37",
+        0
+      ]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "LoRA加载器（仅模型）"
+    }
+  },
+  "151": {
+    "inputs": {
+      "seed": 817606438419922
+    },
+    "class_type": "CR Seed",
+    "_meta": {
+      "title": "🌱 CR Seed"
+    }
+  },
+  "357": {
+    "inputs": {
+      "images": [
+        "362",
+        0
+      ]
+    },
+    "class_type": "PreviewImage",
+    "_meta": {
+      "title": "预览图像"
+    }
+  },
+  "360": {
+    "inputs": {
+      "anything": [
+        "362",
+        0
+      ]
+    },
+    "class_type": "easy clearCacheAll",
+    "_meta": {
+      "title": "清除全部缓存"
+    }
+  },
+  "362": {
+    "inputs": {
+      "samples": [
+        "378",
+        0
+      ],
+      "vae": [
+        "39",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE解码"
+    }
+  },
+  "367": {
+    "inputs": {
+      "image": [
+        "422",
+        0
+      ]
+    },
+    "class_type": "FluxKontextImageScale",
+    "_meta": {
+      "title": "FluxKontextImageScale"
+    }
+  },
+  "368": {
+    "inputs": {
+      "image": [
+        "421",
+        0
+      ]
+    },
+    "class_type": "FluxKontextImageScale",
+    "_meta": {
+      "title": "FluxKontextImageScale"
+    }
+  },
+  "369": {
+    "inputs": {
+      "image": [
+        "416",
+        0
+      ]
+    },
+    "class_type": "FluxKontextImageScale",
+    "_meta": {
+      "title": "FluxKontextImageScale"
+    }
+  },
+  "371": {
+    "inputs": {
+      "width": 512,
+      "height": 512,
+      "batch_size": 1
+    },
+    "class_type": "EmptySD3LatentImage",
+    "_meta": {
+      "title": "空Latent图像（SD3）"
+    }
+  },
+  "372": {
+    "inputs": {
+      "prompt": "blurry, low resolution, distorted, fused faces, mismatched features, inconsistent lighting, conflicting poses, merged limbs, extra limbs, extra fingers, extra eyes, deformed hands, disfigured, bad anatomy, unnatural skin tone, inconsistent style, style clash, double exposure artifact, ghosting, image ghost, overlapping subjects, misaligned features, facial asymmetry, broken perspective, duplicated elements, partial objects, cropped heads, floating limbs, disconnected body parts, unnatural proportions, texture mismatch, color bleeding, seam lines, visible stitching, collage-like appearance, photo montage look, low detail, jpeg artifacts, noisy, overexposed, underexposed, unrealistic shadows, inconsistent shadows, multiple viewpoints in one image, conflicting backgrounds, background mismatch, unnatural pose fusion, identity confusion, identity leakage, mixed identities, face blending artifact, warped geometry, perspective error, unnatural eye direction, mismatched clothing style, inconsistent clothing texture, mixed ethnic features, unnatural hairline, hair fusion artifact",
+      "clip": [
+        "38",
+        0
+      ],
+      "vae": [
+        "39",
+        0
+      ],
+      "image1": [
+        "367",
+        0
+      ],
+      "image2": [
+        "368",
+        0
+      ],
+      "image3": [
+        "369",
+        0
+      ]
+    },
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "_meta": {
+      "title": "负面提示词Negative Prompt"
+    }
+  },
+  "376": {
+    "inputs": {
+      "anything": [
+        "362",
+        0
+      ]
+    },
+    "class_type": "easy cleanGpuUsed",
+    "_meta": {
+      "title": "清理显存占用"
+    }
+  },
+  "378": {
+    "inputs": {
+      "seed": [
+        "151",
+        0
+      ],
+      "steps": 8,
+      "cfg": 2,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": [
+        "75",
+        0
+      ],
+      "positive": [
+        "379",
+        0
+      ],
+      "negative": [
+        "372",
+        0
+      ],
+      "latent_image": [
+        "371",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "K采样器"
+    }
+  },
+  "379": {
+    "inputs": {
+      "prompt": "(photorealistic:1.3), (high detail:1.2), (sharp focus:1.2), masterpiece, best quality, 8k,\nseamless fusion of image1 and image2, \npreserve all identical regions from both images exactly as they are,\nonly modify the differing regions by extracting content from image2 and blending it into image1,\nclean edges, no artifacts, no visible seams, no double exposure,\nconsistent lighting, consistent perspective, consistent color tone across the entire image,\ndo not alter any part that is identical in both images, maintain structural integrity,\nnatural transition between preserved and modified areas, no invented content",
+      "clip": [
+        "38",
+        0
+      ],
+      "vae": [
+        "39",
+        0
+      ],
+      "image1": [
+        "367",
+        0
+      ],
+      "image2": [
+        "368",
+        0
+      ],
+      "image3": [
+        "369",
+        0
+      ]
+    },
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "_meta": {
+      "title": "正向提示词Prompt"
+    }
+  },
+  "416": {
+    "inputs": {
+      "url": "https://gips1.baidu.com/it/u=1573319441,2432408369&fm=3028&app=3028&f=JPEG&fmt=auto?w=1024&h=1024"
+    },
+    "class_type": "LoadImagesFromURL",
+    "_meta": {
+      "title": "Load Images From URL ♾️Mixlab"
+    }
+  },
+  "421": {
+    "inputs": {
+      "url": "https://gips1.baidu.com/it/u=1573319441,2432408369&fm=3028&app=3028&f=JPEG&fmt=auto?w=1024&h=1024"
+    },
+    "class_type": "LoadImagesFromURL",
+    "_meta": {
+      "title": "Load Images From URL ♾️Mixlab"
+    }
+  },
+  "422": {
+    "inputs": {
+      "url": "https://gips1.baidu.com/it/u=1573319441,2432408369&fm=3028&app=3028&f=JPEG&fmt=auto?w=1024&h=1024"
+    },
+    "class_type": "LoadImagesFromURL",
+    "_meta": {
+      "title": "Load Images From URL ♾️Mixlab"
+    }
+  }
+}

@@ -123,6 +123,40 @@
 - `output_long_side` 控制最终缩放尺寸（长边），若素材要求高分，请在能力表单中调高。
 - ControlNet/LoRA 组合对图案延展极为敏感，如需替换模型必须同步更新 workflow 与 `metadata.lora_presets`。
 
+## 多图融合 · ComfyUI (workflow_key: duotu_ronghe)
+
+| 项目 | 说明 |
+| --- | --- |
+| 能力 ID | comfyui.duotu_ronghe |
+| Action | multi_image_fusion |
+| 执行节点 | executor_comfyui_pattern_extract_158（默认）/ executor_comfyui_seamless_117（可选） |
+| Workflow 文件 | backend/app/workflows/comfyui/duotu_ronghe.json |
+| 超时设置 | 360 秒 |
+| 核心模型 | UNET: qwen_image_edit_2511_fp8mixed、CLIP: qwen_2.5_vl_7b_fp8_scaled、VAE: qwen_image_vae、LoRA: Qwen-Image-Edit Lightning 4steps |
+
+**关键节点**
+
+| 节点 | 描述 |
+| --- | --- |
+| 422 · LoadImagesFromURL.url | 主图（image1） |
+| 421 · LoadImagesFromURL.url | 参考图 1（image2） |
+| 416 · LoadImagesFromURL.url | 参考图 2（image3，可缺省时复用上一张） |
+| 379 / 372 · TextEncodeQwenImageEditPlus | 正/反提示词 |
+| 89 · LoraLoaderModelOnly | LoRA 文件名（默认 4steps Lightning） |
+| 357 · PreviewImage | 输出节点（工具箱默认只取 1 张） |
+
+**默认参数**
+
+- 主图：`image_url`（必填）
+- 附加图：`image_urls`（可选，支持 0~2 行）
+- prompt / negative_prompt：可覆盖 workflow 内默认文案
+- lora：可选，不填沿用 workflow 默认值
+
+**调试备注**
+
+- 工作流内部存在 3 路图像输入；若只提供 2 张图，后端会自动用第 2 张复用到第 3 路，避免节点缺图。
+- 当前 output node 使用 `357 · PreviewImage`，工具箱/能力接口会按 `output_node_ids=[357]` 抽取回填。
+
 ## 印花提取 · ComfyUI (workflow_key: yinhua_tiqu)
 
 | 项目 | 说明 |

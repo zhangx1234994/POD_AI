@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import base64
 import json
 import logging
@@ -658,6 +659,8 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             base_overrides, base_error = self._build_pattern_expand_inputs(inputs, context, workflow_definition)
         elif workflow_key in {"jisu_chuli", "zhongsu_tisheng"}:
             base_overrides, base_error = self._build_jisu_chuli_inputs(inputs, context, workflow_definition)
+        elif workflow_key == "duotu_ronghe":
+            base_overrides, base_error = self._build_duotu_ronghe_inputs(inputs, context, workflow_definition)
 
         if base_error:
             return None, base_error
@@ -991,6 +994,85 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             overrides["433"] = node_inputs
 
         return (overrides or None), None
+
+    def _build_duotu_ronghe_inputs(
+        self, params: dict[str, Any], context: ExecutionContext, workflow_definition: dict[str, Any]
+    ) -> tuple[dict[str, Any] | None, str | None]:
+        overrides: dict[str, dict[str, Any]] = {}
+
+        urls: list[str] = []
+        primary_url = self._normalize_remote_url(self._as_text(params.get("imageUrl") or params.get("image_url")))
+        if primary_url:
+            urls.append(primary_url)
+
+        extra_raw = params.get("image_urls") or params.get("imageUrls") or params.get("input_urls")
+        for url in self._split_url_list(extra_raw):
+            normalized = self._normalize_remote_url(url)
+            if normalized:
+                urls.append(normalized)
+
+        image_list = params.get("imageList") or params.get("image_list")
+        if isinstance(image_list, list):
+            for entry in image_list:
+                if not isinstance(entry, dict):
+                    continue
+                url = self._normalize_remote_url(self._as_text(entry.get("ossUrl") or entry.get("url")))
+                if url:
+                    urls.append(url)
+
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for url in urls:
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            deduped.append(url)
+        urls = deduped[:3]
+
+        if not urls:
+            return None, "COMFYUI_IMAGE_REQUIRED"
+        while len(urls) < 3:
+            urls.append(urls[-1])
+
+        overrides["422"] = {"url": urls[0]}
+        overrides["421"] = {"url": urls[1]}
+        overrides["416"] = {"url": urls[2]}
+
+        prompt = self._as_text(params.get("prompt") or params.get("positive_prompt"))
+        if prompt:
+            overrides.setdefault("379", {})["prompt"] = prompt
+
+        negative = self._as_text(params.get("negative_prompt") or params.get("negativePrompt"))
+        if negative:
+            overrides.setdefault("372", {})["prompt"] = negative
+
+        lora_name = self._as_text(params.get("lora") or params.get("lora_name") or params.get("loraName"))
+        if lora_name:
+            overrides.setdefault("89", {})["lora_name"] = lora_name
+
+        workflow_definition["_max_output_images"] = 1
+        workflow_definition["output_node_ids"] = ["357"]
+        return (overrides or None), None
+
+    @staticmethod
+    def _split_url_list(value: Any) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, list):
+            urls: list[str] = []
+            for item in value:
+                urls.extend(ComfyUIExecutorAdapter._split_url_list(item))
+            return urls
+        if isinstance(value, dict):
+            urls: list[str] = []
+            for key in ("url", "ossUrl"):
+                if key in value:
+                    urls.extend(ComfyUIExecutorAdapter._split_url_list(value.get(key)))
+            return urls
+        if isinstance(value, str):
+            return [item.strip() for item in re.split(r"[\n,]", value) if item.strip()]
+        text_value = str(value).strip()
+        return [text_value] if text_value else []
 
     def _resolve_image_source(
         self, params: dict[str, Any], context: ExecutionContext

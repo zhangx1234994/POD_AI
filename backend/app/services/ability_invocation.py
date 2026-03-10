@@ -373,7 +373,7 @@ class AbilityInvocationService:
             return None
         if workflow_key in {"sifang_lianxu", "huawen_kuotu"}:
             return "executor_comfyui_seamless_117"
-        if workflow_key in {"yinhua_tiqu", "jisu_chuli", "zhongsu_tisheng"}:
+        if workflow_key in {"yinhua_tiqu", "jisu_chuli", "zhongsu_tisheng", "duotu_ronghe"}:
             return "executor_comfyui_pattern_extract_158"
         return None
 

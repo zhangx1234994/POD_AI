@@ -38,6 +38,16 @@ curl http://127.0.0.1:8099/api/coze/podi/openapi.json
 curl http://127.0.0.1:8099/api/coze/podi/comfyui/lora/openapi.json
 ```
 
+### GET /api/coze/podi/comfyui/execute/duotu-ronghe/openapi.json
+
+**用途**：ComfyUI 多图融合独立工具箱（仅包含多图融合工具与任务轮询）。
+
+**示例**
+
+```bash
+curl http://127.0.0.1:8099/api/coze/podi/comfyui/execute/duotu-ronghe/openapi.json
+```
+
 ### GET /api/coze/podi/kie/catalog/openapi.json
 
 **用途**：KIE 模型查询专用工具箱（仅查询模型与参数，不执行生图/生视频）。

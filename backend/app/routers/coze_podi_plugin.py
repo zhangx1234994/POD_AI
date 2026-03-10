@@ -957,6 +957,25 @@ def get_comfyui_lora_openapi(request: Request) -> dict[str, Any]:
     return doc
 
 
+@router.get("/comfyui/execute/duotu-ronghe/openapi.json")
+def get_comfyui_duotu_ronghe_openapi(request: Request) -> dict[str, Any]:
+    """OpenAPI for standalone ComfyUI 多图融合 toolbox."""
+    doc = _build_openapi_filtered(
+        request=request,
+        providers={"comfyui"},
+        title="PODI ComfyUI 执行 · 多图融合",
+        description="ComfyUI 多图融合独立工具箱（含提交工具与任务轮询）。",
+        prefer_url_field=True,
+    )
+    paths = doc.get("paths") or {}
+    allowed = {
+        "/api/coze/podi/tools/comfyui/duotu_ronghe",
+        "/api/coze/podi/tasks/get",
+    }
+    doc["paths"] = {k: v for k, v in paths.items() if k in allowed}
+    return doc
+
+
 @router.get("/kie/catalog/openapi.json")
 def get_kie_catalog_openapi(request: Request) -> dict[str, Any]:
     """OpenAPI for PODI KIE model query-only plugin."""
