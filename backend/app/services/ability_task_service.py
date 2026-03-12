@@ -82,14 +82,15 @@ class AbilityTaskService:
             request_payload = payload.model_dump()
             if executor_id and not request_payload.get("executorId"):
                 request_payload["executorId"] = executor_id
+            task_user_id, task_user_name = self._serialize_task_owner(user)
             task = AbilityTask(
                 id=uuid4().hex,
                 ability_id=ability.id,
                 ability_name=ability.display_name,
                 ability_provider=ability.provider,
                 capability_key=ability.capability_key,
-                user_id=user.id if user else None,
-                user_name=user.username if user else None,
+                user_id=task_user_id,
+                user_name=task_user_name,
                 status="queued",
                 request_payload=request_payload,
                 callback_url=payload.callbackUrl,
@@ -101,6 +102,16 @@ class AbilityTaskService:
             task_data = self.to_dict(task)
         self._executor.submit(self._run_task, task.id)
         return task_data
+
+    @staticmethod
+    def _serialize_task_owner(user: User | None) -> tuple[str | None, str | None]:
+        if not user:
+            return None, None
+        user_id = str(getattr(user, "id", "") or "").strip()
+        user_name = getattr(user, "username", None)
+        if user_id == "service":
+            return None, user_name
+        return user_id or None, user_name
 
     def list_tasks(self, *, user: User, limit: int = 50) -> list[AbilityTask]:
         with get_session() as session:

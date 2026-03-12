@@ -1342,6 +1342,9 @@ function readTheme(): ThemeMode {
 
 export function App() {
   const [theme, setTheme] = useState<ThemeMode>(() => readTheme());
+  const [pageVisible, setPageVisible] = useState<boolean>(() =>
+    typeof document === 'undefined' ? true : document.visibilityState === 'visible',
+  );
   useEffect(() => {
     const isDark = theme === 'dark';
     // TDesign dark mode is driven by `t-theme-dark` class.
@@ -1350,6 +1353,18 @@ export function App() {
     document.documentElement.classList.toggle('dark', isDark);
     window.localStorage.setItem('podi.eval.theme', theme);
   }, [theme]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return undefined;
+    const syncVisibility = () => setPageVisible(document.visibilityState === 'visible');
+    syncVisibility();
+    document.addEventListener('visibilitychange', syncVisibility);
+    window.addEventListener('focus', syncVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', syncVisibility);
+      window.removeEventListener('focus', syncVisibility);
+    };
+  }, []);
 
   const pushNotice = useCallback((type: 'error' | 'success' | 'info', message: string) => {
     const content = toDisplayErrorMessage(message) || '未知错误';
@@ -2360,27 +2375,30 @@ export function App() {
   useEffect(() => {
     if (activeView !== 'loraBatch') return;
     if (loraBatchSubView !== 'generation') return;
+    if (!pageVisible) return;
     void loadBatchSessions({ silent: true });
     const hasActiveBatch = batchSessions.some((item) => !isTerminalBatchStatus(item.status));
-    const intervalMs = hasActiveBatch || batchSubmitting ? 10000 : 20000;
+    const intervalMs = hasActiveBatch || batchSubmitting ? 10000 : 30000;
     const timer = window.setInterval(() => {
       void loadBatchSessions({ silent: true });
     }, intervalMs);
     return () => window.clearInterval(timer);
-  }, [activeView, loraBatchSubView, loadBatchSessions, batchSessions, batchSubmitting]);
+  }, [activeView, loraBatchSubView, loadBatchSessions, batchSessions, batchSubmitting, pageVisible]);
 
   useEffect(() => {
     if (activeView !== 'loraBatch') return;
     if (loraBatchSubView !== 'generation') return;
+    if (!pageVisible) return;
     if (!selectedBatchId) return;
     if (batchSubmitting) return;
     if (!batchDetailExpanded) return;
     void loadBatchItems(selectedBatchId, { silent: true });
-  }, [activeView, loraBatchSubView, selectedBatchId, loadBatchItems, batchSubmitting, batchDetailExpanded]);
+  }, [activeView, loraBatchSubView, selectedBatchId, loadBatchItems, batchSubmitting, batchDetailExpanded, pageVisible]);
 
   useEffect(() => {
     if (activeView !== 'loraBatch') return;
     if (loraBatchSubView !== 'generation') return;
+    if (!pageVisible) return;
     if (!batchDetailExpanded) return;
     const timer = window.setInterval(() => {
       const selectedStatus = String(selectedBatchSession?.status || '');
@@ -2389,26 +2407,29 @@ export function App() {
       }
     }, 20000);
     return () => window.clearInterval(timer);
-  }, [activeView, loraBatchSubView, selectedBatchId, loadBatchItems, batchSubmitting, selectedBatchSession?.status, batchDetailExpanded]);
+  }, [activeView, loraBatchSubView, selectedBatchId, loadBatchItems, batchSubmitting, selectedBatchSession?.status, batchDetailExpanded, pageVisible]);
 
   useEffect(() => {
     if (activeView !== 'loraBatch') return;
     if (loraBatchSubView !== 'annotation') return;
+    if (!pageVisible) return;
     if (!selectedBatchId) return;
     if (batchSubmitting) return;
     if (!selectedBatchIsTerminal) return;
     void loadBatchReviewGroups(selectedBatchId, batchReviewPage, { followProgress: true });
-  }, [activeView, loraBatchSubView, selectedBatchId, batchSubmitting, selectedBatchIsTerminal, batchReviewPage, loadBatchReviewGroups]);
+  }, [activeView, loraBatchSubView, selectedBatchId, batchSubmitting, selectedBatchIsTerminal, batchReviewPage, loadBatchReviewGroups, pageVisible]);
 
   useEffect(() => {
     if (activeView !== 'tool' || !selectedTool) return;
+    if (!pageVisible) return;
     void loadRunsForTool(selectedTool.id);
+    const hasPending = toolRuns.some((r) => r.status === 'queued' || r.status === 'running');
+    if (!hasPending) return;
     const timer = window.setInterval(() => {
-      const hasPending = toolRuns.some((r) => r.status === 'queued' || r.status === 'running');
-      if (hasPending) void loadRunsForTool(selectedTool.id);
-    }, 2000);
+      void loadRunsForTool(selectedTool.id);
+    }, 5000);
     return () => window.clearInterval(timer);
-  }, [activeView, selectedTool?.id, filterStatus, filterUnrated, toolRuns]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeView, selectedTool?.id, filterStatus, filterUnrated, toolRuns, pageVisible]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setBatchReviewGroups([]);
@@ -2427,10 +2448,13 @@ export function App() {
 
   useEffect(() => {
     if (activeView !== 'tasks') return;
+    if (!pageVisible) return;
     void loadTasks();
-    const timer = window.setInterval(() => void loadTasks(), 2000);
+    const hasPending = taskRuns.some((r) => r.status === 'queued' || r.status === 'running');
+    const intervalMs = hasPending ? 8000 : 30000;
+    const timer = window.setInterval(() => void loadTasks(), intervalMs);
     return () => window.clearInterval(timer);
-  }, [activeView]);
+  }, [activeView, pageVisible, taskRuns]);
 
   useEffect(() => {
     if (activeView !== 'docs') return;

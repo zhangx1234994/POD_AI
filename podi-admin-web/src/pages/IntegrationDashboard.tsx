@@ -1755,6 +1755,9 @@ export function IntegrationDashboard({
   theme: 'light' | 'dark';
   onToggleTheme: () => void;
 }) {
+  const [pageVisible, setPageVisible] = useState<boolean>(() =>
+    typeof document === 'undefined' ? true : document.visibilityState === 'visible',
+  );
   const [executors, setExecutors] = useState<Executor[]>([]);
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [bindings, setBindings] = useState<Binding[]>([]);
@@ -2043,6 +2046,18 @@ export function IntegrationDashboard({
   const [abilityMetricsCapabilityKey, setAbilityMetricsCapabilityKey] = useState<string>('all');
   const [exportingAbilityLogs, setExportingAbilityLogs] = useState(false);
   const [publicAbilities, setPublicAbilities] = useState<PublicAbility[]>([]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return undefined;
+    const syncVisibility = () => setPageVisible(document.visibilityState === 'visible');
+    syncVisibility();
+    document.addEventListener('visibilitychange', syncVisibility);
+    window.addEventListener('focus', syncVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', syncVisibility);
+      window.removeEventListener('focus', syncVisibility);
+    };
+  }, []);
   const [publicAbilitiesLoading, setPublicAbilitiesLoading] = useState(false);
   const [executorTraffic, setExecutorTraffic] = useState<Record<string, ExecutorTraffic>>({});
   const [executorTrafficLoading, setExecutorTrafficLoading] = useState(false);
@@ -5147,20 +5162,20 @@ export function IntegrationDashboard({
   }, [activeNav, abilityLogTab, abilityMetricsWindowHours, abilityMetricsProvider, abilityMetricsCapabilityKey]);
 
   useEffect(() => {
-    if (!selectedAbility?.id || !abilityLogsAutoRefresh) return;
+    if (!selectedAbility?.id || !abilityLogsAutoRefresh || !pageVisible) return;
     const interval = window.setInterval(() => {
       void refreshAbilityLogs({ silent: true, keepSize: true });
     }, 10000);
     return () => window.clearInterval(interval);
-  }, [selectedAbility?.id, abilityLogsAutoRefresh, refreshAbilityLogs]);
+  }, [selectedAbility?.id, abilityLogsAutoRefresh, refreshAbilityLogs, pageVisible]);
 
   useEffect(() => {
-    if (activeNav !== 'ability-logs' || !globalAbilityLogsAutoRefresh) return;
+    if (activeNav !== 'ability-logs' || !globalAbilityLogsAutoRefresh || !pageVisible) return;
     const interval = window.setInterval(() => {
       void refreshGlobalAbilityLogs({ silent: true, keepSize: true });
     }, 12000);
     return () => window.clearInterval(interval);
-  }, [activeNav, globalAbilityLogsAutoRefresh, refreshGlobalAbilityLogs]);
+  }, [activeNav, globalAbilityLogsAutoRefresh, refreshGlobalAbilityLogs, pageVisible]);
 
   const refreshPublicAbilities = useCallback(async () => {
     setPublicAbilitiesLoading(true);
