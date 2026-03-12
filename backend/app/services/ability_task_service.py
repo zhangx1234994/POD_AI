@@ -38,6 +38,8 @@ COMFYUI_HISTORY_TIMEOUT_SECONDS = 6
 MAX_QUEUE_PER_EXECUTOR = 10
 ERR_CODE_COMFYUI_QUEUE_FULL = "Q1001"
 ERR_CODE_COMMERCIAL_QUEUE_FULL = "Q2001"
+ASYNC_WORKER_EXECUTOR_TYPES = {"comfyui", "kie", "volcengine", "baidu"}
+ABILITY_TASK_WORKER_CAP = 40
 
 
 def _format_task_error(code: str, message: str) -> str:
@@ -49,13 +51,19 @@ def _format_task_error(code: str, message: str) -> str:
 class AbilityTaskService:
     def __init__(self) -> None:
         settings = get_settings()
-        max_workers = max(1, settings.ability_task_max_workers)
+        configured_workers = max(1, settings.ability_task_max_workers)
+        max_workers = self._recommended_worker_pool_size(configured_workers)
         self._executor = ThreadPoolExecutor(max_workers=max_workers)
         self._lock = threading.Lock()
         self._cleanup_stale_running_tasks()
         self._start_cleanup_thread()
         self._start_finalize_thread()
         self._resume_pending_tasks()
+        logger.info(
+            "AbilityTaskService worker pool initialized: configured=%s effective=%s",
+            configured_workers,
+            max_workers,
+        )
 
     def enqueue(self, *, ability_id: str, payload: AbilityInvokeRequest, user: User | None) -> AbilityTask:
         with get_session() as session:
@@ -112,6 +120,35 @@ class AbilityTaskService:
         if user_id == "service":
             return None, user_name
         return user_id or None, user_name
+
+    @staticmethod
+    def _select_worker_pool_size(configured_workers: int, executor_caps: list[int]) -> int:
+        normalized = max(1, int(configured_workers or 1))
+        total_capacity = sum(max(0, int(cap or 0)) for cap in executor_caps)
+        if total_capacity <= 0:
+            return normalized
+        return max(normalized, min(ABILITY_TASK_WORKER_CAP, total_capacity))
+
+    def _recommended_worker_pool_size(self, configured_workers: int) -> int:
+        try:
+            from app.models.integration import Executor
+
+            with get_session() as session:
+                rows = (
+                    session.execute(
+                        select(Executor.max_concurrency).where(
+                            Executor.status == "active",
+                            Executor.type.in_(sorted(ASYNC_WORKER_EXECUTOR_TYPES)),
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+            caps = [int(row or 0) for row in rows]
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("AbilityTaskService worker sizing fallback to configured=%s: %s", configured_workers, exc)
+            return max(1, configured_workers)
+        return self._select_worker_pool_size(configured_workers, caps)
 
     def list_tasks(self, *, user: User, limit: int = 50) -> list[AbilityTask]:
         with get_session() as session:

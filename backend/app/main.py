@@ -3,8 +3,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.core.db import get_session
 from app.services.ability_task_service import get_ability_task_service
 from app.services.eval_service import get_eval_service
+from app.services.executor_seed import ensure_default_executors
 
 from app.routers import (
     abilities,
@@ -31,6 +33,8 @@ def create_app() -> FastAPI:
 
     @app.on_event("startup")
     def _warmup_services() -> None:
+        with get_session() as session:
+            ensure_default_executors(session)
         # Instantiate background queues once per process so pending tasks/runs are resumed.
         get_ability_task_service()
         get_eval_service()

@@ -79,7 +79,7 @@ class Settings(BaseSettings):
         env="DESKTOP_RELEASE_STORAGE_DIR",
     )
     executor_config_path: str = Field(default="config/executors.yaml", env="EXECUTOR_CONFIG_PATH")
-    ability_task_max_workers: int = Field(default=4, env="ABILITY_TASK_MAX_WORKERS")
+    ability_task_max_workers: int = Field(default=24, env="ABILITY_TASK_MAX_WORKERS")
     # Legacy total worker cap for eval runs (kept for backward compatibility).
     eval_run_max_workers: int = Field(default=6, env="EVAL_RUN_MAX_WORKERS")
     # Eval run worker caps by provider lane.
@@ -104,7 +104,7 @@ class Settings(BaseSettings):
     comfyui_default_executor_id: str | None = Field(default=None, env="COMFYUI_DEFAULT_EXECUTOR_ID")
     # Enable queue-aware routing across multiple ComfyUI executors.
     # Keep False until all ComfyUI servers are standardized.
-    comfyui_route_by_queue: bool = Field(default=False, env="COMFYUI_ROUTE_BY_QUEUE")
+    comfyui_route_by_queue: bool = Field(default=True, env="COMFYUI_ROUTE_BY_QUEUE")
     # Soft target for ComfyUI queue depth per executor. Router will prefer nodes under this value.
     # Business-side schedulers can use this as a batch size hint.
     comfyui_queue_batch_size: int = Field(default=10, env="COMFYUI_QUEUE_BATCH_SIZE")
