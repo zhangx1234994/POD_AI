@@ -1345,6 +1345,7 @@ export function App() {
   const [pageVisible, setPageVisible] = useState<boolean>(() =>
     typeof document === 'undefined' ? true : document.visibilityState === 'visible',
   );
+  const [recentTaskRefreshUntil, setRecentTaskRefreshUntil] = useState<number>(0);
   useEffect(() => {
     const isDark = theme === 'dark';
     // TDesign dark mode is driven by `t-theme-dark` class.
@@ -1912,6 +1913,10 @@ export function App() {
     }
   };
 
+  const bumpTaskRefreshWindow = useCallback((seconds = 20) => {
+    setRecentTaskRefreshUntil(Date.now() + seconds * 1000);
+  }, []);
+
   useEffect(() => {
     void loadBootstrap();
   }, []);
@@ -2424,12 +2429,13 @@ export function App() {
     if (!pageVisible) return;
     void loadRunsForTool(selectedTool.id);
     const hasPending = toolRuns.some((r) => r.status === 'queued' || r.status === 'running');
-    if (!hasPending) return;
+    const recentActivity = Date.now() < recentTaskRefreshUntil;
+    if (!hasPending && !recentActivity) return;
     const timer = window.setInterval(() => {
       void loadRunsForTool(selectedTool.id);
     }, 5000);
     return () => window.clearInterval(timer);
-  }, [activeView, selectedTool?.id, filterStatus, filterUnrated, toolRuns, pageVisible]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeView, selectedTool?.id, filterStatus, filterUnrated, toolRuns, pageVisible, recentTaskRefreshUntil]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setBatchReviewGroups([]);
@@ -2451,10 +2457,11 @@ export function App() {
     if (!pageVisible) return;
     void loadTasks();
     const hasPending = taskRuns.some((r) => r.status === 'queued' || r.status === 'running');
-    const intervalMs = hasPending ? 8000 : 30000;
+    const recentActivity = Date.now() < recentTaskRefreshUntil;
+    const intervalMs = hasPending || recentActivity ? 2000 : 10000;
     const timer = window.setInterval(() => void loadTasks(), intervalMs);
     return () => window.clearInterval(timer);
-  }, [activeView, pageVisible, taskRuns]);
+  }, [activeView, pageVisible, taskRuns, recentTaskRefreshUntil]);
 
   useEffect(() => {
     if (activeView !== 'docs') return;
@@ -2794,13 +2801,16 @@ export function App() {
           }
         }
       }
-      await evalApi.createRun({
+      const createdRun = await evalApi.createRun({
         workflow_version_id: selectedTool.id,
         input_oss_urls_json: requiresImage && url ? [url] : [],
         parameters_json: parameters,
       });
+      setTaskRuns((prev) => [createdRun as RunWithLatest, ...prev]);
       await loadRunsForTool(selectedTool.id);
+      await loadTasks();
       await refreshMetrics();
+      bumpTaskRefreshWindow();
       pushNotice('success', '已提交运行，稍后会自动刷新结果');
     } catch (err) {
       console.error(err);
@@ -3200,6 +3210,8 @@ export function App() {
       }
       await loadBatchSessions();
       await loadBatchItems(currentBatchId, { silent: true });
+      await loadTasks();
+      bumpTaskRefreshWindow(30);
     } catch (err) {
       pushNotice('error', String((err as any)?.message || err || '批量提交失败'));
     } finally {
