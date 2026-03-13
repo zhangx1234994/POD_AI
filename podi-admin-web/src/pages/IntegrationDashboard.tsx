@@ -3557,6 +3557,21 @@ export function IntegrationDashboard({
   }, []);
 
   useEffect(() => {
+    if (activeNav !== 'monitor') return;
+    if (!pageVisible) return;
+    void load();
+    const hasActiveWork = Boolean(
+      (dashboardMetrics?.queue_overview?.total_pending ?? 0) > 0 ||
+      (dashboardMetrics?.queue_overview?.total_running ?? 0) > 0,
+    );
+    const intervalMs = hasActiveWork ? 2000 : 10000;
+    const timer = window.setInterval(() => {
+      void load();
+    }, intervalMs);
+    return () => window.clearInterval(timer);
+  }, [activeNav, pageVisible, dashboardMetrics?.queue_overview?.total_pending, dashboardMetrics?.queue_overview?.total_running]);
+
+  useEffect(() => {
     if (selectedAbility?.provider !== 'comfyui' || !activeComfyExecutorId) {
       setComfyModelLoading(false);
       setComfyModelError(null);
