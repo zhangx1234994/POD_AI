@@ -1,5 +1,11 @@
 import OSS from 'ali-oss';
-import type { EvalRun, EvalRunListResponse, EvalWorkflowVersion, WorkflowDoc } from './types';
+import type {
+  EvalResourceOptionsResponse,
+  EvalRun,
+  EvalRunListResponse,
+  EvalWorkflowVersion,
+  WorkflowDoc,
+} from './types';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
 const MEDIA_BASE = import.meta.env.VITE_MEDIA_BASE_URL ?? '/api/media';
@@ -214,6 +220,13 @@ function resolveUploadError(err: unknown): string {
 export const evalApi = {
   me: () => request<{ raterId: string }>('/api/evals/me'),
   listWorkflowVersions: () => request<EvalWorkflowVersion[]>('/api/evals/workflow-versions?status=active'),
+  listResourceOptions: (params: { type: string; status?: string; q?: string }) => {
+    const qs = new URLSearchParams();
+    qs.set('type', params.type);
+    if (params.status) qs.set('status', params.status);
+    if (params.q) qs.set('q', params.q);
+    return request<EvalResourceOptionsResponse>(`/api/evals/resources/options?${qs.toString()}`);
+  },
   getWorkflowDocs: () =>
     request<{ markdown: string; generatedAt?: string; workflows?: WorkflowDoc[] }>('/api/evals/docs/workflows'),
   createRun: (payload: {

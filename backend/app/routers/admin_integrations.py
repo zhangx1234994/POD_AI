@@ -36,6 +36,7 @@ from app.schemas import admin_integrations as schemas
 from app.schemas import admin_tests, admin_workflows
 from app.services.ability_logs import AbilityLogStartParams, ability_log_service
 from app.services.ability_invocation import ability_invocation_service
+from app.services.comfyui_lora_catalog_service import ensure_default_lora_catalog_entries
 from app.services.executor_seed import ensure_default_executors
 from app.services.integration_test import integration_test_service
 from app.services.workflow_seed import ensure_default_bindings, ensure_default_workflows
@@ -781,6 +782,7 @@ def list_comfyui_loras(
     include_untracked: bool = Query(True, alias="includeUntracked"),
 ):
     with get_session() as session:
+        ensure_default_lora_catalog_entries(session)
         loras: list[ComfyuiLora] = []
         try:
             stmt = select(ComfyuiLora)
@@ -848,6 +850,8 @@ def list_comfyui_resource_options(
         raise HTTPException(status_code=400, detail="COMFYUI_RESOURCE_TYPE_INVALID")
     keyword = f"%{(query or '').strip()}%" if (query or "").strip() else None
     with get_session() as session:
+        if normalized_type == "lora":
+            ensure_default_lora_catalog_entries(session)
         items: list[schemas.ComfyuiResourceOptionItem] = []
         if normalized_type == "lora":
             stmt = select(ComfyuiLora)

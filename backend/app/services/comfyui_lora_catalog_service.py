@@ -9,6 +9,16 @@ from app.models.eval import EvalWorkflowVersion
 from app.models.integration import Ability, ComfyuiLora
 
 
+DEFAULT_LORA_CATALOG_NAMES = [
+    "kuotu_Lora_000003000.safetensors",
+    "kuotu_Lora_000004500.safetensors",
+    "印花提取-通用_copy_copy_000002000.safetensors",
+    "印花提取-通用_copy_copy_000003000.safetensors",
+    "印花提取-通用_copy_copy_000003500.safetensors",
+    "印花提取-通用_copy_copy_000004000.safetensors",
+]
+
+
 def _as_non_empty_text(value: Any) -> str | None:
     text = str(value or "").strip()
     return text or None
@@ -30,6 +40,41 @@ def _extract_lora_names_from_any(value: Any) -> list[str]:
         for item in value:
             names.extend(_extract_lora_names_from_any(item))
     return names
+
+
+def _normalize_lora_file_name(name: str) -> str:
+    text = _as_non_empty_text(name) or ""
+    if not text:
+        return ""
+    if "." not in text:
+        return f"{text}.safetensors"
+    return text
+
+
+def ensure_default_lora_catalog_entries(session: Session) -> dict[str, int]:
+    """Ensure a small set of platform-approved LoRA entries exists in catalog."""
+
+    inserted = 0
+    rows = session.execute(select(ComfyuiLora)).scalars().all()
+    by_name = {str(row.file_name): row for row in rows}
+
+    for raw_name in DEFAULT_LORA_CATALOG_NAMES:
+        file_name = _normalize_lora_file_name(raw_name)
+        if not file_name or file_name in by_name:
+            continue
+        display_name = file_name.rsplit(".", 1)[0] if "." in file_name else file_name
+        session.add(
+            ComfyuiLora(
+                file_name=file_name,
+                display_name=display_name,
+                status="active",
+            )
+        )
+        inserted += 1
+
+    if inserted:
+        session.commit()
+    return {"inserted": inserted}
 
 
 def collect_functional_lora_names(session: Session) -> set[str]:

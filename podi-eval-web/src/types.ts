@@ -17,6 +17,24 @@ export type EvalWorkflowVersion = {
   updated_at: string;
 };
 
+export type EvalResourceOptionItem = {
+  id: string;
+  key: string;
+  label: string;
+  resourceType: string;
+  status: string;
+  description?: string;
+  downloadUrl?: string | null;
+  metadata?: Record<string, unknown> | null;
+};
+
+export type EvalResourceOptionsResponse = {
+  resourceType: string;
+  status?: string | null;
+  total: number;
+  items: EvalResourceOptionItem[];
+};
+
 export type EvalRun = {
   id: string;
   workflow_version_id: string;

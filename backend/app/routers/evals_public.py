@@ -13,7 +13,7 @@ from typing import Any
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, UploadFile, File
-from sqlalchemy import Integer, case, delete, exists, func, select, update
+from sqlalchemy import Integer, case, delete, exists, func, or_, select, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -28,7 +28,8 @@ from app.models.eval import (
     EvalRun,
     EvalWorkflowVersion,
 )
-from app.models.integration import AbilityTask
+from app.models.integration import AbilityTask, ComfyuiLora, ComfyuiModelCatalog, ComfyuiPluginCatalog
+from app.schemas import admin_integrations as admin_schemas
 from app.schemas.eval import (
     EvalAnnotationCreate,
     EvalAnnotationResponse,
@@ -60,6 +61,7 @@ from app.schemas.eval import (
     EvalWorkflowResourceBinding,
     EvalWorkflowVersionResponse,
 )
+from app.services.comfyui_lora_catalog_service import ensure_default_lora_catalog_entries
 from app.services.eval_seed import FISSION_WORKFLOW_IDS, ensure_default_eval_workflow_versions
 from app.services.eval_service import get_eval_service
 from app.services.oss import oss_service
@@ -136,7 +138,7 @@ def _extract_workflow_resource_bindings(schema: dict[str, Any] | None) -> list[E
             resource_type = "plugin"
         if not resource_type:
             continue
-        source = f"/api/admin/comfyui/resources/options?type={resource_type}&status=active"
+        source = f"/api/evals/resources/options?type={resource_type}&status=active"
         bindings.append(
             EvalWorkflowResourceBinding(
                 field=name,
@@ -788,6 +790,106 @@ def list_workflow_versions(
         stmt = stmt.where(EvalWorkflowVersion.status == status)
     rows = db.execute(stmt.order_by(EvalWorkflowVersion.category.asc(), EvalWorkflowVersion.created_at.desc())).scalars().all()
     return [_serialize_workflow_version(row) for row in rows]
+
+
+@router.get("/resources/options", response_model=admin_schemas.ComfyuiResourceOptionsResponse)
+def list_eval_resource_options(
+    request: Request,
+    response: Response,
+    resource_type: str = Query(..., alias="type"),
+    status: str | None = Query("active"),
+    query: str | None = Query(None, alias="q"),
+    limit: int = Query(500, ge=1, le=5000),
+    db: Session = Depends(get_db),
+):
+    _require_public_enabled(request)
+    _get_or_set_rater_id(request, response)
+    normalized_type = (resource_type or "").strip().lower()
+    if normalized_type not in {"lora", "model", "plugin"}:
+        raise HTTPException(status_code=400, detail="COMFYUI_RESOURCE_TYPE_INVALID")
+
+    keyword = f"%{(query or '').strip()}%" if (query or "").strip() else None
+    items: list[admin_schemas.ComfyuiResourceOptionItem] = []
+
+    if normalized_type == "lora":
+        ensure_default_lora_catalog_entries(db)
+        stmt = select(ComfyuiLora)
+        if status:
+            stmt = stmt.where(ComfyuiLora.status == status)
+        if keyword:
+            stmt = stmt.where(or_(ComfyuiLora.file_name.like(keyword), ComfyuiLora.display_name.like(keyword)))
+        rows = db.execute(stmt.order_by(ComfyuiLora.updated_at.desc()).limit(limit)).scalars().all()
+        items = [
+            admin_schemas.ComfyuiResourceOptionItem(
+                id=f"lora:{row.id}",
+                key=row.file_name,
+                label=row.display_name or row.file_name,
+                resourceType="lora",
+                status=row.status,
+                description=row.description,
+                metadata={
+                    "baseModel": row.base_model,
+                    "baseModels": row.base_models or [],
+                    "tags": row.tags or [],
+                },
+            )
+            for row in rows
+        ]
+    elif normalized_type == "model":
+        stmt = select(ComfyuiModelCatalog)
+        if status:
+            stmt = stmt.where(ComfyuiModelCatalog.status == status)
+        if keyword:
+            stmt = stmt.where(
+                or_(ComfyuiModelCatalog.file_name.like(keyword), ComfyuiModelCatalog.display_name.like(keyword))
+            )
+        rows = db.execute(stmt.order_by(ComfyuiModelCatalog.updated_at.desc()).limit(limit)).scalars().all()
+        items = [
+            admin_schemas.ComfyuiResourceOptionItem(
+                id=f"model:{row.id}",
+                key=row.file_name,
+                label=row.display_name or row.file_name,
+                resourceType="model",
+                status=row.status,
+                description=row.description,
+                downloadUrl=row.download_url,
+                metadata={"modelType": row.model_type, "tags": row.tags or []},
+            )
+            for row in rows
+        ]
+    else:
+        stmt = select(ComfyuiPluginCatalog)
+        if status:
+            stmt = stmt.where(ComfyuiPluginCatalog.status == status)
+        if keyword:
+            stmt = stmt.where(
+                or_(
+                    ComfyuiPluginCatalog.node_key.like(keyword),
+                    ComfyuiPluginCatalog.display_name.like(keyword),
+                    ComfyuiPluginCatalog.package_name.like(keyword),
+                )
+            )
+        rows = db.execute(stmt.order_by(ComfyuiPluginCatalog.updated_at.desc()).limit(limit)).scalars().all()
+        items = [
+            admin_schemas.ComfyuiResourceOptionItem(
+                id=f"plugin:{row.id}",
+                key=row.node_key,
+                label=row.display_name or row.node_key,
+                resourceType="plugin",
+                status=row.status,
+                description=row.description,
+                downloadUrl=row.download_url,
+                metadata={"packageName": row.package_name, "tags": row.tags or [], "version": row.version},
+            )
+            for row in rows
+        ]
+
+    return admin_schemas.ComfyuiResourceOptionsResponse(
+        resourceType=normalized_type,
+        status=status,
+        total=len(items),
+        items=items,
+    )
 
 
 @router.get("/docs/workflows")

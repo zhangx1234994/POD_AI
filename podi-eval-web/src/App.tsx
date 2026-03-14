@@ -69,6 +69,7 @@ type LoraBatchWorkflowMeta = {
   workflow: EvalWorkflowVersion;
   urlFieldName: string;
   loraField: SchemaField | null;
+  loraSource?: string;
   loraOptions: LoraOption[];
 };
 
@@ -1377,6 +1378,7 @@ export function App() {
   const [raterId, setRaterId] = useState<string>('');
   const [workflows, setWorkflows] = useState<EvalWorkflowVersion[]>([]);
   const [metrics, setMetrics] = useState<Record<string, { ratingCount: number; avgRating: number | null }>>({});
+  const [resourceOptionsCache, setResourceOptionsCache] = useState<Record<string, LoraOption[]>>({});
 
   const initialQuery = useMemo(() => readEvalQuery(), []);
   const [activeCategory, setActiveCategory] = useState<string>(initialQuery.category);
@@ -1537,6 +1539,33 @@ export function App() {
     window.history.replaceState(null, '', `${window.location.pathname}${suffix}${window.location.hash}`);
   }, [activeView, activeCategory, selectedTool?.id]);
 
+  useEffect(() => {
+    const loraBindings = workflows
+      .flatMap((wf) => (Array.isArray(wf.resourceBindings) ? wf.resourceBindings : []))
+      .filter((binding) => binding && binding.resourceType === 'lora' && typeof binding.source === 'string' && binding.source.trim());
+    const pending = loraBindings.filter((binding) => !resourceOptionsCache[binding.source]);
+    if (pending.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      for (const binding of pending) {
+        try {
+          const url = new URL(binding.source, window.location.origin);
+          const type = url.searchParams.get('type') || 'lora';
+          const status = url.searchParams.get('status') || 'active';
+          const resp = await evalApi.listResourceOptions({ type, status, q: url.searchParams.get('q') || undefined });
+          if (cancelled) return;
+          const options = (resp.items || []).map((item) => ({ label: item.label || item.key, value: item.key }));
+          setResourceOptionsCache((prev) => ({ ...prev, [binding.source]: options }));
+        } catch (err) {
+          console.error(err);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [workflows, resourceOptionsCache]);
+
   const loraBatchWorkflows = useMemo<LoraBatchWorkflowMeta[]>(() => {
     const metas: LoraBatchWorkflowMeta[] = [];
     for (const wf of workflows) {
@@ -1548,16 +1577,25 @@ export function App() {
         fields.find((f) => String(f.name || '').toLowerCase().includes('lora')) ||
         null;
       if (!loraField) continue;
+      const loraBinding =
+        (Array.isArray(wf.resourceBindings) ? wf.resourceBindings : []).find(
+          (binding) => binding.field === loraField.name && binding.resourceType === 'lora',
+        ) || null;
+      const dynamicOptions =
+        loraBinding && resourceOptionsCache[loraBinding.source] && resourceOptionsCache[loraBinding.source].length > 0
+          ? resourceOptionsCache[loraBinding.source]
+          : null;
       metas.push({
         workflow: wf,
         urlFieldName: urlField.name,
         loraField,
-        loraOptions: normalizeFieldOptions(loraField),
+        loraSource: loraBinding?.source,
+        loraOptions: dynamicOptions || normalizeFieldOptions(loraField),
       });
     }
     metas.sort((a, b) => String(a.workflow.name || '').localeCompare(String(b.workflow.name || '')));
     return metas;
-  }, [workflows]);
+  }, [workflows, resourceOptionsCache]);
 
   const selectedBatchWorkflowMeta = useMemo<LoraBatchWorkflowMeta | null>(() => {
     if (!batchWorkflowId) return null;
