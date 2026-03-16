@@ -1390,7 +1390,9 @@ export function App() {
   const [formParams, setFormParams] = useState<Record<string, string>>({});
   const [isRunning, setIsRunning] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [extraImageUploading, setExtraImageUploading] = useState(false);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const extraImagesInputRef = useRef<HTMLInputElement | null>(null);
 
   const [editorTool, setEditorTool] = useState<EditorTool>('rect');
   const [editorPrompt, setEditorPrompt] = useState('');
@@ -2561,6 +2563,33 @@ export function App() {
     setActiveView('tool');
   };
 
+
+
+  const parseImageUrlList = useCallback((raw: string): string[] => {
+    return String(raw || '')
+      .split(/[\n,]/g)
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0);
+  }, []);
+
+  const appendImageUrls = useCallback((incoming: string[]) => {
+    setFormParams((prev) => {
+      const current = parseImageUrlList(String(prev.image_urls || ''));
+      const merged = [...current];
+      for (const url of incoming) {
+        if (url && !merged.includes(url)) merged.push(url);
+      }
+      return { ...prev, image_urls: merged.join('\n') };
+    });
+  }, [parseImageUrlList]);
+
+  const removeImageUrlAt = useCallback((index: number) => {
+    setFormParams((prev) => {
+      const current = parseImageUrlList(String(prev.image_urls || ''));
+      current.splice(index, 1);
+      return { ...prev, image_urls: current.join('\n') };
+    });
+  }, [parseImageUrlList]);
   const syncEditorImageMeta = useCallback(() => {
     const img = editorImageRef.current;
     if (!img) return;
@@ -5476,6 +5505,77 @@ export function App() {
                       .filter((f) => !(isShengtuWorkflow && f.name === 'image_urls'))
                       .map((f) => {
                         const modelAware = modelAwareFieldMap.get(f.name);
+                        if (f.name === 'image_urls') {
+                          const urls = parseImageUrlList(formParams[f.name] ?? '');
+                          return (
+                            <Card key={f.name} bordered title={f.label ?? '辅图 URLs'}>
+                              <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                                <Textarea
+                                  value={formParams[f.name] ?? ''}
+                                  onChange={(v) => setFormParams((p) => ({ ...p, [f.name]: String(v) }))}
+                                  autosize={{ minRows: 3, maxRows: 8 }}
+                                  placeholder="支持粘贴 URL，或上传图2/图3（每行一张）"
+                                  disabled={Boolean(modelAware?.disabled) || extraImageUploading}
+                                />
+                                <Space align="center" style={{ width: '100%' }}>
+                                  <Button
+                                    variant="outline"
+                                    loading={extraImageUploading}
+                                    disabled={Boolean(modelAware?.disabled)}
+                                    onClick={() => extraImagesInputRef.current?.click()}
+                                  >
+                                    上传图2/图3
+                                  </Button>
+                                  <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                                    最多支持 2 张辅图，英文逗号或换行分隔。
+                                  </Typography.Text>
+                                  <input
+                                    ref={extraImagesInputRef}
+                                    type="file"
+                                    accept="image/*"
+                                    multiple
+                                    style={{ display: 'none' }}
+                                    disabled={extraImageUploading || Boolean(modelAware?.disabled)}
+                                    onChange={async (e) => {
+                                      const files = Array.from(e.target.files || []).slice(0, 2);
+                                      if (!files.length) return;
+                                      setExtraImageUploading(true);
+                                      try {
+                                        const uploaded: string[] = [];
+                                        for (const file of files) {
+                                          const res = await evalApi.uploadImage(file);
+                                          uploaded.push(res.url);
+                                        }
+                                        appendImageUrls(uploaded);
+                                      } catch (err) {
+                                        console.error(err);
+                                        pushNotice('error', String((err as any)?.message || err));
+                                      } finally {
+                                        setExtraImageUploading(false);
+                                        e.target.value = '';
+                                      }
+                                    }}
+                                  />
+                                </Space>
+                                {urls.length > 0 ? (
+                                  <Space breakLine>
+                                    {urls.slice(0, 2).map((item, idx) => (
+                                      <Tag
+                                        key={`${f.name}-${idx}`}
+                                        closable
+                                        onClose={() => removeImageUrlAt(idx)}
+                                        style={{ maxWidth: 320 }}
+                                      >
+                                        图{idx + 2}
+                                      </Tag>
+                                    ))}
+                                  </Space>
+                                ) : null}
+                                {modelAware?.description ? <Typography.Text theme="secondary">{modelAware.description}</Typography.Text> : null}
+                              </Space>
+                            </Card>
+                          );
+                        }
                         return (
                           <ParamField
                             key={f.name}
