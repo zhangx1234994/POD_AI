@@ -6,8 +6,10 @@ import re
 import base64
 import json
 import logging
+import mimetypes
 import secrets
 import time
+from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, quote, urlparse, urlencode
 from uuid import uuid4
@@ -999,60 +1001,146 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         self, params: dict[str, Any], context: ExecutionContext, workflow_definition: dict[str, Any]
     ) -> tuple[dict[str, Any] | None, str | None]:
         overrides: dict[str, dict[str, Any]] = {}
+        graph = normalize_comfyui_prompt_graph(workflow_definition) or workflow_definition.get("graph") or workflow_definition
+        graph_nodes = graph if isinstance(graph, dict) else {}
 
-        urls: list[str] = []
         primary_url = self._normalize_remote_url(self._as_text(params.get("imageUrl") or params.get("image_url")))
-        if primary_url:
-            urls.append(primary_url)
+        aux_values: list[str] = []
+        for key in ("image_url_2", "imageUrl2", "aux_image_1", "image_url_3", "imageUrl3", "aux_image_2"):
+            normalized = self._normalize_remote_url(self._as_text(params.get(key)))
+            if normalized:
+                aux_values.append(normalized)
 
         extra_raw = params.get("image_urls") or params.get("imageUrls") or params.get("input_urls")
         for url in self._split_url_list(extra_raw):
             normalized = self._normalize_remote_url(url)
             if normalized:
-                urls.append(normalized)
+                aux_values.append(normalized)
 
-        image_list = params.get("imageList") or params.get("image_list")
-        if isinstance(image_list, list):
-            for entry in image_list:
-                if not isinstance(entry, dict):
-                    continue
-                url = self._normalize_remote_url(self._as_text(entry.get("ossUrl") or entry.get("url")))
-                if url:
-                    urls.append(url)
+        if not primary_url:
+            image_list = params.get("imageList") or params.get("image_list")
+            if isinstance(image_list, list):
+                normalized_urls: list[str] = []
+                for entry in image_list:
+                    if not isinstance(entry, dict):
+                        continue
+                    url = self._normalize_remote_url(self._as_text(entry.get("ossUrl") or entry.get("url")))
+                    if url:
+                        normalized_urls.append(url)
+                if normalized_urls:
+                    primary_url = normalized_urls[0]
+                    aux_values.extend(normalized_urls[1:])
 
-        deduped: list[str] = []
+        if not primary_url:
+            return None, "COMFYUI_IMAGE_REQUIRED"
+
         seen: set[str] = set()
-        for url in urls:
-            if not url or url in seen:
+        deduped_aux: list[str] = []
+        for url in aux_values:
+            if not url or url == primary_url or url in seen:
                 continue
             seen.add(url)
-            deduped.append(url)
-        urls = deduped[:3]
+            deduped_aux.append(url)
+        aux_values = deduped_aux[:2]
 
-        if not urls:
-            return None, "COMFYUI_IMAGE_REQUIRED"
-        while len(urls) < 3:
-            urls.append(urls[-1])
+        staged_primary = self._upload_image_for_comfyui_loadimage(
+            image_url=primary_url,
+            base_url=str(context.executor.base_url or "").rstrip("/"),
+            prefix="duotu-primary",
+        )
+        if not staged_primary:
+            return None, "COMFYUI_IMAGE_UPLOAD_FAILED"
+        overrides["78"] = {"image": staged_primary}
 
-        overrides["422"] = {"url": urls[0]}
-        overrides["421"] = {"url": urls[1]}
-        overrides["416"] = {"url": urls[2]}
+        staged_aux_1 = None
+        staged_aux_2 = None
+        if aux_values:
+            staged_aux_1 = self._upload_image_for_comfyui_loadimage(
+                image_url=aux_values[0],
+                base_url=str(context.executor.base_url or "").rstrip("/"),
+                prefix="duotu-aux1",
+            )
+            if not staged_aux_1:
+                return None, "COMFYUI_IMAGE_UPLOAD_FAILED"
+            overrides["106"] = {"image": staged_aux_1}
+        if len(aux_values) > 1:
+            staged_aux_2 = self._upload_image_for_comfyui_loadimage(
+                image_url=aux_values[1],
+                base_url=str(context.executor.base_url or "").rstrip("/"),
+                prefix="duotu-aux2",
+            )
+            if not staged_aux_2:
+                return None, "COMFYUI_IMAGE_UPLOAD_FAILED"
+            overrides["108"] = {"image": staged_aux_2}
+
+        for node_id in ("110", "111"):
+            node = graph_nodes.get(node_id)
+            if not isinstance(node, dict):
+                continue
+            node_inputs = node.get("inputs")
+            if not isinstance(node_inputs, dict):
+                continue
+            if staged_aux_1:
+                node_inputs["image2"] = ["106", 0]
+            else:
+                node_inputs.pop("image2", None)
+            if staged_aux_2:
+                node_inputs["image3"] = ["108", 0]
+            else:
+                node_inputs.pop("image3", None)
+
+        width = self._normalize_comfy_dim(self._coerce_positive_int(params.get("width") or params.get("output_width")))
+        height = self._normalize_comfy_dim(self._coerce_positive_int(params.get("height") or params.get("output_height")))
+        if width or height:
+            node_inputs: dict[str, Any] = {}
+            if width:
+                node_inputs["width"] = width
+            if height:
+                node_inputs["height"] = height
+            overrides["112"] = node_inputs
 
         prompt = self._as_text(params.get("prompt") or params.get("positive_prompt"))
         if prompt:
-            overrides.setdefault("379", {})["prompt"] = prompt
+            overrides.setdefault("111", {})["prompt"] = prompt
 
         negative = self._as_text(params.get("negative_prompt") or params.get("negativePrompt"))
         if negative:
-            overrides.setdefault("372", {})["prompt"] = negative
+            overrides.setdefault("110", {})["prompt"] = negative
 
-        lora_name = self._as_text(params.get("lora") or params.get("lora_name") or params.get("loraName"))
-        if lora_name:
-            overrides.setdefault("89", {})["lora_name"] = lora_name
+        seed = self._coerce_positive_int(params.get("seed"))
+        if not seed:
+            seed = secrets.randbelow(2**63 - 1) + 1
+        overrides.setdefault("151", {})["seed"] = seed
 
         workflow_definition["_max_output_images"] = 1
-        workflow_definition["output_node_ids"] = ["357"]
+        workflow_definition["output_node_ids"] = ["60"]
         return (overrides or None), None
+
+    def _upload_image_for_comfyui_loadimage(self, *, image_url: str, base_url: str, prefix: str) -> str | None:
+        if not image_url or not base_url:
+            return None
+        try:
+            resp = httpx.get(image_url, timeout=60)
+            resp.raise_for_status()
+            filename_hint = self._extract_filename_hint(image_url)
+            suffix = Path(filename_hint).suffix or mimetypes.guess_extension(resp.headers.get("content-type", "").split(";")[0].strip()) or ".png"
+            staged_name = f"{prefix}-{uuid4().hex[:10]}{suffix}"
+            files = {
+                "image": (staged_name, resp.content, resp.headers.get("content-type", "application/octet-stream")),
+            }
+            data = {"type": "input", "overwrite": "true"}
+            upload_resp = httpx.post(f"{base_url}/upload/image", data=data, files=files, timeout=120)
+            upload_resp.raise_for_status()
+            payload = upload_resp.json() if upload_resp.content else {}
+            if isinstance(payload, dict):
+                for key in ("name", "filename"):
+                    value = payload.get(key)
+                    if isinstance(value, str) and value.strip():
+                        return value.strip()
+            return staged_name
+        except Exception as exc:  # pragma: no cover - defensive
+            self._logger.warning("Failed to upload image to ComfyUI input folder: %s", exc)
+            return None
 
     @staticmethod
     def _split_url_list(value: Any) -> list[str]:

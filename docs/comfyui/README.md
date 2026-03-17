@@ -138,24 +138,28 @@
 
 | 节点 | 描述 |
 | --- | --- |
-| 422 · LoadImagesFromURL.url | 主图（image1） |
-| 421 · LoadImagesFromURL.url | 参考图 1（image2） |
-| 416 · LoadImagesFromURL.url | 参考图 2（image3，可缺省时复用上一张） |
-| 379 / 372 · TextEncodeQwenImageEditPlus | 正/反提示词 |
-| 89 · LoraLoaderModelOnly | LoRA 文件名（默认 4steps Lightning） |
-| 357 · PreviewImage | 输出节点（工具箱默认只取 1 张） |
+| 78 · LoadImage.image | 主图文件名（经后端上传到 ComfyUI input 后送入 390） |
+| 106 · LoadImage.image | 辅图 1（image2，可选） |
+| 108 · LoadImage.image | 辅图 2（image3，可选） |
+| 111 / 110 · TextEncodeQwenImageEditPlus | 正/反提示词 |
+| 112 · EmptySD3LatentImage | 输出宽度 / 高度 |
+| 151 · CR Seed.seed | 随机种子 |
+| 60 · SaveImage | 输出节点（工具箱默认只取 1 张） |
 
 **默认参数**
 
-- 主图：`image_url`（必填）
-- 附加图：`image_urls`（可选，支持 0~2 行）
-- prompt / negative_prompt：可覆盖 workflow 内默认文案
-- lora：可选，不填沿用 workflow 默认值
+- 主图：`image_url`（必填，对应节点 78）
+- 辅图 1：`image_url_2`（可选，对应节点 106）
+- 辅图 2：`image_url_3`（可选，对应节点 108）
+- width / height：可覆盖节点 112 的输出宽高
+- prompt / negative_prompt：可覆盖节点 111 / 110 默认文案
+- seed：可选，不填由后端自动生成随机种子并写入节点 151
 
 **调试备注**
 
-- 工作流内部存在 3 路图像输入；若只提供 2 张图，后端会自动用第 2 张复用到第 3 路，避免节点缺图。
-- 当前 output node 使用 `357 · PreviewImage`，工具箱/能力接口会按 `output_node_ids=[357]` 抽取回填。
+- 工作流已切换到本地 `LoadImage` 节点；后端会先把主图/辅图上传到目标 ComfyUI 的 input 目录，再写入节点 78 / 106 / 108。
+- 若辅图 1 / 辅图 2 未传，后端会在提交前移除 `111/110` 节点里的 `image2/image3` 引用，避免错误读取默认占位图。
+- 当前 output node 改为 `60 · SaveImage`，工具箱/能力接口按 `output_node_ids=[60]` 抽取回填。
 
 ## 印花提取 · ComfyUI (workflow_key: yinhua_tiqu)
 

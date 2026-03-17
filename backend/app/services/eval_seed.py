@@ -1071,6 +1071,88 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
             ]
         },
     },
+    # 通用类 / 多图融合（ComfyUI，多图输入）
+    {
+        "category": "通用类",
+        "name": "多图融合 · duotu_ronghe",
+        "version": "v1",
+        "workflow_id": "7615600173695107072",
+        "status": "active",
+        "notes": "ComfyUI 多图融合：输入主图 + 辅图1/辅图2（可选），支持输出宽高、正/反向提示词和随机种子。辅图未传时会在提交时移除对应引用。",
+        "parameters_schema": {
+            "fields": [
+                {
+                    "name": "url",
+                    "label": "主图 URL",
+                    "type": "text",
+                    "required": True,
+                    "description": "必填。主图=图1。",
+                },
+                {
+                    "name": "image_url_2",
+                    "label": "辅图 1 URL",
+                    "type": "text",
+                    "required": False,
+                    "defaultValue": "",
+                    "description": "可选。对应节点 106（image2）；不传则提交时移除。",
+                },
+                {
+                    "name": "image_url_3",
+                    "label": "辅图 2 URL",
+                    "type": "text",
+                    "required": False,
+                    "defaultValue": "",
+                    "description": "可选。对应节点 108（image3）；不传则提交时移除。",
+                },
+                {
+                    "name": "width",
+                    "label": "输出宽度",
+                    "type": "text",
+                    "required": False,
+                    "defaultValue": "1024",
+                    "description": "可选。对应节点 112.width。",
+                },
+                {
+                    "name": "height",
+                    "label": "输出高度",
+                    "type": "text",
+                    "required": False,
+                    "defaultValue": "1024",
+                    "description": "可选。对应节点 112.height。",
+                },
+                {
+                    "name": "negative_prompt",
+                    "label": "反向提示词",
+                    "type": "textarea",
+                    "required": False,
+                    "defaultValue": "",
+                    "description": "可选。对应节点 110.prompt。",
+                },
+                {
+                    "name": "prompt",
+                    "label": "提示词",
+                    "type": "textarea",
+                    "required": False,
+                    "defaultValue": "",
+                    "description": "可选。对应节点 111.prompt。",
+                },
+                {
+                    "name": "seed",
+                    "label": "随机种子",
+                    "type": "text",
+                    "required": False,
+                    "defaultValue": "",
+                    "description": "可选。对应节点 151.seed；不填由后端自动生成。",
+                },
+            ]
+        },
+        "output_schema": {
+            "fields": [
+                {"name": "output", "type": "text", "description": "回调 task id"},
+                {"name": "prompt", "type": "text", "description": "提示词反馈字符串"},
+            ]
+        },
+    },
     # 不建议直接使用：ComfyUI 回调工作流（供后端兜底解析 images）
     {
         "category": "general",
