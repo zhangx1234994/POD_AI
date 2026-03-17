@@ -1369,7 +1369,13 @@ class AbilityInvocationService:
     def _normalize_image_inputs(
         self, payload: schemas.AbilityInvokeRequest, merged_inputs: dict[str, Any]
     ) -> _ImageBundle:
-        image_url = payload.imageUrl or merged_inputs.get("image_url") or merged_inputs.get("imageUrl")
+        image_url = (
+            payload.imageUrl
+            or merged_inputs.get("image_url")
+            or merged_inputs.get("imageUrl")
+            or merged_inputs.get("url")
+            or merged_inputs.get("Url")
+        )
         image_base64 = payload.imageBase64 or merged_inputs.get("image_base64") or merged_inputs.get("imageBase64")
         image_list: list[dict[str, Any]] = []
         default_image_list = merged_inputs.get("imageList")
