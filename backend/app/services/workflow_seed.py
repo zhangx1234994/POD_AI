@@ -139,31 +139,49 @@ DEFAULT_BINDING_SEEDS = _build_binding_seeds()
 
 
 def ensure_default_workflows(session: Session) -> bool:
-    """Insert built-in workflows if missing."""
+    """Insert or refresh built-in workflows."""
 
-    created = False
+    changed = False
     for seed in DEFAULT_WORKFLOW_SEEDS:
-        if session.get(Workflow, seed.id):
-            continue
         definition = {
             "workflow_key": seed.workflow_key,
             "graph": load_comfy_workflow(seed.workflow_key),
         }
-        workflow = Workflow(
-            id=seed.id,
-            action=seed.action,
-            name=seed.name,
-            version=seed.version,
-            type=seed.type,
-            status=seed.status,
-            definition=definition,
-            extra_metadata=seed.metadata or {"workflow_key": seed.workflow_key},
-        )
-        session.add(workflow)
-        created = True
-    if created:
+        metadata = seed.metadata or {"workflow_key": seed.workflow_key}
+        workflow = session.get(Workflow, seed.id)
+        if not workflow:
+            workflow = Workflow(
+                id=seed.id,
+                action=seed.action,
+                name=seed.name,
+                version=seed.version,
+                type=seed.type,
+                status=seed.status,
+                definition=definition,
+                extra_metadata=metadata,
+            )
+            session.add(workflow)
+            changed = True
+            continue
+
+        next_fields = {
+            "action": seed.action,
+            "name": seed.name,
+            "version": seed.version,
+            "type": seed.type,
+            "status": seed.status,
+            "definition": definition,
+            "extra_metadata": metadata,
+        }
+        for field, next_value in next_fields.items():
+            if getattr(workflow, field) != next_value:
+                setattr(workflow, field, next_value)
+                changed = True
+        if changed:
+            session.add(workflow)
+    if changed:
         session.commit()
-    return created
+    return changed
 
 
 def ensure_default_bindings(session: Session) -> bool:
