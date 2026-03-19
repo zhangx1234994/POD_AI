@@ -613,6 +613,66 @@ def _comfyui_pattern_extract_schema() -> dict[str, Any]:
     }
 
 
+def _comfyui_pattern_extract_lora_8step_schema() -> dict[str, Any]:
+    positive_default = PATTERN_EXTRACT_POSITIVE_DEFAULT
+    negative_default = PATTERN_EXTRACT_NEGATIVE_DEFAULT
+    return {
+        "fields": [
+            {
+                "name": "image_url",
+                "type": "image",
+                "label": _compose_bilingual_label("样例图 URL", "Reference Image URL"),
+                "description": "节点 393 · LoadImagesFromURL.url",
+                "placeholder": "https://example.com/sample.png",
+                "required": True,
+            },
+            {
+                "name": "prompt",
+                "type": "textarea",
+                "label": _compose_bilingual_label("正向提示词", "Positive Prompt"),
+                "description": "节点 111 · TextEncodeQwenImageEditPlus.prompt",
+                "default": positive_default,
+            },
+            {
+                "name": "negative_prompt",
+                "type": "textarea",
+                "label": _compose_bilingual_label("反向提示词", "Negative Prompt"),
+                "description": "节点 110 · TextEncodeQwenImageEditPlus.prompt",
+                "default": negative_default,
+            },
+            {
+                "name": "width",
+                "type": "number",
+                "label": _compose_bilingual_label("输出宽度 (px)", "Output Width (px)"),
+                "description": "节点 400 · LatentUpscale.width。不填则默认按原图宽度处理。",
+            },
+            {
+                "name": "height",
+                "type": "number",
+                "label": _compose_bilingual_label("输出高度 (px)", "Output Height (px)"),
+                "description": "节点 400 · LatentUpscale.height。不填则默认按原图高度处理。",
+            },
+            {
+                "name": "batch",
+                "type": "number",
+                "label": _compose_bilingual_label("批次数量", "Batch Count"),
+                "description": "节点 424 · RepeatLatentBatch.amount，控制一次生成多少张图（批次越大耗时越久，超时限制会自动按批次增加）。",
+                "default": 1,
+                "min": 1,
+                "max": 8,
+            },
+            {
+                "name": "lora",
+                "type": "select",
+                "label": _compose_bilingual_label("LoRA", "LoRA"),
+                "description": "节点 390 · LoraLoaderModelOnly.lora_name（可在根目录 LORA_CATALOG.md 查看说明）。",
+                "default": "杯子1124.safetensors",
+                "options": _pattern_extract_lora_options(),
+            },
+        ]
+    }
+
+
 def _comfyui_pattern_expand_schema() -> dict[str, Any]:
     return {
         "fields": [
@@ -1471,8 +1531,6 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
         "defaults": {
             "workflow_key": "yinhua_tiqu_lora_8step",
             "timeout": 420,
-            "width": 1800,
-            "height": 1800,
             "lora": "杯子1124.safetensors",
             "prompt": PATTERN_EXTRACT_POSITIVE_DEFAULT,
             "negative_prompt": PATTERN_EXTRACT_NEGATIVE_DEFAULT,
@@ -1481,7 +1539,7 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
         "display_name": "ComfyUI · 8步加速可换LoRA",
         "description": "基于印花提取同款工作流单独封装的 8 步加速工具，支持独立更换效果 LoRA，并单独统计 Coze 业务使用量。",
         "category": "image_generation",
-        "input_schema": _comfyui_pattern_extract_schema(),
+        "input_schema": _comfyui_pattern_extract_lora_8step_schema(),
         "metadata": {
             "executor_type": "comfyui",
             "executor_tag": "comfyui",
@@ -1492,7 +1550,7 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "supports_vision": True,
             "allowed_executor_ids": ["executor_comfyui_pattern_extract_158"],
             "routing_policy": "queue",
-            "seed_version": 1,
+            "seed_version": 2,
             "lora_presets": PATTERN_EXTRACT_LORA_PRESETS,
             "pricing": {
                 "currency": "CNY",
