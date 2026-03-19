@@ -976,6 +976,27 @@ def get_comfyui_duotu_ronghe_openapi(request: Request) -> dict[str, Any]:
     return doc
 
 
+@router.get("/comfyui/execute/yinhua-tiqu-lora-8step/openapi.json")
+def get_comfyui_yinhua_tiqu_lora_8step_openapi(request: Request) -> dict[str, Any]:
+    """OpenAPI for standalone ComfyUI 8步加速可换LoRA toolbox."""
+    # Keep this OpenAPI public so Coze can import the toolbox URL directly.
+    # The real execution and task polling endpoints still enforce internal/token auth.
+    doc = _build_openapi_filtered(
+        request=request,
+        providers={"comfyui"},
+        title="PODI ComfyUI 执行 · 8步加速可换LoRA",
+        description="ComfyUI 8步加速可换LoRA独立工具箱（含提交工具与任务轮询）。",
+        prefer_url_field=True,
+    )
+    paths = doc.get("paths") or {}
+    allowed = {
+        "/api/coze/podi/tools/comfyui/yinhua_tiqu_lora_8step",
+        "/api/coze/podi/tasks/get",
+    }
+    doc["paths"] = {k: v for k, v in paths.items() if k in allowed}
+    return doc
+
+
 @router.get("/kie/catalog/openapi.json")
 def get_kie_catalog_openapi(request: Request) -> dict[str, Any]:
     """OpenAPI for PODI KIE model query-only plugin."""
