@@ -20,3 +20,4 @@ def test_limit_comfyui_images_for_seamless_only_keeps_one():
     images = [{"url": "a"}, {"url": "b"}]
     assert _limit_comfyui_images("sifang_lianxu", images) == [{"url": "a"}]
     assert _limit_comfyui_images("yinhua_tiqu", images) == images
+    assert _limit_comfyui_images("yinhua_tiqu_lora_8step", images) == images
