@@ -27,6 +27,15 @@
 - 用途：ComfyUI 能力执行 + `tasks/get` 轮询
 - 鉴权：仅内网或 `SERVICE_API_TOKEN`
 
+### 3.1 ComfyUI 单功能工具箱（执行类，按功能拆分）
+
+- OpenAPI 模板：`/api/coze/podi/comfyui/execute/{tool}/openapi.json`
+- 现有独立工具箱：
+  - `/api/coze/podi/comfyui/execute/duotu-ronghe/openapi.json`
+  - `/api/coze/podi/comfyui/execute/yinhua-tiqu-lora-8step/openapi.json`
+- 用途：每个功能单独一个工具箱，便于 Coze 单独测试、单独发布、单独回滚。
+- 导入说明：OpenAPI 地址可直接公网导入；真正执行接口与 `tasks/get` 仍按服务端鉴权规则校验。
+
 ## 4) ComfyUI LoRA 查询工具箱（查询类）
 
 - OpenAPI：`/api/coze/podi/comfyui/lora/openapi.json`
@@ -124,6 +133,7 @@
   - `width` / `height`：输出尺寸，映射到工作流节点 `400`
   - `prompt` / `negative_prompt`
   - `batch`
+- 新增：独立导入地址 `/api/coze/podi/comfyui/execute/yinhua-tiqu-lora-8step/openapi.json`
 
 ## 7) Baidu 工具箱（执行类）
 
