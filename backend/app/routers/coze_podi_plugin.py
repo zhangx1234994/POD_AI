@@ -1228,7 +1228,7 @@ def invoke_tool(
         expected_images = 1
         if capability_key in {"jisu_chuli", "zhongsu_tisheng"}:
             expected_images = _coerce_positive_int(body.get("batch") or body.get("amount") or body.get("n")) or 1
-        elif capability_key in {"yinhua_tiqu"}:
+        elif capability_key in {"yinhua_tiqu", "yinhua_tiqu_lora_8step"}:
             expected_images = (
                 _coerce_positive_int(body.get("batch") or body.get("batch_count") or body.get("batchCount") or body.get("repeat_count") or body.get("n"))
                 or 1

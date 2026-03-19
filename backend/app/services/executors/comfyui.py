@@ -657,6 +657,8 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             base_overrides, base_error = self._build_seamless_inputs(inputs, context)
         elif workflow_key == "yinhua_tiqu":
             base_overrides, base_error = self._build_pattern_extract_inputs(inputs, context, workflow_definition)
+        elif workflow_key == "yinhua_tiqu_lora_8step":
+            base_overrides, base_error = self._build_pattern_extract_lora_8step_inputs(inputs, context, workflow_definition)
         elif workflow_key == "huawen_kuotu":
             base_overrides, base_error = self._build_pattern_expand_inputs(inputs, context, workflow_definition)
         elif workflow_key in {"jisu_chuli", "zhongsu_tisheng"}:
@@ -889,6 +891,70 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         lora_name = self._as_text(params.get("lora") or params.get("lora_name") or params.get("loraName"))
         if lora_name:
             overrides.setdefault("390", {})["lora_name"] = lora_name
+
+        return (overrides or None), None
+
+    def _build_pattern_extract_lora_8step_inputs(
+        self, params: dict[str, Any], context: ExecutionContext, workflow_definition: dict[str, Any]
+    ) -> tuple[dict[str, Any] | None, str | None]:
+        """8步加速可换 LoRA 版印花提取。
+
+        Node mapping (see `backend/app/workflows/comfyui/yinhua_tiqu_lora_8step.json`):
+        - 393: LoadImagesFromURL.url
+        - 111: positive prompt
+        - 110: negative prompt
+        - 390: effect/style LoRA
+        - 400: LatentUpscale.width/height
+        - 424: RepeatLatentBatch.amount
+        """
+
+        overrides: dict[str, dict[str, Any]] = {}
+
+        image_url, _ = self._resolve_image_source(params, context)
+        if not image_url:
+            return None, "COMFYUI_IMAGE_REQUIRED"
+        overrides["393"] = {"url": image_url}
+
+        prompt = self._as_text(params.get("prompt") or params.get("positive_prompt"))
+        if prompt:
+            overrides.setdefault("111", {})["prompt"] = prompt
+
+        negative = self._as_text(params.get("negative_prompt") or params.get("negativePrompt"))
+        if negative:
+            overrides.setdefault("110", {})["prompt"] = negative
+
+        lora_name = self._as_text(params.get("lora") or params.get("lora_name") or params.get("loraName"))
+        if lora_name:
+            overrides.setdefault("390", {})["lora_name"] = lora_name
+
+        batch = self._coerce_positive_int(params.get("batch") or params.get("amount") or params.get("n"))
+        if batch:
+            overrides.setdefault("424", {})["amount"] = batch
+            workflow_definition["_expected_image_count"] = batch
+
+        width = self._coerce_positive_int(params.get("output_width") or params.get("width"))
+        height = self._coerce_positive_int(params.get("output_height") or params.get("height"))
+
+        if not width or not height:
+            try:
+                resp = httpx.get(image_url, timeout=30)
+                resp.raise_for_status()
+                im = Image.open(BytesIO(resp.content))
+                src_w, src_h = im.size
+                width = width or int(src_w)
+                height = height or int(src_h)
+            except Exception:
+                pass
+
+        width = self._normalize_comfy_dim(width)
+        height = self._normalize_comfy_dim(height)
+        if width or height:
+            node_inputs: dict[str, Any] = {}
+            if width:
+                node_inputs["width"] = width
+            if height:
+                node_inputs["height"] = height
+            overrides["400"] = node_inputs
 
         return (overrides or None), None
 

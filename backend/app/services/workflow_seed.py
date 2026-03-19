@@ -77,6 +77,19 @@ def _build_workflow_seeds() -> list[WorkflowSeed]:
             },
         ),
         WorkflowSeed(
+            id="workflow_comfyui_yinhua_tiqu_lora_8step_v1",
+            action="pattern_extract",
+            name="8步加速可换LoRA · ComfyUI",
+            version="v1",
+            type="comfyui",
+            status="active",
+            workflow_key="yinhua_tiqu_lora_8step",
+            metadata={
+                "workflow_key": "yinhua_tiqu_lora_8step",
+                "description": "ComfyUI workflow for 8-step pattern extraction with adjustable effect LoRA.",
+            },
+        ),
+        WorkflowSeed(
             id="workflow_comfyui_duotu_ronghe_v1",
             action="multi_image_fusion",
             name="多图融合 · ComfyUI",
@@ -121,6 +134,15 @@ def _build_binding_seeds() -> list[WorkflowBindingSeed]:
             priority=100,
             enabled=True,
             metadata={"notes": "Default binding for ComfyUI 印花提取 workflow (117.50.80.158:8079)"},
+        ),
+        WorkflowBindingSeed(
+            id="binding_pattern_extract_lora_8step_comfyui_v1",
+            action="pattern_extract",
+            workflow_id="workflow_comfyui_yinhua_tiqu_lora_8step_v1",
+            executor_id="executor_comfyui_pattern_extract_158",
+            priority=95,
+            enabled=True,
+            metadata={"notes": "Default binding for ComfyUI 8步加速可换LoRA workflow (117.50.80.158:8079)"},
         ),
         WorkflowBindingSeed(
             id="binding_multi_image_fusion_comfyui_v1",
