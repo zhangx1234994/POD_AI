@@ -63,3 +63,28 @@ def test_extract_output_json_returns_none_for_metadata_only_payload():
         "status": "running",
     }
     assert EvalService._extract_output_json(payload) is None
+
+
+def test_classify_eval_error_recognizes_transient_network_cases():
+    from app.services.eval_service import EvalService
+
+    assert EvalService._classify_eval_error("Workflow execution failure: EOF") == "NETWORK_EOF"
+    assert EvalService._classify_eval_error("COZE_HISTORY_FAILED code=0 statusCode=502 msg=Bad Gateway") == "HTTP_502"
+    assert EvalService._classify_eval_error("COZE_ASYNC_TIMEOUT") == "TIMEOUT"
+    assert EvalService._is_retryable_eval_error("Workflow execution failure: EOF") is True
+
+
+def test_summarize_fanout_errors_groups_by_kind():
+    from app.services.eval_service import EvalService
+
+    summary = EvalService._summarize_fanout_errors(
+        [
+            "COZE_WORKFLOW_ERROR: Workflow execution failure: EOF",
+            "COZE_WORKFLOW_ERROR: Workflow execution failure: EOF",
+            "TASK_IMAGES_EMPTY:status=failed;provider=comfyui",
+        ]
+    )
+    assert summary is not None
+    assert "FANOUT_PARTIAL_FAILED[" in summary
+    assert "NETWORK_EOF=2" in summary
+    assert "TASK_IMAGES_EMPTY=1" in summary
