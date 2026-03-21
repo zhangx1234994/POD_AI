@@ -106,6 +106,91 @@ class EvalService:
             return lane
         return "default"
 
+    @staticmethod
+    def _classify_eval_error(error: str | None) -> str:
+        text = str(error or "").strip()
+        lowered = text.lower()
+        if not lowered:
+            return "UNKNOWN"
+        if "eof" in lowered or "connection reset" in lowered or "broken pipe" in lowered:
+            return "NETWORK_EOF"
+        if "timed out" in lowered or "timeout" in lowered:
+            return "TIMEOUT"
+        if "status=502" in lowered or "bad gateway" in lowered:
+            return "HTTP_502"
+        if "status=503" in lowered:
+            return "HTTP_503"
+        if "status=504" in lowered:
+            return "HTTP_504"
+        if "image_download_failed" in lowered:
+            return "IMAGE_DOWNLOAD_FAILED"
+        if "coze_workflow_error" in lowered:
+            return "COZE_WORKFLOW_ERROR"
+        if "coze_history_failed" in lowered:
+            return "COZE_HISTORY_FAILED"
+        if "coze_submit_failed" in lowered:
+            return "COZE_SUBMIT_FAILED"
+        if "task_timeout" in lowered:
+            return "TASK_TIMEOUT"
+        if "task_images_empty" in lowered:
+            return "TASK_IMAGES_EMPTY"
+        if "callback_images_empty" in lowered:
+            return "CALLBACK_IMAGES_EMPTY"
+        if "output_no_images" in lowered or "output_empty" in lowered:
+            return "OUTPUT_EMPTY"
+        return "UNKNOWN"
+
+    @classmethod
+    def _is_retryable_eval_error(cls, error: str | None) -> bool:
+        kind = cls._classify_eval_error(error)
+        return kind in {"NETWORK_EOF", "TIMEOUT", "HTTP_502", "HTTP_503", "HTTP_504", "COZE_HISTORY_FAILED"}
+
+    @classmethod
+    def _format_eval_error(cls, error: str | None) -> str:
+        text = str(error or "").strip() or "UNKNOWN"
+        return f"{cls._classify_eval_error(text)}:{text}"
+
+    @classmethod
+    def _summarize_fanout_errors(cls, errors: list[str]) -> str | None:
+        if not errors:
+            return None
+        counts: dict[str, int] = {}
+        normalized: list[str] = []
+        for err in errors:
+            formatted = cls._format_eval_error(err)
+            normalized.append(formatted)
+            kind = formatted.split(":", 1)[0]
+            counts[kind] = counts.get(kind, 0) + 1
+        summary = ", ".join(f"{kind}={count}" for kind, count in sorted(counts.items()))
+        details = " | ".join(normalized[:5]) + (" ..." if len(normalized) > 5 else "")
+        return f"FANOUT_PARTIAL_FAILED[{summary}]: {details}"
+
+    @staticmethod
+    def _describe_ability_task_state(task_row: AbilityTask | None) -> str:
+        if not task_row:
+            return "TASK_NOT_FOUND"
+        result_payload = task_row.result_payload or {}
+        meta = result_payload.get("metadata") if isinstance(result_payload, dict) else {}
+        parts = [
+            f"status={task_row.status}",
+            f"provider={task_row.ability_provider}",
+            f"capability={task_row.capability_key}",
+        ]
+        if isinstance(meta, dict):
+            executor_id = meta.get("executorId")
+            prompt_id = meta.get("promptId") or meta.get("taskId")
+            if executor_id:
+                parts.append(f"executor={executor_id}")
+            if prompt_id:
+                parts.append(f"promptId={prompt_id}")
+        if task_row.error_message:
+            parts.append(f"error={str(task_row.error_message)[:240]}")
+        if isinstance(result_payload, dict):
+            images = result_payload.get("images")
+            if isinstance(images, list):
+                parts.append(f"imageCount={len(images)}")
+        return ";".join(parts)
+
     def _submit_run(self, run_id: str, parameters: dict[str, Any] | None) -> None:
         lane = self._lane_from_parameters(parameters)
         executor = self._lane_executors.get(lane) or self._lane_executors["default"]
@@ -406,7 +491,7 @@ class EvalService:
                 if max_workers <= 1:
                     # Sequential fan-out (stable mode).
                     for _ in range(fanout):
-                        imgs, err, execute_id, debug_url = self._run_coze_async_item(
+                        imgs, err, execute_id, debug_url = self._run_coze_async_item_with_retry(
                             run_id,
                             workflow_id,
                             coze_params,
@@ -426,7 +511,7 @@ class EvalService:
                     with ThreadPoolExecutor(max_workers=max_workers) as pool:
                         futures = [
                             pool.submit(
-                                self._run_coze_async_item,
+                                self._run_coze_async_item_with_retry,
                                 run_id,
                                 workflow_id,
                                 coze_params,
@@ -465,12 +550,11 @@ class EvalService:
                         session.commit()
 
                 if dedup:
-                    warn = None
-                    if errors:
-                        warn = "FANOUT_PARTIAL_FAILED: " + " | ".join(errors[:5]) + (" ..." if len(errors) > 5 else "")
+                    warn = self._summarize_fanout_errors(errors)
                     self._mark_succeeded(run_id, image_urls=dedup, output_json=None, started=started, error_message=warn)
                     return
-                self._mark_failed(run_id, message=errors[0] if errors else "FANOUT_EMPTY", started=started)
+                primary_error = self._summarize_fanout_errors(errors) or "FANOUT_EMPTY"
+                self._mark_failed(run_id, message=primary_error, started=started)
                 return
 
             # Primary path: sync run (lower overhead).
@@ -489,7 +573,7 @@ class EvalService:
                 lowered = detail.lower()
                 is_timeout = "coze_request_failed" in lowered and ("timed out" in lowered or "timeout" in lowered)
                 if is_timeout:
-                    imgs, err, execute_id, debug_url = self._run_coze_async_item(
+                    imgs, err, execute_id, debug_url = self._run_coze_async_item_with_retry(
                         run_id,
                         workflow_id,
                         coze_params,
@@ -813,10 +897,10 @@ class EvalService:
                     with get_session() as session:
                         task_row = session.get(AbilityTask, podi_task_id)
                     if task_row:
-                        imgs = self._poll_ability_task_inline(task_id=podi_task_id)
+                        imgs, task_diag = self._poll_ability_task_inline(task_id=podi_task_id)
                         if imgs:
                             return imgs, None, execute_id, debug_url
-                        return [], "TASK_IMAGES_EMPTY", execute_id, debug_url
+                        return [], f"TASK_IMAGES_EMPTY:{task_diag}", execute_id, debug_url
                     callback_wf = settings.coze_comfyui_callback_workflow_id
                     if callback_wf:
                         imgs = self._poll_callback_images(callback_workflow_id=callback_wf, taskid=podi_task_id)
@@ -835,6 +919,37 @@ class EvalService:
             interval = min(interval * 1.4, 8.0)
 
         return [], "COZE_ASYNC_TIMEOUT", execute_id, debug_url
+
+    def _run_coze_async_item_with_retry(
+        self,
+        run_id: str,
+        workflow_id: str,
+        coze_params: dict[str, Any],
+        settings: Any,
+        expects_callback: bool,
+    ) -> tuple[list[str], str | None, str | None, str | None]:
+        attempts = 0
+        last_result: tuple[list[str], str | None, str | None, str | None] = ([], None, None, None)
+        while attempts < 2:
+            attempts += 1
+            imgs, err, execute_id, debug_url = self._run_coze_async_item(
+                run_id,
+                workflow_id,
+                coze_params,
+                settings,
+                expects_callback,
+            )
+            last_result = (imgs, err, execute_id, debug_url)
+            if imgs or not self._is_retryable_eval_error(err) or attempts >= 2:
+                return last_result
+            self._logger.warning(
+                "Eval fanout transient error, retrying workflow_id=%s attempt=%s err=%s",
+                workflow_id,
+                attempts,
+                err,
+            )
+            time.sleep(1.2 * attempts)
+        return last_result
 
     @staticmethod
     def _parse_coze_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -1011,18 +1126,20 @@ class EvalService:
             interval = min(interval * 1.4, 8.0)
         return last_images
 
-    def _poll_ability_task_inline(self, *, task_id: str) -> list[str]:
-        """Poll an ability_task and return image URLs (for fan-out runs)."""
+    def _poll_ability_task_inline(self, *, task_id: str) -> tuple[list[str], str]:
+        """Poll an ability_task and return image URLs + final diagnostic (for fan-out runs)."""
         deadline = time.monotonic() + 60 * 20  # 20 minutes max
         interval = 1.5
         attempts = 0
+        last_diag = "TASK_POLL_NOT_STARTED"
 
         while time.monotonic() < deadline:
             with get_session() as session:
                 task_row = session.get(AbilityTask, task_id)
                 if not task_row:
-                    return []
+                    return [], "TASK_NOT_FOUND"
                 task = get_ability_task_service().to_dict(task_row)
+                last_diag = self._describe_ability_task_state(task_row)
 
             status = task.get("status")
             if status == "succeeded":
@@ -1039,10 +1156,10 @@ class EvalService:
                                 if isinstance(v, str) and v.strip():
                                     image_urls.append(v.strip())
                                     break
-                return image_urls
+                return image_urls, self._describe_ability_task_state(task_row)
 
             if status == "failed":
-                return []
+                return [], self._describe_ability_task_state(task_row)
 
             # For long-running ComfyUI "submit only" tasks, the DB row stays running until we
             # finalize it by polling ComfyUI /history and ingesting outputs. Coze normally
@@ -1056,7 +1173,7 @@ class EvalService:
             time.sleep(interval)
             interval = min(interval * 1.3, 10.0)
 
-        return []
+        return [], f"TASK_TIMEOUT:{last_diag}"
 
     def _poll_ability_task(self, *, run_id: str, task_id: str, started: float, output_json: Any | None = None) -> None:
         deadline = time.monotonic() + 60 * 20  # 20 minutes max
