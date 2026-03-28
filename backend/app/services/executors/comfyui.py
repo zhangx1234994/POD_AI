@@ -1251,6 +1251,8 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         similarity_value = params.get("bili")
         if similarity_value in (None, ""):
             similarity_value = params.get("similarity")
+        if similarity_value in (None, ""):
+            similarity_value = 25
         denoise = self._map_similarity_to_denoise(similarity_value)
         if denoise is not None:
             overrides.setdefault("21", {})["denoise"] = denoise

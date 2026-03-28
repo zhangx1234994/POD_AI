@@ -120,3 +120,21 @@ def test_e7_flux2_liebian_keeps_backward_compat_for_similarity():
     assert error is None
     assert overrides is not None
     assert overrides["21"]["denoise"] == 0.62
+
+
+def test_e7_flux2_liebian_uses_server_default_when_bili_missing():
+    context = _make_context()
+    adapter = ComfyUIExecutorAdapter()
+
+    overrides, error = adapter._build_e7_flux2_liebian_inputs(
+        {
+            "image_url": "https://example.com/input.png",
+            "prompt": "默认值测试",
+        },
+        context,
+        context.workflow.definition,
+    )
+
+    assert error is None
+    assert overrides is not None
+    assert overrides["21"]["denoise"] == 0.66
