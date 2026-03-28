@@ -1,0 +1,203 @@
+{
+  "10": {
+    "inputs": {
+      "url": "__INPUT_IMAGE__"
+    },
+    "class_type": "LoadImagesFromURL"
+  },
+  "11": {
+    "inputs": {
+      "image": [
+        "10",
+        0
+      ]
+    },
+    "class_type": "GetImageSize"
+  },
+  "12": {
+    "inputs": {
+      "image": [
+        "10",
+        0
+      ],
+      "width": [
+        "11",
+        0
+      ],
+      "height": [
+        "11",
+        1
+      ],
+      "interpolation": "nearest",
+      "method": "keep proportion",
+      "condition": "always",
+      "multiple_of": 0
+    },
+    "class_type": "ImageResize+"
+  },
+  "13": {
+    "inputs": {
+      "text1": "__PROMPT__",
+      "text2": "",
+      "separator": ","
+    },
+    "class_type": "CR Text Concatenate"
+  },
+  "14": {
+    "inputs": {
+      "clip_name": "qwen_3_8b_fp8mixed.safetensors",
+      "type": "flux2",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader"
+  },
+  "15": {
+    "inputs": {
+      "text": [
+        "13",
+        0
+      ],
+      "clip": [
+        "14",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode"
+  },
+  "16": {
+    "inputs": {
+      "text": "",
+      "clip": [
+        "14",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode"
+  },
+  "17": {
+    "inputs": {
+      "unet_name": "flux-2-klein-9b-fp8.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader"
+  },
+  "18": {
+    "inputs": {
+      "model": [
+        "17",
+        0
+      ],
+      "positive": [
+        "15",
+        0
+      ],
+      "negative": [
+        "16",
+        0
+      ],
+      "cfg": "__CFG__"
+    },
+    "class_type": "CFGGuider"
+  },
+  "19": {
+    "inputs": {
+      "noise_seed": "__SEED__"
+    },
+    "class_type": "RandomNoise"
+  },
+  "20": {
+    "inputs": {
+      "sampler_name": "euler"
+    },
+    "class_type": "KSamplerSelect"
+  },
+  "21": {
+    "inputs": {
+      "model": [
+        "17",
+        0
+      ],
+      "scheduler": "simple",
+      "steps": "__STEPS__",
+      "denoise": "__DENOISE__"
+    },
+    "class_type": "BasicScheduler"
+  },
+  "22": {
+    "inputs": {
+      "vae_name": "flux2-vae.safetensors"
+    },
+    "class_type": "VAELoader"
+  },
+  "23": {
+    "inputs": {
+      "pixels": [
+        "12",
+        0
+      ],
+      "vae": [
+        "22",
+        0
+      ]
+    },
+    "class_type": "VAEEncode"
+  },
+  "24": {
+    "inputs": {
+      "latent": [
+        "23",
+        0
+      ],
+      "batch_size": "__BATCH_SIZE__"
+    },
+    "class_type": "CR Latent Batch Size"
+  },
+  "25": {
+    "inputs": {
+      "noise": [
+        "19",
+        0
+      ],
+      "guider": [
+        "18",
+        0
+      ],
+      "sampler": [
+        "20",
+        0
+      ],
+      "sigmas": [
+        "21",
+        0
+      ],
+      "latent_image": [
+        "24",
+        0
+      ]
+    },
+    "class_type": "SamplerCustomAdvanced"
+  },
+  "26": {
+    "inputs": {
+      "samples": [
+        "25",
+        0
+      ],
+      "vae": [
+        "22",
+        0
+      ]
+    },
+    "class_type": "VAEDecode"
+  },
+  "27": {
+    "inputs": {
+      "filename_prefix": "E7_Flux2OriginalRebuild",
+      "images": [
+        "26",
+        0
+      ]
+    },
+    "class_type": "SaveImage"
+  }
+}

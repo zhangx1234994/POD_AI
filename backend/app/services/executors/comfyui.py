@@ -353,13 +353,14 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         for node in graph.values():
             if not isinstance(node, dict):
                 continue
-            if node.get("class_type") != "KSampler":
-                continue
             inputs = node.get("inputs")
             if not isinstance(inputs, dict):
                 continue
-            if "seed" in inputs:
+            class_type = str(node.get("class_type") or "")
+            if class_type == "KSampler" and "seed" in inputs:
                 inputs["seed"] = seed
+            elif class_type == "RandomNoise" and "noise_seed" in inputs:
+                inputs["noise_seed"] = seed
 
     @staticmethod
     def _normalize_comfy_dim(value: int | None) -> int | None:
@@ -665,6 +666,8 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             base_overrides, base_error = self._build_jisu_chuli_inputs(inputs, context, workflow_definition)
         elif workflow_key == "duotu_ronghe":
             base_overrides, base_error = self._build_duotu_ronghe_inputs(inputs, context, workflow_definition)
+        elif workflow_key == "e7_flux2_liebian":
+            base_overrides, base_error = self._build_e7_flux2_liebian_inputs(inputs, context, workflow_definition)
 
         if base_error:
             return None, base_error
@@ -1180,6 +1183,97 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
 
         workflow_definition["_max_output_images"] = 1
         workflow_definition["output_node_ids"] = ["60"]
+        return (overrides or None), None
+
+    @staticmethod
+    def _map_similarity_to_denoise(value: Any) -> float | None:
+        try:
+            similarity = float(value)
+        except (TypeError, ValueError):
+            return None
+        similarity = max(0.0, min(100.0, similarity))
+        denoise = 0.7 - (similarity / 100.0) * 0.4
+        return round(max(0.3, min(0.7, denoise)), 4)
+
+    def _build_e7_flux2_liebian_inputs(
+        self, params: dict[str, Any], context: ExecutionContext, workflow_definition: dict[str, Any]
+    ) -> tuple[dict[str, Any] | None, str | None]:
+        """E7 + FLUX2 裂变重绘。
+
+        Node mapping (see `backend/app/workflows/comfyui/e7_flux2_liebian.json`):
+        - 10: LoadImage.image
+        - 13: CR Text Concatenate.text1/text2
+        - 18: CFGGuider.cfg
+        - 19: RandomNoise.noise_seed
+        - 21: BasicScheduler.steps/denoise
+        - 24: CR Latent Batch Size.batch_size
+        - 12: ImageResize+.width/height
+        """
+
+        overrides: dict[str, dict[str, Any]] = {}
+
+        image_url, _ = self._resolve_image_source(params, context)
+        if not image_url:
+            return None, "COMFYUI_IMAGE_REQUIRED"
+
+        overrides["10"] = {"url": image_url}
+
+        prompt = self._as_text(params.get("prompt") or params.get("positive_prompt"))
+        if prompt:
+            overrides.setdefault("13", {})["text1"] = prompt
+
+        image_desc = self._as_text(params.get("image_desc") or params.get("imageDesc"))
+        if image_desc:
+            overrides.setdefault("13", {})["text2"] = image_desc
+
+        cfg = params.get("cfg")
+        if cfg is not None:
+            try:
+                overrides.setdefault("18", {})["cfg"] = float(cfg)
+            except (TypeError, ValueError):
+                pass
+
+        seed = self._coerce_positive_int(params.get("seed"))
+        if seed is not None:
+            overrides.setdefault("19", {})["noise_seed"] = seed
+
+        steps = self._coerce_positive_int(params.get("steps"))
+        if steps is not None:
+            overrides.setdefault("21", {})["steps"] = steps
+
+        denoise = self._map_similarity_to_denoise(params.get("similarity"))
+        if denoise is not None:
+            overrides.setdefault("21", {})["denoise"] = denoise
+
+        batch_size = self._coerce_positive_int(params.get("batch_size") or params.get("batch") or params.get("n"))
+        if batch_size:
+            overrides.setdefault("24", {})["batch_size"] = batch_size
+            workflow_definition["_expected_image_count"] = batch_size
+
+        width = self._coerce_positive_int(params.get("output_width") or params.get("width"))
+        height = self._coerce_positive_int(params.get("output_height") or params.get("height"))
+        if (width and not height) or (height and not width):
+            try:
+                resp = httpx.get(image_url, timeout=30)
+                resp.raise_for_status()
+                im = Image.open(BytesIO(resp.content))
+                src_w, src_h = im.size
+                width = width or int(src_w)
+                height = height or int(src_h)
+            except Exception:
+                pass
+
+        width = self._normalize_comfy_dim(width)
+        height = self._normalize_comfy_dim(height)
+        if width or height:
+            node_inputs: dict[str, Any] = {}
+            if width:
+                node_inputs["width"] = width
+            if height:
+                node_inputs["height"] = height
+            overrides["12"] = node_inputs
+
+        workflow_definition["output_node_ids"] = ["27"]
         return (overrides or None), None
 
     def _upload_image_for_comfyui_loadimage(self, *, image_url: str, base_url: str, prefix: str) -> str | None:

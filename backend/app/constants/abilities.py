@@ -774,6 +774,91 @@ def _comfyui_jisu_chuli_schema() -> dict[str, Any]:
     }
 
 
+def _comfyui_e7_flux2_liebian_schema() -> dict[str, Any]:
+    return {
+        "fields": [
+            {
+                "name": "image_url",
+                "type": "image",
+                "label": _compose_bilingual_label("输入图片 URL", "Input Image URL"),
+                "description": "节点 10 · LoadImagesFromURL.url",
+                "required": True,
+            },
+            {
+                "name": "prompt",
+                "type": "textarea",
+                "label": _compose_bilingual_label("裂变提示词", "Fission Prompt"),
+                "description": "节点 13 · CR Text Concatenate.text1",
+                "required": True,
+            },
+            {
+                "name": "similarity",
+                "type": "number",
+                "label": _compose_bilingual_label("相似度（0-100）", "Similarity (0-100)"),
+                "description": _compose_bilingual_label(
+                    "业务相似度值。数值越大越接近原图，后端会线性换算为 denoise，并限制在 0.3~0.7。",
+                    "Higher means more similar to source. Backend converts it to denoise and clamps to 0.3~0.7.",
+                ),
+                "default": 25,
+                "min": 0,
+                "max": 100,
+            },
+            {
+                "name": "seed",
+                "type": "number",
+                "label": _compose_bilingual_label("随机种子", "Seed"),
+                "description": "节点 19 · RandomNoise.noise_seed；不填则自动随机。",
+                "required": False,
+            },
+            {
+                "name": "steps",
+                "type": "number",
+                "label": _compose_bilingual_label("步数", "Steps"),
+                "description": "节点 21 · BasicScheduler.steps",
+                "default": 8,
+                "min": 1,
+            },
+            {
+                "name": "cfg",
+                "type": "number",
+                "label": _compose_bilingual_label("CFG", "CFG"),
+                "description": "节点 18 · CFGGuider.cfg",
+                "default": 1.0,
+                "min": 0,
+            },
+            {
+                "name": "batch_size",
+                "type": "number",
+                "label": _compose_bilingual_label("批次数量", "Batch Size"),
+                "description": "节点 24 · CR Latent Batch Size.batch_size",
+                "default": 1,
+                "min": 1,
+                "max": 8,
+            },
+            {
+                "name": "width",
+                "type": "number",
+                "label": _compose_bilingual_label("输出宽度(px)", "Output Width(px)"),
+                "description": _compose_bilingual_label(
+                    "节点 12 · ImageResize+.width。不填则默认按原图宽度处理。",
+                    "Node 12 · ImageResize+.width. Omit to keep original image width.",
+                ),
+                "required": False,
+            },
+            {
+                "name": "height",
+                "type": "number",
+                "label": _compose_bilingual_label("输出高度(px)", "Output Height(px)"),
+                "description": _compose_bilingual_label(
+                    "节点 12 · ImageResize+.height。不填则默认按原图高度处理。",
+                    "Node 12 · ImageResize+.height. Omit to keep original image height.",
+                ),
+                "required": False,
+            },
+        ]
+    }
+
+
 def _comfyui_multi_image_fusion_schema() -> dict[str, Any]:
     return {
         "fields": [
@@ -1674,6 +1759,38 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "requires_image_input": True,
             "supports_vision": True,
             "allowed_executor_ids": ["executor_comfyui_pattern_extract_158", "executor_comfyui_seamless_117"],
+            "routing_policy": "queue",
+            "seed_version": 3,
+            "pricing": {
+                "currency": "CNY",
+                "unit": "per_image",
+                "list_price": 0.6,
+                "discount_price": 0.35,
+            },
+        },
+    },
+    "e7_flux2_liebian": {
+        "defaults": {
+            "workflow_key": "e7_flux2_liebian",
+            "timeout": 420,
+            "steps": 8,
+            "cfg": 1.0,
+            "similarity": 25,
+            "batch_size": 1,
+        },
+        "display_name": "ComfyUI · E7裂变重绘",
+        "description": "基于 E7 + FLUX2 的裂变重绘工作流。输入参考图与单文本裂变提示词，支持相似度、输出尺寸与批次。",
+        "category": "image_generation",
+        "input_schema": _comfyui_e7_flux2_liebian_schema(),
+        "metadata": {
+            "executor_type": "comfyui",
+            "executor_tag": "comfyui",
+            "api_type": "comfyui_workflow",
+            "workflow_key": "e7_flux2_liebian",
+            "action": "image_fission",
+            "requires_image_input": True,
+            "supports_vision": True,
+            "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
             "routing_policy": "queue",
             "seed_version": 3,
             "pricing": {
