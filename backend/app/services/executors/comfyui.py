@@ -6,6 +6,7 @@ import re
 import base64
 import json
 import logging
+import math
 import mimetypes
 import secrets
 import time
@@ -1187,13 +1188,19 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
 
     @staticmethod
     def _map_similarity_to_denoise(value: Any) -> float | None:
+        if isinstance(value, str):
+            value = value.strip().replace("%", "")
         try:
             similarity = float(value)
         except (TypeError, ValueError):
             return None
-        similarity = max(0.0, min(100.0, similarity))
-        denoise = 0.7 - (similarity / 100.0) * 0.4
-        return round(max(0.3, min(0.7, denoise)), 4)
+        similarity = int(math.floor(similarity + 0.5))
+        similarity = max(0, min(100, similarity))
+        if similarity <= 60:
+            denoise = 0.7 - similarity * (0.1 / 60.0)
+        else:
+            denoise = 0.6 - (similarity - 60) * (0.1 / 40.0)
+        return round(max(0.5, min(0.7, denoise)), 2)
 
     def _build_e7_flux2_liebian_inputs(
         self, params: dict[str, Any], context: ExecutionContext, workflow_definition: dict[str, Any]
@@ -1201,7 +1208,7 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         """E7 + FLUX2 裂变重绘。
 
         Node mapping (see `backend/app/workflows/comfyui/e7_flux2_liebian.json`):
-        - 10: LoadImage.image
+        - 10: LoadImagesFromURL.url
         - 13: CR Text Concatenate.text1/text2
         - 18: CFGGuider.cfg
         - 19: RandomNoise.noise_seed
