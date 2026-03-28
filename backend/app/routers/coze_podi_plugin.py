@@ -997,6 +997,25 @@ def get_comfyui_yinhua_tiqu_lora_8step_openapi(request: Request) -> dict[str, An
     return doc
 
 
+@router.get("/comfyui/execute/e7-flux2-liebian/openapi.json")
+def get_comfyui_e7_flux2_liebian_openapi(request: Request) -> dict[str, Any]:
+    """OpenAPI for standalone ComfyUI E7 裂变重绘 toolbox."""
+    doc = _build_openapi_filtered(
+        request=request,
+        providers={"comfyui"},
+        title="PODI ComfyUI 执行 · E7裂变重绘",
+        description="ComfyUI E7 裂变重绘独立工具箱（含提交工具与任务轮询）。",
+        prefer_url_field=True,
+    )
+    paths = doc.get("paths") or {}
+    allowed = {
+        "/api/coze/podi/tools/comfyui/e7_flux2_liebian",
+        "/api/coze/podi/tasks/get",
+    }
+    doc["paths"] = {k: v for k, v in paths.items() if k in allowed}
+    return doc
+
+
 @router.get("/kie/catalog/openapi.json")
 def get_kie_catalog_openapi(request: Request) -> dict[str, Any]:
     """OpenAPI for PODI KIE model query-only plugin."""
@@ -1254,6 +1273,8 @@ def invoke_tool(
                 _coerce_positive_int(body.get("batch") or body.get("batch_count") or body.get("batchCount") or body.get("repeat_count") or body.get("n"))
                 or 1
             )
+        elif capability_key == "e7_flux2_liebian":
+            expected_images = _coerce_positive_int(body.get("batch_size") or body.get("batch") or body.get("n")) or 1
 
         # Persist the hint with the task so `/tasks/get` can always surface it.
         payload.metadata = (payload.metadata or {}) | {"expectedImageCount": expected_images}

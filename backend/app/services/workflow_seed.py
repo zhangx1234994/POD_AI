@@ -103,6 +103,20 @@ def _build_workflow_seeds() -> list[WorkflowSeed]:
                 "output_node_ids": ["357"],
             },
         ),
+        WorkflowSeed(
+            id="workflow_comfyui_e7_flux2_liebian_v1",
+            action="image_fission",
+            name="E7裂变重绘 · ComfyUI",
+            version="v1",
+            type="comfyui",
+            status="active",
+            workflow_key="e7_flux2_liebian",
+            metadata={
+                "workflow_key": "e7_flux2_liebian",
+                "description": "ComfyUI workflow for E7 FLUX2 image fission / redraw.",
+                "output_node_ids": ["27"],
+            },
+        ),
     ]
 
 
@@ -152,6 +166,15 @@ def _build_binding_seeds() -> list[WorkflowBindingSeed]:
             priority=100,
             enabled=True,
             metadata={"notes": "Default binding for ComfyUI 多图融合 workflow (117.50.80.158:8079)"},
+        ),
+        WorkflowBindingSeed(
+            id="binding_image_fission_comfyui_v1",
+            action="image_fission",
+            workflow_id="workflow_comfyui_e7_flux2_liebian_v1",
+            executor_id="executor_comfyui_pattern_extract_158",
+            priority=100,
+            enabled=True,
+            metadata={"notes": "Default binding for ComfyUI E7 裂变重绘 workflow (117.50.80.158:8079)"},
         ),
     ]
 

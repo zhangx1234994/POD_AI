@@ -1,6 +1,6 @@
 # Coze 工具箱清单（PODI）
 
-> 更新时间：2026-03-19
+> 更新时间：2026-03-28
 > 
 > 说明：以下为当前后端实际可用的工具箱入口。导入 Coze 时使用 OpenAPI 地址；执行时按各工具箱里的接口调用。
 
@@ -32,6 +32,7 @@
 - OpenAPI 模板：`/api/coze/podi/comfyui/execute/{tool}/openapi.json`
 - 现有独立工具箱：
   - `/api/coze/podi/comfyui/execute/duotu-ronghe/openapi.json`
+  - `/api/coze/podi/comfyui/execute/e7-flux2-liebian/openapi.json`
   - `/api/coze/podi/comfyui/execute/yinhua-tiqu-lora-8step/openapi.json`
 - 用途：每个功能单独一个工具箱，便于 Coze 单独测试、单独发布、单独回滚。
 - 导入说明：OpenAPI 地址可直接公网导入；真正执行接口与 `tasks/get` 仍按服务端鉴权规则校验。
@@ -134,6 +135,17 @@
   - `prompt` / `negative_prompt`
   - `batch`
 - 新增：独立导入地址 `/api/coze/podi/comfyui/execute/yinhua-tiqu-lora-8step/openapi.json`
+
+### 2026-03-28
+- 新增：`ComfyUI · E7裂变重绘`，基于 E7 + FLUX2 的裂变重绘独立工具。
+- 关键入参：
+  - `url`：主图 URL
+  - `prompt`：单文本裂变提示词，建议直接接 VL 输出
+  - `similarity`：0-100，相似度越高越接近原图；后端换算到 `denoise=0.3~0.7`
+  - `steps` / `cfg` / `seed`
+  - `batch_size`
+  - `width` / `height`：不传默认原图尺寸，传入则按输入值执行
+- 新增：独立导入地址 `/api/coze/podi/comfyui/execute/e7-flux2-liebian/openapi.json`
 
 ## 7) Baidu 工具箱（执行类）
 
