@@ -1248,7 +1248,10 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         if steps is not None:
             overrides.setdefault("21", {})["steps"] = steps
 
-        denoise = self._map_similarity_to_denoise(params.get("similarity"))
+        similarity_value = params.get("bili")
+        if similarity_value in (None, ""):
+            similarity_value = params.get("similarity")
+        denoise = self._map_similarity_to_denoise(similarity_value)
         if denoise is not None:
             overrides.setdefault("21", {})["denoise"] = denoise
 

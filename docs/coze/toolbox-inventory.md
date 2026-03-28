@@ -141,10 +141,11 @@
 - 关键入参：
   - `url`：主图 URL
   - `prompt`：单文本裂变提示词，建议直接接 VL 输出
-  - `similarity`：0-100，相似度越高越接近原图；后端换算到 `denoise=0.3~0.7`
+  - `bili`：0-100，和旧裂变工作流保持一致；数值越高越接近原图，后端按 `0→0.7、60→0.6、100→0.5` 分段换算为 denoise，小数先取整
   - `steps` / `cfg` / `seed`
   - `batch_size`
   - `width` / `height`：不传默认原图尺寸，传入则按输入值执行
+- 兼容说明：后端仍兼容旧字段 `similarity`，但 Coze 推荐入参统一使用 `bili`
 - 新增：独立导入地址 `/api/coze/podi/comfyui/execute/e7-flux2-liebian/openapi.json`
 
 ## 7) Baidu 工具箱（执行类）

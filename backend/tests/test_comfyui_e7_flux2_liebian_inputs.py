@@ -11,7 +11,7 @@ def _make_context():
     return ExecutionContext(task=task, workflow=workflow, executor=executor, payload={})
 
 
-def test_e7_flux2_liebian_maps_similarity_and_core_inputs():
+def test_e7_flux2_liebian_maps_bili_and_core_inputs():
     context = _make_context()
     adapter = ComfyUIExecutorAdapter()
 
@@ -19,7 +19,7 @@ def test_e7_flux2_liebian_maps_similarity_and_core_inputs():
         {
             "image_url": "https://example.com/input.png",
             "prompt": "保留系列感，重新绘制主花型",
-            "similarity": 100,
+            "bili": 100,
             "steps": 8,
             "cfg": 1.0,
             "seed": 123456,
@@ -50,7 +50,7 @@ def test_e7_flux2_liebian_normalizes_custom_size_and_clamps_similarity():
         {
             "image_url": "https://example.com/input.png",
             "prompt": "做一次明显裂变",
-            "similarity": -10,
+            "bili": -10,
             "width": 1001,
             "height": 1503,
         },
@@ -73,7 +73,7 @@ def test_e7_flux2_liebian_rounds_decimal_similarity_and_hits_business_anchor():
         {
             "image_url": "https://example.com/input.png",
             "prompt": "按业务锚点测试",
-            "similarity": 60.4,
+            "bili": 60.4,
         },
         context,
         context.workflow.definition,
@@ -84,7 +84,7 @@ def test_e7_flux2_liebian_rounds_decimal_similarity_and_hits_business_anchor():
     assert overrides["21"]["denoise"] == 0.6
 
 
-def test_e7_flux2_liebian_accepts_percent_similarity_string():
+def test_e7_flux2_liebian_accepts_percent_bili_string():
     context = _make_context()
     adapter = ComfyUIExecutorAdapter()
 
@@ -92,6 +92,25 @@ def test_e7_flux2_liebian_accepts_percent_similarity_string():
         {
             "image_url": "https://example.com/input.png",
             "prompt": "百分号相似度测试",
+            "bili": "50%",
+        },
+        context,
+        context.workflow.definition,
+    )
+
+    assert error is None
+    assert overrides is not None
+    assert overrides["21"]["denoise"] == 0.62
+
+
+def test_e7_flux2_liebian_keeps_backward_compat_for_similarity():
+    context = _make_context()
+    adapter = ComfyUIExecutorAdapter()
+
+    overrides, error = adapter._build_e7_flux2_liebian_inputs(
+        {
+            "image_url": "https://example.com/input.png",
+            "prompt": "旧字段兼容测试",
             "similarity": "50%",
         },
         context,

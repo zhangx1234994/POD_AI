@@ -24,7 +24,8 @@ def test_comfyui_e7_flux2_liebian_openapi_contains_only_tool_and_tasks_get():
     required = tool_schema.get("required") or []
     assert "url" in props
     assert "prompt" in props
-    assert "similarity" in props
+    assert "bili" in props
+    assert "similarity" not in props
     assert "batch_size" in props
     assert "image_desc" not in props
     assert "image_url" not in props

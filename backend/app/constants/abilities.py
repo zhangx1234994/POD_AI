@@ -792,12 +792,12 @@ def _comfyui_e7_flux2_liebian_schema() -> dict[str, Any]:
                 "required": True,
             },
             {
-                "name": "similarity",
+                "name": "bili",
                 "type": "number",
                 "label": _compose_bilingual_label("相似度（0-100）", "Similarity (0-100)"),
                 "description": _compose_bilingual_label(
-                    "业务相似度值。数值越大越接近原图，后端会线性换算为 denoise，并限制在 0.3~0.7。",
-                    "Higher means more similar to source. Backend converts it to denoise and clamps to 0.3~0.7.",
+                    "与旧裂变工作流保持一致的 bili 参数。数值越大越接近原图；0→0.7，60→0.6，100→0.5。输入小数时后端会先取整，再分段换算为 denoise。",
+                    "Compatibility bili parameter aligned with older fission workflows. Higher means more similar to source; 0→0.7, 60→0.6, 100→0.5. Decimal input is rounded to an integer before piecewise denoise mapping.",
                 ),
                 "default": 25,
                 "min": 0,
@@ -1635,7 +1635,7 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "supports_vision": True,
             "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
             "routing_policy": "queue",
-            "seed_version": 3,
+            "seed_version": 4,
             "lora_presets": PATTERN_EXTRACT_LORA_PRESETS,
             "pricing": {
                 "currency": "CNY",
@@ -1760,7 +1760,7 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "supports_vision": True,
             "allowed_executor_ids": ["executor_comfyui_pattern_extract_158", "executor_comfyui_seamless_117"],
             "routing_policy": "queue",
-            "seed_version": 3,
+            "seed_version": 4,
             "pricing": {
                 "currency": "CNY",
                 "unit": "per_image",
@@ -1775,7 +1775,7 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "timeout": 420,
             "steps": 8,
             "cfg": 1.0,
-            "similarity": 25,
+            "bili": 25,
             "batch_size": 1,
         },
         "display_name": "ComfyUI · E7裂变重绘",
@@ -1792,7 +1792,7 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "supports_vision": True,
             "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
             "routing_policy": "queue",
-            "seed_version": 3,
+            "seed_version": 4,
             "pricing": {
                 "currency": "CNY",
                 "unit": "per_image",
