@@ -1196,11 +1196,8 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             return None
         similarity = int(math.floor(similarity + 0.5))
         similarity = max(0, min(100, similarity))
-        if similarity <= 60:
-            denoise = 0.7 - similarity * (0.1 / 60.0)
-        else:
-            denoise = 0.6 - (similarity - 60) * (0.1 / 40.0)
-        return round(max(0.5, min(0.7, denoise)), 2)
+        denoise = 1.0 - similarity * 0.006
+        return round(max(0.4, denoise), 2)
 
     def _build_e7_flux2_liebian_inputs(
         self, params: dict[str, Any], context: ExecutionContext, workflow_definition: dict[str, Any]

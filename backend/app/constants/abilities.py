@@ -796,8 +796,8 @@ def _comfyui_e7_flux2_liebian_schema() -> dict[str, Any]:
                 "type": "number",
                 "label": _compose_bilingual_label("相似度（0-100）", "Similarity (0-100)"),
                 "description": _compose_bilingual_label(
-                    "与旧裂变工作流保持一致的 bili 参数。数值越大越接近原图；0→0.7，60→0.6，100→0.5。输入小数时后端会先取整，再分段换算为 denoise。",
-                    "Compatibility bili parameter aligned with older fission workflows. Higher means more similar to source; 0→0.7, 60→0.6, 100→0.5. Decimal input is rounded to an integer before piecewise denoise mapping.",
+                    "与旧裂变工作流保持一致的 bili 参数。数值越大越接近原图；后端按 0→1.0、50→0.7、100→0.4 线性换算为 denoise，并设置下限 0.4。输入小数时后端会先取整。",
+                    "Compatibility bili parameter aligned with older fission workflows. Higher means more similar to source; backend linearly maps 0→1.0, 50→0.7, 100→0.4 for denoise with a 0.4 floor. Decimal input is rounded to an integer first.",
                 ),
                 "min": 0,
                 "max": 100,
