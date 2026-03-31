@@ -36,7 +36,7 @@ def test_e7_flux2_liebian_maps_bili_and_core_inputs():
     assert overrides["18"]["cfg"] == 1.0
     assert overrides["19"]["noise_seed"] == 123456
     assert overrides["21"]["steps"] == 8
-    assert overrides["21"]["denoise"] == 0.4
+    assert overrides["21"]["denoise"] == 0.55
     assert overrides["24"]["batch_size"] == 2
     assert context.workflow.definition["_expected_image_count"] == 2
     assert context.workflow.definition["output_node_ids"] == ["27"]
@@ -60,7 +60,7 @@ def test_e7_flux2_liebian_normalizes_custom_size_and_clamps_similarity():
 
     assert error is None
     assert overrides is not None
-    assert overrides["21"]["denoise"] == 1.0
+    assert overrides["21"]["denoise"] == 0.95
     assert overrides["12"]["width"] == 1000
     assert overrides["12"]["height"] == 1496
 
@@ -81,7 +81,7 @@ def test_e7_flux2_liebian_rounds_decimal_similarity_and_hits_business_anchor():
 
     assert error is None
     assert overrides is not None
-    assert overrides["21"]["denoise"] == 0.64
+    assert overrides["21"]["denoise"] == 0.71
 
 
 def test_e7_flux2_liebian_accepts_percent_bili_string():
@@ -100,7 +100,7 @@ def test_e7_flux2_liebian_accepts_percent_bili_string():
 
     assert error is None
     assert overrides is not None
-    assert overrides["21"]["denoise"] == 0.7
+    assert overrides["21"]["denoise"] == 0.75
 
 
 def test_e7_flux2_liebian_keeps_backward_compat_for_similarity():
@@ -119,7 +119,7 @@ def test_e7_flux2_liebian_keeps_backward_compat_for_similarity():
 
     assert error is None
     assert overrides is not None
-    assert overrides["21"]["denoise"] == 0.7
+    assert overrides["21"]["denoise"] == 0.75
 
 
 def test_e7_flux2_liebian_uses_server_default_when_bili_missing():
