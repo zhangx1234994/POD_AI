@@ -120,9 +120,10 @@
   - `url`：主图
   - `image_url_2`：辅图 1
   - `image_url_3`：辅图 2
-  - `width` / `height`
+  - `width` / `height`（不传则沿用 workflow 默认 `1024x1024`）
   - `prompt` / `negative_prompt`
   - `seed`
+  - 无 `lora` 入参
 - 调整：旧 `image_urls` 仅作为后端兼容解析保留，不再作为 Coze 推荐入参。
 
 ### 2026-03-19

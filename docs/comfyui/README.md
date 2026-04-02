@@ -132,7 +132,7 @@
 | 执行节点 | executor_comfyui_pattern_extract_158（默认）/ executor_comfyui_seamless_117（可选） |
 | Workflow 文件 | backend/app/workflows/comfyui/duotu_ronghe.json |
 | 超时设置 | 360 秒 |
-| 核心模型 | UNET: qwen_image_edit_2511_fp8mixed、CLIP: qwen_2.5_vl_7b_fp8_scaled、VAE: qwen_image_vae、LoRA: Qwen-Image-Edit Lightning 4steps |
+| 核心模型 | UNET: qwen_image_edit_2511_fp8mixed、CLIP: qwen_2.5_vl_7b_fp8_scaled、VAE: qwen_image_vae（无外部 LoRA 入参） |
 
 **关键节点**
 
@@ -151,9 +151,10 @@
 - 主图：`image_url`（必填，对应节点 78）
 - 辅图 1：`image_url_2`（可选，对应节点 106）
 - 辅图 2：`image_url_3`（可选，对应节点 108）
-- width / height：可覆盖节点 112 的输出宽高
+- width / height：可覆盖节点 112 的输出宽高；不传则沿用 workflow 默认 `1024x1024`
 - prompt / negative_prompt：可覆盖节点 111 / 110 默认文案
 - seed：可选，不填由后端自动生成随机种子并写入节点 151
+- 无外部 `lora` 入参
 
 **调试备注**
 

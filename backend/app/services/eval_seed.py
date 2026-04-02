@@ -1147,7 +1147,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         "version": "v1",
         "workflow_id": "7615600173695107072",
         "status": "active",
-        "notes": "ComfyUI 多图融合：输入主图 + 辅图1/辅图2（可选），支持输出宽高、正/反向提示词和随机种子。辅图未传时会在提交时移除对应引用。",
+        "notes": "ComfyUI 多图融合：输入主图 + 辅图1/辅图2（可选），支持输出宽高、正/反向提示词和随机种子；无外部 LoRA 入参。辅图未传时会在提交时移除对应引用；宽高不传时沿用 workflow 默认 1024x1024。",
         "parameters_schema": {
             "fields": [
                 {
@@ -1178,16 +1178,16 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                     "label": "输出宽度",
                     "type": "text",
                     "required": False,
-                    "defaultValue": "1024",
-                    "description": "可选。对应节点 112.width。",
+                    "defaultValue": "",
+                    "description": "可选。对应节点 112.width；不填则沿用 workflow 默认 1024。",
                 },
                 {
                     "name": "height",
                     "label": "输出高度",
                     "type": "text",
                     "required": False,
-                    "defaultValue": "1024",
-                    "description": "可选。对应节点 112.height。",
+                    "defaultValue": "",
+                    "description": "可选。对应节点 112.height；不填则沿用 workflow 默认 1024。",
                 },
                 {
                     "name": "negative_prompt",

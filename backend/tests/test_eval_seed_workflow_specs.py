@@ -63,3 +63,19 @@ def test_new_fission_workflows_exist_under_fission_category():
         if field.get("name") in {"height", "width"}:
             assert field.get("required") is False
             assert field.get("defaultValue") == ""
+
+
+def test_duotu_ronghe_workflow_matches_current_coze_contract():
+    workflow = DEFAULT_EVAL_WORKFLOW_BY_ID["7615600173695107072"]
+    fields = ((workflow.get("parameters_schema") or {}).get("fields") or [])
+    names = [f.get("name") for f in fields if isinstance(f, dict)]
+
+    assert names == ["url", "image_url_2", "image_url_3", "width", "height", "negative_prompt", "prompt", "seed"]
+    assert "lora" not in names
+
+    width = _field_by_name(workflow, "width")
+    height = _field_by_name(workflow, "height")
+    assert width.get("required") is False
+    assert height.get("required") is False
+    assert width.get("defaultValue") == ""
+    assert height.get("defaultValue") == ""
