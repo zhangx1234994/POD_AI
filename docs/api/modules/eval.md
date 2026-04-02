@@ -49,7 +49,7 @@
     - 主图：`url`（图1）
     - 辅图：`image_url_2`、`image_url_3`（可选，分别映射图2/图3）
     - 可选：`width`、`height`、`negative_prompt`、`prompt`、`seed`
-    - 不传 `width/height` 时沿用 workflow 默认 `1024x1024`
+    - 评测页留空时会自动补主图尺寸；绕过前端直调时沿用 workflow 默认 `1024x1024`
     - 无 `lora` 入参
     - 出参：`output`（回调 task id）、`prompt`（提示词反馈字符串）
   - 无入参

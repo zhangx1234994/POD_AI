@@ -1147,7 +1147,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         "version": "v1",
         "workflow_id": "7615600173695107072",
         "status": "active",
-        "notes": "ComfyUI 多图融合：输入主图 + 辅图1/辅图2（可选），支持输出宽高、正/反向提示词和随机种子；无外部 LoRA 入参。辅图未传时会在提交时移除对应引用；宽高不传时沿用 workflow 默认 1024x1024。",
+        "notes": "ComfyUI 多图融合：输入主图 + 辅图1/辅图2（可选），支持输出宽高、正/反向提示词和随机种子；无外部 LoRA 入参。辅图未传时会在提交时移除对应引用；评测页宽高留空时会自动读取主图尺寸后提交，绕过前端直调时沿用 workflow 默认 1024x1024。",
         "parameters_schema": {
             "fields": [
                 {
@@ -1179,7 +1179,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                     "type": "text",
                     "required": False,
                     "defaultValue": "",
-                    "description": "可选。对应节点 112.width；不填则沿用 workflow 默认 1024。",
+                    "description": "可选。评测页留空时会自动读取主图宽度；若绕过前端直调则沿用 workflow 默认 1024。",
                 },
                 {
                     "name": "height",
@@ -1187,7 +1187,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                     "type": "text",
                     "required": False,
                     "defaultValue": "",
-                    "description": "可选。对应节点 112.height；不填则沿用 workflow 默认 1024。",
+                    "description": "可选。评测页留空时会自动读取主图高度；若绕过前端直调则沿用 workflow 默认 1024。",
                 },
                 {
                     "name": "negative_prompt",

@@ -267,6 +267,22 @@ const loadImageSizeFromFile = async (file: File): Promise<{ width: number; heigh
   }
 };
 
+const loadImageSizeFromUrl = async (url: string): Promise<{ width: number; height: number } | null> => {
+  const target = String(url || '').trim();
+  if (!target) return null;
+  try {
+    const img = new Image();
+    const size = await new Promise<{ width: number; height: number } | null>((resolve) => {
+      img.onload = () => resolve({ width: img.naturalWidth || 0, height: img.naturalHeight || 0 });
+      img.onerror = () => resolve(null);
+      img.src = target;
+    });
+    return size;
+  } catch {
+    return null;
+  }
+};
+
 const normalizeCategory = (category: string | undefined | null): string => {
   const c = String(category || '').trim();
   if (!c) return '通用类';
@@ -2786,6 +2802,7 @@ export function App() {
 
     setIsRunning(true);
     try {
+      const isDuotuRongheWorkflow = String((selectedTool as any)?.workflow_id || '').trim() === '7615600173695107072';
       const normalizeNumericParam = (key: string, value: string): string => {
         const pixelKeys = new Set([
           'width',
@@ -2861,6 +2878,17 @@ export function App() {
           parameters[k] = normalizeWorkflowParam(k, v);
         } else {
           parameters[k] = v;
+        }
+      }
+      if (isDuotuRongheWorkflow) {
+        const widthRaw = String(parameters.width ?? '').trim();
+        const heightRaw = String(parameters.height ?? '').trim();
+        if ((!widthRaw || !heightRaw) && url) {
+          const size = await loadImageSizeFromUrl(url);
+          if (size) {
+            if (!widthRaw) parameters.width = String(size.width);
+            if (!heightRaw) parameters.height = String(size.height);
+          }
         }
       }
       if (isShengtuWorkflow) {
