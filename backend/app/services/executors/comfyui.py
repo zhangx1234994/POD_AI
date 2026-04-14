@@ -663,6 +663,12 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             base_overrides, base_error = self._build_pattern_extract_lora_8step_inputs(inputs, context, workflow_definition)
         elif workflow_key == "huawen_kuotu":
             base_overrides, base_error = self._build_pattern_expand_inputs(inputs, context, workflow_definition)
+        elif workflow_key == "beijing_koutu":
+            base_overrides, base_error = self._build_background_remove_inputs(inputs, context, workflow_definition)
+        elif workflow_key == "toubu_kouxiang":
+            base_overrides, base_error = self._build_head_extract_inputs(inputs, context, workflow_definition)
+        elif workflow_key == "flux2_9b_liebian_sifang":
+            base_overrides, base_error = self._build_flux2_9b_liebian_sifang_inputs(inputs, context, workflow_definition)
         elif workflow_key in {"jisu_chuli", "zhongsu_tisheng"}:
             base_overrides, base_error = self._build_jisu_chuli_inputs(inputs, context, workflow_definition)
         elif workflow_key == "duotu_ronghe":
@@ -1001,6 +1007,45 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
                 overrides.setdefault(node_id, {})[key] = value
 
         return (overrides or None), None
+
+    def _build_background_remove_inputs(
+        self, params: dict[str, Any], context: ExecutionContext, workflow_definition: dict[str, Any]
+    ) -> tuple[dict[str, Any] | None, str | None]:
+        overrides: dict[str, dict[str, Any]] = {}
+        image_url, _ = self._resolve_image_source(params, context)
+        if not image_url:
+            return None, "COMFYUI_IMAGE_REQUIRED"
+        overrides["5"] = {"url": image_url}
+        workflow_definition["_max_output_images"] = 1
+        workflow_definition["output_node_ids"] = ["4"]
+        return overrides, None
+
+    def _build_head_extract_inputs(
+        self, params: dict[str, Any], context: ExecutionContext, workflow_definition: dict[str, Any]
+    ) -> tuple[dict[str, Any] | None, str | None]:
+        overrides: dict[str, dict[str, Any]] = {}
+        image_url, _ = self._resolve_image_source(params, context)
+        if not image_url:
+            return None, "COMFYUI_IMAGE_REQUIRED"
+        overrides["141"] = {"url": image_url}
+        workflow_definition["_max_output_images"] = 1
+        workflow_definition["output_node_ids"] = ["140"]
+        return overrides, None
+
+    def _build_flux2_9b_liebian_sifang_inputs(
+        self, params: dict[str, Any], context: ExecutionContext, workflow_definition: dict[str, Any]
+    ) -> tuple[dict[str, Any] | None, str | None]:
+        overrides: dict[str, dict[str, Any]] = {}
+        image_url, _ = self._resolve_image_source(params, context)
+        if not image_url:
+            return None, "COMFYUI_IMAGE_REQUIRED"
+        overrides["141"] = {"url": image_url}
+        prompt = self._as_text(params.get("prompt") or params.get("positive_prompt"))
+        if prompt:
+            overrides.setdefault("132", {})["inStr"] = prompt
+        workflow_definition["_max_output_images"] = 1
+        workflow_definition["output_node_ids"] = ["111"]
+        return overrides, None
 
     def _build_jisu_chuli_inputs(
         self, params: dict[str, Any], context: ExecutionContext, workflow_definition: dict[str, Any]

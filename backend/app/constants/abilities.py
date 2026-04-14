@@ -927,6 +927,55 @@ def _comfyui_multi_image_fusion_schema() -> dict[str, Any]:
     }
 
 
+def _comfyui_background_remove_schema() -> dict[str, Any]:
+    return {
+        "fields": [
+            {
+                "name": "image_url",
+                "type": "image",
+                "label": _compose_bilingual_label("输入图片 URL", "Input Image URL"),
+                "description": "节点 5 · LoadImagesFromURL.url",
+                "required": True,
+            }
+        ]
+    }
+
+
+def _comfyui_head_extract_schema() -> dict[str, Any]:
+    return {
+        "fields": [
+            {
+                "name": "image_url",
+                "type": "image",
+                "label": _compose_bilingual_label("输入图片 URL", "Input Image URL"),
+                "description": "节点 141 · LoadImagesFromURL.url",
+                "required": True,
+            }
+        ]
+    }
+
+
+def _comfyui_flux2_9b_liebian_sifang_schema() -> dict[str, Any]:
+    return {
+        "fields": [
+            {
+                "name": "image_url",
+                "type": "image",
+                "label": _compose_bilingual_label("输入图片 URL", "Input Image URL"),
+                "description": "节点 141 · LoadImagesFromURL.url",
+                "required": True,
+            },
+            {
+                "name": "prompt",
+                "type": "textarea",
+                "label": _compose_bilingual_label("主提示词", "Prompt"),
+                "description": "节点 132 · String.inStr",
+                "required": True,
+            },
+        ]
+    }
+
+
 def _build_kie_schema(capability_key: str) -> dict[str, Any]:
     if capability_key == "nano_banana_pro_image_to_image":
         return {
@@ -1641,6 +1690,93 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
                 "unit": "per_image",
                 "list_price": 0.5,
                 "discount_price": 0.3,
+            },
+        },
+    },
+    "beijing_koutu": {
+        "defaults": {
+            "workflow_key": "beijing_koutu",
+            "timeout": 240,
+        },
+        "display_name": "ComfyUI · 背景抠图",
+        "description": "输入图片 URL，移除主体背景，输出最终抠图结果。",
+        "category": "image_generation",
+        "input_schema": _comfyui_background_remove_schema(),
+        "metadata": {
+            "executor_type": "comfyui",
+            "executor_tag": "comfyui",
+            "api_type": "comfyui_workflow",
+            "workflow_key": "beijing_koutu",
+            "action": "background_remove",
+            "requires_image_input": True,
+            "supports_vision": True,
+            "output_node_ids": ["4"],
+            "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
+            "routing_policy": "queue",
+            "seed_version": 1,
+            "pricing": {
+                "currency": "CNY",
+                "unit": "per_image",
+                "list_price": 0.2,
+                "discount_price": 0.1,
+            },
+        },
+    },
+    "toubu_kouxiang": {
+        "defaults": {
+            "workflow_key": "toubu_kouxiang",
+            "timeout": 300,
+        },
+        "display_name": "ComfyUI · 头部抠像",
+        "description": "输入图片 URL，提取完整头部与人脸区域，输出最终抠像结果。",
+        "category": "image_generation",
+        "input_schema": _comfyui_head_extract_schema(),
+        "metadata": {
+            "executor_type": "comfyui",
+            "executor_tag": "comfyui",
+            "api_type": "comfyui_workflow",
+            "workflow_key": "toubu_kouxiang",
+            "action": "head_extract",
+            "requires_image_input": True,
+            "supports_vision": True,
+            "output_node_ids": ["140"],
+            "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
+            "routing_policy": "queue",
+            "seed_version": 1,
+            "pricing": {
+                "currency": "CNY",
+                "unit": "per_image",
+                "list_price": 0.25,
+                "discount_price": 0.15,
+            },
+        },
+    },
+    "flux2_9b_liebian_sifang": {
+        "defaults": {
+            "workflow_key": "flux2_9b_liebian_sifang",
+            "timeout": 420,
+        },
+        "display_name": "ComfyUI · FLUX2裂变+四方",
+        "description": "输入图片 URL 与主提示词，走 FLUX2-9b 裂变+四方 workflow，输出最终拼缝结果。",
+        "category": "image_generation",
+        "input_schema": _comfyui_flux2_9b_liebian_sifang_schema(),
+        "metadata": {
+            "executor_type": "comfyui",
+            "executor_tag": "comfyui",
+            "api_type": "comfyui_workflow",
+            "workflow_key": "flux2_9b_liebian_sifang",
+            "action": "image_fission",
+            "requires_image_input": True,
+            "supports_vision": True,
+            "output_node_ids": ["111"],
+            "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
+            "routing_policy": "queue",
+            "seed_version": 1,
+            "pricing": {
+                "currency": "CNY",
+                "unit": "per_image",
+                "list_price": 0.6,
+                "discount_price": 0.35,
             },
         },
     },

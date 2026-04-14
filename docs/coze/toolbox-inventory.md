@@ -1,6 +1,6 @@
 # Coze 工具箱清单（PODI）
 
-> 更新时间：2026-03-28
+> 更新时间：2026-04-14
 > 
 > 说明：以下为当前后端实际可用的工具箱入口。导入 Coze 时使用 OpenAPI 地址；执行时按各工具箱里的接口调用。
 
@@ -31,8 +31,11 @@
 
 - OpenAPI 模板：`/api/coze/podi/comfyui/execute/{tool}/openapi.json`
 - 现有独立工具箱：
+  - `/api/coze/podi/comfyui/execute/beijing-koutu/openapi.json`
+  - `/api/coze/podi/comfyui/execute/toubu-kouxiang/openapi.json`
   - `/api/coze/podi/comfyui/execute/duotu-ronghe/openapi.json`
   - `/api/coze/podi/comfyui/execute/e7-flux2-liebian/openapi.json`
+  - `/api/coze/podi/comfyui/execute/flux2-9b-liebian-sifang/openapi.json`
   - `/api/coze/podi/comfyui/execute/yinhua-tiqu-lora-8step/openapi.json`
 - 用途：每个功能单独一个工具箱，便于 Coze 单独测试、单独发布、单独回滚。
 - 导入说明：OpenAPI 地址可直接公网导入；真正执行接口与 `tasks/get` 仍按服务端鉴权规则校验。
@@ -148,6 +151,22 @@
   - `width` / `height`：不传默认原图尺寸，传入则按输入值执行
 - 兼容说明：后端仍兼容旧字段 `similarity`，但 Coze 推荐入参统一使用 `bili`
 - 新增：独立导入地址 `/api/coze/podi/comfyui/execute/e7-flux2-liebian/openapi.json`
+
+### 2026-04-14
+- 新增：`ComfyUI · 背景抠图`
+  - 独立导入地址：`/api/coze/podi/comfyui/execute/beijing-koutu/openapi.json`
+  - 入参：`url`
+  - 最终输出节点：`4`
+- 新增：`ComfyUI · 头部抠像`
+  - 独立导入地址：`/api/coze/podi/comfyui/execute/toubu-kouxiang/openapi.json`
+  - 入参：`url`
+  - 最终输出节点：`140`
+  - 说明：业务统一先走 OSS URL，再交给 workflow 执行
+- 新增：`ComfyUI · FLUX2裂变+四方`
+  - 独立导入地址：`/api/coze/podi/comfyui/execute/flux2-9b-liebian-sifang/openapi.json`
+  - 入参：`url`、`prompt`
+  - 最终输出节点：`111`
+  - 说明：仅覆写节点 `141.url` 与 `132.inStr`，节点 `104` 等默认内部参数保持不变
 
 ## 7) Baidu 工具箱（执行类）
 
