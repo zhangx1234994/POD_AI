@@ -1,0 +1,42 @@
+{
+  "2": {
+    "inputs": {
+      "rem_mode": "RMBG-2.0",
+      "image_output": "Save",
+      "save_prefix": "ComfyUI",
+      "torchscript_jit": false,
+      "add_background": "none",
+      "refine_foreground": false,
+      "images": [
+        "5",
+        0
+      ]
+    },
+    "class_type": "easy imageRemBg",
+    "_meta": {
+      "title": "图像背景移除"
+    }
+  },
+  "4": {
+    "inputs": {
+      "filename_prefix": "bg_remove",
+      "images": [
+        "2",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "保存图像"
+    }
+  },
+  "5": {
+    "inputs": {
+      "url": "https://"
+    },
+    "class_type": "LoadImagesFromURL",
+    "_meta": {
+      "title": "Load Images From URL ♾️Mixlab"
+    }
+  }
+}

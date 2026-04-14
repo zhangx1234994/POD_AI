@@ -6,6 +6,7 @@ import re
 import base64
 import json
 import logging
+import math
 import mimetypes
 import secrets
 import time
@@ -662,6 +663,16 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             base_overrides, base_error = self._build_pattern_extract_lora_8step_inputs(inputs, context, workflow_definition)
         elif workflow_key == "huawen_kuotu":
             base_overrides, base_error = self._build_pattern_expand_inputs(inputs, context, workflow_definition)
+        elif workflow_key == "beijing_koutu":
+            base_overrides, base_error = self._build_background_remove_inputs(inputs, context, workflow_definition)
+        elif workflow_key == "toubu_kouxiang":
+            base_overrides, base_error = self._build_head_extract_inputs(inputs, context, workflow_definition)
+        elif workflow_key == "flux2_9b_liebian_sifang":
+            base_overrides, base_error = self._build_flux2_9b_liebian_sifang_inputs(inputs, context, workflow_definition)
+        elif workflow_key == "qwen2512_print_shape_text_enhance":
+            base_overrides, base_error = self._build_qwen2512_print_shape_text_enhance_inputs(
+                inputs, context, workflow_definition
+            )
         elif workflow_key in {"jisu_chuli", "zhongsu_tisheng"}:
             base_overrides, base_error = self._build_jisu_chuli_inputs(inputs, context, workflow_definition)
         elif workflow_key == "duotu_ronghe":
@@ -1001,6 +1012,99 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
 
         return (overrides or None), None
 
+    def _build_background_remove_inputs(
+        self, params: dict[str, Any], context: ExecutionContext, workflow_definition: dict[str, Any]
+    ) -> tuple[dict[str, Any] | None, str | None]:
+        overrides: dict[str, dict[str, Any]] = {}
+        image_url, _ = self._resolve_image_source(params, context)
+        if not image_url:
+            return None, "COMFYUI_IMAGE_REQUIRED"
+        overrides["5"] = {"url": image_url}
+        workflow_definition["_max_output_images"] = 1
+        workflow_definition["output_node_ids"] = ["4"]
+        return overrides, None
+
+    def _build_head_extract_inputs(
+        self, params: dict[str, Any], context: ExecutionContext, workflow_definition: dict[str, Any]
+    ) -> tuple[dict[str, Any] | None, str | None]:
+        overrides: dict[str, dict[str, Any]] = {}
+        image_url, _ = self._resolve_image_source(params, context)
+        if not image_url:
+            return None, "COMFYUI_IMAGE_REQUIRED"
+        overrides["141"] = {"url": image_url}
+        workflow_definition["_max_output_images"] = 1
+        workflow_definition["output_node_ids"] = ["140"]
+        return overrides, None
+
+    def _build_flux2_9b_liebian_sifang_inputs(
+        self, params: dict[str, Any], context: ExecutionContext, workflow_definition: dict[str, Any]
+    ) -> tuple[dict[str, Any] | None, str | None]:
+        overrides: dict[str, dict[str, Any]] = {}
+        image_url, _ = self._resolve_image_source(params, context)
+        if not image_url:
+            return None, "COMFYUI_IMAGE_REQUIRED"
+        overrides["141"] = {"url": image_url}
+        prompt = self._as_text(params.get("prompt") or params.get("positive_prompt"))
+        if prompt:
+            overrides.setdefault("132", {})["inStr"] = prompt
+        workflow_definition["_max_output_images"] = 1
+        workflow_definition["output_node_ids"] = ["111"]
+        return overrides, None
+
+    def _build_qwen2512_print_shape_text_enhance_inputs(
+        self, params: dict[str, Any], context: ExecutionContext, workflow_definition: dict[str, Any]
+    ) -> tuple[dict[str, Any] | None, str | None]:
+        """裂变文字强化：图像输入 + 文本强化 + 相似度映射 denoise。
+
+        Node mapping (see `backend/app/workflows/comfyui/qwen2512_print_shape_text_enhance.json`):
+        - 10: LoadImagesFromURL.url
+        - 13: CR Text Concatenate.text1
+        - 27: KSampler.seed / steps / cfg / denoise
+        - 29: SaveImage
+        """
+
+        overrides: dict[str, dict[str, Any]] = {}
+
+        image_url, _ = self._resolve_image_source(params, context)
+        if not image_url:
+            return None, "COMFYUI_IMAGE_REQUIRED"
+        overrides["10"] = {"url": image_url}
+
+        prompt = self._as_text(params.get("prompt") or params.get("positive_prompt"))
+        if prompt:
+            overrides.setdefault("13", {})["text1"] = prompt
+
+        seed = self._coerce_positive_int(params.get("seed"))
+        if seed is None:
+            seed = secrets.randbelow(2**63 - 1) + 1
+        overrides.setdefault("27", {})["seed"] = seed
+
+        steps = self._coerce_positive_int(params.get("steps"))
+        if steps is None:
+            steps = self._coerce_positive_int(workflow_definition.get("steps")) or 8
+        overrides.setdefault("27", {})["steps"] = steps
+
+        cfg_raw = params.get("cfg")
+        if cfg_raw is None:
+            cfg_raw = workflow_definition.get("cfg", 1.0)
+        try:
+            overrides.setdefault("27", {})["cfg"] = float(cfg_raw)
+        except (TypeError, ValueError):
+            overrides.setdefault("27", {})["cfg"] = 1.0
+
+        similarity_value = params.get("bili")
+        if similarity_value in (None, ""):
+            similarity_value = params.get("similarity")
+        if similarity_value in (None, ""):
+            similarity_value = 25
+        denoise = self._map_similarity_to_denoise(similarity_value)
+        if denoise is not None:
+            overrides.setdefault("27", {})["denoise"] = denoise
+
+        workflow_definition["_max_output_images"] = 1
+        workflow_definition["output_node_ids"] = ["29"]
+        return overrides, None
+
     def _build_jisu_chuli_inputs(
         self, params: dict[str, Any], context: ExecutionContext, workflow_definition: dict[str, Any]
     ) -> tuple[dict[str, Any] | None, str | None]:
@@ -1187,13 +1291,16 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
 
     @staticmethod
     def _map_similarity_to_denoise(value: Any) -> float | None:
+        if isinstance(value, str):
+            value = value.strip().replace("%", "")
         try:
             similarity = float(value)
         except (TypeError, ValueError):
             return None
-        similarity = max(0.0, min(100.0, similarity))
-        denoise = 0.7 - (similarity / 100.0) * 0.4
-        return round(max(0.3, min(0.7, denoise)), 4)
+        similarity = int(math.floor(similarity + 0.5))
+        similarity = max(0, min(100, similarity))
+        denoise = 0.95 - similarity * 0.004
+        return round(max(0.55, denoise), 2)
 
     def _build_e7_flux2_liebian_inputs(
         self, params: dict[str, Any], context: ExecutionContext, workflow_definition: dict[str, Any]
@@ -1201,7 +1308,7 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         """E7 + FLUX2 裂变重绘。
 
         Node mapping (see `backend/app/workflows/comfyui/e7_flux2_liebian.json`):
-        - 10: LoadImage.image
+        - 10: LoadImagesFromURL.url
         - 13: CR Text Concatenate.text1/text2
         - 18: CFGGuider.cfg
         - 19: RandomNoise.noise_seed
@@ -1241,7 +1348,12 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         if steps is not None:
             overrides.setdefault("21", {})["steps"] = steps
 
-        denoise = self._map_similarity_to_denoise(params.get("similarity"))
+        similarity_value = params.get("bili")
+        if similarity_value in (None, ""):
+            similarity_value = params.get("similarity")
+        if similarity_value in (None, ""):
+            similarity_value = 25
+        denoise = self._map_similarity_to_denoise(similarity_value)
         if denoise is not None:
             overrides.setdefault("21", {})["denoise"] = denoise
 

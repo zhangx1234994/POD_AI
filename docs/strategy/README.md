@@ -4,6 +4,7 @@
 
 ## 文档清单
 
+- `platform-vision-and-goals-2026.md`：平台愿景与核心目标（中台 / 测评端 / 客户端 / 对话式助手统一叙事）
 - `strategy-one-page-2026q2.md`：战略一页纸（北极星、KPI、90天里程碑）
 - `todo-master-2026q2.md`：唯一待办池（P0/P1/P2）
 - `context-cleanup-policy.md`：上下文清理、归档与文档治理规则
@@ -24,5 +25,6 @@
 
 - `docs/TODO_PLATFORM.md` 作为历史路线图保留，不再作为新增任务入口。
 - 既有架构文档（如 `docs/architecture.md`、`docs/BUSINESS_MODEL.md`）继续保留为背景材料。
+- 客户端竞品对标和测试包文档继续保留，但平台级方向请优先以 `platform-vision-and-goals-2026.md` 与 `strategy-one-page-2026q2.md` 为准。
 
-*最后更新: 2026-03-04*
+*最后更新: 2026-03-19*

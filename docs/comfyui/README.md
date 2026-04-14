@@ -132,7 +132,7 @@
 | 执行节点 | executor_comfyui_pattern_extract_158（默认）/ executor_comfyui_seamless_117（可选） |
 | Workflow 文件 | backend/app/workflows/comfyui/duotu_ronghe.json |
 | 超时设置 | 360 秒 |
-| 核心模型 | UNET: qwen_image_edit_2511_fp8mixed、CLIP: qwen_2.5_vl_7b_fp8_scaled、VAE: qwen_image_vae、LoRA: Qwen-Image-Edit Lightning 4steps |
+| 核心模型 | UNET: qwen_image_edit_2511_fp8mixed、CLIP: qwen_2.5_vl_7b_fp8_scaled、VAE: qwen_image_vae（无外部 LoRA 入参） |
 
 **关键节点**
 
@@ -151,15 +151,102 @@
 - 主图：`image_url`（必填，对应节点 78）
 - 辅图 1：`image_url_2`（可选，对应节点 106）
 - 辅图 2：`image_url_3`（可选，对应节点 108）
-- width / height：可覆盖节点 112 的输出宽高
+- width / height：可覆盖节点 112 的输出宽高；不传则沿用 workflow 默认 `1024x1024`
 - prompt / negative_prompt：可覆盖节点 111 / 110 默认文案
 - seed：可选，不填由后端自动生成随机种子并写入节点 151
+- 无外部 `lora` 入参
 
 **调试备注**
 
 - 工作流已切换到本地 `LoadImage` 节点；后端会先把主图/辅图上传到目标 ComfyUI 的 input 目录，再写入节点 78 / 106 / 108。
 - 若辅图 1 / 辅图 2 未传，后端会在提交前移除 `111/110` 节点里的 `image2/image3` 引用，避免错误读取默认占位图。
 - 当前 output node 改为 `60 · SaveImage`，工具箱/能力接口按 `output_node_ids=[60]` 抽取回填。
+
+## 背景抠图 · ComfyUI (workflow_key: beijing_koutu)
+
+| 项目 | 说明 |
+| --- | --- |
+| 能力 ID | comfyui.beijing_koutu |
+| Action | background_remove |
+| 执行节点 | executor_comfyui_seamless_117 / executor_comfyui_pattern_extract_158 |
+| Workflow 文件 | backend/app/workflows/comfyui/beijing_koutu.json |
+| 超时设置 | 240 秒 |
+
+**关键节点**
+
+| 节点 | 描述 |
+| --- | --- |
+| 5 · LoadImagesFromURL.url | 输入图片 URL |
+| 2 · easy imageRemBg | 背景移除处理节点（中间过程图） |
+| 4 · SaveImage | 最终输出节点，仅回填该节点结果 |
+
+**默认参数**
+
+- `url`：必填，业务统一使用 OSS URL
+
+**调试备注**
+
+- 节点 `2` 会产生中间过程图，工具箱/能力接口仅认 `4 · SaveImage`。
+- 业务侧统一先把图片放到 OSS，再交给 workflow，避免外链兼容性差异。
+
+## 头部抠像 · ComfyUI (workflow_key: toubu_kouxiang)
+
+| 项目 | 说明 |
+| --- | --- |
+| 能力 ID | comfyui.toubu_kouxiang |
+| Action | head_extract |
+| 执行节点 | executor_comfyui_seamless_117 / executor_comfyui_pattern_extract_158 |
+| Workflow 文件 | backend/app/workflows/comfyui/toubu_kouxiang.json |
+| 超时设置 | 300 秒 |
+
+**关键节点**
+
+| 节点 | 描述 |
+| --- | --- |
+| 141 · LoadImagesFromURL.url | 输入图片 URL |
+| 136 · DownloadAndLoadFlorence2Model | 固定加载 Florence-2-base |
+| 134 · Florence2Run | 固定文案 `complete head and hair`，不作为外部参数暴露 |
+| 139 · SegmentAnythingUltra V2 | 固定文案 `complete head and face` |
+| 140 · SaveImage | 最终输出节点，仅回填该节点结果 |
+
+**默认参数**
+
+- `url`：必填，业务统一使用 OSS URL
+
+**调试备注**
+
+- 节点 `134/139` 的提示词和模型参数保持 workflow 内部默认值，不在工具箱暴露。
+- 最终输出固定取 `140 · SaveImage`。
+
+## FLUX2裂变+四方 · ComfyUI (workflow_key: flux2_9b_liebian_sifang)
+
+| 项目 | 说明 |
+| --- | --- |
+| 能力 ID | comfyui.flux2_9b_liebian_sifang |
+| Action | image_fission |
+| 执行节点 | executor_comfyui_pattern_extract_158 / executor_comfyui_seamless_117 |
+| Workflow 文件 | backend/app/workflows/comfyui/flux2_9b_liebian_sifang.json |
+| 超时设置 | 420 秒 |
+
+**关键节点**
+
+| 节点 | 描述 |
+| --- | --- |
+| 141 · LoadImagesFromURL.url | 输入图片 URL |
+| 132 · String.inStr | 主提示词，作为唯一外露文本参数 |
+| 104 · easy loadImageBase64 | workflow 固定内部输入，保持原始默认值，不在工具箱侧覆盖 |
+| 111 · SaveImage | 最终输出节点，仅回填该节点结果 |
+
+**默认参数**
+
+- `url`：必填
+- `prompt`：必填
+
+**调试备注**
+
+- 工具箱只覆写 `141.url` 和 `132.inStr`。
+- 节点 `104`、`97`、`99`、`100`、`102`、`121`、`122`、`130`、`137` 等内部默认参数保持不变。
+- 最终输出固定取 `111 · SaveImage`。
 
 ## 印花提取 · ComfyUI (workflow_key: yinhua_tiqu)
 

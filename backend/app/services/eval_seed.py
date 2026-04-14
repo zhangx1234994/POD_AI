@@ -56,6 +56,8 @@ ALLOWED_EVAL_CATEGORIES: set[str] = {
 FISSION_WORKFLOW_IDS: set[str] = {
     "7598841920114130944",  # Liebian_comfyui_20260124_1
     "7598820684801769472",  # Liebian_comfyui_20260124
+    "7622193261276299264",  # Liebian_comfyui_20260328_1
+    "7622190276932534272",  # Liebian_comfyui_20260328
     "7601077530077954048",  # Liebian_shangye_20260130
     "7598848725942796288",  # Liebian_shangye_20260124_1_1_1
 }
@@ -71,6 +73,8 @@ PROMPT_OUTPUT_WORKFLOW_IDS: set[str] = {
     "7597702948247830528",  # zhongsu_comfyui
     "7598841920114130944",  # Liebian_comfyui_20260124_1
     "7598820684801769472",  # Liebian_comfyui_20260124
+    "7622193261276299264",  # Liebian_comfyui_20260328_1
+    "7622190276932534272",  # Liebian_comfyui_20260328
     "7601077530077954048",  # Liebian_shangye_20260130
     "7598848725942796288",  # Liebian_shangye_20260124_1_1_1
 }
@@ -84,6 +88,8 @@ IP_OUTPUT_WORKFLOW_IDS: set[str] = {
     "7597702948247830528",  # zhongsu_comfyui
     "7598841920114130944",  # Liebian_comfyui_20260124_1
     "7598820684801769472",  # Liebian_comfyui_20260124
+    "7622193261276299264",  # Liebian_comfyui_20260328_1
+    "7622190276932534272",  # Liebian_comfyui_20260328
 }
 
 
@@ -396,8 +402,8 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
             "fields": [
                 {"name": "url", "label": "图片 URL", "type": "text", "required": True},
                 # Coze workflow requires height/width; provide safe defaults and mark required so UI blocks early.
-                {"name": "height", "label": "高度", "type": "text", "required": True, "defaultValue": "1024"},
-                {"name": "width", "label": "宽度", "type": "text", "required": True, "defaultValue": "1024"},
+                {"name": "height", "label": "高度", "type": "text", "required": False, "defaultValue": "", "description": "可选。不填默认原图高度。"},
+                {"name": "width", "label": "宽度", "type": "text", "required": False, "defaultValue": "", "description": "可选。不填默认原图宽度。"},
                 {
                     "name": "patternType",
                     "label": "连续类型",
@@ -806,15 +812,15 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         "parameters_schema": {
             "fields": [
                 {"name": "url", "label": "图片 URL", "type": "text", "required": True},
-                {"name": "height", "label": "高度", "type": "text", "required": True, "defaultValue": "1024"},
-                {"name": "width", "label": "宽度", "type": "text", "required": True, "defaultValue": "1024"},
+                {"name": "height", "label": "高度", "type": "text", "required": False, "defaultValue": "", "description": "可选。不填默认原图高度。"},
+                {"name": "width", "label": "宽度", "type": "text", "required": False, "defaultValue": "", "description": "可选。不填默认原图宽度。"},
                 {
-                    "name": "similarity",
+                    "name": "bili",
                     "label": "相似度(%)",
                     "type": "text",
                     "required": True,
                     "defaultValue": "50%",
-                    "description": "与原图保持相似的百分比（越高越接近原图）。兼容字段：bili。",
+                    "description": "与原图保持相似的百分比（越高越接近原图）。",
                 },
                 {"name": "count", "label": "裂变数量", "type": "text", "required": False, "defaultValue": "4", "description": "一次评测会触发 count 个子任务并聚合结果"},
             ]
@@ -837,15 +843,78 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         "parameters_schema": {
             "fields": [
                 {"name": "url", "label": "图片 URL", "type": "text", "required": True},
-                {"name": "height", "label": "高度", "type": "text", "required": True, "defaultValue": "1024"},
-                {"name": "width", "label": "宽度", "type": "text", "required": True, "defaultValue": "1024"},
+                {"name": "height", "label": "高度", "type": "text", "required": False, "defaultValue": "", "description": "可选。不填默认原图高度。"},
+                {"name": "width", "label": "宽度", "type": "text", "required": False, "defaultValue": "", "description": "可选。不填默认原图宽度。"},
                 {
-                    "name": "similarity",
+                    "name": "bili",
                     "label": "相似度(%)",
                     "type": "text",
                     "required": True,
                     "defaultValue": "50%",
-                    "description": "与原图保持相似的百分比（越高越接近原图）。兼容字段：bili。",
+                    "description": "与原图保持相似的百分比（越高越接近原图）。",
+                },
+                {"name": "prompt", "label": "提示词", "type": "textarea", "required": False, "defaultValue": ""},
+                {"name": "count", "label": "裂变数量", "type": "text", "required": False, "defaultValue": "4", "description": "一次评测会触发 count 个子任务并聚合结果"},
+            ]
+        },
+        "output_schema": {
+            "fields": [
+                {"name": "output", "type": "text", "description": "回调 task id"},
+                {"name": "prompt", "type": "text", "description": "提示词反馈字符串"},
+            ]
+        },
+    },
+    # 图裂变 / 图裂变（ComfyUI，无提示词，输出回调 task id）- 2026-03-28 新版
+    {
+        "category": "图裂变",
+        "name": "图裂变 · Liebian_comfyui_20260328_1",
+        "version": "v1",
+        "workflow_id": "7622193261276299264",
+        "status": "active",
+        "notes": "图裂变（ComfyUI 无提示词，新版）。输出 output 为回调 task id。裂变数量通过 count 控制（业务侧循环，不在工作流中循环）。",
+        "parameters_schema": {
+            "fields": [
+                {"name": "url", "label": "图片 URL", "type": "text", "required": True},
+                {"name": "height", "label": "高度", "type": "text", "required": False, "defaultValue": "", "description": "可选。不填默认原图高度。"},
+                {"name": "width", "label": "宽度", "type": "text", "required": False, "defaultValue": "", "description": "可选。不填默认原图宽度。"},
+                {
+                    "name": "bili",
+                    "label": "相似度(%)",
+                    "type": "text",
+                    "required": True,
+                    "defaultValue": "50%",
+                    "description": "与原图保持相似的百分比（越高越接近原图）。",
+                },
+                {"name": "count", "label": "裂变数量", "type": "text", "required": False, "defaultValue": "4", "description": "一次评测会触发 count 个子任务并聚合结果"},
+            ]
+        },
+        "output_schema": {
+            "fields": [
+                {"name": "output", "type": "text", "description": "回调 task id"},
+                {"name": "prompt", "type": "text", "description": "提示词反馈字符串"},
+            ]
+        },
+    },
+    # 图裂变 / 图裂变（ComfyUI，有提示词，输出回调 task id）- 2026-03-28 新版
+    {
+        "category": "图裂变",
+        "name": "图裂变 · Liebian_comfyui_20260328",
+        "version": "v1",
+        "workflow_id": "7622190276932534272",
+        "status": "active",
+        "notes": "图裂变（ComfyUI 有提示词，新版）。输出 output 为回调 task id。裂变数量通过 count 控制。",
+        "parameters_schema": {
+            "fields": [
+                {"name": "url", "label": "图片 URL", "type": "text", "required": True},
+                {"name": "height", "label": "高度", "type": "text", "required": False, "defaultValue": "", "description": "可选。不填默认原图高度。"},
+                {"name": "width", "label": "宽度", "type": "text", "required": False, "defaultValue": "", "description": "可选。不填默认原图宽度。"},
+                {
+                    "name": "bili",
+                    "label": "相似度(%)",
+                    "type": "text",
+                    "required": True,
+                    "defaultValue": "50%",
+                    "description": "与原图保持相似的百分比（越高越接近原图）。",
                 },
                 {"name": "prompt", "label": "提示词", "type": "textarea", "required": False, "defaultValue": ""},
                 {"name": "count", "label": "裂变数量", "type": "text", "required": False, "defaultValue": "4", "description": "一次评测会触发 count 个子任务并聚合结果"},
@@ -1078,7 +1147,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         "version": "v1",
         "workflow_id": "7615600173695107072",
         "status": "active",
-        "notes": "ComfyUI 多图融合：输入主图 + 辅图1/辅图2（可选），支持输出宽高、正/反向提示词和随机种子。辅图未传时会在提交时移除对应引用。",
+        "notes": "ComfyUI 多图融合：输入主图 + 辅图1/辅图2（可选），支持输出宽高、正/反向提示词和随机种子；无外部 LoRA 入参。辅图未传时会在提交时移除对应引用；宽高不传时沿用 workflow 默认 1024x1024。",
         "parameters_schema": {
             "fields": [
                 {
@@ -1109,16 +1178,16 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                     "label": "输出宽度",
                     "type": "text",
                     "required": False,
-                    "defaultValue": "1024",
-                    "description": "可选。对应节点 112.width。",
+                    "defaultValue": "",
+                    "description": "可选。评测页留空时会自动读取主图宽度；若绕过前端直调则沿用 workflow 默认 1024。",
                 },
                 {
                     "name": "height",
                     "label": "输出高度",
                     "type": "text",
                     "required": False,
-                    "defaultValue": "1024",
-                    "description": "可选。对应节点 112.height。",
+                    "defaultValue": "",
+                    "description": "可选。评测页留空时会自动读取主图高度；若绕过前端直调则沿用 workflow 默认 1024。",
                 },
                 {
                     "name": "negative_prompt",

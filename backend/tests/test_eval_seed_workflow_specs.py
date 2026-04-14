@@ -1,4 +1,4 @@
-from app.services.eval_seed import DEFAULT_EVAL_WORKFLOW_BY_ID
+from app.services.eval_seed import DEFAULT_EVAL_WORKFLOW_BY_ID, FISSION_WORKFLOW_IDS
 
 
 def _field_by_name(workflow: dict, name: str) -> dict:
@@ -39,3 +39,43 @@ def test_lora_query_workflow_output_contract():
     names = [field.get("name") for field in outputs if isinstance(field, dict)]
     assert names == ["items", "lora_names"]
 
+
+def test_new_fission_workflows_exist_under_fission_category():
+    with_prompt = DEFAULT_EVAL_WORKFLOW_BY_ID["7622190276932534272"]
+    without_prompt = DEFAULT_EVAL_WORKFLOW_BY_ID["7622193261276299264"]
+
+    assert with_prompt["category"] == "图裂变"
+    assert without_prompt["category"] == "图裂变"
+    assert "7622190276932534272" in FISSION_WORKFLOW_IDS
+    assert "7622193261276299264" in FISSION_WORKFLOW_IDS
+
+    with_prompt_fields = ((with_prompt.get("parameters_schema") or {}).get("fields") or [])
+    without_prompt_fields = ((without_prompt.get("parameters_schema") or {}).get("fields") or [])
+
+    with_names = [f.get("name") for f in with_prompt_fields if isinstance(f, dict)]
+    without_names = [f.get("name") for f in without_prompt_fields if isinstance(f, dict)]
+
+    assert with_names == ["url", "height", "width", "bili", "prompt", "count"]
+    assert without_names == ["url", "height", "width", "bili", "count"]
+    for field in with_prompt_fields + without_prompt_fields:
+        if not isinstance(field, dict):
+            continue
+        if field.get("name") in {"height", "width"}:
+            assert field.get("required") is False
+            assert field.get("defaultValue") == ""
+
+
+def test_duotu_ronghe_workflow_matches_current_coze_contract():
+    workflow = DEFAULT_EVAL_WORKFLOW_BY_ID["7615600173695107072"]
+    fields = ((workflow.get("parameters_schema") or {}).get("fields") or [])
+    names = [f.get("name") for f in fields if isinstance(f, dict)]
+
+    assert names == ["url", "image_url_2", "image_url_3", "width", "height", "negative_prompt", "prompt", "seed"]
+    assert "lora" not in names
+
+    width = _field_by_name(workflow, "width")
+    height = _field_by_name(workflow, "height")
+    assert width.get("required") is False
+    assert height.get("required") is False
+    assert width.get("defaultValue") == ""
+    assert height.get("defaultValue") == ""

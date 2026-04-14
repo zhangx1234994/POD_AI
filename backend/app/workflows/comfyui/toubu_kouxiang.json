@@ -1,0 +1,103 @@
+{
+  "132": {
+    "inputs": {
+      "invert": false,
+      "image": [
+        "141",
+        0
+      ],
+      "mask": [
+        "134",
+        1
+      ]
+    },
+    "class_type": "ComposeRGBAImageFromMask",
+    "_meta": {
+      "title": "Compose RGBA Image From Mask"
+    }
+  },
+  "134": {
+    "inputs": {
+      "text_input": "complete head and hair\n",
+      "task": "caption_to_phrase_grounding",
+      "fill_mask": true,
+      "keep_model_loaded": false,
+      "max_new_tokens": 1024,
+      "num_beams": 3,
+      "do_sample": true,
+      "output_mask_select": "0",
+      "seed": 399640179051865,
+      "image": [
+        "141",
+        0
+      ],
+      "florence2_model": [
+        "136",
+        0
+      ]
+    },
+    "class_type": "Florence2Run",
+    "_meta": {
+      "title": "Florence2Run"
+    }
+  },
+  "136": {
+    "inputs": {
+      "model": "microsoft/Florence-2-base",
+      "precision": "fp16",
+      "attention": "sdpa",
+      "convert_to_safetensors": false
+    },
+    "class_type": "DownloadAndLoadFlorence2Model",
+    "_meta": {
+      "title": "DownloadAndLoadFlorence2Model"
+    }
+  },
+  "139": {
+    "inputs": {
+      "sam_model": "sam_vit_l (1.25GB)",
+      "grounding_dino_model": "GroundingDINO_SwinT_OGC (694MB)",
+      "threshold": 0.3,
+      "detail_method": "VITMatte",
+      "detail_erode": 6,
+      "detail_dilate": 17,
+      "black_point": 0.15,
+      "white_point": 0.99,
+      "process_detail": true,
+      "prompt": "complete head and face",
+      "device": "cuda",
+      "max_megapixels": 2,
+      "cache_model": false,
+      "image": [
+        "132",
+        0
+      ]
+    },
+    "class_type": "LayerMask: SegmentAnythingUltra V2",
+    "_meta": {
+      "title": "图层遮罩：SegmentAnything Ultra V2（高级）"
+    }
+  },
+  "140": {
+    "inputs": {
+      "filename_prefix": "head_extraction",
+      "images": [
+        "139",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "保存图像"
+    }
+  },
+  "141": {
+    "inputs": {
+      "url": "https://"
+    },
+    "class_type": "LoadImagesFromURL",
+    "_meta": {
+      "title": "Load Images From URL ♾️Mixlab"
+    }
+  }
+}

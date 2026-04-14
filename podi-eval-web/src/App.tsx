@@ -267,6 +267,22 @@ const loadImageSizeFromFile = async (file: File): Promise<{ width: number; heigh
   }
 };
 
+const loadImageSizeFromUrl = async (url: string): Promise<{ width: number; height: number } | null> => {
+  const target = String(url || '').trim();
+  if (!target) return null;
+  try {
+    const img = new Image();
+    const size = await new Promise<{ width: number; height: number } | null>((resolve) => {
+      img.onload = () => resolve({ width: img.naturalWidth || 0, height: img.naturalHeight || 0 });
+      img.onerror = () => resolve(null);
+      img.src = target;
+    });
+    return size;
+  } catch {
+    return null;
+  }
+};
+
 const normalizeCategory = (category: string | undefined | null): string => {
   const c = String(category || '').trim();
   if (!c) return '通用类';
@@ -1393,6 +1409,7 @@ export function App() {
   const [extraImageUploading, setExtraImageUploading] = useState(false);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const extraImagesInputRef = useRef<HTMLInputElement | null>(null);
+  const [extraImageFieldTarget, setExtraImageFieldTarget] = useState<string | null>(null);
 
   const [editorTool, setEditorTool] = useState<EditorTool>('rect');
   const [editorPrompt, setEditorPrompt] = useState('');
@@ -2590,6 +2607,10 @@ export function App() {
       return { ...prev, image_urls: current.join('\n') };
     });
   }, [parseImageUrlList]);
+
+  const setSingleImageField = useCallback((fieldName: string, value: string) => {
+    setFormParams((prev) => ({ ...prev, [fieldName]: value }));
+  }, []);
   const syncEditorImageMeta = useCallback(() => {
     const img = editorImageRef.current;
     if (!img) return;
@@ -2781,6 +2802,7 @@ export function App() {
 
     setIsRunning(true);
     try {
+      const isDuotuRongheWorkflow = String((selectedTool as any)?.workflow_id || '').trim() === '7615600173695107072';
       const normalizeNumericParam = (key: string, value: string): string => {
         const pixelKeys = new Set([
           'width',
@@ -2813,6 +2835,16 @@ export function App() {
         return num || raw;
       };
 
+      const normalizeWorkflowParam = (key: string, value: string): string => {
+        const normalized = normalizeNumericParam(key, value);
+        if (key === 'similarity' || key === 'bili') {
+          return String(normalized || '')
+            .replace(/%/g, '')
+            .trim();
+        }
+        return normalized;
+      };
+
       const parameters: Record<string, unknown> = {};
       if (requiresImage && url) {
         parameters.url = url;
@@ -2843,9 +2875,20 @@ export function App() {
         if (isAiEditor && k === 'aspect_ratio' && String(v).trim() === 'auto') continue;
         if (isAiEditor && k === 'resolution' && String(v).trim() === '1K') continue;
         if (typeof v === 'string') {
-          parameters[k] = normalizeNumericParam(k, v);
+          parameters[k] = normalizeWorkflowParam(k, v);
         } else {
           parameters[k] = v;
+        }
+      }
+      if (isDuotuRongheWorkflow) {
+        const widthRaw = String(parameters.width ?? '').trim();
+        const heightRaw = String(parameters.height ?? '').trim();
+        if ((!widthRaw || !heightRaw) && url) {
+          const size = await loadImageSizeFromUrl(url);
+          if (size) {
+            if (!widthRaw) parameters.width = String(size.width);
+            if (!heightRaw) parameters.height = String(size.height);
+          }
         }
       }
       if (isShengtuWorkflow) {
@@ -2968,8 +3011,18 @@ export function App() {
       return num || raw;
     };
 
+    const normalizedEffectiveParams: Record<string, string> = Object.fromEntries(
+      Object.entries(effectiveParams).map(([key, value]) => {
+        const raw = String(value ?? '');
+        if (key === 'similarity' || key === 'bili') {
+          return [key, raw.replace(/%/g, '').trim()];
+        }
+        return [key, raw];
+      }),
+    );
+
     const batchControlParams: Record<string, unknown> = {
-      ...effectiveParams,
+      ...normalizedEffectiveParams,
       __batch_size_mode: batchSizeMode,
       __batch_aspect_ratio: batchAspectRatio,
       __batch_resolution: batchResolution,
@@ -5571,6 +5624,62 @@ export function App() {
                                     ))}
                                   </Space>
                                 ) : null}
+                                {modelAware?.description ? <Typography.Text theme="secondary">{modelAware.description}</Typography.Text> : null}
+                              </Space>
+                            </Card>
+                          );
+                        }
+                        if (f.name === 'image_url_2' || f.name === 'image_url_3') {
+                          return (
+                            <Card key={f.name} bordered title={f.label ?? f.name}>
+                              <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                                <Input
+                                  value={formParams[f.name] ?? ''}
+                                  onChange={(v) => setSingleImageField(f.name, String(v))}
+                                  placeholder={f.name === 'image_url_2' ? '支持粘贴辅图 1 URL 或上传本地图片' : '支持粘贴辅图 2 URL 或上传本地图片'}
+                                  clearable
+                                  disabled={Boolean(modelAware?.disabled) || extraImageUploading}
+                                />
+                                <Space align="center" style={{ width: '100%' }}>
+                                  <Button
+                                    variant="outline"
+                                    loading={extraImageUploading && extraImageFieldTarget === f.name}
+                                    disabled={Boolean(modelAware?.disabled)}
+                                    onClick={() => {
+                                      setExtraImageFieldTarget(f.name);
+                                      extraImagesInputRef.current?.click();
+                                    }}
+                                  >
+                                    上传{f.name === 'image_url_2' ? '辅图1' : '辅图2'}
+                                  </Button>
+                                  <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                                    {f.name === 'image_url_2' ? '对应新 workflow 的节点 106（image2）。' : '对应新 workflow 的节点 108（image3）。'}
+                                  </Typography.Text>
+                                  <input
+                                    ref={extraImagesInputRef}
+                                    type="file"
+                                    accept="image/*"
+                                    style={{ display: 'none' }}
+                                    disabled={extraImageUploading || Boolean(modelAware?.disabled)}
+                                    onChange={async (e) => {
+                                      const file = e.target.files?.[0];
+                                      const targetField = extraImageFieldTarget;
+                                      if (!file || !targetField) return;
+                                      setExtraImageUploading(true);
+                                      try {
+                                        const res = await evalApi.uploadImage(file);
+                                        setSingleImageField(targetField, res.url);
+                                      } catch (err) {
+                                        console.error(err);
+                                        pushNotice('error', String((err as any)?.message || err));
+                                      } finally {
+                                        setExtraImageUploading(false);
+                                        setExtraImageFieldTarget(null);
+                                        e.target.value = '';
+                                      }
+                                    }}
+                                  />
+                                </Space>
                                 {modelAware?.description ? <Typography.Text theme="secondary">{modelAware.description}</Typography.Text> : null}
                               </Space>
                             </Card>

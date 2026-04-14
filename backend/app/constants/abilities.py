@@ -792,14 +792,13 @@ def _comfyui_e7_flux2_liebian_schema() -> dict[str, Any]:
                 "required": True,
             },
             {
-                "name": "similarity",
+                "name": "bili",
                 "type": "number",
                 "label": _compose_bilingual_label("相似度（0-100）", "Similarity (0-100)"),
                 "description": _compose_bilingual_label(
-                    "业务相似度值。数值越大越接近原图，后端会线性换算为 denoise，并限制在 0.3~0.7。",
-                    "Higher means more similar to source. Backend converts it to denoise and clamps to 0.3~0.7.",
+                    "与旧裂变工作流保持一致的 bili 参数。数值越大越接近原图；后端按 0→0.95、50→0.75、100→0.55 线性换算为 denoise，并设置下限 0.55。输入小数时后端会先取整。",
+                    "Compatibility bili parameter aligned with older fission workflows. Higher means more similar to source; backend linearly maps 0→0.95, 50→0.75, 100→0.55 for denoise with a 0.55 floor. Decimal input is rounded to an integer first.",
                 ),
-                "default": 25,
                 "min": 0,
                 "max": 100,
             },
@@ -922,6 +921,86 @@ def _comfyui_multi_image_fusion_schema() -> dict[str, Any]:
                 "type": "number",
                 "label": _compose_bilingual_label("随机种子", "Seed"),
                 "description": "节点 151 · CR Seed.seed；不填则后端自动生成随机种子。",
+                "required": False,
+            },
+        ]
+    }
+
+
+def _comfyui_background_remove_schema() -> dict[str, Any]:
+    return {
+        "fields": [
+            {
+                "name": "image_url",
+                "type": "image",
+                "label": _compose_bilingual_label("输入图片 URL", "Input Image URL"),
+                "description": "节点 5 · LoadImagesFromURL.url",
+                "required": True,
+            }
+        ]
+    }
+
+
+def _comfyui_head_extract_schema() -> dict[str, Any]:
+    return {
+        "fields": [
+            {
+                "name": "image_url",
+                "type": "image",
+                "label": _compose_bilingual_label("输入图片 URL", "Input Image URL"),
+                "description": "节点 141 · LoadImagesFromURL.url",
+                "required": True,
+            }
+        ]
+    }
+
+
+def _comfyui_flux2_9b_liebian_sifang_schema() -> dict[str, Any]:
+    return {
+        "fields": [
+            {
+                "name": "image_url",
+                "type": "image",
+                "label": _compose_bilingual_label("输入图片 URL", "Input Image URL"),
+                "description": "节点 141 · LoadImagesFromURL.url",
+                "required": True,
+            },
+            {
+                "name": "prompt",
+                "type": "textarea",
+                "label": _compose_bilingual_label("主提示词", "Prompt"),
+                "description": "节点 132 · String.inStr",
+                "required": True,
+            },
+        ]
+    }
+
+
+def _comfyui_qwen2512_print_shape_text_enhance_schema() -> dict[str, Any]:
+    return {
+        "fields": [
+            {
+                "name": "image_url",
+                "type": "image",
+                "label": _compose_bilingual_label("输入图片 URL", "Input Image URL"),
+                "description": "节点 10 · LoadImagesFromURL.url",
+                "required": True,
+            },
+            {
+                "name": "prompt",
+                "type": "textarea",
+                "label": _compose_bilingual_label("文字强化提示词", "Text Enhancement Prompt"),
+                "description": "节点 13 · CR Text Concatenate.text1",
+                "required": True,
+            },
+            {
+                "name": "bili",
+                "type": "number",
+                "label": _compose_bilingual_label("相似度", "Similarity"),
+                "description": _compose_bilingual_label(
+                    "映射到节点 27 · KSampler.denoise：0→0.95，50→0.75，100→0.55。",
+                    "Mapped to node 27 · KSampler.denoise: 0→0.95, 50→0.75, 100→0.55.",
+                ),
                 "required": False,
             },
         ]
@@ -1635,13 +1714,131 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "supports_vision": True,
             "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
             "routing_policy": "queue",
-            "seed_version": 3,
+            "seed_version": 4,
             "lora_presets": PATTERN_EXTRACT_LORA_PRESETS,
             "pricing": {
                 "currency": "CNY",
                 "unit": "per_image",
                 "list_price": 0.5,
                 "discount_price": 0.3,
+            },
+        },
+    },
+    "beijing_koutu": {
+        "defaults": {
+            "workflow_key": "beijing_koutu",
+            "timeout": 240,
+        },
+        "display_name": "ComfyUI · 背景抠图",
+        "description": "输入图片 URL，移除主体背景，输出最终抠图结果。",
+        "category": "image_generation",
+        "input_schema": _comfyui_background_remove_schema(),
+        "metadata": {
+            "executor_type": "comfyui",
+            "executor_tag": "comfyui",
+            "api_type": "comfyui_workflow",
+            "workflow_key": "beijing_koutu",
+            "action": "background_remove",
+            "requires_image_input": True,
+            "supports_vision": True,
+            "output_node_ids": ["4"],
+            "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
+            "routing_policy": "queue",
+            "seed_version": 1,
+            "pricing": {
+                "currency": "CNY",
+                "unit": "per_image",
+                "list_price": 0.2,
+                "discount_price": 0.1,
+            },
+        },
+    },
+    "toubu_kouxiang": {
+        "defaults": {
+            "workflow_key": "toubu_kouxiang",
+            "timeout": 300,
+        },
+        "display_name": "ComfyUI · 头部抠像",
+        "description": "输入图片 URL，提取完整头部与人脸区域，输出最终抠像结果。",
+        "category": "image_generation",
+        "input_schema": _comfyui_head_extract_schema(),
+        "metadata": {
+            "executor_type": "comfyui",
+            "executor_tag": "comfyui",
+            "api_type": "comfyui_workflow",
+            "workflow_key": "toubu_kouxiang",
+            "action": "head_extract",
+            "requires_image_input": True,
+            "supports_vision": True,
+            "output_node_ids": ["140"],
+            "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
+            "routing_policy": "queue",
+            "seed_version": 1,
+            "pricing": {
+                "currency": "CNY",
+                "unit": "per_image",
+                "list_price": 0.25,
+                "discount_price": 0.15,
+            },
+        },
+    },
+    "flux2_9b_liebian_sifang": {
+        "defaults": {
+            "workflow_key": "flux2_9b_liebian_sifang",
+            "timeout": 420,
+        },
+        "display_name": "ComfyUI · FLUX2裂变+四方",
+        "description": "输入图片 URL 与主提示词，走 FLUX2-9b 裂变+四方 workflow，输出最终拼缝结果。",
+        "category": "image_generation",
+        "input_schema": _comfyui_flux2_9b_liebian_sifang_schema(),
+        "metadata": {
+            "executor_type": "comfyui",
+            "executor_tag": "comfyui",
+            "api_type": "comfyui_workflow",
+            "workflow_key": "flux2_9b_liebian_sifang",
+            "action": "image_fission",
+            "requires_image_input": True,
+            "supports_vision": True,
+            "output_node_ids": ["111"],
+            "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
+            "routing_policy": "queue",
+            "seed_version": 1,
+            "pricing": {
+                "currency": "CNY",
+                "unit": "per_image",
+                "list_price": 0.6,
+                "discount_price": 0.35,
+            },
+        },
+    },
+    "qwen2512_print_shape_text_enhance": {
+        "defaults": {
+            "workflow_key": "qwen2512_print_shape_text_enhance",
+            "timeout": 420,
+            "steps": 8,
+            "cfg": 1.0,
+        },
+        "display_name": "ComfyUI · 裂变文字强化",
+        "description": "输入图片 URL、文字强化提示词和相似度，走 Qwen2512 图像形状强化 workflow，输出最终强化结果。",
+        "category": "image_generation",
+        "input_schema": _comfyui_qwen2512_print_shape_text_enhance_schema(),
+        "metadata": {
+            "executor_type": "comfyui",
+            "executor_tag": "comfyui",
+            "api_type": "comfyui_workflow",
+            "workflow_key": "qwen2512_print_shape_text_enhance",
+            "action": "image_fission",
+            "requires_image_input": True,
+            "supports_vision": True,
+            "output_node_ids": ["29"],
+            "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
+            "routing_policy": "queue",
+            "seed_version": 1,
+            "pricing": {
+                "currency": "CNY",
+                "unit": "per_image",
+                "list_price": 0.6,
+                "discount_price": 0.35,
             },
         },
     },
@@ -1760,7 +1957,7 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "supports_vision": True,
             "allowed_executor_ids": ["executor_comfyui_pattern_extract_158", "executor_comfyui_seamless_117"],
             "routing_policy": "queue",
-            "seed_version": 3,
+            "seed_version": 4,
             "pricing": {
                 "currency": "CNY",
                 "unit": "per_image",
@@ -1775,7 +1972,6 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "timeout": 420,
             "steps": 8,
             "cfg": 1.0,
-            "similarity": 25,
             "batch_size": 1,
         },
         "display_name": "ComfyUI · E7裂变重绘",
@@ -1792,7 +1988,7 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "supports_vision": True,
             "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
             "routing_policy": "queue",
-            "seed_version": 3,
+            "seed_version": 4,
             "pricing": {
                 "currency": "CNY",
                 "unit": "per_image",

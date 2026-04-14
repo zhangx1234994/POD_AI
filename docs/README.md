@@ -1,6 +1,11 @@
 # POD AI Studio 文档索引与目录说明
 
-本文件是文档总索引与目录用途说明，新增/更新文档请先补充这里，保证能快速定位。
+本文件是当前文档总索引与目录用途说明。
+
+> 说明：
+> 1. 先看“现行真源”，再看“历史计划 / 测试包 / 草案”。
+> 2. `docs/client/plans/2026-03-16~17-*` 中大量文档属于客户端第一轮建设与测试基线，不代表今天仍按原口径执行。
+> 3. 客户端当前最新结构调整，以 `docs/plans/2026-03-19-style3d-client-rearchitecture-design.md` 和 `docs/client/plans/2026-03-17-style3d-client-current-status.md` 为准。
 
 ## 目录说明
 
@@ -12,6 +17,7 @@
 | `docs/api/INDEX.md` | 接口总索引 | 全量接口按模块分类汇总 |
 | `docs/comfyui/` | ComfyUI 维护 | 工作流、节点映射、运维说明 |
 | `docs/coze/` | Coze 集成 | 插件/工具箱/工作流规范 |
+| `docs/client/` | 客户端说明 | 客户端产品架构、交互、对标核查、开发计划 |
 | `docs/eval/` | 评测平台 | 评测站点功能说明 |
 | `docs/strategy/` | 战略规划 | 战略一页纸、主待办池、上下文清理 |
 | `docs/retrospectives/` | 复盘记录 | 复盘纪要与行动项 |
@@ -19,10 +25,49 @@
 | `docs/testing/` | 测试计划 | 测试计划与用例规范 |
 | `docs/wip/` | 草案/临时稿 | 未定稿内容（发布前需转正） |
 
-## 文档树（两层）
+## 现行真源
+
+优先阅读这些文档：
+
+- `docs/PLATFORM_SURFACES.md`
+- `docs/strategy/platform-vision-and-goals-2026.md`
+- `docs/strategy/strategy-one-page-2026q2.md`
+- `docs/architecture.md`
+- `docs/BUSINESS_MODEL.md`
+- `docs/client/README.md`
+- `docs/api/INDEX.md`
+- `docs/standards/error-catalog.md`
+- `docs/standards/error-contract.md`
+- `docs/standards/interface-consistency.md`
+
+## 历史 / 基线文档说明
+
+以下文档仍保留，但阅读时应按“历史基线 / 阶段记录”理解：
+
+- `docs/client/plans/2026-03-16-style3d-client-*.md`
+- `docs/client/plans/2026-03-17-style3d-client-*-test*.md`
+- `docs/client/START_HERE.md`
+- `docs/client/OPEN_TEST_NOW.md`
+- `docs/async-task-monitoring.md`
+- `docs/smart-polling-mechanism.md`
+- `docs/error-codes.md`
+
+## 文档树（示意）
 
 ```
 docs/
+├── PLATFORM_SURFACES.md
+├── client
+│   ├── README.md
+│   └── plans
+│       ├── 2026-03-16-style3d-client-analysis.md
+│       ├── 2026-03-16-style3d-client-build-plan.md
+│       ├── 2026-03-16-style3d-client-gap-audit.md
+│       ├── 2026-03-16-style3d-client-interaction-spec.md
+│       ├── 2026-03-16-style3d-client-phase1-tasklist.md
+│       ├── 2026-03-16-style3d-client-product-architecture.md
+│       ├── 2026-03-16-style3d-client-test-scope.md
+│       └── 2026-03-16-style3d-client-wireframe-spec.md
 ├── ABILITY_EVALUATION.md
 ├── BUSINESS_MODEL.md
 ├── COMPONENT_INTERACTIONS.md
@@ -80,6 +125,7 @@ docs/
 │   ├── lora-batch-decoupling-design.md
 │   └── eval-platform.md
 ├── release-preflight.md
+├── project-takeover-prep-2026-03-12.md
 ├── retrospectives
 │   ├── 2026-02-03.md
 │   ├── 2026-02-13.md
@@ -121,11 +167,13 @@ docs/
 ## 索引（按主题）
 
 ### 入门与运维
+- `docs/PLATFORM_SURFACES.md`：三端边界说明（管理端 / 测评端 / 客户端）
 - `docs/development-guide.md`：开发指南
 - `docs/deploy-podi.md`：PODI 后端/管理端部署流程
 - `docs/DEPLOYMENT.md`：部署规范与结构
 - `docs/deploy-checklist.md`：部署检查清单
 - `docs/release-preflight.md`：发布前检查
+- `docs/project-takeover-prep-2026-03-12.md`：项目接手准备清单（现状、风险、首轮核对项）
 - `docs/TROUBLESHOOTING.md`：常见问题排查
 - `docs/CREDENTIALS.md`：凭证与密钥管理说明
 
@@ -139,7 +187,7 @@ docs/
 - `docs/admin-system-plan.md`：管理端系统规划
 - `docs/auth-plan.md`：鉴权/权限规划
 - `docs/backlog.md`：需求/问题清单
-- `docs/TODO_PLATFORM.md`：平台待办与阶段目标
+- `docs/TODO_PLATFORM.md`：平台待办与阶段目标（历史路线图，新增待办请看 `docs/strategy/todo-master-2026q2.md`）
 
 ### API 与规范
 - `docs/api.md`：API 总览
@@ -160,8 +208,8 @@ docs/
 
 ### 任务流转与调度
 - `docs/task-submission-flow.md`：任务提交流程
-- `docs/smart-polling-mechanism.md`：智能轮询机制
-- `docs/async-task-monitoring.md`：异步任务监控
+- `docs/smart-polling-mechanism.md`：智能轮询机制（历史客户端实现参考）
+- `docs/async-task-monitoring.md`：异步任务监控（历史客户端实现参考）
 
 ### 能力、评测与 ComfyUI
 - `docs/ABILITY_EVALUATION.md`：能力评测概览
@@ -176,6 +224,7 @@ docs/
 
 ### 战略规划（唯一入口）
 - `docs/strategy/README.md`：战略工作区说明
+- `docs/strategy/platform-vision-and-goals-2026.md`：平台愿景与核心目标（平台上位叙事真源）
 - `docs/strategy/auth-billing-implementation-checklist-2026q2.md`：认证与计费实施清单
 - `docs/strategy/auth-scheme-decision-2026q2.md`：认证方案选型结论（Q2）
 - `docs/strategy/doc-governance-owners-2026q2.md`：文档治理 owner 清单（Q2）
@@ -198,6 +247,13 @@ docs/
 - `docs/admin/integration-dashboard.md`：管理端能力管理页说明
 - `docs/UI_STANDARD.md`：UI 规范
 
+### 客户端
+- `docs/client/README.md`：客户端唯一入口（先读这份，不要直接在客户端目录里找）
+- `docs/client/DOC_STATUS.md`：客户端文档状态总表
+- `docs/client/plans/2026-03-17-style3d-client-current-status.md`：当前状态快照
+- `docs/plans/2026-03-19-style3d-client-rearchitecture-design.md`：当前骨架与重构方向
+- `docs/client/CORE_TEST_PATHS.md`：当前主要页面路径
+
 ### 测试、复盘与草案
 - `docs/testing/AUTH_BILLING_TEST_PLAN.md`：认证与计费回归测试计划
 - `docs/testing/COMFYUI_TASK_STATE_REGRESSION_PLAN.md`：ComfyUI 任务状态回归计划
@@ -210,7 +266,8 @@ docs/
 
 ## 维护约定
 1. 新增文档必须补充到本索引。
-2. 规划/草案类文档请放入 `docs/wip/` 或在标题标明“计划”。
-3. 重大变更请同步更新 `docs/BUSINESS_MODEL.md` 与 `docs/architecture.md`。
+2. 规划/草案类文档请放入 `docs/wip/`、`docs/plans/` 或在标题标明“计划”。
+3. 重大变更请同步更新 `docs/BUSINESS_MODEL.md`、`docs/architecture.md` 与相应目录入口文档。
+4. 客户端文档必须明确标注：是“现行真源”、还是“历史基线 / 测试包 / 阶段记录”。
 
-*最后更新: 2026-03-04*
+*最后更新: 2026-03-19*
