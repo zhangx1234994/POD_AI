@@ -1032,6 +1032,10 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         if not image_url:
             return None, "COMFYUI_IMAGE_REQUIRED"
         overrides["141"] = {"url": image_url}
+        # Randomize Florence2 seed to avoid full-graph caching on ComfyUI,
+        # which causes /history to return empty outputs and leaves the task
+        # stuck in running forever.
+        overrides["134"] = {"seed": secrets.randbelow(2**63 - 1) + 1}
         workflow_definition["_max_output_images"] = 1
         workflow_definition["output_node_ids"] = ["140"]
         return overrides, None
