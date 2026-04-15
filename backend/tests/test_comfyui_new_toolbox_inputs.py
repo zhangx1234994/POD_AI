@@ -40,7 +40,9 @@ def test_head_extract_maps_url_and_final_output_node():
     )
 
     assert error is None
-    assert overrides == {"141": {"url": "https://example.com/portrait.png"}}
+    assert overrides["141"] == {"url": "https://example.com/portrait.png"}
+    assert isinstance(overrides.get("134", {}).get("seed"), int)
+    assert overrides["134"]["seed"] > 0
     assert context.workflow.definition["output_node_ids"] == ["140"]
     assert context.workflow.definition["_max_output_images"] == 1
 
