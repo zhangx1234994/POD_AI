@@ -3,6 +3,11 @@
 ## 项目结构与模块组织
 `backend/` 是 FastAPI 服务，`app/routers` 暴露任务、调度、管理端接口，`app/models`/`schemas` 定义任务、执行器、能力（`Ability`）等 ORM/DTO，`app/services`/`workers` 实现业务逻辑与 Celery 任务，数据库迁移位于 `backend/alembic/`。`podi-eval-web/` 为内部“能力评测”站点；`podi-admin-web/` 为独立管理端（端口 8199），负责执行节点、能力、密钥、评测配置的维护。历史客户端（`podi-design-web-dev/`）已移除，后续将以新的客户端形态重构。顶层 `docs/`、`架构实施计划.md`、`后端架构与业务模型.md` 记录决策与路线图。
 
+### 客户端版本说明（重要）
+- **`podi-client-web/`**：V1 旧版客户端（端口 8210），功能完整但设计风格较旧，保留作为参考
+- **`podi-client-v2/`**：**V2 新版客户端（端口 8220）**，完全对标 Style3D 设计风格，品牌感强，大视觉+视频+案例叙事，当前活跃开发版本
+- 两个版本共用后端接口，切换时只需调整端口
+
 ## 构建、测试与开发命令
 后端：`cd backend && uv sync`（或 `pip install -r requirements.txt`），再运行 `alembic upgrade head` 初始化 MySQL 表，命令 `uvicorn app.main:app --reload --port 8099` 启动 API，后台任务使用 `celery -A app.core.celery_app worker -l info`。前端：`podi-admin-web/`、`podi-eval-web/` 分别执行 `npm install && npm run dev`（必要时加 `-- --port <port>`）；管理端另有 `npm run lint`（纯 TypeScript 类型检查）可做快速静态校验。常用诊断：`curl :8099/health`、`python -m pytest backend/tests -q`、`npm run test -- --runInBand`（Vitest）。
 

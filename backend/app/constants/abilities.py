@@ -976,6 +976,37 @@ def _comfyui_flux2_9b_liebian_sifang_schema() -> dict[str, Any]:
     }
 
 
+def _comfyui_qwen2512_print_shape_text_enhance_schema() -> dict[str, Any]:
+    return {
+        "fields": [
+            {
+                "name": "image_url",
+                "type": "image",
+                "label": _compose_bilingual_label("输入图片 URL", "Input Image URL"),
+                "description": "节点 10 · LoadImagesFromURL.url",
+                "required": True,
+            },
+            {
+                "name": "prompt",
+                "type": "textarea",
+                "label": _compose_bilingual_label("文字强化提示词", "Text Enhancement Prompt"),
+                "description": "节点 13 · CR Text Concatenate.text1",
+                "required": True,
+            },
+            {
+                "name": "bili",
+                "type": "number",
+                "label": _compose_bilingual_label("相似度", "Similarity"),
+                "description": _compose_bilingual_label(
+                    "映射到节点 27 · KSampler.denoise：0→0.95，50→0.75，100→0.55。",
+                    "Mapped to node 27 · KSampler.denoise: 0→0.95, 50→0.75, 100→0.55.",
+                ),
+                "required": False,
+            },
+        ]
+    }
+
+
 def _build_kie_schema(capability_key: str) -> dict[str, Any]:
     if capability_key == "nano_banana_pro_image_to_image":
         return {
@@ -1769,6 +1800,37 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "requires_image_input": True,
             "supports_vision": True,
             "output_node_ids": ["111"],
+            "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
+            "routing_policy": "queue",
+            "seed_version": 1,
+            "pricing": {
+                "currency": "CNY",
+                "unit": "per_image",
+                "list_price": 0.6,
+                "discount_price": 0.35,
+            },
+        },
+    },
+    "qwen2512_print_shape_text_enhance": {
+        "defaults": {
+            "workflow_key": "qwen2512_print_shape_text_enhance",
+            "timeout": 420,
+            "steps": 8,
+            "cfg": 1.0,
+        },
+        "display_name": "ComfyUI · 裂变文字强化",
+        "description": "输入图片 URL、文字强化提示词和相似度，走 Qwen2512 图像形状强化 workflow，输出最终强化结果。",
+        "category": "image_generation",
+        "input_schema": _comfyui_qwen2512_print_shape_text_enhance_schema(),
+        "metadata": {
+            "executor_type": "comfyui",
+            "executor_tag": "comfyui",
+            "api_type": "comfyui_workflow",
+            "workflow_key": "qwen2512_print_shape_text_enhance",
+            "action": "image_fission",
+            "requires_image_input": True,
+            "supports_vision": True,
+            "output_node_ids": ["29"],
             "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
             "routing_policy": "queue",
             "seed_version": 1,

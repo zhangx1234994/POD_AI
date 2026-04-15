@@ -1073,6 +1073,25 @@ def get_comfyui_flux2_9b_liebian_sifang_openapi(request: Request) -> dict[str, A
     return doc
 
 
+@router.get("/comfyui/execute/qwen2512-print-shape-text-enhance/openapi.json")
+def get_comfyui_qwen2512_print_shape_text_enhance_openapi(request: Request) -> dict[str, Any]:
+    """OpenAPI for standalone ComfyUI 裂变文字强化 toolbox."""
+    doc = _build_openapi_filtered(
+        request=request,
+        providers={"comfyui"},
+        title="PODI ComfyUI 执行 · 裂变文字强化",
+        description="ComfyUI 裂变文字强化独立工具箱（含提交工具与任务轮询）。",
+        prefer_url_field=True,
+    )
+    paths = doc.get("paths") or {}
+    allowed = {
+        "/api/coze/podi/tools/comfyui/qwen2512_print_shape_text_enhance",
+        "/api/coze/podi/tasks/get",
+    }
+    doc["paths"] = {k: v for k, v in paths.items() if k in allowed}
+    return doc
+
+
 @router.get("/kie/catalog/openapi.json")
 def get_kie_catalog_openapi(request: Request) -> dict[str, Any]:
     """OpenAPI for PODI KIE model query-only plugin."""

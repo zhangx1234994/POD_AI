@@ -72,3 +72,34 @@ def test_flux2_9b_liebian_sifang_maps_only_url_and_prompt():
     assert context.workflow.definition["graph"]["104"]["inputs"]["base64_data"] == "keep-me"
     assert context.workflow.definition["output_node_ids"] == ["111"]
     assert context.workflow.definition["_max_output_images"] == 1
+
+
+def test_qwen2512_print_shape_text_enhance_maps_url_prompt_and_bili_to_denoise():
+    graph = {
+        "10": {"inputs": {"url": "https://"}},
+        "13": {"inputs": {"text1": "old prompt", "text2": ""}},
+        "27": {"inputs": {"seed": 1, "steps": 8, "cfg": 1.0, "denoise": 0.75}},
+        "29": {"inputs": {"filename_prefix": "08_Qwen2512PrintShape"}},
+    }
+    context = _make_context("qwen2512_print_shape_text_enhance", graph)
+    adapter = ComfyUIExecutorAdapter()
+
+    overrides, error = adapter._build_qwen2512_print_shape_text_enhance_inputs(
+        {
+            "image_url": "https://example.com/pattern.png",
+            "prompt": "new text enhance prompt",
+            "bili": 50,
+            "seed": 424242,
+        },
+        context,
+        context.workflow.definition,
+    )
+
+    assert error is None
+    assert overrides == {
+        "10": {"url": "https://example.com/pattern.png"},
+        "13": {"text1": "new text enhance prompt"},
+        "27": {"seed": 424242, "steps": 8, "cfg": 1.0, "denoise": 0.75},
+    }
+    assert context.workflow.definition["output_node_ids"] == ["29"]
+    assert context.workflow.definition["_max_output_images"] == 1

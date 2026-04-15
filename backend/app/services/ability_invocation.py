@@ -371,9 +371,13 @@ class AbilityInvocationService:
         # Fallback: keep current single-host defaults predictable.
         if not fallback_to_default:
             return None
-        if workflow_key in {"sifang_lianxu", "huawen_kuotu"}:
+        if workflow_key in {"sifang_lianxu", "huawen_kuotu", "beijing_koutu", "toubu_kouxiang"}:
             return "executor_comfyui_seamless_117"
-        if workflow_key in {"yinhua_tiqu", "yinhua_tiqu_lora_8step", "jisu_chuli", "zhongsu_tisheng", "duotu_ronghe", "e7_flux2_liebian"}:
+        if workflow_key in {
+            "yinhua_tiqu", "yinhua_tiqu_lora_8step", "jisu_chuli", "zhongsu_tisheng",
+            "duotu_ronghe", "e7_flux2_liebian", "flux2_9b_liebian_sifang",
+            "qwen2512_print_shape_text_enhance",
+        }:
             return "executor_comfyui_pattern_extract_158"
         return None
 

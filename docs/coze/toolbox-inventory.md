@@ -1,6 +1,6 @@
 # Coze 工具箱清单（PODI）
 
-> 更新时间：2026-04-14
+> 更新时间：2026-04-15
 > 
 > 说明：以下为当前后端实际可用的工具箱入口。导入 Coze 时使用 OpenAPI 地址；执行时按各工具箱里的接口调用。
 
@@ -36,6 +36,7 @@
   - `/api/coze/podi/comfyui/execute/duotu-ronghe/openapi.json`
   - `/api/coze/podi/comfyui/execute/e7-flux2-liebian/openapi.json`
   - `/api/coze/podi/comfyui/execute/flux2-9b-liebian-sifang/openapi.json`
+  - `/api/coze/podi/comfyui/execute/qwen2512-print-shape-text-enhance/openapi.json`
   - `/api/coze/podi/comfyui/execute/yinhua-tiqu-lora-8step/openapi.json`
 - 用途：每个功能单独一个工具箱，便于 Coze 单独测试、单独发布、单独回滚。
 - 导入说明：OpenAPI 地址可直接公网导入；真正执行接口与 `tasks/get` 仍按服务端鉴权规则校验。
@@ -167,6 +168,17 @@
   - 入参：`url`、`prompt`
   - 最终输出节点：`111`
   - 说明：仅覆写节点 `141.url` 与 `132.inStr`，节点 `104` 等默认内部参数保持不变
+
+### 2026-04-15
+- 新增：`ComfyUI · 裂变文字强化`
+  - 独立导入地址：`/api/coze/podi/comfyui/execute/qwen2512-print-shape-text-enhance/openapi.json`
+  - 入参：`url`、`prompt`、`bili`
+  - 最终输出节点：`29`
+  - 说明：
+    - 统一使用 `LoadImagesFromURL` 读取 OSS 图片
+    - `prompt` 写入节点 `13.text1`
+    - `bili` 复用裂变相似度映射，换算到节点 `27.denoise`
+    - `seed/steps/cfg` 暂由中台默认值兜底
 
 ## 7) Baidu 工具箱（执行类）
 

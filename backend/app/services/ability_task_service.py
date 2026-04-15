@@ -35,6 +35,8 @@ CLEANUP_INTERVAL_SECONDS = 30 * 60
 FINALIZE_INTERVAL_SECONDS = 8
 FINALIZE_BATCH_SIZE = 20
 COMFYUI_HISTORY_TIMEOUT_SECONDS = 6
+COMFYUI_HISTORY_ERROR_LIMIT = 20
+COMFYUI_HISTORY_ERROR_MIN_AGE_SECONDS = 15 * 60
 MAX_QUEUE_PER_EXECUTOR = 10
 ERR_CODE_COMFYUI_QUEUE_FULL = "Q1001"
 ERR_CODE_COMMERCIAL_QUEUE_FULL = "Q2001"
@@ -457,14 +459,65 @@ class AbilityTaskService:
                         pass
                     self._settle_success_wallet(task_id=task.id, db_task=db_task)
             except Exception as exc:
-                # Best-effort; keep task running but record last hint for operators.
-                with get_session() as session:
-                    db_task = session.get(AbilityTask, task.id)
-                    if db_task and db_task.status in {"queued", "running"}:
-                        db_task.error_message = str(exc)[:240]
-                        session.add(db_task)
-                        session.commit()
+                # Best-effort; keep task running for transient errors, but stop obviously stale
+                # history polling loops after repeated 502/5xx responses.
+                self._record_comfyui_finalize_error(task_id=task.id, error_message=str(exc)[:240])
                 continue
+
+
+    def _record_comfyui_finalize_error(self, *, task_id: str, error_message: str) -> None:
+        now = datetime.utcnow()
+        with get_session() as session:
+            db_task = session.get(AbilityTask, task_id)
+            if not db_task or db_task.status not in {"queued", "running"}:
+                return
+            payload = db_task.result_payload if isinstance(db_task.result_payload, dict) else {}
+            next_payload = dict(payload)
+            finalize_meta = next_payload.get("_finalize") if isinstance(next_payload.get("_finalize"), dict) else {}
+            previous_error = str(finalize_meta.get("last_error") or "").strip()
+            current_error = str(error_message or "").strip()[:240]
+            if current_error and previous_error == current_error:
+                count = int(finalize_meta.get("error_count") or 0) + 1
+            else:
+                count = 1
+            finalize_meta.update(
+                {
+                    "last_error": current_error,
+                    "error_count": count,
+                    "last_error_at": now.isoformat() + "Z",
+                }
+            )
+            next_payload["_finalize"] = finalize_meta
+            db_task.result_payload = next_payload
+            db_task.error_message = current_error or db_task.error_message
+
+            started_at = db_task.started_at or db_task.created_at
+            age_seconds = (now - started_at).total_seconds() if started_at else 0
+            should_fail = (
+                current_error.startswith("COMFYUI_HISTORY_HTTP_")
+                and count >= COMFYUI_HISTORY_ERROR_LIMIT
+                and age_seconds >= COMFYUI_HISTORY_ERROR_MIN_AGE_SECONDS
+            )
+            if should_fail:
+                db_task.status = "failed"
+                db_task.finished_at = now
+                if not db_task.duration_ms and started_at:
+                    try:
+                        db_task.duration_ms = int((now - started_at).total_seconds() * 1000)
+                    except Exception:
+                        pass
+            session.add(db_task)
+            session.commit()
+            if should_fail and db_task.log_id:
+                try:
+                    ability_log_service.finish_failure(
+                        db_task.log_id,
+                        error_message=current_error,
+                        response_payload=next_payload,
+                        duration_ms=db_task.duration_ms,
+                    )
+                except Exception:
+                    pass
 
     def _finalize_running_kie_tasks(self) -> None:
         settings = get_settings()

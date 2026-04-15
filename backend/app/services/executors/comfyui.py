@@ -669,6 +669,10 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             base_overrides, base_error = self._build_head_extract_inputs(inputs, context, workflow_definition)
         elif workflow_key == "flux2_9b_liebian_sifang":
             base_overrides, base_error = self._build_flux2_9b_liebian_sifang_inputs(inputs, context, workflow_definition)
+        elif workflow_key == "qwen2512_print_shape_text_enhance":
+            base_overrides, base_error = self._build_qwen2512_print_shape_text_enhance_inputs(
+                inputs, context, workflow_definition
+            )
         elif workflow_key in {"jisu_chuli", "zhongsu_tisheng"}:
             base_overrides, base_error = self._build_jisu_chuli_inputs(inputs, context, workflow_definition)
         elif workflow_key == "duotu_ronghe":
@@ -1045,6 +1049,60 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             overrides.setdefault("132", {})["inStr"] = prompt
         workflow_definition["_max_output_images"] = 1
         workflow_definition["output_node_ids"] = ["111"]
+        return overrides, None
+
+    def _build_qwen2512_print_shape_text_enhance_inputs(
+        self, params: dict[str, Any], context: ExecutionContext, workflow_definition: dict[str, Any]
+    ) -> tuple[dict[str, Any] | None, str | None]:
+        """裂变文字强化：图像输入 + 文本强化 + 相似度映射 denoise。
+
+        Node mapping (see `backend/app/workflows/comfyui/qwen2512_print_shape_text_enhance.json`):
+        - 10: LoadImagesFromURL.url
+        - 13: CR Text Concatenate.text1
+        - 27: KSampler.seed / steps / cfg / denoise
+        - 29: SaveImage
+        """
+
+        overrides: dict[str, dict[str, Any]] = {}
+
+        image_url, _ = self._resolve_image_source(params, context)
+        if not image_url:
+            return None, "COMFYUI_IMAGE_REQUIRED"
+        overrides["10"] = {"url": image_url}
+
+        prompt = self._as_text(params.get("prompt") or params.get("positive_prompt"))
+        if prompt:
+            overrides.setdefault("13", {})["text1"] = prompt
+
+        seed = self._coerce_positive_int(params.get("seed"))
+        if seed is None:
+            seed = secrets.randbelow(2**63 - 1) + 1
+        overrides.setdefault("27", {})["seed"] = seed
+
+        steps = self._coerce_positive_int(params.get("steps"))
+        if steps is None:
+            steps = self._coerce_positive_int(workflow_definition.get("steps")) or 8
+        overrides.setdefault("27", {})["steps"] = steps
+
+        cfg_raw = params.get("cfg")
+        if cfg_raw is None:
+            cfg_raw = workflow_definition.get("cfg", 1.0)
+        try:
+            overrides.setdefault("27", {})["cfg"] = float(cfg_raw)
+        except (TypeError, ValueError):
+            overrides.setdefault("27", {})["cfg"] = 1.0
+
+        similarity_value = params.get("bili")
+        if similarity_value in (None, ""):
+            similarity_value = params.get("similarity")
+        if similarity_value in (None, ""):
+            similarity_value = 25
+        denoise = self._map_similarity_to_denoise(similarity_value)
+        if denoise is not None:
+            overrides.setdefault("27", {})["denoise"] = denoise
+
+        workflow_definition["_max_output_images"] = 1
+        workflow_definition["output_node_ids"] = ["29"]
         return overrides, None
 
     def _build_jisu_chuli_inputs(
