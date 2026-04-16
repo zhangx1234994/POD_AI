@@ -149,7 +149,6 @@
   - 当 `width` / `height` 留空时，评测页会先读取主图尺寸并自动补齐后再提交
   - 辅图未传时，后端会在提交前移除对应节点引用，而不是复用默认占位图
   - 若只传了一个辅图，不会强行补第三张；仅保留 `image2`
-  - 当 `width` / `height` 留空时，评测页会先读取主图尺寸并自动补齐后再提交
 - 出参：
   - `output`：回调 task id
   - `prompt`：提示词反馈字符串
@@ -166,47 +165,26 @@
 
 ### 4.4 新增 ComfyUI 工作流（2026-04-16）
 
-- `7629023903431524352`（背景抠图 · `beijing_koutu`）
-  - 分类：`通用类`
-  - 入参：`url`
-  - 出参：
-    - `output`：回调 `task id`
-    - `ip`：ComfyUI 执行节点 IP
+| Workflow ID | 名称 | 分类 | 入参 | 出参 | 当前状态 |
+| --- | --- | --- | --- | --- | --- |
+| `7629023903431524352` | 背景抠图 · `beijing_koutu` | `通用类` | `url` | `output`, `ip` | 已验证成功出图 |
+| `7629023041988591616` | 头部抠像 · `toubu_kouxiang` | `通用类` | `url` | `output`, `ip` | 已验证成功出图 |
+| `7629024620879806464` | 文字增强 · `qwen2512_print_shape_text_enhance` | `图裂变` | `url`, `prompt`, `bili`, `count` | `output`, `prompt`, `ip` | 提交/回调链路正常，提示词质量待优化 |
+| `7629026792103215104` | 四方连续裂变 · `flux2_9b_liebian_sifang` | `图裂变` + `四方/两方连续图类` | `url`, `prompt`, `count` | `output`, `prompt`, `ip` | 提交/回调链路正常，提示词质量待优化 |
 
-- `7629023041988591616`（头部抠像 · `toubu_kouxiang`）
-  - 分类：`通用类`
-  - 入参：`url`
-  - 出参：
-    - `output`：回调 `task id`
-    - `ip`：ComfyUI 执行节点 IP
+补充约定：
+- `bili`：相似度百分比，当前默认 `50%`
+- `count`：一次评测触发的 fan-out 子任务数，当前默认 `4`
 
-- `7629024620879806464`（文字增强 · `qwen2512_print_shape_text_enhance`）
-  - 分类：`图裂变`
-  - 入参：
-    - `url`
-    - `prompt`
-    - `bili`
-    - `count`
-  - 说明：
-    - `bili` 为相似度百分比，默认 `50%`
-    - `count` 为一次评测触发的 fan-out 子任务数，默认 `4`
-  - 出参：
-    - `output`：回调 `task id`
-    - `prompt`：提示词反馈字符串
-    - `ip`：ComfyUI 执行节点 IP
+#### 当前结论（2026-04-16）
 
-- `7629026792103215104`（四方连续裂变 · `flux2_9b_liebian_sifang`）
-  - 分类：同时展示在 `图裂变` 和 `四方/两方连续图类`
-  - 入参：
-    - `url`
-    - `prompt`
-    - `count`
-  - 说明：
-    - `count` 为一次评测触发的 fan-out 子任务数，默认 `4`
-  - 出参：
-    - `output`：回调 `task id`
-    - `prompt`：提示词反馈字符串
-    - `ip`：ComfyUI 执行节点 IP
+- 以上 4 条新增 workflow 已确认：工作流列表可见、评测 run 可创建、OSS 图片 URL 可正确写入 `input_oss_urls_json` 与 `parameters_json.url`，并能进入中台任务链路。
+- 当前未发现“图片未走 OSS 导致执行失败”的问题。
+- 此前本地出现的 `Missing required parameters: 'url'` 不是现网代码问题，而是一次无效复现场景：测试时使用了错误的评测 `workflow_version_id` / 请求方式，导致 run 本身未携带 `url`。
+- 现阶段真正待处理的问题不是评测端或 OSS，而是上游 prompt 生成质量：
+  - `文字增强`
+  - `四方连续裂变`
+  这两条链路返回的 `prompt` 仍可能与测试图内容不匹配，后续应优先排查 Coze workflow 中生成 prompt 的节点与系统提示词。
 
 ## 5. 注意事项
 

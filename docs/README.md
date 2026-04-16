@@ -1,273 +1,104 @@
-# POD AI Studio 文档索引与目录说明
+# POD AI Studio 文档索引
 
-本文件是当前文档总索引与目录用途说明。
+本文件是项目文档的总入口。目标只有两个：
 
-> 说明：
-> 1. 先看“现行真源”，再看“历史计划 / 测试包 / 草案”。
-> 2. `docs/client/plans/2026-03-16~17-*` 中大量文档属于客户端第一轮建设与测试基线，不代表今天仍按原口径执行。
-> 3. 客户端当前最新结构调整，以 `docs/plans/2026-03-19-style3d-client-rearchitecture-design.md` 和 `docs/client/plans/2026-03-17-style3d-client-current-status.md` 为准。
+1. 让人快速找到**当前有效文档**
+2. 明确区分**现行真源**、**模块说明**、**历史资料**
 
-## 目录说明
+## 阅读顺序
 
-| 目录 | 用途 | 主要内容 |
-| --- | --- | --- |
-| `docs/` | 全局文档入口 | 架构/规划/流程/运维/规范等跨模块文档 |
-| `docs/admin/` | 管理端说明 | 管理端页面与功能说明 |
-| `docs/api/` | API 规范 | API 详细说明与示例 |
-| `docs/api/INDEX.md` | 接口总索引 | 全量接口按模块分类汇总 |
-| `docs/comfyui/` | ComfyUI 维护 | 工作流、节点映射、运维说明 |
-| `docs/coze/` | Coze 集成 | 插件/工具箱/工作流规范 |
-| `docs/client/` | 客户端说明 | 客户端产品架构、交互、对标核查、开发计划 |
-| `docs/eval/` | 评测平台 | 评测站点功能说明 |
-| `docs/strategy/` | 战略规划 | 战略一页纸、主待办池、上下文清理 |
-| `docs/retrospectives/` | 复盘记录 | 复盘纪要与行动项 |
-| `docs/standards/` | 工程规范 | 错误契约、SOP、架构准则 |
-| `docs/testing/` | 测试计划 | 测试计划与用例规范 |
-| `docs/wip/` | 草案/临时稿 | 未定稿内容（发布前需转正） |
+新同学或恢复开发时，建议按这个顺序阅读：
+
+1. `docs/PLATFORM_SURFACES.md`
+2. `docs/strategy/platform-vision-and-goals-2026.md`
+3. `docs/strategy/strategy-one-page-2026q2.md`
+4. `docs/architecture.md`
+5. `docs/BUSINESS_MODEL.md`
+6. `docs/api/INDEX.md`
+7. 对应模块文档：
+   - 客户端：`docs/client/README.md`
+   - 评测端：`docs/eval/eval-platform.md`
+   - Coze：`docs/coze/toolbox-inventory.md`
+   - ComfyUI：`docs/comfyui/README.md`
+8. 想回看阶段过程，再看：`docs/weekly/README.md`
 
 ## 现行真源
 
-优先阅读这些文档：
+以下文档优先级最高，视为当前平台口径：
 
 - `docs/PLATFORM_SURFACES.md`
 - `docs/strategy/platform-vision-and-goals-2026.md`
 - `docs/strategy/strategy-one-page-2026q2.md`
 - `docs/architecture.md`
 - `docs/BUSINESS_MODEL.md`
-- `docs/client/README.md`
 - `docs/api/INDEX.md`
+- `docs/client/README.md`
+- `docs/client/plans/README.md`
+- `docs/eval/eval-platform.md`
+- `docs/coze/toolbox-inventory.md`
+- `docs/comfyui/README.md`
+- `docs/weekly/README.md`
 - `docs/standards/error-catalog.md`
 - `docs/standards/error-contract.md`
 - `docs/standards/interface-consistency.md`
+- `docs/standards/document-maintenance.md`
 
-## 历史 / 基线文档说明
+## 模块入口
 
-以下文档仍保留，但阅读时应按“历史基线 / 阶段记录”理解：
+| 主题 | 入口文档 | 说明 |
+| --- | --- | --- |
+| 平台边界 | `docs/PLATFORM_SURFACES.md` | 管理端 / 测评端 / 客户端 / 对话式助手边界 |
+| 战略规划 | `docs/strategy/README.md` | 平台愿景、路线、待办、治理 |
+| API | `docs/api/INDEX.md` | 全量接口模块入口 |
+| 客户端 | `docs/client/README.md` | 客户端唯一入口 |
+| 客户端 Plans | `docs/client/plans/README.md` | 客户端现行计划 / 历史计划 / 测试包分层入口 |
+| 评测端 | `docs/eval/eval-platform.md` | 评测平台功能与约束 |
+| Coze 工具箱 | `docs/coze/toolbox-inventory.md` | 当前工具箱清单与契约 |
+| ComfyUI | `docs/comfyui/README.md` | Workflow、节点映射、执行节点说明 |
+| 周报归档 | `docs/weekly/README.md` | 按周汇总过程记录与阶段结论 |
+| 工程规范 | `docs/standards/` | 错误契约、接口一致性、文档维护等规范 |
+| 测试计划 | `docs/testing/` | 回归计划、线上 smoke 清单 |
+| 复盘记录 | `docs/retrospectives/` | 复盘、风险、后续动作 |
 
-- `docs/client/plans/2026-03-16-style3d-client-*.md`
-- `docs/client/plans/2026-03-17-style3d-client-*-test*.md`
+## 历史资料与阶段记录
+
+以下内容保留，但不作为当前执行口径：
+
+- `docs/client/plans/2026-03-16-*`
+- `docs/client/plans/2026-03-17-*`
 - `docs/client/START_HERE.md`
 - `docs/client/OPEN_TEST_NOW.md`
+- `docs/client/REVIEW_NOW.md`
 - `docs/async-task-monitoring.md`
 - `docs/smart-polling-mechanism.md`
 - `docs/error-codes.md`
+- `docs/TODO_PLATFORM.md`
 
-## 文档树（示意）
+阅读这些文档时，默认按“历史基线 / 阶段记录”理解，不能直接当作当前实现依据。
 
-```
-docs/
-├── PLATFORM_SURFACES.md
-├── client
-│   ├── README.md
-│   └── plans
-│       ├── 2026-03-16-style3d-client-analysis.md
-│       ├── 2026-03-16-style3d-client-build-plan.md
-│       ├── 2026-03-16-style3d-client-gap-audit.md
-│       ├── 2026-03-16-style3d-client-interaction-spec.md
-│       ├── 2026-03-16-style3d-client-phase1-tasklist.md
-│       ├── 2026-03-16-style3d-client-product-architecture.md
-│       ├── 2026-03-16-style3d-client-test-scope.md
-│       └── 2026-03-16-style3d-client-wireframe-spec.md
-├── ABILITY_EVALUATION.md
-├── BUSINESS_MODEL.md
-├── COMPONENT_INTERACTIONS.md
-├── COZE_INTEGRATION_GUIDE.md
-├── COZE_WORKFLOWS.md
-├── CREDENTIALS.md
-├── DEPLOYMENT.md
-├── README.md
-├── TODO_PLATFORM.md
-├── TROUBLESHOOTING.md
-├── UI_STANDARD.md
-├── admin
-│   └── integration-dashboard.md
-├── admin-system-plan.md
-├── ai-capability-roadmap.md
-├── ai-integration-management.md
-├── api
-│   ├── INDEX.md
-│   ├── modules
-│   │   ├── overview.md
-│   │   ├── auth.md
-│   │   ├── media.md
-│   │   ├── abilities.md
-│   │   ├── coze.md
-│   │   ├── comfyui-admin.md
-│   │   ├── agent.md
-│   │   ├── eval.md
-│   │   ├── admin-core.md
-│   │   ├── tasks.md
-│   │   └── notify-wallet.md
-│   └── abilities.md
-├── api.md
-├── architecture.md
-├── async-task-monitoring.md
-├── auth-plan.md
-├── backlog.md
-├── comfyui
-│   ├── agent-management.md
-│   ├── desktop-agent.md
-│   └── README.md
-├── comfyui-routing-business.md
-├── comfyui-routing-technical.md
-├── coze
-│   ├── toolbox-contracts.md
-│   ├── toolbox-inventory.md
-│   └── workflows.md
-├── coze-integration.md
-├── coze-plugin-podi.md
-├── deploy-checklist.md
-├── deploy-podi.md
-├── development-guide.md
-├── error-codes.md
-├── eval
-│   ├── ai-editor.md
-│   ├── lora-batch-decoupling-design.md
-│   └── eval-platform.md
-├── release-preflight.md
-├── project-takeover-prep-2026-03-12.md
-├── retrospectives
-│   ├── 2026-02-03.md
-│   ├── 2026-02-13.md
-│   └── 2026-02-21.md
-├── smart-polling-mechanism.md
-├── strategy
-│   ├── README.md
-│   ├── auth-billing-implementation-checklist-2026q2.md
-│   ├── auth-scheme-decision-2026q2.md
-│   ├── context-cleanup-policy.md
-│   ├── doc-governance-owners-2026q2.md
-│   ├── status-error-audit-2026q2.md
-│   ├── strategy-one-page-2026q2.md
-│   ├── todo-master-2026q2.md
-│   └── weekly-review-template.md
-├── standards
-│   ├── abstraction-and-decoupling.md
-│   ├── coze-toolbox-development-standard.md
-│   ├── copywriting-system-v1.md
-│   ├── error-catalog.md
-│   ├── error-contract.md
-│   ├── error-message-map-v1.md
-│   ├── interface-consistency.md
-│   ├── issue-improvement-log.md
-│   ├── platform-design-principles.md
-│   ├── queue-and-error-standards.md
-│   └── self-check-sop.md
-├── task-submission-flow.md
-├── testing
-│   ├── AUTH_BILLING_TEST_PLAN.md
-│   ├── COMFYUI_TASK_STATE_REGRESSION_PLAN.md
-│   └── COZE_WORKFLOW_TEST_PLAN.md
-├── wip
-│   ├── auth-billing-model-draft.md
-│   └── admin-ia-draft.md
-└── workflow-platform-requirements.md
-```
+## 模块目录说明
 
-## 索引（按主题）
+| 目录 | 作用 |
+| --- | --- |
+| `docs/api/` | 接口模块说明与契约 |
+| `docs/client/` | 客户端现状、计划、阶段文档 |
+| `docs/plans/` | 平台级方案与跨模块计划文档 |
+| `docs/comfyui/` | ComfyUI workflow 与执行节点维护 |
+| `docs/coze/` | Coze 工具箱、工作流、插件契约 |
+| `docs/eval/` | 评测端说明 |
+| `docs/strategy/` | 战略、待办、治理 |
+| `docs/standards/` | 工程和文档规范 |
+| `docs/testing/` | 测试计划与回归清单 |
+| `docs/retrospectives/` | 复盘记录 |
+| `docs/weekly/` | 周报归档与阶段过程汇总 |
+| `docs/wip/` | 草案与未定稿内容 |
 
-### 入门与运维
-- `docs/PLATFORM_SURFACES.md`：三端边界说明（管理端 / 测评端 / 客户端）
-- `docs/development-guide.md`：开发指南
-- `docs/deploy-podi.md`：PODI 后端/管理端部署流程
-- `docs/DEPLOYMENT.md`：部署规范与结构
-- `docs/deploy-checklist.md`：部署检查清单
-- `docs/release-preflight.md`：发布前检查
-- `docs/project-takeover-prep-2026-03-12.md`：项目接手准备清单（现状、风险、首轮核对项）
-- `docs/TROUBLESHOOTING.md`：常见问题排查
-- `docs/CREDENTIALS.md`：凭证与密钥管理说明
+## 文档维护规则
 
-### 架构与业务
-- `docs/BUSINESS_MODEL.md`：业务建模文档
-- `docs/architecture.md`：技术架构与边界总览
-- `docs/COMPONENT_INTERACTIONS.md`：模块交互与依赖关系
-- `docs/workflow-platform-requirements.md`：工作流平台需求
-- `docs/ai-capability-roadmap.md`：能力演进路线图（规划）
-- `docs/ai-integration-management.md`：能力接入与管理策略
-- `docs/admin-system-plan.md`：管理端系统规划
-- `docs/auth-plan.md`：鉴权/权限规划
-- `docs/backlog.md`：需求/问题清单
-- `docs/TODO_PLATFORM.md`：平台待办与阶段目标（历史路线图，新增待办请看 `docs/strategy/todo-master-2026q2.md`）
+文档治理统一按 `docs/standards/document-maintenance.md` 执行。最低要求：
 
-### API 与规范
-- `docs/api.md`：API 总览
-- `docs/api/INDEX.md`：接口总索引（按模块分类）
-- `docs/api/abilities.md`：统一能力 API 说明
-- `docs/error-codes.md`：错误码文档（历史草案，现行见 `docs/standards/error-catalog.md`）
-- `docs/standards/error-catalog.md`：错误码总表
-- `docs/standards/error-contract.md`：错误契约规范
-- `docs/standards/interface-consistency.md`：接口一致性准则（状态词/回填口径）
-- `docs/standards/queue-and-error-standards.md`：队列与错误处理规范
-- `docs/standards/abstraction-and-decoupling.md`：抽象与解耦准则
-- `docs/standards/platform-design-principles.md`：平台设计准则（稳定性优先）
-- `docs/standards/self-check-sop.md`：自检流程规范
-- `docs/standards/coze-toolbox-development-standard.md`：Coze 工具箱开发准则
-- `docs/standards/copywriting-system-v1.md`：任务/结果/错误文案统一规范
-- `docs/standards/error-message-map-v1.md`：错误码到页面提示映射（高频优先）
-- `docs/standards/issue-improvement-log.md`：问题与优化记录
-
-### 任务流转与调度
-- `docs/task-submission-flow.md`：任务提交流程
-- `docs/smart-polling-mechanism.md`：智能轮询机制（历史客户端实现参考）
-- `docs/async-task-monitoring.md`：异步任务监控（历史客户端实现参考）
-
-### 能力、评测与 ComfyUI
-- `docs/ABILITY_EVALUATION.md`：能力评测概览
-- `docs/eval/ai-editor.md`：AI 图片编辑器（标注与提示词重组方法）
-- `docs/eval/lora-batch-decoupling-design.md`：LoRA 批测两阶段解耦设计（状态机与分步实施）
-- `docs/eval/eval-platform.md`：评测平台说明
-- `docs/comfyui/README.md`：ComfyUI 工作流与运维
-- `docs/comfyui/agent-management.md`：ComfyUI 服务器管理（中台↔Agent 协议）
-- `docs/comfyui/desktop-agent.md`：ComfyUI 桌面端代理（安装/接入/运维）
-- `docs/comfyui-routing-business.md`：ComfyUI 业务路由说明
-- `docs/comfyui-routing-technical.md`：ComfyUI 技术路由说明
-
-### 战略规划（唯一入口）
-- `docs/strategy/README.md`：战略工作区说明
-- `docs/strategy/platform-vision-and-goals-2026.md`：平台愿景与核心目标（平台上位叙事真源）
-- `docs/strategy/auth-billing-implementation-checklist-2026q2.md`：认证与计费实施清单
-- `docs/strategy/auth-scheme-decision-2026q2.md`：认证方案选型结论（Q2）
-- `docs/strategy/doc-governance-owners-2026q2.md`：文档治理 owner 清单（Q2）
-- `docs/strategy/strategy-one-page-2026q2.md`：战略一页纸（目标/KPI/里程碑）
-- `docs/strategy/todo-master-2026q2.md`：唯一待办池（P0/P1/P2）
-- `docs/strategy/context-cleanup-policy.md`：上下文清理与归档规则
-- `docs/strategy/status-error-audit-2026q2.md`：状态与错误口径核对表（执行检查）
-- `docs/strategy/weekly-review-template.md`：每周回顾模板
-
-### Coze 集成
-- `docs/COZE_INTEGRATION_GUIDE.md`：Coze 集成指南
-- `docs/coze-integration.md`：Coze 集成说明（现行）
-- `docs/coze-plugin-podi.md`：PODI × Coze 插件接入
-- `docs/COZE_WORKFLOWS.md`：Coze 工作流说明
-- `docs/coze/toolbox-contracts.md`：工具箱契约说明
-- `docs/coze/toolbox-inventory.md`：工具箱清单（最新）
-- `docs/coze/workflows.md`：Coze 工作流配置示例
-
-### 管理端与 UI
-- `docs/admin/integration-dashboard.md`：管理端能力管理页说明
-- `docs/UI_STANDARD.md`：UI 规范
-
-### 客户端
-- `docs/client/README.md`：客户端唯一入口（先读这份，不要直接在客户端目录里找）
-- `docs/client/DOC_STATUS.md`：客户端文档状态总表
-- `docs/client/plans/2026-03-17-style3d-client-current-status.md`：当前状态快照
-- `docs/plans/2026-03-19-style3d-client-rearchitecture-design.md`：当前骨架与重构方向
-- `docs/client/CORE_TEST_PATHS.md`：当前主要页面路径
-
-### 测试、复盘与草案
-- `docs/testing/AUTH_BILLING_TEST_PLAN.md`：认证与计费回归测试计划
-- `docs/testing/COMFYUI_TASK_STATE_REGRESSION_PLAN.md`：ComfyUI 任务状态回归计划
-- `docs/testing/COZE_WORKFLOW_TEST_PLAN.md`：Coze 工作流测试计划
-- `docs/retrospectives/2026-02-03.md`：复盘纪要
-- `docs/retrospectives/2026-02-13.md`：复盘纪要（休假前记录）
-- `docs/retrospectives/2026-02-21.md`：复盘纪要（文档全量校正）
-- `docs/wip/admin-ia-draft.md`：管理端信息架构草案
-- `docs/wip/auth-billing-model-draft.md`：认证与计费字段模型草案
-
-## 维护约定
-1. 新增文档必须补充到本索引。
-2. 规划/草案类文档请放入 `docs/wip/`、`docs/plans/` 或在标题标明“计划”。
-3. 重大变更请同步更新 `docs/BUSINESS_MODEL.md`、`docs/architecture.md` 与相应目录入口文档。
-4. 客户端文档必须明确标注：是“现行真源”、还是“历史基线 / 测试包 / 阶段记录”。
-
-*最后更新: 2026-03-19*
+1. 新增功能时，必须同步更新对应模块入口文档。
+2. 参数、状态词、错误码变更时，必须同步更新接口文档和规范文档。
+3. 历史文档保留可以，但必须在入口文档里明确其“历史”身份。
+4. 模块入口文档要尽量短，只负责“带路”和“定口径”，不要堆长篇过程记录。
+5. 周期性整理时，优先修总索引、模块索引和真源文档，再处理深层细节文档。

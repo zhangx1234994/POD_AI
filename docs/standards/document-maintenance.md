@@ -1,0 +1,128 @@
+# 文档维护规范
+
+本规范用于统一项目文档的维护方式，避免“文档越来越多，但没人知道该看哪份”。
+
+## 1. 文档分层
+
+所有文档按 5 层理解：
+
+1. **现行真源**
+   - 当前执行口径
+   - 决策、接口、契约、边界都以此为准
+2. **模块入口**
+   - 带路文档
+   - 负责说明该模块该看什么、当前状态是什么
+3. **阶段记录 / 历史基线**
+   - 记录当时方案、测试包、旧阶段结论
+   - 保留用于追溯，不直接指导当前实现
+4. **草案 / WIP**
+   - 未定稿，不可直接当作执行依据
+5. **周报归档**
+   - 用于吸收零散过程记录
+   - 负责按周汇总“本周做了什么、结论是什么、来源文件有哪些”
+
+## 2. 现行真源最小集合
+
+以下文档应始终保持可用：
+
+- `docs/README.md`
+- `docs/api/INDEX.md`
+- `docs/client/README.md`
+- `docs/eval/eval-platform.md`
+- `docs/coze/toolbox-inventory.md`
+- `docs/comfyui/README.md`
+- `docs/strategy/README.md`
+- `docs/weekly/README.md`
+- `docs/standards/error-catalog.md`
+- `docs/standards/error-contract.md`
+- `docs/standards/interface-consistency.md`
+
+## 3. 每次开发后的最小同步要求
+
+发生以下变更时，必须同步更新文档：
+
+### 3.1 新增功能 / 新工作流 / 新工具箱
+
+至少更新：
+
+- 对应模块入口文档
+- 接口模块文档
+- 若涉及 Coze / ComfyUI，则同步更新 `toolbox-inventory` 或 `comfyui/README`
+
+### 3.2 参数、状态词、错误码变化
+
+至少更新：
+
+- `docs/api/modules/*.md`
+- `docs/standards/error-catalog.md`
+- `docs/standards/error-contract.md`
+- `docs/standards/interface-consistency.md`
+
+### 3.3 结构调整 / 口径变化
+
+至少更新：
+
+- `docs/README.md`
+- 对应模块入口文档
+- 如属平台级变化，再更新 `docs/strategy/README.md` 和相关真源
+
+## 4. 索引文档写法
+
+索引文档只做三件事：
+
+1. 说明当前该看什么
+2. 标注哪些是历史资料
+3. 指向更细的模块文档
+
+索引文档不要堆：
+
+- 大段设计过程
+- 重复接口细节
+- 已过时的长列表
+
+## 4.1 过程文档处理方式
+
+零散过程文档默认不再直接堆进主索引。更推荐：
+
+1. 先把本周过程沉淀进 `docs/weekly/YYYY-Wxx.md`
+2. 再把真正长期有效的结论提炼进模块入口或真源文档
+3. 原始过程文档只保留回溯价值，不再直接作为主入口阅读对象
+
+## 5. 历史文档处理规则
+
+历史文档默认不删除，但要满足：
+
+1. 仍有回溯价值
+2. 不会误导当前开发
+3. 已在入口文档中被标明“历史 / 阶段记录”
+
+如果一份文档既旧又无回溯价值，应考虑归档或移出主索引。
+
+## 6. 命名建议
+
+- 平台入口：`README.md`
+- 模块入口：模块目录下 `README.md`
+- 决策类：`<topic>-decision-YYYYqN.md`
+- 路线类：`<topic>-roadmap.md`
+- 阶段计划：`YYYY-MM-DD-<topic>-<plan>.md`
+- 复盘类：按日期命名
+
+## 7. 整理优先级
+
+做文档整理时，顺序固定：
+
+1. 总索引 `docs/README.md`
+2. 模块索引 `docs/api/INDEX.md`、`docs/strategy/README.md`、`docs/client/README.md`
+3. 周报归档 `docs/weekly/README.md`
+4. 当前真源文档
+5. 历史资料与阶段记录
+
+## 8. 当前执行原则
+
+文档不是为了“全”，而是为了“准”和“好找”。
+
+判断一轮整理是否有效，只看三件事：
+
+1. 新同学能否在 5 分钟内找到当前有效文档
+2. 开发同学能否快速知道参数和口径该看哪份
+3. 历史资料是否还能保留，而又不误导当前判断

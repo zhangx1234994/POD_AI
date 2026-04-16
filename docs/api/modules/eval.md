@@ -26,7 +26,7 @@
   - `resourceType`：`lora/model/plugin`
   - `source`：资源目录接口（如 `/api/admin/comfyui/resources/options?...`）
 
-重点工作流参数补充（通用类）：
+重点工作流参数补充：
 
 - `7602916576198656000`（多模型生图 · shengtu_shangye）
   - `moxing`：`1=Banana Pro`、`2=Flux2 Pro`、`3=Seedream 4.5`、`4=Banana 2`
@@ -44,36 +44,45 @@
     - Seedream 4.5（`moxing=3`）：忽略该参数（仅保留空值）
     - Banana 2（`moxing=4`）：`1K, 2K, 4K`
   - `output` 仍为统一回调 task id（使用 `/api/coze/podi/tasks/get` 查询结果）
+
+- `7615600173695107072`（多图融合 · duotu_ronghe）
+  - 主图：`url`（图1）
+  - 辅图：`image_url_2`、`image_url_3`（可选，分别映射图2/图3）
+  - 可选：`width`、`height`、`negative_prompt`、`prompt`、`seed`
+  - 评测页留空时会自动补主图尺寸；绕过前端直调时沿用 workflow 默认 `1024x1024`
+  - 无 `lora` 入参
+  - 出参：`output`（回调 task id）、`prompt`（提示词反馈字符串）
+
 - `7612002440056930304`（LoRA 查询 · lora_catalog_query）
-  - `7615600173695107072`（多图融合 · duotu_ronghe）
-    - 主图：`url`（图1）
-    - 辅图：`image_url_2`、`image_url_3`（可选，分别映射图2/图3）
-    - 可选：`width`、`height`、`negative_prompt`、`prompt`、`seed`
-    - 评测页留空时会自动补主图尺寸；绕过前端直调时沿用 workflow 默认 `1024x1024`
-    - 无 `lora` 入参
-    - 出参：`output`（回调 task id）、`prompt`（提示词反馈字符串）
+  - 无入参
+  - 出参：
+    - `items`：LoRA 详情
+    - `lora_names`：可直接作为 LoRA 入参
+  - 评测页点击任务后直接展示结构化 JSON（不走图片回填）
+
+- 新增 ComfyUI 工作流（2026-04-16）
   - `7629023903431524352`（背景抠图 · beijing_koutu）
     - 分类：`通用类`
     - 入参：`url`
-    - 出参：`output`（回调 task id）、`ip`（ComfyUI 执行节点 IP）
+    - 出参：`output`、`ip`
   - `7629023041988591616`（头部抠像 · toubu_kouxiang）
     - 分类：`通用类`
     - 入参：`url`
-    - 出参：`output`（回调 task id）、`ip`（ComfyUI 执行节点 IP）
+    - 出参：`output`、`ip`
   - `7629024620879806464`（文字增强 · qwen2512_print_shape_text_enhance）
     - 分类：`图裂变`
     - 入参：`url`、`prompt`、`bili`、`count`
     - 说明：
       - `bili`：相似度百分比，默认 `50%`
       - `count`：fan-out 子任务数，默认 `4`
-    - 出参：`output`（回调 task id）、`prompt`（提示词反馈字符串）、`ip`（ComfyUI 执行节点 IP）
+    - 出参：`output`、`prompt`、`ip`
   - `7629026792103215104`（四方连续裂变 · flux2_9b_liebian_sifang）
     - 分类：同时展示在 `图裂变` 与 `四方/两方连续图类`
     - 入参：`url`、`prompt`、`count`
-    - 出参：`output`（回调 task id）、`prompt`（提示词反馈字符串）、`ip`（ComfyUI 执行节点 IP）
-  - 无入参
-  - 出参 `items`（详情）与 `lora_names`（可直接作为 LoRA 入参）
-  - 评测页展示规则：点击任务后直接展示结构化 JSON（不走图片回填）
+    - 出参：`output`、`prompt`、`ip`
+  - 验证结论：
+    - 评测 API 可正常创建 run，OSS 图片 URL 能正确进入执行链路。
+    - 当前主要待优化点在上游 prompt 生成质量，而非评测执行接口本身。
 
 ### POST /api/evals/runs
 

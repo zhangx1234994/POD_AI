@@ -1,6 +1,6 @@
 # 战略工作区（唯一真源）
 
-本目录用于沉淀产品战略与执行待办，避免分散在多份计划文档中导致口径漂移。
+本目录只负责平台级方向、执行优先级和治理规则，不承载接口细节或模块级实现说明。
 
 ## 文档清单
 
@@ -26,5 +26,14 @@
 - `docs/TODO_PLATFORM.md` 作为历史路线图保留，不再作为新增任务入口。
 - 既有架构文档（如 `docs/architecture.md`、`docs/BUSINESS_MODEL.md`）继续保留为背景材料。
 - 客户端竞品对标和测试包文档继续保留，但平台级方向请优先以 `platform-vision-and-goals-2026.md` 与 `strategy-one-page-2026q2.md` 为准。
+
+## 维护原则
+
+1. 战略级新增任务，先写入 `todo-master-2026q2.md`。
+2. 若战略变化影响平台边界或对外叙事，需同步：
+   - `docs/README.md`
+   - `docs/PLATFORM_SURFACES.md`
+   - `docs/BUSINESS_MODEL.md`
+3. 旧战略材料可以保留，但不应继续作为索引入口。
 
 *最后更新: 2026-03-19*

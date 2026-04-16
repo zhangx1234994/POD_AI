@@ -10,6 +10,27 @@
 
 > 修改 workflow 或能力时请同步更新本文档，并在 PR 描述中说明节点调整、LoRA 更换或默认参数变化，确保与 backend/app/workflows/comfyui/*.json 及 backend/app/constants/abilities.py 一致。
 
+## 当前有效工作流总表（优先看）
+
+| workflow_key | ability / action | 推荐外部入参 | 最终输出节点 | 当前状态 |
+| --- | --- | --- | --- | --- |
+| `sifang_lianxu` | `comfyui.sifang_lianxu` / `seamless` | `prompt`、`patternType`、`resolution`、`width`、`height`、`url` | workflow 内置输出链路 | 线上在用 |
+| `huawen_kuotu` | `comfyui.huawen_kuotu` / `pattern_expand` | `url`、`prompt`、`negative_prompt`、扩展像素参数 | workflow 内置输出链路 | 线上在用 |
+| `duotu_ronghe` | `comfyui.duotu_ronghe` / `multi_image_fusion` | `url`、`image_url_2`、`image_url_3`、`width`、`height`、`prompt`、`negative_prompt`、`seed` | `60` | 线上在用 |
+| `beijing_koutu` | `comfyui.beijing_koutu` / `background_remove` | `url` | `4` | 线上在用 |
+| `toubu_kouxiang` | `comfyui.toubu_kouxiang` / `head_extract` | `url` | `140` | 线上在用 |
+| `flux2_9b_liebian_sifang` | `comfyui.flux2_9b_liebian_sifang` / `image_fission` | `url`、`prompt` | `111` | 线上在用；上游 prompt 质量待优化 |
+| `qwen2512_print_shape_text_enhance` | `comfyui.qwen2512_print_shape_text_enhance` / `text_enhance` | `url`、`prompt`、`bili` | `29` | 线上在用；上游 prompt 质量待优化 |
+| `yinhua_tiqu` | `comfyui.yinhua_tiqu` / `pattern_extract` | `url`、`prompt`、`negative_prompt`、`output_width`、`output_height`、`lora_name` | `421` | 线上在用 |
+
+## 当前已知说明
+
+- 业务链路统一先走 OSS URL，再交给 ComfyUI；不要把外部临时链接当正式输入口径。
+- `flux2_9b_liebian_sifang` 与 `qwen2512_print_shape_text_enhance` 当前执行链路已验证可跑通，主要待优化点是上游 Coze/VL 提示词质量，不是中台或评测执行接口。
+- 多图融合评测端在 `width/height` 留空时会先读取主图尺寸再提交；直接绕过前端调用工具箱时，不传尺寸仍沿用 workflow 默认 `1024x1024`。
+- `背景抠图` 存在过程图，正式回填只认最终输出节点 `4`；`头部抠像` 正式回填只认 `140`；`FLUX2裂变+四方` 正式回填只认 `111`；`裂变文字强化` 正式回填只认 `29`。
+- `FLUX2裂变+四方` 的节点 `104` 为 workflow 内部固定输入，不作为外部参数暴露，也不应在工具箱适配层覆盖。
+
 ## 管理端入口
 
 - 管理端「ComfyUI 管理」统一收口：`素材库` 维护 LoRA/基座模型，`资源清单` 维护模型/插件下载信息，`服务器` 维护多台 ComfyUI 机器对比，`模板管理` 维护 workflow JSON 与节点映射。
@@ -247,6 +268,37 @@
 - 工具箱只覆写 `141.url` 和 `132.inStr`。
 - 节点 `104`、`97`、`99`、`100`、`102`、`121`、`122`、`130`、`137` 等内部默认参数保持不变。
 - 最终输出固定取 `111 · SaveImage`。
+
+## 裂变文字强化 · ComfyUI (workflow_key: qwen2512_print_shape_text_enhance)
+
+| 项目 | 说明 |
+| --- | --- |
+| 能力 ID | comfyui.qwen2512_print_shape_text_enhance |
+| Action | text_enhance |
+| 执行节点 | executor_comfyui_pattern_extract_158 / executor_comfyui_seamless_117 |
+| Workflow 文件 | backend/app/workflows/comfyui/qwen2512_print_shape_text_enhance.json |
+| 超时设置 | 420 秒 |
+
+**关键节点**
+
+| 节点 | 描述 |
+| --- | --- |
+| 141 · LoadImagesFromURL.url | 输入图片 URL |
+| 13 · CR Text Concatenate.text1 | 外部 `prompt` 写入节点 |
+| 27 · 基础采样节点 | `bili` / `similarity` 映射到 `denoise` |
+| 29 · SaveImage | 最终输出节点，仅回填该节点结果 |
+
+**默认参数**
+
+- `url`：必填
+- `prompt`：必填，来自上游 Coze/VL 生成链路
+- `bili`：业务侧相似度口径，当前映射 `0→0.95`、`50→0.75`、`100→0.55`，最低钳制 `0.55`
+- `steps` / `cfg` / `seed`：暂由中台默认值兜底
+
+**调试备注**
+
+- 该 workflow 的执行链路已验证正常；当前主要问题不是工具箱契约，而是上游生成的最终 `prompt` 质量与稳定性。
+- 业务侧若同时存在旧字段 `similarity`，后端仍兼容，但正式推荐口径统一使用 `bili`。
 
 ## 印花提取 · ComfyUI (workflow_key: yinhua_tiqu)
 

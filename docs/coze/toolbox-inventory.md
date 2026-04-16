@@ -30,16 +30,18 @@
 ### 3.1 ComfyUI 单功能工具箱（执行类，按功能拆分）
 
 - OpenAPI 模板：`/api/coze/podi/comfyui/execute/{tool}/openapi.json`
-- 现有独立工具箱：
-  - `/api/coze/podi/comfyui/execute/beijing-koutu/openapi.json`
-  - `/api/coze/podi/comfyui/execute/toubu-kouxiang/openapi.json`
-  - `/api/coze/podi/comfyui/execute/duotu-ronghe/openapi.json`
-  - `/api/coze/podi/comfyui/execute/e7-flux2-liebian/openapi.json`
-  - `/api/coze/podi/comfyui/execute/flux2-9b-liebian-sifang/openapi.json`
-  - `/api/coze/podi/comfyui/execute/qwen2512-print-shape-text-enhance/openapi.json`
-  - `/api/coze/podi/comfyui/execute/yinhua-tiqu-lora-8step/openapi.json`
 - 用途：每个功能单独一个工具箱，便于 Coze 单独测试、单独发布、单独回滚。
 - 导入说明：OpenAPI 地址可直接公网导入；真正执行接口与 `tasks/get` 仍按服务端鉴权规则校验。
+
+| 工具箱 | OpenAPI | 推荐入参 | 最终输出 / 说明 |
+| --- | --- | --- | --- |
+| 背景抠图 | `/api/coze/podi/comfyui/execute/beijing-koutu/openapi.json` | `url` | 最终输出节点 `4` |
+| 头部抠像 | `/api/coze/podi/comfyui/execute/toubu-kouxiang/openapi.json` | `url` | 最终输出节点 `140`；业务统一先走 OSS URL |
+| 多图融合 | `/api/coze/podi/comfyui/execute/duotu-ronghe/openapi.json` | `url`、`image_url_2`、`image_url_3`、`width`、`height`、`prompt`、`negative_prompt`、`seed` | 无 `lora`；`width/height` 不传则沿用 workflow 默认 `1024x1024` |
+| E7裂变重绘 | `/api/coze/podi/comfyui/execute/e7-flux2-liebian/openapi.json` | `url`、`prompt`、`bili`、`steps`、`cfg`、`seed`、`batch_size`、`width`、`height` | `bili` 为业务口径，后端兼容旧字段 `similarity` |
+| FLUX2裂变+四方 | `/api/coze/podi/comfyui/execute/flux2-9b-liebian-sifang/openapi.json` | `url`、`prompt` | 仅覆写 `141.url` 与 `132.inStr`；节点 `104` 等内部默认参数保持不变；最终输出节点 `111` |
+| 裂变文字强化 | `/api/coze/podi/comfyui/execute/qwen2512-print-shape-text-enhance/openapi.json` | `url`、`prompt`、`bili` | `prompt` 写入节点 `13.text1`，`bili` 映射到节点 `27.denoise`，最终输出节点 `29` |
+| 8步加速可换LoRA | `/api/coze/podi/comfyui/execute/yinhua-tiqu-lora-8step/openapi.json` | `url`、`lora`、`width`、`height`、`prompt`、`negative_prompt`、`batch` | 与线上印花提取业务链路隔离，统计口径独立 |
 
 ## 4) ComfyUI LoRA 查询工具箱（查询类）
 
@@ -101,84 +103,13 @@
   - 必填：`prompt`、`url`
   - 可选：`image_urls`、`aspect_ratio`、`resolution`、`output`
 
----
+## 当前重点说明（Coze 接线时优先看这一节）
 
-## 最近新增/调整（重点给 Coze 配置）
-
-### 2026-02-28
-- 新增：KIE 单模型执行工具箱 `.../kie/execute/{model_key}/openapi.json`
-- 新增：`nano_banana_2_image_to_image` 执行能力（支持 `url` + `image_urls`）
-
-### 2026-03-01
-- 调整：KIE 查询工具箱默认入口改为 `POST /api/coze/podi/kie/models/list/default`（零参数）
-- 调整：LoRA 查询与 KIE 查询接口参数明细补齐到文档
-
-### 2026-03-05
-- 调整：LoRA/KIE 查询接口补充 snake_case 兼容字段，便于 Coze 与中台统一解析。
-
-### 2026-03-10
-- 新增：`ComfyUI · 多图融合` 能力，已进入通用能力工具箱与 ComfyUI 工具箱。
-
-### 2026-03-17
-- 调整：`ComfyUI · 多图融合` 参数口径升级为新 workflow 版本：
-  - `url`：主图
-  - `image_url_2`：辅图 1
-  - `image_url_3`：辅图 2
-  - `width` / `height`（不传则沿用 workflow 默认 `1024x1024`）
-  - `prompt` / `negative_prompt`
-  - `seed`
-  - 无 `lora` 入参
-- 调整：旧 `image_urls` 仅作为后端兼容解析保留，不再作为 Coze 推荐入参。
-
-### 2026-03-19
-- 新增：`ComfyUI · 8步加速可换LoRA`，为 `印花提取` 工作流的独立 Coze 工具封装。
-- 说明：该工具与现有 `印花提取` 业务能力隔离，统计口径独立，不影响线上已有业务链路。
-- 关键入参：
-  - `url`：主图 URL
-  - `lora`：效果 LoRA，映射到工作流节点 `390`
-  - `width` / `height`：输出尺寸，映射到工作流节点 `400`
-  - `prompt` / `negative_prompt`
-  - `batch`
-- 新增：独立导入地址 `/api/coze/podi/comfyui/execute/yinhua-tiqu-lora-8step/openapi.json`
-
-### 2026-03-28
-- 新增：`ComfyUI · E7裂变重绘`，基于 E7 + FLUX2 的裂变重绘独立工具。
-- 关键入参：
-  - `url`：主图 URL
-  - `prompt`：单文本裂变提示词，建议直接接 VL 输出
-  - `bili`：0-100，和旧裂变工作流保持一致；数值越高越接近原图，后端按 `0→0.95、50→0.75、100→0.55` 线性换算为 denoise，并设置下限 `0.55`，小数先取整
-  - `steps` / `cfg` / `seed`
-  - `batch_size`
-  - `width` / `height`：不传默认原图尺寸，传入则按输入值执行
-- 兼容说明：后端仍兼容旧字段 `similarity`，但 Coze 推荐入参统一使用 `bili`
-- 新增：独立导入地址 `/api/coze/podi/comfyui/execute/e7-flux2-liebian/openapi.json`
-
-### 2026-04-14
-- 新增：`ComfyUI · 背景抠图`
-  - 独立导入地址：`/api/coze/podi/comfyui/execute/beijing-koutu/openapi.json`
-  - 入参：`url`
-  - 最终输出节点：`4`
-- 新增：`ComfyUI · 头部抠像`
-  - 独立导入地址：`/api/coze/podi/comfyui/execute/toubu-kouxiang/openapi.json`
-  - 入参：`url`
-  - 最终输出节点：`140`
-  - 说明：业务统一先走 OSS URL，再交给 workflow 执行
-- 新增：`ComfyUI · FLUX2裂变+四方`
-  - 独立导入地址：`/api/coze/podi/comfyui/execute/flux2-9b-liebian-sifang/openapi.json`
-  - 入参：`url`、`prompt`
-  - 最终输出节点：`111`
-  - 说明：仅覆写节点 `141.url` 与 `132.inStr`，节点 `104` 等默认内部参数保持不变
-
-### 2026-04-15
-- 新增：`ComfyUI · 裂变文字强化`
-  - 独立导入地址：`/api/coze/podi/comfyui/execute/qwen2512-print-shape-text-enhance/openapi.json`
-  - 入参：`url`、`prompt`、`bili`
-  - 最终输出节点：`29`
-  - 说明：
-    - 统一使用 `LoadImagesFromURL` 读取 OSS 图片
-    - `prompt` 写入节点 `13.text1`
-    - `bili` 复用裂变相似度映射，换算到节点 `27.denoise`
-    - `seed/steps/cfg` 暂由中台默认值兜底
+- 多图融合当前正式口径为：`url`、`image_url_2`、`image_url_3`、`width`、`height`、`prompt`、`negative_prompt`、`seed`；旧 `image_urls` 只保留后端兼容解析，不再作为推荐入参。
+- E7 裂变当前业务口径为 `bili`；后端执行仍兼容旧字段 `similarity`。当前映射：`0→0.95`、`50→0.75`、`100→0.55`，最低钳制 `0.55`。
+- `FLUX2裂变+四方` 与 `裂变文字强化` 都依赖上游 Coze 节点生成 `prompt`；中台和评测链路已验证可执行，当前主要待优化点是上游提示词质量，不是工具箱契约本身。
+- `背景抠图` 存在中间过程图，正式回填只认最终输出节点 `4`。
+- `头部抠像` 的 `Florence2Run` 与 `SegmentAnythingUltra V2` 保持 workflow 内部默认值，不在工具箱侧暴露附加文本参数。
 
 ## 7) Baidu 工具箱（执行类）
 
@@ -206,4 +137,4 @@
 1. 查询型工具箱先查参数（LoRA、KIE 模型）。
 2. 执行型工具箱发起任务。
 3. 异步任务统一用 `tasks/get` 轮询结果。
-4. 所有图片主图字段统一使用 `url`；多参考图统一使用 `image_urls`。
+4. 所有图片主图字段统一使用 `url`；多参考图优先使用独立字段（如 `image_url_2`、`image_url_3`），不要优先依赖历史兼容字段。
