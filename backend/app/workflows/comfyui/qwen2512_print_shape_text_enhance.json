@@ -66,7 +66,7 @@
   },
   "16": {
     "inputs": {
-      "text": "blurry, low quality, text, watermark, extra objects, broken structure, wrong composition, washed out colors, gray colors, dirty poster, noisy grunge",
+      "text": "blurry, low quality, illegible lettering, broken glyphs, duplicated characters, unwanted watermark, extra objects, broken structure, wrong composition, washed out colors, gray colors, dirty poster, noisy grunge",
       "clip": [
         "14",
         0

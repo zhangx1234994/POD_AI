@@ -298,6 +298,7 @@
 **调试备注**
 
 - 该 workflow 的执行链路已验证正常；当前主要问题不是工具箱契约，而是上游生成的最终 `prompt` 质量与稳定性。
+- 2026-04-17：修正节点 `16` 的负向提示词，移除了会直接压制文字生成的 `text`，改为 `illegible lettering / broken glyphs / duplicated characters / unwanted watermark` 这类坏字形约束。
 - 业务侧若同时存在旧字段 `similarity`，后端仍兼容，但正式推荐口径统一使用 `bili`。
 
 ## 印花提取 · ComfyUI (workflow_key: yinhua_tiqu)

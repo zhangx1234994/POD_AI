@@ -1,4 +1,4 @@
-from app.services.workflow_seed import DEFAULT_BINDING_SEEDS, DEFAULT_WORKFLOW_SEEDS
+from app.services.workflow_seed import DEFAULT_BINDING_SEEDS, DEFAULT_WORKFLOW_SEEDS, load_comfy_workflow
 
 
 def test_new_comfyui_workflow_seeds_exist_with_expected_output_nodes():
@@ -45,3 +45,12 @@ def test_new_comfyui_bindings_cover_two_executors():
         "workflow_comfyui_qwen2512_print_shape_text_enhance_v1",
         "executor_comfyui_pattern_extract_158",
     ) in binding_pairs
+
+
+def test_qwen2512_text_enhance_negative_prompt_does_not_suppress_text():
+    graph = load_comfy_workflow("qwen2512_print_shape_text_enhance")
+    negative_prompt = str(graph["16"]["inputs"]["text"])
+
+    assert "text" not in negative_prompt.lower()
+    assert "illegible lettering" in negative_prompt
+    assert "broken glyphs" in negative_prompt
