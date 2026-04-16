@@ -1,0 +1,51 @@
+:root {
+  /* Legacy tokens (keep during migration) */
+  --client-bg: #f6f2ea;
+  --client-panel: rgba(255, 252, 247, 0.84);
+  --client-panel-strong: #fffdf9;
+  --client-line: rgba(114, 92, 70, 0.14);
+  --client-text: #23190f;
+  --client-text-soft: #6f6255;
+  --client-text-faint: #9e907f;
+  --client-accent: #af6d2c;
+  --client-accent-2: #1f5d83;
+  --client-shadow: 0 28px 80px rgba(52, 34, 18, 0.12);
+  --client-radius-xl: 28px;
+  --client-radius-lg: 22px;
+  --client-radius-md: 16px;
+  --client-radius-sm: 12px;
+
+  /* V2-aligned tokens */
+  --brand-primary: #0a0f1c;
+  --brand-secondary: #2563eb;
+  --brand-bg: #f8f9fc;
+  --brand-surface: #ffffff;
+  --brand-border: #e5e7eb;
+  --brand-text: #111827;
+  --brand-text-soft: #6b7280;
+  --brand-text-muted: #9ca3af;
+}
+
+.client-accent--sky {
+  --accent-soft: linear-gradient(135deg, rgba(43, 128, 181, 0.22), rgba(181, 221, 243, 0.45));
+}
+
+.client-accent--amber {
+  --accent-soft: linear-gradient(135deg, rgba(204, 132, 36, 0.22), rgba(247, 213, 143, 0.48));
+}
+
+.client-accent--emerald {
+  --accent-soft: linear-gradient(135deg, rgba(31, 117, 94, 0.2), rgba(164, 224, 194, 0.46));
+}
+
+.client-accent--rose {
+  --accent-soft: linear-gradient(135deg, rgba(173, 72, 81, 0.2), rgba(239, 191, 196, 0.46));
+}
+
+.client-accent--violet {
+  --accent-soft: linear-gradient(135deg, rgba(106, 78, 167, 0.22), rgba(206, 194, 241, 0.48));
+}
+
+.client-accent--cyan {
+  --accent-soft: linear-gradient(135deg, rgba(38, 128, 147, 0.22), rgba(183, 230, 238, 0.48));
+}
