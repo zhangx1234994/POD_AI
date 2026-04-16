@@ -1,4 +1,9 @@
-from app.services.eval_seed import DEFAULT_EVAL_WORKFLOW_BY_ID, FISSION_WORKFLOW_IDS
+from app.services.eval_seed import (
+    DEFAULT_EVAL_WORKFLOW_BY_ID,
+    FISSION_WORKFLOW_IDS,
+    IP_OUTPUT_WORKFLOW_IDS,
+    PROMPT_OUTPUT_WORKFLOW_IDS,
+)
 
 
 def _field_by_name(workflow: dict, name: str) -> dict:
@@ -79,3 +84,77 @@ def test_duotu_ronghe_workflow_matches_current_coze_contract():
     assert height.get("required") is False
     assert width.get("defaultValue") == ""
     assert height.get("defaultValue") == ""
+
+
+def test_beijing_koutu_workflow_is_general_with_url_only():
+    workflow = DEFAULT_EVAL_WORKFLOW_BY_ID["7629023903431524352"]
+    assert workflow["category"] == "通用类"
+    assert workflow["workflow_id"] == "7629023903431524352"
+
+    params = ((workflow.get("parameters_schema") or {}).get("fields") or [])
+    names = [f.get("name") for f in params if isinstance(f, dict)]
+    assert names == ["url"]
+
+    outputs = ((workflow.get("output_schema") or {}).get("fields") or [])
+    output_names = [f.get("name") for f in outputs if isinstance(f, dict)]
+    assert "output" in output_names
+    assert "ip" in output_names
+    assert "7629023903431524352" in IP_OUTPUT_WORKFLOW_IDS
+
+
+def test_toubu_kouxiang_workflow_is_general_with_url_only():
+    workflow = DEFAULT_EVAL_WORKFLOW_BY_ID["7629023041988591616"]
+    assert workflow["category"] == "通用类"
+    assert workflow["workflow_id"] == "7629023041988591616"
+
+    params = ((workflow.get("parameters_schema") or {}).get("fields") or [])
+    names = [f.get("name") for f in params if isinstance(f, dict)]
+    assert names == ["url"]
+
+    outputs = ((workflow.get("output_schema") or {}).get("fields") or [])
+    output_names = [f.get("name") for f in outputs if isinstance(f, dict)]
+    assert "output" in output_names
+    assert "ip" in output_names
+    assert "7629023041988591616" in IP_OUTPUT_WORKFLOW_IDS
+
+
+def test_qwen2512_print_shape_text_enhance_is_fission_with_prompt_and_bili():
+    workflow = DEFAULT_EVAL_WORKFLOW_BY_ID["7629024620879806464"]
+    assert workflow["category"] == "图裂变"
+    assert workflow["workflow_id"] == "7629024620879806464"
+    assert "7629024620879806464" in FISSION_WORKFLOW_IDS
+    assert "7629024620879806464" in PROMPT_OUTPUT_WORKFLOW_IDS
+    assert "7629024620879806464" in IP_OUTPUT_WORKFLOW_IDS
+
+    params = ((workflow.get("parameters_schema") or {}).get("fields") or [])
+    names = [f.get("name") for f in params if isinstance(f, dict)]
+    assert names == ["url", "prompt", "bili", "count"]
+
+    bili = _field_by_name(workflow, "bili")
+    assert bili.get("label") == "相似度(%)"
+    assert bili.get("required") is True
+
+    outputs = ((workflow.get("output_schema") or {}).get("fields") or [])
+    output_names = [f.get("name") for f in outputs if isinstance(f, dict)]
+    assert "output" in output_names
+    assert "prompt" in output_names
+    assert "ip" in output_names
+
+
+def test_flux2_9b_liebian_sifang_is_fission_and_seamless():
+    workflow = DEFAULT_EVAL_WORKFLOW_BY_ID["7629026792103215104"]
+    assert workflow["category"] == "图裂变"
+    assert workflow["workflow_id"] == "7629026792103215104"
+    assert "7629026792103215104" in FISSION_WORKFLOW_IDS
+    assert "7629026792103215104" in PROMPT_OUTPUT_WORKFLOW_IDS
+    assert "7629026792103215104" in IP_OUTPUT_WORKFLOW_IDS
+
+    params = ((workflow.get("parameters_schema") or {}).get("fields") or [])
+    names = [f.get("name") for f in params if isinstance(f, dict)]
+    assert names == ["url", "prompt", "count"]
+
+    outputs = ((workflow.get("output_schema") or {}).get("fields") or [])
+    output_names = [f.get("name") for f in outputs if isinstance(f, dict)]
+    assert "output" in output_names
+    assert "prompt" in output_names
+    assert "ip" in output_names

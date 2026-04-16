@@ -52,6 +52,25 @@
     - 评测页留空时会自动补主图尺寸；绕过前端直调时沿用 workflow 默认 `1024x1024`
     - 无 `lora` 入参
     - 出参：`output`（回调 task id）、`prompt`（提示词反馈字符串）
+  - `7629023903431524352`（背景抠图 · beijing_koutu）
+    - 分类：`通用类`
+    - 入参：`url`
+    - 出参：`output`（回调 task id）、`ip`（ComfyUI 执行节点 IP）
+  - `7629023041988591616`（头部抠像 · toubu_kouxiang）
+    - 分类：`通用类`
+    - 入参：`url`
+    - 出参：`output`（回调 task id）、`ip`（ComfyUI 执行节点 IP）
+  - `7629024620879806464`（文字增强 · qwen2512_print_shape_text_enhance）
+    - 分类：`图裂变`
+    - 入参：`url`、`prompt`、`bili`、`count`
+    - 说明：
+      - `bili`：相似度百分比，默认 `50%`
+      - `count`：fan-out 子任务数，默认 `4`
+    - 出参：`output`（回调 task id）、`prompt`（提示词反馈字符串）、`ip`（ComfyUI 执行节点 IP）
+  - `7629026792103215104`（四方连续裂变 · flux2_9b_liebian_sifang）
+    - 分类：同时展示在 `图裂变` 与 `四方/两方连续图类`
+    - 入参：`url`、`prompt`、`count`
+    - 出参：`output`（回调 task id）、`prompt`（提示词反馈字符串）、`ip`（ComfyUI 执行节点 IP）
   - 无入参
   - 出参 `items`（详情）与 `lora_names`（可直接作为 LoRA 入参）
   - 评测页展示规则：点击任务后直接展示结构化 JSON（不走图片回填）

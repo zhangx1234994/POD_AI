@@ -164,6 +164,50 @@
 - 展示规则：评测页点击该工作流任务后，直接渲染 JSON 结果（不走图片回填）。
 - 业务接入建议：后续调用需要 LoRA 入参时，优先使用 `lora_names` 中的值。
 
+### 4.4 新增 ComfyUI 工作流（2026-04-16）
+
+- `7629023903431524352`（背景抠图 · `beijing_koutu`）
+  - 分类：`通用类`
+  - 入参：`url`
+  - 出参：
+    - `output`：回调 `task id`
+    - `ip`：ComfyUI 执行节点 IP
+
+- `7629023041988591616`（头部抠像 · `toubu_kouxiang`）
+  - 分类：`通用类`
+  - 入参：`url`
+  - 出参：
+    - `output`：回调 `task id`
+    - `ip`：ComfyUI 执行节点 IP
+
+- `7629024620879806464`（文字增强 · `qwen2512_print_shape_text_enhance`）
+  - 分类：`图裂变`
+  - 入参：
+    - `url`
+    - `prompt`
+    - `bili`
+    - `count`
+  - 说明：
+    - `bili` 为相似度百分比，默认 `50%`
+    - `count` 为一次评测触发的 fan-out 子任务数，默认 `4`
+  - 出参：
+    - `output`：回调 `task id`
+    - `prompt`：提示词反馈字符串
+    - `ip`：ComfyUI 执行节点 IP
+
+- `7629026792103215104`（四方连续裂变 · `flux2_9b_liebian_sifang`）
+  - 分类：同时展示在 `图裂变` 和 `四方/两方连续图类`
+  - 入参：
+    - `url`
+    - `prompt`
+    - `count`
+  - 说明：
+    - `count` 为一次评测触发的 fan-out 子任务数，默认 `4`
+  - 出参：
+    - `output`：回调 `task id`
+    - `prompt`：提示词反馈字符串
+    - `ip`：ComfyUI 执行节点 IP
+
 ## 5. 注意事项
 
 - 如开启 `EVAL_PUBLIC_TOKEN`，前端请求需带 `X-Eval-Token` 或 URL `?token=`（当前前端未内置 header，需通过 URL 注入）。

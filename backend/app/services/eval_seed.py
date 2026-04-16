@@ -60,6 +60,13 @@ FISSION_WORKFLOW_IDS: set[str] = {
     "7622190276932534272",  # Liebian_comfyui_20260328
     "7601077530077954048",  # Liebian_shangye_20260130
     "7598848725942796288",  # Liebian_shangye_20260124_1_1_1
+    "7629024620879806464",  # qwen2512_print_shape_text_enhance
+    "7629026792103215104",  # flux2_9b_liebian_sifang
+}
+
+# 同时属于"图裂变"和"四方/两方连续图类"的工作流。
+DUAL_CATEGORY_FISSION_WORKFLOW_IDS: set[str] = {
+    "7629026792103215104",  # flux2_9b_liebian_sifang
 }
 
 # Workflows whose output should include prompt feedback.
@@ -77,6 +84,8 @@ PROMPT_OUTPUT_WORKFLOW_IDS: set[str] = {
     "7622190276932534272",  # Liebian_comfyui_20260328
     "7601077530077954048",  # Liebian_shangye_20260130
     "7598848725942796288",  # Liebian_shangye_20260124_1_1_1
+    "7629024620879806464",  # qwen2512_print_shape_text_enhance
+    "7629026792103215104",  # flux2_9b_liebian_sifang
 }
 
 IP_OUTPUT_WORKFLOW_IDS: set[str] = {
@@ -90,6 +99,10 @@ IP_OUTPUT_WORKFLOW_IDS: set[str] = {
     "7598820684801769472",  # Liebian_comfyui_20260124
     "7622193261276299264",  # Liebian_comfyui_20260328_1
     "7622190276932534272",  # Liebian_comfyui_20260328
+    "7629023041988591616",  # toubu_kouxiang
+    "7629023903431524352",  # beijing_koutu
+    "7629024620879806464",  # qwen2512_print_shape_text_enhance
+    "7629026792103215104",  # flux2_9b_liebian_sifang
 }
 
 
@@ -1222,6 +1235,123 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
             ]
         },
     },
+    # 通用类 / 背景抠图
+    {
+        "category": "通用类",
+        "name": "背景抠图 · beijing_koutu",
+        "version": "v1",
+        "workflow_id": "7629023903431524352",
+        "status": "active",
+        "notes": "背景抠图（ComfyUI）。输入 url，输出透明背景图片。输出 output 为回调 task id。",
+        "parameters_schema": {
+            "fields": [
+                {"name": "url", "label": "图片 URL", "type": "text", "required": True},
+            ]
+        },
+        "output_schema": {
+            "fields": [
+                {"name": "output", "type": "text", "description": "回调 task id"},
+                {"name": "ip", "type": "text", "description": "ComfyUI 执行节点 IP"},
+            ]
+        },
+    },
+    # 通用类 / 头部抠像
+    {
+        "category": "通用类",
+        "name": "头部抠像 · toubu_kouxiang",
+        "version": "v1",
+        "workflow_id": "7629023041988591616",
+        "status": "active",
+        "notes": "头部抠像（ComfyUI）。输入 url，输出头部/头发抠像。输出 output 为回调 task id。",
+        "parameters_schema": {
+            "fields": [
+                {"name": "url", "label": "图片 URL", "type": "text", "required": True},
+            ]
+        },
+        "output_schema": {
+            "fields": [
+                {"name": "output", "type": "text", "description": "回调 task id"},
+                {"name": "ip", "type": "text", "description": "ComfyUI 执行节点 IP"},
+            ]
+        },
+    },
+    # 图裂变 / 文字增强
+    {
+        "category": "图裂变",
+        "name": "文字增强 · qwen2512_print_shape_text_enhance",
+        "version": "v1",
+        "workflow_id": "7629024620879806464",
+        "status": "active",
+        "notes": "文字增强（ComfyUI）。输入 url + prompt + bili（相似度），输出增强后的图片。输出 output 为回调 task id。",
+        "parameters_schema": {
+            "fields": [
+                {"name": "url", "label": "图片 URL", "type": "text", "required": True},
+                {"name": "prompt", "label": "提示词", "type": "textarea", "required": False, "defaultValue": ""},
+                {
+                    "name": "bili",
+                    "label": "相似度(%)",
+                    "type": "text",
+                    "required": True,
+                    "defaultValue": "50%",
+                    "description": "与原图保持相似的百分比（越高越接近原图）。",
+                },
+                {"name": "count", "label": "裂变数量", "type": "text", "required": False, "defaultValue": "4", "description": "一次评测会触发 count 个子任务并聚合结果"},
+            ]
+        },
+        "output_schema": {
+            "fields": [
+                {"name": "output", "type": "text", "description": "回调 task id"},
+                {"name": "prompt", "type": "text", "description": "提示词反馈字符串"},
+                {"name": "ip", "type": "text", "description": "ComfyUI 执行节点 IP"},
+            ]
+        },
+    },
+    # 四方/两方连续图类 / 四方连续裂变（双栏目展示）
+    {
+        "category": "四方/两方连续图类",
+        "name": "四方连续裂变 · flux2_9b_liebian_sifang",
+        "version": "v1",
+        "workflow_id": "7629026792103215104",
+        "status": "active",
+        "notes": "四方连续图裂变（ComfyUI）。输入 url + prompt，输出四方连续裂变图片。输出 output 为回调 task id。",
+        "parameters_schema": {
+            "fields": [
+                {"name": "url", "label": "图片 URL", "type": "text", "required": True},
+                {"name": "prompt", "label": "提示词", "type": "textarea", "required": False, "defaultValue": ""},
+                {"name": "count", "label": "裂变数量", "type": "text", "required": False, "defaultValue": "4", "description": "一次评测会触发 count 个子任务并聚合结果"},
+            ]
+        },
+        "output_schema": {
+            "fields": [
+                {"name": "output", "type": "text", "description": "回调 task id"},
+                {"name": "prompt", "type": "text", "description": "提示词反馈字符串"},
+                {"name": "ip", "type": "text", "description": "ComfyUI 执行节点 IP"},
+            ]
+        },
+    },
+    # 图裂变 / 四方连续裂变（同时属于 四方/两方连续图类）
+    {
+        "category": "图裂变",
+        "name": "四方连续裂变 · flux2_9b_liebian_sifang",
+        "version": "v1",
+        "workflow_id": "7629026792103215104",
+        "status": "active",
+        "notes": "四方连续图裂变（ComfyUI）。输入 url + prompt，输出四方连续裂变图片。输出 output 为回调 task id。",
+        "parameters_schema": {
+            "fields": [
+                {"name": "url", "label": "图片 URL", "type": "text", "required": True},
+                {"name": "prompt", "label": "提示词", "type": "textarea", "required": False, "defaultValue": ""},
+                {"name": "count", "label": "裂变数量", "type": "text", "required": False, "defaultValue": "4", "description": "一次评测会触发 count 个子任务并聚合结果"},
+            ]
+        },
+        "output_schema": {
+            "fields": [
+                {"name": "output", "type": "text", "description": "回调 task id"},
+                {"name": "prompt", "type": "text", "description": "提示词反馈字符串"},
+                {"name": "ip", "type": "text", "description": "ComfyUI 执行节点 IP"},
+            ]
+        },
+    },
     # 不建议直接使用：ComfyUI 回调工作流（供后端兜底解析 images）
     {
         "category": "general",
@@ -1251,12 +1381,14 @@ DEFAULT_EVAL_WORKFLOW_BY_ID: dict[str, dict[str, Any]] = {
 def ensure_default_eval_workflow_versions(session: Session) -> bool:
     """Insert missing default workflow versions. Returns True if any created."""
     existing = set(
-        session.execute(select(EvalWorkflowVersion.workflow_id)).scalars().all()
+        (str(row.workflow_id or "").strip(), str(row.category or "").strip())
+        for row in session.execute(select(EvalWorkflowVersion.workflow_id, EvalWorkflowVersion.category)).all()
     )
     created = False
     for item in DEFAULT_EVAL_WORKFLOW_VERSIONS:
         workflow_id = str(item.get("workflow_id") or "").strip()
-        if not workflow_id or workflow_id in existing:
+        category = str(item.get("category") or "").strip()
+        if not workflow_id or (workflow_id, category) in existing:
             continue
         row = EvalWorkflowVersion(
             id=uuid4().hex,
@@ -1385,7 +1517,12 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
             row.category = "图延伸类"
             dirty = True
         # Ensure "图裂变" workflows stay under their own category (for the sidebar).
-        if row.workflow_id in (FISSION_WORKFLOW_IDS | {"7598844004557389824"}) and row.category != "图裂变":
+        # Exempt dual-category workflows that are intentionally also listed under other groups.
+        if (
+            row.workflow_id in (FISSION_WORKFLOW_IDS | {"7598844004557389824"})
+            and row.workflow_id not in DUAL_CATEGORY_FISSION_WORKFLOW_IDS
+            and row.category != "图裂变"
+        ):
             row.category = "图裂变"
             dirty = True
         # Keep workflow names editable in the admin UI; do not force-reset names here.
