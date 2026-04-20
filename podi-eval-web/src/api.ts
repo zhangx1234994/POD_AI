@@ -15,6 +15,28 @@ const AUTH_INVALID_MESSAGE = '认证已失效，请重新登录';
 const GATEWAY_ERROR_MESSAGE = '服务不可达或网关异常，请稍后再试';
 const OSS_META_TIMEOUT_MS = 15000;
 
+export class ApiRequestError extends Error {
+  status?: number;
+  statusText?: string;
+  rawBody?: string;
+  kind: 'http' | 'network' | 'timeout';
+
+  constructor(params: {
+    message: string;
+    kind: 'http' | 'network' | 'timeout';
+    status?: number;
+    statusText?: string;
+    rawBody?: string;
+  }) {
+    super(params.message);
+    this.name = 'ApiRequestError';
+    this.kind = params.kind;
+    this.status = params.status;
+    this.statusText = params.statusText;
+    this.rawBody = params.rawBody;
+  }
+}
+
 type UploadKeyResponse = {
   uploadKey: string;
   expiresAt: string;
@@ -102,20 +124,38 @@ async function request<T>(path: string, options: RequestInit = {}, timeoutMs: nu
   } catch (err) {
     cancel();
     if (err instanceof DOMException && err.name === 'AbortError') {
-      throw new Error('请求超时，请检查网络或服务是否可用');
+      throw new ApiRequestError({
+        message: '请求超时，请检查网络或服务是否可用',
+        kind: 'timeout',
+      });
     }
-    throw new Error(String((err as any)?.message || err || '网络请求失败'));
+    throw new ApiRequestError({
+      message: String((err as any)?.message || err || '网络请求失败'),
+      kind: 'network',
+    });
   }
   cancel();
   if (!resp.ok) {
     const text = await resp.text();
-    throw new Error(resolveHttpError(resp.status, resp.statusText, text));
+    throw new ApiRequestError({
+      message: resolveHttpError(resp.status, resp.statusText, text),
+      kind: 'http',
+      status: resp.status,
+      statusText: resp.statusText,
+      rawBody: text,
+    });
   }
   const contentType = resp.headers.get('content-type') || '';
   const text = await resp.text();
   if (!contentType.includes('application/json')) {
     // When dev proxy isn't configured, Vite may return index.html (text/html).
-    throw new Error(extractErrorMessage('', text) || '服务异常：响应不是 JSON');
+    throw new ApiRequestError({
+      message: extractErrorMessage('', text) || '服务异常：响应不是 JSON',
+      kind: 'http',
+      status: resp.status,
+      statusText: resp.statusText,
+      rawBody: text,
+    });
   }
   return JSON.parse(text) as T;
 }
