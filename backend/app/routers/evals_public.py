@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 import json
+import logging
 from typing import Any
 from uuid import uuid4
 
@@ -70,6 +71,7 @@ from app.services.task_status_contract import derive_eval_run_status
 
 router = APIRouter(prefix="/api/evals", tags=["evals-public"])
 _BATCH_REVIEW_PAGE_SIZE = 20
+logger = logging.getLogger(__name__)
 
 
 def _require_public_enabled(request: Request) -> None:
@@ -102,6 +104,19 @@ def _get_or_set_rater_id(request: Request, response: Response) -> str:
         samesite="lax",
     )
     return rid
+
+
+def _ensure_eval_workflow_versions_nonfatal(db: Session) -> None:
+    """Best-effort seed sync.
+
+    Production data should still be readable even when seed normalization fails
+    because of a lagging migration or dirty historical rows.
+    """
+    try:
+        ensure_default_eval_workflow_versions(db)
+    except Exception:
+        db.rollback()
+        logger.exception("Failed to sync default eval workflow versions; falling back to existing rows")
 
 
 def _batch_session_expr():
@@ -168,6 +183,15 @@ def _serialize_workflow_version(version: EvalWorkflowVersion) -> EvalWorkflowVer
         created_at=version.created_at,
         updated_at=version.updated_at,
     )
+
+
+def _dedupe_workflow_versions(rows: list[EvalWorkflowVersion]) -> list[EvalWorkflowVersion]:
+    dedup: dict[tuple[str, str], EvalWorkflowVersion] = {}
+    for row in rows:
+        key = (str(row.workflow_id or "").strip(), str(row.category or "").strip())
+        if key not in dedup:
+            dedup[key] = row
+    return list(dedup.values())
 
 
 def _serialize_eval_run(run: EvalRun) -> EvalRunResponse:
@@ -782,13 +806,14 @@ def list_workflow_versions(
 ) -> list[EvalWorkflowVersionResponse]:
     _require_public_enabled(request)
     _get_or_set_rater_id(request, response)
-    ensure_default_eval_workflow_versions(db)
+    _ensure_eval_workflow_versions_nonfatal(db)
     stmt = select(EvalWorkflowVersion)
     if category:
         stmt = stmt.where(EvalWorkflowVersion.category == category)
     if status:
         stmt = stmt.where(EvalWorkflowVersion.status == status)
     rows = db.execute(stmt.order_by(EvalWorkflowVersion.category.asc(), EvalWorkflowVersion.created_at.desc())).scalars().all()
+    rows = _dedupe_workflow_versions(rows)
     return [_serialize_workflow_version(row) for row in rows]
 
 
@@ -901,7 +926,7 @@ def get_workflow_docs(
     """Developer doc: how to call Coze workflows + full IO schema list (active)."""
     _require_public_enabled(request)
     _get_or_set_rater_id(request, response)
-    ensure_default_eval_workflow_versions(db)
+    _ensure_eval_workflow_versions_nonfatal(db)
 
     rows = (
         db.execute(
@@ -1321,7 +1346,7 @@ def admin_list_workflow_versions(
     db: Session = Depends(get_db),
 ) -> list[EvalWorkflowVersionResponse]:
     _require_eval_admin(request)
-    ensure_default_eval_workflow_versions(db)
+    _ensure_eval_workflow_versions_nonfatal(db)
     stmt = select(EvalWorkflowVersion)
     if category:
         stmt = stmt.where(EvalWorkflowVersion.category == category)

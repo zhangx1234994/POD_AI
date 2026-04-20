@@ -11,10 +11,10 @@ from typing import Any
 from uuid import uuid4
 import json
 
-from sqlalchemy import select
+from sqlalchemy import select, update as sa_update
 from sqlalchemy.orm import Session
 
-from app.models.eval import EvalWorkflowVersion
+from app.models.eval import EvalBatchSession, EvalRun, EvalWorkflowVersion
 from app.constants.abilities import PATTERN_EXTRACT_LORA_PRESETS
 
 
@@ -67,6 +67,17 @@ FISSION_WORKFLOW_IDS: set[str] = {
 # 同时属于"图裂变"和"四方/两方连续图类"的工作流。
 DUAL_CATEGORY_FISSION_WORKFLOW_IDS: set[str] = {
     "7629026792103215104",  # flux2_9b_liebian_sifang
+}
+
+CATEGORY_FIX_WORKFLOW_IDS: dict[str, str] = {
+    "7597701996124045312": "通用类",  # 4 steps
+    "7597702948247830528": "通用类",  # 8 steps
+    "7597659369861283840": "通用类",  # multi-model gen
+}
+
+OUTPAINTING_WORKFLOW_IDS: set[str] = {
+    "7597723984687267840",
+    "7598587935331450880",
 }
 
 # Workflows whose output should include prompt feedback.
@@ -125,6 +136,55 @@ def _normalize_eval_category(category: str | None) -> str:
         return "通用类"
     # Safe fallback to avoid leaking extra categories into the sidebar.
     return "通用类"
+
+
+def _resolve_eval_category(workflow_id: str | None, category: str | None) -> str:
+    workflow_id = str(workflow_id or "").strip()
+    normalized = _normalize_eval_category(category)
+    if workflow_id in CATEGORY_FIX_WORKFLOW_IDS:
+        return CATEGORY_FIX_WORKFLOW_IDS[workflow_id]
+    if workflow_id in OUTPAINTING_WORKFLOW_IDS:
+        return "图延伸类"
+    if workflow_id in FISSION_WORKFLOW_IDS and workflow_id not in DUAL_CATEGORY_FISSION_WORKFLOW_IDS:
+        return "图裂变"
+    return normalized
+
+
+def _dedupe_eval_workflow_versions(session: Session) -> bool:
+    rows = session.execute(select(EvalWorkflowVersion)).scalars().all()
+    grouped: dict[tuple[str, str], list[EvalWorkflowVersion]] = {}
+    for row in rows:
+        workflow_id = str(row.workflow_id or "").strip()
+        desired_category = _resolve_eval_category(workflow_id, row.category)
+        grouped.setdefault((workflow_id, desired_category), []).append(row)
+
+    dirty = False
+    for (_, desired_category), bucket in grouped.items():
+        bucket.sort(
+            key=lambda row: (
+                0 if row.status == "active" else 1,
+                row.created_at.isoformat() if getattr(row, "created_at", None) else "",
+                row.id,
+            )
+        )
+        canonical = bucket[0]
+        if canonical.category != desired_category:
+            canonical.category = desired_category
+            dirty = True
+        for duplicate in bucket[1:]:
+            session.execute(
+                sa_update(EvalRun)
+                .where(EvalRun.workflow_version_id == duplicate.id)
+                .values(workflow_version_id=canonical.id)
+            )
+            session.execute(
+                sa_update(EvalBatchSession)
+                .where(EvalBatchSession.workflow_version_id == duplicate.id)
+                .values(workflow_version_id=canonical.id)
+            )
+            session.delete(duplicate)
+            dirty = True
+    return dirty
 
 
 
@@ -1381,18 +1441,21 @@ DEFAULT_EVAL_WORKFLOW_BY_ID: dict[str, dict[str, Any]] = {
 def ensure_default_eval_workflow_versions(session: Session) -> bool:
     """Insert missing default workflow versions. Returns True if any created."""
     existing = set(
-        (str(row.workflow_id or "").strip(), str(row.category or "").strip())
+        (
+            str(row.workflow_id or "").strip(),
+            _resolve_eval_category(str(row.workflow_id or "").strip(), str(row.category or "").strip()),
+        )
         for row in session.execute(select(EvalWorkflowVersion.workflow_id, EvalWorkflowVersion.category)).all()
     )
     created = False
     for item in DEFAULT_EVAL_WORKFLOW_VERSIONS:
         workflow_id = str(item.get("workflow_id") or "").strip()
-        category = str(item.get("category") or "").strip()
-        if not workflow_id or (workflow_id, category) in existing:
+        desired_category = _resolve_eval_category(workflow_id, str(item.get("category") or "").strip())
+        if not workflow_id or (workflow_id, desired_category) in existing:
             continue
         row = EvalWorkflowVersion(
             id=uuid4().hex,
-            category=item["category"],
+            category=desired_category,
             name=item["name"],
             version=item.get("version") or "v1",
             workflow_id=workflow_id,
@@ -1402,6 +1465,7 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
             output_schema=item.get("output_schema"),
         )
         session.add(row)
+        existing.add((workflow_id, desired_category))
         created = True
     if created:
         session.commit()
@@ -1409,11 +1473,6 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
     # Small safe normalizations for seeded workflows (no destructive updates):
     # - ensure ComfyUI lora field is a select with known options
     # - move certain workflows to general category (as per business definition)
-    category_fixes = {
-        "7597701996124045312": "通用类",  # 4 steps
-        "7597702948247830528": "通用类",  # 8 steps
-        "7597659369861283840": "通用类",  # multi-model gen
-    }
     def _coerce_schema(value: Any) -> dict[str, Any]:
         if isinstance(value, dict):
             return value
@@ -1466,7 +1525,7 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
             # Force-reset critical workflows to the latest agreed schema.
             desired = DEFAULT_EVAL_WORKFLOW_BY_ID.get(row.workflow_id)
             if desired:
-                desired_category = _normalize_eval_category(desired.get("category"))
+                desired_category = _resolve_eval_category(row.workflow_id, desired.get("category"))
                 if row.status != (desired.get("status") or "active"):
                     row.status = desired.get("status") or "active"
                     dirty = True
@@ -1505,25 +1564,9 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
                 if row.output_schema != desired.get("output_schema"):
                     row.output_schema = desired.get("output_schema")
                     dirty = True
-        normalized_category = _normalize_eval_category(row.category)
-        if row.category != normalized_category:
-            row.category = normalized_category
-            dirty = True
-        if row.workflow_id in category_fixes and row.category != category_fixes[row.workflow_id]:
-            row.category = category_fixes[row.workflow_id]
-            dirty = True
-        # Ensure outpainting workflows show up under the "图延伸类" group.
-        if row.workflow_id in {"7597723984687267840", "7598587935331450880"} and row.category != "图延伸类":
-            row.category = "图延伸类"
-            dirty = True
-        # Ensure "图裂变" workflows stay under their own category (for the sidebar).
-        # Exempt dual-category workflows that are intentionally also listed under other groups.
-        if (
-            row.workflow_id in (FISSION_WORKFLOW_IDS | {"7598844004557389824"})
-            and row.workflow_id not in DUAL_CATEGORY_FISSION_WORKFLOW_IDS
-            and row.category != "图裂变"
-        ):
-            row.category = "图裂变"
+        desired_category = _resolve_eval_category(row.workflow_id, row.category)
+        if row.category != desired_category:
+            row.category = desired_category
             dirty = True
         # Keep workflow names editable in the admin UI; do not force-reset names here.
         # Ensure lora field stays a select with known options.
@@ -1891,6 +1934,8 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
                     schema["fields"] = fields
                     row.parameters_schema = schema
                     dirty = True
+    if _dedupe_eval_workflow_versions(session):
+        dirty = True
     if dirty:
         session.commit()
     return created

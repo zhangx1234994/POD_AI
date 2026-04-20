@@ -13,9 +13,12 @@ from app.core.db import Base
 
 class EvalWorkflowVersion(Base):
     """AI ability evaluation workflow version."""
-    
+
     __tablename__ = "eval_workflow_version"
-    
+    __table_args__ = (
+        UniqueConstraint("workflow_id", "category", name="uq_eval_workflow_version_workflow_category"),
+    )
+
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     category: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(128), nullable=False)

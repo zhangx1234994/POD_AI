@@ -1,5 +1,6 @@
 """Admin API for AI ability evaluation."""
 
+import logging
 from typing import List, Optional
 from uuid import uuid4
 
@@ -34,6 +35,15 @@ from app.deps.auth import get_current_user, require_admin
 from app.models.user import User
 
 router = APIRouter(prefix="/evals")
+logger = logging.getLogger(__name__)
+
+
+def _ensure_eval_workflow_versions_nonfatal(db: Session) -> None:
+    try:
+        ensure_default_eval_workflow_versions(db)
+    except Exception:
+        db.rollback()
+        logger.exception("Failed to sync default eval workflow versions for admin; falling back to existing rows")
 
 
 def _extract_workflow_resource_bindings(schema: dict | None) -> list[EvalWorkflowResourceBinding]:
@@ -116,7 +126,7 @@ async def list_workflow_versions(
 ):
     """List all evaluation workflow versions."""
     # Keep admin UI in sync with repo-managed defaults.
-    ensure_default_eval_workflow_versions(db)
+    _ensure_eval_workflow_versions_nonfatal(db)
     query = select(EvalWorkflowVersion)
     if category:
         query = query.where(EvalWorkflowVersion.category == category)
