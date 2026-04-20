@@ -33,7 +33,7 @@ import {
   TaskIcon,
 } from 'tdesign-icons-react';
 import zhCN from 'tdesign-react/es/locale/zh_CN';
-import { evalApi } from './api';
+import { ApiRequestError, evalApi } from './api';
 import type { EvalRun, EvalWorkflowVersion, SchemaField, WorkflowDoc } from './types';
 import { EvalShell } from './layouts/EvalShell';
 import { ActionBar, FilterBar, StatusBadge } from './features/eval/shared/ui';
@@ -171,6 +171,15 @@ type LoraBatchUploadProgress = {
   failedFiles: number;
   activeFiles: number;
   uploadedBytes: number;
+};
+
+type RemoteLoadStatus = 'idle' | 'loading' | 'success' | 'error';
+
+type RemoteLoadError = {
+  kind: 'http' | 'network' | 'timeout' | 'unknown';
+  status?: number;
+  message: string;
+  rawBody?: string;
 };
 
 // Keep the evaluation UI sidebar fixed to these 5 business-facing groups.
@@ -335,6 +344,135 @@ const getCategoryVisual = (category: string | undefined | null) => {
 };
 
 const getCategoryNavIcon = (category: string): ReactNode => getCategoryVisual(category).icon;
+
+const dedupeWorkflowVersionsForDisplay = (rows: EvalWorkflowVersion[]): EvalWorkflowVersion[] => {
+  const seen = new Set<string>();
+  const next: EvalWorkflowVersion[] = [];
+  for (const row of rows) {
+    const key = `${String(row.workflow_id || '').trim()}::${String(row.category || '').trim()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    next.push(row);
+  }
+  if (next.length !== rows.length) {
+    console.warn('[eval-web] duplicate workflow versions hidden in display layer', {
+      raw: rows.length,
+      display: next.length,
+    });
+  }
+  return next;
+};
+
+const normalizeRemoteLoadError = (error: unknown): RemoteLoadError => {
+  if (error instanceof ApiRequestError) {
+    return {
+      kind: error.kind,
+      status: error.status,
+      message: String(error.message || '请求失败'),
+      rawBody: error.rawBody,
+    };
+  }
+  return {
+    kind: 'unknown',
+    message: String((error as any)?.message || error || '请求失败'),
+  };
+};
+
+const getListLoadHelp = (
+  error: RemoteLoadError | null,
+  scope: 'public' | 'admin',
+): { title: string; description: string } => {
+  const noun = scope === 'admin' ? '维护功能列表' : '测评功能列表';
+  if (!error) {
+    return {
+      title: `${noun}加载失败`,
+      description: '功能列表接口没有正常返回，请先重试；如果持续失败，通知中台排查后端日志。',
+    };
+  }
+  if (error.kind === 'timeout') {
+    return {
+      title: `${noun}加载失败`,
+      description: '请求超时，请检查网络或稍后重试；如果持续超时，通知中台排查服务状态。',
+    };
+  }
+  if (error.kind === 'network') {
+    return {
+      title: `${noun}加载失败`,
+      description: '当前无法连接到服务，请检查网络、网关或服务是否可达，然后重试。',
+    };
+  }
+  if (typeof error.status === 'number' && error.status >= 500) {
+    return {
+      title: `${noun}加载失败`,
+      description: '当前不是输入问题，而是功能列表接口没有正常返回。请先重试；如果持续失败，通知中台排查后端日志。',
+    };
+  }
+  if (typeof error.status === 'number' && error.status >= 400) {
+    return {
+      title: `${noun}加载失败`,
+      description: '当前请求被拒绝，请检查权限、Token 或服务配置，然后重试。',
+    };
+  }
+  return {
+    title: `${noun}加载失败`,
+    description: '服务返回异常，请刷新或联系维护者。',
+  };
+};
+
+function WorkflowListErrorState({
+  scope,
+  error,
+  onRetry,
+}: {
+  scope: 'public' | 'admin';
+  error: RemoteLoadError | null;
+  onRetry: () => void;
+}) {
+  const copy = getListLoadHelp(error, scope);
+  return (
+    <Card bordered>
+      <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+        <Alert theme="error" message={copy.title} />
+        <Typography.Text theme="secondary">{copy.description}</Typography.Text>
+        <Space>
+          <Button theme="primary" onClick={onRetry}>
+            重试
+          </Button>
+        </Space>
+        {error ? (
+          <details>
+            <summary style={{ cursor: 'pointer', color: 'var(--td-text-color-secondary)' }}>查看调试信息</summary>
+            <pre
+              style={{
+                marginTop: 12,
+                maxHeight: 240,
+                overflow: 'auto',
+                border: '1px solid var(--td-border-level-1-color)',
+                background: 'var(--td-bg-color-secondarycontainer)',
+                borderRadius: 8,
+                padding: 12,
+                fontFamily: 'monospace',
+                fontSize: 12,
+                whiteSpace: 'pre-wrap',
+              }}
+            >
+              {JSON.stringify(
+                {
+                  kind: error.kind,
+                  status: error.status,
+                  message: error.message,
+                  rawBody: error.rawBody,
+                },
+                null,
+                2,
+              )}
+            </pre>
+          </details>
+        ) : null}
+      </Space>
+    </Card>
+  );
+}
 
 const normalizeFieldOptions = (field?: SchemaField | null, opts?: { allowEmpty?: boolean }): LoraOption[] => {
   const allowEmpty = Boolean(opts?.allowEmpty);
@@ -1395,6 +1533,9 @@ export function App() {
   const [workflows, setWorkflows] = useState<EvalWorkflowVersion[]>([]);
   const [metrics, setMetrics] = useState<Record<string, { ratingCount: number; avgRating: number | null }>>({});
   const [resourceOptionsCache, setResourceOptionsCache] = useState<Record<string, LoraOption[]>>({});
+  const [bootstrapLoading, setBootstrapLoading] = useState<boolean>(false);
+  const [workflowListStatus, setWorkflowListStatus] = useState<RemoteLoadStatus>('idle');
+  const [workflowListError, setWorkflowListError] = useState<RemoteLoadError | null>(null);
 
   const initialQuery = useMemo(() => readEvalQuery(), []);
   const [activeCategory, setActiveCategory] = useState<string>(initialQuery.category);
@@ -1443,6 +1584,8 @@ export function App() {
   // Simple "private" admin token stored in localStorage.
   const [adminToken, setAdminToken] = useState<string>(() => localStorage.getItem('podi_eval_admin_token') || '');
   const [adminWorkflows, setAdminWorkflows] = useState<EvalWorkflowVersion[]>([]);
+  const [adminWorkflowStatus, setAdminWorkflowStatus] = useState<RemoteLoadStatus>('idle');
+  const [adminWorkflowError, setAdminWorkflowError] = useState<RemoteLoadError | null>(null);
   const [docsMarkdown, setDocsMarkdown] = useState<string>('');
   const [docsLoading, setDocsLoading] = useState<boolean>(false);
   const [docsGeneratedAt, setDocsGeneratedAt] = useState<string>('');
@@ -1508,21 +1651,23 @@ export function App() {
   const batchReviewSaveTimersRef = useRef<Map<string, number>>(new Map());
   const batchReviewSaveErrorKeysRef = useRef<Set<string>>(new Set());
 
+  const displayWorkflows = useMemo(() => dedupeWorkflowVersionsForDisplay(workflows), [workflows]);
+
   const workflowMap = useMemo(() => {
     const m: Record<string, EvalWorkflowVersion> = {};
-    for (const wf of workflows) m[wf.id] = wf;
+    for (const wf of displayWorkflows) m[wf.id] = wf;
     return m;
-  }, [workflows]);
+  }, [displayWorkflows]);
 
   const grouped = useMemo(() => {
     const m: Record<string, EvalWorkflowVersion[]> = {};
-    for (const wf of workflows) {
+    for (const wf of displayWorkflows) {
       const key = normalizeCategory(wf.category);
       m[key] = m[key] || [];
       m[key].push(wf);
     }
     return m;
-  }, [workflows]);
+  }, [displayWorkflows]);
 
   const orderedCategories = useMemo(() => {
     // Always show the fixed business categories in sidebar.
@@ -1533,17 +1678,17 @@ export function App() {
     const list = (grouped[activeCategory] || []).slice().sort((a, b) => a.name.localeCompare(b.name));
     return list;
   }, [grouped, activeCategory]);
-  const totalToolCount = workflows.length;
+  const totalToolCount = displayWorkflows.length;
 
   useEffect(() => {
     if (!pendingToolId) return;
-    const matched = workflows.find((wf) => wf.id === pendingToolId);
+    const matched = displayWorkflows.find((wf) => wf.id === pendingToolId);
     if (!matched) return;
     setSelectedTool(matched);
     setActiveCategory(normalizeCategory(matched.category));
     setActiveView('tool');
     setPendingToolId('');
-  }, [pendingToolId, workflows]);
+  }, [pendingToolId, displayWorkflows]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -1559,7 +1704,7 @@ export function App() {
   }, [activeView, activeCategory, selectedTool?.id]);
 
   useEffect(() => {
-    const loraBindings = workflows
+    const loraBindings = displayWorkflows
       .flatMap((wf) => (Array.isArray(wf.resourceBindings) ? wf.resourceBindings : []))
       .filter((binding) => binding && binding.resourceType === 'lora' && typeof binding.source === 'string' && binding.source.trim());
     const pending = loraBindings.filter((binding) => !resourceOptionsCache[binding.source]);
@@ -1583,11 +1728,11 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [workflows, resourceOptionsCache]);
+  }, [displayWorkflows, resourceOptionsCache]);
 
   const loraBatchWorkflows = useMemo<LoraBatchWorkflowMeta[]>(() => {
     const metas: LoraBatchWorkflowMeta[] = [];
-    for (const wf of workflows) {
+    for (const wf of displayWorkflows) {
       const fields = getFields(wf);
       const urlField = fields.find((f) => f.name === 'url' || f.name === 'Url') || null;
       if (!urlField) continue;
@@ -1614,7 +1759,7 @@ export function App() {
     }
     metas.sort((a, b) => String(a.workflow.name || '').localeCompare(String(b.workflow.name || '')));
     return metas;
-  }, [workflows, resourceOptionsCache]);
+  }, [displayWorkflows, resourceOptionsCache]);
 
   const selectedBatchWorkflowMeta = useMemo<LoraBatchWorkflowMeta | null>(() => {
     if (!batchWorkflowId) return null;
@@ -1922,27 +2067,71 @@ export function App() {
     setMetrics(resp.metrics || {});
   };
 
-  const loadBootstrap = async () => {
+  const loadWorkflowList = useCallback(async () => {
+    setWorkflowListStatus('loading');
+    setWorkflowListError(null);
     try {
-      const me = await evalApi.me();
-      setRaterId(me.raterId);
       const wfs = await evalApi.listWorkflowVersions();
-      setWorkflows(wfs || []);
-      if (wfs && wfs.length > 0) {
+      const rawRows = wfs || [];
+      const displayRows = dedupeWorkflowVersionsForDisplay(rawRows);
+      setWorkflows(rawRows);
+      setWorkflowListStatus('success');
+      if (displayRows.length > 0) {
         const counts: Record<string, number> = {};
-        for (const wf of wfs) {
+        for (const wf of displayRows) {
           const k = normalizeCategory(wf.category);
           counts[k] = (counts[k] || 0) + 1;
         }
         const firstNonEmpty = CATEGORY_ORDER.find((k) => (counts[k] || 0) > 0);
-        setActiveCategory(firstNonEmpty || '通用类');
+        setActiveCategory((prev) => {
+          const current = CATEGORY_ORDER.includes(prev) ? prev : normalizeCategory(prev);
+          if ((counts[current] || 0) > 0) return current;
+          return firstNonEmpty || '通用类';
+        });
       }
-      await refreshMetrics();
     } catch (err) {
       console.error(err);
-      pushNotice('error', String((err as any)?.message || err));
+      setWorkflowListStatus('error');
+      setWorkflowListError(normalizeRemoteLoadError(err));
     }
-  };
+  }, []);
+
+  const loadBootstrap = useCallback(async () => {
+    setBootstrapLoading(true);
+    try {
+      await evalApi
+        .me()
+        .then((me) => setRaterId(me.raterId))
+        .catch((err) => {
+          console.error(err);
+          return null;
+        });
+      await Promise.allSettled([loadWorkflowList(), refreshMetrics()]);
+    } finally {
+      setBootstrapLoading(false);
+    }
+  }, [loadWorkflowList]);
+
+  const loadAdminWorkflowList = useCallback(
+    async (token: string, opts?: { notifySuccess?: boolean }) => {
+      const trimmed = String(token || '').trim();
+      if (!trimmed) return;
+      setAdminWorkflowStatus('loading');
+      setAdminWorkflowError(null);
+      try {
+        const list = await evalApi.adminListWorkflowVersions(trimmed);
+        setAdminWorkflows(dedupeWorkflowVersionsForDisplay(list || []));
+        setAdminWorkflowStatus('success');
+        if (opts?.notifySuccess) pushNotice('success', '已刷新列表');
+      } catch (err) {
+        console.error(err);
+        setAdminWorkflowStatus('error');
+        setAdminWorkflowError(normalizeRemoteLoadError(err));
+        throw err;
+      }
+    },
+    [],
+  );
 
   const loadRunsForTool = async (workflowVersionId: string) => {
     try {
@@ -1976,7 +2165,7 @@ export function App() {
 
   useEffect(() => {
     void loadBootstrap();
-  }, []);
+  }, [loadBootstrap]);
 
   useEffect(() => {
     if (loraBatchWorkflows.length === 0) {
@@ -3676,15 +3865,14 @@ export function App() {
       setActiveView('admin');
       setSelectedTool(null);
       try {
-        const list = await evalApi.adminListWorkflowVersions(token);
-        setAdminWorkflows(list);
+        await loadAdminWorkflowList(token);
         pushNotice('success', '已加载维护列表');
       } catch (err) {
         console.error(err);
         pushNotice('error', String((err as any)?.message || err));
       }
     },
-    [adminToken, pushNotice],
+    [adminToken, loadAdminWorkflowList, pushNotice],
   );
 
   const openAdmin = useCallback(async () => {
@@ -3771,14 +3959,7 @@ export function App() {
               disabled={!adminToken}
               onClick={async () => {
                 if (!adminToken) return;
-                try {
-                  const list = await evalApi.adminListWorkflowVersions(adminToken);
-                  setAdminWorkflows(list);
-                  pushNotice('success', '已刷新列表');
-                } catch (err) {
-                  console.error(err);
-                  pushNotice('error', String((err as any)?.message || err));
-                }
+                await loadAdminWorkflowList(adminToken, { notifySuccess: true });
               }}
             >
               刷新列表
@@ -3795,6 +3976,10 @@ export function App() {
         }
       >
         <Space direction="vertical" size="large" style={{ width: '100%' }}>
+          {adminWorkflowStatus === 'loading' ? <Alert theme="info" message="正在加载维护功能列表…" /> : null}
+          {adminWorkflowStatus === 'error' ? (
+            <WorkflowListErrorState scope="admin" error={adminWorkflowError} onRetry={() => void loadAdminWorkflowList(adminToken)} />
+          ) : null}
           {adminWorkflows.map((wf) => (
             <AdminWorkflowRow
               key={wf.id}
@@ -3810,7 +3995,9 @@ export function App() {
               }}
             />
           ))}
-          {adminWorkflows.length === 0 ? <Typography.Text theme="secondary">暂无数据。</Typography.Text> : null}
+          {adminWorkflowStatus === 'success' && adminWorkflows.length === 0 ? (
+            <Typography.Text theme="secondary">暂无数据。</Typography.Text>
+          ) : null}
         </Space>
       </Card>,
     );
@@ -5986,6 +6173,10 @@ export function App() {
   const activeCategoryVisual = getCategoryVisual(activeCategory);
   return shell(
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
+      {bootstrapLoading || workflowListStatus === 'loading' ? <Alert theme="info" message="正在加载功能清单和评分数据…" /> : null}
+      {workflowListStatus === 'error' ? (
+        <WorkflowListErrorState scope="public" error={workflowListError} onRetry={() => void loadWorkflowList()} />
+      ) : null}
       <div className="podi-eval-hero">
         <div className="podi-eval-hero__headline">
           <span className="podi-eval-hero__headline-icon" style={{ color: activeCategoryVisual.accent }}>
@@ -6065,7 +6256,9 @@ export function App() {
           </Space>
         }
       />
-      {toolList.length === 0 ? <Alert theme="info" message="该分类暂无功能。" /> : null}
+      {!bootstrapLoading && workflowListStatus === 'success' && toolList.length === 0 ? (
+        <Alert theme="info" message="该分类暂无功能。" />
+      ) : null}
       <div className="podi-tool-grid">
         {toolList.map((wf) => (
           <ToolCard key={wf.id} wf={wf} active={false} metric={metrics[wf.id]} onClick={() => openTool(wf)} />
