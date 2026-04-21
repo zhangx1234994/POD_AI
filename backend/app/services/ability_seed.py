@@ -18,6 +18,7 @@ from app.constants.abilities import (
     VOLCENGINE_VIDEO_ABILITIES,
 )
 from app.models.integration import Ability
+from app.services.ability_governance import enrich_metadata_with_governance
 
 
 @dataclass(frozen=True)
@@ -172,6 +173,7 @@ def ensure_default_abilities(session: Session) -> bool:
     created = False
     changed = False
     for seed in DEFAULT_ABILITY_SEEDS:
+        seed_metadata = enrich_metadata_with_governance(seed.metadata, status=seed.status)
         stmt = select(Ability).where(
             Ability.provider == seed.provider,
             Ability.capability_key == seed.capability_key,
@@ -179,7 +181,7 @@ def ensure_default_abilities(session: Session) -> bool:
         existing = session.execute(stmt).scalar_one_or_none()
         if existing:
             updated = False
-            seed_version = _as_int((seed.metadata or {}).get("seed_version"))
+            seed_version = _as_int(seed_metadata.get("seed_version"))
             existing_metadata = existing.extra_metadata if isinstance(existing.extra_metadata, dict) else {}
             existing_version = _as_int(existing_metadata.get("seed_version"))
             if seed_version and seed_version > existing_version:
@@ -187,7 +189,7 @@ def ensure_default_abilities(session: Session) -> bool:
                     existing.input_schema = seed.input_schema
                 if seed.default_params:
                     existing.default_params = seed.default_params
-                merged_metadata = {**existing_metadata, **(seed.metadata or {})}
+                merged_metadata = {**existing_metadata, **seed_metadata}
                 existing.extra_metadata = merged_metadata
                 updated = True
             else:
@@ -197,8 +199,8 @@ def ensure_default_abilities(session: Session) -> bool:
                 if seed.default_params and _is_missing_payload(existing.default_params):
                     existing.default_params = seed.default_params
                     updated = True
-                if seed.metadata:
-                    merged_metadata = {**seed.metadata, **existing_metadata}
+                if seed_metadata:
+                    merged_metadata = {**seed_metadata, **existing_metadata}
                     if merged_metadata != existing_metadata:
                         existing.extra_metadata = merged_metadata
                         updated = True
@@ -219,7 +221,7 @@ def ensure_default_abilities(session: Session) -> bool:
             workflow_id=seed.workflow_id,
             default_params=seed.default_params,
             input_schema=seed.input_schema,
-            extra_metadata=seed.metadata,
+            extra_metadata=seed_metadata,
         )
         session.add(ability)
         created = True

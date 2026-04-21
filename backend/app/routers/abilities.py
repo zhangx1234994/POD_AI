@@ -11,10 +11,23 @@ from app.models.integration import Ability
 from app.models.user import User
 from app.schemas import abilities as schemas
 from app.schemas import admin_abilities as admin_schemas
+from app.services.ability_governance import build_business_status, resolve_ability_governance
 from app.services.ability_invocation import ability_invocation_service
 from app.services.ability_seed import ensure_default_abilities
 
 router = APIRouter(prefix="/api/abilities", tags=["abilities"])
+
+
+def _serialize_governance(ability: Ability) -> admin_schemas.AbilityGovernance:
+    return admin_schemas.AbilityGovernance(
+        **resolve_ability_governance(status=ability.status, metadata=ability.extra_metadata)
+    )
+
+
+def _serialize_business_status(ability: Ability) -> admin_schemas.AbilityBusinessStatus:
+    return admin_schemas.AbilityBusinessStatus(
+        **build_business_status(resolve_ability_governance(status=ability.status, metadata=ability.extra_metadata))
+    )
 
 
 @router.get("", response_model=schemas.AbilityListResponse)
@@ -49,6 +62,8 @@ def list_ability_options_public(
                     default_params=ability.default_params,
                     input_schema=ability.input_schema,
                     metadata=ability.extra_metadata,
+                    governance=_serialize_governance(ability),
+                    business_status=_serialize_business_status(ability),
                 )
                 for ability in abilities
             ]

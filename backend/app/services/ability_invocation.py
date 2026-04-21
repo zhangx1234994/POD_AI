@@ -25,6 +25,7 @@ from app.core.db import get_session
 from app.models.integration import Ability, ComfyuiLora, Executor, WorkflowBinding
 from app.models.user import User
 from app.schemas import abilities as schemas
+from app.services.ability_governance import build_business_status, resolve_ability_governance
 from app.services.ability_logs import AbilityLogStartParams, ability_log_service
 from app.services.task_id_codec import encode_task_id
 from app.services.ability_seed import ensure_default_abilities
@@ -1709,6 +1710,8 @@ class AbilityInvocationService:
             isinstance(max_output, int) and max_output > 1
         )
         requires_image = bool(metadata.get("requires_image_input"))
+        governance = resolve_ability_governance(status=ability.status, metadata=metadata)
+        business_status = build_business_status(governance)
         return schemas.AbilityPublicInfo(
             id=ability.id,
             provider=ability.provider,
@@ -1725,6 +1728,13 @@ class AbilityInvocationService:
             defaultParams=ability.default_params,
             inputSchema=ability.input_schema,
             metadata=metadata or None,
+            businessStatus=schemas.AbilityBusinessStatus(
+                availabilityCode=business_status["availability_code"],
+                availabilityLabel=business_status["availability_label"],
+                stabilityCode=business_status["stability_code"],
+                stabilityLabel=business_status["stability_label"],
+                surfaceLabels=business_status["surface_labels"],
+            ),
             requiresImage=requires_image,
             supportsMultipleImages=supports_multi,
             maxOutputImages=max_output if isinstance(max_output, int) else None,

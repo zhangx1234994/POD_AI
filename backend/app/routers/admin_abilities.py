@@ -22,6 +22,7 @@ from app.deps.auth import require_admin
 from app.models.integration import Ability, AbilityInvocationLog, AbilityTask, Executor, Workflow
 from app.schemas import admin_abilities as schemas
 from app.schemas import admin_ability_logs as log_schemas
+from app.services.ability_governance import build_business_status, enrich_metadata_with_governance, resolve_ability_governance
 from app.services.ability_seed import ensure_default_abilities
 from app.services.ability_logs import ability_log_service
 from app.services.executors.base import ExecutionContext
@@ -320,12 +321,72 @@ def _enrich_log_entries(entries: list[AbilityInvocationLog]) -> list[AbilityInvo
     return _attach_template_summary(_attach_stage_status(_attach_callback_ids(entries)))
 
 
+def _serialize_business_status(ability: Ability) -> schemas.AbilityBusinessStatus:
+    governance = resolve_ability_governance(status=ability.status, metadata=ability.extra_metadata)
+    status_payload = build_business_status(governance)
+    return schemas.AbilityBusinessStatus(**status_payload)
+
+
+def _serialize_governance(ability: Ability) -> schemas.AbilityGovernance:
+    return schemas.AbilityGovernance(
+        **resolve_ability_governance(status=ability.status, metadata=ability.extra_metadata)
+    )
+
+
+def _serialize_ability(ability: Ability) -> schemas.AbilityRead:
+    return schemas.AbilityRead.model_validate(
+        {
+            "id": ability.id,
+            "provider": ability.provider,
+            "category": ability.category,
+            "capability_key": ability.capability_key,
+            "version": ability.version,
+            "display_name": ability.display_name,
+            "description": ability.description,
+            "status": ability.status,
+            "ability_type": ability.ability_type,
+            "executor_id": ability.executor_id,
+            "workflow_id": ability.workflow_id,
+            "coze_workflow_id": ability.coze_workflow_id,
+            "default_params": ability.default_params,
+            "input_schema": ability.input_schema,
+            "extra_metadata": ability.extra_metadata,
+            "governance": _serialize_governance(ability),
+            "business_status": _serialize_business_status(ability),
+            "last_health_check_at": ability.last_health_check_at,
+            "last_health_status": ability.last_health_status,
+            "success_rate": ability.success_rate,
+            "created_at": ability.created_at,
+            "updated_at": ability.updated_at,
+        }
+    )
+
+
+def _serialize_ability_option(ability: Ability) -> schemas.AbilityOption:
+    return schemas.AbilityOption(
+        id=ability.id,
+        provider=ability.provider,
+        category=ability.category,
+        capability_key=ability.capability_key,
+        version=ability.version,
+        display_name=ability.display_name,
+        description=ability.description,
+        default_params=ability.default_params,
+        input_schema=ability.input_schema,
+        metadata=ability.extra_metadata,
+        coze_workflow_id=ability.coze_workflow_id,
+        governance=_serialize_governance(ability),
+        business_status=_serialize_business_status(ability),
+    )
+
+
 @router.get("", response_model=list[schemas.AbilityRead])
-def list_abilities() -> list[Ability]:
+def list_abilities() -> list[schemas.AbilityRead]:
     with get_session() as session:
         ensure_default_abilities(session)
         stmt = select(Ability).order_by(Ability.provider.asc(), Ability.capability_key.asc())
-        return session.execute(stmt).scalars().all()
+        abilities = session.execute(stmt).scalars().all()
+        return [_serialize_ability(ability) for ability in abilities]
 
 
 @router.get("/options", response_model=schemas.AbilityOptionListResponse)
@@ -342,28 +403,18 @@ def list_ability_options(
             stmt = stmt.where(Ability.provider == provider)
         stmt = stmt.order_by(Ability.provider.asc(), Ability.capability_key.asc())
         abilities = session.execute(stmt).scalars().all()
-        items = [
-            schemas.AbilityOption(
-                id=ability.id,
-                provider=ability.provider,
-                category=ability.category,
-                capability_key=ability.capability_key,
-                version=ability.version,
-                display_name=ability.display_name,
-                description=ability.description,
-                default_params=ability.default_params,
-                input_schema=ability.input_schema,
-                metadata=ability.extra_metadata,
-                coze_workflow_id=ability.coze_workflow_id,
-            )
-            for ability in abilities
-        ]
+        items = [_serialize_ability_option(ability) for ability in abilities]
         return schemas.AbilityOptionListResponse(items=items)
 
 
 @router.post("", response_model=schemas.AbilityRead)
-def create_ability(payload: schemas.AbilityCreate) -> Ability:
+def create_ability(payload: schemas.AbilityCreate) -> schemas.AbilityRead:
     with get_session() as session:
+        extra_metadata = enrich_metadata_with_governance(
+            payload.metadata,
+            status=payload.status,
+            governance_override=payload.governance.model_dump() if payload.governance else None,
+        )
         ability = Ability(
             id=_generate_id(payload.id),
             provider=payload.provider,
@@ -379,7 +430,7 @@ def create_ability(payload: schemas.AbilityCreate) -> Ability:
             coze_workflow_id=payload.coze_workflow_id,
             default_params=payload.default_params,
             input_schema=payload.input_schema,
-            extra_metadata=payload.metadata,
+            extra_metadata=extra_metadata,
         )
         if ability.executor_id:
             executor = session.get(Executor, ability.executor_id)
@@ -392,18 +443,26 @@ def create_ability(payload: schemas.AbilityCreate) -> Ability:
         session.add(ability)
         session.commit()
         session.refresh(ability)
-        return ability
+        return _serialize_ability(ability)
 
 
 @router.put("/{ability_id}", response_model=schemas.AbilityRead)
-def update_ability(ability_id: str, payload: schemas.AbilityUpdate) -> Ability:
+def update_ability(ability_id: str, payload: schemas.AbilityUpdate) -> schemas.AbilityRead:
     with get_session() as session:
         ability = session.get(Ability, ability_id)
         if not ability:
             raise HTTPException(status_code=404, detail="ABILITY_NOT_FOUND")
         data = payload.model_dump(exclude_unset=True)
-        if "metadata" in data:
-            data["extra_metadata"] = data.pop("metadata")
+        raw_metadata = data.pop("metadata", None) if "metadata" in data else ability.extra_metadata
+        governance_override = data.pop("governance", None) if "governance" in data else None
+        if raw_metadata is not None or governance_override is not None or "status" in data:
+            target_status = data.get("status", ability.status)
+            governance_payload = governance_override.model_dump() if hasattr(governance_override, "model_dump") else governance_override
+            data["extra_metadata"] = enrich_metadata_with_governance(
+                raw_metadata,
+                status=target_status,
+                governance_override=governance_payload,
+            )
         if "executor_id" in data and data["executor_id"]:
             executor = session.get(Executor, data["executor_id"])
             if not executor:
@@ -417,7 +476,7 @@ def update_ability(ability_id: str, payload: schemas.AbilityUpdate) -> Ability:
         session.add(ability)
         session.commit()
         session.refresh(ability)
-        return ability
+        return _serialize_ability(ability)
 
 
 @router.delete("/{ability_id}")

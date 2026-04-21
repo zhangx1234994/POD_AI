@@ -18,6 +18,17 @@
 
 **用途**：返回所有已激活能力的基础信息、默认参数与输入 schema。
 
+**新增口径**
+
+- `businessStatus`：业务可见状态，不暴露中台内部治理术语。
+  - `availabilityCode/availabilityLabel`：`available/可用`、`testing/测试中`、`unavailable/暂不可用`
+  - `stabilityCode/stabilityLabel`：`stable/稳定`、`optimizing/优化中`、`experimental/实验性`
+- `metadata.governance`：中台内部治理真源，给管理端/内部配置使用，不建议直接面向业务透出。
+  - `scopes`：`internal/admin/eval/coze/client`
+  - `release_status`：`draft/internal_ready/eval_ready/published/deprecated`
+  - `route_policy`：`fixed/queue_aware/fallback_allowed`
+  - `quality_status`：`untested/usable/needs_optimization`
+
 **响应示例**
 
 ```json
@@ -45,7 +56,20 @@
       "inputSchema": { "fields": [] },
       "metadata": {
         "api_type": "comfyui_workflow",
-        "requires_image_input": true
+        "requires_image_input": true,
+        "governance": {
+          "scopes": ["admin", "eval", "coze"],
+          "release_status": "published",
+          "route_policy": "queue_aware",
+          "quality_status": "usable"
+        }
+      },
+      "businessStatus": {
+        "availabilityCode": "available",
+        "availabilityLabel": "可用",
+        "stabilityCode": "stable",
+        "stabilityLabel": "稳定",
+        "surfaceLabels": ["管理端", "测评端", "Coze"]
       },
       "requiresImage": true,
       "supportsMultipleImages": false,
@@ -136,6 +160,12 @@
 
 - `status`：默认 `active`
 - `provider`：可选（如 `comfyui` / `volcengine` / `kie`）
+
+**说明**
+
+- 公共 options 也会返回 `business_status` 与 `governance`。
+- 业务前端应优先使用 `business_status` 渲染“可用性/稳定度”。
+- 管理端或内部平台可读取 `governance` 做分层、发布与路由判断。
 
 ---
 

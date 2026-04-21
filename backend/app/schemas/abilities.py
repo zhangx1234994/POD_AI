@@ -8,6 +8,14 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
+class AbilityBusinessStatus(BaseModel):
+    availabilityCode: str = Field(default="unavailable")
+    availabilityLabel: str = Field(default="暂不可用")
+    stabilityCode: str = Field(default="experimental")
+    stabilityLabel: str = Field(default="实验性")
+    surfaceLabels: list[str] = Field(default_factory=list)
+
+
 class AbilityPublicInfo(BaseModel):
     id: str
     provider: str
@@ -24,6 +32,7 @@ class AbilityPublicInfo(BaseModel):
     defaultParams: dict[str, Any] | None = None
     inputSchema: dict[str, Any] | None = None
     metadata: dict[str, Any] | None = None
+    businessStatus: AbilityBusinessStatus | None = None
     requiresImage: bool = False
     supportsMultipleImages: bool = False
     maxOutputImages: int | None = None

@@ -8,6 +8,21 @@ from typing import Any
 from pydantic import BaseModel, Field, ConfigDict
 
 
+class AbilityGovernance(BaseModel):
+    scopes: list[str] = Field(default_factory=list)
+    release_status: str = Field(default="draft")
+    route_policy: str = Field(default="fixed")
+    quality_status: str = Field(default="untested")
+
+
+class AbilityBusinessStatus(BaseModel):
+    availability_code: str = Field(default="unavailable")
+    availability_label: str = Field(default="暂不可用")
+    stability_code: str = Field(default="experimental")
+    stability_label: str = Field(default="实验性")
+    surface_labels: list[str] = Field(default_factory=list)
+
+
 class AbilityBase(BaseModel):
     provider: str
     category: str
@@ -23,6 +38,7 @@ class AbilityBase(BaseModel):
     default_params: dict[str, Any] | None = None
     input_schema: dict[str, Any] | None = None
     metadata: dict[str, Any] | None = None
+    governance: AbilityGovernance | None = None
 
 
 class AbilityCreate(AbilityBase):
@@ -44,6 +60,7 @@ class AbilityUpdate(BaseModel):
     default_params: dict[str, Any] | None = None
     input_schema: dict[str, Any] | None = None
     metadata: dict[str, Any] | None = None
+    governance: AbilityGovernance | None = None
 
 
 class AbilityRead(AbilityBase):
@@ -57,6 +74,7 @@ class AbilityRead(AbilityBase):
     last_health_check_at: datetime | None = None
     last_health_status: str | None = None
     success_rate: float | None = None
+    business_status: AbilityBusinessStatus | None = None
 
     id: str
     created_at: datetime
@@ -75,6 +93,8 @@ class AbilityOption(BaseModel):
     input_schema: dict[str, Any] | None = None
     metadata: dict[str, Any] | None = None
     coze_workflow_id: str | None = None
+    governance: AbilityGovernance | None = None
+    business_status: AbilityBusinessStatus | None = None
 
 
 class AbilityOptionListResponse(BaseModel):
