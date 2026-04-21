@@ -61,6 +61,11 @@
   - 评测页点击任务后直接展示结构化 JSON（不走图片回填）
 
 - 新增 ComfyUI 工作流（2026-04-16）
+  - `7631174682116358144`（扩图 · flux2_klein_9b_outpaint）
+    - 分类：`图延伸类`
+    - 入参：`url`、`expand_left`、`expand_right`、`expand_top`、`expand_bottom`
+    - 出参：`output`、`ip`
+    - 说明：参数契约与 `7598587935331450880` 保持一致，用于评测新扩图 Coze workflow
   - `7629023903431524352`（背景抠图 · beijing_koutu）
     - 分类：`通用类`
     - 入参：`url`

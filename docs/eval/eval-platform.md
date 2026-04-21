@@ -167,6 +167,7 @@
 
 | Workflow ID | 名称 | 分类 | 入参 | 出参 | 当前状态 |
 | --- | --- | --- | --- | --- | --- |
+| `7631174682116358144` | 扩图 · `flux2_klein_9b_outpaint` | `图延伸类` | `url`, `expand_left`, `expand_right`, `expand_top`, `expand_bottom` | `output`, `ip` | 新增，参数契约与 `7598587935331450880` 保持一致 |
 | `7629023903431524352` | 背景抠图 · `beijing_koutu` | `通用类` | `url` | `output`, `ip` | 已验证成功出图 |
 | `7629023041988591616` | 头部抠像 · `toubu_kouxiang` | `通用类` | `url` | `output`, `ip` | 已验证成功出图 |
 | `7629024620879806464` | 文字增强 · `qwen2512_print_shape_text_enhance` | `图裂变` | `url`, `prompt`, `bili`, `count` | `output`, `prompt`, `ip` | 提交/回调链路正常，提示词质量待优化 |

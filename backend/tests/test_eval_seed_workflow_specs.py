@@ -2,6 +2,7 @@ from app.services.eval_seed import (
     DEFAULT_EVAL_WORKFLOW_BY_ID,
     FISSION_WORKFLOW_IDS,
     IP_OUTPUT_WORKFLOW_IDS,
+    OUTPAINTING_WORKFLOW_IDS,
     PROMPT_OUTPUT_WORKFLOW_IDS,
 )
 
@@ -84,6 +85,23 @@ def test_duotu_ronghe_workflow_matches_current_coze_contract():
     assert height.get("required") is False
     assert width.get("defaultValue") == ""
     assert height.get("defaultValue") == ""
+
+
+def test_new_flux2_outpaint_workflow_matches_legacy_outpaint_contract():
+    workflow = DEFAULT_EVAL_WORKFLOW_BY_ID["7631174682116358144"]
+    assert workflow["category"] == "图延伸类"
+    assert workflow["workflow_id"] == "7631174682116358144"
+    assert "7631174682116358144" in OUTPAINTING_WORKFLOW_IDS
+    assert "7631174682116358144" in IP_OUTPUT_WORKFLOW_IDS
+    assert "7631174682116358144" not in PROMPT_OUTPUT_WORKFLOW_IDS
+
+    params = ((workflow.get("parameters_schema") or {}).get("fields") or [])
+    names = [f.get("name") for f in params if isinstance(f, dict)]
+    assert names == ["url", "expand_left", "expand_right", "expand_top", "expand_bottom"]
+
+    outputs = ((workflow.get("output_schema") or {}).get("fields") or [])
+    output_names = [f.get("name") for f in outputs if isinstance(f, dict)]
+    assert output_names == ["output", "ip"]
 
 
 def test_beijing_koutu_workflow_is_general_with_url_only():
