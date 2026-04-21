@@ -76,12 +76,11 @@ def test_flux2_9b_liebian_sifang_maps_only_url_and_prompt():
     assert context.workflow.definition["_max_output_images"] == 1
 
 
-def test_flux2_klein_9b_outpaint_maps_uploaded_image_expand_and_seed():
+def test_flux2_klein_9b_outpaint_maps_uploaded_image_expand_and_random_seed():
     graph = {
         "76": {"inputs": {"image": "old.png"}},
         "99": {"inputs": {"seed": 1}},
         "102": {"inputs": {"left": 408, "right": 408, "top": 0, "bottom": 0}},
-        "117": {"inputs": {"text": "old prompt"}},
         "9": {"inputs": {"filename_prefix": "Flux2-Klein"}},
     }
     context = _make_context("flux2_klein_9b_outpaint", graph)
@@ -91,22 +90,22 @@ def test_flux2_klein_9b_outpaint_maps_uploaded_image_expand_and_seed():
     overrides, error = adapter._build_flux2_klein_9b_outpaint_inputs(
         {
             "image_url": "https://example.com/input.png",
-            "prompt": "extend both sides naturally",
             "expand_left": 256,
             "expand_right": 128,
-            "seed": 424242,
         },
         context,
         context.workflow.definition,
     )
 
     assert error is None
+    assert overrides is not None
     assert overrides == {
         "76": {"image": "staged-input.png"},
-        "117": {"text": "extend both sides naturally"},
         "102": {"left": 256, "right": 128},
-        "99": {"seed": 424242},
+        "99": {"seed": overrides["99"]["seed"]},
     }
+    assert isinstance(overrides["99"]["seed"], int)
+    assert overrides["99"]["seed"] > 0
     assert context.workflow.definition["output_node_ids"] == ["9"]
     assert context.workflow.definition["_max_output_images"] == 1
 

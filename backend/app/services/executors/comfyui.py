@@ -1044,10 +1044,6 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             return None, "COMFYUI_IMAGE_UPLOAD_FAILED"
         overrides["76"] = {"image": staged_name}
 
-        prompt = self._as_text(params.get("prompt") or params.get("positive_prompt"))
-        if prompt:
-            overrides.setdefault("117", {})["text"] = prompt
-
         mapping = {
             "expand_left": "left",
             "expand_right": "right",
@@ -1059,9 +1055,7 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             if value is not None:
                 overrides.setdefault("102", {})[node_key] = value
 
-        seed = self._coerce_positive_int(params.get("seed"))
-        if seed is None:
-            seed = secrets.randbelow(2**63 - 1) + 1
+        seed = secrets.randbelow(2**63 - 1) + 1
         overrides.setdefault("99", {})["seed"] = seed
 
         workflow_definition["_max_output_images"] = 1

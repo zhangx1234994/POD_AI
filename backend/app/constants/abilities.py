@@ -987,13 +987,6 @@ def _comfyui_flux2_klein_9b_outpaint_schema() -> dict[str, Any]:
                 "required": True,
             },
             {
-                "name": "prompt",
-                "type": "textarea",
-                "label": _compose_bilingual_label("扩图提示词（可选）", "Outpaint Prompt (optional)"),
-                "description": "节点 117 · CLIPTextEncode.text（不填使用 workflow 默认提示词）",
-                "required": False,
-            },
-            {
                 "name": "expand_left",
                 "type": "number",
                 "label": _compose_bilingual_label("左侧扩展 (px)", "Expand Left (px)"),
@@ -1020,13 +1013,6 @@ def _comfyui_flux2_klein_9b_outpaint_schema() -> dict[str, Any]:
                 "label": _compose_bilingual_label("下侧扩展 (px)", "Expand Bottom (px)"),
                 "description": "节点 102 · ImagePadForOutpaint.bottom",
                 "default": 0,
-            },
-            {
-                "name": "seed",
-                "type": "number",
-                "label": _compose_bilingual_label("随机种子（可选）", "Seed (optional)"),
-                "description": "节点 99 · easy seed.seed（不填则后端自动生成）",
-                "required": False,
             },
         ]
     }
@@ -1800,7 +1786,7 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "output_node_ids": ["4"],
             "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
             "routing_policy": "queue",
-            "seed_version": 1,
+            "seed_version": 2,
             "pricing": {
                 "currency": "CNY",
                 "unit": "per_image",
@@ -1875,7 +1861,6 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "expand_right": 408,
             "expand_top": 0,
             "expand_bottom": 0,
-            "prompt": "1.去除绿色部分。\n2.延展原图，先锁定主体、风格、颜色、材质、笔触、光照和透视一致，再根据原图边缘的重复规律或视觉走势向[左/右/上/下/四周]自然扩展，使新增区域与原图连续衔接、完整统一。\n3.按照原图中的图案排列规则、图案大小、花纹密度进行扩图，铺满整个画布\n4.*严禁放大原图，严禁修改原图中的任何元素和图案*",
         },
         "display_name": "ComfyUI · FLUX2-Klein 扩图",
         "description": "使用 FLUX2-Klein 9b 扩图 workflow 做画布外延与边缘补全，适合做更自然的左右/上下扩边。",

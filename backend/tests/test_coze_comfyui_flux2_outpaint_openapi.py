@@ -22,11 +22,9 @@ def test_comfyui_flux2_klein_outpaint_standalone_openapi_available():
     )
     assert set(tool_schema.get("properties") or {}) == {
         "url",
-        "prompt",
         "expand_left",
         "expand_right",
         "expand_top",
         "expand_bottom",
-        "seed",
     }
     assert (tool_schema.get("required") or []) == ["url"]
