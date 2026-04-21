@@ -95,12 +95,24 @@ def _serialize_workflow_version(row: EvalWorkflowVersion) -> EvalWorkflowVersion
         workflow_id=row.workflow_id,
         parameters_schema=row.parameters_schema,
         output_schema=row.output_schema,
+        metadata=row.extra_metadata,
         notes=row.notes,
         status=row.status,
         resourceBindings=_extract_workflow_resource_bindings(row.parameters_schema),
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
+
+
+def _workflow_sort_key(row: EvalWorkflowVersion) -> tuple[str, int, str]:
+    metadata = row.extra_metadata if isinstance(row.extra_metadata, dict) else {}
+    presentation = metadata.get("presentation") if isinstance(metadata.get("presentation"), dict) else {}
+    sort_order = presentation.get("sort_order")
+    try:
+        sort_value = int(sort_order)
+    except (TypeError, ValueError):
+        sort_value = 999999
+    return (str(row.category or ""), sort_value, str(row.name or ""))
 
 
 @router.post("/workflow-versions", response_model=EvalWorkflowVersionResponse)
@@ -110,7 +122,10 @@ async def create_workflow_version(
     db: Session = Depends(get_db),
 ):
     """Create a new evaluation workflow version."""
-    db_workflow_version = EvalWorkflowVersion(id=uuid4().hex, **workflow_version.model_dump())
+    payload = workflow_version.model_dump()
+    if "metadata" in payload:
+        payload["extra_metadata"] = payload.pop("metadata")
+    db_workflow_version = EvalWorkflowVersion(id=uuid4().hex, **payload)
     db.add(db_workflow_version)
     db.commit()
     db.refresh(db_workflow_version)
@@ -133,6 +148,7 @@ async def list_workflow_versions(
     if status:
         query = query.where(EvalWorkflowVersion.status == status)
     result = db.execute(query).scalars().all()
+    result.sort(key=_workflow_sort_key)
     return [_serialize_workflow_version(item) for item in result]
 
 
@@ -161,6 +177,8 @@ async def update_workflow_version(
     if not workflow_version:
         raise HTTPException(status_code=404, detail="Workflow version not found")
     update_data = workflow_version_update.model_dump(exclude_unset=True)
+    if "metadata" in update_data:
+        update_data["extra_metadata"] = update_data.pop("metadata")
     for field, value in update_data.items():
         setattr(workflow_version, field, value)
     db.add(workflow_version)

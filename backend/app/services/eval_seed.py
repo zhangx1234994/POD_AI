@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import uuid4
 import json
+from copy import deepcopy
 
 from sqlalchemy import select, update as sa_update
 from sqlalchemy.orm import Session
@@ -1463,6 +1464,40 @@ DEFAULT_EVAL_WORKFLOW_BY_ID: dict[str, dict[str, Any]] = {
 }
 
 
+_CATEGORY_SORT_BUCKET = {
+    "花纹提取类": 1000,
+    "图延伸类": 2000,
+    "四方/两方连续图类": 3000,
+    "图裂变": 4000,
+    "通用类": 5000,
+}
+
+
+def _derive_eval_workflow_metadata(item: dict[str, Any], *, index: int) -> dict[str, Any]:
+    workflow_id = str(item.get("workflow_id") or "").strip()
+    category = _resolve_eval_category(workflow_id, str(item.get("category") or "").strip())
+    status = str(item.get("status") or "active").strip().lower()
+    base = deepcopy(item.get("metadata")) if isinstance(item.get("metadata"), dict) else {}
+    presentation = deepcopy(base.get("presentation")) if isinstance(base.get("presentation"), dict) else {}
+    parameter_defaults = (
+        deepcopy(base.get("parameter_defaults")) if isinstance(base.get("parameter_defaults"), dict) else {}
+    )
+    presentation.setdefault("visible", status == "active")
+    presentation.setdefault("sort_order", _CATEGORY_SORT_BUCKET.get(category, 9000) + index)
+    presentation.setdefault("category_label", category)
+    presentation.setdefault("usage_hint", "适合直接在测评端发起单次验证")
+    base["presentation"] = presentation
+    base.setdefault("parameter_defaults", parameter_defaults)
+    return base
+
+
+DEFAULT_EVAL_WORKFLOW_METADATA_BY_ID: dict[str, dict[str, Any]] = {
+    str(item.get("workflow_id")): _derive_eval_workflow_metadata(item, index=index)
+    for index, item in enumerate(DEFAULT_EVAL_WORKFLOW_VERSIONS, start=1)
+    if item.get("workflow_id")
+}
+
+
 def ensure_default_eval_workflow_versions(session: Session) -> bool:
     """Insert missing default workflow versions. Returns True if any created."""
     existing = set(
@@ -1488,6 +1523,7 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
             notes=item.get("notes"),
             parameters_schema=item.get("parameters_schema"),
             output_schema=item.get("output_schema"),
+            extra_metadata=DEFAULT_EVAL_WORKFLOW_METADATA_BY_ID.get(workflow_id),
         )
         session.add(row)
         existing.add((workflow_id, desired_category))
@@ -1592,6 +1628,10 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
         desired_category = _resolve_eval_category(row.workflow_id, row.category)
         if row.category != desired_category:
             row.category = desired_category
+            dirty = True
+        desired_metadata = DEFAULT_EVAL_WORKFLOW_METADATA_BY_ID.get(str(row.workflow_id or "").strip())
+        if desired_metadata and row.extra_metadata != desired_metadata:
+            row.extra_metadata = deepcopy(desired_metadata)
             dirty = True
         # Keep workflow names editable in the admin UI; do not force-reset names here.
         # Ensure lora field stays a select with known options.

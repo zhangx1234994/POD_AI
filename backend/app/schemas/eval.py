@@ -14,6 +14,7 @@ class EvalWorkflowVersionBase(BaseModel):
     workflow_id: str = Field(..., description="Coze工作流ID")
     parameters_schema: Optional[dict[str, Any]] = Field(None, description="参数schema")
     output_schema: Optional[dict[str, Any]] = Field(None, description="输出schema")
+    metadata: Optional[dict[str, Any]] = Field(None, description="展示/排序/默认参数覆盖等附加配置")
     notes: Optional[str] = Field(None, description="备注")
     status: str = Field(default="active", description="状态")
 

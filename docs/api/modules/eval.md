@@ -25,6 +25,13 @@
   - `field`：参数字段名
   - `resourceType`：`lora/model/plugin`
   - `source`：资源目录接口（如 `/api/admin/comfyui/resources/options?...`）
+- `metadata.presentation`
+  - `visible`：是否在评测端公共列表展示
+  - `sort_order`：排序值，数值越小越靠前
+  - `category_label`：当前业务分类标签
+  - `usage_hint`：给业务的简化使用提示
+- `metadata.parameter_defaults`
+  - 预留给后续“默认参数覆盖”使用，避免每次改代码发版
 
 重点工作流参数补充：
 

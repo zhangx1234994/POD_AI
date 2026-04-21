@@ -108,6 +108,20 @@
 - `POST /api/evals/uploads`
 - 管理接口：`/api/evals/admin/workflow-versions`
 
+## 3.1 评测 workflow 配置真源（新增）
+
+评测 workflow 现在开始具备一层独立配置真源，存放在 `eval_workflow_version.metadata`：
+
+- `presentation.visible`：是否在公共评测列表展示
+- `presentation.sort_order`：列表排序值
+- `presentation.category_label`：业务分类标签
+- `presentation.usage_hint`：业务可见的简化提示
+- `parameter_defaults`：预留给后续“默认参数覆盖”使用
+
+这层配置的目标是：
+- 把“是否显示 / 怎么排序 / 给业务看什么提示”从代码逻辑里抽出来
+- 后续逐步减少“加一个 workflow 就要改前端代码”的情况
+
 ## 4. 参数契约
 
 - 图片输入统一 `url`

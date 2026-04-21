@@ -177,6 +177,7 @@ def _serialize_workflow_version(version: EvalWorkflowVersion) -> EvalWorkflowVer
         workflow_id=version.workflow_id,
         parameters_schema=version.parameters_schema,
         output_schema=version.output_schema,
+        metadata=version.extra_metadata,
         notes=version.notes,
         status=version.status,
         resourceBindings=_extract_workflow_resource_bindings(version.parameters_schema),
@@ -185,13 +186,35 @@ def _serialize_workflow_version(version: EvalWorkflowVersion) -> EvalWorkflowVer
     )
 
 
+def _workflow_sort_key(row: EvalWorkflowVersion) -> tuple[str, int, str]:
+    metadata = row.extra_metadata if isinstance(row.extra_metadata, dict) else {}
+    presentation = metadata.get("presentation") if isinstance(metadata.get("presentation"), dict) else {}
+    sort_order = presentation.get("sort_order")
+    try:
+        sort_value = int(sort_order)
+    except (TypeError, ValueError):
+        sort_value = 999999
+    return (str(row.category or ""), sort_value, str(row.name or ""))
+
+
+def _is_workflow_visible(row: EvalWorkflowVersion) -> bool:
+    metadata = row.extra_metadata if isinstance(row.extra_metadata, dict) else {}
+    presentation = metadata.get("presentation") if isinstance(metadata.get("presentation"), dict) else {}
+    visible = presentation.get("visible")
+    if isinstance(visible, bool):
+        return visible
+    return row.status == "active"
+
+
 def _dedupe_workflow_versions(rows: list[EvalWorkflowVersion]) -> list[EvalWorkflowVersion]:
     dedup: dict[tuple[str, str], EvalWorkflowVersion] = {}
     for row in rows:
         key = (str(row.workflow_id or "").strip(), str(row.category or "").strip())
         if key not in dedup:
             dedup[key] = row
-    return list(dedup.values())
+    values = [row for row in dedup.values() if _is_workflow_visible(row)]
+    values.sort(key=_workflow_sort_key)
+    return values
 
 
 def _serialize_eval_run(run: EvalRun) -> EvalRunResponse:
@@ -1351,6 +1374,7 @@ def admin_list_workflow_versions(
     if category:
         stmt = stmt.where(EvalWorkflowVersion.category == category)
     rows = db.execute(stmt.order_by(EvalWorkflowVersion.category.asc(), EvalWorkflowVersion.created_at.desc())).scalars().all()
+    rows.sort(key=_workflow_sort_key)
     return [_serialize_workflow_version(row) for row in rows]
 
 
@@ -1368,6 +1392,8 @@ def admin_update_workflow_version(
     for key in ("name", "notes", "category", "status", "version"):
         if key in body and isinstance(body[key], str):
             setattr(row, key, body[key].strip())
+    if "metadata" in body and isinstance(body["metadata"], dict):
+        row.extra_metadata = body["metadata"]
     db.add(row)
     db.commit()
     db.refresh(row)

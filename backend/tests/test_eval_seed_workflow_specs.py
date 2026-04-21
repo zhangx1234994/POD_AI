@@ -1,5 +1,6 @@
 from app.services.eval_seed import (
     DEFAULT_EVAL_WORKFLOW_BY_ID,
+    DEFAULT_EVAL_WORKFLOW_METADATA_BY_ID,
     FISSION_WORKFLOW_IDS,
     IP_OUTPUT_WORKFLOW_IDS,
     OUTPAINTING_WORKFLOW_IDS,
@@ -102,6 +103,20 @@ def test_new_flux2_outpaint_workflow_matches_legacy_outpaint_contract():
     outputs = ((workflow.get("output_schema") or {}).get("fields") or [])
     output_names = [f.get("name") for f in outputs if isinstance(f, dict)]
     assert output_names == ["output", "ip"]
+
+
+def test_eval_workflow_metadata_defaults_exist_for_outpaint_and_fission() -> None:
+    outpaint_metadata = DEFAULT_EVAL_WORKFLOW_METADATA_BY_ID["7631174682116358144"]
+    fission_metadata = DEFAULT_EVAL_WORKFLOW_METADATA_BY_ID["7629024620879806464"]
+
+    assert outpaint_metadata["presentation"]["visible"] is True
+    assert outpaint_metadata["presentation"]["category_label"] == "图延伸类"
+    assert isinstance(outpaint_metadata["presentation"]["sort_order"], int)
+    assert outpaint_metadata["parameter_defaults"] == {}
+
+    assert fission_metadata["presentation"]["visible"] is True
+    assert fission_metadata["presentation"]["category_label"] == "图裂变"
+    assert isinstance(fission_metadata["presentation"]["sort_order"], int)
 
 
 def test_beijing_koutu_workflow_is_general_with_url_only():
