@@ -45,6 +45,17 @@
   - `fallback_to_default`
   - `action`
   - `workflow_key`
+- `metadata.deprecation`：下线与替代真源，给管理端与中台治理使用。
+  - `replacement_ability_id`
+  - `replacement_capability_key`
+  - `replacement_display_name`
+  - `reason`
+  - `retirement_mode`：`hide_public/internal_only/delete_candidate`
+
+**公共列表约束**
+
+- 当能力被标记为 `release_status=deprecated`，且下线模式为 `hide_public/internal_only/delete_candidate` 时，公共 `/api/abilities` 与 `/api/abilities/options` 会自动隐藏该能力。
+- 业务侧应优先使用替代能力，不直接展示已下线能力。
 
 **响应示例**
 

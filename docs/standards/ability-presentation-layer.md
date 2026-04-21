@@ -62,3 +62,9 @@
 1. 不允许前端写死能力业务文案映射作为唯一来源。
 2. 不允许把 `routing_policy`、`fallback_to_default`、`required_executor_tags` 直接展示给业务用户。
 3. 不允许用展示层字段替代中台内部治理字段；两层职责不同。
+
+## 与下线规则的关系
+
+- 展示层只负责“业务怎么理解这个能力”。
+- 是否继续公开暴露，由 `metadata.deprecation` 与 `governance.release_status` 共同决定。
+- 一旦能力进入 `deprecated`，且下线模式为 `hide_public/internal_only/delete_candidate`，公共能力列表必须自动隐藏，不能继续依赖前端手工过滤。

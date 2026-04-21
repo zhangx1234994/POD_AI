@@ -18,6 +18,7 @@ from app.constants.abilities import (
     VOLCENGINE_VIDEO_ABILITIES,
 )
 from app.models.integration import Ability
+from app.services.ability_deprecation import enrich_metadata_with_deprecation
 from app.services.ability_governance import enrich_metadata_with_governance
 from app.services.ability_presentation import enrich_metadata_with_presentation
 from app.services.routing_governance import enrich_ability_metadata_with_routing
@@ -177,7 +178,10 @@ def ensure_default_abilities(session: Session) -> bool:
     for seed in DEFAULT_ABILITY_SEEDS:
         seed_metadata = enrich_metadata_with_presentation(
             enrich_ability_metadata_with_routing(
-                enrich_metadata_with_governance(seed.metadata, status=seed.status)
+                enrich_metadata_with_deprecation(
+                    enrich_metadata_with_governance(seed.metadata, status=seed.status),
+                    status=seed.status,
+                )
             ),
             status=seed.status,
             provider=seed.provider,

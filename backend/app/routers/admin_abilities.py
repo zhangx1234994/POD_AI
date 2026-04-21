@@ -22,6 +22,7 @@ from app.deps.auth import require_admin
 from app.models.integration import Ability, AbilityInvocationLog, AbilityTask, Executor, Workflow
 from app.schemas import admin_abilities as schemas
 from app.schemas import admin_ability_logs as log_schemas
+from app.services.ability_deprecation import enrich_metadata_with_deprecation, resolve_ability_deprecation
 from app.services.ability_governance import build_business_status, enrich_metadata_with_governance, resolve_ability_governance
 from app.services.ability_presentation import (
     build_ability_presentation_sort_key,
@@ -352,6 +353,11 @@ def _serialize_presentation(ability: Ability) -> schemas.AbilityPresentation:
     )
 
 
+def _serialize_deprecation(ability: Ability) -> schemas.AbilityDeprecation:
+    payload = resolve_ability_deprecation(status=ability.status, metadata=ability.extra_metadata) or {}
+    return schemas.AbilityDeprecation(**payload)
+
+
 def _ability_sort_key(ability: Ability) -> tuple[int, str, str, str]:
     return build_ability_presentation_sort_key(
         status=ability.status,
@@ -384,6 +390,7 @@ def _serialize_ability(ability: Ability) -> schemas.AbilityRead:
             "extra_metadata": ability.extra_metadata,
             "governance": _serialize_governance(ability),
             "presentation": _serialize_presentation(ability),
+            "deprecation": _serialize_deprecation(ability),
             "business_status": _serialize_business_status(ability),
             "last_health_check_at": ability.last_health_check_at,
             "last_health_status": ability.last_health_status,
@@ -409,6 +416,7 @@ def _serialize_ability_option(ability: Ability) -> schemas.AbilityOption:
         coze_workflow_id=ability.coze_workflow_id,
         governance=_serialize_governance(ability),
         presentation=_serialize_presentation(ability),
+        deprecation=_serialize_deprecation(ability),
         business_status=_serialize_business_status(ability),
     )
 
@@ -446,10 +454,14 @@ def create_ability(payload: schemas.AbilityCreate) -> schemas.AbilityRead:
     with get_session() as session:
         extra_metadata = enrich_ability_metadata_with_routing(
             enrich_metadata_with_presentation(
-                enrich_metadata_with_governance(
-                    payload.metadata,
+                enrich_metadata_with_deprecation(
+                    enrich_metadata_with_governance(
+                        payload.metadata,
+                        status=payload.status,
+                        governance_override=payload.governance.model_dump() if payload.governance else None,
+                    ),
                     status=payload.status,
-                    governance_override=payload.governance.model_dump() if payload.governance else None,
+                    deprecation_override=payload.deprecation.model_dump() if payload.deprecation else None,
                 ),
                 status=payload.status,
                 provider=payload.provider,
@@ -500,18 +512,32 @@ def update_ability(ability_id: str, payload: schemas.AbilityUpdate) -> schemas.A
         raw_metadata = data.pop("metadata", None) if "metadata" in data else ability.extra_metadata
         governance_override = data.pop("governance", None) if "governance" in data else None
         presentation_override = data.pop("presentation", None) if "presentation" in data else None
-        if raw_metadata is not None or governance_override is not None or presentation_override is not None or "status" in data:
+        deprecation_override = data.pop("deprecation", None) if "deprecation" in data else None
+        if (
+            raw_metadata is not None
+            or governance_override is not None
+            or presentation_override is not None
+            or deprecation_override is not None
+            or "status" in data
+        ):
             target_status = data.get("status", ability.status)
             governance_payload = governance_override.model_dump() if hasattr(governance_override, "model_dump") else governance_override
             presentation_payload = (
                 presentation_override.model_dump() if hasattr(presentation_override, "model_dump") else presentation_override
             )
+            deprecation_payload = (
+                deprecation_override.model_dump() if hasattr(deprecation_override, "model_dump") else deprecation_override
+            )
             data["extra_metadata"] = enrich_ability_metadata_with_routing(
                 enrich_metadata_with_presentation(
-                    enrich_metadata_with_governance(
-                        raw_metadata,
+                    enrich_metadata_with_deprecation(
+                        enrich_metadata_with_governance(
+                            raw_metadata,
+                            status=target_status,
+                            governance_override=governance_payload,
+                        ),
                         status=target_status,
-                        governance_override=governance_payload,
+                        deprecation_override=deprecation_payload,
                     ),
                     status=target_status,
                     provider=data.get("provider", ability.provider),

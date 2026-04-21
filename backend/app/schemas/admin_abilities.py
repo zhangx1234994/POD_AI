@@ -31,6 +31,15 @@ class AbilityPresentation(BaseModel):
     operation_label: str = Field(default="")
 
 
+class AbilityDeprecation(BaseModel):
+    is_deprecated: bool = Field(default=False)
+    replacement_ability_id: str | None = None
+    replacement_capability_key: str | None = None
+    replacement_display_name: str | None = None
+    reason: str | None = None
+    retirement_mode: str | None = None
+
+
 class AbilityBase(BaseModel):
     provider: str
     category: str
@@ -48,6 +57,7 @@ class AbilityBase(BaseModel):
     metadata: dict[str, Any] | None = None
     governance: AbilityGovernance | None = None
     presentation: AbilityPresentation | None = None
+    deprecation: AbilityDeprecation | None = None
 
 
 class AbilityCreate(AbilityBase):
@@ -71,6 +81,7 @@ class AbilityUpdate(BaseModel):
     metadata: dict[str, Any] | None = None
     governance: AbilityGovernance | None = None
     presentation: AbilityPresentation | None = None
+    deprecation: AbilityDeprecation | None = None
 
 
 class AbilityRead(AbilityBase):
@@ -86,6 +97,7 @@ class AbilityRead(AbilityBase):
     success_rate: float | None = None
     business_status: AbilityBusinessStatus | None = None
     presentation: AbilityPresentation | None = None
+    deprecation: AbilityDeprecation | None = None
 
     id: str
     created_at: datetime
@@ -107,6 +119,7 @@ class AbilityOption(BaseModel):
     governance: AbilityGovernance | None = None
     business_status: AbilityBusinessStatus | None = None
     presentation: AbilityPresentation | None = None
+    deprecation: AbilityDeprecation | None = None
 
 
 class AbilityOptionListResponse(BaseModel):

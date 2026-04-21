@@ -11,6 +11,7 @@ from app.models.integration import Ability
 from app.models.user import User
 from app.schemas import abilities as schemas
 from app.schemas import admin_abilities as admin_schemas
+from app.services.ability_deprecation import resolve_ability_deprecation
 from app.services.ability_governance import build_business_status, resolve_ability_governance
 from app.services.ability_presentation import (
     build_ability_presentation_sort_key,
@@ -46,6 +47,11 @@ def _serialize_presentation(ability: Ability) -> admin_schemas.AbilityPresentati
             metadata=ability.extra_metadata,
         )
     )
+
+
+def _serialize_deprecation(ability: Ability) -> admin_schemas.AbilityDeprecation:
+    payload = resolve_ability_deprecation(status=ability.status, metadata=ability.extra_metadata) or {}
+    return admin_schemas.AbilityDeprecation(**payload)
 
 
 def _ability_sort_key(ability: Ability) -> tuple[int, str, str, str]:
@@ -110,6 +116,7 @@ def list_ability_options_public(
                     metadata=ability.extra_metadata,
                     governance=_serialize_governance(ability),
                     presentation=_serialize_presentation(ability),
+                    deprecation=_serialize_deprecation(ability),
                     business_status=_serialize_business_status(ability),
                 )
                 for ability in abilities

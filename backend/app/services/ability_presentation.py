@@ -5,6 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
+from app.services.ability_deprecation import resolve_ability_deprecation
 from app.services.ability_governance import resolve_ability_governance
 
 _CATEGORY_LABELS = {
@@ -174,6 +175,11 @@ def is_ability_visible_for_surface(
     metadata: dict[str, Any] | None,
     surface: str | None = None,
 ) -> bool:
+    deprecation = resolve_ability_deprecation(status=status, metadata=metadata)
+    if deprecation and deprecation.get("is_deprecated"):
+        retirement_mode = str(deprecation.get("retirement_mode") or "hide_public").strip().lower()
+        if retirement_mode in {"hide_public", "internal_only", "delete_candidate"}:
+            return False
     governance = resolve_ability_governance(status=status, metadata=metadata)
     presentation = resolve_ability_presentation(
         status=status,
