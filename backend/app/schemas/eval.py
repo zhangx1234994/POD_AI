@@ -33,6 +33,7 @@ class EvalWorkflowVersionUpdate(BaseModel):
     workflow_id: Optional[str] = Field(None, description="Coze工作流ID")
     parameters_schema: Optional[dict[str, Any]] = Field(None, description="参数schema")
     output_schema: Optional[dict[str, Any]] = Field(None, description="输出schema")
+    metadata: Optional[dict[str, Any]] = Field(None, description="附加元数据")
     notes: Optional[str] = Field(None, description="备注")
     status: Optional[str] = Field(None, description="状态")
 
@@ -88,6 +89,10 @@ class EvalWorkflowVersionResponse(EvalWorkflowVersionBase):
         default=None,
         description="工作流使用方式与入口建议",
     )
+    metadata: Optional[dict[str, Any]] = Field(None, description="附加元数据")
+    deprecation: Optional[dict[str, Any]] = Field(None, description="下线/替代信息")
+    presentation: Optional[dict[str, Any]] = Field(None, description="业务展示信息")
+    usage: Optional[dict[str, Any]] = Field(None, description="使用建议信息")
     resource_bindings: list[EvalWorkflowResourceBinding] = Field(
         default_factory=list,
         alias="resourceBindings",
