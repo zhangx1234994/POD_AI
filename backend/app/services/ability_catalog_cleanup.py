@@ -36,6 +36,32 @@ _OVERRIDES: dict[tuple[str, str], dict[str, Any]] = {
             "operation_label": "内部扩边占位",
         },
     },
+    ("podi", "set_dpi"): {
+        "governance": {
+            "scopes": ["internal", "admin"],
+            "release_status": "internal_ready",
+            "quality_status": "usable",
+        },
+        "presentation": {
+            "visible": False,
+            "category_label": "平台工具",
+            "usage_hint": "内部后处理能力，用于印刷输出规范化，不建议业务直接使用。",
+            "operation_label": "内部 DPI 处理",
+        },
+    },
+    ("podi", "upscale_resize"): {
+        "governance": {
+            "scopes": ["internal", "admin"],
+            "release_status": "internal_ready",
+            "quality_status": "usable",
+        },
+        "presentation": {
+            "visible": False,
+            "category_label": "平台工具",
+            "usage_hint": "内部后处理能力，用于尺寸放大与格式规范化，不建议业务直接使用。",
+            "operation_label": "内部尺寸处理",
+        },
+    },
 }
 
 

@@ -19,8 +19,16 @@ def test_cleanup_registry_returns_known_overrides() -> None:
     assert internal["governance"]["scopes"] == ["internal", "admin"]
     assert internal["presentation"]["visible"] is False
 
+    set_dpi = get_cleanup_overrides(provider="podi", capability_key="set_dpi")
+    assert set_dpi["governance"]["scopes"] == ["internal", "admin"]
+    assert set_dpi["presentation"]["operation_label"] == "内部 DPI 处理"
 
-def test_seed_applies_cleanup_for_huawen_kuotu_and_expand_mask_color() -> None:
+    upscale_resize = get_cleanup_overrides(provider="podi", capability_key="upscale_resize")
+    assert upscale_resize["governance"]["scopes"] == ["internal", "admin"]
+    assert upscale_resize["presentation"]["operation_label"] == "内部尺寸处理"
+
+
+def test_seed_applies_cleanup_for_overridden_abilities() -> None:
     engine = create_engine("sqlite+pysqlite:///:memory:")
     Base.metadata.create_all(engine)
     with Session(engine) as session:
@@ -28,7 +36,7 @@ def test_seed_applies_cleanup_for_huawen_kuotu_and_expand_mask_color() -> None:
         abilities = {
             row.capability_key: row
             for row in session.execute(select(Ability)).scalars().all()
-            if row.capability_key in {"huawen_kuotu", "expand_mask_color"}
+            if row.capability_key in {"huawen_kuotu", "expand_mask_color", "set_dpi", "upscale_resize"}
         }
 
     huawen = abilities["huawen_kuotu"]
@@ -41,3 +49,15 @@ def test_seed_applies_cleanup_for_huawen_kuotu_and_expand_mask_color() -> None:
     expand_mask_metadata = expand_mask.extra_metadata or {}
     assert expand_mask_metadata["governance"]["scopes"] == ["internal", "admin"]
     assert expand_mask_metadata["presentation"]["visible"] is False
+
+    set_dpi = abilities["set_dpi"]
+    set_dpi_metadata = set_dpi.extra_metadata or {}
+    assert set_dpi_metadata["governance"]["scopes"] == ["internal", "admin"]
+    assert set_dpi_metadata["presentation"]["visible"] is False
+    assert set_dpi_metadata["presentation"]["operation_label"] == "内部 DPI 处理"
+
+    upscale_resize = abilities["upscale_resize"]
+    upscale_resize_metadata = upscale_resize.extra_metadata or {}
+    assert upscale_resize_metadata["governance"]["scopes"] == ["internal", "admin"]
+    assert upscale_resize_metadata["presentation"]["visible"] is False
+    assert upscale_resize_metadata["presentation"]["operation_label"] == "内部尺寸处理"

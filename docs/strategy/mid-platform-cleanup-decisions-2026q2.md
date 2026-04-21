@@ -43,6 +43,42 @@
 - `metadata.governance.scopes = ["internal", "admin"]`
 - `metadata.presentation.visible = false`
 
+### 3. `podi.set_dpi`
+
+处理方式：
+
+- 收回内部
+- 不再在公共能力列表展示
+
+原因：
+
+- 这是输出规范化的后处理步骤
+- 业务侧不需要直接理解 DPI 元数据处理
+- 继续公开暴露只会增加误用和培训成本
+
+当前真源：
+
+- `metadata.governance.scopes = ["internal", "admin"]`
+- `metadata.presentation.visible = false`
+
+### 4. `podi.upscale_resize`
+
+处理方式：
+
+- 收回内部
+- 不再在公共能力列表展示
+
+原因：
+
+- 这是尺寸/格式规范化的后处理步骤
+- 更适合作为平台能力链路的一环，而不是业务独立入口
+- 继续公开暴露会让业务误以为它是完整 AI 能力
+
+当前真源：
+
+- `metadata.governance.scopes = ["internal", "admin"]`
+- `metadata.presentation.visible = false`
+
 ## 当前执行原则
 
 后续任何能力如果满足以下任一条件，都优先考虑走同样的清理路径：
