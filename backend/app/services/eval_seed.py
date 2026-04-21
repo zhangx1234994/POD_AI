@@ -20,6 +20,7 @@ from app.constants.abilities import PATTERN_EXTRACT_LORA_PRESETS
 from app.services.eval_workflow_catalog_cleanup import get_eval_workflow_cleanup_overrides
 from app.services.eval_workflow_deprecation import enrich_metadata_with_eval_workflow_deprecation
 from app.services.eval_workflow_presentation import enrich_metadata_with_eval_workflow_presentation
+from app.services.eval_workflow_usage import enrich_metadata_with_eval_workflow_usage
 
 
 LORA_OPTIONS = [
@@ -1500,6 +1501,12 @@ def _derive_eval_workflow_metadata(item: dict[str, Any], *, index: int) -> dict[
         parameters_schema=item.get("parameters_schema"),
         output_schema=item.get("output_schema"),
         presentation_override=cleanup_overrides.get("presentation") or presentation,
+    )
+    metadata = enrich_metadata_with_eval_workflow_usage(
+        metadata,
+        category=category,
+        parameters_schema=item.get("parameters_schema"),
+        usage_override=cleanup_overrides.get("usage"),
     )
     return enrich_metadata_with_eval_workflow_deprecation(
         metadata,

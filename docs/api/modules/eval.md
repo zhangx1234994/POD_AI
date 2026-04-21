@@ -44,6 +44,16 @@
     - `resultMode`
     - `supportsBatch`
     - `recommendedRepeatCount`
+- `usage`
+  - 工作流使用方式与推荐入口，不需要前端再根据 schema 猜业务逻辑
+  - 字段：
+    - `singleRunEnabled`
+    - `batchEnabled`
+    - `docsEnabled`
+    - `recommendedEntry`
+    - `supportsAnnotation`
+    - `requiresResourceOptions`
+    - `resourceOptionTypes`
 - `deprecation`
   - 工作流下线/替代信息
   - 字段：

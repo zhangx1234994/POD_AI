@@ -42,6 +42,8 @@
 - `docs/standards/error-contract.md`
 - `docs/standards/interface-consistency.md`
 - `docs/standards/ability-presentation-layer.md`
+- `docs/standards/eval-workflow-presentation-layer.md`
+- `docs/standards/eval-workflow-usage-layer.md`
 - `docs/standards/document-maintenance.md`
 
 ## 模块入口

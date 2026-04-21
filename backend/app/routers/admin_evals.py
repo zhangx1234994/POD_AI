@@ -36,6 +36,7 @@ from app.services.eval_workflow_presentation import (
     build_eval_workflow_presentation_sort_key,
     resolve_eval_workflow_presentation,
 )
+from app.services.eval_workflow_usage import resolve_eval_workflow_usage
 from app.deps.auth import get_current_user, require_admin
 from app.models.user import User
 
@@ -104,6 +105,11 @@ def _serialize_workflow_version(row: EvalWorkflowVersion) -> EvalWorkflowVersion
         output_schema=row.output_schema,
         metadata=row.extra_metadata,
     )
+    usage = resolve_eval_workflow_usage(
+        category=row.category,
+        parameters_schema=row.parameters_schema,
+        metadata=row.extra_metadata,
+    )
     return EvalWorkflowVersionResponse(
         id=row.id,
         category=row.category,
@@ -135,6 +141,15 @@ def _serialize_workflow_version(row: EvalWorkflowVersion) -> EvalWorkflowVersion
             "resultMode": presentation["result_mode"],
             "supportsBatch": presentation["supports_batch"],
             "recommendedRepeatCount": presentation["recommended_repeat_count"],
+        },
+        usage={
+            "singleRunEnabled": usage["single_run_enabled"],
+            "batchEnabled": usage["batch_enabled"],
+            "docsEnabled": usage["docs_enabled"],
+            "recommendedEntry": usage["recommended_entry"],
+            "supportsAnnotation": usage["supports_annotation"],
+            "requiresResourceOptions": usage["requires_resource_options"],
+            "resourceOptionTypes": usage["resource_option_types"],
         },
         resourceBindings=_extract_workflow_resource_bindings(row.parameters_schema),
         created_at=row.created_at,

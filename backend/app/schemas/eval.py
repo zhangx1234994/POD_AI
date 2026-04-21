@@ -63,6 +63,16 @@ class EvalWorkflowDeprecation(BaseModel):
     retirementMode: str = Field(default="hide_public")
 
 
+class EvalWorkflowUsage(BaseModel):
+    singleRunEnabled: bool = Field(default=True)
+    batchEnabled: bool = Field(default=False)
+    docsEnabled: bool = Field(default=True)
+    recommendedEntry: str = Field(default="parameter_form")
+    supportsAnnotation: bool = Field(default=False)
+    requiresResourceOptions: bool = Field(default=False)
+    resourceOptionTypes: list[str] = Field(default_factory=list)
+
+
 class EvalWorkflowVersionResponse(EvalWorkflowVersionBase):
     """Schema for evaluation workflow version response."""
     id: str = Field(..., description="ID")
@@ -73,6 +83,10 @@ class EvalWorkflowVersionResponse(EvalWorkflowVersionBase):
     deprecation: EvalWorkflowDeprecation | None = Field(
         default=None,
         description="工作流下线/替代信息",
+    )
+    usage: EvalWorkflowUsage | None = Field(
+        default=None,
+        description="工作流使用方式与入口建议",
     )
     resource_bindings: list[EvalWorkflowResourceBinding] = Field(
         default_factory=list,

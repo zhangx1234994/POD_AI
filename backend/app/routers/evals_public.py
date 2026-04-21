@@ -70,6 +70,7 @@ from app.services.eval_workflow_presentation import (
     is_eval_workflow_visible,
     resolve_eval_workflow_presentation,
 )
+from app.services.eval_workflow_usage import resolve_eval_workflow_usage
 from app.services.eval_service import get_eval_service
 from app.services.oss import oss_service
 from app.services.task_status_contract import derive_eval_run_status
@@ -187,6 +188,11 @@ def _serialize_workflow_version(version: EvalWorkflowVersion) -> EvalWorkflowVer
         output_schema=version.output_schema,
         metadata=version.extra_metadata,
     )
+    usage = resolve_eval_workflow_usage(
+        category=version.category,
+        parameters_schema=version.parameters_schema,
+        metadata=version.extra_metadata,
+    )
     return EvalWorkflowVersionResponse(
         id=version.id,
         category=version.category,
@@ -218,6 +224,15 @@ def _serialize_workflow_version(version: EvalWorkflowVersion) -> EvalWorkflowVer
             "resultMode": presentation["result_mode"],
             "supportsBatch": presentation["supports_batch"],
             "recommendedRepeatCount": presentation["recommended_repeat_count"],
+        },
+        usage={
+            "singleRunEnabled": usage["single_run_enabled"],
+            "batchEnabled": usage["batch_enabled"],
+            "docsEnabled": usage["docs_enabled"],
+            "recommendedEntry": usage["recommended_entry"],
+            "supportsAnnotation": usage["supports_annotation"],
+            "requiresResourceOptions": usage["requires_resource_options"],
+            "resourceOptionTypes": usage["resource_option_types"],
         },
         resourceBindings=_extract_workflow_resource_bindings(version.parameters_schema),
         created_at=version.created_at,

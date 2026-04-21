@@ -118,6 +118,15 @@ def test_eval_workflow_metadata_defaults_exist_for_outpaint_and_fission() -> Non
     assert outpaint_metadata["presentation"]["result_mode"] == "callback_image"
     assert outpaint_metadata["presentation"]["supports_batch"] is False
     assert outpaint_metadata["parameter_defaults"] == {}
+    assert outpaint_metadata["usage"] == {
+        "single_run_enabled": True,
+        "batch_enabled": False,
+        "docs_enabled": True,
+        "recommended_entry": "single_image",
+        "supports_annotation": True,
+        "requires_resource_options": False,
+        "resource_option_types": [],
+    }
 
     assert fission_metadata["presentation"]["visible"] is True
     assert fission_metadata["presentation"]["category_label"] == "图裂变"
@@ -127,6 +136,15 @@ def test_eval_workflow_metadata_defaults_exist_for_outpaint_and_fission() -> Non
     assert fission_metadata["presentation"]["result_mode"] == "callback_image"
     assert fission_metadata["presentation"]["supports_batch"] is True
     assert fission_metadata["presentation"]["recommended_repeat_count"] == 4
+    assert fission_metadata["usage"] == {
+        "single_run_enabled": True,
+        "batch_enabled": True,
+        "docs_enabled": True,
+        "recommended_entry": "single_image",
+        "supports_annotation": True,
+        "requires_resource_options": False,
+        "resource_option_types": [],
+    }
 
     assert legacy_outpaint_metadata["presentation"]["visible"] is False
     assert legacy_outpaint_metadata["presentation"]["operation_label"] == "旧版扩图"
