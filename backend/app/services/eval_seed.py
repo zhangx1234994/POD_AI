@@ -17,6 +17,8 @@ from sqlalchemy.orm import Session
 
 from app.models.eval import EvalBatchSession, EvalRun, EvalWorkflowVersion
 from app.constants.abilities import PATTERN_EXTRACT_LORA_PRESETS
+from app.services.eval_workflow_catalog_cleanup import get_eval_workflow_cleanup_overrides
+from app.services.eval_workflow_deprecation import enrich_metadata_with_eval_workflow_deprecation
 from app.services.eval_workflow_presentation import enrich_metadata_with_eval_workflow_presentation
 
 
@@ -1479,6 +1481,7 @@ def _derive_eval_workflow_metadata(item: dict[str, Any], *, index: int) -> dict[
     category = _resolve_eval_category(workflow_id, str(item.get("category") or "").strip())
     status = str(item.get("status") or "active").strip().lower()
     base = deepcopy(item.get("metadata")) if isinstance(item.get("metadata"), dict) else {}
+    cleanup_overrides = get_eval_workflow_cleanup_overrides(workflow_id)
     presentation = deepcopy(base.get("presentation")) if isinstance(base.get("presentation"), dict) else {}
     parameter_defaults = (
         deepcopy(base.get("parameter_defaults")) if isinstance(base.get("parameter_defaults"), dict) else {}
@@ -1488,7 +1491,7 @@ def _derive_eval_workflow_metadata(item: dict[str, Any], *, index: int) -> dict[
     presentation.setdefault("category_label", category)
     presentation.setdefault("usage_hint", "适合直接在测评端发起单次验证")
     base.setdefault("parameter_defaults", parameter_defaults)
-    return enrich_metadata_with_eval_workflow_presentation(
+    metadata = enrich_metadata_with_eval_workflow_presentation(
         base,
         status=status,
         category=category,
@@ -1496,7 +1499,12 @@ def _derive_eval_workflow_metadata(item: dict[str, Any], *, index: int) -> dict[
         name=str(item.get("name") or "").strip(),
         parameters_schema=item.get("parameters_schema"),
         output_schema=item.get("output_schema"),
-        presentation_override=presentation,
+        presentation_override=cleanup_overrides.get("presentation") or presentation,
+    )
+    return enrich_metadata_with_eval_workflow_deprecation(
+        metadata,
+        status=status,
+        deprecation_override=cleanup_overrides.get("deprecation"),
     )
 
 

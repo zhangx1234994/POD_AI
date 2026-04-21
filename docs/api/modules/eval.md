@@ -44,6 +44,14 @@
     - `resultMode`
     - `supportsBatch`
     - `recommendedRepeatCount`
+- `deprecation`
+  - 工作流下线/替代信息
+  - 字段：
+    - `isDeprecated`
+    - `replacementWorkflowId`
+    - `replacementDisplayName`
+    - `reason`
+    - `retirementMode`
 
 重点工作流参数补充：
 

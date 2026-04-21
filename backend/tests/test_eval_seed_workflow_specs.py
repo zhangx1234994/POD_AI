@@ -108,6 +108,7 @@ def test_new_flux2_outpaint_workflow_matches_legacy_outpaint_contract():
 def test_eval_workflow_metadata_defaults_exist_for_outpaint_and_fission() -> None:
     outpaint_metadata = DEFAULT_EVAL_WORKFLOW_METADATA_BY_ID["7631174682116358144"]
     fission_metadata = DEFAULT_EVAL_WORKFLOW_METADATA_BY_ID["7629024620879806464"]
+    legacy_outpaint_metadata = DEFAULT_EVAL_WORKFLOW_METADATA_BY_ID["7598587935331450880"]
 
     assert outpaint_metadata["presentation"]["visible"] is True
     assert outpaint_metadata["presentation"]["category_label"] == "图延伸类"
@@ -126,6 +127,11 @@ def test_eval_workflow_metadata_defaults_exist_for_outpaint_and_fission() -> Non
     assert fission_metadata["presentation"]["result_mode"] == "callback_image"
     assert fission_metadata["presentation"]["supports_batch"] is True
     assert fission_metadata["presentation"]["recommended_repeat_count"] == 4
+
+    assert legacy_outpaint_metadata["presentation"]["visible"] is False
+    assert legacy_outpaint_metadata["presentation"]["operation_label"] == "旧版扩图"
+    assert legacy_outpaint_metadata["deprecation"]["replacement_workflow_id"] == "7631174682116358144"
+    assert legacy_outpaint_metadata["deprecation"]["retirement_mode"] == "hide_public"
 
 
 def test_beijing_koutu_workflow_is_general_with_url_only():

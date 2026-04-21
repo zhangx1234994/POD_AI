@@ -31,6 +31,7 @@ from app.schemas.eval import (
 )
 from app.services.eval_service import get_eval_service
 from app.services.eval_seed import ensure_default_eval_workflow_versions
+from app.services.eval_workflow_deprecation import resolve_eval_workflow_deprecation
 from app.services.eval_workflow_presentation import (
     build_eval_workflow_presentation_sort_key,
     resolve_eval_workflow_presentation,
@@ -90,6 +91,10 @@ def _extract_workflow_resource_bindings(schema: dict | None) -> list[EvalWorkflo
 
 
 def _serialize_workflow_version(row: EvalWorkflowVersion) -> EvalWorkflowVersionResponse:
+    deprecation = resolve_eval_workflow_deprecation(
+        status=row.status,
+        metadata=row.extra_metadata,
+    )
     presentation = resolve_eval_workflow_presentation(
         status=row.status,
         category=row.category,
@@ -111,6 +116,15 @@ def _serialize_workflow_version(row: EvalWorkflowVersion) -> EvalWorkflowVersion
         metadata=row.extra_metadata,
         notes=row.notes,
         status=row.status,
+        deprecation={
+            "isDeprecated": True,
+            "replacementWorkflowId": deprecation.get("replacement_workflow_id"),
+            "replacementDisplayName": deprecation.get("replacement_display_name"),
+            "reason": deprecation.get("reason"),
+            "retirementMode": deprecation.get("retirement_mode"),
+        }
+        if deprecation
+        else None,
         presentation={
             "visible": presentation["visible"],
             "sortOrder": presentation["sort_order"],

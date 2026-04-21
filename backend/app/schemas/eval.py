@@ -55,12 +55,24 @@ class EvalWorkflowBusinessPresentation(BaseModel):
     recommendedRepeatCount: int = Field(default=1)
 
 
+class EvalWorkflowDeprecation(BaseModel):
+    isDeprecated: bool = Field(default=True)
+    replacementWorkflowId: str | None = Field(default=None)
+    replacementDisplayName: str | None = Field(default=None)
+    reason: str | None = Field(default=None)
+    retirementMode: str = Field(default="hide_public")
+
+
 class EvalWorkflowVersionResponse(EvalWorkflowVersionBase):
     """Schema for evaluation workflow version response."""
     id: str = Field(..., description="ID")
     presentation: EvalWorkflowBusinessPresentation | None = Field(
         default=None,
         description="业务侧可直接消费的展示层信息",
+    )
+    deprecation: EvalWorkflowDeprecation | None = Field(
+        default=None,
+        description="工作流下线/替代信息",
     )
     resource_bindings: list[EvalWorkflowResourceBinding] = Field(
         default_factory=list,

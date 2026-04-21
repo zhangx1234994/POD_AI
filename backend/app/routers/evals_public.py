@@ -64,6 +64,7 @@ from app.schemas.eval import (
 )
 from app.services.comfyui_lora_catalog_service import ensure_default_lora_catalog_entries
 from app.services.eval_seed import FISSION_WORKFLOW_IDS, ensure_default_eval_workflow_versions
+from app.services.eval_workflow_deprecation import resolve_eval_workflow_deprecation
 from app.services.eval_workflow_presentation import (
     build_eval_workflow_presentation_sort_key,
     is_eval_workflow_visible,
@@ -173,6 +174,10 @@ def _extract_workflow_resource_bindings(schema: dict[str, Any] | None) -> list[E
 
 
 def _serialize_workflow_version(version: EvalWorkflowVersion) -> EvalWorkflowVersionResponse:
+    deprecation = resolve_eval_workflow_deprecation(
+        status=version.status,
+        metadata=version.extra_metadata,
+    )
     presentation = resolve_eval_workflow_presentation(
         status=version.status,
         category=version.category,
@@ -194,6 +199,15 @@ def _serialize_workflow_version(version: EvalWorkflowVersion) -> EvalWorkflowVer
         metadata=version.extra_metadata,
         notes=version.notes,
         status=version.status,
+        deprecation={
+            "isDeprecated": True,
+            "replacementWorkflowId": deprecation.get("replacement_workflow_id"),
+            "replacementDisplayName": deprecation.get("replacement_display_name"),
+            "reason": deprecation.get("reason"),
+            "retirementMode": deprecation.get("retirement_mode"),
+        }
+        if deprecation
+        else None,
         presentation={
             "visible": presentation["visible"],
             "sortOrder": presentation["sort_order"],

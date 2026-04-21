@@ -5,6 +5,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
+from app.services.eval_workflow_deprecation import resolve_eval_workflow_deprecation
 
 _CATEGORY_SORT_BUCKETS = {
     "花纹提取类": 1000,
@@ -281,6 +282,11 @@ def is_eval_workflow_visible(
     output_schema: dict[str, Any] | None,
     metadata: dict[str, Any] | None,
 ) -> bool:
+    deprecation = resolve_eval_workflow_deprecation(status=status, metadata=metadata)
+    if deprecation and deprecation.get("is_deprecated"):
+        retirement_mode = str(deprecation.get("retirement_mode") or "hide_public").strip().lower()
+        if retirement_mode in {"hide_public", "admin_only", "delete_candidate"}:
+            return False
     presentation = resolve_eval_workflow_presentation(
         status=status,
         category=category,
