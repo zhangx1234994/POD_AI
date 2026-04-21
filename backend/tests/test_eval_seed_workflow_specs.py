@@ -109,6 +109,8 @@ def test_eval_workflow_metadata_defaults_exist_for_outpaint_and_fission() -> Non
     outpaint_metadata = DEFAULT_EVAL_WORKFLOW_METADATA_BY_ID["7631174682116358144"]
     fission_metadata = DEFAULT_EVAL_WORKFLOW_METADATA_BY_ID["7629024620879806464"]
     legacy_outpaint_metadata = DEFAULT_EVAL_WORKFLOW_METADATA_BY_ID["7598587935331450880"]
+    queue_monitor_metadata = DEFAULT_EVAL_WORKFLOW_METADATA_BY_ID["7601054603211177984"]
+    callback_metadata = DEFAULT_EVAL_WORKFLOW_METADATA_BY_ID["7597556718159003648"]
 
     assert outpaint_metadata["presentation"]["visible"] is True
     assert outpaint_metadata["presentation"]["category_label"] == "图延伸类"
@@ -150,6 +152,16 @@ def test_eval_workflow_metadata_defaults_exist_for_outpaint_and_fission() -> Non
     assert legacy_outpaint_metadata["presentation"]["operation_label"] == "旧版扩图"
     assert legacy_outpaint_metadata["deprecation"]["replacement_workflow_id"] == "7631174682116358144"
     assert legacy_outpaint_metadata["deprecation"]["retirement_mode"] == "hide_public"
+
+    assert queue_monitor_metadata["presentation"]["visible"] is False
+    assert queue_monitor_metadata["presentation"]["operation_label"] == "内部监控"
+    assert queue_monitor_metadata["deprecation"]["retirement_mode"] == "admin_only"
+    assert queue_monitor_metadata["deprecation"]["reason"] == "内部排障工作流，不应作为业务评测入口暴露。"
+
+    assert callback_metadata["presentation"]["visible"] is False
+    assert callback_metadata["presentation"]["operation_label"] == "内部回调"
+    assert callback_metadata["deprecation"]["retirement_mode"] == "admin_only"
+    assert callback_metadata["deprecation"]["reason"] == "内部回调/排障工作流，不应作为业务评测入口暴露。"
 
 
 def test_beijing_koutu_workflow_is_general_with_url_only():

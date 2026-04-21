@@ -28,8 +28,22 @@
   - 名称：`扩图 · flux2_klein_9b_outpaint`
   - 状态：保留为当前主扩图入口
 
+## 第二批决定
+
+### 1. 内部排障 workflow 收回 admin
+
+- `7601054603211177984`
+  - 名称：`ComfyUI 队列监控 · comfyui_duilie`
+  - 处理：公共列表隐藏，仅保留 admin 可见
+  - 原因：这是内部排障和观察队列状态的工具，不是业务评测入口
+
+- `7597556718159003648`
+  - 名称：`ComfyUI 回调 · comfyui_huidiao`
+  - 处理：公共列表隐藏，仅保留 admin 可见
+  - 原因：这是内部回调/取图兜底 workflow，不应要求业务理解和使用
+
 ## 规则
 
-1. 旧 workflow 默认不直接删除，先进入 `deprecated + hide_public`。
-2. 业务侧优先只看到替代后的主入口。
-3. admin 列表保留旧 workflow，可用于排查和历史回溯。
+1. 旧 workflow 默认不直接删除，先进入 `deprecated + hide_public/admin_only`。
+2. 业务侧优先只看到替代后的主入口或真正面向业务的 workflow。
+3. admin 列表保留旧 workflow 与内部 workflow，可用于排查和历史回溯。

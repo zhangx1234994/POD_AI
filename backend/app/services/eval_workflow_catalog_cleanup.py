@@ -35,6 +35,30 @@ _EVAL_WORKFLOW_CLEANUP_OVERRIDES: dict[str, dict[str, Any]] = {
             "retirement_mode": "hide_public",
         },
     },
+    "7601054603211177984": {
+        "presentation": {
+            "visible": False,
+            "usage_hint": "内部监控工作流，仅用于排查 ComfyUI 队列状态。",
+            "operation_label": "内部监控",
+        },
+        "deprecation": {
+            "is_deprecated": True,
+            "reason": "内部排障工作流，不应作为业务评测入口暴露。",
+            "retirement_mode": "admin_only",
+        },
+    },
+    "7597556718159003648": {
+        "presentation": {
+            "visible": False,
+            "usage_hint": "内部回调查询工作流，仅用于后端兜底取图和排障。",
+            "operation_label": "内部回调",
+        },
+        "deprecation": {
+            "is_deprecated": True,
+            "reason": "内部回调/排障工作流，不应作为业务评测入口暴露。",
+            "retirement_mode": "admin_only",
+        },
+    },
 }
 
 
