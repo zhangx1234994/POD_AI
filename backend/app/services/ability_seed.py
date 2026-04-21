@@ -18,6 +18,7 @@ from app.constants.abilities import (
     VOLCENGINE_VIDEO_ABILITIES,
 )
 from app.models.integration import Ability
+from app.services.ability_catalog_cleanup import get_cleanup_overrides
 from app.services.ability_deprecation import enrich_metadata_with_deprecation
 from app.services.ability_governance import enrich_metadata_with_governance
 from app.services.ability_presentation import enrich_metadata_with_presentation
@@ -176,11 +177,17 @@ def ensure_default_abilities(session: Session) -> bool:
     created = False
     changed = False
     for seed in DEFAULT_ABILITY_SEEDS:
+        cleanup = get_cleanup_overrides(provider=seed.provider, capability_key=seed.capability_key)
         seed_metadata = enrich_metadata_with_presentation(
             enrich_ability_metadata_with_routing(
                 enrich_metadata_with_deprecation(
-                    enrich_metadata_with_governance(seed.metadata, status=seed.status),
+                    enrich_metadata_with_governance(
+                        seed.metadata,
+                        status=seed.status,
+                        governance_override=cleanup.get("governance") if isinstance(cleanup, dict) else None,
+                    ),
                     status=seed.status,
+                    deprecation_override=cleanup.get("deprecation") if isinstance(cleanup, dict) else None,
                 )
             ),
             status=seed.status,
@@ -188,6 +195,7 @@ def ensure_default_abilities(session: Session) -> bool:
             category=seed.category,
             capability_key=seed.capability_key,
             ability_type=seed.ability_type,
+            presentation_override=cleanup.get("presentation") if isinstance(cleanup, dict) else None,
         )
         stmt = select(Ability).where(
             Ability.provider == seed.provider,

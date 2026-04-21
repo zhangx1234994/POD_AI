@@ -1946,7 +1946,7 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "supports_vision": True,
             "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
             "routing_policy": "queue",
-            "seed_version": 5,
+            "seed_version": 6,
             "pricing": {
                 "currency": "CNY",
                 "unit": "per_image",
@@ -2125,7 +2125,7 @@ PODI_UTILITY_ABILITIES: dict[str, AbilityDefinition] = {
             "action": "expand_mask_color",
             "requires_image_input": True,
             "supports_vision": True,
-            "seed_version": 2,
+            "seed_version": 3,
             "pricing": {
                 "currency": "CNY",
                 "unit": "per_image",
