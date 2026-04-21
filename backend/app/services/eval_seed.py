@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.models.eval import EvalBatchSession, EvalRun, EvalWorkflowVersion
 from app.constants.abilities import PATTERN_EXTRACT_LORA_PRESETS
+from app.services.eval_workflow_presentation import enrich_metadata_with_eval_workflow_presentation
 
 
 LORA_OPTIONS = [
@@ -1486,9 +1487,17 @@ def _derive_eval_workflow_metadata(item: dict[str, Any], *, index: int) -> dict[
     presentation.setdefault("sort_order", _CATEGORY_SORT_BUCKET.get(category, 9000) + index)
     presentation.setdefault("category_label", category)
     presentation.setdefault("usage_hint", "适合直接在测评端发起单次验证")
-    base["presentation"] = presentation
     base.setdefault("parameter_defaults", parameter_defaults)
-    return base
+    return enrich_metadata_with_eval_workflow_presentation(
+        base,
+        status=status,
+        category=category,
+        workflow_id=workflow_id,
+        name=str(item.get("name") or "").strip(),
+        parameters_schema=item.get("parameters_schema"),
+        output_schema=item.get("output_schema"),
+        presentation_override=presentation,
+    )
 
 
 DEFAULT_EVAL_WORKFLOW_METADATA_BY_ID: dict[str, dict[str, Any]] = {

@@ -32,6 +32,18 @@
   - `usage_hint`：给业务的简化使用提示
 - `metadata.parameter_defaults`
   - 预留给后续“默认参数覆盖”使用，避免每次改代码发版
+- `presentation`
+  - 业务侧可直接消费的展示层对象，不需要再自行解析原始 `metadata`
+  - 字段：
+    - `visible`
+    - `sortOrder`
+    - `categoryLabel`
+    - `usageHint`
+    - `operationLabel`
+    - `entryMode`
+    - `resultMode`
+    - `supportsBatch`
+    - `recommendedRepeatCount`
 
 重点工作流参数补充：
 

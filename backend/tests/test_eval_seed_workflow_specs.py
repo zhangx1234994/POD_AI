@@ -112,11 +112,20 @@ def test_eval_workflow_metadata_defaults_exist_for_outpaint_and_fission() -> Non
     assert outpaint_metadata["presentation"]["visible"] is True
     assert outpaint_metadata["presentation"]["category_label"] == "图延伸类"
     assert isinstance(outpaint_metadata["presentation"]["sort_order"], int)
+    assert outpaint_metadata["presentation"]["operation_label"] == "图像延伸"
+    assert outpaint_metadata["presentation"]["entry_mode"] == "single_image"
+    assert outpaint_metadata["presentation"]["result_mode"] == "callback_image"
+    assert outpaint_metadata["presentation"]["supports_batch"] is False
     assert outpaint_metadata["parameter_defaults"] == {}
 
     assert fission_metadata["presentation"]["visible"] is True
     assert fission_metadata["presentation"]["category_label"] == "图裂变"
     assert isinstance(fission_metadata["presentation"]["sort_order"], int)
+    assert fission_metadata["presentation"]["operation_label"] == "图像裂变"
+    assert fission_metadata["presentation"]["entry_mode"] == "single_image"
+    assert fission_metadata["presentation"]["result_mode"] == "callback_image"
+    assert fission_metadata["presentation"]["supports_batch"] is True
+    assert fission_metadata["presentation"]["recommended_repeat_count"] == 4
 
 
 def test_beijing_koutu_workflow_is_general_with_url_only():

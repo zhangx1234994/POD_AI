@@ -43,9 +43,25 @@ class EvalWorkflowResourceBinding(BaseModel):
     source: str = Field(..., description="数据来源")
 
 
+class EvalWorkflowBusinessPresentation(BaseModel):
+    visible: bool = Field(default=True)
+    sortOrder: int = Field(default=9999)
+    categoryLabel: str = Field(default="")
+    usageHint: str = Field(default="")
+    operationLabel: str = Field(default="")
+    entryMode: str = Field(default="parameter_form")
+    resultMode: str = Field(default="unknown")
+    supportsBatch: bool = Field(default=False)
+    recommendedRepeatCount: int = Field(default=1)
+
+
 class EvalWorkflowVersionResponse(EvalWorkflowVersionBase):
     """Schema for evaluation workflow version response."""
     id: str = Field(..., description="ID")
+    presentation: EvalWorkflowBusinessPresentation | None = Field(
+        default=None,
+        description="业务侧可直接消费的展示层信息",
+    )
     resource_bindings: list[EvalWorkflowResourceBinding] = Field(
         default_factory=list,
         alias="resourceBindings",

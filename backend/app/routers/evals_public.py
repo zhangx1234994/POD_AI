@@ -64,6 +64,11 @@ from app.schemas.eval import (
 )
 from app.services.comfyui_lora_catalog_service import ensure_default_lora_catalog_entries
 from app.services.eval_seed import FISSION_WORKFLOW_IDS, ensure_default_eval_workflow_versions
+from app.services.eval_workflow_presentation import (
+    build_eval_workflow_presentation_sort_key,
+    is_eval_workflow_visible,
+    resolve_eval_workflow_presentation,
+)
 from app.services.eval_service import get_eval_service
 from app.services.oss import oss_service
 from app.services.task_status_contract import derive_eval_run_status
@@ -168,6 +173,15 @@ def _extract_workflow_resource_bindings(schema: dict[str, Any] | None) -> list[E
 
 
 def _serialize_workflow_version(version: EvalWorkflowVersion) -> EvalWorkflowVersionResponse:
+    presentation = resolve_eval_workflow_presentation(
+        status=version.status,
+        category=version.category,
+        workflow_id=version.workflow_id,
+        name=version.name,
+        parameters_schema=version.parameters_schema,
+        output_schema=version.output_schema,
+        metadata=version.extra_metadata,
+    )
     return EvalWorkflowVersionResponse(
         id=version.id,
         category=version.category,
@@ -180,6 +194,17 @@ def _serialize_workflow_version(version: EvalWorkflowVersion) -> EvalWorkflowVer
         metadata=version.extra_metadata,
         notes=version.notes,
         status=version.status,
+        presentation={
+            "visible": presentation["visible"],
+            "sortOrder": presentation["sort_order"],
+            "categoryLabel": presentation["category_label"],
+            "usageHint": presentation["usage_hint"],
+            "operationLabel": presentation["operation_label"],
+            "entryMode": presentation["entry_mode"],
+            "resultMode": presentation["result_mode"],
+            "supportsBatch": presentation["supports_batch"],
+            "recommendedRepeatCount": presentation["recommended_repeat_count"],
+        },
         resourceBindings=_extract_workflow_resource_bindings(version.parameters_schema),
         created_at=version.created_at,
         updated_at=version.updated_at,
@@ -187,23 +212,28 @@ def _serialize_workflow_version(version: EvalWorkflowVersion) -> EvalWorkflowVer
 
 
 def _workflow_sort_key(row: EvalWorkflowVersion) -> tuple[str, int, str]:
-    metadata = row.extra_metadata if isinstance(row.extra_metadata, dict) else {}
-    presentation = metadata.get("presentation") if isinstance(metadata.get("presentation"), dict) else {}
-    sort_order = presentation.get("sort_order")
-    try:
-        sort_value = int(sort_order)
-    except (TypeError, ValueError):
-        sort_value = 999999
-    return (str(row.category or ""), sort_value, str(row.name or ""))
+    sort_value, category, _workflow_id, name = build_eval_workflow_presentation_sort_key(
+        status=row.status,
+        category=row.category,
+        workflow_id=row.workflow_id,
+        name=row.name,
+        parameters_schema=row.parameters_schema,
+        output_schema=row.output_schema,
+        metadata=row.extra_metadata,
+    )
+    return (str(category or ""), int(sort_value), str(name or ""))
 
 
 def _is_workflow_visible(row: EvalWorkflowVersion) -> bool:
-    metadata = row.extra_metadata if isinstance(row.extra_metadata, dict) else {}
-    presentation = metadata.get("presentation") if isinstance(metadata.get("presentation"), dict) else {}
-    visible = presentation.get("visible")
-    if isinstance(visible, bool):
-        return visible
-    return row.status == "active"
+    return is_eval_workflow_visible(
+        status=row.status,
+        category=row.category,
+        workflow_id=row.workflow_id,
+        name=row.name,
+        parameters_schema=row.parameters_schema,
+        output_schema=row.output_schema,
+        metadata=row.extra_metadata,
+    )
 
 
 def _dedupe_workflow_versions(rows: list[EvalWorkflowVersion]) -> list[EvalWorkflowVersion]:
