@@ -28,6 +28,13 @@
   - `release_status`：`draft/internal_ready/eval_ready/published/deprecated`
   - `route_policy`：`fixed/queue_aware/fallback_allowed`
   - `quality_status`：`untested/usable/needs_optimization`
+- `metadata.routing`：中台路由真源，给调度层和管理端使用。
+  - `selection_policy`：`auto/fixed/queue/weight/round_robin`
+  - `required_executor_tags`
+  - `allowed_executor_ids`
+  - `fallback_to_default`
+  - `action`
+  - `workflow_key`
 
 **响应示例**
 
@@ -57,6 +64,14 @@
       "metadata": {
         "api_type": "comfyui_workflow",
         "requires_image_input": true,
+        "routing": {
+          "selection_policy": "queue",
+          "required_executor_tags": ["pattern_extract"],
+          "allowed_executor_ids": ["executor_comfyui_pattern_extract_158"],
+          "fallback_to_default": true,
+          "action": "generic",
+          "workflow_key": "yinhua_tiqu"
+        },
         "governance": {
           "scopes": ["admin", "eval", "coze"],
           "release_status": "published",
@@ -165,7 +180,7 @@
 
 - 公共 options 也会返回 `business_status` 与 `governance`。
 - 业务前端应优先使用 `business_status` 渲染“可用性/稳定度”。
-- 管理端或内部平台可读取 `governance` 做分层、发布与路由判断。
+- 管理端或内部平台可读取 `governance` 做分层、发布判断，并读取 `metadata.routing` 做路由判断。
 
 ---
 

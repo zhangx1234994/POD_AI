@@ -29,12 +29,36 @@
   "status": "active",
   "weight": 1,
   "max_concurrency": 1,
-  "config": { "apiKey": "..." },
+  "config": { "apiKey": "...", "routing": { "selection_policy": "queue" } },
+  "routing": {
+    "routing_enabled": true,
+    "fallback_only": false,
+    "selection_policy": "queue",
+    "tags": ["pattern_extract"]
+  },
   "api_key_ids": []
 }
 ```
 
 > 说明：`base_url` 为示例，实际以管理端配置为准（主服务器可能调整）。
+
+**返回补充字段**
+
+- `routing`：执行节点的标准化路由真源（从 `config.routing` 归一化得到）
+- `business_status`：
+  - `execution_mode_code`
+  - `execution_mode_label`
+  - `concurrency_label`
+  - `tags`
+
+当前路由真源支持：
+- `routing_enabled`
+- `fallback_only`
+- `selection_policy`：`auto / fixed / queue / weight / round_robin`
+- `tags`
+- `allowed_workflow_keys`
+- `blocked_workflow_keys`
+- `concurrency_limit`
 
 ### PUT /api/admin/executors/{id}
 ### DELETE /api/admin/executors/{id}

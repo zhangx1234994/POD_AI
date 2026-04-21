@@ -39,10 +39,37 @@ from app.services.ability_invocation import ability_invocation_service
 from app.services.comfyui_lora_catalog_service import ensure_default_lora_catalog_entries
 from app.services.executor_seed import ensure_default_executors
 from app.services.integration_test import integration_test_service
+from app.services.routing_governance import (
+    build_executor_business_status,
+    enrich_executor_config_with_routing,
+    normalize_executor_routing,
+)
 from app.services.workflow_seed import ensure_default_bindings, ensure_default_workflows
 
 router = APIRouter(prefix="/admin", dependencies=[Depends(require_admin)])
 logger = logging.getLogger(__name__)
+
+
+def _serialize_executor(executor: Executor) -> schemas.ExecutorRead:
+    config = enrich_executor_config_with_routing(executor.config, max_concurrency=executor.max_concurrency)
+    routing = normalize_executor_routing(config, max_concurrency=executor.max_concurrency)
+    return schemas.ExecutorRead(
+        id=executor.id,
+        name=executor.name,
+        type=executor.type,
+        base_url=executor.base_url,
+        status=executor.status,
+        weight=executor.weight,
+        max_concurrency=executor.max_concurrency,
+        config=config,
+        api_key_ids=executor.api_key_ids,
+        routing=routing,
+        business_status=build_executor_business_status(routing),
+        health_status=executor.health_status,
+        last_heartbeat_at=executor.last_heartbeat_at,
+        created_at=executor.created_at,
+        updated_at=executor.updated_at,
+    )
 
 
 def _generate_id(existing_id: str | None) -> str:
@@ -267,7 +294,7 @@ def _find_comfyui_ability(workflow_key: str | None, ability_id: str | None) -> A
 
 
 @router.get("/executors", response_model=list[schemas.ExecutorRead])
-def list_executors() -> list[Executor]:
+def list_executors() -> list[schemas.ExecutorRead]:
     with get_session() as session:
         ensure_default_executors(session)
         stmt = (
@@ -275,12 +302,17 @@ def list_executors() -> list[Executor]:
             .options(selectinload(Executor.api_key_links))
             .order_by(Executor.created_at.desc())
         )
-        return session.execute(stmt).scalars().all()
+        rows = session.execute(stmt).scalars().all()
+        return [_serialize_executor(row) for row in rows]
 
 
 @router.post("/executors", response_model=schemas.ExecutorRead)
-def create_executor(payload: schemas.ExecutorCreate) -> Executor:
+def create_executor(payload: schemas.ExecutorCreate) -> schemas.ExecutorRead:
     with get_session() as session:
+        config_payload = payload.config or {}
+        if payload.routing is not None:
+            config_payload = dict(config_payload)
+            config_payload["routing"] = payload.routing
         executor = Executor(
             id=_generate_id(payload.id),
             name=payload.name,
@@ -289,7 +321,7 @@ def create_executor(payload: schemas.ExecutorCreate) -> Executor:
             status=payload.status,
             weight=payload.weight,
             max_concurrency=payload.max_concurrency,
-            config=payload.config or {},
+            config=enrich_executor_config_with_routing(config_payload, max_concurrency=payload.max_concurrency),
         )
         session.add(executor)
         session.flush()
@@ -299,11 +331,11 @@ def create_executor(payload: schemas.ExecutorCreate) -> Executor:
         # preload api key links to avoid detached lazy load
         _ = list(executor.api_key_links)
         ability_invocation_service.invalidate_executor_slot(executor.id)
-        return executor
+        return _serialize_executor(executor)
 
 
 @router.get("/executors/{executor_id}", response_model=schemas.ExecutorRead)
-def get_executor(executor_id: str) -> Executor:
+def get_executor(executor_id: str) -> schemas.ExecutorRead:
     with get_session() as session:
         stmt = (
             select(Executor)
@@ -313,18 +345,30 @@ def get_executor(executor_id: str) -> Executor:
         executor = session.execute(stmt).scalar_one_or_none()
         if not executor:
             raise HTTPException(status_code=404, detail="EXECUTOR_NOT_FOUND")
-        return executor
+        return _serialize_executor(executor)
 
 
 @router.put("/executors/{executor_id}", response_model=schemas.ExecutorRead)
-def update_executor(executor_id: str, payload: schemas.ExecutorUpdate) -> Executor:
+def update_executor(executor_id: str, payload: schemas.ExecutorUpdate) -> schemas.ExecutorRead:
     with get_session() as session:
         executor = session.get(Executor, executor_id)
         if not executor:
             raise HTTPException(status_code=404, detail="EXECUTOR_NOT_FOUND")
-        data = payload.model_dump(exclude_unset=True, exclude={"api_key_ids"})
+        data = payload.model_dump(exclude_unset=True, exclude={"api_key_ids", "routing"})
+        routing_payload = payload.routing if "routing" in payload.model_fields_set else None
         for key, value in data.items():
+            if key == "config":
+                continue
             setattr(executor, key, value)
+        if "config" in data or routing_payload is not None or "max_concurrency" in data:
+            config_payload = data.get("config", executor.config) or {}
+            if routing_payload is not None:
+                config_payload = dict(config_payload)
+                config_payload["routing"] = routing_payload
+            executor.config = enrich_executor_config_with_routing(
+                config_payload,
+                max_concurrency=executor.max_concurrency,
+            )
         if payload.api_key_ids is not None:
             _apply_executor_api_keys(session, executor, payload.api_key_ids)
         session.add(executor)
@@ -332,7 +376,7 @@ def update_executor(executor_id: str, payload: schemas.ExecutorUpdate) -> Execut
         session.refresh(executor)
         _ = list(executor.api_key_links)
         ability_invocation_service.invalidate_executor_slot(executor.id)
-        return executor
+        return _serialize_executor(executor)
 
 
 @router.delete("/executors/{executor_id}")

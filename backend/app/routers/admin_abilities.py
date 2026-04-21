@@ -27,6 +27,7 @@ from app.services.ability_seed import ensure_default_abilities
 from app.services.ability_logs import ability_log_service
 from app.services.executors.base import ExecutionContext
 from app.services.executors.registry import registry
+from app.services.routing_governance import enrich_ability_metadata_with_routing
 from app.services.task_status_contract import derive_ability_log_status
 from app.services.task_id_codec import encode_task_id
 
@@ -410,10 +411,12 @@ def list_ability_options(
 @router.post("", response_model=schemas.AbilityRead)
 def create_ability(payload: schemas.AbilityCreate) -> schemas.AbilityRead:
     with get_session() as session:
-        extra_metadata = enrich_metadata_with_governance(
-            payload.metadata,
-            status=payload.status,
-            governance_override=payload.governance.model_dump() if payload.governance else None,
+        extra_metadata = enrich_ability_metadata_with_routing(
+            enrich_metadata_with_governance(
+                payload.metadata,
+                status=payload.status,
+                governance_override=payload.governance.model_dump() if payload.governance else None,
+            )
         )
         ability = Ability(
             id=_generate_id(payload.id),
@@ -458,10 +461,12 @@ def update_ability(ability_id: str, payload: schemas.AbilityUpdate) -> schemas.A
         if raw_metadata is not None or governance_override is not None or "status" in data:
             target_status = data.get("status", ability.status)
             governance_payload = governance_override.model_dump() if hasattr(governance_override, "model_dump") else governance_override
-            data["extra_metadata"] = enrich_metadata_with_governance(
-                raw_metadata,
-                status=target_status,
-                governance_override=governance_payload,
+            data["extra_metadata"] = enrich_ability_metadata_with_routing(
+                enrich_metadata_with_governance(
+                    raw_metadata,
+                    status=target_status,
+                    governance_override=governance_payload,
+                )
             )
         if "executor_id" in data and data["executor_id"]:
             executor = session.get(Executor, data["executor_id"])

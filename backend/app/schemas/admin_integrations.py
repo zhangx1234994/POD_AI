@@ -14,6 +14,7 @@ class ExecutorBase(BaseModel):
     max_concurrency: int = 1
     config: dict[str, Any] | None = None
     api_key_ids: list[str] = Field(default_factory=list)
+    routing: dict[str, Any] | None = None
 
 
 class ExecutorCreate(ExecutorBase):
@@ -29,6 +30,7 @@ class ExecutorUpdate(BaseModel):
     max_concurrency: int | None = None
     config: dict[str, Any] | None = None
     api_key_ids: list[str] | None = None
+    routing: dict[str, Any] | None = None
 
 
 class ExecutorRead(ExecutorBase):
@@ -37,6 +39,7 @@ class ExecutorRead(ExecutorBase):
     id: str
     health_status: str | None = None
     last_heartbeat_at: datetime | None = None
+    business_status: dict[str, Any] | None = None
     created_at: datetime
     updated_at: datetime
 

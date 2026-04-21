@@ -27,6 +27,7 @@ from app.models.user import User
 from app.schemas import abilities as schemas
 from app.services.ability_governance import build_business_status, resolve_ability_governance
 from app.services.ability_logs import AbilityLogStartParams, ability_log_service
+from app.services.routing_governance import normalize_ability_routing
 from app.services.task_id_codec import encode_task_id
 from app.services.ability_seed import ensure_default_abilities
 from app.services.executor_seed import ensure_default_executors
@@ -302,22 +303,19 @@ class AbilityInvocationService:
                         return executor.id
 
         metadata = ability.extra_metadata if isinstance(ability.extra_metadata, dict) else {}
-        policy = str(metadata.get("routing_policy") or "").strip().lower()
-        if not policy:
-            policy = "auto"
-        required_tags = self._normalize_tags(metadata.get("required_tags"))
-        fallback_to_default = metadata.get("fallback_to_default")
-        if fallback_to_default is None:
-            fallback_to_default = True
-        fallback_to_default = bool(fallback_to_default)
-        allowed_ids_raw = metadata.get("allowed_executor_ids")
-        allowed_ids: list[str] = []
-        if isinstance(allowed_ids_raw, list):
-            allowed_ids = [str(x).strip() for x in allowed_ids_raw if isinstance(x, str) and x.strip()]
-        action = (metadata.get("action") or "").strip() or "generic"
+        routing = normalize_ability_routing(metadata)
+        policy = str(routing.get("selection_policy") or "auto").strip().lower()
+        required_tags = self._normalize_tags(routing.get("required_executor_tags"))
+        fallback_to_default = bool(routing.get("fallback_to_default", True))
+        allowed_ids = [
+            str(x).strip()
+            for x in (routing.get("allowed_executor_ids") or [])
+            if isinstance(x, str) and x.strip()
+        ]
+        action = str(routing.get("action") or "generic").strip() or "generic"
         workflow_key = (
             (merged_inputs.get("workflow_key") if isinstance(merged_inputs, dict) else None)
-            or metadata.get("workflow_key")
+            or routing.get("workflow_key")
             or ability.capability_key
         )
 
@@ -405,11 +403,19 @@ class AbilityInvocationService:
     def _extract_executor_tags(self, executor: Executor) -> set[str]:
         tags: list[str] = []
         cfg = executor.config or {}
-        raw = cfg.get("tags") if isinstance(cfg, dict) else None
+        routing = cfg.get("routing") if isinstance(cfg, dict) and isinstance(cfg.get("routing"), dict) else {}
+        raw = routing.get("tags")
+        if raw is None and isinstance(cfg, dict):
+            raw = cfg.get("tags")
         if raw is None and isinstance(cfg, dict):
             raw = cfg.get("tag")
         tags.extend(self._normalize_tags(raw))
         return {t for t in tags if t}
+
+    def _executor_routing_enabled(self, executor: Executor) -> bool:
+        cfg = executor.config or {}
+        routing = cfg.get("routing") if isinstance(cfg, dict) and isinstance(cfg.get("routing"), dict) else {}
+        return bool(routing.get("routing_enabled", True))
 
     def _prepare_comfyui_candidates(self, executor_ids: list[str], required_tags: list[str]) -> list[Executor]:
         ids = [str(item).strip() for item in executor_ids if isinstance(item, str) and item.strip()]
@@ -429,6 +435,7 @@ class AbilityInvocationService:
             )
         by_id = {row.id: row for row in rows}
         ordered = [by_id[eid] for eid in ids if eid in by_id]
+        ordered = [ex for ex in ordered if self._executor_routing_enabled(ex)]
         if not required_tags:
             return ordered
         required = {t.lower() for t in required_tags if t}

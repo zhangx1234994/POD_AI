@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.models.integration import ApiKey, Executor, ExecutorApiKey
+from app.services.routing_governance import enrich_executor_config_with_routing
 
 settings = get_settings()
 
@@ -108,7 +109,10 @@ def _load_external_seeds() -> list[ExecutorSeed]:
             status=str(entry.get("status") or "active"),
             weight=int(entry.get("weight") or 1),
             max_concurrency=int(entry.get("max_concurrency") or entry.get("maxConcurrency") or 1),
-            config=config if isinstance(config, dict) else None,
+            config=enrich_executor_config_with_routing(
+                config if isinstance(config, dict) else None,
+                max_concurrency=int(entry.get("max_concurrency") or entry.get("maxConcurrency") or 1),
+            ),
         )
         if seed.id and seed.name and seed.type:
             seeds.append(seed)
@@ -127,10 +131,10 @@ def _fallback_env_seeds() -> list[ExecutorSeed]:
                 status="active",
                 weight=1,
                 max_concurrency=2,
-                config={
+                config=enrich_executor_config_with_routing({
                     "apiKey": settings.baidu_api_key,
                     "secretKey": settings.baidu_secret_key,
-                },
+                }, max_concurrency=2),
             )
         )
     if settings.volcengine_api_key:
@@ -143,10 +147,10 @@ def _fallback_env_seeds() -> list[ExecutorSeed]:
                 status="active",
                 weight=1,
                 max_concurrency=2,
-                config={
+                config=enrich_executor_config_with_routing({
                     "apiKey": settings.volcengine_api_key,
                     "baseUrl": settings.volcengine_base_url,
-                },
+                }, max_concurrency=2),
             )
         )
     return seeds
@@ -205,15 +209,21 @@ def ensure_default_executors(session: Session) -> bool:
         existing = session.execute(stmt).scalar_one_or_none()
         if existing:
             # Only "repair" obviously-broken placeholders; do not blindly overwrite.
-            if has_unresolved_placeholders(existing.config) and not has_unresolved_placeholders(seed.config):
-                existing.config = seed.config
+            desired_config = enrich_executor_config_with_routing(seed.config, max_concurrency=seed.max_concurrency)
+            if has_unresolved_placeholders(existing.config) and not has_unresolved_placeholders(desired_config):
+                existing.config = desired_config
                 changed = True
             else:
                 # Also fill missing/empty values when env vars were set later.
-                merged, did_change = merge_missing_values(existing.config or {}, seed.config or {})
+                merged, did_change = merge_missing_values(existing.config or {}, desired_config or {})
                 if did_change:
-                    existing.config = merged
+                    existing.config = enrich_executor_config_with_routing(merged, max_concurrency=seed.max_concurrency)
                     changed = True
+                else:
+                    normalized_existing = enrich_executor_config_with_routing(existing.config, max_concurrency=existing.max_concurrency)
+                    if normalized_existing != (existing.config or {}):
+                        existing.config = normalized_existing
+                        changed = True
             if (existing.base_url or "") != (seed.base_url or "") and seed.base_url:
                 existing.base_url = seed.base_url
                 changed = True
@@ -235,7 +245,7 @@ def ensure_default_executors(session: Session) -> bool:
             status=seed.status,
             weight=seed.weight,
             max_concurrency=seed.max_concurrency,
-            config=seed.config,
+            config=enrich_executor_config_with_routing(seed.config, max_concurrency=seed.max_concurrency),
         )
         session.add(executor)
         changed = True
