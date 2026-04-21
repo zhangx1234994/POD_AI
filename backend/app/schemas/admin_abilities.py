@@ -23,6 +23,14 @@ class AbilityBusinessStatus(BaseModel):
     surface_labels: list[str] = Field(default_factory=list)
 
 
+class AbilityPresentation(BaseModel):
+    visible: bool = Field(default=True)
+    sort_order: int = Field(default=9999)
+    category_label: str = Field(default="")
+    usage_hint: str = Field(default="")
+    operation_label: str = Field(default="")
+
+
 class AbilityBase(BaseModel):
     provider: str
     category: str
@@ -39,6 +47,7 @@ class AbilityBase(BaseModel):
     input_schema: dict[str, Any] | None = None
     metadata: dict[str, Any] | None = None
     governance: AbilityGovernance | None = None
+    presentation: AbilityPresentation | None = None
 
 
 class AbilityCreate(AbilityBase):
@@ -61,6 +70,7 @@ class AbilityUpdate(BaseModel):
     input_schema: dict[str, Any] | None = None
     metadata: dict[str, Any] | None = None
     governance: AbilityGovernance | None = None
+    presentation: AbilityPresentation | None = None
 
 
 class AbilityRead(AbilityBase):
@@ -75,6 +85,7 @@ class AbilityRead(AbilityBase):
     last_health_status: str | None = None
     success_rate: float | None = None
     business_status: AbilityBusinessStatus | None = None
+    presentation: AbilityPresentation | None = None
 
     id: str
     created_at: datetime
@@ -95,6 +106,7 @@ class AbilityOption(BaseModel):
     coze_workflow_id: str | None = None
     governance: AbilityGovernance | None = None
     business_status: AbilityBusinessStatus | None = None
+    presentation: AbilityPresentation | None = None
 
 
 class AbilityOptionListResponse(BaseModel):

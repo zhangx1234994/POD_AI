@@ -23,6 +23,12 @@
 - `businessStatus`：业务可见状态，不暴露中台内部治理术语。
   - `availabilityCode/availabilityLabel`：`available/可用`、`testing/测试中`、`unavailable/暂不可用`
   - `stabilityCode/stabilityLabel`：`stable/稳定`、`optimizing/优化中`、`experimental/实验性`
+- `businessPresentation`：业务可见的简化展示层，不要求业务理解中台内部概念。
+  - `visible`：是否建议在业务列表中展示
+  - `sortOrder`：排序值，数值越小越靠前
+  - `categoryLabel`：给业务看的分类名称
+  - `usageHint`：一句话使用提示
+  - `operationLabel`：一句话动作名称（如“图像扩展”“抠图”“图像裂变”）
 - `metadata.governance`：中台内部治理真源，给管理端/内部配置使用，不建议直接面向业务透出。
   - `scopes`：`internal/admin/eval/coze/client`
   - `release_status`：`draft/internal_ready/eval_ready/published/deprecated`
@@ -85,6 +91,13 @@
         "stabilityCode": "stable",
         "stabilityLabel": "稳定",
         "surfaceLabels": ["管理端", "测评端", "Coze"]
+      },
+      "businessPresentation": {
+        "visible": true,
+        "sortOrder": 200,
+        "categoryLabel": "图片生成",
+        "usageHint": "适合在 Coze 工作流中作为图像节点使用",
+        "operationLabel": "图案提取"
       },
       "requiresImage": true,
       "supportsMultipleImages": false,
@@ -178,8 +191,10 @@
 
 **说明**
 
-- 公共 options 也会返回 `business_status` 与 `governance`。
-- 业务前端应优先使用 `business_status` 渲染“可用性/稳定度”。
+- 公共 options 也会返回 `business_status`、`presentation` 与 `governance`。
+- 业务前端应优先使用：
+  - `business_status` 渲染“可用性/稳定度”
+  - `presentation.category_label / usage_hint / operation_label` 渲染列表与引导文案
 - 管理端或内部平台可读取 `governance` 做分层、发布判断，并读取 `metadata.routing` 做路由判断。
 
 ---

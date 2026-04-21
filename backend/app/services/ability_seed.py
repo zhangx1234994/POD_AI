@@ -19,6 +19,7 @@ from app.constants.abilities import (
 )
 from app.models.integration import Ability
 from app.services.ability_governance import enrich_metadata_with_governance
+from app.services.ability_presentation import enrich_metadata_with_presentation
 from app.services.routing_governance import enrich_ability_metadata_with_routing
 
 
@@ -174,8 +175,15 @@ def ensure_default_abilities(session: Session) -> bool:
     created = False
     changed = False
     for seed in DEFAULT_ABILITY_SEEDS:
-        seed_metadata = enrich_ability_metadata_with_routing(
-            enrich_metadata_with_governance(seed.metadata, status=seed.status)
+        seed_metadata = enrich_metadata_with_presentation(
+            enrich_ability_metadata_with_routing(
+                enrich_metadata_with_governance(seed.metadata, status=seed.status)
+            ),
+            status=seed.status,
+            provider=seed.provider,
+            category=seed.category,
+            capability_key=seed.capability_key,
+            ability_type=seed.ability_type,
         )
         stmt = select(Ability).where(
             Ability.provider == seed.provider,

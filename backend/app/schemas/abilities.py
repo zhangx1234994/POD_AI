@@ -16,6 +16,14 @@ class AbilityBusinessStatus(BaseModel):
     surfaceLabels: list[str] = Field(default_factory=list)
 
 
+class AbilityBusinessPresentation(BaseModel):
+    visible: bool = Field(default=True)
+    sortOrder: int = Field(default=9999)
+    categoryLabel: str = Field(default="")
+    usageHint: str = Field(default="")
+    operationLabel: str = Field(default="")
+
+
 class AbilityPublicInfo(BaseModel):
     id: str
     provider: str
@@ -33,6 +41,7 @@ class AbilityPublicInfo(BaseModel):
     inputSchema: dict[str, Any] | None = None
     metadata: dict[str, Any] | None = None
     businessStatus: AbilityBusinessStatus | None = None
+    businessPresentation: AbilityBusinessPresentation | None = None
     requiresImage: bool = False
     supportsMultipleImages: bool = False
     maxOutputImages: int | None = None

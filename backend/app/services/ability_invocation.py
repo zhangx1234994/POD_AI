@@ -26,6 +26,7 @@ from app.models.integration import Ability, ComfyuiLora, Executor, WorkflowBindi
 from app.models.user import User
 from app.schemas import abilities as schemas
 from app.services.ability_governance import build_business_status, resolve_ability_governance
+from app.services.ability_presentation import resolve_ability_presentation
 from app.services.ability_logs import AbilityLogStartParams, ability_log_service
 from app.services.routing_governance import normalize_ability_routing
 from app.services.task_id_codec import encode_task_id
@@ -107,17 +108,15 @@ class AbilityInvocationService:
     def list_public_abilities(self) -> list[schemas.AbilityPublicInfo]:
         with get_session() as session:
             ensure_default_abilities(session)
-            stmt = (
-                select(Ability)
-                .where(Ability.status == "active")
-                .order_by(Ability.provider.asc(), Ability.capability_key.asc())
-            )
+            stmt = select(Ability).where(Ability.status == "active")
             rows = session.execute(stmt).scalars().all()
-            return [self._to_public_info(row) for row in rows]
+            visible_rows = [row for row in rows if self._is_publicly_visible(row)]
+            visible_rows.sort(key=self._public_sort_key)
+            return [self._to_public_info(row) for row in visible_rows]
 
     def get_public_ability(self, ability_id: str) -> schemas.AbilityPublicInfo:
         ability = self._get_ability(ability_id)
-        if ability.status != "active":
+        if ability.status != "active" or not self._is_publicly_visible(ability):
             raise HTTPException(status_code=404, detail="ABILITY_NOT_FOUND")
         return self._to_public_info(ability)
 
@@ -1719,6 +1718,14 @@ class AbilityInvocationService:
         requires_image = bool(metadata.get("requires_image_input"))
         governance = resolve_ability_governance(status=ability.status, metadata=metadata)
         business_status = build_business_status(governance)
+        presentation = resolve_ability_presentation(
+            status=ability.status,
+            provider=ability.provider,
+            category=ability.category,
+            capability_key=ability.capability_key,
+            ability_type=ability.ability_type,
+            metadata=metadata,
+        )
         return schemas.AbilityPublicInfo(
             id=ability.id,
             provider=ability.provider,
@@ -1742,6 +1749,13 @@ class AbilityInvocationService:
                 stabilityLabel=business_status["stability_label"],
                 surfaceLabels=business_status["surface_labels"],
             ),
+            businessPresentation=schemas.AbilityBusinessPresentation(
+                visible=bool(presentation["visible"]),
+                sortOrder=int(presentation["sort_order"]),
+                categoryLabel=str(presentation["category_label"]),
+                usageHint=str(presentation["usage_hint"]),
+                operationLabel=str(presentation["operation_label"]),
+            ),
             requiresImage=requires_image,
             supportsMultipleImages=supports_multi,
             maxOutputImages=max_output if isinstance(max_output, int) else None,
@@ -1749,6 +1763,35 @@ class AbilityInvocationService:
             lastHealthStatus=ability.last_health_status,
             successRate=ability.success_rate,
         )
+
+    @staticmethod
+    def _public_sort_key(ability: Ability) -> tuple[int, str, str, str]:
+        presentation = resolve_ability_presentation(
+            status=ability.status,
+            provider=ability.provider,
+            category=ability.category,
+            capability_key=ability.capability_key,
+            ability_type=ability.ability_type,
+            metadata=ability.extra_metadata,
+        )
+        return (
+            int(presentation.get("sort_order") or 999999),
+            str(ability.category or ""),
+            str(ability.provider or ""),
+            str(ability.display_name or ability.capability_key or ""),
+        )
+
+    @staticmethod
+    def _is_publicly_visible(ability: Ability) -> bool:
+        presentation = resolve_ability_presentation(
+            status=ability.status,
+            provider=ability.provider,
+            category=ability.category,
+            capability_key=ability.capability_key,
+            ability_type=ability.ability_type,
+            metadata=ability.extra_metadata,
+        )
+        return bool(presentation.get("visible"))
 
     @staticmethod
     def _clean_params(payload: dict[str, Any] | None) -> dict[str, Any]:

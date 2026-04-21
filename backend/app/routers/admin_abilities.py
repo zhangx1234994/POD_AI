@@ -23,6 +23,7 @@ from app.models.integration import Ability, AbilityInvocationLog, AbilityTask, E
 from app.schemas import admin_abilities as schemas
 from app.schemas import admin_ability_logs as log_schemas
 from app.services.ability_governance import build_business_status, enrich_metadata_with_governance, resolve_ability_governance
+from app.services.ability_presentation import enrich_metadata_with_presentation, resolve_ability_presentation
 from app.services.ability_seed import ensure_default_abilities
 from app.services.ability_logs import ability_log_service
 from app.services.executors.base import ExecutionContext
@@ -334,6 +335,36 @@ def _serialize_governance(ability: Ability) -> schemas.AbilityGovernance:
     )
 
 
+def _serialize_presentation(ability: Ability) -> schemas.AbilityPresentation:
+    return schemas.AbilityPresentation(
+        **resolve_ability_presentation(
+            status=ability.status,
+            provider=ability.provider,
+            category=ability.category,
+            capability_key=ability.capability_key,
+            ability_type=ability.ability_type,
+            metadata=ability.extra_metadata,
+        )
+    )
+
+
+def _ability_sort_key(ability: Ability) -> tuple[int, str, str, str]:
+    presentation = resolve_ability_presentation(
+        status=ability.status,
+        provider=ability.provider,
+        category=ability.category,
+        capability_key=ability.capability_key,
+        ability_type=ability.ability_type,
+        metadata=ability.extra_metadata,
+    )
+    return (
+        int(presentation.get("sort_order") or 999999),
+        str(ability.category or ""),
+        str(ability.provider or ""),
+        str(ability.display_name or ability.capability_key or ""),
+    )
+
+
 def _serialize_ability(ability: Ability) -> schemas.AbilityRead:
     return schemas.AbilityRead.model_validate(
         {
@@ -353,6 +384,7 @@ def _serialize_ability(ability: Ability) -> schemas.AbilityRead:
             "input_schema": ability.input_schema,
             "extra_metadata": ability.extra_metadata,
             "governance": _serialize_governance(ability),
+            "presentation": _serialize_presentation(ability),
             "business_status": _serialize_business_status(ability),
             "last_health_check_at": ability.last_health_check_at,
             "last_health_status": ability.last_health_status,
@@ -377,6 +409,7 @@ def _serialize_ability_option(ability: Ability) -> schemas.AbilityOption:
         metadata=ability.extra_metadata,
         coze_workflow_id=ability.coze_workflow_id,
         governance=_serialize_governance(ability),
+        presentation=_serialize_presentation(ability),
         business_status=_serialize_business_status(ability),
     )
 
@@ -385,8 +418,9 @@ def _serialize_ability_option(ability: Ability) -> schemas.AbilityOption:
 def list_abilities() -> list[schemas.AbilityRead]:
     with get_session() as session:
         ensure_default_abilities(session)
-        stmt = select(Ability).order_by(Ability.provider.asc(), Ability.capability_key.asc())
+        stmt = select(Ability)
         abilities = session.execute(stmt).scalars().all()
+        abilities.sort(key=_ability_sort_key)
         return [_serialize_ability(ability) for ability in abilities]
 
 
@@ -402,8 +436,8 @@ def list_ability_options(
             stmt = stmt.where(Ability.status == status)
         if provider:
             stmt = stmt.where(Ability.provider == provider)
-        stmt = stmt.order_by(Ability.provider.asc(), Ability.capability_key.asc())
         abilities = session.execute(stmt).scalars().all()
+        abilities.sort(key=_ability_sort_key)
         items = [_serialize_ability_option(ability) for ability in abilities]
         return schemas.AbilityOptionListResponse(items=items)
 
@@ -412,10 +446,18 @@ def list_ability_options(
 def create_ability(payload: schemas.AbilityCreate) -> schemas.AbilityRead:
     with get_session() as session:
         extra_metadata = enrich_ability_metadata_with_routing(
-            enrich_metadata_with_governance(
-                payload.metadata,
+            enrich_metadata_with_presentation(
+                enrich_metadata_with_governance(
+                    payload.metadata,
+                    status=payload.status,
+                    governance_override=payload.governance.model_dump() if payload.governance else None,
+                ),
                 status=payload.status,
-                governance_override=payload.governance.model_dump() if payload.governance else None,
+                provider=payload.provider,
+                category=payload.category,
+                capability_key=payload.capability_key,
+                ability_type=payload.ability_type,
+                presentation_override=payload.presentation.model_dump() if payload.presentation else None,
             )
         )
         ability = Ability(
@@ -458,14 +500,26 @@ def update_ability(ability_id: str, payload: schemas.AbilityUpdate) -> schemas.A
         data = payload.model_dump(exclude_unset=True)
         raw_metadata = data.pop("metadata", None) if "metadata" in data else ability.extra_metadata
         governance_override = data.pop("governance", None) if "governance" in data else None
-        if raw_metadata is not None or governance_override is not None or "status" in data:
+        presentation_override = data.pop("presentation", None) if "presentation" in data else None
+        if raw_metadata is not None or governance_override is not None or presentation_override is not None or "status" in data:
             target_status = data.get("status", ability.status)
             governance_payload = governance_override.model_dump() if hasattr(governance_override, "model_dump") else governance_override
+            presentation_payload = (
+                presentation_override.model_dump() if hasattr(presentation_override, "model_dump") else presentation_override
+            )
             data["extra_metadata"] = enrich_ability_metadata_with_routing(
-                enrich_metadata_with_governance(
-                    raw_metadata,
+                enrich_metadata_with_presentation(
+                    enrich_metadata_with_governance(
+                        raw_metadata,
+                        status=target_status,
+                        governance_override=governance_payload,
+                    ),
                     status=target_status,
-                    governance_override=governance_payload,
+                    provider=data.get("provider", ability.provider),
+                    category=data.get("category", ability.category),
+                    capability_key=data.get("capability_key", ability.capability_key),
+                    ability_type=data.get("ability_type", ability.ability_type),
+                    presentation_override=presentation_payload,
                 )
             )
         if "executor_id" in data and data["executor_id"]:

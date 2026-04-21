@@ -12,6 +12,7 @@ from app.models.user import User
 from app.schemas import abilities as schemas
 from app.schemas import admin_abilities as admin_schemas
 from app.services.ability_governance import build_business_status, resolve_ability_governance
+from app.services.ability_presentation import resolve_ability_presentation
 from app.services.ability_invocation import ability_invocation_service
 from app.services.ability_seed import ensure_default_abilities
 
@@ -27,6 +28,36 @@ def _serialize_governance(ability: Ability) -> admin_schemas.AbilityGovernance:
 def _serialize_business_status(ability: Ability) -> admin_schemas.AbilityBusinessStatus:
     return admin_schemas.AbilityBusinessStatus(
         **build_business_status(resolve_ability_governance(status=ability.status, metadata=ability.extra_metadata))
+    )
+
+
+def _serialize_presentation(ability: Ability) -> admin_schemas.AbilityPresentation:
+    return admin_schemas.AbilityPresentation(
+        **resolve_ability_presentation(
+            status=ability.status,
+            provider=ability.provider,
+            category=ability.category,
+            capability_key=ability.capability_key,
+            ability_type=ability.ability_type,
+            metadata=ability.extra_metadata,
+        )
+    )
+
+
+def _ability_sort_key(ability: Ability) -> tuple[int, str, str, str]:
+    presentation = resolve_ability_presentation(
+        status=ability.status,
+        provider=ability.provider,
+        category=ability.category,
+        capability_key=ability.capability_key,
+        ability_type=ability.ability_type,
+        metadata=ability.extra_metadata,
+    )
+    return (
+        int(presentation.get("sort_order") or 999999),
+        str(ability.category or ""),
+        str(ability.provider or ""),
+        str(ability.display_name or ability.capability_key or ""),
     )
 
 
@@ -48,8 +79,8 @@ def list_ability_options_public(
             stmt = stmt.where(Ability.status == status)
         if provider:
             stmt = stmt.where(Ability.provider == provider)
-        stmt = stmt.order_by(Ability.provider.asc(), Ability.capability_key.asc())
         abilities = session.execute(stmt).scalars().all()
+        abilities.sort(key=_ability_sort_key)
         return admin_schemas.AbilityOptionListResponse(
             items=[
                 admin_schemas.AbilityOption(
@@ -63,6 +94,7 @@ def list_ability_options_public(
                     input_schema=ability.input_schema,
                     metadata=ability.extra_metadata,
                     governance=_serialize_governance(ability),
+                    presentation=_serialize_presentation(ability),
                     business_status=_serialize_business_status(ability),
                 )
                 for ability in abilities

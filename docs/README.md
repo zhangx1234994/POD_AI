@@ -41,6 +41,7 @@
 - `docs/standards/error-catalog.md`
 - `docs/standards/error-contract.md`
 - `docs/standards/interface-consistency.md`
+- `docs/standards/ability-presentation-layer.md`
 - `docs/standards/document-maintenance.md`
 
 ## 模块入口
