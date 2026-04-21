@@ -15,6 +15,34 @@ export type EvalWorkflowVersion = {
   status: string;
   created_at: string;
   updated_at: string;
+  metadata?: Record<string, unknown> | null;
+  presentation?: {
+    visible?: boolean;
+    sortOrder?: number;
+    categoryLabel?: string;
+    usageHint?: string;
+    operationLabel?: string;
+    entryMode?: string;
+    resultMode?: string;
+    supportsBatch?: boolean;
+    recommendedRepeatCount?: number;
+  } | null;
+  usage?: {
+    singleRunEnabled?: boolean;
+    batchEnabled?: boolean;
+    docsEnabled?: boolean;
+    recommendedEntry?: string;
+    supportsAnnotation?: boolean;
+    requiresResourceOptions?: boolean;
+    resourceOptionTypes?: string[];
+  } | null;
+  deprecation?: {
+    isDeprecated?: boolean;
+    replacementWorkflowId?: string | null;
+    replacementDisplayName?: string | null;
+    reason?: string | null;
+    retirementMode?: string | null;
+  } | null;
 };
 
 export type EvalResourceOptionItem = {

@@ -305,6 +305,36 @@ const normalizeCategory = (category: string | undefined | null): string => {
   return '通用类';
 };
 
+const getWorkflowPresentation = (wf: EvalWorkflowVersion | null | undefined) =>
+  (wf?.presentation && typeof wf.presentation === 'object' ? wf.presentation : null) as EvalWorkflowVersion['presentation'];
+
+const getWorkflowUsage = (wf: EvalWorkflowVersion | null | undefined) =>
+  (wf?.usage && typeof wf.usage === 'object' ? wf.usage : null) as EvalWorkflowVersion['usage'];
+
+const getWorkflowCategory = (wf: Pick<EvalWorkflowVersion, 'category' | 'presentation'> | null | undefined): string => {
+  const label = String(getWorkflowPresentation(wf as EvalWorkflowVersion)?.categoryLabel || '').trim();
+  return normalizeCategory(label || wf?.category);
+};
+
+const getWorkflowSortOrder = (wf: EvalWorkflowVersion | null | undefined): number => {
+  const raw = Number(getWorkflowPresentation(wf)?.sortOrder);
+  return Number.isFinite(raw) ? raw : Number.MAX_SAFE_INTEGER;
+};
+
+const getWorkflowUsageHint = (wf: EvalWorkflowVersion | null | undefined): string =>
+  String(getWorkflowPresentation(wf)?.usageHint || wf?.notes || '暂无说明，点击进入查看参数与结果。').trim();
+
+const getWorkflowOperationLabel = (wf: EvalWorkflowVersion | null | undefined): string =>
+  String(getWorkflowPresentation(wf)?.operationLabel || '').trim();
+
+const isWorkflowBatchEnabled = (wf: EvalWorkflowVersion | null | undefined): boolean => {
+  const usage = getWorkflowUsage(wf);
+  if (typeof usage?.batchEnabled === 'boolean') return usage.batchEnabled;
+  const presentation = getWorkflowPresentation(wf);
+  if (typeof presentation?.supportsBatch === 'boolean') return presentation.supportsBatch;
+  return false;
+};
+
 const categoryVisualMeta: Record<string, { icon: ReactNode; accent: string; summary: string; cover: string }> = {
   花纹提取类: {
     icon: <ScanIcon size="18px" />,
@@ -941,7 +971,7 @@ const filterDisplayParams = (
 const INTERNAL_EVAL_DOC_KEYS = new Set(['count', 'generatecount', 'variantcount', 'n']);
 
 const isFissionWorkflow = (wf: EvalWorkflowVersion): boolean =>
-  normalizeCategory(wf?.category) === '图裂变';
+  getWorkflowCategory(wf) === '图裂变';
 
 const sanitizeWorkflowDoc = (wf: WorkflowDoc): WorkflowDoc => {
   if (normalizeCategory(wf.category) !== '图裂变') return wf;
@@ -1135,8 +1165,9 @@ function ToolCard({
 }) {
   const ratingText = metric?.avgRating ? metric.avgRating.toFixed(2) : '—';
   const ratingCountText = metric?.ratingCount ? `${metric.ratingCount}票` : '未评分';
-  const visual = getCategoryVisual(wf.category);
-  const categoryName = normalizeCategory(wf.category);
+  const visual = getCategoryVisual(getWorkflowCategory(wf));
+  const categoryName = getWorkflowCategory(wf);
+  const operationLabel = getWorkflowOperationLabel(wf);
   return (
     <div
       role="button"
@@ -1173,7 +1204,7 @@ function ToolCard({
             </Space>
           </Space>
 
-          <div className="podi-clamp-2 podi-eval-tool-card__desc">{wf.notes || '暂无说明，点击进入查看参数与结果。'}</div>
+          <div className="podi-clamp-2 podi-eval-tool-card__desc">{getWorkflowUsageHint(wf)}</div>
 
           <div style={{ marginTop: 12 }}>
             <Space breakLine>
@@ -1181,6 +1212,7 @@ function ToolCard({
               <Tag theme="primary" variant="light">
                 {categoryName}
               </Tag>
+              {operationLabel ? <Tag variant="light">{operationLabel}</Tag> : null}
             </Space>
           </div>
           <div className="podi-eval-tool-card__footer">
@@ -1662,7 +1694,7 @@ export function App() {
   const grouped = useMemo(() => {
     const m: Record<string, EvalWorkflowVersion[]> = {};
     for (const wf of displayWorkflows) {
-      const key = normalizeCategory(wf.category);
+      const key = getWorkflowCategory(wf);
       m[key] = m[key] || [];
       m[key].push(wf);
     }
@@ -1675,7 +1707,11 @@ export function App() {
   }, [grouped]);
 
   const toolList = useMemo(() => {
-    const list = (grouped[activeCategory] || []).slice().sort((a, b) => a.name.localeCompare(b.name));
+    const list = (grouped[activeCategory] || []).slice().sort((a, b) => {
+      const order = getWorkflowSortOrder(a) - getWorkflowSortOrder(b);
+      if (order !== 0) return order;
+      return a.name.localeCompare(b.name);
+    });
     return list;
   }, [grouped, activeCategory]);
   const totalToolCount = displayWorkflows.length;
@@ -1685,7 +1721,7 @@ export function App() {
     const matched = displayWorkflows.find((wf) => wf.id === pendingToolId);
     if (!matched) return;
     setSelectedTool(matched);
-    setActiveCategory(normalizeCategory(matched.category));
+    setActiveCategory(getWorkflowCategory(matched));
     setActiveView('tool');
     setPendingToolId('');
   }, [pendingToolId, displayWorkflows]);
@@ -1733,17 +1769,23 @@ export function App() {
   const loraBatchWorkflows = useMemo<LoraBatchWorkflowMeta[]>(() => {
     const metas: LoraBatchWorkflowMeta[] = [];
     for (const wf of displayWorkflows) {
+      if (!isWorkflowBatchEnabled(wf)) continue;
       const fields = getFields(wf);
       const urlField = fields.find((f) => f.name === 'url' || f.name === 'Url') || null;
       if (!urlField) continue;
+      const usage = getWorkflowUsage(wf);
+      const resourceOptionTypes = Array.isArray(usage?.resourceOptionTypes)
+        ? usage.resourceOptionTypes.map((item) => String(item || '').toLowerCase())
+        : [];
+      const expectsLoraFromUsage = resourceOptionTypes.includes('lora');
       const loraField =
         fields.find((f) => String(f.name || '').toLowerCase() === 'lora') ||
         fields.find((f) => String(f.name || '').toLowerCase().includes('lora')) ||
         null;
-      if (!loraField) continue;
+      if (!loraField && !expectsLoraFromUsage) continue;
       const loraBinding =
         (Array.isArray(wf.resourceBindings) ? wf.resourceBindings : []).find(
-          (binding) => binding.field === loraField.name && binding.resourceType === 'lora',
+          (binding) => binding.resourceType === 'lora' && (!loraField || binding.field === loraField.name),
         ) || null;
       const dynamicOptions =
         loraBinding && resourceOptionsCache[loraBinding.source] && resourceOptionsCache[loraBinding.source].length > 0
@@ -1757,7 +1799,11 @@ export function App() {
         loraOptions: dynamicOptions || normalizeFieldOptions(loraField),
       });
     }
-    metas.sort((a, b) => String(a.workflow.name || '').localeCompare(String(b.workflow.name || '')));
+    metas.sort((a, b) => {
+      const order = getWorkflowSortOrder(a.workflow) - getWorkflowSortOrder(b.workflow);
+      if (order !== 0) return order;
+      return String(a.workflow.name || '').localeCompare(String(b.workflow.name || ''));
+    });
     return metas;
   }, [displayWorkflows, resourceOptionsCache]);
 
@@ -2079,7 +2125,7 @@ export function App() {
       if (displayRows.length > 0) {
         const counts: Record<string, number> = {};
         for (const wf of displayRows) {
-          const k = normalizeCategory(wf.category);
+          const k = getWorkflowCategory(wf);
           counts[k] = (counts[k] || 0) + 1;
         }
         const firstNonEmpty = CATEGORY_ORDER.find((k) => (counts[k] || 0) > 0);
@@ -5220,10 +5266,11 @@ export function App() {
               <Typography.Title level="h4" style={{ margin: 0 }}>
                 {selectedTool.name}
               </Typography.Title>
-              <Typography.Text theme="secondary">{selectedTool.notes || '—'}</Typography.Text>
+              <Typography.Text theme="secondary">{getWorkflowUsageHint(selectedTool) || '—'}</Typography.Text>
               <Space breakLine>
-                <Tag variant="light">{normalizeCategory(selectedTool.category)}</Tag>
+                <Tag variant="light">{getWorkflowCategory(selectedTool)}</Tag>
                 <Tag variant="light">{selectedTool.version}</Tag>
+                {getWorkflowOperationLabel(selectedTool) ? <Tag variant="light">{getWorkflowOperationLabel(selectedTool)}</Tag> : null}
                 {metric?.avgRating ? (
                   <Tag theme="warning" variant="light">
                     综合评分：{metric.avgRating.toFixed(2)} / 5（{metric.ratingCount}票）
@@ -6495,12 +6542,12 @@ function AdminWorkflowRow({
 }) {
   const [name, setName] = useState(wf.name);
   const [notes, setNotes] = useState(wf.notes || '');
-  const [category, setCategory] = useState(normalizeCategory(wf.category));
+  const [category, setCategory] = useState(getWorkflowCategory(wf));
   const [status, setStatus] = useState(wf.status);
   const [saving, setSaving] = useState(false);
   const [rowError, setRowError] = useState<string>('');
 
-  const dirty = name !== wf.name || notes !== (wf.notes || '') || category !== normalizeCategory(wf.category) || status !== wf.status;
+  const dirty = name !== wf.name || notes !== (wf.notes || '') || category !== getWorkflowCategory(wf) || status !== wf.status;
   const missingParamsSchema = !wf.parameters_schema || (Array.isArray(wf.parameters_schema) && wf.parameters_schema.length === 0);
   const missingOutputSchema = !wf.output_schema || (Array.isArray(wf.output_schema) && wf.output_schema.length === 0);
   const schemaMissingLabels = [
