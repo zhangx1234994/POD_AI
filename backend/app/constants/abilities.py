@@ -2163,7 +2163,7 @@ PODI_UTILITY_ABILITIES: dict[str, AbilityDefinition] = {
             "action": "set_dpi",
             "requires_image_input": True,
             "supports_vision": True,
-            "seed_version": 2,
+            "seed_version": 3,
             "pricing": {
                 "currency": "CNY",
                 "unit": "per_image",
@@ -2208,7 +2208,7 @@ PODI_UTILITY_ABILITIES: dict[str, AbilityDefinition] = {
             "action": "upscale_resize",
             "requires_image_input": True,
             "supports_vision": True,
-            "seed_version": 2,
+            "seed_version": 3,
             "pricing": {
                 "currency": "CNY",
                 "unit": "per_image",
