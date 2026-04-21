@@ -12,7 +12,11 @@ from app.models.user import User
 from app.schemas import abilities as schemas
 from app.schemas import admin_abilities as admin_schemas
 from app.services.ability_governance import build_business_status, resolve_ability_governance
-from app.services.ability_presentation import resolve_ability_presentation
+from app.services.ability_presentation import (
+    build_ability_presentation_sort_key,
+    is_ability_visible_for_surface,
+    resolve_ability_presentation,
+)
 from app.services.ability_invocation import ability_invocation_service
 from app.services.ability_seed import ensure_default_abilities
 
@@ -45,25 +49,20 @@ def _serialize_presentation(ability: Ability) -> admin_schemas.AbilityPresentati
 
 
 def _ability_sort_key(ability: Ability) -> tuple[int, str, str, str]:
-    presentation = resolve_ability_presentation(
+    return build_ability_presentation_sort_key(
         status=ability.status,
         provider=ability.provider,
         category=ability.category,
         capability_key=ability.capability_key,
         ability_type=ability.ability_type,
+        display_name=ability.display_name,
         metadata=ability.extra_metadata,
-    )
-    return (
-        int(presentation.get("sort_order") or 999999),
-        str(ability.category or ""),
-        str(ability.provider or ""),
-        str(ability.display_name or ability.capability_key or ""),
     )
 
 
 @router.get("", response_model=schemas.AbilityListResponse)
-def list_abilities() -> schemas.AbilityListResponse:
-    items = ability_invocation_service.list_public_abilities()
+def list_abilities(surface: str | None = Query(default=None)) -> schemas.AbilityListResponse:
+    items = ability_invocation_service.list_public_abilities(surface=surface)
     return schemas.AbilityListResponse(items=items)
 
 
@@ -71,6 +70,8 @@ def list_abilities() -> schemas.AbilityListResponse:
 def list_ability_options_public(
     status: str | None = Query(default="active"),
     provider: str | None = Query(default=None),
+    surface: str | None = Query(default=None),
+    visible_only: bool = Query(default=True),
 ) -> admin_schemas.AbilityOptionListResponse:
     with get_session() as session:
         ensure_default_abilities(session)
@@ -80,6 +81,20 @@ def list_ability_options_public(
         if provider:
             stmt = stmt.where(Ability.provider == provider)
         abilities = session.execute(stmt).scalars().all()
+        if visible_only:
+            abilities = [
+                ability
+                for ability in abilities
+                if is_ability_visible_for_surface(
+                    status=ability.status,
+                    provider=ability.provider,
+                    category=ability.category,
+                    capability_key=ability.capability_key,
+                    ability_type=ability.ability_type,
+                    metadata=ability.extra_metadata,
+                    surface=surface,
+                )
+            ]
         abilities.sort(key=_ability_sort_key)
         return admin_schemas.AbilityOptionListResponse(
             items=[

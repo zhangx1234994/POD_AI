@@ -23,7 +23,11 @@ from app.models.integration import Ability, AbilityInvocationLog, AbilityTask, E
 from app.schemas import admin_abilities as schemas
 from app.schemas import admin_ability_logs as log_schemas
 from app.services.ability_governance import build_business_status, enrich_metadata_with_governance, resolve_ability_governance
-from app.services.ability_presentation import enrich_metadata_with_presentation, resolve_ability_presentation
+from app.services.ability_presentation import (
+    build_ability_presentation_sort_key,
+    enrich_metadata_with_presentation,
+    resolve_ability_presentation,
+)
 from app.services.ability_seed import ensure_default_abilities
 from app.services.ability_logs import ability_log_service
 from app.services.executors.base import ExecutionContext
@@ -349,19 +353,14 @@ def _serialize_presentation(ability: Ability) -> schemas.AbilityPresentation:
 
 
 def _ability_sort_key(ability: Ability) -> tuple[int, str, str, str]:
-    presentation = resolve_ability_presentation(
+    return build_ability_presentation_sort_key(
         status=ability.status,
         provider=ability.provider,
         category=ability.category,
         capability_key=ability.capability_key,
         ability_type=ability.ability_type,
+        display_name=ability.display_name,
         metadata=ability.extra_metadata,
-    )
-    return (
-        int(presentation.get("sort_order") or 999999),
-        str(ability.category or ""),
-        str(ability.provider or ""),
-        str(ability.display_name or ability.capability_key or ""),
     )
 
 

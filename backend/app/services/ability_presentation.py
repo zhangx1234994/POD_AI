@@ -22,6 +22,7 @@ _CATEGORY_SORT_BUCKETS = {
     "text_generation": 400,
     "utilities": 900,
 }
+_VALID_BUSINESS_SURFACES = {"admin", "eval", "coze", "client"}
 
 
 def _normalize_bool(value: Any, *, default: bool) -> bool:
@@ -41,6 +42,13 @@ def _normalize_sort_order(value: Any, *, default: int) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def normalize_business_surface(value: Any) -> str | None:
+    text = str(value or "").strip().lower()
+    if text in _VALID_BUSINESS_SURFACES:
+        return text
+    return None
 
 
 def _guess_operation_label(*, category: str, capability_key: str, provider: str) -> str:
@@ -128,6 +136,60 @@ def resolve_ability_presentation(
             )
         ).strip(),
     }
+
+
+def build_ability_presentation_sort_key(
+    *,
+    status: str | None,
+    provider: str | None,
+    category: str | None,
+    capability_key: str | None,
+    ability_type: str | None,
+    display_name: str | None,
+    metadata: dict[str, Any] | None,
+) -> tuple[int, str, str, str]:
+    presentation = resolve_ability_presentation(
+        status=status,
+        provider=provider,
+        category=category,
+        capability_key=capability_key,
+        ability_type=ability_type,
+        metadata=metadata,
+    )
+    return (
+        int(presentation.get("sort_order") or 999999),
+        str(category or ""),
+        str(provider or ""),
+        str(display_name or capability_key or ""),
+    )
+
+
+def is_ability_visible_for_surface(
+    *,
+    status: str | None,
+    provider: str | None,
+    category: str | None,
+    capability_key: str | None,
+    ability_type: str | None,
+    metadata: dict[str, Any] | None,
+    surface: str | None = None,
+) -> bool:
+    governance = resolve_ability_governance(status=status, metadata=metadata)
+    presentation = resolve_ability_presentation(
+        status=status,
+        provider=provider,
+        category=category,
+        capability_key=capability_key,
+        ability_type=ability_type,
+        metadata=metadata,
+    )
+    if not bool(presentation.get("visible")):
+        return False
+    normalized_surface = normalize_business_surface(surface)
+    if not normalized_surface:
+        return True
+    scopes = set(governance.get("scopes") or [])
+    return normalized_surface in scopes
 
 
 def enrich_metadata_with_presentation(

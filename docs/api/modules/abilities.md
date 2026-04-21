@@ -18,6 +18,10 @@
 
 **用途**：返回所有已激活能力的基础信息、默认参数与输入 schema。
 
+**请求参数**
+
+- `surface`：可选。按业务面过滤能力，例如 `coze` / `client` / `eval` / `admin`。
+
 **新增口径**
 
 - `businessStatus`：业务可见状态，不暴露中台内部治理术语。
@@ -188,6 +192,8 @@
 
 - `status`：默认 `active`
 - `provider`：可选（如 `comfyui` / `volcengine` / `kie`）
+- `surface`：可选。仅返回对该业务面可见的能力
+- `visible_only`：默认 `true`，仅返回 `presentation.visible=true` 的能力
 
 **说明**
 

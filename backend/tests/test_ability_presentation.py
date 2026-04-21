@@ -8,7 +8,9 @@ from app.models.integration import Ability
 from app.models.user import User  # noqa: F401 - ensure users table is registered for FK resolution
 from app.services.ability_invocation import ability_invocation_service
 from app.services.ability_presentation import (
+    build_ability_presentation_sort_key,
     enrich_metadata_with_presentation,
+    is_ability_visible_for_surface,
     resolve_ability_presentation,
 )
 from app.services.ability_seed import ensure_default_abilities
@@ -70,6 +72,58 @@ def test_ability_seed_persists_presentation_block() -> None:
         assert isinstance(presentation.get("category_label"), str)
         assert isinstance(presentation.get("usage_hint"), str)
         assert isinstance(presentation.get("operation_label"), str)
+
+
+def test_visibility_can_be_filtered_by_surface() -> None:
+    metadata = enrich_metadata_with_presentation(
+        {"governance": {"scopes": ["coze"], "release_status": "published"}},
+        status="active",
+        provider="comfyui",
+        category="image_generation",
+        capability_key="flux2_klein_9b_outpaint",
+        ability_type="comfyui",
+    )
+
+    assert is_ability_visible_for_surface(
+        status="active",
+        provider="comfyui",
+        category="image_generation",
+        capability_key="flux2_klein_9b_outpaint",
+        ability_type="comfyui",
+        metadata=metadata,
+        surface="coze",
+    )
+    assert not is_ability_visible_for_surface(
+        status="active",
+        provider="comfyui",
+        category="image_generation",
+        capability_key="flux2_klein_9b_outpaint",
+        ability_type="comfyui",
+        metadata=metadata,
+        surface="client",
+    )
+
+
+def test_sort_key_prefers_presentation_order() -> None:
+    metadata = enrich_metadata_with_presentation(
+        {},
+        status="active",
+        provider="podi",
+        category="utilities",
+        capability_key="refresh_catalog",
+        ability_type="api",
+        presentation_override={"sort_order": 15, "operation_label": "目录刷新"},
+    )
+
+    assert build_ability_presentation_sort_key(
+        status="active",
+        provider="podi",
+        category="utilities",
+        capability_key="refresh_catalog",
+        ability_type="api",
+        display_name="刷新目录",
+        metadata=metadata,
+    ) == (15, "utilities", "podi", "刷新目录")
 
 
 def test_public_info_includes_business_presentation() -> None:

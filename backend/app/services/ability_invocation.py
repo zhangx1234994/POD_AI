@@ -26,7 +26,11 @@ from app.models.integration import Ability, ComfyuiLora, Executor, WorkflowBindi
 from app.models.user import User
 from app.schemas import abilities as schemas
 from app.services.ability_governance import build_business_status, resolve_ability_governance
-from app.services.ability_presentation import resolve_ability_presentation
+from app.services.ability_presentation import (
+    build_ability_presentation_sort_key,
+    is_ability_visible_for_surface,
+    resolve_ability_presentation,
+)
 from app.services.ability_logs import AbilityLogStartParams, ability_log_service
 from app.services.routing_governance import normalize_ability_routing
 from app.services.task_id_codec import encode_task_id
@@ -105,12 +109,12 @@ class AbilityInvocationService:
             self._executor_slot_sizes.pop(eid, None)
 
     # -------- catalogue helpers -------- #
-    def list_public_abilities(self) -> list[schemas.AbilityPublicInfo]:
+    def list_public_abilities(self, *, surface: str | None = None) -> list[schemas.AbilityPublicInfo]:
         with get_session() as session:
             ensure_default_abilities(session)
             stmt = select(Ability).where(Ability.status == "active")
             rows = session.execute(stmt).scalars().all()
-            visible_rows = [row for row in rows if self._is_publicly_visible(row)]
+            visible_rows = [row for row in rows if self._is_publicly_visible(row, surface=surface)]
             visible_rows.sort(key=self._public_sort_key)
             return [self._to_public_info(row) for row in visible_rows]
 
@@ -1766,32 +1770,27 @@ class AbilityInvocationService:
 
     @staticmethod
     def _public_sort_key(ability: Ability) -> tuple[int, str, str, str]:
-        presentation = resolve_ability_presentation(
+        return build_ability_presentation_sort_key(
             status=ability.status,
             provider=ability.provider,
             category=ability.category,
             capability_key=ability.capability_key,
             ability_type=ability.ability_type,
+            display_name=ability.display_name,
             metadata=ability.extra_metadata,
-        )
-        return (
-            int(presentation.get("sort_order") or 999999),
-            str(ability.category or ""),
-            str(ability.provider or ""),
-            str(ability.display_name or ability.capability_key or ""),
         )
 
     @staticmethod
-    def _is_publicly_visible(ability: Ability) -> bool:
-        presentation = resolve_ability_presentation(
+    def _is_publicly_visible(ability: Ability, *, surface: str | None = None) -> bool:
+        return is_ability_visible_for_surface(
             status=ability.status,
             provider=ability.provider,
             category=ability.category,
             capability_key=ability.capability_key,
             ability_type=ability.ability_type,
             metadata=ability.extra_metadata,
+            surface=surface,
         )
-        return bool(presentation.get("visible"))
 
     @staticmethod
     def _clean_params(payload: dict[str, Any] | None) -> dict[str, Any]:
