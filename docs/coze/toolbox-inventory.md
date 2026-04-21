@@ -37,6 +37,7 @@
 | --- | --- | --- | --- |
 | 背景抠图 | `/api/coze/podi/comfyui/execute/beijing-koutu/openapi.json` | `url` | 最终输出节点 `4` |
 | 头部抠像 | `/api/coze/podi/comfyui/execute/toubu-kouxiang/openapi.json` | `url` | 最终输出节点 `140`；业务统一先走 OSS URL |
+| FLUX2-Klein 扩图 | `/api/coze/podi/comfyui/execute/flux2-klein-9b-outpaint/openapi.json` | `url`、`prompt`、`expand_left`、`expand_right`、`expand_top`、`expand_bottom`、`seed` | 后端先上传图片到 ComfyUI input 目录，再写入节点 `76`；最终输出节点 `9` |
 | 多图融合 | `/api/coze/podi/comfyui/execute/duotu-ronghe/openapi.json` | `url`、`image_url_2`、`image_url_3`、`width`、`height`、`prompt`、`negative_prompt`、`seed` | 无 `lora`；`width/height` 不传则沿用 workflow 默认 `1024x1024` |
 | E7裂变重绘 | `/api/coze/podi/comfyui/execute/e7-flux2-liebian/openapi.json` | `url`、`prompt`、`bili`、`steps`、`cfg`、`seed`、`batch_size`、`width`、`height` | `bili` 为业务口径，后端兼容旧字段 `similarity` |
 | FLUX2裂变+四方 | `/api/coze/podi/comfyui/execute/flux2-9b-liebian-sifang/openapi.json` | `url`、`prompt` | 仅覆写 `141.url` 与 `132.inStr`；节点 `104` 等内部默认参数保持不变；最终输出节点 `111` |

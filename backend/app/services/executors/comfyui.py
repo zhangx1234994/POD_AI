@@ -663,6 +663,8 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             base_overrides, base_error = self._build_pattern_extract_lora_8step_inputs(inputs, context, workflow_definition)
         elif workflow_key == "huawen_kuotu":
             base_overrides, base_error = self._build_pattern_expand_inputs(inputs, context, workflow_definition)
+        elif workflow_key == "flux2_klein_9b_outpaint":
+            base_overrides, base_error = self._build_flux2_klein_9b_outpaint_inputs(inputs, context, workflow_definition)
         elif workflow_key == "beijing_koutu":
             base_overrides, base_error = self._build_background_remove_inputs(inputs, context, workflow_definition)
         elif workflow_key == "toubu_kouxiang":
@@ -1023,6 +1025,48 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         workflow_definition["_max_output_images"] = 1
         workflow_definition["output_node_ids"] = ["4"]
         return overrides, None
+
+    def _build_flux2_klein_9b_outpaint_inputs(
+        self, params: dict[str, Any], context: ExecutionContext, workflow_definition: dict[str, Any]
+    ) -> tuple[dict[str, Any] | None, str | None]:
+        overrides: dict[str, dict[str, Any]] = {}
+        image_url, _ = self._resolve_image_source(params, context)
+        if not image_url:
+            return None, "COMFYUI_IMAGE_REQUIRED"
+
+        base_url = str(context.executor.base_url or "").rstrip("/")
+        staged_name = self._upload_image_for_comfyui_loadimage(
+            image_url=image_url,
+            base_url=base_url,
+            prefix="flux2-outpaint",
+        )
+        if not staged_name:
+            return None, "COMFYUI_IMAGE_UPLOAD_FAILED"
+        overrides["76"] = {"image": staged_name}
+
+        prompt = self._as_text(params.get("prompt") or params.get("positive_prompt"))
+        if prompt:
+            overrides.setdefault("117", {})["text"] = prompt
+
+        mapping = {
+            "expand_left": "left",
+            "expand_right": "right",
+            "expand_top": "top",
+            "expand_bottom": "bottom",
+        }
+        for field, node_key in mapping.items():
+            value = self._coerce_positive_int(params.get(field))
+            if value is not None:
+                overrides.setdefault("102", {})[node_key] = value
+
+        seed = self._coerce_positive_int(params.get("seed"))
+        if seed is None:
+            seed = secrets.randbelow(2**63 - 1) + 1
+        overrides.setdefault("99", {})["seed"] = seed
+
+        workflow_definition["_max_output_images"] = 1
+        workflow_definition["output_node_ids"] = ["9"]
+        return (overrides or None), None
 
     def _build_head_extract_inputs(
         self, params: dict[str, Any], context: ExecutionContext, workflow_definition: dict[str, Any]

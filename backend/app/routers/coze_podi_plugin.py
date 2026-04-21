@@ -1054,6 +1054,25 @@ def get_comfyui_toubu_kouxiang_openapi(request: Request) -> dict[str, Any]:
     return doc
 
 
+@router.get("/comfyui/execute/flux2-klein-9b-outpaint/openapi.json")
+def get_comfyui_flux2_klein_9b_outpaint_openapi(request: Request) -> dict[str, Any]:
+    """OpenAPI for standalone ComfyUI FLUX2-Klein 扩图 toolbox."""
+    doc = _build_openapi_filtered(
+        request=request,
+        providers={"comfyui"},
+        title="PODI ComfyUI 执行 · FLUX2-Klein 扩图",
+        description="ComfyUI FLUX2-Klein 扩图独立工具箱（含提交工具与任务轮询）。",
+        prefer_url_field=True,
+    )
+    paths = doc.get("paths") or {}
+    allowed = {
+        "/api/coze/podi/tools/comfyui/flux2_klein_9b_outpaint",
+        "/api/coze/podi/tasks/get",
+    }
+    doc["paths"] = {k: v for k, v in paths.items() if k in allowed}
+    return doc
+
+
 @router.get("/comfyui/execute/flux2-9b-liebian-sifang/openapi.json")
 def get_comfyui_flux2_9b_liebian_sifang_openapi(request: Request) -> dict[str, Any]:
     """OpenAPI for standalone ComfyUI FLUX2裂变+四方 toolbox."""
