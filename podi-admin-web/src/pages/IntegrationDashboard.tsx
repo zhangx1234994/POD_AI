@@ -391,6 +391,7 @@ const comfyuiTabMeta: Record<ComfyuiManageTab, { label: string; group: ComfyuiTa
 };
 const comfyuiTabOrder: ComfyuiManageTab[] = ['lora', 'assets', 'templates', 'servers', 'manifests', 'tasks', 'agents', 'alerts', 'desktop'];
 const comfyuiTabGroupOrder: ComfyuiTabGroup[] = ['资源目录', '同步发布', '节点运维'];
+const adminExperienceVersionLabel = '业务收口版 2026-04-22';
 const comfyuiGroupMeta: Record<ComfyuiTabGroup, { hint: string; primaryTab: ComfyuiManageTab }> = {
   资源目录: {
     hint: '先维护 LoRA/模型/模板，确保资源口径一致。',
@@ -7993,6 +7994,9 @@ const extractErrorMessage = (error: unknown): string => {
       contentRef={contentRef}
       headerActions={
         <Space align="center" size="small" style={{ flexWrap: 'wrap', justifyContent: 'flex-end', width: '100%' }}>
+          <Tag theme="primary" variant="light">
+            {adminExperienceVersionLabel}
+          </Tag>
           <Button variant="outline" loading={loading} onClick={load}>
             刷新
           </Button>
