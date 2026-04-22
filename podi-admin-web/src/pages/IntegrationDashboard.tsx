@@ -1273,6 +1273,28 @@ const extractAbilityTags = (ability: Ability): string[] => {
   return tags;
 };
 
+const getAbilityPresentation = (ability?: Ability | null) => {
+  const value = ability?.presentation;
+  return value && typeof value === 'object' ? value : null;
+};
+
+const getAbilityBusinessStatus = (ability?: Ability | null) => {
+  const value = ability?.business_status;
+  return value && typeof value === 'object' ? value : null;
+};
+
+const getAbilityCategoryLabel = (ability?: Ability | null) => {
+  return getAbilityPresentation(ability)?.category_label || getCategoryLabel(ability?.category || '');
+};
+
+const getAbilityUsageHint = (ability?: Ability | null) => {
+  return getAbilityPresentation(ability)?.usage_hint || '';
+};
+
+const getAbilityOperationLabel = (ability?: Ability | null) => {
+  return getAbilityPresentation(ability)?.operation_label || '';
+};
+
 const resolveAbilityApiType = (ability: Ability | null): string => {
   if (!ability) return '';
   const metadata = ability.metadata;
@@ -6877,6 +6899,8 @@ const extractErrorMessage = (error: unknown): string => {
       { label: '能力 Key', value: selectedAbility.capability_key || '—' },
       { label: '版本', value: selectedAbility.version || 'v1' },
       { label: '能力类型', value: getAbilityTypeLabel(selectedAbility.ability_type) || '—' },
+      { label: '业务分类', value: getAbilityCategoryLabel(selectedAbility) || '—' },
+      { label: '操作名称', value: getAbilityOperationLabel(selectedAbility) || '—' },
       {
         label: '默认节点',
         value: pinnedAbilityExecutor ? `${pinnedAbilityExecutor.name} · ${pinnedAbilityExecutor.type}` : '按厂商类型自动匹配',
@@ -6896,13 +6920,13 @@ const extractErrorMessage = (error: unknown): string => {
           <Space align="start" style={{ justifyContent: 'space-between', width: '100%' }}>
             <Space direction="vertical" size={2}>
               <Typography.Text theme="secondary">
-                {getProviderLabel(selectedAbility.provider)} · {getCategoryLabel(selectedAbility.category)}
+                {getProviderLabel(selectedAbility.provider)} · {getAbilityCategoryLabel(selectedAbility)}
               </Typography.Text>
               <Typography.Title level="h4" style={{ margin: 0 }}>
                 {selectedAbility.display_name}
               </Typography.Title>
               <Typography.Text theme="secondary">
-                {selectedAbility.description || '暂无描述，建议在能力管理中补充。'}
+                {getAbilityUsageHint(selectedAbility) || selectedAbility.description || '暂无描述，建议在能力管理中补充。'}
               </Typography.Text>
               {selectedAbilityTags.length > 0 ? (
                 <Space breakLine>
@@ -6914,7 +6938,25 @@ const extractErrorMessage = (error: unknown): string => {
                 </Space>
               ) : null}
             </Space>
-            <StatusPill status={selectedAbility.status} />
+            <Space direction="vertical" size={4} align="end">
+              <Tag
+                theme={
+                  getAbilityBusinessStatus(selectedAbility)?.availability_code === 'available'
+                    ? 'success'
+                    : getAbilityBusinessStatus(selectedAbility)?.availability_code === 'testing'
+                      ? 'warning'
+                      : 'default'
+                }
+                variant="light"
+              >
+                {getAbilityBusinessStatus(selectedAbility)?.availability_label || selectedAbility.status}
+              </Tag>
+              {getAbilityBusinessStatus(selectedAbility)?.stability_label ? (
+                <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                  {getAbilityBusinessStatus(selectedAbility)?.stability_label}
+                </Typography.Text>
+              ) : null}
+            </Space>
           </Space>
         </Card>
 
@@ -9767,8 +9809,11 @@ const extractErrorMessage = (error: unknown): string => {
                     <Space direction="vertical" size={2}>
                       <Typography.Text>{getProviderLabel(row.provider)}</Typography.Text>
                       <Typography.Text theme="secondary">
-                        {row.capability_key} · {getCategoryLabel(row.category)}
+                        {row.capability_key} · {getAbilityCategoryLabel(row)}
                       </Typography.Text>
+                      {getAbilityOperationLabel(row) ? (
+                        <Typography.Text theme="secondary">{getAbilityOperationLabel(row)}</Typography.Text>
+                      ) : null}
                       <Typography.Text theme="secondary">
                         {getAbilityTypeLabel(row.ability_type)}
                         {row.workflow_id ? ` · ${workflowLookup[row.workflow_id]?.name || row.workflow_id}` : ''}
@@ -9777,7 +9822,26 @@ const extractErrorMessage = (error: unknown): string => {
                     </Space>
                   ),
                 },
-                { colKey: 'status', title: '状态', width: 120, cell: ({ row }) => renderStatusTag(row.status) },
+                {
+                  colKey: 'status',
+                  title: '状态',
+                  width: 180,
+                  cell: ({ row }) => {
+                    const business = getAbilityBusinessStatus(row);
+                    return (
+                      <Space direction="vertical" size={2}>
+                        <Tag theme={business?.availability_code === 'available' ? 'success' : business?.availability_code === 'testing' ? 'warning' : 'default'} variant="light" size="small">
+                          {business?.availability_label || row.status}
+                        </Tag>
+                        {business?.stability_label ? (
+                          <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                            {business.stability_label}
+                          </Typography.Text>
+                        ) : null}
+                      </Space>
+                    );
+                  },
+                },
                 {
                   colKey: 'pricing',
                   title: '成本',
