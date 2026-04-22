@@ -1892,6 +1892,19 @@ const getExecutorSelectionPolicyLabel = (policy?: string | null) => {
   return executorSelectionPolicyOptions.find((option) => option.value === normalized)?.label || normalized || '自动';
 };
 
+const getExecutorExecutionModeDescription = (mode: string) => {
+  switch (mode) {
+    case 'routing':
+      return '主跑节点会正常参与分配，适合承担日常流量。';
+    case 'fallback':
+      return '兜底节点默认不接主流量，只在需要补位时使用。';
+    case 'fixed':
+      return '固定执行表示这台节点不参与自动分流，通常给特殊能力或单独链路使用。';
+    default:
+      return '可按执行方式快速筛出主跑、兜底或固定执行节点。';
+  }
+};
+
 const parseLoraMetadata = (metadata?: JsonRecord | null) => {
   const record = (metadata || {}) as Record<string, unknown>;
   const allowedFiles = normalizeTextList(
@@ -8421,6 +8434,11 @@ const extractErrorMessage = (error: unknown): string => {
               placeholder="全部执行方式"
             />
           </Col>
+          <Col xs={24} md={10}>
+            <Typography.Text theme="secondary">
+              {getExecutorExecutionModeDescription(executorExecutionModeFilter)}
+            </Typography.Text>
+          </Col>
         </Row>
 
         {executorsView === 'channels' ? (
@@ -8441,7 +8459,16 @@ const extractErrorMessage = (error: unknown): string => {
               });
               const entries = Array.from(groups.entries()).sort(([a], [b]) => a.localeCompare(b));
               if (entries.length === 0) {
-                return <div className="text-sm text-slate-500">暂无执行节点，请先新增。</div>;
+                return (
+                  <Alert
+                    theme="info"
+                    message={
+                      filteredExecutors.length === 0
+                        ? '当前筛选条件下没有匹配的执行节点。可先清空搜索词或切回“全部执行方式”。'
+                        : '暂无执行节点，请先新增。'
+                    }
+                  />
+                );
               }
               return (
                 <div className="grid gap-4 lg:grid-cols-2">
@@ -8653,6 +8680,12 @@ const extractErrorMessage = (error: unknown): string => {
                     <Typography.Text theme="secondary">
                       小贴士：并发（max_concurrency）保存后会立即生效；建议从 1~4 起逐步放量。
                     </Typography.Text>
+                    {filteredExecutors.length === 0 ? (
+                      <Alert
+                        theme="info"
+                        message="当前筛选条件下没有匹配的执行节点。可先清空搜索词或切回“全部执行方式”。"
+                      />
+                    ) : null}
                     <div style={{ overflowX: 'auto' }}>
                       <table style={{ width: '100%' }}>
                         <thead>
