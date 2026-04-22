@@ -262,6 +262,12 @@ const abilityDeprecationModeOptions = [
   { value: 'internal_only', label: '仅内部保留' },
   { value: 'delete_candidate', label: '待删除候选' },
 ] as const;
+const abilityAvailabilityOptions = [
+  { value: 'all', label: '全部可用性' },
+  { value: 'available', label: '可用' },
+  { value: 'testing', label: '测试中' },
+  { value: 'unavailable', label: '暂不可用' },
+] as const;
 const executorSelectionPolicyOptions = [
   { value: 'auto', label: '自动' },
   { value: 'queue', label: '优先空闲节点' },
@@ -2238,9 +2244,16 @@ export function IntegrationDashboard({
     const keyword = abilitySearch.trim().toLowerCase();
     return abilities.filter((ability) => {
       if (abilityProviderFilter !== 'all' && ability.provider !== abilityProviderFilter) return false;
-      if (abilityStatusFilter !== 'all' && ability.status !== abilityStatusFilter) return false;
+      if (
+        abilityStatusFilter !== 'all' &&
+        getAbilityBusinessStatus(ability)?.availability_code !== abilityStatusFilter
+      ) {
+        return false;
+      }
       if (!keyword) return true;
-      const haystack = `${ability.display_name} ${ability.capability_key} ${ability.version || ''} ${ability.description || ''}`.toLowerCase();
+      const haystack = `${ability.display_name} ${ability.capability_key} ${ability.version || ''} ${
+        ability.description || ''
+      } ${getAbilityCategoryLabel(ability)} ${getAbilityOperationLabel(ability)} ${getAbilityUsageHint(ability)}`.toLowerCase();
       return haystack.includes(keyword);
     });
   }, [abilities, abilityProviderFilter, abilityStatusFilter, abilitySearch]);
@@ -9747,8 +9760,8 @@ const extractErrorMessage = (error: unknown): string => {
               <Select
                 value={abilityStatusFilter}
                 onChange={(v) => setAbilityStatusFilter(String(v))}
-                options={[{ label: '全部状态', value: 'all' }, ...statusOptions]}
-                placeholder="全部状态"
+                options={abilityAvailabilityOptions.map((option) => ({ label: option.label, value: option.value }))}
+                placeholder="全部可用性"
               />
             </Col>
           </Row>
