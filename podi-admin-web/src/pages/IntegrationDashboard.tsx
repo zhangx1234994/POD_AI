@@ -7203,7 +7203,7 @@ const extractErrorMessage = (error: unknown): string => {
     if (!selectedAbility) {
       return (
         <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-950/30 p-4 text-sm text-slate-400">
-          请选择能力以查看 metadata/workflow_key/pricing 等元信息。
+          请选择能力以查看运行配置、计价信息和高级设置。
         </div>
       );
     }
@@ -7215,16 +7215,16 @@ const extractErrorMessage = (error: unknown): string => {
         {showMetadataIssues.length > 0 ? (
           <Alert
             theme="warning"
-            title="元信息缺失"
-            message={`尚未补齐：${showMetadataIssues.join(' / ')}。建议补充 api_type、pricing、requirements 等字段。`}
+            title="高级配置缺失"
+            message={`尚未补齐：${showMetadataIssues.join(' / ')}。建议补充能力类型、计价和依赖要求等信息。`}
           />
         ) : null}
         <div>
-          <div className="text-slate-500">能力 Metadata</div>
+          <div className="text-slate-500">高级配置 JSON</div>
           {selectedAbility.metadata ? (
             <CodeBlock value={formatJsonValue(selectedAbility.metadata)} maxHeight={320} />
           ) : (
-            <p className="mt-1">暂无 metadata，建议补充 workflow_key、api_type、pricing、requirements 等信息。</p>
+            <p className="mt-1">暂无高级配置，建议补充能力类型、计价、依赖要求等信息。</p>
           )}
         </div>
         <Card bordered title="能力模板版本">
@@ -10668,7 +10668,7 @@ const extractErrorMessage = (error: unknown): string => {
             </div>
 
             <div>
-              <Typography.Text theme="secondary">默认参数 JSON</Typography.Text>
+              <Typography.Text theme="secondary">默认运行参数（高级）</Typography.Text>
               <Textarea
                 value={abilityForm.default_params || ''}
                 onChange={(v) => setAbilityForm({ ...abilityForm, default_params: String(v) })}
@@ -10677,7 +10677,7 @@ const extractErrorMessage = (error: unknown): string => {
             </div>
 
             <div>
-              <Typography.Text theme="secondary">输入表单 Schema（选填）</Typography.Text>
+              <Typography.Text theme="secondary">输入表单配置（高级，可选）</Typography.Text>
               <Textarea
                 value={abilityForm.input_schema || ''}
                 onChange={(v) => setAbilityForm({ ...abilityForm, input_schema: String(v) })}
@@ -10686,7 +10686,7 @@ const extractErrorMessage = (error: unknown): string => {
             </div>
 
             <div>
-              <Typography.Text theme="secondary">其他元信息（选填）</Typography.Text>
+              <Typography.Text theme="secondary">其他高级配置（可选）</Typography.Text>
               <Textarea
                 value={abilityForm.metadata || ''}
                 onChange={(v) => setAbilityForm({ ...abilityForm, metadata: String(v) })}
