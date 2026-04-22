@@ -10326,12 +10326,12 @@ const extractErrorMessage = (error: unknown): string => {
                 <Space direction="vertical" size="small" style={{ width: '100%' }}>
                   <Typography.Text strong>ComfyUI 路由策略（面向非技术同学的配置）</Typography.Text>
                   <Typography.Text theme="secondary">
-                    这些字段会写入 ability.metadata，用于控制“哪些节点可用、如何分配、是否允许回退默认节点”。
+                    这里决定这条能力可以在哪些机器上运行、系统优先怎么分配、以及找不到合适机器时是否允许自动兜底。
                   </Typography.Text>
 
                   <Row gutter={[12, 12]}>
                     <Col span={12}>
-                      <Typography.Text theme="secondary">路由策略 routing_policy</Typography.Text>
+                      <Typography.Text theme="secondary">机器分配方式</Typography.Text>
                       <Select
                         value={abilityRoutingPolicy}
                         onChange={(v) => setAbilityRoutingPolicy(String(v) || 'auto')}
@@ -10349,8 +10349,8 @@ const extractErrorMessage = (error: unknown): string => {
                     </Col>
                     <Col span={12}>
                       <Space align="center" size="small">
-                        <Typography.Text theme="secondary">回退到默认节点</Typography.Text>
-                        <Tooltip content="当没有符合条件的节点时，是否允许系统回退到默认/绑定节点。">
+                        <Typography.Text theme="secondary">找不到合适机器时自动兜底</Typography.Text>
+                        <Tooltip content="当没有符合条件的节点时，是否允许系统自动改用默认或已绑定的机器。">
                           <Typography.Text theme="secondary">?</Typography.Text>
                         </Tooltip>
                       </Space>
@@ -10364,7 +10364,7 @@ const extractErrorMessage = (error: unknown): string => {
                   </Row>
 
                   <div>
-                    <Typography.Text theme="secondary">允许运行节点（多选）</Typography.Text>
+                    <Typography.Text theme="secondary">指定可运行的机器（多选）</Typography.Text>
                     {comfyExecutors.length > 0 ? (
                       <select
                         multiple
@@ -10386,19 +10386,19 @@ const extractErrorMessage = (error: unknown): string => {
                       </div>
                     )}
                     <Typography.Text theme="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
-                      不选表示“允许系统自动匹配所有 ComfyUI 节点”。
+                      不选表示允许系统在所有 ComfyUI 机器里自动选择。
                     </Typography.Text>
                   </div>
 
                   <div>
-                    <Typography.Text theme="secondary">要求标签（required_tags，可多选）</Typography.Text>
+                    <Typography.Text theme="secondary">要求机器标签</Typography.Text>
                     <Input
                       value={abilityRequiredTags}
                       onChange={(v) => setAbilityRequiredTags(String(v))}
                       placeholder="例如：gpu:4090, region:hz, comfyui-158"
                     />
                     <Typography.Text theme="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
-                      逗号分隔。要求执行节点 config.tags 中包含全部标签。
+                      逗号分隔。只有带齐这些标签的机器才会被选中。
                     </Typography.Text>
                   </div>
 
@@ -10527,12 +10527,12 @@ const extractErrorMessage = (error: unknown): string => {
               <Space direction="vertical" size="small" style={{ width: '100%' }}>
                 <Typography.Text strong>业务展示与治理</Typography.Text>
                 <Typography.Text theme="secondary">
-                  这里配置给业务和运营看的状态、分类和替代关系，不需要再手改 metadata JSON。
+                  这里配置业务侧能看到的分类、状态、提示文案和替代关系，日常维护不需要再手改原始 JSON。
                 </Typography.Text>
 
                 <Row gutter={[12, 12]}>
                   <Col span={8}>
-                    <Typography.Text theme="secondary">可见范围（scopes）</Typography.Text>
+                    <Typography.Text theme="secondary">哪些端可以看到</Typography.Text>
                     <select
                       multiple
                       value={abilityBusinessScopes}
@@ -10620,7 +10620,7 @@ const extractErrorMessage = (error: unknown): string => {
                     </Space>
                     <Row gutter={[12, 12]}>
                       <Col span={8}>
-                        <Typography.Text theme="secondary">替代 Ability ID</Typography.Text>
+                        <Typography.Text theme="secondary">替代能力 ID</Typography.Text>
                         <Input
                           value={abilityReplacementAbilityId}
                           onChange={(v) => setAbilityReplacementAbilityId(String(v))}
@@ -10636,7 +10636,7 @@ const extractErrorMessage = (error: unknown): string => {
                         />
                       </Col>
                       <Col span={8}>
-                        <Typography.Text theme="secondary">替代展示名</Typography.Text>
+                        <Typography.Text theme="secondary">替代能力名称</Typography.Text>
                         <Input
                           value={abilityReplacementDisplayName}
                           onChange={(v) => setAbilityReplacementDisplayName(String(v))}
