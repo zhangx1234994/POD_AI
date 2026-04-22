@@ -8,6 +8,23 @@ export type JsonValue =
 
 export type JsonRecord = Record<string, JsonValue>;
 
+export interface ExecutorRouting {
+  routing_enabled?: boolean;
+  fallback_only?: boolean;
+  selection_policy?: string;
+  tags?: string[];
+  allowed_workflow_keys?: string[];
+  blocked_workflow_keys?: string[];
+  concurrency_limit?: number;
+}
+
+export interface ExecutorBusinessStatus {
+  execution_mode_code?: string;
+  execution_mode_label?: string;
+  concurrency_label?: string;
+  tags?: string[];
+}
+
 export interface Executor {
   id: string;
   name: string;
@@ -19,6 +36,8 @@ export interface Executor {
   health_status?: string;
   last_heartbeat_at?: string;
   config?: JsonRecord;
+  routing?: ExecutorRouting | null;
+  business_status?: ExecutorBusinessStatus | null;
 }
 
 export interface Workflow {

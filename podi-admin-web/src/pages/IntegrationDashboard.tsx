@@ -1700,6 +1700,60 @@ const parseRoutingMetadata = (metadata?: JsonRecord | null) => {
   return { policy, allowed, required, fallback };
 };
 
+const parseExecutorRouting = (executor?: Executor | null) => {
+  const routing = executor?.routing || {};
+  const configRouting =
+    executor?.config && typeof executor.config === 'object' && executor.config.routing && typeof executor.config.routing === 'object'
+      ? (executor.config.routing as JsonRecord)
+      : null;
+  const source = (routing && Object.keys(routing).length > 0 ? routing : configRouting) as JsonRecord | null;
+  if (!source) {
+    return {
+      enabled: true,
+      fallbackOnly: false,
+      policy: 'auto',
+      tags: [] as string[],
+      concurrencyLimit: Math.max(1, Number(executor?.max_concurrency ?? 1) || 1),
+    };
+  }
+  return {
+    enabled: typeof source.routing_enabled === 'boolean' ? source.routing_enabled : true,
+    fallbackOnly: typeof source.fallback_only === 'boolean' ? source.fallback_only : false,
+    policy:
+      typeof source.selection_policy === 'string' && source.selection_policy.trim()
+        ? source.selection_policy.trim().toLowerCase()
+        : 'auto',
+    tags: normalizeTagList(source.tags),
+    concurrencyLimit:
+      typeof source.concurrency_limit === 'number'
+        ? Math.max(1, Number(source.concurrency_limit) || 1)
+        : Math.max(1, Number(executor?.max_concurrency ?? 1) || 1),
+  };
+};
+
+const getExecutorBusinessStatus = (executor?: Executor | null) => {
+  const status = executor?.business_status || {};
+  const routing = parseExecutorRouting(executor);
+  const executionModeLabel =
+    typeof status.execution_mode_label === 'string' && status.execution_mode_label.trim()
+      ? status.execution_mode_label.trim()
+      : !routing.enabled
+        ? '固定节点执行'
+        : routing.fallbackOnly
+          ? '仅兜底参与'
+          : '可参与路由';
+  const concurrencyLabel =
+    typeof status.concurrency_label === 'string' && status.concurrency_label.trim()
+      ? status.concurrency_label.trim()
+      : `并发上限 ${routing.concurrencyLimit}`;
+  const tags = Array.isArray(status.tags) ? status.tags.filter((item): item is string => typeof item === 'string') : routing.tags;
+  return {
+    executionModeLabel,
+    concurrencyLabel,
+    tags,
+  };
+};
+
 const parseLoraMetadata = (metadata?: JsonRecord | null) => {
   const record = (metadata || {}) as Record<string, unknown>;
   const allowedFiles = normalizeTextList(
@@ -6289,7 +6343,20 @@ const extractErrorMessage = (error: unknown): string => {
       try {
         await adminApi.updateExecutor(executorId, { max_concurrency: Math.max(1, Math.min(50, draft)) });
         // Update local list to reflect immediately (avoid waiting for full reload).
-        setExecutors((prev) => prev.map((ex) => (ex.id === executorId ? { ...ex, max_concurrency: draft } : ex)));
+        setExecutors((prev) =>
+          prev.map((ex) =>
+            ex.id === executorId
+              ? {
+                  ...ex,
+                  max_concurrency: draft,
+                  routing: ex.routing ? { ...ex.routing, concurrency_limit: draft } : ex.routing,
+                  business_status: ex.business_status
+                    ? { ...ex.business_status, concurrency_label: `并发上限 ${draft}` }
+                    : ex.business_status,
+                }
+              : ex,
+          ),
+        );
       } catch (err: any) {
         console.error(err);
         setExecutorInlineError((prev) => ({ ...prev, [executorId]: err?.message || '更新失败' }));
@@ -8098,6 +8165,8 @@ const extractErrorMessage = (error: unknown): string => {
                             .sort((a, b) => (b.weight || 0) - (a.weight || 0))
                             .map((ex) => {
                               const metric = executorTraffic[ex.id];
+                              const routing = parseExecutorRouting(ex);
+                              const businessStatus = getExecutorBusinessStatus(ex);
                               const isComfyExecutor = (ex.type || '').toLowerCase().includes('comfyui');
                               const queueStatus = isComfyExecutor ? comfyQueueByExecutor[ex.id] : null;
                               const modelCatalog = isComfyExecutor ? comfyModelCache[ex.id] : undefined;
@@ -8129,8 +8198,23 @@ const extractErrorMessage = (error: unknown): string => {
                                       <div>
                                         并发/权重：{ex.max_concurrency}/{ex.weight}
                                       </div>
+                                      <div>{businessStatus.executionModeLabel}</div>
                                       <div>心跳：{ex.last_heartbeat_at ? formatDate(ex.last_heartbeat_at) : '—'}</div>
                                     </div>
+                                  </div>
+
+                                  <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-500">
+                                    <span className="rounded-full border border-slate-200 px-2 py-0.5 dark:border-slate-700">
+                                      策略 {routing.policy}
+                                    </span>
+                                    <span className="rounded-full border border-slate-200 px-2 py-0.5 dark:border-slate-700">
+                                      {businessStatus.concurrencyLabel}
+                                    </span>
+                                    {businessStatus.tags.length > 0 ? (
+                                      <span className="rounded-full border border-slate-200 px-2 py-0.5 dark:border-slate-700">
+                                        标签 {businessStatus.tags.join(', ')}
+                                      </span>
+                                    ) : null}
                                   </div>
 
                                   <div className="mt-3 grid gap-2 sm:grid-cols-3">
@@ -8157,7 +8241,7 @@ const extractErrorMessage = (error: unknown): string => {
                                         {metric?.p95Ms ? `${Math.round(metric.p95Ms)}ms` : '—'}
                                       </div>
                                       <div className="mt-1 text-[11px] text-slate-500">
-                                        路由：按“分配策略”优先级（后续支持失败/超时自动回退）
+                                        路由：{businessStatus.executionModeLabel} · 策略 {routing.policy}
                                       </div>
                                     </div>
                                     {isComfyExecutor && (
@@ -8267,6 +8351,8 @@ const extractErrorMessage = (error: unknown): string => {
                             const changed = draft !== ex.max_concurrency;
                             const saving = Boolean(executorInlineSaving[ex.id]);
                             const err = executorInlineError[ex.id];
+                            const routing = parseExecutorRouting(ex);
+                            const businessStatus = getExecutorBusinessStatus(ex);
                             const isComfyExecutor = (ex.type || '').toLowerCase().includes('comfyui');
                             const systemInfo = isComfyExecutor ? comfySystemCache[ex.id] : undefined;
                             const versionInfo = isComfyExecutor ? extractComfyuiVersionInfo(ex, systemInfo) : null;
@@ -8279,6 +8365,10 @@ const extractErrorMessage = (error: unknown): string => {
                                 <td style={{ padding: '10px 6px' }}>
                                   <div style={{ fontWeight: 600 }}>{ex.name}</div>
                                   <Typography.Text theme="secondary">{ex.base_url || '—'}</Typography.Text>
+                                  <div className="mt-1 text-[11px] text-slate-500">
+                                    {businessStatus.executionModeLabel} · 策略 {routing.policy}
+                                    {businessStatus.tags.length > 0 ? ` · 标签 ${businessStatus.tags.join(', ')}` : ''}
+                                  </div>
                                   {isComfyExecutor && (
                                     <div className="mt-1 text-[11px] text-slate-500">
                                       版本：{versionInfo?.version || '—'} · 模型/LoRA：{modelCatalog ? `${modelCounts?.unet || 0}/${modelCounts?.lora || 0}` : '—'}
@@ -8332,7 +8422,7 @@ const extractErrorMessage = (error: unknown): string => {
                                       size="small"
                                       variant="text"
                                       onClick={() => {
-                                        const { config, ...rest } = ex;
+                                        const { config, routing: _routing, business_status: _businessStatus, ...rest } = ex;
                                         setExecutorForm({ ...rest, config: stringifyJSON(config) });
                                         setExecutorFormError(null);
                                       }}
