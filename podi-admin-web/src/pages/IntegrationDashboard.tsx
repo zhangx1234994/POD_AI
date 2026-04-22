@@ -288,6 +288,12 @@ const executorSelectionPolicyOptions = [
   { value: 'weight', label: '按权重分配' },
   { value: 'fixed', label: '固定优先节点' },
 ] as const;
+const executorExecutionModeOptions = [
+  { value: 'all', label: '全部执行方式' },
+  { value: 'routing', label: '主跑节点' },
+  { value: 'fallback', label: '兜底节点' },
+  { value: 'fixed', label: '固定执行' },
+] as const;
 const comfyModelTypeOptions = [
   { value: 'unet', label: 'UNET' },
   { value: 'clip', label: 'CLIP' },
@@ -1874,6 +1880,13 @@ const getExecutorBusinessStatus = (executor?: Executor | null) => {
   };
 };
 
+const getExecutorExecutionModeCode = (executor?: Executor | null) => {
+  const routing = parseExecutorRouting(executor);
+  if (!routing.enabled) return 'fixed';
+  if (routing.fallbackOnly) return 'fallback';
+  return 'routing';
+};
+
 const getExecutorSelectionPolicyLabel = (policy?: string | null) => {
   const normalized = (policy || '').trim().toLowerCase();
   return executorSelectionPolicyOptions.find((option) => option.value === normalized)?.label || normalized || '自动';
@@ -2001,6 +2014,8 @@ export function IntegrationDashboard({
   const [executorRoutingFallbackOnly, setExecutorRoutingFallbackOnly] = useState<boolean>(false);
   const [executorRoutingPolicy, setExecutorRoutingPolicy] = useState<string>('auto');
   const [executorRoutingTags, setExecutorRoutingTags] = useState<string>('');
+  const [executorSearch, setExecutorSearch] = useState<string>('');
+  const [executorExecutionModeFilter, setExecutorExecutionModeFilter] = useState<string>('all');
   const [workflowForm, setWorkflowForm] = useState<WorkflowFormState>(defaultWorkflowForm);
   const [workflowFormAllowedExecutors, setWorkflowFormAllowedExecutors] = useState<string[]>([]);
   const [workflowInputMap, setWorkflowInputMap] = useState<ComfyInputMapItem[]>([]);
@@ -2373,6 +2388,21 @@ export function IntegrationDashboard({
     visibleComfyAgentList.forEach((agent) => map.set(agent.id, agent));
     return map;
   }, [visibleComfyAgentList]);
+  const filteredExecutors = useMemo(() => {
+    const keyword = executorSearch.trim().toLowerCase();
+    return executors.filter((executor) => {
+      if (
+        executorExecutionModeFilter !== 'all' &&
+        getExecutorExecutionModeCode(executor) !== executorExecutionModeFilter
+      ) {
+        return false;
+      }
+      if (!keyword) return true;
+      const businessStatus = getExecutorBusinessStatus(executor);
+      const haystack = `${executor.id} ${executor.name} ${executor.type} ${executor.base_url || ''} ${businessStatus.executionModeLabel} ${businessStatus.concurrencyLabel} ${businessStatus.tags.join(' ')}`.toLowerCase();
+      return haystack.includes(keyword);
+    });
+  }, [executorExecutionModeFilter, executorSearch, executors]);
   const comfyAgentOptions = useMemo(
     () =>
       visibleComfyAgentList.map((agent) => ({
@@ -8375,6 +8405,23 @@ const extractErrorMessage = (error: unknown): string => {
             </Space>
           </Space>
         </ActionBar>
+        <Row gutter={[12, 12]} style={{ marginBottom: 12 }}>
+          <Col xs={24} md={8}>
+            <Input
+              value={executorSearch}
+              onChange={(v) => setExecutorSearch(String(v))}
+              placeholder="搜索节点名称 / 类型 / 地址 / 标签"
+            />
+          </Col>
+          <Col xs={24} md={6}>
+            <Select
+              value={executorExecutionModeFilter}
+              onChange={(v) => setExecutorExecutionModeFilter(String(v))}
+              options={executorExecutionModeOptions.map((option) => ({ label: option.label, value: option.value }))}
+              placeholder="全部执行方式"
+            />
+          </Col>
+        </Row>
 
         {executorsView === 'channels' ? (
           <div className="space-y-4">
@@ -8386,7 +8433,7 @@ const extractErrorMessage = (error: unknown): string => {
             )}
             {(() => {
               const groups = new Map<string, Executor[]>();
-              executors.forEach((ex) => {
+              filteredExecutors.forEach((ex) => {
                 const key = ex.type || 'unknown';
                 const list = groups.get(key) || [];
                 list.push(ex);
@@ -8620,7 +8667,7 @@ const extractErrorMessage = (error: unknown): string => {
                           </tr>
                         </thead>
                         <tbody>
-                          {executors.map((ex) => {
+                          {filteredExecutors.map((ex) => {
                             const draft = Number(executorInlineConcurrency[ex.id] ?? ex.max_concurrency ?? 1) || 1;
                             const changed = draft !== ex.max_concurrency;
                             const saving = Boolean(executorInlineSaving[ex.id]);
