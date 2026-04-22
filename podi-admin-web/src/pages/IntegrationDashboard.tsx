@@ -262,6 +262,13 @@ const abilityDeprecationModeOptions = [
   { value: 'internal_only', label: '仅内部保留' },
   { value: 'delete_candidate', label: '待删除候选' },
 ] as const;
+const executorSelectionPolicyOptions = [
+  { value: 'auto', label: '自动' },
+  { value: 'queue', label: '优先空闲节点' },
+  { value: 'round_robin', label: '轮询分配' },
+  { value: 'weight', label: '按权重分配' },
+  { value: 'fixed', label: '固定优先节点' },
+] as const;
 const comfyModelTypeOptions = [
   { value: 'unet', label: 'UNET' },
   { value: 'clip', label: 'CLIP' },
@@ -1894,6 +1901,10 @@ export function IntegrationDashboard({
   const [globalAbilityLogOnlyCallbackFailed, setGlobalAbilityLogOnlyCallbackFailed] = useState<boolean>(false);
   const [globalAbilityLogSearch, setGlobalAbilityLogSearch] = useState<string>('');
   const [executorForm, setExecutorForm] = useState<ExecutorFormState>(defaultExecutorForm);
+  const [executorRoutingEnabled, setExecutorRoutingEnabled] = useState<boolean>(true);
+  const [executorRoutingFallbackOnly, setExecutorRoutingFallbackOnly] = useState<boolean>(false);
+  const [executorRoutingPolicy, setExecutorRoutingPolicy] = useState<string>('auto');
+  const [executorRoutingTags, setExecutorRoutingTags] = useState<string>('');
   const [workflowForm, setWorkflowForm] = useState<WorkflowFormState>(defaultWorkflowForm);
   const [workflowFormAllowedExecutors, setWorkflowFormAllowedExecutors] = useState<string[]>([]);
   const [workflowInputMap, setWorkflowInputMap] = useState<ComfyInputMapItem[]>([]);
@@ -6330,7 +6341,15 @@ const extractErrorMessage = (error: unknown): string => {
       return;
     }
 
-    const { config } = executorForm;
+    const configRecord = parseJSON(executorForm.config);
+    const nextConfig: Record<string, unknown> = { ...(configRecord || {}) };
+    nextConfig.routing = {
+      routing_enabled: executorRoutingEnabled,
+      fallback_only: executorRoutingFallbackOnly,
+      selection_policy: executorRoutingPolicy || 'auto',
+      tags: normalizeTagList(executorRoutingTags),
+      concurrency_limit: Math.max(1, Math.min(50, maxConcurrency)),
+    };
     const payload: Partial<Executor> = {
       id: executorForm.id,
       name,
@@ -6339,7 +6358,7 @@ const extractErrorMessage = (error: unknown): string => {
       status,
       weight: Math.max(1, Math.min(999, weight)),
       max_concurrency: Math.max(1, Math.min(50, maxConcurrency)),
-      ...(config ? { config: parseJSON(config) } : {}),
+      config: nextConfig as JsonRecord,
     };
     try {
       if (executorForm.id) {
@@ -6348,6 +6367,10 @@ const extractErrorMessage = (error: unknown): string => {
         await adminApi.createExecutor(payload);
       }
       setExecutorForm(defaultExecutorForm);
+      setExecutorRoutingEnabled(true);
+      setExecutorRoutingFallbackOnly(false);
+      setExecutorRoutingPolicy('auto');
+      setExecutorRoutingTags('');
       await load();
     } catch (err: any) {
       console.error(err);
@@ -8515,6 +8538,11 @@ const extractErrorMessage = (error: unknown): string => {
                                       onClick={() => {
                                         const { config, routing: _routing, business_status: _businessStatus, ...rest } = ex;
                                         setExecutorForm({ ...rest, config: stringifyJSON(config) });
+                                        const routing = parseExecutorRouting(ex);
+                                        setExecutorRoutingEnabled(routing.enabled);
+                                        setExecutorRoutingFallbackOnly(routing.fallbackOnly);
+                                        setExecutorRoutingPolicy(routing.policy || 'auto');
+                                        setExecutorRoutingTags((routing.tags || []).join(', '));
                                         setExecutorFormError(null);
                                       }}
                                     >
@@ -8663,6 +8691,75 @@ const extractErrorMessage = (error: unknown): string => {
 
                     <Card
                       bordered
+                      title="节点参与方式（面向业务配置）"
+                      style={{ background: 'var(--td-bg-color-secondarycontainer)' }}
+                    >
+                      <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                        <Row gutter={[12, 12]}>
+                          <Col span={12}>
+                            <Space align="center" size="small">
+                              <Typography.Text strong>参与自动分流</Typography.Text>
+                            </Space>
+                            <div style={{ marginTop: 8 }}>
+                              <Switch value={executorRoutingEnabled} onChange={(v) => setExecutorRoutingEnabled(Boolean(v))} />
+                            </div>
+                            <Typography.Text theme="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
+                              关闭后，这个节点只作为固定节点使用，不参与系统自动分流。
+                            </Typography.Text>
+                          </Col>
+                          <Col span={12}>
+                            <Space align="center" size="small">
+                              <Typography.Text strong>仅做兜底节点</Typography.Text>
+                            </Space>
+                            <div style={{ marginTop: 8 }}>
+                              <Switch
+                                value={executorRoutingFallbackOnly}
+                                onChange={(v) => setExecutorRoutingFallbackOnly(Boolean(v))}
+                                disabled={!executorRoutingEnabled}
+                              />
+                            </div>
+                            <Typography.Text theme="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
+                              开启后，只有主节点不可用或不匹配时才会使用它。
+                            </Typography.Text>
+                          </Col>
+                        </Row>
+
+                        <div>
+                          <Typography.Text strong>分配方式</Typography.Text>
+                          <div style={{ marginTop: 8 }}>
+                            <Select
+                              value={executorRoutingPolicy}
+                              onChange={(v) => setExecutorRoutingPolicy(String(v))}
+                              options={executorSelectionPolicyOptions.map((option) => ({
+                                label: option.label,
+                                value: option.value,
+                              }))}
+                              disabled={!executorRoutingEnabled}
+                            />
+                          </div>
+                          <Typography.Text theme="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
+                            默认用“自动”。需要避开排队时可选“优先空闲节点”，多机分摊常用“轮询”或“按权重分配”。
+                          </Typography.Text>
+                        </div>
+
+                        <div>
+                          <Typography.Text strong>节点标签</Typography.Text>
+                          <div style={{ marginTop: 8 }}>
+                            <Input
+                              value={executorRoutingTags}
+                              onChange={(v) => setExecutorRoutingTags(String(v))}
+                              placeholder="例如 gpu:4090, region:hz, comfyui-158"
+                            />
+                          </div>
+                          <Typography.Text theme="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
+                            用逗号分隔。后续能力路由会用这些标签筛选可用节点。
+                          </Typography.Text>
+                        </div>
+                      </Space>
+                    </Card>
+
+                    <Card
+                      bordered
                       title="接入配置（推荐用下方表单，不需要懂 JSON）"
                       style={{ background: 'var(--td-bg-color-secondarycontainer)' }}
                     >
@@ -8718,7 +8815,17 @@ const extractErrorMessage = (error: unknown): string => {
                         保存
                       </Button>
                       {executorForm.id ? (
-                        <Button variant="outline" onClick={() => { setExecutorForm(defaultExecutorForm); setExecutorFormError(null); }}>
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            setExecutorForm(defaultExecutorForm);
+                            setExecutorRoutingEnabled(true);
+                            setExecutorRoutingFallbackOnly(false);
+                            setExecutorRoutingPolicy('auto');
+                            setExecutorRoutingTags('');
+                            setExecutorFormError(null);
+                          }}
+                        >
                           取消
                         </Button>
                       ) : null}
