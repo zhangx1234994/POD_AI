@@ -14094,7 +14094,7 @@ const extractErrorMessage = (error: unknown): string => {
               </label>
               <textarea
                 rows={6}
-                placeholder="workflow definition JSON"
+                placeholder="工作流定义 JSON"
                 value={workflowForm.definition ?? ''}
                 onChange={(e) => setWorkflowForm({ ...workflowForm, definition: e.target.value })}
                 className={`${formControlClass} font-mono text-xs`}
@@ -14107,7 +14107,7 @@ const extractErrorMessage = (error: unknown): string => {
               ) : null}
               <textarea
                 rows={4}
-                placeholder="metadata JSON（参数映射、依赖等）"
+                placeholder="工作流补充信息 JSON（输入输出映射、依赖关系等）"
                 value={workflowForm.metadata ?? ''}
                 onChange={(e) => setWorkflowForm({ ...workflowForm, metadata: e.target.value })}
                 className={`${formControlClass} font-mono text-xs`}
@@ -14122,20 +14122,19 @@ const extractErrorMessage = (error: unknown): string => {
                 {workflowCanMap ? (
                   <div className="rounded-2xl border border-slate-200/70 bg-slate-50/80 p-3 space-y-3 dark:border-slate-800 dark:bg-slate-950/40">
                     <div className="flex items-center justify-between">
-                      <div className="text-sm font-semibold text-slate-900 dark:text-white">节点映射（ComfyUI）</div>
+                      <div className="text-sm font-semibold text-slate-900 dark:text-white">工作流输入/输出映射</div>
                       <div className="text-[11px] text-slate-500">
                         {comfyWorkflowNodes.length > 0 ? `已解析 ${comfyWorkflowNodes.length} 个节点` : '未解析节点'}
                       </div>
                     </div>
                     <p className="text-xs text-slate-600 dark:text-slate-400">
-                      选择需要对外暴露的输入/输出节点。未选择输出节点时默认返回全部输出；输入未填写时将使用工作流 JSON
-                      默认值。
+                      在这里决定这条工作流对外开放哪些输入项，以及最后返回哪几个结果。未选输出节点时默认返回全部输出；未填写的输入会继续沿用工作流原值。
                     </p>
                     <div className="space-y-3">
                       <div className="rounded-2xl border border-slate-200/70 bg-white/70 p-3 space-y-2 dark:border-slate-800 dark:bg-slate-950/50">
-                        <div className="text-xs text-slate-700 dark:text-slate-300">快速按节点添加输入映射</div>
+                        <div className="text-xs text-slate-700 dark:text-slate-300">快速添加对外输入项</div>
                         <div className="space-y-2">
-                          <label className="block text-[11px] text-slate-600 dark:text-slate-400">输入节点（含 ID）</label>
+                          <label className="block text-[11px] text-slate-600 dark:text-slate-400">选择节点（含 ID）</label>
                           <select
                             value={workflowInputPickerNodeId}
                             onChange={(e) => {
@@ -14144,7 +14143,7 @@ const extractErrorMessage = (error: unknown): string => {
                             }}
                             className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white"
                           >
-                            <option value="">选择输入节点（含 ID）</option>
+                            <option value="">选择节点（含 ID）</option>
                             {comfyWorkflowNodes.map((node) => (
                               <option key={`workflow-picker-node-${node.id}`} value={node.id}>
                                 #{node.id} · {node.title} · {node.classType}
@@ -14152,7 +14151,7 @@ const extractErrorMessage = (error: unknown): string => {
                             ))}
                           </select>
                           <div className="flex items-center justify-between text-[11px] text-slate-600 dark:text-slate-400">
-                            <span>输入 Key（勾选）</span>
+                            <span>要开放的输入项</span>
                             <div className="space-x-2">
                               <button
                                 className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
@@ -14206,11 +14205,11 @@ const extractErrorMessage = (error: unknown): string => {
                           </button>
                         </div>
                         <p className="text-[11px] text-slate-600 dark:text-slate-500">
-                          以节点 ID 为主进行配置；每个输入会自动生成一条映射，参数名默认等于输入 Key，可在下方表格继续调整。
+                          系统会按所选节点自动生成对外输入项，参数名默认使用原输入名，你可以在下方继续改成更易懂的名字。
                         </p>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span className="text-xs text-slate-700 dark:text-slate-400">输入参数映射</span>
+                        <span className="text-xs text-slate-700 dark:text-slate-400">对外输入项</span>
                         <button
                           className="rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200 dark:hover:bg-slate-900/60"
                           onClick={addWorkflowInputMap}
@@ -14220,15 +14219,15 @@ const extractErrorMessage = (error: unknown): string => {
                       </div>
                       {workflowInputMap.length === 0 ? (
                         <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-3 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-950/50 dark:text-slate-500">
-                          尚未配置输入映射。可选择需要暴露给 Coze 的字段。
+                          尚未配置对外输入项。可选择需要暴露给 Coze 或其他业务入口的字段。
                         </div>
                       ) : (
                         <div className="space-y-2">
                           <div className="grid grid-cols-[1.2fr_1fr_1fr_0.6fr_auto] gap-2 text-[11px] text-slate-500">
-                            <div>参数名</div>
-                            <div>节点</div>
-                            <div>输入 Key</div>
-                            <div>类型</div>
+                              <div>对外名称</div>
+                              <div>来自节点</div>
+                              <div>原输入项</div>
+                              <div>值类型</div>
                             <div></div>
                           </div>
                           {workflowInputMap.map((item, idx) => {
@@ -14242,7 +14241,7 @@ const extractErrorMessage = (error: unknown): string => {
                                 <input
                                   value={item.field}
                                   onChange={(e) => updateWorkflowInputMap(idx, { field: e.target.value })}
-                                  placeholder="参数名，如 prompt / width"
+                                  placeholder="例如 prompt / width / image_url"
                                   className="rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white"
                                 />
                                 <select
@@ -14250,7 +14249,7 @@ const extractErrorMessage = (error: unknown): string => {
                                   onChange={(e) => updateWorkflowInputMap(idx, { nodeId: e.target.value, inputKey: '' })}
                                   className="rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white"
                                 >
-                                  <option value="">选择节点</option>
+                                  <option value="">选择来源节点</option>
                                   {comfyWorkflowNodes.map((nodeOption) => (
                                     <option key={`workflow-node-${nodeOption.id}`} value={nodeOption.id}>
                                       #{nodeOption.id} · {nodeOption.title}
@@ -14263,7 +14262,7 @@ const extractErrorMessage = (error: unknown): string => {
                                   disabled={!item.nodeId}
                                   className="rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 disabled:bg-slate-100 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white dark:disabled:bg-slate-900/40"
                                 >
-                                  <option value="">选择输入</option>
+                                  <option value="">选择原输入项</option>
                                   {inputOptions.map((key) => (
                                     <option key={`workflow-input-${item.nodeId}-${key}`} value={key}>
                                       {key}
@@ -14295,13 +14294,13 @@ const extractErrorMessage = (error: unknown): string => {
                       )}
                       <div className="mt-4 space-y-2">
                         <div className="flex items-center justify-between">
-                          <span className="text-xs text-slate-700 dark:text-slate-400">输出节点映射（保存图片为主）</span>
+                          <span className="text-xs text-slate-700 dark:text-slate-400">最终结果节点</span>
                           <div className="space-x-2 text-[11px]">
                             <button
                               className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
                               onClick={() => setWorkflowOutputShowAll((prev) => !prev)}
                             >
-                              {workflowOutputShowAll ? '仅显示 SaveImage' : '显示全部节点'}
+                              {workflowOutputShowAll ? '优先只看保存结果节点' : '显示全部节点'}
                             </button>
                             <button
                               className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
@@ -14317,7 +14316,7 @@ const extractErrorMessage = (error: unknown): string => {
                             onChange={(e) => setWorkflowOutputPickerNodeId(e.target.value)}
                             className="rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white"
                           >
-                            <option value="">选择输出节点（含 ID）</option>
+                            <option value="">选择最终结果节点（含 ID）</option>
                             {(workflowOutputShowAll
                               ? comfyWorkflowNodes
                               : comfyWorkflowNodes.filter((node) => node.classType.toLowerCase().includes('saveimage'))
@@ -14337,12 +14336,12 @@ const extractErrorMessage = (error: unknown): string => {
                         </div>
                         {workflowOutputNodeIds.length === 0 ? (
                           <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-3 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-950/50 dark:text-slate-500">
-                            未选择输出节点时，默认返回全部输出（建议选择 SaveImage 节点）。
+                            未选择结果节点时，系统会返回全部输出。一般建议只选最终保存图片的节点。
                           </div>
                         ) : (
                           <div className="space-y-2">
                             <div className="grid grid-cols-[1fr_auto] gap-2 text-[11px] text-slate-500">
-                              <div>已选输出节点</div>
+                              <div>已选结果节点</div>
                               <div></div>
                             </div>
                             {workflowOutputNodeIds.map((nodeId) => {
@@ -14365,14 +14364,14 @@ const extractErrorMessage = (error: unknown): string => {
                           </div>
                         )}
                         <p className="text-[11px] text-slate-600 dark:text-slate-500">
-                          输出建议只选 SaveImage 节点，避免返回无用的中间数据。
+                          一般只选真正产出结果的节点，避免把中间过程数据回传给业务侧。
                         </p>
                       </div>
                     </div>
                   </div>
                 ) : (
                   <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-6 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-950/50 dark:text-slate-500">
-                    请先从左侧选择工作流或导入工作流 JSON，再配置输入/输出节点。
+                    请先从左侧选择工作流或导入工作流 JSON，再配置对外输入和最终结果。
                   </div>
                 )}
                 {workflowMappingErrors.length > 0 ? (
@@ -14575,7 +14574,7 @@ const extractErrorMessage = (error: unknown): string => {
             )}
             {workflowEditTab === 'executors' && (
               <label className="block text-xs text-slate-700 dark:text-slate-400">
-                允许运行节点（多选）
+                    允许这条工作流运行的机器（多选）
                 {comfyExecutors.length > 0 ? (
                   <select
                     multiple
@@ -14601,7 +14600,7 @@ const extractErrorMessage = (error: unknown): string => {
                   </div>
                 )}
                 <p className="mt-1 text-[11px] text-slate-700 dark:text-slate-500">
-                  用于限制某个 ComfyUI 工作流可以在哪些机器上执行；保存后会写入 metadata.allowed_executor_ids，调度器会据此路由。
+                  用于限制这条工作流可以在哪些机器上运行。不选表示允许系统在所有可用 ComfyUI 机器中自动调度。
                 </p>
               </label>
             )}
