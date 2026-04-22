@@ -9,6 +9,21 @@ type Props = {
 };
 
 export function EvaluationSidebar({ workflows, selectedWorkflow, onWorkflowSelect, onCreateWorkflow, onRefreshWorkflows }: Props) {
+  const getWorkflowCategory = (workflow: EvalWorkflowVersion): string => {
+    const explicit = String(workflow.presentation?.categoryLabel || '').trim();
+    if (explicit) return explicit;
+    return normalizeCategory(workflow.category);
+  };
+
+  const getWorkflowSortOrder = (workflow: EvalWorkflowVersion): number => {
+    const sortOrder = workflow.presentation?.sortOrder;
+    return typeof sortOrder === 'number' && Number.isFinite(sortOrder) ? sortOrder : 9999;
+  };
+
+  const getWorkflowUsageHint = (workflow: EvalWorkflowVersion): string => {
+    return String(workflow.presentation?.usageHint || workflow.notes || '').trim();
+  };
+
   const normalizeCategory = (category: string | undefined | null): string => {
     const c = String(category || '').trim();
     if (c === '花纹提取类' || c === '图延伸类' || c === '四方/两方连续图类' || c === '图裂变' || c === '通用类') return c;
@@ -21,7 +36,7 @@ export function EvaluationSidebar({ workflows, selectedWorkflow, onWorkflowSelec
   };
 
   const grouped = workflows.reduce<Record<string, EvalWorkflowVersion[]>>((acc, wf) => {
-    const key = normalizeCategory(wf.category);
+    const key = getWorkflowCategory(wf);
     acc[key] = acc[key] || [];
     acc[key].push(wf);
     return acc;
@@ -66,9 +81,14 @@ export function EvaluationSidebar({ workflows, selectedWorkflow, onWorkflowSelec
             <div className="space-y-2">
               {grouped[cat]
                 .slice()
-                .sort((a, b) => a.name.localeCompare(b.name))
+                .sort((a, b) => {
+                  const sortDiff = getWorkflowSortOrder(a) - getWorkflowSortOrder(b);
+                  if (sortDiff !== 0) return sortDiff;
+                  return a.name.localeCompare(b.name);
+                })
                 .map((wf) => {
                   const active = selectedWorkflow?.id === wf.id;
+                  const usageHint = getWorkflowUsageHint(wf);
                   return (
                     <button
                       key={wf.id}
@@ -84,7 +104,7 @@ export function EvaluationSidebar({ workflows, selectedWorkflow, onWorkflowSelec
                         <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">{wf.name}</div>
                         <div className="text-[11px] text-slate-700 dark:text-slate-400">{wf.version}</div>
                       </div>
-                      {wf.notes ? <div className="mt-1 text-xs text-slate-700 line-clamp-2 dark:text-slate-500">{wf.notes}</div> : null}
+                      {usageHint ? <div className="mt-1 text-xs text-slate-700 line-clamp-2 dark:text-slate-500">{usageHint}</div> : null}
                       <div className="mt-1 text-xs text-slate-700 break-all dark:text-slate-400">{wf.workflow_id}</div>
                     </button>
                   );
