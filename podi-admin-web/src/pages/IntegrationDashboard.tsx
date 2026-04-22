@@ -13842,7 +13842,7 @@ const extractErrorMessage = (error: unknown): string => {
         {comfyuiManageTab === 'templates' && (
         <div className="space-y-4">
           <div className="text-sm text-slate-600 dark:text-slate-400">
-            管理本地/云端多台 ComfyUI 服务器的工作流 JSON，指定允许运行的节点，作为一类原子能力。
+            管理 ComfyUI 工作流及其可运行机器，用于把底层工作流整理成可复用的业务能力。
           </div>
           <Space align="center" size="small">
             <Button
@@ -13996,7 +13996,7 @@ const extractErrorMessage = (error: unknown): string => {
           </div>
           <div className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 space-y-3 dark:border-slate-800 dark:bg-slate-900/40">
             <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
-              {workflowForm.id ? '编辑工作流' : '导入/新增工作流'}
+              {workflowForm.id ? '编辑工作流' : '导入或新建工作流'}
             </h3>
             <div className="flex flex-wrap gap-2">
               <button
@@ -14047,7 +14047,7 @@ const extractErrorMessage = (error: unknown): string => {
             {workflowEditTab === 'base' && (
             <div className="text-sm space-y-2">
               <input
-                placeholder="动作标识"
+                placeholder="业务动作标识"
                 value={workflowForm.action || ''}
                 onChange={(e) => setWorkflowForm({ ...workflowForm, action: e.target.value })}
                 className={formControlClass}
@@ -14066,7 +14066,7 @@ const extractErrorMessage = (error: unknown): string => {
                   className={formControlFlexClass}
                 />
                 <input
-                  placeholder="类型"
+                  placeholder="工作流类型"
                   value={workflowForm.type || ''}
                   onChange={(e) => setWorkflowForm({ ...workflowForm, type: e.target.value })}
                   className={formControlFlexClass}
@@ -14828,11 +14828,11 @@ const extractErrorMessage = (error: unknown): string => {
       <Section
         id="bindings"
         title="分配策略"
-        description="为业务入口（Action）配置工作流与执行节点的回退链路，优先级越大越先尝试，用于多节点容灾/流量分摊。"
+        description="为业务入口配置执行链路与回退顺序，优先级越大越先尝试，用于多节点容灾和流量分摊。"
       >
         <div style={{ margin: '0 0 12px' }}>
           <Typography.Text theme="secondary">
-          例如：`action=pattern.extract` 可以先指向云端 ComfyUI 节点，若排队或失败再回落到本地节点；也可以为百度/火山能力配置不同 API Key 的执行器，实现配额切换。
+          例如：同一个业务动作可以先走云端节点，排队或失败时再切到本地节点；也可以给不同厂商配置主备执行链路，用于限流和故障切换。
           </Typography.Text>
         </div>
 
@@ -14844,9 +14844,9 @@ const extractErrorMessage = (error: unknown): string => {
                 data={bindings as any}
                 columns={
                   [
-                    { colKey: 'action', title: 'Action', width: 220 },
-                    { colKey: 'workflow_id', title: 'Workflow ID', width: 220 },
-                    { colKey: 'executor_id', title: 'Executor ID', width: 220 },
+                    { colKey: 'action', title: '业务动作', width: 220 },
+                    { colKey: 'workflow_id', title: '工作流 ID', width: 220 },
+                    { colKey: 'executor_id', title: '执行节点 ID', width: 220 },
                     { colKey: 'priority', title: '优先级', width: 100 },
                     {
                       colKey: 'enabled',
@@ -14880,17 +14880,17 @@ const extractErrorMessage = (error: unknown): string => {
             <Card title={bindingForm.id ? '编辑绑定' : '新增绑定'} bordered>
               <Space direction="vertical" size="medium" style={{ width: '100%' }}>
                 <Input
-                  placeholder="动作标识"
+                  placeholder="业务动作标识"
                   value={bindingForm.action || ''}
                   onChange={(value) => setBindingForm({ ...bindingForm, action: String(value) })}
                 />
                 <Input
-                  placeholder="Workflow ID"
+                  placeholder="工作流 ID"
                   value={bindingForm.workflow_id || ''}
                   onChange={(value) => setBindingForm({ ...bindingForm, workflow_id: String(value) })}
                 />
                 <Input
-                  placeholder="Executor ID"
+                  placeholder="执行节点 ID"
                   value={bindingForm.executor_id || ''}
                   onChange={(value) => setBindingForm({ ...bindingForm, executor_id: String(value) })}
                 />
