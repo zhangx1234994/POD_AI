@@ -268,6 +268,19 @@ const abilityAvailabilityOptions = [
   { value: 'testing', label: '测试中' },
   { value: 'unavailable', label: '暂不可用' },
 ] as const;
+const abilitySurfaceFilterOptions = [
+  { value: 'all', label: '全部范围' },
+  { value: 'client', label: '客户端' },
+  { value: 'coze', label: 'Coze' },
+  { value: 'eval', label: '测评端' },
+  { value: 'admin', label: '管理端' },
+  { value: 'internal', label: '仅内部' },
+] as const;
+const abilityLifecycleFilterOptions = [
+  { value: 'all', label: '全部阶段' },
+  { value: 'active', label: '正常使用' },
+  { value: 'deprecated', label: '已替代/下线中' },
+] as const;
 const executorSelectionPolicyOptions = [
   { value: 'auto', label: '自动' },
   { value: 'queue', label: '优先空闲节点' },
@@ -1968,6 +1981,8 @@ export function IntegrationDashboard({
   const [abilitySearch, setAbilitySearch] = useState('');
   const [abilityProviderFilter, setAbilityProviderFilter] = useState<string>('all');
   const [abilityStatusFilter, setAbilityStatusFilter] = useState<string>('all');
+  const [abilitySurfaceFilter, setAbilitySurfaceFilter] = useState<string>('all');
+  const [abilityLifecycleFilter, setAbilityLifecycleFilter] = useState<string>('all');
   const [activeAbilityDetailTab, setActiveAbilityDetailTab] = useState<AbilityDetailTab>('overview');
   const [abilityLogDetail, setAbilityLogDetail] = useState<AbilityInvocationLog | null>(null);
   const [abilityLogDetailOpen, setAbilityLogDetailOpen] = useState(false);
@@ -2303,13 +2318,23 @@ export function IntegrationDashboard({
       ) {
         return false;
       }
+      if (abilitySurfaceFilter !== 'all') {
+        const surfaces = getAbilitySurfaceLabels(ability)
+          .map((label) => label.toLowerCase())
+          .concat((ability.governance?.scopes || []).map((item) => String(item).toLowerCase()));
+        if (!surfaces.includes(abilitySurfaceFilter.toLowerCase()) && !surfaces.includes((abilityScopeLabelMap[abilitySurfaceFilter] || '').toLowerCase())) {
+          return false;
+        }
+      }
+      if (abilityLifecycleFilter === 'active' && ability.deprecation?.is_deprecated) return false;
+      if (abilityLifecycleFilter === 'deprecated' && !ability.deprecation?.is_deprecated) return false;
       if (!keyword) return true;
       const haystack = `${ability.display_name} ${ability.capability_key} ${ability.version || ''} ${
         ability.description || ''
       } ${getAbilityCategoryLabel(ability)} ${getAbilityOperationLabel(ability)} ${getAbilityUsageHint(ability)} ${getAbilitySurfaceLabels(ability).join(' ')} ${getAbilityReplacementLabel(ability)} ${getAbilityDeprecationSummary(ability)}`.toLowerCase();
       return haystack.includes(keyword);
     });
-  }, [abilities, abilityProviderFilter, abilityStatusFilter, abilitySearch]);
+  }, [abilities, abilityLifecycleFilter, abilityProviderFilter, abilitySearch, abilityStatusFilter, abilitySurfaceFilter]);
   const selectedAbility = useMemo(() => {
     if (!selectedAbilityId) return null;
     return abilities.find((ability) => ability.id === selectedAbilityId) ?? null;
@@ -9844,6 +9869,22 @@ const extractErrorMessage = (error: unknown): string => {
                 placeholder="全部可用性"
               />
             </Col>
+            <Col span={4}>
+              <Select
+                value={abilitySurfaceFilter}
+                onChange={(v) => setAbilitySurfaceFilter(String(v))}
+                options={abilitySurfaceFilterOptions.map((option) => ({ label: option.label, value: option.value }))}
+                placeholder="全部范围"
+              />
+            </Col>
+            <Col span={4}>
+              <Select
+                value={abilityLifecycleFilter}
+                onChange={(v) => setAbilityLifecycleFilter(String(v))}
+                options={abilityLifecycleFilterOptions.map((option) => ({ label: option.label, value: option.value }))}
+                placeholder="全部阶段"
+              />
+            </Col>
           </Row>
           <div style={{ marginTop: 12 }}>
             <Table
@@ -9944,6 +9985,11 @@ const extractErrorMessage = (error: unknown): string => {
                         <Tag theme={business?.availability_code === 'available' ? 'success' : business?.availability_code === 'testing' ? 'warning' : 'default'} variant="light" size="small">
                           {business?.availability_label || row.status}
                         </Tag>
+                        {row.deprecation?.is_deprecated ? (
+                          <Tag theme="warning" variant="light" size="small">
+                            已替代/下线中
+                          </Tag>
+                        ) : null}
                         {business?.stability_label ? (
                           <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
                             {business.stability_label}
