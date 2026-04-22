@@ -238,6 +238,30 @@ const statusOptions = [
   { value: 'active', label: '启用' },
   { value: 'deprecated', label: '下线' },
 ];
+const abilityScopeOptions = [
+  { value: 'internal', label: '内部' },
+  { value: 'admin', label: '管理端' },
+  { value: 'eval', label: '测评端' },
+  { value: 'coze', label: 'Coze' },
+  { value: 'client', label: '客户端' },
+] as const;
+const abilityReleaseStatusOptions = [
+  { value: 'draft', label: '草稿' },
+  { value: 'internal_ready', label: '内部可用' },
+  { value: 'eval_ready', label: '测评可用' },
+  { value: 'published', label: '正式发布' },
+  { value: 'deprecated', label: '已下线' },
+] as const;
+const abilityQualityStatusOptions = [
+  { value: 'untested', label: '未验证' },
+  { value: 'usable', label: '可用' },
+  { value: 'needs_optimization', label: '优化中' },
+] as const;
+const abilityDeprecationModeOptions = [
+  { value: 'hide_public', label: '从公共入口隐藏' },
+  { value: 'internal_only', label: '仅内部保留' },
+  { value: 'delete_candidate', label: '待删除候选' },
+] as const;
 const comfyModelTypeOptions = [
   { value: 'unet', label: 'UNET' },
   { value: 'clip', label: 'CLIP' },
@@ -1839,6 +1863,20 @@ export function IntegrationDashboard({
   const [abilityLoraAllowedTags, setAbilityLoraAllowedTags] = useState<string>('');
   const [abilityLoraAllowedBaseModels, setAbilityLoraAllowedBaseModels] = useState<string[]>([]);
   const [abilityLoraPolicy, setAbilityLoraPolicy] = useState<string>('fallback');
+  const [abilityBusinessScopes, setAbilityBusinessScopes] = useState<string[]>([]);
+  const [abilityReleaseStatus, setAbilityReleaseStatus] = useState<string>('draft');
+  const [abilityQualityStatus, setAbilityQualityStatus] = useState<string>('untested');
+  const [abilityPresentationVisible, setAbilityPresentationVisible] = useState<boolean>(true);
+  const [abilityPresentationSortOrder, setAbilityPresentationSortOrder] = useState<string>('');
+  const [abilityPresentationCategoryLabel, setAbilityPresentationCategoryLabel] = useState<string>('');
+  const [abilityPresentationUsageHint, setAbilityPresentationUsageHint] = useState<string>('');
+  const [abilityPresentationOperationLabel, setAbilityPresentationOperationLabel] = useState<string>('');
+  const [abilityIsDeprecated, setAbilityIsDeprecated] = useState<boolean>(false);
+  const [abilityReplacementAbilityId, setAbilityReplacementAbilityId] = useState<string>('');
+  const [abilityReplacementCapabilityKey, setAbilityReplacementCapabilityKey] = useState<string>('');
+  const [abilityReplacementDisplayName, setAbilityReplacementDisplayName] = useState<string>('');
+  const [abilityDeprecationReason, setAbilityDeprecationReason] = useState<string>('');
+  const [abilityRetirementMode, setAbilityRetirementMode] = useState<string>('hide_public');
   const [abilitySearch, setAbilitySearch] = useState('');
   const [abilityProviderFilter, setAbilityProviderFilter] = useState<string>('all');
   const [abilityStatusFilter, setAbilityStatusFilter] = useState<string>('all');
@@ -5596,6 +5634,29 @@ export function IntegrationDashboard({
       default_params: abilityForm.default_params ? parseJSON(abilityForm.default_params) : undefined,
       input_schema: abilityForm.input_schema ? parseJSON(abilityForm.input_schema) : undefined,
       metadata: isEmptyRecord(nextMetadata) ? undefined : (nextMetadata as JsonRecord),
+      governance: {
+        scopes: abilityBusinessScopes.filter(Boolean),
+        release_status: abilityReleaseStatus || 'draft',
+        quality_status: abilityQualityStatus || 'untested',
+      },
+      presentation: {
+        visible: abilityPresentationVisible,
+        sort_order: abilityPresentationSortOrder.trim() ? Number(abilityPresentationSortOrder) : undefined,
+        category_label: abilityPresentationCategoryLabel.trim() || undefined,
+        usage_hint: abilityPresentationUsageHint.trim() || undefined,
+        operation_label: abilityPresentationOperationLabel.trim() || undefined,
+      },
+      deprecation:
+        abilityIsDeprecated || abilityReplacementAbilityId.trim() || abilityReplacementCapabilityKey.trim() || abilityReplacementDisplayName.trim() || abilityDeprecationReason.trim()
+          ? {
+              is_deprecated: abilityIsDeprecated,
+              replacement_ability_id: abilityReplacementAbilityId.trim() || undefined,
+              replacement_capability_key: abilityReplacementCapabilityKey.trim() || undefined,
+              replacement_display_name: abilityReplacementDisplayName.trim() || undefined,
+              reason: abilityDeprecationReason.trim() || undefined,
+              retirement_mode: abilityRetirementMode || 'hide_public',
+            }
+          : undefined,
     };
     if (abilityForm.id) {
       await adminApi.updateAbility(abilityForm.id, payload);
@@ -5612,6 +5673,20 @@ export function IntegrationDashboard({
     setAbilityLoraAllowedTags('');
     setAbilityLoraAllowedBaseModels([]);
     setAbilityLoraPolicy('fallback');
+    setAbilityBusinessScopes([]);
+    setAbilityReleaseStatus('draft');
+    setAbilityQualityStatus('untested');
+    setAbilityPresentationVisible(true);
+    setAbilityPresentationSortOrder('');
+    setAbilityPresentationCategoryLabel('');
+    setAbilityPresentationUsageHint('');
+    setAbilityPresentationOperationLabel('');
+    setAbilityIsDeprecated(false);
+    setAbilityReplacementAbilityId('');
+    setAbilityReplacementCapabilityKey('');
+    setAbilityReplacementDisplayName('');
+    setAbilityDeprecationReason('');
+    setAbilityRetirementMode('hide_public');
     setAbilityDialogOpen(false);
     load();
   };
@@ -5637,6 +5712,22 @@ export function IntegrationDashboard({
     setAbilityLoraAllowedTags((loraMeta.allowedTags || []).join(', '));
     setAbilityLoraAllowedBaseModels(loraMeta.allowedBaseModels || []);
     setAbilityLoraPolicy(loraMeta.policy || 'fallback');
+    setAbilityBusinessScopes(Array.isArray(ability.governance?.scopes) ? ability.governance?.scopes.filter(Boolean) : []);
+    setAbilityReleaseStatus(ability.governance?.release_status || 'draft');
+    setAbilityQualityStatus(ability.governance?.quality_status || 'untested');
+    setAbilityPresentationVisible(typeof ability.presentation?.visible === 'boolean' ? ability.presentation.visible : true);
+    setAbilityPresentationSortOrder(
+      typeof ability.presentation?.sort_order === 'number' ? String(ability.presentation.sort_order) : '',
+    );
+    setAbilityPresentationCategoryLabel(ability.presentation?.category_label || '');
+    setAbilityPresentationUsageHint(ability.presentation?.usage_hint || '');
+    setAbilityPresentationOperationLabel(ability.presentation?.operation_label || '');
+    setAbilityIsDeprecated(Boolean(ability.deprecation?.is_deprecated));
+    setAbilityReplacementAbilityId(ability.deprecation?.replacement_ability_id || '');
+    setAbilityReplacementCapabilityKey(ability.deprecation?.replacement_capability_key || '');
+    setAbilityReplacementDisplayName(ability.deprecation?.replacement_display_name || '');
+    setAbilityDeprecationReason(ability.deprecation?.reason || '');
+    setAbilityRetirementMode(ability.deprecation?.retirement_mode || 'hide_public');
     setAbilityDialogOpen(true);
   };
 
@@ -9461,6 +9552,25 @@ const extractErrorMessage = (error: unknown): string => {
                   setAbilityAllowedExecutors([]);
                   setAbilityRequiredTags('');
                   setAbilityFallbackToDefault(true);
+                  setAbilityLoraDefault('');
+                  setAbilityLoraAllowedFiles([]);
+                  setAbilityLoraAllowedTags('');
+                  setAbilityLoraAllowedBaseModels([]);
+                  setAbilityLoraPolicy('fallback');
+                  setAbilityBusinessScopes([]);
+                  setAbilityReleaseStatus('draft');
+                  setAbilityQualityStatus('untested');
+                  setAbilityPresentationVisible(true);
+                  setAbilityPresentationSortOrder('');
+                  setAbilityPresentationCategoryLabel('');
+                  setAbilityPresentationUsageHint('');
+                  setAbilityPresentationOperationLabel('');
+                  setAbilityIsDeprecated(false);
+                  setAbilityReplacementAbilityId('');
+                  setAbilityReplacementCapabilityKey('');
+                  setAbilityReplacementDisplayName('');
+                  setAbilityDeprecationReason('');
+                  setAbilityRetirementMode('hide_public');
                   setAbilityDialogOpen(true);
                 }}
               >
@@ -10004,6 +10114,150 @@ const extractErrorMessage = (error: unknown): string => {
                 />
               </div>
             ) : null}
+
+            <div className="rounded-2xl border border-slate-200/70 bg-slate-50/40 p-4 dark:border-slate-800 dark:bg-slate-950/40">
+              <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                <Typography.Text strong>业务展示与治理</Typography.Text>
+                <Typography.Text theme="secondary">
+                  这里配置给业务和运营看的状态、分类和替代关系，不需要再手改 metadata JSON。
+                </Typography.Text>
+
+                <Row gutter={[12, 12]}>
+                  <Col span={8}>
+                    <Typography.Text theme="secondary">可见范围（scopes）</Typography.Text>
+                    <select
+                      multiple
+                      value={abilityBusinessScopes}
+                      onChange={(e) =>
+                        setAbilityBusinessScopes(Array.from(e.target.selectedOptions).map((option) => option.value))
+                      }
+                      className="mt-2 h-28 w-full rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white"
+                    >
+                      {abilityScopeOptions.map((option) => (
+                        <option key={`ability-scope-${option.value}`} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </Col>
+                  <Col span={8}>
+                    <Typography.Text theme="secondary">发布状态</Typography.Text>
+                    <Select
+                      value={abilityReleaseStatus}
+                      onChange={(v) => setAbilityReleaseStatus(String(v))}
+                      options={abilityReleaseStatusOptions.map((option) => ({ label: option.label, value: option.value }))}
+                    />
+                  </Col>
+                  <Col span={8}>
+                    <Typography.Text theme="secondary">质量状态</Typography.Text>
+                    <Select
+                      value={abilityQualityStatus}
+                      onChange={(v) => setAbilityQualityStatus(String(v))}
+                      options={abilityQualityStatusOptions.map((option) => ({ label: option.label, value: option.value }))}
+                    />
+                  </Col>
+                </Row>
+
+                <Row gutter={[12, 12]}>
+                  <Col span={6}>
+                    <Space align="center" size="small">
+                      <Typography.Text theme="secondary">公共可见</Typography.Text>
+                    </Space>
+                    <div style={{ marginTop: 8 }}>
+                      <Switch value={abilityPresentationVisible} onChange={(v) => setAbilityPresentationVisible(Boolean(v))} />
+                    </div>
+                  </Col>
+                  <Col span={6}>
+                    <Typography.Text theme="secondary">排序</Typography.Text>
+                    <Input
+                      value={abilityPresentationSortOrder}
+                      onChange={(v) => setAbilityPresentationSortOrder(String(v).replace(/[^\d-]/g, ''))}
+                      placeholder="例如 200"
+                    />
+                  </Col>
+                  <Col span={12}>
+                    <Typography.Text theme="secondary">业务分类标签</Typography.Text>
+                    <Input
+                      value={abilityPresentationCategoryLabel}
+                      onChange={(v) => setAbilityPresentationCategoryLabel(String(v))}
+                      placeholder="例如 图片生成 / 平台工具"
+                    />
+                  </Col>
+                </Row>
+
+                <Row gutter={[12, 12]}>
+                  <Col span={12}>
+                    <Typography.Text theme="secondary">操作名称</Typography.Text>
+                    <Input
+                      value={abilityPresentationOperationLabel}
+                      onChange={(v) => setAbilityPresentationOperationLabel(String(v))}
+                      placeholder="例如 图像扩展 / 抠图 / 内部尺寸处理"
+                    />
+                  </Col>
+                  <Col span={12}>
+                    <Typography.Text theme="secondary">业务提示文案</Typography.Text>
+                    <Input
+                      value={abilityPresentationUsageHint}
+                      onChange={(v) => setAbilityPresentationUsageHint(String(v))}
+                      placeholder="例如 适合在 Coze 工作流中作为图像节点使用"
+                    />
+                  </Col>
+                </Row>
+
+                <div className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 dark:border-slate-800 dark:bg-slate-950/40">
+                  <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                    <Space align="center" size="small">
+                      <Typography.Text strong>下线 / 替代</Typography.Text>
+                      <Switch value={abilityIsDeprecated} onChange={(v) => setAbilityIsDeprecated(Boolean(v))} />
+                    </Space>
+                    <Row gutter={[12, 12]}>
+                      <Col span={8}>
+                        <Typography.Text theme="secondary">替代 Ability ID</Typography.Text>
+                        <Input
+                          value={abilityReplacementAbilityId}
+                          onChange={(v) => setAbilityReplacementAbilityId(String(v))}
+                          placeholder="可选"
+                        />
+                      </Col>
+                      <Col span={8}>
+                        <Typography.Text theme="secondary">替代能力 Key</Typography.Text>
+                        <Input
+                          value={abilityReplacementCapabilityKey}
+                          onChange={(v) => setAbilityReplacementCapabilityKey(String(v))}
+                          placeholder="例如 flux2_klein_9b_outpaint"
+                        />
+                      </Col>
+                      <Col span={8}>
+                        <Typography.Text theme="secondary">替代展示名</Typography.Text>
+                        <Input
+                          value={abilityReplacementDisplayName}
+                          onChange={(v) => setAbilityReplacementDisplayName(String(v))}
+                          placeholder="例如 统一扩图入口"
+                        />
+                      </Col>
+                    </Row>
+                    <Row gutter={[12, 12]}>
+                      <Col span={12}>
+                        <Typography.Text theme="secondary">下线方式</Typography.Text>
+                        <Select
+                          value={abilityRetirementMode}
+                          onChange={(v) => setAbilityRetirementMode(String(v))}
+                          options={abilityDeprecationModeOptions.map((option) => ({ label: option.label, value: option.value }))}
+                        />
+                      </Col>
+                      <Col span={12}>
+                        <Typography.Text theme="secondary">原因说明</Typography.Text>
+                        <Input
+                          value={abilityDeprecationReason}
+                          onChange={(v) => setAbilityDeprecationReason(String(v))}
+                          placeholder="例如 旧入口已由新工具统一替代"
+                        />
+                      </Col>
+                    </Row>
+                  </Space>
+                </div>
+              </Space>
+            </div>
 
             <div>
               <Typography.Text theme="secondary">默认参数 JSON</Typography.Text>

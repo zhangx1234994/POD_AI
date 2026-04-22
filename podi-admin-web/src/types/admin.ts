@@ -8,6 +8,38 @@ export type JsonValue =
 
 export type JsonRecord = Record<string, JsonValue>;
 
+export interface AbilityGovernance {
+  scopes?: string[];
+  release_status?: string;
+  route_policy?: string;
+  quality_status?: string;
+}
+
+export interface AbilityBusinessStatus {
+  availability_code?: string;
+  availability_label?: string;
+  stability_code?: string;
+  stability_label?: string;
+  surface_labels?: string[];
+}
+
+export interface AbilityPresentation {
+  visible?: boolean;
+  sort_order?: number;
+  category_label?: string;
+  usage_hint?: string;
+  operation_label?: string;
+}
+
+export interface AbilityDeprecation {
+  is_deprecated?: boolean;
+  replacement_ability_id?: string | null;
+  replacement_capability_key?: string | null;
+  replacement_display_name?: string | null;
+  reason?: string | null;
+  retirement_mode?: string | null;
+}
+
 export interface ExecutorRouting {
   routing_enabled?: boolean;
   fallback_only?: boolean;
@@ -101,6 +133,10 @@ export interface Ability {
   default_params?: JsonRecord | null;
   input_schema?: JsonRecord | null;
   metadata?: JsonRecord | null;
+  governance?: AbilityGovernance | null;
+  presentation?: AbilityPresentation | null;
+  deprecation?: AbilityDeprecation | null;
+  business_status?: AbilityBusinessStatus | null;
   last_health_check_at?: string | null;
   last_health_status?: string | null;
   success_rate?: number | null;
