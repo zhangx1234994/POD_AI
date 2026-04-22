@@ -1301,6 +1301,54 @@ const getAbilityOperationLabel = (ability?: Ability | null) => {
   return getAbilityPresentation(ability)?.operation_label || '';
 };
 
+const abilityScopeLabelMap: Record<string, string> = {
+  internal: '仅内部',
+  admin: '管理端',
+  eval: '测评端',
+  coze: 'Coze',
+  client: '客户端',
+};
+
+const abilityRetirementModeLabelMap: Record<string, string> = {
+  hide_public: '对业务隐藏',
+  internal_only: '仅内部保留',
+  admin_only: '仅管理端保留',
+  delete_candidate: '候选下线',
+};
+
+const getAbilitySurfaceLabels = (ability?: Ability | null) => {
+  const businessLabels = getAbilityBusinessStatus(ability)?.surface_labels;
+  if (Array.isArray(businessLabels) && businessLabels.length > 0) {
+    return businessLabels.filter(Boolean);
+  }
+  const scopes = ability?.governance?.scopes;
+  if (!Array.isArray(scopes) || scopes.length === 0) return [];
+  return scopes.map((scope) => abilityScopeLabelMap[scope] || scope).filter(Boolean);
+};
+
+const getAbilityReplacementLabel = (ability?: Ability | null) => {
+  const deprecation = ability?.deprecation;
+  if (!deprecation?.is_deprecated) return '';
+  return (
+    deprecation.replacement_display_name ||
+    deprecation.replacement_capability_key ||
+    deprecation.replacement_ability_id ||
+    ''
+  );
+};
+
+const getAbilityDeprecationSummary = (ability?: Ability | null) => {
+  const deprecation = ability?.deprecation;
+  if (!deprecation?.is_deprecated) return '';
+  const mode = abilityRetirementModeLabelMap[deprecation.retirement_mode || ''] || '已下线';
+  const replacement = getAbilityReplacementLabel(ability);
+  const reason = (deprecation.reason || '').trim();
+  const parts = [mode];
+  if (replacement) parts.push(`替代：${replacement}`);
+  if (reason) parts.push(reason);
+  return parts.join(' · ');
+};
+
 const resolveAbilityApiType = (ability: Ability | null): string => {
   if (!ability) return '';
   const metadata = ability.metadata;
@@ -1813,6 +1861,11 @@ const getExecutorBusinessStatus = (executor?: Executor | null) => {
   };
 };
 
+const getExecutorSelectionPolicyLabel = (policy?: string | null) => {
+  const normalized = (policy || '').trim().toLowerCase();
+  return executorSelectionPolicyOptions.find((option) => option.value === normalized)?.label || normalized || '自动';
+};
+
 const parseLoraMetadata = (metadata?: JsonRecord | null) => {
   const record = (metadata || {}) as Record<string, unknown>;
   const allowedFiles = normalizeTextList(
@@ -2253,7 +2306,7 @@ export function IntegrationDashboard({
       if (!keyword) return true;
       const haystack = `${ability.display_name} ${ability.capability_key} ${ability.version || ''} ${
         ability.description || ''
-      } ${getAbilityCategoryLabel(ability)} ${getAbilityOperationLabel(ability)} ${getAbilityUsageHint(ability)}`.toLowerCase();
+      } ${getAbilityCategoryLabel(ability)} ${getAbilityOperationLabel(ability)} ${getAbilityUsageHint(ability)} ${getAbilitySurfaceLabels(ability).join(' ')} ${getAbilityReplacementLabel(ability)} ${getAbilityDeprecationSummary(ability)}`.toLowerCase();
       return haystack.includes(keyword);
     });
   }, [abilities, abilityProviderFilter, abilityStatusFilter, abilitySearch]);
@@ -6915,11 +6968,17 @@ const extractErrorMessage = (error: unknown): string => {
       { label: '业务分类', value: getAbilityCategoryLabel(selectedAbility) || '—' },
       { label: '操作名称', value: getAbilityOperationLabel(selectedAbility) || '—' },
       {
+        label: '可见范围',
+        value: getAbilitySurfaceLabels(selectedAbility).length > 0 ? getAbilitySurfaceLabels(selectedAbility).join(' / ') : '未定义',
+      },
+      {
         label: '默认节点',
         value: pinnedAbilityExecutor ? `${pinnedAbilityExecutor.name} · ${pinnedAbilityExecutor.type}` : '按厂商类型自动匹配',
       },
       { label: '关联工作流', value: selectedAbilityWorkflowLabel || '未绑定' },
+      { label: '替代能力', value: getAbilityReplacementLabel(selectedAbility) || '—' },
     ];
+    const deprecationSummary = getAbilityDeprecationSummary(selectedAbility);
     return (
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
         {selectedAbilitySchemaIssues.length > 0 ? (
@@ -6927,6 +6986,13 @@ const extractErrorMessage = (error: unknown): string => {
             theme="warning"
             title="能力配置不完整"
             message={`请补齐：${selectedAbilitySchemaIssues.join(' / ')}`}
+          />
+        ) : null}
+        {selectedAbility.deprecation?.is_deprecated ? (
+          <Alert
+            theme="warning"
+            title="该能力已进入替代/下线流程"
+            message={deprecationSummary || '建议改用替代能力，不再继续面向业务公开。'}
           />
         ) : null}
         <Card bordered>
@@ -6941,6 +7007,15 @@ const extractErrorMessage = (error: unknown): string => {
               <Typography.Text theme="secondary">
                 {getAbilityUsageHint(selectedAbility) || selectedAbility.description || '暂无描述，建议在能力管理中补充。'}
               </Typography.Text>
+              {getAbilitySurfaceLabels(selectedAbility).length > 0 ? (
+                <Space size="small" breakLine>
+                  {getAbilitySurfaceLabels(selectedAbility).map((label) => (
+                    <Tag key={`selected-ability-surface-${label}`} theme="default" variant="light">
+                      {label}
+                    </Tag>
+                  ))}
+                </Space>
+              ) : null}
               {selectedAbilityTags.length > 0 ? (
                 <Space breakLine>
                   {selectedAbilityTags.map((tag, index) => (
@@ -6967,6 +7042,11 @@ const extractErrorMessage = (error: unknown): string => {
               {getAbilityBusinessStatus(selectedAbility)?.stability_label ? (
                 <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
                   {getAbilityBusinessStatus(selectedAbility)?.stability_label}
+                </Typography.Text>
+              ) : null}
+              {selectedAbility.deprecation?.is_deprecated ? (
+                <Typography.Text theme="warning" style={{ fontSize: 12, textAlign: 'right' }}>
+                  {deprecationSummary || '已标记为替代/下线'}
                 </Typography.Text>
               ) : null}
             </Space>
@@ -8374,7 +8454,7 @@ const extractErrorMessage = (error: unknown): string => {
 
                                   <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-500">
                                     <span className="rounded-full border border-slate-200 px-2 py-0.5 dark:border-slate-700">
-                                      策略 {routing.policy}
+                                      分配方式 {getExecutorSelectionPolicyLabel(routing.policy)}
                                     </span>
                                     <span className="rounded-full border border-slate-200 px-2 py-0.5 dark:border-slate-700">
                                       {businessStatus.concurrencyLabel}
@@ -8410,7 +8490,7 @@ const extractErrorMessage = (error: unknown): string => {
                                         {metric?.p95Ms ? `${Math.round(metric.p95Ms)}ms` : '—'}
                                       </div>
                                       <div className="mt-1 text-[11px] text-slate-500">
-                                        路由：{businessStatus.executionModeLabel} · 策略 {routing.policy}
+                                      路由：{businessStatus.executionModeLabel} · 分配方式 {getExecutorSelectionPolicyLabel(routing.policy)}
                                       </div>
                                     </div>
                                     {isComfyExecutor && (
@@ -8535,7 +8615,7 @@ const extractErrorMessage = (error: unknown): string => {
                                   <div style={{ fontWeight: 600 }}>{ex.name}</div>
                                   <Typography.Text theme="secondary">{ex.base_url || '—'}</Typography.Text>
                                   <div className="mt-1 text-[11px] text-slate-500">
-                                    {businessStatus.executionModeLabel} · 策略 {routing.policy}
+                                    {businessStatus.executionModeLabel} · 分配方式 {getExecutorSelectionPolicyLabel(routing.policy)}
                                     {businessStatus.tags.length > 0 ? ` · 标签 ${businessStatus.tags.join(', ')}` : ''}
                                   </div>
                                   {isComfyExecutor && (
@@ -9818,22 +9898,40 @@ const extractErrorMessage = (error: unknown): string => {
                   colKey: 'provider',
                   title: '厂商/能力',
                   width: 260,
-                  cell: ({ row }) => (
-                    <Space direction="vertical" size={2}>
-                      <Typography.Text>{getProviderLabel(row.provider)}</Typography.Text>
-                      <Typography.Text theme="secondary">
-                        {row.capability_key} · {getAbilityCategoryLabel(row)}
-                      </Typography.Text>
-                      {getAbilityOperationLabel(row) ? (
-                        <Typography.Text theme="secondary">{getAbilityOperationLabel(row)}</Typography.Text>
-                      ) : null}
-                      <Typography.Text theme="secondary">
-                        {getAbilityTypeLabel(row.ability_type)}
-                        {row.workflow_id ? ` · ${workflowLookup[row.workflow_id]?.name || row.workflow_id}` : ''}
-                      </Typography.Text>
-                      {row.version ? <Typography.Text theme="secondary">版本 {row.version}</Typography.Text> : null}
-                    </Space>
-                  ),
+                  cell: ({ row }) => {
+                    const deprecationSummary = getAbilityDeprecationSummary(row);
+                    const surfaceLabels = getAbilitySurfaceLabels(row);
+                    return (
+                      <Space direction="vertical" size={2}>
+                        <Typography.Text>{getProviderLabel(row.provider)}</Typography.Text>
+                        <Typography.Text theme="secondary">
+                          {row.capability_key} · {getAbilityCategoryLabel(row)}
+                        </Typography.Text>
+                        {getAbilityOperationLabel(row) ? (
+                          <Typography.Text theme="secondary">{getAbilityOperationLabel(row)}</Typography.Text>
+                        ) : null}
+                        <Typography.Text theme="secondary">
+                          {getAbilityTypeLabel(row.ability_type)}
+                          {row.workflow_id ? ` · ${workflowLookup[row.workflow_id]?.name || row.workflow_id}` : ''}
+                        </Typography.Text>
+                        {row.version ? <Typography.Text theme="secondary">版本 {row.version}</Typography.Text> : null}
+                        {surfaceLabels.length > 0 ? (
+                          <Space size="small" breakLine>
+                            {surfaceLabels.map((label) => (
+                              <Tag key={`${row.id}-surface-${label}`} theme="default" variant="light" size="small">
+                                {label}
+                              </Tag>
+                            ))}
+                          </Space>
+                        ) : null}
+                        {deprecationSummary ? (
+                          <Typography.Text theme="warning" style={{ fontSize: 12 }}>
+                            {deprecationSummary}
+                          </Typography.Text>
+                        ) : null}
+                      </Space>
+                    );
+                  },
                 },
                 {
                   colKey: 'status',
