@@ -34,6 +34,7 @@
 - `docs/strategy/coze-host-cutover-sequence-v1.md`
 - `docs/strategy/coze-migration-inventory-v1.md`
 - `docs/strategy/coze-host-reference-phasing-v1.md`
+- `docs/strategy/coze-desktop-centerurl-cutover-v1.md`
 - `docs/strategy/image-ops-service-split-v1.md`
 - `docs/architecture.md`
 - `docs/BUSINESS_MODEL.md`

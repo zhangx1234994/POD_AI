@@ -40,6 +40,7 @@ Coze Workflow
 - `docs/strategy/coze-migration-config-matrix-v1.md`
 - `docs/strategy/coze-host-cutover-sequence-v1.md`
 - `docs/strategy/coze-host-reference-phasing-v1.md`
+- `docs/strategy/coze-desktop-centerurl-cutover-v1.md`
 - `docs/testing/COZE_CONTROL_PLANE_MIGRATION_DRILL_v1.md`
 
 ## 迁移范围

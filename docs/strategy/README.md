@@ -18,6 +18,7 @@
 - `coze-host-cutover-sequence-v1.md`：Coze 迁移当天的 host 切换顺序与回滚顺序
 - `coze-migration-inventory-v1.md`：Coze 控制面迁移的真实对象清单（host / toolbox / workflow / 文件级切换项）
 - `coze-host-reference-phasing-v1.md`：迁移时哪些 host 引用首轮必须清、哪些允许保留到第二阶段
+- `coze-desktop-centerurl-cutover-v1.md`：桌面端 `CenterUrl` 的第二阶段切换方案
 - `image-ops-service-split-v1.md`：自研图片原子能力拆分方案（高清放大 / DPI / 扩边占位图）
 - `weekly-review-template.md`：每周回顾模板（目标/待办/文档治理）
 
