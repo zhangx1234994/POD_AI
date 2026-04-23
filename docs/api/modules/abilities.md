@@ -191,6 +191,30 @@
 - `IMAGE_REQUIRED` / `COMFYUI_IMAGE_REQUIRED`
 - `COMFYUI_TIMEOUT` / `KIE_TIMEOUT`
 
+### PODI 自研图片原子能力（image-ops）补充错误
+
+适用能力：
+
+- `expand_mask_color`
+- `set_dpi`
+- `upscale_resize`
+
+常见错误：
+
+- `IMAGE_REQUIRED`
+- `IMAGE_BASE64_INVALID`
+- `EXPAND_MASK_RENDER_FAILED`
+- `EXPAND_MASK_UPLOAD_FAILED`
+- `EXPAND_MASK_REMOTE_FAILED`
+- `SET_DPI_REMOTE_FAILED`
+- `UPSCALE_REMOTE_FAILED`
+- `LOCAL_HEAVY_IMAGE_TASK_DISABLED`
+
+说明：
+
+- 当 backend 已配置 `IMAGE_OPS_BASE_URL` 时，这 3 条能力会优先调用独立 `image-ops` 服务。
+- 若 Coze 控制面主机设置了 `DISABLE_LOCAL_HEAVY_IMAGE_TASKS=true`，`upscale_resize` 在没有外部 image-ops 可用时会直接返回 `LOCAL_HEAVY_IMAGE_TASK_DISABLED`，不允许本机兜底。
+
 ---
 
 ## 3) 能力选项（公共）

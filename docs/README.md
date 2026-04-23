@@ -30,6 +30,7 @@
 - `docs/strategy/platform-vision-and-goals-2026.md`
 - `docs/strategy/strategy-one-page-2026q2.md`
 - `docs/strategy/coze-mid-platform-migration-v1.md`
+- `docs/strategy/coze-migration-config-matrix-v1.md`
 - `docs/strategy/image-ops-service-split-v1.md`
 - `docs/architecture.md`
 - `docs/BUSINESS_MODEL.md`

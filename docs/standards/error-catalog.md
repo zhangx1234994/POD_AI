@@ -240,11 +240,23 @@
 | KIE_MODEL_NOT_FOUND | KIE 查询模型不存在 | `/api/coze/podi/kie/models/schema` |
 | IMAGE_DOWNLOAD_FAILED | 下载图片失败 | |
 | EXPAND_MASK_RENDER_FAILED | 扩边占位图渲染失败 | PODI 扩边占位工具在 Pillow/图像处理阶段异常。 |
+| EXPAND_MASK_REMOTE_FAILED | 扩边占位图远程服务失败 | image-ops 已配置但远程处理失败。 |
 | EXPAND_MASK_UPLOAD_FAILED | 扩边占位图上传失败 | PODI 扩边占位工具在 OSS 上传阶段异常。 |
+| SET_DPI_REMOTE_FAILED | DPI 处理远程服务失败 | image-ops 已配置但远程处理失败。 |
+| UPSCALE_REMOTE_FAILED | 高清放大远程服务失败 | image-ops 已配置但远程处理失败。 |
+| LOCAL_HEAVY_IMAGE_TASK_DISABLED | 控制面主机禁止本机重图像任务 | 迁移到 Coze 主机后，高清放大必须外置执行。 |
 | IMAGE_BASE64_INVALID | Base64 图片无效 | |
 | IMAGE_REQUIRED | 缺少图片 | |
 | PODI_IMAGE_TOOLS_IMPORT_FAILED | 图像工具导入失败 | |
 | PODI_UTILITY_UNSUPPORTED | 不支持的工具/能力 | |
+| IMAGE_OPS_CLIENT_IMPORT_FAILED | image-ops client 导入失败 | backend 启动包或依赖异常。 |
+| IMAGE_OPS_UNAUTHORIZED | image-ops 服务鉴权失败 | service token 缺失或不匹配。 |
+| IMAGE_OPS_IMAGE_INVALID | image-ops 收到无效图片内容 | Base64 解码失败。 |
+| IMAGE_OPS_INVALID_RESPONSE | image-ops 返回结构异常 | 缺少标准字段。 |
+| IMAGE_OPS_CONTENT_MISSING | image-ops 返回缺少内容 | 缺少 `contentBase64`。 |
+| IMAGE_OPS_CONTENT_INVALID | image-ops 返回内容无效 | Base64 内容损坏。 |
+| IMAGE_OPS_CONTENT_TYPE_MISSING | image-ops 返回缺少 content type | 缺少 `contentType`。 |
+| IMAGE_OPS_FILE_EXT_INVALID | image-ops 返回缺少或错误扩展名 | `fileExt` 非法。 |
 
 ---
 
