@@ -87,6 +87,14 @@ bash scripts/check_coze_control_plane_bundle.sh
 ```bash
 DEPLOY_SCOPE=backend-image-ops \
 IMAGE_PATH="/srv/pod/testdata/sample.png" \
+bash scripts/run_coze_control_plane_cutover.sh plan
+```
+
+确认计划无误后，再执行：
+
+```bash
+DEPLOY_SCOPE=backend-image-ops \
+IMAGE_PATH="/srv/pod/testdata/sample.png" \
 bash scripts/run_coze_control_plane_cutover.sh full
 ```
 
@@ -148,6 +156,14 @@ bash scripts/run_coze_control_plane_cutover.sh full
 OLD_BACKEND_URL="http://<old-backend-host>:8099" \
 CONFIRM_TOOLBOX_ROLLBACK_DONE=1 \
 bash scripts/rollback_coze_control_plane.sh
+```
+
+回滚后验证：
+
+```bash
+OLD_BACKEND_URL="http://<old-backend-host>:8099" \
+IMAGE_PATH="/srv/pod/testdata/sample.png" \
+bash scripts/rollback_verify_coze_control_plane.sh
 ```
 
 ## 8. 当天只看这三个结果

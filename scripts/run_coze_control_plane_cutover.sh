@@ -18,7 +18,7 @@ SERVICE_API_TOKEN="${SERVICE_API_TOKEN:-}"
 usage() {
   cat <<'EOF'
 Usage:
-  bash scripts/run_coze_control_plane_cutover.sh [pre|deploy|post|full]
+  bash scripts/run_coze_control_plane_cutover.sh [plan|pre|deploy|post|full]
 
 Environment:
   DEPLOY_SCOPE=backend-image-ops|full
@@ -44,6 +44,58 @@ fi
 
 log() {
   printf '[cutover:%s] %s\n' "$PHASE" "$1"
+}
+
+run_plan() {
+  cat <<EOF
+[cutover:plan] planned phase: $PHASE
+[cutover:plan] deploy scope: $DEPLOY_SCOPE
+[cutover:plan] backend:     $BACKEND_URL
+[cutover:plan] admin:       $ADMIN_URL
+[cutover:plan] eval:        $EVAL_URL
+[cutover:plan] image-ops:   $IMAGE_OPS_URL
+[cutover:plan] image path:  ${IMAGE_PATH:-<empty>}
+[cutover:plan] image url:   ${IMAGE_URL:-<empty>}
+[cutover:plan] poll secs:   $POLL_SECONDS
+
+[cutover:plan] step 1: first-wave host reference check
+  python3 scripts/check_coze_host_cutover_refs.py --root "$ROOT_DIR"
+
+[cutover:plan] step 2: deploy
+EOF
+
+  case "$DEPLOY_SCOPE" in
+    backend-image-ops)
+      cat <<EOF
+  bash scripts/deploy_coze_backend_image_ops_only.sh
+EOF
+      ;;
+    full)
+      cat <<EOF
+  ENABLE_WEBS=1 bash scripts/deploy_coze_control_plane_nodocker.sh
+EOF
+      ;;
+  esac
+
+  cat <<EOF
+
+[cutover:plan] step 3: bundle check
+  BACKEND_URL="$BACKEND_URL" ADMIN_URL="$ADMIN_URL" EVAL_URL="$EVAL_URL" IMAGE_OPS_URL="$IMAGE_OPS_URL" \\
+  bash scripts/check_coze_control_plane_bundle.sh
+
+[cutover:plan] step 4: image-ops smoke via backend
+  BACKEND_URL="$BACKEND_URL" SERVICE_API_TOKEN="<optional>" \\
+  python3 scripts/smoke_image_ops_via_backend.py
+
+[cutover:plan] step 5: primary Coze workflows smoke
+  DOCS_URL="$BACKEND_URL/api/evals/docs/workflows" \\
+  UPLOAD_URL="$BACKEND_URL/api/evals/uploads" \\
+  TASK_URL="$BACKEND_URL/api/coze/podi/tasks/get" \\
+  IMAGE_PATH="${IMAGE_PATH:-/abs/path/sample.png}" \\
+  IMAGE_URL="${IMAGE_URL:-}" \\
+  POLL_SECONDS="$POLL_SECONDS" \\
+  bash scripts/smoke_coze_primary_workflows.sh
+EOF
 }
 
 run_pre() {
@@ -97,6 +149,9 @@ run_post() {
 }
 
 case "$PHASE" in
+  plan)
+    run_plan
+    ;;
   pre)
     run_pre
     ;;

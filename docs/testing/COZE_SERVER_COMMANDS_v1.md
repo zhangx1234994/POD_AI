@@ -126,7 +126,16 @@ IMAGE_OPS_URL=http://127.0.0.1:8301 \
 bash scripts/check_coze_control_plane_bundle.sh
 ```
 
-## 6.0 一键执行（推荐）
+## 6.0 先看执行计划（推荐）
+
+```bash
+cd /srv/pod
+DEPLOY_SCOPE=backend-image-ops \
+IMAGE_PATH="/srv/pod/testdata/sample.png" \
+bash scripts/run_coze_control_plane_cutover.sh plan
+```
+
+## 6.1 一键执行（推荐）
 
 ### 首轮保守迁移：只动 backend + image-ops
 
@@ -148,7 +157,7 @@ POLL_SECONDS=90 \
 bash scripts/run_coze_control_plane_cutover.sh full
 ```
 
-## 6.1 image-ops 真链路 smoke
+## 6.2 image-ops 真链路 smoke
 
 ```bash
 cd /srv/pod
@@ -157,7 +166,7 @@ SERVICE_API_TOKEN="<service_api_token>" \
 python3 scripts/smoke_image_ops_via_backend.py
 ```
 
-## 6.2 Coze 主工作流 smoke
+## 6.3 Coze 主工作流 smoke
 
 ```bash
 cd /srv/pod
@@ -166,13 +175,22 @@ POLL_SECONDS=90 \
 bash scripts/smoke_coze_primary_workflows.sh
 ```
 
-## 6.3 回滚模板
+## 6.4 回滚模板
 
 ```bash
 cd /srv/pod
 OLD_BACKEND_URL="http://117.50.80.158:8099" \
 CONFIRM_TOOLBOX_ROLLBACK_DONE=1 \
 bash scripts/rollback_coze_control_plane.sh
+```
+
+## 6.5 回滚后验证
+
+```bash
+cd /srv/pod
+OLD_BACKEND_URL="http://117.50.80.158:8099" \
+IMAGE_PATH="/srv/pod/testdata/sample.png" \
+bash scripts/rollback_verify_coze_control_plane.sh
 ```
 
 ## 7. 日志命令
