@@ -2228,9 +2228,15 @@ PODI_UTILITY_ABILITIES: dict[str, AbilityDefinition] = {
         "metadata": {
             "api_type": "podi_utility",
             "action": "expand_mask_color",
+            "execution_target": "image_ops",
+            "image_ops": {
+                "operation": "expand-mask-color",
+                "heavy": False,
+                "local_fallback_allowed": True,
+            },
             "requires_image_input": True,
             "supports_vision": True,
-            "seed_version": 3,
+            "seed_version": 4,
             "pricing": {
                 "currency": "CNY",
                 "unit": "per_image",
@@ -2266,9 +2272,15 @@ PODI_UTILITY_ABILITIES: dict[str, AbilityDefinition] = {
         "metadata": {
             "api_type": "podi_utility",
             "action": "set_dpi",
+            "execution_target": "image_ops",
+            "image_ops": {
+                "operation": "set-dpi",
+                "heavy": False,
+                "local_fallback_allowed": True,
+            },
             "requires_image_input": True,
             "supports_vision": True,
-            "seed_version": 3,
+            "seed_version": 4,
             "pricing": {
                 "currency": "CNY",
                 "unit": "per_image",
@@ -2311,9 +2323,15 @@ PODI_UTILITY_ABILITIES: dict[str, AbilityDefinition] = {
         "metadata": {
             "api_type": "podi_utility",
             "action": "upscale_resize",
+            "execution_target": "image_ops",
+            "image_ops": {
+                "operation": "upscale-resize",
+                "heavy": True,
+                "local_fallback_allowed": False,
+            },
             "requires_image_input": True,
             "supports_vision": True,
-            "seed_version": 3,
+            "seed_version": 4,
             "pricing": {
                 "currency": "CNY",
                 "unit": "per_image",

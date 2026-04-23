@@ -32,6 +32,11 @@ from app.services.ability_presentation import (
     resolve_ability_presentation,
 )
 from app.services.ability_logs import AbilityLogStartParams, ability_log_service
+from app.services.image_ops_registry import (
+    get_image_ops_capability,
+    is_heavy_image_ops_capability,
+    is_image_ops_capability,
+)
 from app.services.routing_governance import normalize_ability_routing
 from app.services.task_id_codec import encode_task_id
 from app.services.ability_seed import ensure_default_abilities
@@ -652,7 +657,8 @@ class AbilityInvocationService:
             raise HTTPException(status_code=500, detail=f"IMAGE_OPS_CLIENT_IMPORT_FAILED:{exc}") from exc
 
         key = ability.capability_key
-        if key not in {"expand_mask_color", "set_dpi", "upscale_resize"}:
+        image_ops_spec = get_image_ops_capability(key)
+        if not is_image_ops_capability(provider=ability.provider, capability_key=key) or not image_ops_spec:
             raise HTTPException(status_code=400, detail="PODI_UTILITY_UNSUPPORTED")
 
         image_url = (
@@ -663,7 +669,7 @@ class AbilityInvocationService:
         image_base64 = images.image_base64 or self._pop_first_string(merged_inputs, ["image_base64", "imageBase64"])
         if not image_url and not image_base64:
             raise HTTPException(status_code=400, detail="IMAGE_REQUIRED")
-        disable_local_heavy = bool(get_settings().disable_local_heavy_image_tasks)
+        disable_local_heavy = bool(get_settings().disable_local_heavy_image_tasks) and is_heavy_image_ops_capability(key)
 
         def _as_int(*keys: str) -> int:
             v = None
@@ -763,7 +769,7 @@ class AbilityInvocationService:
             try:
                 upload = oss_service.upload_bytes(
                     user_id=user_id,
-                    filename=f"expand_mask{ext}",
+                    filename=f"{image_ops_spec['filename_prefix']}{ext}",
                     data=out_bytes,
                     content_type=content_type,
                 )
@@ -781,7 +787,7 @@ class AbilityInvocationService:
                 "ossUrl": upload.get("url"),
                 "ossKey": upload.get("objectKey"),
                 "contentType": content_type,
-                "tag": "podi-expand-mask",
+                "tag": image_ops_spec["result_tag"],
             }
         elif key == "set_dpi":
             dpi_raw = merged_inputs.get("dpi")
@@ -795,7 +801,7 @@ class AbilityInvocationService:
                 raise HTTPException(status_code=502, detail="SET_DPI_REMOTE_FAILED") from exc
             upload = oss_service.upload_bytes(
                 user_id=user_id,
-                filename=f"set_dpi_{dpi}{ext}",
+                filename=f"{image_ops_spec['filename_prefix']}_{dpi}{ext}",
                 data=out_bytes,
                 content_type=content_type,
             )
@@ -804,7 +810,7 @@ class AbilityInvocationService:
                 "ossUrl": upload.get("url"),
                 "ossKey": upload.get("objectKey"),
                 "contentType": content_type,
-                "tag": "podi-set-dpi",
+                "tag": image_ops_spec["result_tag"],
             }
         elif key == "upscale_resize":
             mle_raw = merged_inputs.get("max_long_edge")
@@ -818,7 +824,7 @@ class AbilityInvocationService:
                     image_bytes=src_bytes,
                     max_long_edge=mle,
                     output_format=fmt,
-                    allow_local_fallback=not disable_local_heavy,
+                    allow_local_fallback=not disable_local_heavy and bool(image_ops_spec.get("local_fallback_allowed", True)),
                 )
             except ImageOpsLocalExecutionDisabled as exc:
                 raise HTTPException(status_code=503, detail="LOCAL_HEAVY_IMAGE_TASK_DISABLED") from exc
@@ -826,7 +832,7 @@ class AbilityInvocationService:
                 raise HTTPException(status_code=502, detail="UPSCALE_REMOTE_FAILED") from exc
             upload = oss_service.upload_bytes(
                 user_id=user_id,
-                filename=f"upscale_{mle}{ext}",
+                filename=f"{image_ops_spec['filename_prefix']}_{mle}{ext}",
                 data=out_bytes,
                 content_type=content_type,
             )
@@ -835,7 +841,7 @@ class AbilityInvocationService:
                 "ossUrl": upload.get("url"),
                 "ossKey": upload.get("objectKey"),
                 "contentType": content_type,
-                "tag": "podi-upscale-resize",
+                "tag": image_ops_spec["result_tag"],
             }
 
         stored_url = asset.get("ossUrl") if isinstance(asset, dict) else None

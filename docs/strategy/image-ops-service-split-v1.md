@@ -95,6 +95,8 @@ python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8301
 - 禁止本机执行 `upscale_resize`
 - 要求必须走外部 `image-ops` 或专机
 
+当前 `backend/.env.example` 已补齐上述变量，可直接作为迁移时的配置参考。
+
 ## 中台与 image-ops 的职责边界
 
 ### backend 中台保留
@@ -111,6 +113,24 @@ python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8301
 - 图片实际处理
 - 同步或短任务处理
 - 返回结果二进制内容与基础元信息
+
+## 当前纳入 image-ops 管理范围的能力
+
+当前已固化为代码真源的能力只有这三条：
+
+- `expand_mask_color`
+- `set_dpi`
+- `upscale_resize`
+
+对应真源：
+
+- `backend/app/services/image_ops_registry.py`
+- `backend/app/constants/abilities.py`
+
+其中：
+
+- `upscale_resize` 标记为重能力
+- `set_dpi` / `expand_mask_color` 标记为轻量能力
 
 ## 推荐接口
 

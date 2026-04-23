@@ -55,9 +55,15 @@ def test_seed_applies_cleanup_for_overridden_abilities() -> None:
     assert set_dpi_metadata["governance"]["scopes"] == ["internal", "admin"]
     assert set_dpi_metadata["presentation"]["visible"] is False
     assert set_dpi_metadata["presentation"]["operation_label"] == "内部 DPI 处理"
+    assert set_dpi_metadata["execution_target"] == "image_ops"
+    assert set_dpi_metadata["image_ops"]["operation"] == "set-dpi"
+    assert set_dpi_metadata["image_ops"]["heavy"] is False
 
     upscale_resize = abilities["upscale_resize"]
     upscale_resize_metadata = upscale_resize.extra_metadata or {}
     assert upscale_resize_metadata["governance"]["scopes"] == ["internal", "admin"]
     assert upscale_resize_metadata["presentation"]["visible"] is False
     assert upscale_resize_metadata["presentation"]["operation_label"] == "内部尺寸处理"
+    assert upscale_resize_metadata["execution_target"] == "image_ops"
+    assert upscale_resize_metadata["image_ops"]["operation"] == "upscale-resize"
+    assert upscale_resize_metadata["image_ops"]["heavy"] is True

@@ -152,6 +152,10 @@ backend 路由归一化规则：
    - 必须走外部服务或专机
 
 这保证迁移到 Coze 主机时，不需要再改 ability id、OpenAPI 或 Coze 契约。
+同时，能力归类已经固定到代码真源：
+
+- `backend/app/services/image_ops_registry.py`
+- `backend/app/constants/abilities.py`
 
 ## Toolbox 指向调整
 
