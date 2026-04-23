@@ -29,6 +29,11 @@
 - `COZE_TRUSTED_IPS` 正确
 - `PODI_INTERNAL_BASE_URL` 正确
 - `DISABLE_LOCAL_HEAVY_IMAGE_TASKS=true`
+- 若已拆出图片原子能力：
+  - `IMAGE_OPS_BASE_URL` 正确
+  - `IMAGE_OPS_SERVICE_TOKEN` 正确
+  - `IMAGE_OPS_TIMEOUT_SECONDS` 正确
+  - `IMAGE_OPS_LOCAL_FALLBACK_ENABLED=false`
 
 ### 执行节点
 
@@ -36,6 +41,8 @@
 - 高清放大节点带 `upscale` / `high-mem`
 - 高清放大节点 `fallback_to_default = false`
 - 可直接对照模板：`config/executors.coze-control-plane.example.yaml`
+- 若 `upscale_resize` 已拆到 `image-ops`：
+  - Coze 主机本机不允许再承担高清放大兜底
 
 ## 三、部署步骤
 
@@ -97,8 +104,26 @@
 - 高清放大命中高内存节点
 - 高清放大在无专机时正确失败
 - 不允许 fallback 到 Coze 主机本机
+- `set_dpi` / `expand_mask_color` 若已切到 `image-ops`，应确认不再走本地实现
 
-## 八、OSS 检查
+## 八、图片原子能力检查
+
+至少单独抽检：
+
+- `upscale_resize`
+- `set_dpi`
+- `expand_mask_color`
+
+确认：
+
+1. 调用成功
+2. 返回结果仍由 backend 统一输出
+3. Coze 主机本机未承担高内存放大
+4. 若 `image-ops` 不可用：
+   - 高清放大正确失败
+   - 轻量工具是否允许本地回退符合当前配置
+
+## 九、OSS 检查
 
 当前阶段要求：
 
@@ -113,7 +138,7 @@
 - 能独立切回公网地址
 - 不与 backend 切流绑死
 
-## 九、资源观察
+## 十、资源观察
 
 迁移后至少观察一轮业务高峰：
 
@@ -128,7 +153,7 @@
 - Coze 稳定
 - 没有重任务落到控制面主机
 
-## 十、前端检查（如果同批迁移）
+## 十一、前端检查（如果同批迁移）
 
 - `8199` 是 build 产物
 - `8200` 是 build 产物
@@ -136,16 +161,17 @@
   - `@vite/client`
   - `/src/main.tsx`
 
-## 十一、回滚步骤
+## 十二、回滚步骤
 
 1. 恢复 toolbox 指向到旧 backend host
 2. 恢复 Coze workflow 中引用的旧 OpenAPI/toolbox
 3. 切回旧 backend 服务入口
-4. 停止新 backend
-5. 如果启用了 OSS 内网灰度，先切回公网下载链路
-6. 保留数据库，不做 destructive 回滚
+4. 若已拆出 `image-ops`，先恢复图片原子能力到旧实现或旧服务
+5. 停止新 backend
+6. 如果启用了 OSS 内网灰度，先切回公网下载链路
+7. 保留数据库，不做 destructive 回滚
 
-## 十二、推荐执行命令
+## 十三、推荐执行命令
 
 迁移后建议至少执行一次：
 

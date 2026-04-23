@@ -108,6 +108,12 @@ class Settings(BaseSettings):
     # Soft target for ComfyUI queue depth per executor. Router will prefer nodes under this value.
     # Business-side schedulers can use this as a batch size hint.
     comfyui_queue_batch_size: int = Field(default=10, env="COMFYUI_QUEUE_BATCH_SIZE")
+    # Optional external image-ops service for self-built atomic image tools such as
+    # upscale / dpi / expand-mask. When unset, backend keeps using local implementations.
+    image_ops_base_url: str | None = Field(default=None, env="IMAGE_OPS_BASE_URL")
+    image_ops_service_token: str | None = Field(default=None, env="IMAGE_OPS_SERVICE_TOKEN")
+    image_ops_timeout_seconds: int = Field(default=120, env="IMAGE_OPS_TIMEOUT_SECONDS")
+    image_ops_local_fallback_enabled: bool = Field(default=True, env="IMAGE_OPS_LOCAL_FALLBACK_ENABLED")
     # Control-plane hosts (for example the future Coze+backend shared host) should not
     # run memory-heavy local image utilities. When enabled, local upscale requests fail
     # fast and must be routed to dedicated executors instead of consuming host memory.

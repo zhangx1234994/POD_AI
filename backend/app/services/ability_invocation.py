@@ -643,9 +643,13 @@ class AbilityInvocationService:
         context: _InvocationContext,
     ) -> dict[str, Any]:
         try:
-            from app.services import podi_image_tools
+            from app.services.image_ops_client import (
+                ImageOpsLocalExecutionDisabled,
+                ImageOpsRemoteError,
+                image_ops_client,
+            )
         except Exception as exc:
-            raise HTTPException(status_code=500, detail=f"PODI_IMAGE_TOOLS_IMPORT_FAILED:{exc}") from exc
+            raise HTTPException(status_code=500, detail=f"IMAGE_OPS_CLIENT_IMPORT_FAILED:{exc}") from exc
 
         key = ability.capability_key
         if key not in {"expand_mask_color", "set_dpi", "upscale_resize"}:
@@ -659,8 +663,7 @@ class AbilityInvocationService:
         image_base64 = images.image_base64 or self._pop_first_string(merged_inputs, ["image_base64", "imageBase64"])
         if not image_url and not image_base64:
             raise HTTPException(status_code=400, detail="IMAGE_REQUIRED")
-        if key == "upscale_resize" and get_settings().disable_local_heavy_image_tasks:
-            raise HTTPException(status_code=503, detail="LOCAL_HEAVY_IMAGE_TASK_DISABLED")
+        disable_local_heavy = bool(get_settings().disable_local_heavy_image_tasks)
 
         def _as_int(*keys: str) -> int:
             v = None
@@ -735,13 +738,15 @@ class AbilityInvocationService:
             except Exception:
                 in_w, in_h = None, None
             try:
-                out_bytes = podi_image_tools.expand_with_color(
+                out_bytes, content_type, ext = image_ops_client.expand_with_color(
                     image_bytes=src_bytes,
                     expand_left=left,
                     expand_right=right,
                     expand_top=top,
                     expand_bottom=bottom,
                 )
+            except ImageOpsRemoteError as exc:
+                raise HTTPException(status_code=502, detail="EXPAND_MASK_REMOTE_FAILED") from exc
             except Exception as exc:
                 self._logger.exception(
                     "expand_mask_color render failed request_id=%s image_url=%s expand=(%s,%s,%s,%s)",
@@ -758,9 +763,9 @@ class AbilityInvocationService:
             try:
                 upload = oss_service.upload_bytes(
                     user_id=user_id,
-                    filename="expand_mask.png",
+                    filename=f"expand_mask{ext}",
                     data=out_bytes,
-                    content_type="image/png",
+                    content_type=content_type,
                 )
             except Exception as exc:
                 self._logger.exception(
@@ -775,7 +780,7 @@ class AbilityInvocationService:
                 "sourceUrl": src_source_url,
                 "ossUrl": upload.get("url"),
                 "ossKey": upload.get("objectKey"),
-                "contentType": "image/png",
+                "contentType": content_type,
                 "tag": "podi-expand-mask",
             }
         elif key == "set_dpi":
@@ -784,7 +789,10 @@ class AbilityInvocationService:
                 dpi = int(str(dpi_raw).strip()) if dpi_raw is not None else 300
             except Exception:
                 dpi = 300
-            out_bytes, content_type, ext = podi_image_tools.set_dpi(image_bytes=src_bytes, dpi=dpi)
+            try:
+                out_bytes, content_type, ext = image_ops_client.set_dpi(image_bytes=src_bytes, dpi=dpi)
+            except ImageOpsRemoteError as exc:
+                raise HTTPException(status_code=502, detail="SET_DPI_REMOTE_FAILED") from exc
             upload = oss_service.upload_bytes(
                 user_id=user_id,
                 filename=f"set_dpi_{dpi}{ext}",
@@ -805,11 +813,17 @@ class AbilityInvocationService:
             except Exception:
                 mle = 4096
             fmt = str(merged_inputs.get("output_format") or "png").strip().lower()
-            out_bytes, content_type, ext = podi_image_tools.upscale_resize(
-                image_bytes=src_bytes,
-                max_long_edge=mle,
-                output_format=fmt,
-            )
+            try:
+                out_bytes, content_type, ext = image_ops_client.upscale_resize(
+                    image_bytes=src_bytes,
+                    max_long_edge=mle,
+                    output_format=fmt,
+                    allow_local_fallback=not disable_local_heavy,
+                )
+            except ImageOpsLocalExecutionDisabled as exc:
+                raise HTTPException(status_code=503, detail="LOCAL_HEAVY_IMAGE_TASK_DISABLED") from exc
+            except ImageOpsRemoteError as exc:
+                raise HTTPException(status_code=502, detail="UPSCALE_REMOTE_FAILED") from exc
             upload = oss_service.upload_bytes(
                 user_id=user_id,
                 filename=f"upscale_{mle}{ext}",

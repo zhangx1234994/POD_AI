@@ -26,6 +26,7 @@ Coze Workflow
 4. ComfyUI 节点只负责执行，不承担平台逻辑。
 5. 高清放大、重采样、重内存批处理**不允许**落到 Coze 主机本机执行。
 6. 发布与服务器更新只认 `origin/main`。
+7. 自研图片原子能力逐步拆到独立 `image-ops` 服务，中台只保留统一入口和任务口径。
 
 ## 当前前提
 
@@ -55,6 +56,7 @@ Coze Workflow
 ### 本次不迁入 Coze 主机
 
 - ComfyUI 执行服务
+- `image-ops` 图片处理服务
 - 高清放大执行服务
 - 任何高内存图像执行能力
 
@@ -126,6 +128,30 @@ backend 路由归一化规则：
 建议：
 
 - 迁移到 Coze 主机后默认开启
+
+### 3. 自研图片原子能力拆分基线
+
+当前这批能力：
+
+- `upscale_resize`
+- `set_dpi`
+- `expand_mask_color`
+
+已经不再直接绑死本地函数调用，而是统一先经过：
+
+- `backend/app/services/image_ops_client.py`
+
+调用规则：
+
+1. 未配置 `IMAGE_OPS_BASE_URL`
+   - 继续本地执行
+2. 配置了 `IMAGE_OPS_BASE_URL`
+   - 改为调用独立 `image-ops` 服务
+3. `upscale_resize` 遇到 `DISABLE_LOCAL_HEAVY_IMAGE_TASKS=true`
+   - 不允许本机兜底
+   - 必须走外部服务或专机
+
+这保证迁移到 Coze 主机时，不需要再改 ability id、OpenAPI 或 Coze 契约。
 
 ## Toolbox 指向调整
 
@@ -211,13 +237,22 @@ backend 路由归一化规则：
 1. 在 Coze 主机部署 backend 到固定目录
 2. 配置 backend 环境变量
 3. 开启 `DISABLE_LOCAL_HEAVY_IMAGE_TASKS=true`
-4. 执行 `alembic upgrade head`
-5. 执行 executor/workflow/ability seed
-6. 校验 `/health`
-7. 校验 `/api/abilities`
-8. 校验 `/api/evals/workflow-versions`
-9. 校验 toolbox OpenAPI
-10. 抽检主线 Coze workflow
+4. 若已拆出 `image-ops`，同步配置：
+   - `IMAGE_OPS_BASE_URL`
+   - `IMAGE_OPS_SERVICE_TOKEN`
+   - `IMAGE_OPS_TIMEOUT_SECONDS`
+   - `IMAGE_OPS_LOCAL_FALLBACK_ENABLED=false`（Coze 主机建议）
+5. 执行 `alembic upgrade head`
+6. 执行 executor/workflow/ability seed
+7. 校验 `/health`
+8. 校验 `/api/abilities`
+9. 校验 `/api/evals/workflow-versions`
+10. 校验 toolbox OpenAPI
+11. 抽检主线 Coze workflow
+12. 单独抽检：
+   - `upscale_resize`
+   - `set_dpi`
+   - `expand_mask_color`
 
 ## 数据库策略
 
