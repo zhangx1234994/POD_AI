@@ -1,0 +1,43 @@
+executors:
+  - id: executor_comfyui_general_a
+    name: "ComfyUI 通用节点 · A"
+    type: comfyui
+    base_url: "http://<comfyui-general-host-a>:8079"
+    status: active
+    weight: 1
+    max_concurrency: 8
+    config:
+      baseUrl: "http://<comfyui-general-host-a>:8079"
+      provider: "comfyui"
+      tags:
+        - "comfyui-general"
+
+  - id: executor_comfyui_general_b
+    name: "ComfyUI 通用节点 · B"
+    type: comfyui
+    base_url: "http://<comfyui-general-host-b>:8079"
+    status: active
+    weight: 1
+    max_concurrency: 8
+    config:
+      baseUrl: "http://<comfyui-general-host-b>:8079"
+      provider: "comfyui"
+      tags:
+        - "comfyui-general"
+
+  - id: executor_comfyui_upscale_highmem
+    name: "ComfyUI 高清放大专机"
+    type: comfyui
+    base_url: "http://<comfyui-upscale-host>:8079"
+    status: active
+    weight: 1
+    max_concurrency: 1
+    config:
+      baseUrl: "http://<comfyui-upscale-host>:8079"
+      provider: "comfyui"
+      routing:
+        selection_policy: "fixed"
+        fallback_only: false
+        tags:
+          - "upscale"
+          - "high-mem"

@@ -76,6 +76,7 @@ Coze Workflow
 
 - 允许有限 fallback
 - 普通 ComfyUI 默认标签：`comfyui-general`
+- 可直接参考：`config/executors.coze-control-plane.example.yaml`
 
 ### 3. 重执行能力
 
@@ -89,6 +90,7 @@ Coze Workflow
 - `fallback_to_default = false`
 - 没命中 executor 时直接报错
 - 不允许静默回落到默认节点
+- 推荐单独配置专机示例：`config/executors.coze-control-plane.example.yaml`
 
 ## 当前已落地的迁移约束
 

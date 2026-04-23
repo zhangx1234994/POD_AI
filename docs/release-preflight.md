@@ -17,6 +17,8 @@ Goal: run these checks on the test machine before deploying to the production se
 - toolbox 只允许指向 backend，不允许直连 ComfyUI
 - 更新服务器前必须确认目标提交已经进入 `origin/main`
 - 迁移类发布按 `docs/testing/COZE_CONTROL_PLANE_MIGRATION_CHECKLIST.md` 执行
+- 建议附加执行：
+  - `python3 backend/scripts/check_coze_control_plane_migration.py --backend-base http://127.0.0.1:8099 --admin-base http://127.0.0.1:8199 --eval-base http://127.0.0.1:8200`
 
 ## 1) Multi-ComfyUI Connectivity
 

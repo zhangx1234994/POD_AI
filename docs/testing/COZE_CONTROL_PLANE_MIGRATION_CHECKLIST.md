@@ -35,6 +35,7 @@
 - 普通 ComfyUI 节点带 `comfyui-general`
 - 高清放大节点带 `upscale` / `high-mem`
 - 高清放大节点 `fallback_to_default = false`
+- 可直接对照模板：`config/executors.coze-control-plane.example.yaml`
 
 ## 三、部署步骤
 
@@ -143,3 +144,14 @@
 4. 停止新 backend
 5. 如果启用了 OSS 内网灰度，先切回公网下载链路
 6. 保留数据库，不做 destructive 回滚
+
+## 十二、推荐执行命令
+
+迁移后建议至少执行一次：
+
+```bash
+python3 backend/scripts/check_coze_control_plane_migration.py \
+  --backend-base http://127.0.0.1:8099 \
+  --admin-base http://127.0.0.1:8199 \
+  --eval-base http://127.0.0.1:8200
+```

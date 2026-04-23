@@ -13,6 +13,10 @@
 - 云端 MySQL 可访问（后端使用 `backend/.env` 中的 `DATABASE_URL`）
 - 如需服务器本地构建前端：已安装 Node.js（建议 18+）与 npm
 - **无 Docker 场景优先**（云服务器常为虚拟化环境，无法安装 Docker）
+- 若本次部署为 Coze 控制面迁移：
+  - backend 与 Coze 同机
+  - ComfyUI/高清放大继续外置
+  - `DISABLE_LOCAL_HEAVY_IMAGE_TASKS=true`
 
 ## 一次性准备
 1) 配置后端环境变量文件（线上/开发机都一致）
@@ -76,6 +80,7 @@ docker compose -f docker-compose.prodlike.yml logs -f eval-web
 ## 常见坑（务必避免）
 - 线上不要用 `npm run dev`：Vite dev server 会引入 websocket/HMR，且容易因缓存/代理导致“样式乱、资源错配”。
 - 迁移必须跑：新字段/表未迁移会导致管理端接口 500/502。
+- Coze 迁移后不要让 toolbox 直接指向 ComfyUI；Coze 只调 backend。
 
 ## API 访问方式（保持开发机/线上一致）
 - 管理端页面：`http://<host>:8199/`
