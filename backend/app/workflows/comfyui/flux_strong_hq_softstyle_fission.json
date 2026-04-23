@@ -1,0 +1,259 @@
+{
+  "10": {
+    "inputs": {
+      "image": "__INPUT_IMAGE__",
+      "upload": "image"
+    },
+    "class_type": "LoadImage"
+  },
+  "11": {
+    "inputs": {
+      "image": [
+        "10",
+        0
+      ]
+    },
+    "class_type": "GetImageSize"
+  },
+  "12": {
+    "inputs": {
+      "image": [
+        "10",
+        0
+      ],
+      "width": [
+        "11",
+        0
+      ],
+      "height": [
+        "11",
+        1
+      ],
+      "interpolation": "nearest",
+      "method": "keep proportion",
+      "condition": "always",
+      "multiple_of": 0
+    },
+    "class_type": "ImageResize+"
+  },
+  "13": {
+    "inputs": {
+      "text1": "__PROMPT__",
+      "text2": "__IMAGE_DESC__",
+      "separator": ","
+    },
+    "class_type": "CR Text Concatenate"
+  },
+  "14": {
+    "inputs": {
+      "clip_name": "qwen_3_8b_fp8mixed.safetensors",
+      "type": "flux2",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader"
+  },
+  "15": {
+    "inputs": {
+      "text": [
+        "13",
+        0
+      ],
+      "clip": [
+        "14",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode"
+  },
+  "16": {
+    "inputs": {
+      "text": "",
+      "clip": [
+        "14",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode"
+  },
+  "17": {
+    "inputs": {
+      "unet_name": "flux-2-klein-9b-fp8.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader"
+  },
+  "18": {
+    "inputs": {
+      "clip_name": "CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors"
+    },
+    "class_type": "CLIPVisionLoader"
+  },
+  "19": {
+    "inputs": {
+      "ipadapter_file": "ip-adapter-plus_sdxl_vit-h.safetensors"
+    },
+    "class_type": "IPAdapterModelLoader"
+  },
+  "20": {
+    "inputs": {
+      "model": [
+        "17",
+        0
+      ],
+      "ipadapter": [
+        "19",
+        0
+      ],
+      "image": [
+        "12",
+        0
+      ],
+      "weight": "__IPADAPTER_WEIGHT__",
+      "weight_type": "style transfer",
+      "combine_embeds": "concat",
+      "start_at": 0.0,
+      "end_at": 1.0,
+      "embeds_scaling": "V only",
+      "clip_vision": [
+        "18",
+        0
+      ]
+    },
+    "class_type": "IPAdapterAdvanced"
+  },
+  "21": {
+    "inputs": {
+      "model": [
+        "20",
+        0
+      ],
+      "positive": [
+        "15",
+        0
+      ],
+      "negative": [
+        "16",
+        0
+      ],
+      "cfg": "__CFG__"
+    },
+    "class_type": "CFGGuider"
+  },
+  "22": {
+    "inputs": {
+      "noise_seed": "__SEED__"
+    },
+    "class_type": "RandomNoise"
+  },
+  "23": {
+    "inputs": {
+      "sampler_name": "euler"
+    },
+    "class_type": "KSamplerSelect"
+  },
+  "24": {
+    "inputs": {
+      "model": [
+        "20",
+        0
+      ],
+      "scheduler": "simple",
+      "steps": "__STEPS__",
+      "denoise": "__DENOISE__"
+    },
+    "class_type": "BasicScheduler"
+  },
+  "25": {
+    "inputs": {
+      "vae_name": "flux2-vae.safetensors"
+    },
+    "class_type": "VAELoader"
+  },
+  "26": {
+    "inputs": {
+      "pixels": [
+        "12",
+        0
+      ],
+      "vae": [
+        "25",
+        0
+      ]
+    },
+    "class_type": "VAEEncode"
+  },
+  "27": {
+    "inputs": {
+      "latent": [
+        "26",
+        0
+      ],
+      "batch_size": "__BATCH_SIZE__"
+    },
+    "class_type": "CR Latent Batch Size"
+  },
+  "28": {
+    "inputs": {
+      "noise": [
+        "22",
+        0
+      ],
+      "guider": [
+        "21",
+        0
+      ],
+      "sampler": [
+        "23",
+        0
+      ],
+      "sigmas": [
+        "24",
+        0
+      ],
+      "latent_image": [
+        "27",
+        0
+      ]
+    },
+    "class_type": "SamplerCustomAdvanced"
+  },
+  "29": {
+    "inputs": {
+      "samples": [
+        "28",
+        0
+      ],
+      "vae": [
+        "25",
+        0
+      ]
+    },
+    "class_type": "VAEDecode"
+  },
+  "30": {
+    "inputs": {
+      "image_ref": [
+        "12",
+        0
+      ],
+      "image_target": [
+        "29",
+        0
+      ],
+      "method": "__COLORMATCH_METHOD__",
+      "strength": "__COLORMATCH_STRENGTH__",
+      "multithread": true
+    },
+    "class_type": "ColorMatch"
+  },
+  "31": {
+    "inputs": {
+      "filename_prefix": "05_FluxStrongHQSoftStyle",
+      "images": [
+        "30",
+        0
+      ]
+    },
+    "class_type": "SaveImage"
+  }
+}

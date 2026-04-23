@@ -675,6 +675,10 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             base_overrides, base_error = self._build_qwen2512_print_shape_text_enhance_inputs(
                 inputs, context, workflow_definition
             )
+        elif workflow_key == "flux_strong_hq_softstyle_fission":
+            base_overrides, base_error = self._build_flux_strong_hq_softstyle_fission_inputs(
+                inputs, context, workflow_definition
+            )
         elif workflow_key in {"jisu_chuli", "zhongsu_tisheng"}:
             base_overrides, base_error = self._build_jisu_chuli_inputs(inputs, context, workflow_definition)
         elif workflow_key == "duotu_ronghe":
@@ -1146,6 +1150,78 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         workflow_definition["_max_output_images"] = 1
         workflow_definition["output_node_ids"] = ["29"]
         return overrides, None
+
+    def _build_flux_strong_hq_softstyle_fission_inputs(
+        self, params: dict[str, Any], context: ExecutionContext, workflow_definition: dict[str, Any]
+    ) -> tuple[dict[str, Any] | None, str | None]:
+        """05 Strong HQ SoftStyle 图裂变。"""
+
+        overrides: dict[str, dict[str, Any]] = {}
+
+        image_url, _ = self._resolve_image_source(params, context)
+        if not image_url:
+            return None, "COMFYUI_IMAGE_REQUIRED"
+
+        base_url = str(context.executor.base_url or "").rstrip("/")
+        staged_name = self._upload_image_for_comfyui_loadimage(
+            image_url=image_url,
+            base_url=base_url,
+            prefix="flux05-pattern",
+        )
+        if not staged_name:
+            return None, "COMFYUI_IMAGE_UPLOAD_FAILED"
+        overrides["10"] = {"image": staged_name}
+
+        prompt = self._as_text(params.get("prompt") or params.get("positive_prompt")) or ""
+        image_desc = self._as_text(params.get("image_desc") or params.get("imageDesc")) or ""
+        overrides["13"] = {"text1": prompt, "text2": image_desc}
+
+        similarity_value = params.get("bili")
+        if similarity_value in (None, ""):
+            similarity_value = params.get("similarity")
+        if similarity_value in (None, ""):
+            similarity_value = 90
+        denoise = self._map_similarity_to_denoise(similarity_value)
+        if denoise is None:
+            denoise = 0.60
+
+        seed = self._coerce_positive_int(params.get("seed"))
+        if seed is None:
+            seed = secrets.randbelow(2**63 - 1) + 1
+
+        overrides["20"] = {"weight": 0.25}
+        overrides["21"] = {"cfg": 1.0}
+        overrides["22"] = {"noise_seed": seed}
+        overrides["24"] = {"steps": 8, "denoise": denoise}
+        overrides["27"] = {"batch_size": 1}
+        overrides["30"] = {"method": "mkl", "strength": 0.20}
+
+        width = self._coerce_positive_int(params.get("output_width") or params.get("width"))
+        height = self._coerce_positive_int(params.get("output_height") or params.get("height"))
+        if (width and not height) or (height and not width):
+            try:
+                resp = httpx.get(image_url, timeout=30)
+                resp.raise_for_status()
+                im = Image.open(BytesIO(resp.content))
+                src_w, src_h = im.size
+                width = width or int(src_w)
+                height = height or int(src_h)
+            except Exception:
+                pass
+
+        width = self._normalize_comfy_dim(width)
+        height = self._normalize_comfy_dim(height)
+        if width or height:
+            node_inputs: dict[str, Any] = {}
+            if width:
+                node_inputs["width"] = width
+            if height:
+                node_inputs["height"] = height
+            overrides["12"] = node_inputs
+
+        workflow_definition["_max_output_images"] = 1
+        workflow_definition["output_node_ids"] = ["31"]
+        return (overrides or None), None
 
     def _build_jisu_chuli_inputs(
         self, params: dict[str, Any], context: ExecutionContext, workflow_definition: dict[str, Any]

@@ -65,6 +65,28 @@ def test_comfyui_flux2_9b_liebian_sifang_openapi_contains_expected_fields():
     assert "prompt" in required
 
 
+def test_comfyui_flux_strong_hq_softstyle_fission_openapi_contains_expected_fields():
+    resp = client.get("/api/coze/podi/comfyui/execute/flux-strong-hq-softstyle-fission/openapi.json")
+    assert resp.status_code == 200
+    data = resp.json()
+    paths = data.get("paths") or {}
+    assert "/api/coze/podi/tools/comfyui/flux_strong_hq_softstyle_fission" in paths
+    assert "/api/coze/podi/tasks/get" in paths
+
+    tool_schema = (
+        paths["/api/coze/podi/tools/comfyui/flux_strong_hq_softstyle_fission"]["post"]["requestBody"]["content"][
+            "application/json"
+        ]["schema"]
+    )
+    props = tool_schema.get("properties") or {}
+    required = tool_schema.get("required") or []
+    assert set(props) == {"url", "prompt", "image_desc", "bili", "width", "height"}
+    assert "url" in required
+    assert "prompt" in required
+    assert "image_desc" not in required
+    assert "bili" not in required
+
+
 def test_comfyui_qwen2512_print_shape_text_enhance_openapi_contains_expected_fields():
     resp = client.get("/api/coze/podi/comfyui/execute/qwen2512-print-shape-text-enhance/openapi.json")
     assert resp.status_code == 200

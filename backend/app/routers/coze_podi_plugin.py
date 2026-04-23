@@ -1016,6 +1016,25 @@ def get_comfyui_e7_flux2_liebian_openapi(request: Request) -> dict[str, Any]:
     return doc
 
 
+@router.get("/comfyui/execute/flux-strong-hq-softstyle-fission/openapi.json")
+def get_comfyui_flux_strong_hq_softstyle_fission_openapi(request: Request) -> dict[str, Any]:
+    """OpenAPI for standalone ComfyUI 多元素花纹裂变 toolbox."""
+    doc = _build_openapi_filtered(
+        request=request,
+        providers={"comfyui"},
+        title="PODI ComfyUI 执行 · 多元素花纹裂变",
+        description="ComfyUI 多元素花纹裂变独立工具箱（含提交工具与任务轮询）。",
+        prefer_url_field=True,
+    )
+    paths = doc.get("paths") or {}
+    allowed = {
+        "/api/coze/podi/tools/comfyui/flux_strong_hq_softstyle_fission",
+        "/api/coze/podi/tasks/get",
+    }
+    doc["paths"] = {k: v for k, v in paths.items() if k in allowed}
+    return doc
+
+
 @router.get("/comfyui/execute/beijing-koutu/openapi.json")
 def get_comfyui_beijing_koutu_openapi(request: Request) -> dict[str, Any]:
     """OpenAPI for standalone ComfyUI 背景抠图 toolbox."""

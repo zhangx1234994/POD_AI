@@ -1049,6 +1049,73 @@ def _comfyui_qwen2512_print_shape_text_enhance_schema() -> dict[str, Any]:
     }
 
 
+def _comfyui_flux_strong_hq_softstyle_fission_schema() -> dict[str, Any]:
+    return {
+        "fields": [
+            {
+                "name": "image_url",
+                "type": "image",
+                "label": _compose_bilingual_label("输入图片 URL", "Input Image URL"),
+                "description": _compose_bilingual_label(
+                    "节点 10 · LoadImage.image。提交时后端会先把 OSS 图片上传到 ComfyUI input 目录，再写入文件名。",
+                    "Node 10 · LoadImage.image. Backend uploads the OSS image into the ComfyUI input folder before setting the staged filename.",
+                ),
+                "required": True,
+            },
+            {
+                "name": "prompt",
+                "type": "textarea",
+                "label": _compose_bilingual_label("裂变提示词", "Fission Prompt"),
+                "description": "节点 13 · CR Text Concatenate.text1",
+                "required": True,
+            },
+            {
+                "name": "image_desc",
+                "type": "textarea",
+                "label": _compose_bilingual_label("图像补充描述（高级）", "Image Description (Advanced)"),
+                "description": _compose_bilingual_label(
+                    "节点 13 · CR Text Concatenate.text2。建议由上游 VL / Coze 自动生成，不建议业务手写。",
+                    "Node 13 · CR Text Concatenate.text2. Prefer generating this from upstream VL / Coze instead of writing it manually.",
+                ),
+                "required": False,
+            },
+            {
+                "name": "bili",
+                "type": "number",
+                "label": _compose_bilingual_label("裂变幅度（0-100）", "Fission Strength (0-100)"),
+                "description": _compose_bilingual_label(
+                    "沿用旧图裂变的 bili 口径，后端映射到节点 24 · BasicScheduler.denoise。数值越大越接近原图；默认 90 ≈ denoise 0.59。",
+                    "Keeps the previous fission-style bili parameter and maps it to node 24 · BasicScheduler.denoise. Higher values stay closer to the source image; default 90 is about denoise 0.59.",
+                ),
+                "default": 90,
+                "min": 0,
+                "max": 100,
+                "required": False,
+            },
+            {
+                "name": "width",
+                "type": "number",
+                "label": _compose_bilingual_label("输出宽度(px)", "Output Width(px)"),
+                "description": _compose_bilingual_label(
+                    "节点 12 · ImageResize+.width。不填则默认按原图宽度处理。",
+                    "Node 12 · ImageResize+.width. Omit to keep the original image width.",
+                ),
+                "required": False,
+            },
+            {
+                "name": "height",
+                "type": "number",
+                "label": _compose_bilingual_label("输出高度(px)", "Output Height(px)"),
+                "description": _compose_bilingual_label(
+                    "节点 12 · ImageResize+.height。不填则默认按原图高度处理。",
+                    "Node 12 · ImageResize+.height. Omit to keep the original image height.",
+                ),
+                "required": False,
+            },
+        ]
+    }
+
+
 def _build_kie_schema(capability_key: str) -> dict[str, Any]:
     if capability_key == "nano_banana_pro_image_to_image":
         return {
@@ -1907,6 +1974,44 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "supports_vision": True,
             "output_node_ids": ["29"],
             "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
+            "routing_policy": "queue",
+            "seed_version": 1,
+            "pricing": {
+                "currency": "CNY",
+                "unit": "per_image",
+                "list_price": 0.6,
+                "discount_price": 0.35,
+            },
+        },
+    },
+    "flux_strong_hq_softstyle_fission": {
+        "defaults": {
+            "workflow_key": "flux_strong_hq_softstyle_fission",
+            "timeout": 420,
+            "profile_id": "pattern_default_v1",
+            "steps": 8,
+            "cfg": 1.0,
+            "bili": 90,
+            "batch_size": 1,
+            "ipadapter_weight": 0.25,
+            "colormatch_method": "mkl",
+            "colormatch_strength": 0.20,
+            "image_desc": "",
+        },
+        "display_name": "ComfyUI · 多元素花纹裂变",
+        "description": "基于 FLUX Strong HQ SoftStyle 的图裂变工作流。保留旧图裂变的 bili 口径，同时支持 image_desc 与输出尺寸覆盖。",
+        "category": "image_generation",
+        "input_schema": _comfyui_flux_strong_hq_softstyle_fission_schema(),
+        "metadata": {
+            "executor_type": "comfyui",
+            "executor_tag": "comfyui",
+            "api_type": "comfyui_workflow",
+            "workflow_key": "flux_strong_hq_softstyle_fission",
+            "action": "image_fission",
+            "requires_image_input": True,
+            "supports_vision": True,
+            "output_node_ids": ["31"],
+            "allowed_executor_ids": ["executor_comfyui_pattern_extract_158", "executor_comfyui_seamless_117"],
             "routing_policy": "queue",
             "seed_version": 1,
             "pricing": {

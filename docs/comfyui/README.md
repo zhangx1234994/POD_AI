@@ -20,6 +20,7 @@
 | `beijing_koutu` | `comfyui.beijing_koutu` / `background_remove` | `url` | `4` | 线上在用 |
 | `toubu_kouxiang` | `comfyui.toubu_kouxiang` / `head_extract` | `url` | `140` | 线上在用 |
 | `flux2_klein_9b_outpaint` | `comfyui.flux2_klein_9b_outpaint` / `outpaint` | `url`、`expand_left`、`expand_right`、`expand_top`、`expand_bottom` | `9` | 新增工具箱 |
+| `flux_strong_hq_softstyle_fission` | `comfyui.flux_strong_hq_softstyle_fission` / `image_fission` | `url`、`prompt`、`image_desc`、`bili`、`width`、`height` | `31` | 新增图裂变高质量版，默认走多元素花纹 profile |
 | `flux2_9b_liebian_sifang` | `comfyui.flux2_9b_liebian_sifang` / `image_fission` | `url`、`prompt` | `111` | 线上在用；上游 prompt 质量待优化 |
 | `qwen2512_print_shape_text_enhance` | `comfyui.qwen2512_print_shape_text_enhance` / `text_enhance` | `url`、`prompt`、`bili` | `29` | 线上在用；上游 prompt 质量待优化 |
 | `yinhua_tiqu` | `comfyui.yinhua_tiqu` / `pattern_extract` | `url`、`prompt`、`negative_prompt`、`output_width`、`output_height`、`lora_name` | `421` | 线上在用 |
@@ -31,6 +32,7 @@
 - 多图融合评测端在 `width/height` 留空时会先读取主图尺寸再提交；直接绕过前端调用工具箱时，不传尺寸仍沿用 workflow 默认 `1024x1024`。
 - `背景抠图` 存在过程图，正式回填只认最终输出节点 `4`；`头部抠像` 正式回填只认 `140`；`FLUX2裂变+四方` 正式回填只认 `111`；`裂变文字强化` 正式回填只认 `29`。
 - `FLUX2-Klein 扩图` 使用本地 `LoadImage` 节点，后端会先把输入图上传到目标 ComfyUI 的 input 目录，再写入节点 `76`；扩图提示词固定内置、seed 每次自动随机，对外只暴露图片与上下左右扩图边距；最终回填只认 `9`。
+- `多元素花纹裂变` 的源图节点是 `10 · LoadImage.image`，后端会先把输入图上传到目标 ComfyUI 的 input 目录，再写入文件名；`bili` 沿用旧图裂变口径映射到节点 `24.denoise`，默认 `90 ≈ 0.59`；`width/height` 为空时默认跟随原图尺寸；最终回填只认 `31`。
 - `FLUX2裂变+四方` 的节点 `104` 为 workflow 内部固定输入，不作为外部参数暴露，也不应在工具箱适配层覆盖。
 
 ## 管理端入口

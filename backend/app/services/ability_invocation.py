@@ -377,7 +377,7 @@ class AbilityInvocationService:
             return "executor_comfyui_seamless_117"
         if workflow_key in {
             "yinhua_tiqu", "yinhua_tiqu_lora_8step", "jisu_chuli", "zhongsu_tisheng",
-            "duotu_ronghe", "e7_flux2_liebian", "flux2_9b_liebian_sifang",
+            "duotu_ronghe", "e7_flux2_liebian", "flux_strong_hq_softstyle_fission", "flux2_9b_liebian_sifang",
             "qwen2512_print_shape_text_enhance",
         }:
             return "executor_comfyui_pattern_extract_158"
