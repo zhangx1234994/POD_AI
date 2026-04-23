@@ -30,6 +30,7 @@
 - `docs/strategy/platform-vision-and-goals-2026.md`
 - `docs/strategy/strategy-one-page-2026q2.md`
 - `docs/strategy/coze-mid-platform-migration-v1.md`
+- `docs/strategy/coze-control-plane-migration-pack-v1.md`
 - `docs/strategy/coze-migration-config-matrix-v1.md`
 - `docs/strategy/coze-host-cutover-sequence-v1.md`
 - `docs/strategy/coze-migration-inventory-v1.md`
@@ -68,7 +69,7 @@
 | ComfyUI | `docs/comfyui/README.md` | Workflow、节点映射、执行节点说明 |
 | 周报归档 | `docs/weekly/README.md` | 按周汇总过程记录与阶段结论 |
 | 工程规范 | `docs/standards/` | 错误契约、接口一致性、文档维护等规范 |
-| 测试计划 | `docs/testing/` | 回归计划、线上 smoke 清单、迁移 runbook |
+| 测试计划 | `docs/testing/README.md` | 回归计划、线上 smoke 清单、迁移 runbook |
 | 复盘记录 | `docs/retrospectives/` | 复盘、风险、后续动作 |
 
 ## 历史资料与阶段记录

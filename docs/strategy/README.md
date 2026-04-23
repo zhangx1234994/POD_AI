@@ -14,6 +14,7 @@
 - `auth-billing-implementation-checklist-2026q2.md`：认证与计费实施清单（开发顺序与门槛）
 - `mid-platform-cleanup-decisions-2026q2.md`：已经真正落地到中台真源的清理/下线决定
 - `coze-mid-platform-migration-v1.md`：Coze + 中台同机迁移方案、路由约束、回滚与 OSS 保留问题
+- `coze-control-plane-migration-pack-v1.md`：当前迁移实施包总入口（文档、脚本、回滚路径一览）
 - `coze-migration-config-matrix-v1.md`：Coze 控制面迁移时 backend / image-ops / executor 的配置矩阵
 - `coze-host-cutover-sequence-v1.md`：Coze 迁移当天的 host 切换顺序与回滚顺序
 - `coze-migration-inventory-v1.md`：Coze 控制面迁移的真实对象清单（host / toolbox / workflow / 文件级切换项）
