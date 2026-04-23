@@ -63,6 +63,7 @@ FISSION_WORKFLOW_IDS: set[str] = {
     "7598820684801769472",  # Liebian_comfyui_20260124
     "7622193261276299264",  # Liebian_comfyui_20260328_1
     "7622190276932534272",  # Liebian_comfyui_20260328
+    "7631838631375667200",  # Liebian_comfyui_20260423
     "7601077530077954048",  # Liebian_shangye_20260130
     "7598848725942796288",  # Liebian_shangye_20260124_1_1_1
     "7629024620879806464",  # qwen2512_print_shape_text_enhance
@@ -99,6 +100,7 @@ PROMPT_OUTPUT_WORKFLOW_IDS: set[str] = {
     "7598820684801769472",  # Liebian_comfyui_20260124
     "7622193261276299264",  # Liebian_comfyui_20260328_1
     "7622190276932534272",  # Liebian_comfyui_20260328
+    "7631838631375667200",  # Liebian_comfyui_20260423
     "7601077530077954048",  # Liebian_shangye_20260130
     "7598848725942796288",  # Liebian_shangye_20260124_1_1_1
     "7629024620879806464",  # qwen2512_print_shape_text_enhance
@@ -117,6 +119,7 @@ IP_OUTPUT_WORKFLOW_IDS: set[str] = {
     "7598820684801769472",  # Liebian_comfyui_20260124
     "7622193261276299264",  # Liebian_comfyui_20260328_1
     "7622190276932534272",  # Liebian_comfyui_20260328
+    "7631838631375667200",  # Liebian_comfyui_20260423
     "7629023041988591616",  # toubu_kouxiang
     "7629023903431524352",  # beijing_koutu
     "7629024620879806464",  # qwen2512_print_shape_text_enhance
@@ -1394,6 +1397,45 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                 {"name": "prompt", "type": "text", "description": "提示词反馈字符串"},
                 {"name": "ip", "type": "text", "description": "ComfyUI 执行节点 IP"},
             ]
+        },
+    },
+    # 图裂变 / 图裂变（ComfyUI，无提示词，softstyle 默认高质量版）
+    {
+        "category": "图裂变",
+        "name": "图裂变 · Liebian_comfyui_20260423",
+        "version": "v1",
+        "workflow_id": "7631838631375667200",
+        "status": "active",
+        "notes": "图裂变（ComfyUI softstyle 默认高质量版）。输入 url + bili + 宽高，输出 output 为回调 task id。裂变数量通过 count 控制（业务侧循环，不在工作流中循环）。",
+        "parameters_schema": {
+            "fields": [
+                {"name": "url", "label": "图片 URL", "type": "text", "required": True},
+                {"name": "height", "label": "高度", "type": "text", "required": False, "defaultValue": "", "description": "可选。不填默认原图高度。"},
+                {"name": "width", "label": "宽度", "type": "text", "required": False, "defaultValue": "", "description": "可选。不填默认原图宽度。"},
+                {
+                    "name": "bili",
+                    "label": "相似度(%)",
+                    "type": "text",
+                    "required": True,
+                    "defaultValue": "50%",
+                    "description": "与原图保持相似的百分比（越高越接近原图）。",
+                },
+                {"name": "count", "label": "裂变数量", "type": "text", "required": False, "defaultValue": "4", "description": "一次评测会触发 count 个子任务并聚合结果"},
+            ]
+        },
+        "output_schema": {
+            "fields": [
+                {"name": "output", "type": "text", "description": "回调 task id"},
+                {"name": "prompt", "type": "text", "description": "提示词反馈字符串"},
+                {"name": "ip", "type": "text", "description": "ComfyUI 执行节点 IP"},
+            ]
+        },
+        "metadata": {
+            "presentation": {
+                "sort_order": 4010,
+                "usage_hint": "适合多元素花纹类默认高质量裂变，先看单张结果再决定是否批量放量。",
+                "operation_label": "图像裂变",
+            }
         },
     },
     # 四方/两方连续图类 / 四方连续裂变（双栏目展示）

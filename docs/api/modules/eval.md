@@ -103,6 +103,15 @@
     - 入参：`url`、`expand_left`、`expand_right`、`expand_top`、`expand_bottom`
     - 出参：`output`、`ip`
     - 说明：参数契约与 `7598587935331450880` 保持一致，用于评测新扩图 Coze workflow
+  - `7631838631375667200`（图裂变 · Liebian_comfyui_20260423）
+    - 分类：`图裂变`
+    - 入参：`url`、`height`、`width`、`bili`、`count`
+    - 说明：
+      - `bili`：相似度百分比，默认 `50%`
+      - `height/width`：可选，不填时沿用原图尺寸
+      - `count`：fan-out 子任务数，默认 `4`
+    - 出参：`output`、`prompt`、`ip`
+    - 说明：用于多元素花纹类默认高质量裂变评测，已验证 Coze 提交与回调取图链路正常
   - `7629023903431524352`（背景抠图 · beijing_koutu）
     - 分类：`通用类`
     - 入参：`url`

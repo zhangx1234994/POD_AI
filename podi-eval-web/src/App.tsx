@@ -327,6 +327,19 @@ const getWorkflowUsageHint = (wf: EvalWorkflowVersion | null | undefined): strin
 const getWorkflowOperationLabel = (wf: EvalWorkflowVersion | null | undefined): string =>
   String(getWorkflowPresentation(wf)?.operationLabel || '').trim();
 
+const getWorkflowReleaseTime = (wf: EvalWorkflowVersion | null | undefined): string => {
+  const raw = String(wf?.created_at || '').trim();
+  if (!raw) return '—';
+  return fmtTime(raw);
+};
+
+const getWorkflowCreatedAtValue = (wf: EvalWorkflowVersion | null | undefined): number => {
+  const raw = String(wf?.created_at || '').trim();
+  if (!raw) return 0;
+  const ts = Date.parse(raw);
+  return Number.isFinite(ts) ? ts : 0;
+};
+
 const getWorkflowDeprecation = (wf: EvalWorkflowVersion | null | undefined) =>
   (wf?.deprecation && typeof wf.deprecation === 'object' ? wf.deprecation : null) as EvalWorkflowVersion['deprecation'];
 
@@ -1171,6 +1184,7 @@ function ToolCard({
   const visual = getCategoryVisual(getWorkflowCategory(wf));
   const categoryName = getWorkflowCategory(wf);
   const operationLabel = getWorkflowOperationLabel(wf);
+  const releaseTime = getWorkflowReleaseTime(wf);
   return (
     <div
       role="button"
@@ -1192,11 +1206,19 @@ function ToolCard({
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
           <Space align="start" style={{ justifyContent: 'space-between', width: '100%' }}>
             <Space direction="vertical" size={2} style={{ minWidth: 0 }}>
+              {operationLabel ? (
+                <Typography.Text theme="primary" style={{ fontSize: 12 }}>
+                  {operationLabel}
+                </Typography.Text>
+              ) : null}
               <Typography.Text strong ellipsis>
                 {wf.name}
               </Typography.Text>
               <Typography.Text className="podi-eval-tool-card__workflow" ellipsis>
-                {wf.workflow_id}
+                工作流编号：{wf.workflow_id}
+              </Typography.Text>
+              <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                发布时间：{releaseTime}
               </Typography.Text>
             </Space>
             <Space direction="vertical" size={2} style={{ alignItems: 'flex-end' }}>
@@ -1215,7 +1237,6 @@ function ToolCard({
               <Tag theme="primary" variant="light">
                 {categoryName}
               </Tag>
-              {operationLabel ? <Tag variant="light">{operationLabel}</Tag> : null}
             </Space>
           </div>
           <div className="podi-eval-tool-card__footer">
@@ -1713,6 +1734,8 @@ export function App() {
     const list = (grouped[activeCategory] || []).slice().sort((a, b) => {
       const order = getWorkflowSortOrder(a) - getWorkflowSortOrder(b);
       if (order !== 0) return order;
+      const createdAtDiff = getWorkflowCreatedAtValue(b) - getWorkflowCreatedAtValue(a);
+      if (createdAtDiff !== 0) return createdAtDiff;
       return a.name.localeCompare(b.name);
     });
     return list;
@@ -1805,6 +1828,8 @@ export function App() {
     metas.sort((a, b) => {
       const order = getWorkflowSortOrder(a.workflow) - getWorkflowSortOrder(b.workflow);
       if (order !== 0) return order;
+      const createdAtDiff = getWorkflowCreatedAtValue(b.workflow) - getWorkflowCreatedAtValue(a.workflow);
+      if (createdAtDiff !== 0) return createdAtDiff;
       return String(a.workflow.name || '').localeCompare(String(b.workflow.name || ''));
     });
     return metas;
@@ -5259,7 +5284,7 @@ export function App() {
             返回功能列表
           </Button>
           <Typography.Text theme="secondary" style={{ fontFamily: 'monospace' }}>
-            workflow_id: {selectedTool.workflow_id}
+            工作流编号：{selectedTool.workflow_id}
           </Typography.Text>
         </Space>
 
@@ -5270,6 +5295,7 @@ export function App() {
                 {selectedTool.name}
               </Typography.Title>
               <Typography.Text theme="secondary">{getWorkflowUsageHint(selectedTool) || '—'}</Typography.Text>
+              <Typography.Text theme="secondary">发布时间：{getWorkflowReleaseTime(selectedTool)}</Typography.Text>
               <Space breakLine>
                 <Tag variant="light">{getWorkflowCategory(selectedTool)}</Tag>
                 <Tag variant="light">{selectedTool.version}</Tag>
