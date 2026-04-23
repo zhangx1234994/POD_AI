@@ -183,9 +183,5 @@
 迁移后建议至少执行一次：
 
 ```bash
-python3 backend/scripts/check_coze_control_plane_migration.py \
-  --backend-base http://127.0.0.1:8099 \
-  --admin-base http://127.0.0.1:8199 \
-  --eval-base http://127.0.0.1:8200 \
-  --image-ops-base http://127.0.0.1:8301
+bash scripts/check_coze_control_plane_bundle.sh
 ```

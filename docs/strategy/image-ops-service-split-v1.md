@@ -78,6 +78,8 @@ python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8301
 - `image-ops-service/Dockerfile`
 - `image-ops-service/deploy/image-ops.service`
 - `image-ops-service/deploy/README.md`
+- `docker-compose.image-ops.yml`
+- `scripts/prodlike_restart_image_ops.sh`
 
 ## 新配置项
 
@@ -174,6 +176,12 @@ python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8301
    - `DISABLE_LOCAL_HEAVY_IMAGE_TASKS=true`
 
 这样可以保证高清放大不再落到 Coze 主机本机。
+
+如果不走 systemd，仓库内也提供了兜底启动方式：
+
+```bash
+bash scripts/prodlike_restart_image_ops.sh
+```
 
 ## 迁移顺序
 

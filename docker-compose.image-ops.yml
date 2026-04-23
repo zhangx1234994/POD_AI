@@ -1,0 +1,13 @@
+services:
+  image-ops:
+    build:
+      context: .
+      dockerfile: image-ops-service/Dockerfile
+    container_name: podi-image-ops
+    ports:
+      - "8301:8301"
+    env_file:
+      - ./image-ops-service/.env
+    environment:
+      TZ: "Asia/Shanghai"
+    restart: unless-stopped

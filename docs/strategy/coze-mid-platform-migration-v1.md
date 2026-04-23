@@ -260,6 +260,8 @@ backend 路由归一化规则：
    - `expand_mask_color`
 13. 如已部署 `image-ops`，执行：
    - `python3 backend/scripts/check_coze_control_plane_migration.py --backend-base http://127.0.0.1:8099 --image-ops-base http://127.0.0.1:8301`
+   - 或仓库内统一命令：
+     - `bash scripts/check_coze_control_plane_bundle.sh`
 
 ## 数据库策略
 
