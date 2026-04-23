@@ -19,6 +19,10 @@
   - `image-ops` 专项 smoke 清单
 - `DESKTOP_CENTERURL_CUTOVER_RUNBOOK_v1.md`
   - 桌面端第二阶段切换 runbook
+- `scripts/capture_coze_control_plane_baseline.sh`
+  - 迁移前/后基线采集
+- `scripts/compare_coze_control_plane_baselines.py`
+  - 迁移前后差异对比
 
 ## 其他测试计划
 

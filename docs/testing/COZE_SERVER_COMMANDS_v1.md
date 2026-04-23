@@ -115,6 +115,17 @@ curl http://127.0.0.1:8099/api/abilities
 curl http://127.0.0.1:8099/api/evals/workflow-versions
 ```
 
+## 5.1 迁移前基线采集
+
+```bash
+cd /srv/pod
+BACKEND_URL=http://127.0.0.1:8099 \
+ADMIN_URL=http://127.0.0.1:8199 \
+EVAL_URL=http://127.0.0.1:8200 \
+IMAGE_OPS_URL=http://127.0.0.1:8301 \
+bash scripts/capture_coze_control_plane_baseline.sh
+```
+
 ## 6. bundle 联调
 
 ```bash
@@ -191,6 +202,15 @@ cd /srv/pod
 OLD_BACKEND_URL="http://117.50.80.158:8099" \
 IMAGE_PATH="/srv/pod/testdata/sample.png" \
 bash scripts/rollback_verify_coze_control_plane.sh
+```
+
+## 6.6 迁移前后基线对比
+
+```bash
+cd /srv/pod
+python3 scripts/compare_coze_control_plane_baselines.py \
+  --before runtime/baseline_before \
+  --after runtime/baseline_after
 ```
 
 ## 7. 日志命令
