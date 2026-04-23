@@ -69,6 +69,24 @@ def test_normalize_ability_routing_supports_legacy_keys() -> None:
     }
 
 
+def test_normalize_ability_routing_defaults_comfyui_to_general_lane() -> None:
+    routing = normalize_ability_routing(
+        {
+            "executor_type": "comfyui",
+            "workflow_key": "flux_strong_hq_softstyle_fission",
+            "routing_policy": "queue",
+        }
+    )
+    assert routing == {
+        "selection_policy": "queue",
+        "required_executor_tags": ["comfyui-general"],
+        "allowed_executor_ids": [],
+        "fallback_to_default": True,
+        "action": "generic",
+        "workflow_key": "flux_strong_hq_softstyle_fission",
+    }
+
+
 def test_enrich_ability_metadata_with_routing_persists_normalized_block() -> None:
     metadata = enrich_ability_metadata_with_routing(
         {
@@ -103,3 +121,5 @@ def test_executor_seed_persists_routing_block_to_config() -> None:
             assert isinstance(routing, dict)
             assert routing["concurrency_limit"] == max(1, int(row.max_concurrency or 1))
             assert "selection_policy" in routing
+            if row.type == "comfyui":
+                assert "comfyui-general" in (routing.get("tags") or [])

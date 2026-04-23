@@ -41,6 +41,8 @@ executors:
     config:
       baseUrl: "http://117.50.216.233:8079"
       provider: "comfyui"
+      tags:
+        - "comfyui-general"
   - id: executor_comfyui_pattern_extract_158
     name: "ComfyUI 印花提取 · 117.50.80.158"
     type: comfyui
@@ -51,3 +53,5 @@ executors:
     config:
       baseUrl: "http://117.50.80.158:8079"
       provider: "comfyui"
+      tags:
+        - "comfyui-general"

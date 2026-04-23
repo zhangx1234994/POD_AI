@@ -659,6 +659,8 @@ class AbilityInvocationService:
         image_base64 = images.image_base64 or self._pop_first_string(merged_inputs, ["image_base64", "imageBase64"])
         if not image_url and not image_base64:
             raise HTTPException(status_code=400, detail="IMAGE_REQUIRED")
+        if key == "upscale_resize" and get_settings().disable_local_heavy_image_tasks:
+            raise HTTPException(status_code=503, detail="LOCAL_HEAVY_IMAGE_TASK_DISABLED")
 
         def _as_int(*keys: str) -> int:
             v = None

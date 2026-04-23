@@ -108,6 +108,10 @@ class Settings(BaseSettings):
     # Soft target for ComfyUI queue depth per executor. Router will prefer nodes under this value.
     # Business-side schedulers can use this as a batch size hint.
     comfyui_queue_batch_size: int = Field(default=10, env="COMFYUI_QUEUE_BATCH_SIZE")
+    # Control-plane hosts (for example the future Coze+backend shared host) should not
+    # run memory-heavy local image utilities. When enabled, local upscale requests fail
+    # fast and must be routed to dedicated executors instead of consuming host memory.
+    disable_local_heavy_image_tasks: bool = Field(default=False, env="DISABLE_LOCAL_HEAVY_IMAGE_TASKS")
     # ComfyUI repo info for version catalog sync.
     comfyui_repo_url: str = Field(default="https://github.com/comfyanonymous/ComfyUI", env="COMFYUI_REPO_URL")
     comfyui_repo_api_base: str = Field(default="https://api.github.com", env="COMFYUI_REPO_API_BASE")

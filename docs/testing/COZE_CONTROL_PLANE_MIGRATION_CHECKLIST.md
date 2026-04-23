@@ -1,0 +1,145 @@
+# Coze 控制面迁移检查清单
+
+本清单只用于：
+
+- Coze + 中台同机迁移
+- toolbox 全部改指向 backend
+- 执行面仍在外部机器
+
+## 一、迁移前固定信息
+
+上线前先记录：
+
+- `origin/main` commit
+- `alembic current`
+- backend `.env` 备份
+- `config/executors.yaml` 备份
+- 当前 toolbox URL 清单
+- 当前 active eval workflows 清单
+
+## 二、配置核对
+
+### backend 环境变量
+
+- MySQL 正确
+- Redis 正确
+- OSS 正确
+- `COZE_BASE_URL` 正确
+- `COZE_API_TOKEN` 正确
+- `COZE_TRUSTED_IPS` 正确
+- `PODI_INTERNAL_BASE_URL` 正确
+- `DISABLE_LOCAL_HEAVY_IMAGE_TASKS=true`
+
+### 执行节点
+
+- 普通 ComfyUI 节点带 `comfyui-general`
+- 高清放大节点带 `upscale` / `high-mem`
+- 高清放大节点 `fallback_to_default = false`
+
+## 三、部署步骤
+
+1. 拉取 `origin/main`
+2. 部署 backend 到固定目录
+3. `alembic upgrade head`
+4. 执行 executor/workflow/ability seed
+5. 重启 backend
+
+## 四、接口检查
+
+- `/health` 返回 `200`
+- `/api/abilities` 返回 `200`
+- `/api/evals/workflow-versions` 返回 `200`
+- `/api/coze/podi/openapi.json` 返回 `200`
+- `/api/coze/podi/comfyui/openapi.json` 返回 `200`
+
+## 五、Toolbox 检查
+
+抽检当前正在使用的 standalone toolbox：
+
+- outpaint
+- fission
+- E7 fission
+- bg remove
+- head cutout
+- text enhance
+- 四方裂变
+
+检查项：
+
+1. OpenAPI `200`
+2. contract 未变化
+3. Coze 可导入
+
+## 六、Coze workflow 抽检
+
+至少逐条抽检：
+
+- 四方连续
+- 多图融合
+- 背景抠图
+- 头部抠像
+- E7 图裂变
+- 文字增强
+- 四方连续裂变
+- 新高质量裂变
+- 扩图主线
+
+每条确认：
+
+1. main workflow 提交成功
+2. callback 可取图
+3. OSS 最终链接可访问
+
+## 七、路由检查
+
+- 普通裂变、扩图、抠图命中外部 ComfyUI
+- 高清放大命中高内存节点
+- 高清放大在无专机时正确失败
+- 不允许 fallback 到 Coze 主机本机
+
+## 八、OSS 检查
+
+当前阶段要求：
+
+- 对外仍返回公网地址
+- 如果开启内网下载试点，单独检查：
+  - backend 拉图
+  - Coze 调用链路
+  - ComfyUI 拉图
+
+异常时要求：
+
+- 能独立切回公网地址
+- 不与 backend 切流绑死
+
+## 九、资源观察
+
+迁移后至少观察一轮业务高峰：
+
+- CPU
+- 内存
+- swap
+- 磁盘
+
+重点确认：
+
+- backend 稳定
+- Coze 稳定
+- 没有重任务落到控制面主机
+
+## 十、前端检查（如果同批迁移）
+
+- `8199` 是 build 产物
+- `8200` 是 build 产物
+- 不允许出现：
+  - `@vite/client`
+  - `/src/main.tsx`
+
+## 十一、回滚步骤
+
+1. 恢复 toolbox 指向到旧 backend host
+2. 恢复 Coze workflow 中引用的旧 OpenAPI/toolbox
+3. 切回旧 backend 服务入口
+4. 停止新 backend
+5. 如果启用了 OSS 内网灰度，先切回公网下载链路
+6. 保留数据库，不做 destructive 回滚

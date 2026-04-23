@@ -98,6 +98,7 @@ def build_executor_business_status(routing: dict[str, Any]) -> dict[str, Any]:
 def normalize_ability_routing(metadata: dict[str, Any] | None) -> dict[str, Any]:
     source = deepcopy(metadata) if isinstance(metadata, dict) else {}
     routing_raw = source.get("routing") if isinstance(source.get("routing"), dict) else {}
+    executor_type = str(source.get("executor_type") or "").strip().lower()
 
     policy = str(
         routing_raw.get("selection_policy")
@@ -113,6 +114,8 @@ def normalize_ability_routing(metadata: dict[str, Any] | None) -> dict[str, Any]
         if "required_executor_tags" in routing_raw
         else source.get("required_tags")
     )
+    if not required_tags and executor_type == "comfyui":
+        required_tags = ["comfyui-general"]
     allowed_executor_ids = _normalize_string_list(
         routing_raw.get("allowed_executor_ids")
         if "allowed_executor_ids" in routing_raw

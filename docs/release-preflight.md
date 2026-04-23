@@ -11,6 +11,13 @@ Goal: run these checks on the test machine before deploying to the production se
 - `COZE_API_TOKEN=...`
 - Optional (legacy fallback only): `COZE_COMFYUI_CALLBACK_WORKFLOW_ID=...`
 
+### Coze 控制面迁移时额外要求
+
+- `DISABLE_LOCAL_HEAVY_IMAGE_TASKS=true`
+- toolbox 只允许指向 backend，不允许直连 ComfyUI
+- 更新服务器前必须确认目标提交已经进入 `origin/main`
+- 迁移类发布按 `docs/testing/COZE_CONTROL_PLANE_MIGRATION_CHECKLIST.md` 执行
+
 ## 1) Multi-ComfyUI Connectivity
 
 From the PODI backend host (8099), confirm it can reach *each* ComfyUI executor baseUrl

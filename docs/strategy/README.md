@@ -13,6 +13,7 @@
 - `auth-scheme-decision-2026q2.md`：认证方案选型结论（Q2）
 - `auth-billing-implementation-checklist-2026q2.md`：认证与计费实施清单（开发顺序与门槛）
 - `mid-platform-cleanup-decisions-2026q2.md`：已经真正落地到中台真源的清理/下线决定
+- `coze-mid-platform-migration-v1.md`：Coze + 中台同机迁移方案、路由约束、回滚与 OSS 保留问题
 - `weekly-review-template.md`：每周回顾模板（目标/待办/文档治理）
 
 ## 使用规则
