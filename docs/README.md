@@ -68,7 +68,7 @@
 | ComfyUI | `docs/comfyui/README.md` | Workflow、节点映射、执行节点说明 |
 | 周报归档 | `docs/weekly/README.md` | 按周汇总过程记录与阶段结论 |
 | 工程规范 | `docs/standards/` | 错误契约、接口一致性、文档维护等规范 |
-| 测试计划 | `docs/testing/` | 回归计划、线上 smoke 清单 |
+| 测试计划 | `docs/testing/` | 回归计划、线上 smoke 清单、迁移 runbook |
 | 复盘记录 | `docs/retrospectives/` | 复盘、风险、后续动作 |
 
 ## 历史资料与阶段记录

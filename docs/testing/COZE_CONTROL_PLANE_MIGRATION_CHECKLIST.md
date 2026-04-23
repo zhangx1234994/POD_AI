@@ -13,6 +13,8 @@
 - `docs/testing/COZE_CONTROL_PLANE_RUNBOOK_v1.md`
 - `docs/testing/COZE_SERVER_COMMANDS_v1.md`
 - `docs/testing/IMAGE_OPS_SMOKE_CHECKLIST_v1.md`
+- `scripts/run_coze_control_plane_cutover.sh`
+- `scripts/rollback_coze_control_plane.sh`
 
 ## 一、迁移前固定信息
 

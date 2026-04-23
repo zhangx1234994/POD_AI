@@ -80,6 +80,7 @@ python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8301
 - `image-ops-service/deploy/README.md`
 - `docker-compose.image-ops.yml`
 - `scripts/prodlike_restart_image_ops.sh`
+- `scripts/prod_write_image_ops_env.sh`
 
 ## 新配置项
 
@@ -98,6 +99,12 @@ python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8301
 - 要求必须走外部 `image-ops` 或专机
 
 当前 `backend/.env.example` 已补齐上述变量，可直接作为迁移时的配置参考。
+
+`image-ops-service/.env` 可直接通过下面脚本生成：
+
+```bash
+bash scripts/prod_write_image_ops_env.sh
+```
 
 ## 中台与 image-ops 的职责边界
 

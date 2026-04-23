@@ -82,6 +82,14 @@ IMAGE_OPS_URL=http://<image-ops-host>:8301 \
 bash scripts/check_coze_control_plane_bundle.sh
 ```
 
+如果要按脚本一键执行，优先用：
+
+```bash
+DEPLOY_SCOPE=backend-image-ops \
+IMAGE_PATH="/srv/pod/testdata/sample.png" \
+bash scripts/run_coze_control_plane_cutover.sh full
+```
+
 ## 4. toolbox 切流
 
 统一切这几类入口：
@@ -133,6 +141,14 @@ bash scripts/check_coze_control_plane_bundle.sh
 3. 再停新 backend / image-ops
 
 不要反过来做。
+
+脚本模板：
+
+```bash
+OLD_BACKEND_URL="http://<old-backend-host>:8099" \
+CONFIRM_TOOLBOX_ROLLBACK_DONE=1 \
+bash scripts/rollback_coze_control_plane.sh
+```
 
 ## 8. 当天只看这三个结果
 

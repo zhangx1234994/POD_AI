@@ -19,6 +19,7 @@
 配置文件：
 
 - `backend/.env`
+- 推荐生成脚本：`scripts/prod_write_backend_env.sh`
 
 关键变量：
 
@@ -48,6 +49,7 @@
 配置文件：
 
 - `image-ops-service/.env`
+- 推荐生成脚本：`scripts/prod_write_image_ops_env.sh`
 
 关键变量：
 
@@ -155,3 +157,18 @@ bash scripts/check_coze_control_plane_bundle.sh
 
 - 回滚时不要先改数据库
 - 先恢复流量入口和执行路径，再处理持久层问题
+
+## 七、推荐写入顺序
+
+如果迁移当天需要在 Coze 主机上现场生成 env，建议顺序固定为：
+
+```bash
+bash scripts/prod_write_backend_env.sh
+bash scripts/prod_write_image_ops_env.sh
+```
+
+或者直接使用总入口：
+
+```bash
+bash scripts/prod_write_coze_control_plane_envs.sh
+```

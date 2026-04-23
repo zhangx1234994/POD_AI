@@ -13,6 +13,13 @@
 
 ## 2. backend
 
+### 写入环境变量
+
+```bash
+cd /srv/pod
+bash scripts/prod_write_backend_env.sh
+```
+
 ### 安装目录
 
 ```bash
@@ -47,6 +54,13 @@ systemctl status podi-backend
 ```
 
 ## 3. image-ops
+
+### 写入环境变量
+
+```bash
+cd /srv/pod
+bash scripts/prod_write_image_ops_env.sh
+```
 
 ### 安装依赖
 
@@ -112,6 +126,28 @@ IMAGE_OPS_URL=http://127.0.0.1:8301 \
 bash scripts/check_coze_control_plane_bundle.sh
 ```
 
+## 6.0 一键执行（推荐）
+
+### 首轮保守迁移：只动 backend + image-ops
+
+```bash
+cd /srv/pod
+DEPLOY_SCOPE=backend-image-ops \
+IMAGE_PATH="/srv/pod/testdata/sample.png" \
+POLL_SECONDS=90 \
+bash scripts/run_coze_control_plane_cutover.sh full
+```
+
+### 同批带上 admin / eval
+
+```bash
+cd /srv/pod
+DEPLOY_SCOPE=full \
+IMAGE_PATH="/srv/pod/testdata/sample.png" \
+POLL_SECONDS=90 \
+bash scripts/run_coze_control_plane_cutover.sh full
+```
+
 ## 6.1 image-ops 真链路 smoke
 
 ```bash
@@ -128,6 +164,15 @@ cd /srv/pod
 IMAGE_PATH="/srv/pod/testdata/sample.png" \
 POLL_SECONDS=90 \
 bash scripts/smoke_coze_primary_workflows.sh
+```
+
+## 6.3 回滚模板
+
+```bash
+cd /srv/pod
+OLD_BACKEND_URL="http://117.50.80.158:8099" \
+CONFIRM_TOOLBOX_ROLLBACK_DONE=1 \
+bash scripts/rollback_coze_control_plane.sh
 ```
 
 ## 7. 日志命令
