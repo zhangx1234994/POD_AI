@@ -23,7 +23,7 @@ Coze 需要导入一个 OpenAPI 文档，我们由 PODI 后端动态生成：
 1. 打开 Coze Studio：`COZE_BASE_URL`
 2. 进入插件管理（Plugin / Tools 管理页面）
 3. 选择“导入 OpenAPI / Import OpenAPI”
-4. 粘贴 OpenAPI 地址：`https://<podi-host>/api/coze/podi/openapi.json`
+4. 粘贴 OpenAPI 地址：`https://<podi-backend-host>/api/coze/podi/openapi.json`
 5. 导入后，工具列表将出现 `PODI Abilities` 下的各个能力（一个能力一个 tool）
 
 ## 调用说明
