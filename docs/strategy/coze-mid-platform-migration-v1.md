@@ -242,6 +242,7 @@ backend 路由归一化规则：
    - `IMAGE_OPS_SERVICE_TOKEN`
    - `IMAGE_OPS_TIMEOUT_SECONDS`
    - `IMAGE_OPS_LOCAL_FALLBACK_ENABLED=false`（Coze 主机建议）
+   - 服务部署方式参考：`image-ops-service/deploy/README.md`
 5. 执行 `alembic upgrade head`
 6. 执行 executor/workflow/ability seed
 7. 校验 `/health`
@@ -253,6 +254,8 @@ backend 路由归一化规则：
    - `upscale_resize`
    - `set_dpi`
    - `expand_mask_color`
+13. 如已部署 `image-ops`，执行：
+   - `python3 backend/scripts/check_coze_control_plane_migration.py --backend-base http://127.0.0.1:8099 --image-ops-base http://127.0.0.1:8301`
 
 ## 数据库策略
 

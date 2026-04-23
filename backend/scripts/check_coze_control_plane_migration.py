@@ -64,6 +64,7 @@ def main() -> int:
     parser.add_argument("--backend-base", default="http://127.0.0.1:8099")
     parser.add_argument("--admin-base", default="")
     parser.add_argument("--eval-base", default="")
+    parser.add_argument("--image-ops-base", default="")
     args = parser.parse_args()
 
     print("[1] backend health")
@@ -84,6 +85,10 @@ def main() -> int:
     if args.eval_base:
         print("[5] eval build artifact check")
         _check_frontend_build(args.eval_base, label="eval web")
+    if args.image_ops_base:
+        print("[6] image-ops health check")
+        health = _get_json(args.image_ops_base, "/health")
+        _expect(health.get("status") == "ok", "image-ops /health is not ok")
 
     print("All Coze control-plane checks passed.")
     return 0

@@ -35,6 +35,13 @@
   - `IMAGE_OPS_TIMEOUT_SECONDS` 正确
   - `IMAGE_OPS_LOCAL_FALLBACK_ENABLED=false`
 
+### image-ops 服务
+
+- `image-ops-service` 已部署
+- `/health` 返回 `200`
+- 鉴权 token 与 backend 配置一致
+- 运行方式固定为 `systemd` 或 `docker`，不能靠手工临时启动
+
 ### 执行节点
 
 - 普通 ComfyUI 节点带 `comfyui-general`
@@ -179,5 +186,6 @@
 python3 backend/scripts/check_coze_control_plane_migration.py \
   --backend-base http://127.0.0.1:8099 \
   --admin-base http://127.0.0.1:8199 \
-  --eval-base http://127.0.0.1:8200
+  --eval-base http://127.0.0.1:8200 \
+  --image-ops-base http://127.0.0.1:8301
 ```

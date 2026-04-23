@@ -73,6 +73,12 @@ cd image-ops-service
 python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8301
 ```
 
+正式部署材料：
+
+- `image-ops-service/Dockerfile`
+- `image-ops-service/deploy/image-ops.service`
+- `image-ops-service/deploy/README.md`
+
 ## 新配置项
 
 - `IMAGE_OPS_BASE_URL`
