@@ -19,6 +19,8 @@
   - `image-ops` 专项 smoke 清单
 - `DESKTOP_CENTERURL_CUTOVER_RUNBOOK_v1.md`
   - 桌面端第二阶段切换 runbook
+- `COZE_MIGRATION_PACK_SELF_CHECK_v1.md`
+  - 迁移包本地统一自检说明
 - `scripts/capture_coze_control_plane_baseline.sh`
   - 迁移前/后基线采集
 - `scripts/compare_coze_control_plane_baselines.py`
@@ -44,3 +46,4 @@
    - `scripts/rollback_coze_control_plane.sh`
    - `scripts/rollback_verify_coze_control_plane.sh`
    - `scripts/check_coze_control_plane_bundle.sh`
+   - `scripts/selfcheck_coze_migration_pack.sh`
