@@ -50,6 +50,29 @@ Coze / 管理端 / 测评端
 - 不改对外 OpenAPI
 - 不改 Coze workflow/toolbox 契约
 
+## 当前仓库内已提供的服务骨架
+
+本仓已经新增独立服务目录：
+
+- `image-ops-service/`
+
+当前已提供：
+
+- `FastAPI` 应用入口：`image-ops-service/app/main.py`
+- 内部接口：
+  - `POST /internal/image-ops/upscale-resize`
+  - `POST /internal/image-ops/set-dpi`
+  - `POST /internal/image-ops/expand-mask-color`
+- Bearer Token 鉴权
+- 契约测试：`image-ops-service/tests/test_image_ops_api.py`
+
+推荐启动方式：
+
+```bash
+cd image-ops-service
+python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8301
+```
+
 ## 新配置项
 
 - `IMAGE_OPS_BASE_URL`
@@ -111,6 +134,20 @@ Coze / 管理端 / 测评端
 ```
 
 这样中台统一负责 OSS 上传和对外地址，不让 image-ops 自己定义另一套外部契约。
+
+## 首轮部署建议
+
+首轮拆分时建议：
+
+1. 先把 `image-ops-service` 部署到独立机器
+2. 中台配置：
+   - `IMAGE_OPS_BASE_URL=http://<image-ops-host>:8301`
+   - `IMAGE_OPS_SERVICE_TOKEN=...`
+   - `IMAGE_OPS_LOCAL_FALLBACK_ENABLED=false`
+3. Coze 控制面主机同步开启：
+   - `DISABLE_LOCAL_HEAVY_IMAGE_TASKS=true`
+
+这样可以保证高清放大不再落到 Coze 主机本机。
 
 ## 迁移顺序
 
