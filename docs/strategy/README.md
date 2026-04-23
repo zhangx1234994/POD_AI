@@ -15,6 +15,7 @@
 - `mid-platform-cleanup-decisions-2026q2.md`：已经真正落地到中台真源的清理/下线决定
 - `coze-mid-platform-migration-v1.md`：Coze + 中台同机迁移方案、路由约束、回滚与 OSS 保留问题
 - `coze-migration-config-matrix-v1.md`：Coze 控制面迁移时 backend / image-ops / executor 的配置矩阵
+- `coze-host-cutover-sequence-v1.md`：Coze 迁移当天的 host 切换顺序与回滚顺序
 - `image-ops-service-split-v1.md`：自研图片原子能力拆分方案（高清放大 / DPI / 扩边占位图）
 - `weekly-review-template.md`：每周回顾模板（目标/待办/文档治理）
 

@@ -18,6 +18,7 @@
 | 认证与用户 | `docs/api/modules/auth.md` |
 | 媒资与上传 | `docs/api/modules/media.md` |
 | 统一能力调用 | `docs/api/modules/abilities.md` |
+| Image Ops（内部） | `docs/api/modules/image-ops.md` |
 | Coze 插件 | `docs/api/modules/coze.md` |
 | ComfyUI 管理 | `docs/api/modules/comfyui-admin.md` |
 | ComfyUI Agent | `docs/api/modules/agent.md` |
