@@ -6,6 +6,11 @@
 - toolbox 全部改指向 backend
 - 执行面仍在外部机器
 
+配套文档：
+
+- `docs/strategy/coze-migration-inventory-v1.md`
+- `docs/testing/COZE_CONTROL_PLANE_MIGRATION_DRILL_v1.md`
+
 ## 一、迁移前固定信息
 
 上线前先记录：

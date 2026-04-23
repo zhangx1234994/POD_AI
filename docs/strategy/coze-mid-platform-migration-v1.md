@@ -34,6 +34,13 @@ Coze Workflow
 - 这台机器适合控制面，不适合高内存图像执行
 - OSS 内网地址替换纳入保留问题，但不与首轮迁移绑定
 
+## 配套真源
+
+- `docs/strategy/coze-migration-inventory-v1.md`
+- `docs/strategy/coze-migration-config-matrix-v1.md`
+- `docs/strategy/coze-host-cutover-sequence-v1.md`
+- `docs/testing/COZE_CONTROL_PLANE_MIGRATION_DRILL_v1.md`
+
 ## 迁移范围
 
 ### 本次迁入 Coze 主机

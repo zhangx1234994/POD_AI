@@ -32,6 +32,7 @@
 - `docs/strategy/coze-mid-platform-migration-v1.md`
 - `docs/strategy/coze-migration-config-matrix-v1.md`
 - `docs/strategy/coze-host-cutover-sequence-v1.md`
+- `docs/strategy/coze-migration-inventory-v1.md`
 - `docs/strategy/image-ops-service-split-v1.md`
 - `docs/architecture.md`
 - `docs/BUSINESS_MODEL.md`
