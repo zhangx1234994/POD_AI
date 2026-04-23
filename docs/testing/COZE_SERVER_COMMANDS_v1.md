@@ -112,6 +112,15 @@ IMAGE_OPS_URL=http://127.0.0.1:8301 \
 bash scripts/check_coze_control_plane_bundle.sh
 ```
 
+## 6.1 image-ops 真链路 smoke
+
+```bash
+cd /srv/pod
+BACKEND_URL=http://127.0.0.1:8099 \
+SERVICE_API_TOKEN="<service_api_token>" \
+python3 scripts/smoke_image_ops_via_backend.py
+```
+
 ## 7. 日志命令
 
 ```bash
