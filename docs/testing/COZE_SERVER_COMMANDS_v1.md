@@ -121,6 +121,15 @@ SERVICE_API_TOKEN="<service_api_token>" \
 python3 scripts/smoke_image_ops_via_backend.py
 ```
 
+## 6.2 Coze 主工作流 smoke
+
+```bash
+cd /srv/pod
+IMAGE_PATH="/srv/pod/testdata/sample.png" \
+POLL_SECONDS=90 \
+bash scripts/smoke_coze_primary_workflows.sh
+```
+
 ## 7. 日志命令
 
 ```bash
