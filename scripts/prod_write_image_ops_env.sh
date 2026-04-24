@@ -14,11 +14,14 @@ if [ -z "${service_token:-}" ]; then
   exit 1
 fi
 
-read -r -p "IMAGE_OPS_HOST [default 127.0.0.1]: " image_ops_host
-read -r -p "IMAGE_OPS_PORT [default 8301]: " image_ops_port
+default_host="${DEFAULT_IMAGE_OPS_HOST:-127.0.0.1}"
+default_port="${DEFAULT_IMAGE_OPS_PORT:-8301}"
 
-image_ops_host="${image_ops_host:-127.0.0.1}"
-image_ops_port="${image_ops_port:-8301}"
+read -r -p "IMAGE_OPS_HOST [default ${default_host}]: " image_ops_host
+read -r -p "IMAGE_OPS_PORT [default ${default_port}]: " image_ops_port
+
+image_ops_host="${image_ops_host:-$default_host}"
+image_ops_port="${image_ops_port:-$default_port}"
 
 mkdir -p "$(dirname "$image_ops_env")"
 cat >"$image_ops_env" <<EOF
