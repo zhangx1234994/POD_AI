@@ -27,8 +27,17 @@ copy_tree() {
   local src="$1"
   local dst="$2"
   ensure_dir "$(dirname "$dst")"
+  local env_backup=""
+  if [[ -f "$dst/.env" ]]; then
+    env_backup="$(mktemp)"
+    cp "$dst/.env" "$env_backup"
+  fi
   rm -rf "$dst"
   cp -R "$src" "$dst"
+  if [[ -n "$env_backup" ]]; then
+    cp "$env_backup" "$dst/.env"
+    rm -f "$env_backup"
+  fi
 }
 
 echo "[coze-control-plane] syncing backend/image-ops/scripts/deploy..."
