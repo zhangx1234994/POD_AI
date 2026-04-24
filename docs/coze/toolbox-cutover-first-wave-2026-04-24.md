@@ -94,6 +94,7 @@
 
 等第一段稳定后，再处理 `117.50.80.158`：
 
-- 只保留 `8079` ComfyUI 和 `8099` image-ops
-- Coze backend 的 `IMAGE_OPS_BASE_URL` 改为 `http://117.50.80.158:8099`
+- 保留 `8079` ComfyUI，复用低频 `8200` 跑 image-ops
+- Coze backend 的 `IMAGE_OPS_BASE_URL` 改为 `http://117.50.80.158:8200`
+- `8099` 旧 backend 暂时保留为回滚入口
 - 再切 PODI 图片原子能力相关工具箱

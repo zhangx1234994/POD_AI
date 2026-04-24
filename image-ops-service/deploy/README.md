@@ -45,18 +45,19 @@ systemctl status image-ops
 
 ### 复用旧中台端口
 
-如果目标机器不新增端口，可以让 image-ops 复用旧 backend 端口，例如 `117.50.80.158:8099`：
+如果目标机器不新增端口，可以让 image-ops 复用低频前端端口，例如 `117.50.80.158:8200`：
 
 ```env
 IMAGE_OPS_SERVICE_TOKEN=<same-as-backend>
 IMAGE_OPS_HOST=0.0.0.0
-IMAGE_OPS_PORT=8099
+IMAGE_OPS_PORT=8200
 ```
 
 注意：
 
-- 复用 `8099` 前必须停止旧 backend。
-- Coze 主机 backend 对应配置为 `IMAGE_OPS_BASE_URL=http://117.50.80.158:8099`。
+- 复用 `8200` 前必须停止旧 eval。
+- Coze 主机 backend 对应配置为 `IMAGE_OPS_BASE_URL=http://117.50.80.158:8200`。
+- 这样可以保留 `8099` 旧 backend 作为回滚入口。
 - 仍需通过安全组限制来源，只允许 Coze backend 主机访问。
 
 ## 方式二：docker

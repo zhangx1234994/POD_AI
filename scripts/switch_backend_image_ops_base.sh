@@ -11,7 +11,7 @@ RESTART_BACKEND="${RESTART_BACKEND:-1}"
 
 if [[ -z "$IMAGE_OPS_BASE_URL" ]]; then
   echo "[image-ops-switch] ERROR: IMAGE_OPS_BASE_URL is required" >&2
-  echo "[image-ops-switch] example: IMAGE_OPS_BASE_URL=http://117.50.80.158:8099 bash scripts/switch_backend_image_ops_base.sh" >&2
+  echo "[image-ops-switch] example: IMAGE_OPS_BASE_URL=http://117.50.80.158:8200 bash scripts/switch_backend_image_ops_base.sh" >&2
   exit 2
 fi
 
@@ -50,4 +50,3 @@ if [[ "$RESTART_BACKEND" == "1" ]]; then
   curl -fsS http://127.0.0.1:8099/health
   echo
 fi
-

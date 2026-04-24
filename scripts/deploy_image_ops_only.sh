@@ -5,11 +5,13 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TARGET_ROOT="${TARGET_ROOT:-/srv/pod}"
 PYTHON_BIN="${PYTHON_BIN:-$(command -v python3.11 || command -v python3 || true)}"
 REUSE_8099="${REUSE_8099:-0}"
+REUSE_8200="${REUSE_8200:-0}"
 
 echo "[image-ops-only] source repo: $ROOT_DIR"
 echo "[image-ops-only] target root: $TARGET_ROOT"
 echo "[image-ops-only] python bin: ${PYTHON_BIN:-<missing>}"
 echo "[image-ops-only] reuse 8099: $REUSE_8099"
+echo "[image-ops-only] reuse 8200: $REUSE_8200"
 
 if [[ -z "$PYTHON_BIN" ]]; then
   echo "[image-ops-only] ERROR: python3.11/python3 not found" >&2
@@ -61,6 +63,18 @@ fi
 configured_port="$(grep -E '^IMAGE_OPS_PORT=' "$TARGET_ROOT/image-ops-service/.env" | tail -1 | cut -d= -f2- || true)"
 configured_port="${configured_port:-8301}"
 
+kill_listeners_on_port() {
+  local port="$1"
+  if command -v lsof >/dev/null 2>&1; then
+    pids="$(lsof -ti tcp:"$port" 2>/dev/null || true)"
+    if [[ -n "${pids:-}" ]]; then
+      echo "[image-ops-only] killing remaining listeners on ${port}: $pids"
+      kill $pids 2>/dev/null || true
+      sleep 1
+    fi
+  fi
+}
+
 if [[ "$configured_port" == "8099" ]]; then
   if [[ "$REUSE_8099" != "1" ]]; then
     echo "[image-ops-only] ERROR: IMAGE_OPS_PORT=8099 requires REUSE_8099=1" >&2
@@ -72,14 +86,19 @@ if [[ "$configured_port" == "8099" ]]; then
   systemctl disable podi-backend 2>/dev/null || true
   systemctl stop podi-admin-web podi-eval-web 2>/dev/null || true
   systemctl disable podi-admin-web podi-eval-web 2>/dev/null || true
-  if command -v lsof >/dev/null 2>&1; then
-    pids="$(lsof -ti tcp:8099 2>/dev/null || true)"
-    if [[ -n "${pids:-}" ]]; then
-      echo "[image-ops-only] killing remaining listeners on 8099: $pids"
-      kill $pids 2>/dev/null || true
-      sleep 1
-    fi
+  kill_listeners_on_port 8099
+fi
+
+if [[ "$configured_port" == "8200" ]]; then
+  if [[ "$REUSE_8200" != "1" ]]; then
+    echo "[image-ops-only] ERROR: IMAGE_OPS_PORT=8200 requires REUSE_8200=1" >&2
+    echo "[image-ops-only] This avoids accidentally replacing the eval web port." >&2
+    exit 5
   fi
+  echo "[image-ops-only] stopping old 8200 eval service before starting image-ops..."
+  systemctl stop podi-eval-web 2>/dev/null || true
+  systemctl disable podi-eval-web 2>/dev/null || true
+  kill_listeners_on_port 8200
 fi
 
 echo "[image-ops-only] installing image-ops deps..."
