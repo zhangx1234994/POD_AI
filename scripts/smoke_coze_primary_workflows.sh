@@ -11,6 +11,7 @@ IMAGE_PATH="${IMAGE_PATH:-}"
 IMAGE_URL="${IMAGE_URL:-}"
 POLL_SECONDS="${POLL_SECONDS:-90}"
 OUT_FILE="${OUT_FILE:-$ROOT_DIR/runtime/coze_primary_workflows_$(date +%Y%m%d_%H%M%S).json}"
+PYTHON_BIN="${PYTHON_BIN:-$(command -v python3.11 || command -v python3 || true)}"
 
 mkdir -p "$(dirname "$OUT_FILE")"
 
@@ -19,7 +20,12 @@ echo "[coze-primary-smoke] upload: $UPLOAD_URL"
 echo "[coze-primary-smoke] task: $TASK_URL"
 echo "[coze-primary-smoke] output: $OUT_FILE"
 
-python3 "$ROOT_DIR/scripts/coze_workflow_smoke.py" \
+if [[ -z "$PYTHON_BIN" ]]; then
+  echo "[coze-primary-smoke] ERROR: python3.11/python3 not found" >&2
+  exit 2
+fi
+
+"$PYTHON_BIN" "$ROOT_DIR/scripts/coze_workflow_smoke.py" \
   --docs-url "$DOCS_URL" \
   --upload-url "$UPLOAD_URL" \
   --task-url "$TASK_URL" \

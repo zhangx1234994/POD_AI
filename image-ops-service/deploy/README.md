@@ -19,8 +19,9 @@
 
 ```bash
 cd /srv/pod/image-ops-service
-python3 -m pip install -U pip
-python3 -m pip install .
+python3.11 -m venv .venv
+./.venv/bin/pip install -U pip
+./.venv/bin/pip install -e .
 ```
 
 4. 安装服务：
@@ -49,5 +50,5 @@ docker run -d \
 
 ```bash
 curl http://127.0.0.1:8301/health
-python3 -m pytest tests/test_image_ops_api.py -q
+python3.11 -m pytest tests/test_image_ops_api.py -q
 ```

@@ -14,6 +14,7 @@ IMAGE_PATH="${IMAGE_PATH:-}"
 IMAGE_URL="${IMAGE_URL:-}"
 POLL_SECONDS="${POLL_SECONDS:-90}"
 SERVICE_API_TOKEN="${SERVICE_API_TOKEN:-}"
+PYTHON_BIN="${PYTHON_BIN:-$(command -v python3.11 || command -v python3 || true)}"
 
 usage() {
   cat <<'EOF'
@@ -57,9 +58,10 @@ run_plan() {
 [cutover:plan] image path:  ${IMAGE_PATH:-<empty>}
 [cutover:plan] image url:   ${IMAGE_URL:-<empty>}
 [cutover:plan] poll secs:   $POLL_SECONDS
+[cutover:plan] python bin:  ${PYTHON_BIN:-<missing>}
 
 [cutover:plan] step 1: first-wave host reference check
-  python3 scripts/check_coze_host_cutover_refs.py --root "$ROOT_DIR"
+  ${PYTHON_BIN:-python3} scripts/check_coze_host_cutover_refs.py --root "$ROOT_DIR"
 
 [cutover:plan] step 2: deploy
 EOF
@@ -80,12 +82,12 @@ EOF
   cat <<EOF
 
 [cutover:plan] step 3: bundle check
-  BACKEND_URL="$BACKEND_URL" ADMIN_URL="$ADMIN_URL" EVAL_URL="$EVAL_URL" IMAGE_OPS_URL="$IMAGE_OPS_URL" \\
+  BACKEND_URL="$BACKEND_URL" ADMIN_URL="$ADMIN_URL" EVAL_URL="$EVAL_URL" IMAGE_OPS_URL="$IMAGE_OPS_URL" PYTHON_BIN="${PYTHON_BIN:-python3}" \\
   bash scripts/check_coze_control_plane_bundle.sh
 
 [cutover:plan] step 4: image-ops smoke via backend
   BACKEND_URL="$BACKEND_URL" SERVICE_API_TOKEN="<optional>" \\
-  python3 scripts/smoke_image_ops_via_backend.py
+  ${PYTHON_BIN:-python3} scripts/smoke_image_ops_via_backend.py
 
 [cutover:plan] step 5: primary Coze workflows smoke
   DOCS_URL="$BACKEND_URL/api/evals/docs/workflows" \\
@@ -93,6 +95,7 @@ EOF
   TASK_URL="$BACKEND_URL/api/coze/podi/tasks/get" \\
   IMAGE_PATH="${IMAGE_PATH:-/abs/path/sample.png}" \\
   IMAGE_URL="${IMAGE_URL:-}" \\
+  PYTHON_BIN="${PYTHON_BIN:-python3}" \\
   POLL_SECONDS="$POLL_SECONDS" \\
   bash scripts/smoke_coze_primary_workflows.sh
 EOF
@@ -100,7 +103,11 @@ EOF
 
 run_pre() {
   log "checking first-wave host references"
-  python3 "$ROOT_DIR/scripts/check_coze_host_cutover_refs.py" --root "$ROOT_DIR"
+  if [[ -z "$PYTHON_BIN" ]]; then
+    echo "[cutover:$PHASE] ERROR: python3.11/python3 not found" >&2
+    exit 2
+  fi
+  "$PYTHON_BIN" "$ROOT_DIR/scripts/check_coze_host_cutover_refs.py" --root "$ROOT_DIR"
 }
 
 run_deploy() {
@@ -120,15 +127,21 @@ run_deploy() {
 }
 
 run_post() {
+  if [[ -z "$PYTHON_BIN" ]]; then
+    echo "[cutover:$PHASE] ERROR: python3.11/python3 not found" >&2
+    exit 2
+  fi
+
   log "running bundle checks"
   BACKEND_URL="$BACKEND_URL" \
   ADMIN_URL="$ADMIN_URL" \
   EVAL_URL="$EVAL_URL" \
+  PYTHON_BIN="$PYTHON_BIN" \
   IMAGE_OPS_URL="$IMAGE_OPS_URL" \
   bash "$ROOT_DIR/scripts/check_coze_control_plane_bundle.sh"
 
   log "running image-ops smoke via backend"
-  local image_ops_cmd=(python3 "$ROOT_DIR/scripts/smoke_image_ops_via_backend.py")
+  local image_ops_cmd=("$PYTHON_BIN" "$ROOT_DIR/scripts/smoke_image_ops_via_backend.py")
   if [[ -n "$SERVICE_API_TOKEN" ]]; then
     SERVICE_API_TOKEN="$SERVICE_API_TOKEN" \
     BACKEND_URL="$BACKEND_URL" \
@@ -144,6 +157,7 @@ run_post() {
   TASK_URL="$BACKEND_URL/api/coze/podi/tasks/get" \
   IMAGE_PATH="$IMAGE_PATH" \
   IMAGE_URL="$IMAGE_URL" \
+  PYTHON_BIN="$PYTHON_BIN" \
   POLL_SECONDS="$POLL_SECONDS" \
   bash "$ROOT_DIR/scripts/smoke_coze_primary_workflows.sh"
 }

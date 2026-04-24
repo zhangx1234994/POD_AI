@@ -11,6 +11,18 @@
 /srv/pod
 ```
 
+并假设 Coze 主机已经可用：
+
+```bash
+python3.11
+```
+
+如果系统默认 `python3` 仍然是旧版本，迁移相关脚本统一显式带：
+
+```bash
+PYTHON_BIN=python3.11
+```
+
 ## 2. backend
 
 ### 写入环境变量
@@ -142,6 +154,7 @@ bash scripts/check_coze_control_plane_bundle.sh
 ```bash
 cd /srv/pod
 DEPLOY_SCOPE=backend-image-ops \
+PYTHON_BIN=python3.11 \
 IMAGE_PATH="/srv/pod/testdata/sample.png" \
 bash scripts/run_coze_control_plane_cutover.sh plan
 ```
@@ -153,6 +166,7 @@ bash scripts/run_coze_control_plane_cutover.sh plan
 ```bash
 cd /srv/pod
 DEPLOY_SCOPE=backend-image-ops \
+PYTHON_BIN=python3.11 \
 IMAGE_PATH="/srv/pod/testdata/sample.png" \
 POLL_SECONDS=90 \
 bash scripts/run_coze_control_plane_cutover.sh full
@@ -163,6 +177,7 @@ bash scripts/run_coze_control_plane_cutover.sh full
 ```bash
 cd /srv/pod
 DEPLOY_SCOPE=full \
+PYTHON_BIN=python3.11 \
 IMAGE_PATH="/srv/pod/testdata/sample.png" \
 POLL_SECONDS=90 \
 bash scripts/run_coze_control_plane_cutover.sh full

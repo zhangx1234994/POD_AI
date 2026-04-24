@@ -6,8 +6,14 @@ cd "$ROOT_DIR"
 
 TMP_DIR="${TMP_DIR:-$(mktemp -d "/tmp/pod_migration_selfcheck.XXXXXX")}"
 KEEP_TMP="${KEEP_TMP:-0}"
+PYTHON_BIN="${PYTHON_BIN:-$(command -v python3.11 || command -v python3 || true)}"
 
 mkdir -p "$TMP_DIR"
+
+if [[ -z "$PYTHON_BIN" ]]; then
+  echo "[selfcheck] ERROR: python3.11/python3 not found" >&2
+  exit 2
+fi
 
 cleanup() {
   if [[ "$KEEP_TMP" != "1" ]]; then
@@ -53,24 +59,24 @@ run_cmd "shell syntax: prod_write_coze_control_plane_envs.sh" \
   bash -n scripts/prod_write_coze_control_plane_envs.sh
 
 run_cmd "python compile: compare baselines" \
-  python3 -m py_compile scripts/compare_coze_control_plane_baselines.py
+  "$PYTHON_BIN" -m py_compile scripts/compare_coze_control_plane_baselines.py
 run_cmd "python compile: completeness audit" \
-  python3 -m py_compile scripts/check_coze_migration_pack_completeness.py
+  "$PYTHON_BIN" -m py_compile scripts/check_coze_migration_pack_completeness.py
 run_cmd "python compile: host phasing check" \
-  python3 -m py_compile scripts/check_coze_host_cutover_refs.py
+  "$PYTHON_BIN" -m py_compile scripts/check_coze_host_cutover_refs.py
 run_cmd "python compile: inventory collection" \
-  python3 -m py_compile scripts/collect_coze_migration_inventory.py
+  "$PYTHON_BIN" -m py_compile scripts/collect_coze_migration_inventory.py
 run_cmd "python compile: image ops smoke" \
-  python3 -m py_compile scripts/smoke_image_ops_via_backend.py
+  "$PYTHON_BIN" -m py_compile scripts/smoke_image_ops_via_backend.py
 
 run_cmd "migration pack completeness" \
-  python3 scripts/check_coze_migration_pack_completeness.py --root "$ROOT_DIR"
+  "$PYTHON_BIN" scripts/check_coze_migration_pack_completeness.py --root "$ROOT_DIR"
 
 run_cmd "first-wave host reference check" \
-  python3 scripts/check_coze_host_cutover_refs.py --root "$ROOT_DIR"
+  "$PYTHON_BIN" scripts/check_coze_host_cutover_refs.py --root "$ROOT_DIR"
 
 run_cmd "collect inventory snapshot" \
-  python3 scripts/collect_coze_migration_inventory.py --root "$ROOT_DIR" --output "$TMP_DIR/inventory.md"
+  "$PYTHON_BIN" scripts/collect_coze_migration_inventory.py --root "$ROOT_DIR" --output "$TMP_DIR/inventory.md"
 
 run_cmd "cutover plan output" \
   bash scripts/run_coze_control_plane_cutover.sh plan >"$TMP_DIR/cutover-plan.txt"
@@ -82,7 +88,7 @@ run_cmd "baseline capture" \
   env OUT_DIR="$TMP_DIR/baseline" bash scripts/capture_coze_control_plane_baseline.sh
 
 run_cmd "baseline compare" \
-  python3 scripts/compare_coze_control_plane_baselines.py --before "$TMP_DIR/baseline" --after "$TMP_DIR/baseline" >"$TMP_DIR/baseline-diff.json"
+  "$PYTHON_BIN" scripts/compare_coze_control_plane_baselines.py --before "$TMP_DIR/baseline" --after "$TMP_DIR/baseline" >"$TMP_DIR/baseline-diff.json"
 
 log "all checks passed"
 log "artifacts: $TMP_DIR"

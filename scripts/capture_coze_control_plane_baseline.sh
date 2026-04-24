@@ -10,10 +10,16 @@ EVAL_URL="${EVAL_URL:-http://127.0.0.1:8200}"
 IMAGE_OPS_URL="${IMAGE_OPS_URL:-http://127.0.0.1:8301}"
 TARGET_ROOT="${TARGET_ROOT:-/srv/pod}"
 OUT_DIR="${OUT_DIR:-$ROOT_DIR/runtime/baseline_$(date +%Y%m%d_%H%M%S)}"
+PYTHON_BIN="${PYTHON_BIN:-$(command -v python3.11 || command -v python3 || true)}"
 
 mkdir -p "$OUT_DIR"
 
 echo "[baseline] output: $OUT_DIR"
+
+if [[ -z "$PYTHON_BIN" ]]; then
+  echo "[baseline] ERROR: python3.11/python3 not found" >&2
+  exit 2
+fi
 
 capture_cmd() {
   local name="$1"
@@ -50,7 +56,7 @@ capture_http "eval_workflows.json" "$BACKEND_URL/api/evals/workflow-versions"
 capture_http "coze_openapi.json" "$BACKEND_URL/api/coze/podi/openapi.json"
 capture_http "coze_comfyui_openapi.json" "$BACKEND_URL/api/coze/podi/comfyui/openapi.json"
 
-python3 - "$OUT_DIR" "$BACKEND_URL" "$ADMIN_URL" "$EVAL_URL" "$IMAGE_OPS_URL" <<'PY'
+"$PYTHON_BIN" - "$OUT_DIR" "$BACKEND_URL" "$ADMIN_URL" "$EVAL_URL" "$IMAGE_OPS_URL" <<'PY'
 from __future__ import annotations
 
 import json

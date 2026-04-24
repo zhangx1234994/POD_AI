@@ -4,10 +4,17 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TARGET_ROOT="${TARGET_ROOT:-/srv/pod}"
 ENABLE_WEBS="${ENABLE_WEBS:-0}"
+PYTHON_BIN="${PYTHON_BIN:-$(command -v python3.11 || command -v python3 || true)}"
 
 echo "[coze-control-plane] source repo: $ROOT_DIR"
 echo "[coze-control-plane] target root: $TARGET_ROOT"
 echo "[coze-control-plane] enable webs: $ENABLE_WEBS"
+echo "[coze-control-plane] python bin: ${PYTHON_BIN:-<missing>}"
+
+if [[ -z "$PYTHON_BIN" ]]; then
+  echo "[coze-control-plane] ERROR: python3.11/python3 not found"
+  exit 2
+fi
 
 mkdir -p "$TARGET_ROOT"
 
@@ -50,7 +57,7 @@ fi
 echo "[coze-control-plane] backend setup..."
 cd "$TARGET_ROOT/backend"
 if [[ ! -x ".venv/bin/python" ]]; then
-  python3 -m venv .venv
+  "$PYTHON_BIN" -m venv .venv
 fi
 ./.venv/bin/pip install -U pip >/dev/null
 ./.venv/bin/pip install -e . >/dev/null
@@ -58,8 +65,11 @@ fi
 
 echo "[coze-control-plane] image-ops setup..."
 cd "$TARGET_ROOT/image-ops-service"
-python3 -m pip install -U pip >/dev/null
-python3 -m pip install . >/dev/null
+if [[ ! -x ".venv/bin/python" ]]; then
+  "$PYTHON_BIN" -m venv .venv
+fi
+./.venv/bin/pip install -U pip >/dev/null
+./.venv/bin/pip install -e . >/dev/null
 
 echo "[coze-control-plane] installing systemd units..."
 cp "$TARGET_ROOT/deploy/systemd/podi-backend.service" /etc/systemd/system/podi-backend.service
