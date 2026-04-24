@@ -42,7 +42,7 @@ docker run -d \
   --name podi-image-ops \
   --restart always \
   --env-file /srv/pod/image-ops-service/.env \
-  -p 8301:8301 \
+  -p 127.0.0.1:8301:8301 \
   podi-image-ops
 ```
 

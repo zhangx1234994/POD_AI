@@ -18,6 +18,24 @@ MINIMAL_PNG_BASE64 = (
 MANAGED_IMAGE_OPS_KEYS = ["expand_mask_color", "set_dpi", "upscale_resize"]
 
 
+def _load_env_file(backend_env_file: str | None) -> None:
+    env_candidates = []
+    if backend_env_file:
+        env_candidates.append(Path(backend_env_file))
+    env_candidates.extend([Path("/srv/pod/backend/.env"), Path(__file__).resolve().parents[1] / "backend" / ".env"])
+
+    for env_path in env_candidates:
+        if not env_path.is_file():
+            continue
+        for raw in env_path.read_text().splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            os.environ.setdefault(key, value)
+        return
+
+
 def _auth_headers(token: str | None) -> dict[str, str]:
     headers = {"Content-Type": "application/json"}
     if token:
@@ -45,20 +63,7 @@ def _find_ability(items: list[dict[str, Any]], capability_key: str) -> dict[str,
 
 
 def _load_db_abilities(backend_env_file: str | None) -> list[dict[str, Any]]:
-    env_candidates = []
-    if backend_env_file:
-        env_candidates.append(Path(backend_env_file))
-    env_candidates.extend([Path("/srv/pod/backend/.env"), Path(__file__).resolve().parents[1] / "backend" / ".env"])
-
-    for env_path in env_candidates:
-        if env_path.is_file():
-            for raw in env_path.read_text().splitlines():
-                line = raw.strip()
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-                key, value = line.split("=", 1)
-                os.environ.setdefault(key, value)
-            break
+    _load_env_file(backend_env_file)
 
     from sqlalchemy import select
 
@@ -91,13 +96,15 @@ def main() -> int:
     parser.add_argument("--image-base64", default=MINIMAL_PNG_BASE64)
     parser.add_argument("--backend-env-file", default=os.environ.get("BACKEND_ENV_FILE", ""))
     args = parser.parse_args()
+    _load_env_file(args.backend_env_file)
+    token = args.token or os.environ.get("SERVICE_API_TOKEN", "")
 
     # Validate base64 early so failures are explicit.
     base64.b64decode(args.image_base64)
 
     client = httpx.Client(
         base_url=args.backend_base.rstrip("/"),
-        headers=_auth_headers(args.token or None),
+        headers=_auth_headers(token or None),
         timeout=120,
     )
     try:
@@ -166,3 +173,7 @@ def main() -> int:
         return 1
     finally:
         client.close()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

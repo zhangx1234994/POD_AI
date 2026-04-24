@@ -61,7 +61,7 @@ docker compose -f docker-compose.image-ops.yml up -d
 ```
 
 端口：
-- `8301` image-ops
+- `8301` image-ops，仅绑定 `127.0.0.1`
 
 ## 无 Docker（推荐）
 如果服务器没有 Docker，可以用“prod-like（无 docker）”脚本，效果同样是：
@@ -86,7 +86,7 @@ bash scripts/prodlike_restart_image_ops.sh
 ```
 
 端口：
-- `8301` image-ops
+- `8301` image-ops，仅绑定 `127.0.0.1`
 
 ## 部署检查清单（必须执行）
 

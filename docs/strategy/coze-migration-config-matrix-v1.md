@@ -56,7 +56,7 @@
 | 变量 | 作用 | 建议值/说明 |
 | --- | --- | --- |
 | `IMAGE_OPS_SERVICE_TOKEN` | 内部鉴权 token | 必须与 backend 一致 |
-| `IMAGE_OPS_HOST` | 监听地址 | `0.0.0.0` |
+| `IMAGE_OPS_HOST` | 监听地址 | Coze 同机部署默认 `127.0.0.1`；独立内网专机才允许改为内网地址 |
 | `IMAGE_OPS_PORT` | 服务端口 | `8301` |
 
 当前服务能力：
