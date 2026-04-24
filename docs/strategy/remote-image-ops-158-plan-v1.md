@@ -107,3 +107,21 @@ REUSE_8099=1 bash scripts/deploy_image_ops_only.sh
 ```
 
 `REUSE_8099=1` 是故意设计的保护开关：只有明确复用旧 backend 端口时，脚本才会停止 `podi-backend` 并占用 `8099`。
+
+## Coze 主机切换命令
+
+确认 `117.50.80.158:8099/health` 可访问后，在 Coze 主机执行：
+
+```bash
+cd /srv/pod
+IMAGE_OPS_BASE_URL=http://117.50.80.158:8099 \
+  bash scripts/switch_backend_image_ops_base.sh
+```
+
+回到 Coze 同机临时 image-ops：
+
+```bash
+cd /srv/pod
+IMAGE_OPS_BASE_URL=http://127.0.0.1:8301 \
+  bash scripts/switch_backend_image_ops_base.sh
+```
