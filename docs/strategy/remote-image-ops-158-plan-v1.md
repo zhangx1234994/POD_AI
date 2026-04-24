@@ -2,10 +2,12 @@
 
 ## 目标
 
-`117.50.80.158` 后续只保留能力执行面，不再承载中台控制面：
+`117.50.80.158` 后续目标是只保留能力执行面，不再承载中台控制面。第一轮切换为降低风险，会暂时保留旧 backend 作为回滚入口：
 
 - 保留：ComfyUI 执行服务、`image-ops-service`
-- 停止：旧 backend、admin、eval、临时 dev server
+- 第一轮保留：旧 backend `8099`
+- 第一轮停止/替换：旧 eval `8200`
+- 后续再停：旧 admin、旧 backend、临时 dev server
 - Coze 主机 backend 统一调用 `117.50.80.158` 上的能力服务
 
 ## 推荐拓扑
@@ -59,18 +61,28 @@ DISABLE_LOCAL_HEAVY_IMAGE_TASKS=true
 
 ## 启动顺序
 
-1. 在 `117.50.80.158` 停止旧 eval
-2. 在 `117.50.80.158` 部署并启动 `image-ops-service` 到 `8200`
-3. 从 Coze 主机验证 `curl http://117.50.80.158:8200/health`
-3. 修改 Coze 主机 backend 的 `IMAGE_OPS_BASE_URL`
-4. 重启 Coze 主机 backend
-5. 执行：
+1. 在 Coze 主机执行 pre 检查：
 
 ```bash
-python3 scripts/smoke_image_ops_via_backend.py \
-  --backend-base http://127.0.0.1:8099 \
-  --backend-env-file /srv/pod/backend/.env \
-  --require-remote-image-ops
+cd /srv/pod
+python3.11 scripts/check_remote_image_ops_cutover.py --phase pre
+```
+
+2. 在 `117.50.80.158` 停止旧 eval。
+3. 在 `117.50.80.158` 部署并启动 `image-ops-service` 到 `8200`。
+4. 从 Coze 主机执行 post-117 检查：
+
+```bash
+cd /srv/pod
+python3.11 scripts/check_remote_image_ops_cutover.py --phase post-117
+```
+
+5. 修改 Coze 主机 backend 的 `IMAGE_OPS_BASE_URL` 并重启 backend。
+6. 执行 post-coze 检查：
+
+```bash
+cd /srv/pod
+python3.11 scripts/check_remote_image_ops_cutover.py --phase post-coze
 ```
 
 ## 通过标准
