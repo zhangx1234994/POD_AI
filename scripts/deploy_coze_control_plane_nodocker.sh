@@ -34,6 +34,7 @@ copy_tree() {
   fi
   rm -rf "$dst"
   cp -R "$src" "$dst"
+  find "$dst" -name '._*' -delete
   if [[ -n "$env_backup" ]]; then
     cp "$env_backup" "$dst/.env"
     rm -f "$env_backup"
