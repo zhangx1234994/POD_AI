@@ -5,6 +5,8 @@
 > 说明：以下为当前后端实际可用的工具箱入口。导入 Coze 时使用 OpenAPI 地址；执行时按各工具箱里的接口调用。
 >
 > 第一段切换清单见：`docs/coze/toolbox-cutover-first-wave-2026-04-24.md`。
+>
+> Coze 主机切换后的当前路由、executor 与 OpenAPI 公网可导入状态见：`docs/coze/current-routing-and-toolbox-cutover-inventory-2026-04-24.md`。
 
 ## 地址前缀
 

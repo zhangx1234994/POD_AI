@@ -68,6 +68,7 @@
 | 客户端 Plans | `docs/client/plans/README.md` | 客户端现行计划 / 历史计划 / 测试包分层入口 |
 | 评测端 | `docs/eval/eval-platform.md` | 评测平台功能与约束 |
 | Coze 工具箱 | `docs/coze/toolbox-inventory.md` | 当前工具箱清单与契约 |
+| Coze 切换清单 | `docs/coze/current-routing-and-toolbox-cutover-inventory-2026-04-24.md` | 当前能力路由、executor、OpenAPI 可导入状态与切换顺序 |
 | ComfyUI | `docs/comfyui/README.md` | Workflow、节点映射、执行节点说明 |
 | 周报归档 | `docs/weekly/README.md` | 按周汇总过程记录与阶段结论 |
 | 工程规范 | `docs/standards/` | 错误契约、接口一致性、文档维护等规范 |
