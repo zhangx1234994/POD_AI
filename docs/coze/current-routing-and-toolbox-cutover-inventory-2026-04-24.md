@@ -68,7 +68,7 @@ Coze 不应直接调用 ComfyUI、image-ops 或 vendor-api-ops。
 | `executor_baidu_image_default` | `baidu` | `https://aip.baidubce.com` | active | legacy executor，迁移期 fallback 仍可能使用 |
 | `executor_volcengine_default` | `volcengine` | `https://ark.cn-beijing.volces.com` | active | legacy executor，迁移期 fallback 仍可能使用 |
 | `executor_kie_market_default` | `kie` | `https://api.kie.ai` | active | legacy executor，迁移期 fallback 仍可能使用 |
-| `executor_mock_history_history_success_no_images_62359` | `comfyui` | `http://127.0.0.1:62359` | active | 风险项：测试 executor 不应保持 active |
+| `executor_mock_history_history_success_no_images_62359` | `comfyui` | `http://127.0.0.1:62359` | inactive | 已禁用，避免测试 executor 被误选 |
 
 ## 当前能力路由清单
 
@@ -118,10 +118,13 @@ Coze 不应直接调用 ComfyUI、image-ops 或 vendor-api-ops。
 
 ### 当前公网 200
 
-这些 URL 已经可以从公网直接访问，适合优先用于 Coze 重新导入或单功能灰度：
+这些 URL 已经可以从公网直接访问，适合用于 Coze 重新导入或灰度。执行接口仍受内网/Token 鉴权保护。
 
 | 工具箱 | OpenAPI |
 | --- | --- |
+| PODI 聚合工具箱 | `http://114.55.0.56:8099/api/coze/podi/openapi.json` |
+| PODI Utils | `http://114.55.0.56:8099/api/coze/podi/utils/openapi.json` |
+| ComfyUI 聚合工具箱 | `http://114.55.0.56:8099/api/coze/podi/comfyui/openapi.json` |
 | ComfyUI LoRA 查询 | `http://114.55.0.56:8099/api/coze/podi/comfyui/lora/openapi.json` |
 | 多图融合 | `http://114.55.0.56:8099/api/coze/podi/comfyui/execute/duotu-ronghe/openapi.json` |
 | 8步加速可换LoRA | `http://114.55.0.56:8099/api/coze/podi/comfyui/execute/yinhua-tiqu-lora-8step/openapi.json` |
@@ -135,27 +138,15 @@ Coze 不应直接调用 ComfyUI、image-ops 或 vendor-api-ops。
 | KIE 模型查询 | `http://114.55.0.56:8099/api/coze/podi/kie/catalog/openapi.json` |
 | KIE 单模型查询示例 | `http://114.55.0.56:8099/api/coze/podi/kie/catalog/nano-banana-pro-image-to-image/openapi.json` |
 | KIE 单模型执行示例 | `http://114.55.0.56:8099/api/coze/podi/kie/execute/nano-banana-pro-image-to-image/openapi.json` |
-
-### 当前公网 401
-
-这些 URL 在 Coze 主机本机访问正常，但公网访问返回 401。若需要从 Coze 页面直接导入，需要先调整 OpenAPI 公开策略，或只使用可公网访问的 standalone 工具箱。
-
-| 工具箱 | OpenAPI | 影响 |
-| --- | --- | --- |
-| PODI 聚合工具箱 | `http://114.55.0.56:8099/api/coze/podi/openapi.json` | 不能直接公网导入聚合工具箱 |
-| PODI Utils | `http://114.55.0.56:8099/api/coze/podi/utils/openapi.json` | 不能直接公网导入 |
-| ComfyUI 聚合工具箱 | `http://114.55.0.56:8099/api/coze/podi/comfyui/openapi.json` | 不能直接公网导入聚合工具箱 |
-| KIE 聚合执行工具箱 | `http://114.55.0.56:8099/api/coze/podi/kie/openapi.json` | 不能直接公网导入聚合工具箱 |
-| Baidu 聚合工具箱 | `http://114.55.0.56:8099/api/coze/podi/baidu/openapi.json` | 不能直接公网导入 |
-| Volcengine 聚合工具箱 | `http://114.55.0.56:8099/api/coze/podi/volcengine/openapi.json` | 不能直接公网导入 |
+| KIE 聚合执行工具箱 | `http://114.55.0.56:8099/api/coze/podi/kie/openapi.json` |
+| Baidu 聚合工具箱 | `http://114.55.0.56:8099/api/coze/podi/baidu/openapi.json` |
+| Volcengine 聚合工具箱 | `http://114.55.0.56:8099/api/coze/podi/volcengine/openapi.json` |
 
 ## 切换前阻塞项
 
-1. `executor_mock_history_history_success_no_images_62359` 是 active 测试 executor，必须禁用或删除。
-2. 聚合 OpenAPI 公网 401，如果后续要导入聚合工具箱，需要先修公开策略。
-3. `VENDOR_API_LEGACY_FALLBACK_ENABLED=true` 仍允许 baidu/volcengine/kie 在 vendor-api-ops 失败时回落到 legacy executor；全量 smoke 后应关闭。
-4. ComfyUI 能力侧 `required_executor_tags` 为空，后续新增专机能力时必须显式补 tag 和 `fallback_to_default=false`。
-5. standalone 工具箱可导入，但实际执行接口仍受内网/Token 鉴权约束；切换 Coze 工具箱后必须逐条跑 workflow smoke。
+1. `VENDOR_API_LEGACY_FALLBACK_ENABLED=true` 仍允许 baidu/volcengine/kie 在 vendor-api-ops 失败时回落到 legacy executor；全量 smoke 后应关闭。
+2. ComfyUI 能力侧 `required_executor_tags` 为空，后续新增专机能力时必须显式补 tag 和 `fallback_to_default=false`。
+3. OpenAPI 文档可公网导入，但实际执行接口仍受内网/Token 鉴权约束；切换 Coze 工具箱后必须逐条跑 workflow smoke。
 
 ## 建议切换顺序
 
@@ -192,7 +183,7 @@ Coze 不应直接调用 ComfyUI、image-ops 或 vendor-api-ops。
 
 ### 第三批：处理聚合工具箱
 
-如果业务确实需要聚合工具箱，再统一修公开导入策略：
+如果业务确实需要聚合工具箱，再导入：
 
 - `/api/coze/podi/openapi.json`
 - `/api/coze/podi/comfyui/openapi.json`
@@ -200,12 +191,11 @@ Coze 不应直接调用 ComfyUI、image-ops 或 vendor-api-ops。
 - `/api/coze/podi/baidu/openapi.json`
 - `/api/coze/podi/volcengine/openapi.json`
 
-否则保持单功能工具箱为主，降低 Coze 编排误用风险。
+默认仍建议保持单功能工具箱为主，降低 Coze 编排误用风险。
 
 ## 下一步执行项
 
-1. 禁用 active mock executor。
-2. 选择是否公开聚合 OpenAPI；如果不公开，则正式规定 Coze 只导入 standalone 工具箱。
-3. 对第一批 standalone ComfyUI 工具箱做逐条 Coze 导入和 smoke。
-4. smoke 稳定后关闭 `VENDOR_API_LEGACY_FALLBACK_ENABLED`，让三方 API 迁移边界变清晰。
-5. 后续新增能力必须进入此清单，至少记录：provider、capability、执行面、OpenAPI、Coze 可见性、回滚方式。
+1. 对第一批 standalone ComfyUI 工具箱做逐条 Coze 导入和 smoke。
+2. 对 KIE 单模型执行工具箱做逐条 Coze 导入和 smoke。
+3. smoke 稳定后关闭 `VENDOR_API_LEGACY_FALLBACK_ENABLED`，让三方 API 迁移边界变清晰。
+4. 后续新增能力必须进入此清单，至少记录：provider、capability、执行面、OpenAPI、Coze 可见性、回滚方式。

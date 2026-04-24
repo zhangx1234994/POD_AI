@@ -908,14 +908,15 @@ def _build_kie_single_model_openapi(request: Request, model_key: str) -> dict[st
 
 @router.get("/openapi.json")
 def get_openapi(request: Request) -> dict[str, Any]:
-    _require_internal(request)
+    # OpenAPI documents must be importable from Coze Studio. Execution endpoints
+    # still enforce internal/token auth; this route only exposes schema.
     return _build_openapi(podi_server=_server_from_request(request))
 
 
 @router.get("/utils/openapi.json")
 def get_utils_openapi(request: Request) -> dict[str, Any]:
     """OpenAPI for PODI Utils plugin (only provider=podi utilities)."""
-    _require_internal(request)
+    # Keep the schema public for toolbox import; tool execution remains protected.
     server = _server_from_request(request)
 
     with get_session() as session:
@@ -944,7 +945,7 @@ def get_utils_openapi(request: Request) -> dict[str, Any]:
 @router.get("/comfyui/openapi.json")
 def get_comfyui_openapi(request: Request) -> dict[str, Any]:
     """OpenAPI for PODI ComfyUI plugin."""
-    _require_internal(request)
+    # Keep the schema public for toolbox import; tool execution remains protected.
     return _build_openapi_filtered(
         request=request,
         providers={"comfyui"},
@@ -1185,7 +1186,7 @@ def get_kie_single_model_execute_openapi(request: Request, model_key: str) -> di
 @router.get("/kie/openapi.json")
 def get_kie_openapi(request: Request) -> dict[str, Any]:
     """OpenAPI for PODI KIE plugin."""
-    _require_internal(request)
+    # Keep the schema public for toolbox import; tool execution remains protected.
     return _build_openapi_filtered(
         request=request,
         providers={"kie"},
@@ -1198,7 +1199,7 @@ def get_kie_openapi(request: Request) -> dict[str, Any]:
 @router.get("/baidu/openapi.json")
 def get_baidu_openapi(request: Request) -> dict[str, Any]:
     """OpenAPI for PODI Baidu plugin."""
-    _require_internal(request)
+    # Keep the schema public for toolbox import; tool execution remains protected.
     return _build_openapi_filtered(
         request=request,
         providers={"baidu"},
@@ -1211,7 +1212,7 @@ def get_baidu_openapi(request: Request) -> dict[str, Any]:
 @router.get("/volcengine/openapi.json")
 def get_volcengine_openapi(request: Request) -> dict[str, Any]:
     """OpenAPI for PODI Volcengine plugin."""
-    _require_internal(request)
+    # Keep the schema public for toolbox import; tool execution remains protected.
     return _build_openapi_filtered(
         request=request,
         providers={"volcengine"},
