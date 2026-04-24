@@ -14,6 +14,50 @@ def _compose_bilingual_label(primary: str, secondary: str) -> str:
     return primary or secondary
 
 
+def _presentation_field(
+    *,
+    label: str | None = None,
+    description: str | None = None,
+    placeholder: str | None = None,
+    advanced: bool | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    if label:
+        payload["label"] = label.strip()
+    if description:
+        payload["description"] = description.strip()
+    if placeholder:
+        payload["placeholder"] = placeholder.strip()
+    if isinstance(advanced, bool):
+        payload["advanced"] = advanced
+    return payload
+
+
+def _presentation(
+    *,
+    name: str | None = None,
+    summary: str | None = None,
+    form_intro: str | None = None,
+    expected_output: str | None = None,
+    surfaces: dict[str, Any] | None = None,
+    fields: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    if name:
+        payload["name"] = name.strip()
+    if summary:
+        payload["summary"] = summary.strip()
+    if form_intro:
+        payload["formIntro"] = form_intro.strip()
+    if expected_output:
+        payload["expectedOutput"] = expected_output.strip()
+    if isinstance(surfaces, dict) and surfaces:
+        payload["surfaces"] = {str(key): value for key, value in surfaces.items() if value is not None}
+    if isinstance(fields, dict) and fields:
+        payload["fields"] = {str(key): value for key, value in fields.items() if isinstance(value, dict) and value}
+    return payload
+
+
 def _baidu_image_schema(
     *,
     include_resolution: bool = False,
@@ -295,6 +339,93 @@ def _volcengine_metadata(
     if seed_version:
         metadata["seed_version"] = seed_version
     return metadata
+
+
+def _openai_image_edit_schema() -> dict[str, Any]:
+    return {
+        "fields": [
+            {
+                "name": "prompt",
+                "type": "textarea",
+                "label": _compose_bilingual_label("编辑说明", "Edit Prompt"),
+                "placeholder": _compose_bilingual_label("描述要如何修改图片", "Describe how to edit the image"),
+                "required": True,
+            },
+            {
+                "name": "image_url",
+                "type": "image",
+                "label": _compose_bilingual_label("原图 URL", "Source Image URL"),
+                "description": _compose_bilingual_label(
+                    "公网可访问的原图地址，backend 会统一沉淀结果到 OSS。",
+                    "Public source image URL; backend stores outputs to OSS.",
+                ),
+                "required": True,
+            },
+            {
+                "name": "mask_url",
+                "type": "image",
+                "label": _compose_bilingual_label("蒙版 URL（可选）", "Mask URL (optional)"),
+                "description": _compose_bilingual_label(
+                    "需要局部编辑时填写蒙版图地址。", "Provide a mask URL for localized edits."
+                ),
+            },
+            {
+                "name": "image_urls",
+                "type": "textarea",
+                "label": _compose_bilingual_label("参考图 URLs（可选）", "Reference Image URLs (optional)"),
+                "description": _compose_bilingual_label(
+                    "多张参考图每行一个 URL。", "One reference image URL per line."
+                ),
+            },
+            {
+                "name": "size",
+                "type": "select",
+                "label": _compose_bilingual_label("输出尺寸", "Output Size"),
+                "options": [
+                    {"label": "1024x1024", "value": "1024x1024"},
+                    {"label": "1024x1536", "value": "1024x1536"},
+                    {"label": "1536x1024", "value": "1536x1024"},
+                    {"label": "auto", "value": "auto"},
+                ],
+                "default": "1024x1024",
+            },
+            {
+                "name": "quality",
+                "type": "select",
+                "label": _compose_bilingual_label("质量", "Quality"),
+                "options": [
+                    {"label": "auto", "value": "auto"},
+                    {"label": "high", "value": "high"},
+                    {"label": "medium", "value": "medium"},
+                    {"label": "low", "value": "low"},
+                ],
+                "default": "auto",
+            },
+        ]
+    }
+
+
+def _openai_metadata(*, model_id: str, api_type: str, seed_version: int = 1) -> dict[str, Any]:
+    return {
+        "executor_type": "vendor_api",
+        "executor_tag": "global-egress",
+        "provider_family": "openai",
+        "model_id": model_id,
+        "api_type": api_type,
+        "execution_mode": "sync_then_store",
+        "requires_image_input": api_type == "image_edit",
+        "supports_vision": True,
+        "supports_mask": api_type == "image_edit",
+        "supports_multiple_images": True,
+        "request_endpoint": "/v1/images/edits" if api_type == "image_edit" else "/v1/images/generations",
+        "seed_version": seed_version,
+        "pricing": {
+            "currency": "USD",
+            "unit": "per_image",
+            "list_price": 0.08,
+            "discount_price": 0.08,
+        },
+    }
 
 
 def _comfyui_seamless_schema() -> dict[str, Any]:
@@ -858,6 +989,73 @@ def _comfyui_e7_flux2_liebian_schema() -> dict[str, Any]:
     }
 
 
+def _comfyui_flux_strong_hq_softstyle_fission_schema() -> dict[str, Any]:
+    return {
+        "fields": [
+            {
+                "name": "image_url",
+                "type": "image",
+                "label": _compose_bilingual_label("输入图片 URL", "Input Image URL"),
+                "description": _compose_bilingual_label(
+                    "节点 10 · LoadImage.image。提交时后端会先把 OSS 图片上传到 ComfyUI input 目录，再写入文件名。",
+                    "Node 10 · LoadImage.image. Backend uploads the OSS image into the ComfyUI input folder before setting the staged filename.",
+                ),
+                "required": True,
+            },
+            {
+                "name": "prompt",
+                "type": "textarea",
+                "label": _compose_bilingual_label("裂变提示词", "Fission Prompt"),
+                "description": "节点 13 · CR Text Concatenate.text1",
+                "required": True,
+            },
+            {
+                "name": "image_desc",
+                "type": "textarea",
+                "label": _compose_bilingual_label("图像补充描述（高级）", "Image Description (Advanced)"),
+                "description": _compose_bilingual_label(
+                    "节点 13 · CR Text Concatenate.text2。建议由上游 VL / Coze 自动生成，不建议业务手写。",
+                    "Node 13 · CR Text Concatenate.text2. Prefer generating this from upstream VL / Coze instead of writing it manually.",
+                ),
+                "required": False,
+            },
+            {
+                "name": "bili",
+                "type": "number",
+                "label": _compose_bilingual_label("相似度（0-100）", "Similarity (0-100)"),
+                "description": _compose_bilingual_label(
+                    "沿用旧图裂变的 bili 口径，后端映射到节点 24 · BasicScheduler.denoise。数值越大越接近原图；默认 90 ≈ denoise 0.59。",
+                    "Keeps the previous fission-style bili parameter and maps it to node 24 · BasicScheduler.denoise. Higher values stay closer to the source image; default 90 is about denoise 0.59.",
+                ),
+                "default": 90,
+                "min": 0,
+                "max": 100,
+                "required": False,
+            },
+            {
+                "name": "width",
+                "type": "number",
+                "label": _compose_bilingual_label("输出宽度(px)", "Output Width(px)"),
+                "description": _compose_bilingual_label(
+                    "节点 12 · ImageResize+.width。不填则默认按原图宽度处理。",
+                    "Node 12 · ImageResize+.width. Omit to keep the original image width.",
+                ),
+                "required": False,
+            },
+            {
+                "name": "height",
+                "type": "number",
+                "label": _compose_bilingual_label("输出高度(px)", "Output Height(px)"),
+                "description": _compose_bilingual_label(
+                    "节点 12 · ImageResize+.height。不填则默认按原图高度处理。",
+                    "Node 12 · ImageResize+.height. Omit to keep the original image height.",
+                ),
+                "required": False,
+            },
+        ]
+    }
+
+
 def _comfyui_multi_image_fusion_schema() -> dict[str, Any]:
     return {
         "fields": [
@@ -1410,6 +1608,23 @@ class AbilityDefinition(TypedDict, total=False):
     metadata: dict[str, Any]
 
 
+OPENAI_IMAGE_ABILITIES: dict[str, AbilityDefinition] = {
+    "gpt_image_2_edit": {
+        "endpoint": "/v1/images/edits",
+        "defaults": {
+            "model": "gpt-image-2",
+            "size": "1024x1024",
+            "quality": "auto",
+        },
+        "display_name": "OpenAI · GPT Image 2 图片编辑",
+        "description": "支持原图、蒙版、多参考图的图片编辑能力；经 vendor-api-ops 统一代理和落库。",
+        "category": "image_generation",
+        "input_schema": _openai_image_edit_schema(),
+        "metadata": _openai_metadata(model_id="gpt-image-2", api_type="image_edit", seed_version=1),
+    },
+}
+
+
 BAIDU_IMAGE_ABILITIES: dict[str, AbilityDefinition] = {
     "quality_upgrade": {
         "endpoint": "/rest/2.0/image-process/v1/image_quality_enhance",
@@ -1424,7 +1639,26 @@ BAIDU_IMAGE_ABILITIES: dict[str, AbilityDefinition] = {
             type_default="auto",
             type_options=["auto", "clarity", "detail", "texture"],
         ),
-        "metadata": _baidu_metadata("quality_upgrade", "/rest/2.0/image-process/v1/image_quality_enhance"),
+        "metadata": _baidu_metadata("quality_upgrade", "/rest/2.0/image-process/v1/image_quality_enhance")
+        | {
+            "presentation": _presentation(
+                name="AI超清",
+                summary="把现有结果收口成更清晰、更适合交付或详情页展示的终稿。",
+                form_intro="上传图片后，选择更偏整体清晰度还是局部细节增强。",
+                expected_output="产出高清图，可继续用于详情页、终稿下载或细节展示。",
+                surfaces={"client": True, "coze": True, "admin": True, "eval": True},
+                fields={
+                    "resolution": _presentation_field(
+                        label="输出清晰度",
+                        description="选择本次要增强到的清晰度级别。",
+                    ),
+                    "type": _presentation_field(
+                        label="增强重点",
+                        description="选择更偏整体清晰度、局部细节还是纹理表现。",
+                    ),
+                },
+            )
+        },
     },
     "colourize": {
         "endpoint": "/rest/2.0/image-process/v1/colourize",
@@ -1549,7 +1783,47 @@ VOLCENGINE_IMAGE_ABILITIES: dict[str, AbilityDefinition] = {
             supports_vision=True,
             reference="https://www.volcengine.com/docs/82379/1541523",
             seed_version=10,
-        ),
+        )
+        | {
+            "presentation": _presentation(
+                name="以文生款",
+                summary="从一句设计意图快速生成可讨论的新款方向。",
+                form_intro="先描述款式、面料、风格和场景，不必写成技术提示词。",
+                expected_output="产出 1 张新款方向图，可继续改款、提取图案或转入商拍。",
+                surfaces={"client": True, "coze": False, "admin": True, "eval": True},
+                fields={
+                    "prompt": _presentation_field(
+                        label="设计说明",
+                        placeholder="例如：米白亚麻长裙，植物印花，轻复古，高级成衣质感。",
+                        description="先写想做的款式、风格、面料和场景。",
+                    ),
+                    "negative_prompt": _presentation_field(
+                        label="不想出现的元素",
+                        description="可选：补充不希望出现的元素、风格或画面问题。",
+                        advanced=True,
+                    ),
+                    "image_urls": _presentation_field(
+                        label="参考图（可选）",
+                        description="可选：每行一张参考图，用来约束风格或结构。",
+                        advanced=True,
+                    ),
+                    "sequential_image_generation": _presentation_field(
+                        label="生成策略",
+                        description="高级设置：只有需要一组方向图时再开启。",
+                        advanced=True,
+                    ),
+                    "max_images": _presentation_field(
+                        label="生成张数",
+                        description="高级设置：控制一组方向图的数量。",
+                        advanced=True,
+                    ),
+                    "size": _presentation_field(label="出图尺寸"),
+                    "width": _presentation_field(label="自定义宽度", advanced=True),
+                    "height": _presentation_field(label="自定义高度", advanced=True),
+                    "response_format": _presentation_field(label="返回格式", advanced=True),
+                },
+            )
+        },
     },
     "doubao_seedream_4_0": {
         "endpoint": "/api/v3/images/generations",
@@ -1587,7 +1861,30 @@ VOLCENGINE_VIDEO_ABILITIES: dict[str, AbilityDefinition] = {
             supports_vision=True,
             reference="https://www.volcengine.com/docs/82379/1520757",
             seed_version=1,
-        ),
+        )
+        | {
+            "presentation": _presentation(
+                name="图生视频",
+                summary="把已验证的静态图延展成动销短视频。",
+                form_intro="描述镜头运动、人物动作或画面节奏，不必关心模型参数。",
+                expected_output="产出短视频，可回到素材中心继续沉淀和复用。",
+                surfaces={"client": True, "coze": False, "admin": True, "eval": True},
+                fields={
+                    "prompt": _presentation_field(
+                        label="视频说明",
+                        placeholder="例如：模特轻微转身，镜头平稳推进，保持服装纹理稳定。",
+                        description="写清镜头、动作和节奏感。",
+                    ),
+                    "image_url": _presentation_field(
+                        label="参考图（可选）",
+                        description="可选：放一张参考图，让视频更贴近已有主图风格。",
+                    ),
+                    "duration": _presentation_field(label="视频时长"),
+                    "camera_fixed": _presentation_field(label="固定镜头", advanced=True),
+                    "watermark": _presentation_field(label="水印", advanced=True),
+                },
+            )
+        },
     },
 }
 
@@ -1625,6 +1922,33 @@ KIE_MARKET_ABILITIES: dict[str, AbilityDefinition] = {
                 {"label": "2K", "price": 0.04},
                 {"label": "4K", "price": 0.07},
             ],
+            "presentation": _presentation(
+                name="以款生款",
+                summary="围绕参考款快速做改款和方向延展。",
+                form_intro="说明哪些部分要保留，哪些部分想变化。",
+                expected_output="产出同风格变体，可继续进入套图或图案整理。",
+                surfaces={"client": True, "coze": True, "admin": True, "eval": True},
+                fields={
+                    "image_url": _presentation_field(
+                        label="参考款",
+                        description="上传一张本次要延展的参考款图片。",
+                    ),
+                    "prompt": _presentation_field(
+                        label="改款说明",
+                        placeholder="例如：保留廓形和面料质感，把领型改得更利落，整体更偏轻复古。",
+                        description="写清这次想保留什么、变化什么。",
+                    ),
+                    "image_urls": _presentation_field(
+                        label="补充参考图（可选）",
+                        description="可选：每行一张补充参考图，帮助约束风格、工艺或局部细节。",
+                        advanced=True,
+                    ),
+                    "aspect_ratio": _presentation_field(label="出图比例"),
+                    "resolution": _presentation_field(label="清晰度"),
+                    "output_format": _presentation_field(label="输出格式", advanced=True),
+                    "callBackUrl": _presentation_field(label="回调地址", advanced=True),
+                },
+            ),
         },
     },
     "flux2_pro_image_to_image": {
@@ -1690,6 +2014,33 @@ KIE_MARKET_ABILITIES: dict[str, AbilityDefinition] = {
                 {"label": "2K", "price": 0.04},
                 {"label": "4K", "price": 0.07},
             ],
+            "presentation": _presentation(
+                name="参考图延展",
+                summary="围绕已有图快速延展成更多展示场景。",
+                form_intro="先说明想保留什么、想变化什么，以及最终想把结果用在哪里。",
+                expected_output="按具体动作生成营销图、展示图或上身图。",
+                surfaces={"client": True, "coze": True, "admin": True, "eval": True},
+                fields={
+                    "image_url": _presentation_field(
+                        label="主图",
+                        description="上传这次要延展的主图。",
+                    ),
+                    "prompt": _presentation_field(
+                        label="编辑说明",
+                        placeholder="例如：保持主体不变，替换背景为更高级的电商棚拍场景。",
+                        description="写清要保留什么、变化什么、想呈现什么结果。",
+                    ),
+                    "image_urls": _presentation_field(
+                        label="补充参考图（可选）",
+                        description="可选：每行一张补充参考图，用来约束背景、姿态或搭配风格。",
+                    ),
+                    "aspect_ratio": _presentation_field(label="出图比例"),
+                    "resolution": _presentation_field(label="清晰度"),
+                    "google_search": _presentation_field(label="联网增强", advanced=True),
+                    "output_format": _presentation_field(label="输出格式", advanced=True),
+                    "callBackUrl": _presentation_field(label="回调地址", advanced=True),
+                },
+            ),
         },
     },
     "sora2_pro_text_to_video": {
@@ -1763,6 +2114,22 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
                 "list_price": 0.5,
                 "discount_price": 0.3,
             },
+            "presentation": _presentation(
+                name="四方连续",
+                summary="让图案变成可连续铺陈的面料纹理。",
+                form_intro="上传图案后，说明边缘是否要更自然、主花是否要保留。",
+                expected_output="产出连续纹理，可继续做配色、工艺表达或营销展示。",
+                surfaces={"client": True, "coze": False, "admin": True, "eval": True},
+                fields={
+                    "patternType": _presentation_field(label="连续方式"),
+                    "image_url": _presentation_field(
+                        label="图案原图",
+                        description="上传要做连续化的图案原图。",
+                    ),
+                    "width": _presentation_field(label="输出宽度"),
+                    "height": _presentation_field(label="输出高度"),
+                },
+            ),
         },
     },
     "yinhua_tiqu": {
@@ -1798,6 +2165,31 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
                 "list_price": 0.5,
                 "discount_price": 0.3,
             },
+            "presentation": _presentation(
+                name="图案提取",
+                summary="把实拍图中的花型或纹样整理成可复用的干净设计稿。",
+                form_intro="上传原图后，只补充是否需要更干净、更完整或更适合连续化。",
+                expected_output="产出干净花型稿，可继续做四方连续或清晰度增强。",
+                surfaces={"client": True, "coze": True, "admin": True, "eval": True},
+                fields={
+                    "image_url": _presentation_field(
+                        label="原图",
+                        description="上传这次要提取花型或纹样的原图。",
+                    ),
+                    "prompt": _presentation_field(
+                        label="提取要求",
+                        description="可选：补充这次提取更关注的清理方向或保留重点。",
+                    ),
+                    "negative_prompt": _presentation_field(
+                        label="不要出现的内容",
+                        advanced=True,
+                    ),
+                    "width": _presentation_field(label="输出宽度"),
+                    "height": _presentation_field(label="输出高度"),
+                    "batch": _presentation_field(label="生成张数", advanced=True),
+                    "lora": _presentation_field(label="LoRA 方案", advanced=True),
+                },
+            ),
         },
     },
     "yinhua_tiqu_lora_8step": {
@@ -1882,7 +2274,7 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "output_node_ids": ["140"],
             "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
             "routing_policy": "queue",
-            "seed_version": 1,
+            "seed_version": 2,
             "pricing": {
                 "currency": "CNY",
                 "unit": "per_image",
@@ -1918,6 +2310,27 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
                 "list_price": 0.6,
                 "discount_price": 0.35,
             },
+            "presentation": _presentation(
+                name="AI扩图",
+                summary="在不破坏原有风格的前提下延展画布和边缘。",
+                form_intro="说明向哪个方向扩、希望保持什么风格。",
+                expected_output="产出更完整画面，可继续做 AI 超清或营销套图。",
+                surfaces={"client": True, "coze": False, "admin": True, "eval": True},
+                fields={
+                    "image_url": _presentation_field(
+                        label="原图",
+                        description="上传这次要扩展边缘的原图。",
+                    ),
+                    "prompt": _presentation_field(
+                        label="扩图说明",
+                        description="可选：补充扩展方向、风格和边缘要求。",
+                    ),
+                    "expand_left": _presentation_field(label="左侧扩展"),
+                    "expand_right": _presentation_field(label="右侧扩展"),
+                    "expand_top": _presentation_field(label="上侧扩展"),
+                    "expand_bottom": _presentation_field(label="下侧扩展"),
+                },
+            ),
         },
     },
     "flux2_klein_9b_outpaint": {
@@ -1982,6 +2395,26 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
                 "list_price": 0.6,
                 "discount_price": 0.35,
             },
+            "presentation": _presentation(
+                name="融合创款",
+                summary="把多张参考图的轮廓、花型、配色融合成一个新方向。",
+                form_intro="分别准备结构、风格、花型或配色参考图，再说明融合重点。",
+                expected_output="产出 1 张融合方向图，可继续改款或做图案整理。",
+                surfaces={"client": True, "coze": True, "admin": True, "eval": True},
+                fields={
+                    "image_url": _presentation_field(label="主参考图"),
+                    "image_url_2": _presentation_field(label="参考图 2"),
+                    "image_url_3": _presentation_field(label="参考图 3"),
+                    "prompt": _presentation_field(
+                        label="融合要求",
+                        placeholder="例如：保留图一轮廓、图二印花、图三配色，整体更偏高级成衣质感。",
+                    ),
+                    "width": _presentation_field(label="输出宽度", advanced=True),
+                    "height": _presentation_field(label="输出高度", advanced=True),
+                    "negative_prompt": _presentation_field(label="不要出现的内容", advanced=True),
+                    "seed": _presentation_field(label="随机种子", advanced=True),
+                },
+            ),
         },
     },
     "flux_strong_hq_softstyle_fission": {
@@ -2058,6 +2491,61 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
                 "list_price": 0.6,
                 "discount_price": 0.35,
             },
+        },
+    },
+    "flux2_klein_9b_outpaint": {
+        "defaults": {
+            "workflow_key": "flux2_klein_9b_outpaint",
+            "timeout": 420,
+            "expand_left": 408,
+            "expand_right": 408,
+            "expand_top": 0,
+            "expand_bottom": 0,
+        },
+        "display_name": "ComfyUI · FLUX2-Klein 扩图",
+        "description": "使用 FLUX2-Klein 9b 扩图 workflow 做画布外延与边缘补全，适合做更自然的左右/上下扩边。",
+        "category": "image_generation",
+        "input_schema": _comfyui_flux2_klein_9b_outpaint_schema(),
+        "metadata": {
+            "executor_type": "comfyui",
+            "executor_tag": "comfyui",
+            "api_type": "comfyui_workflow",
+            "workflow_key": "flux2_klein_9b_outpaint",
+            "action": "outpaint",
+            "requires_image_input": True,
+            "supports_vision": True,
+            "output_node_ids": ["9"],
+            "allowed_executor_ids": ["executor_comfyui_pattern_extract_158", "executor_comfyui_seamless_117"],
+            "routing_policy": "queue",
+            "seed_version": 2,
+            "pricing": {
+                "currency": "CNY",
+                "unit": "per_image",
+                "list_price": 0.6,
+                "discount_price": 0.35,
+            },
+            "presentation": _presentation(
+                name="FLUX2 扩图",
+                summary="用 FLUX2-Klein 模型做更自然的边缘延展与画布补全。",
+                form_intro="上传原图，再说明向哪个方向扩、希望保持什么边缘与风格规律。",
+                expected_output="产出 1 张扩图结果，可继续做 AI 超清、营销套图或终稿交付。",
+                surfaces={"client": False, "coze": True, "admin": True, "eval": True},
+                fields={
+                    "image_url": _presentation_field(
+                        label="原图",
+                        description="上传这次要向外延展的原图。",
+                    ),
+                    "prompt": _presentation_field(
+                        label="扩图说明",
+                        placeholder="例如：向左右扩展，保持主花位置、配色密度和边缘走势一致。",
+                    ),
+                    "expand_left": _presentation_field(label="左侧扩展"),
+                    "expand_right": _presentation_field(label="右侧扩展"),
+                    "expand_top": _presentation_field(label="上侧扩展"),
+                    "expand_bottom": _presentation_field(label="下侧扩展"),
+                    "seed": _presentation_field(label="随机种子", advanced=True),
+                },
+            ),
         },
     },
     "jisu_chuli": {
@@ -2177,6 +2665,69 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             },
         },
     },
+    "flux_strong_hq_softstyle_fission": {
+        "defaults": {
+            "workflow_key": "flux_strong_hq_softstyle_fission",
+            "timeout": 420,
+            "profile_id": "pattern_default_v1",
+            "steps": 8,
+            "cfg": 1.0,
+            "bili": 90,
+            "batch_size": 1,
+            "ipadapter_weight": 0.25,
+            "colormatch_method": "mkl",
+            "colormatch_strength": 0.20,
+            "image_desc": "",
+        },
+        "display_name": "ComfyUI · 多元素花纹裂变",
+        "description": "基于 05 FLUX Strong HQ SoftStyle 的图裂变高质量版本。保留旧图裂变的 bili 口径，适合多元素花纹类默认高质量裂变。",
+        "category": "image_generation",
+        "input_schema": _comfyui_flux_strong_hq_softstyle_fission_schema(),
+        "metadata": {
+            "executor_type": "comfyui",
+            "executor_tag": "comfyui",
+            "api_type": "comfyui_workflow",
+            "workflow_key": "flux_strong_hq_softstyle_fission",
+            "action": "image_fission",
+            "requires_image_input": True,
+            "supports_vision": True,
+            "output_node_ids": ["31"],
+            "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
+            "routing_policy": "queue",
+            "seed_version": 1,
+            "pricing": {
+                "currency": "CNY",
+                "unit": "per_image",
+                "list_price": 0.6,
+                "discount_price": 0.35,
+            },
+            "presentation": _presentation(
+                name="多元素花纹裂变",
+                summary="给多元素花纹图做更稳的高质量裂变，保留旧裂变里的相似度调节习惯。",
+                form_intro="上传原图，填写裂变提示词；如上游有 VL 控制卡，可额外传图像补充描述。",
+                expected_output="产出 1 张高质量裂变结果，适合继续接 Coze 工作流或后续精修。",
+                surfaces={"client": False, "coze": True, "admin": True, "eval": False},
+                fields={
+                    "image_url": _presentation_field(
+                        label="原图",
+                        description="上传这次要做图裂变的原图。",
+                    ),
+                    "prompt": _presentation_field(
+                        label="裂变提示词",
+                        placeholder="例如：保留原图结构和疏密关系，做更稳的多元素花纹裂变。",
+                    ),
+                    "image_desc": _presentation_field(
+                        label="图像补充描述",
+                        description="建议由上游 VL 自动生成，例如元素层级、疏密、filler 预算。",
+                        advanced=True,
+                    ),
+                    "bili": _presentation_field(label="裂变幅度"),
+                    "width": _presentation_field(label="输出宽度"),
+                    "height": _presentation_field(label="输出高度"),
+                },
+            ),
+        },
+    },
 }
 
 
@@ -2287,6 +2838,17 @@ PODI_UTILITY_ABILITIES: dict[str, AbilityDefinition] = {
                 "list_price": 0.03,
                 "discount_price": 0.02,
             },
+            "presentation": _presentation(
+                name="DPI处理",
+                summary="把图片改成适合印刷或排版的输出参数。",
+                form_intro="只需要填写目标 DPI，不必关心内部元数据。",
+                expected_output="产出适合印刷或排版的终稿文件。",
+                surfaces={"client": True, "coze": False, "admin": True, "eval": True},
+                fields={
+                    "image_url": _presentation_field(label="原图"),
+                    "dpi": _presentation_field(label="目标 DPI"),
+                },
+            ),
         },
     },
     "upscale_resize": {
@@ -2338,6 +2900,18 @@ PODI_UTILITY_ABILITIES: dict[str, AbilityDefinition] = {
                 "list_price": 0.03,
                 "discount_price": 0.02,
             },
+            "presentation": _presentation(
+                name="高质量缩放",
+                summary="快速把图调整到适合交付的像素尺寸。",
+                form_intro="只需要填写目标长边和输出格式。",
+                expected_output="产出统一尺寸结果，适合后续下载交付。",
+                surfaces={"client": True, "coze": False, "admin": True, "eval": True},
+                fields={
+                    "image_url": _presentation_field(label="原图"),
+                    "max_long_edge": _presentation_field(label="目标长边"),
+                    "output_format": _presentation_field(label="输出格式"),
+                },
+            ),
         },
     },
 }

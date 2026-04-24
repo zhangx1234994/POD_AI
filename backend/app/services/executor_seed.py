@@ -18,7 +18,7 @@ from app.services.routing_governance import enrich_executor_config_with_routing
 
 settings = get_settings()
 
-_ENV_VAR_PATTERN = re.compile(r"\$\{([A-Z0-9_]+)\}")
+_ENV_VAR_PATTERN = re.compile(r"\$\{([A-Z0-9_]+)(?::-([^}]*))?\}")
 
 
 def _read_dotenv(path: Path) -> dict[str, str]:
@@ -50,7 +50,7 @@ def _env_lookup() -> dict[str, str]:
 
 def _interpolate_env(value: Any, env: dict[str, str]) -> Any:
     if isinstance(value, str):
-        return _ENV_VAR_PATTERN.sub(lambda m: env.get(m.group(1), ""), value)
+        return _ENV_VAR_PATTERN.sub(lambda m: env.get(m.group(1)) or (m.group(2) or ""), value)
     if isinstance(value, dict):
         return {k: _interpolate_env(v, env) for k, v in value.items()}
     if isinstance(value, list):
@@ -105,7 +105,7 @@ def _load_external_seeds() -> list[ExecutorSeed]:
             id=str(entry.get("id") or ""),
             name=str(entry.get("name") or ""),
             type=str(entry.get("type") or ""),
-            base_url=entry.get("base_url") or entry.get("baseUrl"),
+            base_url=_interpolate_env(entry.get("base_url") or entry.get("baseUrl"), env),
             status=str(entry.get("status") or "active"),
             weight=int(entry.get("weight") or 1),
             max_concurrency=int(entry.get("max_concurrency") or entry.get("maxConcurrency") or 1),

@@ -27,5 +27,5 @@ registry.register("baidu", BaiduImageExecutorAdapter())
 registry.register("comfyui", ComfyUIExecutorAdapter())
 
 # 默认将常见 provider 指向对应实现（暂以 mock 作为 fallback）
-for provider_type in ("openai", "volcengine", "aliyun"):
+for provider_type in ("openai", "openai_compatible", "volcengine", "aliyun", "vendor_api"):
     registry.register(provider_type, registry.get(provider_type) or registry.get("mock"))  # type: ignore[arg-type]

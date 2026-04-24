@@ -1,0 +1,20 @@
+[project]
+name = "podi-vendor-api-ops"
+version = "0.1.0"
+description = "PODI third-party vendor API execution service"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.25",
+  "pydantic>=2.6",
+  "pydantic-settings>=2.0",
+  "httpx>=0.26",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7.4",
+]
+
+[tool.setuptools]
+packages = ["app"]

@@ -35,6 +35,13 @@ from app.services.auth_service import auth_service
 from app.services.comfyui_lora_catalog_service import collect_functional_lora_names
 from app.services.executors.registry import registry
 from app.services.integration_test import integration_test_service
+from app.services.vendor_api_client import vendor_api_client
+from app.services.ability_presentation import (
+    get_public_display_name,
+    get_public_field_schema,
+    get_public_presentation,
+    get_public_summary,
+)
 
 
 router = APIRouter(prefix="/api/coze/podi", tags=["coze-plugin"])
@@ -388,9 +395,15 @@ def _build_openapi(*, podi_server: str | None = None) -> dict[str, Any]:
         provider = ability.provider
         key = ability.capability_key
         op_id = f"podi_{provider}_{key}"
-        display_name = ability.display_name or f"{provider}:{key}"
-        description = ability.description or ""
         metadata = ability.extra_metadata or {}
+        presentation = get_public_presentation(
+            display_name=ability.display_name,
+            description=ability.description,
+            metadata=metadata,
+        ) or {}
+        display_name = str(presentation.get("name") or get_public_display_name(ability.display_name) or ability.display_name or f"{provider}:{key}")
+        description = str(presentation.get("summary") or get_public_summary(ability.description) or ability.description or "")
+        input_schema = get_public_field_schema(ability.input_schema, metadata) or {}
 
         schema: dict[str, Any] = {
             "type": "object",
@@ -401,7 +414,6 @@ def _build_openapi(*, podi_server: str | None = None) -> dict[str, Any]:
         requires_image = bool(metadata.get("requires_image_input"))
         has_image_field = False
         required: list[str] = []
-        input_schema = ability.input_schema or {}
         for f in input_schema.get("fields", []) or []:
             if not isinstance(f, dict) or not f.get("name"):
                 continue
@@ -1758,6 +1770,76 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
     # try to finalize on demand when Coze polls.
     if status in {"queued", "running"} and isinstance(result_payload, dict):
         provider = str(result_payload.get("provider") or task.get("ability_provider") or "").lower()
+        meta = result_payload.get("metadata") if isinstance(result_payload.get("metadata"), dict) else {}
+        vendor_invocation_id = meta.get("vendorInvocationId")
+        vendor_executor_id = meta.get("executorId")
+        if isinstance(vendor_invocation_id, str) and vendor_invocation_id.strip() and isinstance(vendor_executor_id, str):
+            try:
+                with get_session() as session:
+                    vendor_executor = session.get(Executor, vendor_executor_id.strip())
+                if vendor_executor and (vendor_executor.type or "").lower() == "vendor_api":
+                    fetched = vendor_api_client.fetch(
+                        executor=vendor_executor,
+                        vendor_invocation_id=vendor_invocation_id.strip(),
+                    )
+                    vendor_status = str(fetched.get("status") or "").lower()
+                    if vendor_status in {"succeeded", "success", "failed", "error"}:
+                        images = fetched.get("images") if isinstance(fetched.get("images"), list) else []
+                        videos = fetched.get("videos") if isinstance(fetched.get("videos"), list) else []
+                        texts = fetched.get("texts") if isinstance(fetched.get("texts"), list) else []
+                        next_payload = dict(result_payload)
+                        next_payload["status"] = "succeeded" if vendor_status in {"succeeded", "success"} else "failed"
+                        next_payload["state"] = next_payload["status"]
+                        next_payload["images"] = images
+                        next_payload["videos"] = videos
+                        next_payload["texts"] = texts
+                        next_payload["assets"] = fetched.get("assets") if isinstance(fetched.get("assets"), list) else []
+                        with get_session() as session:
+                            db_task = session.get(AbilityTask, task_id.strip())
+                            if db_task:
+                                db_task.status = next_payload["status"]
+                                db_task.result_payload = next_payload
+                                db_task.finished_at = datetime.utcnow()
+                                if db_task.status == "failed":
+                                    err = fetched.get("error") if isinstance(fetched.get("error"), dict) else {}
+                                    db_task.error_message = err.get("message") or err.get("code") or "VENDOR_API_TASK_FAILED"
+                                session.add(db_task)
+                                session.commit()
+
+                        def _urls(items: list[dict[str, Any]]) -> list[str]:
+                            out: list[str] = []
+                            for item in items:
+                                if not isinstance(item, dict):
+                                    continue
+                                for key in ("ossUrl", "sourceUrl", "url"):
+                                    value = item.get(key)
+                                    if isinstance(value, str) and value.strip():
+                                        out.append(value.strip())
+                                        break
+                            return out
+
+                        image_urls = _urls(images)
+                        video_urls = _urls(videos)
+                        return _prune(
+                            {
+                                "text": texts[0] if texts else ("failed" if next_payload["status"] == "failed" else None),
+                                "texts": texts or (["failed"] if next_payload["status"] == "failed" else []),
+                                "imageUrl": image_urls[0] if image_urls else None,
+                                "imageUrls": image_urls,
+                                "videoUrl": video_urls[0] if video_urls else None,
+                                "videoUrls": video_urls,
+                                "taskId": external_task_id or task.get("id"),
+                                "taskStatus": next_payload["status"],
+                                **executor_info,
+                                "expectedImageCount": expected_images,
+                                "logId": task.get("log_id"),
+                                "requestId": result_payload.get("requestId"),
+                                "debugRequest": None,
+                                "debugResponse": fetched.get("error") or fetched.get("raw"),
+                            }
+                        )
+            except Exception:
+                pass
         # KIE: try a lightweight status pull to finalize long-running tasks.
         if provider == "kie":
             meta = result_payload.get("metadata") if isinstance(result_payload.get("metadata"), dict) else {}
@@ -1765,6 +1847,10 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
             kie_executor_id = meta.get("executorId")
             if isinstance(kie_task_id, str) and kie_task_id.strip() and isinstance(kie_executor_id, str) and kie_executor_id.strip():
                 try:
+                    with get_session() as session:
+                        kie_executor = session.get(Executor, kie_executor_id.strip())
+                    if kie_executor and (kie_executor.type or "").lower() == "vendor_api":
+                        raise RuntimeError("VENDOR_API_TASK_STILL_RUNNING")
                     with get_session() as session:
                         db_task = session.get(AbilityTask, task_id.strip())
                         if db_task and (db_task.ability_provider or "").lower() == "kie":

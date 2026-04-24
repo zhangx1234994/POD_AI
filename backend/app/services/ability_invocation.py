@@ -44,7 +44,10 @@ from app.services.executor_seed import ensure_default_executors
 from app.services.integration_test import integration_test_service
 from app.services.coze_client import coze_client
 from app.services.oss import oss_service
+from app.services.vendor_api_client import vendor_api_client
 from app.services.workflow_seed import ensure_default_bindings, ensure_default_workflows
+
+VENDOR_API_PROVIDERS = {"baidu", "volcengine", "kie", "openai", "openai_compatible"}
 
 
 @dataclass
@@ -152,6 +155,10 @@ class AbilityInvocationService:
             fallback_to_default = True
         fallback_to_default = bool(fallback_to_default)
         executor_id = payload.executorId or ability.executor_id
+        if get_settings().vendor_api_enabled and provider_key in VENDOR_API_PROVIDERS and not payload.executorId:
+            vendor_executor_id = self._pick_vendor_api_executor_id(provider_key)
+            if vendor_executor_id:
+                executor_id = vendor_executor_id
         # For internal integrations (Coze/automation), we allow omitting executorId and
         # auto-pick an active executor by provider.
         if not executor_id and provider_key == "comfyui":
@@ -589,7 +596,11 @@ class AbilityInvocationService:
         # 会直接打爆同一个执行节点（ComfyUI/KIE/Volcengine 等）导致 502/连接重置。
         # 默认 max_concurrency=1，不改变现有行为；当运维在执行节点上提高该值后，
         # 这里会自动生效且保持可控。
-        sem = self._get_executor_slot(executor_id or "") if provider in {"baidu", "volcengine", "comfyui", "kie"} else None
+        sem = (
+            self._get_executor_slot(executor_id or "")
+            if provider in {"baidu", "volcengine", "comfyui", "kie", "openai", "openai_compatible"}
+            else None
+        )
         if sem is None:
             return self._dispatch_provider_inner(
                 ability=ability,
@@ -628,6 +639,22 @@ class AbilityInvocationService:
         provider = ability.provider.lower()
         if provider == "podi":
             return self._invoke_podi(ability, merged_inputs, images, context)
+        if provider in VENDOR_API_PROVIDERS and self._should_route_to_vendor_api(provider, executor_id):
+            try:
+                return self._invoke_vendor_api(ability, executor_id, merged_inputs, images, context)
+            except Exception as exc:
+                if get_settings().vendor_api_legacy_fallback_enabled and provider in {"baidu", "volcengine", "kie"}:
+                    self._logger.warning(
+                        "vendor-api fallback to legacy provider=%s ability=%s error=%s",
+                        provider,
+                        ability.capability_key,
+                        exc,
+                    )
+                    executor_id = self._pick_default_executor_id(provider)
+                else:
+                    raise
+        if provider in {"openai", "openai_compatible"}:
+            raise HTTPException(status_code=400, detail="VENDOR_API_EXECUTOR_NOT_CONFIGURED")
         if provider == "baidu":
             return self._invoke_baidu(ability, executor_id, merged_inputs, images)
         if provider == "volcengine":
@@ -639,6 +666,82 @@ class AbilityInvocationService:
         if provider == "coze":
             return self._invoke_coze(ability, merged_inputs, images, context)
         raise HTTPException(status_code=400, detail=f"ABILITY_PROVIDER_UNSUPPORTED:{provider}")
+
+    def _pick_vendor_api_executor_id(self, provider_key: str) -> str | None:
+        with get_session() as session:
+            ensure_default_executors(session)
+            rows = (
+                session.execute(
+                    select(Executor)
+                    .where(Executor.status == "active", Executor.type == "vendor_api")
+                    .order_by(Executor.weight.desc(), Executor.id.asc())
+                )
+                .scalars()
+                .all()
+            )
+        for row in rows:
+            cfg = row.config if isinstance(row.config, dict) else {}
+            providers = cfg.get("providers")
+            if isinstance(providers, list) and provider_key in {str(p).lower() for p in providers}:
+                return row.id
+            if str(cfg.get("provider") or "").lower() == provider_key:
+                return row.id
+        return None
+
+    def _should_route_to_vendor_api(self, provider_key: str, executor_id: str | None) -> bool:
+        if not get_settings().vendor_api_enabled:
+            return False
+        executor = self._get_executor(executor_id)
+        if executor and (executor.type or "").lower() == "vendor_api":
+            return True
+        if not executor and self._pick_vendor_api_executor_id(provider_key):
+            return True
+        return False
+
+    def _get_executor(self, executor_id: str | None) -> Executor | None:
+        if not executor_id:
+            return None
+        with get_session() as session:
+            return session.get(Executor, executor_id)
+
+    def _invoke_vendor_api(
+        self,
+        ability: Ability,
+        executor_id: str | None,
+        merged_inputs: dict[str, Any],
+        images: _ImageBundle,
+        context: _InvocationContext,
+    ) -> dict[str, Any]:
+        executor = self._get_executor(executor_id) if executor_id else None
+        if not executor:
+            picked = self._pick_vendor_api_executor_id(ability.provider.lower())
+            executor = self._get_executor(picked) if picked else None
+        if not executor:
+            if get_settings().vendor_api_legacy_fallback_enabled and ability.provider.lower() in {"baidu", "volcengine", "kie"}:
+                raise HTTPException(status_code=400, detail="VENDOR_API_EXECUTOR_NOT_CONFIGURED_LEGACY_ALLOWED")
+            raise HTTPException(status_code=400, detail="VENDOR_API_EXECUTOR_NOT_CONFIGURED")
+        payload_inputs = dict(merged_inputs or {})
+        assets: list[dict[str, Any]] = []
+        if images.image_url:
+            payload_inputs.setdefault("image_url", images.image_url)
+            assets.append({"url": images.image_url, "role": "input"})
+        if images.image_base64:
+            payload_inputs.setdefault("image_base64", images.image_base64)
+            assets.append({"b64": images.image_base64, "role": "input"})
+        if images.image_list:
+            assets.extend(images.image_list)
+        result = vendor_api_client.invoke(
+            executor=executor,
+            ability=ability,
+            inputs=payload_inputs,
+            assets=assets,
+            request_id=context.request_id,
+            trace_id=context.request_id,
+        )
+        result["executorId"] = executor.id
+        result["executor"] = executor.id
+        result["baseUrl"] = executor.base_url
+        return result
 
     def _invoke_podi(
         self,
@@ -1571,6 +1674,12 @@ class AbilityInvocationService:
             "prompt": prompt_value,
             "params": params_value,
         }
+        provider_meta = provider_result.get("metadata")
+        if isinstance(provider_meta, dict):
+            for key in ("vendorInvocationId", "vendorTaskId", "taskId", "executorId", "baseUrl"):
+                value = provider_meta.get(key)
+                if value not in (None, "", []):
+                    metadata[key] = value
         raw_payload = provider_result.get("raw")
         return schemas.AbilityInvokeResponse(
             abilityId=ability.id,
@@ -1742,6 +1851,7 @@ class AbilityInvocationService:
             isinstance(max_output, int) and max_output > 1
         )
         requires_image = bool(metadata.get("requires_image_input"))
+        input_schema = ability.input_schema if isinstance(ability.input_schema, dict) else None
         governance = resolve_ability_governance(status=ability.status, metadata=metadata)
         business_status = build_business_status(governance)
         presentation = resolve_ability_presentation(
@@ -1766,7 +1876,7 @@ class AbilityInvocationService:
             cozeWorkflowId=ability.coze_workflow_id,
             executorId=ability.executor_id,
             defaultParams=ability.default_params,
-            inputSchema=ability.input_schema,
+            inputSchema=input_schema,
             metadata=metadata or None,
             businessStatus=schemas.AbilityBusinessStatus(
                 availabilityCode=business_status["availability_code"],

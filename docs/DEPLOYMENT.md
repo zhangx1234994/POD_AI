@@ -6,6 +6,7 @@
 - 后端 API：`8099`
 - 管理端（静态）：`8199`
 - 测评端（静态）：`8200`
+- 第三方 API 执行面（vendor-api-ops，按需）：`8310`
 
 > **固定端口（铁律）**：上述端口为统一约定，不要临时改动；若端口冲突，请先清理旧进程。
 
@@ -26,6 +27,7 @@
 2) （可选）检查执行节点配置
 - 默认读取 `config/executors.yaml`
 - YAML 内允许 `${ENV}`，会从 `backend/.env` 解析
+- `vendor-api-ops` 默认指向 `http://117.50.80.158:8310`；如迁移到其他机器，修改 `backend/.env` 的 `VENDOR_API_BASE_URL` 即可。
 
 ## 前端构建依赖（仅服务器本地构建时需要）
 如果你选择在服务器上构建前端，请确保：
@@ -76,6 +78,7 @@ bash scripts/deploy_prodlike_nodocker.sh
 - `8099` 后端
 - `8199` 管理端
 - `8200` 测评端
+- `8310` vendor-api-ops（仅启用第三方 API 执行面时需要）
 
 ### image-ops（无 Docker 兜底）
 

@@ -17,7 +17,7 @@ from sqlalchemy import delete, func, select
 
 from app.core.config import get_settings
 from app.core.db import get_session
-from app.models.integration import Ability, AbilityInvocationLog, AbilityTask
+from app.models.integration import Ability, AbilityInvocationLog, AbilityTask, Executor
 from app.models.user import User
 from app.schemas.abilities import AbilityInvokeRequest
 from app.services.ability_invocation import ability_invocation_service
@@ -25,6 +25,7 @@ from app.services.ability_logs import ability_log_service
 from app.services.integration_test import integration_test_service
 from app.services.task_id_codec import decode_task_id
 from app.services.task_status_contract import derive_ability_task_status
+from app.services.vendor_api_client import vendor_api_client
 from app.services.wallet import wallet_service
 
 logger = logging.getLogger(__name__)
@@ -40,7 +41,8 @@ COMFYUI_HISTORY_ERROR_MIN_AGE_SECONDS = 15 * 60
 MAX_QUEUE_PER_EXECUTOR = 10
 ERR_CODE_COMFYUI_QUEUE_FULL = "Q1001"
 ERR_CODE_COMMERCIAL_QUEUE_FULL = "Q2001"
-ASYNC_WORKER_EXECUTOR_TYPES = {"comfyui", "kie", "volcengine", "baidu"}
+ASYNC_WORKER_EXECUTOR_TYPES = {"comfyui", "kie", "volcengine", "baidu", "vendor_api"}
+VENDOR_API_TASK_PROVIDERS = {"baidu", "volcengine", "kie", "openai", "openai_compatible"}
 ABILITY_TASK_WORKER_CAP = 40
 
 
@@ -237,6 +239,7 @@ class AbilityTaskService:
             while True:
                 try:
                     self._finalize_running_comfyui_tasks()
+                    self._finalize_running_vendor_api_tasks()
                     self._finalize_running_kie_tasks()
                 except Exception as exc:  # pragma: no cover - best effort
                     logger.warning("Finalize ability tasks failed: %s", exc)
@@ -244,6 +247,93 @@ class AbilityTaskService:
 
         thread = threading.Thread(target=_loop, daemon=True)
         thread.start()
+
+    def _finalize_running_vendor_api_tasks(self) -> None:
+        with get_session() as session:
+            rows = (
+                session.execute(
+                    select(AbilityTask)
+                    .where(AbilityTask.status == "running")
+                    .where(AbilityTask.ability_provider.in_(sorted(VENDOR_API_TASK_PROVIDERS)))
+                    .order_by(AbilityTask.updated_at.asc())
+                    .limit(FINALIZE_BATCH_SIZE)
+                )
+                .scalars()
+                .all()
+            )
+
+        for task in rows:
+            result_payload = task.result_payload or {}
+            if not isinstance(result_payload, dict):
+                continue
+            meta = result_payload.get("metadata") if isinstance(result_payload.get("metadata"), dict) else {}
+            vendor_invocation_id = meta.get("vendorInvocationId")
+            executor_id = meta.get("executorId")
+            if not (isinstance(vendor_invocation_id, str) and vendor_invocation_id.strip()):
+                continue
+            if not (isinstance(executor_id, str) and executor_id.strip()):
+                continue
+            with get_session() as session:
+                executor = session.get(Executor, executor_id.strip())
+            if not executor or (executor.type or "").lower() != "vendor_api":
+                continue
+            try:
+                fetched = vendor_api_client.fetch(executor=executor, vendor_invocation_id=vendor_invocation_id.strip())
+            except Exception:
+                self._touch_running_task(task.id)
+                continue
+
+            status = str(fetched.get("status") or "").lower()
+            if status not in {"succeeded", "success", "failed", "error"}:
+                self._touch_running_task(task.id)
+                continue
+
+            finished_at = datetime.utcnow()
+            with get_session() as session:
+                db_task = session.get(AbilityTask, task.id)
+                if not db_task:
+                    continue
+                next_payload = dict(result_payload)
+                next_payload["status"] = "succeeded" if status in {"succeeded", "success"} else "failed"
+                next_payload["state"] = next_payload["status"]
+                next_payload["images"] = fetched.get("images") or []
+                next_payload["videos"] = fetched.get("videos") or []
+                next_payload["texts"] = fetched.get("texts") or []
+                next_payload["assets"] = fetched.get("assets") or []
+                next_payload["raw"] = fetched.get("raw")
+                if next_payload["status"] == "succeeded":
+                    db_task.status = "succeeded"
+                    db_task.error_message = None
+                else:
+                    db_task.status = "failed"
+                    err = fetched.get("error") if isinstance(fetched.get("error"), dict) else {}
+                    db_task.error_message = err.get("message") or err.get("code") or "VENDOR_API_TASK_FAILED"
+                db_task.result_payload = next_payload
+                db_task.finished_at = finished_at
+                if not db_task.duration_ms and db_task.started_at:
+                    try:
+                        db_task.duration_ms = int((finished_at - db_task.started_at).total_seconds() * 1000)
+                    except Exception:
+                        pass
+                session.add(db_task)
+                session.commit()
+                try:
+                    if db_task.status == "succeeded":
+                        ability_log_service.finish_success(
+                            db_task.log_id,
+                            response_payload=next_payload,
+                            duration_ms=db_task.duration_ms,
+                        )
+                        self._settle_success_wallet(task_id=task.id, db_task=db_task)
+                    else:
+                        ability_log_service.finish_failure(
+                            db_task.log_id,
+                            error_message=db_task.error_message or "VENDOR_API_TASK_FAILED",
+                            response_payload=next_payload,
+                            duration_ms=db_task.duration_ms,
+                        )
+                except Exception:
+                    pass
 
     @staticmethod
     def _is_comfyui_submitted_only(task: AbilityTask) -> bool:
@@ -546,6 +636,10 @@ class AbilityTaskService:
             if not (isinstance(kie_task_id, str) and kie_task_id.strip()):
                 continue
             if not (isinstance(executor_id, str) and executor_id.strip()):
+                continue
+            with get_session() as session:
+                ex = session.get(Executor, executor_id.strip())
+            if ex and (ex.type or "").lower() == "vendor_api":
                 continue
 
             started_at = task.started_at or task.created_at

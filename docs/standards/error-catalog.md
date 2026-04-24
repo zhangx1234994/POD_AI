@@ -238,6 +238,18 @@
 | KIE_TIMEOUT | KIE 任务硬超时 | 默认 15 分钟 |
 | KIE_MODEL_KEY_REQUIRED | KIE 查询缺少 modelKey | `/api/coze/podi/kie/models/schema` |
 | KIE_MODEL_NOT_FOUND | KIE 查询模型不存在 | `/api/coze/podi/kie/models/schema` |
+| VENDOR_API_EXECUTOR_UNAVAILABLE | 第三方 API 执行服务不可用 | vendor-api-ops 或对应 executor 不可达 |
+| VENDOR_API_PROVIDER_NOT_SUPPORTED | 第三方 API provider 暂不支持 | vendor-api-ops provider 未注册 |
+| VENDOR_API_INVOCATION_NOT_FOUND | 第三方 API 调用记录不存在 | backend 轮询 vendorInvocationId 时使用 |
+| VENDOR_API_CONCURRENCY_LIMITED | 第三方 API provider/model 并发已满 | 不允许静默 fallback 到本机执行 |
+| VENDOR_API_KEY_DISABLED | 第三方 API Key 不可用 | disabled/cooldown/exhausted/error 均需可读提示 |
+| VENDOR_API_KEY_MISSING | 第三方 API Key 缺失 | 不暴露 Key 明文 |
+| VENDOR_API_INPUT_INVALID | 第三方 API 入参不合法 | 缺少图片、蒙版、任务必填字段等 provider 级校验失败 |
+| VENDOR_API_RATE_LIMITED | 第三方 API 限流 | 应进入 Key 冷却或切换 Key |
+| VENDOR_API_TIMEOUT | 第三方 API 调用超时 | 常见于网络出口或代理异常 |
+| VENDOR_API_UPSTREAM_ERROR | 第三方 API 上游异常 | 非平台侧参数错误 |
+| VENDOR_API_PROXY_UNAVAILABLE | 第三方 API 代理不可用 | 检查 HTTP_PROXY/HTTPS_PROXY 或国际出口节点 |
+| VENDOR_API_RESPONSE_INVALID | 第三方 API 返回结构异常 | 需要保留截断 debugResponse |
 | IMAGE_DOWNLOAD_FAILED | 下载图片失败 | |
 | EXPAND_MASK_RENDER_FAILED | 扩边占位图渲染失败 | PODI 扩边占位工具在 Pillow/图像处理阶段异常。 |
 | EXPAND_MASK_REMOTE_FAILED | 扩边占位图远程服务失败 | image-ops 已配置但远程处理失败。 |

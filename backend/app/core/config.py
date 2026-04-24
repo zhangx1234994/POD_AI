@@ -19,7 +19,13 @@ class Settings(BaseSettings):
     oss_role_arn: str | None = Field(default=None, env="OSS_ROLE_ARN")
     oss_bucket: str = Field(default="pod-oss-private", env="OSS_BUCKET")
     oss_region: str = Field(default="oss-cn-hangzhou", env="OSS_REGION")
+    # Public/browser-facing endpoint. This value is returned to web clients for
+    # direct STS uploads, so it must remain reachable from users' browsers.
     oss_endpoint: str = Field(default="oss-cn-hangzhou.aliyuncs.com", env="OSS_ENDPOINT")
+    # Optional server-side endpoint for backend OSS reads/writes. On Aliyun ECS
+    # in the same region/VPC as OSS, set this to the internal endpoint while
+    # keeping OSS_ENDPOINT public for browser uploads.
+    oss_internal_endpoint: str | None = Field(default=None, env="OSS_INTERNAL_ENDPOINT")
     oss_callback_host: str | None = Field(default=None, env="OSS_CALLBACK_HOST")
     oss_root_prefix: str = Field(default="uploads", env="OSS_ROOT_PREFIX")
     download_domain: str = Field(default="https://oss-mock.local", env="OSS_DOWNLOAD_DOMAIN")
@@ -64,6 +70,13 @@ class Settings(BaseSettings):
         default="https://ark.cn-beijing.volces.com",
         env="VOLCENGINE_BASE_URL",
     )
+    vendor_api_enabled: bool = Field(default=True, env="VENDOR_API_ENABLED")
+    vendor_api_base_url: str = Field(default="http://117.50.80.158:8310", env="VENDOR_API_BASE_URL")
+    vendor_api_token: str | None = Field(default=None, env="VENDOR_API_TOKEN")
+    vendor_api_timeout_seconds: int = Field(default=180, env="VENDOR_API_TIMEOUT_SECONDS")
+    # Keep a deploy-time escape hatch while migrating existing Baidu/Volcengine/KIE
+    # handlers. Set to false after vendor-api-ops is verified on the target host.
+    vendor_api_legacy_fallback_enabled: bool = Field(default=True, env="VENDOR_API_LEGACY_FALLBACK_ENABLED")
     coze_base_url: str | None = Field(default=None, env="COZE_BASE_URL")
     coze_api_token: str | None = Field(default=None, env="COZE_API_TOKEN")
     coze_default_timeout: int = Field(default=180, env="COZE_DEFAULT_TIMEOUT")
