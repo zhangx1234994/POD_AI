@@ -339,8 +339,17 @@ def main() -> int:
     docs = http_json(args.docs_url)
     workflows = docs.get("workflows") or []
     if args.workflow_id:
-        wanted = {w.strip() for w in args.workflow_id if w.strip()}
-        workflows = [w for w in workflows if str(w.get("workflow_id")) in wanted]
+        ordered_ids: List[str] = []
+        for raw_id in args.workflow_id:
+            workflow_id = raw_id.strip()
+            if workflow_id and workflow_id not in ordered_ids:
+                ordered_ids.append(workflow_id)
+        workflow_by_id: Dict[str, Dict[str, Any]] = {}
+        for workflow in workflows:
+            workflow_id = str(workflow.get("workflow_id") or "")
+            if workflow_id in ordered_ids and workflow_id not in workflow_by_id:
+                workflow_by_id[workflow_id] = workflow
+        workflows = [workflow_by_id[workflow_id] for workflow_id in ordered_ids if workflow_id in workflow_by_id]
     if args.limit > 0:
         workflows = workflows[: args.limit]
 
