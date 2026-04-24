@@ -23,6 +23,7 @@
 - `coze-desktop-centerurl-cutover-v1.md`：桌面端 `CenterUrl` 的第二阶段切换方案
 - `coze-server-layout-v1.md`：Coze 主机目录、systemd 服务名、日志与端口约定
 - `image-ops-service-split-v1.md`：自研图片原子能力拆分方案（高清放大 / DPI / 扩边占位图）
+- `remote-image-ops-158-plan-v1.md`：`117.50.80.158` 只保留能力执行服务后的 image-ops 部署与回滚口径
 - `weekly-review-template.md`：每周回顾模板（目标/待办/文档治理）
 
 ## 使用规则

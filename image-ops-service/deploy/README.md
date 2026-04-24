@@ -34,6 +34,15 @@ systemctl start image-ops
 systemctl status image-ops
 ```
 
+### 监听地址
+
+`.env` 中的 `IMAGE_OPS_HOST` 决定服务监听地址：
+
+- Coze 同机部署：`IMAGE_OPS_HOST=127.0.0.1`
+- 独立能力机部署：`IMAGE_OPS_HOST=0.0.0.0` 或内网 IP
+
+独立能力机只允许 backend 访问 `8301`，不要面向公网全量开放。
+
 ## 方式二：docker
 
 ```bash
@@ -45,6 +54,19 @@ docker run -d \
   -p 127.0.0.1:8301:8301 \
   podi-image-ops
 ```
+
+独立能力机 Docker 模式如需被 Coze backend 访问，可显式发布到内网地址或受限公网地址，例如：
+
+```bash
+docker run -d \
+  --name podi-image-ops \
+  --restart always \
+  --env-file /srv/pod/image-ops-service/.env \
+  -p 0.0.0.0:8301:8301 \
+  podi-image-ops
+```
+
+同时必须在安全组或防火墙中限制来源，只允许 Coze backend 主机访问。
 
 ## 验证
 

@@ -60,6 +60,21 @@ curl http://<image-ops-host>:8301/health
 - `podi.set_dpi`
 - `podi.upscale_resize`
 
+推荐命令：
+
+```bash
+python3 scripts/smoke_image_ops_via_backend.py \
+  --backend-base http://127.0.0.1:8099 \
+  --backend-env-file /srv/pod/backend/.env \
+  --require-remote-image-ops
+```
+
+`--require-remote-image-ops` 会强制校验：
+
+- `IMAGE_OPS_BASE_URL` 已配置
+- `IMAGE_OPS_LOCAL_FALLBACK_ENABLED=false`
+- `DISABLE_LOCAL_HEAVY_IMAGE_TASKS=true`
+
 ## 4. 通过标准
 
 以下条件同时满足才算通过：

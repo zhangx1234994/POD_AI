@@ -5,7 +5,7 @@ services:
       dockerfile: image-ops-service/Dockerfile
     container_name: podi-image-ops
     ports:
-      - "127.0.0.1:8301:8301"
+      - "${IMAGE_OPS_PUBLISH_HOST:-127.0.0.1}:${IMAGE_OPS_PORT:-8301}:8301"
     env_file:
       - ./image-ops-service/.env
     environment:

@@ -39,6 +39,7 @@
 - `docs/strategy/coze-desktop-centerurl-cutover-v1.md`
 - `docs/strategy/coze-server-layout-v1.md`
 - `docs/strategy/image-ops-service-split-v1.md`
+- `docs/strategy/remote-image-ops-158-plan-v1.md`
 - `docs/architecture.md`
 - `docs/BUSINESS_MODEL.md`
 - `docs/api/INDEX.md`

@@ -43,6 +43,23 @@ def _auth_headers(token: str | None) -> dict[str, str]:
     return headers
 
 
+def _env_bool(name: str) -> bool | None:
+    raw = os.environ.get(name)
+    if raw is None:
+        return None
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _assert_remote_image_ops_config() -> None:
+    base_url = (os.environ.get("IMAGE_OPS_BASE_URL") or "").strip()
+    if not base_url:
+        raise RuntimeError("IMAGE_OPS_BASE_URL_REQUIRED")
+    if _env_bool("IMAGE_OPS_LOCAL_FALLBACK_ENABLED") is not False:
+        raise RuntimeError("IMAGE_OPS_LOCAL_FALLBACK_MUST_BE_FALSE")
+    if _env_bool("DISABLE_LOCAL_HEAVY_IMAGE_TASKS") is not True:
+        raise RuntimeError("DISABLE_LOCAL_HEAVY_IMAGE_TASKS_MUST_BE_TRUE")
+
+
 def _get_json(client: httpx.Client, path: str) -> Any:
     response = client.get(path)
     response.raise_for_status()
@@ -95,9 +112,16 @@ def main() -> int:
     parser.add_argument("--token", default=os.environ.get("SERVICE_API_TOKEN", ""))
     parser.add_argument("--image-base64", default=MINIMAL_PNG_BASE64)
     parser.add_argument("--backend-env-file", default=os.environ.get("BACKEND_ENV_FILE", ""))
+    parser.add_argument(
+        "--require-remote-image-ops",
+        action="store_true",
+        help="Fail unless backend env disables local fallback and points to image-ops.",
+    )
     args = parser.parse_args()
     _load_env_file(args.backend_env_file)
     token = args.token or os.environ.get("SERVICE_API_TOKEN", "")
+    if args.require_remote_image_ops:
+        _assert_remote_image_ops_config()
 
     # Validate base64 early so failures are explicit.
     base64.b64decode(args.image_base64)

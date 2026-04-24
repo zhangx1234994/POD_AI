@@ -41,7 +41,7 @@
 ## 环境变量
 
 - `IMAGE_OPS_SERVICE_TOKEN`
-- `IMAGE_OPS_HOST`
+- `IMAGE_OPS_HOST`，默认 `127.0.0.1`
 - `IMAGE_OPS_PORT`
 
 ## 本地启动
@@ -50,6 +50,8 @@
 cd image-ops-service
 python3 -m uvicorn app.main:app --host 127.0.0.1 --port 8301
 ```
+
+独立能力机需要被 backend 访问时，才把 `--host` 改为内网 IP 或 `0.0.0.0`，并通过安全组限制来源。
 
 ## 测试
 
