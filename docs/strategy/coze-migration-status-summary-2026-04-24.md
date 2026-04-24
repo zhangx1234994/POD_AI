@@ -152,7 +152,7 @@
 
 下面这些是后面真正要补的，不是文档问题。
 
-### 1. 主 Coze workflow 大烟测脚本还没收口
+### 1. 主 Coze workflow 分组复演还没完成
 
 当前完成的是：
 
@@ -160,9 +160,20 @@
 - bundle check
 - `image-ops` 真链路验证
 
-但还没完成的是：
+脚本已经收口为：
 
-- 11 条主 Coze workflow 的完整串行冒烟报告
+- 分组运行
+- 进度输出
+- 每条完成后增量落盘
+
+已经完成：
+
+- 用新版分组脚本在 `114.55.0.56` 上跑出 `core` 分组报告
+- `core` 5 条最终均为 `succeeded`
+
+还没完成的是：
+
+- `fission/outpaint/all` 分组复演
 
 ### 2. toolbox 实际切流还没做
 
@@ -197,7 +208,7 @@
 
 但实际迁移时是否同批迁，还需要单独决策。
 
-### 5. 迁移 smoke 脚本还有最后一轮收口
+### 5. 迁移 smoke 脚本还需要一次真实复演
 
 已经修掉：
 
@@ -207,22 +218,23 @@
 - `image-ops-service` packaging 边界
 - bundle check 与真实接口口径不一致
 
-仍待收口：
+仍待复演：
 
-1. `coze_workflow_smoke.py` 运行时间过长、缺少分步落盘
-2. `smoke_image_ops_via_backend.py` 的 stdout 输出异常
+1. `WORKFLOW_GROUP=fission` 分类抽检
+2. `WORKFLOW_GROUP=outpaint` 分类抽检
+3. 窗口充足时再跑 `WORKFLOW_GROUP=all`
 
 ## 当前建议
 
 下一步不该继续发散加内容，应该进入下面的顺序：
 
 1. 先把这版迁移包定为当前候选版本
-2. 把主 workflow smoke 拆成更适合迁移窗口使用的版本
-3. 收口这轮保守演练里暴露的 packaging / smoke 细节
+2. 继续跑 `fission/outpaint` 分类复演
+3. 根据复演结果决定是否跑全量 `all`
 4. 然后再决定是否推到 `main`
 
 ## 结论摘要
 
 一句话概括：
 
-**这版迁移包已经完成一轮真实 Coze 主机保守演练；当前缺的不是部署材料，而是把主 workflow 大烟测收口成可在迁移窗口内稳定执行的版本。**
+**这版迁移包已经完成一轮真实 Coze 主机保守演练；当前缺的不是部署材料，而是用新版分组 smoke 再跑一次主链路复演。**

@@ -16,9 +16,9 @@
 
 当前还没有完成的是：
 
-- 11 条主 Coze workflow 的完整串行冒烟报告
+- `fission/outpaint/all` 分组复演报告
 
-原因不是控制面已失败，而是现有 `coze_workflow_smoke.py` 串行执行时间过长，不适合作为本轮结论阻塞项。
+原因不是控制面已失败，而是首轮只完成了 `core` 分组复演。
 
 ## 主机基线
 
@@ -145,29 +145,25 @@
 
 ## 当前剩余缺口
 
-### 1. 主 Coze workflow 大烟测脚本耗时过长
+### 1. 主 Coze workflow 需要分组复演
 
 现状：
 
-- 现有 `coze_workflow_smoke.py` 串行跑 11 条 workflow
-- 单次演练时间过长
-- 本轮未拿它作为阻塞性结论
+- `coze_workflow_smoke.py` 已支持进度输出与增量落盘
+- `smoke_coze_primary_workflows.sh` 已支持 `WORKFLOW_GROUP`
+- `WORKFLOW_GROUP=core` 已在 Coze 主机上复演
+- `core` 5 条最终均为 `succeeded`，且均返回 OSS 图片链接
 
 建议：
 
-- 下一步把主 workflow smoke 拆成：
-  - 分组运行
-  - 实时输出进度
-  - 每条完成就落部分结果
+- 后续按需要继续跑 `WORKFLOW_GROUP=fission/outpaint/all`
 
-### 2. `smoke_image_ops_via_backend.py` 的 stdout 输出异常
+### 2. `smoke_image_ops_via_backend.py` 的 stdout 输出已修正
 
 现状：
 
-- 退出码为 `0`
-- 但标准输出为空
-
-这不影响当前链路真实验证，因为已用内联请求确认结果；但脚本本身仍应补一次输出行为修正。
+- 脚本已改成显式 `stdout flush`
+- 链路已用内联请求确认过，后续复演继续用脚本入口验证
 
 ## 当前判断
 

@@ -115,17 +115,25 @@ bash scripts/run_coze_control_plane_cutover.sh full
 
 ## 5. 工作流抽检
 
-至少抽检：
+迁移窗口优先抽检 `core` 分组：
 
 - 四方连续
 - 新扩图
-- 多图融合
 - 背景抠图
 - 头部抠像
-- E7 图裂变
-- 裂变文字强化
-- 四方连续裂变
 - 新高质量裂变
+
+命令：
+
+```bash
+WORKFLOW_GROUP=core \
+IMAGE_PATH="/srv/pod/testdata/sample.png" \
+POLL_SECONDS=90 \
+SETTLE_SECONDS=120 \
+bash scripts/smoke_coze_primary_workflows.sh
+```
+
+窗口足够时再跑 `WORKFLOW_GROUP=all` 全量抽检。
 
 每条确认：
 

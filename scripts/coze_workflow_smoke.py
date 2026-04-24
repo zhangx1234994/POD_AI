@@ -215,6 +215,91 @@ def poll_task(task_get_url: str, service_token: str | None, task_id: str, max_wa
     return last
 
 
+def _output_paths(out_path: str) -> tuple[Path, Path]:
+    out_file = Path(out_path)
+    if out_file.suffix.lower() == ".json":
+        json_path = out_file
+        md_path = out_file.with_suffix(".md")
+    else:
+        md_path = out_file
+        json_path = out_file.with_suffix(".json")
+    md_path.parent.mkdir(parents=True, exist_ok=True)
+    json_path.parent.mkdir(parents=True, exist_ok=True)
+    return md_path, json_path
+
+
+def write_reports(
+    *,
+    md_path: Path,
+    json_path: Path,
+    results: list[dict[str, Any]],
+    base_url: str,
+    image_url: str,
+    started_at: str,
+) -> None:
+    lines = []
+    lines.append(f"# Coze 工作流冒烟测试 {started_at}")
+    lines.append("")
+    lines.append(f"- Coze Base URL: {base_url}")
+    lines.append(f"- Image URL: {image_url}")
+    lines.append(f"- 已完成数量: {len(results)}")
+    lines.append("")
+    lines.append("| workflow_id | 名称 | HTTP | 期望输出 | 回调ID | ip | 任务状态 | 参数一致 | 错误 |")
+    lines.append("|---|---|---:|---|---|---|---|---|---|")
+    for item in results:
+        task_status = ""
+        if isinstance(item.get("task"), dict):
+            task_status = str(item["task"].get("taskStatus") or item["task"].get("error") or "")
+        lines.append(
+            "| {workflow_id} | {name} | {status_code} | {output_kind} | {output} | {ip} | {task_status} | {param_ok} | {error} |".format(
+                workflow_id=item.get("workflow_id"),
+                name=item.get("name"),
+                status_code=item.get("status_code"),
+                output_kind=item.get("output_kind"),
+                output=str(item.get("output") or "")[:64],
+                ip=str(item.get("ip") or "")[:24],
+                task_status=task_status[:24],
+                param_ok="否" if item.get("param_mismatch") else "是",
+                error=str(item.get("error") or "")[:64],
+            )
+        )
+    lines.append("")
+
+    md_path.write_text("\n".join(lines), encoding="utf-8")
+    json_path.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def log_progress(message: str) -> None:
+    print(message, flush=True)
+
+
+def refresh_pending_tasks(
+    *,
+    results: list[dict[str, Any]],
+    task_get_url: str,
+    service_token: str | None,
+    settle_poll: int,
+) -> bool:
+    changed = False
+    for item in results:
+        if not item.get("callback_pending"):
+            continue
+        task_id = item.get("output")
+        if not isinstance(task_id, str) or not task_id.strip():
+            continue
+        workflow_id = str(item.get("workflow_id") or "")
+        log_progress(f"[settle] polling pending task for {workflow_id}")
+        task_result = poll_task(task_get_url, service_token, task_id.strip(), settle_poll)
+        task_status = ""
+        if isinstance(task_result, dict):
+            task_status = str(task_result.get("taskStatus") or task_result.get("error") or "")
+        item["task"] = task_result
+        item["callback_pending"] = bool(task_status and task_status.lower() not in {"succeeded", "failed"})
+        changed = True
+        log_progress(f"[settle] {workflow_id} task={task_status[:32]}")
+    return changed
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--docs-url", default=DEFAULT_DOCS_URL)
@@ -226,6 +311,9 @@ def main() -> int:
     parser.add_argument("--poll", type=int, default=30, help="max seconds to poll callback tasks")
     parser.add_argument("--out", default="")
     parser.add_argument("--workflow-id", action="append", default=[])
+    parser.add_argument("--limit", type=int, default=0, help="only run the first N selected workflows")
+    parser.add_argument("--settle-poll", type=int, default=0, help="extra seconds to recheck pending callback tasks after all submissions")
+    parser.add_argument("--fail-fast", action="store_true", help="stop after the first workflow failure")
     args = parser.parse_args()
 
     env = load_env(Path("backend/.env"))
@@ -253,14 +341,23 @@ def main() -> int:
     if args.workflow_id:
         wanted = {w.strip() for w in args.workflow_id if w.strip()}
         workflows = [w for w in workflows if str(w.get("workflow_id")) in wanted]
+    if args.limit > 0:
+        workflows = workflows[: args.limit]
 
     callback_taskid = os.getenv("COZE_CALLBACK_TASKID") or env.get("COZE_CALLBACK_TASKID") or ""
 
     results: List[Dict[str, Any]] = []
-    for wf in workflows:
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    out_path = args.out or f"reports/coze_workflow_smoke_{timestamp}.md"
+    md_path, json_path = _output_paths(out_path)
+    write_reports(md_path=md_path, json_path=json_path, results=results, base_url=base_url, image_url=image_url, started_at=timestamp)
+
+    total = len(workflows)
+    for idx, wf in enumerate(workflows, start=1):
         workflow_id = str(wf.get("workflow_id") or "")
         name = str(wf.get("name") or "")
         output_kind = str(wf.get("output_kind") or "")
+        log_progress(f"[{idx}/{total}] START {workflow_id} {name}")
         if workflow_id == "7597556718159003648" and not callback_taskid:
             results.append(
                 {
@@ -277,10 +374,20 @@ def main() -> int:
                     "params": {},
                 }
             )
+            write_reports(
+                md_path=md_path,
+                json_path=json_path,
+                results=results,
+                base_url=base_url,
+                image_url=image_url,
+                started_at=timestamp,
+            )
+            log_progress(f"[{idx}/{total}] SKIP {workflow_id} {name}")
             continue
         params = build_params(wf.get("parameters") or [], image_url, args.size)
         if workflow_id == "7597556718159003648" and callback_taskid:
             params["taskid"] = callback_taskid
+        started = time.time()
         status_code, payload = run_workflow(base_url, token, workflow_id, params)
         parsed = parse_coze_data(payload if isinstance(payload, dict) else {})
         output = parsed.get("output")
@@ -302,63 +409,49 @@ def main() -> int:
         task_result: Dict[str, Any] | None = None
         if output_kind == "callback_task_id" and isinstance(output, str) and output.strip():
             task_result = poll_task(args.task_url, service_token, output.strip(), args.poll)
-
-        results.append(
-            {
-                "workflow_id": workflow_id,
-                "name": name,
-                "status_code": status_code,
-                "param_mismatch": param_mismatch,
-                "output_kind": output_kind,
-                "output": output,
-                "ip": ip,
-                "prompt": prompt,
-                "error": error_msg,
-                "task": task_result,
-                "params": params,
-            }
-        )
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    out_path = args.out or f"reports/coze_workflow_smoke_{timestamp}.md"
-    out_file = Path(out_path)
-    out_file.parent.mkdir(parents=True, exist_ok=True)
-
-    lines = []
-    lines.append(f"# Coze 工作流冒烟测试 {timestamp}")
-    lines.append("")
-    lines.append(f"- Coze Base URL: {base_url}")
-    lines.append(f"- Image URL: {image_url}")
-    lines.append("")
-    lines.append("| workflow_id | 名称 | HTTP | 期望输出 | 回调ID | ip | 任务状态 | 参数一致 | 错误 |")
-    lines.append("|---|---|---:|---|---|---|---|---|---|")
-    for item in results:
         task_status = ""
-        if isinstance(item.get("task"), dict):
-            task_status = str(item["task"].get("taskStatus") or item["task"].get("error") or "")
-        lines.append(
-            "| {workflow_id} | {name} | {status_code} | {output_kind} | {output} | {ip} | {task_status} | {param_ok} | {error} |".format(
-                workflow_id=item.get("workflow_id"),
-                name=item.get("name"),
-                status_code=item.get("status_code"),
-                output_kind=item.get("output_kind"),
-                output=str(item.get("output") or "")[:64],
-                ip=str(item.get("ip") or "")[:24],
-                task_status=task_status[:24],
-                param_ok="否" if item.get("param_mismatch") else "是",
-                error=str(item.get("error") or "")[:64],
-            )
+        callback_pending = False
+        if isinstance(task_result, dict):
+            task_status = str(task_result.get("taskStatus") or task_result.get("error") or "")
+            callback_pending = bool(task_status and task_status.lower() not in {"succeeded", "failed"})
+
+        item = {
+            "workflow_id": workflow_id,
+            "name": name,
+            "status_code": status_code,
+            "param_mismatch": param_mismatch,
+            "output_kind": output_kind,
+            "output": output,
+            "ip": ip,
+            "prompt": prompt,
+            "error": error_msg,
+            "task": task_result,
+            "callback_pending": callback_pending,
+            "params": params,
+            "duration_seconds": round(time.time() - started, 2),
+        }
+        results.append(item)
+        write_reports(md_path=md_path, json_path=json_path, results=results, base_url=base_url, image_url=image_url, started_at=timestamp)
+
+        result_label = "FAIL" if param_mismatch else ("WARN" if callback_pending else "OK")
+        log_progress(
+            f"[{idx}/{total}] {result_label} {workflow_id} http={status_code} output={str(output or '')[:48]} task={task_status[:32]}"
         )
-    lines.append("")
+        if param_mismatch and args.fail_fast:
+            log_progress(f"[{idx}/{total}] STOP fail-fast enabled")
+            break
 
-    with out_file.open("w", encoding="utf-8") as f:
-        f.write("\n".join(lines))
+    if args.settle_poll > 0 and refresh_pending_tasks(
+        results=results,
+        task_get_url=args.task_url,
+        service_token=service_token,
+        settle_poll=args.settle_poll,
+    ):
+        write_reports(md_path=md_path, json_path=json_path, results=results, base_url=base_url, image_url=image_url, started_at=timestamp)
 
-    json_path = out_file.with_suffix(".json")
-    json_path.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
-
-    print(str(out_file))
-    return 0
+    print(str(md_path), flush=True)
+    print(str(json_path), flush=True)
+    return 1 if any(item.get("param_mismatch") for item in results) else 0
 
 
 if __name__ == "__main__":

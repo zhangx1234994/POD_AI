@@ -196,12 +196,34 @@ BACKEND_ENV_FILE=/srv/pod/backend/.env \
 
 ## 6.3 Coze 主工作流 smoke
 
+### 推荐：先跑关键链路
+
 ```bash
 cd /srv/pod
+WORKFLOW_GROUP=core \
 IMAGE_PATH="/srv/pod/testdata/sample.png" \
 POLL_SECONDS=90 \
+SETTLE_SECONDS=120 \
 bash scripts/smoke_coze_primary_workflows.sh
 ```
+
+### 全量：窗口足够时再跑
+
+```bash
+cd /srv/pod
+WORKFLOW_GROUP=all \
+IMAGE_PATH="/srv/pod/testdata/sample.png" \
+POLL_SECONDS=90 \
+SETTLE_SECONDS=120 \
+bash scripts/smoke_coze_primary_workflows.sh
+```
+
+可选分组：
+
+- `core`：四方连续、新扩图、背景抠图、头部抠像、新高质量裂变
+- `fission`：E7 图裂变、文字增强、四方连续裂变、新高质量裂变
+- `outpaint`：旧扩图、新扩图
+- `all`：当前主链路全量
 
 ## 6.4 回滚模板
 
