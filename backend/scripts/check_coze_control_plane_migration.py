@@ -37,6 +37,12 @@ def _get_json(base: str, path: str) -> dict[str, Any]:
     return data
 
 
+def _get_json_any(base: str, path: str) -> Any:
+    resp = httpx.get(f"{base.rstrip('/')}{path}", timeout=20)
+    resp.raise_for_status()
+    return resp.json()
+
+
 def _get_text(base: str, path: str = "/") -> str:
     resp = httpx.get(f"{base.rstrip('/')}{path}", timeout=20)
     resp.raise_for_status()
@@ -73,7 +79,8 @@ def main() -> int:
 
     print("[2] backend control-plane endpoints")
     _get_json(args.backend_base, "/api/abilities")
-    _get_json(args.backend_base, "/api/evals/workflow-versions")
+    workflows = _get_json_any(args.backend_base, "/api/evals/workflow-versions")
+    _expect(isinstance(workflows, list) and workflows, "/api/evals/workflow-versions did not return non-empty list")
 
     print("[3] coze openapi documents")
     _check_openapi(args.backend_base, "/api/coze/podi/openapi.json", label="plugin openapi")

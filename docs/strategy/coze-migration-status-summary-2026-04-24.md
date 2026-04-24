@@ -106,6 +106,19 @@
 - 第二阶段提醒仍存在
 - 自检脚本整体已跑通
 
+### 7. Coze 主机保守演练已做完一轮
+
+已在 `114.55.0.56` 上完成：
+
+- `python3.11` 运行时补齐
+- `backend + image-ops` 保守部署
+- `bundle check`
+- `backend -> image-ops` 三条原子能力真实链路验证
+
+对应记录：
+
+- `docs/testing/COZE_CONTROL_PLANE_CONSERVATIVE_DRILL_2026-04-24.md`
+
 ## 明确保留到第二阶段
 
 这些不是遗漏，是当前故意不在首轮做：
@@ -139,16 +152,17 @@
 
 下面这些是后面真正要补的，不是文档问题。
 
-### 1. 真实 Coze 主机演练还没做
+### 1. 主 Coze workflow 大烟测脚本还没收口
 
 当前完成的是：
 
-- 本地脚本与文档自检
-- 迁移包完整性检查
+- Coze 主机上的保守部署演练
+- bundle check
+- `image-ops` 真链路验证
 
-但还没做：
+但还没完成的是：
 
-- 在 `114.55.0.56` 上按 runbook 跑一遍完整演练
+- 11 条主 Coze workflow 的完整串行冒烟报告
 
 ### 2. toolbox 实际切流还没做
 
@@ -183,38 +197,32 @@
 
 但实际迁移时是否同批迁，还需要单独决策。
 
-### 5. Coze 主机 Python 运行时前置条件还没闭合
+### 5. 迁移 smoke 脚本还有最后一轮收口
 
-当前服务器实际情况：
+已经修掉：
 
-- 系统 `python3 = 3.6.8`
+- `python3.11` 前置条件
+- `backend` 缺失 `pydantic-settings`
+- `backend` 缺失 `email-validator`
+- `image-ops-service` packaging 边界
+- bundle check 与真实接口口径不一致
 
-而当前迁移包里的：
+仍待收口：
 
-- `backend`
-- `image-ops-service`
-
-都要求：
-
-- `Python >= 3.11`
-
-这意味着首轮正式演练前，必须先补齐：
-
-1. Coze 主机安装 `python3.11`
-2. 迁移脚本显式使用 `PYTHON_BIN=python3.11`
+1. `coze_workflow_smoke.py` 运行时间过长、缺少分步落盘
+2. `smoke_image_ops_via_backend.py` 的 stdout 输出异常
 
 ## 当前建议
 
 下一步不该继续发散加内容，应该进入下面的顺序：
 
 1. 先把这版迁移包定为当前候选版本
-2. 用 Coze 主机做一次保守演练：
-   - 只动 `backend + image-ops`
-3. 演练通过后，再决定是否推到 `main`
-4. 再规划首轮正式迁移窗口
+2. 把主 workflow smoke 拆成更适合迁移窗口使用的版本
+3. 收口这轮保守演练里暴露的 packaging / smoke 细节
+4. 然后再决定是否推到 `main`
 
 ## 结论摘要
 
 一句话概括：
 
-**这版迁移包已经足够进入演练和评审，不再缺“怎么做”的材料；当前缺的是“在真实 Coze 主机上按这套材料跑一遍”。**
+**这版迁移包已经完成一轮真实 Coze 主机保守演练；当前缺的不是部署材料，而是把主 workflow 大烟测收口成可在迁移窗口内稳定执行的版本。**

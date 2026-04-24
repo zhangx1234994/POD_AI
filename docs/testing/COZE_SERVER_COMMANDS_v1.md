@@ -143,9 +143,10 @@ bash scripts/capture_coze_control_plane_baseline.sh
 ```bash
 cd /srv/pod
 BACKEND_URL=http://127.0.0.1:8099 \
-ADMIN_URL=http://127.0.0.1:8199 \
-EVAL_URL=http://127.0.0.1:8200 \
+ADMIN_URL= \
+EVAL_URL= \
 IMAGE_OPS_URL=http://127.0.0.1:8301 \
+PYTHON_BIN=/srv/pod/backend/.venv/bin/python \
 bash scripts/check_coze_control_plane_bundle.sh
 ```
 
@@ -189,7 +190,8 @@ bash scripts/run_coze_control_plane_cutover.sh full
 cd /srv/pod
 BACKEND_URL=http://127.0.0.1:8099 \
 SERVICE_API_TOKEN="<service_api_token>" \
-python3 scripts/smoke_image_ops_via_backend.py
+BACKEND_ENV_FILE=/srv/pod/backend/.env \
+/srv/pod/backend/.venv/bin/python scripts/smoke_image_ops_via_backend.py
 ```
 
 ## 6.3 Coze 主工作流 smoke

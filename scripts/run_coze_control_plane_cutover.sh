@@ -14,7 +14,15 @@ IMAGE_PATH="${IMAGE_PATH:-}"
 IMAGE_URL="${IMAGE_URL:-}"
 POLL_SECONDS="${POLL_SECONDS:-90}"
 SERVICE_API_TOKEN="${SERVICE_API_TOKEN:-}"
-PYTHON_BIN="${PYTHON_BIN:-$(command -v python3.11 || command -v python3 || true)}"
+if [[ -z "${PYTHON_BIN:-}" ]]; then
+  if [[ -x "/srv/pod/backend/.venv/bin/python" ]]; then
+    PYTHON_BIN="/srv/pod/backend/.venv/bin/python"
+  elif [[ -x "$ROOT_DIR/backend/.venv/bin/python" ]]; then
+    PYTHON_BIN="$ROOT_DIR/backend/.venv/bin/python"
+  else
+    PYTHON_BIN="$(command -v python3.11 || command -v python3 || true)"
+  fi
+fi
 
 usage() {
   cat <<'EOF'
@@ -127,6 +135,13 @@ run_deploy() {
 }
 
 run_post() {
+  local bundle_admin_url="$ADMIN_URL"
+  local bundle_eval_url="$EVAL_URL"
+  if [[ "$DEPLOY_SCOPE" == "backend-image-ops" ]]; then
+    bundle_admin_url=""
+    bundle_eval_url=""
+  fi
+
   if [[ -z "$PYTHON_BIN" ]]; then
     echo "[cutover:$PHASE] ERROR: python3.11/python3 not found" >&2
     exit 2
@@ -134,8 +149,8 @@ run_post() {
 
   log "running bundle checks"
   BACKEND_URL="$BACKEND_URL" \
-  ADMIN_URL="$ADMIN_URL" \
-  EVAL_URL="$EVAL_URL" \
+  ADMIN_URL="$bundle_admin_url" \
+  EVAL_URL="$bundle_eval_url" \
   PYTHON_BIN="$PYTHON_BIN" \
   IMAGE_OPS_URL="$IMAGE_OPS_URL" \
   bash "$ROOT_DIR/scripts/check_coze_control_plane_bundle.sh"

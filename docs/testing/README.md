@@ -13,6 +13,8 @@
   - 迁移前演练步骤
 - `COZE_CONTROL_PLANE_RUNBOOK_v1.md`
   - 迁移当天一页执行清单
+- `COZE_CONTROL_PLANE_CONSERVATIVE_DRILL_2026-04-24.md`
+  - 2026-04-24 在 `114.55.0.56` 上的真实保守演练记录
 - `COZE_SERVER_COMMANDS_v1.md`
   - Coze 主机命令级清单
 - `IMAGE_OPS_SMOKE_CHECKLIST_v1.md`

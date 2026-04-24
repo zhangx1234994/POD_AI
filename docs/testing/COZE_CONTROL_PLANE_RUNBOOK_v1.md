@@ -76,9 +76,10 @@ curl http://<image-ops-host>:8301/health
 
 ```bash
 BACKEND_URL=http://<new-backend-host>:8099 \
-ADMIN_URL=http://127.0.0.1:8199 \
-EVAL_URL=http://127.0.0.1:8200 \
+ADMIN_URL= \
+EVAL_URL= \
 IMAGE_OPS_URL=http://<image-ops-host>:8301 \
+PYTHON_BIN=/srv/pod/backend/.venv/bin/python \
 bash scripts/check_coze_control_plane_bundle.sh
 ```
 
