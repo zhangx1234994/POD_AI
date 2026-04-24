@@ -5,7 +5,7 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=/srv/pod
-ExecStart=/usr/bin/env node /srv/pod/scripts/node_static_proxy.mjs --root /srv/pod/podi-eval-web/dist --port 8200 --api http://127.0.0.1:8099
+ExecStart=/usr/bin/python3.11 /srv/pod/scripts/python_static_proxy.py --root /srv/pod/podi-eval-web/dist --port 8200 --api http://127.0.0.1:8099
 Restart=always
 RestartSec=3
 User=root
