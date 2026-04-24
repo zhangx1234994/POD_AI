@@ -16,6 +16,7 @@
 - `coze-mid-platform-migration-v1.md`
 - `image-ops-service-split-v1.md`
 - `coze-migration-config-matrix-v1.md`
+- `coze-migration-status-summary-2026-04-24.md`
 
 ### 2. 真实对象与切换范围
 

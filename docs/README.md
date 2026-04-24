@@ -31,6 +31,7 @@
 - `docs/strategy/strategy-one-page-2026q2.md`
 - `docs/strategy/coze-mid-platform-migration-v1.md`
 - `docs/strategy/coze-control-plane-migration-pack-v1.md`
+- `docs/strategy/coze-migration-status-summary-2026-04-24.md`
 - `docs/strategy/coze-migration-config-matrix-v1.md`
 - `docs/strategy/coze-host-cutover-sequence-v1.md`
 - `docs/strategy/coze-migration-inventory-v1.md`
