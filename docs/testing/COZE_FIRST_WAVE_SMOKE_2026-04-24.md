@@ -94,3 +94,60 @@ python3 scripts/smoke_image_ops_via_backend.py \
 第一段“Coze 主机 backend + 同机 image-ops”已经具备切 toolbox 前的基础条件。
 
 下一步仍不直接切换全部工具箱，建议先整理 toolbox host 替换清单和回滚清单，再按批次替换。
+
+## 第一批 Toolbox 切换后 Smoke
+
+切换时间：2026-04-24
+
+已切换范围：
+
+- 仅第一批 standalone ComfyUI 工具箱
+- 旧入口：`http://117.50.80.158:8099`
+- 新入口：`http://114.55.0.56:8099`
+- 未切换：`PODI Utils`、`PODI Abilities` 聚合工具箱、图片原子能力聚合入口
+
+备份：
+
+- `/srv/pod/runtime/coze_toolbox_apply_20260424_165223.sql`
+- `/srv/pod/runtime/coze_toolbox_post_apply_20260424_165300.sql`
+
+第一次全量 active workflow 巡检报告：
+
+- `/srv/pod/runtime/coze_first_wave_after_toolbox_cutover_20260424.json`
+- `/srv/pod/runtime/coze_first_wave_after_toolbox_cutover_20260424.md`
+
+发现：
+
+- 第一批 standalone workflow 初次失败不是 OpenAPI 契约问题，而是新 backend 返回 `401 INTERNAL_ONLY`。
+- 后端日志显示 Coze 调工具时来源 IP 为 `114.55.0.56`。
+- Coze 主机 backend `.env` 当时没有配置 `COZE_TRUSTED_IPS`。
+
+修正：
+
+- 已在 Coze 主机 backend `.env` 增加 `COZE_TRUSTED_IPS=114.55.0.56,127.0.0.1`。
+- 已重启 `podi-backend`，`/health` 正常。
+
+修正后第一批 workflow 重跑报告：
+
+- `/srv/pod/runtime/coze_first_wave_after_trusted_ips_20260424.json`
+- `/srv/pod/runtime/coze_first_wave_after_trusted_ips_20260424.md`
+
+重跑 workflow：
+
+- `7629026792103215104` 四方连续裂变 · `flux2_9b_liebian_sifang`
+- `7598587935331450880` ComfyUI 扩图
+- `7631174682116358144` ComfyUI 扩图 · `flux2_klein_9b_outpaint`
+- `7622190276932534272` 图裂变 · `Liebian_comfyui_20260328`
+- `7622193261276299264` 图裂变 · `Liebian_comfyui_20260328_1`
+- `7631838631375667200` 图裂变 · `Liebian_comfyui_20260423`
+- `7629024620879806464` 文字增强 · `qwen2512_print_shape_text_enhance`
+- `7615600173695107072` 多图融合 · `duotu_ronghe`
+- `7629023041988591616` 头部抠像 · `toubu_kouxiang`
+- `7629023903431524352` 背景抠图 · `beijing_koutu`
+
+结果：10 条全部提交成功，pending 任务二次轮询后均为 `succeeded`。
+
+收尾确认：
+
+- 近 10 分钟 `podi-backend` 日志无新增 `401`。
+- `PODI Utils` 与 `PODI Abilities` 聚合插件仍保持 `http://117.50.80.158:8099`，未纳入第一批切换。

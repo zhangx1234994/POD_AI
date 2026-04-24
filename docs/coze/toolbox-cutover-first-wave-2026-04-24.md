@@ -52,10 +52,19 @@
 
 ## 切换动作
 
-1. 在 Coze 中重新导入第一批 standalone OpenAPI。
-2. 每导入一个，确认工具 schema 没变化，只改 host。
-3. 对应 workflow debug 一次。
-4. 通过后再切下一个工具箱。
+执行方式：
+
+1. 使用 `scripts/coze_toolbox_host_cutover.py plan` 只读检查第一批插件。
+2. 使用 `scripts/coze_toolbox_host_cutover.py apply` 先备份再切换白名单插件。
+3. 只更新 `plugin`、`plugin_draft`、`plugin_version` 的 `server_url` 与 `openapi_doc.servers[0].url`。
+4. 不修改 workflow canvas，不修改 tool contract，不修改 PODI Utils / PODI Abilities 聚合插件。
+
+执行结果：
+
+- 第一批 9 个 standalone 插件已切到 `http://114.55.0.56:8099`。
+- 回滚脚本可使用 `scripts/coze_toolbox_host_cutover.py rollback`。
+- 备份位于 `/srv/pod/runtime/coze_toolbox_apply_20260424_165223.sql`。
+- 修正 `COZE_TRUSTED_IPS=114.55.0.56,127.0.0.1` 后，10 条关联 workflow 重跑全部成功。
 
 ## 每批验证
 
@@ -70,15 +79,15 @@
 
 如果某个工具箱异常：
 
-1. 只把该工具箱 OpenAPI 改回 `http://117.50.80.158:8099/...`
+1. 使用 `scripts/coze_toolbox_host_cutover.py rollback --plugin-id <plugin_id>` 只回滚该工具箱。
 2. 不重启 Coze 主机 backend
-3. 不改数据库
+3. 不修改 workflow canvas 或工具契约
 4. 保留新 backend 继续服务其他已通过工具箱
 
 如果批量异常：
 
 1. 停止继续切换
-2. 已切工具箱逐个回到 `117.50.80.158:8099`
+2. 使用 `scripts/coze_toolbox_host_cutover.py rollback` 把第一批工具箱回到 `117.50.80.158:8099`
 3. 保留 Coze 主机 backend 现场，用 smoke 报告和日志定位
 
 ## 第二段入口
