@@ -197,6 +197,8 @@ const defaultBusinessCapabilityForm: BusinessCapabilityFormState = {
   primaryAbilityId: '',
   vlAssistEnabled: false,
   vlAssistAbilityId: 'vl_analyze_image',
+  vlAssistWaitForResult: false,
+  vlAssistApplyToPrimary: false,
   rolloutEnabled: false,
   rolloutPercent: 0,
   rolloutAllowlistText: '',
@@ -1443,6 +1445,18 @@ const readBusinessVlAssist = (recipe?: JsonRecord | null) => {
     abilityId: typeof vlAssist.abilityId === 'string' && vlAssist.abilityId.trim()
       ? vlAssist.abilityId
       : 'vl_analyze_image',
+    waitForResult: Boolean(
+      vlAssist.waitForResult ||
+      vlAssist.wait_for_result ||
+      vlAssist.blocking ||
+      recipe?.mode === 'vl_then_primary',
+    ),
+    applyToPrimary: Boolean(
+      vlAssist.applyToPrimary ||
+      vlAssist.apply_to_primary ||
+      vlAssist.useResultForPrimary ||
+      vlAssist.use_result_for_primary,
+    ),
   };
 };
 
@@ -6088,6 +6102,8 @@ export function IntegrationDashboard({
         (item.recipe && typeof item.recipe.primaryAbilityId === 'string' ? String(item.recipe.primaryAbilityId) : ''),
       vlAssistEnabled: vlAssist.enabled,
       vlAssistAbilityId: vlAssist.abilityId,
+      vlAssistWaitForResult: vlAssist.waitForResult,
+      vlAssistApplyToPrimary: vlAssist.applyToPrimary,
       rolloutEnabled: rollout.enabled,
       rolloutPercent: rollout.percent,
       rolloutAllowlistText: rollout.allowlistText,
@@ -6217,9 +6233,19 @@ export function IntegrationDashboard({
       nextRecipe.vlAssist = {
         enabled: true,
         abilityId: businessForm.vlAssistAbilityId || 'vl_analyze_image',
+        waitForResult: Boolean(businessForm.vlAssistWaitForResult),
+        applyToPrimary: Boolean(businessForm.vlAssistApplyToPrimary),
       };
+      if (businessForm.vlAssistWaitForResult) {
+        nextRecipe.mode = 'vl_then_primary';
+      } else if (nextRecipe.mode === 'vl_then_primary') {
+        nextRecipe.mode = 'pipeline';
+      }
     } else {
       delete nextRecipe.vlAssist;
+      if (nextRecipe.mode === 'vl_then_primary') {
+        nextRecipe.mode = 'pipeline';
+      }
     }
     const nextMetadata: JsonRecord = { ...metadata.value };
     const rolloutAllowlist = splitLinesOrComma(businessForm.rolloutAllowlistText);
@@ -9369,7 +9395,7 @@ const extractErrorMessage = (error: unknown): string => {
                             onChange={(v) => setBusinessForm({ ...businessForm, vlAssistEnabled: Boolean(v) })}
                           />
                           <Typography.Text theme="secondary">
-                            启用后，业务配方会记录图像理解步骤，后续可用于自动生成提示词和风险提示。
+                            启用后，业务配方会记录图像理解步骤，可用于自动生成提示词和风险提示。
                           </Typography.Text>
                         </Space>
                         <Row gutter={[12, 12]}>
@@ -9384,7 +9410,48 @@ const extractErrorMessage = (error: unknown): string => {
                               onChange={(v) => setBusinessForm({ ...businessForm, vlAssistAbilityId: String(v) })}
                             />
                           </Col>
+                          <Col span={12}>
+                            <Typography.Text theme="secondary">串联方式</Typography.Text>
+                            <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                              <Space align="center" size="small">
+                                <Switch
+                                  value={businessForm.vlAssistWaitForResult}
+                                  disabled={!businessForm.vlAssistEnabled}
+                                  onChange={(v) =>
+                                    setBusinessForm({
+                                      ...businessForm,
+                                      vlAssistWaitForResult: Boolean(v),
+                                      vlAssistApplyToPrimary: Boolean(v) ? businessForm.vlAssistApplyToPrimary : false,
+                                    })
+                                  }
+                                />
+                                <Typography.Text theme="secondary">等 VL 完成后再出图</Typography.Text>
+                              </Space>
+                              <Space align="center" size="small">
+                                <Switch
+                                  value={businessForm.vlAssistApplyToPrimary}
+                                  disabled={!businessForm.vlAssistEnabled || !businessForm.vlAssistWaitForResult}
+                                  onChange={(v) =>
+                                    setBusinessForm({
+                                      ...businessForm,
+                                      vlAssistApplyToPrimary: Boolean(v),
+                                      vlAssistWaitForResult: Boolean(v) ? true : businessForm.vlAssistWaitForResult,
+                                    })
+                                  }
+                                />
+                                <Typography.Text theme="secondary">用 VL 结果补主任务提示词</Typography.Text>
+                              </Space>
+                            </Space>
+                          </Col>
                         </Row>
+                        <Alert
+                          theme="info"
+                          message={
+                            businessForm.vlAssistWaitForResult
+                              ? '当前是串联模式：先分析图片，成功后再提交主出图任务；VL 失败时主任务不会提交。'
+                              : '当前是伴随模式：主出图任务会立即提交，VL 只做记录和观测，不影响出图。'
+                          }
+                        />
                       </Space>
                     </Card>
                     <Row gutter={[12, 12]}>

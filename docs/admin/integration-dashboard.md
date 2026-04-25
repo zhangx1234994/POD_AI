@@ -120,6 +120,25 @@
 - `GET /api/admin/abilities/logs`
 - `GET /api/admin/abilities/logs/metrics`
 
+## 8.1. 业务能力（Business Capabilities）
+
+### 职责
+- 管理图裂变、扩图等业务版本，控制默认版本、灰度比例和发布时间
+- 把底层原子能力、VL 前置分析和灰度策略组合成业务侧可理解的版本
+- 让运营通过表单配置“伴随式 VL”或“串联式 VL”，减少手写 JSON
+
+### VL 配置口径
+- 伴随模式：主出图任务立即提交，VL 只做记录和观测。
+- 串联模式：先跑 VL，成功后再提交主出图任务；VL 失败时主任务不提交。
+- “用 VL 结果补主任务提示词”开启后，业务层会把 `promptCard.imageDesc` 回填到图裂变 `image_desc`，把 `promptCard.positivePrompt` 回填到图裂变/扩图 `prompt`。
+
+### 后端接口
+- `GET /api/admin/business/capabilities`
+- `POST /api/admin/business/capabilities`
+- `PUT /api/admin/business/capabilities/{id}`
+- `GET /api/admin/business/runs`
+- `GET /api/admin/business/usage-summary`
+
 ## 9. ComfyUI 管理
 
 ### 职责

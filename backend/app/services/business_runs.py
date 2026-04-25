@@ -417,6 +417,25 @@ class BusinessRunService:
             session.refresh(run)
             run_id = run.id
 
+        if self._should_wait_for_vl(recipe):
+            self._enqueue_sidecar_steps(
+                run_id=run_id,
+                recipe=recipe,
+                business_key=business_key,
+                payload=payload,
+                user=user,
+                image_url=image_url,
+                route_info=route_info,
+                trace_context=trace_context,
+            )
+            self._submit_primary_after_vl_if_ready(run_id=run_id, user=user)
+            with get_session() as session:
+                db_run = session.get(BusinessRun, run_id)
+                if not db_run:
+                    raise HTTPException(status_code=404, detail="BUSINESS_RUN_NOT_FOUND")
+                self._sync_run_steps(session=session, run=db_run)
+                return self._run_to_dict(db_run, session=session)
+
         ability_payload = self._build_ability_payload(
             capability_key=business_key,
             payload=payload,
@@ -424,29 +443,12 @@ class BusinessRunService:
             route_info=route_info,
             trace_context=trace_context,
         )
-        try:
-            task = get_ability_task_service().enqueue(ability_id=ability_id, payload=ability_payload, user=user)
-        except HTTPException as exc:
-            self._mark_run_submit_failed(run_id, exc.detail)
-            raise
-        except Exception as exc:
-            self._mark_run_submit_failed(run_id, f"RUN_CREATE_FAILED:{exc}")
-            raise HTTPException(status_code=500, detail="RUN_CREATE_FAILED") from exc
-        with get_session() as session:
-            db_run = session.get(BusinessRun, run_id)
-            if not db_run:
-                raise HTTPException(status_code=404, detail="BUSINESS_RUN_NOT_FOUND")
-            db_run.ability_task_id = str(task.get("id") or "")
-            db_run.status = str(task.get("status") or "queued")
-            db_run.started_at = datetime.utcnow()
-            self._mark_primary_step_submitted(
-                session=session,
-                run=db_run,
-                task=task,
-                request_payload=ability_payload.model_dump(exclude_none=True),
-            )
-            session.add(db_run)
-            session.commit()
+        self._submit_primary_ability(
+            run_id=run_id,
+            ability_id=ability_id,
+            ability_payload=ability_payload,
+            user=user,
+        )
 
         self._enqueue_sidecar_steps(
             run_id=run_id,
@@ -671,6 +673,133 @@ class BusinessRunService:
             session.add(db_run)
             session.commit()
 
+    def _submit_primary_ability(
+        self,
+        *,
+        run_id: str,
+        ability_id: str,
+        ability_payload: AbilityInvokeRequest,
+        user: User | None,
+        raise_on_error: bool = True,
+    ) -> bool:
+        try:
+            task = get_ability_task_service().enqueue(ability_id=ability_id, payload=ability_payload, user=user)
+        except HTTPException as exc:
+            self._mark_run_submit_failed(run_id, exc.detail)
+            if raise_on_error:
+                raise
+            return False
+        except Exception as exc:
+            self._mark_run_submit_failed(run_id, f"RUN_CREATE_FAILED:{exc}")
+            if raise_on_error:
+                raise HTTPException(status_code=500, detail="RUN_CREATE_FAILED") from exc
+            return False
+
+        with get_session() as session:
+            db_run = session.get(BusinessRun, run_id)
+            if not db_run:
+                if raise_on_error:
+                    raise HTTPException(status_code=404, detail="BUSINESS_RUN_NOT_FOUND")
+                return False
+            db_run.ability_task_id = str(task.get("id") or "")
+            db_run.status = str(task.get("status") or "queued")
+            db_run.started_at = db_run.started_at or datetime.utcnow()
+            self._mark_primary_step_submitted(
+                session=session,
+                run=db_run,
+                task=task,
+                request_payload=ability_payload.model_dump(exclude_none=True),
+            )
+            session.add(db_run)
+            session.commit()
+        return True
+
+    def _submit_primary_after_vl_if_ready(self, *, run_id: str, user: User | None) -> bool:
+        with get_session() as session:
+            run = session.get(BusinessRun, run_id)
+            if not run or run.ability_task_id:
+                return False
+            capability = session.get(BusinessCapability, run.business_version_id) if run.business_version_id else None
+            recipe = capability.recipe if capability and isinstance(capability.recipe, dict) else {}
+            if not self._should_wait_for_vl(recipe):
+                return False
+            self._sync_run_steps(session=session, run=run)
+            vl_step = self._find_blocking_vl_step(session=session, run=run)
+            if not vl_step:
+                return False
+            if vl_step.status in {"failed", "cancelled"}:
+                detail = vl_step.error_message or "BUSINESS_VL_PREPROCESS_FAILED"
+                run.status = "failed"
+                run.error_message = str(detail)[:500]
+                run.finished_at = datetime.utcnow()
+                primary_step = self._find_primary_step(session=session, run=run, task_id=None)
+                if primary_step and primary_step.status == "planned":
+                    primary_step.status = "failed"
+                    primary_step.error_message = run.error_message
+                    primary_step.finished_at = run.finished_at
+                    session.add(primary_step)
+                session.add(run)
+                session.commit()
+                return False
+            if vl_step.status != "succeeded":
+                return False
+            if not run.ability_id:
+                run.status = "failed"
+                run.error_message = "BUSINESS_RECIPE_ABILITY_NOT_AVAILABLE"
+                run.finished_at = datetime.utcnow()
+                session.add(run)
+                session.commit()
+                return False
+            business_key = run.business_key
+            ability_id = run.ability_id
+            request_payload = dict(run.request_payload) if isinstance(run.request_payload, dict) else {}
+            clean_payload = {key: value for key, value in request_payload.items() if not str(key).startswith("_")}
+            route_info = request_payload.get("_route") if isinstance(request_payload.get("_route"), dict) else {}
+            trace_context = request_payload.get("_trace") if isinstance(request_payload.get("_trace"), dict) else {}
+            vl_summary = self._build_step_result_summary(vl_step)
+
+        try:
+            payload = BusinessRunCreateRequest.model_validate(clean_payload)
+        except Exception:
+            self._mark_run_submit_failed(run_id, "BUSINESS_REQUEST_PAYLOAD_INVALID")
+            return False
+        image_url = self._first_string(payload.imageUrl, payload.url, (payload.inputs or {}).get("imageUrl"), (payload.inputs or {}).get("url"))
+        if not image_url:
+            self._mark_run_submit_failed(run_id, "BUSINESS_IMAGE_URL_REQUIRED")
+            return False
+        ability_payload = self._build_ability_payload(
+            capability_key=str(business_key),
+            payload=payload,
+            image_url=image_url,
+            route_info=route_info,
+            trace_context=trace_context,
+            recipe=recipe,
+            vl_summary=vl_summary,
+        )
+        return self._submit_primary_ability(
+            run_id=run_id,
+            ability_id=str(ability_id),
+            ability_payload=ability_payload,
+            user=user,
+            raise_on_error=False,
+        )
+
+    @staticmethod
+    def _find_blocking_vl_step(*, session, run: BusinessRun) -> BusinessRunStep | None:
+        return (
+            session.execute(
+                select(BusinessRunStep)
+                .where(
+                    BusinessRunStep.run_id == run.id,
+                    BusinessRunStep.enabled.is_(True),
+                    BusinessRunStep.step_type.in_(["vl_analyze", "vl_analyze_image"]),
+                )
+                .order_by(BusinessRunStep.step_order.asc())
+            )
+            .scalars()
+            .first()
+        )
+
     def get_run(self, *, run_id: str, user: User | None = None) -> BusinessRun:
         self.finalize_run(run_id)
         with get_session() as session:
@@ -693,9 +822,18 @@ class BusinessRunService:
                 task = session.get(AbilityTask, run.ability_task_id)
                 if task:
                     self._copy_task_to_run(session=session, run=run, task=task)
+            should_submit_primary = not run.ability_task_id and run.status not in {"failed", "cancelled"}
             session.commit()
-            if run.status in {"succeeded", "failed", "cancelled"}:
-                self._deliver_callback(run.id)
+            run_status = run.status
+            terminal_after_sync = run.status in {"succeeded", "failed", "cancelled"}
+        if should_submit_primary:
+            self._submit_primary_after_vl_if_ready(run_id=run_id, user=None)
+            with get_session() as session:
+                run = session.get(BusinessRun, run_id)
+                run_status = run.status if run else run_status
+                terminal_after_sync = bool(run and run.status in {"succeeded", "failed", "cancelled"})
+        if terminal_after_sync:
+            self._deliver_callback(run_id)
 
     def _start_finalize_thread(self) -> None:
         if self._thread_started:
@@ -725,16 +863,20 @@ class BusinessRunService:
                 .all()
             )
             for run in rows:
-                if not run.ability_task_id:
-                    continue
-                task = session.get(AbilityTask, run.ability_task_id)
-                if not task:
-                    continue
+                task = session.get(AbilityTask, run.ability_task_id) if run.ability_task_id else None
                 self._sync_run_steps(session=session, run=run)
-                self._copy_task_to_run(session=session, run=run, task=task)
+                if task:
+                    self._copy_task_to_run(session=session, run=run, task=task)
             session.commit()
             terminal_ids = [row.id for row in rows if row.status in {"succeeded", "failed", "cancelled"}]
+            waiting_primary_ids = [
+                row.id
+                for row in rows
+                if not row.ability_task_id and row.status not in {"failed", "cancelled", "succeeded"}
+            ]
         self._finalize_pending_steps()
+        for run_id in waiting_primary_ids:
+            self._submit_primary_after_vl_if_ready(run_id=run_id, user=None)
         for run_id in terminal_ids:
             self._deliver_callback(run_id)
 
@@ -1395,6 +1537,74 @@ class BusinessRunService:
                 return value.strip()
         return None
 
+    @staticmethod
+    def _should_wait_for_vl(recipe: dict[str, Any]) -> bool:
+        mode = str(recipe.get("mode") or "").strip().lower()
+        vl_assist = recipe.get("vlAssist") or recipe.get("vl_assist")
+        if not isinstance(vl_assist, dict) or not vl_assist.get("enabled"):
+            return False
+        if mode in {"vl_then_primary", "vl-first", "vl_first", "preprocess_then_primary"}:
+            return True
+        for key in (
+            "waitForResult",
+            "wait_for_result",
+            "blocking",
+            "blockPrimary",
+            "block_primary",
+            "applyToPrimary",
+            "apply_to_primary",
+        ):
+            if key in vl_assist and vl_assist.get(key) is not False:
+                return bool(vl_assist.get(key))
+        return False
+
+    def _should_apply_vl_to_primary(self, recipe: dict[str, Any]) -> bool:
+        vl_assist = recipe.get("vlAssist") or recipe.get("vl_assist")
+        if not isinstance(vl_assist, dict) or not vl_assist.get("enabled"):
+            return False
+        for key in ("applyToPrimary", "apply_to_primary", "useResultForPrimary", "use_result_for_primary"):
+            if key in vl_assist:
+                return vl_assist.get(key) is not False
+        return self._should_wait_for_vl(recipe)
+
+    def _apply_vl_summary_to_inputs(
+        self,
+        *,
+        capability_key: str,
+        inputs: dict[str, Any],
+        pass_keys: set[str],
+        recipe: dict[str, Any],
+        vl_summary: dict[str, Any],
+    ) -> None:
+        vl_assist = recipe.get("vlAssist") or recipe.get("vl_assist")
+        apply_config = {}
+        if isinstance(vl_assist, dict):
+            raw_apply_config = vl_assist.get("applyToPrimary") or vl_assist.get("apply_to_primary")
+            if isinstance(raw_apply_config, dict):
+                apply_config = raw_apply_config
+        overwrite = bool(apply_config.get("overwrite") or (isinstance(vl_assist, dict) and vl_assist.get("overwritePrimary")))
+
+        def first_text(*keys: str) -> str | None:
+            for key in keys:
+                value = vl_summary.get(key)
+                if isinstance(value, (str, int, float)) and str(value).strip():
+                    return str(value).strip()
+            return None
+
+        def assign(field: str, value: str | None) -> None:
+            if field not in pass_keys or not value:
+                return
+            if overwrite or not inputs.get(field):
+                inputs[field] = value
+
+        if capability_key == "fission":
+            assign("image_desc", first_text("imageDesc", "summary", "textPreview"))
+            assign("prompt", first_text("positivePrompt"))
+        elif capability_key == "outpaint":
+            assign("prompt", first_text("positivePrompt", "imageDesc", "summary"))
+        else:
+            assign("prompt", first_text("positivePrompt", "summary"))
+
     def _build_ability_payload(
         self,
         *,
@@ -1403,6 +1613,8 @@ class BusinessRunService:
         image_url: str,
         route_info: dict[str, Any] | None = None,
         trace_context: dict[str, Any] | None = None,
+        recipe: dict[str, Any] | None = None,
+        vl_summary: dict[str, Any] | None = None,
     ) -> AbilityInvokeRequest:
         inputs: dict[str, Any] = dict(payload.inputs or {})
         if capability_key == "fission":
@@ -1440,6 +1652,14 @@ class BusinessRunService:
                 inputs[key] = flat_payload[key]
         if payload.prompt and "prompt" not in inputs:
             inputs["prompt"] = payload.prompt
+        if vl_summary and self._should_apply_vl_to_primary(recipe or {}):
+            self._apply_vl_summary_to_inputs(
+                capability_key=capability_key,
+                inputs=inputs,
+                pass_keys=pass_keys,
+                recipe=recipe or {},
+                vl_summary=vl_summary,
+            )
         ability_inputs = {key: value for key, value in inputs.items() if key in pass_keys and value not in (None, "", [])}
         return AbilityInvokeRequest(
             inputs=ability_inputs,

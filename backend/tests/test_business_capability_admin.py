@@ -624,6 +624,143 @@ def test_business_run_submits_vl_sidecar_step(monkeypatch) -> None:
     assert run["steps"][1]["ability_task_id"] == "t1.fission.auto.task_run_1"
 
 
+def test_business_run_waits_for_vl_before_primary_and_applies_summary(monkeypatch) -> None:
+    install_business_db(monkeypatch)
+    service = BusinessRunService()
+    service.create_capability(
+        BusinessCapabilityCreateRequest(
+            businessKey="fission",
+            version="vl-blocking",
+            displayName="VL 串联图裂变",
+            status="active",
+            primaryAbilityId="ability_openai_fission",
+            recipe={
+                "mode": "vl_then_primary",
+                "vlAssist": {
+                    "enabled": True,
+                    "abilityId": "test_vl_analyze_image",
+                    "waitForResult": True,
+                    "applyToPrimary": True,
+                },
+                "steps": [
+                    {"id": "vl", "type": "vl_analyze", "role": "preprocess", "abilityId": "test_vl_analyze_image"},
+                    {"id": "primary", "type": "ability_task", "role": "primary", "abilityId": "ability_openai_fission"},
+                ],
+            },
+        )
+    )
+
+    calls = []
+
+    class FakeAbilityTaskService:
+        def enqueue(self, *, ability_id, payload, user):
+            calls.append((ability_id, payload))
+            if ability_id == "test_vl_analyze_image":
+                return {"id": "task_vl", "status": "queued"}
+            assert ability_id == "ability_openai_fission"
+            assert payload.inputs["image_desc"] == "蓝白植物连续花型"
+            assert payload.inputs["prompt"] == "生成蓝白植物面料裂变图"
+            return {"id": "task_primary", "status": "queued"}
+
+    monkeypatch.setattr(business_runs_module, "get_ability_task_service", lambda: FakeAbilityTaskService())
+
+    run = service.create_run(
+        business_key="fission",
+        payload=BusinessRunCreateRequest(imageUrl="https://example.com/a.png", version="vl-blocking"),
+        user=None,
+    )
+
+    assert [item[0] for item in calls] == ["test_vl_analyze_image"]
+    assert run["ability_task_id"] is None
+    assert run["steps"][0]["status"] == "queued"
+    assert run["steps"][1]["status"] == "planned"
+
+    with business_runs_module.get_session() as session:
+        session.add(
+            AbilityTask(
+                id="task_vl",
+                ability_id="test_vl_analyze_image",
+                ability_name="VL 图像理解",
+                ability_provider="vl",
+                capability_key="analyze_image",
+                status="succeeded",
+                result_payload={
+                    "texts": [
+                        '{"summary":"蓝白植物图案","promptCard":{"imageDesc":"蓝白植物连续花型",'
+                        '"positivePrompt":"生成蓝白植物面料裂变图"}}'
+                    ],
+                },
+            )
+        )
+        session.commit()
+
+    fetched = service.get_run(run_id=run["id"], user=None)
+
+    assert [item[0] for item in calls] == ["test_vl_analyze_image", "ability_openai_fission"]
+    assert fetched["ability_task_id"] == "t1.fission.auto.task_primary"
+    assert fetched["steps"][0]["status"] == "succeeded"
+    assert fetched["steps"][1]["status"] == "queued"
+    assert fetched["steps"][1]["ability_task_id"] == "t1.fission.auto.task_primary"
+
+
+def test_business_run_blocks_primary_when_required_vl_fails(monkeypatch) -> None:
+    install_business_db(monkeypatch)
+    service = BusinessRunService()
+    service.create_capability(
+        BusinessCapabilityCreateRequest(
+            businessKey="fission",
+            version="vl-blocking",
+            displayName="VL 串联图裂变",
+            status="active",
+            primaryAbilityId="ability_openai_fission",
+            recipe={
+                "mode": "vl_then_primary",
+                "vlAssist": {"enabled": True, "abilityId": "test_vl_analyze_image", "waitForResult": True},
+                "steps": [
+                    {"id": "vl", "type": "vl_analyze", "role": "preprocess", "abilityId": "test_vl_analyze_image"},
+                    {"id": "primary", "type": "ability_task", "role": "primary", "abilityId": "ability_openai_fission"},
+                ],
+            },
+        )
+    )
+
+    calls = []
+
+    class FakeAbilityTaskService:
+        def enqueue(self, *, ability_id, payload, user):
+            calls.append(ability_id)
+            return {"id": "task_vl", "status": "queued"}
+
+    monkeypatch.setattr(business_runs_module, "get_ability_task_service", lambda: FakeAbilityTaskService())
+    run = service.create_run(
+        business_key="fission",
+        payload=BusinessRunCreateRequest(imageUrl="https://example.com/a.png", version="vl-blocking"),
+        user=None,
+    )
+    with business_runs_module.get_session() as session:
+        session.add(
+            AbilityTask(
+                id="task_vl",
+                ability_id="test_vl_analyze_image",
+                ability_name="VL 图像理解",
+                ability_provider="vl",
+                capability_key="analyze_image",
+                status="failed",
+                error_message="VL_DOWN",
+            )
+        )
+        session.commit()
+
+    fetched = service.get_run(run_id=run["id"], user=None)
+
+    assert calls == ["test_vl_analyze_image"]
+    assert fetched["status"] == "failed"
+    assert fetched["error_message"] == "VL_DOWN"
+    assert fetched["ability_task_id"] is None
+    assert fetched["steps"][1]["status"] == "failed"
+    assert fetched["steps"][1]["error_message"] == "VL_DOWN"
+
+
 def test_business_run_keeps_primary_when_vl_sidecar_submit_fails(monkeypatch) -> None:
     install_business_db(monkeypatch)
     service = BusinessRunService()

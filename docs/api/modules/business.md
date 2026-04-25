@@ -79,7 +79,9 @@
 
 - `primaryAbilityId` 对应的主能力仍是出图真源，决定业务任务的最终 `status/imageUrls/error`。
 - `vlAssist.enabled=true` 时，业务层会把 VL 步骤作为伴随任务提交并记录在 `steps` 中。
-- 当前 VL 伴随任务不会阻塞主能力，也不会自动改写主能力提示词或参数；后续确认稳定后，再逐步接入“VL 输出 -> 主能力入参”的串联编排。
+- 默认模式下，VL 不阻塞主能力，适合先做观测和结果积累。
+- 如果配方设置 `mode=vl_then_primary`，或设置 `vlAssist.waitForResult=true` / `vlAssist.applyToPrimary=true`，业务层会先提交 VL，等 VL 成功后再提交主能力。
+- 阻塞式 VL 串联会把 `promptCard.imageDesc` 回填到图裂变 `image_desc`，把 `promptCard.positivePrompt` 回填到图裂变/扩图 `prompt`；只有原请求未填写这些字段时才自动回填。
 
 推荐结构：
 
@@ -108,11 +110,41 @@
 }
 ```
 
+阻塞式串联结构：
+
+```json
+{
+  "mode": "vl_then_primary",
+  "primaryAbilityId": "ability_openai_fission",
+  "vlAssist": {
+    "enabled": true,
+    "abilityId": "vl_analyze_image",
+    "waitForResult": true,
+    "applyToPrimary": true
+  },
+  "steps": [
+    {
+      "id": "vl",
+      "type": "vl_analyze",
+      "role": "preprocess",
+      "abilityId": "vl_analyze_image"
+    },
+    {
+      "id": "primary",
+      "type": "ability_task",
+      "role": "primary",
+      "abilityId": "ability_openai_fission"
+    }
+  ]
+}
+```
+
 校验规则：
 
 - `primaryAbilityId` 必须指向存在的原子能力。
 - `steps` 中启用的执行步骤必须配置 `abilityId`，且能力必须存在。
 - `vlAssist.enabled=true` 时默认使用 `vl_analyze_image`，也可以显式指定其他 VL 能力；提交业务任务时可在 `inputs.vl_provider`、`inputs.coze_workflow_id`、`inputs.vl_prompt` 覆盖 VL 来源和分析要求。
+- 阻塞式 VL 串联中，VL 失败时主能力不会提交，业务任务直接进入 `failed`，错误会保留在 `steps[0].error` 和业务任务 `error` 中。
 - 未知步骤类型会被拒绝，避免把不可执行配置带到线上。
 
 管理端已提供“VL 前置分析”开关和能力选择框；普通运营只需要切换表单，不需要直接编辑 JSON。
@@ -185,6 +217,8 @@
 - `BUSINESS_CAPABILITY_NOT_FOUND`
 - `BUSINESS_RECIPE_INVALID`
 - `BUSINESS_RECIPE_ABILITY_NOT_AVAILABLE`
+- `BUSINESS_REQUEST_PAYLOAD_INVALID`
+- `BUSINESS_VL_PREPROCESS_FAILED`
 - `ABILITY_TASK_FAILED`
 - `COMFYUI_TIMEOUT`
 
@@ -334,7 +368,8 @@
 说明：
 
 - `steps` 是业务配方步骤状态。当前版本至少记录主执行能力；启用 VL 辅助后会额外提交并记录 VL 步骤。
-- 当前最终出图仍以主执行能力为准，VL 伴随步骤先用于链路观测、结果积累和后续串联执行准备。
+- 默认情况下最终出图仍以主执行能力为准，VL 伴随步骤用于链路观测和结果积累。
+- 阻塞式 VL 串联开启后，主能力会等 VL 成功后再提交；查询时可能先看到 VL 运行中、主能力仍是 `planned`。
 - `steps[].resultSummary` 只返回安全摘要，例如 VL 图片描述、提示词建议、图片/视频数量，不返回完整第三方原始响应或大字段。
 - `durationMs/costAmount/currency/quotaUnits` 是成本与配额预留字段。现阶段以底层能力日志和厂商返回为准，缺失时返回 `null`，不会影响业务轮询。
 

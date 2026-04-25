@@ -88,6 +88,8 @@
 | BUSINESS_DEFAULT_VERSION_MUST_BE_ACTIVE | 默认业务版本必须是 active 状态 | 400 |
 | BUSINESS_RECIPE_INVALID | 业务能力配方非法 | 400，缺少 primaryAbilityId/steps、步骤类型非法或步骤结构非法 |
 | BUSINESS_RECIPE_ABILITY_NOT_AVAILABLE | 业务配方指向的原子能力不可用 | 400，主能力/步骤能力/VL 辅助能力不存在 |
+| BUSINESS_REQUEST_PAYLOAD_INVALID | 业务任务保存的请求载荷不可恢复 | 500，阻塞式 VL 前置完成后无法重建主任务入参 |
+| BUSINESS_VL_PREPROCESS_FAILED | VL 前置分析失败，主任务未提交 | 500，`vlAssist.waitForResult=true` 或 `mode=vl_then_primary` |
 | BUSINESS_RUN_ID_REQUIRED | 查询业务任务缺少 runId | 400 |
 | BUSINESS_RUN_NOT_FOUND | 业务任务不存在 | 404 |
 | BUSINESS_RUN_FORBIDDEN | 业务任务无访问权限 | 403 |

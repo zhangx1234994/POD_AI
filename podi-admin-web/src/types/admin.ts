@@ -457,6 +457,8 @@ export interface BusinessCapabilityFormState {
   primaryAbilityId: string;
   vlAssistEnabled: boolean;
   vlAssistAbilityId: string;
+  vlAssistWaitForResult: boolean;
+  vlAssistApplyToPrimary: boolean;
   rolloutEnabled: boolean;
   rolloutPercent: number;
   rolloutAllowlistText: string;
