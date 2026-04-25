@@ -29,7 +29,7 @@ class UserRead(BaseModel):
 
     id: str
     username: str
-    email: EmailStr
+    email: str
     role: str
     status: str
     displayName: str | None = None
@@ -109,7 +109,7 @@ class UserSessionRead(BaseModel):
     id: str
     userId: str | None = None
     username: str | None = None
-    email: EmailStr | None = None
+    email: str | None = None
     displayName: str | None = None
     status: str
     ipAddress: str | None = None

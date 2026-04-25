@@ -42,7 +42,7 @@ def install_auth_db(monkeypatch):
         session.add(
             User(
                 id="admin-user",
-                email="admin@example.com",
+                email="admin@podi.local",
                 username="admin",
                 display_name="管理员",
                 password_hash=auth_service.hash_password("Admin12345"),
