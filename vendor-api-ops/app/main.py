@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, status
 
 from app.config import get_settings
 from app.invocations import ERR_INVOCATION_NOT_FOUND, invocation_store
@@ -24,6 +24,21 @@ from app.schemas import (
 app = FastAPI(title="PODI Vendor API Ops", version="0.1.0")
 
 
+def require_service_token(authorization: str | None = Header(default=None)) -> None:
+    token = get_settings().admin_token
+    if not token:
+        return
+    expected = f"Bearer {token}"
+    if authorization != expected:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=ErrorPayload(
+                errorCode="VENDOR_API_AUTH_REQUIRED",
+                message="vendor-api-ops requires a valid service token.",
+            ).model_dump(),
+        )
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     settings = get_settings()
@@ -36,7 +51,7 @@ def providers() -> ProvidersResponse:
     return ProvidersResponse(service=settings.service_name, providers=list_providers(settings))
 
 
-@app.post("/v1/providers/{provider}/egress-check", response_model=EgressCheckResponse)
+@app.post("/v1/providers/{provider}/egress-check", response_model=EgressCheckResponse, dependencies=[Depends(require_service_token)])
 async def provider_egress_check(provider: str, payload: EgressCheckRequest | None = None) -> EgressCheckResponse:
     settings = get_settings()
     request = payload or EgressCheckRequest()
@@ -48,12 +63,12 @@ async def provider_egress_check(provider: str, payload: EgressCheckRequest | Non
     )
 
 
-@app.post("/v1/invocations", response_model=InvocationResponse)
+@app.post("/v1/invocations", response_model=InvocationResponse, dependencies=[Depends(require_service_token)])
 def create_invocation(payload: InvocationRequest) -> InvocationResponse:
     return invocation_store.submit(payload)
 
 
-@app.get("/v1/invocations/{vendor_invocation_id}", response_model=InvocationResponse)
+@app.get("/v1/invocations/{vendor_invocation_id}", response_model=InvocationResponse, dependencies=[Depends(require_service_token)])
 def get_invocation(vendor_invocation_id: str) -> InvocationResponse:
     item = invocation_store.get(vendor_invocation_id)
     if item is None:
@@ -67,23 +82,23 @@ def get_invocation(vendor_invocation_id: str) -> InvocationResponse:
     return item
 
 
-@app.post("/v1/keys", response_model=VendorKeyRead)
+@app.post("/v1/keys", response_model=VendorKeyRead, dependencies=[Depends(require_service_token)])
 def create_key(payload: VendorKeyCreateRequest) -> VendorKeyRead:
     return invocation_store.create_key(payload)
 
 
-@app.get("/v1/keys", response_model=VendorKeyListResponse)
+@app.get("/v1/keys", response_model=VendorKeyListResponse, dependencies=[Depends(require_service_token)])
 def list_keys(provider: str | None = None) -> VendorKeyListResponse:
     return VendorKeyListResponse(items=invocation_store.list_keys(provider=provider))
 
 
-@app.get("/v1/usage/summary", response_model=UsageSummaryResponse)
+@app.get("/v1/usage/summary", response_model=UsageSummaryResponse, dependencies=[Depends(require_service_token)])
 def usage_summary(windowHours: int = 24) -> UsageSummaryResponse:
     rows = invocation_store.usage_summary(window_hours=windowHours)
     return UsageSummaryResponse(windowHours=max(1, int(windowHours or 24)), items=rows)
 
 
-@app.patch("/v1/keys/{key_id}", response_model=VendorKeyRead)
+@app.patch("/v1/keys/{key_id}", response_model=VendorKeyRead, dependencies=[Depends(require_service_token)])
 def update_key(key_id: str, payload: VendorKeyUpdateRequest) -> VendorKeyRead:
     item = invocation_store.update_key(key_id, payload)
     if item is None:

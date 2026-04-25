@@ -26,6 +26,20 @@ Provider registry now covers OpenAI, OpenAI-compatible relays, Volcengine,
 Baidu, and KIE. Keys, invocations, and usage logs are persisted in SQLite by
 default (`runtime/vendor-api-ops.sqlite3`).
 
+Sensitive routes can be protected with `VENDOR_API_OPS_ADMIN_TOKEN`. When this
+variable is set, callers must send `Authorization: Bearer <token>` for:
+
+- `POST /v1/providers/{provider}/egress-check`
+- `POST /v1/invocations`
+- `GET /v1/invocations/{vendorInvocationId}`
+- `POST /v1/keys`
+- `GET /v1/keys`
+- `PATCH /v1/keys/{keyId}`
+- `GET /v1/usage/summary`
+
+Backend should use the same value through `VENDOR_API_TOKEN`. `GET /health` and
+`GET /v1/providers` stay public so deployment probes can still run.
+
 ## Run
 
 ```bash

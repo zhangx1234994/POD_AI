@@ -49,6 +49,23 @@ def test_provider_list_reports_env_key_presence(monkeypatch) -> None:
         get_settings.cache_clear()
 
 
+def test_service_token_required_for_sensitive_routes_when_configured(monkeypatch) -> None:
+    get_settings.cache_clear()
+    monkeypatch.setenv("VENDOR_API_OPS_ADMIN_TOKEN", "test-token")
+    try:
+        client = TestClient(app)
+
+        assert client.get("/v1/providers").status_code == 200
+        assert client.get("/v1/keys").status_code == 401
+
+        response = client.get("/v1/keys", headers={"Authorization": "Bearer test-token"})
+
+        assert response.status_code == 200
+        assert "items" in response.json()
+    finally:
+        get_settings.cache_clear()
+
+
 def test_unsupported_provider_returns_normalized_error() -> None:
     client = TestClient(app)
 
