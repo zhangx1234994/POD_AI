@@ -65,16 +65,44 @@
 - `PUT /api/admin/workflow-bindings/{id}`
 - `DELETE /api/admin/workflow-bindings/{id}`
 
-## 6. API Key 管理
+## 6. 第三方模型 Key 管理
 
 ### 职责
-- 维护第三方凭证（可多 key 轮换）
-- 控制启用/禁用
+- 在管理端“模型弹药库”维护 OpenAI、KIE、火山、百度、中转站等第三方模型 Key。
+- Key 写入 `vendor-api-ops`，用于实际厂商调用、并发限制、额度统计和失败治理。
+- 明文只在新增时提交；列表只显示脱敏值，不向 Coze、前端或业务方暴露。
+- 后续新增厂商 Key 默认走交互页面，不再要求运维改配置文件。
+
+### 页面入口
+- 管理端：`http://114.55.0.56:8199`
+- 左侧导航：`模型弹药库`
+- 表单区域：`第三方模型 Key 池`
+
+### 配置口径
+- OpenAI：厂商选择 `openai`，填写 API Key，Secret Key 留空。
+- OpenAI 中转站：厂商选择 `openai_compatible`，填写 API Key；baseUrl 在模型目录或服务配置中维护。
+- KIE：厂商选择 `kie`，填写 API Key，Secret Key 留空。
+- 火山：厂商选择 `volcengine`，填写 API Key，Secret Key 留空。
+- 百度：厂商选择 `baidu`，同时填写 API Key 和 Secret Key。
+- 换 Key 时新增一条新 Key，确认可用后停用旧 Key；编辑模式不回显明文。
 
 ### 第三方 API 治理摘要
 - `GET /api/admin/vendor-api/governance/summary`
 - 汇总供应商、模型目录、原子能力、密钥来源、最近调用统计和缺口提示。
-- 该接口面向后续前端重构使用，前端可以先展示“哪些供应商可用、哪些缺密钥、哪些最近失败”，不需要让用户理解底层 executor。
+- 该接口用于展示“哪些供应商可用、哪些缺密钥、哪些最近失败”，不需要让用户理解底层 executor。
+
+### 后端接口
+- `GET /api/admin/vendor-api/keys`
+- `POST /api/admin/vendor-api/keys`
+- `PATCH /api/admin/vendor-api/keys/{id}`
+- `GET /api/admin/vendor-api/providers`
+- `GET /api/admin/vendor-api/governance/summary`
+
+## 7. 旧 API Key 管理
+
+### 职责
+- 兼容旧 backend Key 表。
+- 不再作为第三方模型 Key 的主入口。
 
 ### 后端接口
 - `GET /api/admin/api-keys`
@@ -82,7 +110,7 @@
 - `PUT /api/admin/api-keys/{id}`
 - `DELETE /api/admin/api-keys/{id}`
 
-## 7. 能力测试（Ability Test）
+## 8. 能力测试（Ability Test）
 
 ### 职责
 - 根据 schema 动态渲染表单

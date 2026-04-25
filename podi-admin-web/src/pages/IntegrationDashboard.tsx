@@ -718,6 +718,41 @@ const vendorIssueLabels: Record<string, string> = {
   VENDOR_API_EXECUTOR_UNAVAILABLE: '能力服务不可达',
   VENDOR_API_TIMEOUT: '能力服务超时',
 };
+const vendorKeyHints: Record<string, { alias: string; key: string; secret?: string; note: string }> = {
+  openai: {
+    alias: '例如：OpenAI 主账号',
+    key: '粘贴 OpenAI API Key',
+    note: 'OpenAI 只需要 API Key；新增后可用于图片生成、图片编辑、VL 等能力。',
+  },
+  openai_compatible: {
+    alias: '例如：中转站主账号',
+    key: '粘贴中转站 API Key',
+    note: '中转站 Key 会配合模型目录里的 baseUrl 使用；业务方不会看到明文。',
+  },
+  kie: {
+    alias: '例如：KIE 主账号',
+    key: '粘贴 KIE API Key',
+    note: 'KIE 只需要 API Key；适合异步任务和轮询型模型。',
+  },
+  volcengine: {
+    alias: '例如：火山主账号',
+    key: '粘贴火山 API Key',
+    note: '火山只需要 API Key；模型同步仍依赖服务端可用出网。',
+  },
+  baidu: {
+    alias: '例如：百度图像主账号',
+    key: '粘贴百度 API Key',
+    secret: '粘贴百度 Secret Key',
+    note: '百度需要同时填写 API Key 和 Secret Key，否则无法换取访问令牌。',
+  },
+};
+const defaultVendorKeyHint = {
+  alias: '例如：厂商-用途-主账号',
+  key: '粘贴第三方 API Key',
+  secret: '如厂商需要双凭证，在这里填写 Secret Key',
+  note: '后续第三方模型 Key 都在这里配置，不需要改服务器配置文件。',
+};
+const getVendorKeyHint = (provider?: string | null) => vendorKeyHints[String(provider || '').trim()] || defaultVendorKeyHint;
 const getVendorIssueLabel = (issue: string) => {
   const code = String(issue || '').split(':')[0];
   return vendorIssueLabels[code] || issue || '需要检查';
@@ -7366,13 +7401,23 @@ const extractErrorMessage = (error: unknown): string => {
           metadata: vendorKeyForm.metadata,
         });
       } else if (vendorKeyForm.key) {
-        const provider = String(vendorKeyForm.provider);
-        const alias = String(vendorKeyForm.alias);
+        const provider = String(vendorKeyForm.provider).trim();
+        const alias = String(vendorKeyForm.alias).trim();
+        const key = String(vendorKeyForm.key || '').trim();
+        const secret = typeof vendorKeyForm.secret === 'string' ? vendorKeyForm.secret.trim() : vendorKeyForm.secret;
+        if (!key) {
+          setVendorError('请填写 API Key');
+          return;
+        }
+        if (provider === 'baidu' && !secret) {
+          setVendorError('百度需要同时填写 API Key 和 Secret Key');
+          return;
+        }
         await adminApi.createVendorKey({
           provider,
           alias,
-          key: vendorKeyForm.key,
-          secret: vendorKeyForm.secret,
+          key,
+          secret,
           model: vendorKeyForm.model,
           status: vendorKeyForm.status,
           dailyQuota: vendorKeyForm.dailyQuota,
@@ -16429,7 +16474,7 @@ const extractErrorMessage = (error: unknown): string => {
             <Space direction="vertical" size={4}>
               <Typography.Text strong>第三方模型控制面</Typography.Text>
               <Typography.Text theme="secondary">
-                当前执行面：{vendorBaseUrl || '未连接'}。Key 明文只在新增时提交，列表只显示 keyPreview。
+                当前执行面：{vendorBaseUrl || '未连接'}。API Key 在本页配置，不再要求改服务器配置文件；明文只在新增时提交，列表只显示脱敏值。
               </Typography.Text>
             </Space>
             <Space size="small" style={{ flexWrap: 'wrap' }}>
@@ -16447,6 +16492,11 @@ const extractErrorMessage = (error: unknown): string => {
         </ActionBar>
         {vendorError ? <Alert theme="warning" message={vendorError} /> : null}
         {vendorNotice ? <Alert theme="success" message={vendorNotice} /> : null}
+        <Alert
+          theme="info"
+          message="后续 OpenAI、KIE、火山、百度、中转站等第三方模型 Key 统一在“第三方模型 Key 池”维护。新增 Key 后刷新弹药库，治理摘要会显示该厂商是否已经可调用。"
+          style={{ marginBottom: 16 }}
+        />
 
         <Row gutter={[16, 16]}>
           <Col xs={12} lg={4}>
@@ -16922,7 +16972,7 @@ const extractErrorMessage = (error: unknown): string => {
 
         <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
           <Col xs={12} lg={7}>
-            <Card bordered title="Vendor Key 池">
+            <Card bordered title="第三方模型 Key 池">
               <Table
                 size="small"
                 rowKey="id"
@@ -16930,7 +16980,7 @@ const extractErrorMessage = (error: unknown): string => {
                 columns={[
                   {
                     colKey: 'alias',
-                    title: 'Key Alias',
+                    title: 'Key 名称',
                     minWidth: 220,
                     cell: ({ row }) => (
                       <Space direction="vertical" size={2}>
@@ -16974,18 +17024,25 @@ const extractErrorMessage = (error: unknown): string => {
                     ),
                   },
                 ]}
-                empty={<Typography.Text theme="secondary">暂无 vendor key。可在右侧新增。</Typography.Text>}
+                empty={<Typography.Text theme="secondary">暂无第三方模型 Key。可在右侧新增。</Typography.Text>}
               />
             </Card>
           </Col>
 
           <Col xs={12} lg={5}>
-            <Card bordered title={vendorKeyForm.id ? '编辑 Vendor Key' : '新增 Vendor Key'}>
+            <Card bordered title={vendorKeyForm.id ? '编辑第三方模型 Key' : '新增第三方模型 Key'}>
               <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-                <Alert theme="info" message="这里写入 vendor-api-ops；保存后只展示 keyPreview，Coze 和前端不会接触明文。" />
+                <Alert
+                  theme="info"
+                  message={
+                    vendorKeyForm.id
+                      ? '编辑模式只允许改状态和备注，不回显明文。需要换 Key 时请新增一条，再停用旧 Key。'
+                      : getVendorKeyHint(vendorKeyForm.provider).note
+                  }
+                />
                 <Row gutter={[12, 12]}>
                   <Col span={6}>
-                    <Typography.Text theme="secondary">Provider</Typography.Text>
+                    <Typography.Text theme="secondary">厂商</Typography.Text>
                     <Select
                       value={vendorKeyForm.provider || ''}
                       disabled={Boolean(vendorKeyForm.id)}
@@ -17006,27 +17063,38 @@ const extractErrorMessage = (error: unknown): string => {
                   </Col>
                 </Row>
                 <div>
-                  <Typography.Text theme="secondary">Alias</Typography.Text>
+                  <Typography.Text theme="secondary">Key 名称</Typography.Text>
                   <Input
                     disabled={Boolean(vendorKeyForm.id)}
                     value={vendorKeyForm.alias || ''}
                     onChange={(v) => setVendorKeyForm({ ...vendorKeyForm, alias: String(v) })}
-                    placeholder="例如 OpenAI-Global-主账号"
+                    placeholder={getVendorKeyHint(vendorKeyForm.provider).alias}
                   />
                 </div>
                 {!vendorKeyForm.id ? (
-                  <div>
-                    <Typography.Text theme="secondary">Key</Typography.Text>
-                    <Input
-                      type="password"
-                      value={vendorKeyForm.key || ''}
-                      onChange={(v) => setVendorKeyForm({ ...vendorKeyForm, key: String(v) })}
-                      placeholder="粘贴第三方 API Key"
-                    />
-                  </div>
+                  <>
+                    <div>
+                      <Typography.Text theme="secondary">API Key</Typography.Text>
+                      <Input
+                        type="password"
+                        value={vendorKeyForm.key || ''}
+                        onChange={(v) => setVendorKeyForm({ ...vendorKeyForm, key: String(v) })}
+                        placeholder={getVendorKeyHint(vendorKeyForm.provider).key}
+                      />
+                    </div>
+                    <div>
+                      <Typography.Text theme="secondary">Secret Key（可选，百度必填）</Typography.Text>
+                      <Input
+                        type="password"
+                        value={vendorKeyForm.secret || ''}
+                        onChange={(v) => setVendorKeyForm({ ...vendorKeyForm, secret: String(v) })}
+                        placeholder={getVendorKeyHint(vendorKeyForm.provider).secret || defaultVendorKeyHint.secret}
+                      />
+                    </div>
+                  </>
                 ) : (
                   <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
-                    当前 Key：{vendorKeyForm.keyPreview || '***'}。编辑模式不回显明文。
+                    当前 Key：{vendorKeyForm.keyPreview || '***'}。为了安全，编辑模式不回显明文。
                   </Typography.Text>
                 )}
                 <Row gutter={[12, 12]}>
@@ -17051,7 +17119,7 @@ const extractErrorMessage = (error: unknown): string => {
                 </Row>
                 <Space style={{ width: '100%' }}>
                   <Button theme="primary" style={{ flex: 1 }} onClick={handleVendorKeySubmit}>
-                    保存到 vendor-api-ops
+                    保存到第三方 Key 池
                   </Button>
                   {vendorKeyForm.id ? (
                     <Button variant="outline" onClick={() => setVendorKeyForm(defaultVendorKeyForm)}>
