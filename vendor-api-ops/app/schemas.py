@@ -20,6 +20,7 @@ class ProviderInfo(BaseModel):
     displayName: str
     status: str
     requiresGlobalEgress: bool = False
+    envKeyConfigured: bool = False
     supportedChecks: list[str] = Field(default_factory=list)
     supportedApiTypes: list[str] = Field(default_factory=list)
     executionModes: list[str] = Field(default_factory=list)

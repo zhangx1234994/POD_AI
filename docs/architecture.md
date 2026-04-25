@@ -135,6 +135,7 @@ flowchart LR
 - **执行节点可替换**，能力不应硬编码服务器地址
 - 重执行能力必须显式路由，不允许静默 fallback 到 Coze 主机本机执行。
 - 第三方 API 能力优先使用 `vendor_api` executor，不再由 backend 直接保存厂商调用细节。
+- 第三方模型、密钥、能力与调用统计通过 `GET /api/admin/vendor-api/governance/summary` 汇总，作为后续管理端简化展示的数据入口。
 
 ### 3.3 Workflow / Binding（工作流与绑定）
 - Workflow JSON 存在于 `backend/app/workflows/comfyui/`

@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from types import SimpleNamespace
 
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -11,9 +12,10 @@ from sqlalchemy.pool import StaticPool
 
 import app.routers.admin_vendor as admin_vendor_module
 import app.services.vendor_admin_client as vendor_admin_client_module
+from app.core.db import Base
 from app.deps.auth import require_admin
 from app.main import app
-from app.models.integration import VendorModelCatalog
+from app.models.integration import Ability, VendorModelCatalog
 from app.services.auth_service import auth_service
 
 
@@ -47,6 +49,28 @@ def install_vendor_catalog_db(monkeypatch) -> None:
             session.close()
 
     monkeypatch.setattr(admin_vendor_module, "get_session", fake_get_session)
+
+
+def install_vendor_governance_db(monkeypatch):
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        future=True,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    testing_session = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+
+    @contextmanager
+    def fake_get_session():
+        session = testing_session()
+        try:
+            yield session
+        finally:
+            session.close()
+
+    monkeypatch.setattr(admin_vendor_module, "get_session", fake_get_session)
+    return fake_get_session
 
 
 def test_admin_api_keys_do_not_return_plaintext_key() -> None:
@@ -126,6 +150,165 @@ def test_vendor_usage_summary_proxy(monkeypatch) -> None:
     assert body["windowHours"] == 12
     assert body["items"][0]["provider"] == "openai"
     assert body["items"][0]["count"] == 3
+
+
+def test_vendor_governance_summary_combines_keys_models_abilities_and_usage(monkeypatch) -> None:
+    get_session = install_vendor_governance_db(monkeypatch)
+    with get_session() as session:
+        session.add_all(
+            [
+                VendorModelCatalog(
+                    provider="openai",
+                    model="gpt-image-2",
+                    display_name="OpenAI · GPT Image 2",
+                    status="active",
+                    api_types=["image_generation", "image_edit"],
+                    execution_modes=["sync_then_store"],
+                    supports_mask=True,
+                    supports_multiple_images=True,
+                    supports_video=False,
+                    supports_text=True,
+                    requires_global_egress=True,
+                    source="test",
+                    route_policy={},
+                    default_task_policy={},
+                    input_schema={},
+                    cost_policy={},
+                    extra_metadata={},
+                ),
+                Ability(
+                    id="openai_gpt_image_2_generate",
+                    provider="openai",
+                    category="image_generation",
+                    capability_key="gpt_image_2_generate",
+                    display_name="GPT Image 2 生图",
+                    status="active",
+                    ability_type="api",
+                ),
+                Ability(
+                    id="baidu_quality_upgrade",
+                    provider="baidu",
+                    category="image_process",
+                    capability_key="quality_upgrade",
+                    display_name="百度清晰度提升",
+                    status="active",
+                    ability_type="api",
+                ),
+            ]
+        )
+        session.commit()
+
+    def fake_list_providers():
+        return {
+            "service": "vendor-api-ops",
+            "baseUrl": "http://vendor.local",
+            "providers": [
+                {
+                    "provider": "openai",
+                    "displayName": "OpenAI",
+                    "status": "active",
+                    "requiresGlobalEgress": True,
+                    "envKeyConfigured": False,
+                    "supportedChecks": ["models"],
+                    "supportedApiTypes": ["image_generation", "image_edit"],
+                    "executionModes": ["sync_then_store"],
+                },
+                {
+                    "provider": "baidu",
+                    "displayName": "百度图像处理",
+                    "status": "active",
+                    "requiresGlobalEgress": False,
+                    "envKeyConfigured": True,
+                    "supportedChecks": ["oauth"],
+                    "supportedApiTypes": ["baidu_image_process"],
+                    "executionModes": ["sync_then_store"],
+                },
+            ],
+        }
+
+    def fake_list_keys(provider=None):
+        return {
+            "baseUrl": "http://vendor.local",
+            "items": [
+                {
+                    "id": "vkey_disabled",
+                    "provider": "openai",
+                    "alias": "old",
+                    "model": None,
+                    "status": "disabled",
+                    "keyPreview": "sk-...0000",
+                    "usageCount": 1,
+                    "maxConcurrency": 1,
+                }
+            ],
+        }
+
+    def fake_usage_summary(window_hours: int = 24):
+        return {
+            "baseUrl": "http://vendor.local",
+            "windowHours": window_hours,
+            "items": [
+                {
+                    "provider": "openai",
+                    "model": "gpt-image-2",
+                    "status": "failed",
+                    "count": 2,
+                    "errorCode": "VENDOR_API_KEY_MISSING",
+                    "avgLatencyMs": 50,
+                    "lastSeenAt": "2026-04-25T10:00:00+00:00",
+                },
+                {
+                    "provider": "baidu",
+                    "model": "quality_upgrade",
+                    "status": "succeeded",
+                    "count": 3,
+                    "errorCode": None,
+                    "avgLatencyMs": 1200,
+                    "lastSeenAt": "2026-04-25T10:01:00+00:00",
+                },
+            ],
+        }
+
+    monkeypatch.setattr(vendor_admin_client_module.vendor_admin_client, "list_providers", fake_list_providers)
+    monkeypatch.setattr(vendor_admin_client_module.vendor_admin_client, "list_keys", fake_list_keys)
+    monkeypatch.setattr(vendor_admin_client_module.vendor_admin_client, "usage_summary", fake_usage_summary)
+
+    response = client.get("/api/admin/vendor-api/governance/summary?windowHours=12")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["baseUrl"] == "http://vendor.local"
+    assert body["windowHours"] == 12
+    providers = {item["provider"]: item for item in body["providers"]}
+    assert providers["openai"]["runtimeKeyConfigured"] is False
+    assert providers["openai"]["disabledKeyCount"] == 1
+    assert "VENDOR_API_KEY_MISSING" in providers["openai"]["issues"]
+    assert "VENDOR_API_RECENT_FAILURES" in providers["openai"]["issues"]
+    assert providers["baidu"]["runtimeKeyConfigured"] is True
+    assert providers["baidu"]["activeAbilityCount"] == 1
+    assert providers["baidu"]["succeededCalls"] == 3
+    assert body["totals"]["providerCount"] >= 2
+    assert body["totals"]["issueCount"] >= 2
+
+
+def test_vendor_governance_summary_degrades_when_vendor_api_is_unavailable(monkeypatch) -> None:
+    install_vendor_governance_db(monkeypatch)
+
+    def raise_unavailable(*args, **kwargs):
+        raise HTTPException(status_code=502, detail="VENDOR_API_EXECUTOR_UNAVAILABLE")
+
+    monkeypatch.setattr(vendor_admin_client_module.vendor_admin_client, "list_providers", raise_unavailable)
+    monkeypatch.setattr(vendor_admin_client_module.vendor_admin_client, "list_keys", raise_unavailable)
+    monkeypatch.setattr(vendor_admin_client_module.vendor_admin_client, "usage_summary", raise_unavailable)
+
+    response = client.get("/api/admin/vendor-api/governance/summary")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["providers"] == []
+    assert "VENDOR_PROVIDER_REGISTRY_UNAVAILABLE:VENDOR_API_EXECUTOR_UNAVAILABLE" in body["issues"]
+    assert "VENDOR_KEY_STATUS_UNAVAILABLE:VENDOR_API_EXECUTOR_UNAVAILABLE" in body["issues"]
+    assert "VENDOR_USAGE_SUMMARY_UNAVAILABLE:VENDOR_API_EXECUTOR_UNAVAILABLE" in body["issues"]
 
 
 def test_vendor_models_include_openai_gpt_image_2(monkeypatch) -> None:

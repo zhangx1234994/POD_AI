@@ -178,7 +178,7 @@ GET /api/admin/abilities/health/export?needsTest=true
 ## 5.1) 模型弹药库 / Vendor API 管理
 
 ### GET /api/admin/vendor-api/providers
-返回 vendor-api-ops provider 清单、支持的 `apiTypes`、执行模式与是否需要 `global-egress`。
+返回 vendor-api-ops provider 清单、支持的 `apiTypes`、执行模式、是否需要 `global-egress`，以及 `envKeyConfigured`（仅表示运行环境是否配置了该供应商密钥，不返回明文）。
 
 ### POST /api/admin/vendor-api/providers/{provider}/egress-check
 
@@ -199,6 +199,57 @@ GET /api/admin/abilities/health/export?needsTest=true
   "httpStatus": 401,
   "latencyMs": 1319,
   "message": "reachable"
+}
+```
+
+### GET /api/admin/vendor-api/governance/summary
+返回第三方 API 治理摘要，把供应商、模型目录、能力目录、存储密钥、环境密钥和最近调用统计聚合为一张清单。该接口用于管理端后续简化展示，不主动调用上游模型，不消耗额度。
+
+请求：
+
+```text
+GET /api/admin/vendor-api/governance/summary?windowHours=24
+```
+
+响应：
+
+```json
+{
+  "baseUrl": "http://117.50.80.158:8310",
+  "windowHours": 24,
+  "generatedAt": "2026-04-25T10:00:00Z",
+  "totals": {
+    "providerCount": 5,
+    "modelCount": 8,
+    "activeModelCount": 8,
+    "abilityCount": 18,
+    "activeAbilityCount": 18,
+    "keyCount": 4,
+    "activeStoredKeyCount": 3,
+    "envKeyProviderCount": 1,
+    "issueCount": 1
+  },
+  "providers": [
+    {
+      "provider": "openai",
+      "displayName": "OpenAI",
+      "providerStatus": "active",
+      "requiresGlobalEgress": true,
+      "envKeyConfigured": false,
+      "runtimeKeyConfigured": true,
+      "keyCount": 1,
+      "activeStoredKeyCount": 1,
+      "modelCount": 1,
+      "activeModelCount": 1,
+      "abilityCount": 2,
+      "activeAbilityCount": 2,
+      "succeededCalls": 12,
+      "failedCalls": 0,
+      "issues": [],
+      "suggestions": []
+    }
+  ],
+  "issues": []
 }
 ```
 
@@ -296,6 +347,11 @@ Key 写入 vendor-api-ops，返回只允许包含 `keyPreview`，不返回明文
 - `VENDOR_API_KEY_MISSING`
 - `VENDOR_API_KEY_DISABLED`
 - `VENDOR_API_KEY_CONCURRENCY_LIMITED`
+- `VENDOR_PROVIDER_REGISTRY_UNAVAILABLE`
+- `VENDOR_KEY_STATUS_UNAVAILABLE`
+- `VENDOR_USAGE_SUMMARY_UNAVAILABLE`
+- `VENDOR_GOVERNANCE_DB_UNAVAILABLE`
+- `VENDOR_API_RECENT_FAILURES`
 - `VOLCENGINE_API_KEY_MISSING`
 - `VOLCENGINE_MODEL_SYNC_HTTP_ERROR`
 - `VOLCENGINE_MODEL_SYNC_RESPONSE_INVALID`

@@ -13,6 +13,7 @@ class VendorProviderRead(BaseModel):
     displayName: str
     status: str
     requiresGlobalEgress: bool = False
+    envKeyConfigured: bool = False
     supportedChecks: list[str] = Field(default_factory=list)
     supportedApiTypes: list[str] = Field(default_factory=list)
     executionModes: list[str] = Field(default_factory=list)
@@ -97,6 +98,52 @@ class VendorUsageSummaryResponse(BaseModel):
     baseUrl: str
     windowHours: int
     items: list[VendorUsageSummaryItem]
+
+
+class VendorGovernanceTotals(BaseModel):
+    providerCount: int = 0
+    modelCount: int = 0
+    activeModelCount: int = 0
+    abilityCount: int = 0
+    activeAbilityCount: int = 0
+    keyCount: int = 0
+    activeStoredKeyCount: int = 0
+    envKeyProviderCount: int = 0
+    issueCount: int = 0
+
+
+class VendorGovernanceProviderItem(BaseModel):
+    provider: str
+    displayName: str
+    providerStatus: str = "unknown"
+    requiresGlobalEgress: bool = False
+    envKeyConfigured: bool = False
+    runtimeKeyConfigured: bool = False
+    keyCount: int = 0
+    activeStoredKeyCount: int = 0
+    disabledKeyCount: int = 0
+    cooldownKeyCount: int = 0
+    exhaustedKeyCount: int = 0
+    errorKeyCount: int = 0
+    modelCount: int = 0
+    activeModelCount: int = 0
+    abilityCount: int = 0
+    activeAbilityCount: int = 0
+    succeededCalls: int = 0
+    failedCalls: int = 0
+    avgLatencyMs: int | None = None
+    lastSeenAt: datetime | None = None
+    issues: list[str] = Field(default_factory=list)
+    suggestions: list[str] = Field(default_factory=list)
+
+
+class VendorGovernanceSummaryResponse(BaseModel):
+    baseUrl: str
+    windowHours: int
+    generatedAt: datetime
+    totals: VendorGovernanceTotals
+    providers: list[VendorGovernanceProviderItem]
+    issues: list[str] = Field(default_factory=list)
 
 
 class VendorModelBase(BaseModel):

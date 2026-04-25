@@ -56,6 +56,7 @@ import type {
   StoredAsset,
   SystemConfig,
   VendorEgressCheckResponse,
+  VendorGovernanceSummaryResponse,
   VendorKey,
   VendorKeyListResponse,
   VendorModel,
@@ -381,6 +382,10 @@ export const adminApi = {
   },
   getVendorUsageSummary: (windowHours = 24) =>
     request<VendorUsageSummaryResponse>(`/api/admin/vendor-api/usage/summary?windowHours=${encodeURIComponent(String(windowHours))}`),
+  getVendorGovernanceSummary: (windowHours = 24) =>
+    request<VendorGovernanceSummaryResponse>(
+      `/api/admin/vendor-api/governance/summary?windowHours=${encodeURIComponent(String(windowHours))}`,
+    ),
   createVendorKey: (payload: Partial<VendorKey> & { key: string; secret?: string | null; provider: string; alias: string }) =>
     request<VendorKey>('/api/admin/vendor-api/keys', { method: 'POST', body: JSON.stringify(payload) }),
   updateVendorKey: (id: string, payload: Partial<VendorKey>) =>

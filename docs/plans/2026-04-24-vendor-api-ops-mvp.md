@@ -108,6 +108,7 @@ vendor-api-ops 返回统一 envelope：
 - `PATCH /v1/keys/{keyId}`
 - Provider 目录已覆盖 `openai`、`openai_compatible`、`volcengine`、`baidu`、`kie`。
 - Key 读取只返回 `keyPreview`，不返回明文。
+- `GET /v1/providers` 会返回 `envKeyConfigured`，只表示运行环境是否配置了该供应商密钥，不返回任何明文。
 - Key、invocation、usage log 已落 SQLite 持久化，默认路径 `runtime/vendor-api-ops.sqlite3`。
 - KIE 已接真实 submit/poll adapter：提交 `/api/v1/jobs/createTask`，轮询 `/api/v1/jobs/recordInfo`。
 - OpenAI / OpenAI-compatible 已接真实 Images API 风格 adapter：图片生成走 `/v1/images/generations`，图片编辑走 `/v1/images/edits`，支持原图、蒙版、多参考图、`size`、`quality` 等字段。
@@ -134,6 +135,7 @@ vendor-api-ops 返回统一 envelope：
 - 保留 `VENDOR_API_LEGACY_FALLBACK_ENABLED` 作为迁移期回退开关。
 - OpenAI 图片编辑能力已进入能力 seed，schema 包含蒙版、多图、尺寸和质量字段。
 - `AbilityTask` running 任务可通过 `vendorInvocationId` 轮询 vendor-api-ops，而不是直接轮询第三方厂商。
+- 新增治理摘要接口 `GET /api/admin/vendor-api/governance/summary`，把 provider、模型目录、能力目录、存储密钥、环境密钥和调用统计聚合成一张清单，用于后续管理端简化展示和上线前自检。
 
 ## 6. 配置约定
 

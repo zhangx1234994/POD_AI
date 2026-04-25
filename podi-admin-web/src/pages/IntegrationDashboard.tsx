@@ -83,6 +83,7 @@ import type {
   SystemConfig,
   StoredAsset,
   VendorEgressCheckResponse,
+  VendorGovernanceSummaryResponse,
   VendorKey,
   VendorKeyFormState,
   VendorModel,
@@ -703,6 +704,34 @@ const formatDurationMs = (value?: number | null) => {
   if (value === undefined || value === null) return '—';
   if (value < 1000) return `${value}ms`;
   return `${(value / 1000).toFixed(2)}s`;
+};
+type VendorGovernanceProviderRow = VendorGovernanceSummaryResponse['providers'][number];
+const vendorIssueLabels: Record<string, string> = {
+  VENDOR_API_KEY_MISSING: '缺少可用 Key',
+  VENDOR_API_RECENT_FAILURES: '最近调用失败',
+  VENDOR_PROVIDER_REGISTRY_UNAVAILABLE: '厂商清单不可用',
+  VENDOR_KEY_STATUS_UNAVAILABLE: 'Key 状态不可用',
+  VENDOR_USAGE_SUMMARY_UNAVAILABLE: '调用统计不可用',
+  VENDOR_GOVERNANCE_DB_UNAVAILABLE: '中台目录读取失败',
+  VENDOR_API_EXECUTOR_UNAVAILABLE: '能力服务不可达',
+  VENDOR_API_TIMEOUT: '能力服务超时',
+};
+const getVendorIssueLabel = (issue: string) => {
+  const code = String(issue || '').split(':')[0];
+  return vendorIssueLabels[code] || issue || '需要检查';
+};
+const getVendorProviderState = (row: VendorGovernanceProviderRow) => {
+  const issues = row.issues || [];
+  if (issues.some((item) => item.startsWith('VENDOR_API_KEY_MISSING'))) {
+    return { label: '缺 Key', theme: 'danger' as const };
+  }
+  if (issues.length > 0) {
+    return { label: '需检查', theme: 'warning' as const };
+  }
+  if (row.runtimeKeyConfigured) {
+    return { label: '可调用', theme: 'success' as const };
+  }
+  return { label: '未配置', theme: 'warning' as const };
 };
 const getJsonRecord = (value: unknown): Record<string, any> | null => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -2006,6 +2035,7 @@ export function IntegrationDashboard({
   const [vendorModels, setVendorModels] = useState<VendorModel[]>([]);
   const [vendorKeys, setVendorKeys] = useState<VendorKey[]>([]);
   const [vendorUsageItems, setVendorUsageItems] = useState<VendorUsageSummaryItem[]>([]);
+  const [vendorGovernanceSummary, setVendorGovernanceSummary] = useState<VendorGovernanceSummaryResponse | null>(null);
   const [vendorUsageWindowHours, setVendorUsageWindowHours] = useState(24);
   const [vendorBaseUrl, setVendorBaseUrl] = useState('');
   const [vendorLoading, setVendorLoading] = useState(false);
@@ -3707,6 +3737,12 @@ export function IntegrationDashboard({
   const vendorUsageSuccessRate = vendorUsageTotal > 0
     ? Math.round(((vendorUsageTotal - vendorUsageFailed) / vendorUsageTotal) * 100)
     : null;
+  const vendorGovernanceIssueCount = useMemo(
+    () =>
+      (vendorGovernanceSummary?.issues?.length || 0) +
+      (vendorGovernanceSummary?.providers || []).reduce((sum, item) => sum + (item.issues?.length || 0), 0),
+    [vendorGovernanceSummary],
+  );
 
   const refreshAuthPanel = async () => {
     setAuthLoading(true);
@@ -3749,6 +3785,7 @@ export function IntegrationDashboard({
         adminApi.listVendorKeys().catch((error) => ({ __error: error })),
         adminApi.listVendorModels().catch((error) => ({ __error: error })),
         adminApi.getVendorUsageSummary(24).catch((error) => ({ __error: error })),
+        adminApi.getVendorGovernanceSummary(24).catch((error) => ({ __error: error })),
       ]);
 
       const errors: string[] = [];
@@ -3777,6 +3814,7 @@ export function IntegrationDashboard({
       const vendorKeyRes = settled[14].status === 'fulfilled' ? (settled[14].value as any) : null;
       const vendorModelRes = settled[15].status === 'fulfilled' ? (settled[15].value as any) : null;
       const vendorUsageRes = settled[16].status === 'fulfilled' ? (settled[16].value as any) : null;
+      const vendorGovernanceRes = settled[17].status === 'fulfilled' ? (settled[17].value as any) : null;
 
       if (execRes) setExecutors(execRes);
       if (wfRes) setWorkflows(wfRes);
@@ -3810,7 +3848,7 @@ export function IntegrationDashboard({
       } else if (abilityHealthRes?.__error) {
         setAbilityHealthError(abilityHealthRes.__error?.message || '能力健康统计加载失败');
       }
-      const vendorErrors = [vendorProviderRes, vendorKeyRes, vendorModelRes, vendorUsageRes]
+      const vendorErrors = [vendorProviderRes, vendorKeyRes, vendorModelRes, vendorUsageRes, vendorGovernanceRes]
         .map((item) => item?.__error?.message)
         .filter(Boolean);
       if (vendorErrors.length > 0) setVendorError(vendorErrors.join('；'));
@@ -3830,6 +3868,10 @@ export function IntegrationDashboard({
         setVendorUsageItems(vendorUsageRes.items || []);
         setVendorUsageWindowHours(Number(vendorUsageRes.windowHours || 24));
         setVendorBaseUrl((prev) => prev || vendorUsageRes.baseUrl || vendorUsageRes.base_url || '');
+      }
+      if (vendorGovernanceRes && !vendorGovernanceRes.__error) {
+        setVendorGovernanceSummary(vendorGovernanceRes);
+        setVendorBaseUrl((prev) => prev || vendorGovernanceRes.baseUrl || vendorGovernanceRes.base_url || '');
       }
 
       if (abilityRes) {
@@ -7166,18 +7208,20 @@ const extractErrorMessage = (error: unknown): string => {
     setVendorError('');
     setVendorNotice('');
     try {
-      const [providers, keys, models, usage] = await Promise.all([
+      const [providers, keys, models, usage, governance] = await Promise.all([
         adminApi.listVendorProviders(),
         adminApi.listVendorKeys(),
         adminApi.listVendorModels(),
         adminApi.getVendorUsageSummary(24),
+        adminApi.getVendorGovernanceSummary(24).catch(() => null),
       ]);
       setVendorProviders(providers.providers || []);
       setVendorKeys(keys.items || []);
       setVendorModels(models.items || []);
       setVendorUsageItems(usage.items || []);
       setVendorUsageWindowHours(Number(usage.windowHours || 24));
-      setVendorBaseUrl(providers.baseUrl || keys.baseUrl || models.baseUrl || usage.baseUrl || '');
+      if (governance) setVendorGovernanceSummary(governance);
+      setVendorBaseUrl(providers.baseUrl || keys.baseUrl || models.baseUrl || usage.baseUrl || governance?.baseUrl || '');
     } catch (error) {
       setVendorError(extractErrorMessage(error) || '模型弹药库加载失败');
     } finally {
@@ -16348,6 +16392,129 @@ const extractErrorMessage = (error: unknown): string => {
             />
           </Col>
         </Row>
+
+        <Card bordered title="第三方模型状态" style={{ marginTop: 16 }}>
+          <Space size="small" style={{ marginBottom: 12, flexWrap: 'wrap' }}>
+            <Tag theme={vendorGovernanceIssueCount > 0 ? 'warning' : 'success'} variant="light">
+              {vendorGovernanceIssueCount > 0 ? `需处理 ${vendorGovernanceIssueCount}` : '状态正常'}
+            </Tag>
+            <Tag variant="light">窗口 {vendorGovernanceSummary?.windowHours || vendorUsageWindowHours} 小时</Tag>
+          </Space>
+          {vendorGovernanceSummary ? (
+            <Space direction="vertical" style={{ width: '100%' }} size={12}>
+              {vendorGovernanceSummary.issues?.length ? (
+                <Alert
+                  theme="warning"
+                  message={`治理摘要部分降级：${vendorGovernanceSummary.issues.map(getVendorIssueLabel).join('；')}`}
+                />
+              ) : null}
+              <Row gutter={[12, 12]}>
+                <Col xs={12} lg={3}>
+                  <MetricCard label="厂商" value={vendorGovernanceSummary.totals.providerCount} sub="已纳入治理" />
+                </Col>
+                <Col xs={12} lg={3}>
+                  <MetricCard label="模型" value={vendorGovernanceSummary.totals.modelCount} sub="模型目录" />
+                </Col>
+                <Col xs={12} lg={3}>
+                  <MetricCard label="能力" value={vendorGovernanceSummary.totals.abilityCount} sub="已绑定能力" />
+                </Col>
+                <Col xs={12} lg={3}>
+                  <MetricCard
+                    label="最近失败"
+                    value={vendorGovernanceSummary.providers.reduce((sum, item) => sum + Number(item.failedCalls || 0), 0)}
+                    sub={`成功 ${vendorGovernanceSummary.providers.reduce((sum, item) => sum + Number(item.succeededCalls || 0), 0)}`}
+                  />
+                </Col>
+              </Row>
+              <Table
+                size="small"
+                rowKey="provider"
+                data={vendorGovernanceSummary.providers}
+                columns={[
+                  {
+                    colKey: 'provider',
+                    title: '厂商',
+                    minWidth: 180,
+                    cell: ({ row }) => (
+                      <Space direction="vertical" size={2}>
+                        <Space size={6}>
+                          <Typography.Text strong>{row.displayName}</Typography.Text>
+                          <Tag theme={getVendorProviderState(row).theme} variant="light">
+                            {getVendorProviderState(row).label}
+                          </Tag>
+                        </Space>
+                        <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                          {row.provider}
+                        </Typography.Text>
+                      </Space>
+                    ),
+                  },
+                  {
+                    colKey: 'runtime',
+                    title: '运行配置',
+                    minWidth: 220,
+                    cell: ({ row }) => (
+                      <Space size={4} style={{ flexWrap: 'wrap' }}>
+                        <Tag theme={row.envKeyConfigured ? 'success' : 'default'} variant="light">
+                          环境 Key {row.envKeyConfigured ? '已配' : '未配'}
+                        </Tag>
+                        <Tag theme={row.activeStoredKeyCount > 0 ? 'success' : 'default'} variant="light">
+                          Key 池 {row.activeStoredKeyCount}
+                        </Tag>
+                        {row.disabledKeyCount > 0 ? (
+                          <Tag theme="warning" variant="light">
+                            停用 {row.disabledKeyCount}
+                          </Tag>
+                        ) : null}
+                      </Space>
+                    ),
+                  },
+                  {
+                    colKey: 'catalog',
+                    title: '目录绑定',
+                    width: 160,
+                    cell: ({ row }) => `模型 ${row.modelCount} / 能力 ${row.abilityCount}`,
+                  },
+                  {
+                    colKey: 'recent',
+                    title: '最近调用',
+                    minWidth: 220,
+                    cell: ({ row }) => (
+                      <Space direction="vertical" size={2}>
+                        <Typography.Text>
+                          成功 {row.succeededCalls}，失败 {row.failedCalls}
+                        </Typography.Text>
+                        <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                          耗时 {row.avgLatencyMs ? formatDurationMs(row.avgLatencyMs) : '—'}
+                          {row.lastSeenAt ? ` · 最近 ${formatDateTime(row.lastSeenAt)}` : ''}
+                        </Typography.Text>
+                      </Space>
+                    ),
+                  },
+                  {
+                    colKey: 'issues',
+                    title: '问题',
+                    minWidth: 220,
+                    cell: ({ row }) =>
+                      row.issues?.length ? (
+                        <Space size={4} style={{ flexWrap: 'wrap' }}>
+                          {row.issues.map((issue) => (
+                            <Tag key={`${row.provider}-${issue}`} theme="warning" variant="light">
+                              {getVendorIssueLabel(issue)}
+                            </Tag>
+                          ))}
+                        </Space>
+                      ) : (
+                        <Typography.Text theme="success">暂无</Typography.Text>
+                      ),
+                  },
+                ]}
+              />
+            </Space>
+          ) : (
+            <Alert theme="info" message="暂未加载治理摘要，点击“刷新弹药库”后会显示各厂商可调用状态。" />
+          )}
+        </Card>
 
         <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
           <Col xs={12} lg={6}>

@@ -137,6 +137,7 @@ export interface VendorProvider {
   displayName: string;
   status: string;
   requiresGlobalEgress: boolean;
+  envKeyConfigured?: boolean;
   supportedChecks: string[];
   supportedApiTypes: string[];
   executionModes: string[];
@@ -196,6 +197,52 @@ export interface VendorUsageSummaryResponse {
   baseUrl: string;
   windowHours: number;
   items: VendorUsageSummaryItem[];
+}
+
+export interface VendorGovernanceTotals {
+  providerCount: number;
+  modelCount: number;
+  activeModelCount: number;
+  abilityCount: number;
+  activeAbilityCount: number;
+  keyCount: number;
+  activeStoredKeyCount: number;
+  envKeyProviderCount: number;
+  issueCount: number;
+}
+
+export interface VendorGovernanceProviderItem {
+  provider: string;
+  displayName: string;
+  providerStatus: string;
+  requiresGlobalEgress: boolean;
+  envKeyConfigured: boolean;
+  runtimeKeyConfigured: boolean;
+  keyCount: number;
+  activeStoredKeyCount: number;
+  disabledKeyCount: number;
+  cooldownKeyCount: number;
+  exhaustedKeyCount: number;
+  errorKeyCount: number;
+  modelCount: number;
+  activeModelCount: number;
+  abilityCount: number;
+  activeAbilityCount: number;
+  succeededCalls: number;
+  failedCalls: number;
+  avgLatencyMs?: number | null;
+  lastSeenAt?: string | null;
+  issues: string[];
+  suggestions: string[];
+}
+
+export interface VendorGovernanceSummaryResponse {
+  baseUrl: string;
+  windowHours: number;
+  generatedAt: string;
+  totals: VendorGovernanceTotals;
+  providers: VendorGovernanceProviderItem[];
+  issues: string[];
 }
 
 export interface VendorModel {

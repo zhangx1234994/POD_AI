@@ -33,7 +33,7 @@ def health() -> dict[str, str]:
 @app.get("/v1/providers", response_model=ProvidersResponse)
 def providers() -> ProvidersResponse:
     settings = get_settings()
-    return ProvidersResponse(service=settings.service_name, providers=list_providers())
+    return ProvidersResponse(service=settings.service_name, providers=list_providers(settings))
 
 
 @app.post("/v1/providers/{provider}/egress-check", response_model=EgressCheckResponse)

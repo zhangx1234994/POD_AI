@@ -71,19 +71,35 @@ PROVIDERS: dict[str, ProviderDefinition] = {
 }
 
 
-def list_providers() -> list[ProviderInfo]:
+def list_providers(settings: Settings | None = None) -> list[ProviderInfo]:
+    settings = settings or Settings()
     return [
         ProviderInfo(
             provider=item.provider,
             displayName=item.display_name,
             status="active",
             requiresGlobalEgress=item.requires_global_egress,
+            envKeyConfigured=_has_env_key(settings, item.provider),
             supportedChecks=list(item.supported_checks),
             supportedApiTypes=list(item.supported_api_types),
             executionModes=list(item.execution_modes),
         )
         for item in PROVIDERS.values()
     ]
+
+
+def _has_env_key(settings: Settings, provider: str) -> bool:
+    if provider == "openai":
+        return bool(settings.openai_api_key)
+    if provider == "openai_compatible":
+        return bool(settings.openai_compatible_api_key)
+    if provider == "volcengine":
+        return bool(settings.volcengine_api_key)
+    if provider == "baidu":
+        return bool(settings.baidu_api_key and settings.baidu_secret_key)
+    if provider == "kie":
+        return bool(settings.kie_api_key)
+    return False
 
 
 def _openai_check_url(settings: Settings, check: str) -> str:

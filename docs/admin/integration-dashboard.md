@@ -71,6 +71,11 @@
 - 维护第三方凭证（可多 key 轮换）
 - 控制启用/禁用
 
+### 第三方 API 治理摘要
+- `GET /api/admin/vendor-api/governance/summary`
+- 汇总供应商、模型目录、原子能力、密钥来源、最近调用统计和缺口提示。
+- 该接口面向后续前端重构使用，前端可以先展示“哪些供应商可用、哪些缺密钥、哪些最近失败”，不需要让用户理解底层 executor。
+
 ### 后端接口
 - `GET /api/admin/api-keys`
 - `POST /api/admin/api-keys`

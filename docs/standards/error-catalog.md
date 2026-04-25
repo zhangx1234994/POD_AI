@@ -289,6 +289,11 @@
 | VENDOR_API_UPSTREAM_ERROR | 第三方 API 上游异常 | 非平台侧参数错误 |
 | VENDOR_API_PROXY_UNAVAILABLE | 第三方 API 代理不可用 | 检查 HTTP_PROXY/HTTPS_PROXY 或国际出口节点 |
 | VENDOR_API_RESPONSE_INVALID | 第三方 API 返回结构异常 | 需要保留截断 debugResponse |
+| VENDOR_PROVIDER_REGISTRY_UNAVAILABLE | 第三方供应商注册表不可读 | 管理端治理摘要降级提示，不中断页面 |
+| VENDOR_KEY_STATUS_UNAVAILABLE | 第三方密钥状态不可读 | 管理端治理摘要降级提示，不返回明文 |
+| VENDOR_USAGE_SUMMARY_UNAVAILABLE | 第三方调用统计不可读 | 管理端治理摘要降级提示 |
+| VENDOR_GOVERNANCE_DB_UNAVAILABLE | 第三方治理摘要读取数据库失败 | 管理端治理摘要降级提示 |
+| VENDOR_API_RECENT_FAILURES | 第三方 API 最近调用全失败 | 治理摘要风险提示，需检查密钥/余额/网络出口 |
 | VENDOR_MODEL_DUPLICATED | 第三方模型目录项重复 | provider + model 必须唯一 |
 | VENDOR_MODEL_NOT_FOUND | 第三方模型目录项不存在 | 管理端编辑模型配置时使用 |
 | VL_IMAGE_REQUIRED | VL 图像理解缺少图片 | `vl_analyze_image` |

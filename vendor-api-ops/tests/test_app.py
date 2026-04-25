@@ -3,6 +3,7 @@ from __future__ import annotations
 import httpx
 from fastapi.testclient import TestClient
 
+from app.config import get_settings
 from app.invocations import invocation_store
 from app.main import app
 
@@ -30,6 +31,22 @@ def test_provider_list_includes_expected_providers() -> None:
     assert providers["volcengine"]["supportedApiTypes"]
     assert providers["baidu"]["executionModes"] == ["sync_then_store"]
     assert "async_submit_poll" in providers["kie"]["executionModes"]
+    assert providers["openai"]["envKeyConfigured"] is False
+
+
+def test_provider_list_reports_env_key_presence(monkeypatch) -> None:
+    get_settings.cache_clear()
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-env")
+    try:
+        client = TestClient(app)
+
+        response = client.get("/v1/providers")
+
+        assert response.status_code == 200
+        providers = {item["provider"]: item for item in response.json()["providers"]}
+        assert providers["openai"]["envKeyConfigured"] is True
+    finally:
+        get_settings.cache_clear()
 
 
 def test_unsupported_provider_returns_normalized_error() -> None:

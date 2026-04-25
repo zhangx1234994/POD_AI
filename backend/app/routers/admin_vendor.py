@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -13,7 +13,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from app.core.config import get_settings
 from app.core.db import get_session
 from app.deps.auth import require_admin
-from app.models.integration import VendorModelCatalog
+from app.models.integration import Ability, VendorModelCatalog
 from app.schemas import admin_vendor as schemas
 from app.services.vendor_admin_client import vendor_admin_client
 
@@ -38,6 +38,11 @@ def list_vendor_keys(provider: str | None = None) -> dict[str, Any]:
 @router.get("/usage/summary", response_model=schemas.VendorUsageSummaryResponse)
 def get_vendor_usage_summary(windowHours: int = 24) -> dict[str, Any]:
     return vendor_admin_client.usage_summary(window_hours=max(1, int(windowHours or 24)))
+
+
+@router.get("/governance/summary", response_model=schemas.VendorGovernanceSummaryResponse)
+def get_vendor_governance_summary(windowHours: int = 24) -> dict[str, Any]:
+    return _build_vendor_governance_summary(window_hours=max(1, int(windowHours or 24)))
 
 
 @router.post("/keys", response_model=schemas.VendorKeyRead)
@@ -163,6 +168,252 @@ def update_vendor_model(model_id: int, payload: schemas.VendorModelUpdateRequest
             return _model_to_payload(item)
     except IntegrityError as exc:
         raise HTTPException(status_code=409, detail="VENDOR_MODEL_DUPLICATED") from exc
+
+
+def _build_vendor_governance_summary(*, window_hours: int) -> dict[str, Any]:
+    settings = get_settings()
+    base_url = settings.vendor_api_base_url
+    issues: list[str] = []
+    providers_payload: dict[str, Any] = {"baseUrl": base_url, "providers": []}
+    provider_available = True
+
+    try:
+        providers_payload = vendor_admin_client.list_providers()
+        base_url = str(providers_payload.get("baseUrl") or base_url)
+    except HTTPException as exc:
+        provider_available = False
+        issues.append(f"VENDOR_PROVIDER_REGISTRY_UNAVAILABLE:{_http_detail_code(exc)}")
+
+    try:
+        key_payload = vendor_admin_client.list_keys()
+        keys = key_payload.get("items") if isinstance(key_payload, dict) else []
+        if not isinstance(keys, list):
+            keys = []
+    except HTTPException as exc:
+        keys = []
+        issues.append(f"VENDOR_KEY_STATUS_UNAVAILABLE:{_http_detail_code(exc)}")
+
+    try:
+        usage_payload = vendor_admin_client.usage_summary(window_hours=window_hours)
+        usage_rows = usage_payload.get("items") if isinstance(usage_payload, dict) else []
+        if not isinstance(usage_rows, list):
+            usage_rows = []
+    except HTTPException as exc:
+        usage_rows = []
+        issues.append(f"VENDOR_USAGE_SUMMARY_UNAVAILABLE:{_http_detail_code(exc)}")
+
+    models: list[VendorModelCatalog] = []
+    abilities: list[Ability] = []
+    try:
+        with get_session() as session:
+            if provider_available:
+                _ensure_builtin_model_catalog(session, providers_payload)
+            models = session.execute(select(VendorModelCatalog)).scalars().all()
+            abilities = (
+                session.execute(select(Ability).where(Ability.provider.in_(_known_vendor_providers())))
+                .scalars()
+                .all()
+            )
+    except SQLAlchemyError as exc:
+        issues.append(f"VENDOR_GOVERNANCE_DB_UNAVAILABLE:{exc.__class__.__name__}")
+
+    provider_index: dict[str, dict[str, Any]] = {}
+    for provider in providers_payload.get("providers") or []:
+        if not isinstance(provider, dict):
+            continue
+        key = str(provider.get("provider") or "").strip().lower()
+        if not key:
+            continue
+        provider_index[key] = provider
+
+    all_provider_keys = set(provider_index)
+    all_provider_keys.update(
+        str(item.provider or "").strip().lower() for item in models if str(item.provider or "").strip()
+    )
+    all_provider_keys.update(
+        str(item.provider or "").strip().lower() for item in abilities if str(item.provider or "").strip()
+    )
+    all_provider_keys.update(
+        str(item.get("provider") or "").strip().lower()
+        for item in keys
+        if isinstance(item, dict) and str(item.get("provider") or "").strip()
+    )
+    all_provider_keys.update(
+        str(item.get("provider") or "").strip().lower()
+        for item in usage_rows
+        if isinstance(item, dict) and str(item.get("provider") or "").strip()
+    )
+
+    summaries = [
+        _empty_provider_governance_item(provider, provider_index.get(provider))
+        for provider in sorted(all_provider_keys)
+    ]
+    summary_by_provider = {item["provider"]: item for item in summaries}
+
+    for model in models:
+        provider = str(model.provider or "").strip().lower()
+        if provider not in summary_by_provider:
+            continue
+        summary_by_provider[provider]["modelCount"] += 1
+        if model.status == "active":
+            summary_by_provider[provider]["activeModelCount"] += 1
+
+    for ability in abilities:
+        provider = str(ability.provider or "").strip().lower()
+        if provider not in summary_by_provider:
+            continue
+        summary_by_provider[provider]["abilityCount"] += 1
+        if ability.status == "active":
+            summary_by_provider[provider]["activeAbilityCount"] += 1
+
+    for key in keys:
+        if not isinstance(key, dict):
+            continue
+        provider = str(key.get("provider") or "").strip().lower()
+        if provider not in summary_by_provider:
+            continue
+        item = summary_by_provider[provider]
+        item["keyCount"] += 1
+        key_status = str(key.get("status") or "").strip().lower()
+        if key_status == "active" and not key.get("cooldownUntil"):
+            item["activeStoredKeyCount"] += 1
+        elif key_status == "disabled":
+            item["disabledKeyCount"] += 1
+        elif key_status in {"cooldown", "cooling"} or key.get("cooldownUntil"):
+            item["cooldownKeyCount"] += 1
+        elif key_status == "exhausted":
+            item["exhaustedKeyCount"] += 1
+        elif key_status == "error":
+            item["errorKeyCount"] += 1
+
+    usage_accumulator: dict[str, dict[str, Any]] = {}
+    for row in usage_rows:
+        if not isinstance(row, dict):
+            continue
+        provider = str(row.get("provider") or "").strip().lower()
+        if provider not in summary_by_provider:
+            continue
+        count = _as_int(row.get("count"))
+        status_value = str(row.get("status") or "").strip().lower()
+        acc = usage_accumulator.setdefault(provider, {"latencyTotal": 0, "latencyCount": 0})
+        if status_value in {"succeeded", "success"}:
+            summary_by_provider[provider]["succeededCalls"] += count
+        elif status_value:
+            summary_by_provider[provider]["failedCalls"] += count
+        latency = _as_int(row.get("avgLatencyMs"))
+        if latency and count:
+            acc["latencyTotal"] += latency * count
+            acc["latencyCount"] += count
+        seen_at = _parse_datetime(row.get("lastSeenAt"))
+        current_seen_at = summary_by_provider[provider].get("lastSeenAt")
+        if seen_at and (not current_seen_at or seen_at > current_seen_at):
+            summary_by_provider[provider]["lastSeenAt"] = seen_at
+
+    for provider, acc in usage_accumulator.items():
+        if acc["latencyCount"]:
+            summary_by_provider[provider]["avgLatencyMs"] = int(acc["latencyTotal"] / acc["latencyCount"])
+
+    for item in summaries:
+        item["runtimeKeyConfigured"] = bool(item["envKeyConfigured"] or item["activeStoredKeyCount"] > 0)
+        if (item["activeModelCount"] or item["activeAbilityCount"]) and not item["runtimeKeyConfigured"]:
+            item["issues"].append("VENDOR_API_KEY_MISSING")
+            item["suggestions"].append("在 vendor-api-ops 中新增可用密钥，或在能力服务环境变量中配置该供应商密钥。")
+        if item["failedCalls"] and not item["succeededCalls"]:
+            item["issues"].append("VENDOR_API_RECENT_FAILURES")
+            item["suggestions"].append("检查供应商余额、密钥状态、网络出口和最近一次上游错误。")
+        if item["requiresGlobalEgress"] and not item["runtimeKeyConfigured"]:
+            item["suggestions"].append("该供应商需要国际出口，优先部署在 global-egress 能力服务节点。")
+
+    provider_issue_count = sum(len(item["issues"]) for item in summaries)
+    totals = {
+        "providerCount": len(summaries),
+        "modelCount": sum(item["modelCount"] for item in summaries),
+        "activeModelCount": sum(item["activeModelCount"] for item in summaries),
+        "abilityCount": sum(item["abilityCount"] for item in summaries),
+        "activeAbilityCount": sum(item["activeAbilityCount"] for item in summaries),
+        "keyCount": sum(item["keyCount"] for item in summaries),
+        "activeStoredKeyCount": sum(item["activeStoredKeyCount"] for item in summaries),
+        "envKeyProviderCount": sum(1 for item in summaries if item["envKeyConfigured"]),
+        "issueCount": provider_issue_count + len(issues),
+    }
+    return {
+        "baseUrl": base_url,
+        "windowHours": window_hours,
+        "generatedAt": datetime.now(timezone.utc),
+        "totals": totals,
+        "providers": summaries,
+        "issues": issues,
+    }
+
+
+def _known_vendor_providers() -> list[str]:
+    return ["openai", "openai_compatible", "volcengine", "baidu", "kie"]
+
+
+def _empty_provider_governance_item(provider: str, payload: dict[str, Any] | None) -> dict[str, Any]:
+    payload = payload or {}
+    return {
+        "provider": provider,
+        "displayName": str(payload.get("displayName") or _fallback_provider_name(provider)),
+        "providerStatus": str(payload.get("status") or "unknown"),
+        "requiresGlobalEgress": bool(payload.get("requiresGlobalEgress")),
+        "envKeyConfigured": bool(payload.get("envKeyConfigured")),
+        "runtimeKeyConfigured": False,
+        "keyCount": 0,
+        "activeStoredKeyCount": 0,
+        "disabledKeyCount": 0,
+        "cooldownKeyCount": 0,
+        "exhaustedKeyCount": 0,
+        "errorKeyCount": 0,
+        "modelCount": 0,
+        "activeModelCount": 0,
+        "abilityCount": 0,
+        "activeAbilityCount": 0,
+        "succeededCalls": 0,
+        "failedCalls": 0,
+        "avgLatencyMs": None,
+        "lastSeenAt": None,
+        "issues": [],
+        "suggestions": [],
+    }
+
+
+def _fallback_provider_name(provider: str) -> str:
+    return {
+        "openai": "OpenAI",
+        "openai_compatible": "OpenAI Compatible Relay",
+        "volcengine": "火山引擎",
+        "baidu": "百度图像处理",
+        "kie": "KIE Market",
+    }.get(provider, provider)
+
+
+def _http_detail_code(exc: HTTPException) -> str:
+    detail = getattr(exc, "detail", None)
+    if isinstance(detail, dict):
+        value = detail.get("errorCode") or detail.get("detail") or detail.get("message")
+        return str(value or exc.status_code)
+    if isinstance(detail, str):
+        return detail.split(":", 1)[0]
+    return str(exc.status_code)
+
+
+def _parse_datetime(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        return value
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _as_int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _ensure_builtin_model_catalog(session: Any, providers: dict[str, Any]) -> None:
