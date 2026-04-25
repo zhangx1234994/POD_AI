@@ -8637,6 +8637,16 @@ const extractErrorMessage = (error: unknown): string => {
                             <StatusBadge status={item.status} />
                             <Tag variant="light">{businessKeyLabel(item.businessKey)}</Tag>
                             <Tag variant="light">{item.version}</Tag>
+                            {(() => {
+                              const vlAssist = readBusinessVlAssist(item.recipe);
+                              if (!vlAssist.enabled) return null;
+                              return (
+                                <Tag theme={vlAssist.waitForResult ? 'primary' : 'default'} variant="light">
+                                  VL：{vlAssist.waitForResult ? '串联' : '伴随'}
+                                  {vlAssist.applyToPrimary ? ' · 回填提示词' : ''}
+                                </Tag>
+                              );
+                            })()}
                           </Space>
                           <Typography.Text theme="secondary">
                             发布时间：{formatDateTime(item.releaseTime || item.createdAt)}
