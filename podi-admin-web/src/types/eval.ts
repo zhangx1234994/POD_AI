@@ -1,33 +1,3 @@
-export type EvalWorkflowPresentation = {
-  visible?: boolean;
-  sortOrder?: number;
-  categoryLabel?: string;
-  usageHint?: string;
-  operationLabel?: string;
-  entryMode?: string;
-  resultMode?: string;
-  supportsBatch?: boolean;
-  recommendedRepeatCount?: number;
-};
-
-export type EvalWorkflowUsage = {
-  singleRunEnabled?: boolean;
-  batchEnabled?: boolean;
-  docsEnabled?: boolean;
-  recommendedEntry?: string;
-  supportsAnnotation?: boolean;
-  requiresResourceOptions?: boolean;
-  resourceOptionTypes?: string[];
-};
-
-export type EvalWorkflowDeprecation = {
-  isDeprecated?: boolean;
-  replacementWorkflowId?: string | null;
-  replacementDisplayName?: string | null;
-  reason?: string | null;
-  retirementMode?: string;
-};
-
 export type EvalWorkflowVersion = {
   id: string;
   category: string;
@@ -37,10 +7,6 @@ export type EvalWorkflowVersion = {
   workflow_id: string;
   parameters_schema?: Record<string, unknown> | null;
   output_schema?: Record<string, unknown> | null;
-  metadata?: Record<string, unknown> | null;
-  presentation?: EvalWorkflowPresentation | null;
-  usage?: EvalWorkflowUsage | null;
-  deprecation?: EvalWorkflowDeprecation | null;
   notes?: string | null;
   status: string;
   created_at: string;

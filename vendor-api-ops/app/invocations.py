@@ -27,6 +27,7 @@ from app.volcengine import volcengine_adapter
 
 ERR_INVOCATION_NOT_FOUND = "VENDOR_API_INVOCATION_NOT_FOUND"
 ERR_CONCURRENCY_LIMITED = "VENDOR_API_CONCURRENCY_LIMITED"
+ERR_KEY_CONCURRENCY_LIMITED = "VENDOR_API_KEY_CONCURRENCY_LIMITED"
 ERR_KEY_DISABLED = "VENDOR_API_KEY_DISABLED"
 ERR_KEY_MISSING = "VENDOR_API_KEY_MISSING"
 
@@ -35,6 +36,7 @@ class InvocationStore:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._active_by_scope: dict[str, int] = {}
+        self._active_by_key: dict[str, int] = {}
 
     def submit(self, request: InvocationRequest) -> InvocationResponse:
         provider = request.provider.strip().lower()
@@ -125,6 +127,20 @@ class InvocationStore:
         )
         return _read_key(item) if item else None
 
+    def usage_summary(self, *, window_hours: int = 24) -> list[dict[str, Any]]:
+        return [
+            {
+                "provider": item["provider"],
+                "model": item.get("model"),
+                "status": item["status"],
+                "count": item["count"],
+                "errorCode": item.get("error_code"),
+                "avgLatencyMs": item.get("avg_latency_ms"),
+                "lastSeenAt": item.get("last_seen_at"),
+            }
+            for item in vendor_storage.usage_summary(window_hours=window_hours)
+        ]
+
     def _submit_with_adapter(self, *, request: InvocationRequest, provider: str, execution_mode: str) -> InvocationResponse:
         invocation_id = f"vinv_{uuid4().hex}"
         base_raw = {
@@ -162,7 +178,9 @@ class InvocationStore:
             return self._submit_baidu(record=record, request=request)
 
     def _submit_openai(self, *, record: dict[str, Any], request: InvocationRequest, provider: str) -> InvocationResponse:
-        key = self._pick_runtime_key(provider=provider, model=request.model)
+        key, key_limited = self._pick_runtime_key(provider=provider, model=request.model, acquire_slot=True)
+        if key_limited:
+            return self._mark_key_limited(record, provider=provider, model=request.model)
         if not key:
             error = InvocationError(
                 code=ERR_KEY_MISSING,
@@ -180,28 +198,31 @@ class InvocationStore:
             )
             return _response_from_record(updated)
 
-        started = datetime.now(timezone.utc)
-        result, error, raw = openai_adapter.run(
-            settings=get_settings(),
-            provider=provider,
-            api_key=str(key["key"]),
-            request=request,
-        )
-        latency_ms = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
-        status = "failed" if error else "succeeded"
-        self._record_key_usage(key, error)
-        vendor_storage.create_usage_log(
-            {
-                "id": f"vlog_{uuid4().hex}",
-                "invocation_id": record["id"],
-                "provider": provider,
-                "model": request.model,
-                "key_id": key.get("id"),
-                "status": status,
-                "error_code": error.code if error else None,
-                "latency_ms": latency_ms,
-            }
-        )
+        try:
+            started = datetime.now(timezone.utc)
+            result, error, raw = openai_adapter.run(
+                settings=get_settings(),
+                provider=provider,
+                api_key=str(key["key"]),
+                request=request,
+            )
+            latency_ms = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
+            status = "failed" if error else "succeeded"
+            self._record_key_usage(key, error)
+            vendor_storage.create_usage_log(
+                {
+                    "id": f"vlog_{uuid4().hex}",
+                    "invocation_id": record["id"],
+                    "provider": provider,
+                    "model": request.model,
+                    "key_id": key.get("id"),
+                    "status": status,
+                    "error_code": error.code if error else None,
+                    "latency_ms": latency_ms,
+                }
+            )
+        finally:
+            self._release_runtime_key_slot(key)
         updated = vendor_storage.update_invocation(
             record["id"],
             {
@@ -215,7 +236,9 @@ class InvocationStore:
         return _response_from_record(updated)
 
     def _submit_volcengine(self, *, record: dict[str, Any], request: InvocationRequest) -> InvocationResponse:
-        key = self._pick_runtime_key(provider="volcengine", model=request.model)
+        key, key_limited = self._pick_runtime_key(provider="volcengine", model=request.model, acquire_slot=True)
+        if key_limited:
+            return self._mark_key_limited(record, provider="volcengine", model=request.model)
         if not key:
             error = InvocationError(
                 code=ERR_KEY_MISSING,
@@ -228,23 +251,26 @@ class InvocationStore:
             )
             return _response_from_record(updated)
 
-        started = datetime.now(timezone.utc)
-        result, error, raw = volcengine_adapter.run(settings=get_settings(), api_key=str(key["key"]), request=request)
-        latency_ms = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
-        status = "failed" if error else "succeeded"
-        self._record_key_usage(key, error)
-        vendor_storage.create_usage_log(
-            {
-                "id": f"vlog_{uuid4().hex}",
-                "invocation_id": record["id"],
-                "provider": "volcengine",
-                "model": request.model,
-                "key_id": key.get("id"),
-                "status": status,
-                "error_code": error.code if error else None,
-                "latency_ms": latency_ms,
-            }
-        )
+        try:
+            started = datetime.now(timezone.utc)
+            result, error, raw = volcengine_adapter.run(settings=get_settings(), api_key=str(key["key"]), request=request)
+            latency_ms = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
+            status = "failed" if error else "succeeded"
+            self._record_key_usage(key, error)
+            vendor_storage.create_usage_log(
+                {
+                    "id": f"vlog_{uuid4().hex}",
+                    "invocation_id": record["id"],
+                    "provider": "volcengine",
+                    "model": request.model,
+                    "key_id": key.get("id"),
+                    "status": status,
+                    "error_code": error.code if error else None,
+                    "latency_ms": latency_ms,
+                }
+            )
+        finally:
+            self._release_runtime_key_slot(key)
         updated = vendor_storage.update_invocation(
             record["id"],
             {
@@ -258,7 +284,9 @@ class InvocationStore:
         return _response_from_record(updated)
 
     def _submit_baidu(self, *, record: dict[str, Any], request: InvocationRequest) -> InvocationResponse:
-        key = self._pick_runtime_key(provider="baidu", model=request.model)
+        key, key_limited = self._pick_runtime_key(provider="baidu", model=request.model, acquire_slot=True)
+        if key_limited:
+            return self._mark_key_limited(record, provider="baidu", model=request.model)
         if not key:
             error = InvocationError(
                 code=ERR_KEY_MISSING,
@@ -271,28 +299,31 @@ class InvocationStore:
             )
             return _response_from_record(updated)
 
-        started = datetime.now(timezone.utc)
-        result, error, raw = baidu_adapter.run(
-            settings=get_settings(),
-            api_key=str(key["key"]),
-            secret_key=key.get("secret"),
-            request=request,
-        )
-        latency_ms = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
-        status = "failed" if error else "succeeded"
-        self._record_key_usage(key, error)
-        vendor_storage.create_usage_log(
-            {
-                "id": f"vlog_{uuid4().hex}",
-                "invocation_id": record["id"],
-                "provider": "baidu",
-                "model": request.model,
-                "key_id": key.get("id"),
-                "status": status,
-                "error_code": error.code if error else None,
-                "latency_ms": latency_ms,
-            }
-        )
+        try:
+            started = datetime.now(timezone.utc)
+            result, error, raw = baidu_adapter.run(
+                settings=get_settings(),
+                api_key=str(key["key"]),
+                secret_key=key.get("secret"),
+                request=request,
+            )
+            latency_ms = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
+            status = "failed" if error else "succeeded"
+            self._record_key_usage(key, error)
+            vendor_storage.create_usage_log(
+                {
+                    "id": f"vlog_{uuid4().hex}",
+                    "invocation_id": record["id"],
+                    "provider": "baidu",
+                    "model": request.model,
+                    "key_id": key.get("id"),
+                    "status": status,
+                    "error_code": error.code if error else None,
+                    "latency_ms": latency_ms,
+                }
+            )
+        finally:
+            self._release_runtime_key_slot(key)
         updated = vendor_storage.update_invocation(
             record["id"],
             {
@@ -306,7 +337,9 @@ class InvocationStore:
         return _response_from_record(updated)
 
     def _submit_kie(self, *, record: dict[str, Any], request: InvocationRequest, execution_mode: str) -> InvocationResponse:
-        key = self._pick_runtime_key(provider="kie", model=request.model)
+        key, key_limited = self._pick_runtime_key(provider="kie", model=request.model, acquire_slot=True)
+        if key_limited:
+            return self._mark_key_limited(record, provider="kie", model=request.model)
         if not key:
             error = InvocationError(
                 code=ERR_KEY_MISSING,
@@ -324,23 +357,26 @@ class InvocationStore:
             )
             return _response_from_record(updated)
 
-        started = datetime.now(timezone.utc)
-        vendor_task_id, result, error, raw = kie_adapter.submit(settings=get_settings(), api_key=str(key["key"]), request=request)
-        latency_ms = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
-        status = "running" if vendor_task_id and not error else "failed"
-        self._record_key_usage(key, error)
-        vendor_storage.create_usage_log(
-            {
-                "id": f"vlog_{uuid4().hex}",
-                "invocation_id": record["id"],
-                "provider": "kie",
-                "model": request.model,
-                "key_id": key.get("id"),
-                "status": status,
-                "error_code": error.code if error else None,
-                "latency_ms": latency_ms,
-            }
-        )
+        try:
+            started = datetime.now(timezone.utc)
+            vendor_task_id, result, error, raw = kie_adapter.submit(settings=get_settings(), api_key=str(key["key"]), request=request)
+            latency_ms = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
+            status = "running" if vendor_task_id and not error else "failed"
+            self._record_key_usage(key, error)
+            vendor_storage.create_usage_log(
+                {
+                    "id": f"vlog_{uuid4().hex}",
+                    "invocation_id": record["id"],
+                    "provider": "kie",
+                    "model": request.model,
+                    "key_id": key.get("id"),
+                    "status": status,
+                    "error_code": error.code if error else None,
+                    "latency_ms": latency_ms,
+                }
+            )
+        finally:
+            self._release_runtime_key_slot(key)
         updated = vendor_storage.update_invocation(
             record["id"],
             {
@@ -355,28 +391,31 @@ class InvocationStore:
         return _response_from_record(updated)
 
     def _refresh_kie(self, record: dict[str, Any]) -> dict[str, Any]:
-        key = self._pick_runtime_key(provider="kie", model=record.get("model"))
-        if not key:
+        key, key_limited = self._pick_runtime_key(provider="kie", model=record.get("model"), acquire_slot=True)
+        if not key or key_limited:
             return record
-        started = datetime.now(timezone.utc)
-        status, result, error, raw = kie_adapter.fetch(
-            settings=get_settings(),
-            api_key=str(key["key"]),
-            task_id=str(record["vendor_task_id"]),
-        )
-        latency_ms = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
-        vendor_storage.create_usage_log(
-            {
-                "id": f"vlog_{uuid4().hex}",
-                "invocation_id": record["id"],
-                "provider": "kie",
-                "model": record.get("model"),
-                "key_id": key.get("id"),
-                "status": status,
-                "error_code": error.code if error else None,
-                "latency_ms": latency_ms,
-            }
-        )
+        try:
+            started = datetime.now(timezone.utc)
+            status, result, error, raw = kie_adapter.fetch(
+                settings=get_settings(),
+                api_key=str(key["key"]),
+                task_id=str(record["vendor_task_id"]),
+            )
+            latency_ms = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
+            vendor_storage.create_usage_log(
+                {
+                    "id": f"vlog_{uuid4().hex}",
+                    "invocation_id": record["id"],
+                    "provider": "kie",
+                    "model": record.get("model"),
+                    "key_id": key.get("id"),
+                    "status": status,
+                    "error_code": error.code if error else None,
+                    "latency_ms": latency_ms,
+                }
+            )
+        finally:
+            self._release_runtime_key_slot(key)
         if status in {"succeeded", "failed"}:
             return vendor_storage.update_invocation(
                 record["id"],
@@ -399,24 +438,27 @@ class InvocationStore:
             },
         ) or record
 
-    def _pick_runtime_key(self, *, provider: str, model: str | None) -> dict[str, Any] | None:
-        key = vendor_storage.pick_key(provider=provider, model=model)
-        if key:
-            return key
+    def _pick_runtime_key(self, *, provider: str, model: str | None, acquire_slot: bool = False) -> tuple[dict[str, Any] | None, bool]:
+        limited = False
+        for key in _candidate_stored_keys(provider=provider, model=model):
+            if acquire_slot and not self._try_acquire_runtime_key_slot(key):
+                limited = True
+                continue
+            return key, False
         settings = get_settings()
         if provider == "kie" and settings.kie_api_key:
-            return {"id": "env:kie", "provider": "kie", "key": settings.kie_api_key, "status": "active"}
+            return {"id": "env:kie", "provider": "kie", "key": settings.kie_api_key, "status": "active"}, False
         if provider == "openai" and settings.openai_api_key:
-            return {"id": "env:openai", "provider": "openai", "key": settings.openai_api_key, "status": "active"}
+            return {"id": "env:openai", "provider": "openai", "key": settings.openai_api_key, "status": "active"}, False
         if provider == "openai_compatible" and settings.openai_compatible_api_key:
             return {
                 "id": "env:openai_compatible",
                 "provider": "openai_compatible",
                 "key": settings.openai_compatible_api_key,
                 "status": "active",
-            }
+            }, False
         if provider == "volcengine" and settings.volcengine_api_key:
-            return {"id": "env:volcengine", "provider": "volcengine", "key": settings.volcengine_api_key, "status": "active"}
+            return {"id": "env:volcengine", "provider": "volcengine", "key": settings.volcengine_api_key, "status": "active"}, False
         if provider == "baidu" and settings.baidu_api_key:
             return {
                 "id": "env:baidu",
@@ -424,8 +466,57 @@ class InvocationStore:
                 "key": settings.baidu_api_key,
                 "secret": settings.baidu_secret_key,
                 "status": "active",
+            }, False
+        return None, limited
+
+    def _try_acquire_runtime_key_slot(self, key: dict[str, Any]) -> bool:
+        key_id = str(key.get("id") or "")
+        if not key_id or key_id.startswith("env:"):
+            return True
+        max_concurrency = _as_positive_int(key.get("max_concurrency")) or 1
+        with self._lock:
+            active = self._active_by_key.get(key_id, 0)
+            if active >= max_concurrency:
+                return False
+            self._active_by_key[key_id] = active + 1
+            return True
+
+    def _release_runtime_key_slot(self, key: dict[str, Any] | None) -> None:
+        key_id = str((key or {}).get("id") or "")
+        if not key_id or key_id.startswith("env:"):
+            return
+        with self._lock:
+            self._active_by_key[key_id] = max(0, self._active_by_key.get(key_id, 1) - 1)
+
+    def _mark_key_limited(self, record: dict[str, Any], *, provider: str, model: str | None) -> InvocationResponse:
+        error = InvocationError(
+            code=ERR_KEY_CONCURRENCY_LIMITED,
+            message=f"All active keys are busy for {provider}:{model or '*'}",
+            retryable=True,
+            suggestion="Wait and retry, or increase key maxConcurrency after confirming vendor quota.",
+        )
+        vendor_storage.create_usage_log(
+            {
+                "id": f"vlog_{uuid4().hex}",
+                "invocation_id": record["id"],
+                "provider": provider,
+                "model": model,
+                "key_id": None,
+                "status": "failed",
+                "error_code": error.code,
+                "latency_ms": 0,
             }
-        return None
+        )
+        updated = vendor_storage.update_invocation(
+            record["id"],
+            {
+                "status": "failed",
+                "success": 0,
+                "error": error.model_dump(mode="json"),
+                "raw": {**record.get("raw", {}), "keyLimited": True},
+            },
+        )
+        return _response_from_record(updated)
 
     @staticmethod
     def _record_key_usage(key: dict[str, Any], error: InvocationError | None) -> None:
@@ -448,6 +539,31 @@ def _default_execution_mode(provider: str, api_type: str | None) -> str:
     if provider == "baidu":
         return "sync_then_store"
     return "sync"
+
+
+def _candidate_stored_keys(*, provider: str, model: str | None) -> list[dict[str, Any]]:
+    now = datetime.now(timezone.utc)
+    candidates: list[dict[str, Any]] = []
+    for key in vendor_storage.list_keys(provider=provider):
+        if key.get("status") != "active":
+            continue
+        key_model = key.get("model")
+        if key_model and model and str(key_model) != str(model):
+            continue
+        if key_model and not model:
+            continue
+        cooldown_until = _parse_dt(key.get("cooldown_until"))
+        if cooldown_until and cooldown_until > now:
+            continue
+        candidates.append(key)
+    return sorted(
+        candidates,
+        key=lambda item: (
+            int(item.get("usage_count") or 0),
+            str(item.get("last_used_at") or ""),
+            str(item.get("id") or ""),
+        ),
+    )
 
 
 def _read_key(item: dict[str, Any]) -> VendorKeyRead:

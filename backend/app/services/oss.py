@@ -152,7 +152,7 @@ class OssService:
             return self._bucket_client
         if not (self.settings.oss_access_key and self.settings.oss_secret_key):
             raise RuntimeError("OSS_ACCESS_KEY / OSS_SECRET_KEY 未配置，无法直接上传")
-        endpoint = self.settings.oss_endpoint
+        endpoint = self.settings.oss_internal_endpoint or self.settings.oss_endpoint
         if not endpoint.startswith("http"):
             endpoint = f"https://{endpoint}"
         auth = oss2.Auth(self.settings.oss_access_key, self.settings.oss_secret_key)

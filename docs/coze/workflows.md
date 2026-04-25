@@ -8,13 +8,9 @@
 
 本文件仅作为仓库内的简要说明与入口索引。
 
-直接给 AI 绘图团队使用的版本：
+如果需要查看“当前仓库内在用的 ComfyUI workflow 对应哪条 Coze workflow / 哪个单功能工具箱”，直接看：
 
-- [Coze 工作流直调参考](./coze-direct-call-reference.md)
-
-用于内部核对“ComfyUI workflow ↔ Coze workflow ↔ 工具箱”关系的版本：
-
-- [ComfyUI 工作流与 Coze 对应表](./comfyui-workflow-mapping.md)
+- `docs/coze/comfyui-workflow-mapping.md`
 
 ## 调用方式（Coze OpenAPI）
 

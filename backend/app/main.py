@@ -5,6 +5,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.db import get_session
 from app.services.ability_task_service import get_ability_task_service
+from app.services.business_runs import get_business_run_service
+from app.services.business_seed import ensure_default_business_capabilities
 from app.services.eval_service import get_eval_service
 from app.services.executor_seed import ensure_default_executors
 
@@ -18,13 +20,16 @@ from app.routers import (
     admin_integrations,
     admin_dashboard,
     admin_abilities,
+    admin_vendor,
     admin_evals,
     evals_public,
     auth,
     coze_podi_plugin,
+    coze_podi_flux2_outpaint,
     tasks,
     notify,
     agent_management,
+    business,
 )
 
 
@@ -35,8 +40,10 @@ def create_app() -> FastAPI:
     def _warmup_services() -> None:
         with get_session() as session:
             ensure_default_executors(session)
+            ensure_default_business_capabilities(session)
         # Instantiate background queues once per process so pending tasks/runs are resumed.
         get_ability_task_service()
+        get_business_run_service()
         get_eval_service()
 
     app.add_middleware(
@@ -58,14 +65,20 @@ def create_app() -> FastAPI:
     app.include_router(ability_tasks.router)
     app.include_router(admin_integrations.router, prefix="/api", tags=["admin"])
     app.include_router(admin_abilities.router, prefix="/api", tags=["admin-abilities"])
+    app.include_router(admin_vendor.router, prefix="/api", tags=["admin-vendor-api"])
     app.include_router(admin_dashboard.router, prefix="/api", tags=["admin-dashboard"])
     app.include_router(admin_evals.router, prefix="/api/admin", tags=["admin-evals"])
     app.include_router(evals_public.router)
     app.include_router(coze_podi_plugin.router)
+    flux2_single_openapi_path = "/api/coze/podi/comfyui/execute/flux2-klein-9b-outpaint/openapi.json"
+    if not any(getattr(route, "path", None) == flux2_single_openapi_path for route in app.routes):
+        app.include_router(coze_podi_flux2_outpaint.router)
     app.include_router(tasks.router, prefix="/api/tasks", tags=["tasks"])
     app.include_router(notify.router, tags=["notify"])
     app.include_router(agent_management.agent_router)
     app.include_router(agent_management.admin_router)
+    app.include_router(business.router)
+    app.include_router(business.admin_router, prefix="/api")
     return app
 
 

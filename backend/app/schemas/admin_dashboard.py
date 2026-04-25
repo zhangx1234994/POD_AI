@@ -95,6 +95,7 @@ class DatabaseConfig(BaseModel):
 class OssConfig(BaseModel):
     bucket: str
     endpoint: str
+    internal_endpoint: str | None = None
     public_domain: str | None = None
     root_prefix: str
     sts_duration: int

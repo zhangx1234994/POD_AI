@@ -1,8 +1,8 @@
 # 认证与计费实施清单（2026Q2）
 
-> 目标：把 `auth-billing-model-draft` 从“文档方案”推进到“可执行开发任务”。  
-> 输入文档：  
-> - `docs/wip/auth-billing-model-draft.md`  
+> 目标：把 `auth-billing-model-draft` 从“文档方案”推进到“可执行开发任务”。
+> 输入文档：
+> - `docs/wip/auth-billing-model-draft.md`
 > - `docs/strategy/auth-scheme-decision-2026q2.md`
 
 ## 1) 实施顺序（必须按阶段推进）
@@ -10,24 +10,31 @@
 ## 阶段 A：认证基础（先做）
 
 ### A1. 数据库迁移
-- [ ] 新增表：`users`
-- [ ] 新增表：`user_sessions`
+- [x] 补齐表：`users`（display_name/tenant_id/client_id）
+- [x] 新增表：`user_sessions`
 - [ ] 新增表：`user_roles`
-- [ ] 新增表：`invite_codes`
+- [x] 新增表：`invite_codes`
 - [ ] 初始化管理员脚本（仅内部）
 
+> 2026-04-25 进展：第一阶段继续使用 `users.role`，暂不拆 `user_roles` 表；等租户、业务方和客户端边界稳定后再补多角色模型。
+
 ### A2. 后端接口
-- [ ] `POST /api/auth/register`（邮箱 + 邀请码）
-- [ ] `POST /api/auth/login`（邮箱 + 密码）
-- [ ] `POST /api/auth/refresh`
-- [ ] `POST /api/auth/logout`
-- [ ] `GET /api/auth/sessions`
-- [ ] `POST /api/auth/invite-codes`（管理员）
+- [x] `POST /api/auth/register`（邮箱 + 邀请码）
+- [x] `POST /api/auth/login`（邮箱 + 密码）
+- [x] `POST /api/auth/refresh`
+- [x] `POST /api/auth/logout`
+- [x] `GET /api/auth/sessions`
+- [x] `GET /api/auth/sessions/all`（管理员）
+- [x] `POST /api/auth/sessions/{sessionId}/revoke`（管理员）
+- [x] `POST /api/auth/invite-codes`（管理员）
+- [x] `GET /api/auth/invite-codes`（管理员）
+- [x] `POST /api/auth/invite-codes/{inviteId}/disable`（管理员）
+- [x] `GET /api/auth/users`（管理员）
 
 ### A3. 回归检查
-- [ ] 邀请码失效/重复使用可返回明确错误码
-- [ ] 登录失败触发限流策略
-- [ ] 刷新 token 过期/吊销路径正确
+- [x] 邀请码失效/重复使用可返回明确错误码
+- [x] 登录失败触发限流策略
+- [x] 刷新 token 过期/吊销路径正确
 
 ---
 
@@ -82,9 +89,11 @@
 ## 阶段 D：前端与管理端接入
 
 ### D1. 管理端
-- [ ] 会话管理页（查看/踢出）
-- [ ] 邀请码管理页（生成/失效）
+- [x] 会话管理页（查看/踢出）
+- [x] 邀请码管理页（生成/失效）
 - [ ] 钱包账单页（流水/导出）
+
+> 2026-04-25 进展：管理端“账号权限”第一阶段闭环已补齐，可查看用户、全部会话、邀请码，并可生成/失效邀请码、踢出指定会话。
 
 ### D2. 评测端
 - [ ] 统一错误文案与状态词（引用 `copywriting-system-v1`）
@@ -94,9 +103,9 @@
 
 ## 2) 联调顺序（避免返工）
 
-1. 先完成阶段 A 并灰度。  
-2. 再落阶段 B（只打通余额/流水，不先做复杂支付）。  
-3. 最后落阶段 C（成本快照 + 扣费规则）。  
+1. 先完成阶段 A 并灰度。
+2. 再落阶段 B（只打通余额/流水，不先做复杂支付）。
+3. 最后落阶段 C（成本快照 + 扣费规则）。
 4. 前端接入放在每阶段末尾做最小变更联调。
 
 ---
@@ -105,7 +114,7 @@
 
 - [x] 新增接口文档已同步到 `docs/api/modules/auth.md` / `docs/api/modules/notify-wallet.md`
 - [x] 错误码已同步到 `docs/standards/error-catalog.md`
-- [ ] 回归报告包含：成功路径 + 至少 5 条失败路径
+- [x] 回归报告包含：成功路径 + 至少 5 条失败路径（见 `backend/tests/test_auth_sessions_invites.py`）
 - [ ] `release-preflight` 补充认证/计费检查项
 
 ---
@@ -113,13 +122,13 @@
 ## 4) 风险与回滚
 
 ### 主要风险
-1. 并发回调导致重复扣费  
-2. 会话失效策略不一致导致误踢用户  
+1. 并发回调导致重复扣费
+2. 会话失效策略不一致导致误踢用户
 3. 旧积分接口与新钱包接口并存期间口径不一致
 
 ### 回滚策略
-1. 保留旧钱包占位接口作为 fallback（只读）  
-2. 新扣费逻辑挂 feature flag，异常可快速关闭  
+1. 保留旧钱包占位接口作为 fallback（只读）
+2. 新扣费逻辑挂 feature flag，异常可快速关闭
 3. 账单导出保留双写对账窗口（至少 1 周）
 
-*最后更新: 2026-03-04*
+*最后更新: 2026-04-25*

@@ -30,8 +30,24 @@
 | INVALID_TOKEN | token 无效 | 401 |
 | INVALID_TOKEN_PAYLOAD | token payload 异常 | 401 |
 | INVALID_CREDENTIALS | 登录凭证错误 | 401 |
+| LOGIN_IDENTIFIER_REQUIRED | 登录缺少用户名或邮箱 | 400 |
+| LOGIN_RATE_LIMITED | 登录失败次数过多，请稍后再试 | 429 |
+| INVALID_REFRESH_TOKEN | refreshToken 无效 | 401 |
+| SESSION_NOT_FOUND | 登录会话不存在 | 404 |
+| SESSION_REVOKED | 登录会话已注销或被轮换 | 401 |
+| SESSION_EXPIRED | 登录会话已过期 | 401 |
 | USER_NOT_FOUND | 用户不存在 | 404 |
 | USER_INACTIVE | 用户被禁用 | 403 |
+| USERNAME_REQUIRED | 注册缺少用户名 | 400 |
+| PASSWORD_TOO_SHORT | 注册密码长度不足 | 400 |
+| USER_ALREADY_EXISTS | 用户名或邮箱已存在 | 409 |
+| ROLE_INVALID | 角色不在允许范围内 | 400 |
+| INVITE_CODE_INVALID | 邀请码不存在或为空 | 400 |
+| INVITE_CODE_NOT_FOUND | 邀请码记录不存在 | 404 |
+| INVITE_CODE_INACTIVE | 邀请码未启用 | 409 |
+| INVITE_CODE_EXPIRED | 邀请码已过期 | 409 |
+| INVITE_CODE_USED | 邀请码使用次数已达上限 | 409 |
+| INVITE_CODE_GENERATE_FAILED | 邀请码生成失败 | 500 |
 | ADMIN_ONLY | 仅管理员可访问 | 403 |
 | INTERNAL_ONLY | 仅内网可访问 | 401 |
 
@@ -61,6 +77,20 @@
 | ABILITY_EXECUTOR_NOT_CONFIGURED | 能力未配置执行节点 | 400 |
 | ABILITY_LOG_NOT_FOUND | 能力日志不存在 | 404 |
 | ABILITY_LOG_NOT_COMFYUI | 日志非 ComfyUI | 400 |
+| BUSINESS_IMAGE_URL_REQUIRED | 业务任务缺少主图 URL | 400，图裂变/扩图提交 |
+| BUSINESS_KEY_REQUIRED | 业务版本缺少业务标识 | 400 |
+| BUSINESS_VERSION_REQUIRED | 业务版本缺少版本号 | 400 |
+| BUSINESS_DISPLAY_NAME_REQUIRED | 业务版本缺少展示名称 | 400 |
+| BUSINESS_CAPABILITY_ID_REQUIRED | 业务版本自定义 ID 为空 | 400 |
+| BUSINESS_CAPABILITY_VERSION_DUPLICATED | 同一业务标识下版本号重复 | 409 |
+| BUSINESS_CAPABILITY_NOT_FOUND | 业务能力版本不存在或未启用 | 404 |
+| BUSINESS_STATUS_INVALID | 业务版本状态非法 | 400 |
+| BUSINESS_DEFAULT_VERSION_MUST_BE_ACTIVE | 默认业务版本必须是 active 状态 | 400 |
+| BUSINESS_RECIPE_INVALID | 业务能力配方非法 | 400，缺少 primaryAbilityId/steps、步骤类型非法或步骤结构非法 |
+| BUSINESS_RECIPE_ABILITY_NOT_AVAILABLE | 业务配方指向的原子能力不可用 | 400，主能力/步骤能力/VL 辅助能力不存在 |
+| BUSINESS_RUN_ID_REQUIRED | 查询业务任务缺少 runId | 400 |
+| BUSINESS_RUN_NOT_FOUND | 业务任务不存在 | 404 |
+| BUSINESS_RUN_FORBIDDEN | 业务任务无访问权限 | 403 |
 | INVALID_WORKFLOW_OR_EXECUTOR | workflow 或 executor 无效 | 400 |
 | BATCH_NOT_FOUND | 批测批次不存在 | 404 |
 | BATCH_FORBIDDEN | 批测批次无权限 | 403 |
@@ -226,8 +256,13 @@
 | VOLCENGINE_HTTP_* | 火山 HTTP 非 200 | |
 | VOLCENGINE_API_TYPE_UNSUPPORTED | 火山 API 类型不支持 | |
 | VOLCENGINE_MODEL_REQUIRED | 火山模型必填 | |
+| VOLCENGINE_MODEL_SYNC_HTTP_ERROR | 火山模型列表同步请求失败 | 管理端模型弹药库 |
+| VOLCENGINE_MODEL_SYNC_HTTP_* | 火山模型列表同步返回非 2xx | 管理端模型弹药库 |
+| VOLCENGINE_MODEL_SYNC_RESPONSE_INVALID | 火山模型列表同步响应不是 JSON | 管理端模型弹药库 |
+| VOLCENGINE_MODEL_SYNC_DATA_INVALID | 火山模型列表同步响应结构不符合预期 | 管理端模型弹药库 |
 | KIE_TASK_CREATE_FAILED | KIE 创建任务失败 | |
 | KIE_ABILITY_NOT_CONFIGURED | KIE 能力未配置（缺 workflow/model 参数） | 调度前校验失败 |
+| KIE_EXECUTION_FAILED | KIE 执行适配器调用失败 | 旧工作流 dispatcher 调用 KIE 测试服务失败 |
 | KIE_TASK_FAILED | KIE 任务执行失败 | 返回 state=failed/canceled 等 |
 | KIE_TASK_ID_MISSING | KIE 返回 task id 为空 | |
 | KIE_API_KEY_MISSING | KIE API Key 缺失 | |
@@ -239,9 +274,13 @@
 | KIE_MODEL_KEY_REQUIRED | KIE 查询缺少 modelKey | `/api/coze/podi/kie/models/schema` |
 | KIE_MODEL_NOT_FOUND | KIE 查询模型不存在 | `/api/coze/podi/kie/models/schema` |
 | VENDOR_API_EXECUTOR_UNAVAILABLE | 第三方 API 执行服务不可用 | vendor-api-ops 或对应 executor 不可达 |
+| VENDOR_API_EXECUTOR_NOT_CONFIGURED | 第三方 API 执行节点未配置 | OpenAI/OpenAI-compatible 等 global-egress 能力无可用 vendor_api executor |
+| VENDOR_API_EXECUTOR_NOT_CONFIGURED_LEGACY_ALLOWED | 第三方 API 执行节点未配置但允许旧链路兜底 | 仅 Baidu/Volcengine/KIE 迁移期使用，OpenAI 不允许 |
 | VENDOR_API_PROVIDER_NOT_SUPPORTED | 第三方 API provider 暂不支持 | vendor-api-ops provider 未注册 |
 | VENDOR_API_INVOCATION_NOT_FOUND | 第三方 API 调用记录不存在 | backend 轮询 vendorInvocationId 时使用 |
+| VENDOR_API_EXECUTION_FAILED | 第三方 API 执行失败 | 业务 API/OpenAPI 对底层 vendor-api-ops 失败的通用归类 |
 | VENDOR_API_CONCURRENCY_LIMITED | 第三方 API provider/model 并发已满 | 不允许静默 fallback 到本机执行 |
+| VENDOR_API_KEY_CONCURRENCY_LIMITED | 第三方 API Key 并发已满 | 可重试；等待释放或确认厂商额度后提高 Key 并发 |
 | VENDOR_API_KEY_DISABLED | 第三方 API Key 不可用 | disabled/cooldown/exhausted/error 均需可读提示 |
 | VENDOR_API_KEY_MISSING | 第三方 API Key 缺失 | 不暴露 Key 明文 |
 | VENDOR_API_INPUT_INVALID | 第三方 API 入参不合法 | 缺少图片、蒙版、任务必填字段等 provider 级校验失败 |
@@ -250,25 +289,24 @@
 | VENDOR_API_UPSTREAM_ERROR | 第三方 API 上游异常 | 非平台侧参数错误 |
 | VENDOR_API_PROXY_UNAVAILABLE | 第三方 API 代理不可用 | 检查 HTTP_PROXY/HTTPS_PROXY 或国际出口节点 |
 | VENDOR_API_RESPONSE_INVALID | 第三方 API 返回结构异常 | 需要保留截断 debugResponse |
+| VENDOR_MODEL_DUPLICATED | 第三方模型目录项重复 | provider + model 必须唯一 |
+| VENDOR_MODEL_NOT_FOUND | 第三方模型目录项不存在 | 管理端编辑模型配置时使用 |
+| VL_IMAGE_REQUIRED | VL 图像理解缺少图片 | `vl_analyze_image` |
+| VL_PROVIDER_ABILITY_NOT_FOUND | VL provider 依赖的原子能力不存在 | 如火山 VL 映射能力缺失 |
+| VL_COZE_WORKFLOW_NOT_CONFIGURED | Coze VL 未配置 workflow id | 使用 `coze_vl` provider 时 |
+| VL_PROVIDER_UNSUPPORTED | VL provider 暂不支持 | provider 值非法 |
+| MEDIA_CALLBACK_BUCKET_MISMATCH | OSS 回调 bucket 与当前配置不一致 | `/api/media/v1/oss-callback` |
+| MEDIA_CALLBACK_OBJECT_REQUIRED | OSS 回调缺少 object key | `/api/media/v1/oss-callback` |
+| MEDIA_CALLBACK_OBJECT_INVALID | OSS 回调 object key 格式非法 | `/api/media/v1/oss-callback` |
+| MEDIA_CALLBACK_OBJECT_OUT_OF_SCOPE | OSS 回调 object key 不在当前上传前缀内 | `/api/media/v1/oss-callback` |
+| MEDIA_CALLBACK_SIZE_INVALID | OSS 回调文件大小无效 | `/api/media/v1/oss-callback` |
 | IMAGE_DOWNLOAD_FAILED | 下载图片失败 | |
 | EXPAND_MASK_RENDER_FAILED | 扩边占位图渲染失败 | PODI 扩边占位工具在 Pillow/图像处理阶段异常。 |
-| EXPAND_MASK_REMOTE_FAILED | 扩边占位图远程服务失败 | image-ops 已配置但远程处理失败。 |
 | EXPAND_MASK_UPLOAD_FAILED | 扩边占位图上传失败 | PODI 扩边占位工具在 OSS 上传阶段异常。 |
-| SET_DPI_REMOTE_FAILED | DPI 处理远程服务失败 | image-ops 已配置但远程处理失败。 |
-| UPSCALE_REMOTE_FAILED | 高清放大远程服务失败 | image-ops 已配置但远程处理失败。 |
-| LOCAL_HEAVY_IMAGE_TASK_DISABLED | 控制面主机禁止本机重图像任务 | 迁移到 Coze 主机后，高清放大必须外置执行。 |
 | IMAGE_BASE64_INVALID | Base64 图片无效 | |
 | IMAGE_REQUIRED | 缺少图片 | |
 | PODI_IMAGE_TOOLS_IMPORT_FAILED | 图像工具导入失败 | |
 | PODI_UTILITY_UNSUPPORTED | 不支持的工具/能力 | |
-| IMAGE_OPS_CLIENT_IMPORT_FAILED | image-ops client 导入失败 | backend 启动包或依赖异常。 |
-| IMAGE_OPS_UNAUTHORIZED | image-ops 服务鉴权失败 | service token 缺失或不匹配。 |
-| IMAGE_OPS_IMAGE_INVALID | image-ops 收到无效图片内容 | Base64 解码失败。 |
-| IMAGE_OPS_INVALID_RESPONSE | image-ops 返回结构异常 | 缺少标准字段。 |
-| IMAGE_OPS_CONTENT_MISSING | image-ops 返回缺少内容 | 缺少 `contentBase64`。 |
-| IMAGE_OPS_CONTENT_INVALID | image-ops 返回内容无效 | Base64 内容损坏。 |
-| IMAGE_OPS_CONTENT_TYPE_MISSING | image-ops 返回缺少 content type | 缺少 `contentType`。 |
-| IMAGE_OPS_FILE_EXT_INVALID | image-ops 返回缺少或错误扩展名 | `fileExt` 非法。 |
 
 ---
 

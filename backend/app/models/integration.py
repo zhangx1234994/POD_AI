@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
@@ -44,6 +44,19 @@ class Executor(Base):
     @property
     def api_key_ids(self) -> list[str]:
         return [link.api_key_id for link in self.api_key_links]
+
+    @property
+    def tags(self) -> list[str]:
+        cfg = self.config if isinstance(self.config, dict) else {}
+        raw = cfg.get("tags") or cfg.get("tag")
+        values: list[str] = []
+        if isinstance(raw, list):
+            values = [str(item).strip() for item in raw if str(item).strip()]
+        elif isinstance(raw, str):
+            values = [item.strip() for item in raw.replace(";", ",").split(",") if item.strip()]
+        elif raw is not None:
+            values = [str(raw).strip()] if str(raw).strip() else []
+        return values
 
 
 class Workflow(Base):
@@ -211,6 +224,35 @@ class ComfyuiServerDiffLog(Base):
     payload: Mapped[dict[str, Any]] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
+
+class VendorModelCatalog(Base):
+    __tablename__ = "vendor_model_catalog"
+    __table_args__ = (UniqueConstraint("provider", "model", name="uq_vendor_model_catalog_provider_model"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    model: Mapped[str] = mapped_column(String(128), nullable=False)
+    display_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="active", nullable=False)
+    api_types: Mapped[list[str] | None] = mapped_column(JSON)
+    execution_modes: Mapped[list[str] | None] = mapped_column(JSON)
+    supports_mask: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    supports_multiple_images: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    supports_video: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    supports_text: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    requires_global_egress: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    source: Mapped[str] = mapped_column(String(64), default="backend-admin", nullable=False)
+    route_policy: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    default_task_policy: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    input_schema: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    cost_policy: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    extra_metadata: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+
 class Ability(Base):
     __tablename__ = "abilities"
 
@@ -225,6 +267,9 @@ class Ability(Base):
     ability_type: Mapped[str] = mapped_column(String(32), default="api", nullable=False)
     executor_id: Mapped[str | None] = mapped_column(String(64), ForeignKey("executors.id", ondelete="SET NULL"))
     workflow_id: Mapped[str | None] = mapped_column(String(64), ForeignKey("workflows.id", ondelete="SET NULL"))
+    vendor_model_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("vendor_model_catalog.id", ondelete="SET NULL")
+    )
     coze_workflow_id: Mapped[str | None] = mapped_column(String(64))
     default_params: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     input_schema: Mapped[dict[str, Any] | None] = mapped_column(JSON)
@@ -239,6 +284,7 @@ class Ability(Base):
 
     executor: Mapped[Executor | None] = relationship()
     workflow: Mapped[Workflow | None] = relationship()
+    vendor_model: Mapped[VendorModelCatalog | None] = relationship()
 
 
 class AbilityInvocationLog(Base):
@@ -331,3 +377,119 @@ class AbilityCostSnapshot(Base):
     currency: Mapped[str | None] = mapped_column(String(16))
     unit: Mapped[str | None] = mapped_column(String(32))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class BusinessCapability(Base):
+    __tablename__ = "business_capabilities"
+    __table_args__ = (
+        UniqueConstraint("business_key", "version", name="uq_business_capability_key_version"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    business_key: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    version: Mapped[str] = mapped_column(String(32), nullable=False)
+    display_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(32), default="inactive", nullable=False)
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    release_time: Mapped[datetime | None] = mapped_column(DateTime)
+    recipe: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    input_schema: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    output_schema: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    extra_metadata: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+
+class BusinessRun(Base):
+    __tablename__ = "business_runs"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    business_key: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    business_version_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("business_capabilities.id", ondelete="SET NULL"), nullable=True
+    )
+    version: Mapped[str | None] = mapped_column(String(32))
+    status: Mapped[str] = mapped_column(String(32), default="queued", nullable=False, index=True)
+    source: Mapped[str] = mapped_column(String(64), default="business-api", nullable=False)
+    channel: Mapped[str | None] = mapped_column(String(64))
+    trace_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    request_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    client_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    user_id: Mapped[str | None] = mapped_column(String(64), ForeignKey("users.id", ondelete="SET NULL"))
+    user_name: Mapped[str | None] = mapped_column(String(128))
+    ability_id: Mapped[str | None] = mapped_column(String(64), ForeignKey("abilities.id", ondelete="SET NULL"))
+    ability_task_id: Mapped[str | None] = mapped_column(String(64), ForeignKey("ability_tasks.id", ondelete="SET NULL"))
+    ability_log_id: Mapped[int | None] = mapped_column(Integer)
+    request_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    result_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    image_urls: Mapped[list[str] | None] = mapped_column(JSON)
+    video_urls: Mapped[list[str] | None] = mapped_column(JSON)
+    texts: Mapped[list[str] | None] = mapped_column(JSON)
+    error_message: Mapped[str | None] = mapped_column(Text)
+    duration_ms: Mapped[int | None] = mapped_column(Integer)
+    billing_unit: Mapped[str | None] = mapped_column(String(32))
+    unit_price: Mapped[float | None] = mapped_column(Numeric(14, 6))
+    currency: Mapped[str | None] = mapped_column(String(16))
+    cost_amount: Mapped[float | None] = mapped_column(Numeric(14, 4))
+    quota_units: Mapped[int | None] = mapped_column(Integer)
+    cost_breakdown: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    callback_url: Mapped[str | None] = mapped_column(String(512))
+    callback_headers: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    callback_status: Mapped[str | None] = mapped_column(String(32))
+    callback_http_status: Mapped[int | None] = mapped_column(Integer)
+    callback_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    callback_response: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    callback_error: Mapped[str | None] = mapped_column(Text)
+    debug_url: Mapped[str | None] = mapped_column(String(512))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    business_version: Mapped[BusinessCapability | None] = relationship()
+
+
+class BusinessRunStep(Base):
+    __tablename__ = "business_run_steps"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    run_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("business_runs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    step_order: Mapped[int] = mapped_column(Integer, nullable=False)
+    step_id: Mapped[str | None] = mapped_column(String(64))
+    step_type: Mapped[str] = mapped_column(String(64), default="ability_task", nullable=False)
+    role: Mapped[str | None] = mapped_column(String(64))
+    display_name: Mapped[str | None] = mapped_column(String(128))
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="planned", nullable=False, index=True)
+    ability_id: Mapped[str | None] = mapped_column(String(64), ForeignKey("abilities.id", ondelete="SET NULL"))
+    ability_name: Mapped[str | None] = mapped_column(String(128))
+    ability_provider: Mapped[str | None] = mapped_column(String(64))
+    ability_task_id: Mapped[str | None] = mapped_column(String(64), ForeignKey("ability_tasks.id", ondelete="SET NULL"))
+    ability_log_id: Mapped[int | None] = mapped_column(Integer)
+    request_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    result_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    error_message: Mapped[str | None] = mapped_column(Text)
+    duration_ms: Mapped[int | None] = mapped_column(Integer)
+    billing_unit: Mapped[str | None] = mapped_column(String(32))
+    unit_price: Mapped[float | None] = mapped_column(Numeric(14, 6))
+    currency: Mapped[str | None] = mapped_column(String(16))
+    cost_amount: Mapped[float | None] = mapped_column(Numeric(14, 4))
+    quota_units: Mapped[int | None] = mapped_column(Integer)
+    cost_breakdown: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    run: Mapped[BusinessRun] = relationship()
+    ability: Mapped[Ability | None] = relationship(foreign_keys=[ability_id])

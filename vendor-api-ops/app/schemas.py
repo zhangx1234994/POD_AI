@@ -140,3 +140,18 @@ class VendorKeyRead(BaseModel):
 
 class VendorKeyListResponse(BaseModel):
     items: list[VendorKeyRead]
+
+
+class UsageSummaryItem(BaseModel):
+    provider: str
+    model: str | None = None
+    status: str
+    count: int = 0
+    errorCode: str | None = None
+    avgLatencyMs: int | None = None
+    lastSeenAt: datetime | None = None
+
+
+class UsageSummaryResponse(BaseModel):
+    windowHours: int
+    items: list[UsageSummaryItem]

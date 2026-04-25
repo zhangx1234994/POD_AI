@@ -25,19 +25,8 @@ from app.core.db import get_session
 from app.models.integration import Ability, ComfyuiLora, Executor, WorkflowBinding
 from app.models.user import User
 from app.schemas import abilities as schemas
-from app.services.ability_governance import build_business_status, resolve_ability_governance
-from app.services.ability_presentation import (
-    build_ability_presentation_sort_key,
-    is_ability_visible_for_surface,
-    resolve_ability_presentation,
-)
 from app.services.ability_logs import AbilityLogStartParams, ability_log_service
-from app.services.image_ops_registry import (
-    get_image_ops_capability,
-    is_heavy_image_ops_capability,
-    is_image_ops_capability,
-)
-from app.services.routing_governance import normalize_ability_routing
+from app.services.ability_presentation import get_public_field_schema, get_public_presentation
 from app.services.task_id_codec import encode_task_id
 from app.services.ability_seed import ensure_default_abilities
 from app.services.executor_seed import ensure_default_executors
@@ -117,18 +106,20 @@ class AbilityInvocationService:
             self._executor_slot_sizes.pop(eid, None)
 
     # -------- catalogue helpers -------- #
-    def list_public_abilities(self, *, surface: str | None = None) -> list[schemas.AbilityPublicInfo]:
+    def list_public_abilities(self) -> list[schemas.AbilityPublicInfo]:
         with get_session() as session:
             ensure_default_abilities(session)
-            stmt = select(Ability).where(Ability.status == "active")
+            stmt = (
+                select(Ability)
+                .where(Ability.status == "active")
+                .order_by(Ability.provider.asc(), Ability.capability_key.asc())
+            )
             rows = session.execute(stmt).scalars().all()
-            visible_rows = [row for row in rows if self._is_publicly_visible(row, surface=surface)]
-            visible_rows.sort(key=self._public_sort_key)
-            return [self._to_public_info(row) for row in visible_rows]
+            return [self._to_public_info(row) for row in rows]
 
     def get_public_ability(self, ability_id: str) -> schemas.AbilityPublicInfo:
         ability = self._get_ability(ability_id)
-        if ability.status != "active" or not self._is_publicly_visible(ability):
+        if ability.status != "active":
             raise HTTPException(status_code=404, detail="ABILITY_NOT_FOUND")
         return self._to_public_info(ability)
 
@@ -167,11 +158,11 @@ class AbilityInvocationService:
             executor_id = self._pick_comfyui_executor_id(ability, merged_inputs)
             if not executor_id and not fallback_to_default:
                 raise HTTPException(status_code=400, detail="COMFYUI_EXECUTOR_NOT_MATCHED")
-        if not executor_id and provider_key not in {"coze", "podi"}:
+        if not executor_id and provider_key not in {"coze", "podi", "vl"}:
             if provider_key == "comfyui" and not fallback_to_default:
                 raise HTTPException(status_code=400, detail="COMFYUI_EXECUTOR_NOT_MATCHED")
             executor_id = self._pick_default_executor_id(provider_key)
-        if not executor_id and provider_key not in {"coze", "podi"}:
+        if not executor_id and provider_key not in {"coze", "podi", "vl"}:
             raise HTTPException(status_code=400, detail="ABILITY_EXECUTOR_NOT_CONFIGURED")
         request_marker = uuid4().hex
         currency, billing_unit, unit_price = self._extract_pricing_metadata(ability)
@@ -318,19 +309,22 @@ class AbilityInvocationService:
                         return executor.id
 
         metadata = ability.extra_metadata if isinstance(ability.extra_metadata, dict) else {}
-        routing = normalize_ability_routing(metadata)
-        policy = str(routing.get("selection_policy") or "auto").strip().lower()
-        required_tags = self._normalize_tags(routing.get("required_executor_tags"))
-        fallback_to_default = bool(routing.get("fallback_to_default", True))
-        allowed_ids = [
-            str(x).strip()
-            for x in (routing.get("allowed_executor_ids") or [])
-            if isinstance(x, str) and x.strip()
-        ]
-        action = str(routing.get("action") or "generic").strip() or "generic"
+        policy = str(metadata.get("routing_policy") or "").strip().lower()
+        if not policy:
+            policy = "auto"
+        required_tags = self._normalize_tags(metadata.get("required_tags"))
+        fallback_to_default = metadata.get("fallback_to_default")
+        if fallback_to_default is None:
+            fallback_to_default = True
+        fallback_to_default = bool(fallback_to_default)
+        allowed_ids_raw = metadata.get("allowed_executor_ids")
+        allowed_ids: list[str] = []
+        if isinstance(allowed_ids_raw, list):
+            allowed_ids = [str(x).strip() for x in allowed_ids_raw if isinstance(x, str) and x.strip()]
+        action = (metadata.get("action") or "").strip() or "generic"
         workflow_key = (
             (merged_inputs.get("workflow_key") if isinstance(merged_inputs, dict) else None)
-            or routing.get("workflow_key")
+            or metadata.get("workflow_key")
             or ability.capability_key
         )
 
@@ -418,19 +412,11 @@ class AbilityInvocationService:
     def _extract_executor_tags(self, executor: Executor) -> set[str]:
         tags: list[str] = []
         cfg = executor.config or {}
-        routing = cfg.get("routing") if isinstance(cfg, dict) and isinstance(cfg.get("routing"), dict) else {}
-        raw = routing.get("tags")
-        if raw is None and isinstance(cfg, dict):
-            raw = cfg.get("tags")
+        raw = cfg.get("tags") if isinstance(cfg, dict) else None
         if raw is None and isinstance(cfg, dict):
             raw = cfg.get("tag")
         tags.extend(self._normalize_tags(raw))
         return {t for t in tags if t}
-
-    def _executor_routing_enabled(self, executor: Executor) -> bool:
-        cfg = executor.config or {}
-        routing = cfg.get("routing") if isinstance(cfg, dict) and isinstance(cfg.get("routing"), dict) else {}
-        return bool(routing.get("routing_enabled", True))
 
     def _prepare_comfyui_candidates(self, executor_ids: list[str], required_tags: list[str]) -> list[Executor]:
         ids = [str(item).strip() for item in executor_ids if isinstance(item, str) and item.strip()]
@@ -450,7 +436,6 @@ class AbilityInvocationService:
             )
         by_id = {row.id: row for row in rows}
         ordered = [by_id[eid] for eid in ids if eid in by_id]
-        ordered = [ex for ex in ordered if self._executor_routing_enabled(ex)]
         if not required_tags:
             return ordered
         required = {t.lower() for t in required_tags if t}
@@ -665,6 +650,8 @@ class AbilityInvocationService:
             return self._invoke_kie(ability, executor_id, merged_inputs, images)
         if provider == "coze":
             return self._invoke_coze(ability, merged_inputs, images, context)
+        if provider == "vl":
+            return self._invoke_vl(ability, merged_inputs, images, context)
         raise HTTPException(status_code=400, detail=f"ABILITY_PROVIDER_UNSUPPORTED:{provider}")
 
     def _pick_vendor_api_executor_id(self, provider_key: str) -> str | None:
@@ -751,17 +738,12 @@ class AbilityInvocationService:
         context: _InvocationContext,
     ) -> dict[str, Any]:
         try:
-            from app.services.image_ops_client import (
-                ImageOpsLocalExecutionDisabled,
-                ImageOpsRemoteError,
-                image_ops_client,
-            )
+            from app.services import podi_image_tools
         except Exception as exc:
-            raise HTTPException(status_code=500, detail=f"IMAGE_OPS_CLIENT_IMPORT_FAILED:{exc}") from exc
+            raise HTTPException(status_code=500, detail=f"PODI_IMAGE_TOOLS_IMPORT_FAILED:{exc}") from exc
 
         key = ability.capability_key
-        image_ops_spec = get_image_ops_capability(key)
-        if not is_image_ops_capability(provider=ability.provider, capability_key=key) or not image_ops_spec:
+        if key not in {"expand_mask_color", "set_dpi", "upscale_resize"}:
             raise HTTPException(status_code=400, detail="PODI_UTILITY_UNSUPPORTED")
 
         image_url = (
@@ -772,7 +754,6 @@ class AbilityInvocationService:
         image_base64 = images.image_base64 or self._pop_first_string(merged_inputs, ["image_base64", "imageBase64"])
         if not image_url and not image_base64:
             raise HTTPException(status_code=400, detail="IMAGE_REQUIRED")
-        disable_local_heavy = bool(get_settings().disable_local_heavy_image_tasks) and is_heavy_image_ops_capability(key)
 
         def _as_int(*keys: str) -> int:
             v = None
@@ -847,15 +828,13 @@ class AbilityInvocationService:
             except Exception:
                 in_w, in_h = None, None
             try:
-                out_bytes, content_type, ext = image_ops_client.expand_with_color(
+                out_bytes = podi_image_tools.expand_with_color(
                     image_bytes=src_bytes,
                     expand_left=left,
                     expand_right=right,
                     expand_top=top,
                     expand_bottom=bottom,
                 )
-            except ImageOpsRemoteError as exc:
-                raise HTTPException(status_code=502, detail="EXPAND_MASK_REMOTE_FAILED") from exc
             except Exception as exc:
                 self._logger.exception(
                     "expand_mask_color render failed request_id=%s image_url=%s expand=(%s,%s,%s,%s)",
@@ -872,9 +851,9 @@ class AbilityInvocationService:
             try:
                 upload = oss_service.upload_bytes(
                     user_id=user_id,
-                    filename=f"{image_ops_spec['filename_prefix']}{ext}",
+                    filename="expand_mask.png",
                     data=out_bytes,
-                    content_type=content_type,
+                    content_type="image/png",
                 )
             except Exception as exc:
                 self._logger.exception(
@@ -889,8 +868,8 @@ class AbilityInvocationService:
                 "sourceUrl": src_source_url,
                 "ossUrl": upload.get("url"),
                 "ossKey": upload.get("objectKey"),
-                "contentType": content_type,
-                "tag": image_ops_spec["result_tag"],
+                "contentType": "image/png",
+                "tag": "podi-expand-mask",
             }
         elif key == "set_dpi":
             dpi_raw = merged_inputs.get("dpi")
@@ -898,13 +877,10 @@ class AbilityInvocationService:
                 dpi = int(str(dpi_raw).strip()) if dpi_raw is not None else 300
             except Exception:
                 dpi = 300
-            try:
-                out_bytes, content_type, ext = image_ops_client.set_dpi(image_bytes=src_bytes, dpi=dpi)
-            except ImageOpsRemoteError as exc:
-                raise HTTPException(status_code=502, detail="SET_DPI_REMOTE_FAILED") from exc
+            out_bytes, content_type, ext = podi_image_tools.set_dpi(image_bytes=src_bytes, dpi=dpi)
             upload = oss_service.upload_bytes(
                 user_id=user_id,
-                filename=f"{image_ops_spec['filename_prefix']}_{dpi}{ext}",
+                filename=f"set_dpi_{dpi}{ext}",
                 data=out_bytes,
                 content_type=content_type,
             )
@@ -913,7 +889,7 @@ class AbilityInvocationService:
                 "ossUrl": upload.get("url"),
                 "ossKey": upload.get("objectKey"),
                 "contentType": content_type,
-                "tag": image_ops_spec["result_tag"],
+                "tag": "podi-set-dpi",
             }
         elif key == "upscale_resize":
             mle_raw = merged_inputs.get("max_long_edge")
@@ -922,20 +898,14 @@ class AbilityInvocationService:
             except Exception:
                 mle = 4096
             fmt = str(merged_inputs.get("output_format") or "png").strip().lower()
-            try:
-                out_bytes, content_type, ext = image_ops_client.upscale_resize(
-                    image_bytes=src_bytes,
-                    max_long_edge=mle,
-                    output_format=fmt,
-                    allow_local_fallback=not disable_local_heavy and bool(image_ops_spec.get("local_fallback_allowed", True)),
-                )
-            except ImageOpsLocalExecutionDisabled as exc:
-                raise HTTPException(status_code=503, detail="LOCAL_HEAVY_IMAGE_TASK_DISABLED") from exc
-            except ImageOpsRemoteError as exc:
-                raise HTTPException(status_code=502, detail="UPSCALE_REMOTE_FAILED") from exc
+            out_bytes, content_type, ext = podi_image_tools.upscale_resize(
+                image_bytes=src_bytes,
+                max_long_edge=mle,
+                output_format=fmt,
+            )
             upload = oss_service.upload_bytes(
                 user_id=user_id,
-                filename=f"{image_ops_spec['filename_prefix']}_{mle}{ext}",
+                filename=f"upscale_{mle}{ext}",
                 data=out_bytes,
                 content_type=content_type,
             )
@@ -944,7 +914,7 @@ class AbilityInvocationService:
                 "ossUrl": upload.get("url"),
                 "ossKey": upload.get("objectKey"),
                 "contentType": content_type,
-                "tag": image_ops_spec["result_tag"],
+                "tag": "podi-upscale-resize",
             }
 
         stored_url = asset.get("ossUrl") if isinstance(asset, dict) else None
@@ -1392,6 +1362,138 @@ class AbilityInvocationService:
             call_back_url=call_back_url,
             extra_payload=self._clean_params(extra_payload) or None,
         )
+
+    def _invoke_vl(
+        self,
+        ability: Ability,
+        merged_inputs: dict[str, Any],
+        images: _ImageBundle,
+        context: _InvocationContext,
+    ) -> dict[str, Any]:
+        metadata = ability.extra_metadata if isinstance(ability.extra_metadata, dict) else {}
+        image_url = images.image_url or self._pop_first_string(merged_inputs, ["image_url", "imageUrl", "url"])
+        if not image_url:
+            raise HTTPException(status_code=400, detail="VL_IMAGE_REQUIRED")
+        provider_choice = (
+            self._pop_first_string(merged_inputs, ["provider", "vl_provider", "vlProvider"])
+            or metadata.get("default_provider")
+            or "volcengine_vl"
+        )
+        provider_choice = str(provider_choice).strip().lower()
+        prompt = self._pop_first_string(merged_inputs, ["prompt", "instruction", "query"]) or self._default_vl_prompt()
+        if provider_choice in {"volcengine", "volcengine_vl", "doubao"}:
+            with get_session() as session:
+                ensure_default_abilities(session)
+                provider_ability = session.get(Ability, "volcengine_doubao_seed_1_8")
+            if not provider_ability:
+                raise HTTPException(status_code=400, detail="VL_PROVIDER_ABILITY_NOT_FOUND")
+            response = self.invoke(
+                ability_id=provider_ability.id,
+                payload=schemas.AbilityInvokeRequest(
+                    inputs={"prompt": prompt, "image_url": image_url},
+                    imageUrl=image_url,
+                    metadata={"parentRequestId": context.request_id, "vlProvider": provider_choice},
+                ),
+                user=context.user,
+                source=f"{context.source}:vl",
+            )
+            raw_text = (response.texts or [""])[0] if response.texts else ""
+            structured = self._coerce_vl_structured_json(raw_text, provider=provider_choice, image_url=image_url)
+            return {
+                "provider": "vl",
+                "model": response.metadata.get("model") if isinstance(response.metadata, dict) else None,
+                "texts": [json.dumps(structured, ensure_ascii=False)],
+                "metadata": {"vlProvider": provider_choice, "providerRequestId": response.requestId},
+                "raw": {
+                    "structured": structured,
+                    "provider": provider_choice,
+                    "providerResponse": response.model_dump(exclude_none=True),
+                },
+            }
+        if provider_choice in {"coze", "coze_vl"}:
+            workflow_id = self._pop_first_string(merged_inputs, ["coze_workflow_id", "cozeWorkflowId"]) or metadata.get("coze_workflow_id")
+            if not workflow_id:
+                raise HTTPException(status_code=400, detail="VL_COZE_WORKFLOW_NOT_CONFIGURED")
+            response = coze_client.run_workflow(
+                workflow_id=str(workflow_id),
+                parameters={"image_url": image_url, "prompt": prompt, **self._clean_params(merged_inputs)},
+                ext={"request_id": context.request_id, "ability_id": ability.id, "provider": "coze_vl"},
+                request_id=context.request_id,
+            )
+            parsed = self._parse_coze_payload(response.get("data"))
+            raw_text = self._extract_coze_text(parsed) or ""
+            structured = self._coerce_vl_structured_json(raw_text or parsed, provider=provider_choice, image_url=image_url)
+            return {
+                "provider": "vl",
+                "texts": [json.dumps(structured, ensure_ascii=False)],
+                "metadata": {"vlProvider": provider_choice, "cozeWorkflowId": workflow_id},
+                "raw": {"structured": structured, "provider": provider_choice, "response": response},
+            }
+        raise HTTPException(status_code=400, detail="VL_PROVIDER_UNSUPPORTED")
+
+    @staticmethod
+    def _default_vl_prompt() -> str:
+        return (
+            "请分析这张图片，并只输出 JSON。字段必须包含：summary、subjects、style、colors、composition、"
+            "textElements、riskFlags、promptCard。promptCard 内包含 positivePrompt、negativePrompt、"
+            "imageDesc、fissionHints、outpaintHints。面向电商商品图、图案设计、裂变和扩图使用，"
+            "描述要具体、可执行，不要输出 Markdown。"
+        )
+
+    def _coerce_vl_structured_json(self, value: Any, *, provider: str, image_url: str) -> dict[str, Any]:
+        parsed: Any = None
+        if isinstance(value, dict):
+            parsed = value
+        elif isinstance(value, str):
+            text = value.strip()
+            if text.startswith("```"):
+                text = re.sub(r"^```(?:json)?", "", text, flags=re.IGNORECASE).strip()
+                text = re.sub(r"```$", "", text).strip()
+            try:
+                parsed = json.loads(text)
+            except Exception:
+                parsed = None
+        if isinstance(parsed, dict):
+            prompt_card = parsed.get("promptCard")
+            if not isinstance(prompt_card, dict):
+                parsed["promptCard"] = self._empty_vl_prompt_card(raw_text=value)
+            return {
+                "summary": parsed.get("summary") or "",
+                "subjects": parsed.get("subjects") if isinstance(parsed.get("subjects"), list) else [],
+                "style": parsed.get("style") or "",
+                "colors": parsed.get("colors") if isinstance(parsed.get("colors"), list) else [],
+                "composition": parsed.get("composition") or "",
+                "textElements": parsed.get("textElements") if isinstance(parsed.get("textElements"), list) else [],
+                "riskFlags": parsed.get("riskFlags") if isinstance(parsed.get("riskFlags"), list) else [],
+                "promptCard": parsed.get("promptCard") or self._empty_vl_prompt_card(raw_text=value),
+                "provider": provider,
+                "imageUrl": image_url,
+            }
+        raw_text = value if isinstance(value, str) else self._stringify_value(value)
+        return {
+            "summary": raw_text[:500] if raw_text else "",
+            "subjects": [],
+            "style": "",
+            "colors": [],
+            "composition": "",
+            "textElements": [],
+            "riskFlags": ["VL_JSON_PARSE_FALLBACK"],
+            "promptCard": self._empty_vl_prompt_card(raw_text=raw_text),
+            "provider": provider,
+            "imageUrl": image_url,
+        }
+
+    @staticmethod
+    def _empty_vl_prompt_card(raw_text: Any = "") -> dict[str, Any]:
+        raw = raw_text if isinstance(raw_text, str) else str(raw_text or "")
+        return {
+            "positivePrompt": "",
+            "negativePrompt": "",
+            "imageDesc": raw[:800],
+            "fissionHints": [],
+            "outpaintHints": [],
+            "rawText": raw[:2000],
+        }
 
     def _invoke_coze(
         self,
@@ -1851,15 +1953,10 @@ class AbilityInvocationService:
             isinstance(max_output, int) and max_output > 1
         )
         requires_image = bool(metadata.get("requires_image_input"))
-        input_schema = ability.input_schema if isinstance(ability.input_schema, dict) else None
-        governance = resolve_ability_governance(status=ability.status, metadata=metadata)
-        business_status = build_business_status(governance)
-        presentation = resolve_ability_presentation(
-            status=ability.status,
-            provider=ability.provider,
-            category=ability.category,
-            capability_key=ability.capability_key,
-            ability_type=ability.ability_type,
+        input_schema = get_public_field_schema(ability.input_schema, metadata)
+        presentation = get_public_presentation(
+            display_name=ability.display_name,
+            description=ability.description,
             metadata=metadata,
         )
         return schemas.AbilityPublicInfo(
@@ -1873,55 +1970,19 @@ class AbilityInvocationService:
             status=ability.status,
             abilityType=ability.ability_type,
             workflowId=ability.workflow_id,
+            vendorModelId=ability.vendor_model_id,
             cozeWorkflowId=ability.coze_workflow_id,
             executorId=ability.executor_id,
             defaultParams=ability.default_params,
             inputSchema=input_schema,
             metadata=metadata or None,
-            businessStatus=schemas.AbilityBusinessStatus(
-                availabilityCode=business_status["availability_code"],
-                availabilityLabel=business_status["availability_label"],
-                stabilityCode=business_status["stability_code"],
-                stabilityLabel=business_status["stability_label"],
-                surfaceLabels=business_status["surface_labels"],
-            ),
-            businessPresentation=schemas.AbilityBusinessPresentation(
-                visible=bool(presentation["visible"]),
-                sortOrder=int(presentation["sort_order"]),
-                categoryLabel=str(presentation["category_label"]),
-                usageHint=str(presentation["usage_hint"]),
-                operationLabel=str(presentation["operation_label"]),
-            ),
+            presentation=presentation,
             requiresImage=requires_image,
             supportsMultipleImages=supports_multi,
             maxOutputImages=max_output if isinstance(max_output, int) else None,
             lastHealthCheckAt=ability.last_health_check_at,
             lastHealthStatus=ability.last_health_status,
             successRate=ability.success_rate,
-        )
-
-    @staticmethod
-    def _public_sort_key(ability: Ability) -> tuple[int, str, str, str]:
-        return build_ability_presentation_sort_key(
-            status=ability.status,
-            provider=ability.provider,
-            category=ability.category,
-            capability_key=ability.capability_key,
-            ability_type=ability.ability_type,
-            display_name=ability.display_name,
-            metadata=ability.extra_metadata,
-        )
-
-    @staticmethod
-    def _is_publicly_visible(ability: Ability, *, surface: str | None = None) -> bool:
-        return is_ability_visible_for_surface(
-            status=ability.status,
-            provider=ability.provider,
-            category=ability.category,
-            capability_key=ability.capability_key,
-            ability_type=ability.ability_type,
-            metadata=ability.extra_metadata,
-            surface=surface,
         )
 
     @staticmethod

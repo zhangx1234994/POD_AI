@@ -337,7 +337,7 @@ def get_system_config() -> schemas.SystemConfigResponse:
     todo_items = [
         schemas.TodoItem(
             title="RAM 角色信任策略待收紧",
-            description="CLTZ 角色目前允许 root AssumeRole，需要限定来源账号并考虑 MFA；参见 AGENTS.md 中 TODO。",
+            description="CLTZ 角色目前允许 root AssumeRole，需要限定来源账号并考虑 MFA；这是云账号侧安全治理项，需要在阿里云 RAM 策略中处理。",
             severity="high",
         ),
         schemas.TodoItem(
@@ -383,6 +383,7 @@ def get_system_config() -> schemas.SystemConfigResponse:
         oss=schemas.OssConfig(
             bucket=settings.oss_bucket,
             endpoint=settings.oss_endpoint,
+            internal_endpoint=settings.oss_internal_endpoint,
             public_domain=settings.oss_public_domain,
             root_prefix=settings.oss_root_prefix,
             sts_duration=settings.oss_sts_duration,

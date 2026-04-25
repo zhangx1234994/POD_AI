@@ -11,17 +11,27 @@ Goal: run these checks on the test machine before deploying to the production se
 - `COZE_API_TOKEN=...`
 - Optional (legacy fallback only): `COZE_COMFYUI_CALLBACK_WORKFLOW_ID=...`
 
-### Coze 控制面迁移时额外要求
+## 0.1) Release Source of Truth (Must Check First)
 
-- `DISABLE_LOCAL_HEAVY_IMAGE_TASKS=true`
-- toolbox 只允许指向 backend，不允许直连 ComfyUI
-- 若已拆出自研图片原子能力：
-  - `IMAGE_OPS_BASE_URL=...`
-  - `IMAGE_OPS_LOCAL_FALLBACK_ENABLED=false`（Coze 主机建议）
-- 更新服务器前必须确认目标提交已经进入 `origin/main`
-- 迁移类发布按 `docs/testing/COZE_CONTROL_PLANE_MIGRATION_CHECKLIST.md` 执行
-- 建议附加执行：
-  - `python3 backend/scripts/check_coze_control_plane_migration.py --backend-base http://127.0.0.1:8099 --admin-base http://127.0.0.1:8199 --eval-base http://127.0.0.1:8200`
+Before any server update, verify the release target from `origin/main` instead of a local dirty workspace.
+
+Required checks:
+
+1. Confirm target commit is already in `origin/main`
+   - `git fetch origin`
+   - `git log --oneline -1 origin/main`
+2. In the server working copy, confirm the repo is actually on `main`
+   - `git branch --show-current`
+   - `git rev-parse --short HEAD`
+3. If the running service is frontend/dev-server based, confirm the process is started from this updated directory
+   - do not assume “already restarted” means “already updated”
+
+Do **not** use the following as the release signal by itself:
+
+- “local branch has the code”
+- “someone said it was updated”
+- “current workspace can see the commit”
+- “there is only one listening process on the port”
 
 ## 1) Multi-ComfyUI Connectivity
 

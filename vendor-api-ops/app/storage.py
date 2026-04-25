@@ -201,6 +201,40 @@ class VendorStorage:
             )
             conn.commit()
 
+    def usage_summary(self, *, window_hours: int = 24) -> list[dict[str, Any]]:
+        cutoff = datetime.now(timezone.utc).timestamp() - max(1, int(window_hours or 24)) * 3600
+        cutoff_iso = datetime.fromtimestamp(cutoff, timezone.utc).isoformat()
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                select
+                    provider,
+                    model,
+                    status,
+                    error_code,
+                    count(*) as count,
+                    avg(latency_ms) as avg_latency_ms,
+                    max(created_at) as last_seen_at
+                from vendor_usage_logs
+                where created_at >= :cutoff
+                group by provider, model, status, error_code
+                order by last_seen_at desc, count desc
+                """,
+                {"cutoff": cutoff_iso},
+            ).fetchall()
+        return [
+            {
+                "provider": row["provider"],
+                "model": row["model"],
+                "status": row["status"],
+                "error_code": row["error_code"],
+                "count": int(row["count"] or 0),
+                "avg_latency_ms": int(row["avg_latency_ms"]) if row["avg_latency_ms"] is not None else None,
+                "last_seen_at": row["last_seen_at"],
+            }
+            for row in rows
+        ]
+
     def _connect(self) -> sqlite3.Connection:
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(self._db_path.as_posix(), check_same_thread=False)

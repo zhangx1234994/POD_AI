@@ -144,6 +144,80 @@ def _volcengine_llm_schema() -> dict[str, Any]:
     }
 
 
+def _vl_analyze_image_schema() -> dict[str, Any]:
+    return {
+        "fields": [
+            {
+                "name": "image_url",
+                "type": "image",
+                "label": _compose_bilingual_label("图片 URL", "Image URL"),
+                "required": True,
+                "description": _compose_bilingual_label(
+                    "用于视觉理解的主图。", "Primary image for visual-language analysis."
+                ),
+            },
+            {
+                "name": "prompt",
+                "type": "textarea",
+                "label": _compose_bilingual_label("分析要求", "Analysis Prompt"),
+                "required": False,
+                "description": _compose_bilingual_label(
+                    "为空时使用平台默认的商品图/图案分析模板。",
+                    "Uses PODI's default product/pattern analysis template when empty.",
+                ),
+            },
+            {
+                "name": "provider",
+                "type": "select",
+                "label": _compose_bilingual_label("VL 来源", "VL Provider"),
+                "default": "volcengine_vl",
+                "options": [
+                    {"label": "火山 Doubao VL", "value": "volcengine_vl"},
+                    {"label": "Coze 已接入 VL", "value": "coze_vl"},
+                ],
+                "description": _compose_bilingual_label(
+                    "Coze VL 需要在能力元信息或请求中配置 coze_workflow_id。",
+                    "Coze VL requires coze_workflow_id in ability metadata or request inputs.",
+                ),
+            },
+            {
+                "name": "coze_workflow_id",
+                "type": "text",
+                "label": _compose_bilingual_label("Coze VL 工作流 ID", "Coze VL Workflow ID"),
+                "required": False,
+            },
+        ]
+    }
+
+
+def _vl_metadata(*, seed_version: int) -> dict[str, Any]:
+    return {
+        "executor_type": "vl",
+        "api_type": "vl_analyze_image",
+        "default_provider": "volcengine_vl",
+        "provider_ability_map": {
+            "volcengine_vl": "volcengine_doubao_seed_1_8",
+            "coze_vl": "coze_workflow",
+        },
+        "requires_image_input": True,
+        "supports_vision": True,
+        "structured_output": True,
+        "seed_version": seed_version,
+        "presentation": _presentation(
+            name="VL 图像理解",
+            summary="把图片转成结构化分析卡，用于裂变、扩图、提示词增强和业务审核。",
+            form_intro="上传图片即可分析主体、风格、颜色、构图和后续生成建议。",
+            expected_output="返回结构化 JSON，供业务编排、MCP、技能或 Coze 继续使用。",
+            surfaces={"client": False, "coze": True, "admin": True, "eval": False},
+            fields={
+                "image_url": _presentation_field(label="待分析图片"),
+                "prompt": _presentation_field(label="分析要求", advanced=True),
+                "provider": _presentation_field(label="VL 来源", advanced=True),
+            },
+        ),
+    }
+
+
 def _volcengine_image_schema(
     defaults: dict[str, Any],
     *,
@@ -400,6 +474,140 @@ def _openai_image_edit_schema() -> dict[str, Any]:
                     {"label": "low", "value": "low"},
                 ],
                 "default": "auto",
+            },
+            {
+                "name": "background",
+                "type": "select",
+                "label": _compose_bilingual_label("背景模式", "Background Mode"),
+                "description": _compose_bilingual_label(
+                    "GPT Image 2 当前支持自动或不透明背景，不支持透明背景。",
+                    "GPT Image 2 currently supports auto or opaque background, not transparent.",
+                ),
+                "options": [
+                    {"label": "auto", "value": "auto"},
+                    {"label": "opaque", "value": "opaque"},
+                ],
+                "default": "auto",
+            },
+            {
+                "name": "output_format",
+                "type": "select",
+                "label": _compose_bilingual_label("输出格式", "Output Format"),
+                "options": [
+                    {"label": "png", "value": "png"},
+                    {"label": "jpeg", "value": "jpeg"},
+                    {"label": "webp", "value": "webp"},
+                ],
+                "default": "png",
+            },
+            {
+                "name": "output_compression",
+                "type": "number",
+                "label": _compose_bilingual_label("输出压缩率", "Output Compression"),
+                "description": _compose_bilingual_label(
+                    "仅 jpeg/webp 有效，范围 0-100；PNG 可留空。",
+                    "Only applies to jpeg/webp, range 0-100; leave empty for PNG.",
+                ),
+                "min": 0,
+                "max": 100,
+            },
+            {
+                "name": "n",
+                "type": "number",
+                "label": _compose_bilingual_label("生成张数", "Number of Images"),
+                "description": _compose_bilingual_label(
+                    "默认 1 张；批量生成会增加成本和等待时间。",
+                    "Defaults to 1; larger batches increase cost and wait time.",
+                ),
+                "default": 1,
+                "min": 1,
+                "max": 4,
+            },
+        ]
+    }
+
+
+def _openai_image_generation_schema() -> dict[str, Any]:
+    return {
+        "fields": [
+            {
+                "name": "prompt",
+                "type": "textarea",
+                "label": _compose_bilingual_label("提示词", "Prompt"),
+                "placeholder": _compose_bilingual_label("描述要生成的画面", "Describe the image to generate"),
+                "required": True,
+            },
+            {
+                "name": "size",
+                "type": "select",
+                "label": _compose_bilingual_label("输出尺寸", "Output Size"),
+                "options": [
+                    {"label": "1024x1024", "value": "1024x1024"},
+                    {"label": "1024x1536", "value": "1024x1536"},
+                    {"label": "1536x1024", "value": "1536x1024"},
+                    {"label": "auto", "value": "auto"},
+                ],
+                "default": "1024x1024",
+            },
+            {
+                "name": "quality",
+                "type": "select",
+                "label": _compose_bilingual_label("质量", "Quality"),
+                "options": [
+                    {"label": "auto", "value": "auto"},
+                    {"label": "high", "value": "high"},
+                    {"label": "medium", "value": "medium"},
+                    {"label": "low", "value": "low"},
+                ],
+                "default": "auto",
+            },
+            {
+                "name": "background",
+                "type": "select",
+                "label": _compose_bilingual_label("背景模式", "Background Mode"),
+                "description": _compose_bilingual_label(
+                    "GPT Image 2 当前支持自动或不透明背景，不支持透明背景。",
+                    "GPT Image 2 currently supports auto or opaque background, not transparent.",
+                ),
+                "options": [
+                    {"label": "auto", "value": "auto"},
+                    {"label": "opaque", "value": "opaque"},
+                ],
+                "default": "auto",
+            },
+            {
+                "name": "output_format",
+                "type": "select",
+                "label": _compose_bilingual_label("输出格式", "Output Format"),
+                "options": [
+                    {"label": "png", "value": "png"},
+                    {"label": "jpeg", "value": "jpeg"},
+                    {"label": "webp", "value": "webp"},
+                ],
+                "default": "png",
+            },
+            {
+                "name": "output_compression",
+                "type": "number",
+                "label": _compose_bilingual_label("输出压缩率", "Output Compression"),
+                "description": _compose_bilingual_label(
+                    "仅 jpeg/webp 有效，范围 0-100；PNG 可留空。",
+                    "Only applies to jpeg/webp, range 0-100; leave empty for PNG.",
+                ),
+                "min": 0,
+                "max": 100,
+            },
+            {
+                "name": "n",
+                "type": "number",
+                "label": _compose_bilingual_label("生成张数", "Number of Images"),
+                "description": _compose_bilingual_label(
+                    "默认 1 张；批量生成会增加成本和等待时间。",
+                    "Defaults to 1; larger batches increase cost and wait time.",
+                ),
+                "default": 1,
+                "min": 1,
+                "max": 4,
             },
         ]
     }
@@ -1185,6 +1393,13 @@ def _comfyui_flux2_klein_9b_outpaint_schema() -> dict[str, Any]:
                 "required": True,
             },
             {
+                "name": "prompt",
+                "type": "textarea",
+                "label": _compose_bilingual_label("扩图提示词", "Outpaint Prompt"),
+                "description": "节点 132 · String.inStr；描述扩展区域应延续的内容、风格与边缘规律。",
+                "required": False,
+            },
+            {
                 "name": "expand_left",
                 "type": "number",
                 "label": _compose_bilingual_label("左侧扩展 (px)", "Expand Left (px)"),
@@ -1211,6 +1426,13 @@ def _comfyui_flux2_klein_9b_outpaint_schema() -> dict[str, Any]:
                 "label": _compose_bilingual_label("下侧扩展 (px)", "Expand Bottom (px)"),
                 "description": "节点 102 · ImagePadForOutpaint.bottom",
                 "default": 0,
+            },
+            {
+                "name": "seed",
+                "type": "number",
+                "label": _compose_bilingual_label("随机种子", "Seed"),
+                "description": "节点 99 · Florence2Run.seed；不填则后端自动随机。",
+                "required": False,
             },
         ]
     }
@@ -1240,73 +1462,6 @@ def _comfyui_qwen2512_print_shape_text_enhance_schema() -> dict[str, Any]:
                 "description": _compose_bilingual_label(
                     "映射到节点 27 · KSampler.denoise：0→0.95，50→0.75，100→0.55。",
                     "Mapped to node 27 · KSampler.denoise: 0→0.95, 50→0.75, 100→0.55.",
-                ),
-                "required": False,
-            },
-        ]
-    }
-
-
-def _comfyui_flux_strong_hq_softstyle_fission_schema() -> dict[str, Any]:
-    return {
-        "fields": [
-            {
-                "name": "image_url",
-                "type": "image",
-                "label": _compose_bilingual_label("输入图片 URL", "Input Image URL"),
-                "description": _compose_bilingual_label(
-                    "节点 10 · LoadImage.image。提交时后端会先把 OSS 图片上传到 ComfyUI input 目录，再写入文件名。",
-                    "Node 10 · LoadImage.image. Backend uploads the OSS image into the ComfyUI input folder before setting the staged filename.",
-                ),
-                "required": True,
-            },
-            {
-                "name": "prompt",
-                "type": "textarea",
-                "label": _compose_bilingual_label("裂变提示词", "Fission Prompt"),
-                "description": "节点 13 · CR Text Concatenate.text1",
-                "required": True,
-            },
-            {
-                "name": "image_desc",
-                "type": "textarea",
-                "label": _compose_bilingual_label("图像补充描述（高级）", "Image Description (Advanced)"),
-                "description": _compose_bilingual_label(
-                    "节点 13 · CR Text Concatenate.text2。建议由上游 VL / Coze 自动生成，不建议业务手写。",
-                    "Node 13 · CR Text Concatenate.text2. Prefer generating this from upstream VL / Coze instead of writing it manually.",
-                ),
-                "required": False,
-            },
-            {
-                "name": "bili",
-                "type": "number",
-                "label": _compose_bilingual_label("裂变幅度（0-100）", "Fission Strength (0-100)"),
-                "description": _compose_bilingual_label(
-                    "沿用旧图裂变的 bili 口径，后端映射到节点 24 · BasicScheduler.denoise。数值越大越接近原图；默认 90 ≈ denoise 0.59。",
-                    "Keeps the previous fission-style bili parameter and maps it to node 24 · BasicScheduler.denoise. Higher values stay closer to the source image; default 90 is about denoise 0.59.",
-                ),
-                "default": 90,
-                "min": 0,
-                "max": 100,
-                "required": False,
-            },
-            {
-                "name": "width",
-                "type": "number",
-                "label": _compose_bilingual_label("输出宽度(px)", "Output Width(px)"),
-                "description": _compose_bilingual_label(
-                    "节点 12 · ImageResize+.width。不填则默认按原图宽度处理。",
-                    "Node 12 · ImageResize+.width. Omit to keep the original image width.",
-                ),
-                "required": False,
-            },
-            {
-                "name": "height",
-                "type": "number",
-                "label": _compose_bilingual_label("输出高度(px)", "Output Height(px)"),
-                "description": _compose_bilingual_label(
-                    "节点 12 · ImageResize+.height。不填则默认按原图高度处理。",
-                    "Node 12 · ImageResize+.height. Omit to keep the original image height.",
                 ),
                 "required": False,
             },
@@ -1609,18 +1764,51 @@ class AbilityDefinition(TypedDict, total=False):
 
 
 OPENAI_IMAGE_ABILITIES: dict[str, AbilityDefinition] = {
+    "gpt_image_2_generate": {
+        "endpoint": "/v1/images/generations",
+        "defaults": {
+            "model": "gpt-image-2",
+            "size": "1024x1024",
+            "quality": "auto",
+            "background": "auto",
+            "output_format": "png",
+            "n": 1,
+        },
+        "display_name": "OpenAI · GPT Image 2 文生图",
+        "description": "OpenAI GPT Image 2 官方文生图能力；经 vendor-api-ops 统一代理、Key 管理和结果落库。",
+        "category": "image_generation",
+        "input_schema": _openai_image_generation_schema(),
+        "metadata": _openai_metadata(model_id="gpt-image-2", api_type="image_generation", seed_version=1),
+    },
     "gpt_image_2_edit": {
         "endpoint": "/v1/images/edits",
         "defaults": {
             "model": "gpt-image-2",
             "size": "1024x1024",
             "quality": "auto",
+            "background": "auto",
+            "output_format": "png",
+            "n": 1,
         },
         "display_name": "OpenAI · GPT Image 2 图片编辑",
         "description": "支持原图、蒙版、多参考图的图片编辑能力；经 vendor-api-ops 统一代理和落库。",
         "category": "image_generation",
         "input_schema": _openai_image_edit_schema(),
-        "metadata": _openai_metadata(model_id="gpt-image-2", api_type="image_edit", seed_version=1),
+        "metadata": _openai_metadata(model_id="gpt-image-2", api_type="image_edit", seed_version=2),
+    },
+}
+
+
+VL_ABILITIES: dict[str, AbilityDefinition] = {
+    "analyze_image": {
+        "defaults": {
+            "provider": "volcengine_vl",
+        },
+        "display_name": "VL · 图像结构化分析",
+        "description": "统一图像理解原子能力，输出商品/图案分析 JSON，可服务裂变、扩图、MCP、技能和业务 API。",
+        "category": "vision_language",
+        "input_schema": _vl_analyze_image_schema(),
+        "metadata": _vl_metadata(seed_version=1),
     },
 }
 
@@ -2333,39 +2521,6 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             ),
         },
     },
-    "flux2_klein_9b_outpaint": {
-        "defaults": {
-            "workflow_key": "flux2_klein_9b_outpaint",
-            "timeout": 420,
-            "expand_left": 408,
-            "expand_right": 408,
-            "expand_top": 0,
-            "expand_bottom": 0,
-        },
-        "display_name": "ComfyUI · FLUX2-Klein 扩图",
-        "description": "使用 FLUX2-Klein 9b 扩图 workflow 做画布外延与边缘补全，适合做更自然的左右/上下扩边。",
-        "category": "image_generation",
-        "input_schema": _comfyui_flux2_klein_9b_outpaint_schema(),
-        "metadata": {
-            "executor_type": "comfyui",
-            "executor_tag": "comfyui",
-            "api_type": "comfyui_workflow",
-            "workflow_key": "flux2_klein_9b_outpaint",
-            "action": "outpaint",
-            "requires_image_input": True,
-            "supports_vision": True,
-            "output_node_ids": ["9"],
-            "allowed_executor_ids": ["executor_comfyui_pattern_extract_158", "executor_comfyui_seamless_117"],
-            "routing_policy": "queue",
-            "seed_version": 1,
-            "pricing": {
-                "currency": "CNY",
-                "unit": "per_image",
-                "list_price": 0.6,
-                "discount_price": 0.35,
-            },
-        },
-    },
     "qwen2512_print_shape_text_enhance": {
         "defaults": {
             "workflow_key": "qwen2512_print_shape_text_enhance",
@@ -2417,44 +2572,6 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             ),
         },
     },
-    "flux_strong_hq_softstyle_fission": {
-        "defaults": {
-            "workflow_key": "flux_strong_hq_softstyle_fission",
-            "timeout": 420,
-            "profile_id": "pattern_default_v1",
-            "steps": 8,
-            "cfg": 1.0,
-            "bili": 90,
-            "batch_size": 1,
-            "ipadapter_weight": 0.25,
-            "colormatch_method": "mkl",
-            "colormatch_strength": 0.20,
-            "image_desc": "",
-        },
-        "display_name": "ComfyUI · 多元素花纹裂变",
-        "description": "基于 FLUX Strong HQ SoftStyle 的图裂变工作流。保留旧图裂变的 bili 口径，同时支持 image_desc 与输出尺寸覆盖。",
-        "category": "image_generation",
-        "input_schema": _comfyui_flux_strong_hq_softstyle_fission_schema(),
-        "metadata": {
-            "executor_type": "comfyui",
-            "executor_tag": "comfyui",
-            "api_type": "comfyui_workflow",
-            "workflow_key": "flux_strong_hq_softstyle_fission",
-            "action": "image_fission",
-            "requires_image_input": True,
-            "supports_vision": True,
-            "output_node_ids": ["31"],
-            "allowed_executor_ids": ["executor_comfyui_pattern_extract_158", "executor_comfyui_seamless_117"],
-            "routing_policy": "queue",
-            "seed_version": 1,
-            "pricing": {
-                "currency": "CNY",
-                "unit": "per_image",
-                "list_price": 0.6,
-                "discount_price": 0.35,
-            },
-        },
-    },
     "huawen_kuotu": {
         "defaults": {
             "workflow_key": "huawen_kuotu",
@@ -2484,7 +2601,7 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "supports_vision": True,
             "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
             "routing_policy": "queue",
-            "seed_version": 6,
+            "seed_version": 5,
             "pricing": {
                 "currency": "CNY",
                 "unit": "per_image",
@@ -2517,7 +2634,7 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "output_node_ids": ["9"],
             "allowed_executor_ids": ["executor_comfyui_pattern_extract_158", "executor_comfyui_seamless_117"],
             "routing_policy": "queue",
-            "seed_version": 2,
+            "seed_version": 4,
             "pricing": {
                 "currency": "CNY",
                 "unit": "per_image",
@@ -2779,15 +2896,9 @@ PODI_UTILITY_ABILITIES: dict[str, AbilityDefinition] = {
         "metadata": {
             "api_type": "podi_utility",
             "action": "expand_mask_color",
-            "execution_target": "image_ops",
-            "image_ops": {
-                "operation": "expand-mask-color",
-                "heavy": False,
-                "local_fallback_allowed": True,
-            },
             "requires_image_input": True,
             "supports_vision": True,
-            "seed_version": 4,
+            "seed_version": 2,
             "pricing": {
                 "currency": "CNY",
                 "unit": "per_image",
@@ -2823,15 +2934,9 @@ PODI_UTILITY_ABILITIES: dict[str, AbilityDefinition] = {
         "metadata": {
             "api_type": "podi_utility",
             "action": "set_dpi",
-            "execution_target": "image_ops",
-            "image_ops": {
-                "operation": "set-dpi",
-                "heavy": False,
-                "local_fallback_allowed": True,
-            },
             "requires_image_input": True,
             "supports_vision": True,
-            "seed_version": 4,
+            "seed_version": 2,
             "pricing": {
                 "currency": "CNY",
                 "unit": "per_image",
@@ -2885,15 +2990,9 @@ PODI_UTILITY_ABILITIES: dict[str, AbilityDefinition] = {
         "metadata": {
             "api_type": "podi_utility",
             "action": "upscale_resize",
-            "execution_target": "image_ops",
-            "image_ops": {
-                "operation": "upscale-resize",
-                "heavy": True,
-                "local_fallback_allowed": False,
-            },
             "requires_image_input": True,
             "supports_vision": True,
-            "seed_version": 4,
+            "seed_version": 2,
             "pricing": {
                 "currency": "CNY",
                 "unit": "per_image",

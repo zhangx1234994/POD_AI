@@ -48,6 +48,15 @@
   - `taskId = ERR|Qxxxx|...`
   - `taskStatus = failed`
 
+### 1.3.1 业务任务查询（`/api/business/runs/*`）
+
+- `status` 对外统一为：`queued` / `running` / `succeeded` / `failed` / `cancelled`
+- 对外主键使用 `runId`；底层 `taskId` 只用于排查关联，不要求业务方理解。
+- 结果字段统一为 `imageUrls/videoUrls/texts/error/debugUrl`，不得把底层 ComfyUI 节点名作为主错误文案。
+- 业务版本切换由 `businessKey/version/isDefault/releaseTime` 表达，旧版本保留用于回滚。
+- 灰度路由结果统一放在 `routeInfo`，包含 `selectedBy/version/businessVersionId/routeKeyHash`；不得返回客户原始灰度标识。
+- 业务调用明确传 `version` 时必须优先使用指定版本，不再参与灰度比例。
+
 ### 1.4 Agent 同步任务（`/api/agent/*` + `/api/admin/comfyui/tasks*`）
 
 - 允许状态：`pending` / `running` / `success` / `failed` / `rejected`
@@ -83,8 +92,8 @@
 
 ### 2.2 三层错误结构
 
-1) **HTTP 层**：状态码正确（4xx 客户端、5xx 服务端）  
-2) **业务层**：`detail/errorMessage/debugResponse` 中出现标准错误码  
+1) **HTTP 层**：状态码正确（4xx 客户端、5xx 服务端）
+2) **业务层**：`detail/errorMessage/debugResponse` 中出现标准错误码
 3) **展示层**：人类可读中文（可附原始码）
 
 ### 2.3 强约束错误格式
@@ -133,17 +142,17 @@
 
 新增/修改接口时，必须同时更新：
 
-1. 模块接口文档（`docs/api/modules/*.md`）  
-2. 错误码总表（`docs/standards/error-catalog.md`）  
-3. 测评端开发文档（`/api/evals/docs/workflows` 对应内容）  
+1. 模块接口文档（`docs/api/modules/*.md`）
+2. 错误码总表（`docs/standards/error-catalog.md`）
+3. 测评端开发文档（`/api/evals/docs/workflows` 对应内容）
 4. 若涉及状态/错误口径，必须更新本文档
 
 ---
 
 ## 6. PR 最低验收清单
 
-- [ ] 状态词是否落在本准则允许集合  
-- [ ] 错误码是否进入 `error-catalog`  
-- [ ] 前端展示是否保留机器错误码 + 中文解释  
-- [ ] 文档（管理端 / 测评端）是否同步  
+- [ ] 状态词是否落在本准则允许集合
+- [ ] 错误码是否进入 `error-catalog`
+- [ ] 前端展示是否保留机器错误码 + 中文解释
+- [ ] 文档（管理端 / 测评端）是否同步
 - [ ] 至少覆盖 1 条失败路径测试（参数缺失/依赖失败/超时/并发限制）

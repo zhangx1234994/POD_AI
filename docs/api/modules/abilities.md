@@ -18,45 +18,6 @@
 
 **用途**：返回所有已激活能力的基础信息、默认参数与输入 schema。
 
-**请求参数**
-
-- `surface`：可选。按业务面过滤能力，例如 `coze` / `client` / `eval` / `admin`。
-
-**新增口径**
-
-- `businessStatus`：业务可见状态，不暴露中台内部治理术语。
-  - `availabilityCode/availabilityLabel`：`available/可用`、`testing/测试中`、`unavailable/暂不可用`
-  - `stabilityCode/stabilityLabel`：`stable/稳定`、`optimizing/优化中`、`experimental/实验性`
-- `businessPresentation`：业务可见的简化展示层，不要求业务理解中台内部概念。
-  - `visible`：是否建议在业务列表中展示
-  - `sortOrder`：排序值，数值越小越靠前
-  - `categoryLabel`：给业务看的分类名称
-  - `usageHint`：一句话使用提示
-  - `operationLabel`：一句话动作名称（如“图像扩展”“抠图”“图像裂变”）
-- `metadata.governance`：中台内部治理真源，给管理端/内部配置使用，不建议直接面向业务透出。
-  - `scopes`：`internal/admin/eval/coze/client`
-  - `release_status`：`draft/internal_ready/eval_ready/published/deprecated`
-  - `route_policy`：`fixed/queue_aware/fallback_allowed`
-  - `quality_status`：`untested/usable/needs_optimization`
-- `metadata.routing`：中台路由真源，给调度层和管理端使用。
-  - `selection_policy`：`auto/fixed/queue/weight/round_robin`
-  - `required_executor_tags`
-  - `allowed_executor_ids`
-  - `fallback_to_default`
-  - `action`
-  - `workflow_key`
-- `metadata.deprecation`：下线与替代真源，给管理端与中台治理使用。
-  - `replacement_ability_id`
-  - `replacement_capability_key`
-  - `replacement_display_name`
-  - `reason`
-  - `retirement_mode`：`hide_public/internal_only/delete_candidate`
-
-**公共列表约束**
-
-- 当能力被标记为 `release_status=deprecated`，且下线模式为 `hide_public/internal_only/delete_candidate` 时，公共 `/api/abilities` 与 `/api/abilities/options` 会自动隐藏该能力。
-- 业务侧应优先使用替代能力，不直接展示已下线能力。
-
 **响应示例**
 
 ```json
@@ -84,35 +45,7 @@
       "inputSchema": { "fields": [] },
       "metadata": {
         "api_type": "comfyui_workflow",
-        "requires_image_input": true,
-        "routing": {
-          "selection_policy": "queue",
-          "required_executor_tags": ["pattern_extract"],
-          "allowed_executor_ids": ["executor_comfyui_pattern_extract_158"],
-          "fallback_to_default": true,
-          "action": "generic",
-          "workflow_key": "yinhua_tiqu"
-        },
-        "governance": {
-          "scopes": ["admin", "eval", "coze"],
-          "release_status": "published",
-          "route_policy": "queue_aware",
-          "quality_status": "usable"
-        }
-      },
-      "businessStatus": {
-        "availabilityCode": "available",
-        "availabilityLabel": "可用",
-        "stabilityCode": "stable",
-        "stabilityLabel": "稳定",
-        "surfaceLabels": ["管理端", "测评端", "Coze"]
-      },
-      "businessPresentation": {
-        "visible": true,
-        "sortOrder": 200,
-        "categoryLabel": "图片生成",
-        "usageHint": "适合在 Coze 工作流中作为图像节点使用",
-        "operationLabel": "图案提取"
+        "requires_image_input": true
       },
       "requiresImage": true,
       "supportsMultipleImages": false,
@@ -191,30 +124,6 @@
 - `IMAGE_REQUIRED` / `COMFYUI_IMAGE_REQUIRED`
 - `COMFYUI_TIMEOUT` / `KIE_TIMEOUT`
 
-### PODI 自研图片原子能力（image-ops）补充错误
-
-适用能力：
-
-- `expand_mask_color`
-- `set_dpi`
-- `upscale_resize`
-
-常见错误：
-
-- `IMAGE_REQUIRED`
-- `IMAGE_BASE64_INVALID`
-- `EXPAND_MASK_RENDER_FAILED`
-- `EXPAND_MASK_UPLOAD_FAILED`
-- `EXPAND_MASK_REMOTE_FAILED`
-- `SET_DPI_REMOTE_FAILED`
-- `UPSCALE_REMOTE_FAILED`
-- `LOCAL_HEAVY_IMAGE_TASK_DISABLED`
-
-说明：
-
-- 当 backend 已配置 `IMAGE_OPS_BASE_URL` 时，这 3 条能力会优先调用独立 `image-ops` 服务。
-- 若 Coze 控制面主机设置了 `DISABLE_LOCAL_HEAVY_IMAGE_TASKS=true`，`upscale_resize` 在没有外部 image-ops 可用时会直接返回 `LOCAL_HEAVY_IMAGE_TASK_DISABLED`，不允许本机兜底。
-
 ---
 
 ## 3) 能力选项（公共）
@@ -227,16 +136,6 @@
 
 - `status`：默认 `active`
 - `provider`：可选（如 `comfyui` / `volcengine` / `kie`）
-- `surface`：可选。仅返回对该业务面可见的能力
-- `visible_only`：默认 `true`，仅返回 `presentation.visible=true` 的能力
-
-**说明**
-
-- 公共 options 也会返回 `business_status`、`presentation` 与 `governance`。
-- 业务前端应优先使用：
-  - `business_status` 渲染“可用性/稳定度”
-  - `presentation.category_label / usage_hint / operation_label` 渲染列表与引导文案
-- 管理端或内部平台可读取 `governance` 做分层、发布判断，并读取 `metadata.routing` 做路由判断。
 
 ---
 

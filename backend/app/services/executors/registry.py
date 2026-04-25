@@ -8,6 +8,7 @@ from .base import ExecutorAdapter
 from .mock import MockExecutorAdapter
 from .baidu_image import BaiduImageExecutorAdapter
 from .comfyui import ComfyUIExecutorAdapter
+from .kie import KieMarketExecutorAdapter
 
 
 class ExecutorRegistry:
@@ -25,6 +26,9 @@ registry = ExecutorRegistry()
 registry.register("mock", MockExecutorAdapter())
 registry.register("baidu", BaiduImageExecutorAdapter())
 registry.register("comfyui", ComfyUIExecutorAdapter())
+registry.register("kie", KieMarketExecutorAdapter())
+registry.register("kie-market", KieMarketExecutorAdapter())
+registry.register("kie_market", KieMarketExecutorAdapter())
 
 # 默认将常见 provider 指向对应实现（暂以 mock 作为 fallback）
 for provider_type in ("openai", "openai_compatible", "volcengine", "aliyun", "vendor_api"):

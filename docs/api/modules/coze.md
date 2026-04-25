@@ -25,7 +25,7 @@
 **示例**
 
 ```bash
-curl http://127.0.0.1:8099/api/coze/podi/openapi.json # local dev
+curl http://127.0.0.1:8099/api/coze/podi/openapi.json
 ```
 
 ### GET /api/coze/podi/comfyui/lora/openapi.json
@@ -35,7 +35,7 @@ curl http://127.0.0.1:8099/api/coze/podi/openapi.json # local dev
 **示例**
 
 ```bash
-curl http://127.0.0.1:8099/api/coze/podi/comfyui/lora/openapi.json # local dev
+curl http://127.0.0.1:8099/api/coze/podi/comfyui/lora/openapi.json
 ```
 
 ### GET /api/coze/podi/comfyui/execute/duotu-ronghe/openapi.json
@@ -45,7 +45,7 @@ curl http://127.0.0.1:8099/api/coze/podi/comfyui/lora/openapi.json # local dev
 **示例**
 
 ```bash
-curl http://127.0.0.1:8099/api/coze/podi/comfyui/execute/duotu-ronghe/openapi.json # local dev
+curl http://127.0.0.1:8099/api/coze/podi/comfyui/execute/duotu-ronghe/openapi.json
 ```
 
 ### GET /api/coze/podi/kie/catalog/openapi.json
@@ -55,7 +55,7 @@ curl http://127.0.0.1:8099/api/coze/podi/comfyui/execute/duotu-ronghe/openapi.js
 **示例**
 
 ```bash
-curl http://127.0.0.1:8099/api/coze/podi/kie/catalog/openapi.json # local dev
+curl http://127.0.0.1:8099/api/coze/podi/kie/catalog/openapi.json
 ```
 
 ### GET /api/coze/podi/kie/catalog/{model_key}/openapi.json
@@ -65,7 +65,7 @@ curl http://127.0.0.1:8099/api/coze/podi/kie/catalog/openapi.json # local dev
 **示例**
 
 ```bash
-curl http://127.0.0.1:8099/api/coze/podi/kie/catalog/nano-banana-pro-image-to-image/openapi.json # local dev
+curl http://127.0.0.1:8099/api/coze/podi/kie/catalog/nano-banana-pro-image-to-image/openapi.json
 ```
 
 ### GET /api/coze/podi/kie/execute/{model_key}/openapi.json
@@ -75,7 +75,7 @@ curl http://127.0.0.1:8099/api/coze/podi/kie/catalog/nano-banana-pro-image-to-im
 **示例**
 
 ```bash
-curl http://127.0.0.1:8099/api/coze/podi/kie/execute/nano-banana-2-image-to-image/openapi.json # local dev
+curl http://127.0.0.1:8099/api/coze/podi/kie/execute/nano-banana-2-image-to-image/openapi.json
 ```
 
 ---
@@ -421,7 +421,7 @@ curl http://127.0.0.1:8099/api/coze/podi/kie/execute/nano-banana-2-image-to-imag
 **示例**
 
 ```bash
-curl -X POST http://127.0.0.1:8099/api/coze/podi/kie/models/nano-banana-pro-image-to-image/schema # local dev
+curl -X POST http://127.0.0.1:8099/api/coze/podi/kie/models/nano-banana-pro-image-to-image/schema
 ```
 
 ---

@@ -1,5 +1,6 @@
 import type {
   Ability,
+  AbilityHealthSummaryResponse,
   AbilityListResponse,
   AbilityLogListResponse,
   AbilityLogMetricsResponse,
@@ -7,7 +8,14 @@ import type {
   AbilityTemplateValidateResponse,
   AbilityInvocationLog,
   ApiKey,
+  AuthSession,
+  AuthSessionListResponse,
+  AuthUserListResponse,
   Binding,
+  BusinessCapability,
+  BusinessCapabilityListResponse,
+  BusinessRunListResponse,
+  BusinessUsageSummaryResponse,
   DashboardMetrics,
   DispatchLogResponse,
   Executor,
@@ -41,9 +49,20 @@ import type {
   ComfyuiRuntimePolicy,
   ComfyuiRolePrimary,
   JsonRecord,
+  InviteCode,
+  InviteCodeCreatePayload,
+  InviteCodeListResponse,
   PublicAbility,
   StoredAsset,
   SystemConfig,
+  VendorEgressCheckResponse,
+  VendorKey,
+  VendorKeyListResponse,
+  VendorModel,
+  VendorModelListResponse,
+  VendorModelSyncResponse,
+  VendorProviderListResponse,
+  VendorUsageSummaryResponse,
   Workflow,
 } from '../types/admin';
 import type {
@@ -60,6 +79,28 @@ type AbilityContextPayload = {
   abilityName?: string | null;
   abilityProvider?: string | null;
   capabilityKey?: string | null;
+};
+
+type AbilityHealthQueryOptions = {
+  staleHours?: number;
+  limit?: number;
+  provider?: string;
+  status?: string;
+  healthStatus?: string;
+  needsTest?: boolean;
+  staleOnly?: boolean;
+};
+
+type BusinessRunQueryOptions = {
+  businessKey?: string;
+  status?: string;
+  version?: string;
+  source?: string;
+  tenantId?: string;
+  clientId?: string;
+  traceId?: string;
+  windowHours?: number;
+  limit?: number;
 };
 
 type BaiduImageTestResponse = {
@@ -196,6 +237,32 @@ function forceReLogin(message?: string) {
   }, 50);
 }
 
+function buildAbilityHealthQuery(options?: AbilityHealthQueryOptions) {
+  const params = new URLSearchParams();
+  params.set('staleHours', String(options?.staleHours ?? 24));
+  params.set('limit', String(options?.limit ?? 20));
+  if (options?.provider && options.provider !== 'all') params.set('provider', options.provider);
+  if (options?.status && options.status !== 'all') params.set('status', options.status);
+  if (options?.healthStatus && options.healthStatus !== 'all') params.set('healthStatus', options.healthStatus);
+  if (typeof options?.needsTest === 'boolean') params.set('needsTest', options.needsTest ? 'true' : 'false');
+  if (options?.staleOnly) params.set('staleOnly', 'true');
+  return params;
+}
+
+function buildBusinessRunQuery(options?: BusinessRunQueryOptions) {
+  const params = new URLSearchParams();
+  if (options?.businessKey && options.businessKey !== 'all') params.set('business_key', options.businessKey);
+  if (options?.status && options.status !== 'all') params.set('status', options.status);
+  if (options?.version && options.version !== 'all') params.set('version', options.version);
+  if (options?.source?.trim()) params.set('source', options.source.trim());
+  if (options?.tenantId?.trim()) params.set('tenant_id', options.tenantId.trim());
+  if (options?.clientId?.trim()) params.set('client_id', options.clientId.trim());
+  if (options?.traceId?.trim()) params.set('trace_id', options.traceId.trim());
+  if (options?.windowHours) params.set('window_hours', String(options.windowHours));
+  if (options?.limit) params.set('limit', String(options.limit));
+  return params;
+}
+
 async function request<T>(path: string, options: RequestInit = {}, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<T> {
   const token = getAdminToken();
   const { options: timedOptions, cancel } = withTimeout(options, timeoutMs);
@@ -264,6 +331,16 @@ async function requestBlob(path: string, options: RequestInit = {}, timeoutMs = 
 }
 
 export const adminApi = {
+  listAuthUsers: () => request<AuthUserListResponse>('/api/auth/users'),
+  listAuthSessions: () => request<AuthSessionListResponse>('/api/auth/sessions/all'),
+  revokeAuthSession: (sessionId: string) =>
+    request<AuthSession>(`/api/auth/sessions/${sessionId}/revoke`, { method: 'POST' }),
+  listInviteCodes: () => request<InviteCodeListResponse>('/api/auth/invite-codes'),
+  createInviteCode: (payload: InviteCodeCreatePayload) =>
+    request<InviteCode>('/api/auth/invite-codes', { method: 'POST', body: JSON.stringify(payload) }),
+  disableInviteCode: (inviteId: string) =>
+    request<InviteCode>(`/api/auth/invite-codes/${inviteId}/disable`, { method: 'POST' }),
+
   listExecutors: () => request<Executor[]>('/api/admin/executors'),
   createExecutor: (payload: Partial<Executor>) =>
     request<Executor>('/api/admin/executors', { method: 'POST', body: JSON.stringify(payload) }),
@@ -291,6 +368,36 @@ export const adminApi = {
   updateApiKey: (id: string, payload: Partial<ApiKey>) =>
     request<ApiKey>(`/api/admin/api-keys/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
   deleteApiKey: (id: string) => request<void>(`/api/admin/api-keys/${id}`, { method: 'DELETE' }),
+
+  listVendorProviders: () => request<VendorProviderListResponse>('/api/admin/vendor-api/providers'),
+  checkVendorProviderEgress: (provider: string, payload?: { check?: string; includeAuth?: boolean }) =>
+    request<VendorEgressCheckResponse>(`/api/admin/vendor-api/providers/${encodeURIComponent(provider)}/egress-check`, {
+      method: 'POST',
+      body: JSON.stringify(payload || { check: 'models', includeAuth: false }),
+    }),
+  listVendorKeys: (provider?: string) => {
+    const suffix = provider ? `?provider=${encodeURIComponent(provider)}` : '';
+    return request<VendorKeyListResponse>(`/api/admin/vendor-api/keys${suffix}`);
+  },
+  getVendorUsageSummary: (windowHours = 24) =>
+    request<VendorUsageSummaryResponse>(`/api/admin/vendor-api/usage/summary?windowHours=${encodeURIComponent(String(windowHours))}`),
+  createVendorKey: (payload: Partial<VendorKey> & { key: string; secret?: string | null; provider: string; alias: string }) =>
+    request<VendorKey>('/api/admin/vendor-api/keys', { method: 'POST', body: JSON.stringify(payload) }),
+  updateVendorKey: (id: string, payload: Partial<VendorKey>) =>
+    request<VendorKey>(`/api/admin/vendor-api/keys/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+  listVendorModels: () => request<VendorModelListResponse>('/api/admin/vendor-api/models'),
+  syncVolcengineModels: () =>
+    request<VendorModelSyncResponse>('/api/admin/vendor-api/models/sync/volcengine', { method: 'POST' }),
+  createVendorModel: (payload: Partial<VendorModel>) =>
+    request<VendorModel>('/api/admin/vendor-api/models', { method: 'POST', body: JSON.stringify(payload) }),
+  updateVendorModel: (id: number, payload: Partial<VendorModel>) =>
+    request<VendorModel>(`/api/admin/vendor-api/models/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
 
   // Tests
   testBaiduQualityUpgrade: (payload: AbilityContextPayload & { executorId: string; imageBase64: string; resolution: string; upscaleType: string }) =>
@@ -752,8 +859,45 @@ export const adminApi = {
   getDashboardMetrics: () => request<DashboardMetrics>('/api/admin/dashboard/metrics'),
   getDispatchLogs: () => request<DispatchLogResponse>('/api/admin/dashboard/logs'),
   getSystemConfig: () => request<SystemConfig>('/api/admin/dashboard/system-config'),
+  listBusinessCapabilities: () => request<BusinessCapabilityListResponse>('/api/admin/business/capabilities'),
+  createBusinessCapability: (payload: Partial<BusinessCapability>) =>
+    request<BusinessCapability>('/api/admin/business/capabilities', { method: 'POST', body: JSON.stringify(payload) }),
+  updateBusinessCapability: (id: string, payload: Partial<BusinessCapability>) =>
+    request<BusinessCapability>(`/api/admin/business/capabilities/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+  listBusinessRuns: (options?: BusinessRunQueryOptions) => {
+    const params = buildBusinessRunQuery(options);
+    params.delete('window_hours');
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    return request<BusinessRunListResponse>(`/api/admin/business/runs${suffix}`);
+  },
+  getBusinessUsageSummary: (options?: BusinessRunQueryOptions) => {
+    const params = buildBusinessRunQuery(options);
+    params.delete('limit');
+    if (!params.has('window_hours')) params.set('window_hours', '24');
+    return request<BusinessUsageSummaryResponse>(`/api/admin/business/usage-summary?${params.toString()}`);
+  },
   // Abilities
   listAbilities: () => request<Ability[]>('/api/admin/abilities'),
+  getAbilityHealthSummary: (options?: AbilityHealthQueryOptions) => {
+    const params = buildAbilityHealthQuery(options);
+    return request<AbilityHealthSummaryResponse>(`/api/admin/abilities/health/summary?${params.toString()}`);
+  },
+  refreshAbilityHealthSummary: (options?: AbilityHealthQueryOptions) => {
+    const params = buildAbilityHealthQuery(options);
+    return request<AbilityHealthSummaryResponse>(`/api/admin/abilities/health/refresh?${params.toString()}`, {
+      method: 'POST',
+    });
+  },
+  exportAbilityHealthSummary: (options?: AbilityHealthQueryOptions) => {
+    const params = buildAbilityHealthQuery({ ...options, limit: options?.limit ?? 500 });
+    return requestBlob(`/api/admin/abilities/health/export?${params.toString()}`, {
+      method: 'GET',
+      headers: { Accept: 'text/csv' },
+    });
+  },
   createAbility: (payload: Partial<Ability>) =>
     request<Ability>('/api/admin/abilities', { method: 'POST', body: JSON.stringify(payload) }),
   updateAbility: (id: string, payload: Partial<Ability>) =>

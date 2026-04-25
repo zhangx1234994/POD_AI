@@ -109,4 +109,4 @@ aliyun.oss.root-prefix = test
 ## 备注
 
 - 所有凭证已同步到管理端“执行节点”配置中，可直接绑定到能力目录；如需刷新或替换，请同时更新本文件与系统配置。
-- TODO：后续需实现火山模型列表自动同步接口，并进一步细化 RAM 信任策略与临时密钥失效流程。***
+- 2026-04-25：火山模型列表同步接口已接入管理端：`POST /api/admin/vendor-api/models/sync/volcengine`，读取 `VOLCENGINE_API_KEY` 后调用 `GET https://ark.cn-beijing.volces.com/api/v3/models` 并写入 `vendor_model_catalog`。RAM 信任策略与临时密钥失效流程仍需在阿里云账号侧继续细化。

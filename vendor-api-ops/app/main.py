@@ -14,6 +14,7 @@ from app.schemas import (
     InvocationRequest,
     InvocationResponse,
     ProvidersResponse,
+    UsageSummaryResponse,
     VendorKeyCreateRequest,
     VendorKeyListResponse,
     VendorKeyRead,
@@ -74,6 +75,12 @@ def create_key(payload: VendorKeyCreateRequest) -> VendorKeyRead:
 @app.get("/v1/keys", response_model=VendorKeyListResponse)
 def list_keys(provider: str | None = None) -> VendorKeyListResponse:
     return VendorKeyListResponse(items=invocation_store.list_keys(provider=provider))
+
+
+@app.get("/v1/usage/summary", response_model=UsageSummaryResponse)
+def usage_summary(windowHours: int = 24) -> UsageSummaryResponse:
+    rows = invocation_store.usage_summary(window_hours=windowHours)
+    return UsageSummaryResponse(windowHours=max(1, int(windowHours or 24)), items=rows)
 
 
 @app.patch("/v1/keys/{key_id}", response_model=VendorKeyRead)

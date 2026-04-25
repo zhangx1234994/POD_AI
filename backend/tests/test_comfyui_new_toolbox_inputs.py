@@ -80,7 +80,7 @@ def test_flux2_klein_9b_outpaint_maps_uploaded_image_expand_and_random_seed():
     graph = {
         "76": {"inputs": {"image": "old.png"}},
         "99": {"inputs": {"seed": 1}},
-        "102": {"inputs": {"left": 408, "right": 408, "top": 0, "bottom": 0}},
+        "102": {"inputs": {"left": 408, "top": 0, "right": 408, "bottom": 0}},
         "9": {"inputs": {"filename_prefix": "Flux2-Klein"}},
     }
     context = _make_context("flux2_klein_9b_outpaint", graph)

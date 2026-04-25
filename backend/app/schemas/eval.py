@@ -14,7 +14,6 @@ class EvalWorkflowVersionBase(BaseModel):
     workflow_id: str = Field(..., description="Coze工作流ID")
     parameters_schema: Optional[dict[str, Any]] = Field(None, description="参数schema")
     output_schema: Optional[dict[str, Any]] = Field(None, description="输出schema")
-    metadata: Optional[dict[str, Any]] = Field(None, description="展示/排序/默认参数覆盖等附加配置")
     notes: Optional[str] = Field(None, description="备注")
     status: str = Field(default="active", description="状态")
 
@@ -33,7 +32,6 @@ class EvalWorkflowVersionUpdate(BaseModel):
     workflow_id: Optional[str] = Field(None, description="Coze工作流ID")
     parameters_schema: Optional[dict[str, Any]] = Field(None, description="参数schema")
     output_schema: Optional[dict[str, Any]] = Field(None, description="输出schema")
-    metadata: Optional[dict[str, Any]] = Field(None, description="附加元数据")
     notes: Optional[str] = Field(None, description="备注")
     status: Optional[str] = Field(None, description="状态")
 
@@ -44,55 +42,9 @@ class EvalWorkflowResourceBinding(BaseModel):
     source: str = Field(..., description="数据来源")
 
 
-class EvalWorkflowBusinessPresentation(BaseModel):
-    visible: bool = Field(default=True)
-    sortOrder: int = Field(default=9999)
-    categoryLabel: str = Field(default="")
-    usageHint: str = Field(default="")
-    operationLabel: str = Field(default="")
-    entryMode: str = Field(default="parameter_form")
-    resultMode: str = Field(default="unknown")
-    supportsBatch: bool = Field(default=False)
-    recommendedRepeatCount: int = Field(default=1)
-
-
-class EvalWorkflowDeprecation(BaseModel):
-    isDeprecated: bool = Field(default=True)
-    replacementWorkflowId: str | None = Field(default=None)
-    replacementDisplayName: str | None = Field(default=None)
-    reason: str | None = Field(default=None)
-    retirementMode: str = Field(default="hide_public")
-
-
-class EvalWorkflowUsage(BaseModel):
-    singleRunEnabled: bool = Field(default=True)
-    batchEnabled: bool = Field(default=False)
-    docsEnabled: bool = Field(default=True)
-    recommendedEntry: str = Field(default="parameter_form")
-    supportsAnnotation: bool = Field(default=False)
-    requiresResourceOptions: bool = Field(default=False)
-    resourceOptionTypes: list[str] = Field(default_factory=list)
-
-
 class EvalWorkflowVersionResponse(EvalWorkflowVersionBase):
     """Schema for evaluation workflow version response."""
     id: str = Field(..., description="ID")
-    presentation: EvalWorkflowBusinessPresentation | None = Field(
-        default=None,
-        description="业务侧可直接消费的展示层信息",
-    )
-    deprecation: EvalWorkflowDeprecation | None = Field(
-        default=None,
-        description="工作流下线/替代信息",
-    )
-    usage: EvalWorkflowUsage | None = Field(
-        default=None,
-        description="工作流使用方式与入口建议",
-    )
-    metadata: Optional[dict[str, Any]] = Field(None, description="附加元数据")
-    deprecation: Optional[dict[str, Any]] = Field(None, description="下线/替代信息")
-    presentation: Optional[dict[str, Any]] = Field(None, description="业务展示信息")
-    usage: Optional[dict[str, Any]] = Field(None, description="使用建议信息")
     resource_bindings: list[EvalWorkflowResourceBinding] = Field(
         default_factory=list,
         alias="resourceBindings",

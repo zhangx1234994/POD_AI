@@ -1,11 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import type {
-  EvalDatasetItem,
-  EvalWorkflowDeprecation,
-  EvalWorkflowPresentation,
-  EvalWorkflowUsage,
-  EvalWorkflowVersion,
-} from '../../../types/eval';
+import type { EvalDatasetItem, EvalWorkflowVersion } from '../../../types/eval';
 
 type SchemaField = {
   name: string;
@@ -25,20 +19,11 @@ type Props = {
   parameters: Record<string, any>;
   isRunning: boolean;
   isSavingWorkflowNotes?: boolean;
-  isSavingWorkflowBusinessMetadata?: boolean;
   onDatasetItemSelect: (item: EvalDatasetItem) => void;
   onImageChange: (url: string) => void;
   onParameterChange: (next: Record<string, any>) => void;
   onRunEvaluation: () => void;
   onSaveWorkflowNotes?: (workflowId: string, notes: string) => void;
-  onSaveWorkflowBusinessMetadata?: (
-    workflowId: string,
-    metadata: {
-      presentation: EvalWorkflowPresentation;
-      usage: EvalWorkflowUsage;
-      deprecation: EvalWorkflowDeprecation | null;
-    },
-  ) => void;
 };
 
 const getSchemaFields = (workflow: EvalWorkflowVersion | null): SchemaField[] => {
@@ -71,44 +56,15 @@ export function EvaluationInputPanel({
   parameters,
   isRunning,
   isSavingWorkflowNotes = false,
-  isSavingWorkflowBusinessMetadata = false,
   onDatasetItemSelect,
   onImageChange,
   onParameterChange,
   onRunEvaluation,
   onSaveWorkflowNotes,
-  onSaveWorkflowBusinessMetadata,
 }: Props) {
   const [rawJson, setRawJson] = useState('');
   const [notesDraft, setNotesDraft] = useState('');
   const [jsonError, setJsonError] = useState<string>('');
-  const [businessDraft, setBusinessDraft] = useState<{
-    visible: boolean;
-    sortOrder: string;
-    categoryLabel: string;
-    usageHint: string;
-    operationLabel: string;
-    batchEnabled: boolean;
-    recommendedEntry: string;
-    isDeprecated: boolean;
-    replacementWorkflowId: string;
-    replacementDisplayName: string;
-    deprecationReason: string;
-    retirementMode: string;
-  }>({
-    visible: true,
-    sortOrder: '9999',
-    categoryLabel: '',
-    usageHint: '',
-    operationLabel: '',
-    batchEnabled: false,
-    recommendedEntry: 'parameter_form',
-    isDeprecated: false,
-    replacementWorkflowId: '',
-    replacementDisplayName: '',
-    deprecationReason: '',
-    retirementMode: 'hide_public',
-  });
 
   const fields = useMemo(() => getSchemaFields(selectedWorkflow), [selectedWorkflow]);
   const url = inputImages[0] || '';
@@ -122,26 +78,6 @@ export function EvaluationInputPanel({
     setNotesDraft(String(selectedWorkflow?.notes || ''));
   }, [selectedWorkflow?.id, selectedWorkflow?.notes]);
 
-  useEffect(() => {
-    const presentation = selectedWorkflow?.presentation || {};
-    const usage = selectedWorkflow?.usage || {};
-    const deprecation = selectedWorkflow?.deprecation || {};
-    setBusinessDraft({
-      visible: presentation.visible ?? true,
-      sortOrder: String(presentation.sortOrder ?? 9999),
-      categoryLabel: String(presentation.categoryLabel || selectedWorkflow?.category || ''),
-      usageHint: String(presentation.usageHint || ''),
-      operationLabel: String(presentation.operationLabel || ''),
-      batchEnabled: Boolean(usage.batchEnabled),
-      recommendedEntry: String(usage.recommendedEntry || 'parameter_form'),
-      isDeprecated: Boolean(deprecation.isDeprecated),
-      replacementWorkflowId: String(deprecation.replacementWorkflowId || ''),
-      replacementDisplayName: String(deprecation.replacementDisplayName || ''),
-      deprecationReason: String(deprecation.reason || ''),
-      retirementMode: String(deprecation.retirementMode || 'hide_public'),
-    });
-  }, [selectedWorkflow]);
-
   const useSchemaForm = fields.length > 0;
 
   const handleJsonApply = () => {
@@ -154,33 +90,6 @@ export function EvaluationInputPanel({
       console.error(err);
       setJsonError('参数 JSON 解析失败，请检查格式');
     }
-  };
-
-  const handleSaveBusinessMetadata = () => {
-    if (!selectedWorkflow || typeof onSaveWorkflowBusinessMetadata !== 'function') return;
-    const parsedSortOrder = Number.parseInt(String(businessDraft.sortOrder || '9999').trim(), 10);
-    onSaveWorkflowBusinessMetadata(selectedWorkflow.id, {
-      presentation: {
-        visible: businessDraft.visible,
-        sortOrder: Number.isFinite(parsedSortOrder) ? parsedSortOrder : 9999,
-        categoryLabel: businessDraft.categoryLabel.trim(),
-        usageHint: businessDraft.usageHint.trim(),
-        operationLabel: businessDraft.operationLabel.trim(),
-      },
-      usage: {
-        batchEnabled: businessDraft.batchEnabled,
-        recommendedEntry: businessDraft.recommendedEntry.trim() || 'parameter_form',
-      },
-      deprecation: businessDraft.isDeprecated
-        ? {
-            isDeprecated: true,
-            replacementWorkflowId: businessDraft.replacementWorkflowId.trim() || null,
-            replacementDisplayName: businessDraft.replacementDisplayName.trim() || null,
-            reason: businessDraft.deprecationReason.trim() || null,
-            retirementMode: businessDraft.retirementMode.trim() || 'hide_public',
-          }
-        : null,
-    });
   };
 
   return (
@@ -364,144 +273,6 @@ export function EvaluationInputPanel({
             className="mt-2 w-full rounded-xl border border-slate-300 bg-white p-3 text-xs text-slate-900 placeholder:text-slate-400 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-600"
             placeholder="这里写功能介绍、参数说明、注意事项…"
           />
-        </div>
-      )}
-
-      {selectedWorkflow && typeof onSaveWorkflowBusinessMetadata === 'function' && (
-        <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950/40">
-          <div className="flex items-center justify-between gap-2">
-            <div>
-              <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">业务元数据</div>
-              <div className="mt-1 text-xs text-slate-600 dark:text-slate-500">控制展示、推荐入口、批测能力和下线替代关系。</div>
-            </div>
-            <button
-              type="button"
-              disabled={Boolean(isSavingWorkflowBusinessMetadata)}
-              onClick={handleSaveBusinessMetadata}
-              className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
-                isSavingWorkflowBusinessMetadata
-                  ? 'bg-slate-200 text-slate-500 dark:bg-slate-700/40 dark:text-slate-400'
-                  : 'bg-sky-600 text-white hover:bg-sky-500'
-              }`}
-            >
-              {isSavingWorkflowBusinessMetadata ? '保存中…' : '保存业务设置'}
-            </button>
-          </div>
-
-          <div className="mt-3 grid gap-3 md:grid-cols-2">
-            <label className="block">
-              <div className="text-xs text-slate-700 dark:text-slate-300">分类标签</div>
-              <input
-                value={businessDraft.categoryLabel}
-                onChange={(e) => setBusinessDraft((prev) => ({ ...prev, categoryLabel: e.target.value }))}
-                className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
-              />
-            </label>
-            <label className="block">
-              <div className="text-xs text-slate-700 dark:text-slate-300">排序值</div>
-              <input
-                value={businessDraft.sortOrder}
-                onChange={(e) => setBusinessDraft((prev) => ({ ...prev, sortOrder: e.target.value }))}
-                className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
-              />
-            </label>
-            <label className="block md:col-span-2">
-              <div className="text-xs text-slate-700 dark:text-slate-300">使用提示</div>
-              <input
-                value={businessDraft.usageHint}
-                onChange={(e) => setBusinessDraft((prev) => ({ ...prev, usageHint: e.target.value }))}
-                className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
-              />
-            </label>
-            <label className="block">
-              <div className="text-xs text-slate-700 dark:text-slate-300">操作标签</div>
-              <input
-                value={businessDraft.operationLabel}
-                onChange={(e) => setBusinessDraft((prev) => ({ ...prev, operationLabel: e.target.value }))}
-                className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
-              />
-            </label>
-            <label className="block">
-              <div className="text-xs text-slate-700 dark:text-slate-300">推荐入口</div>
-              <select
-                value={businessDraft.recommendedEntry}
-                onChange={(e) => setBusinessDraft((prev) => ({ ...prev, recommendedEntry: e.target.value }))}
-                className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
-              >
-                <option value="parameter_form">parameter_form</option>
-                <option value="batch_upload">batch_upload</option>
-                <option value="docs">docs</option>
-              </select>
-            </label>
-          </div>
-
-          <div className="mt-3 flex flex-wrap gap-4">
-            <label className="inline-flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300">
-              <input
-                type="checkbox"
-                checked={businessDraft.visible}
-                onChange={(e) => setBusinessDraft((prev) => ({ ...prev, visible: e.target.checked }))}
-              />
-              对公共列表可见
-            </label>
-            <label className="inline-flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300">
-              <input
-                type="checkbox"
-                checked={businessDraft.batchEnabled}
-                onChange={(e) => setBusinessDraft((prev) => ({ ...prev, batchEnabled: e.target.checked }))}
-              />
-              支持批测
-            </label>
-            <label className="inline-flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300">
-              <input
-                type="checkbox"
-                checked={businessDraft.isDeprecated}
-                onChange={(e) => setBusinessDraft((prev) => ({ ...prev, isDeprecated: e.target.checked }))}
-              />
-              标记为下线/替代
-            </label>
-          </div>
-
-          {businessDraft.isDeprecated && (
-            <div className="mt-3 grid gap-3 md:grid-cols-2">
-              <label className="block">
-                <div className="text-xs text-slate-700 dark:text-slate-300">替代 workflow_id</div>
-                <input
-                  value={businessDraft.replacementWorkflowId}
-                  onChange={(e) => setBusinessDraft((prev) => ({ ...prev, replacementWorkflowId: e.target.value }))}
-                  className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
-                />
-              </label>
-              <label className="block">
-                <div className="text-xs text-slate-700 dark:text-slate-300">替代显示名称</div>
-                <input
-                  value={businessDraft.replacementDisplayName}
-                  onChange={(e) => setBusinessDraft((prev) => ({ ...prev, replacementDisplayName: e.target.value }))}
-                  className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
-                />
-              </label>
-              <label className="block">
-                <div className="text-xs text-slate-700 dark:text-slate-300">下线模式</div>
-                <select
-                  value={businessDraft.retirementMode}
-                  onChange={(e) => setBusinessDraft((prev) => ({ ...prev, retirementMode: e.target.value }))}
-                  className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
-                >
-                  <option value="hide_public">hide_public</option>
-                  <option value="admin_only">admin_only</option>
-                  <option value="delete_candidate">delete_candidate</option>
-                </select>
-              </label>
-              <label className="block md:col-span-2">
-                <div className="text-xs text-slate-700 dark:text-slate-300">下线原因</div>
-                <input
-                  value={businessDraft.deprecationReason}
-                  onChange={(e) => setBusinessDraft((prev) => ({ ...prev, deprecationReason: e.target.value }))}
-                  className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
-                />
-              </label>
-            </div>
-          )}
         </div>
       )}
     </div>

@@ -5,25 +5,23 @@
 - 不需要用户手工填大段 JSON；表单字段由 PODI `Ability.input_schema` 自动生成。
 
 ## 运行前提
-- PODI 后端可被 Coze Studio 访问（例如：`https://<podi-backend-host>`）
+- PODI 后端可被 Coze Studio 访问（例如：`https://<podi-host>`）
 - Coze Studio 可用，并配置 `COZE_BASE_URL`
-- 生产目标架构为：**Coze 和 backend 同机，ComfyUI 只做执行节点**
 
 ## 插件 OpenAPI 地址
 Coze 需要导入一个 OpenAPI 文档，我们由 PODI 后端动态生成：
 
-`https://<podi-backend-host>/api/coze/podi/openapi.json`
+`https://<podi-host>/api/coze/podi/openapi.json`
 
 说明：
-- 生产环境只允许 Coze 指向 backend，不允许直连任何 ComfyUI 地址。
-- `host.docker.internal` 只用于**本地开发同机**，不作为生产迁移口径。
-- PODI 后端需要绑定 `0.0.0.0:8099`。
+- 若 Coze 运行在 Docker，PODI 在宿主机：使用 `http://host.docker.internal:8099/api/coze/podi/openapi.json`。
+- PODI 后端需要绑定 `0.0.0.0:8099`（本地开发时适用）。
 
 ## Coze Studio 导入步骤
 1. 打开 Coze Studio：`COZE_BASE_URL`
 2. 进入插件管理（Plugin / Tools 管理页面）
 3. 选择“导入 OpenAPI / Import OpenAPI”
-4. 粘贴 OpenAPI 地址：`https://<podi-backend-host>/api/coze/podi/openapi.json`
+4. 粘贴 OpenAPI 地址：`https://<podi-host>/api/coze/podi/openapi.json`
 5. 导入后，工具列表将出现 `PODI Abilities` 下的各个能力（一个能力一个 tool）
 
 ## 调用说明

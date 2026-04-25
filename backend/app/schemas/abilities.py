@@ -8,22 +8,6 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
-class AbilityBusinessStatus(BaseModel):
-    availabilityCode: str = Field(default="unavailable")
-    availabilityLabel: str = Field(default="暂不可用")
-    stabilityCode: str = Field(default="experimental")
-    stabilityLabel: str = Field(default="实验性")
-    surfaceLabels: list[str] = Field(default_factory=list)
-
-
-class AbilityBusinessPresentation(BaseModel):
-    visible: bool = Field(default=True)
-    sortOrder: int = Field(default=9999)
-    categoryLabel: str = Field(default="")
-    usageHint: str = Field(default="")
-    operationLabel: str = Field(default="")
-
-
 class AbilityPublicInfo(BaseModel):
     id: str
     provider: str
@@ -36,12 +20,12 @@ class AbilityPublicInfo(BaseModel):
     abilityType: str = Field(default="api")
     workflowId: str | None = None
     executorId: str | None = None
+    vendorModelId: int | None = None
     cozeWorkflowId: str | None = None
     defaultParams: dict[str, Any] | None = None
     inputSchema: dict[str, Any] | None = None
     metadata: dict[str, Any] | None = None
-    businessStatus: AbilityBusinessStatus | None = None
-    businessPresentation: AbilityBusinessPresentation | None = None
+    presentation: dict[str, Any] | None = None
     requiresImage: bool = False
     supportsMultipleImages: bool = False
     maxOutputImages: int | None = None

@@ -1,6 +1,6 @@
 # 评测平台（podi-eval-web）功能说明
 
-> 版本：2026-03-05  
+> 版本：2026-04-24
 > 定位：内部回归验证与打分，不替代生产调用。
 
 ## 1. 页面结构
@@ -12,6 +12,18 @@
 - **任务**：查看最近运行记录
 - **文档**：自动生成的工作流文档（结构化 + Markdown）
 - **管理**：管理员维护能力名称/备注/状态（使用评测端专用 `EVAL_ADMIN_TOKEN`，非管理端 JWT）
+
+## 当前线上状态（2026-04-24）
+
+- 运行地址：`http://114.55.0.56:8200`
+- 后端地址：`http://114.55.0.56:8099`
+- 运行方式：build 后静态运行，不允许长期使用 Vite dev server。
+- 当前 active workflow 数：30。
+- 2026-04-24 已完成全量真实链路回归：30 个提交成功、30 个执行成功、0 失败、0 超时、0 提交失败。
+- 回归报告：
+  - Coze 服务器 Markdown：`/srv/pod/reports/eval/eval_all_abilities_20260424_215145.md`
+  - Coze 服务器 JSON：`/srv/pod/reports/eval/eval_all_abilities_20260424_215145.json`
+- 本轮验证的是功能可用性和链路可达性，不评价出图审美质量。
 
 ## 2. 关键行为（交互）
 
@@ -108,20 +120,6 @@
 - `POST /api/evals/uploads`
 - 管理接口：`/api/evals/admin/workflow-versions`
 
-## 3.1 评测 workflow 配置真源（新增）
-
-评测 workflow 现在开始具备一层独立配置真源，存放在 `eval_workflow_version.metadata`：
-
-- `presentation.visible`：是否在公共评测列表展示
-- `presentation.sort_order`：列表排序值
-- `presentation.category_label`：业务分类标签
-- `presentation.usage_hint`：业务可见的简化提示
-- `parameter_defaults`：预留给后续“默认参数覆盖”使用
-
-这层配置的目标是：
-- 把“是否显示 / 怎么排序 / 给业务看什么提示”从代码逻辑里抽出来
-- 后续逐步减少“加一个 workflow 就要改前端代码”的情况
-
 ## 4. 参数契约
 
 - 图片输入统一 `url`
@@ -181,8 +179,6 @@
 
 | Workflow ID | 名称 | 分类 | 入参 | 出参 | 当前状态 |
 | --- | --- | --- | --- | --- | --- |
-| `7631174682116358144` | 扩图 · `flux2_klein_9b_outpaint` | `图延伸类` | `url`, `expand_left`, `expand_right`, `expand_top`, `expand_bottom` | `output`, `ip` | 新增，参数契约与 `7598587935331450880` 保持一致 |
-| `7631838631375667200` | 图裂变 · `Liebian_comfyui_20260423` | `图裂变` | `url`, `height`, `width`, `bili`, `count` | `output`, `prompt`, `ip` | 已验证 Coze 提交、回调取图链路正常，适合多元素花纹类默认高质量裂变 |
 | `7629023903431524352` | 背景抠图 · `beijing_koutu` | `通用类` | `url` | `output`, `ip` | 已验证成功出图 |
 | `7629023041988591616` | 头部抠像 · `toubu_kouxiang` | `通用类` | `url` | `output`, `ip` | 已验证成功出图 |
 | `7629024620879806464` | 文字增强 · `qwen2512_print_shape_text_enhance` | `图裂变` | `url`, `prompt`, `bili`, `count` | `output`, `prompt`, `ip` | 提交/回调链路正常，提示词质量待优化 |
@@ -191,6 +187,56 @@
 补充约定：
 - `bili`：相似度百分比，当前默认 `50%`
 - `count`：一次评测触发的 fan-out 子任务数，当前默认 `4`
+
+### 4.5 新增/更新工作流（2026-04-24）
+
+| Workflow ID | 名称 | 分类 | 入参 | 出参 | 当前状态 |
+| --- | --- | --- | --- | --- | --- |
+| `7631174682116358144` | ComfyUI 扩图 · `flux2_klein_9b_outpaint` | `图延伸类` | `url`, `expand_left`, `expand_right`, `expand_top`, `expand_bottom` | `output`, `ip` | 2026-04-24 全量回归通过 |
+| `7631838631375667200` | 图裂变 · `Liebian_comfyui_20260423` | `图裂变` | `url`, `height`, `width`, `bili`, `count` | `output`, `ip` | 2026-04-24 全量回归通过 |
+
+参数说明：
+- `7631174682116358144` 的 prompt 与随机 seed 均由 workflow / 后端内部处理，测评端只暴露图片地址和四边扩展量。
+- `7631838631375667200` 当前 Coze workflow 入参保持为旧图裂变口径：`url / height / width / bili / count`。`bili` 对应 denoise / 裂变幅度。
+- `image_desc` 不是当前测评端主入口暴露字段；如 AI 绘图团队需要从工具箱侧测试更细参数，应走单功能工具箱文档。
+
+### 4.6 全量能力回归结果（2026-04-24）
+
+本轮通过测评端真实链路提交：
+
+```text
+/api/evals/runs
+  -> backend 调用 Coze workflow
+  -> Coze 调用 backend toolbox
+  -> backend 路由到 ComfyUI / image-ops / vendor-api-ops / 其他执行面
+  -> OSS 回填
+  -> /api/evals/runs/{run_id} 展示终态
+```
+
+结果汇总：
+
+| 指标 | 数量 |
+| --- | ---: |
+| active workflow | 30 |
+| 提交成功 | 30 |
+| 执行成功 | 30 |
+| 执行失败 | 0 |
+| 超时 | 0 |
+| 提交失败 | 0 |
+| 成功但无结果 | 0 |
+
+覆盖能力包括：
+
+- 连续图：两方/四方连续图。
+- 图延伸：FLUX2-Klein 扩图。
+- 图裂变：新高质量裂变、旧版提示词/无提示词裂变、E7 裂变、商业模型裂变、四方连续裂变、文字增强。
+- 花纹提取：ComfyUI 提示词/无提示词版本、商业模型提示词/无提示词版本。
+- 通用能力：多模型生图、LoRA 查询、四步/八步急速生图、8K 高清放大、DPI 增分、图片打标签、AI 图片编辑器、多图融合、背景抠图、头部抠像。
+
+说明：
+- `LoRA 查询` 与 `图片打标签` 属于结构化结果，图片数为 0 是正常现象。
+- `8K 高清放大` 和 `DPI 增分` 已通过能力执行面链路验证。
+- 本轮只确认链路可用和结果可回填，出图质量继续由对应 workflow / 模型侧单独优化。
 
 #### 当前结论（2026-04-16）
 

@@ -31,12 +31,6 @@ from app.schemas.eval import (
 )
 from app.services.eval_service import get_eval_service
 from app.services.eval_seed import ensure_default_eval_workflow_versions
-from app.services.eval_workflow_deprecation import resolve_eval_workflow_deprecation
-from app.services.eval_workflow_presentation import (
-    build_eval_workflow_presentation_sort_key,
-    resolve_eval_workflow_presentation,
-)
-from app.services.eval_workflow_usage import resolve_eval_workflow_usage
 from app.deps.auth import get_current_user, require_admin
 from app.models.user import User
 
@@ -92,24 +86,6 @@ def _extract_workflow_resource_bindings(schema: dict | None) -> list[EvalWorkflo
 
 
 def _serialize_workflow_version(row: EvalWorkflowVersion) -> EvalWorkflowVersionResponse:
-    deprecation = resolve_eval_workflow_deprecation(
-        status=row.status,
-        metadata=row.extra_metadata,
-    )
-    presentation = resolve_eval_workflow_presentation(
-        status=row.status,
-        category=row.category,
-        workflow_id=row.workflow_id,
-        name=row.name,
-        parameters_schema=row.parameters_schema,
-        output_schema=row.output_schema,
-        metadata=row.extra_metadata,
-    )
-    usage = resolve_eval_workflow_usage(
-        category=row.category,
-        parameters_schema=row.parameters_schema,
-        metadata=row.extra_metadata,
-    )
     return EvalWorkflowVersionResponse(
         id=row.id,
         category=row.category,
@@ -119,55 +95,12 @@ def _serialize_workflow_version(row: EvalWorkflowVersion) -> EvalWorkflowVersion
         workflow_id=row.workflow_id,
         parameters_schema=row.parameters_schema,
         output_schema=row.output_schema,
-        metadata=row.extra_metadata,
         notes=row.notes,
         status=row.status,
-        deprecation={
-            "isDeprecated": True,
-            "replacementWorkflowId": deprecation.get("replacement_workflow_id"),
-            "replacementDisplayName": deprecation.get("replacement_display_name"),
-            "reason": deprecation.get("reason"),
-            "retirementMode": deprecation.get("retirement_mode"),
-        }
-        if deprecation
-        else None,
-        presentation={
-            "visible": presentation["visible"],
-            "sortOrder": presentation["sort_order"],
-            "categoryLabel": presentation["category_label"],
-            "usageHint": presentation["usage_hint"],
-            "operationLabel": presentation["operation_label"],
-            "entryMode": presentation["entry_mode"],
-            "resultMode": presentation["result_mode"],
-            "supportsBatch": presentation["supports_batch"],
-            "recommendedRepeatCount": presentation["recommended_repeat_count"],
-        },
-        usage={
-            "singleRunEnabled": usage["single_run_enabled"],
-            "batchEnabled": usage["batch_enabled"],
-            "docsEnabled": usage["docs_enabled"],
-            "recommendedEntry": usage["recommended_entry"],
-            "supportsAnnotation": usage["supports_annotation"],
-            "requiresResourceOptions": usage["requires_resource_options"],
-            "resourceOptionTypes": usage["resource_option_types"],
-        },
         resourceBindings=_extract_workflow_resource_bindings(row.parameters_schema),
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
-
-
-def _workflow_sort_key(row: EvalWorkflowVersion) -> tuple[str, int, str]:
-    sort_value, category, _workflow_id, name = build_eval_workflow_presentation_sort_key(
-        status=row.status,
-        category=row.category,
-        workflow_id=row.workflow_id,
-        name=row.name,
-        parameters_schema=row.parameters_schema,
-        output_schema=row.output_schema,
-        metadata=row.extra_metadata,
-    )
-    return (str(category or ""), int(sort_value), str(name or ""))
 
 
 @router.post("/workflow-versions", response_model=EvalWorkflowVersionResponse)
@@ -177,10 +110,7 @@ async def create_workflow_version(
     db: Session = Depends(get_db),
 ):
     """Create a new evaluation workflow version."""
-    payload = workflow_version.model_dump()
-    if "metadata" in payload:
-        payload["extra_metadata"] = payload.pop("metadata")
-    db_workflow_version = EvalWorkflowVersion(id=uuid4().hex, **payload)
+    db_workflow_version = EvalWorkflowVersion(id=uuid4().hex, **workflow_version.model_dump())
     db.add(db_workflow_version)
     db.commit()
     db.refresh(db_workflow_version)
@@ -203,7 +133,6 @@ async def list_workflow_versions(
     if status:
         query = query.where(EvalWorkflowVersion.status == status)
     result = db.execute(query).scalars().all()
-    result.sort(key=_workflow_sort_key)
     return [_serialize_workflow_version(item) for item in result]
 
 
@@ -232,8 +161,6 @@ async def update_workflow_version(
     if not workflow_version:
         raise HTTPException(status_code=404, detail="Workflow version not found")
     update_data = workflow_version_update.model_dump(exclude_unset=True)
-    if "metadata" in update_data:
-        update_data["extra_metadata"] = update_data.pop("metadata")
     for field, value in update_data.items():
         setattr(workflow_version, field, value)
     db.add(workflow_version)

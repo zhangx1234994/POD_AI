@@ -1,6 +1,6 @@
-# 生产环境部署（Coze 同机 backend 控制面）
+# 生产环境部署（PODI 后端/管理端）
 
-目标：Coze 和 backend 部署在同一台控制面服务器；ComfyUI/高清放大继续作为外部执行节点存在。
+目标：Coze 部署在 A 服务器，PODI（后端 + 管理端）部署在 B 服务器。对外只暴露管理端（以及必要的 PODI API）。
 
 ## 1. 拉代码
 
@@ -22,10 +22,9 @@ bash scripts/prod_write_backend_env.sh
 
 可选：
 - `SERVICE_API_TOKEN`（推荐：Coze → PODI 走固定 token）
-- `COZE_TRUSTED_IPS`（当 Coze 与 backend 不在同一台机器时必填）
+- `COZE_TRUSTED_IPS`（当 Coze 与 PODI 不在同一台机器时必填：填 Coze 服务器的源 IP，例如 `1.2.3.4` 或多 IP 用逗号分隔）
 - `VOLCENGINE_API_KEY` / `KIE_API_KEY` / `BAIDU_API_KEY` / `BAIDU_SECRET_KEY`
-- `PODI_INTERNAL_BASE_URL`（容器或反代内部调用 backend 用）
-- `DISABLE_LOCAL_HEAVY_IMAGE_TASKS=true`（迁移到 Coze 主机时建议默认开启，避免本机跑高清放大）
+- `PODI_INTERNAL_BASE_URL`（Coze 导入 OpenAPI 用；Coze 在另一台机器时必须能访问到 PODI）
 
 ## 3. 启动后端（FastAPI）
 
@@ -39,11 +38,10 @@ python3 -m venv .venv
 
 ## 4. Coze 导入插件
 
-在 Coze 侧导入 OpenAPI：
+在 Coze 服务器上导入 OpenAPI：
 
 `http://<PODI_HOST_OR_DOMAIN>:8099/api/coze/podi/openapi.json`
 
 说明：
-- 生产环境不要用 `host.docker.internal`。
+- 不要用 `host.docker.internal`（那是同机容器访问宿主机的域名）。
 - 生产建议开启 `SERVICE_API_TOKEN`，并让 Coze 侧统一带 `Authorization: Bearer <token>`。
-- toolbox 统一只指向 backend，不允许直连任何 ComfyUI 地址。

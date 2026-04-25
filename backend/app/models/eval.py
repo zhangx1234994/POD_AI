@@ -27,7 +27,6 @@ class EvalWorkflowVersion(Base):
     workflow_id: Mapped[str] = mapped_column(String(64), nullable=False)
     parameters_schema: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     output_schema: Mapped[dict[str, Any] | None] = mapped_column(JSON)
-    extra_metadata: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSON)
     notes: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(32), default="active", nullable=False)
     

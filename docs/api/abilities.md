@@ -1,6 +1,6 @@
 # 能力调用 API
 
-> 目标：为客户端（前台 UI、自动化脚本、第三方应用）提供统一入口，按能力 ID 调用已接入的厂商能力。  
+> 目标：为客户端（前台 UI、自动化脚本、第三方应用）提供统一入口，按能力 ID 调用已接入的厂商能力。
 > 说明：接口字段保持统一，极少数能力可能只使用其中一部分，文档会注明差异。
 
 ## 鉴权
@@ -55,13 +55,13 @@
 }
 ```
 
-> 字段说明：  
-> - `defaultParams` 为当前默认参数（用于前端表单初始值）。  
-> - `inputSchema` 复用管理端 schema（字段名 + 类型 + 中英标签），客户端可动态渲染。  
-> - `abilityType` 指明调度方式（api/comfyui/workflow/tool），`workflowId` 可选绑定内部 Workflow，用于低代码编排。  
-> - `metadata` 里包含 `api_type/model_id/workflow_key` 等运行时信息。  
+> 字段说明：
+> - `defaultParams` 为当前默认参数（用于前端表单初始值）。
+> - `inputSchema` 复用管理端 schema（字段名 + 类型 + 中英标签），客户端可动态渲染。
+> - `abilityType` 指明调度方式（api/comfyui/workflow/tool），`workflowId` 可选绑定内部 Workflow，用于低代码编排。
+> - `metadata` 里包含 `api_type/model_id/workflow_key` 等运行时信息。
 > - `requiresImage / supportsMultipleImages / maxOutputImages` 可帮助 UI 决定是否展示上传控件与多图预览。
-> - `lastHealthCheckAt/lastHealthStatus/successRate` 会在管理端巡检后更新，调用方可据此判断能力稳定性。
+> - `lastHealthCheckAt/lastHealthStatus/successRate` 会在管理端实时测试或正式调用结束后自动汇总最近调用日志，调用方可据此判断能力稳定性；定时巡检后续会复用同一组字段。
 > - 如需记录调用成本，可在 `metadata.pricing` 写入如下结构（单位/币种自定义）：
 >
 >   ```jsonc
@@ -111,11 +111,11 @@
 }
 ```
 
-> 约定：  
-> - `inputs`：能力特有参数，字段名称与 `inputSchema`+`defaultParams` 一致。  
-> - `imageUrl`/`imageBase64`：单图入口；`images[]`：用于多图流程（ComfyUI/KIE 会自动转成 `imageList` 或 `input.image_input`）。  
-> - `executorId`：一般不需要传，只有在多台 ComfyUI 节点做 A/B 测试时才会覆盖。  
-> - `metadata`：调用方自定义上下文（日志可见，不参与能力逻辑）。  
+> 约定：
+> - `inputs`：能力特有参数，字段名称与 `inputSchema`+`defaultParams` 一致。
+> - `imageUrl`/`imageBase64`：单图入口；`images[]`：用于多图流程（ComfyUI/KIE 会自动转成 `imageList` 或 `input.image_input`）。
+> - `executorId`：一般不需要传，只有在多台 ComfyUI 节点做 A/B 测试时才会覆盖。
+> - `metadata`：调用方自定义上下文（日志可见，不参与能力逻辑）。
 > - **执行器必须配置**：每个能力都要在管理端（或 `/api/admin/abilities/{id}`）绑定一个可用的 `executor_id`，否则调用会返回 `400 ABILITY_EXECUTOR_NOT_CONFIGURED`。常见原因是执行节点尚未创建或被禁用。
 
 #### 回调（可选）
@@ -367,7 +367,7 @@
 
 ---
 
-> 实施建议：  
-> 1. 所有新增能力必须在 `app/constants/abilities.py` 中维护好 `defaults/input_schema/metadata`，才能自动出现在 `GET /api/abilities` 列表。  
-> 2. 若能力存在多输出、特殊输入，优先在 metadata 中补充 `max_output_images`、`input_array_target` 等信息，便于客户端读取。  
-> 3. 正式对外开放前，可结合 `ability_invocation_logs` 做调用风控/配额统计。 
+> 实施建议：
+> 1. 所有新增能力必须在 `app/constants/abilities.py` 中维护好 `defaults/input_schema/metadata`，才能自动出现在 `GET /api/abilities` 列表。
+> 2. 若能力存在多输出、特殊输入，优先在 metadata 中补充 `max_output_images`、`input_array_target` 等信息，便于客户端读取。
+> 3. 正式对外开放前，可结合 `ability_invocation_logs` 做调用风控/配额统计。

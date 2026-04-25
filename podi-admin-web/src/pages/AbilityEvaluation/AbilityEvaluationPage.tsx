@@ -54,7 +54,6 @@ export function AbilityEvaluationPage() {
   const [evaluationResults, setEvaluationResults] = useState<EvalRun[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [isSavingWorkflowNotes, setIsSavingWorkflowNotes] = useState(false);
-  const [isSavingWorkflowBusinessMetadata, setIsSavingWorkflowBusinessMetadata] = useState(false);
   const [isPurgingRuns, setIsPurgingRuns] = useState(false);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [createError, setCreateError] = useState<string>('');
@@ -292,50 +291,6 @@ export function AbilityEvaluationPage() {
     }
   };
 
-  const handleSaveWorkflowBusinessMetadata = async (
-    workflowVersionId: string,
-    metadataPatch: {
-      presentation: Record<string, unknown>;
-      usage: Record<string, unknown>;
-      deprecation: Record<string, unknown> | null;
-    },
-  ) => {
-    const current = workflows.find((item) => item.id === workflowVersionId) || selectedWorkflow;
-    setIsSavingWorkflowBusinessMetadata(true);
-    try {
-      const nextMetadata = {
-        ...((current?.metadata as Record<string, unknown> | null) || {}),
-        presentation: {
-          ...((((current?.metadata as Record<string, unknown> | null)?.presentation as Record<string, unknown> | undefined) || {})),
-          ...metadataPatch.presentation,
-        },
-        usage: {
-          ...((((current?.metadata as Record<string, unknown> | null)?.usage as Record<string, unknown> | undefined) || {})),
-          ...metadataPatch.usage,
-        },
-      } as Record<string, unknown>;
-
-      if (metadataPatch.deprecation) {
-        nextMetadata.deprecation = {
-          ...((((current?.metadata as Record<string, unknown> | null)?.deprecation as Record<string, unknown> | undefined) || {})),
-          ...metadataPatch.deprecation,
-        };
-      } else {
-        delete nextMetadata.deprecation;
-      }
-
-      const updated = await adminApi.updateEvalWorkflowVersion(workflowVersionId, { metadata: nextMetadata });
-      setWorkflows((prev) => prev.map((w) => (w.id === updated.id ? updated : w)));
-      setSelectedWorkflow((prev) => (prev && prev.id === updated.id ? updated : prev));
-      pushNotice({ type: 'success', message: '已保存业务元数据' });
-    } catch (err) {
-      console.error(err);
-      pushNotice({ type: 'error', message: String((err as any)?.message || err) });
-    } finally {
-      setIsSavingWorkflowBusinessMetadata(false);
-    }
-  };
-
   const resetCreateForm = () => {
     setCreateError('');
     setCreateDraft({ name: '', category: '通用类', version: 'v1', workflow_id: '', outputKind: 'image', notes: '' });
@@ -516,13 +471,11 @@ export function AbilityEvaluationPage() {
           parameters={parameters}
           isRunning={isRunning}
           isSavingWorkflowNotes={isSavingWorkflowNotes}
-          isSavingWorkflowBusinessMetadata={isSavingWorkflowBusinessMetadata}
           onDatasetItemSelect={handleDatasetItemSelect}
           onImageChange={handleImageChange}
           onParameterChange={handleParameterChange}
           onRunEvaluation={handleRunEvaluation}
           onSaveWorkflowNotes={handleSaveWorkflowNotes}
-          onSaveWorkflowBusinessMetadata={handleSaveWorkflowBusinessMetadata}
         />
 
         <EvaluationResultPanel

@@ -35,6 +35,7 @@ import { uploadAbilityTestFile } from '../utils/ossUploader';
 import { toDisplayErrorMessage } from '../utils/errorMessageMap';
 import type {
   Ability,
+  AbilityHealthSummaryResponse,
   AbilityInvocationLog,
   AbilityTemplateStateResponse,
   AbilityTemplateValidateResponse,
@@ -43,14 +44,22 @@ import type {
   AbilityLogMetricBucket,
   ApiKey,
   ApiKeyFormState,
+  AuthSession,
+  AuthUser,
   Binding,
   BindingFormState,
+  BusinessCapability,
+  BusinessCapabilityFormState,
+  BusinessRun,
+  BusinessUsageSummaryResponse,
   DashboardMetrics,
   DispatchLogEntry,
   Executor,
   ExecutorFormState,
   JsonRecord,
   JsonValue,
+  InviteCode,
+  InviteCodeCreatePayload,
   PublicAbility,
   ComfyuiModelCatalogItem,
   ComfyuiPluginCatalogItem,
@@ -73,6 +82,13 @@ import type {
   ComfyuiQueueSummary,
   SystemConfig,
   StoredAsset,
+  VendorEgressCheckResponse,
+  VendorKey,
+  VendorKeyFormState,
+  VendorModel,
+  VendorModelFormState,
+  VendorProvider,
+  VendorUsageSummaryItem,
   Workflow,
   WorkflowFormState,
 } from '../types/admin';
@@ -84,6 +100,9 @@ import { ActionBar, ErrorState, PageHeader, StatusBadge } from '../features/admi
 
 const navItems = [
   { id: 'overview', label: '总体概览', shortLabel: 'OV', description: '指标、刷新、运行状态' },
+  { id: 'business', label: '业务能力', shortLabel: 'BZ', description: '业务版本、发布时间、默认入口' },
+  { id: 'auth', label: '账号权限', shortLabel: 'AU', description: '用户、会话、邀请码' },
+  { id: 'vendor-models', label: '模型弹药库', shortLabel: 'MD', description: '第三方模型、Key、出网与成本' },
   { id: 'abilities', label: '能力目录', shortLabel: 'AB', description: '原子能力列表与成本' },
   { id: 'ability-evals', label: '能力评测', shortLabel: 'EV', description: 'Coze 工作流试运行 + 评分' },
   { id: 'executors', label: '执行节点', shortLabel: 'EX', description: '节点配置与健康' },
@@ -97,8 +116,12 @@ const navItems = [
   { id: 'logs', label: '调度事件', shortLabel: 'TL', description: '任务追踪', advanced: true },
 ] as const;
 type NavId = (typeof navItems)[number]['id'];
+type AbilityHealthFilter = 'needs_test' | 'stale' | 'failed' | 'unknown' | 'degraded' | 'healthy' | 'all';
 const navIconMap: Record<NavId, ReactNode> = {
   overview: <DashboardIcon size="18px" />,
+  business: <AppIcon size="18px" />,
+  auth: <SettingIcon size="18px" />,
+  'vendor-models': <ApiIcon size="18px" />,
   abilities: <AppIcon size="18px" />,
   'ability-evals': <ChartBarIcon size="18px" />,
   executors: <ViewListIcon size="18px" />,
@@ -144,6 +167,43 @@ const defaultExecutorForm: ExecutorFormState = { status: 'inactive', weight: 1, 
 const defaultWorkflowForm: WorkflowFormState = { action: '', name: '', version: 'v1', status: 'inactive', type: 'generic' };
 const defaultBindingForm: BindingFormState = { enabled: true, priority: 0 };
 const defaultApiKeyForm: ApiKeyFormState = { status: 'active' };
+const defaultInviteCodeForm: InviteCodeCreatePayload = { role: 'user', maxUses: 1 };
+const defaultVendorKeyForm: VendorKeyFormState = { status: 'active', maxConcurrency: 1 };
+const defaultVendorModelForm: VendorModelFormState = {
+  status: 'active',
+  source: 'backend-admin',
+  supportsMask: false,
+  supportsMultipleImages: false,
+  supportsVideo: false,
+  supportsText: true,
+  requiresGlobalEgress: false,
+  apiTypesText: 'image_generation',
+  executionModesText: 'sync',
+  metadataText: '{}',
+  routePolicyText: '{}',
+  defaultTaskPolicyText: '{}',
+  inputSchemaText: '{}',
+  costPolicyText: '{}',
+};
+const defaultBusinessCapabilityForm: BusinessCapabilityFormState = {
+  businessKey: 'fission',
+  version: 'v1',
+  displayName: '',
+  description: '',
+  status: 'inactive',
+  isDefault: false,
+  releaseTime: '',
+  primaryAbilityId: '',
+  vlAssistEnabled: false,
+  vlAssistAbilityId: 'vl_analyze_image',
+  rolloutEnabled: false,
+  rolloutPercent: 0,
+  rolloutAllowlistText: '',
+  recipeText: '{}',
+  inputSchemaText: '{"fields":[]}',
+  outputSchemaText: '{"fields":[]}',
+  metadataText: '{}',
+};
 const providerOptions = [
   { value: 'baidu', label: '百度智能云' },
   { value: 'openai', label: 'OpenAI' },
@@ -238,62 +298,20 @@ const statusOptions = [
   { value: 'active', label: '启用' },
   { value: 'deprecated', label: '下线' },
 ];
-const abilityScopeOptions = [
-  { value: 'internal', label: '内部' },
-  { value: 'admin', label: '管理端' },
-  { value: 'eval', label: '测评端' },
-  { value: 'coze', label: 'Coze' },
-  { value: 'client', label: '客户端' },
-] as const;
-const abilityReleaseStatusOptions = [
-  { value: 'draft', label: '草稿' },
-  { value: 'internal_ready', label: '内部可用' },
-  { value: 'eval_ready', label: '测评可用' },
-  { value: 'published', label: '正式发布' },
-  { value: 'deprecated', label: '已下线' },
-] as const;
-const abilityQualityStatusOptions = [
-  { value: 'untested', label: '未验证' },
-  { value: 'usable', label: '可用' },
-  { value: 'needs_optimization', label: '优化中' },
-] as const;
-const abilityDeprecationModeOptions = [
-  { value: 'hide_public', label: '从公共入口隐藏' },
-  { value: 'internal_only', label: '仅内部保留' },
-  { value: 'delete_candidate', label: '待删除候选' },
-] as const;
-const abilityAvailabilityOptions = [
-  { value: 'all', label: '全部可用性' },
-  { value: 'available', label: '可用' },
-  { value: 'testing', label: '测试中' },
-  { value: 'unavailable', label: '暂不可用' },
-] as const;
-const abilitySurfaceFilterOptions = [
-  { value: 'all', label: '全部范围' },
-  { value: 'client', label: '客户端' },
-  { value: 'coze', label: 'Coze' },
-  { value: 'eval', label: '测评端' },
-  { value: 'admin', label: '管理端' },
-  { value: 'internal', label: '仅内部' },
-] as const;
-const abilityLifecycleFilterOptions = [
-  { value: 'all', label: '全部阶段' },
-  { value: 'active', label: '正常使用' },
-  { value: 'deprecated', label: '已替代/下线中' },
-] as const;
-const executorSelectionPolicyOptions = [
-  { value: 'auto', label: '自动' },
-  { value: 'queue', label: '优先空闲节点' },
-  { value: 'round_robin', label: '轮询分配' },
-  { value: 'weight', label: '按权重分配' },
-  { value: 'fixed', label: '固定优先节点' },
-] as const;
-const executorExecutionModeOptions = [
-  { value: 'all', label: '全部执行方式' },
-  { value: 'routing', label: '主跑节点' },
-  { value: 'fallback', label: '兜底节点' },
-  { value: 'fixed', label: '固定执行' },
-] as const;
+const businessRunStatusOptions = [
+  { value: 'all', label: '全部状态' },
+  { value: 'queued', label: '排队中' },
+  { value: 'running', label: '执行中' },
+  { value: 'succeeded', label: '已完成' },
+  { value: 'failed', label: '失败' },
+  { value: 'cancelled', label: '已取消' },
+];
+const businessUsageWindowOptions = [
+  { value: 1, label: '近 1 小时' },
+  { value: 24, label: '近 24 小时' },
+  { value: 168, label: '近 7 天' },
+  { value: 720, label: '近 30 天' },
+];
 const comfyModelTypeOptions = [
   { value: 'unet', label: 'UNET' },
   { value: 'clip', label: 'CLIP' },
@@ -391,7 +409,6 @@ const comfyuiTabMeta: Record<ComfyuiManageTab, { label: string; group: ComfyuiTa
 };
 const comfyuiTabOrder: ComfyuiManageTab[] = ['lora', 'assets', 'templates', 'servers', 'manifests', 'tasks', 'agents', 'alerts', 'desktop'];
 const comfyuiTabGroupOrder: ComfyuiTabGroup[] = ['资源目录', '同步发布', '节点运维'];
-const adminExperienceVersionLabel = '业务收口版 2026-04-22';
 const comfyuiGroupMeta: Record<ComfyuiTabGroup, { hint: string; primaryTab: ComfyuiManageTab }> = {
   资源目录: {
     hint: '先维护 LoRA/模型/模板，确保资源口径一致。',
@@ -502,6 +519,9 @@ const collectAbilityExecutorHints = (ability: Ability | null): string[] => {
   return Array.from(hints);
 };
 const extractExecutorTags = (executor: Executor): string[] => {
+  if (Array.isArray(executor.tags) && executor.tags.length > 0) {
+    return executor.tags.map((item) => item.trim().toLowerCase()).filter(Boolean);
+  }
   const cfg = (executor.config || {}) as Record<string, unknown>;
   const raw = cfg.tags ?? cfg.tag;
   return normalizeTagList(raw).map((item) => item.trim().toLowerCase()).filter(Boolean);
@@ -840,6 +860,19 @@ const getAbilityLogStatusTag = (status?: string | null) => {
   }
   return { theme: 'default' as const, text: status || '未知' };
 };
+const getAbilityHealthTag = (status?: string | null) => {
+  const normalized = (status || '').trim().toLowerCase();
+  if (normalized === 'healthy') return { theme: 'success' as const, text: '正常' };
+  if (normalized === 'degraded') return { theme: 'warning' as const, text: '需关注' };
+  if (normalized === 'failed') return { theme: 'danger' as const, text: '异常' };
+  return { theme: 'default' as const, text: '未测试' };
+};
+const getAbilityHealthFilterQuery = (filter: AbilityHealthFilter) => {
+  if (filter === 'needs_test') return { needsTest: true };
+  if (filter === 'stale') return { staleOnly: true };
+  if (filter === 'all') return {};
+  return { healthStatus: filter };
+};
 const abilitySourceLabels: Record<string, string> = {
   'admin-test': '控制台测试',
   workflow: '工作流',
@@ -1051,6 +1084,22 @@ const formatPriceValue = (value?: number, currency?: string) => {
   if (typeof value !== 'number' || Number.isNaN(value)) return '—';
   const symbol = currency ? currencySymbolMap[currency] || currency : '';
   return `${symbol}${value.toFixed(2)}`;
+};
+
+const formatCurrencyTotals = (totals?: Record<string, number> | null) => {
+  const entries = Object.entries(totals || {}).filter(([, value]) => typeof value === 'number' && !Number.isNaN(value));
+  if (entries.length === 0) return '—';
+  return entries.map(([currency, value]) => formatPriceValue(value, currency)).join(' / ');
+};
+
+const formatRatePercent = (value?: number | null) => {
+  if (typeof value !== 'number' || Number.isNaN(value)) return '—';
+  return `${Math.round(value * 100)}%`;
+};
+
+const formatBucketDigest = (bucket?: { total?: number; failed?: number; successRate?: number | null }) => {
+  if (!bucket) return '—';
+  return `${bucket.total || 0} 次 · 成功率 ${formatRatePercent(bucket.successRate)} · 失败 ${bucket.failed || 0}`;
 };
 
 const pickLocalized = (record: Record<string, unknown>, candidates: string[]): string | undefined => {
@@ -1299,76 +1348,6 @@ const extractAbilityTags = (ability: Ability): string[] => {
   return tags;
 };
 
-const getAbilityPresentation = (ability?: Ability | null) => {
-  const value = ability?.presentation;
-  return value && typeof value === 'object' ? value : null;
-};
-
-const getAbilityBusinessStatus = (ability?: Ability | null) => {
-  const value = ability?.business_status;
-  return value && typeof value === 'object' ? value : null;
-};
-
-const getAbilityCategoryLabel = (ability?: Ability | null) => {
-  return getAbilityPresentation(ability)?.category_label || getCategoryLabel(ability?.category || '');
-};
-
-const getAbilityUsageHint = (ability?: Ability | null) => {
-  return getAbilityPresentation(ability)?.usage_hint || '';
-};
-
-const getAbilityOperationLabel = (ability?: Ability | null) => {
-  return getAbilityPresentation(ability)?.operation_label || '';
-};
-
-const abilityScopeLabelMap: Record<string, string> = {
-  internal: '仅内部',
-  admin: '管理端',
-  eval: '测评端',
-  coze: 'Coze',
-  client: '客户端',
-};
-
-const abilityRetirementModeLabelMap: Record<string, string> = {
-  hide_public: '对业务隐藏',
-  internal_only: '仅内部保留',
-  admin_only: '仅管理端保留',
-  delete_candidate: '候选下线',
-};
-
-const getAbilitySurfaceLabels = (ability?: Ability | null) => {
-  const businessLabels = getAbilityBusinessStatus(ability)?.surface_labels;
-  if (Array.isArray(businessLabels) && businessLabels.length > 0) {
-    return businessLabels.filter(Boolean);
-  }
-  const scopes = ability?.governance?.scopes;
-  if (!Array.isArray(scopes) || scopes.length === 0) return [];
-  return scopes.map((scope) => abilityScopeLabelMap[scope] || scope).filter(Boolean);
-};
-
-const getAbilityReplacementLabel = (ability?: Ability | null) => {
-  const deprecation = ability?.deprecation;
-  if (!deprecation?.is_deprecated) return '';
-  return (
-    deprecation.replacement_display_name ||
-    deprecation.replacement_capability_key ||
-    deprecation.replacement_ability_id ||
-    ''
-  );
-};
-
-const getAbilityDeprecationSummary = (ability?: Ability | null) => {
-  const deprecation = ability?.deprecation;
-  if (!deprecation?.is_deprecated) return '';
-  const mode = abilityRetirementModeLabelMap[deprecation.retirement_mode || ''] || '已下线';
-  const replacement = getAbilityReplacementLabel(ability);
-  const reason = (deprecation.reason || '').trim();
-  const parts = [mode];
-  if (replacement) parts.push(`替代：${replacement}`);
-  if (reason) parts.push(reason);
-  return parts.join(' · ');
-};
-
 const resolveAbilityApiType = (ability: Ability | null): string => {
   if (!ability) return '';
   const metadata = ability.metadata;
@@ -1405,6 +1384,101 @@ const safeParseJSON = (value?: string | JsonRecord): { ok: boolean; value: JsonR
   } catch {
     return { ok: false, value: {} };
   }
+};
+
+const splitLinesOrComma = (value?: string): string[] =>
+  String(value || '')
+    .split(/[\n,，]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+const readBusinessRollout = (metadata?: JsonRecord | null) => {
+  const rollout = metadata && typeof metadata.rollout === 'object' && !Array.isArray(metadata.rollout)
+    ? (metadata.rollout as JsonRecord)
+    : {};
+  const allowlist = Array.isArray(rollout.allowlist) ? rollout.allowlist : [];
+  const percent = Number(rollout.percent || 0);
+  return {
+    enabled: Boolean(rollout.enabled),
+    percent: Number.isFinite(percent) ? percent : 0,
+    allowlistText: allowlist.map((item) => String(item)).join('\n'),
+  };
+};
+
+const readBusinessVlAssist = (recipe?: JsonRecord | null) => {
+  const vlAssist = recipe && typeof recipe.vlAssist === 'object' && !Array.isArray(recipe.vlAssist)
+    ? (recipe.vlAssist as JsonRecord)
+    : {};
+  return {
+    enabled: Boolean(vlAssist.enabled),
+    abilityId: typeof vlAssist.abilityId === 'string' && vlAssist.abilityId.trim()
+      ? vlAssist.abilityId
+      : 'vl_analyze_image',
+  };
+};
+
+const businessRecipeStepLabel = (type?: string | null, role?: string | null) => {
+  if (role === 'primary') return '主执行';
+  if (role === 'preprocess') return '前置分析';
+  if (type === 'vl_analyze' || type === 'vl_analyze_image') return 'VL 分析';
+  if (type === 'comfyui_workflow') return 'ComfyUI';
+  if (type === 'vendor_api') return '第三方 API';
+  if (type === 'ability_task') return '原子能力';
+  return type || '步骤';
+};
+
+const businessKeyLabel = (key?: string | null) => {
+  if (key === 'fission') return '图裂变';
+  if (key === 'outpaint') return '扩图';
+  return key || '未命名业务';
+};
+
+const businessRunStepStatusLabel = (status?: string | null) => {
+  if (status === 'planned') return '待执行';
+  if (status === 'queued') return '排队中';
+  if (status === 'running') return '执行中';
+  if (status === 'succeeded') return '已完成';
+  if (status === 'failed') return '失败';
+  if (status === 'cancelled') return '已取消';
+  if (status === 'skipped') return '已跳过';
+  return status || '未知';
+};
+
+const businessRunStepSummaryLabel = (summary?: JsonRecord | null) => {
+  if (!summary || typeof summary !== 'object') return '';
+  const text = summary.summary || summary.imageDesc || summary.textPreview;
+  if (typeof text === 'string' && text.trim()) {
+    const value = text.trim();
+    return value.length > 24 ? `${value.slice(0, 24)}...` : value;
+  }
+  const imageCount = Number(summary.imageCount || 0);
+  const videoCount = Number(summary.videoCount || 0);
+  if (imageCount > 0) return `${imageCount} 张图`;
+  if (videoCount > 0) return `${videoCount} 个视频`;
+  return '';
+};
+
+const businessCapabilityLatestRunLabel = (item: BusinessCapability) => {
+  const latest = item.latestRun;
+  if (!latest) return '暂无调用';
+  const imageCount = Number(latest.imageCount ?? latest.image_count ?? 0);
+  const videoCount = Number(latest.videoCount ?? latest.video_count ?? 0);
+  if (latest.error) return String(latest.error);
+  if (imageCount > 0) return `${imageCount} 张图`;
+  if (videoCount > 0) return `${videoCount} 个视频`;
+  return businessRunStepStatusLabel(latest.status);
+};
+
+const businessCapabilityRunMetricsLabel = (item: BusinessCapability) => {
+  const metrics = item.runMetrics;
+  if (!metrics || !Number(metrics.total || 0)) return '近24小时暂无调用';
+  const total = Number(metrics.total || 0);
+  const succeeded = Number(metrics.succeeded || 0);
+  const failed = Number(metrics.failed || 0);
+  const running = Number(metrics.running || 0) + Number(metrics.queued || 0);
+  const rawRate = metrics.successRate ?? metrics.success_rate;
+  const successRate = typeof rawRate === 'number' ? Math.round(rawRate * 100) : Math.round((succeeded / total) * 100);
+  return `近24小时 ${total} 次 · 成功 ${succeeded} · 失败 ${failed} · 进行中 ${running} · 成功率 ${successRate}%`;
 };
 
 const isComfyUiDefinition = (record: Record<string, unknown>): boolean => {
@@ -1827,85 +1901,6 @@ const parseRoutingMetadata = (metadata?: JsonRecord | null) => {
   return { policy, allowed, required, fallback };
 };
 
-const parseExecutorRouting = (executor?: Executor | null) => {
-  const routing = executor?.routing || {};
-  const configRouting =
-    executor?.config && typeof executor.config === 'object' && executor.config.routing && typeof executor.config.routing === 'object'
-      ? (executor.config.routing as JsonRecord)
-      : null;
-  const source = (routing && Object.keys(routing).length > 0 ? routing : configRouting) as JsonRecord | null;
-  if (!source) {
-    return {
-      enabled: true,
-      fallbackOnly: false,
-      policy: 'auto',
-      tags: [] as string[],
-      concurrencyLimit: Math.max(1, Number(executor?.max_concurrency ?? 1) || 1),
-    };
-  }
-  return {
-    enabled: typeof source.routing_enabled === 'boolean' ? source.routing_enabled : true,
-    fallbackOnly: typeof source.fallback_only === 'boolean' ? source.fallback_only : false,
-    policy:
-      typeof source.selection_policy === 'string' && source.selection_policy.trim()
-        ? source.selection_policy.trim().toLowerCase()
-        : 'auto',
-    tags: normalizeTagList(source.tags),
-    concurrencyLimit:
-      typeof source.concurrency_limit === 'number'
-        ? Math.max(1, Number(source.concurrency_limit) || 1)
-        : Math.max(1, Number(executor?.max_concurrency ?? 1) || 1),
-  };
-};
-
-const getExecutorBusinessStatus = (executor?: Executor | null) => {
-  const status = executor?.business_status || {};
-  const routing = parseExecutorRouting(executor);
-  const executionModeLabel =
-    typeof status.execution_mode_label === 'string' && status.execution_mode_label.trim()
-      ? status.execution_mode_label.trim()
-      : !routing.enabled
-        ? '固定节点执行'
-        : routing.fallbackOnly
-          ? '仅兜底参与'
-          : '可参与路由';
-  const concurrencyLabel =
-    typeof status.concurrency_label === 'string' && status.concurrency_label.trim()
-      ? status.concurrency_label.trim()
-      : `并发上限 ${routing.concurrencyLimit}`;
-  const tags = Array.isArray(status.tags) ? status.tags.filter((item): item is string => typeof item === 'string') : routing.tags;
-  return {
-    executionModeLabel,
-    concurrencyLabel,
-    tags,
-  };
-};
-
-const getExecutorExecutionModeCode = (executor?: Executor | null) => {
-  const routing = parseExecutorRouting(executor);
-  if (!routing.enabled) return 'fixed';
-  if (routing.fallbackOnly) return 'fallback';
-  return 'routing';
-};
-
-const getExecutorSelectionPolicyLabel = (policy?: string | null) => {
-  const normalized = (policy || '').trim().toLowerCase();
-  return executorSelectionPolicyOptions.find((option) => option.value === normalized)?.label || normalized || '自动';
-};
-
-const getExecutorExecutionModeDescription = (mode: string) => {
-  switch (mode) {
-    case 'routing':
-      return '主跑节点会正常参与分配，适合承担日常流量。';
-    case 'fallback':
-      return '兜底节点默认不接主流量，只在需要补位时使用。';
-    case 'fixed':
-      return '固定执行表示这台节点不参与自动分流，通常给特殊能力或单独链路使用。';
-    default:
-      return '可按执行方式快速筛出主跑、兜底或固定执行节点。';
-  }
-};
-
 const parseLoraMetadata = (metadata?: JsonRecord | null) => {
   const record = (metadata || {}) as Record<string, unknown>;
   const allowedFiles = normalizeTextList(
@@ -1979,6 +1974,47 @@ export function IntegrationDashboard({
   const [dispatchLogDetail, setDispatchLogDetail] = useState<DispatchLogEntry | null>(null);
   const [dispatchLogDetailOpen, setDispatchLogDetailOpen] = useState(false);
   const [systemConfig, setSystemConfig] = useState<SystemConfig | null>(null);
+  const [businessCapabilities, setBusinessCapabilities] = useState<BusinessCapability[]>([]);
+  const [businessRuns, setBusinessRuns] = useState<BusinessRun[]>([]);
+  const [businessRunTotal, setBusinessRunTotal] = useState(0);
+  const [businessUsageSummary, setBusinessUsageSummary] = useState<BusinessUsageSummaryResponse | null>(null);
+  const [businessRunFilters, setBusinessRunFilters] = useState({
+    businessKey: 'all',
+    status: 'all',
+    version: 'all',
+    source: '',
+    tenantId: '',
+    clientId: '',
+    traceId: '',
+    windowHours: 24,
+    limit: 20,
+  });
+  const [businessRunDetail, setBusinessRunDetail] = useState<BusinessRun | null>(null);
+  const [businessRunDetailOpen, setBusinessRunDetailOpen] = useState(false);
+  const [businessDialogOpen, setBusinessDialogOpen] = useState(false);
+  const [businessForm, setBusinessForm] = useState<BusinessCapabilityFormState>(defaultBusinessCapabilityForm);
+  const [businessFormError, setBusinessFormError] = useState<string | null>(null);
+  const [businessActionError, setBusinessActionError] = useState<string | null>(null);
+  const [businessActionLoadingId, setBusinessActionLoadingId] = useState<string | null>(null);
+  const [authUsers, setAuthUsers] = useState<AuthUser[]>([]);
+  const [authSessions, setAuthSessions] = useState<AuthSession[]>([]);
+  const [inviteCodes, setInviteCodes] = useState<InviteCode[]>([]);
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authInviteForm, setAuthInviteForm] = useState<InviteCodeCreatePayload>(defaultInviteCodeForm);
+  const [vendorProviders, setVendorProviders] = useState<VendorProvider[]>([]);
+  const [vendorModels, setVendorModels] = useState<VendorModel[]>([]);
+  const [vendorKeys, setVendorKeys] = useState<VendorKey[]>([]);
+  const [vendorUsageItems, setVendorUsageItems] = useState<VendorUsageSummaryItem[]>([]);
+  const [vendorUsageWindowHours, setVendorUsageWindowHours] = useState(24);
+  const [vendorBaseUrl, setVendorBaseUrl] = useState('');
+  const [vendorLoading, setVendorLoading] = useState(false);
+  const [vendorError, setVendorError] = useState('');
+  const [vendorNotice, setVendorNotice] = useState('');
+  const [vendorEgressChecks, setVendorEgressChecks] = useState<Record<string, VendorEgressCheckResponse>>({});
+  const [vendorKeyForm, setVendorKeyForm] = useState<VendorKeyFormState>(defaultVendorKeyForm);
+  const [vendorModelForm, setVendorModelForm] = useState<VendorModelFormState>(defaultVendorModelForm);
+  const [vendorModelFormError, setVendorModelFormError] = useState<string | null>(null);
   const [abilityForm, setAbilityForm] = useState<AbilityFormState>(defaultAbilityForm);
   const [abilityDialogOpen, setAbilityDialogOpen] = useState(false);
   const [selectedAbilityId, setSelectedAbilityId] = useState<string | null>(null);
@@ -1991,25 +2027,9 @@ export function IntegrationDashboard({
   const [abilityLoraAllowedTags, setAbilityLoraAllowedTags] = useState<string>('');
   const [abilityLoraAllowedBaseModels, setAbilityLoraAllowedBaseModels] = useState<string[]>([]);
   const [abilityLoraPolicy, setAbilityLoraPolicy] = useState<string>('fallback');
-  const [abilityBusinessScopes, setAbilityBusinessScopes] = useState<string[]>([]);
-  const [abilityReleaseStatus, setAbilityReleaseStatus] = useState<string>('draft');
-  const [abilityQualityStatus, setAbilityQualityStatus] = useState<string>('untested');
-  const [abilityPresentationVisible, setAbilityPresentationVisible] = useState<boolean>(true);
-  const [abilityPresentationSortOrder, setAbilityPresentationSortOrder] = useState<string>('');
-  const [abilityPresentationCategoryLabel, setAbilityPresentationCategoryLabel] = useState<string>('');
-  const [abilityPresentationUsageHint, setAbilityPresentationUsageHint] = useState<string>('');
-  const [abilityPresentationOperationLabel, setAbilityPresentationOperationLabel] = useState<string>('');
-  const [abilityIsDeprecated, setAbilityIsDeprecated] = useState<boolean>(false);
-  const [abilityReplacementAbilityId, setAbilityReplacementAbilityId] = useState<string>('');
-  const [abilityReplacementCapabilityKey, setAbilityReplacementCapabilityKey] = useState<string>('');
-  const [abilityReplacementDisplayName, setAbilityReplacementDisplayName] = useState<string>('');
-  const [abilityDeprecationReason, setAbilityDeprecationReason] = useState<string>('');
-  const [abilityRetirementMode, setAbilityRetirementMode] = useState<string>('hide_public');
   const [abilitySearch, setAbilitySearch] = useState('');
   const [abilityProviderFilter, setAbilityProviderFilter] = useState<string>('all');
   const [abilityStatusFilter, setAbilityStatusFilter] = useState<string>('all');
-  const [abilitySurfaceFilter, setAbilitySurfaceFilter] = useState<string>('all');
-  const [abilityLifecycleFilter, setAbilityLifecycleFilter] = useState<string>('all');
   const [activeAbilityDetailTab, setActiveAbilityDetailTab] = useState<AbilityDetailTab>('overview');
   const [abilityLogDetail, setAbilityLogDetail] = useState<AbilityInvocationLog | null>(null);
   const [abilityLogDetailOpen, setAbilityLogDetailOpen] = useState(false);
@@ -2024,12 +2044,6 @@ export function IntegrationDashboard({
   const [globalAbilityLogOnlyCallbackFailed, setGlobalAbilityLogOnlyCallbackFailed] = useState<boolean>(false);
   const [globalAbilityLogSearch, setGlobalAbilityLogSearch] = useState<string>('');
   const [executorForm, setExecutorForm] = useState<ExecutorFormState>(defaultExecutorForm);
-  const [executorRoutingEnabled, setExecutorRoutingEnabled] = useState<boolean>(true);
-  const [executorRoutingFallbackOnly, setExecutorRoutingFallbackOnly] = useState<boolean>(false);
-  const [executorRoutingPolicy, setExecutorRoutingPolicy] = useState<string>('auto');
-  const [executorRoutingTags, setExecutorRoutingTags] = useState<string>('');
-  const [executorSearch, setExecutorSearch] = useState<string>('');
-  const [executorExecutionModeFilter, setExecutorExecutionModeFilter] = useState<string>('all');
   const [workflowForm, setWorkflowForm] = useState<WorkflowFormState>(defaultWorkflowForm);
   const [workflowFormAllowedExecutors, setWorkflowFormAllowedExecutors] = useState<string[]>([]);
   const [workflowInputMap, setWorkflowInputMap] = useState<ComfyInputMapItem[]>([]);
@@ -2261,6 +2275,11 @@ export function IntegrationDashboard({
   const [abilityLogMetrics, setAbilityLogMetrics] = useState<AbilityLogMetricsResponse | null>(null);
   const [abilityLogMetricsLoading, setAbilityLogMetricsLoading] = useState(false);
   const [abilityLogMetricsError, setAbilityLogMetricsError] = useState<string | null>(null);
+  const [abilityHealthSummary, setAbilityHealthSummary] = useState<AbilityHealthSummaryResponse | null>(null);
+  const [abilityHealthLoading, setAbilityHealthLoading] = useState(false);
+  const [abilityHealthError, setAbilityHealthError] = useState<string | null>(null);
+  const [abilityHealthFilter, setAbilityHealthFilter] = useState<AbilityHealthFilter>('needs_test');
+  const [abilityHealthExporting, setAbilityHealthExporting] = useState(false);
   const [abilityTemplateState, setAbilityTemplateState] = useState<AbilityTemplateStateResponse | null>(null);
   const [abilityTemplateLoading, setAbilityTemplateLoading] = useState(false);
   const [abilityTemplateError, setAbilityTemplateError] = useState<string | null>(null);
@@ -2341,29 +2360,12 @@ export function IntegrationDashboard({
     const keyword = abilitySearch.trim().toLowerCase();
     return abilities.filter((ability) => {
       if (abilityProviderFilter !== 'all' && ability.provider !== abilityProviderFilter) return false;
-      if (
-        abilityStatusFilter !== 'all' &&
-        getAbilityBusinessStatus(ability)?.availability_code !== abilityStatusFilter
-      ) {
-        return false;
-      }
-      if (abilitySurfaceFilter !== 'all') {
-        const surfaces = getAbilitySurfaceLabels(ability)
-          .map((label) => label.toLowerCase())
-          .concat((ability.governance?.scopes || []).map((item) => String(item).toLowerCase()));
-        if (!surfaces.includes(abilitySurfaceFilter.toLowerCase()) && !surfaces.includes((abilityScopeLabelMap[abilitySurfaceFilter] || '').toLowerCase())) {
-          return false;
-        }
-      }
-      if (abilityLifecycleFilter === 'active' && ability.deprecation?.is_deprecated) return false;
-      if (abilityLifecycleFilter === 'deprecated' && !ability.deprecation?.is_deprecated) return false;
+      if (abilityStatusFilter !== 'all' && ability.status !== abilityStatusFilter) return false;
       if (!keyword) return true;
-      const haystack = `${ability.display_name} ${ability.capability_key} ${ability.version || ''} ${
-        ability.description || ''
-      } ${getAbilityCategoryLabel(ability)} ${getAbilityOperationLabel(ability)} ${getAbilityUsageHint(ability)} ${getAbilitySurfaceLabels(ability).join(' ')} ${getAbilityReplacementLabel(ability)} ${getAbilityDeprecationSummary(ability)}`.toLowerCase();
+      const haystack = `${ability.display_name} ${ability.capability_key} ${ability.version || ''} ${ability.description || ''}`.toLowerCase();
       return haystack.includes(keyword);
     });
-  }, [abilities, abilityLifecycleFilter, abilityProviderFilter, abilitySearch, abilityStatusFilter, abilitySurfaceFilter]);
+  }, [abilities, abilityProviderFilter, abilityStatusFilter, abilitySearch]);
   const selectedAbility = useMemo(() => {
     if (!selectedAbilityId) return null;
     return abilities.find((ability) => ability.id === selectedAbilityId) ?? null;
@@ -2402,21 +2404,6 @@ export function IntegrationDashboard({
     visibleComfyAgentList.forEach((agent) => map.set(agent.id, agent));
     return map;
   }, [visibleComfyAgentList]);
-  const filteredExecutors = useMemo(() => {
-    const keyword = executorSearch.trim().toLowerCase();
-    return executors.filter((executor) => {
-      if (
-        executorExecutionModeFilter !== 'all' &&
-        getExecutorExecutionModeCode(executor) !== executorExecutionModeFilter
-      ) {
-        return false;
-      }
-      if (!keyword) return true;
-      const businessStatus = getExecutorBusinessStatus(executor);
-      const haystack = `${executor.id} ${executor.name} ${executor.type} ${executor.base_url || ''} ${businessStatus.executionModeLabel} ${businessStatus.concurrencyLabel} ${businessStatus.tags.join(' ')}`.toLowerCase();
-      return haystack.includes(keyword);
-    });
-  }, [executorExecutionModeFilter, executorSearch, executors]);
   const comfyAgentOptions = useMemo(
     () =>
       visibleComfyAgentList.map((agent) => ({
@@ -2764,6 +2751,61 @@ export function IntegrationDashboard({
       return { value: item.file_name, label };
     });
   }, [abilityFormLoraOptions, abilityLoraAllowedBaseModels]);
+  const abilityVendorModelOptions = useMemo(() => {
+    const provider = String(abilityForm.provider || '').trim().toLowerCase();
+    return vendorModels
+      .filter((item) => !provider || item.provider.toLowerCase() === provider)
+      .map((item) => ({
+        label: `${item.displayName} · ${item.provider}/${item.model}`,
+        value: item.id ?? 0,
+        provider: item.provider,
+      }))
+      .filter((item) => item.value > 0);
+  }, [abilityForm.provider, vendorModels]);
+  const businessAbilityOptions = useMemo(
+    () =>
+      abilities.map((item) => ({
+        label: `${item.display_name} · ${item.provider}/${item.capability_key}`,
+        value: item.id,
+      })),
+    [abilities],
+  );
+  const businessVlAbilityOptions = useMemo(
+    () =>
+      abilities
+        .filter((item) => {
+          const text = `${item.id} ${item.provider} ${item.category} ${item.capability_key}`.toLowerCase();
+          return text.includes('vl') || text.includes('vision') || text.includes('analyze_image');
+        })
+        .map((item) => ({
+          label: `${item.display_name} · ${item.provider}/${item.capability_key}`,
+          value: item.id,
+        })),
+    [abilities],
+  );
+  const businessRunBusinessOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const options = businessCapabilities
+      .map((item) => item.businessKey)
+      .filter((key) => {
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .map((key) => ({ label: businessKeyLabel(key), value: key }));
+    return [{ label: '全部业务', value: 'all' }, ...options];
+  }, [businessCapabilities]);
+  const businessRunVersionOptions = useMemo(() => {
+    const businessKey = businessRunFilters.businessKey;
+    const versions = businessCapabilities
+      .filter((item) => businessKey === 'all' || item.businessKey === businessKey)
+      .map((item) => item.version)
+      .filter(Boolean);
+    return [
+      { label: '全部版本', value: 'all' },
+      ...Array.from(new Set(versions)).map((version) => ({ label: version, value: version })),
+    ];
+  }, [businessCapabilities, businessRunFilters.businessKey]);
   const resolveComfyModelList = useCallback(
     (executorId: string, key: string) => {
       if (!executorId) return [];
@@ -3314,6 +3356,13 @@ export function IntegrationDashboard({
     selectedAbility?.last_health_status,
     selectedAbility?.success_rate,
   ]);
+  const filteredAbilityHealthItems = useMemo(() => {
+    const items = abilityHealthSummary?.items || [];
+    if (abilityHealthFilter === 'all') return items;
+    if (abilityHealthFilter === 'needs_test') return items.filter((item) => item.needsTest);
+    if (abilityHealthFilter === 'stale') return items.filter((item) => item.stale);
+    return items.filter((item) => item.healthStatus === abilityHealthFilter);
+  }, [abilityHealthFilter, abilityHealthSummary?.items]);
   const abilityPricingMap = useMemo(() => {
     const map: Record<string, AbilityPricing> = {};
     abilities.forEach((ability) => {
@@ -3644,6 +3693,40 @@ export function IntegrationDashboard({
     [queueOverview],
   );
 
+  const vendorUsageTotal = useMemo(
+    () => vendorUsageItems.reduce((sum, item) => sum + Number(item.count || 0), 0),
+    [vendorUsageItems],
+  );
+  const vendorUsageFailed = useMemo(
+    () =>
+      vendorUsageItems
+        .filter((item) => item.status === 'failed' || item.errorCode)
+        .reduce((sum, item) => sum + Number(item.count || 0), 0),
+    [vendorUsageItems],
+  );
+  const vendorUsageSuccessRate = vendorUsageTotal > 0
+    ? Math.round(((vendorUsageTotal - vendorUsageFailed) / vendorUsageTotal) * 100)
+    : null;
+
+  const refreshAuthPanel = async () => {
+    setAuthLoading(true);
+    setAuthError(null);
+    try {
+      const [users, sessions, invites] = await Promise.all([
+        adminApi.listAuthUsers(),
+        adminApi.listAuthSessions(),
+        adminApi.listInviteCodes(),
+      ]);
+      setAuthUsers(users.items || []);
+      setAuthSessions(sessions.items || []);
+      setInviteCodes(invites.items || []);
+    } catch (error) {
+      setAuthError(extractErrorMessage(error) || '账号权限数据加载失败');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
   const load = async () => {
     setLoading(true);
     setLoadErrors([]);
@@ -3656,8 +3739,16 @@ export function IntegrationDashboard({
         adminApi.getDashboardMetrics(),
         adminApi.getDispatchLogs(),
         adminApi.getSystemConfig(),
+        adminApi.listBusinessCapabilities(),
+        adminApi.listBusinessRuns(businessRunFilters),
+        adminApi.getBusinessUsageSummary(businessRunFilters).catch((error) => ({ __error: error })),
         adminApi.listAbilities(),
+        adminApi.getAbilityHealthSummary({ staleHours: 24, limit: 100 }).catch((error) => ({ __error: error })),
         adminApi.getAbilityLogMetrics({ windowHours: 24 }).catch(() => null),
+        adminApi.listVendorProviders().catch((error) => ({ __error: error })),
+        adminApi.listVendorKeys().catch((error) => ({ __error: error })),
+        adminApi.listVendorModels().catch((error) => ({ __error: error })),
+        adminApi.getVendorUsageSummary(24).catch((error) => ({ __error: error })),
       ]);
 
       const errors: string[] = [];
@@ -3676,8 +3767,16 @@ export function IntegrationDashboard({
       const metricsRes = unwrap<DashboardMetrics>(4, '监控指标');
       const logsRes = unwrap<{ entries: DispatchLogEntry[] }>(5, '调度事件');
       const configRes = unwrap<SystemConfig>(6, '系统配置');
-      const abilityRes = unwrap<Ability[]>(7, '能力目录');
-      const abilityLogMetricsRes = settled[8].status === 'fulfilled' ? (settled[8].value as any) : null;
+      const businessCapabilityRes = unwrap<{ items: BusinessCapability[] }>(7, '业务能力');
+      const businessRunRes = unwrap<{ total: number; items: BusinessRun[] }>(8, '业务运行记录');
+      const businessUsageRes = settled[9].status === 'fulfilled' ? (settled[9].value as any) : null;
+      const abilityRes = unwrap<Ability[]>(10, '能力目录');
+      const abilityHealthRes = settled[11].status === 'fulfilled' ? (settled[11].value as any) : null;
+      const abilityLogMetricsRes = settled[12].status === 'fulfilled' ? (settled[12].value as any) : null;
+      const vendorProviderRes = settled[13].status === 'fulfilled' ? (settled[13].value as any) : null;
+      const vendorKeyRes = settled[14].status === 'fulfilled' ? (settled[14].value as any) : null;
+      const vendorModelRes = settled[15].status === 'fulfilled' ? (settled[15].value as any) : null;
+      const vendorUsageRes = settled[16].status === 'fulfilled' ? (settled[16].value as any) : null;
 
       if (execRes) setExecutors(execRes);
       if (wfRes) setWorkflows(wfRes);
@@ -3686,6 +3785,14 @@ export function IntegrationDashboard({
       if (metricsRes) setDashboardMetrics(metricsRes);
       if (logsRes) setDispatchLogs(logsRes.entries);
       if (configRes) setSystemConfig(configRes);
+      if (businessCapabilityRes) setBusinessCapabilities(businessCapabilityRes.items || []);
+      if (businessRunRes) {
+        setBusinessRuns(businessRunRes.items || []);
+        setBusinessRunTotal(Number(businessRunRes.total || 0));
+      }
+      if (businessUsageRes && !businessUsageRes.__error) {
+        setBusinessUsageSummary(businessUsageRes as BusinessUsageSummaryResponse);
+      }
       if (abilityRes) {
         const normalized = abilityRes.map((ability) => {
           const extra = (ability as Ability & { extra_metadata?: JsonRecord | null }).extra_metadata;
@@ -3697,6 +3804,33 @@ export function IntegrationDashboard({
         setAbilities(normalized);
       }
       if (abilityLogMetricsRes) setAbilityLogMetrics(abilityLogMetricsRes);
+      if (abilityHealthRes && !abilityHealthRes.__error) {
+        setAbilityHealthSummary(abilityHealthRes);
+        setAbilityHealthError(null);
+      } else if (abilityHealthRes?.__error) {
+        setAbilityHealthError(abilityHealthRes.__error?.message || '能力健康统计加载失败');
+      }
+      const vendorErrors = [vendorProviderRes, vendorKeyRes, vendorModelRes, vendorUsageRes]
+        .map((item) => item?.__error?.message)
+        .filter(Boolean);
+      if (vendorErrors.length > 0) setVendorError(vendorErrors.join('；'));
+      if (vendorProviderRes && !vendorProviderRes.__error) {
+        setVendorProviders(vendorProviderRes.providers || []);
+        setVendorBaseUrl(vendorProviderRes.baseUrl || vendorProviderRes.base_url || '');
+      }
+      if (vendorKeyRes && !vendorKeyRes.__error) {
+        setVendorKeys(vendorKeyRes.items || []);
+        setVendorBaseUrl((prev) => prev || vendorKeyRes.baseUrl || vendorKeyRes.base_url || '');
+      }
+      if (vendorModelRes && !vendorModelRes.__error) {
+        setVendorModels(vendorModelRes.items || []);
+        setVendorBaseUrl((prev) => prev || vendorModelRes.baseUrl || vendorModelRes.base_url || '');
+      }
+      if (vendorUsageRes && !vendorUsageRes.__error) {
+        setVendorUsageItems(vendorUsageRes.items || []);
+        setVendorUsageWindowHours(Number(vendorUsageRes.windowHours || 24));
+        setVendorBaseUrl((prev) => prev || vendorUsageRes.baseUrl || vendorUsageRes.base_url || '');
+      }
 
       if (abilityRes) {
         if (abilityRes.length > 0) {
@@ -3730,6 +3864,11 @@ export function IntegrationDashboard({
     downloadBlob(new Blob([payload], { type: 'application/json' }), filename);
   };
 
+  useEffect(() => {
+    if (activeNav !== 'auth') return;
+    void refreshAuthPanel();
+  }, [activeNav]);
+
   const refreshAbilityLogMetrics = async () => {
     setAbilityLogMetricsLoading(true);
     setAbilityLogMetricsError(null);
@@ -3745,6 +3884,38 @@ export function IntegrationDashboard({
       setAbilityLogMetricsError(err?.message || '获取能力调用指标失败');
     } finally {
       setAbilityLogMetricsLoading(false);
+    }
+  };
+
+  const refreshAbilityHealthSummary = async () => {
+    setAbilityHealthLoading(true);
+    setAbilityHealthError(null);
+    try {
+      const res = await adminApi.refreshAbilityHealthSummary({ staleHours: 24, limit: 100 });
+      setAbilityHealthSummary(res);
+    } catch (err: any) {
+      console.error('Failed to refresh ability health summary:', err);
+      setAbilityHealthError(err?.message || '刷新能力健康统计失败');
+    } finally {
+      setAbilityHealthLoading(false);
+    }
+  };
+
+  const exportAbilityHealthSummary = async () => {
+    setAbilityHealthExporting(true);
+    setAbilityHealthError(null);
+    try {
+      const blob = await adminApi.exportAbilityHealthSummary({
+        staleHours: 24,
+        limit: 500,
+        ...getAbilityHealthFilterQuery(abilityHealthFilter),
+      });
+      downloadBlob(blob, `ability-health-${abilityHealthFilter}-${Date.now()}.csv`);
+    } catch (err: any) {
+      console.error('Failed to export ability health summary:', err);
+      setAbilityHealthError(err?.message || '导出能力复测清单失败');
+    } finally {
+      setAbilityHealthExporting(false);
     }
   };
 
@@ -5798,33 +5969,11 @@ export function IntegrationDashboard({
       ability_type: abilityForm.ability_type || abilityTypeOptions[0].value,
       executor_id: abilityForm.executor_id,
       workflow_id: abilityForm.workflow_id || undefined,
+      vendor_model_id: abilityForm.vendor_model_id ? Number(abilityForm.vendor_model_id) : null,
       coze_workflow_id: abilityForm.coze_workflow_id || undefined,
       default_params: abilityForm.default_params ? parseJSON(abilityForm.default_params) : undefined,
       input_schema: abilityForm.input_schema ? parseJSON(abilityForm.input_schema) : undefined,
       metadata: isEmptyRecord(nextMetadata) ? undefined : (nextMetadata as JsonRecord),
-      governance: {
-        scopes: abilityBusinessScopes.filter(Boolean),
-        release_status: abilityReleaseStatus || 'draft',
-        quality_status: abilityQualityStatus || 'untested',
-      },
-      presentation: {
-        visible: abilityPresentationVisible,
-        sort_order: abilityPresentationSortOrder.trim() ? Number(abilityPresentationSortOrder) : undefined,
-        category_label: abilityPresentationCategoryLabel.trim() || undefined,
-        usage_hint: abilityPresentationUsageHint.trim() || undefined,
-        operation_label: abilityPresentationOperationLabel.trim() || undefined,
-      },
-      deprecation:
-        abilityIsDeprecated || abilityReplacementAbilityId.trim() || abilityReplacementCapabilityKey.trim() || abilityReplacementDisplayName.trim() || abilityDeprecationReason.trim()
-          ? {
-              is_deprecated: abilityIsDeprecated,
-              replacement_ability_id: abilityReplacementAbilityId.trim() || undefined,
-              replacement_capability_key: abilityReplacementCapabilityKey.trim() || undefined,
-              replacement_display_name: abilityReplacementDisplayName.trim() || undefined,
-              reason: abilityDeprecationReason.trim() || undefined,
-              retirement_mode: abilityRetirementMode || 'hide_public',
-            }
-          : undefined,
     };
     if (abilityForm.id) {
       await adminApi.updateAbility(abilityForm.id, payload);
@@ -5841,20 +5990,6 @@ export function IntegrationDashboard({
     setAbilityLoraAllowedTags('');
     setAbilityLoraAllowedBaseModels([]);
     setAbilityLoraPolicy('fallback');
-    setAbilityBusinessScopes([]);
-    setAbilityReleaseStatus('draft');
-    setAbilityQualityStatus('untested');
-    setAbilityPresentationVisible(true);
-    setAbilityPresentationSortOrder('');
-    setAbilityPresentationCategoryLabel('');
-    setAbilityPresentationUsageHint('');
-    setAbilityPresentationOperationLabel('');
-    setAbilityIsDeprecated(false);
-    setAbilityReplacementAbilityId('');
-    setAbilityReplacementCapabilityKey('');
-    setAbilityReplacementDisplayName('');
-    setAbilityDeprecationReason('');
-    setAbilityRetirementMode('hide_public');
     setAbilityDialogOpen(false);
     load();
   };
@@ -5880,27 +6015,202 @@ export function IntegrationDashboard({
     setAbilityLoraAllowedTags((loraMeta.allowedTags || []).join(', '));
     setAbilityLoraAllowedBaseModels(loraMeta.allowedBaseModels || []);
     setAbilityLoraPolicy(loraMeta.policy || 'fallback');
-    setAbilityBusinessScopes(Array.isArray(ability.governance?.scopes) ? ability.governance?.scopes.filter(Boolean) : []);
-    setAbilityReleaseStatus(ability.governance?.release_status || 'draft');
-    setAbilityQualityStatus(ability.governance?.quality_status || 'untested');
-    setAbilityPresentationVisible(typeof ability.presentation?.visible === 'boolean' ? ability.presentation.visible : true);
-    setAbilityPresentationSortOrder(
-      typeof ability.presentation?.sort_order === 'number' ? String(ability.presentation.sort_order) : '',
-    );
-    setAbilityPresentationCategoryLabel(ability.presentation?.category_label || '');
-    setAbilityPresentationUsageHint(ability.presentation?.usage_hint || '');
-    setAbilityPresentationOperationLabel(ability.presentation?.operation_label || '');
-    setAbilityIsDeprecated(Boolean(ability.deprecation?.is_deprecated));
-    setAbilityReplacementAbilityId(ability.deprecation?.replacement_ability_id || '');
-    setAbilityReplacementCapabilityKey(ability.deprecation?.replacement_capability_key || '');
-    setAbilityReplacementDisplayName(ability.deprecation?.replacement_display_name || '');
-    setAbilityDeprecationReason(ability.deprecation?.reason || '');
-    setAbilityRetirementMode(ability.deprecation?.retirement_mode || 'hide_public');
     setAbilityDialogOpen(true);
   };
 
   const handleAbilityDelete = async (id: string) => {
     await adminApi.deleteAbility(id);
+    load();
+  };
+
+  const resetBusinessForm = () => {
+    setBusinessForm(defaultBusinessCapabilityForm);
+    setBusinessFormError(null);
+    setBusinessActionError(null);
+  };
+
+  const handleBusinessEdit = (item: BusinessCapability) => {
+    const rollout = readBusinessRollout(item.metadata);
+    const vlAssist = readBusinessVlAssist(item.recipe);
+    setBusinessForm({
+      id: item.id,
+      businessKey: item.businessKey || 'fission',
+      version: item.version || 'v1',
+      displayName: item.displayName || '',
+      description: item.description || '',
+      status: item.status || 'inactive',
+      isDefault: Boolean(item.isDefault),
+      releaseTime: item.releaseTime || '',
+      primaryAbilityId:
+        item.primaryAbilityId ||
+        (item.recipe && typeof item.recipe.primaryAbilityId === 'string' ? String(item.recipe.primaryAbilityId) : ''),
+      vlAssistEnabled: vlAssist.enabled,
+      vlAssistAbilityId: vlAssist.abilityId,
+      rolloutEnabled: rollout.enabled,
+      rolloutPercent: rollout.percent,
+      rolloutAllowlistText: rollout.allowlistText,
+      recipeText: formatJsonValue(item.recipe),
+      inputSchemaText: formatJsonValue(item.inputSchema),
+      outputSchemaText: formatJsonValue(item.outputSchema),
+      metadataText: formatJsonValue(item.metadata),
+    });
+    setBusinessFormError(null);
+    setBusinessActionError(null);
+    setBusinessDialogOpen(true);
+  };
+
+  const handleBusinessSetDefault = async (item: BusinessCapability) => {
+    setBusinessActionError(null);
+    setBusinessActionLoadingId(`default:${item.id}`);
+    try {
+      await adminApi.updateBusinessCapability(item.id, {
+        status: 'active',
+        isDefault: true,
+      });
+      await load();
+    } catch (error: any) {
+      console.error('set default business capability failed', error);
+      setBusinessActionError(error?.message || '切换默认版本失败，请检查服务日志。');
+    } finally {
+      setBusinessActionLoadingId(null);
+    }
+  };
+
+  const handleBusinessToggleActive = async (item: BusinessCapability) => {
+    setBusinessActionError(null);
+    const isActive = item.status === 'active';
+    if (isActive && item.isDefault) {
+      setBusinessActionError('默认版本不能直接停用，请先把同业务的其他版本设为默认。');
+      return;
+    }
+    setBusinessActionLoadingId(`status:${item.id}`);
+    try {
+      await adminApi.updateBusinessCapability(item.id, {
+        status: isActive ? 'inactive' : 'active',
+        isDefault: isActive ? false : item.isDefault,
+      });
+      await load();
+    } catch (error: any) {
+      console.error('toggle business capability status failed', error);
+      setBusinessActionError(error?.message || '更新业务版本状态失败，请检查服务日志。');
+    } finally {
+      setBusinessActionLoadingId(null);
+    }
+  };
+
+  const refreshBusinessRuns = async () => {
+    const [res, summary] = await Promise.all([
+      adminApi.listBusinessRuns(businessRunFilters),
+      adminApi.getBusinessUsageSummary(businessRunFilters),
+    ]);
+    setBusinessRuns(res.items || []);
+    setBusinessRunTotal(Number(res.total || 0));
+    setBusinessUsageSummary(summary);
+  };
+
+  const handleAuthInviteSubmit = async () => {
+    setAuthError(null);
+    try {
+      const payload: InviteCodeCreatePayload = {
+        role: authInviteForm.role || 'user',
+        tenantId: authInviteForm.tenantId?.trim() || undefined,
+        clientId: authInviteForm.clientId?.trim() || undefined,
+        maxUses: Math.max(1, Number(authInviteForm.maxUses || 1)),
+        expiresAt: authInviteForm.expiresAt || undefined,
+        note: authInviteForm.note?.trim() || undefined,
+        metadata: authInviteForm.metadata,
+      };
+      await adminApi.createInviteCode(payload);
+      setAuthInviteForm(defaultInviteCodeForm);
+      await refreshAuthPanel();
+    } catch (error) {
+      setAuthError(extractErrorMessage(error) || '邀请码生成失败');
+    }
+  };
+
+  const handleAuthInviteDisable = async (invite: InviteCode) => {
+    if (!window.confirm(`确认让邀请码 ${invite.code} 立即失效？`)) return;
+    setAuthError(null);
+    setAuthLoading(true);
+    try {
+      await adminApi.disableInviteCode(invite.id);
+      await refreshAuthPanel();
+    } catch (error) {
+      setAuthError(extractErrorMessage(error) || '邀请码失效失败');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleAuthSessionRevoke = async (session: AuthSession) => {
+    const label = session.displayName || session.username || session.email || session.id;
+    if (!window.confirm(`确认踢出 ${label} 的这个登录会话？`)) return;
+    setAuthError(null);
+    setAuthLoading(true);
+    try {
+      await adminApi.revokeAuthSession(session.id);
+      await refreshAuthPanel();
+    } catch (error) {
+      setAuthError(extractErrorMessage(error) || '会话踢出失败');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleBusinessSubmit = async () => {
+    if (!businessForm.businessKey || !businessForm.version || !businessForm.displayName || !businessForm.primaryAbilityId) {
+      setBusinessFormError('请填写业务标识、版本、名称，并选择底层能力。');
+      return;
+    }
+    const recipe = safeParseJSON(businessForm.recipeText);
+    const inputSchema = safeParseJSON(businessForm.inputSchemaText);
+    const outputSchema = safeParseJSON(businessForm.outputSchemaText);
+    const metadata = safeParseJSON(businessForm.metadataText);
+    if (!recipe.ok || !inputSchema.ok || !outputSchema.ok || !metadata.ok) {
+      setBusinessFormError('配方、输入字段、输出字段、元信息必须是合法 JSON。');
+      return;
+    }
+    const nextRecipe: JsonRecord = { ...recipe.value };
+    if (businessForm.vlAssistEnabled) {
+      nextRecipe.vlAssist = {
+        enabled: true,
+        abilityId: businessForm.vlAssistAbilityId || 'vl_analyze_image',
+      };
+    } else {
+      delete nextRecipe.vlAssist;
+    }
+    const nextMetadata: JsonRecord = { ...metadata.value };
+    const rolloutAllowlist = splitLinesOrComma(businessForm.rolloutAllowlistText);
+    if (businessForm.rolloutEnabled || Number(businessForm.rolloutPercent || 0) > 0 || rolloutAllowlist.length > 0) {
+      nextMetadata.rollout = {
+        enabled: Boolean(businessForm.rolloutEnabled),
+        percent: Math.max(0, Math.min(100, Number(businessForm.rolloutPercent || 0))),
+        allowlist: rolloutAllowlist,
+      };
+    } else {
+      delete nextMetadata.rollout;
+    }
+    const payload: Partial<BusinessCapability> = {
+      businessKey: businessForm.businessKey.trim(),
+      version: businessForm.version.trim(),
+      displayName: businessForm.displayName.trim(),
+      description: businessForm.description?.trim() || null,
+      status: businessForm.status || 'inactive',
+      isDefault: Boolean(businessForm.isDefault),
+      releaseTime: businessForm.releaseTime || null,
+      primaryAbilityId: businessForm.primaryAbilityId,
+      recipe: nextRecipe,
+      inputSchema: inputSchema.value,
+      outputSchema: outputSchema.value,
+      metadata: nextMetadata,
+    };
+    if (businessForm.id) {
+      await adminApi.updateBusinessCapability(businessForm.id, payload);
+    } else {
+      await adminApi.createBusinessCapability({ ...payload, id: businessForm.id });
+    }
+    resetBusinessForm();
+    setBusinessDialogOpen(false);
     load();
   };
 
@@ -6498,15 +6808,7 @@ const extractErrorMessage = (error: unknown): string => {
       return;
     }
 
-    const configRecord = parseJSON(executorForm.config);
-    const nextConfig: Record<string, unknown> = { ...(configRecord || {}) };
-    nextConfig.routing = {
-      routing_enabled: executorRoutingEnabled,
-      fallback_only: executorRoutingFallbackOnly,
-      selection_policy: executorRoutingPolicy || 'auto',
-      tags: normalizeTagList(executorRoutingTags),
-      concurrency_limit: Math.max(1, Math.min(50, maxConcurrency)),
-    };
+    const { config } = executorForm;
     const payload: Partial<Executor> = {
       id: executorForm.id,
       name,
@@ -6515,7 +6817,7 @@ const extractErrorMessage = (error: unknown): string => {
       status,
       weight: Math.max(1, Math.min(999, weight)),
       max_concurrency: Math.max(1, Math.min(50, maxConcurrency)),
-      config: nextConfig as JsonRecord,
+      ...(config ? { config: parseJSON(config) } : {}),
     };
     try {
       if (executorForm.id) {
@@ -6524,10 +6826,6 @@ const extractErrorMessage = (error: unknown): string => {
         await adminApi.createExecutor(payload);
       }
       setExecutorForm(defaultExecutorForm);
-      setExecutorRoutingEnabled(true);
-      setExecutorRoutingFallbackOnly(false);
-      setExecutorRoutingPolicy('auto');
-      setExecutorRoutingTags('');
       await load();
     } catch (err: any) {
       console.error(err);
@@ -6614,20 +6912,7 @@ const extractErrorMessage = (error: unknown): string => {
       try {
         await adminApi.updateExecutor(executorId, { max_concurrency: Math.max(1, Math.min(50, draft)) });
         // Update local list to reflect immediately (avoid waiting for full reload).
-        setExecutors((prev) =>
-          prev.map((ex) =>
-            ex.id === executorId
-              ? {
-                  ...ex,
-                  max_concurrency: draft,
-                  routing: ex.routing ? { ...ex.routing, concurrency_limit: draft } : ex.routing,
-                  business_status: ex.business_status
-                    ? { ...ex.business_status, concurrency_label: `并发上限 ${draft}` }
-                    : ex.business_status,
-                }
-              : ex,
-          ),
-        );
+        setExecutors((prev) => prev.map((ex) => (ex.id === executorId ? { ...ex, max_concurrency: draft } : ex)));
       } catch (err: any) {
         console.error(err);
         setExecutorInlineError((prev) => ({ ...prev, [executorId]: err?.message || '更新失败' }));
@@ -6861,8 +7146,12 @@ const extractErrorMessage = (error: unknown): string => {
 
   const handleApiKeySubmit = async () => {
     if (!apiKeyForm.provider || !apiKeyForm.name || !apiKeyForm.status) return;
+    const { key: _plainKey, key_preview: _preview, ...safePayload } = apiKeyForm;
     if (apiKeyForm.id) {
-      await adminApi.updateApiKey(apiKeyForm.id, apiKeyForm);
+      await adminApi.updateApiKey(apiKeyForm.id, {
+        ...safePayload,
+        ...(apiKeyForm.key ? { key: apiKeyForm.key } : {}),
+      });
     } else if (apiKeyForm.key) {
       await adminApi.createApiKey(apiKeyForm);
     } else {
@@ -6870,6 +7159,165 @@ const extractErrorMessage = (error: unknown): string => {
     }
     setApiKeyForm(defaultApiKeyForm);
     load();
+  };
+
+  const loadVendorCatalog = async () => {
+    setVendorLoading(true);
+    setVendorError('');
+    setVendorNotice('');
+    try {
+      const [providers, keys, models, usage] = await Promise.all([
+        adminApi.listVendorProviders(),
+        adminApi.listVendorKeys(),
+        adminApi.listVendorModels(),
+        adminApi.getVendorUsageSummary(24),
+      ]);
+      setVendorProviders(providers.providers || []);
+      setVendorKeys(keys.items || []);
+      setVendorModels(models.items || []);
+      setVendorUsageItems(usage.items || []);
+      setVendorUsageWindowHours(Number(usage.windowHours || 24));
+      setVendorBaseUrl(providers.baseUrl || keys.baseUrl || models.baseUrl || usage.baseUrl || '');
+    } catch (error) {
+      setVendorError(extractErrorMessage(error) || '模型弹药库加载失败');
+    } finally {
+      setVendorLoading(false);
+    }
+  };
+
+  const handleSyncVolcengineModels = async () => {
+    setVendorLoading(true);
+    setVendorError('');
+    setVendorNotice('');
+    try {
+      const result = await adminApi.syncVolcengineModels();
+      await loadVendorCatalog();
+      setVendorNotice(
+        `火山模型已同步：新增 ${result.created} 个，更新 ${result.updated} 个，跳过 ${result.skipped} 个。`,
+      );
+    } catch (error) {
+      setVendorError(extractErrorMessage(error) || '火山模型同步失败，请检查 VOLCENGINE_API_KEY 和服务出网。');
+    } finally {
+      setVendorLoading(false);
+    }
+  };
+
+  const handleVendorEgressCheck = async (provider: string, includeAuth = false) => {
+    setVendorError('');
+    try {
+      const result = await adminApi.checkVendorProviderEgress(provider, { check: 'models', includeAuth });
+      setVendorEgressChecks((prev) => ({ ...prev, [provider]: result }));
+    } catch (error) {
+      setVendorError(extractErrorMessage(error) || '出网检查失败');
+    }
+  };
+
+  const resetVendorModelForm = (seed?: VendorModel) => {
+    if (!seed) {
+      setVendorModelForm(defaultVendorModelForm);
+      setVendorModelFormError(null);
+      return;
+    }
+    setVendorModelForm({
+      ...seed,
+      apiTypesText: formatTextList(seed.apiTypes),
+      executionModesText: formatTextList(seed.executionModes),
+      metadataText: stringifyJSON(seed.metadata as JsonRecord),
+      routePolicyText: stringifyJSON(seed.routePolicy as JsonRecord),
+      defaultTaskPolicyText: stringifyJSON(seed.defaultTaskPolicy as JsonRecord),
+      inputSchemaText: stringifyJSON(seed.inputSchema as JsonRecord),
+      costPolicyText: stringifyJSON(seed.costPolicy as JsonRecord),
+    });
+    setVendorModelFormError(null);
+  };
+
+  const handleVendorModelSubmit = async () => {
+    if (!vendorModelForm.provider || !vendorModelForm.model || !vendorModelForm.displayName) {
+      setVendorModelFormError('请填写 Provider、模型 ID 和显示名称');
+      return;
+    }
+    const jsonFields = [
+      ['metadata', vendorModelForm.metadataText],
+      ['routePolicy', vendorModelForm.routePolicyText],
+      ['defaultTaskPolicy', vendorModelForm.defaultTaskPolicyText],
+      ['inputSchema', vendorModelForm.inputSchemaText],
+      ['costPolicy', vendorModelForm.costPolicyText],
+    ] as const;
+    const parsedJson: Record<string, JsonRecord> = {};
+    for (const [key, raw] of jsonFields) {
+      const parsed = safeParseJSON(raw);
+      if (!parsed.ok) {
+        setVendorModelFormError(`${key} 不是合法 JSON`);
+        return;
+      }
+      parsedJson[key] = parsed.value;
+    }
+    setVendorModelFormError(null);
+    setVendorError('');
+    const payload: Partial<VendorModel> = {
+      provider: String(vendorModelForm.provider),
+      model: String(vendorModelForm.model),
+      displayName: String(vendorModelForm.displayName),
+      status: String(vendorModelForm.status || 'active'),
+      apiTypes: normalizeTextList(vendorModelForm.apiTypesText || vendorModelForm.apiTypes),
+      executionModes: normalizeTextList(vendorModelForm.executionModesText || vendorModelForm.executionModes),
+      supportsMask: Boolean(vendorModelForm.supportsMask),
+      supportsMultipleImages: Boolean(vendorModelForm.supportsMultipleImages),
+      supportsVideo: Boolean(vendorModelForm.supportsVideo),
+      supportsText: Boolean(vendorModelForm.supportsText),
+      requiresGlobalEgress: Boolean(vendorModelForm.requiresGlobalEgress),
+      source: String(vendorModelForm.source || 'backend-admin'),
+      metadata: parsedJson.metadata,
+      routePolicy: parsedJson.routePolicy,
+      defaultTaskPolicy: parsedJson.defaultTaskPolicy,
+      inputSchema: parsedJson.inputSchema,
+      costPolicy: parsedJson.costPolicy,
+    };
+    try {
+      if (vendorModelForm.id) {
+        await adminApi.updateVendorModel(Number(vendorModelForm.id), payload);
+      } else {
+        await adminApi.createVendorModel(payload);
+      }
+      resetVendorModelForm();
+      await loadVendorCatalog();
+    } catch (error) {
+      setVendorModelFormError(extractErrorMessage(error) || '保存模型失败');
+    }
+  };
+
+  const handleVendorKeySubmit = async () => {
+    if (!vendorKeyForm.provider || !vendorKeyForm.alias || !vendorKeyForm.status) return;
+    setVendorError('');
+    try {
+      if (vendorKeyForm.id) {
+        await adminApi.updateVendorKey(vendorKeyForm.id, {
+          status: vendorKeyForm.status,
+          metadata: vendorKeyForm.metadata,
+        });
+      } else if (vendorKeyForm.key) {
+        const provider = String(vendorKeyForm.provider);
+        const alias = String(vendorKeyForm.alias);
+        await adminApi.createVendorKey({
+          provider,
+          alias,
+          key: vendorKeyForm.key,
+          secret: vendorKeyForm.secret,
+          model: vendorKeyForm.model,
+          status: vendorKeyForm.status,
+          dailyQuota: vendorKeyForm.dailyQuota,
+          monthlyQuota: vendorKeyForm.monthlyQuota,
+          maxConcurrency: vendorKeyForm.maxConcurrency,
+          metadata: vendorKeyForm.metadata,
+        });
+      } else {
+        return;
+      }
+      setVendorKeyForm(defaultVendorKeyForm);
+      await loadVendorCatalog();
+    } catch (error) {
+      setVendorError(extractErrorMessage(error) || '保存 vendor key 失败');
+    }
   };
 
   const handleDelete = async (type: 'executor' | 'workflow' | 'binding' | 'apikey', id: string) => {
@@ -7034,20 +7482,12 @@ const extractErrorMessage = (error: unknown): string => {
       { label: '能力 Key', value: selectedAbility.capability_key || '—' },
       { label: '版本', value: selectedAbility.version || 'v1' },
       { label: '能力类型', value: getAbilityTypeLabel(selectedAbility.ability_type) || '—' },
-      { label: '业务分类', value: getAbilityCategoryLabel(selectedAbility) || '—' },
-      { label: '操作名称', value: getAbilityOperationLabel(selectedAbility) || '—' },
-      {
-        label: '可见范围',
-        value: getAbilitySurfaceLabels(selectedAbility).length > 0 ? getAbilitySurfaceLabels(selectedAbility).join(' / ') : '未定义',
-      },
       {
         label: '默认节点',
         value: pinnedAbilityExecutor ? `${pinnedAbilityExecutor.name} · ${pinnedAbilityExecutor.type}` : '按厂商类型自动匹配',
       },
       { label: '关联工作流', value: selectedAbilityWorkflowLabel || '未绑定' },
-      { label: '替代能力', value: getAbilityReplacementLabel(selectedAbility) || '—' },
     ];
-    const deprecationSummary = getAbilityDeprecationSummary(selectedAbility);
     return (
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
         {selectedAbilitySchemaIssues.length > 0 ? (
@@ -7057,34 +7497,18 @@ const extractErrorMessage = (error: unknown): string => {
             message={`请补齐：${selectedAbilitySchemaIssues.join(' / ')}`}
           />
         ) : null}
-        {selectedAbility.deprecation?.is_deprecated ? (
-          <Alert
-            theme="warning"
-            title="该能力已进入替代/下线流程"
-            message={deprecationSummary || '建议改用替代能力，不再继续面向业务公开。'}
-          />
-        ) : null}
         <Card bordered>
           <Space align="start" style={{ justifyContent: 'space-between', width: '100%' }}>
             <Space direction="vertical" size={2}>
               <Typography.Text theme="secondary">
-                {getProviderLabel(selectedAbility.provider)} · {getAbilityCategoryLabel(selectedAbility)}
+                {getProviderLabel(selectedAbility.provider)} · {getCategoryLabel(selectedAbility.category)}
               </Typography.Text>
               <Typography.Title level="h4" style={{ margin: 0 }}>
                 {selectedAbility.display_name}
               </Typography.Title>
               <Typography.Text theme="secondary">
-                {getAbilityUsageHint(selectedAbility) || selectedAbility.description || '暂无描述，建议在能力管理中补充。'}
+                {selectedAbility.description || '暂无描述，建议在能力管理中补充。'}
               </Typography.Text>
-              {getAbilitySurfaceLabels(selectedAbility).length > 0 ? (
-                <Space size="small" breakLine>
-                  {getAbilitySurfaceLabels(selectedAbility).map((label) => (
-                    <Tag key={`selected-ability-surface-${label}`} theme="default" variant="light">
-                      {label}
-                    </Tag>
-                  ))}
-                </Space>
-              ) : null}
               {selectedAbilityTags.length > 0 ? (
                 <Space breakLine>
                   {selectedAbilityTags.map((tag, index) => (
@@ -7095,30 +7519,7 @@ const extractErrorMessage = (error: unknown): string => {
                 </Space>
               ) : null}
             </Space>
-            <Space direction="vertical" size={4} align="end">
-              <Tag
-                theme={
-                  getAbilityBusinessStatus(selectedAbility)?.availability_code === 'available'
-                    ? 'success'
-                    : getAbilityBusinessStatus(selectedAbility)?.availability_code === 'testing'
-                      ? 'warning'
-                      : 'default'
-                }
-                variant="light"
-              >
-                {getAbilityBusinessStatus(selectedAbility)?.availability_label || selectedAbility.status}
-              </Tag>
-              {getAbilityBusinessStatus(selectedAbility)?.stability_label ? (
-                <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
-                  {getAbilityBusinessStatus(selectedAbility)?.stability_label}
-                </Typography.Text>
-              ) : null}
-              {selectedAbility.deprecation?.is_deprecated ? (
-                <Typography.Text theme="warning" style={{ fontSize: 12, textAlign: 'right' }}>
-                  {deprecationSummary || '已标记为替代/下线'}
-                </Typography.Text>
-              ) : null}
-            </Space>
+            <StatusPill status={selectedAbility.status} />
           </Space>
         </Card>
 
@@ -7204,7 +7605,7 @@ const extractErrorMessage = (error: unknown): string => {
     if (!selectedAbility) {
       return (
         <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-950/30 p-4 text-sm text-slate-400">
-          请选择能力以查看运行配置、计价信息和高级设置。
+          请选择能力以查看 metadata/workflow_key/pricing 等元信息。
         </div>
       );
     }
@@ -7216,16 +7617,16 @@ const extractErrorMessage = (error: unknown): string => {
         {showMetadataIssues.length > 0 ? (
           <Alert
             theme="warning"
-            title="高级配置缺失"
-            message={`尚未补齐：${showMetadataIssues.join(' / ')}。建议补充能力类型、计价和依赖要求等信息。`}
+            title="元信息缺失"
+            message={`尚未补齐：${showMetadataIssues.join(' / ')}。建议补充 api_type、pricing、requirements 等字段。`}
           />
         ) : null}
         <div>
-          <div className="text-slate-500">高级配置 JSON</div>
+          <div className="text-slate-500">能力 Metadata</div>
           {selectedAbility.metadata ? (
             <CodeBlock value={formatJsonValue(selectedAbility.metadata)} maxHeight={320} />
           ) : (
-            <p className="mt-1">暂无高级配置，建议补充能力类型、计价、依赖要求等信息。</p>
+            <p className="mt-1">暂无 metadata，建议补充 workflow_key、api_type、pricing、requirements 等信息。</p>
           )}
         </div>
         <Card bordered title="能力模板版本">
@@ -7994,9 +8395,6 @@ const extractErrorMessage = (error: unknown): string => {
       contentRef={contentRef}
       headerActions={
         <Space align="center" size="small" style={{ flexWrap: 'wrap', justifyContent: 'flex-end', width: '100%' }}>
-          <Tag theme="primary" variant="light">
-            {adminExperienceVersionLabel}
-          </Tag>
           <Button variant="outline" loading={loading} onClick={load}>
             刷新
           </Button>
@@ -8128,6 +8526,1154 @@ const extractErrorMessage = (error: unknown): string => {
               <MetricCard label="API Keys" value={summary.apiKeys} sub="即将到期请注意" />
               <MetricCard label="能力目录" value={summary.abilities || 0} sub="厂商 × 功能" />
             </div>
+            </Section>
+          )}
+
+          {activeNav === 'business' && (
+            <Section id="business" title="业务能力" description="给业务方使用的稳定入口；底层能力可以换版本，但这里保持业务语义清楚。">
+              <Space direction="vertical" size="large" style={{ width: '100%' }}>
+                <Alert
+                  theme="info"
+                  message="业务能力层用于沉淀图裂变、扩图等稳定 API。Coze 后续只调用这些入口，版本、灰度和回滚由中台管理。"
+                />
+                {businessActionError ? <Alert theme="error" message={businessActionError} /> : null}
+                <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                  <Typography.Text theme="secondary">
+                    默认版本会直接影响业务入口，请只在测试通过后切换。
+                  </Typography.Text>
+                  <Button
+                    theme="primary"
+                    onClick={() => {
+                      resetBusinessForm();
+                      setBusinessDialogOpen(true);
+                    }}
+                  >
+                    新增业务版本
+                  </Button>
+                </Space>
+                <Row gutter={[16, 16]}>
+                  {businessCapabilities.map((item) => (
+                    <Col key={item.id} xs={12} sm={6} lg={4}>
+                      <Card bordered>
+                        <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                          <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                            <Typography.Text strong>{item.displayName}</Typography.Text>
+                            <Tag theme={item.isDefault ? 'primary' : 'default'} variant="light">
+                              {item.isDefault ? '默认版本' : item.version}
+                            </Tag>
+                          </Space>
+                          <Typography.Text theme="secondary">{item.description || '暂无说明'}</Typography.Text>
+                          <Space breakLine>
+                            <StatusBadge status={item.status} />
+                            <Tag variant="light">{businessKeyLabel(item.businessKey)}</Tag>
+                            <Tag variant="light">{item.version}</Tag>
+                          </Space>
+                          <Typography.Text theme="secondary">
+                            发布时间：{formatDateTime(item.releaseTime || item.createdAt)}
+                          </Typography.Text>
+                          <Typography.Text theme="secondary">
+                            底层能力：{item.primaryAbilityName || String((item.recipe as any)?.primaryAbilityId || '未配置')}
+                          </Typography.Text>
+                          {item.recipeSteps && item.recipeSteps.length > 0 && (
+                            <Space direction="vertical" size={4}>
+                              <Typography.Text theme="secondary">
+                                配方步骤：{item.recipeSteps.length} 步
+                              </Typography.Text>
+                              <Space breakLine size={4}>
+                                {item.recipeSteps.slice(0, 3).map((step) => (
+                                  <Tag
+                                    key={`${step.order}-${step.id || step.abilityId || step.type}`}
+                                    variant="light"
+                                    theme={step.enabled ? 'default' : 'warning'}
+                                  >
+                                    {step.order}. {businessRecipeStepLabel(step.type, step.role)}
+                                    {step.abilityName ? ` · ${step.abilityName}` : ''}
+                                  </Tag>
+                                ))}
+                                {item.recipeSteps.length > 3 && (
+                                  <Tag variant="light">+{item.recipeSteps.length - 3} 步</Tag>
+                                )}
+                              </Space>
+                            </Space>
+                          )}
+                          <Typography.Text theme="secondary">
+                            模型来源：{item.vendorModelName || item.vendorModelProvider || '未绑定模型目录'}
+                          </Typography.Text>
+                          <Space align="center" size={6} style={{ flexWrap: 'wrap' }}>
+                            <Typography.Text theme="secondary">最近调用：</Typography.Text>
+                            {item.latestRun ? <StatusBadge status={item.latestRun.status} /> : null}
+                            <Typography.Text theme={item.latestRun?.error ? 'error' : 'secondary'}>
+                              {businessCapabilityLatestRunLabel(item)}
+                            </Typography.Text>
+                            {item.latestRun?.createdAt || item.latestRun?.created_at ? (
+                              <Typography.Text theme="secondary">
+                                {formatDateTime(item.latestRun.createdAt || item.latestRun.created_at || '')}
+                              </Typography.Text>
+                            ) : null}
+                          </Space>
+                          <Typography.Text
+                            theme={Number(item.runMetrics?.failed || 0) > 0 ? 'warning' : 'secondary'}
+                          >
+                            {businessCapabilityRunMetricsLabel(item)}
+                          </Typography.Text>
+                          {(() => {
+                            const rollout = readBusinessRollout(item.metadata);
+                            if (!rollout.enabled && rollout.percent <= 0 && !rollout.allowlistText) return null;
+                            return (
+                              <Typography.Text theme="secondary">
+                                灰度：{rollout.enabled ? `${rollout.percent}%` : '未启用'}
+                                {rollout.allowlistText ? ' · 含白名单' : ''}
+                              </Typography.Text>
+                            );
+                          })()}
+                          {(() => {
+                            const defaultActionId = `default:${item.id}`;
+                            const statusActionId = `status:${item.id}`;
+                            const isActive = item.status === 'active';
+                            const lockDefaultStop = isActive && item.isDefault;
+                            const actionBusy = businessActionLoadingId !== null;
+                            return (
+                              <Space breakLine size={6}>
+                                <Button size="small" variant="outline" onClick={() => handleBusinessEdit(item)}>
+                                  编辑
+                                </Button>
+                                {!item.isDefault && (
+                                  <Button
+                                    size="small"
+                                    theme="primary"
+                                    variant="outline"
+                                    loading={businessActionLoadingId === defaultActionId}
+                                    disabled={actionBusy && businessActionLoadingId !== defaultActionId}
+                                    onClick={() => handleBusinessSetDefault(item)}
+                                  >
+                                    设为默认
+                                  </Button>
+                                )}
+                                <Button
+                                  size="small"
+                                  theme={isActive ? 'warning' : 'primary'}
+                                  variant="outline"
+                                  loading={businessActionLoadingId === statusActionId}
+                                  disabled={lockDefaultStop || (actionBusy && businessActionLoadingId !== statusActionId)}
+                                  onClick={() => handleBusinessToggleActive(item)}
+                                >
+                                  {lockDefaultStop ? '默认版不能停用' : isActive ? '停用' : '启用'}
+                                </Button>
+                              </Space>
+                            );
+                          })()}
+                        </Space>
+                      </Card>
+                    </Col>
+                  ))}
+                </Row>
+                <Card
+                  bordered
+                  title={
+                    <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                      <div>
+                        <Typography.Text strong>业务调用统计</Typography.Text>
+                        <div>
+                          <Typography.Text theme="secondary">
+                            当前筛选 · {businessUsageSummary?.windowHours || businessRunFilters.windowHours} 小时窗口
+                          </Typography.Text>
+                        </div>
+                      </div>
+                      <Tag theme={Number(businessUsageSummary?.failed || 0) > 0 ? 'warning' : 'success'} variant="light">
+                        {Number(businessUsageSummary?.failed || 0) > 0 ? '存在失败样本' : '暂无失败样本'}
+                      </Tag>
+                    </Space>
+                  }
+                >
+                  <Row gutter={[12, 12]}>
+                    <Col xs={12} sm={6} lg={2}>
+                      <MetricCard label="总调用" value={businessUsageSummary?.total ?? 0} sub="业务入口调用数" />
+                    </Col>
+                    <Col xs={12} sm={6} lg={2}>
+                      <MetricCard
+                        label="成功率"
+                        value={formatRatePercent(businessUsageSummary?.successRate)}
+                        sub={`失败 ${businessUsageSummary?.failed ?? 0} 次`}
+                      />
+                    </Col>
+                    <Col xs={12} sm={6} lg={2}>
+                      <MetricCard
+                        label="执行中"
+                        value={(businessUsageSummary?.running ?? 0) + (businessUsageSummary?.queued ?? 0)}
+                        sub={`排队 ${businessUsageSummary?.queued ?? 0}`}
+                      />
+                    </Col>
+                    <Col xs={12} sm={6} lg={2}>
+                      <MetricCard
+                        label="平均耗时"
+                        value={formatDurationMs(businessUsageSummary?.avgDurationMs)}
+                        sub="仅统计已记录耗时"
+                      />
+                    </Col>
+                    <Col xs={12} sm={6} lg={2}>
+                      <MetricCard
+                        label="成本"
+                        value={formatCurrencyTotals(businessUsageSummary?.costByCurrency)}
+                        sub={`${businessUsageSummary?.quotaUnits ?? 0} 额度`}
+                      />
+                    </Col>
+                    <Col xs={12} sm={6} lg={2}>
+                      <MetricCard
+                        label="已取消"
+                        value={businessUsageSummary?.cancelled ?? 0}
+                        sub="业务侧或系统取消"
+                      />
+                    </Col>
+                  </Row>
+                  <Row gutter={[12, 12]} style={{ marginTop: 12 }}>
+                    <Col xs={12} lg={4}>
+                      <Card bordered>
+                        <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                          <Typography.Text strong>业务分布</Typography.Text>
+                          {(businessUsageSummary?.byBusiness || []).slice(0, 4).map((bucket) => (
+                            <Space key={bucket.key} align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                              <Typography.Text>{businessKeyLabel(bucket.key)}</Typography.Text>
+                              <Typography.Text theme={bucket.failed > 0 ? 'warning' : 'secondary'}>
+                                {formatBucketDigest(bucket)}
+                              </Typography.Text>
+                            </Space>
+                          ))}
+                          {(businessUsageSummary?.byBusiness || []).length === 0 ? (
+                            <Typography.Text theme="secondary">当前筛选下暂无调用。</Typography.Text>
+                          ) : null}
+                        </Space>
+                      </Card>
+                    </Col>
+                    <Col xs={12} lg={4}>
+                      <Card bordered>
+                        <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                          <Typography.Text strong>来源 / 业务方</Typography.Text>
+                          {(businessUsageSummary?.bySource || []).slice(0, 3).map((bucket) => (
+                            <Space key={bucket.key} align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                              <Typography.Text>{bucket.label}</Typography.Text>
+                              <Typography.Text theme={bucket.failed > 0 ? 'warning' : 'secondary'}>
+                                {formatBucketDigest(bucket)}
+                              </Typography.Text>
+                            </Space>
+                          ))}
+                          {(businessUsageSummary?.byTenant || []).slice(0, 3).map((bucket) => (
+                            <Space key={`tenant:${bucket.key}`} align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                              <Typography.Text theme="secondary">业务方：{bucket.label}</Typography.Text>
+                              <Typography.Text theme={bucket.failed > 0 ? 'warning' : 'secondary'}>
+                                {formatBucketDigest(bucket)}
+                              </Typography.Text>
+                            </Space>
+                          ))}
+                          {(businessUsageSummary?.bySource || []).length === 0 && (businessUsageSummary?.byTenant || []).length === 0 ? (
+                            <Typography.Text theme="secondary">当前筛选下暂无来源数据。</Typography.Text>
+                          ) : null}
+                        </Space>
+                      </Card>
+                    </Col>
+                    <Col xs={12} lg={4}>
+                      <Card bordered>
+                        <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                          <Typography.Text strong>最近失败</Typography.Text>
+                          {(businessUsageSummary?.recentFailures || []).slice(0, 4).map((item) => (
+                            <Space key={item.id} direction="vertical" size={2} style={{ width: '100%' }}>
+                              <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                                <Typography.Text>{businessKeyLabel(item.businessKey)} · {item.version || '未标记版本'}</Typography.Text>
+                                <Typography.Text theme="secondary">{formatDateTime(item.createdAt)}</Typography.Text>
+                              </Space>
+                              <Typography.Text theme="error">{item.error || '失败原因未记录'}</Typography.Text>
+                            </Space>
+                          ))}
+                          {(businessUsageSummary?.recentFailures || []).length === 0 ? (
+                            <Typography.Text theme="secondary">当前筛选下暂无失败记录。</Typography.Text>
+                          ) : null}
+                        </Space>
+                      </Card>
+                    </Col>
+                  </Row>
+                </Card>
+                <Card
+                  bordered
+                  title={
+                    <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                      <div>
+                        <Typography.Text strong>最近业务调用</Typography.Text>
+                        <div>
+                          <Typography.Text theme="secondary">已加载 {businessRuns.length} / {businessRunTotal} 条</Typography.Text>
+                        </div>
+                      </div>
+                      <Button
+                        variant="outline"
+                        onClick={refreshBusinessRuns}
+                      >
+                        刷新
+                      </Button>
+                    </Space>
+                  }
+                >
+                  <Space
+                    align="center"
+                    size="small"
+                    style={{ marginBottom: 12, width: '100%', flexWrap: 'wrap' }}
+                  >
+                    <Select
+                      style={{ width: 130 }}
+                      value={businessRunFilters.windowHours}
+                      options={businessUsageWindowOptions}
+                      onChange={(value) =>
+                        setBusinessRunFilters((prev) => ({
+                          ...prev,
+                          windowHours: Number(value || 24),
+                        }))
+                      }
+                    />
+                    <Select
+                      style={{ width: 160 }}
+                      value={businessRunFilters.businessKey}
+                      options={businessRunBusinessOptions}
+                      onChange={(value) =>
+                        setBusinessRunFilters((prev) => ({
+                          ...prev,
+                          businessKey: String(value),
+                          version: 'all',
+                        }))
+                      }
+                    />
+                    <Select
+                      style={{ width: 140 }}
+                      value={businessRunFilters.version}
+                      options={businessRunVersionOptions}
+                      onChange={(value) =>
+                        setBusinessRunFilters((prev) => ({
+                          ...prev,
+                          version: String(value),
+                        }))
+                      }
+                    />
+                    <Select
+                      style={{ width: 140 }}
+                      value={businessRunFilters.status}
+                      options={businessRunStatusOptions}
+                      onChange={(value) =>
+                        setBusinessRunFilters((prev) => ({
+                          ...prev,
+                          status: String(value),
+                        }))
+                      }
+                    />
+                    <Input
+                      style={{ width: 130 }}
+                      value={businessRunFilters.source}
+                      placeholder="来源，如 coze"
+                      clearable
+                      onChange={(value) =>
+                        setBusinessRunFilters((prev) => ({
+                          ...prev,
+                          source: String(value || ''),
+                        }))
+                      }
+                    />
+                    <Input
+                      style={{ width: 160 }}
+                      value={businessRunFilters.tenantId}
+                      placeholder="租户/业务方"
+                      clearable
+                      onChange={(value) =>
+                        setBusinessRunFilters((prev) => ({
+                          ...prev,
+                          tenantId: String(value || ''),
+                        }))
+                      }
+                    />
+                    <Input
+                      style={{ width: 160 }}
+                      value={businessRunFilters.clientId}
+                      placeholder="客户端/应用"
+                      clearable
+                      onChange={(value) =>
+                        setBusinessRunFilters((prev) => ({
+                          ...prev,
+                          clientId: String(value || ''),
+                        }))
+                      }
+                    />
+                    <Input
+                      style={{ width: 180 }}
+                      value={businessRunFilters.traceId}
+                      placeholder="追踪 ID"
+                      clearable
+                      onChange={(value) =>
+                        setBusinessRunFilters((prev) => ({
+                          ...prev,
+                          traceId: String(value || ''),
+                        }))
+                      }
+                    />
+                    <Select
+                      style={{ width: 120 }}
+                      value={businessRunFilters.limit}
+                      options={[
+                        { label: '最近 20 条', value: 20 },
+                        { label: '最近 50 条', value: 50 },
+                        { label: '最近 100 条', value: 100 },
+                        { label: '最近 200 条', value: 200 },
+                      ]}
+                      onChange={(value) =>
+                        setBusinessRunFilters((prev) => ({
+                          ...prev,
+                          limit: Number(value || 20),
+                        }))
+                      }
+                    />
+                    <Button theme="primary" variant="outline" onClick={refreshBusinessRuns}>
+                      应用筛选
+                    </Button>
+                  </Space>
+                  <Table
+                    size="small"
+                    rowKey="id"
+                    data={businessRuns}
+                    empty={<Typography.Text theme="secondary">暂无业务调用记录。</Typography.Text>}
+                    columns={[
+                      {
+                        colKey: 'createdAt',
+                        title: '时间',
+                        width: 180,
+                        cell: ({ row }) => <Typography.Text>{formatDateTime(row.createdAt)}</Typography.Text>,
+                      },
+                      {
+                        colKey: 'businessKey',
+                        title: '业务',
+                        cell: ({ row }) => <Typography.Text strong>{businessKeyLabel(row.businessKey)}</Typography.Text>,
+                      },
+                      {
+                        colKey: 'source',
+                        title: '来源',
+                        width: 180,
+                        cell: ({ row }) => (
+                          <Space direction="vertical" size={2}>
+                            <Typography.Text>{row.source || 'business-api'}</Typography.Text>
+                            <Typography.Text theme="secondary">
+                              {row.channel || '未标记渠道'}{row.tenantId ? ` · ${row.tenantId}` : ''}
+                            </Typography.Text>
+                            {row.traceId ? <Typography.Text code>{row.traceId}</Typography.Text> : null}
+                          </Space>
+                        ),
+                      },
+                      {
+                        colKey: 'version',
+                        title: '版本',
+                        width: 100,
+                        cell: ({ row }) => <Tag variant="light">{row.version || '—'}</Tag>,
+                      },
+                      {
+                        colKey: 'route',
+                        title: '路由方式',
+                        width: 160,
+                        cell: ({ row }) => {
+                          const route = (row.routeInfo || {}) as JsonRecord;
+                          const selectedBy = String(route.selectedBy || 'default');
+                          const percent = route.rolloutPercent;
+                          const label =
+                            selectedBy === 'explicit'
+                              ? '指定版本'
+                              : selectedBy === 'rollout_allowlist'
+                                ? '灰度名单'
+                                : selectedBy === 'rollout_percent'
+                                  ? `灰度比例 ${percent ?? ''}%`
+                                  : '默认版本';
+                          return <Typography.Text theme="secondary">{label}</Typography.Text>;
+                        },
+                      },
+                      {
+                        colKey: 'steps',
+                        title: '步骤',
+                        minWidth: 220,
+                        cell: ({ row }) => {
+                          const steps = row.steps || [];
+                          if (steps.length === 0) {
+                            return <Typography.Text theme="secondary">未记录</Typography.Text>;
+                          }
+                          return (
+                            <Space breakLine size={4}>
+                              {steps.slice(0, 3).map((step) => {
+                                const summaryLabel = businessRunStepSummaryLabel(step.resultSummary);
+                                return (
+                                  <Tag
+                                    key={step.id}
+                                    variant="light"
+                                    theme={step.status === 'failed' ? 'danger' : step.status === 'succeeded' ? 'success' : 'default'}
+                                  >
+                                    {step.order}. {businessRecipeStepLabel(step.stepType, step.role)} · {businessRunStepStatusLabel(step.status)}
+                                    {summaryLabel ? ` · ${summaryLabel}` : ''}
+                                  </Tag>
+                                );
+                              })}
+                              {steps.length > 3 ? <Tag variant="light">+{steps.length - 3} 步</Tag> : null}
+                            </Space>
+                          );
+                        },
+                      },
+                      {
+                        colKey: 'ability',
+                        title: '底层来源',
+                        width: 260,
+                        cell: ({ row }) => (
+                          <Space direction="vertical" size={2}>
+                            <Typography.Text>{row.abilityName || row.abilityId || '未记录'}</Typography.Text>
+                            <Typography.Text theme="secondary">
+                              {row.vendorModelName || row.vendorModelProvider || '未绑定模型目录'}
+                            </Typography.Text>
+                          </Space>
+                        ),
+                      },
+                      {
+                        colKey: 'status',
+                        title: '状态',
+                        width: 120,
+                        cell: ({ row }) => <StatusBadge status={row.status} />,
+                      },
+                      {
+                        colKey: 'cost',
+                        title: '耗时/成本',
+                        width: 150,
+                        cell: ({ row }) => (
+                          <Space direction="vertical" size={2}>
+                            <Typography.Text>{formatDurationMs(row.durationMs)}</Typography.Text>
+                            <Typography.Text theme="secondary">
+                              {formatPriceValue(row.costAmount ?? undefined, row.currency ?? undefined)}
+                              {typeof row.quotaUnits === 'number' ? ` · ${row.quotaUnits} 额度` : ''}
+                            </Typography.Text>
+                          </Space>
+                        ),
+                      },
+                      {
+                        colKey: 'taskId',
+                        title: '底层任务',
+                        ellipsis: true,
+                        cell: ({ row }) => <Typography.Text code>{row.taskId || row.abilityTaskId || '—'}</Typography.Text>,
+                      },
+                      {
+                        colKey: 'outputs',
+                        title: '结果',
+                        width: 100,
+                        cell: ({ row }) => <Typography.Text>{(row.imageUrls || []).length} 张图</Typography.Text>,
+                      },
+                      {
+                        colKey: 'error',
+                        title: '错误',
+                        ellipsis: true,
+                        cell: ({ row }) => <Typography.Text theme={row.error || row.errorMessage ? 'error' : 'secondary'}>{row.error || row.errorMessage || '—'}</Typography.Text>,
+                      },
+                      {
+                        colKey: 'actions',
+                        title: '操作',
+                        width: 90,
+                        cell: ({ row }) => (
+                          <Button
+                            size="small"
+                            variant="text"
+                            onClick={() => {
+                              setBusinessRunDetail(row);
+                              setBusinessRunDetailOpen(true);
+                            }}
+                          >
+                            详情
+                          </Button>
+                        ),
+                      },
+                    ]}
+                  />
+                </Card>
+                <Dialog
+                  header="业务调用详情"
+                  visible={businessRunDetailOpen}
+                  width={920}
+                  confirmBtn={null}
+                  cancelBtn="关闭"
+                  onClose={() => setBusinessRunDetailOpen(false)}
+                  onCancel={() => setBusinessRunDetailOpen(false)}
+                >
+                  {businessRunDetail ? (
+                    <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                      <Row gutter={[12, 12]}>
+                        <Col span={6}>
+                          <Typography.Text theme="secondary">业务任务</Typography.Text>
+                          <Typography.Text code>{businessRunDetail.runId || businessRunDetail.id}</Typography.Text>
+                        </Col>
+                        <Col span={3}>
+                          <Typography.Text theme="secondary">业务</Typography.Text>
+                          <Typography.Text>{businessKeyLabel(businessRunDetail.businessKey)}</Typography.Text>
+                        </Col>
+                        <Col span={3}>
+                          <Typography.Text theme="secondary">状态</Typography.Text>
+                          <StatusBadge status={businessRunDetail.status} />
+                        </Col>
+                        <Col span={6}>
+                          <Typography.Text theme="secondary">来源 / 渠道</Typography.Text>
+                          <Typography.Text>
+                            {businessRunDetail.source || 'business-api'} · {businessRunDetail.channel || '未标记渠道'}
+                          </Typography.Text>
+                        </Col>
+                        <Col span={6}>
+                          <Typography.Text theme="secondary">耗时 / 成本</Typography.Text>
+                          <Typography.Text>
+                            {formatDurationMs(businessRunDetail.durationMs)} · {formatPriceValue(
+                              businessRunDetail.costAmount ?? undefined,
+                              businessRunDetail.currency ?? undefined,
+                            )}
+                            {typeof businessRunDetail.quotaUnits === 'number' ? ` · ${businessRunDetail.quotaUnits} 额度` : ''}
+                          </Typography.Text>
+                        </Col>
+                      </Row>
+                      <Row gutter={[12, 12]}>
+                        <Col span={6}>
+                          <Typography.Text theme="secondary">版本 / 路由</Typography.Text>
+                          <Typography.Text>
+                            {businessRunDetail.version || '—'} · {String((businessRunDetail.routeInfo || {}).selectedBy || 'default')}
+                          </Typography.Text>
+                        </Col>
+                        <Col span={6}>
+                          <Typography.Text theme="secondary">底层任务</Typography.Text>
+                          <Typography.Text code>{businessRunDetail.taskId || businessRunDetail.abilityTaskId || '—'}</Typography.Text>
+                        </Col>
+                        <Col span={6}>
+                          <Typography.Text theme="secondary">追踪 ID</Typography.Text>
+                          <Typography.Text code>{businessRunDetail.traceId || '—'}</Typography.Text>
+                        </Col>
+                        <Col span={6}>
+                          <Typography.Text theme="secondary">业务方 / 客户端</Typography.Text>
+                          <Typography.Text>
+                            {businessRunDetail.tenantId || '—'} · {businessRunDetail.clientId || '—'}
+                          </Typography.Text>
+                        </Col>
+                      </Row>
+                      <Table
+                        size="small"
+                        rowKey="id"
+                        data={businessRunDetail.steps || []}
+                        empty={<Typography.Text theme="secondary">暂无步骤记录。</Typography.Text>}
+                        columns={[
+                          {
+                            colKey: 'step',
+                            title: '步骤',
+                            minWidth: 180,
+                            cell: ({ row }) => (
+                              <Space direction="vertical" size={2}>
+                                <Typography.Text>
+                                  {row.order}. {businessRecipeStepLabel(row.stepType, row.role)}
+                                </Typography.Text>
+                                <Typography.Text theme="secondary">{row.abilityName || row.abilityId || '未绑定能力'}</Typography.Text>
+                              </Space>
+                            ),
+                          },
+                          {
+                            colKey: 'status',
+                            title: '状态',
+                            width: 120,
+                            cell: ({ row }) => <StatusBadge status={row.status} />,
+                          },
+                          {
+                            colKey: 'stepCost',
+                            title: '耗时/成本',
+                            width: 150,
+                            cell: ({ row }) => (
+                              <Space direction="vertical" size={2}>
+                                <Typography.Text>{formatDurationMs(row.durationMs)}</Typography.Text>
+                                <Typography.Text theme="secondary">
+                                  {formatPriceValue(row.costAmount ?? undefined, row.currency ?? undefined)}
+                                  {typeof row.quotaUnits === 'number' ? ` · ${row.quotaUnits} 额度` : ''}
+                                </Typography.Text>
+                              </Space>
+                            ),
+                          },
+                          {
+                            colKey: 'summary',
+                            title: '结果摘要',
+                            minWidth: 220,
+                            cell: ({ row }) => (
+                              <Typography.Text theme="secondary">
+                                {businessRunStepSummaryLabel(row.resultSummary) || row.error || '—'}
+                              </Typography.Text>
+                            ),
+                          },
+                          {
+                            colKey: 'task',
+                            title: '底层任务',
+                            minWidth: 220,
+                            ellipsis: true,
+                            cell: ({ row }) => <Typography.Text code>{row.abilityTaskId || '—'}</Typography.Text>,
+                          },
+                        ]}
+                      />
+                      <Row gutter={[12, 12]}>
+                        <Col span={6}>
+                          <Typography.Text theme="secondary">请求参数</Typography.Text>
+                          <Textarea
+                            value={formatJsonValue(businessRunDetail.requestPayload || {})}
+                            readonly
+                            autosize={{ minRows: 5, maxRows: 10 }}
+                            className="font-mono text-xs"
+                          />
+                        </Col>
+                        <Col span={6}>
+                          <Typography.Text theme="secondary">结果 / 错误</Typography.Text>
+                          <Textarea
+                            value={formatJsonValue({
+                              result: businessRunDetail.resultPayload || {},
+                              imageUrls: businessRunDetail.imageUrls || [],
+                              videoUrls: businessRunDetail.videoUrls || [],
+                              texts: businessRunDetail.texts || [],
+                              error: businessRunDetail.error || businessRunDetail.errorMessage || null,
+                              trace: {
+                                traceId: businessRunDetail.traceId ?? null,
+                                requestId: businessRunDetail.requestId ?? null,
+                                tenantId: businessRunDetail.tenantId ?? null,
+                                clientId: businessRunDetail.clientId ?? null,
+                              },
+                              cost: {
+                                durationMs: businessRunDetail.durationMs ?? null,
+                                costAmount: businessRunDetail.costAmount ?? null,
+                                currency: businessRunDetail.currency ?? null,
+                                quotaUnits: businessRunDetail.quotaUnits ?? null,
+                                costBreakdown: businessRunDetail.costBreakdown ?? null,
+                              },
+                            })}
+                            readonly
+                            autosize={{ minRows: 5, maxRows: 10 }}
+                            className="font-mono text-xs"
+                          />
+                        </Col>
+                      </Row>
+                    </Space>
+                  ) : null}
+                </Dialog>
+                <Dialog
+                  header={businessForm.id ? '编辑业务版本' : '新增业务版本'}
+                  visible={businessDialogOpen}
+                  width={760}
+                  onClose={() => setBusinessDialogOpen(false)}
+                  onConfirm={handleBusinessSubmit}
+                >
+                  <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                    {businessFormError ? <Alert theme="error" message={businessFormError} /> : null}
+                    <Row gutter={[12, 12]}>
+                      <Col span={6}>
+                        <Typography.Text theme="secondary">业务标识</Typography.Text>
+                        <Input
+                          value={businessForm.businessKey}
+                          placeholder="例如 fission / outpaint"
+                          onChange={(v) => setBusinessForm({ ...businessForm, businessKey: String(v) })}
+                        />
+                      </Col>
+                      <Col span={6}>
+                        <Typography.Text theme="secondary">版本</Typography.Text>
+                        <Input
+                          value={businessForm.version}
+                          placeholder="例如 v2"
+                          onChange={(v) => setBusinessForm({ ...businessForm, version: String(v) })}
+                        />
+                      </Col>
+                      <Col span={6}>
+                        <Typography.Text theme="secondary">状态</Typography.Text>
+                        <Select
+                          value={businessForm.status}
+                          onChange={(v) => setBusinessForm({ ...businessForm, status: String(v) })}
+                          options={statusOptions}
+                        />
+                      </Col>
+                      <Col span={6}>
+                        <Typography.Text theme="secondary">是否默认</Typography.Text>
+                        <div style={{ paddingTop: 8 }}>
+                          <Switch
+                            value={businessForm.isDefault}
+                            onChange={(v) => setBusinessForm({ ...businessForm, isDefault: Boolean(v) })}
+                          />
+                        </div>
+                      </Col>
+                    </Row>
+                    <Row gutter={[12, 12]}>
+                      <Col span={12}>
+                        <Typography.Text theme="secondary">业务名称</Typography.Text>
+                        <Input
+                          value={businessForm.displayName}
+                          placeholder="例如 图裂变 · GPT Image 2 测试版"
+                          onChange={(v) => setBusinessForm({ ...businessForm, displayName: String(v) })}
+                        />
+                      </Col>
+                      <Col span={12}>
+                        <Typography.Text theme="secondary">底层能力</Typography.Text>
+                        <Select
+                          value={businessForm.primaryAbilityId}
+                          filterable
+                          options={businessAbilityOptions}
+                          placeholder="选择这个业务版本调用的原子能力"
+                          onChange={(v) => setBusinessForm({ ...businessForm, primaryAbilityId: String(v) })}
+                        />
+                      </Col>
+                    </Row>
+                    <Typography.Text theme="secondary">说明</Typography.Text>
+                    <Textarea
+                      autosize={{ minRows: 2, maxRows: 4 }}
+                      value={businessForm.description || ''}
+                      onChange={(v) => setBusinessForm({ ...businessForm, description: String(v) })}
+                    />
+                    <Card bordered title="VL 前置分析">
+                      <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                        <Space align="center" size="small">
+                          <Switch
+                            value={businessForm.vlAssistEnabled}
+                            onChange={(v) => setBusinessForm({ ...businessForm, vlAssistEnabled: Boolean(v) })}
+                          />
+                          <Typography.Text theme="secondary">
+                            启用后，业务配方会记录图像理解步骤，后续可用于自动生成提示词和风险提示。
+                          </Typography.Text>
+                        </Space>
+                        <Row gutter={[12, 12]}>
+                          <Col span={12}>
+                            <Typography.Text theme="secondary">VL 能力</Typography.Text>
+                            <Select
+                              value={businessForm.vlAssistAbilityId}
+                              filterable
+                              disabled={!businessForm.vlAssistEnabled}
+                              options={businessVlAbilityOptions.length > 0 ? businessVlAbilityOptions : businessAbilityOptions}
+                              placeholder="选择图像理解能力"
+                              onChange={(v) => setBusinessForm({ ...businessForm, vlAssistAbilityId: String(v) })}
+                            />
+                          </Col>
+                        </Row>
+                      </Space>
+                    </Card>
+                    <Row gutter={[12, 12]}>
+                      <Col span={12}>
+                        <Typography.Text theme="secondary">发布时间</Typography.Text>
+                        <Input
+                          value={businessForm.releaseTime || ''}
+                          placeholder="例如 2026-04-25T10:00:00，可留空"
+                          onChange={(v) => setBusinessForm({ ...businessForm, releaseTime: String(v) })}
+                        />
+                      </Col>
+                    </Row>
+                    <Card bordered title="灰度发布">
+                      <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                        <Space align="center" size="large">
+                          <Space align="center" size="small">
+                            <Switch
+                              value={businessForm.rolloutEnabled}
+                              onChange={(v) => setBusinessForm({ ...businessForm, rolloutEnabled: Boolean(v) })}
+                            />
+                            <Typography.Text theme="secondary">启用灰度</Typography.Text>
+                          </Space>
+                          <Space align="center" size="small">
+                            <Typography.Text theme="secondary">灰度比例</Typography.Text>
+                            <InputNumber
+                              min={0}
+                              max={100}
+                              value={businessForm.rolloutPercent}
+                              onChange={(v) => setBusinessForm({ ...businessForm, rolloutPercent: Number(v || 0) })}
+                            />
+                            <Typography.Text theme="secondary">%</Typography.Text>
+                          </Space>
+                        </Space>
+                        <Typography.Text theme="secondary">
+                          白名单每行一个客户标识；业务调用时在 metadata.grayKey 或 metadata.tenantId 传同样的值即可命中。
+                        </Typography.Text>
+                        <Textarea
+                          autosize={{ minRows: 2, maxRows: 5 }}
+                          value={businessForm.rolloutAllowlistText}
+                          placeholder="例如：tenant-a"
+                          onChange={(v) => setBusinessForm({ ...businessForm, rolloutAllowlistText: String(v) })}
+                        />
+                      </Space>
+                    </Card>
+                    <Alert
+                      theme="warning"
+                      message="高级配置一般不用改。底层能力已能决定模型来源，只有多步骤编排时才需要编辑配方。"
+                    />
+                    <Typography.Text theme="secondary">业务配方 JSON</Typography.Text>
+                    <Textarea
+                      autosize={{ minRows: 4, maxRows: 8 }}
+                      value={businessForm.recipeText}
+                      onChange={(v) => setBusinessForm({ ...businessForm, recipeText: String(v) })}
+                    />
+                    <Typography.Text theme="secondary">输入字段 JSON</Typography.Text>
+                    <Textarea
+                      autosize={{ minRows: 3, maxRows: 6 }}
+                      value={businessForm.inputSchemaText}
+                      onChange={(v) => setBusinessForm({ ...businessForm, inputSchemaText: String(v) })}
+                    />
+                    <Typography.Text theme="secondary">元信息 JSON</Typography.Text>
+                    <Textarea
+                      autosize={{ minRows: 3, maxRows: 6 }}
+                      value={businessForm.metadataText}
+                      onChange={(v) => setBusinessForm({ ...businessForm, metadataText: String(v) })}
+                    />
+                  </Space>
+                </Dialog>
+              </Space>
+            </Section>
+          )}
+
+          {activeNav === 'auth' && (
+            <Section id="auth" title="账号权限" description="管理用户、登录会话和邀请码；复杂权限后续再拆。">
+              <Space direction="vertical" size="large" style={{ width: '100%' }}>
+                <Alert
+                  theme="info"
+                  message="第一阶段闭环：管理员生成或失效邀请码，用户用邀请码注册，登录会话可追踪并可踢出。角色暂时仍使用用户表里的 role 字段。"
+                />
+                {authError ? <Alert theme="error" message={authError} /> : null}
+                <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                  <Space breakLine>
+                    <Tag variant="light">用户 {authUsers.length}</Tag>
+                    <Tag variant="light">登录会话 {authSessions.length}</Tag>
+                    <Tag variant="light">邀请码 {inviteCodes.length}</Tag>
+                    <Tag theme="warning" variant="light">多角色表未启用</Tag>
+                  </Space>
+                  <Button variant="outline" loading={authLoading} onClick={refreshAuthPanel}>
+                    刷新
+                  </Button>
+                </Space>
+                <Row gutter={[16, 16]}>
+                  <Col xs={12} lg={4}>
+                    <Card bordered title="生成邀请码">
+                      <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                        <Typography.Text theme="secondary">角色</Typography.Text>
+                        <Select
+                          value={authInviteForm.role || 'user'}
+                          options={[
+                            { label: '管理员', value: 'admin' },
+                            { label: '内部用户', value: 'user' },
+                            { label: '业务方', value: 'client' },
+                          ]}
+                          onChange={(value) => setAuthInviteForm({ ...authInviteForm, role: String(value || 'user') })}
+                        />
+                        <Typography.Text theme="secondary">业务方标识</Typography.Text>
+                        <Input
+                          value={authInviteForm.tenantId || ''}
+                          placeholder="例如 tenant-a，可留空"
+                          onChange={(value) => setAuthInviteForm({ ...authInviteForm, tenantId: String(value || '') })}
+                        />
+                        <Typography.Text theme="secondary">客户端标识</Typography.Text>
+                        <Input
+                          value={authInviteForm.clientId || ''}
+                          placeholder="例如 web-client，可留空"
+                          onChange={(value) => setAuthInviteForm({ ...authInviteForm, clientId: String(value || '') })}
+                        />
+                        <Typography.Text theme="secondary">可用次数</Typography.Text>
+                        <InputNumber
+                          min={1}
+                          max={100}
+                          value={authInviteForm.maxUses || 1}
+                          onChange={(value) =>
+                            setAuthInviteForm({ ...authInviteForm, maxUses: Number(value || 1) })
+                          }
+                        />
+                        <Typography.Text theme="secondary">过期时间</Typography.Text>
+                        <Input
+                          value={authInviteForm.expiresAt || ''}
+                          placeholder="例如 2026-05-25T00:00:00，可留空"
+                          onChange={(value) => setAuthInviteForm({ ...authInviteForm, expiresAt: String(value || '') })}
+                        />
+                        <Typography.Text theme="secondary">备注</Typography.Text>
+                        <Textarea
+                          autosize={{ minRows: 2, maxRows: 4 }}
+                          value={authInviteForm.note || ''}
+                          placeholder="说明这个邀请码给谁用"
+                          onChange={(value) => setAuthInviteForm({ ...authInviteForm, note: String(value || '') })}
+                        />
+                        <Button theme="primary" loading={authLoading} onClick={handleAuthInviteSubmit}>
+                          生成邀请码
+                        </Button>
+                      </Space>
+                    </Card>
+                  </Col>
+                  <Col xs={12} lg={8}>
+                    <Card bordered title="邀请码">
+                      <Table
+                        size="small"
+                        rowKey="id"
+                        data={inviteCodes}
+                        loading={authLoading}
+                        empty={<Typography.Text theme="secondary">暂无邀请码。</Typography.Text>}
+                        columns={[
+                          {
+                            colKey: 'code',
+                            title: '邀请码',
+                            minWidth: 120,
+                            cell: ({ row }) => <Typography.Text code>{row.code}</Typography.Text>,
+                          },
+                          {
+                            colKey: 'scope',
+                            title: '归属',
+                            minWidth: 180,
+                            cell: ({ row }) => (
+                              <Space direction="vertical" size={2}>
+                                <Typography.Text>{row.tenantId || '未绑定业务方'}</Typography.Text>
+                                <Typography.Text theme="secondary">{row.clientId || '未绑定客户端'}</Typography.Text>
+                              </Space>
+                            ),
+                          },
+                          {
+                            colKey: 'role',
+                            title: '角色',
+                            width: 110,
+                            cell: ({ row }) => <Tag variant="light">{row.role}</Tag>,
+                          },
+                          {
+                            colKey: 'usage',
+                            title: '使用',
+                            width: 120,
+                            cell: ({ row }) => `${row.usedCount || 0}/${row.maxUses || 1}`,
+                          },
+                          {
+                            colKey: 'status',
+                            title: '状态',
+                            width: 120,
+                            cell: ({ row }) => <StatusBadge status={row.status} />,
+                          },
+                          {
+                            colKey: 'expiresAt',
+                            title: '过期时间',
+                            minWidth: 150,
+                            cell: ({ row }) => formatDateTime(row.expiresAt || ''),
+                          },
+                          {
+                            colKey: 'action',
+                            title: '操作',
+                            width: 100,
+                            cell: ({ row }) =>
+                              row.status === 'active' ? (
+                                <Button
+                                  size="small"
+                                  theme="danger"
+                                  variant="text"
+                                  onClick={() => handleAuthInviteDisable(row)}
+                                >
+                                  失效
+                                </Button>
+                              ) : (
+                                <Typography.Text theme="secondary">—</Typography.Text>
+                              ),
+                          },
+                        ]}
+                      />
+                    </Card>
+                  </Col>
+                </Row>
+                <Row gutter={[16, 16]}>
+                  <Col xs={12} lg={7}>
+                    <Card bordered title="用户">
+                      <Table
+                        size="small"
+                        rowKey="id"
+                        data={authUsers}
+                        loading={authLoading}
+                        empty={<Typography.Text theme="secondary">暂无用户。</Typography.Text>}
+                        columns={[
+                          {
+                            colKey: 'user',
+                            title: '用户',
+                            minWidth: 220,
+                            cell: ({ row }) => (
+                              <Space direction="vertical" size={2}>
+                                <Typography.Text strong>{row.displayName || row.username}</Typography.Text>
+                                <Typography.Text theme="secondary">{row.email}</Typography.Text>
+                              </Space>
+                            ),
+                          },
+                          {
+                            colKey: 'role',
+                            title: '角色',
+                            width: 110,
+                            cell: ({ row }) => <Tag variant="light">{row.role}</Tag>,
+                          },
+                          {
+                            colKey: 'scope',
+                            title: '业务归属',
+                            minWidth: 180,
+                            cell: ({ row }) => (
+                              <Typography.Text theme="secondary">
+                                {row.tenantId || '—'} · {row.clientId || '—'}
+                              </Typography.Text>
+                            ),
+                          },
+                          {
+                            colKey: 'status',
+                            title: '状态',
+                            width: 110,
+                            cell: ({ row }) => <StatusBadge status={row.status} />,
+                          },
+                          {
+                            colKey: 'lastLoginAt',
+                            title: '最近登录',
+                            minWidth: 150,
+                            cell: ({ row }) => formatDateTime(row.lastLoginAt || ''),
+                          },
+                        ]}
+                      />
+                    </Card>
+                  </Col>
+                  <Col xs={12} lg={5}>
+                    <Card bordered title="登录会话">
+                      <Table
+                        size="small"
+                        rowKey="id"
+                        data={authSessions}
+                        loading={authLoading}
+                        empty={<Typography.Text theme="secondary">暂无会话。</Typography.Text>}
+                        columns={[
+                          {
+                            colKey: 'user',
+                            title: '用户',
+                            minWidth: 170,
+                            cell: ({ row }) => (
+                              <Space direction="vertical" size={2}>
+                                <Typography.Text>{row.displayName || row.username || '未知用户'}</Typography.Text>
+                                <Typography.Text theme="secondary">{row.email || row.userId || '—'}</Typography.Text>
+                              </Space>
+                            ),
+                          },
+                          {
+                            colKey: 'status',
+                            title: '状态',
+                            width: 100,
+                            cell: ({ row }) => <StatusBadge status={row.status} />,
+                          },
+                          {
+                            colKey: 'ipAddress',
+                            title: 'IP',
+                            minWidth: 130,
+                            cell: ({ row }) => row.ipAddress || '—',
+                          },
+                          {
+                            colKey: 'expiresAt',
+                            title: '过期时间',
+                            minWidth: 150,
+                            cell: ({ row }) => formatDateTime(row.expiresAt || ''),
+                          },
+                          {
+                            colKey: 'action',
+                            title: '操作',
+                            width: 100,
+                            cell: ({ row }) =>
+                              row.status === 'active' ? (
+                                <Button
+                                  size="small"
+                                  theme="danger"
+                                  variant="text"
+                                  onClick={() => handleAuthSessionRevoke(row)}
+                                >
+                                  踢出
+                                </Button>
+                              ) : (
+                                <Typography.Text theme="secondary">—</Typography.Text>
+                              ),
+                          },
+                        ]}
+                      />
+                    </Card>
+                  </Col>
+                </Row>
+              </Space>
             </Section>
           )}
 
@@ -8422,28 +9968,6 @@ const extractErrorMessage = (error: unknown): string => {
             </Space>
           </Space>
         </ActionBar>
-        <Row gutter={[12, 12]} style={{ marginBottom: 12 }}>
-          <Col xs={24} md={8}>
-            <Input
-              value={executorSearch}
-              onChange={(v) => setExecutorSearch(String(v))}
-              placeholder="搜索节点名称 / 类型 / 地址 / 标签"
-            />
-          </Col>
-          <Col xs={24} md={6}>
-            <Select
-              value={executorExecutionModeFilter}
-              onChange={(v) => setExecutorExecutionModeFilter(String(v))}
-              options={executorExecutionModeOptions.map((option) => ({ label: option.label, value: option.value }))}
-              placeholder="全部执行方式"
-            />
-          </Col>
-          <Col xs={24} md={10}>
-            <Typography.Text theme="secondary">
-              {getExecutorExecutionModeDescription(executorExecutionModeFilter)}
-            </Typography.Text>
-          </Col>
-        </Row>
 
         {executorsView === 'channels' ? (
           <div className="space-y-4">
@@ -8455,7 +9979,7 @@ const extractErrorMessage = (error: unknown): string => {
             )}
             {(() => {
               const groups = new Map<string, Executor[]>();
-              filteredExecutors.forEach((ex) => {
+              executors.forEach((ex) => {
                 const key = ex.type || 'unknown';
                 const list = groups.get(key) || [];
                 list.push(ex);
@@ -8463,16 +9987,7 @@ const extractErrorMessage = (error: unknown): string => {
               });
               const entries = Array.from(groups.entries()).sort(([a], [b]) => a.localeCompare(b));
               if (entries.length === 0) {
-                return (
-                  <Alert
-                    theme="info"
-                    message={
-                      filteredExecutors.length === 0
-                        ? '当前筛选条件下没有匹配的执行节点。可先清空搜索词或切回“全部执行方式”。'
-                        : '暂无执行节点，请先新增。'
-                    }
-                  />
-                );
+                return <div className="text-sm text-slate-500">暂无执行节点，请先新增。</div>;
               }
               return (
                 <div className="grid gap-4 lg:grid-cols-2">
@@ -8517,8 +10032,6 @@ const extractErrorMessage = (error: unknown): string => {
                             .sort((a, b) => (b.weight || 0) - (a.weight || 0))
                             .map((ex) => {
                               const metric = executorTraffic[ex.id];
-                              const routing = parseExecutorRouting(ex);
-                              const businessStatus = getExecutorBusinessStatus(ex);
                               const isComfyExecutor = (ex.type || '').toLowerCase().includes('comfyui');
                               const queueStatus = isComfyExecutor ? comfyQueueByExecutor[ex.id] : null;
                               const modelCatalog = isComfyExecutor ? comfyModelCache[ex.id] : undefined;
@@ -8545,28 +10058,25 @@ const extractErrorMessage = (error: unknown): string => {
                                       <div className="mt-1 truncate text-xs text-slate-600 dark:text-slate-400">
                                         {ex.base_url || '—'}
                                       </div>
+                                      {extractExecutorTags(ex).length > 0 ? (
+                                        <div className="mt-2 flex flex-wrap gap-1">
+                                          {extractExecutorTags(ex).map((tag) => (
+                                            <span
+                                              key={`${ex.id}-tag-${tag}`}
+                                              className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-600 dark:border-slate-700 dark:bg-slate-950/40 dark:text-slate-300"
+                                            >
+                                              {tag}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      ) : null}
                                     </div>
                                     <div className="shrink-0 text-right text-xs text-slate-600 dark:text-slate-400">
                                       <div>
                                         并发/权重：{ex.max_concurrency}/{ex.weight}
                                       </div>
-                                      <div>{businessStatus.executionModeLabel}</div>
                                       <div>心跳：{ex.last_heartbeat_at ? formatDate(ex.last_heartbeat_at) : '—'}</div>
                                     </div>
-                                  </div>
-
-                                  <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-500">
-                                    <span className="rounded-full border border-slate-200 px-2 py-0.5 dark:border-slate-700">
-                                      分配方式 {getExecutorSelectionPolicyLabel(routing.policy)}
-                                    </span>
-                                    <span className="rounded-full border border-slate-200 px-2 py-0.5 dark:border-slate-700">
-                                      {businessStatus.concurrencyLabel}
-                                    </span>
-                                    {businessStatus.tags.length > 0 ? (
-                                      <span className="rounded-full border border-slate-200 px-2 py-0.5 dark:border-slate-700">
-                                        标签 {businessStatus.tags.join(', ')}
-                                      </span>
-                                    ) : null}
                                   </div>
 
                                   <div className="mt-3 grid gap-2 sm:grid-cols-3">
@@ -8593,7 +10103,7 @@ const extractErrorMessage = (error: unknown): string => {
                                         {metric?.p95Ms ? `${Math.round(metric.p95Ms)}ms` : '—'}
                                       </div>
                                       <div className="mt-1 text-[11px] text-slate-500">
-                                      路由：{businessStatus.executionModeLabel} · 分配方式 {getExecutorSelectionPolicyLabel(routing.policy)}
+                                        路由：按“分配策略”优先级（后续支持失败/超时自动回退）
                                       </div>
                                     </div>
                                     {isComfyExecutor && (
@@ -8684,12 +10194,6 @@ const extractErrorMessage = (error: unknown): string => {
                     <Typography.Text theme="secondary">
                       小贴士：并发（max_concurrency）保存后会立即生效；建议从 1~4 起逐步放量。
                     </Typography.Text>
-                    {filteredExecutors.length === 0 ? (
-                      <Alert
-                        theme="info"
-                        message="当前筛选条件下没有匹配的执行节点。可先清空搜索词或切回“全部执行方式”。"
-                      />
-                    ) : null}
                     <div style={{ overflowX: 'auto' }}>
                       <table style={{ width: '100%' }}>
                         <thead>
@@ -8704,13 +10208,11 @@ const extractErrorMessage = (error: unknown): string => {
                           </tr>
                         </thead>
                         <tbody>
-                          {filteredExecutors.map((ex) => {
+                          {executors.map((ex) => {
                             const draft = Number(executorInlineConcurrency[ex.id] ?? ex.max_concurrency ?? 1) || 1;
                             const changed = draft !== ex.max_concurrency;
                             const saving = Boolean(executorInlineSaving[ex.id]);
                             const err = executorInlineError[ex.id];
-                            const routing = parseExecutorRouting(ex);
-                            const businessStatus = getExecutorBusinessStatus(ex);
                             const isComfyExecutor = (ex.type || '').toLowerCase().includes('comfyui');
                             const systemInfo = isComfyExecutor ? comfySystemCache[ex.id] : undefined;
                             const versionInfo = isComfyExecutor ? extractComfyuiVersionInfo(ex, systemInfo) : null;
@@ -8723,10 +10225,11 @@ const extractErrorMessage = (error: unknown): string => {
                                 <td style={{ padding: '10px 6px' }}>
                                   <div style={{ fontWeight: 600 }}>{ex.name}</div>
                                   <Typography.Text theme="secondary">{ex.base_url || '—'}</Typography.Text>
-                                  <div className="mt-1 text-[11px] text-slate-500">
-                                    {businessStatus.executionModeLabel} · 分配方式 {getExecutorSelectionPolicyLabel(routing.policy)}
-                                    {businessStatus.tags.length > 0 ? ` · 标签 ${businessStatus.tags.join(', ')}` : ''}
-                                  </div>
+                                  {extractExecutorTags(ex).length > 0 ? (
+                                    <div className="mt-1 text-[11px] text-slate-500">
+                                      标签：{extractExecutorTags(ex).join(', ')}
+                                    </div>
+                                  ) : null}
                                   {isComfyExecutor && (
                                     <div className="mt-1 text-[11px] text-slate-500">
                                       版本：{versionInfo?.version || '—'} · 模型/LoRA：{modelCatalog ? `${modelCounts?.unet || 0}/${modelCounts?.lora || 0}` : '—'}
@@ -8780,13 +10283,8 @@ const extractErrorMessage = (error: unknown): string => {
                                       size="small"
                                       variant="text"
                                       onClick={() => {
-                                        const { config, routing: _routing, business_status: _businessStatus, ...rest } = ex;
+                                        const { config, ...rest } = ex;
                                         setExecutorForm({ ...rest, config: stringifyJSON(config) });
-                                        const routing = parseExecutorRouting(ex);
-                                        setExecutorRoutingEnabled(routing.enabled);
-                                        setExecutorRoutingFallbackOnly(routing.fallbackOnly);
-                                        setExecutorRoutingPolicy(routing.policy || 'auto');
-                                        setExecutorRoutingTags((routing.tags || []).join(', '));
                                         setExecutorFormError(null);
                                       }}
                                     >
@@ -8935,75 +10433,6 @@ const extractErrorMessage = (error: unknown): string => {
 
                     <Card
                       bordered
-                      title="节点参与方式（面向业务配置）"
-                      style={{ background: 'var(--td-bg-color-secondarycontainer)' }}
-                    >
-                      <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-                        <Row gutter={[12, 12]}>
-                          <Col span={12}>
-                            <Space align="center" size="small">
-                              <Typography.Text strong>参与自动分流</Typography.Text>
-                            </Space>
-                            <div style={{ marginTop: 8 }}>
-                              <Switch value={executorRoutingEnabled} onChange={(v) => setExecutorRoutingEnabled(Boolean(v))} />
-                            </div>
-                            <Typography.Text theme="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
-                              关闭后，这个节点只作为固定节点使用，不参与系统自动分流。
-                            </Typography.Text>
-                          </Col>
-                          <Col span={12}>
-                            <Space align="center" size="small">
-                              <Typography.Text strong>仅做兜底节点</Typography.Text>
-                            </Space>
-                            <div style={{ marginTop: 8 }}>
-                              <Switch
-                                value={executorRoutingFallbackOnly}
-                                onChange={(v) => setExecutorRoutingFallbackOnly(Boolean(v))}
-                                disabled={!executorRoutingEnabled}
-                              />
-                            </div>
-                            <Typography.Text theme="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
-                              开启后，只有主节点不可用或不匹配时才会使用它。
-                            </Typography.Text>
-                          </Col>
-                        </Row>
-
-                        <div>
-                          <Typography.Text strong>分配方式</Typography.Text>
-                          <div style={{ marginTop: 8 }}>
-                            <Select
-                              value={executorRoutingPolicy}
-                              onChange={(v) => setExecutorRoutingPolicy(String(v))}
-                              options={executorSelectionPolicyOptions.map((option) => ({
-                                label: option.label,
-                                value: option.value,
-                              }))}
-                              disabled={!executorRoutingEnabled}
-                            />
-                          </div>
-                          <Typography.Text theme="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
-                            默认用“自动”。需要避开排队时可选“优先空闲节点”，多机分摊常用“轮询”或“按权重分配”。
-                          </Typography.Text>
-                        </div>
-
-                        <div>
-                          <Typography.Text strong>节点标签</Typography.Text>
-                          <div style={{ marginTop: 8 }}>
-                            <Input
-                              value={executorRoutingTags}
-                              onChange={(v) => setExecutorRoutingTags(String(v))}
-                              placeholder="例如 gpu:4090, region:hz, comfyui-158"
-                            />
-                          </div>
-                          <Typography.Text theme="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
-                            用逗号分隔。后续能力路由会用这些标签筛选可用节点。
-                          </Typography.Text>
-                        </div>
-                      </Space>
-                    </Card>
-
-                    <Card
-                      bordered
                       title="接入配置（推荐用下方表单，不需要懂 JSON）"
                       style={{ background: 'var(--td-bg-color-secondarycontainer)' }}
                     >
@@ -9059,17 +10488,7 @@ const extractErrorMessage = (error: unknown): string => {
                         保存
                       </Button>
                       {executorForm.id ? (
-                        <Button
-                          variant="outline"
-                          onClick={() => {
-                            setExecutorForm(defaultExecutorForm);
-                            setExecutorRoutingEnabled(true);
-                            setExecutorRoutingFallbackOnly(false);
-                            setExecutorRoutingPolicy('auto');
-                            setExecutorRoutingTags('');
-                            setExecutorFormError(null);
-                          }}
-                        >
+                        <Button variant="outline" onClick={() => { setExecutorForm(defaultExecutorForm); setExecutorFormError(null); }}>
                           取消
                         </Button>
                       ) : null}
@@ -9086,16 +10505,31 @@ const extractErrorMessage = (error: unknown): string => {
           {activeNav === 'abilities' && (
       <Section
         id="future-abilities"
-        title="其他原子能力类型（占位）"
-        description="向量库、PDI 工具、调色/鉴黄等能力会以独立卡片呈现，当前阶段先留出位置，待接入时补充配置与巡检。"
+        title="原子能力类型路线"
+        description="把用户能理解的能力边界固定下来，避免所有能力都混在一张技术表里。"
       >
-        <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-950/30 p-5 text-sm text-slate-400">
-          <p>
-            TODO：支持“向量库能力”“图像后处理工具”等新的原子能力类型，采用与 ComfyUI 模板类似的配置体验（指定接入点、默认参数、自检计划）。
-          </p>
-          <p className="mt-2">
-            在完成元数据设计与后端 API 之前，此处保持占位，便于大家理解整体 IA 结构并预留空间。
-          </p>
+        <div className="grid gap-3 md:grid-cols-3">
+          {[
+            { title: '图像工作流', status: '已接入', body: 'ComfyUI 工作流、图裂变、扩图、抠图等，按执行节点和标签路由。' },
+            { title: '第三方模型', status: '已接入', body: 'OpenAI、KIE、火山、百度等统一走 vendor-api-ops，Key 与出网能力独立管理。' },
+            { title: '自研图像工具', status: '已拆分', body: '放大、DPI、扩边占位图等轻工具由 image-ops 承载，不占用 Coze 主机资源。' },
+            { title: '图像理解', status: '进行中', body: 'VL 作为弹药库原子能力，用于图片描述、主体、风格、风险和提示词建议。' },
+            { title: '向量检索', status: '规划中', body: '后续承载素材检索、模板匹配和知识库搜索，仍按能力、日志、自检统一治理。' },
+            { title: '内容安全', status: '规划中', body: '鉴黄、版权风险、文字审核等独立成安全能力，避免散落在业务流程里。' },
+          ].map((item) => (
+            <div
+              key={`future-ability-${item.title}`}
+              className="rounded-2xl border border-slate-200 bg-white/80 p-4 text-sm dark:border-slate-800 dark:bg-slate-950/40"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <Typography.Text strong>{item.title}</Typography.Text>
+                <Tag size="small" variant="light" theme={item.status === '已接入' || item.status === '已拆分' ? 'success' : item.status === '进行中' ? 'warning' : 'default'}>
+                  {item.status}
+                </Tag>
+              </div>
+              <p className="mt-2 text-slate-600 dark:text-slate-400">{item.body}</p>
+            </div>
+          ))}
         </div>
       </Section>
         )}
@@ -9895,41 +11329,148 @@ const extractErrorMessage = (error: unknown): string => {
                   <Typography.Text theme="secondary">新增/编辑改为弹窗，列表占满宽度，操作不再被挤压。</Typography.Text>
                 </div>
               </div>
-              <Button
-                theme="primary"
-                onClick={() => {
-                  setAbilityForm(defaultAbilityForm);
-                  setAbilityRoutingPolicy('auto');
-                  setAbilityAllowedExecutors([]);
-                  setAbilityRequiredTags('');
-                  setAbilityFallbackToDefault(true);
-                  setAbilityLoraDefault('');
-                  setAbilityLoraAllowedFiles([]);
-                  setAbilityLoraAllowedTags('');
-                  setAbilityLoraAllowedBaseModels([]);
-                  setAbilityLoraPolicy('fallback');
-                  setAbilityBusinessScopes([]);
-                  setAbilityReleaseStatus('draft');
-                  setAbilityQualityStatus('untested');
-                  setAbilityPresentationVisible(true);
-                  setAbilityPresentationSortOrder('');
-                  setAbilityPresentationCategoryLabel('');
-                  setAbilityPresentationUsageHint('');
-                  setAbilityPresentationOperationLabel('');
-                  setAbilityIsDeprecated(false);
-                  setAbilityReplacementAbilityId('');
-                  setAbilityReplacementCapabilityKey('');
-                  setAbilityReplacementDisplayName('');
-                  setAbilityDeprecationReason('');
-                  setAbilityRetirementMode('hide_public');
-                  setAbilityDialogOpen(true);
-                }}
-              >
-                新增能力
-              </Button>
+              <Space>
+                <Button variant="outline" loading={abilityHealthLoading} onClick={() => refreshAbilityHealthSummary()}>
+                  刷新健康
+                </Button>
+                <Button
+                  theme="primary"
+                  onClick={() => {
+                    setAbilityForm(defaultAbilityForm);
+                    setAbilityRoutingPolicy('auto');
+                    setAbilityAllowedExecutors([]);
+                    setAbilityRequiredTags('');
+                    setAbilityFallbackToDefault(true);
+                    setAbilityDialogOpen(true);
+                  }}
+                >
+                  新增能力
+                </Button>
+              </Space>
             </Space>
           }
         >
+          {abilityHealthError ? (
+            <div style={{ marginBottom: 12 }}>
+              <Alert theme="error" message={abilityHealthError} />
+            </div>
+          ) : null}
+          {abilityHealthSummary ? (
+            <Space direction="vertical" size="middle" style={{ width: '100%', marginBottom: 16 }}>
+              <Row gutter={[12, 12]}>
+                <Col xs={24} sm={12} lg={4}>
+                  <MetricCard label="正常" value={abilityHealthSummary.healthy} sub="最近调用成功" />
+                </Col>
+                <Col xs={24} sm={12} lg={4}>
+                  <MetricCard label="需关注" value={abilityHealthSummary.degraded} sub="最近失败但总体可用" />
+                </Col>
+                <Col xs={24} sm={12} lg={4}>
+                  <MetricCard label="异常" value={abilityHealthSummary.failed} sub="需要优先排查" />
+                </Col>
+                <Col xs={24} sm={12} lg={4}>
+                  <MetricCard label="未测试" value={abilityHealthSummary.unknown} sub="没有有效调用记录" />
+                </Col>
+                <Col xs={24} sm={12} lg={4}>
+                  <MetricCard label="需要复测" value={abilityHealthSummary.needsTestCount} sub={`超过 ${abilityHealthSummary.staleHours} 小时或异常`} />
+                </Col>
+                <Col xs={24} sm={12} lg={4}>
+                  <MetricCard label="能力总数" value={abilityHealthSummary.total} sub={`更新：${formatDateTime(abilityHealthSummary.generatedAt)}`} />
+                </Col>
+              </Row>
+              {abilityHealthSummary.items.length > 0 ? (
+                <Card
+                  bordered
+                  title={
+                    <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+                      <div>
+                        <Typography.Text strong>复测清单</Typography.Text>
+                        <div>
+                          <Typography.Text theme="secondary">
+                            默认只看需要复测；导出会按当前筛选生成 CSV。
+                          </Typography.Text>
+                        </div>
+                      </div>
+                      <Space>
+                        <Select
+                          value={abilityHealthFilter}
+                          onChange={(v) => setAbilityHealthFilter(String(v) as AbilityHealthFilter)}
+                          style={{ width: 180 }}
+                          options={[
+                            { label: '需要复测', value: 'needs_test' },
+                            { label: '异常', value: 'failed' },
+                            { label: '未测试', value: 'unknown' },
+                            { label: '超过 24 小时', value: 'stale' },
+                            { label: '需关注', value: 'degraded' },
+                            { label: '正常', value: 'healthy' },
+                            { label: '全部', value: 'all' },
+                          ]}
+                        />
+                        <Button variant="outline" loading={abilityHealthExporting} onClick={() => exportAbilityHealthSummary()}>
+                          导出清单
+                        </Button>
+                      </Space>
+                    </Space>
+                  }
+                >
+                  <Table
+                    rowKey="abilityId"
+                    size="small"
+                    data={filteredAbilityHealthItems}
+                    columns={[
+                      {
+                        colKey: 'ability',
+                        title: '能力',
+                        cell: ({ row }) => (
+                          <Space direction="vertical" size={2}>
+                            <Typography.Text strong>{row.displayName}</Typography.Text>
+                            <Typography.Text theme="secondary">
+                              {getProviderLabel(row.provider)} · {row.capabilityKey}
+                            </Typography.Text>
+                          </Space>
+                        ),
+                      },
+                      {
+                        colKey: 'health',
+                        title: '健康状态',
+                        width: 140,
+                        cell: ({ row }) => {
+                          const tag = getAbilityHealthTag(row.healthStatus);
+                          return (
+                            <Space direction="vertical" size={2}>
+                              <Tag theme={tag.theme} variant="light">
+                                {tag.text}
+                              </Tag>
+                              {row.needsTest ? (
+                                <Typography.Text theme="warning" style={{ fontSize: 12 }}>
+                                  建议复测
+                                </Typography.Text>
+                              ) : null}
+                            </Space>
+                          );
+                        },
+                      },
+                      {
+                        colKey: 'last',
+                        title: '最近有效调用',
+                        width: 220,
+                        cell: ({ row }) => (
+                          <Space direction="vertical" size={2}>
+                            <Typography.Text theme="secondary">
+                              {row.latestLogAt ? formatDateTime(row.latestLogAt) : '暂无记录'}
+                            </Typography.Text>
+                            <Typography.Text theme="secondary">
+                              成功率：{typeof row.successRate === 'number' ? `${(row.successRate * 100).toFixed(1)}%` : '—'}
+                            </Typography.Text>
+                          </Space>
+                        ),
+                      },
+                    ]}
+                    empty={<Typography.Text theme="secondary">当前筛选下暂无能力。</Typography.Text>}
+                  />
+                </Card>
+              ) : null}
+            </Space>
+          ) : null}
           <Row gutter={[12, 12]}>
             <Col span={4}>
               <Input value={abilitySearch} onChange={(v) => setAbilitySearch(String(v))} placeholder="搜索名称/能力 Key" />
@@ -9949,24 +11490,8 @@ const extractErrorMessage = (error: unknown): string => {
               <Select
                 value={abilityStatusFilter}
                 onChange={(v) => setAbilityStatusFilter(String(v))}
-                options={abilityAvailabilityOptions.map((option) => ({ label: option.label, value: option.value }))}
-                placeholder="全部可用性"
-              />
-            </Col>
-            <Col span={4}>
-              <Select
-                value={abilitySurfaceFilter}
-                onChange={(v) => setAbilitySurfaceFilter(String(v))}
-                options={abilitySurfaceFilterOptions.map((option) => ({ label: option.label, value: option.value }))}
-                placeholder="全部范围"
-              />
-            </Col>
-            <Col span={4}>
-              <Select
-                value={abilityLifecycleFilter}
-                onChange={(v) => setAbilityLifecycleFilter(String(v))}
-                options={abilityLifecycleFilterOptions.map((option) => ({ label: option.label, value: option.value }))}
-                placeholder="全部阶段"
+                options={[{ label: '全部状态', value: 'all' }, ...statusOptions]}
+                placeholder="全部状态"
               />
             </Col>
           </Row>
@@ -10023,66 +11548,26 @@ const extractErrorMessage = (error: unknown): string => {
                   colKey: 'provider',
                   title: '厂商/能力',
                   width: 260,
-                  cell: ({ row }) => {
-                    const deprecationSummary = getAbilityDeprecationSummary(row);
-                    const surfaceLabels = getAbilitySurfaceLabels(row);
-                    return (
-                      <Space direction="vertical" size={2}>
-                        <Typography.Text>{getProviderLabel(row.provider)}</Typography.Text>
+                  cell: ({ row }) => (
+                    <Space direction="vertical" size={2}>
+                      <Typography.Text>{getProviderLabel(row.provider)}</Typography.Text>
+                      <Typography.Text theme="secondary">
+                        {row.capability_key} · {getCategoryLabel(row.category)}
+                      </Typography.Text>
+                      <Typography.Text theme="secondary">
+                        {getAbilityTypeLabel(row.ability_type)}
+                        {row.workflow_id ? ` · ${workflowLookup[row.workflow_id]?.name || row.workflow_id}` : ''}
+                      </Typography.Text>
+                      {row.vendor_model_id ? (
                         <Typography.Text theme="secondary">
-                          {row.capability_key} · {getAbilityCategoryLabel(row)}
+                          模型：{vendorModels.find((item) => item.id === row.vendor_model_id)?.displayName || row.vendor_model_id}
                         </Typography.Text>
-                        {getAbilityOperationLabel(row) ? (
-                          <Typography.Text theme="secondary">{getAbilityOperationLabel(row)}</Typography.Text>
-                        ) : null}
-                        <Typography.Text theme="secondary">
-                          {getAbilityTypeLabel(row.ability_type)}
-                          {row.workflow_id ? ` · ${workflowLookup[row.workflow_id]?.name || row.workflow_id}` : ''}
-                        </Typography.Text>
-                        {row.version ? <Typography.Text theme="secondary">版本 {row.version}</Typography.Text> : null}
-                        {surfaceLabels.length > 0 ? (
-                          <Space size="small" breakLine>
-                            {surfaceLabels.map((label) => (
-                              <Tag key={`${row.id}-surface-${label}`} theme="default" variant="light" size="small">
-                                {label}
-                              </Tag>
-                            ))}
-                          </Space>
-                        ) : null}
-                        {deprecationSummary ? (
-                          <Typography.Text theme="warning" style={{ fontSize: 12 }}>
-                            {deprecationSummary}
-                          </Typography.Text>
-                        ) : null}
-                      </Space>
-                    );
-                  },
+                      ) : null}
+                      {row.version ? <Typography.Text theme="secondary">版本 {row.version}</Typography.Text> : null}
+                    </Space>
+                  ),
                 },
-                {
-                  colKey: 'status',
-                  title: '状态',
-                  width: 180,
-                  cell: ({ row }) => {
-                    const business = getAbilityBusinessStatus(row);
-                    return (
-                      <Space direction="vertical" size={2}>
-                        <Tag theme={business?.availability_code === 'available' ? 'success' : business?.availability_code === 'testing' ? 'warning' : 'default'} variant="light" size="small">
-                          {business?.availability_label || row.status}
-                        </Tag>
-                        {row.deprecation?.is_deprecated ? (
-                          <Tag theme="warning" variant="light" size="small">
-                            已替代/下线中
-                          </Tag>
-                        ) : null}
-                        {business?.stability_label ? (
-                          <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
-                            {business.stability_label}
-                          </Typography.Text>
-                        ) : null}
-                      </Space>
-                    );
-                  },
-                },
+                { colKey: 'status', title: '状态', width: 120, cell: ({ row }) => renderStatusTag(row.status) },
                 {
                   colKey: 'pricing',
                   title: '成本',
@@ -10325,17 +11810,43 @@ const extractErrorMessage = (error: unknown): string => {
               </Col>
             </Row>
 
+            <Row gutter={[12, 12]}>
+              <Col span={12}>
+                <Typography.Text theme="secondary">绑定模型（可选，来自模型弹药库）</Typography.Text>
+                <Select
+                  value={abilityForm.vendor_model_id || 0}
+                  onChange={(v) => {
+                    const nextId = Number(v) || null;
+                    const selected = vendorModels.find((item) => item.id === nextId);
+                    setAbilityForm({
+                      ...abilityForm,
+                      vendor_model_id: nextId,
+                      provider: selected?.provider || abilityForm.provider,
+                    });
+                  }}
+                  options={[
+                    { label: '不绑定模型', value: 0 },
+                    ...abilityVendorModelOptions.map((item) => ({ label: item.label, value: item.value })),
+                  ]}
+                  placeholder="不绑定模型"
+                />
+                <Typography.Text theme="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
+                  绑定后，业务配方可直接引用这个模型配置，减少手填模型名和能力边界。
+                </Typography.Text>
+              </Col>
+            </Row>
+
             {abilityForm.provider === 'comfyui' ? (
               <div className="rounded-2xl border border-slate-200/70 bg-slate-50/40 p-4 dark:border-slate-800 dark:bg-slate-950/40">
                 <Space direction="vertical" size="small" style={{ width: '100%' }}>
                   <Typography.Text strong>ComfyUI 路由策略（面向非技术同学的配置）</Typography.Text>
                   <Typography.Text theme="secondary">
-                    这里决定这条能力可以在哪些机器上运行、系统优先怎么分配、以及找不到合适机器时是否允许自动兜底。
+                    这些字段会写入 ability.metadata，用于控制“哪些节点可用、如何分配、是否允许回退默认节点”。
                   </Typography.Text>
 
                   <Row gutter={[12, 12]}>
                     <Col span={12}>
-                      <Typography.Text theme="secondary">机器分配方式</Typography.Text>
+                      <Typography.Text theme="secondary">路由策略 routing_policy</Typography.Text>
                       <Select
                         value={abilityRoutingPolicy}
                         onChange={(v) => setAbilityRoutingPolicy(String(v) || 'auto')}
@@ -10353,8 +11864,8 @@ const extractErrorMessage = (error: unknown): string => {
                     </Col>
                     <Col span={12}>
                       <Space align="center" size="small">
-                        <Typography.Text theme="secondary">找不到合适机器时自动兜底</Typography.Text>
-                        <Tooltip content="当没有符合条件的节点时，是否允许系统自动改用默认或已绑定的机器。">
+                        <Typography.Text theme="secondary">回退到默认节点</Typography.Text>
+                        <Tooltip content="当没有符合条件的节点时，是否允许系统回退到默认/绑定节点。">
                           <Typography.Text theme="secondary">?</Typography.Text>
                         </Tooltip>
                       </Space>
@@ -10368,7 +11879,7 @@ const extractErrorMessage = (error: unknown): string => {
                   </Row>
 
                   <div>
-                    <Typography.Text theme="secondary">指定可运行的机器（多选）</Typography.Text>
+                    <Typography.Text theme="secondary">允许运行节点（多选）</Typography.Text>
                     {comfyExecutors.length > 0 ? (
                       <select
                         multiple
@@ -10390,19 +11901,19 @@ const extractErrorMessage = (error: unknown): string => {
                       </div>
                     )}
                     <Typography.Text theme="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
-                      不选表示允许系统在所有 ComfyUI 机器里自动选择。
+                      不选表示“允许系统自动匹配所有 ComfyUI 节点”。
                     </Typography.Text>
                   </div>
 
                   <div>
-                    <Typography.Text theme="secondary">要求机器标签</Typography.Text>
+                    <Typography.Text theme="secondary">要求标签（required_tags，可多选）</Typography.Text>
                     <Input
                       value={abilityRequiredTags}
                       onChange={(v) => setAbilityRequiredTags(String(v))}
                       placeholder="例如：gpu:4090, region:hz, comfyui-158"
                     />
                     <Typography.Text theme="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
-                      逗号分隔。只有带齐这些标签的机器才会被选中。
+                      逗号分隔。要求执行节点 config.tags 中包含全部标签。
                     </Typography.Text>
                   </div>
 
@@ -10527,152 +12038,8 @@ const extractErrorMessage = (error: unknown): string => {
               </div>
             ) : null}
 
-            <div className="rounded-2xl border border-slate-200/70 bg-slate-50/40 p-4 dark:border-slate-800 dark:bg-slate-950/40">
-              <Space direction="vertical" size="small" style={{ width: '100%' }}>
-                <Typography.Text strong>业务展示与治理</Typography.Text>
-                <Typography.Text theme="secondary">
-                  这里配置业务侧能看到的分类、状态、提示文案和替代关系，日常维护不需要再手改原始 JSON。
-                </Typography.Text>
-
-                <Row gutter={[12, 12]}>
-                  <Col span={8}>
-                    <Typography.Text theme="secondary">哪些端可以看到</Typography.Text>
-                    <select
-                      multiple
-                      value={abilityBusinessScopes}
-                      onChange={(e) =>
-                        setAbilityBusinessScopes(Array.from(e.target.selectedOptions).map((option) => option.value))
-                      }
-                      className="mt-2 h-28 w-full rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white"
-                    >
-                      {abilityScopeOptions.map((option) => (
-                        <option key={`ability-scope-${option.value}`} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </Col>
-                  <Col span={8}>
-                    <Typography.Text theme="secondary">发布状态</Typography.Text>
-                    <Select
-                      value={abilityReleaseStatus}
-                      onChange={(v) => setAbilityReleaseStatus(String(v))}
-                      options={abilityReleaseStatusOptions.map((option) => ({ label: option.label, value: option.value }))}
-                    />
-                  </Col>
-                  <Col span={8}>
-                    <Typography.Text theme="secondary">质量状态</Typography.Text>
-                    <Select
-                      value={abilityQualityStatus}
-                      onChange={(v) => setAbilityQualityStatus(String(v))}
-                      options={abilityQualityStatusOptions.map((option) => ({ label: option.label, value: option.value }))}
-                    />
-                  </Col>
-                </Row>
-
-                <Row gutter={[12, 12]}>
-                  <Col span={6}>
-                    <Space align="center" size="small">
-                      <Typography.Text theme="secondary">公共可见</Typography.Text>
-                    </Space>
-                    <div style={{ marginTop: 8 }}>
-                      <Switch value={abilityPresentationVisible} onChange={(v) => setAbilityPresentationVisible(Boolean(v))} />
-                    </div>
-                  </Col>
-                  <Col span={6}>
-                    <Typography.Text theme="secondary">排序</Typography.Text>
-                    <Input
-                      value={abilityPresentationSortOrder}
-                      onChange={(v) => setAbilityPresentationSortOrder(String(v).replace(/[^\d-]/g, ''))}
-                      placeholder="例如 200"
-                    />
-                  </Col>
-                  <Col span={12}>
-                    <Typography.Text theme="secondary">业务分类标签</Typography.Text>
-                    <Input
-                      value={abilityPresentationCategoryLabel}
-                      onChange={(v) => setAbilityPresentationCategoryLabel(String(v))}
-                      placeholder="例如 图片生成 / 平台工具"
-                    />
-                  </Col>
-                </Row>
-
-                <Row gutter={[12, 12]}>
-                  <Col span={12}>
-                    <Typography.Text theme="secondary">操作名称</Typography.Text>
-                    <Input
-                      value={abilityPresentationOperationLabel}
-                      onChange={(v) => setAbilityPresentationOperationLabel(String(v))}
-                      placeholder="例如 图像扩展 / 抠图 / 内部尺寸处理"
-                    />
-                  </Col>
-                  <Col span={12}>
-                    <Typography.Text theme="secondary">业务提示文案</Typography.Text>
-                    <Input
-                      value={abilityPresentationUsageHint}
-                      onChange={(v) => setAbilityPresentationUsageHint(String(v))}
-                      placeholder="例如 适合在 Coze 工作流中作为图像节点使用"
-                    />
-                  </Col>
-                </Row>
-
-                <div className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 dark:border-slate-800 dark:bg-slate-950/40">
-                  <Space direction="vertical" size="small" style={{ width: '100%' }}>
-                    <Space align="center" size="small">
-                      <Typography.Text strong>下线 / 替代</Typography.Text>
-                      <Switch value={abilityIsDeprecated} onChange={(v) => setAbilityIsDeprecated(Boolean(v))} />
-                    </Space>
-                    <Row gutter={[12, 12]}>
-                      <Col span={8}>
-                        <Typography.Text theme="secondary">替代能力 ID</Typography.Text>
-                        <Input
-                          value={abilityReplacementAbilityId}
-                          onChange={(v) => setAbilityReplacementAbilityId(String(v))}
-                          placeholder="可选"
-                        />
-                      </Col>
-                      <Col span={8}>
-                        <Typography.Text theme="secondary">替代能力 Key</Typography.Text>
-                        <Input
-                          value={abilityReplacementCapabilityKey}
-                          onChange={(v) => setAbilityReplacementCapabilityKey(String(v))}
-                          placeholder="例如 flux2_klein_9b_outpaint"
-                        />
-                      </Col>
-                      <Col span={8}>
-                        <Typography.Text theme="secondary">替代能力名称</Typography.Text>
-                        <Input
-                          value={abilityReplacementDisplayName}
-                          onChange={(v) => setAbilityReplacementDisplayName(String(v))}
-                          placeholder="例如 统一扩图入口"
-                        />
-                      </Col>
-                    </Row>
-                    <Row gutter={[12, 12]}>
-                      <Col span={12}>
-                        <Typography.Text theme="secondary">下线方式</Typography.Text>
-                        <Select
-                          value={abilityRetirementMode}
-                          onChange={(v) => setAbilityRetirementMode(String(v))}
-                          options={abilityDeprecationModeOptions.map((option) => ({ label: option.label, value: option.value }))}
-                        />
-                      </Col>
-                      <Col span={12}>
-                        <Typography.Text theme="secondary">原因说明</Typography.Text>
-                        <Input
-                          value={abilityDeprecationReason}
-                          onChange={(v) => setAbilityDeprecationReason(String(v))}
-                          placeholder="例如 旧入口已由新工具统一替代"
-                        />
-                      </Col>
-                    </Row>
-                  </Space>
-                </div>
-              </Space>
-            </div>
-
             <div>
-              <Typography.Text theme="secondary">默认运行参数（高级）</Typography.Text>
+              <Typography.Text theme="secondary">默认参数 JSON</Typography.Text>
               <Textarea
                 value={abilityForm.default_params || ''}
                 onChange={(v) => setAbilityForm({ ...abilityForm, default_params: String(v) })}
@@ -10681,7 +12048,7 @@ const extractErrorMessage = (error: unknown): string => {
             </div>
 
             <div>
-              <Typography.Text theme="secondary">输入表单配置（高级，可选）</Typography.Text>
+              <Typography.Text theme="secondary">输入表单 Schema（选填）</Typography.Text>
               <Textarea
                 value={abilityForm.input_schema || ''}
                 onChange={(v) => setAbilityForm({ ...abilityForm, input_schema: String(v) })}
@@ -10690,7 +12057,7 @@ const extractErrorMessage = (error: unknown): string => {
             </div>
 
             <div>
-              <Typography.Text theme="secondary">其他高级配置（可选）</Typography.Text>
+              <Typography.Text theme="secondary">其他元信息（选填）</Typography.Text>
               <Textarea
                 value={abilityForm.metadata || ''}
                 onChange={(v) => setAbilityForm({ ...abilityForm, metadata: String(v) })}
@@ -13846,7 +15213,7 @@ const extractErrorMessage = (error: unknown): string => {
         {comfyuiManageTab === 'templates' && (
         <div className="space-y-4">
           <div className="text-sm text-slate-600 dark:text-slate-400">
-            管理 ComfyUI 工作流及其可运行机器，用于把底层工作流整理成可复用的业务能力。
+            管理本地/云端多台 ComfyUI 服务器的工作流 JSON，指定允许运行的节点，作为一类原子能力。
           </div>
           <Space align="center" size="small">
             <Button
@@ -14000,7 +15367,7 @@ const extractErrorMessage = (error: unknown): string => {
           </div>
           <div className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 space-y-3 dark:border-slate-800 dark:bg-slate-900/40">
             <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
-              {workflowForm.id ? '编辑工作流' : '导入或新建工作流'}
+              {workflowForm.id ? '编辑工作流' : '导入/新增工作流'}
             </h3>
             <div className="flex flex-wrap gap-2">
               <button
@@ -14051,7 +15418,7 @@ const extractErrorMessage = (error: unknown): string => {
             {workflowEditTab === 'base' && (
             <div className="text-sm space-y-2">
               <input
-                placeholder="业务动作标识"
+                placeholder="动作标识"
                 value={workflowForm.action || ''}
                 onChange={(e) => setWorkflowForm({ ...workflowForm, action: e.target.value })}
                 className={formControlClass}
@@ -14070,7 +15437,7 @@ const extractErrorMessage = (error: unknown): string => {
                   className={formControlFlexClass}
                 />
                 <input
-                  placeholder="工作流类型"
+                  placeholder="类型"
                   value={workflowForm.type || ''}
                   onChange={(e) => setWorkflowForm({ ...workflowForm, type: e.target.value })}
                   className={formControlFlexClass}
@@ -14098,7 +15465,7 @@ const extractErrorMessage = (error: unknown): string => {
               </label>
               <textarea
                 rows={6}
-                placeholder="工作流定义 JSON"
+                placeholder="workflow definition JSON"
                 value={workflowForm.definition ?? ''}
                 onChange={(e) => setWorkflowForm({ ...workflowForm, definition: e.target.value })}
                 className={`${formControlClass} font-mono text-xs`}
@@ -14111,7 +15478,7 @@ const extractErrorMessage = (error: unknown): string => {
               ) : null}
               <textarea
                 rows={4}
-                placeholder="工作流补充信息 JSON（输入输出映射、依赖关系等）"
+                placeholder="metadata JSON（参数映射、依赖等）"
                 value={workflowForm.metadata ?? ''}
                 onChange={(e) => setWorkflowForm({ ...workflowForm, metadata: e.target.value })}
                 className={`${formControlClass} font-mono text-xs`}
@@ -14126,19 +15493,20 @@ const extractErrorMessage = (error: unknown): string => {
                 {workflowCanMap ? (
                   <div className="rounded-2xl border border-slate-200/70 bg-slate-50/80 p-3 space-y-3 dark:border-slate-800 dark:bg-slate-950/40">
                     <div className="flex items-center justify-between">
-                      <div className="text-sm font-semibold text-slate-900 dark:text-white">工作流输入/输出映射</div>
+                      <div className="text-sm font-semibold text-slate-900 dark:text-white">节点映射（ComfyUI）</div>
                       <div className="text-[11px] text-slate-500">
                         {comfyWorkflowNodes.length > 0 ? `已解析 ${comfyWorkflowNodes.length} 个节点` : '未解析节点'}
                       </div>
                     </div>
                     <p className="text-xs text-slate-600 dark:text-slate-400">
-                      在这里决定这条工作流对外开放哪些输入项，以及最后返回哪几个结果。未选输出节点时默认返回全部输出；未填写的输入会继续沿用工作流原值。
+                      选择需要对外暴露的输入/输出节点。未选择输出节点时默认返回全部输出；输入未填写时将使用工作流 JSON
+                      默认值。
                     </p>
                     <div className="space-y-3">
                       <div className="rounded-2xl border border-slate-200/70 bg-white/70 p-3 space-y-2 dark:border-slate-800 dark:bg-slate-950/50">
-                        <div className="text-xs text-slate-700 dark:text-slate-300">快速添加对外输入项</div>
+                        <div className="text-xs text-slate-700 dark:text-slate-300">快速按节点添加输入映射</div>
                         <div className="space-y-2">
-                          <label className="block text-[11px] text-slate-600 dark:text-slate-400">选择节点（含 ID）</label>
+                          <label className="block text-[11px] text-slate-600 dark:text-slate-400">输入节点（含 ID）</label>
                           <select
                             value={workflowInputPickerNodeId}
                             onChange={(e) => {
@@ -14147,7 +15515,7 @@ const extractErrorMessage = (error: unknown): string => {
                             }}
                             className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white"
                           >
-                            <option value="">选择节点（含 ID）</option>
+                            <option value="">选择输入节点（含 ID）</option>
                             {comfyWorkflowNodes.map((node) => (
                               <option key={`workflow-picker-node-${node.id}`} value={node.id}>
                                 #{node.id} · {node.title} · {node.classType}
@@ -14155,7 +15523,7 @@ const extractErrorMessage = (error: unknown): string => {
                             ))}
                           </select>
                           <div className="flex items-center justify-between text-[11px] text-slate-600 dark:text-slate-400">
-                            <span>要开放的输入项</span>
+                            <span>输入 Key（勾选）</span>
                             <div className="space-x-2">
                               <button
                                 className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
@@ -14209,11 +15577,11 @@ const extractErrorMessage = (error: unknown): string => {
                           </button>
                         </div>
                         <p className="text-[11px] text-slate-600 dark:text-slate-500">
-                          系统会按所选节点自动生成对外输入项，参数名默认使用原输入名，你可以在下方继续改成更易懂的名字。
+                          以节点 ID 为主进行配置；每个输入会自动生成一条映射，参数名默认等于输入 Key，可在下方表格继续调整。
                         </p>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span className="text-xs text-slate-700 dark:text-slate-400">对外输入项</span>
+                        <span className="text-xs text-slate-700 dark:text-slate-400">输入参数映射</span>
                         <button
                           className="rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200 dark:hover:bg-slate-900/60"
                           onClick={addWorkflowInputMap}
@@ -14223,15 +15591,15 @@ const extractErrorMessage = (error: unknown): string => {
                       </div>
                       {workflowInputMap.length === 0 ? (
                         <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-3 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-950/50 dark:text-slate-500">
-                          尚未配置对外输入项。可选择需要暴露给 Coze 或其他业务入口的字段。
+                          尚未配置输入映射。可选择需要暴露给 Coze 的字段。
                         </div>
                       ) : (
                         <div className="space-y-2">
                           <div className="grid grid-cols-[1.2fr_1fr_1fr_0.6fr_auto] gap-2 text-[11px] text-slate-500">
-                              <div>对外名称</div>
-                              <div>来自节点</div>
-                              <div>原输入项</div>
-                              <div>值类型</div>
+                            <div>参数名</div>
+                            <div>节点</div>
+                            <div>输入 Key</div>
+                            <div>类型</div>
                             <div></div>
                           </div>
                           {workflowInputMap.map((item, idx) => {
@@ -14245,7 +15613,7 @@ const extractErrorMessage = (error: unknown): string => {
                                 <input
                                   value={item.field}
                                   onChange={(e) => updateWorkflowInputMap(idx, { field: e.target.value })}
-                                  placeholder="例如 prompt / width / image_url"
+                                  placeholder="参数名，如 prompt / width"
                                   className="rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white"
                                 />
                                 <select
@@ -14253,7 +15621,7 @@ const extractErrorMessage = (error: unknown): string => {
                                   onChange={(e) => updateWorkflowInputMap(idx, { nodeId: e.target.value, inputKey: '' })}
                                   className="rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white"
                                 >
-                                  <option value="">选择来源节点</option>
+                                  <option value="">选择节点</option>
                                   {comfyWorkflowNodes.map((nodeOption) => (
                                     <option key={`workflow-node-${nodeOption.id}`} value={nodeOption.id}>
                                       #{nodeOption.id} · {nodeOption.title}
@@ -14266,7 +15634,7 @@ const extractErrorMessage = (error: unknown): string => {
                                   disabled={!item.nodeId}
                                   className="rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 disabled:bg-slate-100 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white dark:disabled:bg-slate-900/40"
                                 >
-                                  <option value="">选择原输入项</option>
+                                  <option value="">选择输入</option>
                                   {inputOptions.map((key) => (
                                     <option key={`workflow-input-${item.nodeId}-${key}`} value={key}>
                                       {key}
@@ -14298,13 +15666,13 @@ const extractErrorMessage = (error: unknown): string => {
                       )}
                       <div className="mt-4 space-y-2">
                         <div className="flex items-center justify-between">
-                          <span className="text-xs text-slate-700 dark:text-slate-400">最终结果节点</span>
+                          <span className="text-xs text-slate-700 dark:text-slate-400">输出节点映射（保存图片为主）</span>
                           <div className="space-x-2 text-[11px]">
                             <button
                               className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
                               onClick={() => setWorkflowOutputShowAll((prev) => !prev)}
                             >
-                              {workflowOutputShowAll ? '优先只看保存结果节点' : '显示全部节点'}
+                              {workflowOutputShowAll ? '仅显示 SaveImage' : '显示全部节点'}
                             </button>
                             <button
                               className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
@@ -14320,7 +15688,7 @@ const extractErrorMessage = (error: unknown): string => {
                             onChange={(e) => setWorkflowOutputPickerNodeId(e.target.value)}
                             className="rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white"
                           >
-                            <option value="">选择最终结果节点（含 ID）</option>
+                            <option value="">选择输出节点（含 ID）</option>
                             {(workflowOutputShowAll
                               ? comfyWorkflowNodes
                               : comfyWorkflowNodes.filter((node) => node.classType.toLowerCase().includes('saveimage'))
@@ -14340,12 +15708,12 @@ const extractErrorMessage = (error: unknown): string => {
                         </div>
                         {workflowOutputNodeIds.length === 0 ? (
                           <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-3 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-950/50 dark:text-slate-500">
-                            未选择结果节点时，系统会返回全部输出。一般建议只选最终保存图片的节点。
+                            未选择输出节点时，默认返回全部输出（建议选择 SaveImage 节点）。
                           </div>
                         ) : (
                           <div className="space-y-2">
                             <div className="grid grid-cols-[1fr_auto] gap-2 text-[11px] text-slate-500">
-                              <div>已选结果节点</div>
+                              <div>已选输出节点</div>
                               <div></div>
                             </div>
                             {workflowOutputNodeIds.map((nodeId) => {
@@ -14368,14 +15736,14 @@ const extractErrorMessage = (error: unknown): string => {
                           </div>
                         )}
                         <p className="text-[11px] text-slate-600 dark:text-slate-500">
-                          一般只选真正产出结果的节点，避免把中间过程数据回传给业务侧。
+                          输出建议只选 SaveImage 节点，避免返回无用的中间数据。
                         </p>
                       </div>
                     </div>
                   </div>
                 ) : (
                   <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-6 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-950/50 dark:text-slate-500">
-                    请先从左侧选择工作流或导入工作流 JSON，再配置对外输入和最终结果。
+                    请先从左侧选择工作流或导入工作流 JSON，再配置输入/输出节点。
                   </div>
                 )}
                 {workflowMappingErrors.length > 0 ? (
@@ -14578,7 +15946,7 @@ const extractErrorMessage = (error: unknown): string => {
             )}
             {workflowEditTab === 'executors' && (
               <label className="block text-xs text-slate-700 dark:text-slate-400">
-                    允许这条工作流运行的机器（多选）
+                允许运行节点（多选）
                 {comfyExecutors.length > 0 ? (
                   <select
                     multiple
@@ -14604,7 +15972,7 @@ const extractErrorMessage = (error: unknown): string => {
                   </div>
                 )}
                 <p className="mt-1 text-[11px] text-slate-700 dark:text-slate-500">
-                  用于限制这条工作流可以在哪些机器上运行。不选表示允许系统在所有可用 ComfyUI 机器中自动调度。
+                  用于限制某个 ComfyUI 工作流可以在哪些机器上执行；保存后会写入 metadata.allowed_executor_ids，调度器会据此路由。
                 </p>
               </label>
             )}
@@ -14832,11 +16200,11 @@ const extractErrorMessage = (error: unknown): string => {
       <Section
         id="bindings"
         title="分配策略"
-        description="为业务入口配置执行链路与回退顺序，优先级越大越先尝试，用于多节点容灾和流量分摊。"
+        description="为业务入口（Action）配置工作流与执行节点的回退链路，优先级越大越先尝试，用于多节点容灾/流量分摊。"
       >
         <div style={{ margin: '0 0 12px' }}>
           <Typography.Text theme="secondary">
-          例如：同一个业务动作可以先走云端节点，排队或失败时再切到本地节点；也可以给不同厂商配置主备执行链路，用于限流和故障切换。
+          例如：`action=pattern.extract` 可以先指向云端 ComfyUI 节点，若排队或失败再回落到本地节点；也可以为百度/火山能力配置不同 API Key 的执行器，实现配额切换。
           </Typography.Text>
         </div>
 
@@ -14848,9 +16216,9 @@ const extractErrorMessage = (error: unknown): string => {
                 data={bindings as any}
                 columns={
                   [
-                    { colKey: 'action', title: '业务动作', width: 220 },
-                    { colKey: 'workflow_id', title: '工作流 ID', width: 220 },
-                    { colKey: 'executor_id', title: '执行节点 ID', width: 220 },
+                    { colKey: 'action', title: 'Action', width: 220 },
+                    { colKey: 'workflow_id', title: 'Workflow ID', width: 220 },
+                    { colKey: 'executor_id', title: 'Executor ID', width: 220 },
                     { colKey: 'priority', title: '优先级', width: 100 },
                     {
                       colKey: 'enabled',
@@ -14884,17 +16252,17 @@ const extractErrorMessage = (error: unknown): string => {
             <Card title={bindingForm.id ? '编辑绑定' : '新增绑定'} bordered>
               <Space direction="vertical" size="medium" style={{ width: '100%' }}>
                 <Input
-                  placeholder="业务动作标识"
+                  placeholder="动作标识"
                   value={bindingForm.action || ''}
                   onChange={(value) => setBindingForm({ ...bindingForm, action: String(value) })}
                 />
                 <Input
-                  placeholder="工作流 ID"
+                  placeholder="Workflow ID"
                   value={bindingForm.workflow_id || ''}
                   onChange={(value) => setBindingForm({ ...bindingForm, workflow_id: String(value) })}
                 />
                 <Input
-                  placeholder="执行节点 ID"
+                  placeholder="Executor ID"
                   value={bindingForm.executor_id || ''}
                   onChange={(value) => setBindingForm({ ...bindingForm, executor_id: String(value) })}
                 />
@@ -14929,18 +16297,543 @@ const extractErrorMessage = (error: unknown): string => {
       </Section>
           )}
 
-          {activeNav === 'apikeys' && (
+          {activeNav === 'vendor-models' && (
       <Section
-        id="apikeys"
-        title="API Key 仓库"
-        description="统一管理百度、火山、OpenAI 等凭证，并为每个能力分配可用 Key 池，方便限流/欠费时快速切换。"
+        id="vendor-models"
+        title="模型弹药库"
+        description="集中查看第三方模型、Key 池、出网状态与能力边界；业务能力只引用这里沉淀后的模型资源。"
       >
         <ActionBar>
           <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
             <Space direction="vertical" size={4}>
-              <Typography.Text strong>凭证池总览</Typography.Text>
+              <Typography.Text strong>第三方模型控制面</Typography.Text>
               <Typography.Text theme="secondary">
-                建议同一 Provider 维护至少 2 个 Key，按“主/备”拆分，避免单个 Key 限流导致整体能力不可用。
+                当前执行面：{vendorBaseUrl || '未连接'}。Key 明文只在新增时提交，列表只显示 keyPreview。
+              </Typography.Text>
+            </Space>
+            <Space size="small" style={{ flexWrap: 'wrap' }}>
+              <Tag variant="light">Provider {vendorProviders.length}</Tag>
+              <Tag variant="light">模型 {vendorModels.length}</Tag>
+              <Tag variant="light">Key {vendorKeys.length}</Tag>
+              <Button size="small" variant="outline" loading={vendorLoading} onClick={handleSyncVolcengineModels}>
+                同步火山模型
+              </Button>
+              <Button size="small" loading={vendorLoading} onClick={loadVendorCatalog}>
+                刷新弹药库
+              </Button>
+            </Space>
+          </Space>
+        </ActionBar>
+        {vendorError ? <Alert theme="warning" message={vendorError} /> : null}
+        {vendorNotice ? <Alert theme="success" message={vendorNotice} /> : null}
+
+        <Row gutter={[16, 16]}>
+          <Col xs={12} lg={4}>
+            <MetricCard label="可用 Provider" value={vendorProviders.length} sub="OpenAI / 火山 / KIE 等" />
+          </Col>
+          <Col xs={12} lg={4}>
+            <MetricCard label="活动 Key" value={vendorKeys.filter((item) => item.status === 'active').length} sub="vendor-api-ops 托管" />
+          </Col>
+          <Col xs={12} lg={4}>
+            <MetricCard label="Global Egress" value={vendorProviders.filter((item) => item.requiresGlobalEgress).length} sub="需要特殊出网节点" />
+          </Col>
+          <Col xs={12} lg={4}>
+            <MetricCard label="24h 调用" value={vendorUsageTotal} sub={`窗口 ${vendorUsageWindowHours} 小时`} />
+          </Col>
+          <Col xs={12} lg={4}>
+            <MetricCard
+              label="24h 成功率"
+              value={vendorUsageSuccessRate === null ? '—' : `${vendorUsageSuccessRate}%`}
+              sub={vendorUsageFailed > 0 ? `失败 ${vendorUsageFailed}` : '暂无失败记录'}
+            />
+          </Col>
+        </Row>
+
+        <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+          <Col xs={12} lg={6}>
+            <Card bordered title="Provider 出网与能力边界">
+              <Table
+                size="small"
+                rowKey="provider"
+                data={vendorProviders}
+                columns={[
+                  {
+                    colKey: 'provider',
+                    title: 'Provider',
+                    minWidth: 160,
+                    cell: ({ row }) => (
+                      <Space direction="vertical" size={2}>
+                        <Typography.Text strong>{row.displayName}</Typography.Text>
+                        <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                          {row.provider}
+                        </Typography.Text>
+                      </Space>
+                    ),
+                  },
+                  {
+                    colKey: 'apiTypes',
+                    title: '能力类型',
+                    minWidth: 220,
+                    cell: ({ row }) => (
+                      <Space size={4} style={{ flexWrap: 'wrap' }}>
+                        {(row.supportedApiTypes || []).map((item) => (
+                          <Tag key={`${row.provider}-${item}`} variant="light">
+                            {item}
+                          </Tag>
+                        ))}
+                      </Space>
+                    ),
+                  },
+                  {
+                    colKey: 'egress',
+                    title: '出网',
+                    width: 160,
+                    cell: ({ row }) => {
+                      const check = vendorEgressChecks[row.provider];
+                      return (
+                        <Space direction="vertical" size={2}>
+                          <Tag theme={row.requiresGlobalEgress ? 'warning' : 'success'} variant="light">
+                            {row.requiresGlobalEgress ? 'global-egress' : 'domestic'}
+                          </Tag>
+                          {check ? (
+                            <Typography.Text theme={check.success ? 'success' : 'error'} style={{ fontSize: 12 }}>
+                              {check.success ? 'reachable' : check.errorCode || 'failed'} · {check.latencyMs ?? '—'}ms
+                            </Typography.Text>
+                          ) : null}
+                        </Space>
+                      );
+                    },
+                  },
+                  {
+                    colKey: 'actions',
+                    title: '操作',
+                    width: 180,
+                    cell: ({ row }) => (
+                      <Space size={4}>
+                        <Button size="small" variant="text" onClick={() => handleVendorEgressCheck(row.provider, false)}>
+                          无鉴权检查
+                        </Button>
+                        <Button size="small" variant="text" onClick={() => handleVendorEgressCheck(row.provider, true)}>
+                          带 Key
+                        </Button>
+                      </Space>
+                    ),
+                  },
+                ]}
+                empty={<Typography.Text theme="secondary">暂无 Provider，请检查 vendor-api-ops。</Typography.Text>}
+              />
+            </Card>
+          </Col>
+
+          <Col xs={12} lg={6}>
+            <Card bordered title="模型目录">
+              <Table
+                size="small"
+                rowKey="model"
+                data={vendorModels}
+                columns={[
+                  {
+                    colKey: 'model',
+                    title: '模型',
+                    minWidth: 220,
+                    cell: ({ row }) => (
+                      <Space direction="vertical" size={2}>
+                        <Typography.Text strong>{row.displayName}</Typography.Text>
+                        <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                          {row.provider} / {row.model}
+                        </Typography.Text>
+                      </Space>
+                    ),
+                  },
+                  {
+                    colKey: 'features',
+                    title: '能力边界',
+                    minWidth: 240,
+                    cell: ({ row }) => (
+                      <Space size={4} style={{ flexWrap: 'wrap' }}>
+                        {row.apiTypes.map((item) => (
+                          <Tag key={`${row.provider}-${row.model}-${item}`} variant="light">
+                            {item}
+                          </Tag>
+                        ))}
+                        {row.supportsMask ? <Tag theme="success" variant="light">蒙版</Tag> : null}
+                        {row.supportsMultipleImages ? <Tag theme="success" variant="light">多图</Tag> : null}
+                        {row.supportsVideo ? <Tag theme="warning" variant="light">视频</Tag> : null}
+                      </Space>
+                    ),
+                  },
+                  {
+                    colKey: 'source',
+                    title: '来源',
+                    width: 120,
+                    cell: ({ row }) => <Tag variant="light">{row.source}</Tag>,
+                  },
+                  {
+                    colKey: 'actions',
+                    title: '操作',
+                    width: 90,
+                    cell: ({ row }) => (
+                      <Button size="small" variant="text" onClick={() => resetVendorModelForm(row)}>
+                        编辑
+                      </Button>
+                    ),
+                  },
+                ]}
+                empty={<Typography.Text theme="secondary">暂无模型目录。</Typography.Text>}
+              />
+              <div style={{ borderTop: '1px solid var(--td-border-level-1-color)', marginTop: 16, paddingTop: 16 }}>
+                <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                  <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                    <Typography.Text strong>{vendorModelForm.id ? '编辑模型配置' : '新增模型配置'}</Typography.Text>
+                    {vendorModelForm.id ? (
+                      <Button size="small" variant="outline" onClick={() => resetVendorModelForm()}>
+                        新增模式
+                      </Button>
+                    ) : null}
+                  </Space>
+                  {vendorModelFormError ? <Alert theme="error" message={vendorModelFormError} /> : null}
+                  <Row gutter={[12, 12]}>
+                    <Col span={4}>
+                      <Typography.Text theme="secondary">Provider</Typography.Text>
+                      <Input
+                        value={String(vendorModelForm.provider || '')}
+                        onChange={(v) => setVendorModelForm({ ...vendorModelForm, provider: String(v) })}
+                        placeholder="openai"
+                      />
+                    </Col>
+                    <Col span={4}>
+                      <Typography.Text theme="secondary">模型 ID</Typography.Text>
+                      <Input
+                        value={String(vendorModelForm.model || '')}
+                        onChange={(v) => setVendorModelForm({ ...vendorModelForm, model: String(v) })}
+                        placeholder="gpt-image-2"
+                      />
+                    </Col>
+                    <Col span={4}>
+                      <Typography.Text theme="secondary">状态</Typography.Text>
+                      <Select
+                        value={vendorModelForm.status || 'active'}
+                        onChange={(v) => setVendorModelForm({ ...vendorModelForm, status: String(v) })}
+                        options={apiKeyStatusOptions.map((item) => ({ ...item }))}
+                      />
+                    </Col>
+                  </Row>
+                  <div>
+                    <Typography.Text theme="secondary">显示名称</Typography.Text>
+                    <Input
+                      value={String(vendorModelForm.displayName || '')}
+                      onChange={(v) => setVendorModelForm({ ...vendorModelForm, displayName: String(v) })}
+                      placeholder="OpenAI · GPT Image 2"
+                    />
+                  </div>
+                  <Row gutter={[12, 12]}>
+                    <Col span={6}>
+                      <Typography.Text theme="secondary">能力类型（逗号分隔）</Typography.Text>
+                      <Input
+                        value={vendorModelForm.apiTypesText || ''}
+                        onChange={(v) => setVendorModelForm({ ...vendorModelForm, apiTypesText: String(v) })}
+                        placeholder="image_generation, image_edit"
+                      />
+                    </Col>
+                    <Col span={6}>
+                      <Typography.Text theme="secondary">执行模式（逗号分隔）</Typography.Text>
+                      <Input
+                        value={vendorModelForm.executionModesText || ''}
+                        onChange={(v) => setVendorModelForm({ ...vendorModelForm, executionModesText: String(v) })}
+                        placeholder="sync, async_submit_poll"
+                      />
+                    </Col>
+                  </Row>
+                  <Space size="large" style={{ flexWrap: 'wrap' }}>
+                    <Space size={4}>
+                      <Switch
+                        value={Boolean(vendorModelForm.supportsMask)}
+                        onChange={(v) => setVendorModelForm({ ...vendorModelForm, supportsMask: Boolean(v) })}
+                      />
+                      <Typography.Text theme="secondary">蒙版</Typography.Text>
+                    </Space>
+                    <Space size={4}>
+                      <Switch
+                        value={Boolean(vendorModelForm.supportsMultipleImages)}
+                        onChange={(v) => setVendorModelForm({ ...vendorModelForm, supportsMultipleImages: Boolean(v) })}
+                      />
+                      <Typography.Text theme="secondary">多图</Typography.Text>
+                    </Space>
+                    <Space size={4}>
+                      <Switch
+                        value={Boolean(vendorModelForm.supportsVideo)}
+                        onChange={(v) => setVendorModelForm({ ...vendorModelForm, supportsVideo: Boolean(v) })}
+                      />
+                      <Typography.Text theme="secondary">视频</Typography.Text>
+                    </Space>
+                    <Space size={4}>
+                      <Switch
+                        value={Boolean(vendorModelForm.supportsText)}
+                        onChange={(v) => setVendorModelForm({ ...vendorModelForm, supportsText: Boolean(v) })}
+                      />
+                      <Typography.Text theme="secondary">文本</Typography.Text>
+                    </Space>
+                    <Space size={4}>
+                      <Switch
+                        value={Boolean(vendorModelForm.requiresGlobalEgress)}
+                        onChange={(v) => setVendorModelForm({ ...vendorModelForm, requiresGlobalEgress: Boolean(v) })}
+                      />
+                      <Typography.Text theme="secondary">Global Egress</Typography.Text>
+                    </Space>
+                  </Space>
+                  <div>
+                    <Typography.Text theme="secondary">Metadata JSON</Typography.Text>
+                    <Textarea
+                      value={vendorModelForm.metadataText || '{}'}
+                      onChange={(v) => setVendorModelForm({ ...vendorModelForm, metadataText: String(v) })}
+                      autosize={{ minRows: 2, maxRows: 6 }}
+                    />
+                  </div>
+                  <Button theme="primary" onClick={handleVendorModelSubmit}>
+                    保存模型配置
+                  </Button>
+                </Space>
+              </div>
+            </Card>
+          </Col>
+        </Row>
+
+        <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+          <Col span={12}>
+            <Card bordered title="第三方调用统计">
+              <Typography.Text theme="secondary">
+                来自 vendor-api-ops 的最近 {vendorUsageWindowHours} 小时调用日志，用于判断 Key、模型和上游是否稳定。
+              </Typography.Text>
+              <div style={{ marginTop: 12 }}>
+                <Table
+                  size="small"
+                  rowKey="rowKey"
+                  data={vendorUsageItems.map((item, index) => ({
+                    ...item,
+                    rowKey: `${item.provider}-${item.model || 'all'}-${item.status}-${item.errorCode || 'ok'}-${index}`,
+                  }))}
+                  columns={[
+                    {
+                      colKey: 'provider',
+                      title: '厂商 / 模型',
+                      minWidth: 220,
+                      cell: ({ row }) => (
+                        <Space direction="vertical" size={2}>
+                          <Typography.Text>{row.provider}</Typography.Text>
+                          <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                            {row.model || '通用'}
+                          </Typography.Text>
+                        </Space>
+                      ),
+                    },
+                    {
+                      colKey: 'status',
+                      title: '状态',
+                      width: 120,
+                      cell: ({ row }) => <StatusPill status={row.status} />,
+                    },
+                    {
+                      colKey: 'count',
+                      title: '次数',
+                      width: 90,
+                    },
+                    {
+                      colKey: 'latency',
+                      title: '平均耗时',
+                      width: 120,
+                      cell: ({ row }) => (
+                        <Typography.Text theme="secondary">
+                          {typeof row.avgLatencyMs === 'number' ? `${row.avgLatencyMs}ms` : '—'}
+                        </Typography.Text>
+                      ),
+                    },
+                    {
+                      colKey: 'errorCode',
+                      title: '错误',
+                      minWidth: 180,
+                      cell: ({ row }) =>
+                        row.errorCode ? (
+                          <Typography.Text theme="error">{toDisplayErrorMessage(row.errorCode)}</Typography.Text>
+                        ) : (
+                          <Typography.Text theme="secondary">—</Typography.Text>
+                        ),
+                    },
+                    {
+                      colKey: 'lastSeenAt',
+                      title: '最近时间',
+                      width: 180,
+                      cell: ({ row }) => (
+                        <Typography.Text theme="secondary">
+                          {row.lastSeenAt ? formatDateTime(row.lastSeenAt) : '—'}
+                        </Typography.Text>
+                      ),
+                    },
+                  ]}
+                  empty={<Typography.Text theme="secondary">暂无第三方调用统计。跑一次模型测试后会自动出现。</Typography.Text>}
+                />
+              </div>
+            </Card>
+          </Col>
+        </Row>
+
+        <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+          <Col xs={12} lg={7}>
+            <Card bordered title="Vendor Key 池">
+              <Table
+                size="small"
+                rowKey="id"
+                data={vendorKeys}
+                columns={[
+                  {
+                    colKey: 'alias',
+                    title: 'Key Alias',
+                    minWidth: 220,
+                    cell: ({ row }) => (
+                      <Space direction="vertical" size={2}>
+                        <Typography.Text>{row.alias}</Typography.Text>
+                        <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                          {row.provider} · {row.keyPreview}
+                        </Typography.Text>
+                      </Space>
+                    ),
+                  },
+                  {
+                    colKey: 'status',
+                    title: '状态',
+                    width: 110,
+                    cell: ({ row }) => <StatusPill status={row.status} />,
+                  },
+                  {
+                    colKey: 'usage',
+                    title: '用量/并发',
+                    width: 160,
+                    cell: ({ row }) => (
+                      <Typography.Text theme="secondary">
+                        {row.usageCount}/{row.dailyQuota ?? '—'} · 并发 {row.maxConcurrency}
+                      </Typography.Text>
+                    ),
+                  },
+                  {
+                    colKey: 'last',
+                    title: '最近使用',
+                    width: 160,
+                    cell: ({ row }) => <Typography.Text theme="secondary">{row.lastUsedAt ? formatDateTime(row.lastUsedAt) : '—'}</Typography.Text>,
+                  },
+                  {
+                    colKey: 'actions',
+                    title: '操作',
+                    width: 110,
+                    cell: ({ row }) => (
+                      <Button size="small" variant="text" onClick={() => setVendorKeyForm({ ...row })}>
+                        编辑
+                      </Button>
+                    ),
+                  },
+                ]}
+                empty={<Typography.Text theme="secondary">暂无 vendor key。可在右侧新增。</Typography.Text>}
+              />
+            </Card>
+          </Col>
+
+          <Col xs={12} lg={5}>
+            <Card bordered title={vendorKeyForm.id ? '编辑 Vendor Key' : '新增 Vendor Key'}>
+              <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                <Alert theme="info" message="这里写入 vendor-api-ops；保存后只展示 keyPreview，Coze 和前端不会接触明文。" />
+                <Row gutter={[12, 12]}>
+                  <Col span={6}>
+                    <Typography.Text theme="secondary">Provider</Typography.Text>
+                    <Select
+                      value={vendorKeyForm.provider || ''}
+                      disabled={Boolean(vendorKeyForm.id)}
+                      onChange={(v) => setVendorKeyForm({ ...vendorKeyForm, provider: String(v) })}
+                      options={[
+                        { label: '请选择厂商…', value: '' },
+                        ...vendorProviders.map((item) => ({ label: `${item.displayName} (${item.provider})`, value: item.provider })),
+                      ]}
+                    />
+                  </Col>
+                  <Col span={6}>
+                    <Typography.Text theme="secondary">状态</Typography.Text>
+                    <Select
+                      value={vendorKeyForm.status || 'active'}
+                      onChange={(v) => setVendorKeyForm({ ...vendorKeyForm, status: String(v) })}
+                      options={apiKeyStatusOptions.map((item) => ({ ...item }))}
+                    />
+                  </Col>
+                </Row>
+                <div>
+                  <Typography.Text theme="secondary">Alias</Typography.Text>
+                  <Input
+                    disabled={Boolean(vendorKeyForm.id)}
+                    value={vendorKeyForm.alias || ''}
+                    onChange={(v) => setVendorKeyForm({ ...vendorKeyForm, alias: String(v) })}
+                    placeholder="例如 OpenAI-Global-主账号"
+                  />
+                </div>
+                {!vendorKeyForm.id ? (
+                  <div>
+                    <Typography.Text theme="secondary">Key</Typography.Text>
+                    <Input
+                      type="password"
+                      value={vendorKeyForm.key || ''}
+                      onChange={(v) => setVendorKeyForm({ ...vendorKeyForm, key: String(v) })}
+                      placeholder="粘贴第三方 API Key"
+                    />
+                  </div>
+                ) : (
+                  <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                    当前 Key：{vendorKeyForm.keyPreview || '***'}。编辑模式不回显明文。
+                  </Typography.Text>
+                )}
+                <Row gutter={[12, 12]}>
+                  <Col span={6}>
+                    <Typography.Text theme="secondary">日配额</Typography.Text>
+                    <InputNumber
+                      min={0}
+                      value={vendorKeyForm.dailyQuota ?? undefined}
+                      disabled={Boolean(vendorKeyForm.id)}
+                      onChange={(v) => setVendorKeyForm({ ...vendorKeyForm, dailyQuota: v === undefined || v === null ? undefined : Number(v) })}
+                    />
+                  </Col>
+                  <Col span={6}>
+                    <Typography.Text theme="secondary">最大并发</Typography.Text>
+                    <InputNumber
+                      min={1}
+                      value={vendorKeyForm.maxConcurrency ?? 1}
+                      disabled={Boolean(vendorKeyForm.id)}
+                      onChange={(v) => setVendorKeyForm({ ...vendorKeyForm, maxConcurrency: Number(v || 1) })}
+                    />
+                  </Col>
+                </Row>
+                <Space style={{ width: '100%' }}>
+                  <Button theme="primary" style={{ flex: 1 }} onClick={handleVendorKeySubmit}>
+                    保存到 vendor-api-ops
+                  </Button>
+                  {vendorKeyForm.id ? (
+                    <Button variant="outline" onClick={() => setVendorKeyForm(defaultVendorKeyForm)}>
+                      取消
+                    </Button>
+                  ) : null}
+                </Space>
+              </Space>
+            </Card>
+          </Col>
+        </Row>
+      </Section>
+          )}
+
+          {activeNav === 'apikeys' && (
+      <Section
+        id="apikeys"
+        title="旧 API Key 仓库"
+        description="兼容旧 backend Key 表；第三方模型 Key 请优先使用“模型弹药库”，这里后续会逐步降级为历史兼容入口。"
+      >
+        <ActionBar>
+          <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+            <Space direction="vertical" size={4}>
+              <Typography.Text strong>旧凭证池总览</Typography.Text>
+              <Typography.Text theme="secondary">
+                这里只保留 backend 历史兼容 Key。OpenAI、KIE、火山等第三方模型 Key 后续统一迁到“模型弹药库”。
               </Typography.Text>
             </Space>
             <Space size="small" style={{ flexWrap: 'wrap' }}>
@@ -14971,14 +16864,14 @@ const extractErrorMessage = (error: unknown): string => {
                   },
                   {
                     colKey: 'name',
-                    title: '名称',
+                    title: '名称 / Key Preview',
                     minWidth: 180,
                     ellipsis: true,
                     cell: ({ row }) => (
                       <Space direction="vertical" size={2}>
                         <Typography.Text>{row.name}</Typography.Text>
                         <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
-                          {row.id}
+                          {row.key_preview || '***'} · {row.id}
                         </Typography.Text>
                       </Space>
                     ),

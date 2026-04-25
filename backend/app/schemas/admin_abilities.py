@@ -8,38 +8,6 @@ from typing import Any
 from pydantic import BaseModel, Field, ConfigDict
 
 
-class AbilityGovernance(BaseModel):
-    scopes: list[str] = Field(default_factory=list)
-    release_status: str = Field(default="draft")
-    route_policy: str = Field(default="fixed")
-    quality_status: str = Field(default="untested")
-
-
-class AbilityBusinessStatus(BaseModel):
-    availability_code: str = Field(default="unavailable")
-    availability_label: str = Field(default="暂不可用")
-    stability_code: str = Field(default="experimental")
-    stability_label: str = Field(default="实验性")
-    surface_labels: list[str] = Field(default_factory=list)
-
-
-class AbilityPresentation(BaseModel):
-    visible: bool = Field(default=True)
-    sort_order: int = Field(default=9999)
-    category_label: str = Field(default="")
-    usage_hint: str = Field(default="")
-    operation_label: str = Field(default="")
-
-
-class AbilityDeprecation(BaseModel):
-    is_deprecated: bool = Field(default=False)
-    replacement_ability_id: str | None = None
-    replacement_capability_key: str | None = None
-    replacement_display_name: str | None = None
-    reason: str | None = None
-    retirement_mode: str | None = None
-
-
 class AbilityBase(BaseModel):
     provider: str
     category: str
@@ -51,13 +19,11 @@ class AbilityBase(BaseModel):
     ability_type: str = Field(default="api")
     executor_id: str | None = None
     workflow_id: str | None = None
+    vendor_model_id: int | None = None
     coze_workflow_id: str | None = None
     default_params: dict[str, Any] | None = None
     input_schema: dict[str, Any] | None = None
     metadata: dict[str, Any] | None = None
-    governance: AbilityGovernance | None = None
-    presentation: AbilityPresentation | None = None
-    deprecation: AbilityDeprecation | None = None
 
 
 class AbilityCreate(AbilityBase):
@@ -75,13 +41,11 @@ class AbilityUpdate(BaseModel):
     ability_type: str | None = None
     executor_id: str | None = None
     workflow_id: str | None = None
+    vendor_model_id: int | None = None
     coze_workflow_id: str | None = None
     default_params: dict[str, Any] | None = None
     input_schema: dict[str, Any] | None = None
     metadata: dict[str, Any] | None = None
-    governance: AbilityGovernance | None = None
-    presentation: AbilityPresentation | None = None
-    deprecation: AbilityDeprecation | None = None
 
 
 class AbilityRead(AbilityBase):
@@ -91,13 +55,11 @@ class AbilityRead(AbilityBase):
 
     ability_type: str = Field(default="api")
     workflow_id: str | None = None
+    vendor_model_id: int | None = None
     coze_workflow_id: str | None = None
     last_health_check_at: datetime | None = None
     last_health_status: str | None = None
     success_rate: float | None = None
-    business_status: AbilityBusinessStatus | None = None
-    presentation: AbilityPresentation | None = None
-    deprecation: AbilityDeprecation | None = None
 
     id: str
     created_at: datetime
@@ -116,14 +78,40 @@ class AbilityOption(BaseModel):
     input_schema: dict[str, Any] | None = None
     metadata: dict[str, Any] | None = None
     coze_workflow_id: str | None = None
-    governance: AbilityGovernance | None = None
-    business_status: AbilityBusinessStatus | None = None
-    presentation: AbilityPresentation | None = None
-    deprecation: AbilityDeprecation | None = None
+    vendor_model_id: int | None = None
 
 
 class AbilityOptionListResponse(BaseModel):
     items: list[AbilityOption]
+
+
+class AbilityHealthSummaryItem(BaseModel):
+    abilityId: str
+    displayName: str
+    provider: str
+    capabilityKey: str
+    status: str
+    healthStatus: str
+    lastHealthCheckAt: datetime | None = None
+    successRate: float | None = None
+    finishedLogCount: int = 0
+    latestLogStatus: str | None = None
+    latestLogAt: datetime | None = None
+    stale: bool = False
+    needsTest: bool = False
+
+
+class AbilityHealthSummaryResponse(BaseModel):
+    generatedAt: datetime
+    staleHours: int
+    total: int
+    healthy: int
+    degraded: int
+    failed: int
+    unknown: int
+    staleCount: int
+    needsTestCount: int
+    items: list[AbilityHealthSummaryItem]
 
 
 class AbilityTemplateSnapshot(BaseModel):

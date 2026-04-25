@@ -64,13 +64,6 @@ from app.schemas.eval import (
 )
 from app.services.comfyui_lora_catalog_service import ensure_default_lora_catalog_entries
 from app.services.eval_seed import FISSION_WORKFLOW_IDS, ensure_default_eval_workflow_versions
-from app.services.eval_workflow_deprecation import resolve_eval_workflow_deprecation
-from app.services.eval_workflow_presentation import (
-    build_eval_workflow_presentation_sort_key,
-    is_eval_workflow_visible,
-    resolve_eval_workflow_presentation,
-)
-from app.services.eval_workflow_usage import resolve_eval_workflow_usage
 from app.services.eval_service import get_eval_service
 from app.services.oss import oss_service
 from app.services.task_status_contract import derive_eval_run_status
@@ -175,24 +168,6 @@ def _extract_workflow_resource_bindings(schema: dict[str, Any] | None) -> list[E
 
 
 def _serialize_workflow_version(version: EvalWorkflowVersion) -> EvalWorkflowVersionResponse:
-    deprecation = resolve_eval_workflow_deprecation(
-        status=version.status,
-        metadata=version.extra_metadata,
-    )
-    presentation = resolve_eval_workflow_presentation(
-        status=version.status,
-        category=version.category,
-        workflow_id=version.workflow_id,
-        name=version.name,
-        parameters_schema=version.parameters_schema,
-        output_schema=version.output_schema,
-        metadata=version.extra_metadata,
-    )
-    usage = resolve_eval_workflow_usage(
-        category=version.category,
-        parameters_schema=version.parameters_schema,
-        metadata=version.extra_metadata,
-    )
     return EvalWorkflowVersionResponse(
         id=version.id,
         category=version.category,
@@ -202,66 +177,11 @@ def _serialize_workflow_version(version: EvalWorkflowVersion) -> EvalWorkflowVer
         workflow_id=version.workflow_id,
         parameters_schema=version.parameters_schema,
         output_schema=version.output_schema,
-        metadata=version.extra_metadata,
         notes=version.notes,
         status=version.status,
-        deprecation={
-            "isDeprecated": True,
-            "replacementWorkflowId": deprecation.get("replacement_workflow_id"),
-            "replacementDisplayName": deprecation.get("replacement_display_name"),
-            "reason": deprecation.get("reason"),
-            "retirementMode": deprecation.get("retirement_mode"),
-        }
-        if deprecation
-        else None,
-        presentation={
-            "visible": presentation["visible"],
-            "sortOrder": presentation["sort_order"],
-            "categoryLabel": presentation["category_label"],
-            "usageHint": presentation["usage_hint"],
-            "operationLabel": presentation["operation_label"],
-            "entryMode": presentation["entry_mode"],
-            "resultMode": presentation["result_mode"],
-            "supportsBatch": presentation["supports_batch"],
-            "recommendedRepeatCount": presentation["recommended_repeat_count"],
-        },
-        usage={
-            "singleRunEnabled": usage["single_run_enabled"],
-            "batchEnabled": usage["batch_enabled"],
-            "docsEnabled": usage["docs_enabled"],
-            "recommendedEntry": usage["recommended_entry"],
-            "supportsAnnotation": usage["supports_annotation"],
-            "requiresResourceOptions": usage["requires_resource_options"],
-            "resourceOptionTypes": usage["resource_option_types"],
-        },
         resourceBindings=_extract_workflow_resource_bindings(version.parameters_schema),
         created_at=version.created_at,
         updated_at=version.updated_at,
-    )
-
-
-def _workflow_sort_key(row: EvalWorkflowVersion) -> tuple[str, int, str]:
-    sort_value, category, _workflow_id, name = build_eval_workflow_presentation_sort_key(
-        status=row.status,
-        category=row.category,
-        workflow_id=row.workflow_id,
-        name=row.name,
-        parameters_schema=row.parameters_schema,
-        output_schema=row.output_schema,
-        metadata=row.extra_metadata,
-    )
-    return (str(category or ""), int(sort_value), str(name or ""))
-
-
-def _is_workflow_visible(row: EvalWorkflowVersion) -> bool:
-    return is_eval_workflow_visible(
-        status=row.status,
-        category=row.category,
-        workflow_id=row.workflow_id,
-        name=row.name,
-        parameters_schema=row.parameters_schema,
-        output_schema=row.output_schema,
-        metadata=row.extra_metadata,
     )
 
 
@@ -271,9 +191,7 @@ def _dedupe_workflow_versions(rows: list[EvalWorkflowVersion]) -> list[EvalWorkf
         key = (str(row.workflow_id or "").strip(), str(row.category or "").strip())
         if key not in dedup:
             dedup[key] = row
-    values = [row for row in dedup.values() if _is_workflow_visible(row)]
-    values.sort(key=_workflow_sort_key)
-    return values
+    return list(dedup.values())
 
 
 def _serialize_eval_run(run: EvalRun) -> EvalRunResponse:
@@ -1433,7 +1351,6 @@ def admin_list_workflow_versions(
     if category:
         stmt = stmt.where(EvalWorkflowVersion.category == category)
     rows = db.execute(stmt.order_by(EvalWorkflowVersion.category.asc(), EvalWorkflowVersion.created_at.desc())).scalars().all()
-    rows.sort(key=_workflow_sort_key)
     return [_serialize_workflow_version(row) for row in rows]
 
 
@@ -1451,8 +1368,6 @@ def admin_update_workflow_version(
     for key in ("name", "notes", "category", "status", "version"):
         if key in body and isinstance(body[key], str):
             setattr(row, key, body[key].strip())
-    if "metadata" in body and isinstance(body["metadata"], dict):
-        row.extra_metadata = body["metadata"]
     db.add(row)
     db.commit()
     db.refresh(row)

@@ -20,6 +20,7 @@ MVP includes:
 - `POST /v1/keys`
 - `GET /v1/keys`
 - `PATCH /v1/keys/{keyId}`
+- `GET /v1/usage/summary`
 
 Provider registry now covers OpenAI, OpenAI-compatible relays, Volcengine,
 Baidu, and KIE. Keys, invocations, and usage logs are persisted in SQLite by
@@ -63,11 +64,11 @@ curl -sS -X POST http://127.0.0.1:8310/v1/invocations \
   -H 'Content-Type: application/json' \
   -d '{
     "provider":"openai",
-    "capabilityKey":"gpt_image_2_edit",
+    "capabilityKey":"gpt_image_2_generate",
     "model":"gpt-image-2",
-    "apiType":"image_edit",
+    "apiType":"image_generation",
     "executionMode":"sync",
-    "inputs":{"prompt":"edit image","mockImageUrl":"https://example.com/out.png"}
+    "inputs":{"prompt":"generate a textile pattern","size":"1024x1024","quality":"auto"}
   }'
 ```
 
@@ -82,9 +83,27 @@ KIE now uses the real submit/poll contract:
 
 - Submit: `POST /api/v1/jobs/createTask`
 - Poll: `GET /api/v1/jobs/recordInfo?taskId=...`
+- Submit and poll both retry one time on `429/5xx` or transient network errors before returning an upstream error.
 
 Configure a key either through `POST /v1/keys` or `KIE_API_KEY`. Runtime key
 reads only expose `keyPreview`, never the raw secret.
+
+## Key Concurrency and Usage
+
+Each stored key has `maxConcurrency`. If all active keys for a provider/model
+are busy, invocation returns `VENDOR_API_KEY_CONCURRENCY_LIMITED` with
+`retryable=true`; it does not call the upstream vendor. This guard is
+process-local in the MVP and should be backed by a database lease if the service
+runs multiple workers.
+
+Recent usage can be queried with:
+
+```bash
+curl -sS "http://127.0.0.1:8310/v1/usage/summary?windowHours=24"
+```
+
+The response groups by provider/model/status/error code and includes call count,
+average latency, and latest timestamp.
 
 ## OpenAI / Compatible Adapter
 
@@ -93,6 +112,10 @@ OpenAI image generation/editing now uses the real Images API style contract:
 - Generation: `POST /v1/images/generations`
 - Edit: `POST /v1/images/edits`
 - Edit inputs support `images: [{"image_url": "..."}]` and optional `mask: {"image_url": "..."}`
+- GPT Image 2 abilities currently exposed by backend:
+  - `openai_gpt_image_2_generate`: text to image.
+  - `openai_gpt_image_2_edit`: image edit with optional mask and reference images.
+- GPT Image 2 does not expose transparent background or `input_fidelity` in our form schema; unsupported parameters should not be forwarded.
 
 Use `OPENAI_BASE_URL`/`OPENAI_API_KEY` for OpenAI, or
 `OPENAI_COMPATIBLE_BASE_URL`/`OPENAI_COMPATIBLE_API_KEY` for relay providers.

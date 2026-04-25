@@ -17,11 +17,11 @@ def test_new_comfyui_bindings_cover_two_executors():
 
     assert (
         "workflow_comfyui_flux2_klein_9b_outpaint_v1",
-        "executor_comfyui_pattern_extract_158",
+        "executor_comfyui_seamless_117",
     ) in binding_pairs
     assert (
         "workflow_comfyui_flux2_klein_9b_outpaint_v1",
-        "executor_comfyui_seamless_117",
+        "executor_comfyui_pattern_extract_158",
     ) in binding_pairs
     assert (
         "workflow_comfyui_beijing_koutu_v1",

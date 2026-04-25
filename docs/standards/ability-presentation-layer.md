@@ -1,70 +1,64 @@
-# 能力展示层规范
+# 能力展示层约定
 
-适用范围：`/api/abilities`、`/api/abilities/options`、管理端能力目录，以及未来所有直接面向业务用户的能力列表。
+目标：在**不改接口路径、不改执行链路、不破坏现有业务兼容**的前提下，把底层能力对象翻译成更适合用户理解的表现层。
 
-## 目标
+## 原则
 
-能力展示层的作用是把中台内部治理概念翻译成业务能理解的语言，避免业务侧直接理解：
+1. 调度层对象继续保留：`ability / workflow / executor / binding / task`
+2. 用户侧优先展示业务语言：`工具 / 模板 / 任务 / 结果 / 下一步`
+3. 展示层配置只做增量，不删除旧字段
+4. 没有展示层配置时，前端与 Coze 出口必须回退到旧逻辑
 
-- `governance.scopes`
-- `release_status`
-- `route_policy`
-- `quality_status`
-- `routing.selection_policy`
+## 当前兼容做法
 
-这些字段继续保留在中台内部使用，但业务侧默认只看简化后的展示层。
+公共能力接口 `GET /api/abilities` 允许额外返回：
 
-## 真源位置
+- `presentation.name`
+- `presentation.summary`
+- `presentation.formIntro`
+- `presentation.expectedOutput`
 
-- 内部治理：`Ability.extra_metadata.governance`
-- 路由真源：`Ability.extra_metadata.routing`
-- 业务展示：`Ability.extra_metadata.presentation`
+同时会对 `inputSchema.fields[*]` 做用户侧清洗：
 
-## 展示层字段
+- 优先保留中文标签
+- 隐藏纯技术节点提示（如 `节点 111 · ...`）
+- 将明显技术参数标记为 `advanced=true`
 
-`presentation` 当前统一为：
+这些变化都是**向后兼容**的：
 
-- `visible`
-- `sort_order`
-- `category_label`
-- `usage_hint`
-- `operation_label`
+- 不改原有字段名
+- 不改入参结构
+- 不影响旧客户端继续读取 `displayName / inputSchema / metadata`
 
-字段含义：
+## metadata 增量约定
 
-- `visible`：是否建议在业务列表展示
-- `sort_order`：业务列表排序值，数值越小越靠前
-- `category_label`：给业务看的分类名称
-- `usage_hint`：一句话使用提示
-- `operation_label`：一句话动作名称，例如“图像扩展”“抠图”“图像裂变”
+能力可在 `metadata.presentation` 下补充用户侧展示配置：
 
-## 设计原则
+```json
+{
+  "presentation": {
+    "summary": "适合先出方向稿。",
+    "formIntro": "先写清楚你想要的风格、品类和重点。",
+    "expectedOutput": "会先返回可继续修改的方向图。",
+    "fields": {
+      "prompt": {
+        "label": "创作说明",
+        "placeholder": "描述你这次要生成什么",
+        "description": "一句话说清楚风格、主体和重点",
+        "advanced": false
+      },
+      "seed": {
+        "advanced": true
+      }
+    }
+  }
+}
+```
 
-1. 业务侧看到的是动作和结果，不是技术原因。
-2. 展示层文案必须短、直接、可执行，不写中台术语。
-3. 同一能力的展示层应由后端真源生成，不允许前端各写一套映射。
-4. `businessStatus` 与 `presentation` 一起构成业务可见层：
-   - `businessStatus` 负责“能不能用、稳不稳定”
-   - `presentation` 负责“它是干什么的、该怎么用”
+## 适用范围
 
-## 默认策略
+- 客户端工作台
+- Coze 工具 OpenAPI 描述
+- 未来的轻量业务前台
 
-若未显式配置 `presentation`，后端应自动推导：
-
-- `visible`：默认随能力状态为 `active`
-- `sort_order`：按能力大类分桶
-- `category_label`：按能力大类映射到业务名称
-- `usage_hint`：按 provider / ability_type / governance scopes 推导
-- `operation_label`：按 capability key 和 category 关键词推导
-
-## 禁止事项
-
-1. 不允许前端写死能力业务文案映射作为唯一来源。
-2. 不允许把 `routing_policy`、`fallback_to_default`、`required_executor_tags` 直接展示给业务用户。
-3. 不允许用展示层字段替代中台内部治理字段；两层职责不同。
-
-## 与下线规则的关系
-
-- 展示层只负责“业务怎么理解这个能力”。
-- 是否继续公开暴露，由 `metadata.deprecation` 与 `governance.release_status` 共同决定。
-- 一旦能力进入 `deprecated`，且下线模式为 `hide_public/internal_only/delete_candidate`，公共能力列表必须自动隐藏，不能继续依赖前端手工过滤。
+管理端高级配置页不强制使用该展示层，避免损失技术可维护性。

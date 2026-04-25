@@ -327,22 +327,6 @@ const getWorkflowUsageHint = (wf: EvalWorkflowVersion | null | undefined): strin
 const getWorkflowOperationLabel = (wf: EvalWorkflowVersion | null | undefined): string =>
   String(getWorkflowPresentation(wf)?.operationLabel || '').trim();
 
-const getWorkflowReleaseTime = (wf: EvalWorkflowVersion | null | undefined): string => {
-  const raw = String(wf?.created_at || '').trim();
-  if (!raw) return '—';
-  return fmtTime(raw);
-};
-
-const getWorkflowCreatedAtValue = (wf: EvalWorkflowVersion | null | undefined): number => {
-  const raw = String(wf?.created_at || '').trim();
-  if (!raw) return 0;
-  const ts = Date.parse(raw);
-  return Number.isFinite(ts) ? ts : 0;
-};
-
-const getWorkflowDeprecation = (wf: EvalWorkflowVersion | null | undefined) =>
-  (wf?.deprecation && typeof wf.deprecation === 'object' ? wf.deprecation : null) as EvalWorkflowVersion['deprecation'];
-
 const isWorkflowBatchEnabled = (wf: EvalWorkflowVersion | null | undefined): boolean => {
   const usage = getWorkflowUsage(wf);
   if (typeof usage?.batchEnabled === 'boolean') return usage.batchEnabled;
@@ -990,7 +974,7 @@ const isFissionWorkflow = (wf: EvalWorkflowVersion): boolean =>
   getWorkflowCategory(wf) === '图裂变';
 
 const sanitizeWorkflowDoc = (wf: WorkflowDoc): WorkflowDoc => {
-  if (normalizeCategory(wf.category) !== '图裂变') return wf;
+  if (getWorkflowCategory(wf as any) !== '图裂变') return wf;
   const filteredParams = Array.isArray(wf.parameters)
     ? wf.parameters.filter((param) => !INTERNAL_EVAL_DOC_KEYS.has(String(param.name || '').toLowerCase()))
     : wf.parameters;
@@ -1184,7 +1168,6 @@ function ToolCard({
   const visual = getCategoryVisual(getWorkflowCategory(wf));
   const categoryName = getWorkflowCategory(wf);
   const operationLabel = getWorkflowOperationLabel(wf);
-  const releaseTime = getWorkflowReleaseTime(wf);
   return (
     <div
       role="button"
@@ -1206,19 +1189,11 @@ function ToolCard({
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
           <Space align="start" style={{ justifyContent: 'space-between', width: '100%' }}>
             <Space direction="vertical" size={2} style={{ minWidth: 0 }}>
-              {operationLabel ? (
-                <Typography.Text theme="primary" style={{ fontSize: 12 }}>
-                  {operationLabel}
-                </Typography.Text>
-              ) : null}
               <Typography.Text strong ellipsis>
                 {wf.name}
               </Typography.Text>
               <Typography.Text className="podi-eval-tool-card__workflow" ellipsis>
-                工作流编号：{wf.workflow_id}
-              </Typography.Text>
-              <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
-                发布时间：{releaseTime}
+                {wf.workflow_id}
               </Typography.Text>
             </Space>
             <Space direction="vertical" size={2} style={{ alignItems: 'flex-end' }}>
@@ -1234,9 +1209,11 @@ function ToolCard({
           <div style={{ marginTop: 12 }}>
             <Space breakLine>
               <Tag variant="light">{wf.version}</Tag>
+              <Tag variant="light">发布 {fmtTime(wf.created_at).split(' ')[0]}</Tag>
               <Tag theme="primary" variant="light">
                 {categoryName}
               </Tag>
+              {operationLabel ? <Tag variant="light">{operationLabel}</Tag> : null}
             </Space>
           </div>
           <div className="podi-eval-tool-card__footer">
@@ -1734,8 +1711,6 @@ export function App() {
     const list = (grouped[activeCategory] || []).slice().sort((a, b) => {
       const order = getWorkflowSortOrder(a) - getWorkflowSortOrder(b);
       if (order !== 0) return order;
-      const createdAtDiff = getWorkflowCreatedAtValue(b) - getWorkflowCreatedAtValue(a);
-      if (createdAtDiff !== 0) return createdAtDiff;
       return a.name.localeCompare(b.name);
     });
     return list;
@@ -1800,9 +1775,7 @@ export function App() {
       const urlField = fields.find((f) => f.name === 'url' || f.name === 'Url') || null;
       if (!urlField) continue;
       const usage = getWorkflowUsage(wf);
-      const resourceOptionTypes = Array.isArray(usage?.resourceOptionTypes)
-        ? usage.resourceOptionTypes.map((item) => String(item || '').toLowerCase())
-        : [];
+      const resourceOptionTypes = Array.isArray(usage?.resourceOptionTypes) ? usage?.resourceOptionTypes.map((x) => String(x || '').toLowerCase()) : [];
       const expectsLoraFromUsage = resourceOptionTypes.includes('lora');
       const loraField =
         fields.find((f) => String(f.name || '').toLowerCase() === 'lora') ||
@@ -1828,8 +1801,6 @@ export function App() {
     metas.sort((a, b) => {
       const order = getWorkflowSortOrder(a.workflow) - getWorkflowSortOrder(b.workflow);
       if (order !== 0) return order;
-      const createdAtDiff = getWorkflowCreatedAtValue(b.workflow) - getWorkflowCreatedAtValue(a.workflow);
-      if (createdAtDiff !== 0) return createdAtDiff;
       return String(a.workflow.name || '').localeCompare(String(b.workflow.name || ''));
     });
     return metas;
@@ -5284,7 +5255,7 @@ export function App() {
             返回功能列表
           </Button>
           <Typography.Text theme="secondary" style={{ fontFamily: 'monospace' }}>
-            工作流编号：{selectedTool.workflow_id}
+            workflow_id: {selectedTool.workflow_id}
           </Typography.Text>
         </Space>
 
@@ -5295,7 +5266,6 @@ export function App() {
                 {selectedTool.name}
               </Typography.Title>
               <Typography.Text theme="secondary">{getWorkflowUsageHint(selectedTool) || '—'}</Typography.Text>
-              <Typography.Text theme="secondary">发布时间：{getWorkflowReleaseTime(selectedTool)}</Typography.Text>
               <Space breakLine>
                 <Tag variant="light">{getWorkflowCategory(selectedTool)}</Tag>
                 <Tag variant="light">{selectedTool.version}</Tag>
@@ -6573,38 +6543,10 @@ function AdminWorkflowRow({
   const [notes, setNotes] = useState(wf.notes || '');
   const [category, setCategory] = useState(getWorkflowCategory(wf));
   const [status, setStatus] = useState(wf.status);
-  const [visible, setVisible] = useState(Boolean(getWorkflowPresentation(wf)?.visible ?? true));
-  const [sortOrder, setSortOrder] = useState(String(getWorkflowPresentation(wf)?.sortOrder ?? ''));
-  const [categoryLabel, setCategoryLabel] = useState(String(getWorkflowPresentation(wf)?.categoryLabel || getWorkflowCategory(wf)));
-  const [usageHint, setUsageHint] = useState(String(getWorkflowPresentation(wf)?.usageHint || ''));
-  const [operationLabel, setOperationLabel] = useState(String(getWorkflowPresentation(wf)?.operationLabel || ''));
-  const [batchEnabled, setBatchEnabled] = useState(Boolean(getWorkflowUsage(wf)?.batchEnabled ?? false));
-  const [recommendedEntry, setRecommendedEntry] = useState(String(getWorkflowUsage(wf)?.recommendedEntry || 'single_image'));
-  const [isDeprecated, setIsDeprecated] = useState(Boolean(getWorkflowDeprecation(wf)?.isDeprecated ?? false));
-  const [replacementWorkflowId, setReplacementWorkflowId] = useState(String(getWorkflowDeprecation(wf)?.replacementWorkflowId || ''));
-  const [replacementDisplayName, setReplacementDisplayName] = useState(String(getWorkflowDeprecation(wf)?.replacementDisplayName || ''));
-  const [deprecationReason, setDeprecationReason] = useState(String(getWorkflowDeprecation(wf)?.reason || ''));
-  const [retirementMode, setRetirementMode] = useState(String(getWorkflowDeprecation(wf)?.retirementMode || 'hide_public'));
   const [saving, setSaving] = useState(false);
   const [rowError, setRowError] = useState<string>('');
 
-  const dirty =
-    name !== wf.name ||
-    notes !== (wf.notes || '') ||
-    category !== getWorkflowCategory(wf) ||
-    status !== wf.status ||
-    visible !== Boolean(getWorkflowPresentation(wf)?.visible ?? true) ||
-    sortOrder !== String(getWorkflowPresentation(wf)?.sortOrder ?? '') ||
-    categoryLabel !== String(getWorkflowPresentation(wf)?.categoryLabel || getWorkflowCategory(wf)) ||
-    usageHint !== String(getWorkflowPresentation(wf)?.usageHint || '') ||
-    operationLabel !== String(getWorkflowPresentation(wf)?.operationLabel || '') ||
-    batchEnabled !== Boolean(getWorkflowUsage(wf)?.batchEnabled ?? false) ||
-    recommendedEntry !== String(getWorkflowUsage(wf)?.recommendedEntry || 'single_image') ||
-    isDeprecated !== Boolean(getWorkflowDeprecation(wf)?.isDeprecated ?? false) ||
-    replacementWorkflowId !== String(getWorkflowDeprecation(wf)?.replacementWorkflowId || '') ||
-    replacementDisplayName !== String(getWorkflowDeprecation(wf)?.replacementDisplayName || '') ||
-    deprecationReason !== String(getWorkflowDeprecation(wf)?.reason || '') ||
-    retirementMode !== String(getWorkflowDeprecation(wf)?.retirementMode || 'hide_public');
+  const dirty = name !== wf.name || notes !== (wf.notes || '') || category !== getWorkflowCategory(wf) || status !== wf.status;
   const missingParamsSchema = !wf.parameters_schema || (Array.isArray(wf.parameters_schema) && wf.parameters_schema.length === 0);
   const missingOutputSchema = !wf.output_schema || (Array.isArray(wf.output_schema) && wf.output_schema.length === 0);
   const schemaMissingLabels = [
@@ -6659,114 +6601,6 @@ function AdminWorkflowRow({
               className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 p-3 text-sm text-slate-100"
             />
           </label>
-
-          <div className="mt-3 rounded-xl border border-slate-800 bg-slate-950/40 p-3">
-            <div className="text-xs font-semibold text-slate-200">展示配置</div>
-            <div className="mt-3 grid gap-3 lg:grid-cols-2">
-              <label className="block">
-                <div className="text-xs text-slate-300">业务分类标签</div>
-                <input
-                  value={categoryLabel}
-                  onChange={(e) => setCategoryLabel(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100"
-                />
-              </label>
-              <label className="block">
-                <div className="text-xs text-slate-300">排序</div>
-                <input
-                  value={sortOrder}
-                  onChange={(e) => setSortOrder(e.target.value.replace(/[^\d-]/g, ''))}
-                  className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100"
-                />
-              </label>
-              <label className="block lg:col-span-2">
-                <div className="text-xs text-slate-300">业务提示文案</div>
-                <textarea
-                  value={usageHint}
-                  onChange={(e) => setUsageHint(e.target.value)}
-                  rows={2}
-                  className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 p-3 text-sm text-slate-100"
-                />
-              </label>
-              <label className="block">
-                <div className="text-xs text-slate-300">操作标签</div>
-                <input
-                  value={operationLabel}
-                  onChange={(e) => setOperationLabel(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100"
-                />
-              </label>
-              <label className="block">
-                <div className="text-xs text-slate-300">推荐入口</div>
-                <select
-                  value={recommendedEntry}
-                  onChange={(e) => setRecommendedEntry(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100"
-                >
-                  <option value="single_image">single_image</option>
-                  <option value="parameter_form">parameter_form</option>
-                  <option value="resource_form">resource_form</option>
-                  <option value="lora_batch">lora_batch</option>
-                  <option value="direct_run">direct_run</option>
-                </select>
-              </label>
-              <label className="flex items-center gap-2 text-sm text-slate-200">
-                <input type="checkbox" checked={visible} onChange={(e) => setVisible(e.target.checked)} />
-                public 列表可见
-              </label>
-              <label className="flex items-center gap-2 text-sm text-slate-200">
-                <input type="checkbox" checked={batchEnabled} onChange={(e) => setBatchEnabled(e.target.checked)} />
-                支持批测
-              </label>
-            </div>
-          </div>
-
-          <div className="mt-3 rounded-xl border border-slate-800 bg-slate-950/40 p-3">
-            <div className="text-xs font-semibold text-slate-200">下线 / 替代</div>
-            <div className="mt-3 grid gap-3 lg:grid-cols-2">
-              <label className="flex items-center gap-2 text-sm text-slate-200 lg:col-span-2">
-                <input type="checkbox" checked={isDeprecated} onChange={(e) => setIsDeprecated(e.target.checked)} />
-                标记为旧入口
-              </label>
-              <label className="block">
-                <div className="text-xs text-slate-300">替代 workflow_id</div>
-                <input
-                  value={replacementWorkflowId}
-                  onChange={(e) => setReplacementWorkflowId(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100"
-                />
-              </label>
-              <label className="block">
-                <div className="text-xs text-slate-300">替代显示名</div>
-                <input
-                  value={replacementDisplayName}
-                  onChange={(e) => setReplacementDisplayName(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100"
-                />
-              </label>
-              <label className="block">
-                <div className="text-xs text-slate-300">下线模式</div>
-                <select
-                  value={retirementMode}
-                  onChange={(e) => setRetirementMode(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100"
-                >
-                  <option value="hide_public">hide_public</option>
-                  <option value="admin_only">admin_only</option>
-                  <option value="delete_candidate">delete_candidate</option>
-                </select>
-              </label>
-              <label className="block lg:col-span-2">
-                <div className="text-xs text-slate-300">原因</div>
-                <textarea
-                  value={deprecationReason}
-                  onChange={(e) => setDeprecationReason(e.target.value)}
-                  rows={2}
-                  className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-950 p-3 text-sm text-slate-100"
-                />
-              </label>
-            </div>
-          </div>
         </div>
 
         <div className="shrink-0 w-full lg:w-56">
@@ -6789,39 +6623,11 @@ function AdminWorkflowRow({
               setSaving(true);
               setRowError('');
               try {
-                const nextMetadata: Record<string, unknown> = {
-                  ...(wf.metadata || {}),
-                  presentation: {
-                    ...(((wf.metadata as any)?.presentation as Record<string, unknown>) || {}),
-                    visible,
-                    sort_order: sortOrder ? Number(sortOrder) : null,
-                    category_label: categoryLabel.trim() || category,
-                    usage_hint: usageHint.trim() || null,
-                    operation_label: operationLabel.trim() || null,
-                  },
-                  usage: {
-                    ...(((wf.metadata as any)?.usage as Record<string, unknown>) || {}),
-                    batch_enabled: batchEnabled,
-                    recommended_entry: recommendedEntry.trim() || null,
-                  },
-                };
-                if (isDeprecated) {
-                  nextMetadata.deprecation = {
-                    is_deprecated: true,
-                    replacement_workflow_id: replacementWorkflowId.trim() || null,
-                    replacement_display_name: replacementDisplayName.trim() || null,
-                    reason: deprecationReason.trim() || null,
-                    retirement_mode: retirementMode.trim() || 'hide_public',
-                  };
-                } else {
-                  delete nextMetadata.deprecation;
-                }
                 const next = await evalApi.adminUpdateWorkflowVersion(adminToken, wf.id, {
                   name,
                   notes,
                   category,
                   status,
-                  metadata: nextMetadata,
                 });
                 onSaved(next);
               } catch (err) {

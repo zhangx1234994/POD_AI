@@ -22,7 +22,8 @@ def test_comfyui_duotu_ronghe_openapi_contains_only_tool_and_tasks_get():
     props = tool_schema.get("properties") or {}
     required = tool_schema.get("required") or []
     assert "url" in props
-    assert "image_urls" in props
+    assert "image_url_2" in props
+    assert "image_url_3" in props
     assert "prompt" in props
     assert "url" in required
     assert "image_url" not in props

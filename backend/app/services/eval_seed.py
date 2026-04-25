@@ -10,17 +10,12 @@ from __future__ import annotations
 from typing import Any
 from uuid import uuid4
 import json
-from copy import deepcopy
 
 from sqlalchemy import select, update as sa_update
 from sqlalchemy.orm import Session
 
 from app.models.eval import EvalBatchSession, EvalRun, EvalWorkflowVersion
 from app.constants.abilities import PATTERN_EXTRACT_LORA_PRESETS
-from app.services.eval_workflow_catalog_cleanup import get_eval_workflow_cleanup_overrides
-from app.services.eval_workflow_deprecation import enrich_metadata_with_eval_workflow_deprecation
-from app.services.eval_workflow_presentation import enrich_metadata_with_eval_workflow_presentation
-from app.services.eval_workflow_usage import enrich_metadata_with_eval_workflow_usage
 
 
 LORA_OPTIONS = [
@@ -63,7 +58,6 @@ FISSION_WORKFLOW_IDS: set[str] = {
     "7598820684801769472",  # Liebian_comfyui_20260124
     "7622193261276299264",  # Liebian_comfyui_20260328_1
     "7622190276932534272",  # Liebian_comfyui_20260328
-    "7631838631375667200",  # Liebian_comfyui_20260423
     "7601077530077954048",  # Liebian_shangye_20260130
     "7598848725942796288",  # Liebian_shangye_20260124_1_1_1
     "7629024620879806464",  # qwen2512_print_shape_text_enhance
@@ -84,7 +78,6 @@ CATEGORY_FIX_WORKFLOW_IDS: dict[str, str] = {
 OUTPAINTING_WORKFLOW_IDS: set[str] = {
     "7597723984687267840",
     "7598587935331450880",
-    "7631174682116358144",
 }
 
 # Workflows whose output should include prompt feedback.
@@ -100,7 +93,6 @@ PROMPT_OUTPUT_WORKFLOW_IDS: set[str] = {
     "7598820684801769472",  # Liebian_comfyui_20260124
     "7622193261276299264",  # Liebian_comfyui_20260328_1
     "7622190276932534272",  # Liebian_comfyui_20260328
-    "7631838631375667200",  # Liebian_comfyui_20260423
     "7601077530077954048",  # Liebian_shangye_20260130
     "7598848725942796288",  # Liebian_shangye_20260124_1_1_1
     "7629024620879806464",  # qwen2512_print_shape_text_enhance
@@ -112,14 +104,12 @@ IP_OUTPUT_WORKFLOW_IDS: set[str] = {
     "7598545860393172992",  # tiqu_comfyui_20260123_2
     "7598563505054154752",  # lianxu
     "7598587935331450880",  # comfyuo_tukuozhan
-    "7631174682116358144",  # flux2_klein_9b_outpaint eval workflow
     "7597701996124045312",  # sibu_comfyui
     "7597702948247830528",  # zhongsu_comfyui
     "7598841920114130944",  # Liebian_comfyui_20260124_1
     "7598820684801769472",  # Liebian_comfyui_20260124
     "7622193261276299264",  # Liebian_comfyui_20260328_1
     "7622190276932534272",  # Liebian_comfyui_20260328
-    "7631838631375667200",  # Liebian_comfyui_20260423
     "7629023041988591616",  # toubu_kouxiang
     "7629023903431524352",  # beijing_koutu
     "7629024620879806464",  # qwen2512_print_shape_text_enhance
@@ -566,29 +556,6 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
             "fields": [
                 {"name": "output", "type": "text", "description": "回调 task id"},
                 {"name": "prompt", "type": "text", "description": "提示词反馈字符串"},
-                {"name": "ip", "type": "text", "description": "ComfyUI 执行节点 IP"},
-            ]
-        },
-    },
-    {
-        "category": "图延伸类",
-        "name": "ComfyUI 扩图 · flux2_klein_9b_outpaint",
-        "version": "v1",
-        "workflow_id": "7631174682116358144",
-        "status": "active",
-        "notes": "输入 url + 四向扩图像素；输出 output 为回调 task id。",
-        "parameters_schema": {
-            "fields": [
-                {"name": "url", "label": "图片 URL", "type": "text", "required": True},
-                {"name": "expand_left", "label": "左扩", "type": "text", "required": False, "defaultValue": "0", "description": "像素数值（纯数字，不要带 px）"},
-                {"name": "expand_right", "label": "右扩", "type": "text", "required": False, "defaultValue": "0", "description": "像素数值（纯数字，不要带 px）"},
-                {"name": "expand_top", "label": "上扩", "type": "text", "required": False, "defaultValue": "0", "description": "像素数值（纯数字，不要带 px）"},
-                {"name": "expand_bottom", "label": "下扩", "type": "text", "required": False, "defaultValue": "0", "description": "像素数值（纯数字，不要带 px）"},
-            ]
-        },
-        "output_schema": {
-            "fields": [
-                {"name": "output", "type": "text", "description": "回调 task id"},
                 {"name": "ip", "type": "text", "description": "ComfyUI 执行节点 IP"},
             ]
         },
@@ -1399,45 +1366,6 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
             ]
         },
     },
-    # 图裂变 / 图裂变（ComfyUI，无提示词，softstyle 默认高质量版）
-    {
-        "category": "图裂变",
-        "name": "图裂变 · Liebian_comfyui_20260423",
-        "version": "v1",
-        "workflow_id": "7631838631375667200",
-        "status": "active",
-        "notes": "图裂变（ComfyUI softstyle 默认高质量版）。输入 url + bili + 宽高，输出 output 为回调 task id。裂变数量通过 count 控制（业务侧循环，不在工作流中循环）。",
-        "parameters_schema": {
-            "fields": [
-                {"name": "url", "label": "图片 URL", "type": "text", "required": True},
-                {"name": "height", "label": "高度", "type": "text", "required": False, "defaultValue": "", "description": "可选。不填默认原图高度。"},
-                {"name": "width", "label": "宽度", "type": "text", "required": False, "defaultValue": "", "description": "可选。不填默认原图宽度。"},
-                {
-                    "name": "bili",
-                    "label": "相似度(%)",
-                    "type": "text",
-                    "required": True,
-                    "defaultValue": "50%",
-                    "description": "与原图保持相似的百分比（越高越接近原图）。",
-                },
-                {"name": "count", "label": "裂变数量", "type": "text", "required": False, "defaultValue": "4", "description": "一次评测会触发 count 个子任务并聚合结果"},
-            ]
-        },
-        "output_schema": {
-            "fields": [
-                {"name": "output", "type": "text", "description": "回调 task id"},
-                {"name": "prompt", "type": "text", "description": "提示词反馈字符串"},
-                {"name": "ip", "type": "text", "description": "ComfyUI 执行节点 IP"},
-            ]
-        },
-        "metadata": {
-            "presentation": {
-                "sort_order": 4010,
-                "usage_hint": "适合多元素花纹类默认高质量裂变，先看单张结果再决定是否批量放量。",
-                "operation_label": "图像裂变",
-            }
-        },
-    },
     # 四方/两方连续图类 / 四方连续裂变（双栏目展示）
     {
         "category": "四方/两方连续图类",
@@ -1510,60 +1438,6 @@ DEFAULT_EVAL_WORKFLOW_BY_ID: dict[str, dict[str, Any]] = {
 }
 
 
-_CATEGORY_SORT_BUCKET = {
-    "花纹提取类": 1000,
-    "图延伸类": 2000,
-    "四方/两方连续图类": 3000,
-    "图裂变": 4000,
-    "通用类": 5000,
-}
-
-
-def _derive_eval_workflow_metadata(item: dict[str, Any], *, index: int) -> dict[str, Any]:
-    workflow_id = str(item.get("workflow_id") or "").strip()
-    category = _resolve_eval_category(workflow_id, str(item.get("category") or "").strip())
-    status = str(item.get("status") or "active").strip().lower()
-    base = deepcopy(item.get("metadata")) if isinstance(item.get("metadata"), dict) else {}
-    cleanup_overrides = get_eval_workflow_cleanup_overrides(workflow_id)
-    presentation = deepcopy(base.get("presentation")) if isinstance(base.get("presentation"), dict) else {}
-    parameter_defaults = (
-        deepcopy(base.get("parameter_defaults")) if isinstance(base.get("parameter_defaults"), dict) else {}
-    )
-    presentation.setdefault("visible", status == "active")
-    presentation.setdefault("sort_order", _CATEGORY_SORT_BUCKET.get(category, 9000) + index)
-    presentation.setdefault("category_label", category)
-    presentation.setdefault("usage_hint", "适合直接在测评端发起单次验证")
-    base.setdefault("parameter_defaults", parameter_defaults)
-    metadata = enrich_metadata_with_eval_workflow_presentation(
-        base,
-        status=status,
-        category=category,
-        workflow_id=workflow_id,
-        name=str(item.get("name") or "").strip(),
-        parameters_schema=item.get("parameters_schema"),
-        output_schema=item.get("output_schema"),
-        presentation_override=cleanup_overrides.get("presentation") or presentation,
-    )
-    metadata = enrich_metadata_with_eval_workflow_usage(
-        metadata,
-        category=category,
-        parameters_schema=item.get("parameters_schema"),
-        usage_override=cleanup_overrides.get("usage"),
-    )
-    return enrich_metadata_with_eval_workflow_deprecation(
-        metadata,
-        status=status,
-        deprecation_override=cleanup_overrides.get("deprecation"),
-    )
-
-
-DEFAULT_EVAL_WORKFLOW_METADATA_BY_ID: dict[str, dict[str, Any]] = {
-    str(item.get("workflow_id")): _derive_eval_workflow_metadata(item, index=index)
-    for index, item in enumerate(DEFAULT_EVAL_WORKFLOW_VERSIONS, start=1)
-    if item.get("workflow_id")
-}
-
-
 def ensure_default_eval_workflow_versions(session: Session) -> bool:
     """Insert missing default workflow versions. Returns True if any created."""
     existing = set(
@@ -1589,7 +1463,6 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
             notes=item.get("notes"),
             parameters_schema=item.get("parameters_schema"),
             output_schema=item.get("output_schema"),
-            extra_metadata=DEFAULT_EVAL_WORKFLOW_METADATA_BY_ID.get(workflow_id),
         )
         session.add(row)
         existing.add((workflow_id, desired_category))
@@ -1695,10 +1568,6 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
         if row.category != desired_category:
             row.category = desired_category
             dirty = True
-        desired_metadata = DEFAULT_EVAL_WORKFLOW_METADATA_BY_ID.get(str(row.workflow_id or "").strip())
-        if desired_metadata and row.extra_metadata != desired_metadata:
-            row.extra_metadata = deepcopy(desired_metadata)
-            dirty = True
         # Keep workflow names editable in the admin UI; do not force-reset names here.
         # Ensure lora field stays a select with known options.
         if row.workflow_id in {"7597530887256801280", "7598545860393172992"}:
@@ -1764,7 +1633,7 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
                     fields.insert(insert_at, desired_field)
                     row.parameters_schema = schema
                     dirty = True
-        if row.workflow_id in {"7597723984687267840", "7598587935331450880", "7631174682116358144"}:
+        if row.workflow_id in {"7597723984687267840", "7598587935331450880"}:
             # Normalize outpaint schema to use `url` as the canonical image key.
             schema = json.loads(json.dumps(row.parameters_schema or {}, ensure_ascii=False))
             fields = schema.get("fields") if isinstance(schema, dict) else None
@@ -1850,7 +1719,6 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
         if row.workflow_id in {
             "7597723984687267840",
             "7598587935331450880",
-            "7631174682116358144",
             "7601080398864449536",
             "7598559869544693760",
             "7598560946579046400",
@@ -1903,7 +1771,7 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
                 schema["fields"] = fields
                 row.output_schema = schema
                 dirty = True
-        if row.workflow_id in {"7598563505054154752", "7598587935331450880", "7631174682116358144"}:
+        if row.workflow_id in {"7598563505054154752", "7598587935331450880"}:
             # These workflows do not return prompt feedback; remove prompt field if present.
             schema = json.loads(json.dumps(row.output_schema or {}, ensure_ascii=False))
             fields = schema.get("fields") if isinstance(schema, dict) else None

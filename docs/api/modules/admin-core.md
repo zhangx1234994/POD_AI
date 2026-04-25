@@ -29,36 +29,12 @@
   "status": "active",
   "weight": 1,
   "max_concurrency": 1,
-  "config": { "apiKey": "...", "routing": { "selection_policy": "queue" } },
-  "routing": {
-    "routing_enabled": true,
-    "fallback_only": false,
-    "selection_policy": "queue",
-    "tags": ["pattern_extract"]
-  },
+  "config": { "apiKey": "..." },
   "api_key_ids": []
 }
 ```
 
 > 说明：`base_url` 为示例，实际以管理端配置为准（主服务器可能调整）。
-
-**返回补充字段**
-
-- `routing`：执行节点的标准化路由真源（从 `config.routing` 归一化得到）
-- `business_status`：
-  - `execution_mode_code`
-  - `execution_mode_label`
-  - `concurrency_label`
-  - `tags`
-
-当前路由真源支持：
-- `routing_enabled`
-- `fallback_only`
-- `selection_policy`：`auto / fixed / queue / weight / round_robin`
-- `tags`
-- `allowed_workflow_keys`
-- `blocked_workflow_keys`
-- `concurrency_limit`
 
 ### PUT /api/admin/executors/{id}
 ### DELETE /api/admin/executors/{id}
@@ -81,11 +57,75 @@
 - `provider` / `capability_key` / `display_name`
 - `default_params` / `input_schema` / `metadata`
 - `executor_id` / `workflow_id`
+- `vendor_model_id`：可选，绑定到“模型弹药库”的模型目录项；绑定后业务配方可引用稳定模型配置，不再手填第三方模型名。
 
 **错误**
 
 - `ABILITY_NOT_FOUND`
 - `EXECUTOR_NOT_FOUND` / `WORKFLOW_NOT_FOUND`
+- `VENDOR_MODEL_NOT_FOUND`
+
+### GET /api/admin/abilities/health/summary
+### POST /api/admin/abilities/health/refresh
+### GET /api/admin/abilities/health/export
+
+用途：按最近有效调用记录汇总能力健康状态，帮助运营先看到“哪些能力需要复测”。该接口只读取日志并刷新能力健康字段，不会主动调用上游模型，也不会消耗第三方额度。
+
+请求：
+
+```text
+GET /api/admin/abilities/health/summary?staleHours=24&limit=20
+POST /api/admin/abilities/health/refresh?staleHours=24&limit=20
+GET /api/admin/abilities/health/export?needsTest=true
+```
+
+筛选参数：
+
+- `provider`：按厂商过滤，例如 `openai`、`comfyui`。
+- `status`：按能力启停状态过滤，例如 `active`。
+- `healthStatus`：按健康状态过滤，可选 `healthy/degraded/failed/unknown`。
+- `needsTest`：只导出需要复测的能力。
+- `staleOnly`：只导出超过 `staleHours` 未验证的能力。
+
+响应：
+
+```json
+{
+  "generatedAt": "2026-04-25T10:00:00Z",
+  "staleHours": 24,
+  "total": 18,
+  "healthy": 12,
+  "degraded": 2,
+  "failed": 1,
+  "unknown": 3,
+  "staleCount": 4,
+  "needsTestCount": 5,
+  "items": [
+    {
+      "abilityId": "comfyui_fission_v2",
+      "displayName": "图裂变 · 新高质量版",
+      "provider": "comfyui",
+      "capabilityKey": "fission_hq",
+      "status": "active",
+      "healthStatus": "unknown",
+      "lastHealthCheckAt": null,
+      "successRate": null,
+      "finishedLogCount": 0,
+      "latestLogStatus": null,
+      "latestLogAt": null,
+      "stale": true,
+      "needsTest": true
+    }
+  ]
+}
+```
+
+状态含义：
+
+- `healthy`：最近一次有效调用成功。
+- `degraded`：最近一次失败，但最近 50 次有效调用成功率仍不低于 80%。
+- `failed`：最近失败且成功率低。
+- `unknown`：没有有效调用记录。
 
 ---
 
@@ -120,6 +160,8 @@
 
 ## 5) API Key 管理
 
+> 该模块为 backend 历史兼容 Key。第三方模型运行时 Key 优先使用“模型弹药库”对应的 vendor-api-ops 接口。
+
 ### GET /api/admin/api-keys
 ### POST /api/admin/api-keys
 ### PUT /api/admin/api-keys/{id}
@@ -129,6 +171,137 @@
 
 - `provider` / `name` / `key`
 - `status` / `daily_quota` / `expire_at`
+- GET/POST/PUT 返回 `key_preview`，不得返回明文 `key`。
+
+---
+
+## 5.1) 模型弹药库 / Vendor API 管理
+
+### GET /api/admin/vendor-api/providers
+返回 vendor-api-ops provider 清单、支持的 `apiTypes`、执行模式与是否需要 `global-egress`。
+
+### POST /api/admin/vendor-api/providers/{provider}/egress-check
+
+请求：
+
+```json
+{ "check": "models", "includeAuth": false }
+```
+
+响应：
+
+```json
+{
+  "success": true,
+  "provider": "openai",
+  "check": "models",
+  "url": "https://api.openai.com/v1/models",
+  "httpStatus": 401,
+  "latencyMs": 1319,
+  "message": "reachable"
+}
+```
+
+### GET /api/admin/vendor-api/models
+返回 backend 当前沉淀的第三方模型目录视图，包括模型 ID、支持蒙版/多图/视频、执行模式、出网要求、路由策略与成本策略。接口会优先读取 `vendor_model_catalog`，目录为空时根据 vendor-api-ops Provider 信息写入一批默认模型。
+
+### GET /api/admin/vendor-api/usage/summary
+返回 vendor-api-ops 最近一段时间的第三方调用统计，用于观察厂商、模型、Key 池和上游错误是否稳定。
+
+请求：
+
+```text
+GET /api/admin/vendor-api/usage/summary?windowHours=24
+```
+
+响应：
+
+```json
+{
+  "baseUrl": "http://127.0.0.1:8310",
+  "windowHours": 24,
+  "items": [
+    {
+      "provider": "openai",
+      "model": "gpt-image-2",
+      "status": "succeeded",
+      "count": 18,
+      "errorCode": null,
+      "avgLatencyMs": 1420,
+      "lastSeenAt": "2026-04-25T10:00:00Z"
+    }
+  ]
+}
+```
+
+### POST /api/admin/vendor-api/models/sync/volcengine
+从火山 Ark 模型列表接口同步模型目录到 `vendor_model_catalog`。该接口只同步模型 ID、能力边界和来源信息，不保存 API Key 明文；需要后端环境变量 `VOLCENGINE_API_KEY`。
+
+响应：
+
+```json
+{
+  "provider": "volcengine",
+  "sourceUrl": "https://ark.cn-beijing.volces.com/api/v3/models",
+  "total": 12,
+  "created": 3,
+  "updated": 9,
+  "skipped": 0
+}
+```
+
+### POST /api/admin/vendor-api/models
+新增模型目录项。该接口只保存模型能力边界与调度策略，不保存第三方 API Key 明文。
+
+请求：
+
+```json
+{
+  "provider": "openai",
+  "model": "gpt-image-2",
+  "displayName": "OpenAI · GPT Image 2",
+  "status": "active",
+  "apiTypes": ["image_generation", "image_edit"],
+  "executionModes": ["sync_then_store"],
+  "supportsMask": true,
+  "supportsMultipleImages": true,
+  "supportsVideo": false,
+  "supportsText": true,
+  "requiresGlobalEgress": true,
+  "source": "backend-admin",
+  "routePolicy": { "executorType": "vendor_api" },
+  "defaultTaskPolicy": { "timeoutSeconds": 180 },
+  "inputSchema": {},
+  "costPolicy": {},
+  "metadata": { "outputFormats": ["png", "jpeg", "webp"] }
+}
+```
+
+### PATCH /api/admin/vendor-api/models/{modelId}
+更新模型目录项，可用于灰度启停、修改能力边界、补充输入 schema 或成本策略。
+
+### GET /api/admin/vendor-api/keys
+### POST /api/admin/vendor-api/keys
+### PATCH /api/admin/vendor-api/keys/{keyId}
+
+Key 写入 vendor-api-ops，返回只允许包含 `keyPreview`，不返回明文。
+
+**错误**
+
+- `VENDOR_API_EXECUTOR_UNAVAILABLE`
+- `VENDOR_API_RESPONSE_INVALID`
+- `VENDOR_API_PROVIDER_NOT_SUPPORTED`
+- `VENDOR_API_PROXY_UNAVAILABLE`
+- `VENDOR_API_TIMEOUT`
+- `VENDOR_API_KEY_MISSING`
+- `VENDOR_API_KEY_DISABLED`
+- `VENDOR_API_KEY_CONCURRENCY_LIMITED`
+- `VOLCENGINE_API_KEY_MISSING`
+- `VOLCENGINE_MODEL_SYNC_HTTP_ERROR`
+- `VOLCENGINE_MODEL_SYNC_RESPONSE_INVALID`
+- `VOLCENGINE_MODEL_SYNC_DATA_INVALID`
+- `VENDOR_MODEL_DUPLICATED`
+- `VENDOR_MODEL_NOT_FOUND`
 
 ---
 

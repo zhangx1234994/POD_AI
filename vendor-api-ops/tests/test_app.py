@@ -3,6 +3,7 @@ from __future__ import annotations
 import httpx
 from fastapi.testclient import TestClient
 
+from app.invocations import invocation_store
 from app.main import app
 
 
@@ -208,6 +209,135 @@ def test_openai_image_edit_calls_real_contract(monkeypatch) -> None:
     assert captured["json"]["mask"] == {"image_url": "https://example.com/mask.png"}
 
 
+def test_openai_image_generation_calls_real_contract(monkeypatch) -> None:
+    client = TestClient(app)
+    client.post("/v1/keys", json={"provider": "openai", "alias": "image-generate", "key": "sk-test-image-generate"})
+    captured = {}
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured["url"] = url
+        captured["headers"] = headers
+        captured["json"] = json
+        return httpx.Response(
+            200,
+            json={"data": [{"url": "https://example.com/openai-generated.png"}]},
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    response = client.post(
+        "/v1/invocations",
+        json={
+            "provider": "openai",
+            "capabilityKey": "gpt_image_2_generate",
+            "model": "gpt-image-2",
+            "apiType": "image_generation",
+            "inputs": {
+                "prompt": "a textile pattern for a summer dress",
+                "size": "1024x1024",
+                "quality": "auto",
+                "background": "auto",
+                "output_format": "png",
+                "n": 1,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "succeeded"
+    assert body["result"]["images"][0]["url"] == "https://example.com/openai-generated.png"
+    assert captured["url"].endswith("/v1/images/generations")
+    assert captured["headers"]["Authorization"].startswith("Bearer ")
+    assert captured["json"] == {
+        "model": "gpt-image-2",
+        "prompt": "a textile pattern for a summer dress",
+        "size": "1024x1024",
+        "quality": "auto",
+        "background": "auto",
+        "n": 1,
+        "output_format": "png",
+    }
+    assert "images" not in captured["json"]
+    assert "mask" not in captured["json"]
+
+
+def test_vendor_key_concurrency_limit_returns_retryable_error(monkeypatch) -> None:
+    client = TestClient(app)
+    created = client.post(
+        "/v1/keys",
+        json={
+            "provider": "openai",
+            "alias": "image-generate-busy",
+            "key": "sk-test-busy-key",
+            "maxConcurrency": 1,
+        },
+    )
+    assert created.status_code == 200
+
+    active_backup = dict(invocation_store._active_by_key)  # noqa: SLF001 - targeted process-local guard test
+    try:
+        keys = client.get("/v1/keys?provider=openai").json()["items"]
+        for key in keys:
+            invocation_store._active_by_key[key["id"]] = int(key.get("maxConcurrency") or 1)  # noqa: SLF001
+
+        def fail_if_called(*args, **kwargs):
+            raise AssertionError("vendor API should not be called when all keys are busy")
+
+        monkeypatch.setattr(httpx, "post", fail_if_called)
+        response = client.post(
+            "/v1/invocations",
+            json={
+                "provider": "openai",
+                "capabilityKey": "gpt_image_2_generate",
+                "model": "gpt-image-2",
+                "apiType": "image_generation",
+                "inputs": {"prompt": "busy"},
+            },
+        )
+    finally:
+        invocation_store._active_by_key.clear()  # noqa: SLF001
+        invocation_store._active_by_key.update(active_backup)  # noqa: SLF001
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "failed"
+    assert body["error"]["code"] == "VENDOR_API_KEY_CONCURRENCY_LIMITED"
+    assert body["error"]["retryable"] is True
+
+
+def test_usage_summary_returns_recent_vendor_logs(monkeypatch) -> None:
+    client = TestClient(app)
+    client.post("/v1/keys", json={"provider": "openai", "alias": "usage-summary", "key": "sk-test-usage-summary"})
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        return httpx.Response(
+            200,
+            json={"data": [{"url": "https://example.com/openai-usage.png"}]},
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    client.post(
+        "/v1/invocations",
+        json={
+            "provider": "openai",
+            "capabilityKey": "gpt_image_2_generate",
+            "model": "gpt-image-2",
+            "apiType": "image_generation",
+            "inputs": {"prompt": "usage summary"},
+        },
+    )
+
+    response = client.get("/v1/usage/summary?windowHours=24")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["windowHours"] == 24
+    assert any(item["provider"] == "openai" and item["status"] == "succeeded" for item in body["items"])
+
+
 def test_async_kie_invocation_can_be_polled(monkeypatch) -> None:
     client = TestClient(app)
     client.post("/v1/keys", json={"provider": "kie", "alias": "test-kie", "key": "kie-test-key"})
@@ -257,6 +387,46 @@ def test_async_kie_invocation_can_be_polled(monkeypatch) -> None:
     assert body["vendorInvocationId"] == submitted["vendorInvocationId"]
     assert body["status"] == "succeeded"
     assert body["result"]["images"][0]["url"] == "https://example.com/kie-out.png"
+
+
+def test_kie_submit_retries_transient_create_failure(monkeypatch) -> None:
+    client = TestClient(app)
+    client.post("/v1/keys", json={"provider": "kie", "alias": "test-kie-retry", "key": "kie-test-retry-key"})
+    calls = {"post": 0}
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        calls["post"] += 1
+        if calls["post"] == 1:
+            return httpx.Response(
+                502,
+                json={"code": 500, "msg": "bad gateway"},
+                request=httpx.Request("POST", url),
+            )
+        return httpx.Response(
+            200,
+            json={"code": 200, "data": {"taskId": "kie_task_retry"}},
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    response = client.post(
+        "/v1/invocations",
+        json={
+            "provider": "kie",
+            "capabilityKey": "nano_banana_pro_image_to_image",
+            "model": "nano-banana-pro",
+            "apiType": "market_image_to_image",
+            "inputs": {"prompt": "retry create"},
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "running"
+    assert body["vendorTaskId"] == "kie_task_retry"
+    assert calls["post"] == 2
+    assert [item["httpStatus"] for item in body["raw"]["attempts"]] == [502, 200]
 
 
 def test_key_list_does_not_expose_secret() -> None:

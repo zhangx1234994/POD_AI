@@ -3,20 +3,17 @@
 This repo integrates PODI "atomic abilities" into Coze Studio as a Plugin (OpenAPI tools).
 
 Key URLs
-- PODI backend: `https://<podi-backend-host>`（本地开发同机可用 `http://127.0.0.1:8099`）
-- PODI admin web: `https://<podi-admin-host>` (local dev: `http://127.0.0.1:8199`)
+- PODI backend: `https://<podi-host>` (local dev: `http://127.0.0.1:8099`)
+- PODI admin web: `https://<podi-host>` (local dev: `http://127.0.0.1:8199`)
 - Coze Studio web: `https://<coze-host>` (set `COZE_BASE_URL`)
 
 ## Plugin OpenAPI
 
 PODI exposes an OpenAPI document for Coze to import:
-- `GET https://<podi-backend-host>/api/coze/podi/openapi.json`
+- `GET https://<podi-host>/api/coze/podi/openapi.json`
 
-Only for local same-host development, prefer a local reverse proxy or `127.0.0.1` access. Do not use Docker-only host mapping as a migration target.
-
-Production rule:
-- Coze only points to backend.
-- ComfyUI stays behind backend routing and must not be exposed as a direct Coze target.
+If Coze runs in Docker and PODI runs on the host machine, use:
+- `GET http://host.docker.internal:8099/api/coze/podi/openapi.json`
 
 Each PODI Ability becomes one Coze tool:
 - `POST /api/coze/podi/tools/{provider}/{capability_key}`

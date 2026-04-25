@@ -11,6 +11,7 @@
 
 这些文档代表当前仍有效、仍在指导开发或认知的内容：
 
+- `docs/client/tech-review-2026-04-16/`
 - `docs/client/README.md`
 - `docs/client/CORE_TEST_PATHS.md`
 - `docs/client/plans/README.md`
@@ -58,12 +59,13 @@
 如果你是新接手、继续开发、或者只是想知道“现在做到哪了”，按这个顺序看：
 
 1. `docs/PLATFORM_SURFACES.md`
-2. `docs/client/README.md`
-3. `docs/client/plans/README.md`
-4. `docs/client/plans/2026-04-16-client-phase1-operating-model.md`
-5. `docs/client/plans/2026-03-17-style3d-client-current-status.md`
-6. `docs/plans/2026-03-19-style3d-client-rearchitecture-design.md`
-7. `docs/client/CORE_TEST_PATHS.md`
+2. `docs/client/tech-review-2026-04-16/README.md`
+3. `docs/client/README.md`
+4. `docs/client/plans/README.md`
+5. `docs/client/plans/2026-04-16-client-phase1-operating-model.md`
+6. `docs/client/plans/2026-03-17-style3d-client-current-status.md`
+7. `docs/plans/2026-03-19-style3d-client-rearchitecture-design.md`
+8. `docs/client/CORE_TEST_PATHS.md`
 
 ## 3. 当前最重要的判断规则
 

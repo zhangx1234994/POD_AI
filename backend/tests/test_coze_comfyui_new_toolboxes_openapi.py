@@ -45,24 +45,23 @@ def test_comfyui_toubu_kouxiang_openapi_contains_only_tool_and_tasks_get():
     assert required == ["url"]
 
 
-def test_comfyui_flux2_9b_liebian_sifang_openapi_contains_expected_fields():
-    resp = client.get("/api/coze/podi/comfyui/execute/flux2-9b-liebian-sifang/openapi.json")
+def test_comfyui_flux2_klein_9b_outpaint_openapi_contains_expected_fields():
+    resp = client.get("/api/coze/podi/comfyui/execute/flux2-klein-9b-outpaint/openapi.json")
     assert resp.status_code == 200
     data = resp.json()
     paths = data.get("paths") or {}
-    assert "/api/coze/podi/tools/comfyui/flux2_9b_liebian_sifang" in paths
+    assert "/api/coze/podi/tools/comfyui/flux2_klein_9b_outpaint" in paths
     assert "/api/coze/podi/tasks/get" in paths
 
     tool_schema = (
-        paths["/api/coze/podi/tools/comfyui/flux2_9b_liebian_sifang"]["post"]["requestBody"]["content"][
+        paths["/api/coze/podi/tools/comfyui/flux2_klein_9b_outpaint"]["post"]["requestBody"]["content"][
             "application/json"
         ]["schema"]
     )
     props = tool_schema.get("properties") or {}
     required = tool_schema.get("required") or []
-    assert set(props) == {"url", "prompt"}
-    assert "url" in required
-    assert "prompt" in required
+    assert set(props) == {"url", "expand_left", "expand_right", "expand_top", "expand_bottom"}
+    assert required == ["url"]
 
 
 def test_comfyui_flux_strong_hq_softstyle_fission_openapi_contains_expected_fields():
@@ -85,6 +84,26 @@ def test_comfyui_flux_strong_hq_softstyle_fission_openapi_contains_expected_fiel
     assert "prompt" in required
     assert "image_desc" not in required
     assert "bili" not in required
+
+
+def test_comfyui_flux2_9b_liebian_sifang_openapi_contains_expected_fields():
+    resp = client.get("/api/coze/podi/comfyui/execute/flux2-9b-liebian-sifang/openapi.json")
+    assert resp.status_code == 200
+    data = resp.json()
+    paths = data.get("paths") or {}
+    assert "/api/coze/podi/tools/comfyui/flux2_9b_liebian_sifang" in paths
+    assert "/api/coze/podi/tasks/get" in paths
+
+    tool_schema = (
+        paths["/api/coze/podi/tools/comfyui/flux2_9b_liebian_sifang"]["post"]["requestBody"]["content"][
+            "application/json"
+        ]["schema"]
+    )
+    props = tool_schema.get("properties") or {}
+    required = tool_schema.get("required") or []
+    assert set(props) == {"url", "prompt"}
+    assert "url" in required
+    assert "prompt" in required
 
 
 def test_comfyui_qwen2512_print_shape_text_enhance_openapi_contains_expected_fields():

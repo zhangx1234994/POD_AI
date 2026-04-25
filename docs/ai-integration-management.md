@@ -40,15 +40,15 @@
 
 1. **任务入库（规划）**：`/api/tasks/v1/submit` 计划用于通用任务入库与积分冻结（未实现）。
 2. **调度器拉取**：新增 `task_dispatcher`（可由 Celery Beat/后台循环驱动）查找 `status=pending` 的任务。
-3. **解析 action**：根据任务的 `tool_action`：  
-   a. 查找 `workflow_bindings` -> 过滤 `enabled=true`、`executor.status=active`；  
-   b. 根据 `priority`、`weight`、`max_concurrency` 与健康状态选择 executor；  
+3. **解析 action**：根据任务的 `tool_action`：
+   a. 查找 `workflow_bindings` -> 过滤 `enabled=true`、`executor.status=active`；
+   b. 根据 `priority`、`weight`、`max_concurrency` 与健康状态选择 executor；
    c. 选择匹配版本的 `workflow.definition`。
 4. **准备上下文**：组合 `workflow.definition` + `task.input_payload` + API Key（若 executor 需要）+ 媒体资源（OSS URL）。
-5. **执行**：按 executor `type` 分发：  
-   - `openai`: 直接调用 OpenAI/同规范接口。  
-   - `volcengine` / `aliyun` / `baidu`: 通过 provider SDK/HTTP 适配器。  
-   - `comfyui`: 通过 REST/WebSocket 调用 `prompt`，必要时先检测 workflow 是否需要上传到节点。  
+5. **执行**：按 executor `type` 分发：
+   - `openai`: 直接调用 OpenAI/同规范接口。
+   - `volcengine` / `aliyun` / `baidu`: 通过 provider SDK/HTTP 适配器。
+   - `comfyui`: 通过 REST/WebSocket 调用 `prompt`，必要时先检测 workflow 是否需要上传到节点。
 6. **状态回写**：实时更新 `tasks.status/progress`，写入 `task_events`，生成输出 `task_assets` 并设置 `result_payload` 中的展示 URL。失败时写入 error_code，释放积分。
 7. **通知前端**：`notify_service` 广播任务状态、任务中心刷新信号。
 
@@ -72,11 +72,24 @@
 目前 `/admin/integrations` 页面已实现基础仪表：顶部汇总执行节点/工作流/绑定/API Key 数量，中间各 Tab 提供列表 + 表单并支持创建、编辑、删除、切换绑定启用状态、录入工作流 JSON 与执行器配置。2026-01 起新增：
 
 - **能力目录 & 统一接口信息**：卡片展示 Ability ID、所属 provider、默认执行节点、能力类型、成本（`metadata.pricing`），并通过“统一能力接口”说明组件生成可复制的 `curl` 示例。
+- **能力绑定模型目录（2026-04 更新）**：`abilities.vendor_model_id` 可绑定到 `vendor_model_catalog`，管理端能力弹窗支持从“模型弹药库”选择模型。后续业务配方应优先引用该绑定，减少手填 provider/model 和能力边界。
+- **能力健康汇总（2026-04 更新）**：管理端“能力目录”顶部展示正常、需关注、异常、未测试、需要复测数量，并通过 `/api/admin/abilities/health/summary|refresh` 从最近有效调用日志刷新健康状态。页面支持按“需要复测/异常/未测试/超过 24 小时”等口径筛选，并通过 `/api/admin/abilities/health/export` 导出 CSV 复测清单。该刷新不主动调用上游模型，不消耗第三方额度。
 - **实时测试 Tab**：根据能力 schema（含节点编号描述）渲染表单，支持上传图片、选择执行节点、覆盖默认参数。ComfyUI 能力会调用 `/api/admin/comfyui/models` 自动把 UNet/CLIP/VAE/LoRA 列表渲染为下拉框，避免手填。
 - **调用记录 Tab**：嵌入 `/api/admin/abilities/{abilityId}/logs` 数据，展示最近 N 次调用的状态、耗时、输出 OSS 链接、失败原因、traceId。点击可展开 Raw Response，辅助排查。
 - **ComfyUI 队列状态面板**：针对每个 ComfyUI 执行节点，展示 `running/pending/max` 以及错误提示（如 `COMFYUI_QUEUE_STATUS_ERROR`），提供手动刷新；“调度监控”还会聚合多节点队列汇总，便于统一看板排查。
 - **API Key 仓库**：提供列表 + 详情抽屉，支持录入、启用/禁用、备注限流策略；能力表单会检测 executor 是否缺少凭证并给出指引。
 - **能力详情空位**：提前预留成本、自检、SLA 等信息位，即使数据暂缺亦有 placeholder，提醒后续需要补齐。
+- **模型弹药库（2026-04 更新）**：管理端新增第三方模型视角，直接通过 backend 代理 vendor-api-ops 查看 Provider、模型边界、Key Preview、出网检查与最近 24 小时调用统计。模型目录已落到 `vendor_model_catalog`，支持新增/编辑模型能力边界、执行模式、出网要求与 metadata；火山模型可通过 `POST /api/admin/vendor-api/models/sync/volcengine` 从 Ark 模型列表同步；vendor-api-ops 已按 Key 的 `maxConcurrency` 做进程内并发保护，Key 忙时返回 `VENDOR_API_KEY_CONCURRENCY_LIMITED` 且不继续打上游；旧 `/api/admin/api-keys` 仅保留 backend 兼容 Key，并且列表/编辑回显不再返回明文 `key`。
+
+### 能力示例：OpenAI GPT Image 2
+
+- **执行节点**：必须使用 `type=vendor_api` 且包含 `providers=["openai"]`、`tags=["vendor-api","global-egress"]` 的执行节点，默认指向独立 `vendor-api-ops` 服务。OpenAI 不允许 fallback 到 Coze 主机本机执行。
+- **密钥注入**：通过 `OPENAI_API_KEY` 环境变量或 vendor-api-ops `/v1/keys` 写入，管理端“模型弹药库”和文档只展示 `keyPreview`，不得保存/回显明文 key。
+- **已暴露能力**：
+  - `openai_gpt_image_2_generate`：文生图，底层调用 `/v1/images/generations`。
+  - `openai_gpt_image_2_edit`：图片编辑/蒙版/多参考图，底层调用 `/v1/images/edits`。
+- **参数边界**：GPT Image 2 当前表单支持 `prompt`、`size`、`quality`、`background=auto|opaque`、`output_format`、`output_compression`、`n`；编辑能力额外支持 `image_url`、`mask_url`、`image_urls`。不向用户暴露透明背景和 `input_fidelity`，避免官方不支持参数导致失败。
+- **错误处理**：Key 缺失返回 `VENDOR_API_KEY_MISSING`，Key 禁用/无效返回 `VENDOR_API_KEY_DISABLED`，OpenAI 限流返回 `VENDOR_API_RATE_LIMITED`，网络或代理超时返回 `VENDOR_API_TIMEOUT`。
 
 ### 能力示例：百度智能云图像处理
 
@@ -104,7 +117,7 @@
   - `POST /api/tasks/v1/dispatch`：预留单次调度入口（未实现）；后续可由 Celery 定时触发或监听消息队列。
   - `PATCH /api/tasks/v1/{id}`：预留状态更新接口（未实现，`status/progress/error`）。
 - **Executor 适配层**：新增 `app/services/executors/base.py` 定义统一接口（`prepare_payload`, `execute`, `poll_result`）。不同 provider 写子类，通过 `executor.type` + `executor.config` 动态加载。
-- **健康检查**：Celery 周期任务 `executor_health_check` 调用每个节点的 `/health`，写回 `executors.health_status` 与 `last_heartbeat_at`。
+- **健康检查**：能力健康状态已由能力调用日志实时回填，并可通过管理端手动刷新汇总；执行节点健康后续接入周期任务，调用每个节点的 `/health` 后写回 `executors.health_status` 与 `last_heartbeat_at`。
 - **API Key 轮转**：在执行前调用 `api_key_service.acquire(provider)`，内部选择 usage 最低且未过期的 key 并自增 `usage_count`，若达到 `daily_quota` 自动禁用。
 
 ## 安全与配置

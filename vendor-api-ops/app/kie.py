@@ -9,6 +9,9 @@ import httpx
 from app.config import Settings
 from app.schemas import InvocationAsset, InvocationError, InvocationResult
 
+_TRANSIENT_STATUS_CODES = {429, 500, 502, 503, 504}
+_MAX_TRANSIENT_ATTEMPTS = 2
+
 
 class KieAdapter:
     def submit(
@@ -36,7 +39,12 @@ class KieAdapter:
 
         headers = _headers(api_key)
         try:
-            response = httpx.post(url, headers=headers, json=payload, timeout=settings.request_timeout_seconds)
+            response, data, attempts = _post_with_retry(
+                url,
+                headers=headers,
+                payload=payload,
+                timeout=settings.request_timeout_seconds,
+            )
         except httpx.TimeoutException as exc:
             return None, InvocationResult(), InvocationError(
                 code="VENDOR_API_TIMEOUT",
@@ -50,7 +58,6 @@ class KieAdapter:
                 retryable=True,
             ), {"request": payload}
 
-        data = _safe_json(response)
         code = data.get("code") if isinstance(data, dict) else None
         if response.status_code >= 400 or code not in (None, 200, "200"):
             message = data.get("msg") if isinstance(data, dict) else response.text[:500]
@@ -58,7 +65,7 @@ class KieAdapter:
                 code="VENDOR_API_UPSTREAM_ERROR",
                 message=str(message or "KIE_TASK_CREATE_FAILED"),
                 retryable=response.status_code in {429, 500, 502, 503, 504},
-            ), {"request": payload, "response": data}
+            ), {"request": payload, "response": data, "attempts": attempts}
 
         task_id = ((data.get("data") or {}) if isinstance(data, dict) else {}).get("taskId")
         if not task_id:
@@ -67,7 +74,7 @@ class KieAdapter:
                 message="KIE response did not include taskId",
             ), {"request": payload, "response": data}
 
-        return str(task_id), InvocationResult(json={"submitted": True}), None, {"request": payload, "response": data}
+        return str(task_id), InvocationResult(json={"submitted": True}), None, {"request": payload, "response": data, "attempts": attempts}
 
     def fetch(
         self,
@@ -79,7 +86,12 @@ class KieAdapter:
         base_url = _base_url(settings)
         url = f"{base_url}/api/v1/jobs/recordInfo"
         try:
-            response = httpx.get(url, headers=_headers(api_key), params={"taskId": task_id}, timeout=settings.request_timeout_seconds)
+            response, data, attempts = _get_with_retry(
+                url,
+                headers=_headers(api_key),
+                params={"taskId": task_id},
+                timeout=settings.request_timeout_seconds,
+            )
         except httpx.TimeoutException as exc:
             return "running", InvocationResult(), InvocationError(
                 code="VENDOR_API_TIMEOUT",
@@ -93,13 +105,12 @@ class KieAdapter:
                 retryable=True,
             ), {}
 
-        data = _safe_json(response)
         if response.status_code >= 400:
             return "running", InvocationResult(), InvocationError(
                 code="VENDOR_API_UPSTREAM_ERROR",
                 message=str(data.get("msg") if isinstance(data, dict) else response.text[:500]),
                 retryable=response.status_code in {429, 500, 502, 503, 504},
-            ), {"response": data}
+            ), {"response": data, "attempts": attempts}
 
         state = _extract_state(data)
         result_urls, result_json = _parse_result(data)
@@ -108,14 +119,14 @@ class KieAdapter:
             json=result_json,
         )
         if state == "success":
-            return "succeeded", result, None, {"response": data}
+            return "succeeded", result, None, {"response": data, "attempts": attempts}
         if state == "fail":
             return "failed", result, InvocationError(
                 code="VENDOR_API_UPSTREAM_ERROR",
                 message=_extract_error_message(data) or "KIE task failed",
                 retryable=False,
-            ), {"response": data}
-        return "running", result, None, {"response": data}
+            ), {"response": data, "attempts": attempts}
+        return "running", result, None, {"response": data, "attempts": attempts}
 
 
 def _base_url(settings: Settings) -> str:
@@ -238,6 +249,67 @@ def _extract_error_message(data: Any) -> str | None:
         if isinstance(value, str) and value.strip():
             return value.strip()
     return None
+
+
+def _post_with_retry(url: str, *, headers: dict[str, str], payload: dict[str, Any], timeout: int) -> tuple[httpx.Response, Any, list[dict[str, Any]]]:
+    attempts: list[dict[str, Any]] = []
+    for attempt in range(1, _MAX_TRANSIENT_ATTEMPTS + 1):
+        try:
+            response = httpx.post(url, headers=headers, json=payload, timeout=timeout)
+        except (httpx.TimeoutException, httpx.HTTPError) as exc:
+            attempts.append({"attempt": attempt, "error": exc.__class__.__name__, "message": str(exc)})
+            if attempt < _MAX_TRANSIENT_ATTEMPTS:
+                continue
+            raise
+        data = _safe_json(response)
+        attempts.append(_attempt_summary(attempt=attempt, response=response, data=data))
+        if attempt < _MAX_TRANSIENT_ATTEMPTS and _is_transient_response(response, data):
+            continue
+        return response, data, attempts
+    return response, data, attempts
+
+
+def _get_with_retry(
+    url: str,
+    *,
+    headers: dict[str, str],
+    params: dict[str, Any],
+    timeout: int,
+) -> tuple[httpx.Response, Any, list[dict[str, Any]]]:
+    attempts: list[dict[str, Any]] = []
+    for attempt in range(1, _MAX_TRANSIENT_ATTEMPTS + 1):
+        try:
+            response = httpx.get(url, headers=headers, params=params, timeout=timeout)
+        except (httpx.TimeoutException, httpx.HTTPError) as exc:
+            attempts.append({"attempt": attempt, "error": exc.__class__.__name__, "message": str(exc)})
+            if attempt < _MAX_TRANSIENT_ATTEMPTS:
+                continue
+            raise
+        data = _safe_json(response)
+        attempts.append(_attempt_summary(attempt=attempt, response=response, data=data))
+        if attempt < _MAX_TRANSIENT_ATTEMPTS and _is_transient_response(response, data):
+            continue
+        return response, data, attempts
+    return response, data, attempts
+
+
+def _attempt_summary(*, attempt: int, response: httpx.Response, data: Any) -> dict[str, Any]:
+    code = data.get("code") if isinstance(data, dict) else None
+    return {
+        "attempt": attempt,
+        "httpStatus": response.status_code,
+        "code": code,
+    }
+
+
+def _is_transient_response(response: httpx.Response, data: Any) -> bool:
+    if response.status_code in _TRANSIENT_STATUS_CODES:
+        return True
+    code = data.get("code") if isinstance(data, dict) else None
+    try:
+        return int(code) in _TRANSIENT_STATUS_CODES
+    except Exception:
+        return False
 
 
 def _safe_json(response: httpx.Response) -> Any:

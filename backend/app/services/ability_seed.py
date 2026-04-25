@@ -14,16 +14,12 @@ from app.constants.abilities import (
     KIE_MARKET_ABILITIES,
     OPENAI_IMAGE_ABILITIES,
     PODI_UTILITY_ABILITIES,
+    VL_ABILITIES,
     VOLCENGINE_IMAGE_ABILITIES,
     VOLCENGINE_LLM_ABILITIES,
     VOLCENGINE_VIDEO_ABILITIES,
 )
 from app.models.integration import Ability
-from app.services.ability_catalog_cleanup import get_cleanup_overrides
-from app.services.ability_deprecation import enrich_metadata_with_deprecation
-from app.services.ability_governance import enrich_metadata_with_governance
-from app.services.ability_presentation import enrich_metadata_with_presentation
-from app.services.routing_governance import enrich_ability_metadata_with_routing
 
 
 @dataclass(frozen=True)
@@ -59,6 +55,21 @@ def _is_missing_payload(payload: Any | None) -> bool:
 
 def _build_default_seeds() -> list[AbilitySeed]:
     seeds: list[AbilitySeed] = []
+    for capability_key, definition in VL_ABILITIES.items():
+        seeds.append(
+            AbilitySeed(
+                id=f"vl_{capability_key}",
+                provider="vl",
+                category=definition.get("category", "vision_language"),
+                capability_key=capability_key,
+                display_name=definition.get("display_name") or f"VL · {capability_key}",
+                description=definition.get("description") or "",
+                status="active",
+                default_params=definition.get("defaults") or None,
+                input_schema=definition.get("input_schema"),
+                metadata=definition.get("metadata") or {"api_type": "vl_analyze_image"},
+            )
+        )
     for capability_key, definition in OPENAI_IMAGE_ABILITIES.items():
         seeds.append(
             AbilitySeed(
@@ -193,26 +204,6 @@ def ensure_default_abilities(session: Session) -> bool:
     created = False
     changed = False
     for seed in DEFAULT_ABILITY_SEEDS:
-        cleanup = get_cleanup_overrides(provider=seed.provider, capability_key=seed.capability_key)
-        seed_metadata = enrich_metadata_with_presentation(
-            enrich_ability_metadata_with_routing(
-                enrich_metadata_with_deprecation(
-                    enrich_metadata_with_governance(
-                        seed.metadata,
-                        status=seed.status,
-                        governance_override=cleanup.get("governance") if isinstance(cleanup, dict) else None,
-                    ),
-                    status=seed.status,
-                    deprecation_override=cleanup.get("deprecation") if isinstance(cleanup, dict) else None,
-                )
-            ),
-            status=seed.status,
-            provider=seed.provider,
-            category=seed.category,
-            capability_key=seed.capability_key,
-            ability_type=seed.ability_type,
-            presentation_override=cleanup.get("presentation") if isinstance(cleanup, dict) else None,
-        )
         stmt = select(Ability).where(
             Ability.provider == seed.provider,
             Ability.capability_key == seed.capability_key,
@@ -220,7 +211,7 @@ def ensure_default_abilities(session: Session) -> bool:
         existing = session.execute(stmt).scalar_one_or_none()
         if existing:
             updated = False
-            seed_version = _as_int(seed_metadata.get("seed_version"))
+            seed_version = _as_int((seed.metadata or {}).get("seed_version"))
             existing_metadata = existing.extra_metadata if isinstance(existing.extra_metadata, dict) else {}
             existing_version = _as_int(existing_metadata.get("seed_version"))
             if seed_version and seed_version > existing_version:
@@ -228,7 +219,7 @@ def ensure_default_abilities(session: Session) -> bool:
                     existing.input_schema = seed.input_schema
                 if seed.default_params:
                     existing.default_params = seed.default_params
-                merged_metadata = {**existing_metadata, **seed_metadata}
+                merged_metadata = {**existing_metadata, **(seed.metadata or {})}
                 existing.extra_metadata = merged_metadata
                 updated = True
             else:
@@ -238,8 +229,8 @@ def ensure_default_abilities(session: Session) -> bool:
                 if seed.default_params and _is_missing_payload(existing.default_params):
                     existing.default_params = seed.default_params
                     updated = True
-                if seed_metadata:
-                    merged_metadata = {**seed_metadata, **existing_metadata}
+                if seed.metadata:
+                    merged_metadata = {**seed.metadata, **existing_metadata}
                     if merged_metadata != existing_metadata:
                         existing.extra_metadata = merged_metadata
                         updated = True
@@ -260,7 +251,7 @@ def ensure_default_abilities(session: Session) -> bool:
             workflow_id=seed.workflow_id,
             default_params=seed.default_params,
             input_schema=seed.input_schema,
-            extra_metadata=seed_metadata,
+            extra_metadata=seed.metadata,
         )
         session.add(ability)
         created = True

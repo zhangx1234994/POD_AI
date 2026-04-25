@@ -14,7 +14,6 @@ class ExecutorBase(BaseModel):
     max_concurrency: int = 1
     config: dict[str, Any] | None = None
     api_key_ids: list[str] = Field(default_factory=list)
-    routing: dict[str, Any] | None = None
 
 
 class ExecutorCreate(ExecutorBase):
@@ -30,16 +29,15 @@ class ExecutorUpdate(BaseModel):
     max_concurrency: int | None = None
     config: dict[str, Any] | None = None
     api_key_ids: list[str] | None = None
-    routing: dict[str, Any] | None = None
 
 
 class ExecutorRead(ExecutorBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
+    tags: list[str] = Field(default_factory=list)
     health_status: str | None = None
     last_heartbeat_at: datetime | None = None
-    business_status: dict[str, Any] | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -108,6 +106,13 @@ class WorkflowBindingRead(WorkflowBindingBase):
     updated_at: datetime
 
 
+def _preview_secret(value: str | None) -> str:
+    raw = str(value or "")
+    if len(raw) <= 8:
+        return "***" if raw else ""
+    return f"{raw[:4]}...{raw[-4:]}"
+
+
 class ApiKeyBase(BaseModel):
     provider: str
     name: str
@@ -132,15 +137,28 @@ class ApiKeyUpdate(BaseModel):
     metadata: dict[str, Any] | None = None
 
 
-class ApiKeyRead(ApiKeyBase):
+class ApiKeyRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     metadata: dict[str, Any] | None = Field(default=None, alias="extra_metadata")
 
     id: str
+    provider: str
+    name: str
+    status: str
+    daily_quota: int | None = None
     usage_count: int
+    expire_at: datetime | None = None
+    key_preview: str = ""
     created_at: datetime
     updated_at: datetime
+
+    @classmethod
+    def model_validate(cls, obj: Any, *args: Any, **kwargs: Any):  # type: ignore[override]
+        item = super().model_validate(obj, *args, **kwargs)
+        raw_key = getattr(obj, "key", None)
+        item.key_preview = _preview_secret(raw_key)
+        return item
 
 
 class ComfyuiLoraBase(BaseModel):

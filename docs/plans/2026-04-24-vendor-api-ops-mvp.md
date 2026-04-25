@@ -1,7 +1,7 @@
 # 第三方 API 接入整体拆分方案 v2
 
-> 日期：2026-04-24  
-> 状态：implementing  
+> 日期：2026-04-24
+> 状态：implemented-mvp
 > 背景：Coze 服务器访问 `api.openai.com` 超时，第三方 API 能力需要独立执行面承载网络、Key、限流和厂商错误适配。
 
 ## 1. 目标
@@ -111,6 +111,7 @@ vendor-api-ops 返回统一 envelope：
 - Key、invocation、usage log 已落 SQLite 持久化，默认路径 `runtime/vendor-api-ops.sqlite3`。
 - KIE 已接真实 submit/poll adapter：提交 `/api/v1/jobs/createTask`，轮询 `/api/v1/jobs/recordInfo`。
 - OpenAI / OpenAI-compatible 已接真实 Images API 风格 adapter：图片生成走 `/v1/images/generations`，图片编辑走 `/v1/images/edits`，支持原图、蒙版、多参考图、`size`、`quality` 等字段。
+- backend 能力目录已暴露 GPT Image 2 两个能力：`openai_gpt_image_2_generate`（文生图）与 `openai_gpt_image_2_edit`（图片编辑/蒙版）。OpenAI Key 只允许通过 `OPENAI_API_KEY` 或 vendor-api-ops `/v1/keys` 注入，不写入代码和文档。
 - 火山已接真实 Ark 风格 adapter：图文对话走 `/api/v3/chat/completions`，生图走 `/api/v3/images/generations`，视频提交链路保留 `/api/v3/contents/generations/tasks` passthrough。
 - 百度图像处理已接真实 adapter：先换取 OAuth token，再按能力 `request_endpoint` 提交 form 表单；输入支持 `image_base64`、`imageBase64`、`image_url` 和 input assets。
 
@@ -198,6 +199,7 @@ VENDOR_API_LEGACY_FALLBACK_ENABLED=true
 - OpenAI 能力必须显式绑定 `executor_openai_global` 或 required tags。
 - OpenAI 调用失败时，不允许 fallback 到 Coze 主机本地。
 - 需要特殊网络出口的 provider，都必须标记 `global-egress`。
+- GPT Image 2 表单不暴露透明背景和 `input_fidelity`，避免把官方当前不支持的参数透传给上游。
 
 ## 8. 错误码
 
@@ -254,3 +256,25 @@ VENDOR_API_LEGACY_FALLBACK_ENABLED=true
 - 新增 `vendor-api-ops` 作为第三方 API 执行面是后续标准路径。
 - backend 继续统一暴露 Coze 工具箱；业务编排仍在 Coze 中完成。
 - 统一的是任务状态、错误 envelope、日志关联和 OSS 输出，不是强行统一厂商参数。
+
+## 12. 2026-04-24 部署与验证状态
+
+当前部署口径：
+
+- backend：`114.55.0.56:8099`
+- vendor-api-ops：`117.50.80.158:8310`
+- image-ops：`117.50.80.158:8200`（当前沿用端口）
+- Coze 工具箱：统一指向 backend，不直接指向 vendor-api-ops。
+
+已验证：
+
+- Coze 主机可访问 `http://117.50.80.158:8310/health`。
+- backend 已配置 `VENDOR_API_ENABLED=true` 与 `VENDOR_API_BASE_URL=http://117.50.80.158:8310`。
+- 测评端 2026-04-24 全量 30 个 active workflow 回归通过；其中 KIE/商业模型/图片编辑等相关能力能完成提交、轮询、OSS 回填。
+- 本轮未发现因 vendor-api-ops 拆分导致的测评端主链路失败。
+
+仍保留的问题：
+
+- OpenAI / OpenAI-compatible 的真实业务能力需要在新增具体能力时单独做出网、Key、额度和错误路径验证。
+- OSS 内网地址与数据库内网地址仍作为后续独立灰度项，不与本轮 vendor-api-ops MVP 绑定。
+- Key 权威迁移需要继续从 backend 兼容态过渡到 vendor-api-ops 托管态。

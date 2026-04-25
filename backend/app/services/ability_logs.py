@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from dataclasses import dataclass
 from uuid import uuid4
 from typing import Any
@@ -237,9 +237,180 @@ class AbilityLogService:
                 if error_message:
                     log.error_message = error_message
                 session.add(log)
+                if log.ability_id:
+                    session.flush()
+                    self._refresh_ability_health_summary(session, ability_id=str(log.ability_id))
                 session.commit()
         except Exception as exc:  # pragma: no cover - defensive
             self._logger.warning("Failed to finalize ability log %s: %s", log_id, exc)
+
+    def _refresh_ability_health_summary(self, session: Any, *, ability_id: str) -> None:
+        """Update the lightweight health fields shown in the admin ability list.
+
+        The platform currently treats manual admin tests and production invocations as
+        the practical self-check signal. We aggregate the latest finished logs so the
+        UI can show whether a capability was recently healthy without needing a
+        separate scheduler first.
+        """
+
+        ability = session.get(Ability, ability_id)
+        if not ability:
+            return
+        rows = self._latest_finished_log_rows(session, ability_id=ability_id, limit=50)
+        statuses = [str(row[0]) for row in rows if row and row[0]]
+        if not statuses:
+            return
+        health_status, success_rate = self._derive_health_status(statuses)
+        ability.last_health_check_at = datetime.utcnow()
+        ability.last_health_status = health_status
+        ability.success_rate = round(success_rate, 4)
+        session.add(ability)
+
+    def refresh_health_summaries(
+        self,
+        *,
+        ability_id: str | None = None,
+        provider: str | None = None,
+        status: str | None = None,
+        health_status: str | None = None,
+        needs_test: bool | None = None,
+        stale_only: bool = False,
+        stale_hours: int = 24,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        """Recompute ability health summaries from finished invocation logs.
+
+        This is a lightweight self-check refresh. It does not call upstream models;
+        it only turns recent production/admin-test logs into a clear admin signal.
+        """
+
+        stale_hours = max(1, min(int(stale_hours or 24), 24 * 30))
+        limit = max(1, min(int(limit or 20), 500))
+        health_status_filter = (health_status or "").strip().lower() or None
+        needs_test_filter = needs_test
+        now = datetime.utcnow()
+        stale_cutoff = now - timedelta(hours=stale_hours)
+        items: list[dict[str, Any]] = []
+        counters = {
+            "total": 0,
+            "healthy": 0,
+            "degraded": 0,
+            "failed": 0,
+            "unknown": 0,
+            "staleCount": 0,
+            "needsTestCount": 0,
+        }
+
+        with get_session() as session:
+            stmt = select(Ability).order_by(Ability.provider, Ability.capability_key, Ability.version)
+            if ability_id:
+                stmt = stmt.where(Ability.id == ability_id)
+            if provider:
+                stmt = stmt.where(Ability.provider == provider)
+            if status:
+                stmt = stmt.where(Ability.status == status)
+            abilities = session.execute(stmt).scalars().all()
+            for ability in abilities:
+                rows = self._latest_finished_log_rows(session, ability_id=str(ability.id), limit=50)
+                statuses = [str(row[0]) for row in rows if row and row[0]]
+                latest_status = statuses[0] if statuses else None
+                latest_log_at = rows[0][1] if rows and rows[0][1] else None
+                finished_log_count = len(statuses)
+                success_rate: float | None = None
+                health_status = str(ability.last_health_status or "unknown").lower()
+
+                if statuses:
+                    health_status, success_rate = self._derive_health_status(statuses)
+                    ability.last_health_check_at = latest_log_at or now
+                    ability.last_health_status = health_status
+                    ability.success_rate = round(success_rate, 4)
+                    session.add(ability)
+                elif isinstance(ability.success_rate, (int, float)):
+                    success_rate = float(ability.success_rate)
+
+                last_check_at = ability.last_health_check_at
+                is_active = str(ability.status or "").lower() == "active"
+                stale = is_active and (last_check_at is None or last_check_at < stale_cutoff)
+                item_needs_test = is_active and (stale or health_status in {"unknown", "failed"})
+
+                counters["total"] += 1
+                if health_status == "healthy":
+                    counters["healthy"] += 1
+                elif health_status == "degraded":
+                    counters["degraded"] += 1
+                elif health_status == "failed":
+                    counters["failed"] += 1
+                else:
+                    counters["unknown"] += 1
+                if stale:
+                    counters["staleCount"] += 1
+                if item_needs_test:
+                    counters["needsTestCount"] += 1
+
+                item = {
+                    "abilityId": str(ability.id),
+                    "displayName": ability.display_name,
+                    "provider": ability.provider,
+                    "capabilityKey": ability.capability_key,
+                    "status": ability.status,
+                    "healthStatus": health_status,
+                    "lastHealthCheckAt": last_check_at,
+                    "successRate": round(success_rate, 4) if success_rate is not None else None,
+                    "finishedLogCount": finished_log_count,
+                    "latestLogStatus": latest_status,
+                    "latestLogAt": latest_log_at,
+                    "stale": stale,
+                    "needsTest": item_needs_test,
+                }
+                if health_status_filter and item["healthStatus"] != health_status_filter:
+                    continue
+                if needs_test_filter is not None and item["needsTest"] is not needs_test_filter:
+                    continue
+                if stale_only and not item["stale"]:
+                    continue
+                items.append(item)
+            session.commit()
+
+        severity_order = {"failed": 0, "unknown": 1, "degraded": 2, "healthy": 3}
+        items.sort(
+            key=lambda row: (
+                not bool(row.get("needsTest")),
+                not bool(row.get("stale")),
+                severity_order.get(str(row.get("healthStatus") or "unknown"), 1),
+                str(row.get("provider") or ""),
+                str(row.get("capabilityKey") or ""),
+            )
+        )
+        return {
+            **counters,
+            "generatedAt": now,
+            "staleHours": stale_hours,
+            "items": items[:limit],
+        }
+
+    def _latest_finished_log_rows(self, session: Any, *, ability_id: str, limit: int) -> list[Any]:
+        return (
+            session.execute(
+                select(AbilityInvocationLog.status, AbilityInvocationLog.created_at)
+                .where(
+                    AbilityInvocationLog.ability_id == ability_id,
+                    AbilityInvocationLog.status.in_(["success", "failed"]),
+                )
+                .order_by(desc(AbilityInvocationLog.created_at), desc(AbilityInvocationLog.id))
+                .limit(max(1, min(limit, 200)))
+            )
+            .all()
+        )
+
+    def _derive_health_status(self, statuses: list[str]) -> tuple[str, float]:
+        success_count = sum(1 for item in statuses if item == "success")
+        success_rate = success_count / len(statuses)
+        latest_status = statuses[0]
+        if latest_status == "success":
+            return "healthy", success_rate
+        if success_rate >= 0.8:
+            return "degraded", success_rate
+        return "failed", success_rate
 
     def record_callback(
         self,

@@ -6,6 +6,7 @@
 - **能力定义**仅描述：输入 schema、默认参数、metadata。
 - **执行节点**仅描述：baseUrl、并发、凭证、健康状态。
 - 能力不硬编码服务器地址；执行节点可随时替换。
+- 原子能力按执行性质归属到 `image-ops`、ComfyUI executor、`vendor-api-ops` 或 backend 控制面，具体边界见 `docs/standards/atomic-ability-boundary.md`。
 
 ## 2. 能力执行与展示解耦
 - 执行结果统一落 OSS，再由前端展示。

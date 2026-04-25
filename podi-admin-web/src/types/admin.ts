@@ -8,55 +8,6 @@ export type JsonValue =
 
 export type JsonRecord = Record<string, JsonValue>;
 
-export interface AbilityGovernance {
-  scopes?: string[];
-  release_status?: string;
-  route_policy?: string;
-  quality_status?: string;
-}
-
-export interface AbilityBusinessStatus {
-  availability_code?: string;
-  availability_label?: string;
-  stability_code?: string;
-  stability_label?: string;
-  surface_labels?: string[];
-}
-
-export interface AbilityPresentation {
-  visible?: boolean;
-  sort_order?: number;
-  category_label?: string;
-  usage_hint?: string;
-  operation_label?: string;
-}
-
-export interface AbilityDeprecation {
-  is_deprecated?: boolean;
-  replacement_ability_id?: string | null;
-  replacement_capability_key?: string | null;
-  replacement_display_name?: string | null;
-  reason?: string | null;
-  retirement_mode?: string | null;
-}
-
-export interface ExecutorRouting {
-  routing_enabled?: boolean;
-  fallback_only?: boolean;
-  selection_policy?: string;
-  tags?: string[];
-  allowed_workflow_keys?: string[];
-  blocked_workflow_keys?: string[];
-  concurrency_limit?: number;
-}
-
-export interface ExecutorBusinessStatus {
-  execution_mode_code?: string;
-  execution_mode_label?: string;
-  concurrency_label?: string;
-  tags?: string[];
-}
-
 export interface Executor {
   id: string;
   name: string;
@@ -67,9 +18,8 @@ export interface Executor {
   max_concurrency: number;
   health_status?: string;
   last_heartbeat_at?: string;
+  tags?: string[];
   config?: JsonRecord;
-  routing?: ExecutorRouting | null;
-  business_status?: ExecutorBusinessStatus | null;
 }
 
 export interface Workflow {
@@ -101,8 +51,68 @@ export interface ApiKey {
   daily_quota?: number;
   usage_count?: number;
   expire_at?: string;
+  key_preview?: string;
   key?: string;
 }
+
+export interface AuthUser {
+  id: string;
+  username: string;
+  email: string;
+  role: string;
+  status: string;
+  displayName?: string | null;
+  tenantId?: string | null;
+  clientId?: string | null;
+  createdAt?: string | null;
+  lastLoginAt?: string | null;
+}
+
+export interface AuthSession {
+  id: string;
+  userId?: string | null;
+  username?: string | null;
+  email?: string | null;
+  displayName?: string | null;
+  status: string;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+  expiresAt?: string | null;
+  revokedAt?: string | null;
+  lastSeenAt?: string | null;
+  createdAt?: string | null;
+}
+
+export interface InviteCode {
+  id: string;
+  code: string;
+  role: string;
+  tenantId?: string | null;
+  clientId?: string | null;
+  maxUses: number;
+  usedCount: number;
+  status: string;
+  expiresAt?: string | null;
+  createdBy?: string | null;
+  note?: string | null;
+  metadata?: JsonRecord | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface AuthUserListResponse {
+  items: AuthUser[];
+}
+
+export interface AuthSessionListResponse {
+  items: AuthSession[];
+}
+
+export interface InviteCodeListResponse {
+  items: InviteCode[];
+}
+
+export type InviteCodeCreatePayload = Partial<Pick<InviteCode, 'role' | 'tenantId' | 'clientId' | 'maxUses' | 'expiresAt' | 'note' | 'metadata'>>;
 
 export type ExecutorFormState = Partial<Omit<Executor, 'config'>> & {
   config?: string;
@@ -117,6 +127,124 @@ export type BindingFormState = Partial<Binding>;
 
 export type ApiKeyFormState = Partial<ApiKey>;
 
+export type VendorKeyFormState = Partial<VendorKey> & {
+  key?: string;
+  secret?: string | null;
+};
+
+export interface VendorProvider {
+  provider: string;
+  displayName: string;
+  status: string;
+  requiresGlobalEgress: boolean;
+  supportedChecks: string[];
+  supportedApiTypes: string[];
+  executionModes: string[];
+}
+
+export interface VendorProviderListResponse {
+  service: string;
+  baseUrl: string;
+  providers: VendorProvider[];
+}
+
+export interface VendorEgressCheckResponse {
+  success: boolean;
+  provider: string;
+  check: string;
+  url: string;
+  httpStatus?: number | null;
+  latencyMs?: number | null;
+  errorCode?: string | null;
+  message?: string | null;
+  suggestion?: string | null;
+}
+
+export interface VendorKey {
+  id: string;
+  provider: string;
+  alias: string;
+  model?: string | null;
+  status: string;
+  keyPreview: string;
+  dailyQuota?: number | null;
+  monthlyQuota?: number | null;
+  usageCount: number;
+  maxConcurrency: number;
+  cooldownUntil?: string | null;
+  lastError?: string | null;
+  lastUsedAt?: string | null;
+  metadata?: JsonRecord;
+}
+
+export interface VendorKeyListResponse {
+  baseUrl: string;
+  items: VendorKey[];
+}
+
+export interface VendorUsageSummaryItem {
+  provider: string;
+  model?: string | null;
+  status: string;
+  count: number;
+  errorCode?: string | null;
+  avgLatencyMs?: number | null;
+  lastSeenAt?: string | null;
+}
+
+export interface VendorUsageSummaryResponse {
+  baseUrl: string;
+  windowHours: number;
+  items: VendorUsageSummaryItem[];
+}
+
+export interface VendorModel {
+  id?: number | null;
+  provider: string;
+  model: string;
+  displayName: string;
+  status: string;
+  apiTypes: string[];
+  executionModes: string[];
+  supportsMask: boolean;
+  supportsMultipleImages: boolean;
+  supportsVideo: boolean;
+  supportsText: boolean;
+  requiresGlobalEgress: boolean;
+  source: string;
+  routePolicy?: JsonRecord | null;
+  defaultTaskPolicy?: JsonRecord | null;
+  inputSchema?: JsonRecord | null;
+  costPolicy?: JsonRecord | null;
+  metadata?: JsonRecord;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface VendorModelListResponse {
+  baseUrl: string;
+  items: VendorModel[];
+}
+
+export interface VendorModelSyncResponse {
+  provider: string;
+  sourceUrl: string;
+  total: number;
+  created: number;
+  updated: number;
+  skipped: number;
+}
+
+export type VendorModelFormState = Partial<VendorModel> & {
+  apiTypesText?: string;
+  executionModesText?: string;
+  metadataText?: string;
+  routePolicyText?: string;
+  defaultTaskPolicyText?: string;
+  inputSchemaText?: string;
+  costPolicyText?: string;
+};
+
 export interface Ability {
   id: string;
   provider: string;
@@ -129,14 +257,11 @@ export interface Ability {
   ability_type: string;
   executor_id?: string | null;
   workflow_id?: string | null;
+  vendor_model_id?: number | null;
   coze_workflow_id?: string | null;
   default_params?: JsonRecord | null;
   input_schema?: JsonRecord | null;
   metadata?: JsonRecord | null;
-  governance?: AbilityGovernance | null;
-  presentation?: AbilityPresentation | null;
-  deprecation?: AbilityDeprecation | null;
-  business_status?: AbilityBusinessStatus | null;
   last_health_check_at?: string | null;
   last_health_status?: string | null;
   success_rate?: number | null;
@@ -162,6 +287,7 @@ export interface PublicAbility {
   abilityType: string;
   workflowId?: string | null;
   executorId?: string | null;
+  vendorModelId?: number | null;
   cozeWorkflowId?: string | null;
   defaultParams?: JsonRecord | null;
   inputSchema?: JsonRecord | null;
@@ -176,6 +302,257 @@ export interface PublicAbility {
 
 export interface AbilityListResponse {
   items: PublicAbility[];
+}
+
+export interface AbilityHealthSummaryItem {
+  abilityId: string;
+  displayName: string;
+  provider: string;
+  capabilityKey: string;
+  status: string;
+  healthStatus: string;
+  lastHealthCheckAt?: string | null;
+  successRate?: number | null;
+  finishedLogCount: number;
+  latestLogStatus?: string | null;
+  latestLogAt?: string | null;
+  stale: boolean;
+  needsTest: boolean;
+}
+
+export interface AbilityHealthSummaryResponse {
+  generatedAt: string;
+  staleHours: number;
+  total: number;
+  healthy: number;
+  degraded: number;
+  failed: number;
+  unknown: number;
+  staleCount: number;
+  needsTestCount: number;
+  items: AbilityHealthSummaryItem[];
+}
+
+export interface BusinessCapability {
+  id: string;
+  businessKey: string;
+  version: string;
+  displayName: string;
+  description?: string | null;
+  status: string;
+  isDefault: boolean;
+  releaseTime?: string | null;
+  recipe?: JsonRecord | null;
+  inputSchema?: JsonRecord | null;
+  outputSchema?: JsonRecord | null;
+  metadata?: JsonRecord | null;
+  primaryAbilityId?: string | null;
+  primaryAbilityName?: string | null;
+  primaryAbilityProvider?: string | null;
+  vendorModelId?: number | null;
+  vendorModelName?: string | null;
+  vendorModelProvider?: string | null;
+  recipeSteps?: BusinessRecipeStep[];
+  latestRun?: BusinessCapabilityLatestRun | null;
+  runMetrics?: BusinessCapabilityRunMetrics | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BusinessCapabilityLatestRun {
+  id: string;
+  status: string;
+  createdAt?: string | null;
+  created_at?: string | null;
+  finishedAt?: string | null;
+  finished_at?: string | null;
+  imageCount?: number | null;
+  image_count?: number | null;
+  videoCount?: number | null;
+  video_count?: number | null;
+  error?: string | null;
+}
+
+export interface BusinessCapabilityRunMetrics {
+  windowHours?: number | null;
+  window_hours?: number | null;
+  total?: number | null;
+  succeeded?: number | null;
+  failed?: number | null;
+  running?: number | null;
+  queued?: number | null;
+  cancelled?: number | null;
+  successRate?: number | null;
+  success_rate?: number | null;
+}
+
+export interface BusinessRecipeStep {
+  order: number;
+  id?: string | null;
+  type?: string | null;
+  role?: string | null;
+  displayName?: string | null;
+  enabled: boolean;
+  abilityId?: string | null;
+  abilityName?: string | null;
+  abilityProvider?: string | null;
+}
+
+export interface BusinessCapabilityFormState {
+  id?: string;
+  businessKey: string;
+  version: string;
+  displayName: string;
+  description?: string;
+  status: string;
+  isDefault: boolean;
+  releaseTime?: string;
+  primaryAbilityId: string;
+  vlAssistEnabled: boolean;
+  vlAssistAbilityId: string;
+  rolloutEnabled: boolean;
+  rolloutPercent: number;
+  rolloutAllowlistText: string;
+  recipeText: string;
+  inputSchemaText: string;
+  outputSchemaText: string;
+  metadataText: string;
+}
+
+export interface BusinessCapabilityListResponse {
+  items: BusinessCapability[];
+}
+
+export interface BusinessRun {
+  id: string;
+  runId: string;
+  businessKey: string;
+  businessVersionId?: string | null;
+  version?: string | null;
+  status: string;
+  source: string;
+  channel?: string | null;
+  traceId?: string | null;
+  requestId?: string | null;
+  tenantId?: string | null;
+  clientId?: string | null;
+  abilityId?: string | null;
+  abilityName?: string | null;
+  abilityProvider?: string | null;
+  vendorModelId?: number | null;
+  vendorModelName?: string | null;
+  vendorModelProvider?: string | null;
+  taskId?: string | null;
+  abilityTaskId?: string | null;
+  abilityLogId?: number | null;
+  requestPayload?: JsonRecord | null;
+  resultPayload?: JsonRecord | null;
+  imageUrls?: string[] | null;
+  videoUrls?: string[] | null;
+  texts?: string[] | null;
+  error?: string | null;
+  errorMessage?: string | null;
+  durationMs?: number | null;
+  billingUnit?: string | null;
+  unitPrice?: number | null;
+  costAmount?: number | null;
+  currency?: string | null;
+  quotaUnits?: number | null;
+  costBreakdown?: JsonRecord | null;
+  callbackStatus?: string | null;
+  debugUrl?: string | null;
+  routeInfo?: JsonRecord | null;
+  steps?: BusinessRunStep[];
+  createdAt: string;
+  updatedAt: string;
+  finishedAt?: string | null;
+}
+
+export interface BusinessRunStep {
+  id: string;
+  runId: string;
+  order: number;
+  stepId?: string | null;
+  stepType: string;
+  role?: string | null;
+  displayName?: string | null;
+  enabled: boolean;
+  status: string;
+  abilityId?: string | null;
+  abilityName?: string | null;
+  abilityProvider?: string | null;
+  abilityTaskId?: string | null;
+  abilityLogId?: number | null;
+  resultSummary?: JsonRecord | null;
+  error?: string | null;
+  durationMs?: number | null;
+  billingUnit?: string | null;
+  unitPrice?: number | null;
+  costAmount?: number | null;
+  currency?: string | null;
+  quotaUnits?: number | null;
+  costBreakdown?: JsonRecord | null;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BusinessRunListResponse {
+  total: number;
+  items: BusinessRun[];
+}
+
+export interface BusinessUsageBucket {
+  key: string;
+  label: string;
+  total: number;
+  succeeded: number;
+  failed: number;
+  running: number;
+  queued: number;
+  cancelled: number;
+  successRate?: number | null;
+  avgDurationMs?: number | null;
+  costByCurrency?: Record<string, number>;
+  quotaUnits: number;
+  latestAt?: string | null;
+}
+
+export interface BusinessUsageFailure {
+  id: string;
+  runId: string;
+  businessKey: string;
+  version?: string | null;
+  status: string;
+  source: string;
+  channel?: string | null;
+  tenantId?: string | null;
+  clientId?: string | null;
+  traceId?: string | null;
+  error?: string | null;
+  createdAt: string;
+}
+
+export interface BusinessUsageSummaryResponse {
+  windowHours: number;
+  filters: JsonRecord;
+  total: number;
+  succeeded: number;
+  failed: number;
+  running: number;
+  queued: number;
+  cancelled: number;
+  successRate?: number | null;
+  avgDurationMs?: number | null;
+  costByCurrency: Record<string, number>;
+  quotaUnits: number;
+  byBusiness: BusinessUsageBucket[];
+  bySource: BusinessUsageBucket[];
+  byTenant: BusinessUsageBucket[];
+  byClient: BusinessUsageBucket[];
+  byVersion: BusinessUsageBucket[];
+  recentFailures: BusinessUsageFailure[];
 }
 
 export interface StoredAsset {
