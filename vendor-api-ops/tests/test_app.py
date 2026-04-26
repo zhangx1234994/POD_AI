@@ -134,6 +134,41 @@ def test_provider_auth_check_reports_missing_key(monkeypatch) -> None:
         get_settings.cache_clear()
 
 
+def test_key_check_persists_last_check_metadata(monkeypatch) -> None:
+    client = TestClient(app)
+    created = client.post("/v1/keys", json={"provider": "openai", "alias": "check-key", "key": "sk-check-key"})
+    key_id = created.json()["id"]
+    captured = {}
+
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def request(self, method, url, headers=None, params=None):
+            captured["headers"] = headers or {}
+            return httpx.Response(200, json={"data": []}, request=httpx.Request(method, url))
+
+    monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+
+    response = client.post(f"/v1/keys/{key_id}/check", json={})
+
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+    assert captured["headers"]["Authorization"] == "Bearer sk-check-key"
+
+    keys = client.get("/v1/keys").json()["items"]
+    checked = next(item for item in keys if item["id"] == key_id)
+    assert checked["metadata"]["lastCheck"]["success"] is True
+    assert checked["metadata"]["lastCheck"]["checkedAt"]
+    assert checked["lastError"] is None
+
+
 def test_baidu_image_process_returns_base64_asset(monkeypatch) -> None:
     client = TestClient(app)
     client.post(

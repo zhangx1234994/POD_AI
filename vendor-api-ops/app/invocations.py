@@ -11,7 +11,7 @@ from app.baidu import baidu_adapter
 from app.config import get_settings
 from app.kie import kie_adapter
 from app.openai_adapter import openai_adapter
-from app.providers import ERR_PROVIDER_NOT_SUPPORTED, PROVIDERS
+from app.providers import ERR_PROVIDER_NOT_SUPPORTED, PROVIDERS, check_provider_egress
 from app.schemas import (
     InvocationError,
     InvocationRequest,
@@ -116,16 +116,53 @@ class InvocationStore:
         return [_read_key(item) for item in vendor_storage.list_keys(provider=normalized)]
 
     def update_key(self, key_id: str, payload: VendorKeyUpdateRequest) -> VendorKeyRead | None:
-        item = vendor_storage.update_key(
+        changes: dict[str, Any] = {}
+        if payload.status is not None:
+            changes["status"] = payload.status
+        if payload.cooldownUntil is not None:
+            changes["cooldown_until"] = payload.cooldownUntil
+        if payload.lastError is not None:
+            changes["last_error"] = payload.lastError
+        if payload.metadata is not None:
+            changes["metadata"] = payload.metadata
+        item = vendor_storage.update_key(key_id, changes)
+        return _read_key(item) if item else None
+
+    async def check_key(self, key_id: str, *, check: str | None = None) -> tuple[VendorKeyRead | None, Any | None]:
+        item = vendor_storage.get_key(key_id)
+        if not item:
+            return None, None
+        provider = str(item.get("provider") or "").strip().lower()
+        definition = PROVIDERS.get(provider)
+        check_name = check or (definition.supported_checks[0] if definition and definition.supported_checks else "models")
+        result = await check_provider_egress(
+            settings=get_settings(),
+            provider=provider,
+            check=check_name,
+            include_auth=True,
+            auth_material={"key": item.get("key"), "secret": item.get("secret")},
+        )
+        metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+        metadata = {
+            **metadata,
+            "lastCheck": {
+                "success": result.success,
+                "check": result.check,
+                "httpStatus": result.httpStatus,
+                "latencyMs": result.latencyMs,
+                "errorCode": result.errorCode,
+                "message": result.message,
+                "checkedAt": datetime.now(timezone.utc).isoformat(),
+            },
+        }
+        updated = vendor_storage.update_key(
             key_id,
             {
-                "status": payload.status,
-                "cooldown_until": payload.cooldownUntil,
-                "last_error": payload.lastError,
-                "metadata": payload.metadata,
+                "last_error": None if result.success else (result.errorCode or result.message or "VENDOR_API_AUTH_FAILED"),
+                "metadata": metadata,
             },
         )
-        return _read_key(item) if item else None
+        return (_read_key(updated) if updated else None), result
 
     def usage_summary(self, *, window_hours: int = 24) -> list[dict[str, Any]]:
         return [

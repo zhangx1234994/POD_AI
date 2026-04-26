@@ -20,6 +20,7 @@ MVP includes:
 - `POST /v1/keys`
 - `GET /v1/keys`
 - `PATCH /v1/keys/{keyId}`
+- `POST /v1/keys/{keyId}/check`
 - `GET /v1/usage/summary`
 
 Provider registry now covers OpenAI, OpenAI-compatible relays, Volcengine,
@@ -35,6 +36,7 @@ variable is set, callers must send `Authorization: Bearer <token>` for:
 - `POST /v1/keys`
 - `GET /v1/keys`
 - `PATCH /v1/keys/{keyId}`
+- `POST /v1/keys/{keyId}/check`
 - `GET /v1/usage/summary`
 
 Backend should use the same value through `VENDOR_API_TOKEN`. `GET /health` and

@@ -87,6 +87,7 @@
 - 百度：厂商选择 `baidu`，同时填写 API Key 和 Secret Key。
 - 换 Key 时新增一条新 Key，确认可用后停用旧 Key；编辑模式不回显明文。
 - 配置后在“厂商出网与能力边界”点击“验证 Key”，系统会优先使用 Key 池里的 active Key 去调用厂商检查接口；通过后再进入业务能力或测评端回归。
+- 也可以在单条 Key 的操作列点击“验证”，结果会写入该 Key 的 `metadata.lastCheck`，列表展示最近验证状态和时间。
 
 ### 第三方 API 治理摘要
 - `GET /api/admin/vendor-api/governance/summary`
@@ -97,6 +98,7 @@
 - `GET /api/admin/vendor-api/keys`
 - `POST /api/admin/vendor-api/keys`
 - `PATCH /api/admin/vendor-api/keys/{id}`
+- `POST /api/admin/vendor-api/keys/{id}/check`
 - `GET /api/admin/vendor-api/providers`
 - `POST /api/admin/vendor-api/providers/{provider}/egress-check`
 - `GET /api/admin/vendor-api/governance/summary`

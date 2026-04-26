@@ -69,9 +69,9 @@ class VendorStorage:
         fields: dict[str, Any] = {"updated_at": _now_iso()}
         if "status" in payload and payload["status"] is not None:
             fields["status"] = payload["status"]
-        if "cooldown_until" in payload and payload["cooldown_until"] is not None:
-            fields["cooldown_until"] = _to_iso(payload["cooldown_until"])
-        if "last_error" in payload and payload["last_error"] is not None:
+        if "cooldown_until" in payload:
+            fields["cooldown_until"] = _to_iso(payload["cooldown_until"]) if payload["cooldown_until"] is not None else None
+        if "last_error" in payload:
             fields["last_error"] = payload["last_error"]
         if "metadata" in payload and payload["metadata"] is not None:
             fields["metadata_json"] = _dump_json(payload["metadata"])

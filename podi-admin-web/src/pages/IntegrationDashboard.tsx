@@ -2091,6 +2091,7 @@ export function IntegrationDashboard({
   const [vendorError, setVendorError] = useState('');
   const [vendorNotice, setVendorNotice] = useState('');
   const [vendorEgressChecks, setVendorEgressChecks] = useState<Record<string, VendorEgressCheckResponse>>({});
+  const [vendorKeyCheckingId, setVendorKeyCheckingId] = useState<string | null>(null);
   const [vendorKeyForm, setVendorKeyForm] = useState<VendorKeyFormState>(defaultVendorKeyForm);
   const [vendorModelForm, setVendorModelForm] = useState<VendorModelFormState>(defaultVendorModelForm);
   const [vendorModelFormError, setVendorModelFormError] = useState<string | null>(null);
@@ -7322,6 +7323,29 @@ const extractErrorMessage = (error: unknown): string => {
       }
     } catch (error) {
       setVendorError(extractErrorMessage(error) || (includeAuth ? 'Key 验证失败' : '出网检查失败'));
+    }
+  };
+
+  const handleVendorKeyCheck = async (key: VendorKey) => {
+    setVendorError('');
+    setVendorNotice('');
+    setVendorKeyCheckingId(key.id);
+    try {
+      const providerConfig = vendorProviders.find((item) => item.provider === key.provider);
+      const check = providerConfig?.supportedChecks?.[0] || 'models';
+      const result = await adminApi.checkVendorKey(key.id, { check, includeAuth: true });
+      setVendorEgressChecks((prev) => ({ ...prev, [key.provider]: result }));
+      const keys = await adminApi.listVendorKeys();
+      setVendorKeys(keys.items || []);
+      if (result.success) {
+        setVendorNotice(`${key.alias} 验证通过。`);
+      } else {
+        setVendorError(`${key.alias} 验证失败：${result.message || result.errorCode || '请检查 Key、额度和厂商账号状态'}`);
+      }
+    } catch (error) {
+      setVendorError(extractErrorMessage(error) || `${key.alias} 验证失败`);
+    } finally {
+      setVendorKeyCheckingId(null);
     }
   };
 
@@ -17017,18 +17041,45 @@ const extractErrorMessage = (error: unknown): string => {
                   },
                   {
                     colKey: 'last',
-                    title: '最近使用',
-                    width: 160,
-                    cell: ({ row }) => <Typography.Text theme="secondary">{row.lastUsedAt ? formatDateTime(row.lastUsedAt) : '—'}</Typography.Text>,
+                    title: '最近使用/验证',
+                    width: 210,
+                    cell: ({ row }) => {
+                      const metadata = getJsonRecord(row.metadata);
+                      const lastCheck = getJsonRecord(metadata?.lastCheck);
+                      const checkedAt = typeof lastCheck?.checkedAt === 'string' ? lastCheck.checkedAt : '';
+                      const checkOk = lastCheck?.success === true;
+                      return (
+                        <Space direction="vertical" size={2}>
+                          <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                            使用：{row.lastUsedAt ? formatDateTime(row.lastUsedAt) : '—'}
+                          </Typography.Text>
+                          {lastCheck ? (
+                            <Typography.Text theme={checkOk ? 'success' : 'error'} style={{ fontSize: 12 }}>
+                              验证：{checkOk ? '通过' : String(lastCheck.errorCode || '失败')}
+                              {checkedAt ? ` · ${formatDateTime(checkedAt)}` : ''}
+                            </Typography.Text>
+                          ) : (
+                            <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                              验证：未验证
+                            </Typography.Text>
+                          )}
+                        </Space>
+                      );
+                    },
                   },
                   {
                     colKey: 'actions',
                     title: '操作',
-                    width: 110,
+                    width: 150,
                     cell: ({ row }) => (
-                      <Button size="small" variant="text" onClick={() => setVendorKeyForm({ ...row })}>
-                        编辑
-                      </Button>
+                      <Space size={4}>
+                        <Button size="small" variant="text" loading={vendorKeyCheckingId === row.id} onClick={() => handleVendorKeyCheck(row)}>
+                          验证
+                        </Button>
+                        <Button size="small" variant="text" onClick={() => setVendorKeyForm({ ...row })}>
+                          编辑
+                        </Button>
+                      </Space>
                     ),
                   },
                 ]}

@@ -50,6 +50,7 @@
 | INVITE_CODE_GENERATE_FAILED | 邀请码生成失败 | 500 |
 | ADMIN_ONLY | 仅管理员可访问 | 403 |
 | INTERNAL_ONLY | 仅内网可访问 | 401 |
+| VENDOR_API_AUTH_REQUIRED | 第三方 API 执行服务缺少服务 token | 401，vendor-api-ops 敏感接口 |
 
 ---
 
@@ -285,6 +286,7 @@
 | VENDOR_API_KEY_CONCURRENCY_LIMITED | 第三方 API Key 并发已满 | 可重试；等待释放或确认厂商额度后提高 Key 并发 |
 | VENDOR_API_KEY_DISABLED | 第三方 API Key 不可用 | disabled/cooldown/exhausted/error 均需可读提示 |
 | VENDOR_API_KEY_MISSING | 第三方 API Key 缺失 | 不暴露 Key 明文 |
+| VENDOR_API_KEY_NOT_FOUND | 第三方 API Key 记录不存在 | 单条 Key 编辑、验证 |
 | VENDOR_API_AUTH_FAILED | 第三方 API Key 验证失败 | Key 错误、Secret 错误、账号被禁用或额度异常 |
 | VENDOR_API_INPUT_INVALID | 第三方 API 入参不合法 | 缺少图片、蒙版、任务必填字段等 provider 级校验失败 |
 | VENDOR_API_RATE_LIMITED | 第三方 API 限流 | 应进入 Key 冷却或切换 Key |

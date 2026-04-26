@@ -133,6 +133,7 @@ async def check_provider_egress(
     provider: str,
     check: str,
     include_auth: bool,
+    auth_material: dict[str, str | None] | None = None,
 ) -> EgressCheckResponse:
     normalized = provider.lower().strip()
     definition = PROVIDERS.get(normalized)
@@ -162,7 +163,7 @@ async def check_provider_egress(
     method = "GET"
     params: dict[str, Any] | None = None
     if include_auth:
-        auth = _select_auth_material(settings, normalized)
+        auth = auth_material or _select_auth_material(settings, normalized)
         if not auth.get("key"):
             return EgressCheckResponse(
                 success=False,

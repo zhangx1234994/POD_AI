@@ -61,6 +61,9 @@ class VendorAdminClient:
     def update_key(self, key_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         return self._request("PATCH", f"/v1/keys/{key_id}", json=payload)
 
+    def check_key(self, key_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._request("POST", f"/v1/keys/{key_id}/check", json=payload)
+
 
 def _error_detail(response: httpx.Response) -> Any:
     try:

@@ -393,6 +393,11 @@ export const adminApi = {
       method: 'PATCH',
       body: JSON.stringify(payload),
     }),
+  checkVendorKey: (id: string, payload?: { check?: string; includeAuth?: boolean }) =>
+    request<VendorEgressCheckResponse>(`/api/admin/vendor-api/keys/${encodeURIComponent(id)}/check`, {
+      method: 'POST',
+      body: JSON.stringify(payload || { includeAuth: true }),
+    }),
   listVendorModels: () => request<VendorModelListResponse>('/api/admin/vendor-api/models'),
   syncVolcengineModels: () =>
     request<VendorModelSyncResponse>('/api/admin/vendor-api/models/sync/volcengine', { method: 'POST' }),

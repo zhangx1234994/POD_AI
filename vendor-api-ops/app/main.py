@@ -110,3 +110,19 @@ def update_key(key_id: str, payload: VendorKeyUpdateRequest) -> VendorKeyRead:
             ).model_dump(),
         )
     return item
+
+
+@app.post("/v1/keys/{key_id}/check", response_model=EgressCheckResponse, dependencies=[Depends(require_service_token)])
+async def check_key(key_id: str, payload: EgressCheckRequest | None = None) -> EgressCheckResponse:
+    request = payload or EgressCheckRequest()
+    check_name = request.check if payload and "check" in payload.model_fields_set else None
+    item, result = await invocation_store.check_key(key_id, check=check_name)
+    if item is None or result is None:
+        raise HTTPException(
+            status_code=404,
+            detail=ErrorPayload(
+                errorCode="VENDOR_API_KEY_NOT_FOUND",
+                message=f"Key not found: {key_id}",
+            ).model_dump(),
+        )
+    return result

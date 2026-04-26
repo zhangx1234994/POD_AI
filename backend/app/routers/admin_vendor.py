@@ -55,6 +55,11 @@ def update_vendor_key(key_id: str, payload: schemas.VendorKeyUpdateRequest) -> d
     return vendor_admin_client.update_key(key_id, payload.model_dump(mode="json", exclude_none=True))
 
 
+@router.post("/keys/{key_id}/check", response_model=schemas.VendorEgressCheckResponse)
+def check_vendor_key(key_id: str, payload: schemas.VendorEgressCheckRequest) -> dict[str, Any]:
+    return vendor_admin_client.check_key(key_id, payload.model_dump(mode="json", exclude_none=True))
+
+
 @router.get("/models", response_model=schemas.VendorModelListResponse)
 def list_vendor_models() -> dict[str, Any]:
     providers: dict[str, Any] = {"baseUrl": get_settings().vendor_api_base_url, "providers": []}
