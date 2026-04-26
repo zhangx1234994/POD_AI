@@ -74,6 +74,7 @@
 - 后续新增厂商 Key 默认走交互页面，不再要求运维改配置文件。
 - 正式部署时 `vendor-api-ops` 需要配置 `VENDOR_API_OPS_ADMIN_TOKEN`，backend 配置同值 `VENDOR_API_TOKEN`，避免能力服务端口被绕过管理端直接调用。
 - 正式部署时还需要配置 `VENDOR_API_KEY_ENCRYPTION_SECRET`。配置后新写入 Key 会加密落库；旧明文 Key 可继续读取，后续通过“新增新 Key、停用旧 Key”的方式逐步替换。
+- Key 池列表的“安全”列会显示该 Key 是否已加密；未加密通常代表历史明文 Key，需要逐步替换。
 
 ### 页面入口
 - 管理端：`http://114.55.0.56:8199`

@@ -17040,6 +17040,21 @@ const extractErrorMessage = (error: unknown): string => {
                     ),
                   },
                   {
+                    colKey: 'security',
+                    title: '安全',
+                    width: 110,
+                    cell: ({ row }) => {
+                      const metadata = getJsonRecord(row.metadata);
+                      const security = getJsonRecord(metadata?.security);
+                      const encrypted = security?.keyEncrypted === true;
+                      return (
+                        <Tag theme={encrypted ? 'success' : 'warning'} variant="light">
+                          {encrypted ? '已加密' : '未加密'}
+                        </Tag>
+                      );
+                    },
+                  },
+                  {
                     colKey: 'last',
                     title: '最近使用/验证',
                     width: 210,
