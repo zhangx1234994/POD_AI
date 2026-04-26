@@ -22,7 +22,7 @@ import httpx
 
 from app.core.config import get_settings
 from app.core.db import get_session
-from app.models.integration import Ability, ComfyuiLora, Executor, WorkflowBinding
+from app.models.integration import Ability, ApiKey, ComfyuiLora, Executor, WorkflowBinding
 from app.models.user import User
 from app.schemas import abilities as schemas
 from app.services.ability_logs import AbilityLogStartParams, ability_log_service
@@ -31,6 +31,7 @@ from app.services.task_id_codec import encode_task_id
 from app.services.ability_seed import ensure_default_abilities
 from app.services.executor_seed import ensure_default_executors
 from app.services.integration_test import integration_test_service
+from app.services.api_key_selector import build_vendor_credentials, bump_usage, pick_vendor_api_key
 from app.services.coze_client import coze_client
 from app.services.oss import oss_service
 from app.services.vendor_api_client import vendor_api_client
@@ -717,6 +718,17 @@ class AbilityInvocationService:
             assets.append({"b64": images.image_base64, "role": "input"})
         if images.image_list:
             assets.extend(images.image_list)
+        selected_key_id: str | None = None
+        credentials: dict[str, Any] | None = None
+        with get_session() as session:
+            api_key = pick_vendor_api_key(
+                session,
+                executor_id=executor.id,
+                provider=ability.provider.lower(),
+            )
+            if api_key:
+                selected_key_id = api_key.id
+                credentials = build_vendor_credentials(api_key)
         result = vendor_api_client.invoke(
             executor=executor,
             ability=ability,
@@ -724,7 +736,16 @@ class AbilityInvocationService:
             assets=assets,
             request_id=context.request_id,
             trace_id=context.request_id,
+            credentials=credentials,
         )
+        if selected_key_id:
+            with get_session() as session:
+                api_key = session.get(ApiKey, selected_key_id)
+                if api_key:
+                    bump_usage(session, api_key=api_key)
+            metadata = result.get("metadata") if isinstance(result.get("metadata"), dict) else {}
+            metadata["apiKeyId"] = selected_key_id
+            result["metadata"] = metadata
         result["executorId"] = executor.id
         result["executor"] = executor.id
         result["baseUrl"] = executor.base_url
@@ -745,6 +766,8 @@ class AbilityInvocationService:
         key = ability.capability_key
         if key not in {"expand_mask_color", "set_dpi", "upscale_resize"}:
             raise HTTPException(status_code=400, detail="PODI_UTILITY_UNSUPPORTED")
+        if key == "upscale_resize" and get_settings().disable_local_heavy_image_tasks:
+            raise HTTPException(status_code=503, detail="LOCAL_HEAVY_IMAGE_TASK_DISABLED")
 
         image_url = (
             images.image_url

@@ -15,7 +15,7 @@ import app.services.vendor_admin_client as vendor_admin_client_module
 from app.core.db import Base
 from app.deps.auth import require_admin
 from app.main import app
-from app.models.integration import Ability, VendorModelCatalog
+from app.models.integration import Ability, ApiKey, VendorModelCatalog
 from app.services.auth_service import auth_service
 
 
@@ -194,6 +194,17 @@ def test_vendor_governance_summary_combines_keys_models_abilities_and_usage(monk
                     status="active",
                     ability_type="api",
                 ),
+                ApiKey(
+                    id="vkey_disabled",
+                    provider="openai",
+                    name="old",
+                    key="sk-test-0000",
+                    status="disabled",
+                    usage_count=1,
+                    extra_metadata={"maxConcurrency": 1},
+                    created_at=datetime.utcnow(),
+                    updated_at=datetime.utcnow(),
+                ),
             ]
         )
         session.commit()
@@ -226,23 +237,6 @@ def test_vendor_governance_summary_combines_keys_models_abilities_and_usage(monk
             ],
         }
 
-    def fake_list_keys(provider=None):
-        return {
-            "baseUrl": "http://vendor.local",
-            "items": [
-                {
-                    "id": "vkey_disabled",
-                    "provider": "openai",
-                    "alias": "old",
-                    "model": None,
-                    "status": "disabled",
-                    "keyPreview": "sk-...0000",
-                    "usageCount": 1,
-                    "maxConcurrency": 1,
-                }
-            ],
-        }
-
     def fake_usage_summary(window_hours: int = 24):
         return {
             "baseUrl": "http://vendor.local",
@@ -270,7 +264,6 @@ def test_vendor_governance_summary_combines_keys_models_abilities_and_usage(monk
         }
 
     monkeypatch.setattr(vendor_admin_client_module.vendor_admin_client, "list_providers", fake_list_providers)
-    monkeypatch.setattr(vendor_admin_client_module.vendor_admin_client, "list_keys", fake_list_keys)
     monkeypatch.setattr(vendor_admin_client_module.vendor_admin_client, "usage_summary", fake_usage_summary)
 
     response = client.get("/api/admin/vendor-api/governance/summary?windowHours=12")
@@ -307,7 +300,6 @@ def test_vendor_governance_summary_degrades_when_vendor_api_is_unavailable(monke
     body = response.json()
     assert body["providers"] == []
     assert "VENDOR_PROVIDER_REGISTRY_UNAVAILABLE:VENDOR_API_EXECUTOR_UNAVAILABLE" in body["issues"]
-    assert "VENDOR_KEY_STATUS_UNAVAILABLE:VENDOR_API_EXECUTOR_UNAVAILABLE" in body["issues"]
     assert "VENDOR_USAGE_SUMMARY_UNAVAILABLE:VENDOR_API_EXECUTOR_UNAVAILABLE" in body["issues"]
 
 

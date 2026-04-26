@@ -69,12 +69,13 @@
 
 ### 职责
 - 在管理端“模型弹药库”维护 OpenAI、KIE、火山、百度、中转站等第三方模型 Key。
-- Key 写入 `vendor-api-ops`，用于实际厂商调用、并发限制、额度统计和失败治理。
+- Key 写入中台 `api_keys` 表；中台提交任务时把本次选中的 Key 随请求传给 `vendor-api-ops`。
+- `vendor-api-ops` 只作为干净执行通道，不作为第三方 Key 的长期管理仓库。
 - 明文只在新增时提交；列表只显示脱敏值，不向 Coze、前端或业务方暴露。
 - 后续新增厂商 Key 默认走交互页面，不再要求运维改配置文件。
-- 正式部署时 `vendor-api-ops` 需要配置 `VENDOR_API_OPS_ADMIN_TOKEN`，backend 配置同值 `VENDOR_API_TOKEN`，避免能力服务端口被绕过管理端直接调用。
-- 正式部署时还需要配置 `VENDOR_API_KEY_ENCRYPTION_SECRET`。配置后新写入 Key 会加密落库；旧明文 Key 可继续读取，后续通过“新增新 Key、停用旧 Key”的方式逐步替换。
-- Key 池列表的“安全”列会显示该 Key 是否已加密；未加密通常代表历史明文 Key，需要逐步替换。
+- 能力服务侧通过固定白名单限制调用来源，默认只接受本机、Coze 中台主机和 117 能力主机；如迁移机器，可用 `VENDOR_API_ALLOWED_CLIENTS` 追加。
+- `VENDOR_API_OPS_ADMIN_TOKEN` 可作为额外保护层保留，但不再承担 Key 管理边界。
+- Key 池列表的“归属”列显示“中台托管”，代表该 Key 不保存在能力服务本地库。
 
 ### 页面入口
 - 管理端：`http://114.55.0.56:8199`

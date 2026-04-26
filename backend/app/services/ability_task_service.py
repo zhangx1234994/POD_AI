@@ -17,12 +17,13 @@ from sqlalchemy import delete, func, select
 
 from app.core.config import get_settings
 from app.core.db import get_session
-from app.models.integration import Ability, AbilityInvocationLog, AbilityTask, Executor
+from app.models.integration import Ability, AbilityInvocationLog, AbilityTask, ApiKey, Executor
 from app.models.user import User
 from app.schemas.abilities import AbilityInvokeRequest
 from app.services.ability_invocation import ability_invocation_service
 from app.services.ability_logs import ability_log_service
 from app.services.integration_test import integration_test_service
+from app.services.api_key_selector import build_vendor_credentials
 from app.services.task_id_codec import decode_task_id
 from app.services.task_status_contract import derive_ability_task_status
 from app.services.vendor_api_client import vendor_api_client
@@ -269,6 +270,7 @@ class AbilityTaskService:
             meta = result_payload.get("metadata") if isinstance(result_payload.get("metadata"), dict) else {}
             vendor_invocation_id = meta.get("vendorInvocationId")
             executor_id = meta.get("executorId")
+            api_key_id = meta.get("apiKeyId")
             if not (isinstance(vendor_invocation_id, str) and vendor_invocation_id.strip()):
                 continue
             if not (isinstance(executor_id, str) and executor_id.strip()):
@@ -277,8 +279,18 @@ class AbilityTaskService:
                 executor = session.get(Executor, executor_id.strip())
             if not executor or (executor.type or "").lower() != "vendor_api":
                 continue
+            credentials: dict[str, Any] | None = None
+            if isinstance(api_key_id, str) and api_key_id.strip():
+                with get_session() as session:
+                    api_key = session.get(ApiKey, api_key_id.strip())
+                    if api_key:
+                        credentials = build_vendor_credentials(api_key)
             try:
-                fetched = vendor_api_client.fetch(executor=executor, vendor_invocation_id=vendor_invocation_id.strip())
+                fetched = vendor_api_client.fetch(
+                    executor=executor,
+                    vendor_invocation_id=vendor_invocation_id.strip(),
+                    credentials=credentials,
+                )
             except Exception:
                 self._touch_running_task(task.id)
                 continue

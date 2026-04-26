@@ -94,7 +94,7 @@
 - 进展（2026-04-25）：业务 API 运行记录补齐 `traceId/requestId/tenantId/clientId/channel/source`、耗时和成本/配额预留字段；底层能力日志的成本信息会回填到业务任务与步骤，为后续收费、灰度和对外 API 报表打基础。
 - 进展（2026-04-25）：管理端业务能力页新增调用统计视角，后端提供 `/api/admin/business/usage-summary`，可按业务、版本、来源、业务方、客户端和追踪 ID 查看调用量、成功率、失败样本、平均耗时、成本和额度。
 - 进展（2026-04-27）：模型弹药库新增 Key 池交互说明与 Secret Key 输入；`vendor-api-ops` 敏感接口支持服务 token 保护；“验证 Key”会优先使用 Key 池 active Key 访问厂商检查接口，并区分网络可达、缺 Key、鉴权失败。单条 Key 支持独立验证，结果写入 `metadata.lastCheck` 并在 Key 池列表展示最近验证状态。
-- 进展（2026-04-27）：`vendor-api-ops` 新增 Key 加密落库能力，配置 `VENDOR_API_KEY_ENCRYPTION_SECRET` 后新写入 Key 使用 `enc:v1:` 格式保存；旧明文 Key 兼容读取，后续通过新增加密 Key、停用旧 Key 逐步迁移。
+- 进展（2026-04-27）：根据最新边界调整，第三方 Key 权威回收到中台 `api_keys` 表；`vendor-api-ops` 改为白名单保护的干净执行通道，支持中台随请求传入本次选中的 Key，并避免把请求级凭证写入明文调用记录。`vendor-api-ops` 本地 Key 加密能力仅作为历史兼容，不作为新能力接入路径。
 
 7. `doing` 业务能力层与版本治理
 - 产物：`/api/business/*` 稳定入口、业务版本/配方、默认版本切换、灰度、回滚、业务运行记录。

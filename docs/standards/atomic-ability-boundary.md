@@ -81,7 +81,7 @@ vendor-api-ops 是第三方 API 执行面。
 vendor-api-ops 负责：
 
 - OpenAI、火山、百度、KIE 等第三方 API 的运行时适配。
-- API Key 托管、轮换、熔断、冷却、额度状态。
+- 接收中台随请求带来的第三方 API Key，并完成本次厂商调用。
 - 网络出口和代理策略。
 - provider/model 级限流与并发。
 - 厂商错误归一为平台可理解的错误。
@@ -93,20 +93,22 @@ vendor-api-ops 不负责：
 - 管理端/评测端页面。
 - 平台能力目录的最终展示口径。
 - OSS 对外返回链接策略。
+- 第三方 API Key 的长期管理与业务归属。
 
 ## 4. Key 管理原则
 
 目标状态：
 
-- 第三方 API Key 的运行时托管放在 vendor-api-ops。
-- backend 只保存能力目录、executor 引用和必要的 Key 引用标识。
+- 第三方 API Key 的权威管理放在 backend `api_keys`。
+- backend 保存能力目录、executor 引用、Key 归属和 Key 选择策略。
+- backend 调用 vendor-api-ops 时随请求传入本次选中的 Key。
 - Coze 和前端永远不接触第三方 API Key。
 
 过渡状态：
 
 - 现有 backend `api_keys` / `executor_api_keys` 继续兼容火山、KIE、百度等已接能力。
 - 新增需要特殊网络的厂商能力，优先接入 vendor-api-ops。
-- 后续逐步把 backend 内的厂商 Key 迁移为 vendor-api-ops 托管。
+- vendor-api-ops 本地 Key 库仅作为历史兼容，不作为新能力默认入口。
 
 硬约束：
 

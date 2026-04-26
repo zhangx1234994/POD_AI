@@ -51,6 +51,7 @@
 | ADMIN_ONLY | 仅管理员可访问 | 403 |
 | INTERNAL_ONLY | 仅内网可访问 | 401 |
 | VENDOR_API_AUTH_REQUIRED | 第三方 API 执行服务缺少服务 token | 401，vendor-api-ops 敏感接口 |
+| VENDOR_API_CLIENT_FORBIDDEN | 第三方 API 执行服务拒绝非白名单来源 | 403，vendor-api-ops 只接受中台等固定服务调用 |
 
 ---
 

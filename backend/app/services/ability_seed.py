@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Iterable
 
@@ -20,6 +21,7 @@ from app.constants.abilities import (
     VOLCENGINE_VIDEO_ABILITIES,
 )
 from app.models.integration import Ability
+from app.services.ability_catalog_cleanup import get_cleanup_overrides
 
 
 @dataclass(frozen=True)
@@ -51,6 +53,24 @@ def _is_missing_payload(payload: Any | None) -> bool:
     if isinstance(payload, dict) and len(payload) == 0:
         return True
     return False
+
+
+def _merge_dict(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    merged = deepcopy(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _merge_dict(merged[key], value)
+        else:
+            merged[key] = deepcopy(value)
+    return merged
+
+
+def _seed_metadata(seed: AbilitySeed) -> dict[str, Any] | None:
+    metadata = deepcopy(seed.metadata or {})
+    cleanup = get_cleanup_overrides(provider=seed.provider, capability_key=seed.capability_key)
+    if cleanup:
+        metadata = _merge_dict(metadata, cleanup)
+    return metadata or None
 
 
 def _build_default_seeds() -> list[AbilitySeed]:
@@ -204,6 +224,7 @@ def ensure_default_abilities(session: Session) -> bool:
     created = False
     changed = False
     for seed in DEFAULT_ABILITY_SEEDS:
+        seed_metadata = _seed_metadata(seed)
         stmt = select(Ability).where(
             Ability.provider == seed.provider,
             Ability.capability_key == seed.capability_key,
@@ -211,7 +232,7 @@ def ensure_default_abilities(session: Session) -> bool:
         existing = session.execute(stmt).scalar_one_or_none()
         if existing:
             updated = False
-            seed_version = _as_int((seed.metadata or {}).get("seed_version"))
+            seed_version = _as_int((seed_metadata or {}).get("seed_version"))
             existing_metadata = existing.extra_metadata if isinstance(existing.extra_metadata, dict) else {}
             existing_version = _as_int(existing_metadata.get("seed_version"))
             if seed_version and seed_version > existing_version:
@@ -219,7 +240,7 @@ def ensure_default_abilities(session: Session) -> bool:
                     existing.input_schema = seed.input_schema
                 if seed.default_params:
                     existing.default_params = seed.default_params
-                merged_metadata = {**existing_metadata, **(seed.metadata or {})}
+                merged_metadata = _merge_dict(existing_metadata, seed_metadata or {})
                 existing.extra_metadata = merged_metadata
                 updated = True
             else:
@@ -229,8 +250,8 @@ def ensure_default_abilities(session: Session) -> bool:
                 if seed.default_params and _is_missing_payload(existing.default_params):
                     existing.default_params = seed.default_params
                     updated = True
-                if seed.metadata:
-                    merged_metadata = {**seed.metadata, **existing_metadata}
+                if seed_metadata:
+                    merged_metadata = _merge_dict(seed_metadata, existing_metadata)
                     if merged_metadata != existing_metadata:
                         existing.extra_metadata = merged_metadata
                         updated = True
@@ -251,7 +272,7 @@ def ensure_default_abilities(session: Session) -> bool:
             workflow_id=seed.workflow_id,
             default_params=seed.default_params,
             input_schema=seed.input_schema,
-            extra_metadata=seed.metadata,
+            extra_metadata=seed_metadata,
         )
         session.add(ability)
         created = True

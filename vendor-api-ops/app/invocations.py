@@ -85,12 +85,12 @@ class InvocationStore:
             with self._lock:
                 self._active_by_scope[scope] = max(0, self._active_by_scope.get(scope, 1) - 1)
 
-    def get(self, invocation_id: str) -> InvocationResponse | None:
+    def get(self, invocation_id: str, *, credentials: dict[str, Any] | None = None) -> InvocationResponse | None:
         record = vendor_storage.get_invocation(invocation_id)
         if not record:
             return None
         if record["provider"] == "kie" and record["status"] == "running" and record.get("vendor_task_id"):
-            record = self._refresh_kie(record)
+            record = self._refresh_kie(record, credentials=credentials)
         return _response_from_record(record)
 
     def create_key(self, payload: VendorKeyCreateRequest) -> VendorKeyRead:
@@ -199,7 +199,7 @@ class InvocationStore:
                 "status": "queued",
                 "success": 0,
                 "vendor_task_id": None,
-                "request": request.model_dump(mode="json"),
+                "request": _safe_invocation_request(request),
                 "response": {},
                 "error": None,
                 "raw": base_raw,
@@ -215,14 +215,19 @@ class InvocationStore:
             return self._submit_baidu(record=record, request=request)
 
     def _submit_openai(self, *, record: dict[str, Any], request: InvocationRequest, provider: str) -> InvocationResponse:
-        key, key_limited = self._pick_runtime_key(provider=provider, model=request.model, acquire_slot=True)
+        key, key_limited = self._pick_runtime_key(
+            provider=provider,
+            model=request.model,
+            credentials=request.credentials,
+            acquire_slot=True,
+        )
         if key_limited:
             return self._mark_key_limited(record, provider=provider, model=request.model)
         if not key:
             error = InvocationError(
                 code=ERR_KEY_MISSING,
                 message=f"{provider} API Key is not configured",
-                suggestion="Create a key in vendor-api-ops or set provider env API key.",
+                suggestion="Configure an active key in backend and send it with this invocation.",
             )
             updated = vendor_storage.update_invocation(
                 record["id"],
@@ -273,14 +278,19 @@ class InvocationStore:
         return _response_from_record(updated)
 
     def _submit_volcengine(self, *, record: dict[str, Any], request: InvocationRequest) -> InvocationResponse:
-        key, key_limited = self._pick_runtime_key(provider="volcengine", model=request.model, acquire_slot=True)
+        key, key_limited = self._pick_runtime_key(
+            provider="volcengine",
+            model=request.model,
+            credentials=request.credentials,
+            acquire_slot=True,
+        )
         if key_limited:
             return self._mark_key_limited(record, provider="volcengine", model=request.model)
         if not key:
             error = InvocationError(
                 code=ERR_KEY_MISSING,
                 message="Volcengine API Key is not configured",
-                suggestion="Create a Volcengine key in vendor-api-ops or set VOLCENGINE_API_KEY.",
+                suggestion="Configure an active Volcengine key in backend and send it with this invocation.",
             )
             updated = vendor_storage.update_invocation(
                 record["id"],
@@ -321,14 +331,19 @@ class InvocationStore:
         return _response_from_record(updated)
 
     def _submit_baidu(self, *, record: dict[str, Any], request: InvocationRequest) -> InvocationResponse:
-        key, key_limited = self._pick_runtime_key(provider="baidu", model=request.model, acquire_slot=True)
+        key, key_limited = self._pick_runtime_key(
+            provider="baidu",
+            model=request.model,
+            credentials=request.credentials,
+            acquire_slot=True,
+        )
         if key_limited:
             return self._mark_key_limited(record, provider="baidu", model=request.model)
         if not key:
             error = InvocationError(
                 code=ERR_KEY_MISSING,
                 message="Baidu API Key is not configured",
-                suggestion="Create a Baidu key with key+secret in vendor-api-ops or set BAIDU_API_KEY/BAIDU_SECRET_KEY.",
+                suggestion="Configure a Baidu key+secret in backend and send it with this invocation.",
             )
             updated = vendor_storage.update_invocation(
                 record["id"],
@@ -374,14 +389,19 @@ class InvocationStore:
         return _response_from_record(updated)
 
     def _submit_kie(self, *, record: dict[str, Any], request: InvocationRequest, execution_mode: str) -> InvocationResponse:
-        key, key_limited = self._pick_runtime_key(provider="kie", model=request.model, acquire_slot=True)
+        key, key_limited = self._pick_runtime_key(
+            provider="kie",
+            model=request.model,
+            credentials=request.credentials,
+            acquire_slot=True,
+        )
         if key_limited:
             return self._mark_key_limited(record, provider="kie", model=request.model)
         if not key:
             error = InvocationError(
                 code=ERR_KEY_MISSING,
                 message="KIE API Key is not configured",
-                suggestion="Create a KIE key in vendor-api-ops or set KIE_API_KEY.",
+                suggestion="Configure an active KIE key in backend and send it with this invocation.",
             )
             updated = vendor_storage.update_invocation(
                 record["id"],
@@ -427,8 +447,13 @@ class InvocationStore:
         )
         return _response_from_record(updated)
 
-    def _refresh_kie(self, record: dict[str, Any]) -> dict[str, Any]:
-        key, key_limited = self._pick_runtime_key(provider="kie", model=record.get("model"), acquire_slot=True)
+    def _refresh_kie(self, record: dict[str, Any], *, credentials: dict[str, Any] | None = None) -> dict[str, Any]:
+        key, key_limited = self._pick_runtime_key(
+            provider="kie",
+            model=record.get("model"),
+            credentials=credentials,
+            acquire_slot=True,
+        )
         if not key or key_limited:
             return record
         try:
@@ -475,7 +500,17 @@ class InvocationStore:
             },
         ) or record
 
-    def _pick_runtime_key(self, *, provider: str, model: str | None, acquire_slot: bool = False) -> tuple[dict[str, Any] | None, bool]:
+    def _pick_runtime_key(
+        self,
+        *,
+        provider: str,
+        model: str | None,
+        credentials: dict[str, Any] | None = None,
+        acquire_slot: bool = False,
+    ) -> tuple[dict[str, Any] | None, bool]:
+        request_key = _runtime_key_from_credentials(provider=provider, model=model, credentials=credentials)
+        if request_key:
+            return request_key, False
         limited = False
         for key in _candidate_stored_keys(provider=provider, model=model):
             if acquire_slot and not self._try_acquire_runtime_key_slot(key):
@@ -508,7 +543,7 @@ class InvocationStore:
 
     def _try_acquire_runtime_key_slot(self, key: dict[str, Any]) -> bool:
         key_id = str(key.get("id") or "")
-        if not key_id or key_id.startswith("env:"):
+        if not key_id or key_id.startswith("env:") or key_id.startswith("request:"):
             return True
         max_concurrency = _as_positive_int(key.get("max_concurrency")) or 1
         with self._lock:
@@ -520,7 +555,7 @@ class InvocationStore:
 
     def _release_runtime_key_slot(self, key: dict[str, Any] | None) -> None:
         key_id = str((key or {}).get("id") or "")
-        if not key_id or key_id.startswith("env:"):
+        if not key_id or key_id.startswith("env:") or key_id.startswith("request:"):
             return
         with self._lock:
             self._active_by_key[key_id] = max(0, self._active_by_key.get(key_id, 1) - 1)
@@ -558,7 +593,7 @@ class InvocationStore:
     @staticmethod
     def _record_key_usage(key: dict[str, Any], error: InvocationError | None) -> None:
         key_id = str(key.get("id") or "")
-        if not key_id or key_id.startswith("env:"):
+        if not key_id or key_id.startswith("env:") or key_id.startswith("request:"):
             return
         if error:
             cooldown_until = datetime.now(timezone.utc) + timedelta(seconds=120) if error.code == "VENDOR_API_RATE_LIMITED" else None
@@ -601,6 +636,47 @@ def _candidate_stored_keys(*, provider: str, model: str | None) -> list[dict[str
             str(item.get("id") or ""),
         ),
     )
+
+
+def _runtime_key_from_credentials(
+    *,
+    provider: str,
+    model: str | None,
+    credentials: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if not isinstance(credentials, dict) or not credentials:
+        return None
+    key = credentials.get("key") or credentials.get("apiKey") or credentials.get("api_key")
+    if not key:
+        return None
+    secret = credentials.get("secret") or credentials.get("secretKey") or credentials.get("secret_key")
+    key_id = credentials.get("keyId") or credentials.get("apiKeyId") or credentials.get("id")
+    try:
+        max_concurrency = int(credentials.get("maxConcurrency") or credentials.get("max_concurrency") or 1)
+    except Exception:
+        max_concurrency = 1
+    return {
+        "id": f"request:{provider}:{key_id or 'inline'}",
+        "provider": provider,
+        "model": model,
+        "key": str(key),
+        "secret": str(secret) if secret else None,
+        "status": "active",
+        "max_concurrency": max(1, max_concurrency),
+    }
+
+
+def _safe_invocation_request(request: InvocationRequest) -> dict[str, Any]:
+    payload = request.model_dump(mode="json")
+    credentials = payload.get("credentials")
+    if isinstance(credentials, dict) and credentials:
+        key_id = credentials.get("keyId") or credentials.get("apiKeyId") or credentials.get("id")
+        payload["credentials"] = {
+            "present": True,
+            "source": "backend-request",
+            "keyId": str(key_id) if key_id else None,
+        }
+    return payload
 
 
 def _read_key(item: dict[str, Any]) -> VendorKeyRead:

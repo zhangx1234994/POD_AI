@@ -37,6 +37,11 @@ _OVERRIDES: dict[tuple[str, str], dict[str, Any]] = {
         },
     },
     ("podi", "set_dpi"): {
+        "execution_target": "image_ops",
+        "image_ops": {
+            "operation": "set-dpi",
+            "heavy": False,
+        },
         "governance": {
             "scopes": ["internal", "admin"],
             "release_status": "internal_ready",
@@ -50,6 +55,11 @@ _OVERRIDES: dict[tuple[str, str], dict[str, Any]] = {
         },
     },
     ("podi", "upscale_resize"): {
+        "execution_target": "image_ops",
+        "image_ops": {
+            "operation": "upscale-resize",
+            "heavy": True,
+        },
         "governance": {
             "scopes": ["internal", "admin"],
             "release_status": "internal_ready",

@@ -21,6 +21,7 @@ class VendorApiClient:
         assets: list[dict[str, Any]] | None,
         request_id: str,
         trace_id: str | None = None,
+        credentials: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         settings = get_settings()
         base_url = self._base_url(executor, settings.vendor_api_base_url)
@@ -42,6 +43,7 @@ class VendorApiClient:
                 "maxConcurrency": int(getattr(executor, "max_concurrency", 1) or 1),
                 "timeoutSeconds": settings.vendor_api_timeout_seconds,
             },
+            "credentials": credentials or {},
             "requestId": request_id,
             "traceId": trace_id,
         }
@@ -61,15 +63,28 @@ class VendorApiClient:
         data = response.json()
         return self.normalize_invocation_response(data=data, executor=executor)
 
-    def fetch(self, *, executor: Executor, vendor_invocation_id: str) -> dict[str, Any]:
+    def fetch(
+        self,
+        *,
+        executor: Executor,
+        vendor_invocation_id: str,
+        credentials: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         settings = get_settings()
         base_url = self._base_url(executor, settings.vendor_api_base_url)
         try:
             with httpx.Client(timeout=settings.vendor_api_timeout_seconds) as client:
-                response = client.get(
-                    f"{base_url}/v1/invocations/{vendor_invocation_id}",
-                    headers=self._headers(settings.vendor_api_token),
-                )
+                if credentials:
+                    response = client.post(
+                        f"{base_url}/v1/invocations/{vendor_invocation_id}/refresh",
+                        json={"credentials": credentials},
+                        headers=self._headers(settings.vendor_api_token),
+                    )
+                else:
+                    response = client.get(
+                        f"{base_url}/v1/invocations/{vendor_invocation_id}",
+                        headers=self._headers(settings.vendor_api_token),
+                    )
                 response.raise_for_status()
         except httpx.TimeoutException as exc:
             raise HTTPException(status_code=504, detail="VENDOR_API_TIMEOUT") from exc

@@ -160,7 +160,7 @@ GET /api/admin/abilities/health/export?needsTest=true
 
 ## 5) API Key 管理
 
-> 该模块为 backend 历史兼容 Key。第三方模型运行时 Key 优先使用“模型弹药库”对应的 vendor-api-ops 接口。
+> 该模块是中台 Key 原始表。“模型弹药库”的第三方 Key 池与这里共用 `api_keys`，普通维护优先使用“模型弹药库”。
 
 ### GET /api/admin/api-keys
 ### POST /api/admin/api-keys
@@ -337,14 +337,14 @@ GET /api/admin/vendor-api/usage/summary?windowHours=24
 ### POST /api/admin/vendor-api/keys/{keyId}/check
 ### POST /api/admin/vendor-api/providers/{provider}/egress-check
 
-Key 写入 vendor-api-ops，返回只允许包含 `keyPreview`，不返回明文。出网检查用于判断厂商网络是否可达；当请求体 `includeAuth=true` 时，vendor-api-ops 会优先使用 Key 池里的 active Key 验证厂商鉴权是否可用。
-单条 Key 检查会使用该 Key 自身验证，并把结果写入 `metadata.lastCheck`。
+Key 写入中台 `api_keys` 表，返回只允许包含 `keyPreview`，不返回明文。出网检查用于判断厂商网络是否可达；当请求体 `includeAuth=true` 时，中台会优先选择 Key 池里的 active Key，并随本次请求传给 vendor-api-ops 验证厂商鉴权是否可用。单条 Key 检查会使用该 Key 自身验证，并把结果写入 `metadata.lastCheck`。
 
 **错误**
 
 - `VENDOR_API_EXECUTOR_UNAVAILABLE`
 - `VENDOR_API_RESPONSE_INVALID`
 - `VENDOR_API_AUTH_REQUIRED`
+- `VENDOR_API_CLIENT_FORBIDDEN`
 - `VENDOR_API_PROVIDER_NOT_SUPPORTED`
 - `VENDOR_API_PROXY_UNAVAILABLE`
 - `VENDOR_API_TIMEOUT`

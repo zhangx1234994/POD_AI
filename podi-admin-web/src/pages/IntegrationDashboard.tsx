@@ -16506,7 +16506,7 @@ const extractErrorMessage = (error: unknown): string => {
             <Space direction="vertical" size={4}>
               <Typography.Text strong>第三方模型控制面</Typography.Text>
               <Typography.Text theme="secondary">
-                当前执行面：{vendorBaseUrl || '未连接'}。API Key 在本页配置，不再要求改服务器配置文件；明文只在新增时提交，列表只显示脱敏值。
+                当前执行面：{vendorBaseUrl || '未连接'}。API Key 由中台保存，调用时随请求传给能力服务；能力服务不再作为 Key 仓库。
               </Typography.Text>
             </Space>
             <Space size="small" style={{ flexWrap: 'wrap' }}>
@@ -16526,7 +16526,7 @@ const extractErrorMessage = (error: unknown): string => {
         {vendorNotice ? <Alert theme="success" message={vendorNotice} /> : null}
         <Alert
           theme="info"
-          message="后续 OpenAI、KIE、火山、百度、中转站等第三方模型 Key 统一在“第三方模型 Key 池”维护。新增 Key 后刷新弹药库，治理摘要会显示该厂商是否已经可调用。"
+          message="OpenAI、KIE、火山、百度、中转站等第三方模型 Key 统一在中台 Key 池维护。新增 Key 后刷新弹药库，治理摘要会显示该厂商是否已经可调用。"
           style={{ marginBottom: 16 }}
         />
 
@@ -16535,7 +16535,7 @@ const extractErrorMessage = (error: unknown): string => {
             <MetricCard label="可用 Provider" value={vendorProviders.length} sub="OpenAI / 火山 / KIE 等" />
           </Col>
           <Col xs={12} lg={4}>
-            <MetricCard label="活动 Key" value={vendorKeys.filter((item) => item.status === 'active').length} sub="vendor-api-ops 托管" />
+            <MetricCard label="活动 Key" value={vendorKeys.filter((item) => item.status === 'active').length} sub="中台托管" />
           </Col>
           <Col xs={12} lg={4}>
             <MetricCard label="Global Egress" value={vendorProviders.filter((item) => item.requiresGlobalEgress).length} sub="需要特殊出网节点" />
@@ -16928,7 +16928,7 @@ const extractErrorMessage = (error: unknown): string => {
           <Col span={12}>
             <Card bordered title="第三方调用统计">
               <Typography.Text theme="secondary">
-                来自 vendor-api-ops 的最近 {vendorUsageWindowHours} 小时调用日志，用于判断 Key、模型和上游是否稳定。
+                来自能力服务的最近 {vendorUsageWindowHours} 小时调用日志，用于判断 Key、模型和上游是否稳定。
               </Typography.Text>
               <div style={{ marginTop: 12 }}>
                 <Table
@@ -17041,15 +17041,14 @@ const extractErrorMessage = (error: unknown): string => {
                   },
                   {
                     colKey: 'security',
-                    title: '安全',
+                    title: '归属',
                     width: 110,
                     cell: ({ row }) => {
                       const metadata = getJsonRecord(row.metadata);
-                      const security = getJsonRecord(metadata?.security);
-                      const encrypted = security?.keyEncrypted === true;
+                      const storage = String(metadata?.storage || 'backend');
                       return (
-                        <Tag theme={encrypted ? 'success' : 'warning'} variant="light">
-                          {encrypted ? '已加密' : '未加密'}
+                        <Tag theme={storage === 'backend' ? 'success' : 'warning'} variant="light">
+                          {storage === 'backend' ? '中台托管' : '服务本地'}
                         </Tag>
                       );
                     },
@@ -17211,15 +17210,15 @@ const extractErrorMessage = (error: unknown): string => {
           {activeNav === 'apikeys' && (
       <Section
         id="apikeys"
-        title="旧 API Key 仓库"
-        description="兼容旧 backend Key 表；第三方模型 Key 请优先使用“模型弹药库”，这里后续会逐步降级为历史兼容入口。"
+        title="中台 API Key 原始表"
+        description="与“模型弹药库”的第三方 Key 池共用同一张中台 Key 表；这里保留为底层维护入口。"
       >
         <ActionBar>
           <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
             <Space direction="vertical" size={4}>
-              <Typography.Text strong>旧凭证池总览</Typography.Text>
+              <Typography.Text strong>中台凭证池总览</Typography.Text>
               <Typography.Text theme="secondary">
-                这里只保留 backend 历史兼容 Key。OpenAI、KIE、火山等第三方模型 Key 后续统一迁到“模型弹药库”。
+                第三方模型 Key 现在由中台统一保存。普通用户优先用“模型弹药库”，这里用于排查和底层维护。
               </Typography.Text>
             </Space>
             <Space size="small" style={{ flexWrap: 'wrap' }}>

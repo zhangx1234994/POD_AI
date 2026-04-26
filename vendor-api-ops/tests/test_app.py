@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 
 import httpx
@@ -390,6 +391,48 @@ def test_openai_image_generation_calls_real_contract(monkeypatch) -> None:
     }
     assert "images" not in captured["json"]
     assert "mask" not in captured["json"]
+
+
+def test_invocation_uses_request_credentials_without_persisting_secret(monkeypatch) -> None:
+    client = TestClient(app)
+    captured = {}
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured["headers"] = headers or {}
+        return httpx.Response(
+            200,
+            json={"data": [{"url": "https://example.com/request-key.png"}]},
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    response = client.post(
+        "/v1/invocations",
+        json={
+            "provider": "openai",
+            "capabilityKey": "gpt_image_2_generate",
+            "model": "gpt-image-2",
+            "apiType": "image_generation",
+            "credentials": {"keyId": "backend-key-1", "key": "sk-request-secret"},
+            "inputs": {"prompt": "credential boundary check"},
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "succeeded"
+    assert captured["headers"]["Authorization"] == "Bearer sk-request-secret"
+
+    record = vendor_storage.get_invocation(body["vendorInvocationId"])
+    assert record is not None
+    stored_request = record["request"]
+    assert stored_request["credentials"] == {
+        "present": True,
+        "source": "backend-request",
+        "keyId": "backend-key-1",
+    }
+    assert "sk-request-secret" not in json.dumps(stored_request)
 
 
 def test_vendor_key_concurrency_limit_returns_retryable_error(monkeypatch) -> None:

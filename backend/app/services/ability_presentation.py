@@ -6,6 +6,8 @@ import re
 from copy import deepcopy
 from typing import Any
 
+from app.services.ability_deprecation import resolve_ability_deprecation
+
 
 _TRAILING_ENGLISH_RE = re.compile(r"\s+[A-Za-z][A-Za-z0-9 /().,_:+-]*$")
 _NODE_HINT_RE = re.compile(r"^节点\s*\d+\s*[·:：.-]\s*.*$")
@@ -152,3 +154,43 @@ def get_public_presentation(
     if public_surfaces:
         payload["surfaces"] = public_surfaces
     return payload or None
+
+
+def is_ability_visible_for_surface(
+    *,
+    status: str | None,
+    provider: str | None,
+    category: str | None,
+    capability_key: str | None,
+    ability_type: str | None,
+    metadata: dict[str, Any] | None,
+    surface: str,
+) -> bool:
+    """Return whether an ability should be shown on a user-facing surface.
+
+    The extra identity arguments are accepted to keep the predicate compatible
+    with catalogue callers; visibility is driven by status and metadata.
+    """
+
+    _ = (provider, category, capability_key, ability_type)
+    if str(status or "").strip().lower() != "active":
+        return False
+    payload = metadata if isinstance(metadata, dict) else {}
+    deprecation = resolve_ability_deprecation(status=status, metadata=payload)
+    if deprecation.get("is_deprecated") and deprecation.get("retirement_mode") in {"hide_public", "internal_only"}:
+        return surface in {"admin", "internal"} and deprecation.get("retirement_mode") == "internal_only"
+
+    presentation = payload.get("presentation") if isinstance(payload.get("presentation"), dict) else {}
+    if presentation.get("visible") is False:
+        return False
+    surfaces = presentation.get("surfaces") if isinstance(presentation.get("surfaces"), dict) else None
+    if surfaces is not None and surface in surfaces:
+        return bool(surfaces.get(surface))
+
+    governance = payload.get("governance") if isinstance(payload.get("governance"), dict) else {}
+    scopes = governance.get("scopes")
+    if isinstance(scopes, list) and scopes:
+        return surface in {str(item).strip().lower() for item in scopes}
+    if presentation.get("visible") is True:
+        return True
+    return surface in {"admin", "internal"}

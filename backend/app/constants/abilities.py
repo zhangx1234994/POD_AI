@@ -1393,13 +1393,6 @@ def _comfyui_flux2_klein_9b_outpaint_schema() -> dict[str, Any]:
                 "required": True,
             },
             {
-                "name": "prompt",
-                "type": "textarea",
-                "label": _compose_bilingual_label("扩图提示词", "Outpaint Prompt"),
-                "description": "节点 132 · String.inStr；描述扩展区域应延续的内容、风格与边缘规律。",
-                "required": False,
-            },
-            {
                 "name": "expand_left",
                 "type": "number",
                 "label": _compose_bilingual_label("左侧扩展 (px)", "Expand Left (px)"),
@@ -1426,13 +1419,6 @@ def _comfyui_flux2_klein_9b_outpaint_schema() -> dict[str, Any]:
                 "label": _compose_bilingual_label("下侧扩展 (px)", "Expand Bottom (px)"),
                 "description": "节点 102 · ImagePadForOutpaint.bottom",
                 "default": 0,
-            },
-            {
-                "name": "seed",
-                "type": "number",
-                "label": _compose_bilingual_label("随机种子", "Seed"),
-                "description": "节点 99 · Florence2Run.seed；不填则后端自动随机。",
-                "required": False,
             },
         ]
     }
@@ -2634,7 +2620,7 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "output_node_ids": ["9"],
             "allowed_executor_ids": ["executor_comfyui_pattern_extract_158", "executor_comfyui_seamless_117"],
             "routing_policy": "queue",
-            "seed_version": 4,
+            "seed_version": 5,
             "pricing": {
                 "currency": "CNY",
                 "unit": "per_image",
@@ -2652,15 +2638,10 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
                         label="原图",
                         description="上传这次要向外延展的原图。",
                     ),
-                    "prompt": _presentation_field(
-                        label="扩图说明",
-                        placeholder="例如：向左右扩展，保持主花位置、配色密度和边缘走势一致。",
-                    ),
                     "expand_left": _presentation_field(label="左侧扩展"),
                     "expand_right": _presentation_field(label="右侧扩展"),
                     "expand_top": _presentation_field(label="上侧扩展"),
                     "expand_bottom": _presentation_field(label="下侧扩展"),
-                    "seed": _presentation_field(label="随机种子", advanced=True),
                 },
             ),
         },

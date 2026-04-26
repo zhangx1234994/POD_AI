@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.models.integration import ApiKey, Executor, ExecutorApiKey
+from app.services.routing_governance import enrich_executor_config_with_routing
 
 settings = get_settings()
 
@@ -155,6 +156,13 @@ def _fallback_env_seeds() -> list[ExecutorSeed]:
 DEFAULT_EXECUTOR_SEEDS: list[ExecutorSeed] = _load_external_seeds() or _fallback_env_seeds()
 
 
+def _seed_config_with_routing(seed: ExecutorSeed) -> dict[str, Any]:
+    config = dict(seed.config or {})
+    if seed.type == "comfyui" and not (config.get("tags") or config.get("tag")):
+        config["tags"] = ["comfyui-general"]
+    return enrich_executor_config_with_routing(config, max_concurrency=max(1, int(seed.max_concurrency or 1)))
+
+
 def ensure_default_executors(session: Session) -> bool:
     """Insert (or lightly repair) default executors; return True if DB changed.
 
@@ -201,18 +209,25 @@ def ensure_default_executors(session: Session) -> bool:
     for seed in DEFAULT_EXECUTOR_SEEDS:
         if not seed.config:
             continue
+        seed_config = _seed_config_with_routing(seed)
         stmt = select(Executor).where(Executor.id == seed.id)
         existing = session.execute(stmt).scalar_one_or_none()
         if existing:
             # Only "repair" obviously-broken placeholders; do not blindly overwrite.
-            if has_unresolved_placeholders(existing.config) and not has_unresolved_placeholders(seed.config):
-                existing.config = seed.config
+            if has_unresolved_placeholders(existing.config) and not has_unresolved_placeholders(seed_config):
+                existing.config = seed_config
                 changed = True
             else:
                 # Also fill missing/empty values when env vars were set later.
-                merged, did_change = merge_missing_values(existing.config or {}, seed.config or {})
+                merged, did_change = merge_missing_values(existing.config or {}, seed_config)
                 if did_change:
                     existing.config = merged
+                    changed = True
+                if not isinstance((existing.config or {}).get("routing"), dict):
+                    existing.config = enrich_executor_config_with_routing(
+                        existing.config or {},
+                        max_concurrency=max(1, int(existing.max_concurrency or seed.max_concurrency or 1)),
+                    )
                     changed = True
             if (existing.base_url or "") != (seed.base_url or "") and seed.base_url:
                 existing.base_url = seed.base_url
@@ -235,7 +250,7 @@ def ensure_default_executors(session: Session) -> bool:
             status=seed.status,
             weight=seed.weight,
             max_concurrency=seed.max_concurrency,
-            config=seed.config,
+            config=seed_config,
         )
         session.add(executor)
         changed = True

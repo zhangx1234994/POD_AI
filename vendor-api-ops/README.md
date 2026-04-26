@@ -17,23 +17,24 @@ MVP includes:
 - `POST /v1/providers/{provider}/egress-check`
 - `POST /v1/invocations`
 - `GET /v1/invocations/{vendorInvocationId}`
-- `POST /v1/keys`
-- `GET /v1/keys`
-- `PATCH /v1/keys/{keyId}`
-- `POST /v1/keys/{keyId}/check`
+- `POST /v1/invocations/{vendorInvocationId}/refresh`
+- `POST /v1/keys` / `GET /v1/keys` / `PATCH /v1/keys/{keyId}` / `POST /v1/keys/{keyId}/check`（历史兼容入口，不作为新边界）
 - `GET /v1/usage/summary`
 
 Provider registry now covers OpenAI, OpenAI-compatible relays, Volcengine,
-Baidu, and KIE. Keys, invocations, and usage logs are persisted in SQLite by
-default (`runtime/vendor-api-ops.sqlite3`).
+Baidu, and KIE. Invocations and usage logs are persisted in SQLite by default
+(`runtime/vendor-api-ops.sqlite3`).
 
-Key values are encrypted at rest when `VENDOR_API_KEY_ENCRYPTION_SECRET` is set.
-Existing plaintext rows stay readable for migration; new rows are stored with
-the `enc:v1:` prefix. Use the same secret on every `vendor-api-ops` instance
-that needs to read the same SQLite database.
+第三方 API Key 的权威存储在 backend 中台 `api_keys` 表。backend 每次调用
+`/v1/invocations` 或 `/v1/invocations/{vendorInvocationId}/refresh` 时，把本次选中的
+Key 放在请求级 `credentials` 中；`vendor-api-ops` 只负责按白名单接收请求、调用上游
+厂商、记录脱敏后的调用信息。历史 `/v1/keys` 和
+`VENDOR_API_KEY_ENCRYPTION_SECRET` 仅保留给旧数据兼容，不建议新能力继续使用。
 
-Sensitive routes can be protected with `VENDOR_API_OPS_ADMIN_TOKEN`. When this
-variable is set, callers must send `Authorization: Bearer <token>` for:
+Sensitive routes are protected by the caller whitelist
+`VENDOR_API_ALLOWED_CLIENTS`（默认包含本机、Coze 主机和 117 能力机）。也可以叠加
+`VENDOR_API_OPS_ADMIN_TOKEN`；设置后调用方还必须发送
+`Authorization: Bearer <token>`。保护范围包括：
 
 - `POST /v1/providers/{provider}/egress-check`
 - `POST /v1/invocations`
@@ -142,9 +143,8 @@ OpenAI image generation/editing now uses the real Images API style contract:
   - `openai_gpt_image_2_edit`: image edit with optional mask and reference images.
 - GPT Image 2 does not expose transparent background or `input_fidelity` in our form schema; unsupported parameters should not be forwarded.
 
-Use `OPENAI_BASE_URL`/`OPENAI_API_KEY` for OpenAI, or
-`OPENAI_COMPATIBLE_BASE_URL`/`OPENAI_COMPATIBLE_API_KEY` for relay providers.
-The same values can also be stored through `/v1/keys`.
+正常生产调用由 backend 随请求传入 OpenAI Key。`OPENAI_API_KEY` 和
+`OPENAI_COMPATIBLE_API_KEY` 只作为本地联调或旧调用兼容兜底。
 
 ## Volcengine Adapter
 
@@ -155,8 +155,7 @@ tests:
 - Images: `POST /api/v3/images/generations`
 - Video task submit passthrough: `POST /api/v3/contents/generations/tasks`
 
-Configure `VOLCENGINE_BASE_URL` and `VOLCENGINE_API_KEY`, or create keys with
-`provider=volcengine`.
+正常生产调用由 backend 随请求传入火山 Key。`VOLCENGINE_API_KEY` 只作为本地联调或旧调用兼容兜底。
 
 ## Baidu Adapter
 

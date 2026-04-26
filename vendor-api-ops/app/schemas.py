@@ -34,6 +34,10 @@ class ProvidersResponse(BaseModel):
 class EgressCheckRequest(BaseModel):
     check: str = Field(default="models", description="Provider-specific connectivity check name.")
     includeAuth: bool = Field(default=False, description="Whether to include configured provider auth.")
+    credentials: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Request-scoped credentials provided by backend. Never returned or persisted in plaintext.",
+    )
 
 
 class EgressCheckResponse(BaseModel):
@@ -83,9 +87,20 @@ class InvocationRequest(BaseModel):
     inputs: dict[str, Any] = Field(default_factory=dict)
     assets: list[InvocationAsset] = Field(default_factory=list)
     taskPolicy: dict[str, Any] = Field(default_factory=dict)
+    credentials: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Request-scoped vendor credentials provided by backend. Never returned or persisted in plaintext.",
+    )
     requestId: str | None = None
     traceId: str | None = None
     callbackUrl: str | None = None
+
+
+class InvocationFetchRequest(BaseModel):
+    credentials: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Request-scoped vendor credentials for polling async vendor tasks.",
+    )
 
 
 class InvocationResponse(BaseModel):

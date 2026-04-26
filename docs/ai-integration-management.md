@@ -79,12 +79,12 @@
 - **ComfyUI 队列状态面板**：针对每个 ComfyUI 执行节点，展示 `running/pending/max` 以及错误提示（如 `COMFYUI_QUEUE_STATUS_ERROR`），提供手动刷新；“调度监控”还会聚合多节点队列汇总，便于统一看板排查。
 - **API Key 仓库**：提供列表 + 详情抽屉，支持录入、启用/禁用、备注限流策略；能力表单会检测 executor 是否缺少凭证并给出指引。
 - **能力详情空位**：提前预留成本、自检、SLA 等信息位，即使数据暂缺亦有 placeholder，提醒后续需要补齐。
-- **模型弹药库（2026-04 更新）**：管理端新增第三方模型视角，直接通过 backend 代理 vendor-api-ops 查看 Provider、模型边界、Key Preview、出网检查与最近 24 小时调用统计。模型目录已落到 `vendor_model_catalog`，支持新增/编辑模型能力边界、执行模式、出网要求与 metadata；火山模型可通过 `POST /api/admin/vendor-api/models/sync/volcengine` 从 Ark 模型列表同步；vendor-api-ops 已按 Key 的 `maxConcurrency` 做进程内并发保护，Key 忙时返回 `VENDOR_API_KEY_CONCURRENCY_LIMITED` 且不继续打上游；旧 `/api/admin/api-keys` 仅保留 backend 兼容 Key，并且列表/编辑回显不再返回明文 `key`。
+- **模型弹药库（2026-04 更新）**：管理端新增第三方模型视角，通过 backend 查看 Provider、模型边界、Key Preview、出网检查与最近 24 小时调用统计。模型目录已落到 `vendor_model_catalog`，第三方 Key 统一落到中台 `api_keys` 表；中台提交任务时把本次选中的 Key 随请求传给 `vendor-api-ops`，能力服务只做厂商执行通道，不再作为 Key 权威仓库。火山模型可通过 `POST /api/admin/vendor-api/models/sync/volcengine` 从 Ark 模型列表同步；`vendor-api-ops` 仍按 provider/model 做调用日志与基础并发保护，旧 `/api/admin/api-keys` 作为同一张中台 Key 表的底层维护入口，列表/编辑不返回明文 `key`。
 
 ### 能力示例：OpenAI GPT Image 2
 
 - **执行节点**：必须使用 `type=vendor_api` 且包含 `providers=["openai"]`、`tags=["vendor-api","global-egress"]` 的执行节点，默认指向独立 `vendor-api-ops` 服务。OpenAI 不允许 fallback 到 Coze 主机本机执行。
-- **密钥注入**：通过 `OPENAI_API_KEY` 环境变量或 vendor-api-ops `/v1/keys` 写入，管理端“模型弹药库”和文档只展示 `keyPreview`，不得保存/回显明文 key。
+- **密钥注入**：通过管理端“模型弹药库”写入中台 `api_keys` 表；中台调用 `vendor-api-ops` 时随请求携带本次选中的 Key。文档和页面只展示 `keyPreview`，不得向业务方回显明文 Key。
 - **已暴露能力**：
   - `openai_gpt_image_2_generate`：文生图，底层调用 `/v1/images/generations`。
   - `openai_gpt_image_2_edit`：图片编辑/蒙版/多参考图，底层调用 `/v1/images/edits`。

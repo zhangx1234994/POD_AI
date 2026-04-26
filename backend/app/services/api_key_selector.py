@@ -116,6 +116,50 @@ def pick_provider_api_key(
     return None
 
 
+def pick_vendor_api_key(
+    session: Session,
+    *,
+    executor_id: str | None,
+    provider: str,
+    exclude_ids: set[str] | None = None,
+) -> ApiKey | None:
+    if executor_id:
+        selected = pick_executor_api_key(
+            session,
+            executor_id=executor_id,
+            provider=provider,
+            exclude_ids=exclude_ids,
+        )
+        if selected:
+            return selected
+    return pick_provider_api_key(session, provider=provider, exclude_ids=exclude_ids)
+
+
+def build_vendor_credentials(api_key: ApiKey) -> dict[str, Any]:
+    metadata = api_key.extra_metadata if isinstance(api_key.extra_metadata, dict) else {}
+    secret = metadata.get("secretKey") or metadata.get("secret") or metadata.get("secret_key")
+    credentials: dict[str, Any] = {
+        "keyId": api_key.id,
+        "apiKeyId": api_key.id,
+        "key": api_key.key,
+        "apiKey": api_key.key,
+        "provider": api_key.provider,
+        "alias": api_key.name,
+    }
+    if secret:
+        credentials["secret"] = str(secret)
+        credentials["secretKey"] = str(secret)
+    for source, target in (
+        ("maxConcurrency", "maxConcurrency"),
+        ("max_concurrency", "maxConcurrency"),
+        ("model", "model"),
+    ):
+        value = metadata.get(source)
+        if value not in (None, "", []):
+            credentials[target] = value
+    return credentials
+
+
 def mark_cooldown(
     session: Session,
     *,

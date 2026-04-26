@@ -112,7 +112,7 @@ vendor-api-ops 返回统一 envelope：
 - Key、invocation、usage log 已落 SQLite 持久化，默认路径 `runtime/vendor-api-ops.sqlite3`。
 - KIE 已接真实 submit/poll adapter：提交 `/api/v1/jobs/createTask`，轮询 `/api/v1/jobs/recordInfo`。
 - OpenAI / OpenAI-compatible 已接真实 Images API 风格 adapter：图片生成走 `/v1/images/generations`，图片编辑走 `/v1/images/edits`，支持原图、蒙版、多参考图、`size`、`quality` 等字段。
-- backend 能力目录已暴露 GPT Image 2 两个能力：`openai_gpt_image_2_generate`（文生图）与 `openai_gpt_image_2_edit`（图片编辑/蒙版）。OpenAI Key 只允许通过 `OPENAI_API_KEY` 或 vendor-api-ops `/v1/keys` 注入，不写入代码和文档。
+- backend 能力目录已暴露 GPT Image 2 两个能力：`openai_gpt_image_2_generate`（文生图）与 `openai_gpt_image_2_edit`（图片编辑/蒙版）。OpenAI Key 默认通过中台“模型弹药库”写入 `api_keys`，中台调用 vendor-api-ops 时随请求携带；不写入代码和文档。
 - 火山已接真实 Ark 风格 adapter：图文对话走 `/api/v3/chat/completions`，生图走 `/api/v3/images/generations`，视频提交链路保留 `/api/v3/contents/generations/tasks` passthrough。
 - 百度图像处理已接真实 adapter：先换取 OAuth token，再按能力 `request_endpoint` 提交 form 表单；输入支持 `image_base64`、`imageBase64`、`image_url` 和 input assets。
 
@@ -123,7 +123,7 @@ vendor-api-ops 返回统一 envelope：
   "success": false,
   "errorCode": "VENDOR_API_KEY_MISSING",
   "message": "OpenAI API Key 未配置",
-  "suggestion": "请在 vendor-api-ops 环境变量或 Key 管理中配置可用 Key"
+  "suggestion": "请在中台模型弹药库配置可用 Key"
 }
 ```
 
@@ -151,17 +151,19 @@ vendor-api-ops 返回统一 envelope：
 
 ```env
 VENDOR_API_OPS_PORT=8310
-VENDOR_API_OPS_ADMIN_TOKEN=change-me
+VENDOR_API_ALLOWED_CLIENTS=127.0.0.1,::1,114.55.0.56,117.50.80.158
+# 可选：白名单之外再叠加服务 token。不开也可以，白名单仍是主保护。
+VENDOR_API_OPS_ADMIN_TOKEN=
 OPENAI_BASE_URL=https://api.openai.com
-OPENAI_API_KEY=...
 VOLCENGINE_BASE_URL=https://ark.cn-beijing.volces.com
-VOLCENGINE_API_KEY=...
 BAIDU_BASE_URL=https://aip.baidubce.com
-BAIDU_API_KEY=...
-BAIDU_SECRET_KEY=...
 HTTPS_PROXY=
 HTTP_PROXY=
 ```
+
+第三方 API Key 不再配置在 `vendor-api-ops`。Key 由 backend 中台 `api_keys` 表统一管理；
+backend 调用 `vendor-api-ops` 时通过请求级 `credentials` 带上本次选中的 Key。上面的
+`OPENAI_API_KEY`、`VOLCENGINE_API_KEY`、`BAIDU_API_KEY` 等环境变量只保留给本地联调或旧调用兜底。
 
 backend 推荐环境变量：
 
@@ -279,4 +281,4 @@ VENDOR_API_LEGACY_FALLBACK_ENABLED=true
 
 - OpenAI / OpenAI-compatible 的真实业务能力需要在新增具体能力时单独做出网、Key、额度和错误路径验证。
 - OSS 内网地址与数据库内网地址仍作为后续独立灰度项，不与本轮 vendor-api-ops MVP 绑定。
-- Key 权威迁移需要继续从 backend 兼容态过渡到 vendor-api-ops 托管态。
+- Key 权威已调整为中台 `api_keys`；vendor-api-ops 本地 Key 库仅作为历史兼容。

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any
+from uuid import uuid4
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -13,8 +14,9 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from app.core.config import get_settings
 from app.core.db import get_session
 from app.deps.auth import require_admin
-from app.models.integration import Ability, VendorModelCatalog
+from app.models.integration import Ability, ApiKey, VendorModelCatalog
 from app.schemas import admin_vendor as schemas
+from app.services.api_key_selector import build_vendor_credentials, pick_provider_api_key
 from app.services.vendor_admin_client import vendor_admin_client
 
 router = APIRouter(prefix="/admin/vendor-api", dependencies=[Depends(require_admin)])
@@ -27,12 +29,18 @@ def list_vendor_providers() -> dict[str, Any]:
 
 @router.post("/providers/{provider}/egress-check", response_model=schemas.VendorEgressCheckResponse)
 def check_vendor_provider_egress(provider: str, payload: schemas.VendorEgressCheckRequest) -> dict[str, Any]:
-    return vendor_admin_client.check_egress(provider, payload.model_dump())
+    request_payload = payload.model_dump()
+    if payload.includeAuth:
+        with get_session() as session:
+            api_key = pick_provider_api_key(session, provider=provider.strip().lower())
+            if api_key:
+                request_payload["credentials"] = build_vendor_credentials(api_key)
+    return vendor_admin_client.check_egress(provider, request_payload)
 
 
 @router.get("/keys", response_model=schemas.VendorKeyListResponse)
 def list_vendor_keys(provider: str | None = None) -> dict[str, Any]:
-    return vendor_admin_client.list_keys(provider)
+    return {"baseUrl": get_settings().vendor_api_base_url, "items": _list_backend_vendor_keys(provider)}
 
 
 @router.get("/usage/summary", response_model=schemas.VendorUsageSummaryResponse)
@@ -47,17 +55,84 @@ def get_vendor_governance_summary(windowHours: int = 24) -> dict[str, Any]:
 
 @router.post("/keys", response_model=schemas.VendorKeyRead)
 def create_vendor_key(payload: schemas.VendorKeyCreateRequest) -> dict[str, Any]:
-    return vendor_admin_client.create_key(payload.model_dump(mode="json", exclude_none=True))
+    metadata = dict(payload.metadata or {})
+    if payload.secret:
+        metadata["secretKey"] = payload.secret
+    if payload.model:
+        metadata["model"] = payload.model
+    if payload.monthlyQuota is not None:
+        metadata["monthlyQuota"] = payload.monthlyQuota
+    metadata["maxConcurrency"] = max(1, int(payload.maxConcurrency or 1))
+    item = ApiKey(
+        id=f"apikey_{uuid4().hex}",
+        provider=payload.provider.strip().lower(),
+        name=payload.alias.strip(),
+        key=payload.key,
+        status=payload.status,
+        daily_quota=payload.dailyQuota,
+        extra_metadata=metadata,
+    )
+    with get_session() as session:
+        session.add(item)
+        session.commit()
+        session.refresh(item)
+        return _api_key_to_vendor_payload(item)
 
 
 @router.patch("/keys/{key_id}", response_model=schemas.VendorKeyRead)
 def update_vendor_key(key_id: str, payload: schemas.VendorKeyUpdateRequest) -> dict[str, Any]:
-    return vendor_admin_client.update_key(key_id, payload.model_dump(mode="json", exclude_none=True))
+    with get_session() as session:
+        item = session.get(ApiKey, key_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="VENDOR_API_KEY_NOT_FOUND")
+        metadata = dict(item.extra_metadata or {})
+        if payload.status is not None:
+            item.status = payload.status
+        if payload.cooldownUntil is not None:
+            metadata["cooldown_until"] = payload.cooldownUntil.isoformat()
+        if payload.lastError is not None:
+            metadata["last_error"] = payload.lastError
+        if payload.metadata is not None:
+            metadata.update(payload.metadata)
+        item.extra_metadata = metadata
+        session.add(item)
+        session.commit()
+        session.refresh(item)
+        return _api_key_to_vendor_payload(item)
 
 
 @router.post("/keys/{key_id}/check", response_model=schemas.VendorEgressCheckResponse)
 def check_vendor_key(key_id: str, payload: schemas.VendorEgressCheckRequest) -> dict[str, Any]:
-    return vendor_admin_client.check_key(key_id, payload.model_dump(mode="json", exclude_none=True))
+    with get_session() as session:
+        item = session.get(ApiKey, key_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="VENDOR_API_KEY_NOT_FOUND")
+        provider = item.provider
+        request_payload = payload.model_dump(mode="json", exclude_none=True)
+        request_payload["includeAuth"] = True
+        request_payload["credentials"] = build_vendor_credentials(item)
+    result = vendor_admin_client.check_egress(provider, request_payload)
+    with get_session() as session:
+        item = session.get(ApiKey, key_id)
+        if item:
+            metadata = dict(item.extra_metadata or {})
+            metadata["lastCheck"] = {
+                "success": bool(result.get("success")),
+                "check": result.get("check"),
+                "httpStatus": result.get("httpStatus"),
+                "latencyMs": result.get("latencyMs"),
+                "errorCode": result.get("errorCode"),
+                "message": result.get("message"),
+                "checkedAt": datetime.now(timezone.utc).isoformat(),
+            }
+            if result.get("success"):
+                metadata.pop("last_error", None)
+            else:
+                metadata["last_error"] = result.get("errorCode") or result.get("message") or "VENDOR_API_AUTH_FAILED"
+            item.extra_metadata = metadata
+            session.add(item)
+            session.commit()
+    return result
 
 
 @router.get("/models", response_model=schemas.VendorModelListResponse)
@@ -99,6 +174,15 @@ def create_vendor_model(payload: schemas.VendorModelCreateRequest) -> dict[str, 
 def sync_volcengine_models() -> dict[str, Any]:
     settings = get_settings()
     api_key = settings.volcengine_api_key
+    try:
+        with get_session() as session:
+            stored_key = pick_provider_api_key(session, provider="volcengine")
+            if stored_key:
+                api_key = stored_key.key
+    except SQLAlchemyError:
+        # Some lightweight tests/tools create only the model catalog table. In
+        # that case, keep env-based model sync available.
+        pass
     if not api_key:
         raise HTTPException(status_code=400, detail="VOLCENGINE_API_KEY_MISSING")
     base_url = (settings.volcengine_base_url or "https://ark.cn-beijing.volces.com").rstrip("/")
@@ -175,6 +259,72 @@ def update_vendor_model(model_id: int, payload: schemas.VendorModelUpdateRequest
         raise HTTPException(status_code=409, detail="VENDOR_MODEL_DUPLICATED") from exc
 
 
+def _list_backend_vendor_keys(provider: str | None = None) -> list[dict[str, Any]]:
+    normalized = provider.strip().lower() if isinstance(provider, str) and provider.strip() else None
+    with get_session() as session:
+        stmt = select(ApiKey).order_by(ApiKey.created_at.desc())
+        if normalized:
+            stmt = stmt.where(ApiKey.provider == normalized)
+        else:
+            stmt = stmt.where(ApiKey.provider.in_(_known_vendor_providers()))
+        return [_api_key_to_vendor_payload(item) for item in session.execute(stmt).scalars().all()]
+
+
+def _api_key_to_vendor_payload(item: ApiKey) -> dict[str, Any]:
+    metadata = item.extra_metadata if isinstance(item.extra_metadata, dict) else {}
+    last_check = metadata.get("lastCheck") if isinstance(metadata.get("lastCheck"), dict) else {}
+    return {
+        "id": item.id,
+        "provider": item.provider,
+        "alias": item.name,
+        "model": metadata.get("model"),
+        "status": item.status,
+        "keyPreview": _preview_secret(item.key),
+        "dailyQuota": item.daily_quota,
+        "monthlyQuota": _as_optional_int(metadata.get("monthlyQuota")),
+        "usageCount": item.usage_count or 0,
+        "maxConcurrency": _as_optional_int(metadata.get("maxConcurrency")) or 1,
+        "cooldownUntil": _parse_datetime(metadata.get("cooldown_until")),
+        "lastError": metadata.get("last_error"),
+        "lastUsedAt": _parse_last_used_at(metadata.get("last_used_at")),
+        "metadata": _public_key_metadata(metadata, last_check),
+    }
+
+
+def _public_key_metadata(metadata: dict[str, Any], last_check: dict[str, Any]) -> dict[str, Any]:
+    clean = {
+        key: value
+        for key, value in metadata.items()
+        if key not in {"secret", "secretKey", "secret_key", "clientSecret"}
+    }
+    clean["storage"] = "backend"
+    if last_check:
+        clean["lastCheck"] = last_check
+    return clean
+
+
+def _preview_secret(value: str | None) -> str:
+    raw = str(value or "")
+    if len(raw) <= 8:
+        return "***" if raw else ""
+    return f"{raw[:4]}...{raw[-4:]}"
+
+
+def _as_optional_int(value: Any) -> int | None:
+    if value in (None, "", []):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_last_used_at(value: Any) -> datetime | None:
+    if isinstance(value, (int, float)):
+        return datetime.fromtimestamp(value, tz=timezone.utc)
+    return _parse_datetime(value)
+
+
 def _build_vendor_governance_summary(*, window_hours: int) -> dict[str, Any]:
     settings = get_settings()
     base_url = settings.vendor_api_base_url
@@ -190,13 +340,10 @@ def _build_vendor_governance_summary(*, window_hours: int) -> dict[str, Any]:
         issues.append(f"VENDOR_PROVIDER_REGISTRY_UNAVAILABLE:{_http_detail_code(exc)}")
 
     try:
-        key_payload = vendor_admin_client.list_keys()
-        keys = key_payload.get("items") if isinstance(key_payload, dict) else []
-        if not isinstance(keys, list):
-            keys = []
-    except HTTPException as exc:
+        keys = _list_backend_vendor_keys()
+    except SQLAlchemyError as exc:
         keys = []
-        issues.append(f"VENDOR_KEY_STATUS_UNAVAILABLE:{_http_detail_code(exc)}")
+        issues.append(f"VENDOR_KEY_STATUS_UNAVAILABLE:{exc.__class__.__name__}")
 
     try:
         usage_payload = vendor_admin_client.usage_summary(window_hours=window_hours)
@@ -322,7 +469,7 @@ def _build_vendor_governance_summary(*, window_hours: int) -> dict[str, Any]:
         item["runtimeKeyConfigured"] = bool(item["envKeyConfigured"] or item["activeStoredKeyCount"] > 0)
         if (item["activeModelCount"] or item["activeAbilityCount"]) and not item["runtimeKeyConfigured"]:
             item["issues"].append("VENDOR_API_KEY_MISSING")
-            item["suggestions"].append("在 vendor-api-ops 中新增可用密钥，或在能力服务环境变量中配置该供应商密钥。")
+            item["suggestions"].append("在中台 Key 池新增可用密钥；中台调用时会把 Key 随请求带给能力服务。")
         if item["failedCalls"] and not item["succeededCalls"]:
             item["issues"].append("VENDOR_API_RECENT_FAILURES")
             item["suggestions"].append("检查供应商余额、密钥状态、网络出口和最近一次上游错误。")
