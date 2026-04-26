@@ -197,6 +197,8 @@ class AbilityTaskService:
                 if task.status == "running":
                     if self._is_comfyui_submitted_only(task):
                         continue
+                    if self._is_vendor_api_submitted_only(task):
+                        continue
                     to_requeue.append(task.id)
 
             pending_ids = to_requeue
@@ -366,6 +368,32 @@ class AbilityTaskService:
         prompt_id = meta.get("promptId") or meta.get("taskId")
         base_url = meta.get("baseUrl")
         return isinstance(prompt_id, str) and bool(prompt_id.strip()) and isinstance(base_url, str) and bool(base_url.strip())
+
+    @staticmethod
+    def _is_vendor_api_submitted_only(task: AbilityTask) -> bool:
+        provider = (task.ability_provider or "").lower()
+        if provider not in VENDOR_API_TASK_PROVIDERS:
+            return False
+        payload = task.result_payload or {}
+        if not isinstance(payload, dict):
+            return False
+        status = str(payload.get("status") or task.status or "").strip().lower()
+        if status not in {"running", "queued", "pending"}:
+            return False
+        meta = payload.get("metadata")
+        if not isinstance(meta, dict):
+            return False
+        vendor_invocation_id = meta.get("vendorInvocationId")
+        vendor_task_id = meta.get("vendorTaskId") or meta.get("taskId")
+        executor_id = meta.get("executorId")
+        return (
+            isinstance(vendor_invocation_id, str)
+            and bool(vendor_invocation_id.strip())
+            and isinstance(vendor_task_id, str)
+            and bool(vendor_task_id.strip())
+            and isinstance(executor_id, str)
+            and bool(executor_id.strip())
+        )
 
     @staticmethod
     def _limit_comfyui_output_images(capability_key: str | None, images: list[dict[str, Any]]) -> list[dict[str, Any]]:

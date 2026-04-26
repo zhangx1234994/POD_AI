@@ -24,3 +24,39 @@ def test_is_comfyui_submitted_only_false_without_metadata():
     task = SimpleNamespace(ability_provider="comfyui", result_payload={"promptId": "abc"})
     assert AbilityTaskService._is_comfyui_submitted_only(task) is False
 
+
+def test_is_vendor_api_submitted_only_true_when_has_vendor_ids_and_executor():
+    from app.services.ability_task_service import AbilityTaskService
+
+    task = SimpleNamespace(
+        ability_provider="volcengine",
+        status="running",
+        result_payload={
+            "status": "running",
+            "metadata": {
+                "vendorInvocationId": "vinv_1",
+                "vendorTaskId": "cgt_1",
+                "executorId": "executor_vendor_api_domestic_default",
+            },
+        },
+    )
+
+    assert AbilityTaskService._is_vendor_api_submitted_only(task) is True
+
+
+def test_is_vendor_api_submitted_only_false_without_vendor_task_id():
+    from app.services.ability_task_service import AbilityTaskService
+
+    task = SimpleNamespace(
+        ability_provider="volcengine",
+        status="running",
+        result_payload={
+            "status": "running",
+            "metadata": {
+                "vendorInvocationId": "vinv_1",
+                "executorId": "executor_vendor_api_domestic_default",
+            },
+        },
+    )
+
+    assert AbilityTaskService._is_vendor_api_submitted_only(task) is False
