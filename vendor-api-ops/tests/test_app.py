@@ -337,6 +337,101 @@ def test_volcengine_image_generation_returns_url(monkeypatch) -> None:
     assert body["result"]["images"][0]["url"] == "https://example.com/volc-out.png"
 
 
+def test_volcengine_video_generation_submits_async_task(monkeypatch) -> None:
+    client = TestClient(app)
+    client.post("/v1/keys", json={"provider": "volcengine", "alias": "volc-video", "key": "volc-key"})
+    captured = {}
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured["url"] = url
+        captured["headers"] = headers
+        captured["json"] = json
+        return httpx.Response(
+            200,
+            json={"id": "video-task-1"},
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    response = client.post(
+        "/v1/invocations",
+        json={
+            "provider": "volcengine",
+            "capabilityKey": "doubao_seedance_1_5_pro",
+            "model": "doubao-seedance",
+            "apiType": "video_generation",
+            "inputs": {
+                "prompt": "小猫对着镜头打哈欠",
+                "image_url": "https://example.com/frame.png",
+                "duration": 5,
+                "ratio": "16:9",
+                "resolution": "720p",
+                "watermark": False,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "running"
+    assert body["vendorTaskId"] == "video-task-1"
+    assert captured["url"].endswith("/api/v3/contents/generations/tasks")
+    assert captured["headers"]["Authorization"] == "Bearer volc-key"
+    assert captured["json"]["content"] == [
+        {"type": "text", "text": "小猫对着镜头打哈欠"},
+        {"type": "image_url", "image_url": {"url": "https://example.com/frame.png"}, "role": "first_frame"},
+    ]
+    assert captured["json"]["duration"] == 5
+    assert captured["json"]["watermark"] is False
+
+
+def test_volcengine_video_generation_refresh_returns_video(monkeypatch) -> None:
+    client = TestClient(app)
+    client.post("/v1/keys", json={"provider": "volcengine", "alias": "volc-video-refresh", "key": "volc-key"})
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        return httpx.Response(200, json={"id": "video-task-2"}, request=httpx.Request("POST", url))
+
+    def fake_get(url, headers=None, timeout=None):
+        assert url.endswith("/api/v3/contents/generations/tasks/video-task-2")
+        assert headers["Authorization"] == "Bearer volc-key"
+        return httpx.Response(
+            200,
+            json={
+                "id": "video-task-2",
+                "status": "succeeded",
+                "content": {
+                    "video_url": "https://example.com/out.mp4",
+                    "last_frame_url": "https://example.com/last.png",
+                },
+            },
+            request=httpx.Request("GET", url),
+        )
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    monkeypatch.setattr(httpx, "get", fake_get)
+
+    created = client.post(
+        "/v1/invocations",
+        json={
+            "provider": "volcengine",
+            "capabilityKey": "doubao_seedance_1_5_pro",
+            "model": "doubao-seedance",
+            "apiType": "video_generation",
+            "inputs": {"prompt": "video"},
+        },
+    ).json()
+
+    response = client.get(f"/v1/invocations/{created['vendorInvocationId']}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "succeeded"
+    assert body["result"]["videos"][0]["url"] == "https://example.com/out.mp4"
+    assert body["result"]["images"][0]["url"] == "https://example.com/last.png"
+
+
 def test_openai_image_edit_calls_real_contract(monkeypatch) -> None:
     client = TestClient(app)
     client.post("/v1/keys", json={"provider": "openai", "alias": "image-edit", "key": "sk-test-image-edit"})
