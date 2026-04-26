@@ -164,12 +164,15 @@ def _assets_from_vendor(value: Any) -> list[dict[str, Any]]:
         b64 = item.get("b64")
         if not url and not b64:
             continue
+        mime_type = item.get("mimeType")
         out.append(
             {
                 "url": url,
                 "sourceUrl": url,
                 "base64": b64,
-                "type": item.get("mimeType"),
+                "type": mime_type,
+                "contentType": mime_type,
+                "mimeType": mime_type,
                 "tag": item.get("role") or "output",
                 "metadata": item.get("metadata") if isinstance(item.get("metadata"), dict) else None,
             }

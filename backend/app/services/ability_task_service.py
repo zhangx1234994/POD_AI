@@ -27,6 +27,7 @@ from app.services.api_key_selector import build_vendor_credentials
 from app.services.task_id_codec import decode_task_id
 from app.services.task_status_contract import derive_ability_task_status
 from app.services.vendor_api_client import vendor_api_client
+from app.services.vendor_media import persist_vendor_media_payload
 from app.services.wallet import wallet_service
 
 logger = logging.getLogger(__name__)
@@ -290,6 +291,11 @@ class AbilityTaskService:
                     executor=executor,
                     vendor_invocation_id=vendor_invocation_id.strip(),
                     credentials=credentials,
+                )
+                fetched = persist_vendor_media_payload(
+                    fetched,
+                    user_id=task.user_id or "system",
+                    tag_prefix=f"vendor-api-{task.ability_provider or 'vendor'}",
                 )
             except Exception:
                 self._touch_running_task(task.id)

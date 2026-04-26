@@ -35,6 +35,7 @@ from app.services.api_key_selector import build_vendor_credentials, bump_usage, 
 from app.services.coze_client import coze_client
 from app.services.oss import oss_service
 from app.services.vendor_api_client import vendor_api_client
+from app.services.vendor_media import persist_vendor_media_payload
 from app.services.workflow_seed import ensure_default_bindings, ensure_default_workflows
 
 VENDOR_API_PROVIDERS = {"baidu", "volcengine", "kie", "openai", "openai_compatible"}
@@ -748,6 +749,11 @@ class AbilityInvocationService:
             request_id=context.request_id,
             trace_id=context.request_id,
             credentials=credentials,
+        )
+        result = persist_vendor_media_payload(
+            result,
+            user_id=str(context.user.id if context.user else "system"),
+            tag_prefix=f"vendor-api-{ability.provider.lower()}",
         )
         if selected_key_id:
             with get_session() as session:
@@ -1902,12 +1908,19 @@ class AbilityInvocationService:
                     for item in generic_assets:
                         if not isinstance(item, dict):
                             continue
-                        content_type = (item.get("contentType") or item.get("mimeType") or "").lower()
-                        if content_type.startswith("image/") or item.get("tag") in {"comfyui", "comfyui-input"}:
+                        content_type = (item.get("contentType") or item.get("mimeType") or item.get("type") or "").lower()
+                        base64_value = item.get("base64") or item.get("b64")
+                        if (
+                            content_type.startswith("image/")
+                            or base64_value
+                            or item.get("type") == "image"
+                            or item.get("tag") in {"comfyui", "comfyui-input"}
+                        ):
                             assets.append(
                                 schemas.AbilityOutputAsset(
                                     ossUrl=item.get("ossUrl") or item.get("url"),
-                                    sourceUrl=item.get("sourceUrl"),
+                                    sourceUrl=item.get("sourceUrl") or item.get("url"),
+                                    base64=base64_value,
                                     type="image",
                                     tag=item.get("tag"),
                                 )
@@ -1915,21 +1928,31 @@ class AbilityInvocationService:
         elif target == "video":
             video_urls = payload.get("videoUrls") or payload.get("videos")
             if isinstance(video_urls, list):
-                for url in video_urls:
-                    if isinstance(url, str):
-                        assets.append(schemas.AbilityOutputAsset(sourceUrl=url, type="video"))
+                for entry in video_urls:
+                    if isinstance(entry, dict):
+                        assets.append(
+                            schemas.AbilityOutputAsset(
+                                ossUrl=entry.get("ossUrl") or entry.get("url"),
+                                sourceUrl=entry.get("sourceUrl") or entry.get("url"),
+                                type="video",
+                                tag=entry.get("tag"),
+                            )
+                        )
+                        continue
+                    if isinstance(entry, str):
+                        assets.append(schemas.AbilityOutputAsset(sourceUrl=entry, type="video"))
             if not assets:
                 generic_assets = payload.get("assets") or payload.get("storedAssets")
                 if isinstance(generic_assets, list):
                     for item in generic_assets:
                         if not isinstance(item, dict):
                             continue
-                        content_type = (item.get("contentType") or item.get("mimeType") or "").lower()
-                        if content_type.startswith("video/") or item.get("tag") in {"video", "comfyui-video"}:
+                        content_type = (item.get("contentType") or item.get("mimeType") or item.get("type") or "").lower()
+                        if content_type.startswith("video/") or item.get("type") == "video" or item.get("tag") in {"video", "comfyui-video"}:
                             assets.append(
                                 schemas.AbilityOutputAsset(
                                     ossUrl=item.get("ossUrl") or item.get("url"),
-                                    sourceUrl=item.get("sourceUrl"),
+                                    sourceUrl=item.get("sourceUrl") or item.get("url"),
                                     type="video",
                                     tag=item.get("tag"),
                                 )

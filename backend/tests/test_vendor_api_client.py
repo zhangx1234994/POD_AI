@@ -36,6 +36,7 @@ def test_vendor_api_response_normalizes_assets_and_metadata() -> None:
     assert normalized["status"] == "succeeded"
     assert normalized["vendorInvocationId"] == "vinv_1"
     assert normalized["resultUrls"] == ["https://example.com/out.png"]
+    assert normalized["images"][0]["contentType"] == "image/png"
     assert normalized["metadata"]["vendorInvocationId"] == "vinv_1"
     assert normalized["metadata"]["executorId"] == "executor_vendor_api_global_default"
     assert normalized["texts"] == ["ok"]
@@ -95,3 +96,4 @@ def test_vendor_api_invoke_forwards_metadata_request_endpoint(monkeypatch) -> No
     assert isinstance(payload, dict)
     assert payload["inputs"]["request_endpoint"] == "/rest/2.0/image-process/v1/image_quality_enhance"
     assert result["assets"][0]["base64"] == "out-b64"
+    assert result["assets"][0]["contentType"] is None

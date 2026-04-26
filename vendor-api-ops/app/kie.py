@@ -148,17 +148,36 @@ def _build_input_payload(inputs: dict[str, Any], assets: list[Any]) -> dict[str,
     input_payload = inputs.get("input")
     if not isinstance(input_payload, dict):
         input_payload = {}
+    target = inputs.get("input_array_target")
+    if not isinstance(target, str) or not target.strip():
+        target = "image_input" if "image_input" in input_payload else "input_urls"
+    target = target.strip()
+    input_urls: list[str] = []
+    url_aliases = {
+        "image_url",
+        "imageUrl",
+        "image_urls",
+        "imageUrls",
+        "input_url",
+        "inputUrl",
+        "input_urls",
+        "inputUrls",
+        "url",
+        target,
+    }
     for key, value in inputs.items():
-        if key in {"model", "input", "endpoint", "request_endpoint", "extra"}:
+        if key in {"model", "input", "endpoint", "request_endpoint", "extra", "input_array_target"}:
             continue
         if value in (None, "", []):
             continue
+        if key in url_aliases:
+            input_urls.extend(_url_list(value))
+            continue
         input_payload.setdefault(key, value)
     urls = _asset_urls(assets)
+    if input_urls:
+        urls = input_urls + urls
     if urls:
-        target = inputs.get("input_array_target")
-        if not isinstance(target, str) or not target.strip():
-            target = "image_input" if "image_input" in input_payload else "input_urls"
         existing = input_payload.get(target)
         merged = _url_list(existing)
         for url in urls:

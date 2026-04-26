@@ -661,6 +661,42 @@ def test_kie_poll_parses_result_json_field(monkeypatch) -> None:
     assert fetched.json()["result"]["images"][0]["url"] == "https://example.com/kie-result-json.png"
 
 
+def test_kie_submit_maps_image_urls_alias_to_configured_input_array(monkeypatch) -> None:
+    client = TestClient(app)
+    client.post("/v1/keys", json={"provider": "kie", "alias": "test-kie-input-alias", "key": "kie-test-key"})
+    captured = {}
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured["json"] = json
+        return httpx.Response(
+            200,
+            json={"code": 200, "data": {"taskId": "kie_task_alias"}},
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    response = client.post(
+        "/v1/invocations",
+        json={
+            "provider": "kie",
+            "capabilityKey": "flux2_pro_image_to_image",
+            "model": "flux-2/pro-image-to-image",
+            "apiType": "market_image_to_image",
+            "inputs": {
+                "prompt": "test",
+                "image_urls": "https://example.com/input.png",
+                "input_array_target": "input_urls",
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured["json"]["input"]["input_urls"] == ["https://example.com/input.png"]
+    assert "image_urls" not in captured["json"]["input"]
+    assert "input_array_target" not in captured["json"]["input"]
+
+
 def test_kie_submit_retries_transient_create_failure(monkeypatch) -> None:
     client = TestClient(app)
     client.post("/v1/keys", json={"provider": "kie", "alias": "test-kie-retry", "key": "kie-test-retry-key"})
