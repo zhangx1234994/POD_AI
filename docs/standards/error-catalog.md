@@ -285,6 +285,7 @@
 | VENDOR_API_KEY_CONCURRENCY_LIMITED | 第三方 API Key 并发已满 | 可重试；等待释放或确认厂商额度后提高 Key 并发 |
 | VENDOR_API_KEY_DISABLED | 第三方 API Key 不可用 | disabled/cooldown/exhausted/error 均需可读提示 |
 | VENDOR_API_KEY_MISSING | 第三方 API Key 缺失 | 不暴露 Key 明文 |
+| VENDOR_API_AUTH_FAILED | 第三方 API Key 验证失败 | Key 错误、Secret 错误、账号被禁用或额度异常 |
 | VENDOR_API_INPUT_INVALID | 第三方 API 入参不合法 | 缺少图片、蒙版、任务必填字段等 provider 级校验失败 |
 | VENDOR_API_RATE_LIMITED | 第三方 API 限流 | 应进入 Key 冷却或切换 Key |
 | VENDOR_API_TIMEOUT | 第三方 API 调用超时 | 常见于网络出口或代理异常 |

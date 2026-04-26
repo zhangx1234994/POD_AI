@@ -4,17 +4,21 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from typing import Any
 
 import httpx
 
 from app.config import Settings
 from app.schemas import EgressCheckResponse, ProviderInfo
+from app.storage import vendor_storage
 
 
 ERR_PROVIDER_NOT_SUPPORTED = "VENDOR_API_PROVIDER_NOT_SUPPORTED"
 ERR_PROXY_UNAVAILABLE = "VENDOR_API_PROXY_UNAVAILABLE"
 ERR_TIMEOUT = "VENDOR_API_TIMEOUT"
 ERR_UPSTREAM_ERROR = "VENDOR_API_UPSTREAM_ERROR"
+ERR_KEY_MISSING = "VENDOR_API_KEY_MISSING"
+ERR_AUTH_FAILED = "VENDOR_API_AUTH_FAILED"
 
 
 @dataclass(frozen=True)
@@ -102,22 +106,24 @@ def _has_env_key(settings: Settings, provider: str) -> bool:
     return False
 
 
-def _openai_check_url(settings: Settings, check: str) -> str:
-    base = settings.openai_base_url.rstrip("/")
+def _openai_check_url(settings: Settings, check: str, *, compatible: bool = False) -> str:
+    base = (settings.openai_compatible_base_url if compatible and settings.openai_compatible_base_url else settings.openai_base_url).rstrip("/")
     if check == "models":
         return f"{base}/v1/models"
     raise ValueError(check)
 
 
 def _check_url(settings: Settings, provider: str, check: str) -> str:
-    if provider in {"openai", "openai_compatible"}:
+    if provider == "openai":
         return _openai_check_url(settings, check)
+    if provider == "openai_compatible":
+        return _openai_check_url(settings, check, compatible=True)
     if provider == "volcengine":
-        return "https://ark.cn-beijing.volces.com/api/v3/models"
+        return f"{settings.volcengine_base_url.rstrip('/')}/api/v3/models"
     if provider == "baidu":
-        return "https://aip.baidubce.com/oauth/2.0/token"
+        return f"{settings.baidu_base_url.rstrip('/')}/oauth/2.0/token"
     if provider == "kie":
-        return "https://api.kie.ai/api/v1/jobs/recordInfo"
+        return f"{settings.kie_base_url.rstrip('/')}/api/v1/jobs/recordInfo"
     return ""
 
 
@@ -153,13 +159,46 @@ async def check_provider_egress(
 
     url = _check_url(settings, normalized, check)
     headers: dict[str, str] = {}
-    if include_auth and normalized == "openai" and settings.openai_api_key:
-        headers["Authorization"] = f"Bearer {settings.openai_api_key}"
+    method = "GET"
+    params: dict[str, Any] | None = None
+    if include_auth:
+        auth = _select_auth_material(settings, normalized)
+        if not auth.get("key"):
+            return EgressCheckResponse(
+                success=False,
+                provider=normalized,
+                check=check,
+                url=url,
+                errorCode=ERR_KEY_MISSING,
+                message=f"{normalized} has no active API Key.",
+                suggestion="Create an active key in the admin model ammo page, then retry the key check.",
+            )
+        if normalized == "baidu":
+            if not auth.get("secret"):
+                return EgressCheckResponse(
+                    success=False,
+                    provider=normalized,
+                    check=check,
+                    url=url,
+                    errorCode=ERR_KEY_MISSING,
+                    message="Baidu requires both API Key and Secret Key.",
+                    suggestion="Edit the Baidu key by adding a new key with both API Key and Secret Key, then disable the old one.",
+                )
+            method = "POST"
+            params = {
+                "grant_type": "client_credentials",
+                "client_id": auth["key"],
+                "client_secret": auth["secret"],
+            }
+        else:
+            headers["Authorization"] = f"Bearer {auth['key']}"
+            if normalized == "kie":
+                params = {"taskId": "__podi_key_check__"}
 
     started = time.perf_counter()
     try:
         async with httpx.AsyncClient(timeout=settings.request_timeout_seconds, follow_redirects=True) as client:
-            response = await client.get(url, headers=headers)
+            response = await client.request(method, url, headers=headers, params=params)
     except httpx.ProxyError as exc:
         return _failed_response(
             provider=normalized,
@@ -192,7 +231,8 @@ async def check_provider_egress(
         )
 
     latency = int((time.perf_counter() - started) * 1000)
-    reachable = response.status_code < 500
+    reachable = _is_check_success(provider=normalized, include_auth=include_auth, status_code=response.status_code)
+    error_code = None if reachable else (ERR_AUTH_FAILED if include_auth else ERR_UPSTREAM_ERROR)
     return EgressCheckResponse(
         success=reachable,
         provider=normalized,
@@ -200,10 +240,43 @@ async def check_provider_egress(
         url=url,
         httpStatus=response.status_code,
         latencyMs=latency,
-        errorCode=None if reachable else ERR_UPSTREAM_ERROR,
-        message="reachable" if reachable else response.text[:300],
-        suggestion=None if reachable else "Upstream returned a server error; retry or check provider status.",
+        errorCode=error_code,
+        message=("authenticated" if include_auth else "reachable") if reachable else response.text[:300],
+        suggestion=None
+        if reachable
+        else (
+            "Key check failed. Verify the key value, secret, quota, and provider account status."
+            if include_auth
+            else "Upstream returned a server error; retry or check provider status."
+        ),
     )
+
+
+def _select_auth_material(settings: Settings, provider: str) -> dict[str, str | None]:
+    stored = vendor_storage.pick_key(provider=provider)
+    if stored and stored.get("key"):
+        return {"key": str(stored.get("key") or ""), "secret": stored.get("secret")}
+    if provider == "openai":
+        return {"key": settings.openai_api_key, "secret": None}
+    if provider == "openai_compatible":
+        return {"key": settings.openai_compatible_api_key, "secret": None}
+    if provider == "volcengine":
+        return {"key": settings.volcengine_api_key, "secret": None}
+    if provider == "kie":
+        return {"key": settings.kie_api_key, "secret": None}
+    if provider == "baidu":
+        return {"key": settings.baidu_api_key, "secret": settings.baidu_secret_key}
+    return {"key": None, "secret": None}
+
+
+def _is_check_success(*, provider: str, include_auth: bool, status_code: int) -> bool:
+    if not include_auth:
+        return status_code < 500
+    if provider == "kie":
+        # KIE recordInfo may return a business-level "task not found" for the
+        # fake check task. That still proves auth reached the upstream service.
+        return status_code < 500 and status_code not in {401, 403}
+    return 200 <= status_code < 300
 
 
 def _failed_response(

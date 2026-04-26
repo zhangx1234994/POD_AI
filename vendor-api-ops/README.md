@@ -71,6 +71,10 @@ curl -sS -X POST http://127.0.0.1:8310/v1/providers/openai/egress-check \
 `401` from OpenAI is still considered reachable for unauthenticated egress
 checks. Timeout means the node does not have a usable route or proxy.
 
+When `includeAuth=true`, the check uses an active stored key first, then falls
+back to the provider environment key. Authenticated checks treat `401/403` or
+provider auth failure as `VENDOR_API_AUTH_FAILED`.
+
 ## Invocation Contract
 
 ```bash

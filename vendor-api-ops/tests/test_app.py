@@ -3,6 +3,7 @@ from __future__ import annotations
 import httpx
 from fastapi.testclient import TestClient
 
+from app import providers as provider_module
 from app.config import get_settings
 from app.invocations import invocation_store
 from app.main import app
@@ -75,6 +76,62 @@ def test_unsupported_provider_returns_normalized_error() -> None:
     body = response.json()
     assert body["success"] is False
     assert body["errorCode"] == "VENDOR_API_PROVIDER_NOT_SUPPORTED"
+
+
+def test_provider_auth_check_uses_stored_openai_key(monkeypatch) -> None:
+    client = TestClient(app)
+    captured = {}
+
+    monkeypatch.setattr(
+        provider_module.vendor_storage,
+        "pick_key",
+        lambda *, provider, model=None: {"id": "vkey_test", "provider": provider, "key": "sk-stored-key", "status": "active"},
+    )
+
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def request(self, method, url, headers=None, params=None):
+            captured["method"] = method
+            captured["url"] = url
+            captured["headers"] = headers or {}
+            captured["params"] = params
+            return httpx.Response(200, json={"data": []}, request=httpx.Request(method, url))
+
+    monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+
+    response = client.post("/v1/providers/openai/egress-check", json={"check": "models", "includeAuth": True})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert body["message"] == "authenticated"
+    assert captured["headers"]["Authorization"] == "Bearer sk-stored-key"
+    assert captured["url"].endswith("/v1/models")
+
+
+def test_provider_auth_check_reports_missing_key(monkeypatch) -> None:
+    get_settings.cache_clear()
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr(provider_module.vendor_storage, "pick_key", lambda *, provider, model=None: None)
+    try:
+        client = TestClient(app)
+
+        response = client.post("/v1/providers/openai/egress-check", json={"check": "models", "includeAuth": True})
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["success"] is False
+        assert body["errorCode"] == "VENDOR_API_KEY_MISSING"
+    finally:
+        get_settings.cache_clear()
 
 
 def test_baidu_image_process_returns_base64_asset(monkeypatch) -> None:

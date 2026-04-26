@@ -7309,11 +7309,19 @@ const extractErrorMessage = (error: unknown): string => {
 
   const handleVendorEgressCheck = async (provider: string, includeAuth = false) => {
     setVendorError('');
+    setVendorNotice('');
     try {
-      const result = await adminApi.checkVendorProviderEgress(provider, { check: 'models', includeAuth });
+      const providerConfig = vendorProviders.find((item) => item.provider === provider);
+      const check = providerConfig?.supportedChecks?.[0] || 'models';
+      const result = await adminApi.checkVendorProviderEgress(provider, { check, includeAuth });
       setVendorEgressChecks((prev) => ({ ...prev, [provider]: result }));
+      if (result.success) {
+        setVendorNotice(includeAuth ? `${provider} Key 验证通过。` : `${provider} 出网检查通过。`);
+      } else {
+        setVendorError(result.message || result.errorCode || (includeAuth ? 'Key 验证失败' : '出网检查失败'));
+      }
     } catch (error) {
-      setVendorError(extractErrorMessage(error) || '出网检查失败');
+      setVendorError(extractErrorMessage(error) || (includeAuth ? 'Key 验证失败' : '出网检查失败'));
     }
   };
 
@@ -16645,7 +16653,7 @@ const extractErrorMessage = (error: unknown): string => {
 
         <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
           <Col xs={12} lg={6}>
-            <Card bordered title="Provider 出网与能力边界">
+            <Card bordered title="厂商出网与能力边界">
               <Table
                 size="small"
                 rowKey="provider"
@@ -16653,7 +16661,7 @@ const extractErrorMessage = (error: unknown): string => {
                 columns={[
                   {
                     colKey: 'provider',
-                    title: 'Provider',
+                    title: '厂商',
                     minWidth: 160,
                     cell: ({ row }) => (
                       <Space direction="vertical" size={2}>
@@ -16687,11 +16695,11 @@ const extractErrorMessage = (error: unknown): string => {
                       return (
                         <Space direction="vertical" size={2}>
                           <Tag theme={row.requiresGlobalEgress ? 'warning' : 'success'} variant="light">
-                            {row.requiresGlobalEgress ? 'global-egress' : 'domestic'}
+                            {row.requiresGlobalEgress ? '需要特殊出网' : '国内可连'}
                           </Tag>
                           {check ? (
                             <Typography.Text theme={check.success ? 'success' : 'error'} style={{ fontSize: 12 }}>
-                              {check.success ? 'reachable' : check.errorCode || 'failed'} · {check.latencyMs ?? '—'}ms
+                              {check.success ? '通过' : check.errorCode || '失败'} · {check.latencyMs ?? '—'}ms
                             </Typography.Text>
                           ) : null}
                         </Space>
@@ -16705,10 +16713,10 @@ const extractErrorMessage = (error: unknown): string => {
                     cell: ({ row }) => (
                       <Space size={4}>
                         <Button size="small" variant="text" onClick={() => handleVendorEgressCheck(row.provider, false)}>
-                          无鉴权检查
+                          检查网络
                         </Button>
                         <Button size="small" variant="text" onClick={() => handleVendorEgressCheck(row.provider, true)}>
-                          带 Key
+                          验证 Key
                         </Button>
                       </Space>
                     ),

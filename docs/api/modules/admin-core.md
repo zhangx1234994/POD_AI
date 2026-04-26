@@ -334,8 +334,9 @@ GET /api/admin/vendor-api/usage/summary?windowHours=24
 ### GET /api/admin/vendor-api/keys
 ### POST /api/admin/vendor-api/keys
 ### PATCH /api/admin/vendor-api/keys/{keyId}
+### POST /api/admin/vendor-api/providers/{provider}/egress-check
 
-Key 写入 vendor-api-ops，返回只允许包含 `keyPreview`，不返回明文。
+Key 写入 vendor-api-ops，返回只允许包含 `keyPreview`，不返回明文。出网检查用于判断厂商网络是否可达；当请求体 `includeAuth=true` 时，vendor-api-ops 会优先使用 Key 池里的 active Key 验证厂商鉴权是否可用。
 
 **错误**
 
@@ -347,6 +348,7 @@ Key 写入 vendor-api-ops，返回只允许包含 `keyPreview`，不返回明文
 - `VENDOR_API_KEY_MISSING`
 - `VENDOR_API_KEY_DISABLED`
 - `VENDOR_API_KEY_CONCURRENCY_LIMITED`
+- `VENDOR_API_AUTH_FAILED`
 - `VENDOR_PROVIDER_REGISTRY_UNAVAILABLE`
 - `VENDOR_KEY_STATUS_UNAVAILABLE`
 - `VENDOR_USAGE_SUMMARY_UNAVAILABLE`
