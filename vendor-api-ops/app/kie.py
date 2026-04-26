@@ -212,7 +212,12 @@ def _parse_result(data: Any) -> tuple[list[str], dict[str, Any]]:
     if not isinstance(data, dict):
         return [], {}
     record = data.get("data") if isinstance(data.get("data"), dict) else data
-    result = record.get("result") if isinstance(record, dict) else None
+    result = None
+    if isinstance(record, dict):
+        for key in ("result", "resultJson", "result_json"):
+            result = record.get(key)
+            if result not in (None, "", []):
+                break
     if isinstance(result, str):
         try:
             import json

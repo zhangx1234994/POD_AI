@@ -1812,7 +1812,7 @@ class AbilityInvocationService:
         }
         provider_meta = provider_result.get("metadata")
         if isinstance(provider_meta, dict):
-            for key in ("vendorInvocationId", "vendorTaskId", "taskId", "executorId", "baseUrl"):
+            for key in ("vendorInvocationId", "vendorTaskId", "taskId", "executorId", "baseUrl", "vendorError"):
                 value = provider_meta.get(key)
                 if value not in (None, "", []):
                     metadata[key] = value

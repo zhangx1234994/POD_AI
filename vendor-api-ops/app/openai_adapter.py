@@ -29,7 +29,22 @@ class OpenAIAdapter:
             "Content-Type": "application/json",
         }
         try:
-            response = httpx.post(url, headers=headers, json=payload, timeout=settings.request_timeout_seconds)
+            if api_type == "image_edit":
+                response, raw_request = _post_image_edit(
+                    url=url,
+                    api_key=api_key,
+                    request=request,
+                    payload=payload,
+                    timeout=_request_timeout(settings, request),
+                )
+            else:
+                response = httpx.post(
+                    url,
+                    headers=headers,
+                    json=payload,
+                    timeout=_request_timeout(settings, request),
+                )
+                raw_request = _safe_request(payload)
         except httpx.TimeoutException as exc:
             return InvocationResult(), InvocationError(
                 code="VENDOR_API_TIMEOUT",
@@ -49,10 +64,10 @@ class OpenAIAdapter:
                 code=_error_code(response.status_code, data),
                 message=_error_message(data) or response.text[:500] or "OpenAI request failed",
                 retryable=response.status_code in {408, 409, 429, 500, 502, 503, 504},
-            ), {"request": _safe_request(payload), "response": data}
+            ), {"request": raw_request, "response": data}
 
         result = _parse_result(data)
-        return result, None, {"request": _safe_request(payload), "response": data}
+        return result, None, {"request": raw_request, "response": data}
 
 
 def _base_url(settings: Settings, provider: str) -> str:
@@ -99,6 +114,85 @@ def _build_payload(request: Any) -> dict[str, Any]:
         if mask_url:
             payload["mask"] = {"image_url": mask_url}
     return {key: value for key, value in payload.items() if value not in (None, "", [])}
+
+
+def _post_image_edit(
+    *,
+    url: str,
+    api_key: str,
+    request: Any,
+    payload: dict[str, Any],
+    timeout: float,
+) -> tuple[httpx.Response, dict[str, Any]]:
+    inputs = dict(request.inputs or {})
+    files: list[tuple[str, tuple[str, bytes, str]]] = []
+    raw_request = _safe_request(payload)
+    image_urls = _input_urls(inputs, request.assets)
+    for index, image_url in enumerate(image_urls):
+        file_payload = _download_file(image_url, fallback_name=f"image_{index}.png")
+        if file_payload is None:
+            raise httpx.RequestError(f"Failed to download OpenAI edit image: {image_url}")
+        files.append(("image[]", file_payload))
+    mask_url = _first_str(inputs.get("mask_url") or inputs.get("maskUrl"))
+    if mask_url:
+        file_payload = _download_file(mask_url, fallback_name="mask.png")
+        if file_payload is None:
+            raise httpx.RequestError(f"Failed to download OpenAI edit mask: {mask_url}")
+        files.append(("mask", file_payload))
+    if not files:
+        raise httpx.RequestError("OpenAI image edit requires at least one input image")
+
+    data = _multipart_fields(payload)
+    raw_request["image_count"] = len(image_urls)
+    raw_request["mask_present"] = bool(mask_url)
+    headers = {"Authorization": f"Bearer {api_key}"}
+    response = httpx.post(url, headers=headers, data=data, files=files, timeout=timeout)
+    return response, raw_request
+
+
+def _multipart_fields(payload: dict[str, Any]) -> dict[str, str]:
+    fields: dict[str, str] = {}
+    for key, value in payload.items():
+        if key in {"images", "mask"} or value in (None, "", []):
+            continue
+        if isinstance(value, bool):
+            fields[key] = "true" if value else "false"
+        else:
+            fields[key] = str(value)
+    return fields
+
+
+def _download_file(url: str, *, fallback_name: str) -> tuple[str, bytes, str] | None:
+    try:
+        response = httpx.get(url, timeout=30)
+        response.raise_for_status()
+    except httpx.HTTPError:
+        return None
+    content_type = response.headers.get("content-type") or _content_type_from_name(url) or "image/png"
+    return fallback_name, response.content, content_type.split(";", 1)[0].strip() or "image/png"
+
+
+def _content_type_from_name(value: str) -> str | None:
+    path = value.split("?", 1)[0].lower()
+    if path.endswith(".jpg") or path.endswith(".jpeg"):
+        return "image/jpeg"
+    if path.endswith(".webp"):
+        return "image/webp"
+    if path.endswith(".png"):
+        return "image/png"
+    return None
+
+
+def _request_timeout(settings: Settings, request: Any) -> float:
+    policy = getattr(request, "taskPolicy", None)
+    if isinstance(policy, dict):
+        value = policy.get("timeoutSeconds") or policy.get("timeout_seconds")
+        try:
+            if value:
+                return float(value)
+        except (TypeError, ValueError):
+            pass
+    return float(settings.request_timeout_seconds)
 
 
 def _input_urls(inputs: dict[str, Any], assets: list[Any]) -> list[str]:

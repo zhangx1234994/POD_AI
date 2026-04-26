@@ -228,6 +228,48 @@ def test_baidu_image_process_returns_base64_asset(monkeypatch) -> None:
     assert captured["data"]["resolution"] == "2k"
 
 
+def test_baidu_image_process_accepts_image_processed_field(monkeypatch) -> None:
+    client = TestClient(app)
+    client.post(
+        "/v1/keys",
+        json={"provider": "baidu", "alias": "baidu-processed-test", "key": "baidu-api-key", "secret": "baidu-secret"},
+    )
+
+    def fake_post(url, headers=None, params=None, data=None, timeout=None):
+        if url.endswith("/oauth/2.0/token"):
+            return httpx.Response(
+                200,
+                json={"access_token": "baidu-token", "expires_in": 3600},
+                request=httpx.Request("POST", url),
+            )
+        return httpx.Response(
+            200,
+            json={"image_processed": "baidu-processed-b64", "log_id": "log-processed"},
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    response = client.post(
+        "/v1/invocations",
+        json={
+            "provider": "baidu",
+            "capabilityKey": "remove_moire",
+            "model": "remove_moire",
+            "apiType": "baidu_image_process",
+            "inputs": {
+                "request_endpoint": "/rest/2.0/image-process/v1/remove_moire",
+                "image_base64": "source-b64",
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "succeeded"
+    assert body["result"]["images"][0]["b64"] == "baidu-processed-b64"
+
+
 def test_volcengine_chat_completion_returns_text(monkeypatch) -> None:
     client = TestClient(app)
     client.post("/v1/keys", json={"provider": "volcengine", "alias": "volc-chat", "key": "volc-key"})
@@ -300,16 +342,28 @@ def test_openai_image_edit_calls_real_contract(monkeypatch) -> None:
     client.post("/v1/keys", json={"provider": "openai", "alias": "image-edit", "key": "sk-test-image-edit"})
     captured = {}
 
-    def fake_post(url, headers=None, json=None, timeout=None):
+    def fake_get(url, timeout=None):
+        return httpx.Response(
+            200,
+            content=b"image-bytes",
+            headers={"content-type": "image/png"},
+            request=httpx.Request("GET", url),
+        )
+
+    def fake_post(url, headers=None, json=None, data=None, files=None, timeout=None):
         captured["url"] = url
         captured["headers"] = headers
         captured["json"] = json
+        captured["data"] = data
+        captured["files"] = files
+        captured["timeout"] = timeout
         return httpx.Response(
             200,
             json={"data": [{"b64_json": "abc123", "revised_prompt": "revised"}]},
             request=httpx.Request("POST", url),
         )
 
+    monkeypatch.setattr(httpx, "get", fake_get)
     monkeypatch.setattr(httpx, "post", fake_post)
 
     response = client.post(
@@ -335,8 +389,11 @@ def test_openai_image_edit_calls_real_contract(monkeypatch) -> None:
     assert body["result"]["images"][0]["b64"] == "abc123"
     assert body["result"]["texts"] == ["revised"]
     assert captured["url"].endswith("/v1/images/edits")
-    assert captured["json"]["images"] == [{"image_url": "https://example.com/source.png"}]
-    assert captured["json"]["mask"] == {"image_url": "https://example.com/mask.png"}
+    assert captured["json"] is None
+    assert captured["data"]["model"] == "gpt-image-2"
+    assert captured["data"]["prompt"] == "replace background"
+    assert captured["data"]["size"] == "1024x1024"
+    assert [item[0] for item in captured["files"]] == ["image[]", "mask"]
 
 
 def test_openai_image_generation_calls_real_contract(monkeypatch) -> None:
@@ -559,6 +616,49 @@ def test_async_kie_invocation_can_be_polled(monkeypatch) -> None:
     assert body["vendorInvocationId"] == submitted["vendorInvocationId"]
     assert body["status"] == "succeeded"
     assert body["result"]["images"][0]["url"] == "https://example.com/kie-out.png"
+
+
+def test_kie_poll_parses_result_json_field(monkeypatch) -> None:
+    client = TestClient(app)
+    client.post("/v1/keys", json={"provider": "kie", "alias": "test-kie-result-json", "key": "kie-test-key"})
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        return httpx.Response(
+            200,
+            json={"code": 200, "data": {"taskId": "kie_task_result_json"}},
+            request=httpx.Request("POST", url),
+        )
+
+    def fake_get(url, headers=None, params=None, timeout=None):
+        return httpx.Response(
+            200,
+            json={
+                "code": 200,
+                "data": {
+                    "state": "success",
+                    "resultJson": "{\"resultUrls\":[\"https://example.com/kie-result-json.png\"]}",
+                },
+            },
+            request=httpx.Request("GET", url),
+        )
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    monkeypatch.setattr(httpx, "get", fake_get)
+
+    submit = client.post(
+        "/v1/invocations",
+        json={
+            "provider": "kie",
+            "capabilityKey": "nano_banana_pro_image_to_image",
+            "model": "nano-banana-pro",
+            "apiType": "market_image_to_image",
+            "inputs": {"prompt": "test"},
+        },
+    )
+    fetched = client.get(f"/v1/invocations/{submit.json()['vendorInvocationId']}")
+
+    assert fetched.status_code == 200
+    assert fetched.json()["result"]["images"][0]["url"] == "https://example.com/kie-result-json.png"
 
 
 def test_kie_submit_retries_transient_create_failure(monkeypatch) -> None:

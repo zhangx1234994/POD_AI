@@ -62,7 +62,8 @@ class BaiduAdapter:
             ), {"request": _safe_request(params)}
 
         data = _safe_json(response)
-        if response.status_code >= 400 or not (isinstance(data, dict) and isinstance(data.get("image"), str)):
+        image_value = _extract_image_value(data)
+        if response.status_code >= 400 or not image_value:
             return InvocationResult(), InvocationError(
                 code=_error_code(response.status_code, data),
                 message=_error_message(data) or response.text[:500] or "Baidu request failed",
@@ -72,7 +73,7 @@ class BaiduAdapter:
         result = InvocationResult(
             images=[
                 InvocationAsset(
-                    b64=str(data["image"]),
+                    b64=image_value,
                     role="output",
                     mimeType="image/png",
                     metadata={"logId": data.get("log_id")},
@@ -234,6 +235,16 @@ def _safe_json(response: httpx.Response) -> Any:
         return response.json()
     except Exception:
         return {"raw": response.text[:500]}
+
+
+def _extract_image_value(data: Any) -> str | None:
+    if not isinstance(data, dict):
+        return None
+    for key in ("image", "image_processed"):
+        value = data.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
 
 
 baidu_adapter = BaiduAdapter()
