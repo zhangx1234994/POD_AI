@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sqlite3
+
 import httpx
 from fastapi.testclient import TestClient
 
@@ -7,6 +9,7 @@ from app import providers as provider_module
 from app.config import get_settings
 from app.invocations import invocation_store
 from app.main import app
+from app.storage import vendor_storage
 
 
 def test_health() -> None:
@@ -572,3 +575,33 @@ def test_key_list_does_not_expose_secret() -> None:
     assert listed.status_code == 200
     previews = {item["keyPreview"] for item in listed.json()["items"]}
     assert "sk-t...7890" in previews
+
+
+def test_key_storage_encrypts_new_keys_when_secret_is_configured(monkeypatch) -> None:
+    get_settings.cache_clear()
+    monkeypatch.setenv("VENDOR_API_KEY_ENCRYPTION_SECRET", "unit-test-encryption-secret")
+    try:
+        client = TestClient(app)
+
+        created = client.post(
+            "/v1/keys",
+            json={"provider": "openai", "alias": "encrypted", "key": "sk-encrypted-123456", "secret": "secret-value"},
+        )
+
+        assert created.status_code == 200
+        key_id = created.json()["id"]
+        with sqlite3.connect(vendor_storage._db_path.as_posix()) as conn:  # noqa: SLF001
+            row = conn.execute("select key_value, secret_value from vendor_api_keys where id = ?", (key_id,)).fetchone()
+        assert row is not None
+        assert row[0].startswith("enc:v1:")
+        assert row[1].startswith("enc:v1:")
+        assert "sk-encrypted-123456" not in row[0]
+        assert "secret-value" not in row[1]
+
+        listed = client.get(f"/v1/keys?provider=openai").json()["items"]
+        item = next(item for item in listed if item["id"] == key_id)
+        assert item["keyPreview"] == "sk-e...3456"
+        assert item["metadata"]["security"]["keyEncrypted"] is True
+        assert item["metadata"]["security"]["secretEncrypted"] is True
+    finally:
+        get_settings.cache_clear()

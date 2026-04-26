@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from app.config import get_settings
+from app.key_crypto import decrypt_secret, encrypt_secret, is_encrypted_secret
 
 
 class VendorStorage:
@@ -41,6 +42,8 @@ class VendorStorage:
                 """,
                 {
                     **payload,
+                    "key_value": encrypt_secret(payload.get("key_value")),
+                    "secret_value": encrypt_secret(payload.get("secret_value")),
                     "metadata_json": _dump_json(payload.get("metadata") or {}),
                     "created_at": now,
                     "updated_at": now,
@@ -305,12 +308,23 @@ class VendorStorage:
 
 
 def _row_to_key(row: sqlite3.Row) -> dict[str, Any]:
+    key_value = row["key_value"]
+    secret_value = row["secret_value"]
+    key_plain = decrypt_secret(key_value)
+    secret_plain = decrypt_secret(secret_value)
+    metadata = _load_json(row["metadata_json"]) or {}
+    security = metadata.get("security") if isinstance(metadata.get("security"), dict) else {}
+    metadata["security"] = {
+        **security,
+        "keyEncrypted": is_encrypted_secret(key_value),
+        "secretEncrypted": is_encrypted_secret(secret_value),
+    }
     return {
         "id": row["id"],
         "provider": row["provider"],
         "alias": row["alias"],
-        "key": row["key_value"],
-        "secret": row["secret_value"],
+        "key": key_plain,
+        "secret": secret_plain,
         "model": row["model"],
         "status": row["status"],
         "daily_quota": row["daily_quota"],
@@ -320,7 +334,7 @@ def _row_to_key(row: sqlite3.Row) -> dict[str, Any]:
         "cooldown_until": row["cooldown_until"],
         "last_error": row["last_error"],
         "last_used_at": row["last_used_at"],
-        "metadata": _load_json(row["metadata_json"]) or {},
+        "metadata": metadata,
     }
 
 

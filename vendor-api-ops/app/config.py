@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     admin_token: str | None = Field(default=None, validation_alias="VENDOR_API_OPS_ADMIN_TOKEN")
     request_timeout_seconds: float = Field(default=10.0, validation_alias="VENDOR_API_OPS_REQUEST_TIMEOUT_SECONDS")
     database_path: str = Field(default="runtime/vendor-api-ops.sqlite3", validation_alias="VENDOR_API_OPS_DATABASE_PATH")
+    key_encryption_secret: str | None = Field(default=None, validation_alias="VENDOR_API_KEY_ENCRYPTION_SECRET")
 
     openai_base_url: str = Field(default="https://api.openai.com", validation_alias="OPENAI_BASE_URL")
     openai_api_key: str | None = Field(default=None, validation_alias="OPENAI_API_KEY")

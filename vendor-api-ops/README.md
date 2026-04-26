@@ -27,6 +27,11 @@ Provider registry now covers OpenAI, OpenAI-compatible relays, Volcengine,
 Baidu, and KIE. Keys, invocations, and usage logs are persisted in SQLite by
 default (`runtime/vendor-api-ops.sqlite3`).
 
+Key values are encrypted at rest when `VENDOR_API_KEY_ENCRYPTION_SECRET` is set.
+Existing plaintext rows stay readable for migration; new rows are stored with
+the `enc:v1:` prefix. Use the same secret on every `vendor-api-ops` instance
+that needs to read the same SQLite database.
+
 Sensitive routes can be protected with `VENDOR_API_OPS_ADMIN_TOKEN`. When this
 variable is set, callers must send `Authorization: Bearer <token>` for:
 
