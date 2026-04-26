@@ -15,3 +15,23 @@ def test_normalize_public_status_running_variants():
     assert ability_invocation_service._normalize_public_status("processing") == "running"
     assert ability_invocation_service._normalize_public_status("queued") == "queued"
     assert ability_invocation_service._normalize_public_status("canceled") == "cancelled"
+
+
+def test_extract_response_error_message_from_vendor_raw():
+    assert (
+        ability_invocation_service._extract_response_error_message(
+            {
+                "raw": {
+                    "vendorApi": {
+                        "response": {
+                            "error": {
+                                "code": "invalid_value",
+                                "message": "The model does not exist.",
+                            }
+                        }
+                    }
+                }
+            }
+        )
+        == "The model does not exist."
+    )

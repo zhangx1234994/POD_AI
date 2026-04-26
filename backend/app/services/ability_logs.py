@@ -236,6 +236,8 @@ class AbilityLogService:
                     log.result_assets = assets
                 if error_message:
                     log.error_message = error_message
+                if status != "success":
+                    log.cost_amount = None
                 session.add(log)
                 if log.ability_id:
                     session.flush()

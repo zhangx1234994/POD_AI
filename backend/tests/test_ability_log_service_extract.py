@@ -1,5 +1,6 @@
 from contextlib import contextmanager
 from datetime import datetime, timedelta
+from decimal import Decimal
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -120,6 +121,31 @@ def test_latest_failed_log_marks_ability_degraded_when_recent_rate_ok(monkeypatc
         assert ability.last_health_status == "degraded"
         assert ability.last_health_check_at is not None
         assert ability.success_rate == 0.8
+
+
+def test_failed_log_clears_estimated_cost(monkeypatch):
+    testing_session = install_log_db(monkeypatch)
+    svc = AbilityLogService()
+
+    log_id = svc.start_log(
+        ability_logs_module.AbilityLogStartParams(
+            ability_id="ability_health_test",
+            provider="openai",
+            capability_key="gpt_image_2_generate",
+            billing_unit="per_image",
+            unit_price=0.08,
+            currency="USD",
+            cost_amount=0.08,
+        )
+    )
+    svc.finish_failure(log_id, error_message="upstream rejected", response_payload={"status": "failed"}, duration_ms=100)
+
+    with testing_session() as session:
+        log = session.get(ability_logs_module.AbilityInvocationLog, log_id)
+        assert log is not None
+        assert log.status == "failed"
+        assert log.unit_price == Decimal("0.0800")
+        assert log.cost_amount is None
 
 
 def test_refresh_health_summaries_marks_untested_active_abilities(monkeypatch):

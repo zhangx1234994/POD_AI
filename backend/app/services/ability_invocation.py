@@ -250,12 +250,23 @@ class AbilityInvocationService:
         )
         # Keep ability logs structurally consistent across providers/sync modes:
         # persist the normalized public response shape instead of provider-specific payload.
-        ability_log_service.finish_success(
-            log_id,
-            response_payload=response_payload.model_dump(exclude_none=True),
-            duration_ms=duration_ms,
-        )
+        response_status = self._normalize_public_status(response_payload.status)
+        response_body = response_payload.model_dump(exclude_none=True)
+        if response_status in {"failed", "cancelled"}:
+            ability_log_service.finish_failure(
+                log_id,
+                error_message=self._extract_response_error_message(response_body) or response_status,
+                response_payload=response_body,
+                duration_ms=duration_ms,
+            )
+        else:
+            ability_log_service.finish_success(
+                log_id,
+                response_payload=response_body,
+                duration_ms=duration_ms,
+            )
         if callback_url:
+            callback_failed = response_status in {"failed", "cancelled"}
             self._schedule_callback(
                 callback_url=callback_url,
                 callback_headers=callback_headers,
@@ -265,9 +276,9 @@ class AbilityInvocationService:
                 task_id_override=callback_task_id,
                 log_id=log_id,
                 duration_ms=duration_ms,
-                status="success",
-                result_payload=response_payload.model_dump(),
-                error_payload=None,
+                status="failed" if callback_failed else "success",
+                result_payload=None if callback_failed else response_payload.model_dump(),
+                error_payload=response_body if callback_failed else None,
             )
         return response_payload
 
@@ -1834,6 +1845,34 @@ class AbilityInvocationService:
         if text in {"cancelled", "canceled", "stopped", "aborted"}:
             return "cancelled"
         return "succeeded"
+
+    def _extract_response_error_message(self, response_payload: dict[str, Any] | None) -> str | None:
+        if not isinstance(response_payload, dict):
+            return None
+        raw = response_payload.get("raw")
+        if isinstance(raw, dict):
+            vendor_api = raw.get("vendorApi")
+            if isinstance(vendor_api, dict):
+                response = vendor_api.get("response")
+                if isinstance(response, dict):
+                    error = response.get("error")
+                    if isinstance(error, dict):
+                        message = error.get("message")
+                        if isinstance(message, str) and message.strip():
+                            return message.strip()
+                error = vendor_api.get("error")
+                if isinstance(error, dict):
+                    message = error.get("message")
+                    if isinstance(message, str) and message.strip():
+                        return message.strip()
+        metadata = response_payload.get("metadata")
+        if isinstance(metadata, dict):
+            error = metadata.get("vendorError")
+            if isinstance(error, dict):
+                message = error.get("message")
+                if isinstance(message, str) and message.strip():
+                    return message.strip()
+        return None
 
     def _extract_output_assets(self, payload: dict[str, Any], target: str) -> list[schemas.AbilityOutputAsset]:
         assets: list[schemas.AbilityOutputAsset] = []
