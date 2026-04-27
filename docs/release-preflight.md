@@ -36,12 +36,22 @@ python3 backend/scripts/podi_release_smoke.py \
   --expect-server-url http://10.11.0.7:8099
 ```
 
+Eval operations gate:
+
+```bash
+python3 backend/scripts/check_eval_operations_health.py \
+  --stale-minutes 30 \
+  --submit-grace-minutes 5 \
+  --recent-hours 24
+```
+
 Expected:
 
 - `health` passes.
 - `coze_openapi` passes and shows the address Coze uses.
 - `internal_tasks_get` returns `404 TASK_NOT_FOUND`, not `401 INTERNAL_ONLY`.
 - `comfyui_queue_summary` returns all active ComfyUI executors.
+- `check_eval_operations_health.py` returns `healthy` or only an accepted `warning`; `critical` blocks release.
 
 Manual checks:
 
@@ -64,7 +74,12 @@ Manual checks:
      --timeout 1800
    ```
    Expected: all active workflows end in `succeeded`.
-5. ComfyUI queue visibility:
+5. Eval operations health:
+   ```bash
+   python3 backend/scripts/check_eval_operations_health.py
+   ```
+   Expected: no stale running runs, no submit-stalled runs, no succeeded-without-output records.
+6. ComfyUI queue visibility:
    ```bash
    python3 backend/scripts/comfyui_capacity_probe.py
    ```

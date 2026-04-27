@@ -1,0 +1,123 @@
+from datetime import datetime, timedelta
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+
+from app.core.db import Base
+from app.models.eval import EvalRun, EvalWorkflowVersion
+from app.services.eval_operations_health import build_eval_operations_health
+
+
+def _session():
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(bind=engine)
+    return sessionmaker(bind=engine)()
+
+
+def _workflow(**overrides):
+    data = {
+        "id": "wf_v1",
+        "category": "图裂变",
+        "name": "图裂变主线",
+        "version": "v1",
+        "workflow_id": "7631838631375667200",
+        "status": "active",
+    }
+    data.update(overrides)
+    return EvalWorkflowVersion(**data)
+
+
+def _run(**overrides):
+    now = datetime.utcnow()
+    data = {
+        "id": "run_1",
+        "workflow_version_id": "wf_v1",
+        "dataset_item_id": None,
+        "input_oss_urls_json": ["https://oss.example/input.png"],
+        "parameters_json": {},
+        "status": "succeeded",
+        "result_image_urls_json": ["https://oss.example/out.png"],
+        "created_by": "tester",
+        "created_at": now,
+        "updated_at": now,
+    }
+    data.update(overrides)
+    return EvalRun(**data)
+
+
+def test_eval_operations_health_detects_stale_and_output_issues():
+    session = _session()
+    now = datetime.utcnow()
+    session.add(_workflow())
+    session.add_all(
+        [
+            _run(
+                id="stale",
+                status="running",
+                coze_execute_id="exec_1",
+                result_image_urls_json=None,
+                created_at=now - timedelta(minutes=45),
+                updated_at=now - timedelta(minutes=40),
+            ),
+            _run(
+                id="submit_stalled",
+                status="running",
+                coze_execute_id=None,
+                podi_task_id=None,
+                result_image_urls_json=None,
+                created_at=now - timedelta(minutes=8),
+                updated_at=now - timedelta(minutes=8),
+            ),
+            _run(
+                id="empty_success",
+                status="succeeded",
+                result_image_urls_json=[],
+                result_output_json=None,
+                created_at=now - timedelta(minutes=3),
+                updated_at=now - timedelta(minutes=3),
+            ),
+            _run(
+                id="failed",
+                status="failed",
+                result_image_urls_json=None,
+                error_message="COZE_WORKFLOW_ERROR: execute tool failed",
+                created_at=now - timedelta(minutes=2),
+                updated_at=now - timedelta(minutes=2),
+            ),
+        ]
+    )
+    session.commit()
+
+    report = build_eval_operations_health(
+        session,
+        stale_minutes=30,
+        submit_grace_minutes=5,
+        recent_hours=24,
+    )
+
+    assert report["status"] == "critical"
+    issue_codes = {item["code"] for item in report["issues"]}
+    assert "EVAL_RUN_STALE" in issue_codes
+    assert "EVAL_SUBMIT_STALLED" in issue_codes
+    assert "EVAL_SUCCESS_WITHOUT_OUTPUT" in issue_codes
+    assert "EVAL_RECENT_FAILURES" in issue_codes
+    assert report["errorCounts"]["COZE_WORKFLOW_ERROR"] == 1
+
+
+def test_eval_operations_health_is_healthy_for_recent_completed_output():
+    session = _session()
+    session.add(_workflow())
+    session.add(_run(id="ok"))
+    session.commit()
+
+    report = build_eval_operations_health(session)
+
+    assert report["status"] == "healthy"
+    assert report["issues"] == []
+    assert report["activeWorkflowCount"] == 1
+    assert report["recentStatusCounts"]["succeeded"] == 1

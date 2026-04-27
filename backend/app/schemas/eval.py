@@ -170,6 +170,49 @@ class EvalRunPurgeResponse(BaseModel):
     deleted_annotations: int = Field(..., description="已删除的标注记录数")
 
 
+class EvalOperationsRunItem(BaseModel):
+    runId: str
+    workflowId: Optional[str] = None
+    workflowName: Optional[str] = None
+    category: Optional[str] = None
+    status: str
+    ageMinutes: int
+    cozeExecuteId: Optional[str] = None
+    podiTaskId: Optional[str] = None
+    imageCount: int = 0
+    hasOutput: bool = False
+    errorCode: Optional[str] = None
+    errorMessage: Optional[str] = None
+    createdAt: datetime
+    updatedAt: datetime
+
+
+class EvalOperationsIssue(BaseModel):
+    severity: str = Field(..., description="严重程度：healthy/warning/critical")
+    code: str = Field(..., description="问题编码")
+    title: str = Field(..., description="中文标题")
+    message: str = Field(..., description="可读说明")
+    count: int = Field(..., description="命中数量")
+
+
+class EvalOperationsHealthResponse(BaseModel):
+    generatedAt: datetime
+    status: str = Field(..., description="整体状态：healthy/warning/critical")
+    staleMinutes: int
+    submitGraceMinutes: int
+    recentHours: int
+    activeWorkflowCount: int
+    totalWorkflowCount: int
+    statusCounts: dict[str, int]
+    recentStatusCounts: dict[str, int]
+    staleRunning: List[EvalOperationsRunItem]
+    submitStalled: List[EvalOperationsRunItem]
+    succeededWithoutOutput: List[EvalOperationsRunItem]
+    recentFailures: List[EvalOperationsRunItem]
+    errorCounts: dict[str, int]
+    issues: List[EvalOperationsIssue]
+
+
 class EvalBatchCreate(BaseModel):
     """Create a LoRA batch session."""
 

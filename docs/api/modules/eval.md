@@ -13,6 +13,39 @@
 
 ---
 
+## 0) 管理端健康接口
+
+### GET /api/admin/evals/operations-health
+
+用途：发现 `/health` 看不到的评测链路问题，例如长期运行、提交后没有执行 ID、成功但没有结果、近期失败。
+
+常用查询参数：
+
+- `staleMinutes`：运行超过多少分钟视为长期未收口，默认 `30`
+- `submitGraceMinutes`：运行中但没有 Coze 执行 ID/中台任务 ID 的宽限时间，默认 `5`
+- `recentHours`：近期失败与成功无结果的统计窗口，默认 `24`
+- `limit`：每类问题最多返回条数，默认 `20`
+
+响应核心字段：
+
+- `status`：`healthy / warning / critical`
+- `issues[]`：问题列表，包含中文标题、说明、数量
+- `staleRunning[]`：长期未收口任务
+- `submitStalled[]`：提交阶段卡住任务
+- `succeededWithoutOutput[]`：成功但没有图片或结构化结果的记录
+- `recentFailures[]`：近期失败记录
+- `errorCounts`：近期失败错误码分布
+
+配套命令行：
+
+```bash
+python3 backend/scripts/check_eval_operations_health.py
+```
+
+发版门禁：出现 `critical` 时禁止继续发版或验收，必须先收口。
+
+---
+
 ## 1) 公共评测接口（无需登录）
 
 ### GET /api/evals/workflow-versions

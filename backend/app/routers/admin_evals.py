@@ -26,9 +26,11 @@ from app.schemas.eval import (
     EvalRunResponse,
     EvalRunListResponse,
     EvalRunPurgeResponse,
+    EvalOperationsHealthResponse,
     EvalAnnotationCreate,
     EvalAnnotationResponse,
 )
+from app.services.eval_operations_health import build_eval_operations_health
 from app.services.eval_service import get_eval_service
 from app.services.eval_seed import ensure_default_eval_workflow_versions
 from app.deps.auth import get_current_user, require_admin
@@ -262,6 +264,31 @@ async def get_eval_run(
     if not eval_run:
         raise HTTPException(status_code=404, detail="Evaluation run not found")
     return eval_run
+
+
+@router.get("/operations-health", response_model=EvalOperationsHealthResponse)
+async def get_eval_operations_health(
+    stale_minutes: int = Query(30, alias="staleMinutes", ge=5, le=24 * 60),
+    submit_grace_minutes: int = Query(5, alias="submitGraceMinutes", ge=1, le=120),
+    recent_hours: int = Query(24, alias="recentHours", ge=1, le=24 * 14),
+    limit: int = Query(20, ge=1, le=100),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return eval operational health beyond plain `/health`.
+
+    This is the API surface for release gates, patrol dashboards, and later eval UI banners.
+    """
+
+    return EvalOperationsHealthResponse.model_validate(
+        build_eval_operations_health(
+            db,
+            stale_minutes=stale_minutes,
+            submit_grace_minutes=submit_grace_minutes,
+            recent_hours=recent_hours,
+            limit=limit,
+        )
+    )
 
 
 @router.post("/runs/{run_id}/annotations", response_model=EvalAnnotationResponse)
