@@ -40,7 +40,7 @@ python3 backend/scripts/podi_release_smoke.py \
 Eval operations gate:
 
 ```bash
-python3 backend/scripts/check_eval_operations_health.py \
+backend/.venv/bin/python backend/scripts/check_eval_operations_health.py \
   --stale-minutes 30 \
   --submit-grace-minutes 5 \
   --recent-hours 24
@@ -90,14 +90,31 @@ Manual checks:
    Do not use `/usr/bin/python3` on 114; it is too old for the backend scripts.
 5. Eval operations health:
    ```bash
-   python3 backend/scripts/check_eval_operations_health.py
+   backend/.venv/bin/python backend/scripts/check_eval_operations_health.py
    ```
    Expected: no stale running runs, no submit-stalled runs, no succeeded-without-output records, and no active ComfyUI executor with unreadable queue.
 6. ComfyUI queue visibility:
    ```bash
-   python3 backend/scripts/comfyui_capacity_probe.py
+   backend/.venv/bin/python backend/scripts/comfyui_capacity_probe.py
    ```
    Expected: all active ComfyUI executors return queue counts.
+
+Optional timer for 114 after manual confirmation:
+
+```bash
+cd /srv/pod
+cp deploy/systemd/podi-eval-health-watch.service /etc/systemd/system/podi-eval-health-watch.service
+cp deploy/systemd/podi-eval-health-watch.timer /etc/systemd/system/podi-eval-health-watch.timer
+systemctl daemon-reload
+systemctl enable --now podi-eval-health-watch.timer
+systemctl list-timers podi-eval-health-watch.timer
+```
+
+View the latest check:
+
+```bash
+journalctl -u podi-eval-health-watch.service -n 80 --no-pager
+```
 
 If any of the above fails, do not continue with frontend/admin acceptance.
 

@@ -42,6 +42,7 @@ Coze 主机统一使用：
 - `image-ops`
 - `podi-admin-web`
 - `podi-eval-web`
+- `podi-eval-health-watch.timer`
 
 对应模板：
 
@@ -49,6 +50,8 @@ Coze 主机统一使用：
 - `image-ops-service/deploy/image-ops.service`
 - `deploy/systemd/podi-admin-web.service`
 - `deploy/systemd/podi-eval-web.service`
+- `deploy/systemd/podi-eval-health-watch.service`
+- `deploy/systemd/podi-eval-health-watch.timer`
 
 要求：
 
@@ -102,6 +105,7 @@ journalctl -u podi-backend -f
 journalctl -u image-ops -f
 journalctl -u podi-admin-web -f
 journalctl -u podi-eval-web -f
+journalctl -u podi-eval-health-watch.service -n 80 --no-pager
 ```
 
 ### 脚本兜底
@@ -162,6 +166,21 @@ systemctl daemon-reload
 systemctl enable podi-admin-web podi-eval-web
 systemctl start podi-admin-web podi-eval-web
 ```
+
+### eval health watch（可选）
+
+```bash
+cp deploy/systemd/podi-eval-health-watch.service /etc/systemd/system/podi-eval-health-watch.service
+cp deploy/systemd/podi-eval-health-watch.timer /etc/systemd/system/podi-eval-health-watch.timer
+systemctl daemon-reload
+systemctl enable --now podi-eval-health-watch.timer
+```
+
+说明：
+
+- 该定时任务每 15 分钟执行一次评测链路健康检查。
+- `warning` 和 `critical` 都会让单次 service 以失败状态结束，便于通过 `systemctl status` / `journalctl` 发现。
+- 启用前必须先手工跑通 `backend/.venv/bin/python backend/scripts/check_eval_operations_health.py`。
 
 ## 8. 最小结论
 

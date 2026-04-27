@@ -83,6 +83,7 @@ python3 backend/scripts/check_eval_operations_health.py \
 - `succeeded` 但没有图片/结构化结果必须按 `EVAL_SUCCEEDED_WITHOUT_OUTPUT` 阻断，不能当成通过。
 - 健康检查不得出现 `critical`；若出现长期运行或提交卡住，必须先收口再继续发版。
 - 任一失败必须进入事故看板或当日待办。
+- 114 可安装 `podi-eval-health-watch.timer` 做 15 分钟级自动健康检查；启用前先手工确认健康检查命令通过。
 
 ### P0-2 ComfyUI 队列压测与利用率验证
 

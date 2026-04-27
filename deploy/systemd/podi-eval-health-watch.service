@@ -1,0 +1,10 @@
+[Unit]
+Description=PODI Eval Operations Health Watch
+After=network.target podi-backend.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/srv/pod
+EnvironmentFile=/srv/pod/backend/.env
+ExecStart=/srv/pod/backend/.venv/bin/python backend/scripts/check_eval_operations_health.py --stale-minutes 30 --submit-grace-minutes 5 --recent-hours 24
+User=root
