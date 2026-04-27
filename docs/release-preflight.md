@@ -115,11 +115,12 @@ journalctl -u podi-eval-health-watch.service -n 80 --no-pager
 Rollback drill for business versions:
 
 ```bash
+backend/.venv/bin/python backend/scripts/business_version_safety_audit.py
 backend/.venv/bin/python backend/scripts/business_rollback_drill.py --business-key fission
 backend/.venv/bin/python backend/scripts/business_rollback_drill.py --business-key outpaint
 ```
 
-The drill is read-only by default. Actual rollback requires `--apply --yes` and must not be used as a routine smoke check.
+The safety audit verifies each core business has one active default version and at least one active non-default rollback target. The drill is read-only by default. Actual rollback requires `--apply --yes` and must not be used as a routine smoke check.
 
 Timer exit code rule: `0=healthy`, `1=warning and systemd still treats it as completed`, `2=critical and systemd marks the unit failed`.
 

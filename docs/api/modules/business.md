@@ -563,6 +563,7 @@ OpenAPI 内每个工具都会枚举错误响应：
 - `isDefault=true` 时，后端会把同一个 `businessKey` 下其它版本改成非默认。
 - 默认版本必须是 `active` 状态，避免业务入口指向不可用版本。
 - 预置业务版本只负责初始化和补齐字段，不会在后续刷新时覆盖管理端已经切换的默认版本或启停状态。
+- 核心业务必须至少保留一个 active 非默认保底版本；图裂变预置 `biz_fission_rollback_e7_flux2_liebian`，扩图预置 `biz_outpaint_rollback_huawen_kuotu`，用于默认版本异常时快速切回。
 - `metadata.rollout` 是灰度规则；业务方不指定 `version` 时才会生效。
 - 灰度命中优先级：明确传 `version` > 灰度白名单 > 灰度比例 > 默认版本。
 - 灰度使用 `metadata.grayKey`、`metadata.tenantId`、`metadata.userId`、顶层 `tenantId/clientId/traceId/requestId`、用户 ID 或图片 URL 做稳定分流；对外只返回 `routeKeyHash`，不直接暴露原始标识。
@@ -650,6 +651,7 @@ OpenAPI 内每个工具都会枚举错误响应：
 - 回滚成功后，目标版本会成为默认版本，其它版本自动取消默认。
 - 后端会在目标版本 `metadata.releaseEvents` 追加 `rollback_default` 事件，记录回滚原因、操作者和回滚前默认版本。
 - 如果没有可回滚版本，返回 `BUSINESS_ROLLBACK_TARGET_NOT_FOUND`。
+- 发版前必须执行 `backend/scripts/business_version_safety_audit.py`，确认图裂变、扩图都有 active 默认版本和 active 保底版本。
 
 常见错误：
 

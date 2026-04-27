@@ -98,6 +98,52 @@ DEFAULT_BUSINESS_CAPABILITY_SEEDS: list[BusinessCapabilitySeed] = [
         },
     ),
     BusinessCapabilitySeed(
+        id="biz_fission_rollback_e7_flux2_liebian",
+        business_key="fission",
+        version="rollback-e7-v1",
+        display_name="图裂变 · E7 保底版",
+        description="图裂变业务入口的保底版本，底层使用 E7 + FLUX2 裂变重绘工作流；用于默认版本异常时快速回滚，不作为日常默认版本。",
+        status="active",
+        is_default=False,
+        release_time=datetime(2026, 3, 28, 0, 0, 0),
+        recipe={
+            "mode": "single_ability_task",
+            "primaryAbilityId": "comfyui_e7_flux2_liebian",
+            "steps": [
+                {
+                    "id": "primary",
+                    "type": "ability_task",
+                    "role": "primary",
+                    "displayName": "E7 + FLUX2 裂变重绘",
+                    "abilityId": "comfyui_e7_flux2_liebian",
+                }
+            ],
+            "vlAssist": {"enabled": False, "abilityId": "vl_analyze_image"},
+        },
+        input_schema={
+            "fields": [
+                _field("imageUrl", "原图 URL Image URL", required=True, description="业务侧只需要传入可访问图片地址。"),
+                _field("prompt", "裂变提示词 Prompt", field_type="textarea", required=False),
+                _field("bili", "裂变幅度 Denoise/Bili", field_type="number", default=90),
+                _field("width", "输出宽度 Width", field_type="number", required=False),
+                _field("height", "输出高度 Height", field_type="number", required=False),
+                _field("batch_size", "生成张数 Batch Size", field_type="number", default=1),
+                _field("steps", "采样步数 Steps", field_type="number", default=8),
+                _field("cfg", "提示词强度 CFG", field_type="number", default=1.0),
+            ]
+        },
+        output_schema=_image_generation_output_schema(),
+        metadata={
+            "category": "image_fission",
+            "entry": "business-api",
+            "role": "rollback_safety",
+            "rollbackSafety": True,
+            "rollbackReason": "默认高质量裂变版本异常时，保留可直接切回的旧稳定执行链路。",
+            "coze_strategy": "Coze 仍调用同一个业务入口，回滚只在中台切默认版本。",
+            "seed_version": 1,
+        },
+    ),
+    BusinessCapabilitySeed(
         id="biz_outpaint_v1_flux2_klein_9b",
         business_key="outpaint",
         version="v1",
@@ -135,6 +181,52 @@ DEFAULT_BUSINESS_CAPABILITY_SEEDS: list[BusinessCapabilitySeed] = [
             "category": "outpaint",
             "entry": "business-api",
             "coze_strategy": "Coze 只调用该业务入口，不再手搓底层节点。",
+            "seed_version": 1,
+        },
+    ),
+    BusinessCapabilitySeed(
+        id="biz_outpaint_rollback_huawen_kuotu",
+        business_key="outpaint",
+        version="rollback-huawen-v1",
+        display_name="扩图 · 花纹扩图保底版",
+        description="扩图业务入口的保底版本，底层使用旧花纹扩图工作流；用于 FLUX2-Klein 扩图异常时快速回滚，不作为日常默认版本。",
+        status="active",
+        is_default=False,
+        release_time=datetime(2026, 3, 28, 0, 0, 0),
+        recipe={
+            "mode": "single_ability_task",
+            "primaryAbilityId": "comfyui_huawen_kuotu",
+            "steps": [
+                {
+                    "id": "primary",
+                    "type": "ability_task",
+                    "role": "primary",
+                    "displayName": "花纹扩图",
+                    "abilityId": "comfyui_huawen_kuotu",
+                }
+            ],
+            "vlAssist": {"enabled": False, "abilityId": "vl_analyze_image"},
+        },
+        input_schema={
+            "fields": [
+                _field("imageUrl", "原图 URL Image URL", required=True),
+                _field("prompt", "扩图说明 Prompt", field_type="textarea", required=False),
+                _field("expand_left", "左侧扩展 Expand Left", field_type="number", default=200),
+                _field("expand_right", "右侧扩展 Expand Right", field_type="number", default=200),
+                _field("expand_top", "上侧扩展 Expand Top", field_type="number", default=0),
+                _field("expand_bottom", "下侧扩展 Expand Bottom", field_type="number", default=0),
+                _field("width", "输出宽度 Width", field_type="number", required=False),
+                _field("height", "输出高度 Height", field_type="number", required=False),
+            ]
+        },
+        output_schema=_image_generation_output_schema(),
+        metadata={
+            "category": "outpaint",
+            "entry": "business-api",
+            "role": "rollback_safety",
+            "rollbackSafety": True,
+            "rollbackReason": "默认 FLUX2-Klein 扩图版本异常时，保留可直接切回的旧稳定执行链路。",
+            "coze_strategy": "Coze 仍调用同一个业务入口，回滚只在中台切默认版本。",
             "seed_version": 1,
         },
     ),
