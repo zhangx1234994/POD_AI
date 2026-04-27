@@ -117,7 +117,7 @@
   - `POST /api/tasks/v1/dispatch`：预留单次调度入口（未实现）；后续可由 Celery 定时触发或监听消息队列。
   - `PATCH /api/tasks/v1/{id}`：预留状态更新接口（未实现，`status/progress/error`）。
 - **Executor 适配层**：新增 `app/services/executors/base.py` 定义统一接口（`prepare_payload`, `execute`, `poll_result`）。不同 provider 写子类，通过 `executor.type` + `executor.config` 动态加载。
-- **健康检查**：能力健康状态已由能力调用日志实时回填，并可通过管理端手动刷新汇总；执行节点健康后续接入周期任务，调用每个节点的 `/health` 后写回 `executors.health_status` 与 `last_heartbeat_at`。
+- **健康检查**：能力健康状态已由能力调用日志实时回填，并可通过管理端手动刷新汇总；ComfyUI 队列汇总会把可达节点写回 `executors.health_status=healthy` 和 `last_heartbeat_at`，把队列不可达节点写回 `health_status=failed`，但不自动修改 `executors.status`，是否下线仍由运营判断。
 - **API Key 轮转**：在执行前调用 `api_key_service.acquire(provider)`，内部选择 usage 最低且未过期的 key 并自增 `usage_count`，若达到 `daily_quota` 自动禁用。
 
 ## 安全与配置

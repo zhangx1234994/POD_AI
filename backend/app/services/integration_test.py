@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import json
 import time
+from datetime import datetime
 from typing import Any
 from types import SimpleNamespace
 from uuid import uuid4
@@ -1350,12 +1351,46 @@ class IntegrationTestService:
                 total_running += int(status.get("runningCount") or 0)
                 total_pending += int(status.get("pendingCount") or 0)
 
+        self._write_comfyui_queue_health(servers)
         return {
             "totalRunning": total_running,
             "totalPending": total_pending,
             "totalCount": total_running + total_pending,
             "servers": servers,
         }
+
+    def _write_comfyui_queue_health(self, servers: list[dict[str, Any]]) -> None:
+        """Persist lightweight executor health from queue checks.
+
+        This deliberately does not mutate `status`; operators still decide
+        whether an unreachable executor should be restored or taken offline.
+        """
+        if not servers:
+            return
+        now = datetime.utcnow()
+        try:
+            with get_session() as session:
+                changed = False
+                for item in servers:
+                    if not isinstance(item, dict):
+                        continue
+                    executor_id = str(item.get("executorId") or "").strip()
+                    if not executor_id:
+                        continue
+                    executor = session.get(Executor, executor_id)
+                    if not executor:
+                        continue
+                    if item.get("supported") is True:
+                        executor.health_status = "healthy"
+                        executor.last_heartbeat_at = now
+                        changed = True
+                    elif item.get("supported") is False:
+                        executor.health_status = "failed"
+                        changed = True
+                if changed:
+                    session.commit()
+        except Exception:
+            self._logger.exception("Failed to persist ComfyUI executor queue health")
 
     def get_comfyui_system_stats(self, *, executor_id: str) -> dict[str, Any]:
         executor = self._get_executor(executor_id)
