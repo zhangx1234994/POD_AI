@@ -22,6 +22,7 @@ from app.models.integration import (
     AbilityInvocationLog,
     AbilityTask,
     BusinessCapability,
+    BusinessClient,
     BusinessRun,
     BusinessRunStep,
     VendorModelCatalog,
@@ -33,6 +34,8 @@ from app.schemas.business import (
     BusinessCapabilityPromoteRequest,
     BusinessCapabilityRollbackRequest,
     BusinessCapabilityUpdateRequest,
+    BusinessClientCreateRequest,
+    BusinessClientUpdateRequest,
     BusinessRunCreateRequest,
 )
 from app.services.ability_seed import ensure_default_abilities
@@ -70,6 +73,103 @@ class BusinessRunService:
                 .all()
             )
             return [self._capability_to_dict(row, session=session) for row in rows]
+
+    def list_clients(
+        self,
+        *,
+        tenant_id: str | None = None,
+        client_id: str | None = None,
+        status: str | None = None,
+    ) -> list[dict[str, Any]]:
+        with get_session() as session:
+            stmt = select(BusinessClient)
+            if tenant_id:
+                stmt = stmt.where(BusinessClient.tenant_id == tenant_id)
+            if client_id:
+                stmt = stmt.where(BusinessClient.client_id == client_id)
+            if status:
+                stmt = stmt.where(BusinessClient.status == status)
+            rows = session.execute(
+                stmt.order_by(BusinessClient.updated_at.desc(), BusinessClient.created_at.desc())
+            ).scalars().all()
+            return [self._business_client_to_dict(row) for row in rows]
+
+    def create_client(self, payload: BusinessClientCreateRequest) -> dict[str, Any]:
+        tenant_id = self._required_text(payload.tenantId, "BUSINESS_CLIENT_TENANT_REQUIRED")
+        client_id = self._short_text(payload.clientId, 64)
+        display_name = self._required_text(
+            payload.displayName or client_id or tenant_id,
+            "BUSINESS_CLIENT_DISPLAY_NAME_REQUIRED",
+        )
+        status = self._normalize_client_status(payload.status)
+        with get_session() as session:
+            duplicate = self._find_business_client(
+                session,
+                tenant_id=tenant_id,
+                client_id=client_id,
+                include_tenant_default=False,
+            )
+            if duplicate:
+                raise HTTPException(status_code=409, detail="BUSINESS_CLIENT_DUPLICATED")
+            row = BusinessClient(
+                id=self._required_text(payload.id, "BUSINESS_CLIENT_ID_REQUIRED")
+                if payload.id
+                else f"bizclient_{uuid4().hex[:12]}",
+                tenant_id=tenant_id,
+                client_id=client_id,
+                display_name=display_name,
+                status=status,
+                allowed_business_keys=self._normalize_business_key_list(payload.allowedBusinessKeys),
+                daily_run_limit=payload.dailyRunLimit,
+                daily_quota_units=payload.dailyQuotaUnits,
+                concurrent_run_limit=payload.concurrentRunLimit,
+                extra_metadata=payload.metadata,
+            )
+            session.add(row)
+            session.commit()
+            session.refresh(row)
+            return self._business_client_to_dict(row)
+
+    def update_client(self, client_config_id: str, payload: BusinessClientUpdateRequest) -> dict[str, Any]:
+        with get_session() as session:
+            row = session.get(BusinessClient, client_config_id)
+            if not row:
+                raise HTTPException(status_code=404, detail="BUSINESS_CLIENT_NOT_FOUND")
+            next_tenant_id = (
+                self._required_text(payload.tenantId, "BUSINESS_CLIENT_TENANT_REQUIRED")
+                if payload.tenantId is not None
+                else row.tenant_id
+            )
+            next_client_id = self._short_text(payload.clientId, 64) if "clientId" in payload.model_fields_set else row.client_id
+            duplicate = self._find_business_client(
+                session,
+                tenant_id=next_tenant_id,
+                client_id=next_client_id,
+                exclude_id=row.id,
+                include_tenant_default=False,
+            )
+            if duplicate:
+                raise HTTPException(status_code=409, detail="BUSINESS_CLIENT_DUPLICATED")
+            row.tenant_id = next_tenant_id
+            row.client_id = next_client_id
+            if payload.displayName is not None:
+                row.display_name = self._required_text(payload.displayName, "BUSINESS_CLIENT_DISPLAY_NAME_REQUIRED")
+            if payload.status is not None:
+                row.status = self._normalize_client_status(payload.status)
+            if "allowedBusinessKeys" in payload.model_fields_set or "allowed_business_keys" in payload.model_fields_set:
+                row.allowed_business_keys = self._normalize_business_key_list(payload.allowedBusinessKeys)
+            if "dailyRunLimit" in payload.model_fields_set or "daily_run_limit" in payload.model_fields_set:
+                row.daily_run_limit = payload.dailyRunLimit
+            if "dailyQuotaUnits" in payload.model_fields_set or "daily_quota_units" in payload.model_fields_set:
+                row.daily_quota_units = payload.dailyQuotaUnits
+            if "concurrentRunLimit" in payload.model_fields_set or "concurrent_run_limit" in payload.model_fields_set:
+                row.concurrent_run_limit = payload.concurrentRunLimit
+            if "metadata" in payload.model_fields_set or "extra_metadata" in payload.model_fields_set:
+                row.extra_metadata = payload.metadata
+            session.add(row)
+            session.commit()
+            session.refresh(row)
+            return self._business_client_to_dict(row)
 
     def create_capability(self, payload: BusinessCapabilityCreateRequest) -> dict[str, Any]:
         business_key = self._required_text(payload.businessKey, "BUSINESS_KEY_REQUIRED")
@@ -563,8 +663,17 @@ class BusinessRunService:
                 business_key=business_key,
                 payload=payload,
                 source=source,
+                user=user,
             )
             request_payload["_trace"] = trace_context
+            client_policy = self._check_business_client_policy(
+                session=session,
+                business_key=business_key,
+                payload=payload,
+                trace_context=trace_context,
+            )
+            if client_policy:
+                request_payload["_businessClient"] = client_policy
 
             run = BusinessRun(
                 id=run_id,
@@ -1203,6 +1312,138 @@ class BusinessRunService:
             "debugUrl": run.debug_url,
         }
 
+    def _check_business_client_policy(
+        self,
+        *,
+        session,
+        business_key: str,
+        payload: BusinessRunCreateRequest,
+        trace_context: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        tenant_id = self._short_text(trace_context.get("tenantId"), 64)
+        client_id = self._short_text(trace_context.get("clientId"), 64)
+        if not tenant_id:
+            return None
+        client = self._find_business_client(session, tenant_id=tenant_id, client_id=client_id)
+        if not client:
+            return None
+        if client.status != "active":
+            raise HTTPException(status_code=403, detail="BUSINESS_CLIENT_DISABLED")
+        allowed_keys = self._normalize_business_key_list(client.allowed_business_keys)
+        if allowed_keys and business_key not in allowed_keys:
+            raise HTTPException(status_code=403, detail="BUSINESS_CLIENT_BUSINESS_NOT_ALLOWED")
+
+        running_statuses = {"queued", "running"}
+        scope_filters = self._business_client_run_filters(client)
+        if client.concurrent_run_limit:
+            running_count = (
+                session.execute(
+                    select(func.count(BusinessRun.id)).where(
+                        *scope_filters,
+                        BusinessRun.status.in_(running_statuses),
+                    )
+                ).scalar_one()
+                or 0
+            )
+            if int(running_count) >= int(client.concurrent_run_limit):
+                raise HTTPException(status_code=429, detail="BUSINESS_CLIENT_CONCURRENCY_LIMITED")
+
+        day_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        if client.daily_run_limit:
+            today_count = (
+                session.execute(
+                    select(func.count(BusinessRun.id)).where(
+                        *scope_filters,
+                        BusinessRun.created_at >= day_start,
+                    )
+                ).scalar_one()
+                or 0
+            )
+            if int(today_count) >= int(client.daily_run_limit):
+                raise HTTPException(status_code=429, detail="BUSINESS_CLIENT_DAILY_RUN_LIMITED")
+
+        estimated_quota_units = self._estimate_quota_units(payload)
+        if client.daily_quota_units:
+            today_rows = (
+                session.execute(
+                    select(BusinessRun.quota_units).where(
+                        *scope_filters,
+                        BusinessRun.created_at >= day_start,
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            used_units = sum(max(1, int(value or 1)) for value in today_rows)
+            if used_units + estimated_quota_units > int(client.daily_quota_units):
+                raise HTTPException(status_code=429, detail="BUSINESS_CLIENT_DAILY_QUOTA_LIMITED")
+
+        return {
+            "id": client.id,
+            "tenantId": client.tenant_id,
+            "clientId": client.client_id,
+            "displayName": client.display_name,
+            "allowedBusinessKeys": allowed_keys,
+            "dailyRunLimit": client.daily_run_limit,
+            "dailyQuotaUnits": client.daily_quota_units,
+            "concurrentRunLimit": client.concurrent_run_limit,
+            "estimatedQuotaUnits": estimated_quota_units,
+        }
+
+    def _find_business_client(
+        self,
+        session,
+        *,
+        tenant_id: str,
+        client_id: str | None,
+        exclude_id: str | None = None,
+        include_tenant_default: bool = True,
+    ) -> BusinessClient | None:
+        normalized_tenant = self._short_text(tenant_id, 64)
+        normalized_client = self._short_text(client_id, 64)
+        if not normalized_tenant:
+            return None
+        candidates: list[BusinessClient] = []
+        if normalized_client:
+            stmt = select(BusinessClient).where(
+                BusinessClient.tenant_id == normalized_tenant,
+                BusinessClient.client_id == normalized_client,
+            )
+            if exclude_id:
+                stmt = stmt.where(BusinessClient.id != exclude_id)
+            exact = session.execute(stmt).scalars().first()
+            if exact:
+                candidates.append(exact)
+        if include_tenant_default or not normalized_client:
+            stmt = select(BusinessClient).where(
+                BusinessClient.tenant_id == normalized_tenant,
+                BusinessClient.client_id.is_(None),
+            )
+            if exclude_id:
+                stmt = stmt.where(BusinessClient.id != exclude_id)
+            tenant_default = session.execute(stmt).scalars().first()
+            if tenant_default:
+                candidates.append(tenant_default)
+        return candidates[0] if candidates else None
+
+    @staticmethod
+    def _business_client_run_filters(client: BusinessClient) -> list[Any]:
+        filters: list[Any] = [BusinessRun.tenant_id == client.tenant_id]
+        if client.client_id:
+            filters.append(BusinessRun.client_id == client.client_id)
+        return filters
+
+    def _estimate_quota_units(self, payload: BusinessRunCreateRequest) -> int:
+        metadata = payload.metadata if isinstance(payload.metadata, dict) else {}
+        inputs = payload.inputs if isinstance(payload.inputs, dict) else {}
+        value = self._first_int(
+            metadata.get("quotaUnits"),
+            metadata.get("quota_units"),
+            inputs.get("quotaUnits"),
+            inputs.get("quota_units"),
+        )
+        return max(1, int(value or 1))
+
     def _resolve_trace_context(
         self,
         *,
@@ -1210,6 +1451,7 @@ class BusinessRunService:
         business_key: str,
         payload: BusinessRunCreateRequest,
         source: str | None,
+        user: User | None = None,
     ) -> dict[str, Any]:
         metadata = payload.metadata if isinstance(payload.metadata, dict) else {}
         inputs = payload.inputs if isinstance(payload.inputs, dict) else {}
@@ -1263,6 +1505,7 @@ class BusinessRunService:
                 metadata.get("gray_key"),
                 inputs.get("tenantId"),
                 inputs.get("tenant_id"),
+                getattr(user, "tenant_id", None),
             ),
             64,
         )
@@ -1274,6 +1517,7 @@ class BusinessRunService:
                 inputs.get("clientId"),
                 inputs.get("client_id"),
                 payload.profile_id,
+                getattr(user, "client_id", None),
             ),
             64,
         )
@@ -1747,6 +1991,28 @@ class BusinessRunService:
         return status
 
     @staticmethod
+    def _normalize_client_status(value: str | None) -> str:
+        status = str(value or "active").strip().lower()
+        allowed = {"active", "inactive", "disabled"}
+        if status not in allowed:
+            raise HTTPException(status_code=400, detail="BUSINESS_CLIENT_STATUS_INVALID")
+        return status
+
+    @staticmethod
+    def _normalize_business_key_list(value: Any) -> list[str]:
+        if value is None:
+            return []
+        items = BusinessRunService._string_list(value)
+        seen: set[str] = set()
+        normalized: list[str] = []
+        for item in items:
+            key = item.strip()
+            if key and key not in seen:
+                seen.add(key)
+                normalized.append(key)
+        return normalized
+
+    @staticmethod
     def _validate_default_status(*, is_default: bool, status: str) -> None:
         if is_default and status != "active":
             raise HTTPException(status_code=400, detail="BUSINESS_DEFAULT_VERSION_MUST_BE_ACTIVE")
@@ -2159,6 +2425,22 @@ class BusinessRunService:
             return None
         user_id = str(getattr(user, "id", "") or "").strip()
         return None if user_id == "service" else user_id or None
+
+    def _business_client_to_dict(self, row: BusinessClient) -> dict[str, Any]:
+        return {
+            "id": row.id,
+            "tenant_id": row.tenant_id,
+            "client_id": row.client_id,
+            "display_name": row.display_name,
+            "status": row.status,
+            "allowed_business_keys": self._normalize_business_key_list(row.allowed_business_keys),
+            "daily_run_limit": row.daily_run_limit,
+            "daily_quota_units": row.daily_quota_units,
+            "concurrent_run_limit": row.concurrent_run_limit,
+            "extra_metadata": row.extra_metadata,
+            "created_at": row.created_at,
+            "updated_at": row.updated_at,
+        }
 
     def _capability_to_dict(self, row: BusinessCapability, *, session=None) -> dict[str, Any]:
         recipe = row.recipe if isinstance(row.recipe, dict) else {}

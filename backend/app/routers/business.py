@@ -320,6 +320,13 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
         "403": ["BUSINESS_RUN_FORBIDDEN"],
         "404": ["BUSINESS_RUN_NOT_FOUND"],
     }
+    submit_errors["403"] = ["BUSINESS_CLIENT_DISABLED", "BUSINESS_CLIENT_BUSINESS_NOT_ALLOWED"]
+    submit_errors["429"] = [
+        "BUSINESS_CLIENT_CONCURRENCY_LIMITED",
+        "BUSINESS_CLIENT_DAILY_RUN_LIMITED",
+        "BUSINESS_CLIENT_DAILY_QUOTA_LIMITED",
+        *submit_errors["429"],
+    ]
     return {
         "openapi": "3.0.0",
         "info": {
@@ -398,6 +405,45 @@ def admin_list_business_capabilities(
     if user.role != "admin":
         raise HTTPException(status_code=403, detail="ADMIN_ONLY")
     return list_business_capabilities(user=user)
+
+
+@admin_router.get("/clients", response_model=schemas.BusinessClientListResponse, response_model_by_alias=False)
+def admin_list_business_clients(
+    tenant_id: str | None = Query(default=None),
+    client_id: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessClientListResponse:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    return schemas.BusinessClientListResponse(
+        items=get_business_run_service().list_clients(
+            tenant_id=tenant_id,
+            client_id=client_id,
+            status=status,
+        )
+    )
+
+
+@admin_router.post("/clients", response_model=schemas.BusinessClientRead, response_model_by_alias=False)
+def admin_create_business_client(
+    payload: schemas.BusinessClientCreateRequest,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessClientRead:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    return get_business_run_service().create_client(payload)
+
+
+@admin_router.patch("/clients/{client_config_id}", response_model=schemas.BusinessClientRead, response_model_by_alias=False)
+def admin_update_business_client(
+    client_config_id: str,
+    payload: schemas.BusinessClientUpdateRequest,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessClientRead:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    return get_business_run_service().update_client(client_config_id, payload)
 
 
 @admin_router.post("/capabilities", response_model=schemas.BusinessCapabilityRead, response_model_by_alias=False)

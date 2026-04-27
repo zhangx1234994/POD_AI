@@ -403,6 +403,25 @@ class BusinessCapability(Base):
     )
 
 
+class BusinessClient(Base):
+    __tablename__ = "business_clients"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    client_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    display_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="active", nullable=False, index=True)
+    allowed_business_keys: Mapped[list[str] | None] = mapped_column(JSON)
+    daily_run_limit: Mapped[int | None] = mapped_column(Integer)
+    daily_quota_units: Mapped[int | None] = mapped_column(Integer)
+    concurrent_run_limit: Mapped[int | None] = mapped_column(Integer)
+    extra_metadata: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+
 class BusinessRun(Base):
     __tablename__ = "business_runs"
 

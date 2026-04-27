@@ -219,6 +219,11 @@
 - `BUSINESS_RECIPE_ABILITY_NOT_AVAILABLE`
 - `BUSINESS_REQUEST_PAYLOAD_INVALID`
 - `BUSINESS_VL_PREPROCESS_FAILED`
+- `BUSINESS_CLIENT_DISABLED`
+- `BUSINESS_CLIENT_BUSINESS_NOT_ALLOWED`
+- `BUSINESS_CLIENT_CONCURRENCY_LIMITED`
+- `BUSINESS_CLIENT_DAILY_RUN_LIMITED`
+- `BUSINESS_CLIENT_DAILY_QUOTA_LIMITED`
 - `ABILITY_TASK_FAILED`
 - `COMFYUI_TIMEOUT`
 
@@ -262,6 +267,11 @@
 - `BUSINESS_IMAGE_URL_REQUIRED`
 - `BUSINESS_CAPABILITY_NOT_FOUND`
 - `BUSINESS_RECIPE_ABILITY_NOT_AVAILABLE`
+- `BUSINESS_CLIENT_DISABLED`
+- `BUSINESS_CLIENT_BUSINESS_NOT_ALLOWED`
+- `BUSINESS_CLIENT_CONCURRENCY_LIMITED`
+- `BUSINESS_CLIENT_DAILY_RUN_LIMITED`
+- `BUSINESS_CLIENT_DAILY_QUOTA_LIMITED`
 - `COMFYUI_IMAGE_REQUIRED`
 - `COMFYUI_TIMEOUT`
 
@@ -502,6 +512,7 @@ OpenAPI 内每个工具都会枚举错误响应：
 - `401`：缺少服务 Token 或不在可信内网，例如 `AUTHORIZATION_REQUIRED`。
 - `403/404`：业务任务不可访问或不存在，例如 `BUSINESS_RUN_FORBIDDEN`、`BUSINESS_RUN_NOT_FOUND`。
 - `429`：队列或并发限制。
+- `403/429`：命中业务方配置限制，例如业务方停用、未开通该业务、日调用或并发达到上限。
 - `500`：底层能力、ComfyUI 或第三方模型执行失败，例如 `COMFYUI_TIMEOUT`、`VENDOR_API_EXECUTION_FAILED`。
 
 原则：
@@ -513,6 +524,73 @@ OpenAPI 内每个工具都会枚举错误响应：
 ---
 
 ## 7) 管理端接口
+
+### GET /api/admin/business/clients
+
+用途：查看业务方接入配置。业务方配置用于把 `tenantId/clientId` 从“松散日志字段”升级为可启停、可限额、可限制业务范围的管理对象。
+
+可选查询参数：
+
+- `tenant_id`：按业务方过滤。
+- `client_id`：按客户端/应用过滤。
+- `status`：按状态过滤，例如 `active`、`disabled`。
+
+### POST /api/admin/business/clients
+
+用途：新增业务方配置。配置存在时，业务任务提交会先执行策略检查；未配置的历史调用暂时保持兼容，不强制阻断。
+
+请求体：
+
+```json
+{
+  "tenantId": "tenant-a",
+  "clientId": "coze-main",
+  "displayName": "业务方 A · Coze 主工作流",
+  "status": "active",
+  "allowedBusinessKeys": ["fission", "outpaint"],
+  "dailyRunLimit": 200,
+  "dailyQuotaUnits": 200,
+  "concurrentRunLimit": 5,
+  "metadata": {
+    "owner": "business-a"
+  }
+}
+```
+
+字段说明：
+
+- `tenantId` 是业务方 ID，必填。
+- `clientId` 是具体应用或工作流 ID，可为空；为空时表示该 `tenantId` 的默认策略。
+- `allowedBusinessKeys` 为空表示不限制业务能力；填值后只允许调用这些业务，例如 `fission/outpaint`。
+- `dailyRunLimit` 限制当日提交次数。
+- `dailyQuotaUnits` 按估算额度限制当日用量；当前每次提交默认按 1 个额度估算，后续会接正式计费。
+- `concurrentRunLimit` 限制该业务方同时处于排队/运行中的任务数。
+
+常见错误：
+
+- `BUSINESS_CLIENT_TENANT_REQUIRED`
+- `BUSINESS_CLIENT_DISPLAY_NAME_REQUIRED`
+- `BUSINESS_CLIENT_STATUS_INVALID`
+- `BUSINESS_CLIENT_DUPLICATED`
+
+### PATCH /api/admin/business/clients/{clientConfigId}
+
+用途：更新业务方配置，例如临时停用、放大额度、只开放部分业务能力。
+
+请求体可只传要修改的字段：
+
+```json
+{
+  "status": "disabled",
+  "dailyRunLimit": 50
+}
+```
+
+常见错误：
+
+- `BUSINESS_CLIENT_NOT_FOUND`
+- `BUSINESS_CLIENT_STATUS_INVALID`
+- `BUSINESS_CLIENT_DUPLICATED`
 
 ### GET /api/admin/business/capabilities
 

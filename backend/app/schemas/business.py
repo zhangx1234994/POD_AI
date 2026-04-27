@@ -40,6 +40,56 @@ class BusinessCapabilityListResponse(BaseModel):
     items: list[BusinessCapabilityRead]
 
 
+class BusinessClientRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    id: str
+    tenantId: str = Field(alias="tenant_id")
+    clientId: str | None = Field(default=None, alias="client_id")
+    displayName: str = Field(alias="display_name")
+    status: str
+    allowedBusinessKeys: list[str] = Field(default_factory=list, alias="allowed_business_keys")
+    dailyRunLimit: int | None = Field(default=None, alias="daily_run_limit")
+    dailyQuotaUnits: int | None = Field(default=None, alias="daily_quota_units")
+    concurrentRunLimit: int | None = Field(default=None, alias="concurrent_run_limit")
+    metadata: dict[str, Any] | None = Field(default=None, alias="extra_metadata")
+    createdAt: datetime = Field(alias="created_at")
+    updatedAt: datetime = Field(alias="updated_at")
+
+
+class BusinessClientListResponse(BaseModel):
+    items: list[BusinessClientRead]
+
+
+class BusinessClientCreateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str | None = None
+    tenantId: str = Field(alias="tenant_id")
+    clientId: str | None = Field(default=None, alias="client_id")
+    displayName: str | None = Field(default=None, alias="display_name")
+    status: str = "active"
+    allowedBusinessKeys: list[str] | None = Field(default=None, alias="allowed_business_keys")
+    dailyRunLimit: int | None = Field(default=None, ge=1, alias="daily_run_limit")
+    dailyQuotaUnits: int | None = Field(default=None, ge=1, alias="daily_quota_units")
+    concurrentRunLimit: int | None = Field(default=None, ge=1, alias="concurrent_run_limit")
+    metadata: dict[str, Any] | None = Field(default=None, alias="extra_metadata")
+
+
+class BusinessClientUpdateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    tenantId: str | None = Field(default=None, alias="tenant_id")
+    clientId: str | None = Field(default=None, alias="client_id")
+    displayName: str | None = Field(default=None, alias="display_name")
+    status: str | None = None
+    allowedBusinessKeys: list[str] | None = Field(default=None, alias="allowed_business_keys")
+    dailyRunLimit: int | None = Field(default=None, ge=1, alias="daily_run_limit")
+    dailyQuotaUnits: int | None = Field(default=None, ge=1, alias="daily_quota_units")
+    concurrentRunLimit: int | None = Field(default=None, ge=1, alias="concurrent_run_limit")
+    metadata: dict[str, Any] | None = Field(default=None, alias="extra_metadata")
+
+
 class BusinessCapabilityCreateRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
