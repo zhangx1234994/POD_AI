@@ -106,6 +106,40 @@ def _guess_operation_label(*, category: str, workflow_id: str, name: str) -> str
     return _CATEGORY_OPERATION_LABELS.get(category, "工作流评测")
 
 
+def _guess_variant_label(*, workflow_id: str, name: str) -> str:
+    lowered = f"{workflow_id} {name}".lower()
+    if workflow_id == "7631838631375667200" or "softstyle" in lowered or "高质量" in name:
+        return "高质量新版"
+    if workflow_id == "7631174682116358144" or "flux2_klein" in lowered:
+        return "当前扩图主线"
+    if "文字增强" in name or "text_enhance" in lowered:
+        return "文字增强版"
+    if "四方连续裂变" in name or "liebian_sifang" in lowered:
+        return "四方连续裂变"
+    if "有提示词" in name:
+        return "有提示词"
+    if "无提示词" in name:
+        return "无提示词"
+    if "商业" in name or "shangye" in lowered:
+        return "商业模型"
+    if "comfyui" in lowered:
+        if "20260328" in lowered:
+            return "ComfyUI 新版"
+        if "20260124" in lowered:
+            return "ComfyUI 旧版"
+        return "ComfyUI"
+    if "背景抠图" in name or "beijing_koutu" in lowered:
+        return "背景抠图"
+    if "头部抠像" in name or "toubu_kouxiang" in lowered:
+        return "头部抠像"
+    parts = [
+        item.strip()
+        for item in name.replace("｜", "·").replace("|", "·").replace("/", "·").split("·")
+        if item.strip()
+    ]
+    return parts[-1] if len(parts) > 1 else ""
+
+
 def _guess_usage_hint(
     *,
     category: str,
@@ -197,6 +231,10 @@ def resolve_eval_workflow_presentation(
                 name=name_text,
             )
         ).strip(),
+        "variant_label": str(
+            presentation.get("variant_label")
+            or _guess_variant_label(workflow_id=workflow_id_text, name=name_text)
+        ).strip(),
         "entry_mode": entry_mode,
         "result_mode": result_mode,
         "supports_batch": supports_batch,
@@ -223,6 +261,7 @@ def enrich_metadata_with_eval_workflow_presentation(
             "category_label": str(presentation_override.get("category_label") or "").strip() or None,
             "usage_hint": str(presentation_override.get("usage_hint") or "").strip() or None,
             "operation_label": str(presentation_override.get("operation_label") or "").strip() or None,
+            "variant_label": str(presentation_override.get("variant_label") or "").strip() or None,
             "entry_mode": str(presentation_override.get("entry_mode") or "").strip() or None,
             "result_mode": str(presentation_override.get("result_mode") or "").strip() or None,
             "supports_batch": presentation_override.get("supports_batch"),

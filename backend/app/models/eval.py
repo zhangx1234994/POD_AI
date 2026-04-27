@@ -29,6 +29,7 @@ class EvalWorkflowVersion(Base):
     output_schema: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     notes: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(32), default="active", nullable=False)
+    extra_metadata: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSON)
     
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(

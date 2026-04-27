@@ -22,6 +22,7 @@ export type EvalWorkflowVersion = {
     categoryLabel?: string;
     usageHint?: string;
     operationLabel?: string;
+    variantLabel?: string;
     entryMode?: string;
     resultMode?: string;
     supportsBatch?: boolean;
@@ -42,6 +43,13 @@ export type EvalWorkflowVersion = {
     replacementDisplayName?: string | null;
     reason?: string | null;
     retirementMode?: string | null;
+  } | null;
+  governance?: {
+    role?: 'production' | 'candidate' | 'legacy' | 'auxiliary' | 'disabled' | string;
+    roleLabel?: string;
+    roleReason?: string;
+    rank?: number;
+    isPrimary?: boolean;
   } | null;
 };
 

@@ -338,6 +338,13 @@ html.t-theme-dark {
   color: var(--td-text-color-primary);
 }
 
+.podi-eval-tool-card__role-reason {
+  display: block;
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 18px;
+}
+
 .podi-eval-tool-card__footer {
   margin-top: 12px;
   border-top: 1px solid var(--td-border-level-1-color);

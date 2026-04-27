@@ -45,6 +45,11 @@ class EvalWorkflowResourceBinding(BaseModel):
 class EvalWorkflowVersionResponse(EvalWorkflowVersionBase):
     """Schema for evaluation workflow version response."""
     id: str = Field(..., description="ID")
+    metadata: Optional[dict[str, Any]] = Field(None, description="内部元数据")
+    presentation: Optional[dict[str, Any]] = Field(None, description="业务展示层")
+    usage: Optional[dict[str, Any]] = Field(None, description="业务使用方式")
+    deprecation: Optional[dict[str, Any]] = Field(None, description="下线/替代信息")
+    governance: Optional[dict[str, Any]] = Field(None, description="目录治理信息")
     resource_bindings: list[EvalWorkflowResourceBinding] = Field(
         default_factory=list,
         alias="resourceBindings",

@@ -31,6 +31,7 @@ from app.schemas.eval import (
     EvalAnnotationResponse,
 )
 from app.services.eval_operations_health import build_eval_operations_health
+from app.services.eval_workflow_response import build_eval_workflow_response_metadata
 from app.services.eval_service import get_eval_service
 from app.services.eval_seed import ensure_default_eval_workflow_versions
 from app.services.integration_test import integration_test_service
@@ -89,6 +90,7 @@ def _extract_workflow_resource_bindings(schema: dict | None) -> list[EvalWorkflo
 
 
 def _serialize_workflow_version(row: EvalWorkflowVersion) -> EvalWorkflowVersionResponse:
+    response_metadata = build_eval_workflow_response_metadata(row)
     return EvalWorkflowVersionResponse(
         id=row.id,
         category=row.category,
@@ -100,6 +102,7 @@ def _serialize_workflow_version(row: EvalWorkflowVersion) -> EvalWorkflowVersion
         output_schema=row.output_schema,
         notes=row.notes,
         status=row.status,
+        **response_metadata,
         resourceBindings=_extract_workflow_resource_bindings(row.parameters_schema),
         created_at=row.created_at,
         updated_at=row.updated_at,

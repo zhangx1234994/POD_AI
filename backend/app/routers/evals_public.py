@@ -67,6 +67,7 @@ from app.schemas.eval import (
 from app.services.comfyui_lora_catalog_service import ensure_default_lora_catalog_entries
 from app.services.eval_seed import FISSION_WORKFLOW_IDS, ensure_default_eval_workflow_versions
 from app.services.eval_operations_health import build_eval_operations_health
+from app.services.eval_workflow_response import build_eval_workflow_response_metadata, is_eval_workflow_publicly_visible
 from app.services.eval_service import get_eval_service
 from app.services.integration_test import integration_test_service
 from app.services.oss import oss_service
@@ -172,6 +173,7 @@ def _extract_workflow_resource_bindings(schema: dict[str, Any] | None) -> list[E
 
 
 def _serialize_workflow_version(version: EvalWorkflowVersion) -> EvalWorkflowVersionResponse:
+    response_metadata = build_eval_workflow_response_metadata(version)
     return EvalWorkflowVersionResponse(
         id=version.id,
         category=version.category,
@@ -183,6 +185,7 @@ def _serialize_workflow_version(version: EvalWorkflowVersion) -> EvalWorkflowVer
         output_schema=version.output_schema,
         notes=version.notes,
         status=version.status,
+        **response_metadata,
         resourceBindings=_extract_workflow_resource_bindings(version.parameters_schema),
         created_at=version.created_at,
         updated_at=version.updated_at,
@@ -818,6 +821,7 @@ def list_workflow_versions(
         stmt = stmt.where(EvalWorkflowVersion.status == status)
     rows = db.execute(stmt.order_by(EvalWorkflowVersion.category.asc(), EvalWorkflowVersion.created_at.desc())).scalars().all()
     rows = _dedupe_workflow_versions(rows)
+    rows = [row for row in rows if is_eval_workflow_publicly_visible(row)]
     return [_serialize_workflow_version(row) for row in rows]
 
 

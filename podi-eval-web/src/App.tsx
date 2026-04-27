@@ -394,6 +394,9 @@ const getWorkflowPresentation = (wf: EvalWorkflowVersion | null | undefined) =>
 const getWorkflowUsage = (wf: EvalWorkflowVersion | null | undefined) =>
   (wf?.usage && typeof wf.usage === 'object' ? wf.usage : null) as EvalWorkflowVersion['usage'];
 
+const getWorkflowGovernance = (wf: EvalWorkflowVersion | null | undefined) =>
+  (wf?.governance && typeof wf.governance === 'object' ? wf.governance : null) as EvalWorkflowVersion['governance'];
+
 const getWorkflowCategory = (wf: Pick<EvalWorkflowVersion, 'category' | 'presentation'> | null | undefined): string => {
   const label = String(getWorkflowPresentation(wf as EvalWorkflowVersion)?.categoryLabel || '').trim();
   return normalizeCategory(label || wf?.category);
@@ -409,6 +412,33 @@ const getWorkflowUsageHint = (wf: EvalWorkflowVersion | null | undefined): strin
 
 const getWorkflowOperationLabel = (wf: EvalWorkflowVersion | null | undefined): string =>
   String(getWorkflowPresentation(wf)?.operationLabel || '').trim();
+
+const getWorkflowVariantLabel = (wf: EvalWorkflowVersion | null | undefined): string =>
+  String(getWorkflowPresentation(wf)?.variantLabel || '').trim();
+
+const getWorkflowGovernanceRank = (wf: EvalWorkflowVersion | null | undefined): number => {
+  const raw = Number(getWorkflowGovernance(wf)?.rank);
+  if (Number.isFinite(raw)) return raw;
+  const role = String(getWorkflowGovernance(wf)?.role || '').toLowerCase();
+  if (role === 'production') return 10;
+  if (role === 'candidate') return 30;
+  if (role === 'auxiliary') return 70;
+  if (role === 'legacy') return 90;
+  if (role === 'disabled') return 100;
+  return 50;
+};
+
+const getWorkflowGovernanceTheme = (
+  role?: string | null,
+): 'default' | 'primary' | 'success' | 'warning' | 'danger' => {
+  const value = String(role || '').toLowerCase();
+  if (value === 'production') return 'success';
+  if (value === 'candidate') return 'primary';
+  if (value === 'legacy') return 'warning';
+  if (value === 'auxiliary') return 'default';
+  if (value === 'disabled') return 'danger';
+  return 'default';
+};
 
 const isWorkflowBatchEnabled = (wf: EvalWorkflowVersion | null | undefined): boolean => {
   const usage = getWorkflowUsage(wf);
@@ -481,6 +511,8 @@ const getSchemaFields = (schema: Record<string, unknown> | null | undefined): Sc
 
 const getWorkflowCardTitle = (wf: EvalWorkflowVersion): string => {
   const operationLabel = getWorkflowOperationLabel(wf);
+  const variantLabel = getWorkflowVariantLabel(wf);
+  if (operationLabel && variantLabel) return `${operationLabel} · ${variantLabel}`;
   if (operationLabel) return operationLabel;
   const category = getWorkflowCategory(wf);
   const rawName = String(wf.name || wf.workflow_id || '未命名功能').trim();
@@ -1329,6 +1361,10 @@ function ToolCard({
   const usageHint = getWorkflowUsageHint(wf);
   const inputSummary = getWorkflowInputSummary(wf);
   const outputSummary = getWorkflowOutputSummary(wf);
+  const governance = getWorkflowGovernance(wf);
+  const roleLabel = String(governance?.roleLabel || '可测版本').trim();
+  const roleReason = String(governance?.roleReason || '').trim();
+  const roleTheme = getWorkflowGovernanceTheme(governance?.role);
   const panelStyle = {
     height: '100%',
     borderColor: active ? accent : undefined,
@@ -1388,11 +1424,17 @@ function ToolCard({
 
           <div style={{ marginTop: 12 }}>
             <Space breakLine>
+              <Tag variant="light" theme={roleTheme}>{roleLabel}</Tag>
               <Tag variant="light">工作流 {wf.workflow_id}</Tag>
               <Tag variant="light">{getWorkflowStatusLabel(wf.status)}</Tag>
               {isWorkflowBatchEnabled(wf) ? <Tag variant="light">支持批量</Tag> : null}
             </Space>
           </div>
+          {roleReason ? (
+            <Typography.Text theme="secondary" className="podi-eval-tool-card__role-reason">
+              {roleReason}
+            </Typography.Text>
+          ) : null}
           <div className="podi-eval-tool-card__footer">
             <Typography.Text>进入功能工作台</Typography.Text>
             <Typography.Text theme="secondary">→</Typography.Text>
@@ -1918,6 +1960,8 @@ export function App() {
 
   const toolList = useMemo(() => {
     const list = (grouped[activeCategory] || []).slice().sort((a, b) => {
+      const roleOrder = getWorkflowGovernanceRank(a) - getWorkflowGovernanceRank(b);
+      if (roleOrder !== 0) return roleOrder;
       const order = getWorkflowSortOrder(a) - getWorkflowSortOrder(b);
       if (order !== 0) return order;
       return a.name.localeCompare(b.name);
