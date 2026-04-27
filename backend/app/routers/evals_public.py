@@ -54,6 +54,7 @@ from app.schemas.eval import (
     EvalBatchStopResponse,
     EvalBatchSubmitRequest,
     EvalBatchSubmitResponse,
+    EvalOperationsHealthResponse,
     EvalRunWithLatestAnnotationListResponse,
     EvalRunWithLatestAnnotationResponse,
     EvalRunCreate,
@@ -64,6 +65,7 @@ from app.schemas.eval import (
 )
 from app.services.comfyui_lora_catalog_service import ensure_default_lora_catalog_entries
 from app.services.eval_seed import FISSION_WORKFLOW_IDS, ensure_default_eval_workflow_versions
+from app.services.eval_operations_health import build_eval_operations_health
 from app.services.eval_service import get_eval_service
 from app.services.oss import oss_service
 from app.services.task_status_contract import derive_eval_run_status
@@ -1352,6 +1354,26 @@ def admin_list_workflow_versions(
         stmt = stmt.where(EvalWorkflowVersion.category == category)
     rows = db.execute(stmt.order_by(EvalWorkflowVersion.category.asc(), EvalWorkflowVersion.created_at.desc())).scalars().all()
     return [_serialize_workflow_version(row) for row in rows]
+
+
+@router.get("/admin/operations-health", response_model=EvalOperationsHealthResponse)
+def admin_get_operations_health(
+    request: Request,
+    stale_minutes: int = Query(30, alias="staleMinutes", ge=5, le=24 * 60),
+    submit_grace_minutes: int = Query(5, alias="submitGraceMinutes", ge=1, le=120),
+    recent_hours: int = Query(24, alias="recentHours", ge=1, le=24 * 14),
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+) -> EvalOperationsHealthResponse:
+    _require_eval_admin(request)
+    report = build_eval_operations_health(
+        db,
+        stale_minutes=stale_minutes,
+        submit_grace_minutes=submit_grace_minutes,
+        recent_hours=recent_hours,
+        limit=limit,
+    )
+    return EvalOperationsHealthResponse.model_validate(report)
 
 
 @router.put("/admin/workflow-versions/{workflow_version_id}", response_model=EvalWorkflowVersionResponse)

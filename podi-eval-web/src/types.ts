@@ -87,6 +87,49 @@ export type EvalRun = {
 
 export type EvalRunListResponse = { total: number; items: EvalRun[] };
 
+export type EvalOperationsIssue = {
+  severity: 'healthy' | 'warning' | 'critical' | string;
+  code: string;
+  title: string;
+  message: string;
+  count: number;
+};
+
+export type EvalOperationsRunItem = {
+  runId: string;
+  workflowId?: string | null;
+  workflowName?: string | null;
+  category?: string | null;
+  status: string;
+  ageMinutes: number;
+  cozeExecuteId?: string | null;
+  podiTaskId?: string | null;
+  imageCount: number;
+  hasOutput: boolean;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type EvalOperationsHealth = {
+  generatedAt: string;
+  status: 'healthy' | 'warning' | 'critical' | string;
+  staleMinutes: number;
+  submitGraceMinutes: number;
+  recentHours: number;
+  activeWorkflowCount: number;
+  totalWorkflowCount: number;
+  statusCounts: Record<string, number>;
+  recentStatusCounts: Record<string, number>;
+  staleRunning: EvalOperationsRunItem[];
+  submitStalled: EvalOperationsRunItem[];
+  succeededWithoutOutput: EvalOperationsRunItem[];
+  recentFailures: EvalOperationsRunItem[];
+  errorCounts: Record<string, number>;
+  issues: EvalOperationsIssue[];
+};
+
 export type SchemaField = {
   name: string;
   label?: string;

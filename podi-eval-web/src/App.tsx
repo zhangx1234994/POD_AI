@@ -34,7 +34,7 @@ import {
 } from 'tdesign-icons-react';
 import zhCN from 'tdesign-react/es/locale/zh_CN';
 import { ApiRequestError, evalApi } from './api';
-import type { EvalRun, EvalWorkflowVersion, SchemaField, WorkflowDoc } from './types';
+import type { EvalOperationsHealth, EvalRun, EvalWorkflowVersion, SchemaField, WorkflowDoc } from './types';
 import { EvalShell } from './layouts/EvalShell';
 import { ActionBar, FilterBar, StatusBadge } from './features/eval/shared/ui';
 import type { ThemeMode } from './types/ui';
@@ -1739,6 +1739,9 @@ export function App() {
   const [adminWorkflows, setAdminWorkflows] = useState<EvalWorkflowVersion[]>([]);
   const [adminWorkflowStatus, setAdminWorkflowStatus] = useState<RemoteLoadStatus>('idle');
   const [adminWorkflowError, setAdminWorkflowError] = useState<RemoteLoadError | null>(null);
+  const [operationsHealth, setOperationsHealth] = useState<EvalOperationsHealth | null>(null);
+  const [operationsHealthStatus, setOperationsHealthStatus] = useState<RemoteLoadStatus>('idle');
+  const [operationsHealthError, setOperationsHealthError] = useState<RemoteLoadError | null>(null);
   const [docsMarkdown, setDocsMarkdown] = useState<string>('');
   const [docsLoading, setDocsLoading] = useState<boolean>(false);
   const [docsGeneratedAt, setDocsGeneratedAt] = useState<string>('');
@@ -2298,6 +2301,32 @@ export function App() {
     [],
   );
 
+  const loadOperationsHealth = useCallback(
+    async (token?: string, opts?: { notifySuccess?: boolean }) => {
+      const trimmed = String(token || adminToken || '').trim();
+      if (!trimmed) {
+        setOperationsHealth(null);
+        setOperationsHealthStatus('idle');
+        setOperationsHealthError(null);
+        return;
+      }
+      setOperationsHealthStatus('loading');
+      setOperationsHealthError(null);
+      try {
+        const report = await evalApi.adminGetOperationsHealth(trimmed);
+        setOperationsHealth(report);
+        setOperationsHealthStatus('success');
+        if (opts?.notifySuccess) pushNotice('success', '已刷新链路健康');
+      } catch (err) {
+        console.error(err);
+        setOperationsHealthStatus('error');
+        setOperationsHealthError(normalizeRemoteLoadError(err));
+        throw err;
+      }
+    },
+    [adminToken, pushNotice],
+  );
+
   const loadRunsForTool = async (workflowVersionId: string) => {
     try {
       const resp = await evalApi.listRunsWithLatestAnnotation({
@@ -2331,6 +2360,16 @@ export function App() {
   useEffect(() => {
     void loadBootstrap();
   }, [loadBootstrap]);
+
+  useEffect(() => {
+    if (!adminToken) {
+      setOperationsHealth(null);
+      setOperationsHealthStatus('idle');
+      setOperationsHealthError(null);
+      return;
+    }
+    void loadOperationsHealth(adminToken).catch(() => undefined);
+  }, [adminToken, loadOperationsHealth]);
 
   useEffect(() => {
     if (loraBatchWorkflows.length === 0) {
@@ -4039,6 +4078,20 @@ export function App() {
     },
     [adminToken, loadAdminWorkflowList, pushNotice],
   );
+
+  const promptOperationsHealthToken = useCallback(async () => {
+    const tokenInput = adminToken || window.prompt('请输入 EVAL_ADMIN_TOKEN（用于查看链路健康）') || '';
+    const token = tokenInput.trim();
+    if (!token) return;
+    localStorage.setItem('podi_eval_admin_token', token);
+    setAdminToken(token);
+    try {
+      await loadOperationsHealth(token, { notifySuccess: true });
+    } catch (err) {
+      console.error(err);
+      pushNotice('error', String((err as any)?.message || err));
+    }
+  }, [adminToken, loadOperationsHealth, pushNotice]);
 
   const openAdmin = useCallback(async () => {
     void promptAdminToken();
@@ -6347,6 +6400,24 @@ export function App() {
 
   // Home (toolbox) view
   const activeCategoryVisual = getCategoryVisual(activeCategory);
+  const healthLevel = String(operationsHealth?.status || 'unknown');
+  const healthMeta =
+    healthLevel === 'healthy'
+      ? { tag: '正常', theme: 'success' as const, title: '评测链路正常', tone: 'success' as const }
+      : healthLevel === 'critical'
+        ? { tag: '事故', theme: 'danger' as const, title: '评测链路需要先处理', tone: 'error' as const }
+        : healthLevel === 'warning'
+          ? { tag: '警告', theme: 'warning' as const, title: '评测链路有风险项', tone: 'warning' as const }
+          : { tag: '未检查', theme: 'default' as const, title: '链路健康未检查', tone: 'info' as const };
+  const getHealthIssueCount = (code: string, fallback: number) =>
+    operationsHealth?.issues.find((issue) => issue.code === code)?.count ?? fallback;
+  const healthRecentFailed = getHealthIssueCount('EVAL_RECENT_FAILURES', operationsHealth?.recentStatusCounts?.failed || 0);
+  const healthStaleCount = getHealthIssueCount('EVAL_RUN_STALE', operationsHealth?.staleRunning?.length || 0);
+  const healthSubmitStalledCount = getHealthIssueCount('EVAL_SUBMIT_STALLED', operationsHealth?.submitStalled?.length || 0);
+  const healthSucceededWithoutOutputCount = getHealthIssueCount(
+    'EVAL_SUCCESS_WITHOUT_OUTPUT',
+    operationsHealth?.succeededWithoutOutput?.length || 0,
+  );
   return shell(
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
       {bootstrapLoading || workflowListStatus === 'loading' ? <Alert theme="info" message="正在加载功能清单和评分数据…" /> : null}
@@ -6418,6 +6489,77 @@ export function App() {
           <Typography.Text theme="secondary">重点记录不满意样本，沉淀后反推训练素材缺口。</Typography.Text>
         </div>
       </div>
+      <Card bordered>
+        <Space direction="vertical" size="small" style={{ width: '100%' }}>
+          <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+            <Space align="center">
+              <Typography.Text strong>{healthMeta.title}</Typography.Text>
+              <Tag theme={healthMeta.theme}>{healthMeta.tag}</Tag>
+              {operationsHealth?.generatedAt ? (
+                <Typography.Text theme="secondary">检查时间：{fmtTime(operationsHealth.generatedAt)}</Typography.Text>
+              ) : null}
+            </Space>
+            <Space>
+              <Button
+                variant="outline"
+                loading={operationsHealthStatus === 'loading'}
+                onClick={() => {
+                  if (adminToken) {
+                    void loadOperationsHealth(adminToken, { notifySuccess: true }).catch((err) =>
+                      pushNotice('error', String((err as any)?.message || err)),
+                    );
+                  } else {
+                    void promptOperationsHealthToken();
+                  }
+                }}
+              >
+                {adminToken ? '刷新健康检查' : '输入 Token 查看'}
+              </Button>
+              <Button variant="outline" onClick={() => setActiveView('tasks')}>
+                查看任务追踪
+              </Button>
+            </Space>
+          </Space>
+          {!adminToken ? (
+            <Alert theme="info" message="输入管理员 Token 后，这里会显示最近失败、长期运行、成功未回填等事故信号。" />
+          ) : null}
+          {operationsHealthStatus === 'error' ? (
+            <Alert
+              theme="error"
+              message={`链路健康检查失败：${operationsHealthError?.message || '接口没有正常返回，请检查管理员 Token 或后端服务。'}`}
+            />
+          ) : null}
+          {operationsHealth ? (
+            <>
+              <Space size="large" style={{ flexWrap: 'wrap' }}>
+                <Typography.Text theme="secondary">
+                  可用工作流：{operationsHealth.activeWorkflowCount}/{operationsHealth.totalWorkflowCount}
+                </Typography.Text>
+                <Typography.Text theme={healthRecentFailed ? 'warning' : 'secondary'}>
+                  近 {operationsHealth.recentHours} 小时失败：{healthRecentFailed}
+                </Typography.Text>
+                <Typography.Text theme={healthStaleCount ? 'error' : 'secondary'}>
+                  长时间未收口：{healthStaleCount}
+                </Typography.Text>
+                <Typography.Text theme={healthSubmitStalledCount ? 'error' : 'secondary'}>
+                  提交后无执行标识：{healthSubmitStalledCount}
+                </Typography.Text>
+                <Typography.Text theme={healthSucceededWithoutOutputCount ? 'warning' : 'secondary'}>
+                  成功但无结果：{healthSucceededWithoutOutputCount}
+                </Typography.Text>
+              </Space>
+              {operationsHealth.issues.length > 0 ? (
+                <Alert
+                  theme={healthMeta.tone}
+                  message={operationsHealth.issues.map((issue) => issue.message).join('；')}
+                />
+              ) : (
+                <Alert theme="success" message="最近没有发现长期运行、提交卡住、成功无结果等关键问题。" />
+              )}
+            </>
+          ) : null}
+        </Space>
+      </Card>
       <ActionBar
         title={`功能卡片 · ${toolList.length} 个`}
         description="保留高频入口，弱化“快速上手”占屏，直接进入操作。"

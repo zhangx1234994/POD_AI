@@ -16,8 +16,14 @@
 ## 0) 管理端健康接口
 
 ### GET /api/admin/evals/operations-health
+### GET /api/evals/admin/operations-health
 
 用途：发现 `/health` 看不到的评测链路问题，例如长期运行、提交后没有执行 ID、成功但没有结果、近期失败。
+
+入口差异：
+
+- `/api/admin/evals/operations-health`：管理后台使用，走管理员 Bearer Token。
+- `/api/evals/admin/operations-health`：评测端首页使用，走 `EVAL_ADMIN_TOKEN`。
 
 常用查询参数：
 
