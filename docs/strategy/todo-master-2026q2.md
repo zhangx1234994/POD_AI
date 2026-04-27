@@ -51,6 +51,7 @@
 - 进展（2026-04-28）：全量测评巡检补齐结果判定，`succeeded` 但没有图片/结构化结果会以 `EVAL_SUCCEEDED_WITHOUT_OUTPUT` 阻断，同时报告 `INTERNAL_ONLY`、`COZE_WORKFLOW_ERROR` 等事故分类。
 - 进展（2026-04-28）：补充 `podi-eval-health-watch` systemd 定时任务模板，可在 114 上每 15 分钟自动检查评测链路健康；暂未自动启用，避免未经确认改变线上巡检频率。
 - 进展（2026-04-28）：补充健康巡检一键安装脚本 `scripts/install_eval_health_watch.sh`，启用前会先运行预检，critical 默认阻断安装。
+- 进展（2026-04-28）：健康巡检 systemd 服务将 warning 退出码 1 视为已完成，只有 critical 退出码 2 才标记失败，避免已知余额/部分线路问题造成误判。
 - 当前未收口（2026-04-28）：KIE 商业模型余额不足导致 2 条图裂变失败；需要等账户余额或 Key 恢复后重新巡检。
 
 1. `doing` 战略指标面板落地

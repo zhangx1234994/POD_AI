@@ -121,6 +121,8 @@ backend/.venv/bin/python backend/scripts/business_rollback_drill.py --business-k
 
 The drill is read-only by default. Actual rollback requires `--apply --yes` and must not be used as a routine smoke check.
 
+Timer exit code rule: `0=healthy`, `1=warning and systemd still treats it as completed`, `2=critical and systemd marks the unit failed`.
+
 If any of the above fails, do not continue with frontend/admin acceptance.
 
 ## 0.1) Release Source of Truth (Must Check First)
