@@ -28,6 +28,9 @@ from app.services.task_id_codec import decode_task_id
 
 
 _HEX_TASK_ID = re.compile(r"^[0-9a-f]{24,64}$")
+EVAL_FINALIZE_INTERVAL_SECONDS = 3
+EVAL_FINALIZE_BATCH_SIZE = 50
+EVAL_RUN_TIMEOUT_SECONDS = 60 * 30
 
 
 class EvalService:
@@ -50,10 +53,12 @@ class EvalService:
             "default": ThreadPoolExecutor(max_workers=default_workers),
         }
         self._lock = threading.Lock()
+        self._thread_started = False
         # Best-effort: never block API startup on evaluation bookkeeping.
         # (In reload mode, mapper initialization can be sensitive to import order.)
         try:
             self._resume_pending_runs()
+            self._start_finalize_thread()
         except Exception as exc:  # pragma: no cover - defensive startup guard
             self._logger.warning("EvalService resume skipped: %s", exc)
 
@@ -190,6 +195,30 @@ class EvalService:
             if isinstance(images, list):
                 parts.append(f"imageCount={len(images)}")
         return ";".join(parts)
+
+    @staticmethod
+    def _extract_image_urls_from_task_payload(result_payload: Any) -> list[str]:
+        image_urls: list[str] = []
+        if not isinstance(result_payload, dict):
+            return image_urls
+        images = result_payload.get("images") or []
+        if not isinstance(images, list):
+            return image_urls
+        for it in images:
+            if not isinstance(it, dict):
+                continue
+            for key in ("storedUrl", "ossUrl", "sourceUrl", "url"):
+                value = it.get(key)
+                if isinstance(value, str) and value.strip():
+                    image_urls.append(value.strip())
+                    break
+        return image_urls
+
+    @staticmethod
+    def _elapsed_ms_since(created_at: datetime | None) -> int:
+        if not created_at:
+            return 0
+        return max(0, int((datetime.utcnow() - created_at).total_seconds() * 1000))
 
     def _submit_run(self, run_id: str, parameters: dict[str, Any] | None) -> None:
         lane = self._lane_from_parameters(parameters)
@@ -379,22 +408,98 @@ class EvalService:
         """On process boot, re-queue runs left in queued/running."""
         pending_rows: list[tuple[str, dict[str, Any] | None]] = []
         with get_session() as session:
-            pending_rows = (
+            rows = (
                 session.execute(
-                    select(EvalRun.id, EvalRun.parameters_json).where(EvalRun.status.in_(["queued", "running"]))
+                    select(EvalRun.id, EvalRun.parameters_json, EvalRun.podi_task_id, EvalRun.coze_execute_id)
+                    .where(EvalRun.status.in_(["queued", "running"]))
                 )
                 .all()
             )
-            pending_ids = [str(row[0]) for row in pending_rows]
+            pending_rows = [
+                (str(row[0]), row[1] if isinstance(row[1], dict) else None)
+                for row in rows
+                if not str(row[2] or "").strip() and not str(row[3] or "").strip()
+            ]
+            pending_ids = [run_id for run_id, _ in pending_rows]
+            running_ids = [
+                str(row[0])
+                for row in rows
+                if str(row[2] or "").strip() or str(row[3] or "").strip()
+            ]
             if pending_ids:
                 session.execute(
                     EvalRun.__table__.update()
                     .where(EvalRun.id.in_(pending_ids))
                     .values(status="queued")
                 )
+            if running_ids:
+                session.execute(
+                    EvalRun.__table__.update()
+                    .where(EvalRun.id.in_(running_ids))
+                    .values(status="running")
+                )
+            if pending_ids or running_ids:
                 session.commit()
         for run_id, parameters in pending_rows:
             self._submit_run(str(run_id), parameters if isinstance(parameters, dict) else None)
+
+    def _start_finalize_thread(self) -> None:
+        if self._thread_started:
+            return
+        self._thread_started = True
+
+        def _loop() -> None:
+            while True:
+                try:
+                    self._finalize_pending_runs()
+                except Exception as exc:  # pragma: no cover - background best effort
+                    self._logger.warning("eval finalize loop failed: %s", exc)
+                time.sleep(EVAL_FINALIZE_INTERVAL_SECONDS)
+
+        threading.Thread(target=_loop, daemon=True, name="podi-eval-finalizer").start()
+
+    def _finalize_pending_runs(self) -> None:
+        with get_session() as session:
+            rows = (
+                session.execute(
+                    select(EvalRun)
+                    .where(EvalRun.status == "running")
+                    .order_by(EvalRun.updated_at.asc())
+                    .limit(EVAL_FINALIZE_BATCH_SIZE)
+                )
+                .scalars()
+                .all()
+            )
+            snapshots = [
+                {
+                    "run_id": row.id,
+                    "workflow_version_id": row.workflow_version_id,
+                    "coze_execute_id": row.coze_execute_id,
+                    "podi_task_id": row.podi_task_id,
+                    "created_at": row.created_at,
+                }
+                for row in rows
+            ]
+
+        for item in snapshots:
+            run_id = str(item["run_id"])
+            podi_task_id = str(item.get("podi_task_id") or "").strip()
+            coze_execute_id = str(item.get("coze_execute_id") or "").strip()
+            if podi_task_id:
+                self._finalize_ability_task_run_once(
+                    run_id=run_id,
+                    task_id=podi_task_id,
+                    output_json=None,
+                    created_at=item.get("created_at"),
+                )
+                continue
+            if coze_execute_id:
+                self._finalize_coze_async_run_once(
+                    run_id=run_id,
+                    workflow_version_id=str(item.get("workflow_version_id") or ""),
+                    execute_id=coze_execute_id,
+                    created_at=item.get("created_at"),
+                )
 
     @staticmethod
     def _append_run_images(run_id: str, *, image_urls: list[str]) -> None:
@@ -424,6 +529,195 @@ class EvalService:
             run.result_image_urls_json = cur
             session.add(run)
             session.commit()
+
+    def _submit_coze_async_run(
+        self,
+        *,
+        run_id: str,
+        workflow_id: str,
+        coze_params: dict[str, Any],
+    ) -> tuple[bool, str | None]:
+        params = coze_params.copy()
+        last_error: str | None = None
+        for _ in range(2):
+            try:
+                resp = coze_client.run_workflow(
+                    workflow_id=workflow_id,
+                    parameters=params,
+                    is_async=True,
+                    request_id=run_id,
+                    max_retries=1,
+                )
+            except HTTPException as exc:
+                return False, str(exc.detail)
+            except Exception as exc:  # pragma: no cover - defensive
+                return False, str(exc)
+
+            base_resp = resp.get("BaseResp") or {}
+            status_code = base_resp.get("StatusCode")
+            code = resp.get("code")
+            if (isinstance(code, int) and code != 0) or (isinstance(status_code, int) and status_code != 0):
+                msg = resp.get("msg") or base_resp.get("StatusMessage") or "COZE_SUBMIT_FAILED"
+                if (
+                    isinstance(code, int)
+                    and code == 4000
+                    and isinstance(msg, str)
+                    and "Missing required parameters" in msg
+                ):
+                    patched = self._patch_missing_required_params(params, msg)
+                    if patched:
+                        params = patched
+                        continue
+                return False, f"COZE_SUBMIT_FAILED code={code} statusCode={status_code} msg={msg}"
+
+            execute_id = str(resp.get("execute_id") or "").strip()
+            debug_url = str(resp.get("debug_url") or "").strip()
+            if not execute_id:
+                last_error = "COZE_SUBMIT_MISSING_EXECUTE_ID"
+                continue
+            with get_session() as session:
+                run = session.get(EvalRun, run_id)
+                if run:
+                    run.status = "running"
+                    run.coze_execute_id = execute_id
+                    run.coze_debug_url = debug_url or run.coze_debug_url
+                    session.add(run)
+                    session.commit()
+            return True, None
+        return False, last_error or "COZE_SUBMIT_FAILED"
+
+    def _attach_ability_task_run(self, *, run_id: str, task_id: str, output_json: Any | None) -> None:
+        with get_session() as session:
+            run = session.get(EvalRun, run_id)
+            if not run:
+                return
+            run.status = "running"
+            run.podi_task_id = task_id
+            if output_json is not None:
+                run.result_output_json = output_json
+            session.add(run)
+            session.commit()
+
+    def _finalize_coze_async_run_once(
+        self,
+        *,
+        run_id: str,
+        workflow_version_id: str,
+        execute_id: str,
+        created_at: datetime | None,
+    ) -> None:
+        if created_at and (datetime.utcnow() - created_at).total_seconds() > EVAL_RUN_TIMEOUT_SECONDS:
+            self._mark_failed(run_id, message="COZE_ASYNC_TIMEOUT", started=None)
+            return
+        with get_session() as session:
+            workflow_version = session.get(EvalWorkflowVersion, workflow_version_id)
+            if not workflow_version:
+                self._mark_failed(run_id, message="WORKFLOW_VERSION_NOT_FOUND", started=None)
+                return
+            workflow_id = str(workflow_version.workflow_id)
+            expects_callback = self._workflow_expects_callback(workflow_version.output_schema)
+
+        try:
+            hist = coze_client.get_workflow_run_history(execute_id=execute_id, workflow_id=workflow_id)
+        except HTTPException as exc:
+            detail = str(exc.detail)
+            if self._is_retryable_eval_error(detail):
+                return
+            self._mark_failed(run_id, message=detail, started=None)
+            return
+        except Exception as exc:  # pragma: no cover - defensive
+            self._mark_failed(run_id, message=str(exc), started=None)
+            return
+
+        base_resp = hist.get("BaseResp") or {}
+        status_code = base_resp.get("StatusCode")
+        code = hist.get("code")
+        if (isinstance(code, int) and code != 0) or (isinstance(status_code, int) and status_code != 0):
+            msg = hist.get("msg") or base_resp.get("StatusMessage") or "COZE_HISTORY_FAILED"
+            self._mark_failed(run_id, message=f"COZE_HISTORY_FAILED code={code} statusCode={status_code} msg={msg}", started=None)
+            return
+
+        parsed = self._parse_coze_payload(hist)
+        if isinstance(parsed, dict):
+            if isinstance(parsed.get("$error"), str) and parsed.get("$error"):
+                self._mark_failed(run_id, message=f"COZE_WORKFLOW_ERROR: {parsed.get('$error')}", started=None)
+                return
+            if isinstance(parsed.get("error_msg"), str) and parsed.get("error_msg"):
+                self._mark_failed(run_id, message=f"COZE_WORKFLOW_ERROR: {parsed.get('error_msg')}", started=None)
+                return
+
+        image_urls = self._extract_image_urls(parsed)
+        output = parsed.get("output")
+        output_present = output is not None and not (isinstance(output, str) and not output.strip())
+        if image_urls:
+            self._mark_succeeded(run_id, image_urls=image_urls, output_json=self._extract_output_json(parsed), started=None)
+            return
+        if not output_present:
+            status = parsed.get("status") or parsed.get("run_status") or parsed.get("state")
+            if isinstance(status, str) and status.lower() in {"failed", "error", "canceled", "cancelled"}:
+                self._mark_failed(run_id, message=f"COZE_RUN_{status}", started=None)
+            return
+
+        podi_task_id: str | None
+        if expects_callback and isinstance(output, str) and output.strip():
+            podi_task_id = decode_task_id(output.strip())
+        else:
+            podi_task_id = decode_task_id(self._guess_podi_task_id(parsed, output))
+        if not podi_task_id:
+            output_json = self._extract_output_json(parsed)
+            if output_json is not None:
+                self._mark_succeeded(run_id, image_urls=[], output_json=output_json, started=None)
+                return
+            self._mark_failed(run_id, message=f"OUTPUT_NO_IMAGES output={str(output)[:128]}", started=None)
+            return
+
+        with get_session() as session:
+            task_row = session.get(AbilityTask, podi_task_id)
+        if not task_row:
+            # Coze may expose a task id before our DB transaction is visible.
+            return
+        output_json = self._extract_output_json(parsed)
+        self._attach_ability_task_run(run_id=run_id, task_id=podi_task_id, output_json=output_json)
+        self._finalize_ability_task_run_once(
+            run_id=run_id,
+            task_id=podi_task_id,
+            output_json=output_json,
+            created_at=created_at,
+        )
+
+    def _finalize_ability_task_run_once(
+        self,
+        *,
+        run_id: str,
+        task_id: str,
+        output_json: Any | None,
+        created_at: datetime | None,
+    ) -> None:
+        if created_at and (datetime.utcnow() - created_at).total_seconds() > EVAL_RUN_TIMEOUT_SECONDS:
+            self._mark_failed(run_id, message="TASK_TIMEOUT", started=None)
+            return
+        with get_session() as session:
+            task_row = session.get(AbilityTask, task_id)
+            if not task_row:
+                self._mark_failed(run_id, message="TASK_NOT_FOUND", started=None)
+                return
+            status = task_row.status
+            result_payload = task_row.result_payload if isinstance(task_row.result_payload, dict) else {}
+            error_message = task_row.error_message
+
+        if status == "succeeded":
+            self._mark_succeeded(
+                run_id,
+                image_urls=self._extract_image_urls_from_task_payload(result_payload),
+                output_json=output_json,
+                started=None,
+            )
+            return
+        if status == "failed":
+            self._mark_failed(run_id, message=error_message or "TASK_FAILED", started=None)
+            return
+        self._try_finalize_comfyui_task(task_id=task_id)
+        self._try_finalize_kie_task(task_id=task_id)
 
     def _execute_run(self, run_id: str) -> None:
         started = time.monotonic()
@@ -556,6 +850,16 @@ class EvalService:
                 primary_error = self._summarize_fanout_errors(errors) or "FANOUT_EMPTY"
                 self._mark_failed(run_id, message=primary_error, started=started)
                 return
+
+            submitted, submit_error = self._submit_coze_async_run(
+                run_id=run_id,
+                workflow_id=workflow_id,
+                coze_params=coze_params,
+            )
+            if submitted:
+                return
+            self._mark_failed(run_id, message=submit_error or "COZE_SUBMIT_FAILED", started=started)
+            return
 
             # Primary path: sync run (lower overhead).
             # Fallback: if Coze blocks longer than our HTTP timeout (common for long-running
@@ -1151,7 +1455,7 @@ class EvalService:
                         for it in images:
                             if not isinstance(it, dict):
                                 continue
-                            for k in ("ossUrl", "sourceUrl", "url"):
+                            for k in ("storedUrl", "ossUrl", "sourceUrl", "url"):
                                 v = it.get(k)
                                 if isinstance(v, str) and v.strip():
                                     image_urls.append(v.strip())
@@ -1207,7 +1511,7 @@ class EvalService:
                         for it in images:
                             if not isinstance(it, dict):
                                 continue
-                            for k in ("ossUrl", "sourceUrl", "url"):
+                            for k in ("storedUrl", "ossUrl", "sourceUrl", "url"):
                                 v = it.get(k)
                                 if isinstance(v, str) and v.strip():
                                     image_urls.append(v.strip())
@@ -1556,7 +1860,7 @@ class EvalService:
         *,
         image_urls: list[str],
         output_json: Any | None = None,
-        started: float,
+        started: float | None,
         error_message: str | None = None,
     ) -> None:
         # Last-line defense: avoid persisting obvious non-image debug URLs as "image outputs".
@@ -1590,19 +1894,25 @@ class EvalService:
             run.error_message = error_message
             run.result_image_urls_json = cleaned or []
             run.result_output_json = output_json
-            run.duration_ms = int((time.monotonic() - started) * 1000)
+            if started is not None:
+                run.duration_ms = int((time.monotonic() - started) * 1000)
+            else:
+                run.duration_ms = EvalService._elapsed_ms_since(run.created_at)
             session.add(run)
             session.commit()
 
     @staticmethod
-    def _mark_failed(run_id: str, *, message: str, started: float) -> None:
+    def _mark_failed(run_id: str, *, message: str, started: float | None) -> None:
         with get_session() as session:
             run = session.get(EvalRun, run_id)
             if not run:
                 return
             run.status = "failed"
             run.error_message = message
-            run.duration_ms = int((time.monotonic() - started) * 1000)
+            if started is not None:
+                run.duration_ms = int((time.monotonic() - started) * 1000)
+            else:
+                run.duration_ms = EvalService._elapsed_ms_since(run.created_at)
             session.add(run)
             session.commit()
 

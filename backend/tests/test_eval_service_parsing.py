@@ -1,4 +1,38 @@
 import json
+from datetime import datetime, timedelta
+from types import SimpleNamespace
+
+from app.models.eval import EvalRun, EvalWorkflowVersion
+
+
+class _FakeSession:
+    def __init__(self, *, run=None, workflow=None):
+        self.run = run
+        self.workflow = workflow
+        self.commits = 0
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def get(self, model, key):
+        if model is EvalRun:
+            return self.run
+        if model is EvalWorkflowVersion:
+            return self.workflow
+        return None
+
+    def add(self, item):
+        return None
+
+    def commit(self):
+        self.commits += 1
+
+
+def _fake_session_factory(fake_session):
+    return lambda: fake_session
 
 
 def test_parse_run_history_list_parses_output_json_dict():
@@ -88,3 +122,102 @@ def test_summarize_fanout_errors_groups_by_kind():
     assert "FANOUT_PARTIAL_FAILED[" in summary
     assert "NETWORK_EOF=2" in summary
     assert "TASK_IMAGES_EMPTY=1" in summary
+
+
+def test_extract_image_urls_from_task_payload_accepts_stored_url():
+    from app.services.eval_service import EvalService
+
+    payload = {
+        "images": [
+            {"storedUrl": "https://oss.example/a.png", "url": "https://vendor.example/a.png"},
+            {"ossUrl": "https://oss.example/b.png"},
+        ]
+    }
+
+    assert EvalService._extract_image_urls_from_task_payload(payload) == [
+        "https://oss.example/a.png",
+        "https://oss.example/b.png",
+    ]
+
+
+def test_submit_coze_async_run_persists_execute_id(monkeypatch):
+    from app.services import eval_service as eval_service_module
+    from app.services.eval_service import EvalService
+
+    run = SimpleNamespace(
+        id="run_1",
+        status="queued",
+        coze_execute_id=None,
+        coze_debug_url=None,
+        created_at=datetime.utcnow(),
+    )
+    fake_session = _FakeSession(run=run)
+    monkeypatch.setattr(eval_service_module, "get_session", _fake_session_factory(fake_session))
+
+    def _fake_run_workflow(**kwargs):
+        assert kwargs["is_async"] is True
+        return {"execute_id": "exec_1", "debug_url": "https://coze.example/debug"}
+
+    monkeypatch.setattr(eval_service_module.coze_client, "run_workflow", _fake_run_workflow)
+
+    service = EvalService.__new__(EvalService)
+    submitted, error = service._submit_coze_async_run(
+        run_id="run_1",
+        workflow_id="workflow_1",
+        coze_params={"url": "https://oss.example/input.png"},
+    )
+
+    assert submitted is True
+    assert error is None
+    assert run.status == "running"
+    assert run.coze_execute_id == "exec_1"
+    assert run.coze_debug_url == "https://coze.example/debug"
+    assert fake_session.commits == 1
+
+
+def test_finalize_coze_async_run_succeeds_with_text_output(monkeypatch):
+    from app.services import eval_service as eval_service_module
+    from app.services.eval_service import EvalService
+
+    run = SimpleNamespace(
+        id="run_1",
+        workflow_version_id="wf_v1",
+        status="running",
+        error_message=None,
+        result_image_urls_json=None,
+        result_output_json=None,
+        duration_ms=None,
+        created_at=datetime.utcnow() - timedelta(seconds=2),
+    )
+    workflow = SimpleNamespace(
+        id="wf_v1",
+        workflow_id="coze_workflow_1",
+        output_schema={"fields": [{"name": "output", "description": "文本结果"}]},
+    )
+    fake_session = _FakeSession(run=run, workflow=workflow)
+    monkeypatch.setattr(eval_service_module, "get_session", _fake_session_factory(fake_session))
+
+    def _fake_get_history(**kwargs):
+        return {
+            "data": [
+                {
+                    "execute_status": "Success",
+                    "output": json.dumps({"output": "这是一段文字结果"}),
+                }
+            ]
+        }
+
+    monkeypatch.setattr(eval_service_module.coze_client, "get_workflow_run_history", _fake_get_history)
+
+    service = EvalService.__new__(EvalService)
+    service._finalize_coze_async_run_once(
+        run_id="run_1",
+        workflow_version_id="wf_v1",
+        execute_id="exec_1",
+        created_at=run.created_at,
+    )
+
+    assert run.status == "succeeded"
+    assert run.result_image_urls_json == []
+    assert run.result_output_json == "这是一段文字结果"
+    assert run.duration_ms is not None
