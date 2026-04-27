@@ -7,6 +7,33 @@ import { EvaluationResultPanel } from './components/EvaluationResultPanel';
 import { EvaluationSidebar } from './components/EvaluationSidebar';
 
 type Notice = { type: 'error' | 'success' | 'info'; message: string };
+type WorkflowGovernanceDraft = {
+  role: string;
+  roleLabel: string;
+  roleReason: string;
+  rank: string;
+};
+
+const WORKFLOW_GOVERNANCE_ROLE_OPTIONS = [
+  { value: 'production', label: '生产主入口', rank: 10, hint: '业务默认优先使用' },
+  { value: 'candidate', label: '灰度/对照版本', rank: 30, hint: '用于试验或结果对比' },
+  { value: 'auxiliary', label: '辅助工具', rank: 70, hint: '内部排障或查询，不给业务当入口' },
+  { value: 'legacy', label: '历史保留', rank: 90, hint: '只保留记录，不建议继续使用' },
+  { value: 'disabled', label: '已停用', rank: 100, hint: '暂不展示为可用入口' },
+];
+
+const buildGovernanceDraft = (workflow: EvalWorkflowVersion | null): WorkflowGovernanceDraft => {
+  const governance = workflow?.governance || {};
+  const role = String(governance.role || 'candidate');
+  const option = WORKFLOW_GOVERNANCE_ROLE_OPTIONS.find((item) => item.value === role) || WORKFLOW_GOVERNANCE_ROLE_OPTIONS[1];
+  const rank = governance.rank == null ? option.rank : governance.rank;
+  return {
+    role,
+    roleLabel: String(governance.roleLabel || option.label),
+    roleReason: String(governance.roleReason || option.hint),
+    rank: String(rank),
+  };
+};
 
 function NoticeBar({ notice, onClose }: { notice: Notice | null; onClose: () => void }) {
   if (!notice) return null;
@@ -54,6 +81,8 @@ export function AbilityEvaluationPage() {
   const [evaluationResults, setEvaluationResults] = useState<EvalRun[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [isSavingWorkflowNotes, setIsSavingWorkflowNotes] = useState(false);
+  const [isSavingWorkflowGovernance, setIsSavingWorkflowGovernance] = useState(false);
+  const [governanceDraft, setGovernanceDraft] = useState<WorkflowGovernanceDraft>(buildGovernanceDraft(null));
   const [isPurgingRuns, setIsPurgingRuns] = useState(false);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [createError, setCreateError] = useState<string>('');
@@ -122,6 +151,16 @@ export function AbilityEvaluationPage() {
   useEffect(() => {
     void refreshWorkflows();
   }, []);
+
+  useEffect(() => {
+    setGovernanceDraft(buildGovernanceDraft(selectedWorkflow));
+  }, [
+    selectedWorkflow?.id,
+    selectedWorkflow?.governance?.role,
+    selectedWorkflow?.governance?.roleLabel,
+    selectedWorkflow?.governance?.roleReason,
+    selectedWorkflow?.governance?.rank,
+  ]);
 
   const refreshWorkflows = async () => {
     try {
@@ -276,18 +315,48 @@ export function AbilityEvaluationPage() {
     }
   };
 
+  const applyWorkflowUpdate = (workflow: EvalWorkflowVersion) => {
+    const normalized = { ...workflow, category: normalizeCategory(workflow.category) };
+    setWorkflows((prev) => prev.map((w) => (w.id === normalized.id ? normalized : w)));
+    setSelectedWorkflow((prev) => (prev && prev.id === normalized.id ? normalized : prev));
+  };
+
   const handleSaveWorkflowNotes = async (workflowVersionId: string, notes: string) => {
     setIsSavingWorkflowNotes(true);
     try {
       const updated = await adminApi.updateEvalWorkflowVersion(workflowVersionId, { notes });
-      setWorkflows((prev) => prev.map((w) => (w.id === updated.id ? updated : w)));
-      setSelectedWorkflow((prev) => (prev && prev.id === updated.id ? updated : prev));
+      applyWorkflowUpdate(updated);
       pushNotice({ type: 'success', message: '已保存功能介绍' });
     } catch (err) {
       console.error(err);
       pushNotice({ type: 'error', message: String((err as any)?.message || err) });
     } finally {
       setIsSavingWorkflowNotes(false);
+    }
+  };
+
+  const handleSaveWorkflowGovernance = async () => {
+    if (!selectedWorkflow?.id || isSavingWorkflowGovernance) return;
+    const roleOption =
+      WORKFLOW_GOVERNANCE_ROLE_OPTIONS.find((item) => item.value === governanceDraft.role) || WORKFLOW_GOVERNANCE_ROLE_OPTIONS[1];
+    const rankNumber = Number(governanceDraft.rank);
+    setIsSavingWorkflowGovernance(true);
+    try {
+      const updated = await adminApi.updateEvalWorkflowVersion(selectedWorkflow.id, {
+        governance: {
+          role: governanceDraft.role,
+          roleLabel: governanceDraft.roleLabel.trim() || roleOption.label,
+          roleReason: governanceDraft.roleReason.trim() || roleOption.hint,
+          rank: Number.isFinite(rankNumber) ? rankNumber : roleOption.rank,
+        },
+      });
+      applyWorkflowUpdate(updated);
+      pushNotice({ type: 'success', message: '已保存目录角色' });
+    } catch (err) {
+      console.error(err);
+      pushNotice({ type: 'error', message: String((err as any)?.message || err) });
+    } finally {
+      setIsSavingWorkflowGovernance(false);
     }
   };
 
@@ -463,6 +532,90 @@ export function AbilityEvaluationPage() {
             <div><ChartBubbleIcon size="14px" /> 跑结果并打分</div>
           </div>
         </div>
+        {selectedWorkflow ? (
+          <div className="mx-4 mt-3 rounded-2xl border border-slate-200 bg-white/80 p-4 text-slate-900 dark:border-slate-800 dark:bg-slate-950/50 dark:text-slate-100">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold">目录角色</div>
+                <div className="mt-1 text-xs text-slate-600 dark:text-slate-400">
+                  控制评测端展示顺序和业务推荐口径。生产主入口会优先展示，灰度/历史版本会降权。
+                </div>
+              </div>
+              <div className="rounded-full bg-sky-500/10 px-3 py-1 text-xs font-medium text-sky-700 dark:text-sky-200">
+                当前：{selectedWorkflow.governance?.roleLabel || '未归类'}
+              </div>
+            </div>
+            <div className="mt-4 grid gap-3 lg:grid-cols-[180px_180px_110px_minmax(220px,1fr)_120px]">
+              <label className="block">
+                <div className="text-xs text-slate-700 dark:text-slate-300">角色</div>
+                <select
+                  value={governanceDraft.role}
+                  onChange={(event) => {
+                    const option =
+                      WORKFLOW_GOVERNANCE_ROLE_OPTIONS.find((item) => item.value === event.target.value) ||
+                      WORKFLOW_GOVERNANCE_ROLE_OPTIONS[1];
+                    setGovernanceDraft((prev) => ({
+                      ...prev,
+                      role: option.value,
+                      roleLabel: option.label,
+                      roleReason: option.hint,
+                      rank: String(option.rank),
+                    }));
+                  }}
+                  className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
+                >
+                  {WORKFLOW_GOVERNANCE_ROLE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <div className="text-xs text-slate-700 dark:text-slate-300">展示名称</div>
+                <input
+                  value={governanceDraft.roleLabel}
+                  onChange={(event) => setGovernanceDraft((prev) => ({ ...prev, roleLabel: event.target.value }))}
+                  className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
+                  placeholder="例如：生产主入口"
+                />
+              </label>
+              <label className="block">
+                <div className="text-xs text-slate-700 dark:text-slate-300">排序</div>
+                <input
+                  value={governanceDraft.rank}
+                  inputMode="numeric"
+                  onChange={(event) => setGovernanceDraft((prev) => ({ ...prev, rank: event.target.value }))}
+                  className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
+                  placeholder="10"
+                />
+              </label>
+              <label className="block">
+                <div className="text-xs text-slate-700 dark:text-slate-300">给测试/运营看的说明</div>
+                <input
+                  value={governanceDraft.roleReason}
+                  onChange={(event) => setGovernanceDraft((prev) => ({ ...prev, roleReason: event.target.value }))}
+                  className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
+                  placeholder="说明这个版本为什么是主入口/灰度/历史"
+                />
+              </label>
+              <div className="flex items-end">
+                <button
+                  type="button"
+                  disabled={isSavingWorkflowGovernance}
+                  onClick={handleSaveWorkflowGovernance}
+                  className={`w-full rounded-xl px-3 py-2 text-sm font-semibold transition ${
+                    isSavingWorkflowGovernance
+                      ? 'bg-slate-300 text-slate-500 dark:bg-slate-800 dark:text-slate-500'
+                      : 'bg-sky-500 text-white hover:bg-sky-600'
+                  }`}
+                >
+                  {isSavingWorkflowGovernance ? '保存中…' : '保存角色'}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
         <EvaluationInputPanel
           selectedWorkflow={selectedWorkflow}
           selectedDatasetItem={selectedDatasetItem}

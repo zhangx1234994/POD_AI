@@ -28,6 +28,7 @@ export function EvaluationSidebar({ workflows, selectedWorkflow, onWorkflowSelec
   }, {});
 
   const categories = ['花纹提取类', '图延伸类', '四方/两方连续图类', '图裂变', '通用类'].filter((c) => (grouped[c] || []).length > 0);
+  const workflowSortKey = (workflow: EvalWorkflowVersion) => Number(workflow.governance?.rank ?? workflow.presentation?.sortOrder ?? 9999);
 
   return (
     <aside className="w-72 overflow-y-auto border-r border-slate-200 bg-white/70 p-4 dark:border-slate-800 dark:bg-slate-950/40">
@@ -66,9 +67,11 @@ export function EvaluationSidebar({ workflows, selectedWorkflow, onWorkflowSelec
             <div className="space-y-2">
               {grouped[cat]
                 .slice()
-                .sort((a, b) => a.name.localeCompare(b.name))
+                .sort((a, b) => workflowSortKey(a) - workflowSortKey(b) || a.name.localeCompare(b.name))
                 .map((wf) => {
                   const active = selectedWorkflow?.id === wf.id;
+                  const roleLabel = wf.governance?.roleLabel || (wf.governance?.isPrimary ? '生产主入口' : '');
+                  const variantLabel = wf.presentation?.variantLabel;
                   return (
                     <button
                       key={wf.id}
@@ -84,6 +87,20 @@ export function EvaluationSidebar({ workflows, selectedWorkflow, onWorkflowSelec
                         <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">{wf.name}</div>
                         <div className="text-[11px] text-slate-700 dark:text-slate-400">{wf.version}</div>
                       </div>
+                      {roleLabel || variantLabel ? (
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          {roleLabel ? (
+                            <span className="rounded-full bg-sky-500/10 px-2 py-0.5 text-[11px] font-medium text-sky-700 dark:text-sky-200">
+                              {roleLabel}
+                            </span>
+                          ) : null}
+                          {variantLabel ? (
+                            <span className="rounded-full bg-slate-500/10 px-2 py-0.5 text-[11px] text-slate-700 dark:text-slate-300">
+                              {variantLabel}
+                            </span>
+                          ) : null}
+                        </div>
+                      ) : null}
                       {wf.notes ? <div className="mt-1 text-xs text-slate-700 line-clamp-2 dark:text-slate-500">{wf.notes}</div> : null}
                       <div className="mt-1 text-xs text-slate-700 break-all dark:text-slate-400">{wf.workflow_id}</div>
                     </button>

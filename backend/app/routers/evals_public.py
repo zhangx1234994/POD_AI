@@ -67,7 +67,12 @@ from app.schemas.eval import (
 from app.services.comfyui_lora_catalog_service import ensure_default_lora_catalog_entries
 from app.services.eval_seed import FISSION_WORKFLOW_IDS, ensure_default_eval_workflow_versions
 from app.services.eval_operations_health import build_eval_operations_health
-from app.services.eval_workflow_response import build_eval_workflow_response_metadata, is_eval_workflow_publicly_visible
+from app.services.eval_workflow_response import (
+    EVAL_WORKFLOW_METADATA_UPDATE_KEYS,
+    build_eval_workflow_response_metadata,
+    is_eval_workflow_publicly_visible,
+    merge_eval_workflow_metadata_update,
+)
 from app.services.eval_service import get_eval_service
 from app.services.integration_test import integration_test_service
 from app.services.oss import oss_service
@@ -1414,9 +1419,16 @@ def admin_update_workflow_version(
     row = db.get(EvalWorkflowVersion, workflow_version_id)
     if not row:
         raise HTTPException(status_code=404, detail="NOT_FOUND")
+    metadata_update = {
+        key: body.pop(key)
+        for key in list(body.keys())
+        if key in EVAL_WORKFLOW_METADATA_UPDATE_KEYS
+    }
     for key in ("name", "notes", "category", "status", "version"):
         if key in body and isinstance(body[key], str):
             setattr(row, key, body[key].strip())
+    if metadata_update:
+        row.extra_metadata = merge_eval_workflow_metadata_update(row.extra_metadata, metadata_update)
     db.add(row)
     db.commit()
     db.refresh(row)

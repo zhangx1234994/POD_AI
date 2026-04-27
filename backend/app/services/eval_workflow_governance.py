@@ -119,8 +119,17 @@ def resolve_eval_workflow_governance(
         else:
             role = "production"
 
-    label = _clean_text(override.get("label")) or _ROLE_LABELS.get(role, "未归类")
-    reason = _clean_text(override.get("reason"))
+    label = (
+        _clean_text(override.get("label"))
+        or _clean_text(override.get("role_label"))
+        or _clean_text(override.get("roleLabel"))
+        or _ROLE_LABELS.get(role, "未归类")
+    )
+    reason = (
+        _clean_text(override.get("reason"))
+        or _clean_text(override.get("role_reason"))
+        or _clean_text(override.get("roleReason"))
+    )
     if not reason:
         if role == "production":
             reason = "当前推荐给业务优先使用。"
@@ -135,7 +144,7 @@ def resolve_eval_workflow_governance(
 
     rank = _ROLE_RANKS.get(role, 999)
     try:
-        rank = int(override.get("rank", rank))
+        rank = int(override.get("rank", override.get("sortRank", rank)))
     except (TypeError, ValueError):
         pass
 

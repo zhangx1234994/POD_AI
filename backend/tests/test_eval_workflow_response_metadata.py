@@ -3,7 +3,11 @@ from __future__ import annotations
 from datetime import datetime
 
 from app.models.eval import EvalWorkflowVersion
-from app.services.eval_workflow_response import build_eval_workflow_response_metadata, is_eval_workflow_publicly_visible
+from app.services.eval_workflow_response import (
+    build_eval_workflow_response_metadata,
+    is_eval_workflow_publicly_visible,
+    merge_eval_workflow_metadata_update,
+)
 
 
 def _workflow(**overrides) -> EvalWorkflowVersion:
@@ -50,3 +54,54 @@ def test_eval_workflow_cleanup_override_hides_deprecated_public_entry() -> None:
     assert payload["deprecation"]["isDeprecated"] is True
     assert payload["governance"]["role"] == "legacy"
     assert is_eval_workflow_publicly_visible(row) is False
+
+
+def test_eval_workflow_metadata_update_merges_governance_without_losing_blocks() -> None:
+    merged = merge_eval_workflow_metadata_update(
+        {
+            "presentation": {"variant_label": "高质量新版", "visible": True},
+            "usage": {"batch_enabled": True},
+        },
+        {
+            "governance": {
+                "role": "production",
+                "roleLabel": "生产主入口",
+                "roleReason": "用于业务默认入口。",
+                "rank": 8,
+            }
+        },
+    )
+
+    assert merged == {
+        "presentation": {"variant_label": "高质量新版", "visible": True},
+        "usage": {"batch_enabled": True},
+        "governance": {
+            "role": "production",
+            "roleLabel": "生产主入口",
+            "roleReason": "用于业务默认入口。",
+            "rank": 8,
+        },
+    }
+
+
+def test_eval_workflow_governance_accepts_camel_case_admin_override() -> None:
+    payload = build_eval_workflow_response_metadata(
+        _workflow(
+            extra_metadata={
+                "governance": {
+                    "role": "production",
+                    "roleLabel": "生产主入口",
+                    "roleReason": "人工标记为当前入口。",
+                    "rank": 5,
+                }
+            }
+        )
+    )
+
+    assert payload["governance"] == {
+        "role": "production",
+        "roleLabel": "生产主入口",
+        "roleReason": "人工标记为当前入口。",
+        "rank": 5,
+        "isPrimary": True,
+    }

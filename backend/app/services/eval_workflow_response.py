@@ -16,6 +16,9 @@ from app.services.eval_workflow_presentation import (
 from app.services.eval_workflow_usage import enrich_metadata_with_eval_workflow_usage
 
 
+EVAL_WORKFLOW_METADATA_UPDATE_KEYS = frozenset({"metadata", "presentation", "usage", "deprecation", "governance"})
+
+
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     result = deepcopy(base)
     for key, value in override.items():
@@ -24,6 +27,33 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
         else:
             result[key] = deepcopy(value)
     return result
+
+
+def merge_eval_workflow_metadata_update(
+    current: dict[str, Any] | None,
+    updates: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Merge admin-editable metadata blocks without losing unrelated fields."""
+
+    base = deepcopy(current) if isinstance(current, dict) else {}
+    if "metadata" in updates:
+        value = updates.get("metadata")
+        if value is None:
+            base = {}
+        elif isinstance(value, dict):
+            base = _deep_merge(base, value)
+
+    for key in ("presentation", "usage", "deprecation", "governance"):
+        if key not in updates:
+            continue
+        value = updates.get(key)
+        if value is None:
+            base.pop(key, None)
+        elif isinstance(value, dict):
+            existing = base.get(key) if isinstance(base.get(key), dict) else {}
+            base[key] = _deep_merge(existing, value)
+
+    return base or None
 
 
 def _camelize_presentation(payload: dict[str, Any] | None) -> dict[str, Any] | None:

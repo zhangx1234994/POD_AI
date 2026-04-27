@@ -31,7 +31,11 @@ from app.schemas.eval import (
     EvalAnnotationResponse,
 )
 from app.services.eval_operations_health import build_eval_operations_health
-from app.services.eval_workflow_response import build_eval_workflow_response_metadata
+from app.services.eval_workflow_response import (
+    EVAL_WORKFLOW_METADATA_UPDATE_KEYS,
+    build_eval_workflow_response_metadata,
+    merge_eval_workflow_metadata_update,
+)
 from app.services.eval_service import get_eval_service
 from app.services.eval_seed import ensure_default_eval_workflow_versions
 from app.services.integration_test import integration_test_service
@@ -167,8 +171,18 @@ async def update_workflow_version(
     if not workflow_version:
         raise HTTPException(status_code=404, detail="Workflow version not found")
     update_data = workflow_version_update.model_dump(exclude_unset=True)
+    metadata_update = {
+        key: update_data.pop(key)
+        for key in list(update_data.keys())
+        if key in EVAL_WORKFLOW_METADATA_UPDATE_KEYS
+    }
     for field, value in update_data.items():
         setattr(workflow_version, field, value)
+    if metadata_update:
+        workflow_version.extra_metadata = merge_eval_workflow_metadata_update(
+            workflow_version.extra_metadata,
+            metadata_update,
+        )
     db.add(workflow_version)
     db.commit()
     db.refresh(workflow_version)

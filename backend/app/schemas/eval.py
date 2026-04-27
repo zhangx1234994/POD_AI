@@ -34,6 +34,11 @@ class EvalWorkflowVersionUpdate(BaseModel):
     output_schema: Optional[dict[str, Any]] = Field(None, description="输出schema")
     notes: Optional[str] = Field(None, description="备注")
     status: Optional[str] = Field(None, description="状态")
+    metadata: Optional[dict[str, Any]] = Field(None, description="内部元数据")
+    presentation: Optional[dict[str, Any]] = Field(None, description="业务展示层覆盖")
+    usage: Optional[dict[str, Any]] = Field(None, description="业务使用方式覆盖")
+    deprecation: Optional[dict[str, Any]] = Field(None, description="下线/替代信息覆盖")
+    governance: Optional[dict[str, Any]] = Field(None, description="目录治理信息覆盖")
 
 
 class EvalWorkflowResourceBinding(BaseModel):
