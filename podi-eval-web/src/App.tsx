@@ -204,6 +204,10 @@ const AI_EDITOR_WORKFLOW_ID = '7604714915110060032';
 const SHENGTU_WORKFLOW_ID = '7602916576198656000';
 const LORA_BATCH_MAX_TASKS = 5000;
 const TERMINAL_BATCH_STATUS = new Set(['succeeded', 'failed', 'stopped']);
+const COMFYUI_EXECUTOR_LABELS: Record<string, string> = {
+  executor_comfyui_pattern_extract_158: '158 图形能力机',
+  executor_comfyui_seamless_117: '117 连续图能力机',
+};
 
 const isTerminalBatchStatus = (status?: string | null): boolean =>
   TERMINAL_BATCH_STATUS.has(String(status || '').toLowerCase());
@@ -219,6 +223,18 @@ const isUploadStageFailure = (item: LoraBatchItem): boolean => {
 
 const buildBatchReviewKey = (runItemId: string, outputIndex: number): string =>
   `${String(runItemId || '').trim()}::${Math.max(1, Number(outputIndex || 1))}`;
+
+const formatErrorCodeLabel = (code?: string | null): string => {
+  const raw = String(code || '').trim();
+  if (!raw) return '未归类错误';
+  const mapped = toDisplayErrorMessage(raw);
+  return mapped ? mapped.replace(`（${raw}）`, '') : raw;
+};
+
+const formatComfyuiExecutorLabel = (executorId?: string | null): string => {
+  const raw = String(executorId || '').trim();
+  return COMFYUI_EXECUTOR_LABELS[raw] || raw || '未命名节点';
+};
 
 const parseBatchReviewKey = (key: string): { runItemId: string; outputIndex: number } | null => {
   const parts = String(key || '').split('::');
@@ -6452,6 +6468,10 @@ export function App() {
     'EVAL_SUCCESS_WITHOUT_OUTPUT',
     operationsHealth?.succeededWithoutOutput?.length || 0,
   );
+  const healthErrorSummary = Object.entries(operationsHealth?.errorCounts || {})
+    .sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0))
+    .map(([code, count]) => `${formatErrorCodeLabel(code)} ${count} 条`)
+    .join('、');
   const comfyuiQueueCapacity = (comfyuiQueueSummary?.servers || []).reduce(
     (sum, server) => sum + Math.max(0, Number(server.queueMaxSize || 0)),
     0,
@@ -6596,6 +6616,27 @@ export function App() {
               ) : (
                 <Alert theme="success" message="最近没有发现长期运行、提交卡住、成功无结果等关键问题。" />
               )}
+              {healthErrorSummary ? (
+                <Alert theme="warning" message={`失败原因汇总：${healthErrorSummary}`} />
+              ) : null}
+              {operationsHealth.recentFailures?.length ? (
+                <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                  <Typography.Text strong>最近失败样本</Typography.Text>
+                  {operationsHealth.recentFailures.slice(0, 3).map((run) => (
+                    <div key={run.runId} className="podi-health-failure-row">
+                      <Tag theme={run.errorCode === 'INTERNAL_ONLY' ? 'danger' : 'warning'} variant="light">
+                        {formatErrorCodeLabel(run.errorCode)}
+                      </Tag>
+                      <Typography.Text>
+                        {run.workflowName || run.workflowId || run.runId}
+                      </Typography.Text>
+                      <Typography.Text theme="secondary">
+                        {toDisplayErrorMessage(run.errorMessage || run.errorCode || '') || '暂无错误详情'}
+                      </Typography.Text>
+                    </div>
+                  ))}
+                </Space>
+              ) : null}
             </>
           ) : null}
           {comfyuiQueueStatus === 'error' ? (
@@ -6619,9 +6660,15 @@ export function App() {
                   {(comfyuiQueueSummary.servers || []).map((server) => {
                     const current = Number(server.runningCount || 0) + Number(server.pendingCount || 0);
                     const max = server.queueMaxSize == null ? '未知' : String(server.queueMaxSize);
+                    const nodeLabel = formatComfyuiExecutorLabel(server.executorId);
+                    const queueMessage = server.message ? `，${formatErrorCodeLabel(server.message)}` : '';
                     return (
-                      <Tag key={server.executorId} variant="light" theme={current > 0 ? 'primary' : 'default'}>
-                        {server.executorId}：运行 {server.runningCount} / 排队 {server.pendingCount} / 上限 {max}
+                      <Tag
+                        key={server.executorId}
+                        variant="light"
+                        theme={server.supported === false ? 'danger' : current > 0 ? 'primary' : 'default'}
+                      >
+                        {nodeLabel}：运行 {server.runningCount} / 排队 {server.pendingCount} / 上限 {max}{queueMessage}
                       </Tag>
                     );
                   })}

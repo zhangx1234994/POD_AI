@@ -78,6 +78,24 @@
   flex-wrap: wrap;
 }
 
+.podi-health-failure-row {
+  display: grid;
+  grid-template-columns: max-content minmax(180px, 260px) minmax(280px, 1fr);
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--td-border-level-1-color);
+  border-radius: 10px;
+  background: var(--td-bg-color-container);
+}
+
+@media (max-width: 820px) {
+  .podi-health-failure-row {
+    grid-template-columns: 1fr;
+  }
+}
+
 .podi-history-row-head__rate {
   display: flex;
   flex-direction: column;
