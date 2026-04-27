@@ -236,6 +236,73 @@ const formatComfyuiExecutorLabel = (executorId?: string | null): string => {
   return COMFYUI_EXECUTOR_LABELS[raw] || raw || '未命名节点';
 };
 
+const getFailureActionMeta = (code?: string | null, message?: string | null) => {
+  const rawCode = String(code || '').trim();
+  const text = `${rawCode} ${message || ''}`.toLowerCase();
+  if (rawCode === 'VENDOR_CREDITS_INSUFFICIENT' || text.includes('credits insufficient') || text.includes('balance')) {
+    return {
+      label: '第三方账号余额不足',
+      theme: 'warning' as const,
+      suggestion: '先充值或切换可用 Key；如果暂时不测商业模型，可先避开这类工作流。',
+    };
+  }
+  if (rawCode === 'INTERNAL_ONLY' || text.includes('internal_only')) {
+    return {
+      label: '历史工具箱权限事故',
+      theme: 'danger' as const,
+      suggestion: '如果不再新增同类失败，说明修复已生效；保留观察到 24 小时窗口自然消失。',
+    };
+  }
+  if (rawCode === 'COMFYUI_QUEUE_STATUS_ERROR' || text.includes('comfyui_queue')) {
+    return {
+      label: 'ComfyUI 队列不可达',
+      theme: 'danger' as const,
+      suggestion: '检查对应 ComfyUI 服务和网络；中台会把不可读节点标记为异常，避免继续误投。',
+    };
+  }
+  if (rawCode === 'TASK_IMAGES_EMPTY' || rawCode === 'CALLBACK_IMAGES_EMPTY' || text.includes('images_empty')) {
+    return {
+      label: '已执行但没有结果图',
+      theme: 'warning' as const,
+      suggestion: '优先查回填链路和工作流输出节点，确认是否生成完成但没有落到 OSS。',
+    };
+  }
+  return {
+    label: rawCode ? formatErrorCodeLabel(rawCode) : '未归类失败',
+    theme: 'default' as const,
+    suggestion: '打开任务追踪查看原始错误；必要时把该工作流单独复测。',
+  };
+};
+
+const buildFailureActionItems = (runs: EvalOperationsHealth['recentFailures'] = []) => {
+  const grouped = new Map<
+    string,
+    {
+      code: string;
+      label: string;
+      theme: 'default' | 'primary' | 'warning' | 'danger' | 'success';
+      suggestion: string;
+      count: number;
+      sampleName: string;
+    }
+  >();
+  runs.forEach((run) => {
+    const code = String(run.errorCode || 'UNCLASSIFIED').trim();
+    const meta = getFailureActionMeta(code, run.errorMessage);
+    const item = grouped.get(code) || {
+      code,
+      label: meta.label,
+      theme: meta.theme,
+      suggestion: meta.suggestion,
+      count: 0,
+      sampleName: run.workflowName || run.workflowId || run.runId,
+    };
+    item.count += 1;
+    grouped.set(code, item);
+  });
+  return Array.from(grouped.values()).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, 'zh-CN'));
+};
+
 const parseBatchReviewKey = (key: string): { runItemId: string; outputIndex: number } | null => {
   const parts = String(key || '').split('::');
   if (parts.length !== 2) return null;
@@ -6472,6 +6539,7 @@ export function App() {
     .sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0))
     .map(([code, count]) => `${formatErrorCodeLabel(code)} ${count} 条`)
     .join('、');
+  const healthFailureActions = buildFailureActionItems(operationsHealth?.recentFailures || []);
   const comfyuiQueueCapacity = (comfyuiQueueSummary?.servers || []).reduce(
     (sum, server) => sum + Math.max(0, Number(server.queueMaxSize || 0)),
     0,
@@ -6618,6 +6686,23 @@ export function App() {
               )}
               {healthErrorSummary ? (
                 <Alert theme="warning" message={`失败原因汇总：${healthErrorSummary}`} />
+              ) : null}
+              {healthFailureActions.length ? (
+                <div className="podi-health-action-grid">
+                  {healthFailureActions.map((item) => (
+                    <div key={item.code} className="podi-health-action-card">
+                      <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                        <Space align="center">
+                          <Tag theme={item.theme} variant="light">{item.label}</Tag>
+                          <Typography.Text strong>{item.count} 条</Typography.Text>
+                        </Space>
+                        <Typography.Text theme="secondary">{formatErrorCodeLabel(item.code)}</Typography.Text>
+                      </Space>
+                      <Typography.Text theme="secondary">{item.suggestion}</Typography.Text>
+                      <Typography.Text theme="secondary">样例：{item.sampleName}</Typography.Text>
+                    </div>
+                  ))}
+                </div>
               ) : null}
               {operationsHealth.recentFailures?.length ? (
                 <Space direction="vertical" size="small" style={{ width: '100%' }}>
