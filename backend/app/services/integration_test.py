@@ -1282,6 +1282,13 @@ class IntegrationTestService:
             max_size_value = int(queue_max_size) if queue_max_size is not None else None
         except (TypeError, ValueError):
             max_size_value = None
+        if max_size_value is None:
+            # Many ComfyUI builds do not expose an explicit queue max. Use the
+            # platform executor cap so ops can still see the intended capacity.
+            try:
+                max_size_value = max(1, int(executor.max_concurrency or 0))
+            except (TypeError, ValueError):
+                max_size_value = None
         return {
             "executorId": executor.id,
             "baseUrl": base_url,
