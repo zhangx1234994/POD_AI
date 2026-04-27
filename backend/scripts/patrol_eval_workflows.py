@@ -56,12 +56,20 @@ def _build_params(workflow: dict[str, Any], sample_url: str, tag: str) -> dict[s
         params.setdefault("prompt", "日常巡检测试，请保持主体和风格稳定")
     if "bili" in field_names:
         params.setdefault("bili", "0.35")
+    # Patrol is a functional smoke, not a load test. Force single output even
+    # when workflow defaults use multi-image fan-out.
     if "count" in field_names:
-        params.setdefault("count", 1)
+        params["count"] = 1
+    if "generateCount" in field_names:
+        params["generateCount"] = 1
+    if "variantCount" in field_names:
+        params["variantCount"] = 1
+    if "n" in field_names:
+        params["n"] = 1
     if "batch" in field_names:
-        params.setdefault("batch", 1)
+        params["batch"] = 1
     if "batch_size" in field_names:
-        params.setdefault("batch_size", 1)
+        params["batch_size"] = 1
     if "expand_left" in field_names:
         params.setdefault("expand_left", 64)
     if "expand_right" in field_names:
