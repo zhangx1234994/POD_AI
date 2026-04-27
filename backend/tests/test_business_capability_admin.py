@@ -13,6 +13,7 @@ from app.core.db import Base
 from app.models.integration import Ability, AbilityInvocationLog, AbilityTask, BusinessCapability, BusinessRun, VendorModelCatalog
 from app.schemas.business import (
     BusinessCapabilityCreateRequest,
+    BusinessCapabilityPromoteRequest,
     BusinessCapabilityUpdateRequest,
     BusinessRunCreateRequest,
     BusinessUsageSummaryResponse,
@@ -186,6 +187,34 @@ def test_business_capability_update_switches_default(monkeypatch) -> None:
     assert updated["is_default"] is True
     assert listed["biz_fission_old"]["is_default"] is False
     assert listed[created["id"]]["is_default"] is True
+
+
+def test_business_capability_promote_sets_default_and_records_event(monkeypatch) -> None:
+    install_business_db(monkeypatch)
+    service = BusinessRunService()
+
+    created = service.create_capability(
+        BusinessCapabilityCreateRequest(
+            businessKey="fission",
+            version="v2",
+            displayName="新版图裂变",
+            status="inactive",
+            primaryAbilityId="ability_openai_fission",
+        )
+    )
+
+    promoted = service.promote_capability(
+        created["id"],
+        BusinessCapabilityPromoteRequest(note="验证通过后切默认"),
+    )
+    listed = {item["id"]: item for item in service.list_capabilities()}
+
+    assert promoted["status"] == "active"
+    assert promoted["is_default"] is True
+    assert listed["biz_fission_old"]["is_default"] is False
+    events = promoted["extra_metadata"]["releaseEvents"]
+    assert events[-1]["action"] == "promote_default"
+    assert events[-1]["note"] == "验证通过后切默认"
 
 
 def test_business_capability_create_accepts_multistep_recipe(monkeypatch) -> None:
@@ -960,6 +989,75 @@ def test_business_selects_rollout_version_by_allowlist(monkeypatch) -> None:
     assert selected.version == "v2"
     assert route["selectedBy"] == "rollout_allowlist"
     assert route["routeKeyHash"]
+
+
+def test_business_rollout_uses_top_level_tenant_id(monkeypatch) -> None:
+    install_business_db(monkeypatch)
+    service = BusinessRunService()
+
+    with business_runs_module.get_session() as session:
+        session.add(
+            BusinessCapability(
+                id="biz_fission_v2_gray",
+                business_key="fission",
+                version="v2",
+                display_name="灰度图裂变",
+                status="active",
+                is_default=False,
+                recipe={
+                    "mode": "single_ability_task",
+                    "primaryAbilityId": "ability_openai_fission",
+                    "steps": [{"id": "primary", "type": "ability_task", "abilityId": "ability_openai_fission"}],
+                },
+                extra_metadata={"rollout": {"enabled": True, "percent": 0, "allowlist": ["tenant-a"]}},
+            )
+        )
+        session.commit()
+        selected, route = service._select_capability(
+            session,
+            business_key="fission",
+            version=None,
+            payload=BusinessRunCreateRequest(imageUrl="https://example.com/a.png", tenantId="tenant-a"),
+            image_url="https://example.com/a.png",
+        )
+
+    assert selected.version == "v2"
+    assert route["selectedBy"] == "rollout_allowlist"
+
+
+def test_business_route_preview_does_not_submit_task(monkeypatch) -> None:
+    install_business_db(monkeypatch)
+    service = BusinessRunService()
+
+    with business_runs_module.get_session() as session:
+        session.add(
+            BusinessCapability(
+                id="biz_fission_v2_gray",
+                business_key="fission",
+                version="v2",
+                display_name="灰度图裂变",
+                status="active",
+                is_default=False,
+                recipe={
+                    "mode": "single_ability_task",
+                    "primaryAbilityId": "ability_openai_fission",
+                    "steps": [{"id": "primary", "type": "ability_task", "abilityId": "ability_openai_fission"}],
+                },
+                extra_metadata={"rollout": {"enabled": True, "percent": 0, "allowlist": ["tenant-a"]}},
+            )
+        )
+        session.commit()
+
+    preview = service.preview_route(
+        business_key="fission",
+        payload=BusinessRunCreateRequest(tenantId="tenant-a"),
+        user=None,
+    )
+
+    assert preview["selected_version"] == "v2"
+    assert preview["selected_by"] == "rollout_allowlist"
+    assert preview["default_version"] == "old"
+    assert any(item["version"] == "v2" and item["hasRollout"] for item in preview["active_versions"])
 
 
 def test_business_rollout_falls_back_to_default_when_missed(monkeypatch) -> None:

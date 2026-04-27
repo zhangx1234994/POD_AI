@@ -28,7 +28,12 @@ from app.models.integration import (
 )
 from app.models.user import User
 from app.schemas.abilities import AbilityInvokeRequest
-from app.schemas.business import BusinessCapabilityCreateRequest, BusinessCapabilityUpdateRequest, BusinessRunCreateRequest
+from app.schemas.business import (
+    BusinessCapabilityCreateRequest,
+    BusinessCapabilityPromoteRequest,
+    BusinessCapabilityUpdateRequest,
+    BusinessRunCreateRequest,
+)
 from app.services.ability_seed import ensure_default_abilities
 from app.services.ability_task_service import get_ability_task_service
 from app.services.business_seed import ensure_default_business_capabilities
@@ -174,6 +179,107 @@ class BusinessRunService:
             session.commit()
             session.refresh(row)
             return self._capability_to_dict(row, session=session)
+
+    def promote_capability(
+        self,
+        capability_id: str,
+        payload: BusinessCapabilityPromoteRequest | None = None,
+        *,
+        actor: User | None = None,
+    ) -> dict[str, Any]:
+        request = payload or BusinessCapabilityPromoteRequest()
+        with get_session() as session:
+            row = session.get(BusinessCapability, capability_id)
+            if not row:
+                raise HTTPException(status_code=404, detail="BUSINESS_CAPABILITY_NOT_FOUND")
+            if row.status != "active":
+                if not request.activate:
+                    raise HTTPException(status_code=400, detail="BUSINESS_DEFAULT_VERSION_MUST_BE_ACTIVE")
+                row.status = "active"
+            row.is_default = True
+            row.extra_metadata = self._append_release_event(
+                row.extra_metadata,
+                action="promote_default",
+                note=request.note,
+                actor=actor,
+            )
+            session.execute(
+                update(BusinessCapability)
+                .where(
+                    BusinessCapability.business_key == row.business_key,
+                    BusinessCapability.id != row.id,
+                )
+                .values(is_default=False)
+            )
+            session.add(row)
+            session.commit()
+            session.refresh(row)
+            return self._capability_to_dict(row, session=session)
+
+    def preview_route(
+        self,
+        *,
+        business_key: str,
+        payload: BusinessRunCreateRequest,
+        user: User | None,
+    ) -> dict[str, Any]:
+        with get_session() as session:
+            ensure_default_abilities(session)
+            ensure_default_business_capabilities(session)
+            image_url = self._first_string(
+                payload.imageUrl,
+                payload.url,
+                (payload.inputs or {}).get("imageUrl"),
+                (payload.inputs or {}).get("url"),
+            )
+            selected, route_info = self._select_capability(
+                session,
+                business_key=business_key,
+                version=payload.version,
+                payload=payload,
+                user=user,
+                image_url=image_url,
+            )
+            active_rows = (
+                session.execute(
+                    select(BusinessCapability)
+                    .where(
+                        BusinessCapability.business_key == business_key,
+                        BusinessCapability.status == "active",
+                    )
+                    .order_by(
+                        BusinessCapability.is_default.desc(),
+                        BusinessCapability.release_time.desc(),
+                        BusinessCapability.created_at.desc(),
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            default = next((row for row in active_rows if row.is_default), None)
+            return {
+                "business_key": business_key,
+                "requested_version": payload.version,
+                "selected_capability_id": selected.id,
+                "selected_version": selected.version,
+                "selected_display_name": selected.display_name,
+                "selected_status": selected.status,
+                "selected_is_default": selected.is_default,
+                "selected_by": route_info.get("selectedBy") or "default",
+                "route_info": route_info,
+                "default_capability_id": default.id if default else None,
+                "default_version": default.version if default else None,
+                "active_versions": [
+                    {
+                        "id": row.id,
+                        "version": row.version,
+                        "displayName": row.display_name,
+                        "isDefault": row.is_default,
+                        "hasRollout": bool(self._extract_rollout_config(row)),
+                    }
+                    for row in active_rows
+                ],
+            }
 
     def list_runs(
         self,
@@ -1318,6 +1424,10 @@ class BusinessRunService:
                 value = source.get(key)
                 if isinstance(value, (str, int, float)) and str(value).strip():
                     return str(value).strip()
+        if payload:
+            for value in (payload.tenantId, payload.clientId, payload.traceId, payload.requestId):
+                if isinstance(value, (str, int, float)) and str(value).strip():
+                    return str(value).strip()
         user_id = BusinessRunService._safe_user_id(user)
         if user_id:
             return user_id
@@ -1352,6 +1462,29 @@ class BusinessRunService:
         if not isinstance(value, list):
             return []
         return [str(item).strip() for item in value if isinstance(item, (str, int, float)) and str(item).strip()]
+
+    @staticmethod
+    def _append_release_event(
+        metadata: dict[str, Any] | None,
+        *,
+        action: str,
+        note: str | None,
+        actor: User | None,
+    ) -> dict[str, Any]:
+        next_metadata = dict(metadata or {})
+        raw_events = next_metadata.get("releaseEvents")
+        events = list(raw_events) if isinstance(raw_events, list) else []
+        actor_name = getattr(actor, "username", None) or getattr(actor, "email", None) or getattr(actor, "id", None)
+        events.append(
+            {
+                "action": action,
+                "note": str(note or "").strip() or None,
+                "actor": str(actor_name) if actor_name else None,
+                "at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+            }
+        )
+        next_metadata["releaseEvents"] = events[-20:]
+        return next_metadata
 
     def _route_info(
         self,

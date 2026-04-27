@@ -50,6 +50,7 @@ import type {
   BindingFormState,
   BusinessCapability,
   BusinessCapabilityFormState,
+  BusinessRoutePreviewResponse,
   BusinessRun,
   BusinessUsageSummaryResponse,
   DashboardMetrics,
@@ -2074,6 +2075,8 @@ export function IntegrationDashboard({
   const [businessFormError, setBusinessFormError] = useState<string | null>(null);
   const [businessActionError, setBusinessActionError] = useState<string | null>(null);
   const [businessActionLoadingId, setBusinessActionLoadingId] = useState<string | null>(null);
+  const [businessRoutePreviewKey, setBusinessRoutePreviewKey] = useState('');
+  const [businessRoutePreview, setBusinessRoutePreview] = useState<BusinessRoutePreviewResponse | null>(null);
   const [authUsers, setAuthUsers] = useState<AuthUser[]>([]);
   const [authSessions, setAuthSessions] = useState<AuthSession[]>([]);
   const [inviteCodes, setInviteCodes] = useState<InviteCode[]>([]);
@@ -6157,14 +6160,37 @@ export function IntegrationDashboard({
     setBusinessActionError(null);
     setBusinessActionLoadingId(`default:${item.id}`);
     try {
-      await adminApi.updateBusinessCapability(item.id, {
-        status: 'active',
-        isDefault: true,
+      await adminApi.promoteBusinessCapability(item.id, {
+        activate: true,
+        note: '管理端切换默认版本',
       });
       await load();
     } catch (error: any) {
       console.error('set default business capability failed', error);
       setBusinessActionError(error?.message || '切换默认版本失败，请检查服务日志。');
+    } finally {
+      setBusinessActionLoadingId(null);
+    }
+  };
+
+  const handleBusinessPreviewRoute = async (item: BusinessCapability) => {
+    setBusinessActionError(null);
+    setBusinessRoutePreview(null);
+    setBusinessActionLoadingId(`preview:${item.id}`);
+    try {
+      const routeKey = businessRoutePreviewKey.trim();
+      const payload: JsonRecord = {
+        imageUrl: 'https://example.com/route-preview.png',
+      };
+      if (routeKey) {
+        payload.tenantId = routeKey;
+        payload.metadata = { grayKey: routeKey };
+      }
+      const preview = await adminApi.previewBusinessRoute(item.businessKey, payload);
+      setBusinessRoutePreview(preview);
+    } catch (error: any) {
+      console.error('preview business route failed', error);
+      setBusinessActionError(error?.message || '灰度预览失败，请检查版本状态或服务日志。');
     } finally {
       setBusinessActionLoadingId(null);
     }
@@ -8698,6 +8724,34 @@ const extractErrorMessage = (error: unknown): string => {
                     新增业务版本
                   </Button>
                 </Space>
+                <Card bordered>
+                  <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                    <Typography.Text strong>灰度命中预览</Typography.Text>
+                    <Typography.Text theme="secondary">
+                      输入业务方标识后，在任一业务版本卡片点击“预览灰度”，即可确认当前会命中默认版还是灰度版，不会提交真实任务。
+                    </Typography.Text>
+                    <Space align="center" style={{ flexWrap: 'wrap' }}>
+                      <Input
+                        style={{ width: 260 }}
+                        value={businessRoutePreviewKey}
+                        placeholder="业务方标识，例如 tenant-a"
+                        onChange={(v) => setBusinessRoutePreviewKey(String(v))}
+                      />
+                      {businessRoutePreview ? (
+                        <Tag theme={businessRoutePreview.selectedBy === 'default' ? 'default' : 'primary'} variant="light">
+                          命中：{businessRoutePreview.selectedDisplayName} · {businessRoutePreview.selectedVersion}
+                          （{businessRoutePreview.selectedBy === 'rollout_allowlist'
+                            ? '白名单'
+                            : businessRoutePreview.selectedBy === 'rollout_percent'
+                              ? '比例灰度'
+                              : businessRoutePreview.selectedBy === 'explicit'
+                                ? '指定版本'
+                                : '默认版本'}）
+                        </Tag>
+                      ) : null}
+                    </Space>
+                  </Space>
+                </Card>
                 <Row gutter={[16, 16]}>
                   {businessCapabilities.map((item) => (
                     <Col key={item.id} xs={12} sm={6} lg={4}>
@@ -8806,6 +8860,15 @@ const extractErrorMessage = (error: unknown): string => {
                                     设为默认
                                   </Button>
                                 )}
+                                <Button
+                                  size="small"
+                                  variant="outline"
+                                  loading={businessActionLoadingId === `preview:${item.id}`}
+                                  disabled={actionBusy && businessActionLoadingId !== `preview:${item.id}`}
+                                  onClick={() => handleBusinessPreviewRoute(item)}
+                                >
+                                  预览灰度
+                                </Button>
                                 <Button
                                   size="small"
                                   theme={isActive ? 'warning' : 'primary'}

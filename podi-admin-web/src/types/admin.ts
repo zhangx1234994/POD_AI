@@ -468,6 +468,27 @@ export interface BusinessCapabilityFormState {
   metadataText: string;
 }
 
+export interface BusinessRoutePreviewResponse {
+  businessKey: string;
+  requestedVersion?: string | null;
+  selectedCapabilityId: string;
+  selectedVersion: string;
+  selectedDisplayName: string;
+  selectedStatus: string;
+  selectedIsDefault: boolean;
+  selectedBy: string;
+  routeInfo: JsonRecord;
+  defaultCapabilityId?: string | null;
+  defaultVersion?: string | null;
+  activeVersions: Array<{
+    id: string;
+    version: string;
+    displayName: string;
+    isDefault: boolean;
+    hasRollout: boolean;
+  }>;
+}
+
 export interface BusinessCapabilityListResponse {
   items: BusinessCapability[];
 }

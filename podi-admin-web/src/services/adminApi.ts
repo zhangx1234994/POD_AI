@@ -14,6 +14,7 @@ import type {
   Binding,
   BusinessCapability,
   BusinessCapabilityListResponse,
+  BusinessRoutePreviewResponse,
   BusinessRunListResponse,
   BusinessUsageSummaryResponse,
   DashboardMetrics,
@@ -875,6 +876,16 @@ export const adminApi = {
   updateBusinessCapability: (id: string, payload: Partial<BusinessCapability>) =>
     request<BusinessCapability>(`/api/admin/business/capabilities/${encodeURIComponent(id)}`, {
       method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+  promoteBusinessCapability: (id: string, payload?: { activate?: boolean; note?: string }) =>
+    request<BusinessCapability>(`/api/admin/business/capabilities/${encodeURIComponent(id)}/promote`, {
+      method: 'POST',
+      body: JSON.stringify(payload || { activate: true }),
+    }),
+  previewBusinessRoute: (businessKey: string, payload: JsonRecord) =>
+    request<BusinessRoutePreviewResponse>(`/api/admin/business/route-preview/${encodeURIComponent(businessKey)}`, {
+      method: 'POST',
       body: JSON.stringify(payload),
     }),
   listBusinessRuns: (options?: BusinessRunQueryOptions) => {

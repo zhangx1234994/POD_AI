@@ -80,6 +80,22 @@ def create_outpaint_run(
     return get_business_run_service().create_run(business_key="outpaint", payload=payload, user=user)
 
 
+@router.post("/fission/route-preview", response_model=schemas.BusinessRoutePreviewResponse, response_model_by_alias=False)
+def preview_fission_route(
+    payload: schemas.BusinessRunCreateRequest,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessRoutePreviewResponse:
+    return get_business_run_service().preview_route(business_key="fission", payload=payload, user=user)
+
+
+@router.post("/outpaint/route-preview", response_model=schemas.BusinessRoutePreviewResponse, response_model_by_alias=False)
+def preview_outpaint_route(
+    payload: schemas.BusinessRunCreateRequest,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessRoutePreviewResponse:
+    return get_business_run_service().preview_route(business_key="outpaint", payload=payload, user=user)
+
+
 @router.get("/runs/{run_id}", response_model=schemas.BusinessRunRead, response_model_by_alias=False)
 def get_business_run(
     run_id: str,
@@ -159,6 +175,23 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "debugUrl": {"type": "string", "nullable": True},
         },
     }
+    route_preview_schema = {
+        "type": "object",
+        "properties": {
+            "businessKey": {"type": "string"},
+            "requestedVersion": {"type": "string", "nullable": True},
+            "selectedCapabilityId": {"type": "string"},
+            "selectedVersion": {"type": "string"},
+            "selectedDisplayName": {"type": "string"},
+            "selectedStatus": {"type": "string"},
+            "selectedIsDefault": {"type": "boolean"},
+            "selectedBy": {"type": "string", "description": "explicit/default/rollout_allowlist/rollout_percent"},
+            "routeInfo": {"type": "object"},
+            "defaultCapabilityId": {"type": "string", "nullable": True},
+            "defaultVersion": {"type": "string", "nullable": True},
+            "activeVersions": {"type": "array", "items": {"type": "object"}},
+        },
+    }
     base_submit_properties = {
         "imageUrl": {"type": "string", "description": "原图 URL Image URL"},
         "prompt": {"type": "string", "nullable": True, "description": "业务提示词 Prompt"},
@@ -171,6 +204,8 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
         "tenantId": {"type": "string", "nullable": True, "description": "租户/业务方 ID。"},
         "clientId": {"type": "string", "nullable": True, "description": "客户端/应用 ID。"},
         "callbackUrl": {"type": "string", "nullable": True, "description": "终态回调地址"},
+        "callbackHeaders": {"type": "object", "nullable": True, "description": "终态回调请求头。"},
+        "metadata": {"type": "object", "nullable": True, "description": "业务上下文，例如 grayKey、tenantId、userId。"},
     }
     fission_submit_schema = {
         "type": "object",
@@ -186,6 +221,10 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "cfg": {"type": "number", "nullable": True, "description": "提示词控制强度。"},
         },
     }
+    fission_route_preview_schema = {
+        **fission_submit_schema,
+        "required": [],
+    }
     outpaint_submit_schema = {
         "type": "object",
         "required": ["imageUrl"],
@@ -199,6 +238,10 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "height": {"type": "integer", "nullable": True, "description": "输出高度。"},
             "timeout": {"type": "integer", "nullable": True, "description": "任务超时时间，单位秒。"},
         },
+    }
+    outpaint_route_preview_schema = {
+        **outpaint_submit_schema,
+        "required": [],
     }
     error_schema = {
         "type": "object",
@@ -253,6 +296,14 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             },
         }
 
+    def _route_preview_responses(*, errors_by_status: dict[str, list[str]]) -> dict[str, Any]:
+        responses = _business_responses(success_description="Business route preview", errors_by_status=errors_by_status)
+        responses["200"] = {
+            "description": "Business route preview",
+            "content": {"application/json": {"schema": route_preview_schema}},
+        }
+        return responses
+
     submit_errors = {
         "400": [
             "BUSINESS_IMAGE_URL_REQUIRED",
@@ -294,6 +345,24 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                     "description": "提交扩图业务任务。宽高、上下左右扩展量从 inputs 传入，底层版本由中台路由。",
                     "requestBody": {"required": True, "content": {"application/json": {"schema": outpaint_submit_schema}}},
                     "responses": _business_responses(success_description="Business run", errors_by_status=submit_errors),
+                }
+            },
+            "/api/business/fission/route-preview": {
+                "post": {
+                    "operationId": "podi_business_fission_route_preview",
+                    "summary": "PODI · 图裂变路由预览",
+                    "description": "不提交真实任务，只预览当前 tenantId/clientId/grayKey 会命中哪个业务版本，用于灰度验证。",
+                    "requestBody": {"required": True, "content": {"application/json": {"schema": fission_route_preview_schema}}},
+                    "responses": _route_preview_responses(errors_by_status=submit_errors),
+                }
+            },
+            "/api/business/outpaint/route-preview": {
+                "post": {
+                    "operationId": "podi_business_outpaint_route_preview",
+                    "summary": "PODI · 扩图路由预览",
+                    "description": "不提交真实任务，只预览当前 tenantId/clientId/grayKey 会命中哪个业务版本，用于灰度验证。",
+                    "requestBody": {"required": True, "content": {"application/json": {"schema": outpaint_route_preview_schema}}},
+                    "responses": _route_preview_responses(errors_by_status=submit_errors),
                 }
             },
             "/api/business/runs/get": {
@@ -350,6 +419,28 @@ def admin_update_business_capability(
     if user.role != "admin":
         raise HTTPException(status_code=403, detail="ADMIN_ONLY")
     return get_business_run_service().update_capability(capability_id, payload)
+
+
+@admin_router.post("/capabilities/{capability_id}/promote", response_model=schemas.BusinessCapabilityRead, response_model_by_alias=False)
+def admin_promote_business_capability(
+    capability_id: str,
+    payload: schemas.BusinessCapabilityPromoteRequest | None = None,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessCapabilityRead:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    return get_business_run_service().promote_capability(capability_id, payload, actor=user)
+
+
+@admin_router.post("/route-preview/{business_key}", response_model=schemas.BusinessRoutePreviewResponse, response_model_by_alias=False)
+def admin_preview_business_route(
+    business_key: str,
+    payload: schemas.BusinessRunCreateRequest,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessRoutePreviewResponse:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    return get_business_run_service().preview_route(business_key=business_key, payload=payload, user=user)
 
 
 @admin_router.get("/runs", response_model=schemas.BusinessRunListResponse, response_model_by_alias=False)

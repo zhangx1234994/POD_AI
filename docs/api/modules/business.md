@@ -274,6 +274,71 @@
 
 ## 4) 查询业务任务
 
+### POST /api/business/fission/route-preview
+
+### POST /api/business/outpaint/route-preview
+
+用途：在不提交真实任务、不消耗额度的情况下，预览某个业务方标识会命中哪个业务版本。主要用于默认版本切换前、灰度白名单验证、比例灰度验证。
+
+请求体示例：
+
+```json
+{
+  "tenantId": "tenant-a",
+  "clientId": "coze-main-workflow",
+  "metadata": {
+    "grayKey": "tenant-a"
+  }
+}
+```
+
+响应体示例：
+
+```json
+{
+  "businessKey": "fission",
+  "requestedVersion": null,
+  "selectedCapabilityId": "biz_fission_v2_gray",
+  "selectedVersion": "v2",
+  "selectedDisplayName": "图裂变 · GPT Image 2 灰度版",
+  "selectedStatus": "active",
+  "selectedIsDefault": false,
+  "selectedBy": "rollout_allowlist",
+  "routeInfo": {
+    "businessVersionId": "biz_fission_v2_gray",
+    "version": "v2",
+    "selectedBy": "rollout_allowlist",
+    "routeKeyHash": "6f8d7a9c21ab",
+    "rolloutPercent": 10
+  },
+  "defaultCapabilityId": "biz_fission_v1_default",
+  "defaultVersion": "v1",
+  "activeVersions": [
+    {
+      "id": "biz_fission_v2_gray",
+      "version": "v2",
+      "displayName": "图裂变 · GPT Image 2 灰度版",
+      "isDefault": false,
+      "hasRollout": true
+    }
+  ]
+}
+```
+
+说明：
+
+- 预览接口不会创建 `BusinessRun`，不会提交底层能力任务，也不会触发 Coze/ComfyUI/vendor 调用。
+- 灰度命中优先级：明确传 `version` > 灰度白名单 > 灰度比例 > 默认版本。
+- 灰度标识优先读取 `metadata.grayKey`、`metadata.tenantId`、`inputs.grayKey`，也支持顶层 `tenantId/clientId/traceId/requestId`。
+- 对外只返回 `routeKeyHash`，不返回业务方原始灰度标识。
+
+常见错误：
+
+- `AUTHORIZATION_REQUIRED`
+- `BUSINESS_CAPABILITY_NOT_FOUND`
+
+---
+
 ### GET /api/business/runs/{runId}
 
 用途：查询单个业务任务。
@@ -427,6 +492,8 @@ VL 进入统一能力弹药库，能力 ID：
 
 - `podi_business_fission_run`
 - `podi_business_outpaint_run`
+- `podi_business_fission_route_preview`
+- `podi_business_outpaint_route_preview`
 - `podi_business_run_get`
 
 OpenAPI 内每个工具都会枚举错误响应：
@@ -498,7 +565,7 @@ OpenAPI 内每个工具都会枚举错误响应：
 - 预置业务版本只负责初始化和补齐字段，不会在后续刷新时覆盖管理端已经切换的默认版本或启停状态。
 - `metadata.rollout` 是灰度规则；业务方不指定 `version` 时才会生效。
 - 灰度命中优先级：明确传 `version` > 灰度白名单 > 灰度比例 > 默认版本。
-- 灰度使用 `metadata.grayKey`、`metadata.tenantId`、`metadata.userId`、用户 ID 或图片 URL 做稳定分流；对外只返回 `routeKeyHash`，不直接暴露原始标识。
+- 灰度使用 `metadata.grayKey`、`metadata.tenantId`、`metadata.userId`、顶层 `tenantId/clientId/traceId/requestId`、用户 ID 或图片 URL 做稳定分流；对外只返回 `routeKeyHash`，不直接暴露原始标识。
 
 常见错误：
 
@@ -526,6 +593,52 @@ OpenAPI 内每个工具都会枚举错误响应：
 ```
 
 常见错误同新增接口。
+
+### POST /api/admin/business/capabilities/{capabilityId}/promote
+
+用途：把某个业务版本切为默认版本，并写入版本事件。相比直接 PATCH `isDefault=true`，这个接口语义更明确，适合管理端按钮、发布记录和后续审计。
+
+请求体：
+
+```json
+{
+  "activate": true,
+  "note": "灰度验证通过，切为默认版本"
+}
+```
+
+规则：
+
+- `activate=true` 时，如果目标版本当前未启用，会先启用再设为默认。
+- `activate=false` 且目标版本未启用时，返回 `BUSINESS_DEFAULT_VERSION_MUST_BE_ACTIVE`。
+- 成功后同一个 `businessKey` 下其它版本会自动取消默认。
+- 后端会在 `metadata.releaseEvents` 追加 `promote_default` 事件，记录切换原因、操作者和时间。
+
+常见错误：
+
+- `ADMIN_ONLY`
+- `BUSINESS_CAPABILITY_NOT_FOUND`
+- `BUSINESS_DEFAULT_VERSION_MUST_BE_ACTIVE`
+
+### POST /api/admin/business/route-preview/{businessKey}
+
+用途：管理端灰度命中预览。它和公开 `route-preview` 一样不提交真实任务，只用于验证某个 `tenantId/clientId/grayKey` 会命中哪个版本。
+
+请求体示例：
+
+```json
+{
+  "tenantId": "tenant-a",
+  "metadata": {
+    "grayKey": "tenant-a"
+  }
+}
+```
+
+常见错误：
+
+- `ADMIN_ONLY`
+- `BUSINESS_CAPABILITY_NOT_FOUND`
 
 ### GET /api/admin/business/runs
 

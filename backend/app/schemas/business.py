@@ -75,6 +75,28 @@ class BusinessCapabilityUpdateRequest(BaseModel):
     metadata: dict[str, Any] | None = Field(default=None, alias="extra_metadata")
 
 
+class BusinessCapabilityPromoteRequest(BaseModel):
+    activate: bool = Field(default=True, description="如果版本未启用，是否先启用再设为默认")
+    note: str | None = Field(default=None, description="切换原因，写入版本事件")
+
+
+class BusinessRoutePreviewResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    businessKey: str = Field(alias="business_key")
+    requestedVersion: str | None = Field(default=None, alias="requested_version")
+    selectedCapabilityId: str = Field(alias="selected_capability_id")
+    selectedVersion: str = Field(alias="selected_version")
+    selectedDisplayName: str = Field(alias="selected_display_name")
+    selectedStatus: str = Field(alias="selected_status")
+    selectedIsDefault: bool = Field(alias="selected_is_default")
+    selectedBy: str = Field(alias="selected_by")
+    routeInfo: dict[str, Any] = Field(alias="route_info")
+    defaultCapabilityId: str | None = Field(default=None, alias="default_capability_id")
+    defaultVersion: str | None = Field(default=None, alias="default_version")
+    activeVersions: list[dict[str, Any]] = Field(default_factory=list, alias="active_versions")
+
+
 class BusinessRunCreateRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 

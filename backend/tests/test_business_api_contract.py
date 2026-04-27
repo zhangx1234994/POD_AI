@@ -14,6 +14,8 @@ def test_business_openapi_exposes_flat_business_tools() -> None:
 
     assert "/api/business/fission/runs" in paths
     assert "/api/business/outpaint/runs" in paths
+    assert "/api/business/fission/route-preview" in paths
+    assert "/api/business/outpaint/route-preview" in paths
     assert "/api/business/runs/get" in paths
 
     submit_schema = paths["/api/business/fission/runs"]["post"]["requestBody"]["content"]["application/json"][
@@ -42,6 +44,17 @@ def test_business_openapi_exposes_flat_business_tools() -> None:
     ]
     assert {"expand_left", "expand_right", "expand_top", "expand_bottom", "width", "height"}.issubset(
         outpaint_schema["properties"]
+    )
+    preview_schema = paths["/api/business/fission/route-preview"]["post"]["requestBody"]["content"]["application/json"][
+        "schema"
+    ]
+    assert preview_schema["required"] == []
+    assert {"tenantId", "clientId", "version", "metadata"}.issubset(preview_schema["properties"])
+    preview_response = paths["/api/business/fission/route-preview"]["post"]["responses"]["200"]["content"][
+        "application/json"
+    ]["schema"]
+    assert {"selectedVersion", "selectedBy", "routeInfo", "activeVersions"}.issubset(
+        preview_response["properties"]
     )
 
     run_schema = paths["/api/business/runs/get"]["post"]["responses"]["200"]["content"]["application/json"]["schema"]
