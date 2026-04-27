@@ -145,3 +145,27 @@ def test_eval_operations_health_ignores_manual_patrol_abort_failures():
     assert report["issues"] == []
     assert report["recentFailures"] == []
     assert report["recentStatusCounts"]["failed"] == 1
+
+
+def test_eval_operations_health_ignores_prompt_required_failures():
+    session = _session()
+    now = datetime.utcnow()
+    session.add(_workflow())
+    session.add(
+        _run(
+            id="prompt_missing",
+            status="failed",
+            result_image_urls_json=None,
+            error_message="PROMPT_REQUIRED",
+            created_at=now - timedelta(minutes=2),
+            updated_at=now - timedelta(minutes=2),
+        )
+    )
+    session.commit()
+
+    report = build_eval_operations_health(session)
+
+    assert report["status"] == "healthy"
+    assert report["issues"] == []
+    assert report["recentFailures"] == []
+    assert report["recentStatusCounts"]["failed"] == 1

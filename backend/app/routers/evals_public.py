@@ -1085,6 +1085,8 @@ def get_workflow_docs(
             "`COZE_SUBMIT_FAILED` / `COZE_SUBMIT_MISSING_EXECUTE_ID`：提交失败或缺少 execute_id。",
             "`COZE_HISTORY_FAILED`：Coze history 查询失败。",
             "`WORKFLOW_VERSION_NOT_FOUND`：评测平台未找到对应 workflow 版本。",
+            "`PROMPT_REQUIRED`：缺少提示词，通常是人工测试入参不完整。",
+            "`VENDOR_CREDITS_INSUFFICIENT`：第三方账号余额不足。",
             "`FANOUT_EMPTY` / `FANOUT_PARTIAL_FAILED`：批量子任务全部失败或部分失败。",
         ]
         if output_kind == "callback_task_id":
@@ -1192,6 +1194,8 @@ def get_workflow_docs(
     lines.append("| INTERNAL_ONLY | 仅内网可访问 | IP 未放行 |")
     lines.append("| WORKFLOW_ID_MISSING | 缺少 workflow_id | 请求体缺字段 |")
     lines.append("| WORKFLOW_VERSION_NOT_FOUND | workflow 版本不存在 | workflow_id 不在评测库 |")
+    lines.append("| PROMPT_REQUIRED | 缺少提示词 | 人工测试/模型调用入参不完整 |")
+    lines.append("| VENDOR_CREDITS_INSUFFICIENT | 第三方账号余额不足 | KIE/OpenAI-compatible/中转站余额不足 |")
     lines.append("| FANOUT_EMPTY | 批量子任务全部失败 | fanout 模式 |")
     lines.append("| FANOUT_PARTIAL_FAILED | 批量部分失败 | fanout 模式 |")
     lines.append("| COZE_SUBMIT_FAILED | 提交 Coze 失败 | /v1/workflow/run 返回错误 |")

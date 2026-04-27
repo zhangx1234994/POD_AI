@@ -11,6 +11,24 @@ def test_extract_error_code_from_err_format() -> None:
     assert extract_error_code("ERR|Q1001|COMFYUI_QUEUE_FULL(limit=10)") == "Q1001"
 
 
+def test_extract_error_code_from_fanout_summary() -> None:
+    assert extract_error_code("FANOUT_PARTIAL_FAILED[TASK_IMAGES_EMPTY=4]: details") == "TASK_IMAGES_EMPTY"
+
+
+def test_extract_error_code_from_vendor_credits_message() -> None:
+    message = "TASK_IMAGES_EMPTY: provider=kie;error=Credits insufficient : Your current balance is not enough"
+    assert extract_error_code(message) == "VENDOR_CREDITS_INSUFFICIENT"
+
+
+def test_extract_error_code_from_internal_only_payload() -> None:
+    message = 'COZE_WORKFLOW_ERROR: status=401 Unauthorized resp={"detail":"INTERNAL_ONLY"}'
+    assert extract_error_code(message) == "INTERNAL_ONLY"
+
+
+def test_extract_error_code_from_prompt_required_detail() -> None:
+    assert extract_error_code("PROMPT_REQUIRED") == "PROMPT_REQUIRED"
+
+
 def test_ability_task_status_success() -> None:
     stage = derive_ability_task_status(status="succeeded")
     assert stage.submit_status == "submitted"

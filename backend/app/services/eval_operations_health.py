@@ -15,6 +15,9 @@ from app.services.task_status_contract import extract_error_code
 _NON_ACTIONABLE_FAILURE_CODES = {
     # Manual patrol cancellation is an operator action, not a business chain failure.
     "EVAL_PATROL_ABORTED",
+    # Missing input in an ad-hoc test is visible in raw counters, but should not
+    # page the operations health dashboard as a production chain failure.
+    "PROMPT_REQUIRED",
 }
 
 

@@ -6,6 +6,7 @@ the new dual-stage status contract without schema-breaking migrations.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -32,6 +33,26 @@ def extract_error_code(error_message: str | None) -> str | None:
         parts = text.split("|", 2)
         if len(parts) >= 2 and parts[1].strip():
             return parts[1].strip()
+    lowered = text.lower()
+    if (
+        "credits insufficient" in lowered
+        or "insufficient balance" in lowered
+        or "current balance" in lowered
+    ):
+        return "VENDOR_CREDITS_INSUFFICIENT"
+    if "internal_only" in lowered:
+        return "INTERNAL_ONLY"
+    if "prompt_required" in lowered:
+        return "PROMPT_REQUIRED"
+
+    fanout_match = re.match(r"^(FANOUT_[A-Z0-9_]+)(?:\[([^\]]+)\])?", text)
+    if fanout_match:
+        summary = fanout_match.group(2) or ""
+        inner_match = re.search(r"\b([A-Z][A-Z0-9_]+)\s*=", summary)
+        if inner_match:
+            return inner_match.group(1)
+        return fanout_match.group(1)
+
     for sep in (" ", ":", "|"):
         if sep in text:
             token = text.split(sep, 1)[0].strip()

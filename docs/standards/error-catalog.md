@@ -95,6 +95,7 @@
 | BUSINESS_RUN_ID_REQUIRED | 查询业务任务缺少 runId | 400 |
 | BUSINESS_RUN_NOT_FOUND | 业务任务不存在 | 404 |
 | BUSINESS_RUN_FORBIDDEN | 业务任务无访问权限 | 403 |
+| PROMPT_REQUIRED | 缺少提示词 | 400，人工测试/模型调用缺少必填 prompt |
 | INVALID_WORKFLOW_OR_EXECUTOR | workflow 或 executor 无效 | 400 |
 | BATCH_NOT_FOUND | 批测批次不存在 | 404 |
 | BATCH_FORBIDDEN | 批测批次无权限 | 403 |
@@ -289,6 +290,7 @@
 | VENDOR_API_KEY_MISSING | 第三方 API Key 缺失 | 不暴露 Key 明文 |
 | VENDOR_API_KEY_NOT_FOUND | 第三方 API Key 记录不存在 | 单条 Key 编辑、验证 |
 | VENDOR_API_AUTH_FAILED | 第三方 API Key 验证失败 | Key 错误、Secret 错误、账号被禁用或额度异常 |
+| VENDOR_CREDITS_INSUFFICIENT | 第三方账号余额不足 | KIE/OpenAI-compatible/中转站等返回余额不足时用于健康分类 |
 | VENDOR_API_INPUT_INVALID | 第三方 API 入参不合法 | 缺少图片、蒙版、任务必填字段等 provider 级校验失败 |
 | VENDOR_API_RATE_LIMITED | 第三方 API 限流 | 应进入 Key 冷却或切换 Key |
 | VENDOR_API_TIMEOUT | 第三方 API 调用超时 | 常见于网络出口或代理异常 |
