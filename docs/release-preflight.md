@@ -33,7 +33,8 @@ Fast path on the backend/Coze host:
 ```bash
 python3 backend/scripts/podi_release_smoke.py \
   --base-url http://127.0.0.1:8099 \
-  --expect-server-url http://10.11.0.7:8099
+  --expect-server-url http://10.11.0.7:8099 \
+  --max-production-per-category 2
 ```
 
 Eval operations gate:
@@ -51,7 +52,7 @@ Expected:
 - `coze_openapi` passes and shows the address Coze uses.
 - `internal_tasks_get` returns `404 TASK_NOT_FOUND`, not `401 INTERNAL_ONLY`.
 - `comfyui_queue_summary` returns all active ComfyUI executors.
-- `eval_workflow_catalog` returns a non-empty public catalog, includes at least one `production` workflow, and does not leak `legacy/auxiliary/disabled` roles.
+- `eval_workflow_catalog` returns a non-empty public catalog, includes at least one `production` workflow, does not leak `legacy/auxiliary/disabled` roles, has no duplicate workflow IDs, and does not exceed 2 production entries in one business category.
 - `check_eval_operations_health.py` returns `healthy` or only an accepted `warning`; `critical` blocks release.
 - `COMFYUI_EXECUTOR_UNREACHABLE` is not ignored: either restore the executor service or explicitly mark the executor offline before release.
 

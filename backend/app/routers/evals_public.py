@@ -198,9 +198,9 @@ def _serialize_workflow_version(version: EvalWorkflowVersion) -> EvalWorkflowVer
 
 
 def _dedupe_workflow_versions(rows: list[EvalWorkflowVersion]) -> list[EvalWorkflowVersion]:
-    dedup: dict[tuple[str, str], EvalWorkflowVersion] = {}
+    dedup: dict[str, EvalWorkflowVersion] = {}
     for row in rows:
-        key = (str(row.workflow_id or "").strip(), str(row.category or "").strip())
+        key = str(row.workflow_id or "").strip() or str(row.id)
         if key not in dedup:
             dedup[key] = row
     return list(dedup.values())
@@ -825,8 +825,8 @@ def list_workflow_versions(
     if status:
         stmt = stmt.where(EvalWorkflowVersion.status == status)
     rows = db.execute(stmt.order_by(EvalWorkflowVersion.category.asc(), EvalWorkflowVersion.created_at.desc())).scalars().all()
-    rows = _dedupe_workflow_versions(rows)
     rows = [row for row in rows if is_eval_workflow_publicly_visible(row)]
+    rows = _dedupe_workflow_versions(rows)
     return [_serialize_workflow_version(row) for row in rows]
 
 

@@ -17,6 +17,7 @@ import httpx
 
 
 PUBLIC_EVAL_WORKFLOW_ROLES = {"production", "candidate"}
+DEFAULT_MAX_PRODUCTION_PER_CATEGORY = 2
 
 
 def _short(value: Any, limit: int = 500) -> str:
@@ -48,7 +49,11 @@ def _post_json(client: httpx.Client, path: str, payload: dict[str, Any]) -> tupl
     return response.status_code, data
 
 
-def _validate_eval_workflow_catalog(data: Any) -> tuple[bool, str]:
+def _validate_eval_workflow_catalog(
+    data: Any,
+    *,
+    max_production_per_category: int = DEFAULT_MAX_PRODUCTION_PER_CATEGORY,
+) -> tuple[bool, str]:
     items = data.get("items") if isinstance(data, dict) else data
     if not isinstance(items, list):
         return False, "workflow list is not a list"
@@ -56,6 +61,8 @@ def _validate_eval_workflow_catalog(data: Any) -> tuple[bool, str]:
         return False, "workflow list is empty"
 
     role_counts: Counter[str] = Counter()
+    production_by_category: dict[str, list[str]] = {}
+    workflow_id_counts: Counter[str] = Counter()
     leaked: list[str] = []
     missing_governance: list[str] = []
     hidden_public: list[str] = []
@@ -63,33 +70,64 @@ def _validate_eval_workflow_catalog(data: Any) -> tuple[bool, str]:
         if not isinstance(item, dict):
             continue
         workflow_id = str(item.get("workflow_id") or item.get("workflowId") or item.get("id") or "-")
+        workflow_id_counts[workflow_id] += 1
+        presentation = item.get("presentation") if isinstance(item.get("presentation"), dict) else {}
+        category = str(
+            presentation.get("categoryLabel")
+            or presentation.get("category_label")
+            or item.get("category")
+            or "未归类"
+        ).strip() or "未归类"
         governance = item.get("governance") if isinstance(item.get("governance"), dict) else {}
         role = str(governance.get("role") or "").strip().lower()
         if not role:
             missing_governance.append(workflow_id)
             continue
         role_counts[role] += 1
+        if role == "production":
+            production_by_category.setdefault(category, []).append(workflow_id)
         if role not in PUBLIC_EVAL_WORKFLOW_ROLES:
             leaked.append(f"{workflow_id}:{role}")
-        presentation = item.get("presentation") if isinstance(item.get("presentation"), dict) else {}
         if presentation.get("visible") is False:
             hidden_public.append(workflow_id)
 
     if missing_governance:
         return False, f"missing governance={missing_governance[:5]}"
+    duplicated_ids = [workflow_id for workflow_id, count in workflow_id_counts.items() if workflow_id and count > 1]
+    if duplicated_ids:
+        return False, f"duplicated workflow ids in public catalog={duplicated_ids[:5]}"
     if leaked:
         return False, f"non-public roles leaked={leaked[:5]} roles={dict(role_counts)}"
     if hidden_public:
         return False, f"public list contains visible=false workflows={hidden_public[:5]}"
     if role_counts.get("production", 0) <= 0:
         return False, f"no production workflow in public catalog roles={dict(role_counts)}"
-    return True, f"count={len(items)} roles={dict(role_counts)}"
+    over_limit = {
+        category: workflow_ids
+        for category, workflow_ids in production_by_category.items()
+        if len(workflow_ids) > max(1, max_production_per_category)
+    }
+    if over_limit:
+        preview = {category: workflow_ids[:5] for category, workflow_ids in over_limit.items()}
+        return (
+            False,
+            "too many production workflows per category="
+            f"{preview} max={max_production_per_category} roles={dict(role_counts)}",
+        )
+    production_counts = {category: len(workflow_ids) for category, workflow_ids in production_by_category.items()}
+    return True, f"count={len(items)} roles={dict(role_counts)} productionByCategory={production_counts}"
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run PODI backend release smoke checks.")
     parser.add_argument("--base-url", default="http://127.0.0.1:8099")
     parser.add_argument("--expect-server-url", default="", help="Optional OpenAPI servers[0].url expectation.")
+    parser.add_argument(
+        "--max-production-per-category",
+        type=int,
+        default=DEFAULT_MAX_PRODUCTION_PER_CATEGORY,
+        help="Maximum public production entries allowed in one business category.",
+    )
     parser.add_argument("--json", action="store_true", help="Print machine-readable summary at the end.")
     args = parser.parse_args()
 
@@ -140,7 +178,10 @@ def main() -> int:
 
         try:
             status, data = _get_json(client, "/api/evals/workflow-versions")
-            ok, catalog_detail = _validate_eval_workflow_catalog(data)
+            ok, catalog_detail = _validate_eval_workflow_catalog(
+                data,
+                max_production_per_category=args.max_production_per_category,
+            )
             checks.append(_result("eval_workflow_catalog", status == 200 and ok, f"status={status} {catalog_detail}"))
         except Exception as exc:
             checks.append(_result("eval_workflow_catalog", False, repr(exc)))
