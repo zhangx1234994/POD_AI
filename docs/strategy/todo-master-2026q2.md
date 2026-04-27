@@ -37,6 +37,8 @@
   - ComfyUI `success` 但无图时不能长期 `running`，必须明确失败并给出 `COMFYUI_IMAGES_EMPTY`。
   - 任何 `INTERNAL_ONLY`、工具箱导入失败、主工作流失败都必须阻断发版。
 - 进展（2026-04-27）：已修复 Coze 同机调用、ComfyUI 空输出无限 running、背景抠图缓存空 history；114 上 smoke 通过，背景抠图 4 任务分流到两台 ComfyUI 且全部成功。
+- 进展（2026-04-27）：评测端首页已接入链路健康卡片、失败原因汇总、最近失败样本、ComfyUI 队列汇总；`check_eval_operations_health.py` 已纳入 ComfyUI 执行节点健康，能识别 `COMFYUI_EXECUTOR_UNREACHABLE` / `COMFYUI_NO_AVAILABLE_EXECUTOR` 并进入发版门禁。
+- 当前未收口（2026-04-27）：KIE 商业模型余额不足导致 2 条图裂变失败；`executor_comfyui_seamless_117` 队列不可读，需要确认是临时恢复服务还是正式下线/替换。
 
 1. `doing` 战略指标面板落地
 - 产物：北极星与 5 个 KPI 的数据定义、口径说明、查询来源
