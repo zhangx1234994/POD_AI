@@ -113,11 +113,10 @@ def resolve_eval_workflow_governance(
             role = "production"
         elif _is_auxiliary_name(name_text):
             role = "auxiliary"
-        elif category_text == "图裂变":
-            # 图裂变历史版本较多，未声明为主线的 active 版本默认作为灰度/对照。
-            role = "candidate"
         else:
-            role = "production"
+            # 未明确声明为主入口的 active 版本默认作为灰度/对照，
+            # 避免公开目录里出现过多“生产主入口”。
+            role = "candidate"
 
     label = (
         _clean_text(override.get("label"))

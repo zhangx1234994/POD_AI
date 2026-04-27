@@ -46,6 +46,12 @@
 
 前端排序必须优先按 `governance.rank`，再按 `presentation.sortOrder`。业务卡片必须展示 `roleLabel` 和 `roleReason`，避免一堆同名“图裂变”无法分辨。
 
+默认规则：
+
+- 只有代码内主入口清单或管理端人工指定的工作流才是 `production`。
+- 其他 active 工作流默认是 `candidate`，用于灰度和结果对照。
+- 不允许因为工作流处于 active 状态就自动当成生产主入口。
+
 公开评测端只展示：
 
 - `role=production`

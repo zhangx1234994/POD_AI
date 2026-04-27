@@ -42,6 +42,34 @@ def test_eval_workflow_response_exposes_business_catalog_role() -> None:
     }
 
 
+def test_eval_workflow_unlisted_active_defaults_to_candidate() -> None:
+    payload = build_eval_workflow_response_metadata(
+        _workflow(
+            category="花纹提取类",
+            name="花纹提取 · 实验版本",
+            workflow_id="unlisted_workflow_id",
+        )
+    )
+
+    assert payload["governance"]["role"] == "candidate"
+    assert payload["governance"]["roleLabel"] == "灰度/对照版本"
+    assert payload["governance"]["isPrimary"] is False
+
+
+def test_eval_workflow_known_primary_remains_production() -> None:
+    payload = build_eval_workflow_response_metadata(
+        _workflow(
+            category="花纹提取类",
+            name="花纹提取 · 当前主线",
+            workflow_id="7601080398864449536",
+        )
+    )
+
+    assert payload["governance"]["role"] == "production"
+    assert payload["governance"]["roleLabel"] == "生产主入口"
+    assert payload["governance"]["isPrimary"] is True
+
+
 def test_eval_workflow_cleanup_override_hides_deprecated_public_entry() -> None:
     row = _workflow(
         category="图延伸类",
