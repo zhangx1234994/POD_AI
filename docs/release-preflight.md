@@ -163,6 +163,9 @@ Run on the backend host:
 python3 backend/scripts/comfyui_capacity_probe.py \
   --capability-key <confirmed-safe-comfyui-capability> \
   --count 12 \
+  --min-used-executors 2 \
+  --min-peak-queue-total 8 \
+  --min-successful-tasks 12 \
   --yes
 ```
 
@@ -170,6 +173,8 @@ Expected:
 
 - queue snapshots show running/pending counts changing during the probe.
 - task summary shows which executor each task used.
+- report summary includes peak queue, peak running, peak pending, and per-executor peak queue counts.
+- if `--min-*` thresholds are set, the script exits non-zero when observed queue/utilization does not meet expectation.
 - a single executor does not exceed 10 queued + running tasks.
 - if a capability is expected to be dual-machine capable, tasks should distribute across both machines.
 - terminal status must not stay `running` after ComfyUI `/history` has `status=success`.

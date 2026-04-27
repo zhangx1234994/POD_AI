@@ -155,6 +155,107 @@ def _executor_counts(task_payloads: dict[str, dict[str, Any]]) -> dict[str, int]
     return dict(counts)
 
 
+def _int_value(value: Any) -> int:
+    try:
+        return max(0, int(value or 0))
+    except Exception:
+        return 0
+
+
+def _server_queue_counts(queue: dict[str, Any]) -> dict[str, int]:
+    servers = queue.get("servers")
+    if not isinstance(servers, list):
+        return {}
+    counts: dict[str, int] = {}
+    for item in servers:
+        if not isinstance(item, dict):
+            continue
+        executor_id = str(item.get("executorId") or item.get("executor_id") or "unknown").strip() or "unknown"
+        counts[executor_id] = _int_value(item.get("runningCount")) + _int_value(item.get("pendingCount"))
+    return counts
+
+
+def _make_snapshot(
+    task_payloads: dict[str, dict[str, Any]],
+    queue: dict[str, Any],
+    *,
+    phase: str,
+) -> dict[str, Any]:
+    return {
+        "at": datetime.utcnow().isoformat() + "Z",
+        "phase": phase,
+        "queue": queue,
+        "serverQueueCounts": _server_queue_counts(queue),
+        "statusCounts": _status_counts(task_payloads),
+        "executorCounts": _executor_counts(task_payloads),
+    }
+
+
+def _peak_queue_metrics(snapshots: list[dict[str, Any]]) -> dict[str, Any]:
+    peak_total = 0
+    peak_running = 0
+    peak_pending = 0
+    peak_server_counts: dict[str, int] = {}
+    for snapshot in snapshots:
+        queue = snapshot.get("queue") if isinstance(snapshot.get("queue"), dict) else {}
+        total = _int_value(queue.get("totalCount"))
+        running = _int_value(queue.get("totalRunning"))
+        pending = _int_value(queue.get("totalPending"))
+        if total == 0:
+            total = running + pending
+        peak_total = max(peak_total, total)
+        peak_running = max(peak_running, running)
+        peak_pending = max(peak_pending, pending)
+        server_counts = snapshot.get("serverQueueCounts") if isinstance(snapshot.get("serverQueueCounts"), dict) else {}
+        for executor_id, count in server_counts.items():
+            peak_server_counts[str(executor_id)] = max(_int_value(peak_server_counts.get(str(executor_id))), _int_value(count))
+    return {
+        "peakQueueTotal": peak_total,
+        "peakRunning": peak_running,
+        "peakPending": peak_pending,
+        "peakServerQueueCounts": peak_server_counts,
+    }
+
+
+def _assess_report(
+    report: dict[str, Any],
+    *,
+    min_peak_queue_total: int = 0,
+    min_used_executors: int = 0,
+    min_successful_tasks: int = 0,
+    allow_failures: int = 0,
+) -> tuple[bool, list[str]]:
+    issues: list[str] = []
+    submitted = report.get("submittedTaskIds")
+    submitted_count = len(submitted) if isinstance(submitted, list) else 0
+    if submitted_count <= 0:
+        issues.append("没有成功提交任何任务")
+
+    final_counts = report.get("finalStatusCounts") if isinstance(report.get("finalStatusCounts"), dict) else {}
+    successful_count = _int_value(final_counts.get("succeeded"))
+    failed_count = (
+        _int_value(final_counts.get("failed"))
+        + _int_value(final_counts.get("query_failed"))
+        + _int_value(final_counts.get("cancelled"))
+        + _int_value(final_counts.get("canceled"))
+    )
+    if failed_count > max(0, allow_failures):
+        issues.append(f"失败任务数 {failed_count} 超过允许值 {allow_failures}")
+    if min_successful_tasks > 0 and successful_count < min_successful_tasks:
+        issues.append(f"成功任务数 {successful_count} 低于期望 {min_successful_tasks}")
+
+    peak_total = _int_value(report.get("peakQueueTotal"))
+    if min_peak_queue_total > 0 and peak_total < min_peak_queue_total:
+        issues.append(f"峰值队列 {peak_total} 低于期望 {min_peak_queue_total}")
+
+    executor_counts = report.get("finalExecutorCounts") if isinstance(report.get("finalExecutorCounts"), dict) else {}
+    used_executors = [key for key, count in executor_counts.items() if key != "unknown" and _int_value(count) > 0]
+    if min_used_executors > 0 and len(used_executors) < min_used_executors:
+        issues.append(f"实际使用执行节点 {len(used_executors)} 台，低于期望 {min_used_executors} 台")
+
+    return not issues, issues
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Submit real ComfyUI tasks through the running backend and observe queues.")
     parser.add_argument("--backend-url", default="http://127.0.0.1:8099", help="Backend URL reachable from this host.")
@@ -165,6 +266,10 @@ def main() -> int:
     parser.add_argument("--submit-interval", type=float, default=0.2)
     parser.add_argument("--watch-seconds", type=int, default=600)
     parser.add_argument("--poll-interval", type=float, default=5.0)
+    parser.add_argument("--min-peak-queue-total", type=int, default=0, help="Fail if observed queue peak is lower than this.")
+    parser.add_argument("--min-used-executors", type=int, default=0, help="Fail if fewer executors receive tasks.")
+    parser.add_argument("--min-successful-tasks", type=int, default=0, help="Fail if successful tasks are fewer than this.")
+    parser.add_argument("--allow-failures", type=int, default=0, help="Allowed failed/query_failed tasks.")
     parser.add_argument("--report", default="", help="Optional JSON report path.")
     parser.add_argument("--yes", action="store_true", help="Required when --count > 0 to acknowledge real cost.")
     args = parser.parse_args()
@@ -197,6 +302,7 @@ def main() -> int:
 
         task_ids: list[str] = []
         initial_task_payloads: dict[str, dict[str, Any]] = {}
+        snapshots: list[dict[str, Any]] = []
         for index in range(1, max(1, args.count) + 1):
             payload = _default_payload(ability, args.sample_image_url, batch_id, index, args.executor_id.strip())
             try:
@@ -209,10 +315,13 @@ def main() -> int:
                 task_ids.append(task_id)
                 initial_task_payloads[task_id] = submitted
             print(f"submitted {index}/{args.count}: task={task_id or '-'} executor={_extract_executor(submitted)} status={submitted.get('taskStatus')}")
+            try:
+                snapshots.append(_make_snapshot(initial_task_payloads, _queue_summary(client), phase=f"submit:{index}"))
+            except Exception:
+                pass
             time.sleep(max(0, args.submit_interval))
 
         task_payloads: dict[str, dict[str, Any]] = dict(initial_task_payloads)
-        snapshots: list[dict[str, Any]] = []
         deadline = time.monotonic() + max(1, args.watch_seconds)
         while True:
             for task_id in list(task_ids):
@@ -224,12 +333,7 @@ def main() -> int:
                 queue = _queue_summary(client)
             except Exception as exc:
                 queue = {"error": str(exc), "servers": []}
-            snapshot = {
-                "at": datetime.utcnow().isoformat() + "Z",
-                "queue": queue,
-                "statusCounts": _status_counts(task_payloads),
-                "executorCounts": _executor_counts(task_payloads),
-            }
+            snapshot = _make_snapshot(task_payloads, queue, phase="watch")
             snapshots.append(snapshot)
             print(
                 f"tasks={snapshot['statusCounts']} executors={snapshot['executorCounts']} "
@@ -254,13 +358,38 @@ def main() -> int:
             "tasks": task_payloads,
             "snapshots": snapshots,
         }
+        report.update(_peak_queue_metrics(snapshots))
+        ok, assessment_issues = _assess_report(
+            report,
+            min_peak_queue_total=max(0, args.min_peak_queue_total),
+            min_used_executors=max(0, args.min_used_executors),
+            min_successful_tasks=max(0, args.min_successful_tasks),
+            allow_failures=max(0, args.allow_failures),
+        )
+        report["assessment"] = {
+            "ok": ok,
+            "issues": assessment_issues,
+            "minPeakQueueTotal": max(0, args.min_peak_queue_total),
+            "minUsedExecutors": max(0, args.min_used_executors),
+            "minSuccessfulTasks": max(0, args.min_successful_tasks),
+            "allowFailures": max(0, args.allow_failures),
+        }
         report_path = Path(args.report) if args.report else Path("reports") / f"comfyui_capacity_{batch_id}.json"
         report_path.parent.mkdir(parents=True, exist_ok=True)
         report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
         print(f"report: {report_path}")
+        print(
+            "summary: "
+            f"peakQueue={report['peakQueueTotal']} peakRunning={report['peakRunning']} "
+            f"peakPending={report['peakPending']} executors={report['finalExecutorCounts']} "
+            f"status={report['finalStatusCounts']}"
+        )
+        if assessment_issues:
+            print("capacity assessment failed:")
+            for issue in assessment_issues:
+                print(f"- {issue}")
 
-        failed_count = report["finalStatusCounts"].get("failed", 0) + report["finalStatusCounts"].get("query_failed", 0)
-        return 0 if task_ids and failed_count == 0 else 2
+        return 0 if ok else 2
 
 
 if __name__ == "__main__":

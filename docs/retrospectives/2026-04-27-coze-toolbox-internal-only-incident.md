@@ -91,6 +91,9 @@ python3 backend/scripts/check_eval_operations_health.py \
 python3 backend/scripts/comfyui_capacity_probe.py \
   --capability-key <可压测能力key> \
   --count 12 \
+  --min-used-executors 2 \
+  --min-peak-queue-total 8 \
+  --min-successful-tasks 12 \
   --yes
 ```
 
@@ -98,6 +101,8 @@ python3 backend/scripts/comfyui_capacity_probe.py \
 
 - 能看到每台 ComfyUI 的 running/pending。
 - 能看到任务实际分配到哪个执行节点。
+- 能看到本次压测的峰值队列、峰值运行数、峰值排队数和每台执行节点峰值。
+- 当低于设置的最低峰值队列、使用节点数或成功任务数时，脚本直接失败。
 - 能判断是否存在“GPU 空着但中台没有继续喂任务”的空档。
 - 压测能力必须先确认不会被 ComfyUI 全缓存；如果出现 `COMFYUI_IMAGES_EMPTY`，先排查 workflow 缓存或输出节点，而不是直接归因于并发。
 
