@@ -79,6 +79,15 @@ Manual checks:
    ```
    Expected: all active workflows end in `succeeded`, and each succeeded run has at least one result image or structured output.
    Failure examples: `INTERNAL_ONLY`, `COZE_WORKFLOW_ERROR`, `EVAL_SUCCEEDED_WITHOUT_OUTPUT`.
+
+   On the 114 production host, use the backend virtualenv instead of system Python:
+   ```bash
+   cd /srv/pod
+   backend/.venv/bin/python backend/scripts/patrol_eval_workflows.py \
+     --base-url http://127.0.0.1:8099 \
+     --timeout 1800
+   ```
+   Do not use `/usr/bin/python3` on 114; it is too old for the backend scripts.
 5. Eval operations health:
    ```bash
    python3 backend/scripts/check_eval_operations_health.py
