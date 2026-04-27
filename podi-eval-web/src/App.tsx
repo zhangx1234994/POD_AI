@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ReactNode, MouseEvent as ReactMouseEvent } from 'react';
+import type { CSSProperties, ReactNode, MouseEvent as ReactMouseEvent } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
@@ -368,12 +368,86 @@ const categoryVisualMeta: Record<string, { icon: ReactNode; accent: string; summ
   },
 };
 
+const workflowAccentPalette = ['#2563eb', '#0f766e', '#c2410c', '#7c3aed', '#be123c', '#047857', '#b45309', '#0369a1'];
+
+const hashText = (text: string): number => {
+  let hash = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
+  }
+  return hash;
+};
+
+const getWorkflowAccent = (wf: EvalWorkflowVersion): string => {
+  const seed = `${wf.workflow_id || wf.id || wf.name}`;
+  return workflowAccentPalette[hashText(seed) % workflowAccentPalette.length];
+};
+
 const getCategoryVisual = (category: string | undefined | null) => {
   const normalized = normalizeCategory(category);
   return categoryVisualMeta[normalized] || categoryVisualMeta['通用类'];
 };
 
 const getCategoryNavIcon = (category: string): ReactNode => getCategoryVisual(category).icon;
+
+const getSchemaFields = (schema: Record<string, unknown> | null | undefined): SchemaField[] => {
+  const fields = schema?.fields;
+  if (!Array.isArray(fields)) return [];
+  return fields.filter((field): field is SchemaField => Boolean(field && typeof field === 'object' && 'name' in field));
+};
+
+const getWorkflowCardTitle = (wf: EvalWorkflowVersion): string => {
+  const operationLabel = getWorkflowOperationLabel(wf);
+  if (operationLabel) return operationLabel;
+  const category = getWorkflowCategory(wf);
+  const rawName = String(wf.name || wf.workflow_id || '未命名功能').trim();
+  const parts = rawName
+    .split(/[·|｜:：/-]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const distinctPart = parts.find((item) => item !== category && item !== '图裂变' && item !== '图延伸');
+  return distinctPart || rawName;
+};
+
+const getWorkflowStatusLabel = (status: string | undefined | null): string => {
+  const value = String(status || '').toLowerCase();
+  if (value === 'active') return '可用';
+  if (value === 'draft') return '草稿';
+  if (value === 'deprecated') return '已旧版';
+  if (value === 'disabled') return '已停用';
+  return value || '未知';
+};
+
+const getWorkflowInputSummary = (wf: EvalWorkflowVersion): string => {
+  const text = getSchemaFields(wf.parameters_schema)
+    .map((field) => `${field.name} ${field.label || ''} ${field.description || ''}`)
+    .join(' ')
+    .toLowerCase();
+  const parts: string[] = [];
+  if (/mask|蒙版/.test(text)) parts.push('蒙版');
+  if (/image_urls|input_urls|多图|multi/.test(text)) parts.push('多图');
+  else if (/image|url|图片|原图/.test(text)) parts.push('原图');
+  if (/prompt|desc|text|提示词|描述/.test(text)) parts.push('提示词');
+  if (/width|height|size|aspect|ratio|宽|高|尺寸|比例/.test(text)) parts.push('尺寸');
+  if (/bili|denoise|noise|幅度|噪点/.test(text)) parts.push('幅度');
+  if (/count|batch|数量|批量/.test(text)) parts.push('数量');
+  return parts.slice(0, 4).join(' + ') || '按表单参数';
+};
+
+const getWorkflowOutputSummary = (wf: EvalWorkflowVersion): string => {
+  const resultMode = String(getWorkflowPresentation(wf)?.resultMode || '').trim();
+  if (resultMode) return resultMode;
+  const text = getSchemaFields(wf.output_schema)
+    .map((field) => `${field.name} ${field.label || ''} ${field.description || ''}`)
+    .join(' ')
+    .toLowerCase();
+  if (/video|视频/.test(text)) return '视频';
+  if (/text|文本|prompt/.test(text)) return '文本';
+  if (/image|url|图片|图/.test(text)) return '图片';
+  return '图片/任务结果';
+};
+
+const getWorkflowReleaseDate = (wf: EvalWorkflowVersion): string => fmtTime(wf.created_at).split(' ')[0] || '-';
 
 const dedupeWorkflowVersionsForDisplay = (rows: EvalWorkflowVersion[]): EvalWorkflowVersion[] => {
   const seen = new Set<string>();
@@ -1165,9 +1239,19 @@ function ToolCard({
 }) {
   const ratingText = metric?.avgRating ? metric.avgRating.toFixed(2) : '—';
   const ratingCountText = metric?.ratingCount ? `${metric.ratingCount}票` : '未评分';
-  const visual = getCategoryVisual(getWorkflowCategory(wf));
   const categoryName = getWorkflowCategory(wf);
-  const operationLabel = getWorkflowOperationLabel(wf);
+  const visual = getCategoryVisual(categoryName);
+  const accent = getWorkflowAccent(wf);
+  const title = getWorkflowCardTitle(wf);
+  const usageHint = getWorkflowUsageHint(wf);
+  const inputSummary = getWorkflowInputSummary(wf);
+  const outputSummary = getWorkflowOutputSummary(wf);
+  const panelStyle = {
+    height: '100%',
+    borderColor: active ? accent : undefined,
+    '--podi-tool-accent': accent,
+    '--podi-tool-cover': `linear-gradient(120deg, ${accent}22, ${accent}08)`,
+  } as CSSProperties;
   return (
     <div
       role="button"
@@ -1178,42 +1262,52 @@ function ToolCard({
       }}
       className="podi-eval-tool-card"
     >
-      <Card bordered className="podi-eval-tool-card__panel" style={{ height: '100%', borderColor: active ? 'var(--td-brand-color)' : undefined }}>
+      <Card bordered className="podi-eval-tool-card__panel" style={panelStyle}>
         <div className="podi-eval-tool-card__topline" />
-        <div className="podi-eval-tool-card__cover" style={{ background: visual.cover }}>
-          <span className="podi-eval-tool-card__cover-icon" style={{ color: visual.accent }}>
+        <div className="podi-eval-tool-card__cover">
+          <span className="podi-eval-tool-card__cover-icon" style={{ color: accent }}>
             {visual.icon}
           </span>
           <span className="podi-eval-tool-card__cover-text">{categoryName}</span>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-          <Space align="start" style={{ justifyContent: 'space-between', width: '100%' }}>
-            <Space direction="vertical" size={2} style={{ minWidth: 0 }}>
-              <Typography.Text strong ellipsis>
-                {wf.name}
-              </Typography.Text>
-              <Typography.Text className="podi-eval-tool-card__workflow" ellipsis>
-                {wf.workflow_id}
-              </Typography.Text>
-            </Space>
+          <div className="podi-eval-tool-card__identity">
+            <div style={{ minWidth: 0 }}>
+              <div className="podi-eval-tool-card__title">{title}</div>
+              <div className="podi-eval-tool-card__subtitle podi-clamp-2">{usageHint}</div>
+            </div>
             <Space direction="vertical" size={2} style={{ alignItems: 'flex-end' }}>
               <Typography.Text className="podi-eval-tool-card__score">{ratingText}</Typography.Text>
               <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
                 {ratingCountText}
               </Typography.Text>
             </Space>
-          </Space>
+          </div>
 
-          <div className="podi-clamp-2 podi-eval-tool-card__desc">{getWorkflowUsageHint(wf)}</div>
+          <div className="podi-eval-tool-card__meta-grid">
+            <div>
+              <span>输入</span>
+              <strong>{inputSummary}</strong>
+            </div>
+            <div>
+              <span>输出</span>
+              <strong>{outputSummary}</strong>
+            </div>
+            <div>
+              <span>版本</span>
+              <strong>{wf.version || 'v1'}</strong>
+            </div>
+            <div>
+              <span>发布</span>
+              <strong>{getWorkflowReleaseDate(wf)}</strong>
+            </div>
+          </div>
 
           <div style={{ marginTop: 12 }}>
             <Space breakLine>
-              <Tag variant="light">{wf.version}</Tag>
-              <Tag variant="light">发布 {fmtTime(wf.created_at).split(' ')[0]}</Tag>
-              <Tag theme="primary" variant="light">
-                {categoryName}
-              </Tag>
-              {operationLabel ? <Tag variant="light">{operationLabel}</Tag> : null}
+              <Tag variant="light">工作流 {wf.workflow_id}</Tag>
+              <Tag variant="light">{getWorkflowStatusLabel(wf.status)}</Tag>
+              {isWorkflowBatchEnabled(wf) ? <Tag variant="light">支持批量</Tag> : null}
             </Space>
           </div>
           <div className="podi-eval-tool-card__footer">

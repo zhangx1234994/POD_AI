@@ -228,6 +228,8 @@ html.t-theme-dark {
 
 .podi-eval-tool-card__panel {
   position: relative;
+  overflow: hidden;
+  border-color: color-mix(in srgb, var(--podi-tool-accent, var(--td-brand-color)) 24%, var(--td-border-level-1-color));
 }
 
 .podi-eval-tool-card__topline {
@@ -236,7 +238,7 @@ html.t-theme-dark {
   left: 0;
   right: 0;
   height: 3px;
-  background: linear-gradient(90deg, var(--td-brand-color), var(--td-success-color));
+  background: linear-gradient(90deg, var(--podi-tool-accent, var(--td-brand-color)), color-mix(in srgb, var(--podi-tool-accent, var(--td-brand-color)) 35%, #ffffff));
 }
 
 .podi-eval-tool-card__cover {
@@ -246,6 +248,7 @@ html.t-theme-dark {
   border-radius: 10px;
   padding: 8px 10px;
   margin-bottom: 10px;
+  background: var(--podi-tool-cover, color-mix(in srgb, var(--podi-accent-soft) 75%, #ffffff));
 }
 
 .podi-eval-tool-card__cover-icon {
@@ -263,23 +266,76 @@ html.t-theme-dark {
   color: var(--td-text-color-secondary);
 }
 
+.podi-eval-tool-card__identity {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.podi-eval-tool-card__title {
+  min-height: 40px;
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 700;
+  color: var(--td-text-color-primary);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.podi-eval-tool-card__subtitle {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--td-text-color-secondary);
+}
+
 .podi-eval-tool-card__workflow {
   font-size: 12px;
   color: var(--td-text-color-secondary);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 }
 
-.podi-eval-tool-card__desc {
-  margin-top: 10px;
-  font-size: 12px;
-  line-height: 18px;
-  min-height: 36px;
-  color: var(--td-text-color-secondary);
-}
-
 .podi-eval-tool-card__score {
   font-weight: 700;
-  color: var(--td-brand-color);
+  color: var(--podi-tool-accent, var(--td-brand-color));
+}
+
+.podi-eval-tool-card__meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.podi-eval-tool-card__meta-grid > div {
+  min-width: 0;
+  border: 1px solid var(--td-border-level-1-color);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--td-bg-color-secondarycontainer) 72%, #ffffff);
+  padding: 8px;
+}
+
+.podi-eval-tool-card__meta-grid span,
+.podi-eval-tool-card__meta-grid strong {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.podi-eval-tool-card__meta-grid span {
+  margin-bottom: 3px;
+  font-size: 11px;
+  color: var(--td-text-color-placeholder);
+}
+
+.podi-eval-tool-card__meta-grid strong {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--td-text-color-primary);
 }
 
 .podi-eval-tool-card__footer {
