@@ -620,6 +620,45 @@ OpenAPI 内每个工具都会枚举错误响应：
 - `BUSINESS_CAPABILITY_NOT_FOUND`
 - `BUSINESS_DEFAULT_VERSION_MUST_BE_ACTIVE`
 
+### POST /api/admin/business/rollback/{businessKey}
+
+用途：把某个业务入口回滚到上一默认版本。管理端优先使用这个接口处理线上异常，而不是让运营手工查版本、再点“设为默认”。
+
+请求体：
+
+```json
+{
+  "activate": true,
+  "note": "线上失败，回滚上一稳定版"
+}
+```
+
+也可以指定明确的回滚目标：
+
+```json
+{
+  "targetCapabilityId": "biz_fission_v1_default",
+  "activate": true,
+  "note": "指定回滚到 v1"
+}
+```
+
+规则：
+
+- 不传 `targetCapabilityId` 时，后端优先读取当前默认版本 `metadata.releaseEvents` 中记录的上一默认版本。
+- 如果当前默认版本没有切换记录，则退到同一 `businessKey` 下最近的 active 非默认版本。
+- 回滚成功后，目标版本会成为默认版本，其它版本自动取消默认。
+- 后端会在目标版本 `metadata.releaseEvents` 追加 `rollback_default` 事件，记录回滚原因、操作者和回滚前默认版本。
+- 如果没有可回滚版本，返回 `BUSINESS_ROLLBACK_TARGET_NOT_FOUND`。
+
+常见错误：
+
+- `ADMIN_ONLY`
+- `BUSINESS_KEY_REQUIRED`
+- `BUSINESS_CAPABILITY_NOT_FOUND`
+- `BUSINESS_ROLLBACK_TARGET_NOT_FOUND`
+- `BUSINESS_DEFAULT_VERSION_MUST_BE_ACTIVE`
+
 ### POST /api/admin/business/route-preview/{businessKey}
 
 用途：管理端灰度命中预览。它和公开 `route-preview` 一样不提交真实任务，只用于验证某个 `tenantId/clientId/grayKey` 会命中哪个版本。

@@ -80,6 +80,14 @@ class BusinessCapabilityPromoteRequest(BaseModel):
     note: str | None = Field(default=None, description="切换原因，写入版本事件")
 
 
+class BusinessCapabilityRollbackRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    targetCapabilityId: str | None = Field(default=None, alias="target_capability_id", description="指定回滚目标；为空则自动使用上一默认版")
+    activate: bool = Field(default=True, description="如果回滚目标未启用，是否先启用再设为默认")
+    note: str | None = Field(default=None, description="回滚原因，写入版本事件")
+
+
 class BusinessRoutePreviewResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 

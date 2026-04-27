@@ -883,6 +883,14 @@ export const adminApi = {
       method: 'POST',
       body: JSON.stringify(payload || { activate: true }),
     }),
+  rollbackBusinessCapability: (
+    businessKey: string,
+    payload?: { targetCapabilityId?: string; target_capability_id?: string; activate?: boolean; note?: string },
+  ) =>
+    request<BusinessCapability>(`/api/admin/business/rollback/${encodeURIComponent(businessKey)}`, {
+      method: 'POST',
+      body: JSON.stringify(payload || { activate: true }),
+    }),
   previewBusinessRoute: (businessKey: string, payload: JsonRecord) =>
     request<BusinessRoutePreviewResponse>(`/api/admin/business/route-preview/${encodeURIComponent(businessKey)}`, {
       method: 'POST',

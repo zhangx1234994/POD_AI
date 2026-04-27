@@ -14,6 +14,7 @@ from app.models.integration import Ability, AbilityInvocationLog, AbilityTask, B
 from app.schemas.business import (
     BusinessCapabilityCreateRequest,
     BusinessCapabilityPromoteRequest,
+    BusinessCapabilityRollbackRequest,
     BusinessCapabilityUpdateRequest,
     BusinessRunCreateRequest,
     BusinessUsageSummaryResponse,
@@ -215,6 +216,68 @@ def test_business_capability_promote_sets_default_and_records_event(monkeypatch)
     events = promoted["extra_metadata"]["releaseEvents"]
     assert events[-1]["action"] == "promote_default"
     assert events[-1]["note"] == "验证通过后切默认"
+    assert events[-1]["previousDefaultCapabilityId"] == "biz_fission_old"
+
+
+def test_business_capability_rollback_restores_previous_default(monkeypatch) -> None:
+    install_business_db(monkeypatch)
+    service = BusinessRunService()
+
+    created = service.create_capability(
+        BusinessCapabilityCreateRequest(
+            businessKey="fission",
+            version="v2",
+            displayName="新版图裂变",
+            status="active",
+            primaryAbilityId="ability_openai_fission",
+        )
+    )
+    promoted = service.promote_capability(
+        created["id"],
+        BusinessCapabilityPromoteRequest(note="灰度验证通过"),
+    )
+
+    rolled_back = service.rollback_default(
+        "fission",
+        BusinessCapabilityRollbackRequest(note="线上失败，回滚上一版"),
+    )
+    listed = {item["id"]: item for item in service.list_capabilities()}
+
+    assert promoted["is_default"] is True
+    assert rolled_back["id"] == "biz_fission_old"
+    assert rolled_back["is_default"] is True
+    assert listed[created["id"]]["is_default"] is False
+    events = rolled_back["extra_metadata"]["releaseEvents"]
+    assert events[-1]["action"] == "rollback_default"
+    assert events[-1]["note"] == "线上失败，回滚上一版"
+    assert events[-1]["previousDefaultCapabilityId"] == created["id"]
+
+
+def test_business_capability_rollback_can_use_explicit_target(monkeypatch) -> None:
+    install_business_db(monkeypatch)
+    service = BusinessRunService()
+
+    created = service.create_capability(
+        BusinessCapabilityCreateRequest(
+            businessKey="fission",
+            version="v2",
+            displayName="新版图裂变",
+            status="active",
+            primaryAbilityId="ability_openai_fission",
+        )
+    )
+    service.update_capability(
+        created["id"],
+        BusinessCapabilityUpdateRequest(status="active", isDefault=True),
+    )
+
+    rolled_back = service.rollback_default(
+        "fission",
+        BusinessCapabilityRollbackRequest(targetCapabilityId="biz_fission_old", note="指定回滚"),
+    )
+
+    assert rolled_back["id"] == "biz_fission_old"
+    assert rolled_back["is_default"] is True
 
 
 def test_business_capability_create_accepts_multistep_recipe(monkeypatch) -> None:

@@ -86,6 +86,7 @@
 | BUSINESS_CAPABILITY_ID_REQUIRED | 业务版本自定义 ID 为空 | 400 |
 | BUSINESS_CAPABILITY_VERSION_DUPLICATED | 同一业务标识下版本号重复 | 409 |
 | BUSINESS_CAPABILITY_NOT_FOUND | 业务能力版本不存在或未启用 | 404 |
+| BUSINESS_ROLLBACK_TARGET_NOT_FOUND | 没有可回滚的上一业务版本 | 409 |
 | BUSINESS_STATUS_INVALID | 业务版本状态非法 | 400 |
 | BUSINESS_DEFAULT_VERSION_MUST_BE_ACTIVE | 默认业务版本必须是 active 状态 | 400 |
 | BUSINESS_RECIPE_INVALID | 业务能力配方非法 | 400，缺少 primaryAbilityId/steps、步骤类型非法或步骤结构非法 |

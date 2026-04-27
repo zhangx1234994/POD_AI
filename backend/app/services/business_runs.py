@@ -31,6 +31,7 @@ from app.schemas.abilities import AbilityInvokeRequest
 from app.schemas.business import (
     BusinessCapabilityCreateRequest,
     BusinessCapabilityPromoteRequest,
+    BusinessCapabilityRollbackRequest,
     BusinessCapabilityUpdateRequest,
     BusinessRunCreateRequest,
 )
@@ -196,12 +197,24 @@ class BusinessRunService:
                 if not request.activate:
                     raise HTTPException(status_code=400, detail="BUSINESS_DEFAULT_VERSION_MUST_BE_ACTIVE")
                 row.status = "active"
+            current_default = (
+                session.execute(
+                    select(BusinessCapability).where(
+                        BusinessCapability.business_key == row.business_key,
+                        BusinessCapability.is_default.is_(True),
+                        BusinessCapability.id != row.id,
+                    )
+                )
+                .scalars()
+                .first()
+            )
             row.is_default = True
             row.extra_metadata = self._append_release_event(
                 row.extra_metadata,
                 action="promote_default",
                 note=request.note,
                 actor=actor,
+                previous_default=current_default,
             )
             session.execute(
                 update(BusinessCapability)
@@ -215,6 +228,61 @@ class BusinessRunService:
             session.commit()
             session.refresh(row)
             return self._capability_to_dict(row, session=session)
+
+    def rollback_default(
+        self,
+        business_key: str,
+        payload: BusinessCapabilityRollbackRequest | None = None,
+        *,
+        actor: User | None = None,
+    ) -> dict[str, Any]:
+        normalized_key = self._required_text(business_key, "BUSINESS_KEY_REQUIRED")
+        request = payload or BusinessCapabilityRollbackRequest()
+        with get_session() as session:
+            current_default = (
+                session.execute(
+                    select(BusinessCapability)
+                    .where(
+                        BusinessCapability.business_key == normalized_key,
+                        BusinessCapability.is_default.is_(True),
+                    )
+                    .order_by(BusinessCapability.updated_at.desc(), BusinessCapability.created_at.desc())
+                )
+                .scalars()
+                .first()
+            )
+            target = self._resolve_rollback_target(
+                session=session,
+                business_key=normalized_key,
+                current_default=current_default,
+                target_capability_id=request.targetCapabilityId,
+            )
+            if not target:
+                raise HTTPException(status_code=409, detail="BUSINESS_ROLLBACK_TARGET_NOT_FOUND")
+            if target.status != "active":
+                if not request.activate:
+                    raise HTTPException(status_code=400, detail="BUSINESS_DEFAULT_VERSION_MUST_BE_ACTIVE")
+                target.status = "active"
+            target.is_default = True
+            target.extra_metadata = self._append_release_event(
+                target.extra_metadata,
+                action="rollback_default",
+                note=request.note,
+                actor=actor,
+                previous_default=current_default if current_default and current_default.id != target.id else None,
+            )
+            session.execute(
+                update(BusinessCapability)
+                .where(
+                    BusinessCapability.business_key == normalized_key,
+                    BusinessCapability.id != target.id,
+                )
+                .values(is_default=False)
+            )
+            session.add(target)
+            session.commit()
+            session.refresh(target)
+            return self._capability_to_dict(target, session=session)
 
     def preview_route(
         self,
@@ -1470,21 +1538,75 @@ class BusinessRunService:
         action: str,
         note: str | None,
         actor: User | None,
+        previous_default: BusinessCapability | None = None,
     ) -> dict[str, Any]:
         next_metadata = dict(metadata or {})
         raw_events = next_metadata.get("releaseEvents")
         events = list(raw_events) if isinstance(raw_events, list) else []
         actor_name = getattr(actor, "username", None) or getattr(actor, "email", None) or getattr(actor, "id", None)
-        events.append(
-            {
-                "action": action,
-                "note": str(note or "").strip() or None,
-                "actor": str(actor_name) if actor_name else None,
-                "at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
-            }
-        )
+        event = {
+            "action": action,
+            "note": str(note or "").strip() or None,
+            "actor": str(actor_name) if actor_name else None,
+            "at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        }
+        if previous_default:
+            event.update(
+                {
+                    "previousDefaultCapabilityId": previous_default.id,
+                    "previousDefaultVersion": previous_default.version,
+                    "previousDefaultDisplayName": previous_default.display_name,
+                }
+            )
+        events.append(event)
         next_metadata["releaseEvents"] = events[-20:]
         return next_metadata
+
+    def _resolve_rollback_target(
+        self,
+        *,
+        session,
+        business_key: str,
+        current_default: BusinessCapability | None,
+        target_capability_id: str | None,
+    ) -> BusinessCapability | None:
+        explicit_target_id = str(target_capability_id or "").strip()
+        if explicit_target_id:
+            target = session.get(BusinessCapability, explicit_target_id)
+            if target and target.business_key == business_key:
+                return target
+            return None
+
+        if current_default and isinstance(current_default.extra_metadata, dict):
+            raw_events = current_default.extra_metadata.get("releaseEvents")
+            if isinstance(raw_events, list):
+                for event in reversed(raw_events):
+                    if not isinstance(event, dict):
+                        continue
+                    previous_id = str(event.get("previousDefaultCapabilityId") or "").strip()
+                    if not previous_id or previous_id == current_default.id:
+                        continue
+                    previous = session.get(BusinessCapability, previous_id)
+                    if previous and previous.business_key == business_key:
+                        return previous
+
+        return (
+            session.execute(
+                select(BusinessCapability)
+                .where(
+                    BusinessCapability.business_key == business_key,
+                    BusinessCapability.status == "active",
+                    BusinessCapability.is_default.is_(False),
+                )
+                .order_by(
+                    BusinessCapability.release_time.desc(),
+                    BusinessCapability.updated_at.desc(),
+                    BusinessCapability.created_at.desc(),
+                )
+            )
+            .scalars()
+            .first()
+        )
 
     def _route_info(
         self,

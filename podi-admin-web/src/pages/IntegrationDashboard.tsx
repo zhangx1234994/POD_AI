@@ -1496,6 +1496,31 @@ const readBusinessVlAssist = (recipe?: JsonRecord | null) => {
   };
 };
 
+const readBusinessReleaseEvents = (metadata?: JsonRecord | null): JsonRecord[] => {
+  const events = metadata && Array.isArray(metadata.releaseEvents) ? metadata.releaseEvents : [];
+  return events.filter((event): event is JsonRecord => Boolean(event) && typeof event === 'object' && !Array.isArray(event));
+};
+
+const businessReleaseEventLabel = (item: BusinessCapability) => {
+  const events = readBusinessReleaseEvents(item.metadata);
+  const latest = events[events.length - 1];
+  if (!latest) return '暂无切换记录';
+  const action = String(latest.action || '');
+  const target = typeof latest.previousDefaultDisplayName === 'string' && latest.previousDefaultDisplayName.trim()
+    ? latest.previousDefaultDisplayName.trim()
+    : typeof latest.previousDefaultVersion === 'string' && latest.previousDefaultVersion.trim()
+      ? latest.previousDefaultVersion.trim()
+      : '';
+  const at = typeof latest.at === 'string' && latest.at.trim() ? formatDateTime(latest.at) : '';
+  if (action === 'rollback_default') {
+    return `最近回滚${target ? `，回滚前默认：${target}` : ''}${at ? ` · ${at}` : ''}`;
+  }
+  if (action === 'promote_default') {
+    return `最近切默认${target ? `，上一默认：${target}` : ''}${at ? ` · ${at}` : ''}`;
+  }
+  return `最近发布动作：${action || '未标记'}${at ? ` · ${at}` : ''}`;
+};
+
 const businessRecipeStepLabel = (type?: string | null, role?: string | null) => {
   if (role === 'primary') return '主执行';
   if (role === 'preprocess') return '前置分析';
@@ -6196,6 +6221,28 @@ export function IntegrationDashboard({
     }
   };
 
+  const handleBusinessRollbackDefault = async (item: BusinessCapability) => {
+    setBusinessActionError(null);
+    if (!item.isDefault) {
+      setBusinessActionError('只有当前默认版本可以执行回滚。');
+      return;
+    }
+    if (!window.confirm(`确认将 ${businessKeyLabel(item.businessKey)} 从 ${item.version} 回滚到上一默认版本？`)) return;
+    setBusinessActionLoadingId(`rollback:${item.businessKey}`);
+    try {
+      await adminApi.rollbackBusinessCapability(item.businessKey, {
+        activate: true,
+        note: `管理端从 ${item.version} 回滚上一默认版本`,
+      });
+      await load();
+    } catch (error: any) {
+      console.error('rollback business capability failed', error);
+      setBusinessActionError(error?.message || '回滚默认版本失败，可能没有可回滚的上一版本。');
+    } finally {
+      setBusinessActionLoadingId(null);
+    }
+  };
+
   const handleBusinessToggleActive = async (item: BusinessCapability) => {
     setBusinessActionError(null);
     const isActive = item.status === 'active';
@@ -8837,9 +8884,11 @@ const extractErrorMessage = (error: unknown): string => {
                               </Typography.Text>
                             );
                           })()}
+                          <Typography.Text theme="secondary">{businessReleaseEventLabel(item)}</Typography.Text>
                           {(() => {
                             const defaultActionId = `default:${item.id}`;
                             const statusActionId = `status:${item.id}`;
+                            const rollbackActionId = `rollback:${item.businessKey}`;
                             const isActive = item.status === 'active';
                             const lockDefaultStop = isActive && item.isDefault;
                             const actionBusy = businessActionLoadingId !== null;
@@ -8869,6 +8918,18 @@ const extractErrorMessage = (error: unknown): string => {
                                 >
                                   预览灰度
                                 </Button>
+                                {item.isDefault && (
+                                  <Button
+                                    size="small"
+                                    theme="warning"
+                                    variant="outline"
+                                    loading={businessActionLoadingId === rollbackActionId}
+                                    disabled={actionBusy && businessActionLoadingId !== rollbackActionId}
+                                    onClick={() => handleBusinessRollbackDefault(item)}
+                                  >
+                                    回滚默认
+                                  </Button>
+                                )}
                                 <Button
                                   size="small"
                                   theme={isActive ? 'warning' : 'primary'}

@@ -432,6 +432,17 @@ def admin_promote_business_capability(
     return get_business_run_service().promote_capability(capability_id, payload, actor=user)
 
 
+@admin_router.post("/rollback/{business_key}", response_model=schemas.BusinessCapabilityRead, response_model_by_alias=False)
+def admin_rollback_business_default(
+    business_key: str,
+    payload: schemas.BusinessCapabilityRollbackRequest | None = None,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessCapabilityRead:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    return get_business_run_service().rollback_default(business_key, payload, actor=user)
+
+
 @admin_router.post("/route-preview/{business_key}", response_model=schemas.BusinessRoutePreviewResponse, response_model_by_alias=False)
 def admin_preview_business_route(
     business_key: str,
