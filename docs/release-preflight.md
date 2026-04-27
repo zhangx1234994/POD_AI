@@ -103,11 +103,7 @@ Optional timer for 114 after manual confirmation:
 
 ```bash
 cd /srv/pod
-cp deploy/systemd/podi-eval-health-watch.service /etc/systemd/system/podi-eval-health-watch.service
-cp deploy/systemd/podi-eval-health-watch.timer /etc/systemd/system/podi-eval-health-watch.timer
-systemctl daemon-reload
-systemctl enable --now podi-eval-health-watch.timer
-systemctl list-timers podi-eval-health-watch.timer
+sudo scripts/install_eval_health_watch.sh
 ```
 
 View the latest check:
@@ -115,6 +111,15 @@ View the latest check:
 ```bash
 journalctl -u podi-eval-health-watch.service -n 80 --no-pager
 ```
+
+Rollback drill for business versions:
+
+```bash
+backend/.venv/bin/python backend/scripts/business_rollback_drill.py --business-key fission
+backend/.venv/bin/python backend/scripts/business_rollback_drill.py --business-key outpaint
+```
+
+The drill is read-only by default. Actual rollback requires `--apply --yes` and must not be used as a routine smoke check.
 
 If any of the above fails, do not continue with frontend/admin acceptance.
 
