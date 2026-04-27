@@ -51,6 +51,7 @@ Expected:
 - `coze_openapi` passes and shows the address Coze uses.
 - `internal_tasks_get` returns `404 TASK_NOT_FOUND`, not `401 INTERNAL_ONLY`.
 - `comfyui_queue_summary` returns all active ComfyUI executors.
+- `eval_workflow_catalog` returns a non-empty public catalog, includes at least one `production` workflow, and does not leak `legacy/auxiliary/disabled` roles.
 - `check_eval_operations_health.py` returns `healthy` or only an accepted `warning`; `critical` blocks release.
 - `COMFYUI_EXECUTOR_UNREACHABLE` is not ignored: either restore the executor service or explicitly mark the executor offline before release.
 

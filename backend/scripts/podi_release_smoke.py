@@ -10,9 +10,13 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections import Counter
 from typing import Any
 
 import httpx
+
+
+PUBLIC_EVAL_WORKFLOW_ROLES = {"production", "candidate"}
 
 
 def _short(value: Any, limit: int = 500) -> str:
@@ -42,6 +46,44 @@ def _post_json(client: httpx.Client, path: str, payload: dict[str, Any]) -> tupl
     except Exception:
         data = {"text": response.text}
     return response.status_code, data
+
+
+def _validate_eval_workflow_catalog(data: Any) -> tuple[bool, str]:
+    items = data.get("items") if isinstance(data, dict) else data
+    if not isinstance(items, list):
+        return False, "workflow list is not a list"
+    if not items:
+        return False, "workflow list is empty"
+
+    role_counts: Counter[str] = Counter()
+    leaked: list[str] = []
+    missing_governance: list[str] = []
+    hidden_public: list[str] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        workflow_id = str(item.get("workflow_id") or item.get("workflowId") or item.get("id") or "-")
+        governance = item.get("governance") if isinstance(item.get("governance"), dict) else {}
+        role = str(governance.get("role") or "").strip().lower()
+        if not role:
+            missing_governance.append(workflow_id)
+            continue
+        role_counts[role] += 1
+        if role not in PUBLIC_EVAL_WORKFLOW_ROLES:
+            leaked.append(f"{workflow_id}:{role}")
+        presentation = item.get("presentation") if isinstance(item.get("presentation"), dict) else {}
+        if presentation.get("visible") is False:
+            hidden_public.append(workflow_id)
+
+    if missing_governance:
+        return False, f"missing governance={missing_governance[:5]}"
+    if leaked:
+        return False, f"non-public roles leaked={leaked[:5]} roles={dict(role_counts)}"
+    if hidden_public:
+        return False, f"public list contains visible=false workflows={hidden_public[:5]}"
+    if role_counts.get("production", 0) <= 0:
+        return False, f"no production workflow in public catalog roles={dict(role_counts)}"
+    return True, f"count={len(items)} roles={dict(role_counts)}"
 
 
 def main() -> int:
@@ -95,6 +137,13 @@ def main() -> int:
             checks.append(_result("comfyui_queue_summary", ok, detail))
         except Exception as exc:
             checks.append(_result("comfyui_queue_summary", False, repr(exc)))
+
+        try:
+            status, data = _get_json(client, "/api/evals/workflow-versions")
+            ok, catalog_detail = _validate_eval_workflow_catalog(data)
+            checks.append(_result("eval_workflow_catalog", status == 200 and ok, f"status={status} {catalog_detail}"))
+        except Exception as exc:
+            checks.append(_result("eval_workflow_catalog", False, repr(exc)))
 
     ok = all(item.get("ok") for item in checks)
     summary = {"baseUrl": base_url, "ok": ok, "checks": checks}
