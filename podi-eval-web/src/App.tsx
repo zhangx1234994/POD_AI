@@ -1444,13 +1444,13 @@ function TaskTable({
       title={
         <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
           <div>
-            <Typography.Text strong>任务管理</Typography.Text>
-            <div>
-              <Typography.Text theme="secondary">
-                实时刷新：queued/running 会持续轮询；ComfyUI 类回调出图后才算完成。
-              </Typography.Text>
+              <Typography.Text strong>任务管理</Typography.Text>
+              <div>
+                <Typography.Text theme="secondary">
+                实时刷新：排队/运行中会持续轮询；ComfyUI 类回调出图后才算完成。
+                </Typography.Text>
+              </div>
             </div>
-          </div>
           <Typography.Text theme="secondary">最近 {runs.length} 条</Typography.Text>
         </Space>
       }
@@ -1493,6 +1493,32 @@ function TaskTable({
                 <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
                   耗时：{formatDuration(row.duration_ms)}
                 </Typography.Text>
+              </Space>
+            ),
+          },
+          {
+            colKey: 'pipeline',
+            title: '中台链路',
+            minWidth: 300,
+            cell: ({ row }) => (
+              <Space direction="vertical" size={4}>
+                {row.podi_task_id ? (
+                  <Typography.Text style={{ fontFamily: 'monospace', fontSize: 12 }} ellipsis>
+                    中台任务：{row.podi_task_id}
+                  </Typography.Text>
+                ) : (
+                  <Tag variant="light">未返回中台任务 ID</Tag>
+                )}
+                <Space breakLine>
+                  <Tag variant="light">提交：{row.submit_status || '—'}</Tag>
+                  <Tag variant="light">回填：{row.callback_status || '—'}</Tag>
+                  <Tag variant="light">最终：{row.final_status || row.status || '—'}</Tag>
+                </Space>
+                {row.error_code ? (
+                  <Typography.Text theme="error" style={{ fontSize: 12 }}>
+                    错误码：{row.error_code}
+                  </Typography.Text>
+                ) : null}
               </Space>
             ),
           },
@@ -1552,7 +1578,7 @@ function TaskTable({
                     variant="outline"
                     onClick={() => window.open(row.coze_debug_url || '', '_blank', 'noreferrer')}
                   >
-                    debug_url
+                    调试链接
                   </Button>
                 ) : null}
                 {row.error_message ? <Typography.Text theme="error">失败</Typography.Text> : null}
@@ -6114,12 +6140,22 @@ export function App() {
                             </Col>
                             <Col xs={12} md={4}>
                               <Space direction="vertical" size={2}>
-                                <Typography.Text theme="secondary">run</Typography.Text>
+                                <Typography.Text theme="secondary">测评记录</Typography.Text>
                                 <Typography.Text style={{ fontFamily: 'monospace' }} ellipsis>
                                   {latest.id}
                                 </Typography.Text>
                               </Space>
                             </Col>
+                            {latest.podi_task_id ? (
+                              <Col xs={12} md={4}>
+                                <Space direction="vertical" size={2}>
+                                  <Typography.Text theme="secondary">中台任务</Typography.Text>
+                                  <Typography.Text style={{ fontFamily: 'monospace' }} ellipsis>
+                                    {latest.podi_task_id}
+                                  </Typography.Text>
+                                </Space>
+                              </Col>
+                            ) : null}
                             <Col xs={12} md={4}>
                               <Space direction="vertical" size={2}>
                                 <Typography.Text theme="secondary">预期出图</Typography.Text>
@@ -6156,7 +6192,7 @@ export function App() {
                                       variant="outline"
                                       onClick={() => window.open(latest.coze_debug_url!, '_blank', 'noreferrer')}
                                     >
-                                      debug_url
+                                      调试链接
                                     </Button>
                                   ) : null}
                                   {latest.error_message ? (
@@ -6450,7 +6486,7 @@ function HistoryRow({
         <div className="podi-history-row-head">
           <div className="podi-history-row-head__meta">
             <Typography.Text strong style={{ fontFamily: 'monospace' }} ellipsis>
-              run: {run.id}
+              记录：{run.id}
             </Typography.Text>
             <div className="podi-history-row-head__meta-line">
               <StatusBadge status={run.status} />
@@ -6458,12 +6494,12 @@ function HistoryRow({
               <Typography.Text theme="secondary">{fmtTime(run.created_at)}</Typography.Text>
               {run.podi_task_id ? (
                 <Typography.Text theme="secondary" style={{ fontFamily: 'monospace' }} ellipsis>
-                  task: {run.podi_task_id}
+                  中台：{run.podi_task_id}
                 </Typography.Text>
               ) : null}
               {outputIp ? (
                 <Typography.Text theme="secondary" style={{ fontFamily: 'monospace' }} ellipsis>
-                  ip: {outputIp}
+                  节点：{outputIp}
                 </Typography.Text>
               ) : null}
               {run.coze_debug_url ? (
@@ -6472,7 +6508,7 @@ function HistoryRow({
                   variant="text"
                   onClick={() => window.open(run.coze_debug_url || '', '_blank', 'noreferrer')}
                 >
-                  debug_url
+                  调试链接
                 </Button>
               ) : null}
             </div>
