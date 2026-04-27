@@ -228,6 +228,9 @@
 | COMFYUI_OBJECT_INFO_INVALID | /object_info JSON 异常 | |
 | COMFYUI_QUEUE_STATUS_ERROR | /queue/status 异常 | |
 | COMFYUI_QUEUE_STATUS_INVALID | queue JSON 异常 | |
+| COMFYUI_QUEUE_HEALTH_UNAVAILABLE | ComfyUI 队列健康检查整体失败 | 评测健康检查无法读取队列汇总 |
+| COMFYUI_EXECUTOR_UNREACHABLE | 部分 ComfyUI 执行节点不可用 | 评测健康检查发现 active 节点队列不可读 |
+| COMFYUI_NO_AVAILABLE_EXECUTOR | 没有可用 ComfyUI 执行节点 | 所有 active ComfyUI 节点队列不可读 |
 | COMFYUI_ADAPTER_MISSING | adapter 未注册 | |
 | COMFYUI_PROMPT_ID_REQUIRED | 缺少 prompt_id | |
 | COMFYUI_BASE_URL_REQUIRED | 缺少 base_url | |

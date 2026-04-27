@@ -169,3 +169,45 @@ def test_eval_operations_health_ignores_prompt_required_failures():
     assert report["issues"] == []
     assert report["recentFailures"] == []
     assert report["recentStatusCounts"]["failed"] == 1
+
+
+def test_eval_operations_health_warns_when_one_comfyui_executor_is_unreachable():
+    session = _session()
+    session.add(_workflow())
+    session.add(_run(id="ok"))
+    session.commit()
+
+    report = build_eval_operations_health(
+        session,
+        comfyui_queue_summary={
+            "servers": [
+                {"executorId": "executor_a", "supported": True},
+                {"executorId": "executor_b", "supported": False, "message": "COMFYUI_QUEUE_STATUS_ERROR"},
+            ]
+        },
+    )
+
+    assert report["status"] == "warning"
+    issue_codes = {item["code"] for item in report["issues"]}
+    assert "COMFYUI_EXECUTOR_UNREACHABLE" in issue_codes
+
+
+def test_eval_operations_health_is_critical_when_all_comfyui_executors_are_unreachable():
+    session = _session()
+    session.add(_workflow())
+    session.add(_run(id="ok"))
+    session.commit()
+
+    report = build_eval_operations_health(
+        session,
+        comfyui_queue_summary={
+            "servers": [
+                {"executorId": "executor_a", "supported": False, "message": "COMFYUI_QUEUE_STATUS_ERROR"},
+                {"executorId": "executor_b", "supported": False, "message": "COMFYUI_QUEUE_STATUS_ERROR"},
+            ]
+        },
+    )
+
+    assert report["status"] == "critical"
+    issue_codes = {item["code"] for item in report["issues"]}
+    assert "COMFYUI_NO_AVAILABLE_EXECUTOR" in issue_codes

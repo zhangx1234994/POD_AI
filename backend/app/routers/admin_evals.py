@@ -33,6 +33,7 @@ from app.schemas.eval import (
 from app.services.eval_operations_health import build_eval_operations_health
 from app.services.eval_service import get_eval_service
 from app.services.eval_seed import ensure_default_eval_workflow_versions
+from app.services.integration_test import integration_test_service
 from app.deps.auth import get_current_user, require_admin
 from app.models.user import User
 
@@ -279,6 +280,11 @@ async def get_eval_operations_health(
 
     This is the API surface for release gates, patrol dashboards, and later eval UI banners.
     """
+    try:
+        comfyui_queue_summary = integration_test_service.get_comfyui_queue_summary()
+    except Exception:
+        logger.exception("Failed to load ComfyUI queue summary for eval operations health")
+        comfyui_queue_summary = {"error": "COMFYUI_QUEUE_HEALTH_UNAVAILABLE"}
 
     return EvalOperationsHealthResponse.model_validate(
         build_eval_operations_health(
@@ -287,6 +293,7 @@ async def get_eval_operations_health(
             submit_grace_minutes=submit_grace_minutes,
             recent_hours=recent_hours,
             limit=limit,
+            comfyui_queue_summary=comfyui_queue_summary,
         )
     )
 

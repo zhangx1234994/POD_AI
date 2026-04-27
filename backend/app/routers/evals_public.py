@@ -1372,12 +1372,18 @@ def admin_get_operations_health(
     db: Session = Depends(get_db),
 ) -> EvalOperationsHealthResponse:
     _require_eval_admin(request)
+    try:
+        comfyui_queue_summary = integration_test_service.get_comfyui_queue_summary()
+    except Exception:
+        logger.exception("Failed to load ComfyUI queue summary for eval operations health")
+        comfyui_queue_summary = {"error": "COMFYUI_QUEUE_HEALTH_UNAVAILABLE"}
     report = build_eval_operations_health(
         db,
         stale_minutes=stale_minutes,
         submit_grace_minutes=submit_grace_minutes,
         recent_hours=recent_hours,
         limit=limit,
+        comfyui_queue_summary=comfyui_queue_summary,
     )
     return EvalOperationsHealthResponse.model_validate(report)
 

@@ -74,6 +74,56 @@ def _issue(severity: str, code: str, title: str, message: str, count: int) -> di
     }
 
 
+def _comfyui_queue_issues(comfyui_queue_summary: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not isinstance(comfyui_queue_summary, dict):
+        return []
+    if comfyui_queue_summary.get("error"):
+        return [
+            _issue(
+                "warning",
+                "COMFYUI_QUEUE_HEALTH_UNAVAILABLE",
+                "ComfyUI 队列健康检查失败",
+                "无法读取 ComfyUI 队列汇总，需检查中台到能力服务器的网络、数据库执行节点配置或队列接口。",
+                1,
+            )
+        ]
+    servers = comfyui_queue_summary.get("servers")
+    if not isinstance(servers, list) or not servers:
+        return []
+
+    unavailable = [
+        item
+        for item in servers
+        if isinstance(item, dict) and item.get("supported") is False
+    ]
+    available = [
+        item
+        for item in servers
+        if isinstance(item, dict) and item.get("supported") is True
+    ]
+    if unavailable and not available:
+        return [
+            _issue(
+                "critical",
+                "COMFYUI_NO_AVAILABLE_EXECUTOR",
+                "没有可用 ComfyUI 执行节点",
+                f"{len(unavailable)} 个 ComfyUI 执行节点均不可用，图像类工作流会大面积失败。",
+                len(unavailable),
+            )
+        ]
+    if unavailable:
+        return [
+            _issue(
+                "warning",
+                "COMFYUI_EXECUTOR_UNREACHABLE",
+                "存在不可用 ComfyUI 执行节点",
+                f"{len(unavailable)} 个 ComfyUI 执行节点队列不可读；调度会避开不可用节点，但需要恢复服务或下线节点。",
+                len(unavailable),
+            )
+        ]
+    return []
+
+
 def build_eval_operations_health(
     session: Session,
     *,
@@ -81,6 +131,7 @@ def build_eval_operations_health(
     submit_grace_minutes: int = 5,
     recent_hours: int = 24,
     limit: int = 20,
+    comfyui_queue_summary: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a lightweight health report for eval operations.
 
@@ -234,6 +285,7 @@ def build_eval_operations_health(
                 recent_failure_total,
             )
         )
+    issues.extend(_comfyui_queue_issues(comfyui_queue_summary))
 
     if any(item["severity"] == "critical" for item in issues):
         status = "critical"
