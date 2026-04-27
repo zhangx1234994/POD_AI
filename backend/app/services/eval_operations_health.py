@@ -9,6 +9,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.models.eval import EvalRun, EvalWorkflowVersion
 from app.services.task_status_contract import extract_error_code
 
@@ -122,6 +123,45 @@ def _comfyui_queue_issues(comfyui_queue_summary: dict[str, Any] | None) -> list[
             )
         ]
     return []
+
+
+def _build_concurrency_snapshot(comfyui_queue_summary: dict[str, Any] | None) -> dict[str, Any]:
+    settings = get_settings()
+    servers = (
+        comfyui_queue_summary.get("servers")
+        if isinstance(comfyui_queue_summary, dict) and isinstance(comfyui_queue_summary.get("servers"), list)
+        else []
+    )
+    available_servers = [
+        item
+        for item in servers
+        if isinstance(item, dict) and item.get("supported") is True
+    ]
+    queue_capacity = 0
+    for item in available_servers:
+        try:
+            queue_capacity += max(0, int(item.get("queueMaxSize") or 0))
+        except Exception:
+            continue
+    queue_total = 0
+    if isinstance(comfyui_queue_summary, dict):
+        try:
+            queue_total = max(0, int(comfyui_queue_summary.get("totalCount") or 0))
+        except Exception:
+            queue_total = 0
+    return {
+        "evalRunMaxWorkers": max(1, int(getattr(settings, "eval_run_max_workers", 1))),
+        "evalComfyuiRunMaxWorkers": max(1, int(getattr(settings, "eval_comfyui_run_max_workers", 1))),
+        "evalCommercialRunMaxWorkers": max(1, int(getattr(settings, "eval_commercial_run_max_workers", 1))),
+        "evalDefaultRunMaxWorkers": max(1, int(getattr(settings, "eval_default_run_max_workers", 1))),
+        "evalFanoutMaxWorkers": max(1, int(getattr(settings, "eval_fanout_max_workers", 1))),
+        "abilityTaskMaxWorkers": max(1, int(getattr(settings, "ability_task_max_workers", 1))),
+        "comfyuiQueueBatchSize": max(1, int(getattr(settings, "comfyui_queue_batch_size", 1))),
+        "comfyuiAvailableExecutors": len(available_servers),
+        "comfyuiQueueCapacity": queue_capacity,
+        "comfyuiQueueTotal": queue_total,
+        "comfyuiQueueUtilization": round(queue_total / queue_capacity, 4) if queue_capacity > 0 else None,
+    }
 
 
 def build_eval_operations_health(
@@ -308,6 +348,7 @@ def build_eval_operations_health(
             )
         )
     issues.extend(_comfyui_queue_issues(comfyui_queue_summary))
+    concurrency = _build_concurrency_snapshot(comfyui_queue_summary)
 
     if any(item["severity"] == "critical" for item in issues):
         status = "critical"
@@ -325,6 +366,7 @@ def build_eval_operations_health(
         "recentRunTotal": recent_run_total,
         "recentSuccessCount": recent_success_count,
         "recentFailureCount": recent_failure_total,
+        "concurrency": concurrency,
         "activeWorkflowCount": active_workflow_count,
         "totalWorkflowCount": total_workflow_count,
         "statusCounts": status_counts,

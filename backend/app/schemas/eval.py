@@ -214,6 +214,7 @@ class EvalOperationsHealthResponse(BaseModel):
     recentRunTotal: int = Field(..., description="最近窗口内运行总数")
     recentSuccessCount: int = Field(..., description="最近窗口内成功数量")
     recentFailureCount: int = Field(..., description="最近窗口内有效失败数量")
+    concurrency: dict[str, Any] = Field(default_factory=dict, description="评测/ComfyUI 并发与队列容量快照")
     activeWorkflowCount: int
     totalWorkflowCount: int
     statusCounts: dict[str, int]

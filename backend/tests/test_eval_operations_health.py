@@ -223,8 +223,9 @@ def test_eval_operations_health_warns_when_one_comfyui_executor_is_unreachable()
     report = build_eval_operations_health(
         session,
         comfyui_queue_summary={
+            "totalCount": 3,
             "servers": [
-                {"executorId": "executor_a", "supported": True},
+                {"executorId": "executor_a", "supported": True, "queueMaxSize": 10},
                 {"executorId": "executor_b", "supported": False, "message": "COMFYUI_QUEUE_STATUS_ERROR"},
             ]
         },
@@ -233,6 +234,10 @@ def test_eval_operations_health_warns_when_one_comfyui_executor_is_unreachable()
     assert report["status"] == "warning"
     issue_codes = {item["code"] for item in report["issues"]}
     assert "COMFYUI_EXECUTOR_UNREACHABLE" in issue_codes
+    assert report["concurrency"]["comfyuiAvailableExecutors"] == 1
+    assert report["concurrency"]["comfyuiQueueCapacity"] == 10
+    assert report["concurrency"]["comfyuiQueueTotal"] == 3
+    assert report["concurrency"]["comfyuiQueueUtilization"] == 0.3
 
 
 def test_eval_operations_health_is_critical_when_all_comfyui_executors_are_unreachable():

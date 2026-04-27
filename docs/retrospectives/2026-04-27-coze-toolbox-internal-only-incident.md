@@ -45,6 +45,7 @@ Coze 工具箱 OpenAPI 中的服务地址、backend 内网访问保护、Coze �
 - 通过工具箱入口提交 4 个背景抠图任务，确认两台 ComfyUI 各承接 2 个，最终 `4/4` 成功。
 - 新增发布后 smoke 脚本 `backend/scripts/podi_release_smoke.py`，在 114 主机内验证健康检查、OpenAPI、内部任务查询和 ComfyUI 队列。
 - 新增评测运行健康检查 `backend/scripts/check_eval_operations_health.py` 和管理端接口 `/api/admin/evals/operations-health`，用于发现长期运行、提交卡住、成功无结果、近期失败、最近无评测业务、最近无成功样本等 `/health` 看不到的问题。
+- 健康检查增加并发快照，直接输出评测总并发、ComfyUI 评测并发、单任务裂变并发、ComfyUI 队列容量和当前队列，避免把“稳定模式串行 fanout”误判成能力服务器没有吃满。
 
 ## 立即整改项
 

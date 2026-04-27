@@ -43,6 +43,7 @@
 - `recentRunTotal`：最近窗口内评测运行总数
 - `recentSuccessCount`：最近窗口内成功数量
 - `recentFailureCount`：最近窗口内有效失败数量
+- `concurrency`：当前后端评测并发与 ComfyUI 队列容量快照，例如 `evalComfyuiRunMaxWorkers`、`evalFanoutMaxWorkers`、`comfyuiQueueCapacity`、`comfyuiQueueTotal`
 - `errorCounts`：近期失败错误码分布
 
 配套命令行：

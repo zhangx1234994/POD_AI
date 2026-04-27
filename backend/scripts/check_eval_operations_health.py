@@ -34,6 +34,16 @@ def _print_text(report: dict) -> None:
         f"最近总数={report.get('recentRunTotal', 0)}，成功={report.get('recentSuccessCount', 0)}，"
         f"有效失败={report.get('recentFailureCount', 0)}"
     )
+    concurrency = report.get("concurrency") if isinstance(report.get("concurrency"), dict) else {}
+    if concurrency:
+        print(
+            "并发："
+            f"评测总并发={concurrency.get('evalRunMaxWorkers')}；"
+            f"ComfyUI评测并发={concurrency.get('evalComfyuiRunMaxWorkers')}；"
+            f"单任务裂变并发={concurrency.get('evalFanoutMaxWorkers')}；"
+            f"ComfyUI队列容量={concurrency.get('comfyuiQueueCapacity')}；"
+            f"当前队列={concurrency.get('comfyuiQueueTotal')}"
+        )
     if not report["issues"]:
         print("未发现长期运行、提交卡住、成功无结果或近期失败。")
         return
