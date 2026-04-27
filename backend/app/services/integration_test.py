@@ -1325,6 +1325,10 @@ class IntegrationTestService:
         total_pending = 0
         for executor in executors:
             try:
+                fallback_queue_max = max(1, int(executor.max_concurrency or 0))
+            except (TypeError, ValueError):
+                fallback_queue_max = max(1, int(get_settings().comfyui_queue_batch_size or 10))
+            try:
                 status = self.get_comfyui_queue_status(executor_id=executor.id)
             except HTTPException as exc:
                 detail = exc.detail if isinstance(exc.detail, str) else "COMFYUI_QUEUE_STATUS_ERROR"
@@ -1333,7 +1337,7 @@ class IntegrationTestService:
                     "baseUrl": executor.base_url or (executor.config or {}).get("baseUrl") or (executor.config or {}).get("base_url") or "",
                     "runningCount": 0,
                     "pendingCount": 0,
-                    "queueMaxSize": None,
+                    "queueMaxSize": fallback_queue_max,
                     "supported": False,
                     "message": detail,
                     "raw": None,
