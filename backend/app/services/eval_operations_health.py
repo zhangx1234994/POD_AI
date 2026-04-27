@@ -169,6 +169,8 @@ def build_eval_operations_health(
         .group_by(EvalRun.status)
     ).all()
     recent_counts = {str(status or "unknown"): int(count or 0) for status, count in recent_status_rows}
+    recent_run_total = sum(recent_counts.values())
+    recent_success_count = int(recent_counts.get("succeeded", 0) or 0)
 
     running_rows = (
         session.execute(
@@ -213,6 +215,7 @@ def build_eval_operations_health(
         for item in recent_failures_raw
         if str(item.get("errorCode") or "UNKNOWN") not in _NON_ACTIONABLE_FAILURE_CODES
     ]
+    recent_failure_total = len(recent_failures_all)
     recent_failures = recent_failures_all[:limit]
     error_counter = Counter(str(item.get("errorCode") or "UNKNOWN") for item in recent_failures_all)
 
@@ -242,6 +245,26 @@ def build_eval_operations_health(
                 "没有可用评测工作流",
                 "active 工作流数量为 0，评测端无法覆盖真实业务链路。",
                 1,
+            )
+        )
+    if active_workflow_count > 0 and recent_run_total == 0:
+        issues.append(
+            _issue(
+                "warning",
+                "EVAL_NO_RECENT_RUNS",
+                "最近没有评测业务",
+                f"最近 {recent_hours} 小时没有任何评测运行记录；需要确认巡检是否定时执行，避免业务链路停摆但服务健康。",
+                1,
+            )
+        )
+    if active_workflow_count > 0 and recent_failure_total > 0 and recent_success_count == 0:
+        issues.append(
+            _issue(
+                "critical",
+                "EVAL_NO_RECENT_SUCCESS",
+                "最近评测没有成功记录",
+                f"最近 {recent_hours} 小时有 {recent_failure_total} 条有效失败，但没有成功记录；这通常说明主链路不可用。",
+                recent_failure_total,
             )
         )
     if stale_running_all:
@@ -274,7 +297,6 @@ def build_eval_operations_health(
                 len(succeeded_without_output_all),
             )
         )
-    recent_failure_total = len(recent_failures_all)
     if recent_failure_total:
         issues.append(
             _issue(
@@ -300,6 +322,9 @@ def build_eval_operations_health(
         "staleMinutes": stale_minutes,
         "submitGraceMinutes": submit_grace_minutes,
         "recentHours": recent_hours,
+        "recentRunTotal": recent_run_total,
+        "recentSuccessCount": recent_success_count,
+        "recentFailureCount": recent_failure_total,
         "activeWorkflowCount": active_workflow_count,
         "totalWorkflowCount": total_workflow_count,
         "statusCounts": status_counts,

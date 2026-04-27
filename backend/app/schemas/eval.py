@@ -211,6 +211,9 @@ class EvalOperationsHealthResponse(BaseModel):
     staleMinutes: int
     submitGraceMinutes: int
     recentHours: int
+    recentRunTotal: int = Field(..., description="最近窗口内运行总数")
+    recentSuccessCount: int = Field(..., description="最近窗口内成功数量")
+    recentFailureCount: int = Field(..., description="最近窗口内有效失败数量")
     activeWorkflowCount: int
     totalWorkflowCount: int
     statusCounts: dict[str, int]

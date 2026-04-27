@@ -44,7 +44,7 @@ Coze 工具箱 OpenAPI 中的服务地址、backend 内网访问保护、Coze �
 - 清理 114 服务器上长期占用 8099 的旧手工后端进程，恢复 `podi-backend.service` 作为唯一正式运行方式。
 - 通过工具箱入口提交 4 个背景抠图任务，确认两台 ComfyUI 各承接 2 个，最终 `4/4` 成功。
 - 新增发布后 smoke 脚本 `backend/scripts/podi_release_smoke.py`，在 114 主机内验证健康检查、OpenAPI、内部任务查询和 ComfyUI 队列。
-- 新增评测运行健康检查 `backend/scripts/check_eval_operations_health.py` 和管理端接口 `/api/admin/evals/operations-health`，用于发现长期运行、提交卡住、成功无结果、近期失败等 `/health` 看不到的问题。
+- 新增评测运行健康检查 `backend/scripts/check_eval_operations_health.py` 和管理端接口 `/api/admin/evals/operations-health`，用于发现长期运行、提交卡住、成功无结果、近期失败、最近无评测业务、最近无成功样本等 `/health` 看不到的问题。
 
 ## 立即整改项
 

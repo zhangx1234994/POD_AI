@@ -40,6 +40,9 @@
 - `submitStalled[]`：提交阶段卡住任务
 - `succeededWithoutOutput[]`：成功但没有图片或结构化结果的记录
 - `recentFailures[]`：近期失败记录
+- `recentRunTotal`：最近窗口内评测运行总数
+- `recentSuccessCount`：最近窗口内成功数量
+- `recentFailureCount`：最近窗口内有效失败数量
 - `errorCounts`：近期失败错误码分布
 
 配套命令行：
@@ -55,6 +58,8 @@ python3 backend/scripts/check_eval_operations_health.py
 - `COMFYUI_EXECUTOR_UNREACHABLE`：存在 active ComfyUI 节点队列不可读，发版前必须恢复服务或明确下线该节点。
 - `COMFYUI_NO_AVAILABLE_EXECUTOR`：所有 active ComfyUI 节点不可用，视为阻断级事故。
 - `COMFYUI_QUEUE_HEALTH_UNAVAILABLE`：队列健康检查整体失败，不能只看 `/health` 放行。
+- `EVAL_NO_RECENT_RUNS`：最近窗口内没有任何评测运行，说明巡检可能没有跑，不能只看服务存活。
+- `EVAL_NO_RECENT_SUCCESS`：最近窗口内有有效失败但没有成功记录，视为主链路不可用。
 
 ### GET /api/evals/admin/comfyui-queue-summary
 

@@ -148,6 +148,8 @@
 | COZE_HTTP_* | Coze HTTP 非 200 | |
 | FANOUT_EMPTY | 批量子任务全部失败 | |
 | FANOUT_PARTIAL_FAILED | 批量部分失败 | |
+| EVAL_NO_RECENT_RUNS | 最近窗口内没有评测运行 | 评测运行健康检查，提示巡检可能未执行 |
+| EVAL_NO_RECENT_SUCCESS | 最近窗口内有有效失败但没有成功记录 | 评测运行健康检查，视为主链路不可用 |
 
 ---
 

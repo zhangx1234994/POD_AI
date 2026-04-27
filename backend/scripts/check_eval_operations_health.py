@@ -30,7 +30,9 @@ def _print_text(report: dict) -> None:
         "工作流："
         f"active={report['activeWorkflowCount']} / total={report['totalWorkflowCount']}；"
         f"总状态={report['statusCounts']}；"
-        f"最近{report['recentHours']}小时={report['recentStatusCounts']}"
+        f"最近{report['recentHours']}小时={report['recentStatusCounts']}；"
+        f"最近总数={report.get('recentRunTotal', 0)}，成功={report.get('recentSuccessCount', 0)}，"
+        f"有效失败={report.get('recentFailureCount', 0)}"
     )
     if not report["issues"]:
         print("未发现长期运行、提交卡住、成功无结果或近期失败。")

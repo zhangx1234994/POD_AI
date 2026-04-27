@@ -121,6 +121,49 @@ def test_eval_operations_health_is_healthy_for_recent_completed_output():
     assert report["issues"] == []
     assert report["activeWorkflowCount"] == 1
     assert report["recentStatusCounts"]["succeeded"] == 1
+    assert report["recentRunTotal"] == 1
+    assert report["recentSuccessCount"] == 1
+    assert report["recentFailureCount"] == 0
+
+
+def test_eval_operations_health_warns_when_no_recent_runs():
+    session = _session()
+    session.add(_workflow())
+    session.commit()
+
+    report = build_eval_operations_health(session)
+
+    assert report["status"] == "warning"
+    assert report["recentRunTotal"] == 0
+    issue_codes = {item["code"] for item in report["issues"]}
+    assert "EVAL_NO_RECENT_RUNS" in issue_codes
+
+
+def test_eval_operations_health_is_critical_when_recent_runs_have_no_success():
+    session = _session()
+    now = datetime.utcnow()
+    session.add(_workflow())
+    session.add(
+        _run(
+            id="failed_only",
+            status="failed",
+            result_image_urls_json=None,
+            error_message="COZE_WORKFLOW_ERROR: execute tool failed",
+            created_at=now - timedelta(minutes=2),
+            updated_at=now - timedelta(minutes=2),
+        )
+    )
+    session.commit()
+
+    report = build_eval_operations_health(session)
+
+    assert report["status"] == "critical"
+    assert report["recentRunTotal"] == 1
+    assert report["recentSuccessCount"] == 0
+    assert report["recentFailureCount"] == 1
+    issue_codes = {item["code"] for item in report["issues"]}
+    assert "EVAL_NO_RECENT_SUCCESS" in issue_codes
+    assert "EVAL_RECENT_FAILURES" in issue_codes
 
 
 def test_eval_operations_health_ignores_manual_patrol_abort_failures():
