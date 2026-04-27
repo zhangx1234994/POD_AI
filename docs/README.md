@@ -23,6 +23,17 @@
    - 第三方模型 Key：`docs/admin/integration-dashboard.md`
 8. 想回看阶段过程，再看：`docs/weekly/README.md`
 
+## 当前运行基线（2026-04-27）
+
+- Coze、backend、管理端、测评端已收口到 Coze 主机：`114.55.0.56`。
+- Coze 工具箱统一指向 backend，不再以 `117.50.80.158:8099` 作为现行工具箱入口。
+- `117.50.80.158` 当前作为能力执行服务器使用，承载 image-ops 与 vendor-api-ops 等执行面；旧 backend 不再作为 Coze 工具箱主入口。
+- backend 是控制面，只负责能力目录、路由、任务、回调、OSS、日志与 OpenAPI；不承载高清放大、ComfyUI 或第三方 API 重执行。
+- 2026-04-27 发生 Coze 工具箱 `INTERNAL_ONLY` 事故，已记录复盘：`docs/retrospectives/2026-04-27-coze-toolbox-internal-only-incident.md`。
+- 更新服务后先在 114/Coze 主机内执行 `backend/scripts/podi_release_smoke.py`，确认工具箱入口、内部任务查询和 ComfyUI 队列都可达。
+- 发版后必须执行 `backend/scripts/patrol_eval_workflows.py` 做全量测评巡检。
+- ComfyUI 单机 10、双机 20 不能只看配置，必须通过 `backend/scripts/comfyui_capacity_probe.py` 验证实际队列喂入和任务分布。
+
 ## 现行真源
 
 以下文档优先级最高，视为当前平台口径：
@@ -77,6 +88,8 @@
 | 工程规范 | `docs/standards/` | 错误契约、接口一致性、文档维护等规范 |
 | 测试计划 | `docs/testing/README.md` | 回归计划、线上 smoke 清单、迁移 runbook |
 | 复盘记录 | `docs/retrospectives/` | 复盘、风险、后续动作 |
+| 事故复盘 | `docs/retrospectives/2026-04-27-coze-toolbox-internal-only-incident.md` | Coze 工具箱不可用事故、巡检与并发整改项 |
+| 发布门禁 | `docs/release-preflight.md` | 发版前必须执行的业务链路巡检、ComfyUI 队列验证和构建测试 |
 
 ## 历史资料与阶段记录
 

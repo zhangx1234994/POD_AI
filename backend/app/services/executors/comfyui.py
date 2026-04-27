@@ -1062,6 +1062,8 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         if not image_url:
             return None, "COMFYUI_IMAGE_REQUIRED"
         overrides["5"] = {"url": image_url}
+        # SaveImage can be fully cached by ComfyUI and then /history may contain no images.
+        overrides["4"] = {"filename_prefix": f"bg_remove_{uuid4().hex[:8]}"}
         workflow_definition["_max_output_images"] = 1
         workflow_definition["output_node_ids"] = ["4"]
         return overrides, None

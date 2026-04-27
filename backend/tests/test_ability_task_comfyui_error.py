@@ -29,3 +29,33 @@ def test_extract_comfyui_error_detail_returns_none_without_error_message():
 
     detail = AbilityTaskService._extract_comfyui_error_detail(history)
     assert detail is None
+
+
+def test_empty_comfyui_outputs_fail_fast_after_short_grace_period():
+    assert (
+        AbilityTaskService._should_fail_comfyui_finalize_error(
+            current_error="COMFYUI_IMAGES_EMPTY",
+            count=3,
+            age_seconds=60,
+        )
+        is True
+    )
+
+
+def test_empty_comfyui_outputs_keep_running_during_grace_period():
+    assert (
+        AbilityTaskService._should_fail_comfyui_finalize_error(
+            current_error="COMFYUI_IMAGES_EMPTY",
+            count=2,
+            age_seconds=120,
+        )
+        is False
+    )
+    assert (
+        AbilityTaskService._should_fail_comfyui_finalize_error(
+            current_error="COMFYUI_IMAGES_EMPTY",
+            count=3,
+            age_seconds=30,
+        )
+        is False
+    )

@@ -23,7 +23,8 @@ def test_background_remove_maps_url_and_final_output_node():
     )
 
     assert error is None
-    assert overrides == {"5": {"url": "https://example.com/input.png"}}
+    assert overrides["5"] == {"url": "https://example.com/input.png"}
+    assert str(overrides["4"]["filename_prefix"]).startswith("bg_remove_")
     assert context.workflow.definition["output_node_ids"] == ["4"]
     assert context.workflow.definition["_max_output_images"] == 1
 

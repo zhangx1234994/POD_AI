@@ -14,6 +14,7 @@ from uuid import uuid4
 
 from fastapi import HTTPException
 from sqlalchemy import delete, func, select
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.config import get_settings
 from app.core.db import get_session
@@ -40,6 +41,8 @@ FINALIZE_BATCH_SIZE = 20
 COMFYUI_HISTORY_TIMEOUT_SECONDS = 6
 COMFYUI_HISTORY_ERROR_LIMIT = 20
 COMFYUI_HISTORY_ERROR_MIN_AGE_SECONDS = 15 * 60
+COMFYUI_EMPTY_OUTPUT_ERROR_LIMIT = 3
+COMFYUI_EMPTY_OUTPUT_ERROR_MIN_AGE_SECONDS = 60
 MAX_QUEUE_PER_EXECUTOR = 10
 ERR_CODE_COMFYUI_QUEUE_FULL = "Q1001"
 ERR_CODE_COMMERCIAL_QUEUE_FULL = "Q2001"
@@ -530,11 +533,11 @@ class AbilityTaskService:
 
                 images = outputs.get("images") if isinstance(outputs, dict) else None
                 if not isinstance(images, list) or not images:
-                    self._touch_running_task(task.id)
+                    self._record_comfyui_finalize_error(task_id=task.id, error_message="COMFYUI_IMAGES_EMPTY")
                     continue
                 images = self._limit_comfyui_output_images(task.capability_key, images)
                 if not images:
-                    self._touch_running_task(task.id)
+                    self._record_comfyui_finalize_error(task_id=task.id, error_message="COMFYUI_IMAGES_EMPTY")
                     continue
 
                 ctx = ExecutionContext(
@@ -561,7 +564,7 @@ class AbilityTaskService:
                         assets.append(asset)
 
                 if not assets:
-                    self._touch_running_task(task.id)
+                    self._record_comfyui_finalize_error(task_id=task.id, error_message="COMFYUI_ASSETS_EMPTY")
                     continue
 
                 finished_at = datetime.utcnow()
@@ -609,7 +612,11 @@ class AbilityTaskService:
                 return
             payload = db_task.result_payload if isinstance(db_task.result_payload, dict) else {}
             next_payload = dict(payload)
-            finalize_meta = next_payload.get("_finalize") if isinstance(next_payload.get("_finalize"), dict) else {}
+            finalize_meta = (
+                dict(next_payload.get("_finalize"))
+                if isinstance(next_payload.get("_finalize"), dict)
+                else {}
+            )
             previous_error = str(finalize_meta.get("last_error") or "").strip()
             current_error = str(error_message or "").strip()[:240]
             if current_error and previous_error == current_error:
@@ -625,14 +632,15 @@ class AbilityTaskService:
             )
             next_payload["_finalize"] = finalize_meta
             db_task.result_payload = next_payload
+            flag_modified(db_task, "result_payload")
             db_task.error_message = current_error or db_task.error_message
 
             started_at = db_task.started_at or db_task.created_at
             age_seconds = (now - started_at).total_seconds() if started_at else 0
-            should_fail = (
-                current_error.startswith("COMFYUI_HISTORY_HTTP_")
-                and count >= COMFYUI_HISTORY_ERROR_LIMIT
-                and age_seconds >= COMFYUI_HISTORY_ERROR_MIN_AGE_SECONDS
+            should_fail = self._should_fail_comfyui_finalize_error(
+                current_error=current_error,
+                count=count,
+                age_seconds=age_seconds,
             )
             if should_fail:
                 db_task.status = "failed"
@@ -654,6 +662,16 @@ class AbilityTaskService:
                     )
                 except Exception:
                     pass
+
+    @staticmethod
+    def _should_fail_comfyui_finalize_error(*, current_error: str, count: int, age_seconds: float) -> bool:
+        is_history_error = current_error.startswith("COMFYUI_HISTORY_HTTP_")
+        is_empty_output_error = current_error in {"COMFYUI_IMAGES_EMPTY", "COMFYUI_ASSETS_EMPTY"}
+        if is_history_error:
+            return count >= COMFYUI_HISTORY_ERROR_LIMIT and age_seconds >= COMFYUI_HISTORY_ERROR_MIN_AGE_SECONDS
+        if is_empty_output_error:
+            return count >= COMFYUI_EMPTY_OUTPUT_ERROR_LIMIT and age_seconds >= COMFYUI_EMPTY_OUTPUT_ERROR_MIN_AGE_SECONDS
+        return False
 
     def _finalize_running_kie_tasks(self) -> None:
         settings = get_settings()

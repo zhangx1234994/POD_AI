@@ -13,15 +13,30 @@
 - `done`：已完成
 - `archived`：归档
 
-当前执行焦点（2026-04-25）：
+当前执行焦点（2026-04-27）：
 
-- 主线从“Coze 内手工编排”转向“中台业务 API + 原子能力弹药库”。
-- Coze 保留为业务接入与快速实验入口，复杂版本、灰度、统计和回滚逐步收归中台。
-- 近期优先级固定为：业务能力层稳定化 -> 认证/角色/租户 -> 成本核算 -> API 商业化基础。
+- 当前先暂停新增中台功能和大前端改造，优先处理 2026-04-27 事故暴露的问题。
+- 优先级固定为：业务链路自动巡检 -> ComfyUI 队列/并发可观测 -> 工作流目录治理 -> 再回到业务能力层和前端优化。
+- Coze 保留为业务接入与快速实验入口，但高并发业务调度、默认版本、灰度、统计和回滚逐步收归中台。
 
 ---
 
 ## P0（先做，2-3 周）
+
+0. `doing` 2026-04-27 事故整改优先包
+- 背景：Coze 工具箱因 `INTERNAL_ONLY` 不可用，服务健康但业务链路停摆；同时暴露出 ComfyUI 队列利用率不可见、工作流目录难分辨、ComfyUI 成功但无图回填等问题。
+- 产物：
+  - 事故复盘：`docs/retrospectives/2026-04-27-coze-toolbox-internal-only-incident.md`
+  - 发布后 smoke 脚本：`backend/scripts/podi_release_smoke.py`
+  - 全量测评巡检脚本：`backend/scripts/patrol_eval_workflows.py`
+  - ComfyUI 队列压测脚本：`backend/scripts/comfyui_capacity_probe.py`
+  - 发布前门禁升级：`docs/release-preflight.md`
+- 验收：
+  - 每次发版后能跑完整 active 工作流巡检，并输出成功/失败/中台任务 ID/Coze 执行 ID。
+  - 能验证 ComfyUI 单机 10、双机 20 的实际队列承载，不再只看理论配置。
+  - ComfyUI `success` 但无图时不能长期 `running`，必须明确失败并给出 `COMFYUI_IMAGES_EMPTY`。
+  - 任何 `INTERNAL_ONLY`、工具箱导入失败、主工作流失败都必须阻断发版。
+- 进展（2026-04-27）：已修复 Coze 同机调用、ComfyUI 空输出无限 running、背景抠图缓存空 history；114 上 smoke 通过，背景抠图 4 任务分流到两台 ComfyUI 且全部成功。
 
 1. `doing` 战略指标面板落地
 - 产物：北极星与 5 个 KPI 的数据定义、口径说明、查询来源

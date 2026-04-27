@@ -1,7 +1,5 @@
 # Concurrency Routing Plan
 
-> For Claude: REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
-
 **Goal:** 修正当前异步任务与 ComfyUI/KIE 并发控制，使系统行为符合既有业务约定：KIE 并发 10、ComfyUI 单机 10 且双机总承载 20，并按队列长短分流到更空闲的机器。
 
 **Architecture:** 当前系统已经具备“按队列分流”的基础能力，但被三个问题削弱：全局异步 worker 过小、默认未完全启用 queue 分流、很多能力只有单机候选池。本方案不推翻现有结构，而是在现有 `AbilityTaskService`、`AbilityInvocationService`、`workflow_bindings`、`executors.yaml` 基础上，让“候选池 + 队列分流 + 单机上限保护”真正生效。
@@ -219,6 +217,30 @@
   - 队列更短的机器优先吃新任务
   - 任一单机达到 10 后，不再继续压到这台
   - 两台都到 10 后，返回明确拒绝
+
+推荐脚本：
+
+```bash
+python3 backend/scripts/comfyui_capacity_probe.py \
+  --capability-key <已确认可压测的ComfyUI能力> \
+  --count 12 \
+  --yes
+```
+
+说明：
+
+- 该脚本会提交真实任务，会产生算力成本。
+- 先用 12 条验证分流，再逐步提高到 20。
+- 如果全部落到一台机器，优先检查能力候选池，而不是先怀疑 GPU。
+- 不要用测评端默认并发判断 GPU 利用率；`EVAL_COMFYUI_RUN_MAX_WORKERS=2` 只是稳定巡检值。
+- 如果 ComfyUI 返回 `status=success` 但 `outputs={}`，应先排查 workflow 缓存、输出节点和输入映射；中台必须把这种情况收敛为失败，不能无限 `running`。
+
+2026-04-27 实测记录：
+
+- `beijing_koutu` 提交 2 个任务：两台 ComfyUI 各 1 个，最终 `2/2` 成功。
+- `beijing_koutu` 提交 4 个任务：两台 ComfyUI 各 2 个，最终 `4/4` 成功。
+- 背景抠图曾因 ComfyUI 全缓存导致 `/history` 无图片；已通过唯一输出前缀规避。
+- 114 后端曾存在旧手工 uvicorn 占用 8099，导致 systemd 新进程启动失败；后续并发验证前必须确认端口由 `podi-backend.service` 承载。
 
 ### 6.3 队列查询验证
 - 调：

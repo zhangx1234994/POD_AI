@@ -5,11 +5,72 @@ Goal: run these checks on the test machine before deploying to the production se
 ## 0) Recommended Env (Stable Mode)
 
 - `EVAL_PUBLIC_ENABLED=true`
-- `EVAL_FANOUT_MAX_WORKERS=1` (sequential fan-out for stability)
-- `EVAL_RUN_MAX_WORKERS=2` (keep pressure low during validation)
+- `EVAL_FANOUT_MAX_WORKERS=1` (stable patrol mode; capacity test uses a separate script)
+- `EVAL_RUN_MAX_WORKERS=6`
+- `EVAL_COMFYUI_RUN_MAX_WORKERS=2` (stable patrol mode; do not use this value to judge GPU capacity)
+- `ABILITY_TASK_MAX_WORKERS=24`
+- `COMFYUI_ROUTE_BY_QUEUE=true`
+- `COMFYUI_QUEUE_BATCH_SIZE=10`
 - `COZE_BASE_URL=...`
 - `COZE_API_TOKEN=...`
 - Optional (legacy fallback only): `COZE_COMFYUI_CALLBACK_WORKFLOW_ID=...`
+
+## 0.0) Incident Gate: Real Business Chain Must Pass
+
+This gate was added after the 2026-04-27 `INTERNAL_ONLY` incident. `/health`
+is not enough. A release is not valid until the real chain passes:
+
+```text
+Eval UI / Coze
+  -> backend toolbox
+    -> ability task
+      -> ComfyUI / vendor-api
+        -> OSS result
+```
+
+Fast path on the backend/Coze host:
+
+```bash
+python3 backend/scripts/podi_release_smoke.py \
+  --base-url http://127.0.0.1:8099 \
+  --expect-server-url http://10.11.0.7:8099
+```
+
+Expected:
+
+- `health` passes.
+- `coze_openapi` passes and shows the address Coze uses.
+- `internal_tasks_get` returns `404 TASK_NOT_FOUND`, not `401 INTERNAL_ONLY`.
+- `comfyui_queue_summary` returns all active ComfyUI executors.
+
+Manual checks:
+
+1. Public backend health:
+   - `curl -fsS http://<backend-host>:8099/health`
+   - Also confirm the listening PID belongs to the formal service, not an old manual process:
+     `ss -ltnp | grep ':8099'` and `systemctl status podi-backend`
+2. Coze toolbox OpenAPI server URL:
+   - Run from the backend/Coze host: `curl -fsS http://127.0.0.1:8099/api/coze/podi/openapi.json`
+   - Confirm `servers[0].url` is the address Coze can actually reach.
+   - External callers may receive `401 INTERNAL_ONLY`; this is expected for protected toolbox surfaces.
+3. Coze-side internal call:
+   - From the Coze container/host, call `/api/coze/podi/tasks/get` with a fake task ID.
+   - Expected: `404 TASK_NOT_FOUND`.
+   - Failure: `401 INTERNAL_ONLY` means Coze still cannot call backend tools.
+4. Full eval patrol:
+   ```bash
+   python3 backend/scripts/patrol_eval_workflows.py \
+     --base-url http://<backend-host>:8099 \
+     --timeout 1800
+   ```
+   Expected: all active workflows end in `succeeded`.
+5. ComfyUI queue visibility:
+   ```bash
+   python3 backend/scripts/comfyui_capacity_probe.py
+   ```
+   Expected: all active ComfyUI executors return queue counts.
+
+If any of the above fails, do not continue with frontend/admin acceptance.
 
 ## 0.1) Release Source of Truth (Must Check First)
 
@@ -70,6 +131,38 @@ If it gets stuck on `running`, check:
 - Expectation:
   - If KIE status polling is slow/flaky, the error should include upstream status/body snippet
     (e.g. `KIE_STATUS_HTTP_502 body='...'`) instead of a generic `KIE_STATUS_HTTP_ERROR`.
+
+## 2.1) ComfyUI Capacity Gate (After Functional Patrol)
+
+This is separate from the stable eval patrol. The goal is to verify that PODI can
+feed ComfyUI queues tightly enough and that queue routing really uses the expected
+executors.
+
+Run on the backend host:
+
+```bash
+python3 backend/scripts/comfyui_capacity_probe.py \
+  --capability-key <confirmed-safe-comfyui-capability> \
+  --count 12 \
+  --yes
+```
+
+Expected:
+
+- queue snapshots show running/pending counts changing during the probe.
+- task summary shows which executor each task used.
+- a single executor does not exceed 10 queued + running tasks.
+- if a capability is expected to be dual-machine capable, tasks should distribute across both machines.
+- terminal status must not stay `running` after ComfyUI `/history` has `status=success`.
+- if `/history` is `success` but `outputs` is empty, backend must close the task as `failed` with `COMFYUI_IMAGES_EMPTY` after the short grace period.
+- for cache-prone workflows, use a unique output prefix or random seed so ComfyUI does not return an empty cached history.
+
+If all tasks stay on one machine, check ability metadata:
+
+- `allowed_executor_ids`
+- `required_tags`
+- `routing_policy`
+- workflow/model/LoRA consistency across both ComfyUI nodes
 
 ## 3) Restart Safety (No Duplicate ComfyUI Submissions)
 
