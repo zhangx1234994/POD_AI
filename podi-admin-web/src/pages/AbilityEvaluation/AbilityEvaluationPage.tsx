@@ -35,6 +35,13 @@ const buildGovernanceDraft = (workflow: EvalWorkflowVersion | null): WorkflowGov
   };
 };
 
+const PUBLIC_WORKFLOW_ROLES = new Set(['production', 'candidate']);
+
+const isWorkflowPublicVisible = (workflow: EvalWorkflowVersion | null): boolean => {
+  const role = String(workflow?.governance?.role || '').trim().toLowerCase();
+  return PUBLIC_WORKFLOW_ROLES.has(role) && workflow?.presentation?.visible !== false;
+};
+
 function NoticeBar({ notice, onClose }: { notice: Notice | null; onClose: () => void }) {
   if (!notice) return null;
   return (
@@ -538,11 +545,22 @@ export function AbilityEvaluationPage() {
               <div>
                 <div className="text-sm font-semibold">目录角色</div>
                 <div className="mt-1 text-xs text-slate-600 dark:text-slate-400">
-                  控制评测端展示顺序和业务推荐口径。生产主入口会优先展示，灰度/历史版本会降权。
+                  生产主入口和灰度/对照版本会出现在公开评测端；历史、辅助、停用版本只在管理端保留。
                 </div>
               </div>
-              <div className="rounded-full bg-sky-500/10 px-3 py-1 text-xs font-medium text-sky-700 dark:text-sky-200">
-                当前：{selectedWorkflow.governance?.roleLabel || '未归类'}
+              <div className="flex flex-wrap gap-2">
+                <div
+                  className={`rounded-full px-3 py-1 text-xs font-medium ${
+                    isWorkflowPublicVisible(selectedWorkflow)
+                      ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-200'
+                      : 'bg-amber-500/10 text-amber-700 dark:text-amber-200'
+                  }`}
+                >
+                  {isWorkflowPublicVisible(selectedWorkflow) ? '会出现在公开评测端' : '仅管理端可见'}
+                </div>
+                <div className="rounded-full bg-sky-500/10 px-3 py-1 text-xs font-medium text-sky-700 dark:text-sky-200">
+                  当前：{selectedWorkflow.governance?.roleLabel || '未归类'}
+                </div>
               </div>
             </div>
             <div className="mt-4 grid gap-3 lg:grid-cols-[180px_180px_110px_minmax(220px,1fr)_120px]">

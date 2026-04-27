@@ -8,6 +8,8 @@ type Props = {
   onRefreshWorkflows?: () => void;
 };
 
+const PUBLIC_WORKFLOW_ROLES = new Set(['production', 'candidate']);
+
 export function EvaluationSidebar({ workflows, selectedWorkflow, onWorkflowSelect, onCreateWorkflow, onRefreshWorkflows }: Props) {
   const normalizeCategory = (category: string | undefined | null): string => {
     const c = String(category || '').trim();
@@ -29,6 +31,10 @@ export function EvaluationSidebar({ workflows, selectedWorkflow, onWorkflowSelec
 
   const categories = ['花纹提取类', '图延伸类', '四方/两方连续图类', '图裂变', '通用类'].filter((c) => (grouped[c] || []).length > 0);
   const workflowSortKey = (workflow: EvalWorkflowVersion) => Number(workflow.governance?.rank ?? workflow.presentation?.sortOrder ?? 9999);
+  const isPublicWorkflow = (workflow: EvalWorkflowVersion) => {
+    const role = String(workflow.governance?.role || '').trim().toLowerCase();
+    return PUBLIC_WORKFLOW_ROLES.has(role) && workflow.presentation?.visible !== false;
+  };
 
   return (
     <aside className="w-72 overflow-y-auto border-r border-slate-200 bg-white/70 p-4 dark:border-slate-800 dark:bg-slate-950/40">
@@ -72,6 +78,7 @@ export function EvaluationSidebar({ workflows, selectedWorkflow, onWorkflowSelec
                   const active = selectedWorkflow?.id === wf.id;
                   const roleLabel = wf.governance?.roleLabel || (wf.governance?.isPrimary ? '生产主入口' : '');
                   const variantLabel = wf.presentation?.variantLabel;
+                  const publicVisible = isPublicWorkflow(wf);
                   return (
                     <button
                       key={wf.id}
@@ -89,6 +96,15 @@ export function EvaluationSidebar({ workflows, selectedWorkflow, onWorkflowSelec
                       </div>
                       {roleLabel || variantLabel ? (
                         <div className="mt-2 flex flex-wrap gap-1">
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                              publicVisible
+                                ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-200'
+                                : 'bg-amber-500/10 text-amber-700 dark:text-amber-200'
+                            }`}
+                          >
+                            {publicVisible ? '公开目录' : '仅管理端'}
+                          </span>
                           {roleLabel ? (
                             <span className="rounded-full bg-sky-500/10 px-2 py-0.5 text-[11px] font-medium text-sky-700 dark:text-sky-200">
                               {roleLabel}
