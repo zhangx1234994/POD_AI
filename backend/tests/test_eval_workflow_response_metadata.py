@@ -105,3 +105,52 @@ def test_eval_workflow_governance_accepts_camel_case_admin_override() -> None:
         "rank": 5,
         "isPrimary": True,
     }
+
+
+def test_eval_workflow_disabled_governance_hides_public_entry() -> None:
+    row = _workflow(
+        extra_metadata={
+            "presentation": {"visible": True},
+            "governance": {
+                "role": "disabled",
+                "roleLabel": "已停用",
+                "roleReason": "暂不作为可用入口。",
+            },
+        }
+    )
+
+    payload = build_eval_workflow_response_metadata(row)
+
+    assert payload["governance"]["role"] == "disabled"
+    assert payload["presentation"]["visible"] is False
+    assert is_eval_workflow_publicly_visible(row) is False
+
+
+def test_eval_workflow_auxiliary_governance_hides_public_entry() -> None:
+    row = _workflow(
+        extra_metadata={
+            "presentation": {"visible": True},
+            "governance": {"role": "auxiliary"},
+        }
+    )
+
+    payload = build_eval_workflow_response_metadata(row)
+
+    assert payload["governance"]["role"] == "auxiliary"
+    assert payload["presentation"]["visible"] is False
+    assert is_eval_workflow_publicly_visible(row) is False
+
+
+def test_eval_workflow_candidate_governance_remains_public() -> None:
+    row = _workflow(
+        extra_metadata={
+            "presentation": {"visible": True},
+            "governance": {"role": "candidate"},
+        }
+    )
+
+    payload = build_eval_workflow_response_metadata(row)
+
+    assert payload["governance"]["role"] == "candidate"
+    assert payload["presentation"]["visible"] is True
+    assert is_eval_workflow_publicly_visible(row) is True

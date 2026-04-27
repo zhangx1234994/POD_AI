@@ -17,6 +17,7 @@ from app.services.eval_workflow_usage import enrich_metadata_with_eval_workflow_
 
 
 EVAL_WORKFLOW_METADATA_UPDATE_KEYS = frozenset({"metadata", "presentation", "usage", "deprecation", "governance"})
+EVAL_WORKFLOW_PUBLIC_ROLES = frozenset({"production", "candidate"})
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -140,6 +141,8 @@ def build_eval_workflow_response_metadata(row: EvalWorkflowVersion) -> dict[str,
         deprecation=metadata.get("deprecation") if isinstance(metadata.get("deprecation"), dict) else None,
     )
     metadata["governance"] = governance
+    if governance.get("role") not in EVAL_WORKFLOW_PUBLIC_ROLES and isinstance(metadata.get("presentation"), dict):
+        metadata["presentation"]["visible"] = False
     return {
         "metadata": metadata or None,
         "presentation": _camelize_presentation(metadata.get("presentation")),
@@ -151,6 +154,10 @@ def build_eval_workflow_response_metadata(row: EvalWorkflowVersion) -> dict[str,
 
 def is_eval_workflow_publicly_visible(row: EvalWorkflowVersion) -> bool:
     metadata = build_eval_workflow_response_metadata(row).get("metadata")
+    governance = metadata.get("governance") if isinstance(metadata, dict) else None
+    role = str(governance.get("role") or "").strip().lower() if isinstance(governance, dict) else ""
+    if role and role not in EVAL_WORKFLOW_PUBLIC_ROLES:
+        return False
     return is_eval_workflow_visible(
         status=row.status,
         category=row.category,

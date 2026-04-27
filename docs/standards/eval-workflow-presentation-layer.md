@@ -46,6 +46,19 @@
 
 前端排序必须优先按 `governance.rank`，再按 `presentation.sortOrder`。业务卡片必须展示 `roleLabel` 和 `roleReason`，避免一堆同名“图裂变”无法分辨。
 
+公开评测端只展示：
+
+- `role=production`
+- `role=candidate`
+
+以下角色默认不进入公开目录，仅允许在管理端或内部排障入口查看：
+
+- `role=legacy`
+- `role=auxiliary`
+- `role=disabled`
+
+如果需要临时对业务开放历史版本，不要把角色改成 `legacy` 后再强行配置 `presentation.visible=true`；应改为 `candidate` 并写清楚 `roleReason`，保证公开目录的含义稳定。
+
 ## 原则
 
 1. `metadata` 继续保留作内部配置，不直接要求前端解析。
@@ -53,3 +66,4 @@
 3. 业务提示统一由中台给出，减少客户端和测评端各写一套文案。
 4. 评测列表的排序和隐藏规则以展示层真源为准。
 5. 工作流目录角色以顶层 `governance` 为准，前端不得再用名称或 ID 自行判断生产/灰度/历史。
+6. 公开目录的可见性由后端统一执行，前端不能绕过后端重新显示历史、辅助、停用版本。
