@@ -6445,7 +6445,7 @@ export function App() {
           : { tag: '未检查', theme: 'default' as const, title: '链路健康未检查', tone: 'info' as const };
   const getHealthIssueCount = (code: string, fallback: number) =>
     operationsHealth?.issues.find((issue) => issue.code === code)?.count ?? fallback;
-  const healthRecentFailed = getHealthIssueCount('EVAL_RECENT_FAILURES', operationsHealth?.recentStatusCounts?.failed || 0);
+  const healthRecentFailed = getHealthIssueCount('EVAL_RECENT_FAILURES', operationsHealth?.recentFailures?.length || 0);
   const healthStaleCount = getHealthIssueCount('EVAL_RUN_STALE', operationsHealth?.staleRunning?.length || 0);
   const healthSubmitStalledCount = getHealthIssueCount('EVAL_SUBMIT_STALLED', operationsHealth?.submitStalled?.length || 0);
   const healthSucceededWithoutOutputCount = getHealthIssueCount(

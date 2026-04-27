@@ -121,3 +121,27 @@ def test_eval_operations_health_is_healthy_for_recent_completed_output():
     assert report["issues"] == []
     assert report["activeWorkflowCount"] == 1
     assert report["recentStatusCounts"]["succeeded"] == 1
+
+
+def test_eval_operations_health_ignores_manual_patrol_abort_failures():
+    session = _session()
+    now = datetime.utcnow()
+    session.add(_workflow())
+    session.add(
+        _run(
+            id="patrol_abort",
+            status="failed",
+            result_image_urls_json=None,
+            error_message="EVAL_PATROL_ABORTED: operator stopped the patrol",
+            created_at=now - timedelta(minutes=2),
+            updated_at=now - timedelta(minutes=2),
+        )
+    )
+    session.commit()
+
+    report = build_eval_operations_health(session)
+
+    assert report["status"] == "healthy"
+    assert report["issues"] == []
+    assert report["recentFailures"] == []
+    assert report["recentStatusCounts"]["failed"] == 1

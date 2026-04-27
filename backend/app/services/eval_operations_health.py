@@ -12,6 +12,11 @@ from sqlalchemy.orm import Session
 from app.models.eval import EvalRun, EvalWorkflowVersion
 from app.services.task_status_contract import extract_error_code
 
+_NON_ACTIONABLE_FAILURE_CODES = {
+    # Manual patrol cancellation is an operator action, not a business chain failure.
+    "EVAL_PATROL_ABORTED",
+}
+
 
 def _utcnow() -> datetime:
     return datetime.utcnow()
@@ -148,7 +153,12 @@ def build_eval_operations_health(
         )
         .all()
     )
-    recent_failures_all = [_run_item(run, workflow, now=now) for run, workflow in recent_failure_rows]
+    recent_failures_raw = [_run_item(run, workflow, now=now) for run, workflow in recent_failure_rows]
+    recent_failures_all = [
+        item
+        for item in recent_failures_raw
+        if str(item.get("errorCode") or "UNKNOWN") not in _NON_ACTIONABLE_FAILURE_CODES
+    ]
     recent_failures = recent_failures_all[:limit]
     error_counter = Counter(str(item.get("errorCode") or "UNKNOWN") for item in recent_failures_all)
 
@@ -210,7 +220,7 @@ def build_eval_operations_health(
                 len(succeeded_without_output_all),
             )
         )
-    recent_failure_total = int(recent_counts.get("failed", 0))
+    recent_failure_total = len(recent_failures_all)
     if recent_failure_total:
         issues.append(
             _issue(

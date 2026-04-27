@@ -372,35 +372,45 @@ class AbilityInvocationService:
                 .all()
             )
             if bindings:
-                max_priority = max(binding.priority for binding in bindings)
-                candidate_ids = [
-                    binding.executor_id
-                    for binding in bindings
-                    if binding.executor_id and binding.priority == max_priority
-                ]
-                candidates = self._prepare_comfyui_candidates(candidate_ids, required_tags)
-                picked = self._select_comfyui_executor(
-                    candidates,
-                    policy=policy,
-                    route_by_queue=route_by_queue,
-                    ability_id=ability.id,
-                    preferred_order=candidate_ids,
-                )
-                if picked:
-                    return picked
+                priority_groups: dict[int, list[str]] = {}
+                for binding in bindings:
+                    if not binding.executor_id:
+                        continue
+                    priority_groups.setdefault(int(binding.priority or 0), []).append(binding.executor_id)
+                for priority in sorted(priority_groups.keys(), reverse=True):
+                    candidate_ids = priority_groups[priority]
+                    candidates = self._prepare_comfyui_candidates(candidate_ids, required_tags)
+                    picked = self._select_comfyui_executor(
+                        candidates,
+                        policy=policy,
+                        route_by_queue=route_by_queue,
+                        ability_id=ability.id,
+                        preferred_order=candidate_ids,
+                    )
+                    if picked:
+                        return picked
 
         # Fallback: keep current single-host defaults predictable.
         if not fallback_to_default:
             return None
         if workflow_key in {"sifang_lianxu", "huawen_kuotu", "beijing_koutu", "toubu_kouxiang"}:
-            return "executor_comfyui_seamless_117"
-        if workflow_key in {
+            fallback_ids = ["executor_comfyui_seamless_117"]
+        elif workflow_key in {
             "yinhua_tiqu", "yinhua_tiqu_lora_8step", "jisu_chuli", "zhongsu_tisheng",
             "duotu_ronghe", "e7_flux2_liebian", "flux_strong_hq_softstyle_fission", "flux2_9b_liebian_sifang",
             "qwen2512_print_shape_text_enhance",
         }:
-            return "executor_comfyui_pattern_extract_158"
-        return None
+            fallback_ids = ["executor_comfyui_pattern_extract_158"]
+        else:
+            fallback_ids = []
+        fallback_candidates = self._prepare_comfyui_candidates(fallback_ids, required_tags)
+        return self._select_comfyui_executor(
+            fallback_candidates,
+            policy=policy,
+            route_by_queue=route_by_queue,
+            ability_id=ability.id,
+            preferred_order=fallback_ids,
+        )
 
     @staticmethod
     def _normalize_tags(value: Any) -> list[str]:
@@ -484,12 +494,13 @@ class AbilityInvocationService:
             return self._pick_comfyui_executor_by_rr(candidates, ability_id)
         if policy == "queue":
             picked = self._pick_comfyui_executor_by_queue([row.id for row in candidates])
-            return picked or candidates[0].id
+            return picked
         # auto
         if route_by_queue:
             picked = self._pick_comfyui_executor_by_queue([row.id for row in candidates])
             if picked:
                 return picked
+            return None
         return candidates[0].id
 
     def _pick_comfyui_executor_by_weight(self, candidates: list[Executor]) -> str | None:
