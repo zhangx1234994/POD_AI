@@ -16,6 +16,7 @@ from PIL import Image
 from sqlalchemy import select
 
 from app.constants.abilities import BAIDU_IMAGE_ABILITIES
+from app.core.config import get_settings
 from app.core.db import get_session
 from app.models.integration import ApiKey, Executor, Workflow
 from app.services.api_key_selector import bump_usage, mark_cooldown, pick_executor_api_key, pick_provider_api_key
@@ -1287,6 +1288,11 @@ class IntegrationTestService:
             # platform executor cap so ops can still see the intended capacity.
             try:
                 max_size_value = max(1, int(executor.max_concurrency or 0))
+            except (TypeError, ValueError):
+                max_size_value = None
+        if max_size_value is None:
+            try:
+                max_size_value = max(1, int(get_settings().comfyui_queue_batch_size or 0))
             except (TypeError, ValueError):
                 max_size_value = None
         return {
