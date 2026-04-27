@@ -50,6 +50,12 @@ python3 backend/scripts/check_eval_operations_health.py
 
 发版门禁：出现 `critical` 时禁止继续发版或验收，必须先收口。
 
+补充规则：
+
+- `COMFYUI_EXECUTOR_UNREACHABLE`：存在 active ComfyUI 节点队列不可读，发版前必须恢复服务或明确下线该节点。
+- `COMFYUI_NO_AVAILABLE_EXECUTOR`：所有 active ComfyUI 节点不可用，视为阻断级事故。
+- `COMFYUI_QUEUE_HEALTH_UNAVAILABLE`：队列健康检查整体失败，不能只看 `/health` 放行。
+
 ### GET /api/evals/admin/comfyui-queue-summary
 
 用途：评测端首页展示 ComfyUI 执行节点队列，辅助判断 GPU 是否吃满、是否存在排队断档。

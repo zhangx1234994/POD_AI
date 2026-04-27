@@ -52,6 +52,7 @@ Expected:
 - `internal_tasks_get` returns `404 TASK_NOT_FOUND`, not `401 INTERNAL_ONLY`.
 - `comfyui_queue_summary` returns all active ComfyUI executors.
 - `check_eval_operations_health.py` returns `healthy` or only an accepted `warning`; `critical` blocks release.
+- `COMFYUI_EXECUTOR_UNREACHABLE` is not ignored: either restore the executor service or explicitly mark the executor offline before release.
 
 Manual checks:
 
@@ -78,7 +79,7 @@ Manual checks:
    ```bash
    python3 backend/scripts/check_eval_operations_health.py
    ```
-   Expected: no stale running runs, no submit-stalled runs, no succeeded-without-output records.
+   Expected: no stale running runs, no submit-stalled runs, no succeeded-without-output records, and no active ComfyUI executor with unreadable queue.
 6. ComfyUI queue visibility:
    ```bash
    python3 backend/scripts/comfyui_capacity_probe.py

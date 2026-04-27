@@ -21,6 +21,7 @@ if str(ROOT) not in sys.path:
 
 from app.core.db import get_session  # noqa: E402
 from app.services.eval_operations_health import build_eval_operations_health  # noqa: E402
+from app.services.integration_test import integration_test_service  # noqa: E402
 
 
 def _print_text(report: dict) -> None:
@@ -57,6 +58,11 @@ def main() -> int:
     parser.add_argument("--json", action="store_true", help="print JSON.")
     args = parser.parse_args()
 
+    try:
+        comfyui_queue_summary = integration_test_service.get_comfyui_queue_summary()
+    except Exception as exc:
+        comfyui_queue_summary = {"error": "COMFYUI_QUEUE_HEALTH_UNAVAILABLE", "detail": str(exc)}
+
     with get_session() as session:
         report = build_eval_operations_health(
             session,
@@ -64,6 +70,7 @@ def main() -> int:
             submit_grace_minutes=args.submit_grace_minutes,
             recent_hours=args.recent_hours,
             limit=args.limit,
+            comfyui_queue_summary=comfyui_queue_summary,
         )
 
     if args.json:
