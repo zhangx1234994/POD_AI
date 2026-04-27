@@ -121,12 +121,12 @@ def build_eval_operations_health(
         )
         .all()
     )
-    stale_running = [
+    stale_running_all = [
         _run_item(run, workflow, now=now)
         for run, workflow in running_rows
         if run.created_at and run.created_at <= stale_cutoff
-    ][:limit]
-    submit_stalled = [
+    ]
+    submit_stalled_all = [
         _run_item(run, workflow, now=now)
         for run, workflow in running_rows
         if str(run.status or "").lower() == "running"
@@ -134,7 +134,9 @@ def build_eval_operations_health(
         and not str(run.podi_task_id or "").strip()
         and run.created_at
         and run.created_at <= submit_grace_cutoff
-    ][:limit]
+    ]
+    stale_running = stale_running_all[:limit]
+    submit_stalled = submit_stalled_all[:limit]
 
     recent_failure_rows = (
         session.execute(
@@ -142,12 +144,13 @@ def build_eval_operations_health(
             .join(EvalWorkflowVersion, EvalWorkflowVersion.id == EvalRun.workflow_version_id, isouter=True)
             .where(EvalRun.status == "failed", EvalRun.created_at >= recent_cutoff)
             .order_by(EvalRun.created_at.desc())
-            .limit(limit)
+            .limit(max(limit, 500))
         )
         .all()
     )
-    recent_failures = [_run_item(run, workflow, now=now) for run, workflow in recent_failure_rows]
-    error_counter = Counter(str(item.get("errorCode") or "UNKNOWN") for item in recent_failures)
+    recent_failures_all = [_run_item(run, workflow, now=now) for run, workflow in recent_failure_rows]
+    recent_failures = recent_failures_all[:limit]
+    error_counter = Counter(str(item.get("errorCode") or "UNKNOWN") for item in recent_failures_all)
 
     recent_success_rows = (
         session.execute(
@@ -159,11 +162,12 @@ def build_eval_operations_health(
         )
         .all()
     )
-    succeeded_without_output = [
+    succeeded_without_output_all = [
         _run_item(run, workflow, now=now)
         for run, workflow in recent_success_rows
         if not _has_result(run)
-    ][:limit]
+    ]
+    succeeded_without_output = succeeded_without_output_all[:limit]
 
     issues: list[dict[str, Any]] = []
     if active_workflow_count == 0:
@@ -176,44 +180,45 @@ def build_eval_operations_health(
                 1,
             )
         )
-    if stale_running:
+    if stale_running_all:
         issues.append(
             _issue(
                 "critical",
                 "EVAL_RUN_STALE",
                 "存在长期未收口的评测任务",
-                f"有 {len(stale_running)} 条任务运行超过 {stale_minutes} 分钟，需要检查 Coze/中台任务/回填链路。",
-                len(stale_running),
+                f"有 {len(stale_running_all)} 条任务运行超过 {stale_minutes} 分钟，需要检查 Coze/中台任务/回填链路。",
+                len(stale_running_all),
             )
         )
-    if submit_stalled:
+    if submit_stalled_all:
         issues.append(
             _issue(
                 "critical",
                 "EVAL_SUBMIT_STALLED",
                 "存在提交后没有执行标识的任务",
-                f"有 {len(submit_stalled)} 条运行中任务没有 Coze 执行 ID 或中台任务 ID，可能卡在提交阶段。",
-                len(submit_stalled),
+                f"有 {len(submit_stalled_all)} 条运行中任务没有 Coze 执行 ID 或中台任务 ID，可能卡在提交阶段。",
+                len(submit_stalled_all),
             )
         )
-    if succeeded_without_output:
+    if succeeded_without_output_all:
         issues.append(
             _issue(
                 "warning",
                 "EVAL_SUCCESS_WITHOUT_OUTPUT",
                 "存在成功但没有结果的评测记录",
-                f"最近 {recent_hours} 小时内有 {len(succeeded_without_output)} 条成功记录没有图片或结构化结果。",
-                len(succeeded_without_output),
+                f"最近 {recent_hours} 小时内有 {len(succeeded_without_output_all)} 条成功记录没有图片或结构化结果。",
+                len(succeeded_without_output_all),
             )
         )
-    if recent_failures:
+    recent_failure_total = int(recent_counts.get("failed", 0))
+    if recent_failure_total:
         issues.append(
             _issue(
                 "warning",
                 "EVAL_RECENT_FAILURES",
                 "最近有评测失败",
-                f"最近 {recent_hours} 小时内有 {len(recent_failures)} 条失败记录，需看错误分布。",
-                len(recent_failures),
+                f"最近 {recent_hours} 小时内有 {recent_failure_total} 条失败记录，需看错误分布。",
+                recent_failure_total,
             )
         )
 
