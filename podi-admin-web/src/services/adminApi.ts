@@ -14,6 +14,8 @@ import type {
   Binding,
   BusinessCapability,
   BusinessCapabilityListResponse,
+  BusinessClient,
+  BusinessClientListResponse,
   BusinessRoutePreviewResponse,
   BusinessRunListResponse,
   BusinessUsageSummaryResponse,
@@ -103,6 +105,12 @@ type BusinessRunQueryOptions = {
   traceId?: string;
   windowHours?: number;
   limit?: number;
+};
+
+type BusinessClientQueryOptions = {
+  tenantId?: string;
+  clientId?: string;
+  status?: string;
 };
 
 type BaiduImageTestResponse = {
@@ -262,6 +270,14 @@ function buildBusinessRunQuery(options?: BusinessRunQueryOptions) {
   if (options?.traceId?.trim()) params.set('trace_id', options.traceId.trim());
   if (options?.windowHours) params.set('window_hours', String(options.windowHours));
   if (options?.limit) params.set('limit', String(options.limit));
+  return params;
+}
+
+function buildBusinessClientQuery(options?: BusinessClientQueryOptions) {
+  const params = new URLSearchParams();
+  if (options?.tenantId?.trim()) params.set('tenant_id', options.tenantId.trim());
+  if (options?.clientId?.trim()) params.set('client_id', options.clientId.trim());
+  if (options?.status && options.status !== 'all') params.set('status', options.status);
   return params;
 }
 
@@ -871,6 +887,18 @@ export const adminApi = {
   getDispatchLogs: () => request<DispatchLogResponse>('/api/admin/dashboard/logs'),
   getSystemConfig: () => request<SystemConfig>('/api/admin/dashboard/system-config'),
   listBusinessCapabilities: () => request<BusinessCapabilityListResponse>('/api/admin/business/capabilities'),
+  listBusinessClients: (options?: BusinessClientQueryOptions) => {
+    const params = buildBusinessClientQuery(options);
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    return request<BusinessClientListResponse>(`/api/admin/business/clients${suffix}`);
+  },
+  createBusinessClient: (payload: Partial<BusinessClient>) =>
+    request<BusinessClient>('/api/admin/business/clients', { method: 'POST', body: JSON.stringify(payload) }),
+  updateBusinessClient: (id: string, payload: Partial<BusinessClient>) =>
+    request<BusinessClient>(`/api/admin/business/clients/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
   createBusinessCapability: (payload: Partial<BusinessCapability>) =>
     request<BusinessCapability>('/api/admin/business/capabilities', { method: 'POST', body: JSON.stringify(payload) }),
   updateBusinessCapability: (id: string, payload: Partial<BusinessCapability>) =>

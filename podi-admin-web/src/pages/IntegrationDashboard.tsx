@@ -50,6 +50,8 @@ import type {
   BindingFormState,
   BusinessCapability,
   BusinessCapabilityFormState,
+  BusinessClient,
+  BusinessClientFormState,
   BusinessRoutePreviewResponse,
   BusinessRun,
   BusinessUsageSummaryResponse,
@@ -208,6 +210,21 @@ const defaultBusinessCapabilityForm: BusinessCapabilityFormState = {
   outputSchemaText: '{"fields":[]}',
   metadataText: '{}',
 };
+const defaultBusinessClientForm: BusinessClientFormState = {
+  tenantId: '',
+  clientId: '',
+  displayName: '',
+  status: 'active',
+  allowedBusinessKeysText: '',
+  dailyRunLimit: null,
+  dailyQuotaUnits: null,
+  concurrentRunLimit: null,
+  metadataText: '{}',
+};
+const businessClientStatusOptions = [
+  { value: 'active', label: '启用' },
+  { value: 'disabled', label: '停用' },
+];
 const providerOptions = [
   { value: 'baidu', label: '百度智能云' },
   { value: 'openai', label: 'OpenAI' },
@@ -1537,6 +1554,26 @@ const businessKeyLabel = (key?: string | null) => {
   return key || '未命名业务';
 };
 
+const businessClientScopeLabel = (client: BusinessClient) => {
+  if (client.clientId) return `${client.tenantId} / ${client.clientId}`;
+  return `${client.tenantId} / 全部客户端`;
+};
+
+const businessClientAllowedLabel = (client: BusinessClient) => {
+  const keys = client.allowedBusinessKeys || [];
+  if (keys.length === 0) return '全部业务';
+  return keys.map((key) => businessKeyLabel(key)).join('、');
+};
+
+const businessClientLimitLabel = (client: BusinessClient) => {
+  const parts = [
+    client.concurrentRunLimit ? `并发 ${client.concurrentRunLimit}` : '',
+    client.dailyRunLimit ? `日调用 ${client.dailyRunLimit}` : '',
+    client.dailyQuotaUnits ? `日额度 ${client.dailyQuotaUnits}` : '',
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(' / ') : '未限制';
+};
+
 const businessRunStepStatusLabel = (status?: string | null) => {
   if (status === 'planned') return '待执行';
   if (status === 'queued') return '排队中';
@@ -2079,6 +2116,7 @@ export function IntegrationDashboard({
   const [dispatchLogDetailOpen, setDispatchLogDetailOpen] = useState(false);
   const [systemConfig, setSystemConfig] = useState<SystemConfig | null>(null);
   const [businessCapabilities, setBusinessCapabilities] = useState<BusinessCapability[]>([]);
+  const [businessClients, setBusinessClients] = useState<BusinessClient[]>([]);
   const [businessRuns, setBusinessRuns] = useState<BusinessRun[]>([]);
   const [businessRunTotal, setBusinessRunTotal] = useState(0);
   const [businessUsageSummary, setBusinessUsageSummary] = useState<BusinessUsageSummaryResponse | null>(null);
@@ -2098,6 +2136,10 @@ export function IntegrationDashboard({
   const [businessDialogOpen, setBusinessDialogOpen] = useState(false);
   const [businessForm, setBusinessForm] = useState<BusinessCapabilityFormState>(defaultBusinessCapabilityForm);
   const [businessFormError, setBusinessFormError] = useState<string | null>(null);
+  const [businessClientDialogOpen, setBusinessClientDialogOpen] = useState(false);
+  const [businessClientForm, setBusinessClientForm] = useState<BusinessClientFormState>(defaultBusinessClientForm);
+  const [businessClientFormError, setBusinessClientFormError] = useState<string | null>(null);
+  const [businessClientLoadingId, setBusinessClientLoadingId] = useState<string | null>(null);
   const [businessActionError, setBusinessActionError] = useState<string | null>(null);
   const [businessActionLoadingId, setBusinessActionLoadingId] = useState<string | null>(null);
   const [businessRoutePreviewKey, setBusinessRoutePreviewKey] = useState('');
@@ -3854,6 +3896,7 @@ export function IntegrationDashboard({
         adminApi.getDispatchLogs(),
         adminApi.getSystemConfig(),
         adminApi.listBusinessCapabilities(),
+        adminApi.listBusinessClients().catch((error) => ({ __error: error })),
         adminApi.listBusinessRuns(businessRunFilters),
         adminApi.getBusinessUsageSummary(businessRunFilters).catch((error) => ({ __error: error })),
         adminApi.listAbilities(),
@@ -3883,16 +3926,17 @@ export function IntegrationDashboard({
       const logsRes = unwrap<{ entries: DispatchLogEntry[] }>(5, '调度事件');
       const configRes = unwrap<SystemConfig>(6, '系统配置');
       const businessCapabilityRes = unwrap<{ items: BusinessCapability[] }>(7, '业务能力');
-      const businessRunRes = unwrap<{ total: number; items: BusinessRun[] }>(8, '业务运行记录');
-      const businessUsageRes = settled[9].status === 'fulfilled' ? (settled[9].value as any) : null;
-      const abilityRes = unwrap<Ability[]>(10, '能力目录');
-      const abilityHealthRes = settled[11].status === 'fulfilled' ? (settled[11].value as any) : null;
-      const abilityLogMetricsRes = settled[12].status === 'fulfilled' ? (settled[12].value as any) : null;
-      const vendorProviderRes = settled[13].status === 'fulfilled' ? (settled[13].value as any) : null;
-      const vendorKeyRes = settled[14].status === 'fulfilled' ? (settled[14].value as any) : null;
-      const vendorModelRes = settled[15].status === 'fulfilled' ? (settled[15].value as any) : null;
-      const vendorUsageRes = settled[16].status === 'fulfilled' ? (settled[16].value as any) : null;
-      const vendorGovernanceRes = settled[17].status === 'fulfilled' ? (settled[17].value as any) : null;
+      const businessClientRes = settled[8].status === 'fulfilled' ? (settled[8].value as any) : null;
+      const businessRunRes = unwrap<{ total: number; items: BusinessRun[] }>(9, '业务运行记录');
+      const businessUsageRes = settled[10].status === 'fulfilled' ? (settled[10].value as any) : null;
+      const abilityRes = unwrap<Ability[]>(11, '能力目录');
+      const abilityHealthRes = settled[12].status === 'fulfilled' ? (settled[12].value as any) : null;
+      const abilityLogMetricsRes = settled[13].status === 'fulfilled' ? (settled[13].value as any) : null;
+      const vendorProviderRes = settled[14].status === 'fulfilled' ? (settled[14].value as any) : null;
+      const vendorKeyRes = settled[15].status === 'fulfilled' ? (settled[15].value as any) : null;
+      const vendorModelRes = settled[16].status === 'fulfilled' ? (settled[16].value as any) : null;
+      const vendorUsageRes = settled[17].status === 'fulfilled' ? (settled[17].value as any) : null;
+      const vendorGovernanceRes = settled[18].status === 'fulfilled' ? (settled[18].value as any) : null;
 
       if (execRes) setExecutors(execRes);
       if (wfRes) setWorkflows(wfRes);
@@ -3902,6 +3946,10 @@ export function IntegrationDashboard({
       if (logsRes) setDispatchLogs(logsRes.entries);
       if (configRes) setSystemConfig(configRes);
       if (businessCapabilityRes) setBusinessCapabilities(businessCapabilityRes.items || []);
+      if (businessClientRes && !businessClientRes.__error) setBusinessClients(businessClientRes.items || []);
+      if (businessClientRes?.__error) {
+        errors.push(`接入方策略：${businessClientRes.__error?.message || '请求失败'}`);
+      }
       if (businessRunRes) {
         setBusinessRuns(businessRunRes.items || []);
         setBusinessRunTotal(Number(businessRunRes.total || 0));
@@ -6147,6 +6195,92 @@ export function IntegrationDashboard({
     setBusinessForm(defaultBusinessCapabilityForm);
     setBusinessFormError(null);
     setBusinessActionError(null);
+  };
+
+  const resetBusinessClientForm = () => {
+    setBusinessClientForm(defaultBusinessClientForm);
+    setBusinessClientFormError(null);
+    setBusinessActionError(null);
+  };
+
+  const refreshBusinessClients = async () => {
+    const res = await adminApi.listBusinessClients();
+    setBusinessClients(res.items || []);
+  };
+
+  const handleBusinessClientEdit = (item: BusinessClient) => {
+    setBusinessClientForm({
+      id: item.id,
+      tenantId: item.tenantId || '',
+      clientId: item.clientId || '',
+      displayName: item.displayName || '',
+      status: item.status || 'active',
+      allowedBusinessKeysText: (item.allowedBusinessKeys || []).join('\n'),
+      dailyRunLimit: item.dailyRunLimit ?? null,
+      dailyQuotaUnits: item.dailyQuotaUnits ?? null,
+      concurrentRunLimit: item.concurrentRunLimit ?? null,
+      metadataText: formatJsonValue(item.metadata || {}),
+    });
+    setBusinessClientFormError(null);
+    setBusinessActionError(null);
+    setBusinessClientDialogOpen(true);
+  };
+
+  const handleBusinessClientToggle = async (item: BusinessClient) => {
+    setBusinessActionError(null);
+    const nextStatus = item.status === 'active' ? 'disabled' : 'active';
+    setBusinessClientLoadingId(`status:${item.id}`);
+    try {
+      await adminApi.updateBusinessClient(item.id, { status: nextStatus });
+      await refreshBusinessClients();
+    } catch (error: any) {
+      console.error('toggle business client failed', error);
+      setBusinessActionError(error?.message || '更新接入方策略失败，请检查服务日志。');
+    } finally {
+      setBusinessClientLoadingId(null);
+    }
+  };
+
+  const handleBusinessClientSubmit = async () => {
+    const tenantId = businessClientForm.tenantId.trim();
+    const displayName = businessClientForm.displayName.trim();
+    if (!tenantId || !displayName) {
+      setBusinessClientFormError('请填写业务方标识和显示名称。');
+      return;
+    }
+    const metadata = safeParseJSON(businessClientForm.metadataText);
+    if (!metadata.ok) {
+      setBusinessClientFormError('元信息必须是合法 JSON。');
+      return;
+    }
+    const payload: Partial<BusinessClient> = {
+      tenantId,
+      clientId: businessClientForm.clientId.trim() || null,
+      displayName,
+      status: businessClientForm.status || 'active',
+      allowedBusinessKeys: splitLinesOrComma(businessClientForm.allowedBusinessKeysText),
+      dailyRunLimit: businessClientForm.dailyRunLimit ? Number(businessClientForm.dailyRunLimit) : null,
+      dailyQuotaUnits: businessClientForm.dailyQuotaUnits ? Number(businessClientForm.dailyQuotaUnits) : null,
+      concurrentRunLimit: businessClientForm.concurrentRunLimit ? Number(businessClientForm.concurrentRunLimit) : null,
+      metadata: metadata.value,
+    };
+    setBusinessClientFormError(null);
+    setBusinessClientLoadingId(businessClientForm.id ? `save:${businessClientForm.id}` : 'create');
+    try {
+      if (businessClientForm.id) {
+        await adminApi.updateBusinessClient(businessClientForm.id, payload);
+      } else {
+        await adminApi.createBusinessClient(payload);
+      }
+      resetBusinessClientForm();
+      setBusinessClientDialogOpen(false);
+      await refreshBusinessClients();
+    } catch (error: any) {
+      console.error('save business client failed', error);
+      setBusinessClientFormError(error?.message || '保存接入方策略失败，请检查配置是否重复。');
+    } finally {
+      setBusinessClientLoadingId(null);
+    }
   };
 
   const handleBusinessEdit = (item: BusinessCapability) => {
@@ -8771,6 +8905,131 @@ const extractErrorMessage = (error: unknown): string => {
                     新增业务版本
                   </Button>
                 </Space>
+                <Card
+                  bordered
+                  title={
+                    <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                      <div>
+                        <Typography.Text strong>接入方策略</Typography.Text>
+                        <div>
+                          <Typography.Text theme="secondary">
+                            控制业务方能调用哪些能力、最多同时跑多少任务，以及每日调用/额度上限。
+                          </Typography.Text>
+                        </div>
+                      </div>
+                      <Space>
+                        <Button variant="outline" onClick={refreshBusinessClients}>
+                          刷新策略
+                        </Button>
+                        <Button
+                          theme="primary"
+                          onClick={() => {
+                            resetBusinessClientForm();
+                            setBusinessClientDialogOpen(true);
+                          }}
+                        >
+                          新增接入方
+                        </Button>
+                      </Space>
+                    </Space>
+                  }
+                >
+                  <Row gutter={[12, 12]} style={{ marginBottom: 12 }}>
+                    <Col xs={12} sm={4}>
+                      <MetricCard label="接入方策略" value={businessClients.length} sub="租户/客户端配置" />
+                    </Col>
+                    <Col xs={12} sm={4}>
+                      <MetricCard
+                        label="已启用"
+                        value={businessClients.filter((item) => item.status === 'active').length}
+                        sub="会参与业务入口校验"
+                      />
+                    </Col>
+                    <Col xs={12} sm={4}>
+                      <MetricCard
+                        label="有限额"
+                        value={
+                          businessClients.filter(
+                            (item) => item.concurrentRunLimit || item.dailyRunLimit || item.dailyQuotaUnits,
+                          ).length
+                        }
+                        sub="并发/日调用/日额度"
+                      />
+                    </Col>
+                  </Row>
+                  <Table
+                    size="small"
+                    rowKey="id"
+                    data={businessClients}
+                    empty={
+                      <Typography.Text theme="secondary">
+                        暂无接入方策略。未配置时旧业务会继续放行；需要限流或停用时再新增。
+                      </Typography.Text>
+                    }
+                    columns={[
+                      {
+                        colKey: 'displayName',
+                        title: '接入方',
+                        minWidth: 220,
+                        cell: ({ row }) => (
+                          <Space direction="vertical" size={2}>
+                            <Typography.Text strong>{row.displayName}</Typography.Text>
+                            <Typography.Text code>{businessClientScopeLabel(row)}</Typography.Text>
+                          </Space>
+                        ),
+                      },
+                      {
+                        colKey: 'allowed',
+                        title: '可用业务',
+                        minWidth: 180,
+                        cell: ({ row }) => <Typography.Text>{businessClientAllowedLabel(row)}</Typography.Text>,
+                      },
+                      {
+                        colKey: 'limits',
+                        title: '限制',
+                        minWidth: 180,
+                        cell: ({ row }) => <Typography.Text theme="secondary">{businessClientLimitLabel(row)}</Typography.Text>,
+                      },
+                      {
+                        colKey: 'status',
+                        title: '状态',
+                        width: 110,
+                        cell: ({ row }) => <StatusBadge status={row.status} />,
+                      },
+                      {
+                        colKey: 'updatedAt',
+                        title: '更新时间',
+                        width: 170,
+                        cell: ({ row }) => <Typography.Text theme="secondary">{formatDateTime(row.updatedAt)}</Typography.Text>,
+                      },
+                      {
+                        colKey: 'actions',
+                        title: '操作',
+                        width: 180,
+                        cell: ({ row }) => {
+                          const actionId = `status:${row.id}`;
+                          return (
+                            <Space size={6}>
+                              <Button size="small" variant="outline" onClick={() => handleBusinessClientEdit(row)}>
+                                编辑
+                              </Button>
+                              <Button
+                                size="small"
+                                theme={row.status === 'active' ? 'warning' : 'primary'}
+                                variant="outline"
+                                loading={businessClientLoadingId === actionId}
+                                disabled={Boolean(businessClientLoadingId && businessClientLoadingId !== actionId)}
+                                onClick={() => handleBusinessClientToggle(row)}
+                              >
+                                {row.status === 'active' ? '停用' : '启用'}
+                              </Button>
+                            </Space>
+                          );
+                        },
+                      },
+                    ]}
+                  />
+                </Card>
                 <Card bordered>
                   <Space direction="vertical" size="small" style={{ width: '100%' }}>
                     <Typography.Text strong>灰度命中预览</Typography.Text>
@@ -9527,6 +9786,134 @@ const extractErrorMessage = (error: unknown): string => {
                       </Row>
                     </Space>
                   ) : null}
+                </Dialog>
+                <Dialog
+                  header={businessClientForm.id ? '编辑接入方策略' : '新增接入方策略'}
+                  visible={businessClientDialogOpen}
+                  width={720}
+                  onClose={() => setBusinessClientDialogOpen(false)}
+                  onCancel={() => setBusinessClientDialogOpen(false)}
+                  onConfirm={handleBusinessClientSubmit}
+                >
+                  <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                    {businessClientFormError ? <Alert theme="error" message={businessClientFormError} /> : null}
+                    <Alert
+                      theme="info"
+                      message="如果只填业务方标识、不填客户端标识，这条策略会作为该业务方的默认策略；如果两者都填，会优先匹配具体客户端。"
+                    />
+                    <Row gutter={[12, 12]}>
+                      <Col span={12}>
+                        <Typography.Text theme="secondary">业务方标识</Typography.Text>
+                        <Input
+                          value={businessClientForm.tenantId}
+                          placeholder="例如 tenant-a / coze-main"
+                          onChange={(value) =>
+                            setBusinessClientForm((prev) => ({ ...prev, tenantId: String(value || '') }))
+                          }
+                        />
+                      </Col>
+                      <Col span={12}>
+                        <Typography.Text theme="secondary">客户端标识</Typography.Text>
+                        <Input
+                          value={businessClientForm.clientId}
+                          placeholder="可选；为空表示该业务方全部客户端"
+                          onChange={(value) =>
+                            setBusinessClientForm((prev) => ({ ...prev, clientId: String(value || '') }))
+                          }
+                        />
+                      </Col>
+                    </Row>
+                    <Row gutter={[12, 12]}>
+                      <Col span={12}>
+                        <Typography.Text theme="secondary">显示名称</Typography.Text>
+                        <Input
+                          value={businessClientForm.displayName}
+                          placeholder="例如 AI 团队测试入口"
+                          onChange={(value) =>
+                            setBusinessClientForm((prev) => ({ ...prev, displayName: String(value || '') }))
+                          }
+                        />
+                      </Col>
+                      <Col span={12}>
+                        <Typography.Text theme="secondary">状态</Typography.Text>
+                        <Select
+                          value={businessClientForm.status}
+                          options={businessClientStatusOptions}
+                          onChange={(value) =>
+                            setBusinessClientForm((prev) => ({ ...prev, status: String(value || 'active') }))
+                          }
+                        />
+                      </Col>
+                    </Row>
+                    <Typography.Text theme="secondary">允许调用的业务</Typography.Text>
+                    <Textarea
+                      autosize={{ minRows: 3, maxRows: 5 }}
+                      value={businessClientForm.allowedBusinessKeysText}
+                      placeholder="每行一个业务标识；留空表示全部业务。例：fission / outpaint"
+                      onChange={(value) =>
+                        setBusinessClientForm((prev) => ({
+                          ...prev,
+                          allowedBusinessKeysText: String(value || ''),
+                        }))
+                      }
+                    />
+                    <Row gutter={[12, 12]}>
+                      <Col span={8}>
+                        <Typography.Text theme="secondary">并发上限</Typography.Text>
+                        <InputNumber
+                          min={1}
+                          value={businessClientForm.concurrentRunLimit ?? undefined}
+                          placeholder="不限制"
+                          onChange={(value) =>
+                            setBusinessClientForm((prev) => ({
+                              ...prev,
+                              concurrentRunLimit: value ? Number(value) : null,
+                            }))
+                          }
+                        />
+                      </Col>
+                      <Col span={8}>
+                        <Typography.Text theme="secondary">每日调用上限</Typography.Text>
+                        <InputNumber
+                          min={1}
+                          value={businessClientForm.dailyRunLimit ?? undefined}
+                          placeholder="不限制"
+                          onChange={(value) =>
+                            setBusinessClientForm((prev) => ({
+                              ...prev,
+                              dailyRunLimit: value ? Number(value) : null,
+                            }))
+                          }
+                        />
+                      </Col>
+                      <Col span={8}>
+                        <Typography.Text theme="secondary">每日额度上限</Typography.Text>
+                        <InputNumber
+                          min={1}
+                          value={businessClientForm.dailyQuotaUnits ?? undefined}
+                          placeholder="不限制"
+                          onChange={(value) =>
+                            setBusinessClientForm((prev) => ({
+                              ...prev,
+                              dailyQuotaUnits: value ? Number(value) : null,
+                            }))
+                          }
+                        />
+                      </Col>
+                    </Row>
+                    <Alert
+                      theme="warning"
+                      message="停用会直接阻断已匹配的业务方调用；配置日限额或并发前，建议先和业务方确认调用峰值。"
+                    />
+                    <Typography.Text theme="secondary">元信息 JSON</Typography.Text>
+                    <Textarea
+                      autosize={{ minRows: 3, maxRows: 6 }}
+                      value={businessClientForm.metadataText}
+                      onChange={(value) =>
+                        setBusinessClientForm((prev) => ({ ...prev, metadataText: String(value || '') }))
+                      }
+                    />
+                  </Space>
                 </Dialog>
                 <Dialog
                   header={businessForm.id ? '编辑业务版本' : '新增业务版本'}

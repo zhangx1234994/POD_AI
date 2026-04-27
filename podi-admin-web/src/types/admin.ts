@@ -493,6 +493,38 @@ export interface BusinessCapabilityListResponse {
   items: BusinessCapability[];
 }
 
+export interface BusinessClient {
+  id: string;
+  tenantId: string;
+  clientId?: string | null;
+  displayName: string;
+  status: string;
+  allowedBusinessKeys: string[];
+  dailyRunLimit?: number | null;
+  dailyQuotaUnits?: number | null;
+  concurrentRunLimit?: number | null;
+  metadata?: JsonRecord | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BusinessClientListResponse {
+  items: BusinessClient[];
+}
+
+export interface BusinessClientFormState {
+  id?: string;
+  tenantId: string;
+  clientId: string;
+  displayName: string;
+  status: string;
+  allowedBusinessKeysText: string;
+  dailyRunLimit?: number | null;
+  dailyQuotaUnits?: number | null;
+  concurrentRunLimit?: number | null;
+  metadataText: string;
+}
+
 export interface BusinessRun {
   id: string;
   runId: string;
