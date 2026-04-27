@@ -92,6 +92,76 @@ def _short_error(value: Any, limit: int = 300) -> str:
     return " ".join(text.split())[:limit]
 
 
+def _result_image_count(run: dict[str, Any]) -> int:
+    images = run.get("result_image_urls_json")
+    if not isinstance(images, list):
+        images = run.get("resultImageUrlsJson")
+    if not isinstance(images, list):
+        images = run.get("imageUrls")
+    return len([item for item in images or [] if isinstance(item, str) and item.strip()])
+
+
+def _has_output(run: dict[str, Any]) -> bool:
+    if _result_image_count(run) > 0:
+        return True
+    for key in ("result_output_json", "resultOutputJson", "outputJson", "jsonOutput"):
+        if key in run and run.get(key) is not None:
+            return True
+    return False
+
+
+def _classify_issue(item: dict[str, Any]) -> str:
+    status = str(item.get("status") or "").strip()
+    error_text = f"{item.get('error') or ''} {item.get('errorCode') or ''}".upper()
+    if "INTERNAL_ONLY" in error_text:
+        return "INTERNAL_ONLY"
+    if "COZE_WORKFLOW_ERROR" in error_text:
+        return "COZE_WORKFLOW_ERROR"
+    if status == "succeeded" and not item.get("hasOutput"):
+        return "EVAL_SUCCEEDED_WITHOUT_OUTPUT"
+    if status in {"create_failed", "query_failed"}:
+        return status.upper()
+    if status != "succeeded":
+        return "RUN_NOT_SUCCEEDED"
+    return ""
+
+
+def _make_report_item(row: dict[str, Any]) -> dict[str, Any]:
+    latest = row.get("latest", {}) if isinstance(row.get("latest"), dict) else {}
+    run = row.get("run", {}) if isinstance(row.get("run"), dict) else {}
+    workflow = row.get("workflow", {}) if isinstance(row.get("workflow"), dict) else {}
+    image_count = _result_image_count(latest)
+    has_output = _has_output(latest)
+    item = {
+        "name": workflow.get("name"),
+        "workflowId": workflow.get("workflow_id"),
+        "runId": latest.get("id") or run.get("id"),
+        "status": latest.get("status"),
+        "finalStatus": latest.get("final_status"),
+        "callbackStatus": latest.get("callback_status"),
+        "cozeExecuteId": latest.get("coze_execute_id"),
+        "podiTaskId": latest.get("podi_task_id"),
+        "imageCount": image_count,
+        "hasOutput": has_output,
+        "errorCode": latest.get("error_code") or run.get("error_code"),
+        "error": _short_error(latest.get("error_message") or run.get("error_message")),
+    }
+    item["issueCode"] = _classify_issue(item)
+    return item
+
+
+def _failed_items(items: list[dict[str, Any]], *, allow_empty_output: bool = False) -> list[dict[str, Any]]:
+    failed: list[dict[str, Any]] = []
+    for item in items:
+        status = str(item.get("status") or "")
+        if status != "succeeded":
+            failed.append(item)
+            continue
+        if not allow_empty_output and not item.get("hasOutput"):
+            failed.append(item)
+    return failed
+
+
 def _get_json(client: httpx.Client, path: str) -> Any:
     response = client.get(path)
     response.raise_for_status()
@@ -115,6 +185,11 @@ def main() -> int:
     parser.add_argument("--poll-interval", type=float, default=10.0, help="Polling interval in seconds.")
     parser.add_argument("--fail-fast", action="store_true", help="Stop immediately when any run fails.")
     parser.add_argument("--dry-run", action="store_true", help="Print planned runs only.")
+    parser.add_argument(
+        "--allow-empty-output",
+        action="store_true",
+        help="Only check terminal status. By default succeeded runs without images/json are failures.",
+    )
     parser.add_argument("--report", default="", help="Optional report JSON path.")
     args = parser.parse_args()
 
@@ -193,32 +268,24 @@ def main() -> int:
             "tag": tag,
             "baseUrl": base_url,
             "summary": dict(Counter(str(row.get("latest", {}).get("status") or "") for row in final_rows)),
-            "items": [
-                {
-                    "name": row.get("workflow", {}).get("name"),
-                    "workflowId": row.get("workflow", {}).get("workflow_id"),
-                    "runId": row.get("latest", {}).get("id") or row.get("run", {}).get("id"),
-                    "status": row.get("latest", {}).get("status"),
-                    "finalStatus": row.get("latest", {}).get("final_status"),
-                    "callbackStatus": row.get("latest", {}).get("callback_status"),
-                    "cozeExecuteId": row.get("latest", {}).get("coze_execute_id"),
-                    "podiTaskId": row.get("latest", {}).get("podi_task_id"),
-                    "imageCount": len(row.get("latest", {}).get("result_image_urls_json") or []),
-                    "error": _short_error(row.get("latest", {}).get("error_message")),
-                }
-                for row in final_rows
-            ],
+            "items": [_make_report_item(row) for row in final_rows],
         }
+        issue_counts = Counter(str(item.get("issueCode") or "OK") for item in report["items"])
+        report["issueSummary"] = dict(issue_counts)
         report_path = Path(args.report) if args.report else Path("reports") / f"eval_patrol_{tag}.json"
         report_path.parent.mkdir(parents=True, exist_ok=True)
         report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
         print(f"report: {report_path}")
 
-        failed = [item for item in report["items"] if item["status"] != "succeeded"]
+        failed = _failed_items(report["items"], allow_empty_output=args.allow_empty_output)
         if failed:
             print("failed or unfinished:")
             for item in failed:
-                print(f"- {item['status']} | {item['name']} | task={item['podiTaskId']} | {item['error']}")
+                issue = item.get("issueCode") or "UNKNOWN"
+                print(
+                    f"- {issue} | {item['status']} | {item['name']} | "
+                    f"task={item['podiTaskId']} | images={item.get('imageCount', 0)} | {item['error']}"
+                )
             return 2
         print("all eval workflows succeeded")
         return 0

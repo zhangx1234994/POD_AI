@@ -150,6 +150,7 @@
 | FANOUT_PARTIAL_FAILED | 批量部分失败 | |
 | EVAL_NO_RECENT_RUNS | 最近窗口内没有评测运行 | 评测运行健康检查，提示巡检可能未执行 |
 | EVAL_NO_RECENT_SUCCESS | 最近窗口内有有效失败但没有成功记录 | 评测运行健康检查，视为主链路不可用 |
+| EVAL_SUCCEEDED_WITHOUT_OUTPUT | 评测运行成功但没有图片或结构化结果 | 全量巡检/健康检查必须阻断 |
 
 ---
 

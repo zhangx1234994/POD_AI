@@ -60,6 +60,7 @@ python3 backend/scripts/check_eval_operations_health.py
 - `COMFYUI_NO_AVAILABLE_EXECUTOR`：所有 active ComfyUI 节点不可用，视为阻断级事故。
 - `COMFYUI_QUEUE_HEALTH_UNAVAILABLE`：队列健康检查整体失败，不能只看 `/health` 放行。
 - `EVAL_NO_RECENT_RUNS`：最近窗口内没有任何评测运行，说明巡检可能没有跑，不能只看服务存活。
+- `EVAL_SUCCEEDED_WITHOUT_OUTPUT`：运行状态显示成功，但没有图片或结构化结果，视为回填事故。
 - `EVAL_NO_RECENT_SUCCESS`：最近窗口内有有效失败但没有成功记录，视为主链路不可用。
 
 ### GET /api/evals/admin/comfyui-queue-summary

@@ -77,7 +77,8 @@ Manual checks:
      --base-url http://<backend-host>:8099 \
      --timeout 1800
    ```
-   Expected: all active workflows end in `succeeded`.
+   Expected: all active workflows end in `succeeded`, and each succeeded run has at least one result image or structured output.
+   Failure examples: `INTERNAL_ONLY`, `COZE_WORKFLOW_ERROR`, `EVAL_SUCCEEDED_WITHOUT_OUTPUT`.
 5. Eval operations health:
    ```bash
    python3 backend/scripts/check_eval_operations_health.py

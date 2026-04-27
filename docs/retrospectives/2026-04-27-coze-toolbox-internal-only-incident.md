@@ -79,7 +79,8 @@ python3 backend/scripts/check_eval_operations_health.py \
 验收：
 
 - 所有 active 工作流最终成功。
-- 报告中记录 Coze 执行 ID、中台任务 ID、图片数量、错误摘要。
+- 报告中记录 Coze 执行 ID、中台任务 ID、图片数量、是否有结果、错误摘要和事故分类。
+- `succeeded` 但没有图片/结构化结果必须按 `EVAL_SUCCEEDED_WITHOUT_OUTPUT` 阻断，不能当成通过。
 - 健康检查不得出现 `critical`；若出现长期运行或提交卡住，必须先收口再继续发版。
 - 任一失败必须进入事故看板或当日待办。
 
