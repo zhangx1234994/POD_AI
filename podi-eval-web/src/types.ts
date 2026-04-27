@@ -126,6 +126,22 @@ export type EvalOperationsHealth = {
   staleMinutes: number;
   submitGraceMinutes: number;
   recentHours: number;
+  recentRunTotal?: number;
+  recentSuccessCount?: number;
+  recentFailureCount?: number;
+  concurrency?: {
+    evalRunMaxWorkers?: number;
+    evalComfyuiRunMaxWorkers?: number;
+    evalCommercialRunMaxWorkers?: number;
+    evalDefaultRunMaxWorkers?: number;
+    evalFanoutMaxWorkers?: number;
+    abilityTaskMaxWorkers?: number;
+    comfyuiQueueBatchSize?: number;
+    comfyuiAvailableExecutors?: number;
+    comfyuiQueueCapacity?: number;
+    comfyuiQueueTotal?: number;
+    comfyuiQueueUtilization?: number | null;
+  };
   activeWorkflowCount: number;
   totalWorkflowCount: number;
   statusCounts: Record<string, number>;

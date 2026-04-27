@@ -6584,6 +6584,14 @@ export function App() {
     .map(([code, count]) => `${formatErrorCodeLabel(code)} ${count} 条`)
     .join('、');
   const healthFailureActions = buildFailureActionItems(operationsHealth?.recentFailures || []);
+  const healthConcurrency = operationsHealth?.concurrency || null;
+  const healthRecentRunTotal = Number(operationsHealth?.recentRunTotal || 0);
+  const healthRecentSuccessCount = Number(operationsHealth?.recentSuccessCount || 0);
+  const healthRecentFailureCount = Number(operationsHealth?.recentFailureCount || 0);
+  const evalFanoutWorkers = Number(healthConcurrency?.evalFanoutMaxWorkers || 0);
+  const queueCapacityFromHealth = Number(healthConcurrency?.comfyuiQueueCapacity || 0);
+  const queueTotalFromHealth = Number(healthConcurrency?.comfyuiQueueTotal || 0);
+  const fanoutModeLabel = evalFanoutWorkers <= 1 ? '稳定串行' : `并行 ${evalFanoutWorkers}`;
   const comfyuiQueueCapacity = (comfyuiQueueSummary?.servers || []).reduce(
     (sum, server) => sum + Math.max(0, Number(server.queueMaxSize || 0)),
     0,
@@ -6710,6 +6718,12 @@ export function App() {
                 <Typography.Text theme={healthRecentFailed ? 'warning' : 'secondary'}>
                   近 {operationsHealth.recentHours} 小时失败：{healthRecentFailed}
                 </Typography.Text>
+                <Typography.Text theme={healthRecentRunTotal && !healthRecentSuccessCount ? 'error' : 'secondary'}>
+                  近 {operationsHealth.recentHours} 小时成功：{healthRecentSuccessCount}/{healthRecentRunTotal}
+                </Typography.Text>
+                <Typography.Text theme={healthRecentFailureCount ? 'warning' : 'secondary'}>
+                  有效失败：{healthRecentFailureCount}
+                </Typography.Text>
                 <Typography.Text theme={healthStaleCount ? 'error' : 'secondary'}>
                   长时间未收口：{healthStaleCount}
                 </Typography.Text>
@@ -6730,6 +6744,29 @@ export function App() {
               )}
               {healthErrorSummary ? (
                 <Alert theme="warning" message={`失败原因汇总：${healthErrorSummary}`} />
+              ) : null}
+              {healthConcurrency ? (
+                <div className="podi-health-action-grid">
+                  <div className="podi-health-action-card">
+                    <Typography.Text strong>评测入口并发</Typography.Text>
+                    <Typography.Text theme="secondary">
+                      总并发 {healthConcurrency.evalRunMaxWorkers || '-'}；ComfyUI 并发 {healthConcurrency.evalComfyuiRunMaxWorkers || '-'}；
+                      商业模型并发 {healthConcurrency.evalCommercialRunMaxWorkers || '-'}
+                    </Typography.Text>
+                  </div>
+                  <div className="podi-health-action-card">
+                    <Typography.Text strong>单任务裂变模式</Typography.Text>
+                    <Typography.Text theme={evalFanoutWorkers <= 1 ? 'warning' : 'secondary'}>
+                      {fanoutModeLabel}。如果只跑一个裂变任务，不会主动把 20 个 ComfyUI 队列打满。
+                    </Typography.Text>
+                  </div>
+                  <div className="podi-health-action-card">
+                    <Typography.Text strong>ComfyUI 队列容量</Typography.Text>
+                    <Typography.Text theme="secondary">
+                      可用节点 {healthConcurrency.comfyuiAvailableExecutors || 0} 台；容量 {queueCapacityFromHealth || '-'}；当前队列 {queueTotalFromHealth}
+                    </Typography.Text>
+                  </div>
+                </div>
               ) : null}
               {healthFailureActions.length ? (
                 <div className="podi-health-action-grid">
