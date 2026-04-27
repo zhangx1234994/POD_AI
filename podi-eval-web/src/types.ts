@@ -130,6 +130,24 @@ export type EvalOperationsHealth = {
   issues: EvalOperationsIssue[];
 };
 
+export type ComfyuiQueueStatus = {
+  executorId: string;
+  baseUrl: string;
+  runningCount: number;
+  pendingCount: number;
+  queueMaxSize?: number | null;
+  supported?: boolean;
+  message?: string | null;
+};
+
+export type ComfyuiQueueSummary = {
+  totalRunning: number;
+  totalPending: number;
+  totalCount: number;
+  timestamp?: string | null;
+  servers: ComfyuiQueueStatus[];
+};
+
 export type SchemaField = {
   name: string;
   label?: string;

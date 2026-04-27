@@ -1,5 +1,6 @@
 import OSS from 'ali-oss';
 import type {
+  ComfyuiQueueSummary,
   EvalResourceOptionsResponse,
   EvalOperationsHealth,
   EvalRun,
@@ -618,6 +619,8 @@ export const evalApi = {
     request<EvalWorkflowVersion[]>(`/api/evals/admin/workflow-versions`, { headers: { 'X-Eval-Admin-Token': adminToken } }),
   adminGetOperationsHealth: async (adminToken: string) =>
     request<EvalOperationsHealth>(`/api/evals/admin/operations-health`, { headers: { 'X-Eval-Admin-Token': adminToken } }),
+  adminGetComfyuiQueueSummary: async (adminToken: string) =>
+    request<ComfyuiQueueSummary>(`/api/evals/admin/comfyui-queue-summary`, { headers: { 'X-Eval-Admin-Token': adminToken } }),
   adminUpdateWorkflowVersion: async (adminToken: string, id: string, payload: Partial<EvalWorkflowVersion>) =>
     request<EvalWorkflowVersion>(`/api/evals/admin/workflow-versions/${id}`, {
       method: 'PUT',

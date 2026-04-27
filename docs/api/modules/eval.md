@@ -50,6 +50,19 @@ python3 backend/scripts/check_eval_operations_health.py
 
 发版门禁：出现 `critical` 时禁止继续发版或验收，必须先收口。
 
+### GET /api/evals/admin/comfyui-queue-summary
+
+用途：评测端首页展示 ComfyUI 执行节点队列，辅助判断 GPU 是否吃满、是否存在排队断档。
+
+鉴权：`EVAL_ADMIN_TOKEN`（`X-Eval-Admin-Token` 或 `?admin_token=`）
+
+响应核心字段：
+
+- `totalRunning`：所有 ComfyUI 节点当前运行数
+- `totalPending`：所有 ComfyUI 节点当前排队数
+- `totalCount`：`running + pending`
+- `servers[]`：单节点明细，包含 `executorId/baseUrl/runningCount/pendingCount/queueMaxSize`
+
 ---
 
 ## 1) 公共评测接口（无需登录）

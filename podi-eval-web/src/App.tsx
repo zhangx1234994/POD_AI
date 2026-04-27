@@ -34,7 +34,7 @@ import {
 } from 'tdesign-icons-react';
 import zhCN from 'tdesign-react/es/locale/zh_CN';
 import { ApiRequestError, evalApi } from './api';
-import type { EvalOperationsHealth, EvalRun, EvalWorkflowVersion, SchemaField, WorkflowDoc } from './types';
+import type { ComfyuiQueueSummary, EvalOperationsHealth, EvalRun, EvalWorkflowVersion, SchemaField, WorkflowDoc } from './types';
 import { EvalShell } from './layouts/EvalShell';
 import { ActionBar, FilterBar, StatusBadge } from './features/eval/shared/ui';
 import type { ThemeMode } from './types/ui';
@@ -1742,6 +1742,9 @@ export function App() {
   const [operationsHealth, setOperationsHealth] = useState<EvalOperationsHealth | null>(null);
   const [operationsHealthStatus, setOperationsHealthStatus] = useState<RemoteLoadStatus>('idle');
   const [operationsHealthError, setOperationsHealthError] = useState<RemoteLoadError | null>(null);
+  const [comfyuiQueueSummary, setComfyuiQueueSummary] = useState<ComfyuiQueueSummary | null>(null);
+  const [comfyuiQueueStatus, setComfyuiQueueStatus] = useState<RemoteLoadStatus>('idle');
+  const [comfyuiQueueError, setComfyuiQueueError] = useState<RemoteLoadError | null>(null);
   const [docsMarkdown, setDocsMarkdown] = useState<string>('');
   const [docsLoading, setDocsLoading] = useState<boolean>(false);
   const [docsGeneratedAt, setDocsGeneratedAt] = useState<string>('');
@@ -2327,6 +2330,32 @@ export function App() {
     [adminToken, pushNotice],
   );
 
+  const loadComfyuiQueueSummary = useCallback(
+    async (token?: string, opts?: { notifySuccess?: boolean }) => {
+      const trimmed = String(token || adminToken || '').trim();
+      if (!trimmed) {
+        setComfyuiQueueSummary(null);
+        setComfyuiQueueStatus('idle');
+        setComfyuiQueueError(null);
+        return;
+      }
+      setComfyuiQueueStatus('loading');
+      setComfyuiQueueError(null);
+      try {
+        const report = await evalApi.adminGetComfyuiQueueSummary(trimmed);
+        setComfyuiQueueSummary(report);
+        setComfyuiQueueStatus('success');
+        if (opts?.notifySuccess) pushNotice('success', '已刷新 ComfyUI 队列');
+      } catch (err) {
+        console.error(err);
+        setComfyuiQueueStatus('error');
+        setComfyuiQueueError(normalizeRemoteLoadError(err));
+        throw err;
+      }
+    },
+    [adminToken, pushNotice],
+  );
+
   const loadRunsForTool = async (workflowVersionId: string) => {
     try {
       const resp = await evalApi.listRunsWithLatestAnnotation({
@@ -2366,10 +2395,14 @@ export function App() {
       setOperationsHealth(null);
       setOperationsHealthStatus('idle');
       setOperationsHealthError(null);
+      setComfyuiQueueSummary(null);
+      setComfyuiQueueStatus('idle');
+      setComfyuiQueueError(null);
       return;
     }
     void loadOperationsHealth(adminToken).catch(() => undefined);
-  }, [adminToken, loadOperationsHealth]);
+    void loadComfyuiQueueSummary(adminToken).catch(() => undefined);
+  }, [adminToken, loadOperationsHealth, loadComfyuiQueueSummary]);
 
   useEffect(() => {
     if (loraBatchWorkflows.length === 0) {
@@ -4086,12 +4119,13 @@ export function App() {
     localStorage.setItem('podi_eval_admin_token', token);
     setAdminToken(token);
     try {
-      await loadOperationsHealth(token, { notifySuccess: true });
+      await Promise.all([loadOperationsHealth(token), loadComfyuiQueueSummary(token)]);
+      pushNotice('success', '已刷新链路健康');
     } catch (err) {
       console.error(err);
       pushNotice('error', String((err as any)?.message || err));
     }
-  }, [adminToken, loadOperationsHealth, pushNotice]);
+  }, [adminToken, loadComfyuiQueueSummary, loadOperationsHealth, pushNotice]);
 
   const openAdmin = useCallback(async () => {
     void promptAdminToken();
@@ -6418,6 +6452,12 @@ export function App() {
     'EVAL_SUCCESS_WITHOUT_OUTPUT',
     operationsHealth?.succeededWithoutOutput?.length || 0,
   );
+  const comfyuiQueueCapacity = (comfyuiQueueSummary?.servers || []).reduce(
+    (sum, server) => sum + Math.max(0, Number(server.queueMaxSize || 0)),
+    0,
+  );
+  const comfyuiQueuePressure =
+    comfyuiQueueCapacity > 0 ? Math.round((Number(comfyuiQueueSummary?.totalCount || 0) / comfyuiQueueCapacity) * 100) : 0;
   return shell(
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
       {bootstrapLoading || workflowListStatus === 'loading' ? <Alert theme="info" message="正在加载功能清单和评分数据…" /> : null}
@@ -6502,12 +6542,12 @@ export function App() {
             <Space>
               <Button
                 variant="outline"
-                loading={operationsHealthStatus === 'loading'}
+                loading={operationsHealthStatus === 'loading' || comfyuiQueueStatus === 'loading'}
                 onClick={() => {
                   if (adminToken) {
-                    void loadOperationsHealth(adminToken, { notifySuccess: true }).catch((err) =>
-                      pushNotice('error', String((err as any)?.message || err)),
-                    );
+                    void Promise.all([loadOperationsHealth(adminToken), loadComfyuiQueueSummary(adminToken)])
+                      .then(() => pushNotice('success', '已刷新链路健康'))
+                      .catch((err) => pushNotice('error', String((err as any)?.message || err)));
                   } else {
                     void promptOperationsHealthToken();
                   }
@@ -6557,6 +6597,37 @@ export function App() {
                 <Alert theme="success" message="最近没有发现长期运行、提交卡住、成功无结果等关键问题。" />
               )}
             </>
+          ) : null}
+          {comfyuiQueueStatus === 'error' ? (
+            <Alert
+              theme="error"
+              message={`ComfyUI 队列读取失败：${comfyuiQueueError?.message || '接口没有正常返回，请检查执行节点。'}`}
+            />
+          ) : null}
+          {comfyuiQueueSummary ? (
+            <Card bordered size="small">
+              <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                <Space size="large" style={{ flexWrap: 'wrap' }}>
+                  <Typography.Text strong>ComfyUI 队列</Typography.Text>
+                  <Typography.Text theme="secondary">运行中：{comfyuiQueueSummary.totalRunning}</Typography.Text>
+                  <Typography.Text theme="secondary">排队中：{comfyuiQueueSummary.totalPending}</Typography.Text>
+                  <Typography.Text theme={comfyuiQueuePressure >= 80 ? 'warning' : 'secondary'}>
+                    估算占用：{comfyuiQueueCapacity ? `${comfyuiQueuePressure}%` : '未返回上限'}
+                  </Typography.Text>
+                </Space>
+                <Space size="small" style={{ flexWrap: 'wrap' }}>
+                  {(comfyuiQueueSummary.servers || []).map((server) => {
+                    const current = Number(server.runningCount || 0) + Number(server.pendingCount || 0);
+                    const max = server.queueMaxSize == null ? '未知' : String(server.queueMaxSize);
+                    return (
+                      <Tag key={server.executorId} variant="light" theme={current > 0 ? 'primary' : 'default'}>
+                        {server.executorId}：运行 {server.runningCount} / 排队 {server.pendingCount} / 上限 {max}
+                      </Tag>
+                    );
+                  })}
+                </Space>
+              </Space>
+            </Card>
           ) : null}
         </Space>
       </Card>

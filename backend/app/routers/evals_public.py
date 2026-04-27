@@ -31,6 +31,7 @@ from app.models.eval import (
 )
 from app.models.integration import AbilityTask, ComfyuiLora, ComfyuiModelCatalog, ComfyuiPluginCatalog
 from app.schemas import admin_integrations as admin_schemas
+from app.schemas import admin_tests
 from app.schemas.eval import (
     EvalAnnotationCreate,
     EvalAnnotationResponse,
@@ -67,6 +68,7 @@ from app.services.comfyui_lora_catalog_service import ensure_default_lora_catalo
 from app.services.eval_seed import FISSION_WORKFLOW_IDS, ensure_default_eval_workflow_versions
 from app.services.eval_operations_health import build_eval_operations_health
 from app.services.eval_service import get_eval_service
+from app.services.integration_test import integration_test_service
 from app.services.oss import oss_service
 from app.services.task_status_contract import derive_eval_run_status
 
@@ -1374,6 +1376,17 @@ def admin_get_operations_health(
         limit=limit,
     )
     return EvalOperationsHealthResponse.model_validate(report)
+
+
+@router.get("/admin/comfyui-queue-summary", response_model=admin_tests.ComfyuiQueueSummaryResponse)
+def admin_get_comfyui_queue_summary(
+    request: Request,
+    executor_ids: list[str] | None = Query(None, alias="executorIds"),
+) -> admin_tests.ComfyuiQueueSummaryResponse:
+    _require_eval_admin(request)
+    result = integration_test_service.get_comfyui_queue_summary(executor_ids=executor_ids)
+    result["timestamp"] = datetime.utcnow().isoformat() + "Z"
+    return admin_tests.ComfyuiQueueSummaryResponse.model_validate(result)
 
 
 @router.put("/admin/workflow-versions/{workflow_version_id}", response_model=EvalWorkflowVersionResponse)
