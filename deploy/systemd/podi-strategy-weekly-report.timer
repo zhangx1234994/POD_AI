@@ -1,0 +1,10 @@
+[Unit]
+Description=Run PODI strategy weekly report every Monday
+
+[Timer]
+OnCalendar=Mon *-*-* 09:30:00
+RandomizedDelaySec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

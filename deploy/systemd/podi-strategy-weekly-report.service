@@ -1,0 +1,10 @@
+[Unit]
+Description=PODI Strategy Weekly Report
+After=network.target podi-backend.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/srv/pod
+EnvironmentFile=/srv/pod/backend/.env
+ExecStart=/srv/pod/backend/.venv/bin/python backend/scripts/create_strategy_snapshot.py --weekly-report --window-hours 168 --note weekly-auto
+User=root

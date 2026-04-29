@@ -300,12 +300,13 @@ html.t-theme-dark {
 
 .podi-shell__aside--icon-only .t-menu__item {
   justify-content: center;
+  min-height: 58px;
   padding-left: 0;
   padding-right: 0;
 }
 
 .podi-shell__aside--icon-only .podi-shell__nav-item-icon {
-  width: 34px;
+  width: 46px;
   height: 34px;
   border-radius: 10px;
   border: 1px solid var(--td-border-level-1-color);
@@ -316,6 +317,46 @@ html.t-theme-dark {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+}
+
+.podi-shell__aside--icon-only .podi-shell__nav-item-inner {
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+}
+
+.podi-shell__compact-nav-list {
+  display: grid;
+  gap: 8px;
+}
+
+.podi-shell__compact-nav-button {
+  width: 48px;
+  height: 40px;
+  border: 1px solid var(--td-border-level-1-color);
+  border-radius: 14px;
+  background: var(--td-bg-color-container);
+  color: var(--td-text-color-secondary);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  transition:
+    color 0.2s ease,
+    border-color 0.2s ease,
+    background 0.2s ease;
+}
+
+.podi-shell__compact-nav-button:hover {
+  border-color: color-mix(in srgb, var(--podi-accent) 30%, var(--td-border-level-1-color));
+  background: var(--podi-panel-muted);
+  color: var(--podi-accent);
+}
+
+.podi-shell__compact-nav-button--active {
+  border-color: color-mix(in srgb, var(--podi-accent) 50%, var(--td-border-level-1-color));
+  background: color-mix(in srgb, var(--podi-accent-soft) 82%, #fff);
+  color: var(--podi-accent);
 }
 
 .podi-shell__nav-item-icon {
@@ -338,7 +379,7 @@ html.t-theme-dark {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 42px;
+  width: 100%;
   height: 28px;
   border-radius: 999px;
   border: 1px solid color-mix(in srgb, var(--podi-accent) 24%, var(--td-border-level-2-color));

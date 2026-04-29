@@ -34,6 +34,11 @@ export function AdminShell({
       .toUpperCase();
     return <span className="podi-shell__nav-badge">{badge}</span>;
   };
+  const renderShortLabel = (label: string, shortLabel?: string) =>
+    (shortLabel || label || "M")
+      .replace(/\s+/g, "")
+      .slice(0, 2)
+      .toUpperCase();
 
   useEffect(() => {
     const onResize = () => setViewportWidth(window.innerWidth);
@@ -113,20 +118,37 @@ export function AdminShell({
           {groupedNavSections.map((section) => (
             <div className="podi-shell__nav-section" key={section.key}>
               {!iconOnlyNav ? <Typography.Text theme="secondary">{section.label}</Typography.Text> : null}
-              <Menu value={activeNav} theme={theme === "dark" ? "dark" : "light"} onChange={(value) => onSelectNav(String(value))}>
-                {section.items.map((item) => (
-                  <Menu.MenuItem key={item.id} value={item.id}>
-                    <Tooltip content={item.description || item.label}>
-                      <span className="podi-shell__nav-item-inner">
-                        <span className="podi-shell__nav-item-icon">
-                          {item.icon || renderNavContent(item.label, item.shortLabel)}
-                        </span>
-                        {!iconOnlyNav ? <span>{item.label}</span> : null}
-                      </span>
+              {iconOnlyNav ? (
+                <div className="podi-shell__compact-nav-list">
+                  {section.items.map((item) => (
+                    <Tooltip key={item.id} content={item.description || item.label}>
+                      <button
+                        type="button"
+                        className={`podi-shell__compact-nav-button${activeNav === item.id ? " podi-shell__compact-nav-button--active" : ""}`}
+                        onClick={() => onSelectNav(String(item.id))}
+                        aria-label={item.label}
+                      >
+                        {renderShortLabel(item.label, item.shortLabel)}
+                      </button>
                     </Tooltip>
-                  </Menu.MenuItem>
-                ))}
-              </Menu>
+                  ))}
+                </div>
+              ) : (
+                <Menu value={activeNav} theme={theme === "dark" ? "dark" : "light"} onChange={(value) => onSelectNav(String(value))}>
+                  {section.items.map((item) => (
+                    <Menu.MenuItem key={item.id} value={item.id}>
+                      <Tooltip content={item.description || item.label}>
+                        <span className="podi-shell__nav-item-inner">
+                          <span className="podi-shell__nav-item-icon">
+                            {item.icon || renderNavContent(item.label, item.shortLabel)}
+                          </span>
+                          <span>{item.label}</span>
+                        </span>
+                      </Tooltip>
+                    </Menu.MenuItem>
+                  ))}
+                </Menu>
+              )}
             </div>
           ))}
         </Space>

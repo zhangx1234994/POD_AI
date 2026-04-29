@@ -7,6 +7,7 @@
 - `platform-vision-and-goals-2026.md`：平台愿景与核心目标（中台 / 测评端 / 客户端 / 对话式助手统一叙事）
 - `strategy-one-page-2026q2.md`：战略一页纸（北极星、KPI、90天里程碑）
 - `todo-master-2026q2.md`：唯一待办池（P0/P1/P2）
+- `user-segments-main-paths-2026q2.md`：业务方 / 平台管理员 / 开发接入方三类用户主路径与权限边界
 - `context-cleanup-policy.md`：上下文清理、归档与文档治理规则
 - `doc-governance-owners-2026q2.md`：文档治理 owner 与发布前核对动作
 - `status-error-audit-2026q2.md`：状态与错误口径核对表（P0-4 执行面）
@@ -48,4 +49,4 @@
    - `docs/BUSINESS_MODEL.md`
 3. 旧战略材料可以保留，但不应继续作为索引入口。
 
-*最后更新: 2026-03-19*
+*最后更新: 2026-04-30*

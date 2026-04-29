@@ -71,6 +71,17 @@ Manual checks:
    - From the Coze container/host, call `/api/coze/podi/tasks/get` with a fake task ID.
    - Expected: `404 TASK_NOT_FOUND`.
    - Failure: `401 INTERNAL_ONLY` means Coze still cannot call backend tools.
+   - On the 114 Coze host, run the container-level smoke check:
+     ```bash
+     cd /srv/pod
+     BACKEND_URL=http://114.55.0.56:8099 \
+       bash scripts/smoke_coze_container_backend.sh
+     ```
+     This check must show:
+     - Coze container reads backend OpenAPI: `200`
+     - Coze container reaches `tasks/get`: `404 TASK_NOT_FOUND`
+     - Optional external boundary check from a non-whitelisted machine:
+       `EXPECT_EXTERNAL_BLOCKED=1 BACKEND_URL=http://114.55.0.56:8099 bash scripts/smoke_coze_container_backend.sh`
 4. Full eval patrol:
    ```bash
    python3 backend/scripts/patrol_eval_workflows.py \

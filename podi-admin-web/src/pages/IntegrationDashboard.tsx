@@ -138,6 +138,7 @@ import {
   type IntegrationNavId as NavId,
 } from '../features/admin/integration/navigation';
 import { integrationNavIconMap as navIconMap } from '../features/admin/integration/navigationIcons';
+import { moduleGuides } from '../features/admin/integration/moduleGuides';
 import { BillingPanel } from '../features/admin/integration/billing';
 import { ExecutorsPanel } from '../features/admin/integration/executors';
 import { BindingRoutesPanel } from '../features/admin/integration/bindings';
@@ -8290,6 +8291,7 @@ const extractErrorMessage = (error: unknown): string => {
     () => visibleNavItems.find((item) => item.id === activeNav) || navItems.find((item) => item.id === activeNav),
     [activeNav, visibleNavItems],
   );
+  const activeModuleGuide = moduleGuides[activeNav];
   const coreBusinessOverviewItems = useMemo(
     () =>
       coreBusinessKeys
@@ -8435,11 +8437,24 @@ const extractErrorMessage = (error: unknown): string => {
       ) : null}
       <div style={{ marginBottom: 16 }}>
         <ActionBar>
-          <Space direction="vertical" size={4}>
-            <Typography.Text strong>{activeNavMeta?.label || '当前模块'}</Typography.Text>
-            <Typography.Text theme="secondary">
-              {activeNavMeta?.description || '通过左侧导航切换模块，顶部仅保留全局动作。'}
-            </Typography.Text>
+          <Space direction="vertical" size={8} style={{ minWidth: 0 }}>
+            <Space align="center" size="small" style={{ flexWrap: 'wrap' }}>
+              <Typography.Text strong>{activeNavMeta?.label || '当前模块'}</Typography.Text>
+              {activeModuleGuide ? <Tag variant="light">{activeModuleGuide.audience}</Tag> : null}
+              {activeModuleGuide?.riskHint ? (
+                <Tag theme="warning" variant="light">
+                  {activeModuleGuide.riskHint}
+                </Tag>
+              ) : null}
+            </Space>
+            <Space direction="vertical" size={2}>
+              <Typography.Text theme="secondary">
+                {activeModuleGuide?.firstLook || activeNavMeta?.description || '先确认当前模块状态，再执行操作。'}
+              </Typography.Text>
+              {activeModuleGuide?.nextAction ? (
+                <Typography.Text theme="secondary">下一步：{activeModuleGuide.nextAction}</Typography.Text>
+              ) : null}
+            </Space>
             <Space size="small" style={{ flexWrap: 'wrap' }}>
               <Select
                 style={{ width: 220 }}
@@ -8466,14 +8481,19 @@ const extractErrorMessage = (error: unknown): string => {
                 </Tag>
               </Space>
             </Space>
-            {hasCompactNavSelect ? <Typography.Text theme="secondary">请从左侧模块列表直接切换。</Typography.Text> : null}
+            {hasCompactNavSelect ? null : <Typography.Text theme="secondary">当前模块未在核心导航中展示，请检查高级模块开关。</Typography.Text>}
           </Space>
           <Space align="center" size="small" style={{ flexWrap: 'wrap' }}>
-            <Tag variant="light" theme="primary">
-              节点 {summary.activeExecutors}/{summary.executors}
+            <Tag variant="light" theme={coreBusinessOverviewItems.length >= 3 ? 'success' : 'warning'}>
+              主业务 {coreBusinessOverviewItems.length}/3
             </Tag>
-            <Tag variant="light">能力 {summary.abilities || 0}</Tag>
-            <Tag variant="light">工作流 {summary.workflows}</Tag>
+            <Tag variant="light" theme={Number(abilityHealthSummary?.failed || 0) > 0 ? 'danger' : 'success'}>
+              能力异常 {abilityHealthSummary?.failed || 0}
+            </Tag>
+            <Tag variant="light" theme={vendorGovernanceIssueCount > 0 ? 'warning' : 'success'}>
+              模型风险 {vendorGovernanceIssueCount}
+            </Tag>
+            <Tag variant="light">运行线路 {summary.activeExecutors}/{summary.executors}</Tag>
             <Tag variant="light" theme={loadErrors.length > 0 ? 'danger' : 'success'}>
               {loadErrors.length > 0 ? `异常 ${loadErrors.length}` : '状态正常'}
             </Tag>
