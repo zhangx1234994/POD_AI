@@ -90,6 +90,11 @@ python3 backend/scripts/check_eval_operations_health.py
   - `field`：参数字段名
   - `resourceType`：`lora/model/plugin`
   - `source`：资源目录接口（如 `/api/admin/comfyui/resources/options?...`）
+- `routingGovernance`
+  - `executionLabel`：当前能力实际执行面，例如 ComfyUI、第三方 API、image-ops
+  - `currentTrackingLabel`：当前追踪方式，帮助判断是否已经沉淀中台任务 ID
+  - `governanceLabel`：链路治理结论，例如“追踪基本达标”“需要统一任务化”
+  - 注意：`governance` 仍表示目录角色（生产主入口、灰度版本等），`routingGovernance` 只表示执行面与追踪治理。
 
 重点工作流参数补充：
 

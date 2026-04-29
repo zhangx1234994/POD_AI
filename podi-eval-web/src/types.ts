@@ -51,6 +51,23 @@ export type EvalWorkflowVersion = {
     rank?: number;
     isPrimary?: boolean;
   } | null;
+  routingGovernance?: EvalWorkflowRoutingGovernance | null;
+};
+
+export type EvalWorkflowRoutingGovernance = {
+  abilityType: string;
+  abilityTypeLabel: string;
+  entryMode: string;
+  entryLabel: string;
+  executionSurface: string;
+  executionLabel: string;
+  trackingRequired: boolean;
+  expectedTracking: string;
+  currentTracking: string;
+  currentTrackingLabel: string;
+  governanceStatus: string;
+  governanceLabel: string;
+  notes?: string[];
 };
 
 export type EvalResourceOptionItem = {

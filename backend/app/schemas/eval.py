@@ -1,7 +1,7 @@
 """Pydantic schemas for AI ability evaluation."""
 
 from typing import Any, List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
 
 
@@ -47,6 +47,26 @@ class EvalWorkflowResourceBinding(BaseModel):
     source: str = Field(..., description="数据来源")
 
 
+class EvalWorkflowRoutingGovernance(BaseModel):
+    """Execution-surface governance labels for eval/admin UIs."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    ability_type: str = Field(..., alias="abilityType", description="能力类型")
+    ability_type_label: str = Field(..., alias="abilityTypeLabel", description="能力类型中文说明")
+    entry_mode: str = Field(..., alias="entryMode", description="入口方式")
+    entry_label: str = Field(..., alias="entryLabel", description="入口方式中文说明")
+    execution_surface: str = Field(..., alias="executionSurface", description="实际执行面")
+    execution_label: str = Field(..., alias="executionLabel", description="实际执行面中文说明")
+    tracking_required: bool = Field(..., alias="trackingRequired", description="是否必须纳入中台追踪")
+    expected_tracking: str = Field(..., alias="expectedTracking", description="目标追踪模型")
+    current_tracking: str = Field(..., alias="currentTracking", description="当前追踪方式")
+    current_tracking_label: str = Field(..., alias="currentTrackingLabel", description="当前追踪方式中文说明")
+    governance_status: str = Field(..., alias="governanceStatus", description="治理状态")
+    governance_label: str = Field(..., alias="governanceLabel", description="治理状态中文说明")
+    notes: list[str] = Field(default_factory=list, description="治理备注")
+
+
 class EvalWorkflowVersionResponse(EvalWorkflowVersionBase):
     """Schema for evaluation workflow version response."""
     id: str = Field(..., description="ID")
@@ -59,6 +79,11 @@ class EvalWorkflowVersionResponse(EvalWorkflowVersionBase):
         default_factory=list,
         alias="resourceBindings",
         description="工作流参数与资源目录绑定",
+    )
+    routing_governance: EvalWorkflowRoutingGovernance | None = Field(
+        None,
+        alias="routingGovernance",
+        description="工作流执行面与追踪治理标签",
     )
     created_at: datetime = Field(..., description="创建时间")
     updated_at: datetime = Field(..., description="更新时间")

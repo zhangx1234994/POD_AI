@@ -107,6 +107,9 @@
 
 - `GET /api/evals/me`
 - `GET /api/evals/workflow-versions?status=active`
+- 工作流卡片同时读取：
+  - `governance`：目录角色，如生产主入口、灰度版本、历史保留
+  - `routingGovernance`：执行面与追踪状态，如 ComfyUI、第三方 API、image-ops，以及是否需要统一任务化
 - `POST /api/evals/runs`
 - `GET /api/evals/runs`
 - `POST /api/evals/batches/{batch_id}/reviews`

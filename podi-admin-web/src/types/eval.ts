@@ -9,8 +9,25 @@ export type EvalWorkflowVersion = {
   output_schema?: Record<string, unknown> | null;
   notes?: string | null;
   status: string;
+  routingGovernance?: EvalWorkflowRoutingGovernance | null;
   created_at: string;
   updated_at: string;
+};
+
+export type EvalWorkflowRoutingGovernance = {
+  abilityType: string;
+  abilityTypeLabel: string;
+  entryMode: string;
+  entryLabel: string;
+  executionSurface: string;
+  executionLabel: string;
+  trackingRequired: boolean;
+  expectedTracking: string;
+  currentTracking: string;
+  currentTrackingLabel: string;
+  governanceStatus: string;
+  governanceLabel: string;
+  notes?: string[];
 };
 
 export type EvalDatasetItem = {

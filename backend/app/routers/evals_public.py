@@ -73,6 +73,7 @@ from app.services.eval_workflow_response import (
     is_eval_workflow_publicly_visible,
     merge_eval_workflow_metadata_update,
 )
+from app.services.eval_workflow_routing_governance import resolve_eval_workflow_routing_governance
 from app.services.eval_service import get_eval_service
 from app.services.integration_test import integration_test_service
 from app.services.oss import oss_service
@@ -192,6 +193,12 @@ def _serialize_workflow_version(version: EvalWorkflowVersion) -> EvalWorkflowVer
         status=version.status,
         **response_metadata,
         resourceBindings=_extract_workflow_resource_bindings(version.parameters_schema),
+        routingGovernance=resolve_eval_workflow_routing_governance(
+            workflow_id=version.workflow_id,
+            name=version.name,
+            category=version.category,
+            output_schema=version.output_schema,
+        ),
         created_at=version.created_at,
         updated_at=version.updated_at,
     )

@@ -397,6 +397,11 @@ const getWorkflowUsage = (wf: EvalWorkflowVersion | null | undefined) =>
 const getWorkflowGovernance = (wf: EvalWorkflowVersion | null | undefined) =>
   (wf?.governance && typeof wf.governance === 'object' ? wf.governance : null) as EvalWorkflowVersion['governance'];
 
+const getWorkflowRoutingGovernance = (wf: EvalWorkflowVersion | null | undefined) =>
+  (wf?.routingGovernance && typeof wf.routingGovernance === 'object'
+    ? wf.routingGovernance
+    : null) as EvalWorkflowVersion['routingGovernance'];
+
 const getWorkflowCategory = (wf: Pick<EvalWorkflowVersion, 'category' | 'presentation'> | null | undefined): string => {
   const label = String(getWorkflowPresentation(wf as EvalWorkflowVersion)?.categoryLabel || '').trim();
   return normalizeCategory(label || wf?.category);
@@ -437,6 +442,17 @@ const getWorkflowGovernanceTheme = (
   if (value === 'legacy') return 'warning';
   if (value === 'auxiliary') return 'default';
   if (value === 'disabled') return 'danger';
+  return 'default';
+};
+
+const getWorkflowRoutingGovernanceTheme = (
+  status?: string | null,
+): 'default' | 'primary' | 'success' | 'warning' | 'danger' => {
+  const value = String(status || '').toLowerCase();
+  if (value === 'aligned') return 'success';
+  if (value === 'internal_only') return 'default';
+  if (value.includes('vendor')) return 'primary';
+  if (value.includes('task')) return 'warning';
   return 'default';
 };
 
@@ -1362,9 +1378,13 @@ function ToolCard({
   const inputSummary = getWorkflowInputSummary(wf);
   const outputSummary = getWorkflowOutputSummary(wf);
   const governance = getWorkflowGovernance(wf);
+  const routingGovernance = getWorkflowRoutingGovernance(wf);
   const roleLabel = String(governance?.roleLabel || '可测版本').trim();
   const roleReason = String(governance?.roleReason || '').trim();
   const roleTheme = getWorkflowGovernanceTheme(governance?.role);
+  const routingTheme = getWorkflowRoutingGovernanceTheme(routingGovernance?.governanceStatus);
+  const executionLabel = String(routingGovernance?.executionLabel || '执行面待确认').trim();
+  const trackingLabel = String(routingGovernance?.currentTrackingLabel || '追踪待确认').trim();
   const panelStyle = {
     height: '100%',
     borderColor: active ? accent : undefined,
@@ -1420,11 +1440,22 @@ function ToolCard({
               <span>发布</span>
               <strong>{getWorkflowReleaseDate(wf)}</strong>
             </div>
+            <div>
+              <span>执行面</span>
+              <strong>{executionLabel}</strong>
+            </div>
+            <div>
+              <span>追踪</span>
+              <strong>{trackingLabel}</strong>
+            </div>
           </div>
 
           <div style={{ marginTop: 12 }}>
             <Space breakLine>
               <Tag variant="light" theme={roleTheme}>{roleLabel}</Tag>
+              <Tag variant="light" theme={routingTheme}>
+                {routingGovernance?.governanceLabel || '链路治理待确认'}
+              </Tag>
               <Tag variant="light">工作流 {wf.workflow_id}</Tag>
               <Tag variant="light">{getWorkflowStatusLabel(wf.status)}</Tag>
               {isWorkflowBatchEnabled(wf) ? <Tag variant="light">支持批量</Tag> : null}
