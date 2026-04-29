@@ -1027,13 +1027,31 @@ class AbilityTaskService:
             if task_user_id:
                 with get_session() as session:
                     user = session.get(User, task_user_id)
-            response = ability_invocation_service.invoke(
-                ability_id=task_ability_id or "",
-                payload=request_model,
-                user=user,
-                task_id=task_id,
-                source="ability-task",
-            )
+            try:
+                response = ability_invocation_service.invoke(
+                    ability_id=task_ability_id or "",
+                    payload=request_model,
+                    user=user,
+                    task_id=task_id,
+                    source="ability-task",
+                )
+            except Exception as exc:
+                retry_payload = self._build_comfyui_reroute_payload(
+                    ability_id=task_ability_id,
+                    request_payload=request_payload or {},
+                    exc=exc,
+                )
+                if retry_payload is None:
+                    raise
+                self._persist_task_reroute(task_id=task_id, request_payload=retry_payload)
+                retry_model = AbilityInvokeRequest.model_validate(retry_payload)
+                response = ability_invocation_service.invoke(
+                    ability_id=task_ability_id or "",
+                    payload=retry_model,
+                    user=user,
+                    task_id=task_id,
+                    source="ability-task-reroute",
+                )
             finished_at = datetime.utcnow()
             duration = response.durationMs
             if duration is None:
@@ -1092,6 +1110,94 @@ class AbilityTaskService:
                 db_task.result_payload = None
                 session.add(db_task)
                 session.commit()
+
+    def _build_comfyui_reroute_payload(
+        self,
+        *,
+        ability_id: str | None,
+        request_payload: dict[str, Any],
+        exc: Exception,
+    ) -> dict[str, Any] | None:
+        failed_executor_id = str(request_payload.get("executorId") or "").strip()
+        if not ability_id or not failed_executor_id:
+            return None
+        if not self._is_comfyui_reroutable_error(exc):
+            return None
+        with get_session() as session:
+            ability = session.get(Ability, ability_id)
+        if not ability or (ability.provider or "").lower() != "comfyui":
+            return None
+        retry_payload = dict(request_payload)
+        metadata = dict(retry_payload.get("metadata") or {})
+        excluded = self._normalize_executor_ids(
+            metadata.get("excludeExecutorIds") or metadata.get("exclude_executor_ids")
+        )
+        if failed_executor_id not in excluded:
+            excluded.append(failed_executor_id)
+        retry_payload["executorId"] = None
+        metadata["excludeExecutorIds"] = excluded
+        metadata["rerouteReason"] = self._format_error(exc).get("message")
+        metadata["rerouteFailedExecutorId"] = failed_executor_id
+        metadata["rerouteAttemptedAt"] = datetime.utcnow().isoformat() + "Z"
+        retry_payload["metadata"] = metadata
+        return retry_payload
+
+    @staticmethod
+    def _normalize_executor_ids(value: Any) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            raw_items = value.replace(";", ",").split(",")
+        elif isinstance(value, (list, tuple, set)):
+            raw_items = list(value)
+        else:
+            raw_items = [value]
+        ids: list[str] = []
+        seen: set[str] = set()
+        for item in raw_items:
+            executor_id = str(item or "").strip()
+            if not executor_id or executor_id in seen:
+                continue
+            seen.add(executor_id)
+            ids.append(executor_id)
+        return ids
+
+    @staticmethod
+    def _is_comfyui_reroutable_error(exc: Exception) -> bool:
+        if isinstance(exc, HTTPException):
+            if exc.status_code not in {502, 503, 504}:
+                return False
+            message = str(exc.detail or "")
+        else:
+            message = str(exc or "")
+        lowered = message.lower()
+        markers = (
+            "comfyui_submit_error",
+            "comfyui_queue_status_error",
+            "comfyui_system_stats_error",
+            "comfyui_test_failed",
+            "connect error",
+            "connection refused",
+            "connection reset",
+            "timed out",
+            "timeout",
+            "network is unreachable",
+            "missing_node_type",
+            "custom node may not be installed",
+        )
+        return any(marker in lowered for marker in markers)
+
+    @staticmethod
+    def _persist_task_reroute(*, task_id: str, request_payload: dict[str, Any]) -> None:
+        with get_session() as session:
+            db_task = session.get(AbilityTask, task_id)
+            if not db_task:
+                return
+            db_task.request_payload = request_payload
+            flag_modified(db_task, "request_payload")
+            db_task.updated_at = datetime.utcnow()
+            session.add(db_task)
+            session.commit()
 
     @staticmethod
     def _extract_comfyui_error_detail(history_entry: dict[str, Any] | None) -> str | None:

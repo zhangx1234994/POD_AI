@@ -1239,6 +1239,7 @@ def invoke_tool(
     with get_session() as session:
         # Same as above: Coze may call tools before any admin page seeds executors.
         ensure_default_executors(session)
+        ensure_default_abilities(session)
         ability = (
             session.execute(
                 select(Ability).where(Ability.provider == provider, Ability.capability_key == capability_key)
@@ -1338,9 +1339,10 @@ def invoke_tool(
     def _queue_limit_response(code: str, message: str, executor_hint: str | None) -> dict[str, Any]:
         executor_info = _resolve_executor_info(executor_hint if isinstance(executor_hint, str) else None)
         task_error = _format_task_error(code, message)
+        text = "queue_full" if code in {ERR_CODE_COMFYUI_QUEUE_FULL, ERR_CODE_COMMERCIAL_QUEUE_FULL} else "executor_unavailable"
         return _prune(
             {
-                "text": "queue_full",
+                "text": text,
                 "texts": [message],
                 "taskId": task_error,
                 "taskStatus": "failed",
@@ -1365,6 +1367,9 @@ def invoke_tool(
     if provider_lower == "comfyui":
         if not executor_id:
             executor_id = ability_invocation_service._pick_comfyui_executor_id(ability, body)  # type: ignore[attr-defined]
+        if not executor_id:
+            message = "COMFYUI_EXECUTOR_UNAVAILABLE: 当前能力没有可用且兼容的 ComfyUI 节点"
+            return _queue_limit_response("Q1002", message, None)
         if executor_id:
             payload.executorId = executor_id
         executor_info = _resolve_executor_info(executor_id)
@@ -1387,8 +1392,17 @@ def invoke_tool(
                         message = f"COMFYUI_QUEUE_FULL(limit={MAX_QUEUE_PER_EXECUTOR}, current={total})"
                         return _queue_limit_response(ERR_CODE_COMFYUI_QUEUE_FULL, message, executor_id)
             except Exception:
-                # If queue status fails, continue to submit instead of blocking.
-                pass
+                alternative_executor_id = ability_invocation_service._pick_comfyui_executor_id(  # type: ignore[attr-defined]
+                    ability,
+                    body,
+                    exclude_executor_ids=[executor_id],
+                )
+                if not alternative_executor_id:
+                    message = f"COMFYUI_EXECUTOR_UNAVAILABLE: {executor_id} 当前不可连通，且没有其他兼容节点"
+                    return _queue_limit_response("Q1002", message, executor_id)
+                executor_id = alternative_executor_id
+                payload.executorId = executor_id
+                executor_info = _resolve_executor_info(executor_id)
 
         # Best-effort: we know batch for the common ComfyUI flows we expose.
         expected_images = 1

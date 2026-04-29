@@ -70,3 +70,62 @@ def test_queue_auto_selection_returns_none_when_every_executor_unreachable(monke
         preferred_order=["executor_a"],
     )
     assert picked is None
+
+
+def test_pick_comfyui_executor_by_queue_allows_reachable_executor_without_queue_endpoint(monkeypatch):
+    service = AbilityInvocationService()
+
+    def _fake_status(*, executor_id: str):
+        return {"supported": False}
+
+    def _fake_system_stats(*, executor_id: str):
+        return {"executorId": executor_id, "system": {}, "devices": []}
+
+    monkeypatch.setattr(integration_test_service, "get_comfyui_queue_status", _fake_status)
+    monkeypatch.setattr(integration_test_service, "get_comfyui_system_stats", _fake_system_stats)
+    picked = service._pick_comfyui_executor_by_queue(["executor_a"])
+    assert picked == "executor_a"
+
+
+def test_queue_policy_does_not_fallback_to_first_when_health_unknown(monkeypatch):
+    service = AbilityInvocationService()
+
+    def _fake_status(*, executor_id: str):
+        raise HTTPException(status_code=502, detail="COMFYUI_QUEUE_STATUS_ERROR")
+
+    monkeypatch.setattr(integration_test_service, "get_comfyui_queue_status", _fake_status)
+    picked = service._select_comfyui_executor(
+        [SimpleNamespace(id="executor_a"), SimpleNamespace(id="executor_b")],
+        policy="queue",
+        route_by_queue=True,
+        ability_id="ability_test",
+        preferred_order=["executor_a", "executor_b"],
+    )
+    assert picked is None
+
+
+def test_allowed_comfyui_executors_do_not_escape_to_legacy_default_when_unreachable(monkeypatch):
+    service = AbilityInvocationService()
+    ability = SimpleNamespace(
+        id="ability_test",
+        capability_key="flux_strong_hq_softstyle_fission",
+        extra_metadata={
+            "allowed_executor_ids": ["executor_a", "executor_b"],
+            "routing_policy": "queue",
+            "fallback_to_default": True,
+        },
+    )
+
+    monkeypatch.setattr(
+        service,
+        "_prepare_comfyui_candidates",
+        lambda executor_ids, required_tags: [SimpleNamespace(id=eid) for eid in executor_ids],
+    )
+
+    def _fake_status(*, executor_id: str):
+        raise HTTPException(status_code=502, detail="COMFYUI_QUEUE_STATUS_ERROR")
+
+    monkeypatch.setattr(integration_test_service, "get_comfyui_queue_status", _fake_status)
+
+    picked = service._pick_comfyui_executor_id(ability, {})
+    assert picked is None

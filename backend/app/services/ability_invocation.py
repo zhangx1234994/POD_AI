@@ -8,11 +8,12 @@ import logging
 import random
 import threading
 import time
+from collections.abc import Iterable
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from math import gcd
-from typing import Any, Iterable
+from typing import Any
 from uuid import uuid4
 
 from fastapi import HTTPException, Request
@@ -147,7 +148,13 @@ class AbilityInvocationService:
         if fallback_to_default is None:
             fallback_to_default = True
         fallback_to_default = bool(fallback_to_default)
+        excluded_executor_ids = self._normalize_executor_ids(
+            (payload.metadata or {}).get("excludeExecutorIds")
+            or (payload.metadata or {}).get("exclude_executor_ids")
+        )
         executor_id = payload.executorId or ability.executor_id
+        if provider_key == "comfyui" and executor_id in excluded_executor_ids:
+            executor_id = None
         if get_settings().vendor_api_enabled and provider_key in VENDOR_API_PROVIDERS and not payload.executorId:
             vendor_executor_id = self._pick_vendor_api_executor_id(provider_key)
             if vendor_executor_id:
@@ -157,7 +164,11 @@ class AbilityInvocationService:
         if not executor_id and provider_key == "comfyui":
             # Different ComfyUI servers may have different custom nodes/models installed.
             # Route by action/workflow_key via workflow bindings when possible.
-            executor_id = self._pick_comfyui_executor_id(ability, merged_inputs)
+            executor_id = self._pick_comfyui_executor_id(
+                ability,
+                merged_inputs,
+                exclude_executor_ids=excluded_executor_ids,
+            )
             if not executor_id and not fallback_to_default:
                 raise HTTPException(status_code=400, detail="COMFYUI_EXECUTOR_NOT_MATCHED")
         if not executor_id and provider_key not in {"coze", "podi", "vl"}:
@@ -304,7 +315,13 @@ class AbilityInvocationService:
             )
             return row.id if row else None
 
-    def _pick_comfyui_executor_id(self, ability: Ability, merged_inputs: dict[str, Any]) -> str | None:
+    def _pick_comfyui_executor_id(
+        self,
+        ability: Ability,
+        merged_inputs: dict[str, Any],
+        *,
+        exclude_executor_ids: Iterable[str] | None = None,
+    ) -> str | None:
         """Pick a ComfyUI executor based on workflow binding/action.
 
         This avoids sending a workflow graph to a ComfyUI node that doesn't have
@@ -312,10 +329,11 @@ class AbilityInvocationService:
         """
 
         settings = get_settings()
+        excluded_ids = set(self._normalize_executor_ids(exclude_executor_ids))
         route_by_queue = bool(settings.comfyui_route_by_queue)
         if settings.comfyui_default_executor_id:
             forced_id = settings.comfyui_default_executor_id.strip()
-            if forced_id:
+            if forced_id and forced_id not in excluded_ids:
                 with get_session() as session:
                     executor = session.get(Executor, forced_id)
                     if executor and executor.status == "active" and (executor.type or "").lower() == "comfyui":
@@ -334,6 +352,9 @@ class AbilityInvocationService:
         allowed_ids: list[str] = []
         if isinstance(allowed_ids_raw, list):
             allowed_ids = [str(x).strip() for x in allowed_ids_raw if isinstance(x, str) and x.strip()]
+        declared_allowed_ids = bool(allowed_ids)
+        if excluded_ids:
+            allowed_ids = [executor_id for executor_id in allowed_ids if executor_id not in excluded_ids]
         action = (metadata.get("action") or "").strip() or "generic"
         workflow_key = (
             (merged_inputs.get("workflow_key") if isinstance(merged_inputs, dict) else None)
@@ -354,6 +375,10 @@ class AbilityInvocationService:
             )
             if picked:
                 return picked
+            # Once an ability declares compatible executor ids, do not silently
+            # escape to a legacy default when every compatible candidate is down.
+            if declared_allowed_ids:
+                return None
             if not fallback_to_default:
                 return None
 
@@ -374,7 +399,7 @@ class AbilityInvocationService:
             if bindings:
                 priority_groups: dict[int, list[str]] = {}
                 for binding in bindings:
-                    if not binding.executor_id:
+                    if not binding.executor_id or binding.executor_id in excluded_ids:
                         continue
                     priority_groups.setdefault(int(binding.priority or 0), []).append(binding.executor_id)
                 for priority in sorted(priority_groups.keys(), reverse=True):
@@ -403,6 +428,8 @@ class AbilityInvocationService:
             fallback_ids = ["executor_comfyui_pattern_extract_158"]
         else:
             fallback_ids = []
+        if excluded_ids:
+            fallback_ids = [executor_id for executor_id in fallback_ids if executor_id not in excluded_ids]
         fallback_candidates = self._prepare_comfyui_candidates(fallback_ids, required_tags)
         return self._select_comfyui_executor(
             fallback_candidates,
@@ -431,6 +458,26 @@ class AbilityInvocationService:
         else:
             tags.append(str(value).strip().lower())
         return [t for t in tags if t]
+
+    @staticmethod
+    def _normalize_executor_ids(value: Any) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            raw_items = value.replace(";", ",").split(",")
+        elif isinstance(value, Iterable):
+            raw_items = list(value)
+        else:
+            raw_items = [value]
+        ids: list[str] = []
+        seen: set[str] = set()
+        for item in raw_items:
+            executor_id = str(item or "").strip()
+            if not executor_id or executor_id in seen:
+                continue
+            seen.add(executor_id)
+            ids.append(executor_id)
+        return ids
 
     def _extract_executor_tags(self, executor: Executor) -> set[str]:
         tags: list[str] = []
@@ -558,6 +605,7 @@ class AbilityInvocationService:
         settings = get_settings()
         target = max(1, int(settings.comfyui_queue_batch_size or 10))
         stats: list[tuple[int, int, int, str]] = []
+        alive_without_queue: list[str] = []
         for executor_id in executor_ids:
             try:
                 status = integration_test_service.get_comfyui_queue_status(executor_id=executor_id)
@@ -565,13 +613,23 @@ class AbilityInvocationService:
                 self._logger.warning("Failed to fetch ComfyUI queue for %s: %s", executor_id, exc.detail)
                 continue
             if not status.get("supported", True):
+                if self._is_comfyui_executor_reachable(executor_id):
+                    alive_without_queue.append(executor_id)
                 continue
             running = int(status.get("runningCount") or 0)
             pending = int(status.get("pendingCount") or 0)
             total = running + pending
             stats.append((total, pending, running, executor_id))
         if not stats:
-            return None
+            if not alive_without_queue:
+                return None
+            rr_key = f"alive-no-queue:{','.join(alive_without_queue)}"
+            with self._rr_lock:
+                idx = self._rr_cursors.get(rr_key, -1) + 1
+                if idx >= len(alive_without_queue):
+                    idx = 0
+                self._rr_cursors[rr_key] = idx
+                return alive_without_queue[idx]
         preferred = [item for item in stats if item[0] < target]
         pool = preferred or stats
         min_key = min((item[0], item[1], item[2]) for item in pool)
@@ -589,6 +647,14 @@ class AbilityInvocationService:
                 idx = 0
             self._rr_cursors[rr_key] = idx
             return tied_ids[idx]
+
+    def _is_comfyui_executor_reachable(self, executor_id: str) -> bool:
+        try:
+            integration_test_service.get_comfyui_system_stats(executor_id=executor_id)
+            return True
+        except Exception as exc:
+            self._logger.warning("ComfyUI executor %s is not reachable: %s", executor_id, exc)
+            return False
 
     # -------- internal helpers -------- #
     def _dispatch_provider(

@@ -1,3 +1,5 @@
+from fastapi import HTTPException
+
 from app.services.ability_task_service import AbilityTaskService
 
 
@@ -59,3 +61,15 @@ def test_empty_comfyui_outputs_keep_running_during_grace_period():
         )
         is False
     )
+
+
+def test_comfyui_submit_connection_error_is_reroutable():
+    exc = HTTPException(status_code=502, detail="COMFYUI_SUBMIT_ERROR: connection refused")
+
+    assert AbilityTaskService._is_comfyui_reroutable_error(exc) is True
+
+
+def test_comfyui_input_validation_error_is_not_reroutable():
+    exc = HTTPException(status_code=400, detail="COMFYUI_IMAGE_REQUIRED")
+
+    assert AbilityTaskService._is_comfyui_reroutable_error(exc) is False

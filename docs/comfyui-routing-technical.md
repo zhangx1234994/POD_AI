@@ -9,7 +9,7 @@
 
 以下为当前服务端 `AbilityInvocationService._pick_comfyui_executor_id` 的真实流程：
 
-1. **请求显式传 executorId** → 直接使用
+1. **请求显式传 executorId** → 直接使用；若本次任务已把该节点加入排除列表，则忽略并重新选择
 2. **环境变量强制**：`COMFYUI_DEFAULT_EXECUTOR_ID`（必须 active & type=comfyui）
 3. **Ability.metadata.allowed_executor_ids**
    - 过滤 active + tags
@@ -39,6 +39,8 @@
 | fallback_to_default | bool | 无匹配时是否回退默认节点 |
 | workflow_key / action | string | 用于绑定/路由识别 |
 
+内部重试会使用 `metadata.excludeExecutorIds` / `metadata.exclude_executor_ids` 临时排除本次已失败节点。该字段只影响当前任务，不会修改能力配置。
+
 > tags 取自 executor.config.tags（允许 string/list）
 
 ---
@@ -56,6 +58,14 @@
 关键配置：
 - `COMFYUI_ROUTE_BY_QUEUE`：是否在 auto 时启用 queue 策略
 - `COMFYUI_QUEUE_BATCH_SIZE`：queue 路由中“优先池”阈值（小于该值优先）
+
+健康切换规则：
+- queue 路由读取某台 ComfyUI 队列失败时，会跳过该节点，继续在兼容候选节点内选择。
+- 如果目标 ComfyUI 不支持队列接口，但 `/system_stats` 可访问，则认为该节点可用，并进入轮询兜底池。
+- 如果所有兼容候选节点都不可达，返回 `None`，上层对 Coze 返回 `Q1002 / COMFYUI_EXECUTOR_UNAVAILABLE`，不再静默打到第一个候选。
+- 如果能力声明了 `allowed_executor_ids`，该列表被视为兼容边界；列表内节点全部不可用时，不会逃逸到历史默认节点。
+- 任务提交阶段遇到连接失败、超时、提交错误或缺少自定义节点等可重路由错误时，会把失败节点加入本次任务排除列表，并重新选择一次兼容节点。
+- 重路由只在兼容候选内发生，不会为了可用性把 workflow 发到不具备节点/模型的机器。
 
 ---
 
@@ -139,6 +149,7 @@
 - allowed_executor_ids 优先级高于 binding
 - 当前 Workflow metadata 的 allowed_executor_ids 仅作为配置存储
   - 运行期仍以 Ability metadata / Binding 为准（后续可统一）
+- 如果某个 workflow 只有一台兼容机器，该机器维护或不可达时会明确失败，不会跨能力乱路由。
 
 ---
 

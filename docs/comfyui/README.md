@@ -20,7 +20,7 @@
 | `beijing_koutu` | `comfyui.beijing_koutu` / `background_remove` | `url` | `4` | 线上在用 |
 | `toubu_kouxiang` | `comfyui.toubu_kouxiang` / `head_extract` | `url` | `140` | 线上在用 |
 | `flux2_klein_9b_outpaint` | `comfyui.flux2_klein_9b_outpaint` / `outpaint` | `url`、`expand_left`、`expand_right`、`expand_top`、`expand_bottom` | `9` | 新增工具箱 |
-| `flux_strong_hq_softstyle_fission` | `comfyui.flux_strong_hq_softstyle_fission` / `image_fission` | `url`、`prompt`、`image_desc`、`bili`、`width`、`height` | `31` | 新增图裂变高质量版，默认走多元素花纹 profile |
+| `flux_strong_hq_softstyle_fission` | `comfyui.flux_strong_hq_softstyle_fission` / `image_fission` | `url`、`prompt`、`image_desc`、`bili`、`width`、`height` | `31` | 高质量图裂变，固定走 `executor_comfyui_pattern_extract_158` |
 | `flux2_9b_liebian_sifang` | `comfyui.flux2_9b_liebian_sifang` / `image_fission` | `url`、`prompt` | `111` | 线上在用；上游 prompt 质量待优化 |
 | `qwen2512_print_shape_text_enhance` | `comfyui.qwen2512_print_shape_text_enhance` / `text_enhance` | `url`、`prompt`、`bili` | `29` | 线上在用；上游 prompt 质量待优化 |
 | `yinhua_tiqu` | `comfyui.yinhua_tiqu` / `pattern_extract` | `url`、`prompt`、`negative_prompt`、`output_width`、`output_height`、`lora_name` | `421` | 线上在用 |
@@ -31,8 +31,8 @@
 - `flux2_9b_liebian_sifang` 与 `qwen2512_print_shape_text_enhance` 当前执行链路已验证可跑通，主要待优化点是上游 Coze/VL 提示词质量，不是中台或评测执行接口。
 - 多图融合评测端在 `width/height` 留空时会先读取主图尺寸再提交；直接绕过前端调用工具箱时，不传尺寸仍沿用 workflow 默认 `1024x1024`。
 - `背景抠图` 存在过程图，正式回填只认最终输出节点 `4`；`头部抠像` 正式回填只认 `140`；`FLUX2裂变+四方` 正式回填只认 `111`；`裂变文字强化` 正式回填只认 `29`。
-- `FLUX2-Klein 扩图` 使用本地 `LoadImage` 节点，后端会先把输入图上传到目标 ComfyUI 的 input 目录，再写入节点 `76`；扩图提示词固定内置、seed 每次自动随机，对外只暴露图片与上下左右扩图边距；最终回填只认 `9`。
-- `多元素花纹裂变` 的源图节点是 `10 · LoadImage.image`，后端会先把输入图上传到目标 ComfyUI 的 input 目录，再写入文件名；`bili` 沿用旧图裂变口径映射到节点 `24.denoise`，默认 `90 ≈ 0.59`；`width/height` 为空时默认跟随原图尺寸；最终回填只认 `31`。
+- `FLUX2-Klein 扩图` 的源图节点是 `76 · LoadImage.image`，后端会先把 OSS URL 上传到 ComfyUI input 目录，再回填文件名；不要直接把外部 URL 填进 workflow JSON。
+- `多元素花纹裂变` 的源图节点是 `10 · LoadImage.image`，后端会先把 OSS URL 上传到 ComfyUI input 目录，再回填文件名；`bili` 沿用旧图裂变口径映射到节点 `24.denoise`，默认 `90 ≈ 0.59`。2026-04-29 已确认 `executor_comfyui_seamless_117` 缺少 `ImageResize+`，该 workflow 必须固定到 `executor_comfyui_pattern_extract_158`，不允许默认回退。
 - `FLUX2裂变+四方` 的节点 `104` 为 workflow 内部固定输入，不作为外部参数暴露，也不应在工具箱适配层覆盖。
 
 ## 管理端入口
@@ -56,6 +56,10 @@
 ## 并发与超时规则（必须知晓）
 
 - **队列满则拒绝**：同一 ComfyUI 节点的 `queued + running` 达到上限（默认 10）会直接拒绝新任务。  
+- **节点维护要自动绕开**：路由会先限定在“兼容候选节点”内，再检查队列和健康状态。某台服务器维护、重启或网络不可达时，会跳过该节点；如果提交阶段才发现连接失败，会把失败节点加入本次任务排除列表并重新选择一次。
+- **不兼容不兜底**：如果一个 workflow 只兼容某一台机器，而这台机器不可用，系统会返回 `COMFYUI_EXECUTOR_UNAVAILABLE / Q1002`，不会为了可用性把任务发到缺模型、缺插件或缺自定义节点的机器。
+- **队列利用率要可见**：`/api/admin/comfyui/queue-summary` 会同时返回目标容量、已用、空闲槽位、使用率和诊断文案。若业务仍在排队但 ComfyUI 总使用率偏低，优先检查中台下发节奏、路由筛选、上游限流和任务回填阻塞，而不是先加机器。
+- **下发节奏要可见**：同一接口会把中台任务表里的 `queued/running` 按执行节点汇总到 ComfyUI 队列旁边。如果中台有待下发任务，但 ComfyUI 队列还有空位或为空，说明问题优先在中台 worker、路由筛选或任务卡死，而不是 GPU 机器数量。
 - **ComfyUI 不做硬超时失败**：排队等待属于正常状态，轮询超时只代表“同步等待上限”，会返回 `running` 继续由后续轮询收敛。  
 - **第三方能力仍有硬超时**：KIE/Volcengine 等不可控能力保持硬超时策略。  
 
@@ -417,7 +421,7 @@ python3 scripts/comfyui_cold_start_seed.py --executor-id executor_comfyui_xxx --
 | `DELETE /api/admin/comfyui/version-catalog/{id}` | 删除版本条目。 |
 | `POST /api/admin/comfyui/version-catalog/sync` | 在线同步 ComfyUI 版本（默认 GitHub tag）。 |
 | `GET /api/admin/comfyui/queue-status?executorId=...` | 由 admin API 代理 `/queue/status`，统一展示 `runningCount/pendingCount/queueMaxSize`。测试面板提供手动刷新，方便排查串行 worker 是否被拖慢。 |
-| `GET /api/admin/comfyui/queue-summary?executorIds=...` | 汇总多台 ComfyUI 节点的队列状态，返回 `totalRunning/totalPending/servers[]`，用于“调度监控/执行节点”看板。 |
+| `GET /api/admin/comfyui/queue-summary?executorIds=...` | 汇总多台 ComfyUI 节点的队列状态和中台下发节奏，返回 `totalRunning/totalPending/totalCapacity/backendQueuedTotal/backendRunningTotal/feedGapServers/diagnostics/servers[]`，用于“调度监控/执行节点”看板判断 GPU 是否被持续喂满。 |
 | `GET /api/admin/comfyui/system-stats?executorId=...` | 代理 `/system_stats`，返回 ComfyUI 版本与设备信息（用于服务器对齐）。 |
 | `POST /api/admin/comfyui/server-diff` | 保存服务器对齐快照（基准节点 + 差异清单）。 |
 | `GET /api/admin/comfyui/server-diff` | 读取最近对齐记录（默认 10 条）。 |
