@@ -23,6 +23,7 @@ from app.constants.kie_model_catalog import build_coze_param_suggestion
 from app.constants.kie_model_catalog import get_kie_model
 from app.constants.kie_model_catalog import list_kie_models
 from app.core.db import get_session
+from app.deps.internal import is_internal_request
 from app.models.integration import Ability, AbilityTask, ComfyuiLora, Executor
 from app.schemas import abilities as ability_schemas
 from app.services.ability_invocation import ability_invocation_service
@@ -97,23 +98,7 @@ def _resolve_executor_info(executor_id: str | None) -> dict[str, Any]:
 
 
 def _is_internal_request(request: Request) -> bool:
-    # NOTE: In our local single-host setup, Coze containers reach the host via
-    # host.docker.internal and port-forwarding; remote_addr is commonly 127.0.0.1.
-    # When behind reverse proxies, trust the first hop in X-Forwarded-For / X-Real-IP.
-    forwarded_for = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
-    real_ip = (request.headers.get("x-real-ip") or "").strip()
-    host = forwarded_for or real_ip or ((request.client.host if request.client else "") or "")
-    settings = get_settings()
-    trusted = (settings.coze_trusted_ips or "").strip()
-    if trusted:
-        allow = {ip.strip() for ip in trusted.split(",") if ip.strip()}
-        if host in allow:
-            return True
-    if host.startswith("127.") or host == "::1":
-        return True
-    if host.startswith("10.") or host.startswith("192.168.") or host.startswith("172."):
-        return True
-    return False
+    return is_internal_request(request)
 
 
 def _require_internal(request: Request) -> None:

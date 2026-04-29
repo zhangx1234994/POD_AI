@@ -10,6 +10,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from app.core.config import get_settings
 from app.core.db import get_session
 from app.deps.auth import get_current_user
+from app.deps.internal import is_internal_request
 from app.models.user import User
 from app.schemas import business as schemas
 from app.services.auth_service import auth_service
@@ -21,13 +22,7 @@ bearer_scheme = HTTPBearer(auto_error=False)
 
 
 def _is_internal_request(request: Request) -> bool:
-    forwarded_for = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
-    real_ip = (request.headers.get("x-real-ip") or "").strip()
-    host = forwarded_for or real_ip or ((request.client.host if request.client else "") or "")
-    trusted = (get_settings().coze_trusted_ips or "").strip()
-    if trusted and host in {ip.strip() for ip in trusted.split(",") if ip.strip()}:
-        return True
-    return host.startswith("127.") or host == "::1" or host.startswith(("10.", "192.168.", "172."))
+    return is_internal_request(request)
 
 
 def _resolve_business_user(
