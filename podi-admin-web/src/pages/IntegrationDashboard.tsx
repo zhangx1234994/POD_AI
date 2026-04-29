@@ -1,11 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, ReactNode } from 'react';
 import {
   Alert,
   Button,
   Card,
   Col,
-  Dialog,
   Input,
   InputNumber,
   Popup,
@@ -20,19 +19,8 @@ import {
   Tooltip,
   Typography,
 } from 'tdesign-react';
-import {
-  ApiIcon,
-  AppIcon,
-  ChartBarIcon,
-  DashboardIcon,
-  FolderOpenIcon,
-  SettingIcon,
-  TaskIcon,
-  ViewListIcon,
-} from 'tdesign-icons-react';
 import { adminApi } from '../services/adminApi';
-import { uploadAbilityTestFile } from '../utils/ossUploader';
-import { toDisplayErrorMessage } from '../utils/errorMessageMap';
+import { AuthPanel } from '../features/admin/integration/auth';
 import type {
   Ability,
   AbilityHealthSummaryResponse,
@@ -44,15 +32,24 @@ import type {
   AbilityLogMetricBucket,
   ApiKey,
   ApiKeyFormState,
+  AuthScopeSummaryResponse,
   AuthSession,
   AuthUser,
+  AuthUserFormState,
+  AuthUserUpdatePayload,
+  BillingMonthlySettlementListResponse,
+  BillingMonthlySettlementResponse,
+  BillingNotificationConfigResponse,
+  BillingInvoiceRequestListResponse,
+  BillingOverviewResponse,
+  BillingUserDetailResponse,
   Binding,
   BindingFormState,
   BusinessCapability,
+  BusinessCapabilityCompareResponse,
+  BusinessDefaultApproval,
   BusinessCapabilityFormState,
-  BusinessClient,
-  BusinessClientFormState,
-  BusinessRoutePreviewResponse,
+  BusinessOperationLog,
   BusinessRun,
   BusinessUsageSummaryResponse,
   DashboardMetrics,
@@ -63,7 +60,16 @@ import type {
   JsonValue,
   InviteCode,
   InviteCodeCreatePayload,
+  MonthlySettlementCollectionNotificationListResponse,
+  PackageGrantPayload,
+  PackageAlertNotificationListResponse,
+  PackagePurchaseOrderCreatePayload,
+  PackagePurchaseOrderListResponse,
   PublicAbility,
+  ReleasePatrolRecordResponse,
+  ReleasePreflightResponse,
+  StrategySnapshotResponse,
+  WeeklyReportResponse,
   ComfyuiModelCatalogItem,
   ComfyuiPluginCatalogItem,
   ComfyuiVersionCatalogItem,
@@ -97,49 +103,110 @@ import type {
   WorkflowFormState,
 } from '../types/admin';
 import type { UploadResult } from '../types/media';
-import { AbilityEvaluationPage } from './AbilityEvaluation/AbilityEvaluationPage';
 import { AdminShell } from '../layouts/AdminShell';
-import { mapStatusToBadge } from '../features/admin/shared/status';
-import { ActionBar, ErrorState, PageHeader, StatusBadge } from '../features/admin/shared/ui';
+import {
+  AbilityApiPanel,
+  AbilityOverviewSummaryPanel,
+  AbilityRoadmapPanel,
+} from '../features/admin/integration/abilityIntro';
+import { AbilityCatalogPanel } from '../features/admin/integration/abilityCatalog';
+import {
+  AbilityMetadataTab,
+  AbilityOverviewTab,
+  AbilityParamsTab,
+} from '../features/admin/integration/abilityDetailTabs';
+import { AbilityEditorDialog } from '../features/admin/integration/abilityEditor';
+import type { AbilityHealthFilter } from '../features/admin/integration/abilityHealth';
+import { AbilityTestingTab } from '../features/admin/integration/abilityTesting';
+import { AbilityLogListPanel } from '../features/admin/integration/abilityLogList';
+import { AbilityLogMetricsPanel } from '../features/admin/integration/abilityLogMetrics';
+import { AbilityRecentLogsPanel } from '../features/admin/integration/abilityRecentLogs';
+import { AbilityWorkbenchPanel } from '../features/admin/integration/abilityWorkbench';
+import {
+  getAbilityHealthTag,
+  getAbilityLogCallbackStageTag,
+  getAbilityLogSubmitTag,
+  isAbilityLogFailed,
+  isAbilityLogSuccessful,
+  resolveLogDurationMs,
+} from '../features/admin/integration/abilityLogs';
+import {
+  integrationNavItems as navItems,
+  isAdvancedIntegrationNav as isAdvancedNav,
+  isIntegrationNavId as isNavId,
+  type IntegrationNavId as NavId,
+} from '../features/admin/integration/navigation';
+import { integrationNavIconMap as navIconMap } from '../features/admin/integration/navigationIcons';
+import { BillingPanel } from '../features/admin/integration/billing';
+import { ExecutorsPanel } from '../features/admin/integration/executors';
+import { BindingRoutesPanel } from '../features/admin/integration/bindings';
+import { DispatchLogsPanel } from '../features/admin/integration/dispatchLogs';
+import { LegacyApiKeysPanel } from '../features/admin/integration/legacyApiKeys';
+import { AbilityLogDetailDialog, DispatchLogDetailDialog } from '../features/admin/integration/logDetailDialogs';
+import { MonitorPanel } from '../features/admin/integration/monitor';
+import { OverviewPanel } from '../features/admin/integration/overview';
+import { SystemConfigPanel } from '../features/admin/integration/systemConfig';
+import { WorkflowBuilderPanel } from '../features/admin/integration/workflowBuilder';
+import {
+  abilityTypeOptions,
+  categoryOptions,
+  comfyDesktopReleaseStatusOptions,
+  comfyDesktopUpdateStatusMeta,
+  comfyModelTypeOptions,
+  providerOptions,
+  statusOptions,
+} from '../features/admin/integration/formOptions';
+import {
+  businessKeyLabel,
+  coreBusinessKeys,
+} from '../features/admin/integration/businessLabels';
+import { ComfyuiAgentsPanel } from '../features/admin/integration/comfyuiAgents';
+import { ComfyuiAlertsPanel } from '../features/admin/integration/comfyuiAlerts';
+import { ComfyuiAssetsPanel } from '../features/admin/integration/comfyuiAssets';
+import { ComfyuiDesktopPanel } from '../features/admin/integration/comfyuiDesktop';
+import { ComfyuiLorasPanel } from '../features/admin/integration/comfyuiLoras';
+import { ComfyuiManagementHeader } from '../features/admin/integration/comfyuiManagement';
+import { ComfyuiManifestsPanel } from '../features/admin/integration/comfyuiManifests';
+import { ComfyuiServersPanel } from '../features/admin/integration/comfyuiServers';
+import { ComfyuiTasksPanel } from '../features/admin/integration/comfyuiTasks';
+import { ComfyuiTemplatesPanel } from '../features/admin/integration/comfyuiTemplates';
+import {
+  formatDate,
+  formatDateTime,
+  formatDurationSeconds,
+  formatPriceValue,
+  formatUnitLabel,
+} from '../features/admin/integration/formatters';
+import { ActionBar, ErrorState, PageHeader } from '../features/admin/shared/ui';
 
-const navItems = [
-  { id: 'overview', label: '总体概览', shortLabel: 'OV', description: '指标、刷新、运行状态' },
-  { id: 'business', label: '业务能力', shortLabel: 'BZ', description: '业务版本、发布时间、默认入口' },
-  { id: 'auth', label: '账号权限', shortLabel: 'AU', description: '用户、会话、邀请码' },
-  { id: 'vendor-models', label: '模型弹药库', shortLabel: 'MD', description: '第三方模型、Key、出网与成本' },
-  { id: 'abilities', label: '能力目录', shortLabel: 'AB', description: '原子能力列表与成本' },
-  { id: 'ability-evals', label: '能力评测', shortLabel: 'EV', description: 'Coze 工作流试运行 + 评分' },
-  { id: 'executors', label: '执行节点', shortLabel: 'EX', description: '节点配置与健康' },
-  { id: 'ability-logs', label: '能力调用', shortLabel: 'LG', description: '全局历史记录' },
-  { id: 'comfyui-management', label: 'ComfyUI 管理', shortLabel: 'CF', description: 'LoRA/模型/模板' },
-  { id: 'workflow-builder', label: '工作流编排', shortLabel: 'WF', description: 'Coze Studio 工作流 + Loop 观测', advanced: true },
-  { id: 'bindings', label: '分配策略', shortLabel: 'BD', description: 'action 绑定链路', advanced: true },
-  { id: 'apikeys', label: 'API Keys', shortLabel: 'AK', description: '凭证配额管理' },
-  { id: 'monitor', label: '调度监控', shortLabel: 'MO', description: '队列/任务/节点健康' },
-  { id: 'system', label: '系统配置', shortLabel: 'SY', description: '环境、OSS、待办' },
-  { id: 'logs', label: '调度事件', shortLabel: 'TL', description: '任务追踪', advanced: true },
-] as const;
-type NavId = (typeof navItems)[number]['id'];
-type AbilityHealthFilter = 'needs_test' | 'stale' | 'failed' | 'unknown' | 'degraded' | 'healthy' | 'all';
-const navIconMap: Record<NavId, ReactNode> = {
-  overview: <DashboardIcon size="18px" />,
-  business: <AppIcon size="18px" />,
-  auth: <SettingIcon size="18px" />,
-  'vendor-models': <ApiIcon size="18px" />,
-  abilities: <AppIcon size="18px" />,
-  'ability-evals': <ChartBarIcon size="18px" />,
-  executors: <ViewListIcon size="18px" />,
-  'ability-logs': <TaskIcon size="18px" />,
-  'comfyui-management': <FolderOpenIcon size="18px" />,
-  'workflow-builder': <TaskIcon size="18px" />,
-  bindings: <ViewListIcon size="18px" />,
-  apikeys: <ApiIcon size="18px" />,
-  monitor: <ChartBarIcon size="18px" />,
-  system: <SettingIcon size="18px" />,
-  logs: <TaskIcon size="18px" />,
-};
-const isNavId = (value: string): value is NavId => navItems.some((item) => item.id === value);
-const isAdvancedNav = (value: NavId) => Boolean((navItems.find((item) => item.id === value) as any)?.advanced);
+const AbilityEvaluationPage = lazy(() =>
+  import('./AbilityEvaluation/AbilityEvaluationPage').then((mod) => ({ default: mod.AbilityEvaluationPage })),
+);
+const BusinessCapabilityGrid = lazy(() =>
+  import('../features/admin/integration/business').then((mod) => ({ default: mod.BusinessCapabilityGrid })),
+);
+const BusinessCapabilityEditorDialog = lazy(() =>
+  import('../features/admin/integration/business').then((mod) => ({ default: mod.BusinessCapabilityEditorDialog })),
+);
+const BusinessActionPanel = lazy(() =>
+  import('../features/admin/integration/business').then((mod) => ({ default: mod.BusinessActionPanel })),
+);
+const BusinessGovernancePanel = lazy(() =>
+  import('../features/admin/integration/business').then((mod) => ({ default: mod.BusinessGovernancePanel })),
+);
+const BusinessOperationLogPanel = lazy(() =>
+  import('../features/admin/integration/business').then((mod) => ({ default: mod.BusinessOperationLogPanel })),
+);
+const BusinessRunHistoryPanel = lazy(() =>
+  import('../features/admin/integration/business').then((mod) => ({ default: mod.BusinessRunHistoryPanel })),
+);
+const BusinessUsageSummaryPanel = lazy(() =>
+  import('../features/admin/integration/business').then((mod) => ({ default: mod.BusinessUsageSummaryPanel })),
+);
+const VendorModelsPanel = lazy(() =>
+  import('../features/admin/integration/vendorModels').then((mod) => ({ default: mod.VendorModelsPanel })),
+);
+
 const readHashParams = (): URLSearchParams | null => {
   if (typeof window === 'undefined') return null;
   const hash = window.location.hash.replace(/^#/, '');
@@ -152,6 +219,10 @@ const readNavFromHash = (): NavId | null => {
   const value = params.get('nav') || '';
   if (value === 'ability-tests') return 'abilities';
   return isNavId(value) ? value : null;
+};
+const readEvalRunIdFromHash = (): string => {
+  const params = readHashParams();
+  return String(params?.get('runId') || params?.get('evalRunId') || '').trim();
 };
 const abilityDetailTabs = [
   { id: 'overview', label: '概览' },
@@ -172,6 +243,13 @@ const defaultWorkflowForm: WorkflowFormState = { action: '', name: '', version: 
 const defaultBindingForm: BindingFormState = { enabled: true, priority: 0 };
 const defaultApiKeyForm: ApiKeyFormState = { status: 'active' };
 const defaultInviteCodeForm: InviteCodeCreatePayload = { role: 'user', maxUses: 1 };
+const defaultAuthUserForm: AuthUserFormState = { role: 'user', status: 'active' };
+const readOnlyNavIds = new Set<NavId>(['business']);
+const currentMonthValue = () => {
+  const now = new Date();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  return `${now.getFullYear()}-${month}`;
+};
 const defaultVendorKeyForm: VendorKeyFormState = { status: 'active', maxConcurrency: 1 };
 const defaultVendorModelForm: VendorModelFormState = {
   status: 'active',
@@ -190,7 +268,7 @@ const defaultVendorModelForm: VendorModelFormState = {
   costPolicyText: '{}',
 };
 const defaultBusinessCapabilityForm: BusinessCapabilityFormState = {
-  businessKey: 'fission',
+  businessKey: 'pattern_extract',
   version: 'v1',
   displayName: '',
   description: '',
@@ -200,8 +278,6 @@ const defaultBusinessCapabilityForm: BusinessCapabilityFormState = {
   primaryAbilityId: '',
   vlAssistEnabled: false,
   vlAssistAbilityId: 'vl_analyze_image',
-  vlAssistWaitForResult: false,
-  vlAssistApplyToPrimary: false,
   rolloutEnabled: false,
   rolloutPercent: 0,
   rolloutAllowlistText: '',
@@ -210,44 +286,6 @@ const defaultBusinessCapabilityForm: BusinessCapabilityFormState = {
   outputSchemaText: '{"fields":[]}',
   metadataText: '{}',
 };
-const defaultBusinessClientForm: BusinessClientFormState = {
-  tenantId: '',
-  clientId: '',
-  displayName: '',
-  status: 'active',
-  allowedBusinessKeysText: '',
-  dailyRunLimit: null,
-  dailyQuotaUnits: null,
-  concurrentRunLimit: null,
-  metadataText: '{}',
-};
-const businessClientStatusOptions = [
-  { value: 'active', label: '启用' },
-  { value: 'disabled', label: '停用' },
-];
-const providerOptions = [
-  { value: 'baidu', label: '百度智能云' },
-  { value: 'openai', label: 'OpenAI' },
-  { value: 'aliyun', label: '阿里云' },
-  { value: 'volcengine', label: '火山引擎' },
-  { value: 'kie', label: 'KIE 中转' },
-  { value: 'comfyui', label: 'ComfyUI 流程' },
-  { value: 'coze', label: 'Coze Studio' },
-];
-const abilityTypeOptions = [
-  { value: 'api', label: 'API 能力（HTTP 接口）' },
-  { value: 'comfyui', label: 'ComfyUI 工作流' },
-  { value: 'workflow', label: '内部工作流调度' },
-  { value: 'tool', label: '工具/服务（PDI、校验等）' },
-];
-const categoryOptions = [
-  { value: 'image_process', label: '图像处理' },
-  { value: 'text_generation', label: '文本生成' },
-  { value: 'speech', label: '语音/音频' },
-  { value: 'video', label: '视频处理' },
-  { value: 'other', label: '其他' },
-];
-
 type ExecutorTraffic = {
   count: number;
   success: number;
@@ -314,58 +352,6 @@ type ComfyWorkflowDependencies = {
     lora: number;
   };
 };
-const statusOptions = [
-  { value: 'inactive', label: '未启用' },
-  { value: 'active', label: '启用' },
-  { value: 'deprecated', label: '下线' },
-];
-const businessRunStatusOptions = [
-  { value: 'all', label: '全部状态' },
-  { value: 'queued', label: '排队中' },
-  { value: 'running', label: '执行中' },
-  { value: 'succeeded', label: '已完成' },
-  { value: 'failed', label: '失败' },
-  { value: 'cancelled', label: '已取消' },
-];
-const businessUsageWindowOptions = [
-  { value: 1, label: '近 1 小时' },
-  { value: 24, label: '近 24 小时' },
-  { value: 168, label: '近 7 天' },
-  { value: 720, label: '近 30 天' },
-];
-const comfyModelTypeOptions = [
-  { value: 'unet', label: 'UNET' },
-  { value: 'clip', label: 'CLIP' },
-  { value: 'vae', label: 'VAE' },
-  { value: 'controlnet', label: 'ControlNet' },
-  { value: 'other', label: '其他' },
-];
-const apiKeyStatusOptions = [
-  { value: 'active', label: '启用 (active)' },
-  { value: 'inactive', label: '停用 (inactive)' },
-  { value: 'deprecated', label: '下线 (deprecated)' },
-] as const;
-
-const comfyDesktopReleaseStatusOptions = [
-  { value: 'active', label: '启用' },
-  { value: 'inactive', label: '停用' },
-  { value: 'deprecated', label: '废弃' },
-] as const;
-const comfyDesktopUpdateStatusMeta: Record<string, { theme: 'success' | 'warning' | 'danger' | 'default'; text: string }> = {
-  up_to_date: { theme: 'success', text: '已是最新' },
-  update_available: { theme: 'warning', text: '可升级' },
-  apply_started: { theme: 'warning', text: '升级已触发' },
-  applying: { theme: 'warning', text: '升级中' },
-  applied: { theme: 'success', text: '升级完成' },
-  apply_failed: { theme: 'danger', text: '升级失败' },
-  apply_blocked_running_task: { theme: 'warning', text: '执行中暂缓升级' },
-  apply_not_supported: { theme: 'default', text: '当前系统不支持' },
-  check_failed: { theme: 'danger', text: '检查失败' },
-  no_release: { theme: 'default', text: '暂无可用版本' },
-  not_ready: { theme: 'default', text: '尚未接入' },
-  disabled: { theme: 'default', text: '自动更新关闭' },
-};
-
 const formControlClass =
   'w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500';
 const formControlFlexClass =
@@ -432,15 +418,15 @@ const comfyuiTabOrder: ComfyuiManageTab[] = ['lora', 'assets', 'templates', 'ser
 const comfyuiTabGroupOrder: ComfyuiTabGroup[] = ['资源目录', '同步发布', '节点运维'];
 const comfyuiGroupMeta: Record<ComfyuiTabGroup, { hint: string; primaryTab: ComfyuiManageTab }> = {
   资源目录: {
-    hint: '先维护 LoRA/模型/模板，确保资源口径一致。',
+    hint: '能力部署底账：维护模型、LoRA、插件和模板版本，确认每台机器缺什么。',
     primaryTab: 'lora',
   },
   同步发布: {
-    hint: '再做服务器对比、清单发布与任务下发，完成版本治理。',
+    hint: '服务器纳管主线：先看节点差异，再发布清单，最后下发同步任务。',
     primaryTab: 'servers',
   },
   节点运维: {
-    hint: '最后看代理服务、告警与桌面端升级状态。',
+    hint: '运行健康与轻 agent 预留：查看心跳、告警、安装包和受控同步状态。',
     primaryTab: 'agents',
   },
 };
@@ -450,9 +436,9 @@ const comfyuiGroupBadge: Record<ComfyuiTabGroup, string> = {
   节点运维: 'R3',
 };
 const comfyuiSyncStepMeta: Array<{ tab: ComfySyncStepTab; step: string; title: string; hint: string }> = [
-  { tab: 'servers', step: '步骤 1', title: '服务器对比', hint: '确认节点可用与资源差异。' },
-  { tab: 'manifests', step: '步骤 2', title: '清单发布', hint: '确认目标版本并发布清单。' },
-  { tab: 'tasks', step: '步骤 3', title: '任务下发', hint: '下发并观察回执状态。' },
+  { tab: 'servers', step: '步骤 1', title: '服务器对比', hint: '确认节点可用、用途标签、并发上限与资源差异。' },
+  { tab: 'manifests', step: '步骤 2', title: '清单发布', hint: '确认目标版本，避免不同机器 workflow / 模型不一致。' },
+  { tab: 'tasks', step: '步骤 3', title: '任务下发', hint: '观察同步回执和调度衔接，不让 GPU 空转或任务断档。' },
 ];
 type ComfySyncStepStatus = 'blocked' | 'pending' | 'in_progress' | 'done';
 const comfySyncStepStatusMeta: Record<ComfySyncStepStatus, { theme: 'warning' | 'primary' | 'default' | 'success'; text: string }> = {
@@ -487,15 +473,15 @@ const readComfyuiTabFromHash = (): ComfyuiManageTab | null => {
 };
 
 const comfyuiTabHelpText: Record<ComfyuiManageTab, string> = {
-  lora: '素材库：维护 LoRA 条目，便于业务人员按名称选择。',
-  assets: '资源清单：维护模型/插件/ComfyUI 版本目录（下载地址、状态）。',
-  templates: '模板管理：维护可复用的工作流模板与节点映射。',
-  servers: '服务器：查看各节点与基线的差异，用于定位“哪台机缺资源”。',
-  manifests: '清单发布（版本）：定义角色服务器应达到的目标版本（发布标准）。',
-  tasks: '下发任务（执行记录）：把“清单/动作”下发到代理服务，并跟踪提交与回执。',
-  agents: '代理服务：管理可接入节点（地址、角色、启停白名单）。',
-  alerts: '告警：查看节点异常上报（磁盘、离线、同步失败等）。',
-  desktop: '桌面端部署：发布/下载安装包，查看各节点升级状态。',
+  lora: '素材库：只维护业务会引用的 LoRA 底账，重点确认文件名、基座模型和触发词是否可靠。',
+  assets: '资源清单：维护模型、插件、ComfyUI 版本目录，作为后续集成包和机器差异检查的依据。',
+  templates: '模板管理：维护可复用 workflow 模板和节点映射；具体编排仍在 ComfyUI 或业务配方中完成。',
+  servers: '服务器：查看执行节点、用途标签、并发上限和基线差异，用于定位哪台机器缺资源或不该承接某类任务。',
+  manifests: '清单发布（版本）：定义某类服务器应该达到的 workflow / 模型 / 插件版本，便于灰度和回滚。',
+  tasks: '下发任务（执行记录）：跟踪清单同步和调度衔接，重点看任务是否连续、是否均匀分发、是否成功回填。',
+  agents: '代理服务：轻 agent 先作为观测与受控同步通道，不把它做成第一阶段强依赖。',
+  alerts: '告警：查看离线、队列堆积、连续失败、回填失败、磁盘异常等会影响业务的信号。',
+  desktop: '桌面端部署：面向未来集成包发布，当前仅保留安装包、版本和升级状态的基础管理。',
 };
 const getCategoryLabel = (value: string) => categoryLabelMap[value] ?? value;
 const normalizeKey = (value?: string | null) => (value ? value.trim().toLowerCase().replace(/[\s_]+/g, '-') : '');
@@ -697,274 +683,11 @@ const toImagePreview = (value?: string | null) => {
 };
 const abilityLogPageSize = 20;
 const globalAbilityLogPageSize = 30;
-const parseDateValue = (value?: string | null): Date | null => {
-  if (!value) return null;
-  const raw = String(value).trim();
-  if (!raw) return null;
-
-  // If timezone is missing, treat server timestamps as UTC and convert to Asia/Shanghai for display.
-  const hasTimezone = /[zZ]|[+-]\d{2}:?\d{2}$/.test(raw);
-  if (hasTimezone) {
-    const d = new Date(raw);
-    return Number.isNaN(d.getTime()) ? null : d;
-  }
-
-  // Handle "YYYY-MM-DD HH:mm:ss" and "YYYY-MM-DDTHH:mm:ss" without timezone.
-  const normalized = raw.includes(' ') && !raw.includes('T') ? raw.replace(' ', 'T') : raw;
-  const isoUtc = `${normalized}Z`;
-  const d = new Date(isoUtc);
-  return Number.isNaN(d.getTime()) ? null : d;
-};
-const formatDateTime = (value?: string | null) => {
-  const date = parseDateValue(value);
-  if (!date) return value || '';
-  return date.toLocaleString('zh-CN', { hour12: false, timeZone: 'Asia/Shanghai' });
-};
-const formatDurationMs = (value?: number | null) => {
-  if (value === undefined || value === null) return '—';
-  if (value < 1000) return `${value}ms`;
-  return `${(value / 1000).toFixed(2)}s`;
-};
-type VendorGovernanceProviderRow = VendorGovernanceSummaryResponse['providers'][number];
-const vendorIssueLabels: Record<string, string> = {
-  VENDOR_API_KEY_MISSING: '缺少可用 Key',
-  VENDOR_API_RECENT_FAILURES: '最近调用失败',
-  VENDOR_PROVIDER_REGISTRY_UNAVAILABLE: '厂商清单不可用',
-  VENDOR_KEY_STATUS_UNAVAILABLE: 'Key 状态不可用',
-  VENDOR_USAGE_SUMMARY_UNAVAILABLE: '调用统计不可用',
-  VENDOR_GOVERNANCE_DB_UNAVAILABLE: '中台目录读取失败',
-  VENDOR_API_EXECUTOR_UNAVAILABLE: '能力服务不可达',
-  VENDOR_API_TIMEOUT: '能力服务超时',
-};
-const vendorKeyHints: Record<string, { alias: string; key: string; secret?: string; note: string }> = {
-  openai: {
-    alias: '例如：OpenAI 主账号',
-    key: '粘贴 OpenAI API Key',
-    note: 'OpenAI 只需要 API Key；新增后可用于图片生成、图片编辑、VL 等能力。',
-  },
-  openai_compatible: {
-    alias: '例如：中转站主账号',
-    key: '粘贴中转站 API Key',
-    note: '中转站 Key 会配合模型目录里的 baseUrl 使用；业务方不会看到明文。',
-  },
-  kie: {
-    alias: '例如：KIE 主账号',
-    key: '粘贴 KIE API Key',
-    note: 'KIE 只需要 API Key；适合异步任务和轮询型模型。',
-  },
-  volcengine: {
-    alias: '例如：火山主账号',
-    key: '粘贴火山 API Key',
-    note: '火山只需要 API Key；模型同步仍依赖服务端可用出网。',
-  },
-  baidu: {
-    alias: '例如：百度图像主账号',
-    key: '粘贴百度 API Key',
-    secret: '粘贴百度 Secret Key',
-    note: '百度需要同时填写 API Key 和 Secret Key，否则无法换取访问令牌。',
-  },
-};
-const defaultVendorKeyHint = {
-  alias: '例如：厂商-用途-主账号',
-  key: '粘贴第三方 API Key',
-  secret: '如厂商需要双凭证，在这里填写 Secret Key',
-  note: '后续第三方模型 Key 都在这里配置，不需要改服务器配置文件。',
-};
-const getVendorKeyHint = (provider?: string | null) => vendorKeyHints[String(provider || '').trim()] || defaultVendorKeyHint;
-const getVendorIssueLabel = (issue: string) => {
-  const code = String(issue || '').split(':')[0];
-  return vendorIssueLabels[code] || issue || '需要检查';
-};
-const getVendorProviderState = (row: VendorGovernanceProviderRow) => {
-  const issues = row.issues || [];
-  if (issues.some((item) => item.startsWith('VENDOR_API_KEY_MISSING'))) {
-    return { label: '缺 Key', theme: 'danger' as const };
-  }
-  if (issues.length > 0) {
-    return { label: '需检查', theme: 'warning' as const };
-  }
-  if (row.runtimeKeyConfigured) {
-    return { label: '可调用', theme: 'success' as const };
-  }
-  return { label: '未配置', theme: 'warning' as const };
-};
-const getJsonRecord = (value: unknown): Record<string, any> | null => {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  return value as Record<string, any>;
-};
-const collectAssetUrls = (assets: unknown): string[] => {
-  if (!Array.isArray(assets)) return [];
-  const urls: string[] = [];
-  assets.forEach((asset) => {
-    if (!asset || typeof asset !== 'object') return;
-    const row = asset as Record<string, any>;
-    const candidate = row.ossUrl || row.url || row.sourceUrl;
-    if (typeof candidate === 'string' && candidate.trim()) {
-      urls.push(candidate.trim());
-    }
-  });
-  return urls;
-};
-const collectStringUrls = (items: unknown): string[] => {
-  if (!Array.isArray(items)) return [];
-  const urls: string[] = [];
-  items.forEach((item) => {
-    if (typeof item === 'string' && item.trim()) {
-      urls.push(item.trim());
-      return;
-    }
-    if (!item || typeof item !== 'object') return;
-    const row = item as Record<string, any>;
-    const candidate = row.ossUrl || row.url || row.sourceUrl;
-    if (typeof candidate === 'string' && candidate.trim()) {
-      urls.push(candidate.trim());
-    }
-  });
-  return urls;
-};
-const dedupUrls = (items: string[]) => {
-  const seen = new Set<string>();
-  return items.filter((item) => {
-    if (!item || seen.has(item)) return false;
-    seen.add(item);
-    return true;
-  });
-};
-const resolveLogPreviewUrls = (row: AbilityInvocationLog): string[] => {
-  const responsePayload = getJsonRecord(row.response_payload);
-  const merged = dedupUrls([
-    ...(typeof row.stored_url === 'string' && row.stored_url.trim() ? [row.stored_url.trim()] : []),
-    ...collectAssetUrls(row.result_assets),
-    ...collectAssetUrls(responsePayload?.assets),
-    ...collectAssetUrls(responsePayload?.images),
-    ...collectStringUrls(responsePayload?.imageUrls),
-    ...collectStringUrls(responsePayload?.resultUrls),
-    ...(typeof responsePayload?.imageUrl === 'string' && responsePayload.imageUrl.trim()
-      ? [responsePayload.imageUrl.trim()]
-      : []),
-  ]);
-  return merged;
-};
-const resolvePrimaryLogPreviewUrl = (row: AbilityInvocationLog): string => {
-  const urls = resolveLogPreviewUrls(row);
-  return urls[0] || '';
-};
-const resolveLogDurationMs = (row: AbilityInvocationLog): number | null => {
-  if (typeof row.duration_ms === 'number') return row.duration_ms;
-  const payload = getJsonRecord(row.response_payload);
-  const candidate = payload?.durationMs ?? payload?.duration_ms;
-  return typeof candidate === 'number' ? candidate : null;
-};
-const getAbilityLogCallbackConfigured = (row: AbilityInvocationLog): boolean | null => {
-  const payload = getJsonRecord(row.request_payload);
-  const value = payload?.callbackConfigured;
-  return typeof value === 'boolean' ? value : null;
-};
-const isAbilityLogSuccessful = (status?: string | null): boolean => {
-  const normalized = (status || '').trim().toLowerCase();
-  return ['success', 'succeeded', 'completed', 'done', 'ok'].includes(normalized);
-};
-const isAbilityLogFailed = (status?: string | null): boolean => {
-  const normalized = (status || '').trim().toLowerCase();
-  return ['failed', 'error', 'timeout', 'rejected'].includes(normalized);
-};
-const getAbilityLogSubmitTag = (row: AbilityInvocationLog) => {
-  const normalized = (row.status || '').trim().toLowerCase();
-  if (['failed', 'error', 'timeout', 'rejected'].includes(normalized)) {
-    return { theme: 'danger' as const, text: '提交失败' };
-  }
-  if (['running', 'processing', 'in_progress', 'queued', 'pending', 'created'].includes(normalized)) {
-    return { theme: 'warning' as const, text: '提交中' };
-  }
-  if (['success', 'succeeded', 'completed', 'done', 'ok'].includes(normalized)) {
-    return { theme: 'success' as const, text: '提交成功' };
-  }
-  if (['cancelled', 'canceled', 'stopped', 'aborted'].includes(normalized)) {
-    return { theme: 'default' as const, text: '已取消' };
-  }
-  return { theme: 'default' as const, text: row.status || '未知' };
-};
-const getAbilityLogCallbackStageTag = (row: AbilityInvocationLog) => {
-  const callbackConfigured = getAbilityLogCallbackConfigured(row);
-  const callbackStatus = (row.callback_status || '').trim().toLowerCase();
-  const callbackFailed =
-    isAbilityLogFailed(callbackStatus) ||
-    Boolean(row.callback_error) ||
-    (typeof row.callback_http_status === 'number' && row.callback_http_status >= 400);
-  const callbackFinished = Boolean(row.callback_finished_at);
-  if (callbackFailed) return { theme: 'danger' as const, text: '回调失败' };
-  if (isAbilityLogSuccessful(callbackStatus)) return { theme: 'success' as const, text: '回调成功' };
-  if (callbackStatus && ['running', 'processing', 'pending', 'queued'].includes(callbackStatus)) {
-    return { theme: 'warning' as const, text: '回调中' };
-  }
-  if (callbackFinished && typeof row.callback_http_status === 'number' && row.callback_http_status < 400) {
-    return { theme: 'success' as const, text: '回调成功' };
-  }
-
-  const hasCallbackId = Boolean(row.callback_id);
-  const previewUrl = resolvePrimaryLogPreviewUrl(row);
-  if (callbackConfigured === true) {
-    return { theme: 'warning' as const, text: '待回调' };
-  }
-  if (hasCallbackId) {
-    if (previewUrl) return { theme: 'success' as const, text: '结果已回填' };
-    if (isAbilityLogSuccessful(row.status)) return { theme: 'warning' as const, text: '结果回填中' };
-    if (isAbilityLogFailed(row.status)) return { theme: 'danger' as const, text: '执行失败' };
-    return { theme: 'default' as const, text: '可查询' };
-  }
-  if (callbackConfigured === false) {
-    return { theme: 'default' as const, text: '未配置' };
-  }
-  return { theme: 'default' as const, text: '—' };
-};
-const renderStatusTag = (status?: string | null) => {
-  const meta = mapStatusToBadge(status);
-  return (
-    <Tag theme={meta.theme} variant="light">
-      {status || meta.text}
-    </Tag>
-  );
-};
-const getAbilityLogStatusTag = (status?: string | null) => {
-  const normalized = (status || '').trim().toLowerCase();
-  if (['success', 'succeeded', 'completed', 'done', 'ok'].includes(normalized)) {
-    return { theme: 'success' as const, text: '成功' };
-  }
-  if (['failed', 'error', 'timeout', 'rejected'].includes(normalized)) {
-    return { theme: 'danger' as const, text: '失败' };
-  }
-  if (['running', 'processing', 'in_progress'].includes(normalized)) {
-    return { theme: 'warning' as const, text: '执行中' };
-  }
-  if (['queued', 'pending', 'created'].includes(normalized)) {
-    return { theme: 'warning' as const, text: '排队中' };
-  }
-  if (['cancelled', 'canceled', 'stopped', 'aborted'].includes(normalized)) {
-    return { theme: 'default' as const, text: '已取消' };
-  }
-  return { theme: 'default' as const, text: status || '未知' };
-};
-const getAbilityHealthTag = (status?: string | null) => {
-  const normalized = (status || '').trim().toLowerCase();
-  if (normalized === 'healthy') return { theme: 'success' as const, text: '正常' };
-  if (normalized === 'degraded') return { theme: 'warning' as const, text: '需关注' };
-  if (normalized === 'failed') return { theme: 'danger' as const, text: '异常' };
-  return { theme: 'default' as const, text: '未测试' };
-};
 const getAbilityHealthFilterQuery = (filter: AbilityHealthFilter) => {
   if (filter === 'needs_test') return { needsTest: true };
   if (filter === 'stale') return { staleOnly: true };
   if (filter === 'all') return {};
   return { healthStatus: filter };
-};
-const abilitySourceLabels: Record<string, string> = {
-  'admin-test': '控制台测试',
-  workflow: '工作流',
-  task: '任务调度',
-  'ability-api': '能力接口',
-  'ability-task': '异步任务',
-  'ability_api': '能力接口',
-  'ability_task': '异步任务',
 };
 type AbilityTemplateSummary = {
   currentId: string | null;
@@ -1064,10 +787,6 @@ const getComfyDesktopUpdateTag = (status?: string | null) => {
   if (!normalized) return { theme: 'default' as const, text: '未上报' };
   return comfyDesktopUpdateStatusMeta[normalized] || { theme: 'default' as const, text: normalized };
 };
-const formatAbilitySource = (value?: string | null) => {
-  if (!value) return '未知来源';
-  return abilitySourceLabels[value] ?? value;
-};
 const formatComfyAgentActions = (actions?: string[] | null) => {
   if (!actions || actions.length === 0) return '—';
   return actions.map((action) => comfyAgentActionLabels[action] || action).join('、');
@@ -1075,15 +794,6 @@ const formatComfyAgentActions = (actions?: string[] | null) => {
 const isRolePrimaryAgent = (agent: ComfyuiAgent) => {
   const config = (agent.config || {}) as JsonRecord;
   return Boolean(config?.rolePrimary);
-};
-const getAbilitySourceTagTheme = (value?: string | null) => {
-  const v = value || '';
-  if (v === 'admin-test') return 'primary' as const;
-  if (v === 'ability-api' || v === 'ability_api') return 'warning' as const;
-  if (v === 'ability-task' || v === 'ability_task') return 'default' as const;
-  if (v === 'workflow') return 'success' as const;
-  if (v === 'task') return 'warning' as const;
-  return 'default' as const;
 };
 const resolveAssetUrl = (asset: StoredAsset) => asset.ossUrl || asset.url || asset.sourceUrl || '';
 const formatTaskMarker = (value?: string | null) => {
@@ -1130,7 +840,6 @@ type AbilityPricing = {
 
 const allowedSchemaTypes: SchemaFieldType[] = ['text', 'textarea', 'select', 'number', 'switch', 'image'];
 const allowedSchemaComponents: SchemaFieldComponent[] = ['select'];
-const currencySymbolMap: Record<string, string> = { CNY: '¥', USD: '$', EUR: '€' };
 const defaultComfyPricing: AbilityPricing = { currency: 'CNY', unit: 'per_image', listPrice: 0.5, discountPrice: 0.3 };
 
 const getString = (value: unknown): string | undefined => {
@@ -1150,40 +859,6 @@ const coerceNumber = (value: unknown): number | undefined => {
     return Number.isFinite(parsed) ? parsed : undefined;
   }
   return undefined;
-};
-
-const formatUnitLabel = (unit?: string) => {
-  if (!unit) return '每次';
-  const map: Record<string, string> = {
-    per_image: '每张',
-    per_call: '每次',
-    per_minute: '每分钟',
-    per_hour: '每小时',
-    per_token: '每千 Token',
-  };
-  return map[unit] ?? unit;
-};
-
-const formatPriceValue = (value?: number, currency?: string) => {
-  if (typeof value !== 'number' || Number.isNaN(value)) return '—';
-  const symbol = currency ? currencySymbolMap[currency] || currency : '';
-  return `${symbol}${value.toFixed(2)}`;
-};
-
-const formatCurrencyTotals = (totals?: Record<string, number> | null) => {
-  const entries = Object.entries(totals || {}).filter(([, value]) => typeof value === 'number' && !Number.isNaN(value));
-  if (entries.length === 0) return '—';
-  return entries.map(([currency, value]) => formatPriceValue(value, currency)).join(' / ');
-};
-
-const formatRatePercent = (value?: number | null) => {
-  if (typeof value !== 'number' || Number.isNaN(value)) return '—';
-  return `${Math.round(value * 100)}%`;
-};
-
-const formatBucketDigest = (bucket?: { total?: number; failed?: number; successRate?: number | null }) => {
-  if (!bucket) return '—';
-  return `${bucket.total || 0} 次 · 成功率 ${formatRatePercent(bucket.successRate)} · 失败 ${bucket.failed || 0}`;
 };
 
 const pickLocalized = (record: Record<string, unknown>, candidates: string[]): string | undefined => {
@@ -1293,10 +968,10 @@ const getAbilitySchemaIssues = (ability: Ability | null): string[] => {
   if (!ability) return [];
   const issues: string[] = [];
   if (parseAbilitySchemaFields(ability.input_schema).length === 0) {
-    issues.push('缺少输入 Schema');
+    issues.push('缺少输入表单配置');
   }
   if (!hasJsonContent(ability.metadata)) {
-    issues.push('缺少 Metadata');
+    issues.push('缺少高级配置');
   }
   if (!hasJsonContent(ability.default_params)) {
     issues.push('缺少默认参数');
@@ -1498,128 +1173,7 @@ const readBusinessVlAssist = (recipe?: JsonRecord | null) => {
     abilityId: typeof vlAssist.abilityId === 'string' && vlAssist.abilityId.trim()
       ? vlAssist.abilityId
       : 'vl_analyze_image',
-    waitForResult: Boolean(
-      vlAssist.waitForResult ||
-      vlAssist.wait_for_result ||
-      vlAssist.blocking ||
-      recipe?.mode === 'vl_then_primary',
-    ),
-    applyToPrimary: Boolean(
-      vlAssist.applyToPrimary ||
-      vlAssist.apply_to_primary ||
-      vlAssist.useResultForPrimary ||
-      vlAssist.use_result_for_primary,
-    ),
   };
-};
-
-const readBusinessReleaseEvents = (metadata?: JsonRecord | null): JsonRecord[] => {
-  const events = metadata && Array.isArray(metadata.releaseEvents) ? metadata.releaseEvents : [];
-  return events.filter((event): event is JsonRecord => Boolean(event) && typeof event === 'object' && !Array.isArray(event));
-};
-
-const businessReleaseEventLabel = (item: BusinessCapability) => {
-  const events = readBusinessReleaseEvents(item.metadata);
-  const latest = events[events.length - 1];
-  if (!latest) return '暂无切换记录';
-  const action = String(latest.action || '');
-  const target = typeof latest.previousDefaultDisplayName === 'string' && latest.previousDefaultDisplayName.trim()
-    ? latest.previousDefaultDisplayName.trim()
-    : typeof latest.previousDefaultVersion === 'string' && latest.previousDefaultVersion.trim()
-      ? latest.previousDefaultVersion.trim()
-      : '';
-  const at = typeof latest.at === 'string' && latest.at.trim() ? formatDateTime(latest.at) : '';
-  if (action === 'rollback_default') {
-    return `最近回滚${target ? `，回滚前默认：${target}` : ''}${at ? ` · ${at}` : ''}`;
-  }
-  if (action === 'promote_default') {
-    return `最近切默认${target ? `，上一默认：${target}` : ''}${at ? ` · ${at}` : ''}`;
-  }
-  return `最近发布动作：${action || '未标记'}${at ? ` · ${at}` : ''}`;
-};
-
-const businessRecipeStepLabel = (type?: string | null, role?: string | null) => {
-  if (role === 'primary') return '主执行';
-  if (role === 'preprocess') return '前置分析';
-  if (type === 'vl_analyze' || type === 'vl_analyze_image') return 'VL 分析';
-  if (type === 'comfyui_workflow') return 'ComfyUI';
-  if (type === 'vendor_api') return '第三方 API';
-  if (type === 'ability_task') return '原子能力';
-  return type || '步骤';
-};
-
-const businessKeyLabel = (key?: string | null) => {
-  if (key === 'fission') return '图裂变';
-  if (key === 'outpaint') return '扩图';
-  return key || '未命名业务';
-};
-
-const businessClientScopeLabel = (client: BusinessClient) => {
-  if (client.clientId) return `${client.tenantId} / ${client.clientId}`;
-  return `${client.tenantId} / 全部客户端`;
-};
-
-const businessClientAllowedLabel = (client: BusinessClient) => {
-  const keys = client.allowedBusinessKeys || [];
-  if (keys.length === 0) return '全部业务';
-  return keys.map((key) => businessKeyLabel(key)).join('、');
-};
-
-const businessClientLimitLabel = (client: BusinessClient) => {
-  const parts = [
-    client.concurrentRunLimit ? `并发 ${client.concurrentRunLimit}` : '',
-    client.dailyRunLimit ? `日调用 ${client.dailyRunLimit}` : '',
-    client.dailyQuotaUnits ? `日额度 ${client.dailyQuotaUnits}` : '',
-  ].filter(Boolean);
-  return parts.length > 0 ? parts.join(' / ') : '未限制';
-};
-
-const businessRunStepStatusLabel = (status?: string | null) => {
-  if (status === 'planned') return '待执行';
-  if (status === 'queued') return '排队中';
-  if (status === 'running') return '执行中';
-  if (status === 'succeeded') return '已完成';
-  if (status === 'failed') return '失败';
-  if (status === 'cancelled') return '已取消';
-  if (status === 'skipped') return '已跳过';
-  return status || '未知';
-};
-
-const businessRunStepSummaryLabel = (summary?: JsonRecord | null) => {
-  if (!summary || typeof summary !== 'object') return '';
-  const text = summary.summary || summary.imageDesc || summary.textPreview;
-  if (typeof text === 'string' && text.trim()) {
-    const value = text.trim();
-    return value.length > 24 ? `${value.slice(0, 24)}...` : value;
-  }
-  const imageCount = Number(summary.imageCount || 0);
-  const videoCount = Number(summary.videoCount || 0);
-  if (imageCount > 0) return `${imageCount} 张图`;
-  if (videoCount > 0) return `${videoCount} 个视频`;
-  return '';
-};
-
-const businessCapabilityLatestRunLabel = (item: BusinessCapability) => {
-  const latest = item.latestRun;
-  if (!latest) return '暂无调用';
-  const imageCount = Number(latest.imageCount ?? latest.image_count ?? 0);
-  const videoCount = Number(latest.videoCount ?? latest.video_count ?? 0);
-  if (latest.error) return String(latest.error);
-  if (imageCount > 0) return `${imageCount} 张图`;
-  if (videoCount > 0) return `${videoCount} 个视频`;
-  return businessRunStepStatusLabel(latest.status);
-};
-
-const businessCapabilityRunMetricsLabel = (item: BusinessCapability) => {
-  const metrics = item.runMetrics;
-  if (!metrics || !Number(metrics.total || 0)) return '近24小时暂无调用';
-  const total = Number(metrics.total || 0);
-  const succeeded = Number(metrics.succeeded || 0);
-  const failed = Number(metrics.failed || 0);
-  const running = Number(metrics.running || 0) + Number(metrics.queued || 0);
-  const rawRate = metrics.successRate ?? metrics.success_rate;
-  const successRate = typeof rawRate === 'number' ? Math.round(rawRate * 100) : Math.round((succeeded / total) * 100);
-  return `近24小时 ${total} 次 · 成功 ${succeeded} · 失败 ${failed} · 进行中 ${running} · 成功率 ${successRate}%`;
 };
 
 const isComfyUiDefinition = (record: Record<string, unknown>): boolean => {
@@ -2092,9 +1646,11 @@ const isEmptyRecord = (value?: Record<string, unknown> | null) => {
 
 export function IntegrationDashboard({
   theme,
+  currentUser,
   onToggleTheme,
 }: {
   theme: 'light' | 'dark';
+  currentUser?: AuthUser | null;
   onToggleTheme: () => void;
 }) {
   const [pageVisible, setPageVisible] = useState<boolean>(() =>
@@ -2108,6 +1664,7 @@ export function IntegrationDashboard({
   const [loading, setLoading] = useState(false);
   const [loadErrors, setLoadErrors] = useState<string[]>([]);
   const [activeNav, setActiveNav] = useState<NavId>(() => readNavFromHash() ?? navItems[0].id);
+  const [focusedEvalRunId, setFocusedEvalRunId] = useState<string>(() => readEvalRunIdFromHash());
   const [showAdvanced, setShowAdvanced] = useState(false);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const [dashboardMetrics, setDashboardMetrics] = useState<DashboardMetrics | null>(null);
@@ -2115,14 +1672,30 @@ export function IntegrationDashboard({
   const [dispatchLogDetail, setDispatchLogDetail] = useState<DispatchLogEntry | null>(null);
   const [dispatchLogDetailOpen, setDispatchLogDetailOpen] = useState(false);
   const [systemConfig, setSystemConfig] = useState<SystemConfig | null>(null);
+  const [releasePreflightLatest, setReleasePreflightLatest] = useState<ReleasePreflightResponse | null>(null);
+  const [releasePreflightSnapshots, setReleasePreflightSnapshots] = useState<ReleasePreflightResponse[]>([]);
+  const [releasePreflightLoading, setReleasePreflightLoading] = useState(false);
+  const [releasePreflightError, setReleasePreflightError] = useState<string | null>(null);
+  const [releasePatrolRecords, setReleasePatrolRecords] = useState<ReleasePatrolRecordResponse[]>([]);
+  const [releasePatrolLoading, setReleasePatrolLoading] = useState(false);
+  const [releasePatrolError, setReleasePatrolError] = useState<string | null>(null);
+  const [strategySnapshots, setStrategySnapshots] = useState<StrategySnapshotResponse[]>([]);
+  const [strategySnapshotLoading, setStrategySnapshotLoading] = useState(false);
+  const [strategySnapshotError, setStrategySnapshotError] = useState<string | null>(null);
+  const [weeklyReports, setWeeklyReports] = useState<WeeklyReportResponse[]>([]);
+  const [weeklyReportLoading, setWeeklyReportLoading] = useState(false);
+  const [weeklyReportError, setWeeklyReportError] = useState<string | null>(null);
   const [businessCapabilities, setBusinessCapabilities] = useState<BusinessCapability[]>([]);
-  const [businessClients, setBusinessClients] = useState<BusinessClient[]>([]);
   const [businessRuns, setBusinessRuns] = useState<BusinessRun[]>([]);
   const [businessRunTotal, setBusinessRunTotal] = useState(0);
   const [businessUsageSummary, setBusinessUsageSummary] = useState<BusinessUsageSummaryResponse | null>(null);
+  const [businessOperationLogs, setBusinessOperationLogs] = useState<BusinessOperationLog[]>([]);
+  const [businessDefaultApprovals, setBusinessDefaultApprovals] = useState<BusinessDefaultApproval[]>([]);
   const [businessRunFilters, setBusinessRunFilters] = useState({
     businessKey: 'all',
     status: 'all',
+    billingStatus: 'all',
+    callbackStatus: 'all',
     version: 'all',
     source: '',
     tenantId: '',
@@ -2136,20 +1709,40 @@ export function IntegrationDashboard({
   const [businessDialogOpen, setBusinessDialogOpen] = useState(false);
   const [businessForm, setBusinessForm] = useState<BusinessCapabilityFormState>(defaultBusinessCapabilityForm);
   const [businessFormError, setBusinessFormError] = useState<string | null>(null);
-  const [businessClientDialogOpen, setBusinessClientDialogOpen] = useState(false);
-  const [businessClientForm, setBusinessClientForm] = useState<BusinessClientFormState>(defaultBusinessClientForm);
-  const [businessClientFormError, setBusinessClientFormError] = useState<string | null>(null);
-  const [businessClientLoadingId, setBusinessClientLoadingId] = useState<string | null>(null);
   const [businessActionError, setBusinessActionError] = useState<string | null>(null);
   const [businessActionLoadingId, setBusinessActionLoadingId] = useState<string | null>(null);
-  const [businessRoutePreviewKey, setBusinessRoutePreviewKey] = useState('');
-  const [businessRoutePreview, setBusinessRoutePreview] = useState<BusinessRoutePreviewResponse | null>(null);
+  const [businessCompareLeftId, setBusinessCompareLeftId] = useState('');
+  const [businessCompareRightId, setBusinessCompareRightId] = useState('');
+  const [businessCompareResult, setBusinessCompareResult] = useState<BusinessCapabilityCompareResponse | null>(null);
+  const isBusinessReadOnly = Boolean(currentUser && currentUser.role !== 'admin');
   const [authUsers, setAuthUsers] = useState<AuthUser[]>([]);
   const [authSessions, setAuthSessions] = useState<AuthSession[]>([]);
   const [inviteCodes, setInviteCodes] = useState<InviteCode[]>([]);
+  const [authScopeSummary, setAuthScopeSummary] = useState<AuthScopeSummaryResponse | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [authUserForm, setAuthUserForm] = useState<AuthUserFormState>(defaultAuthUserForm);
   const [authInviteForm, setAuthInviteForm] = useState<InviteCodeCreatePayload>(defaultInviteCodeForm);
+  const [billingMonth, setBillingMonth] = useState(currentMonthValue);
+  const [billingWindowDays, setBillingWindowDays] = useState(30);
+  const [billingTenantId, setBillingTenantId] = useState('');
+  const [billingClientId, setBillingClientId] = useState('');
+  const [billingBusinessKey, setBillingBusinessKey] = useState('all');
+  const [billingOverview, setBillingOverview] = useState<BillingOverviewResponse | null>(null);
+  const [billingMonthlySettlement, setBillingMonthlySettlement] = useState<BillingMonthlySettlementResponse | null>(null);
+  const [billingMonthlySettlementRecords, setBillingMonthlySettlementRecords] = useState<BillingMonthlySettlementListResponse | null>(null);
+  const [billingPackageAlertNotifications, setBillingPackageAlertNotifications] =
+    useState<PackageAlertNotificationListResponse | null>(null);
+  const [billingMonthlyCollectionNotifications, setBillingMonthlyCollectionNotifications] =
+    useState<MonthlySettlementCollectionNotificationListResponse | null>(null);
+  const [billingNotificationConfig, setBillingNotificationConfig] = useState<BillingNotificationConfigResponse | null>(null);
+  const [billingPackagePurchaseOrders, setBillingPackagePurchaseOrders] = useState<PackagePurchaseOrderListResponse | null>(null);
+  const [billingInvoiceRequests, setBillingInvoiceRequests] = useState<BillingInvoiceRequestListResponse | null>(null);
+  const [billingDetail, setBillingDetail] = useState<BillingUserDetailResponse | null>(null);
+  const [billingSelectedUserId, setBillingSelectedUserId] = useState('');
+  const [billingLoading, setBillingLoading] = useState(false);
+  const [billingExporting, setBillingExporting] = useState(false);
+  const [billingError, setBillingError] = useState<string | null>(null);
   const [vendorProviders, setVendorProviders] = useState<VendorProvider[]>([]);
   const [vendorModels, setVendorModels] = useState<VendorModel[]>([]);
   const [vendorKeys, setVendorKeys] = useState<VendorKey[]>([]);
@@ -2161,7 +1754,6 @@ export function IntegrationDashboard({
   const [vendorError, setVendorError] = useState('');
   const [vendorNotice, setVendorNotice] = useState('');
   const [vendorEgressChecks, setVendorEgressChecks] = useState<Record<string, VendorEgressCheckResponse>>({});
-  const [vendorKeyCheckingId, setVendorKeyCheckingId] = useState<string | null>(null);
   const [vendorKeyForm, setVendorKeyForm] = useState<VendorKeyFormState>(defaultVendorKeyForm);
   const [vendorModelForm, setVendorModelForm] = useState<VendorModelFormState>(defaultVendorModelForm);
   const [vendorModelFormError, setVendorModelFormError] = useState<string | null>(null);
@@ -2204,7 +1796,7 @@ export function IntegrationDashboard({
   const [workflowOutputShowAll, setWorkflowOutputShowAll] = useState(false);
   const [workflowNodeSearch, setWorkflowNodeSearch] = useState<string>('');
   const [workflowParamScope, setWorkflowParamScope] = useState<'internal' | 'all'>('internal');
-  const [workflowEditTab, setWorkflowEditTab] = useState<'base' | 'io' | 'params' | 'executors'>('base');
+  const [workflowEditTab, setWorkflowEditTab] = useState<'base' | 'io' | 'params' | 'executors' | 'advanced'>('base');
   const [workflowFormErrors, setWorkflowFormErrors] = useState<string[]>([]);
   const [bindingForm, setBindingForm] = useState<BindingFormState>(defaultBindingForm);
   const [apiKeyForm, setApiKeyForm] = useState<ApiKeyFormState>(defaultApiKeyForm);
@@ -2473,7 +2065,6 @@ export function IntegrationDashboard({
   const testResultPreviewSrc = testResult?.imageBase64
     ? toImagePreview(testResult.imageBase64)
     : testResult?.imageUrl || fallbackResultUrl || '';
-  const hasTestResultPreview = Boolean(testResultPreviewSrc);
 
   // Derived lists to simplify rendering; declared before effects to avoid TDZ issues.
   const abilityProviders = useMemo(
@@ -2956,6 +2547,44 @@ export function IntegrationDashboard({
       ...Array.from(new Set(versions)).map((version) => ({ label: version, value: version })),
     ];
   }, [businessCapabilities, businessRunFilters.businessKey]);
+  const businessCapabilityVersionOptions = useMemo(
+    () =>
+      businessCapabilities.map((item) => ({
+        label: `${businessKeyLabel(item.businessKey)} · ${item.version}${item.isDefault ? ' · 默认' : ''} · ${item.displayName}`,
+        value: item.id,
+      })),
+    [businessCapabilities],
+  );
+  const effectiveBusinessCompareLeftId =
+    businessCompareLeftId ||
+    businessCapabilities.find((item) => item.isDefault)?.id ||
+    businessCapabilities[0]?.id ||
+    '';
+  const selectedBusinessCompareLeft = useMemo(
+    () => businessCapabilities.find((item) => item.id === effectiveBusinessCompareLeftId) || null,
+    [businessCapabilities, effectiveBusinessCompareLeftId],
+  );
+  const businessCompareTargetOptions = useMemo(
+    () =>
+      businessCapabilities
+        .filter((item) => {
+          if (!selectedBusinessCompareLeft) return true;
+          return item.businessKey === selectedBusinessCompareLeft.businessKey && item.id !== selectedBusinessCompareLeft.id;
+        })
+        .map((item) => ({
+          label: `${item.version}${item.isDefault ? ' · 默认' : ''} · ${item.displayName}`,
+          value: item.id,
+        })),
+    [businessCapabilities, selectedBusinessCompareLeft],
+  );
+  const effectiveBusinessCompareRightId =
+    businessCompareRightId && businessCompareTargetOptions.some((item) => item.value === businessCompareRightId)
+      ? businessCompareRightId
+      : businessCompareTargetOptions[0]?.value || '';
+  const selectedBusinessCompareRight = useMemo(
+    () => businessCapabilities.find((item) => item.id === effectiveBusinessCompareRightId) || null,
+    [businessCapabilities, effectiveBusinessCompareRightId],
+  );
   const resolveComfyModelList = useCallback(
     (executorId: string, key: string) => {
       if (!executorId) return [];
@@ -3257,7 +2886,7 @@ export function IntegrationDashboard({
   const workflowDefinitionError =
     workflowForm.definition && !workflowDefinitionParse.ok ? '工作流 JSON 解析失败，请检查格式。' : '';
   const workflowMetadataError =
-    workflowForm.metadata && !workflowMetadataParse.ok ? 'metadata JSON 解析失败，请检查格式。' : '';
+    workflowForm.metadata && !workflowMetadataParse.ok ? '高级配置解析失败，请检查格式。' : '';
   const workflowDefinitionNotice = useMemo(() => {
     if (!workflowForm.definition || !workflowDefinitionParse.ok) return '';
     if (workflowDefinitionInfo.source === 'ui') {
@@ -3293,7 +2922,7 @@ export function IntegrationDashboard({
         return;
       }
       if (!item.inputKey) {
-        errors.push(`${prefix}未选择输入 Key`);
+        errors.push(`${prefix}未选择输入字段`);
       } else if (!node.inputs.includes(item.inputKey)) {
         errors.push(`${prefix}输入 ${item.inputKey} 不在节点 #${item.nodeId} 的输入列表`);
       }
@@ -3317,45 +2946,6 @@ export function IntegrationDashboard({
     return errors;
   }, [workflowInputMap, workflowOutputNodeIds, comfyWorkflowNodes, comfyWorkflowNodeMap]);
 
-  const renderComfyDiffTag = useCallback(
-    (options: { baselineReady: boolean; targetReady: boolean; missing: string[]; okLabel?: string }) => {
-      const okLabel = options.okLabel || '齐全';
-      if (!options.baselineReady) {
-        return (
-          <Tag theme="warning" variant="light">
-            主服务器未拉取
-          </Tag>
-        );
-      }
-      if (!options.targetReady) {
-        return (
-          <Tag theme="warning" variant="light">
-            未拉取
-          </Tag>
-        );
-      }
-      if (options.missing.length === 0) {
-        return (
-          <Tag theme="success" variant="light">
-            {okLabel}
-          </Tag>
-        );
-      }
-      const content = (
-        <div className="max-w-xs text-xs leading-5">
-          {options.missing.join('、')}
-        </div>
-      );
-      return (
-        <Popup trigger="hover" placement="right" content={content}>
-          <Tag theme="danger" variant="light">
-            缺失 {options.missing.length}
-          </Tag>
-        </Popup>
-      );
-    },
-    [],
-  );
   const comfyDiffDialogText = useMemo(() => {
     if (!comfyDiffDialogPayload) return '';
     try {
@@ -3419,37 +3009,37 @@ export function IntegrationDashboard({
   const executorConfigTemplates = useMemo(() => {
     // Human-friendly templates (non-dev friendly) for common providers.
     const comfyui = [
-      { key: 'provider', label: 'provider', hint: '可选，建议填写 comfyui', placeholder: 'comfyui' },
-      { key: 'baseUrl', label: 'baseUrl', hint: '可选：与 Base URL 保持一致', placeholder: 'http://<ip>:8079' },
-      { key: 'channel_key', label: 'channel_key', hint: '可选：用于多机/多中转站区分', placeholder: 'comfyui-158' },
-      { key: 'tags', label: 'tags', hint: '可选：路由标签，逗号分隔', placeholder: 'gpu:4090, region:hz' },
-      { key: 'comfyui_version', label: 'comfyui_version', hint: '可选：ComfyUI 版本号', placeholder: 'v0.2.x / commit' },
-      { key: 'custom_nodes_version', label: 'custom_nodes_version', hint: '可选：自定义节点版本', placeholder: 'nodes-2026.02' },
-      { key: 'models_hash', label: 'models_hash', hint: '可选：模型清单 hash', placeholder: 'sha1:...' },
-      { key: 'lora_hash', label: 'lora_hash', hint: '可选：LoRA 清单 hash', placeholder: 'sha1:...' },
-      { key: 'sync_role', label: 'sync_role', hint: '可选：母/子服务器标记', placeholder: 'master / worker' },
-      { key: 'last_sync_at', label: 'last_sync_at', hint: '可选：最近同步时间', placeholder: '2026-02-02 12:00' },
+      { key: 'provider', label: '来源类型', hint: '可选，建议填写 comfyui', placeholder: 'comfyui' },
+      { key: 'baseUrl', label: '服务地址', hint: '可选：与上方服务地址保持一致', placeholder: 'http://<ip>:8079' },
+      { key: 'channel_key', label: '通道标识', hint: '可选：用于多机或多中转站区分', placeholder: 'comfyui-158' },
+      { key: 'tags', label: '路由标签', hint: '可选：多个标签用逗号分隔', placeholder: 'gpu:4090, region:hz' },
+      { key: 'comfyui_version', label: 'ComfyUI 版本', hint: '可选：版本号或提交号', placeholder: 'v0.2.x / commit' },
+      { key: 'custom_nodes_version', label: '自定义节点版本', hint: '可选：自定义节点包版本', placeholder: 'nodes-2026.02' },
+      { key: 'models_hash', label: '模型清单指纹', hint: '可选：用于判断模型是否漂移', placeholder: 'sha1:...' },
+      { key: 'lora_hash', label: 'LoRA 清单指纹', hint: '可选：用于判断 LoRA 是否漂移', placeholder: 'sha1:...' },
+      { key: 'sync_role', label: '同步角色', hint: '可选：母服务器或子服务器标记', placeholder: 'master / worker' },
+      { key: 'last_sync_at', label: '最近同步时间', hint: '可选：最近同步时间', placeholder: '2026-02-02 12:00' },
     ];
     const kie = [
-      { key: 'apiKey', label: 'apiKey', hint: '必填：KIE API Key', placeholder: 'sk-***' },
-      { key: 'baseUrl', label: 'baseUrl', hint: '默认 https://api.kie.ai', placeholder: 'https://api.kie.ai' },
-      { key: 'channel_key', label: 'channel_key', hint: '可选：多中转站区分', placeholder: 'kie-default' },
+      { key: 'apiKey', label: '接口密钥', hint: '必填：KIE 调用密钥', placeholder: 'sk-***' },
+      { key: 'baseUrl', label: '服务地址', hint: '默认 https://api.kie.ai', placeholder: 'https://api.kie.ai' },
+      { key: 'channel_key', label: '通道标识', hint: '可选：多中转站区分', placeholder: 'kie-default' },
     ];
     const volcengine = [
-      { key: 'apiKey', label: 'apiKey', hint: '必填：火山 API Key', placeholder: '***' },
-      { key: 'baseUrl', label: 'baseUrl', hint: '默认 https://ark.cn-beijing.volces.com', placeholder: 'https://ark.cn-beijing.volces.com' },
+      { key: 'apiKey', label: '接口密钥', hint: '必填：火山调用密钥', placeholder: '***' },
+      { key: 'baseUrl', label: '服务地址', hint: '默认 https://ark.cn-beijing.volces.com', placeholder: 'https://ark.cn-beijing.volces.com' },
     ];
     const baidu = [
-      { key: 'apiKey', label: 'apiKey', hint: '必填：百度 API Key', placeholder: '***' },
-      { key: 'secretKey', label: 'secretKey', hint: '必填：百度 Secret Key', placeholder: '***' },
-      { key: 'accessKey', label: 'accessKey', hint: '可选：如接入点需要', placeholder: '***' },
+      { key: 'apiKey', label: '接口密钥', hint: '必填：百度调用密钥', placeholder: '***' },
+      { key: 'secretKey', label: '密钥二段', hint: '必填：百度配套密钥', placeholder: '***' },
+      { key: 'accessKey', label: '访问密钥', hint: '可选：如接入点需要', placeholder: '***' },
     ];
     if (executorTypeNormalized.includes('kie')) return kie;
     if (executorTypeNormalized.includes('volc') || executorTypeNormalized.includes('ark')) return volcengine;
     if (executorTypeNormalized.includes('baidu')) return baidu;
     if (executorTypeNormalized.includes('comfyui')) return comfyui;
     return [
-      { key: 'channel_key', label: 'channel_key', hint: '可选：用于区分多渠道/多节点', placeholder: 'default' },
+      { key: 'channel_key', label: '通道标识', hint: '可选：用于区分多渠道或多节点', placeholder: 'default' },
     ];
   }, [executorTypeNormalized]);
 
@@ -3793,6 +3383,17 @@ export function IntegrationDashboard({
     }),
     [executors, workflows, bindings, apiKeys, abilities],
   );
+  const executorTrafficTotals = useMemo(() => {
+    const items = Object.values(executorTraffic);
+    const totalCalls = items.reduce((sum, item) => sum + Number(item.count || 0), 0);
+    const failedCalls = items.reduce((sum, item) => sum + Number(item.failed || 0), 0);
+    const successCalls = items.reduce((sum, item) => sum + Number(item.success || 0), 0);
+    return {
+      totalCalls,
+      failedCalls,
+      successRate: totalCalls > 0 ? Math.round((successCalls / totalCalls) * 100) : null,
+    };
+  }, [executorTraffic]);
   const statusCountMap = useMemo(() => {
     const map: Record<string, number> = {};
     for (const bucket of dashboardMetrics?.status_buckets || []) {
@@ -3806,12 +3407,12 @@ export function IntegrationDashboard({
   const runningQueueTotal = queueOverview?.total_running ?? runningQueueCount;
   const pendingQueueSub = queueOverview
     ? `任务 ${queueOverview.task_pending} · 能力 ${queueOverview.ability_pending} · 评测 ${queueOverview.eval_pending}`
-    : 'created/pending/queued';
+    : '待创建 / 排队中';
   const runningQueueSub = queueOverview
     ? `任务 ${queueOverview.task_running} · 能力 ${queueOverview.ability_running} · 评测 ${queueOverview.eval_running}`
-    : 'running';
+    : '执行中';
   const pendingBatchValue = queueOverview?.pending_batches ?? dashboardMetrics?.totals.pending_batches ?? 0;
-  const pendingBatchSub = queueOverview ? `剩余 ${queueOverview.pending_batch_tasks} 条任务` : '未完成的 TaskBatch';
+  const pendingBatchSub = queueOverview ? `剩余 ${queueOverview.pending_batch_tasks} 条任务` : '未完成批次';
   const queueOverviewRows = useMemo(
     () => [
       {
@@ -3868,14 +3469,16 @@ export function IntegrationDashboard({
     setAuthLoading(true);
     setAuthError(null);
     try {
-      const [users, sessions, invites] = await Promise.all([
+      const [users, sessions, invites, scopeSummary] = await Promise.all([
         adminApi.listAuthUsers(),
         adminApi.listAuthSessions(),
         adminApi.listInviteCodes(),
+        adminApi.getAuthScopeSummary(),
       ]);
       setAuthUsers(users.items || []);
       setAuthSessions(sessions.items || []);
       setInviteCodes(invites.items || []);
+      setAuthScopeSummary(scopeSummary);
     } catch (error) {
       setAuthError(extractErrorMessage(error) || '账号权限数据加载失败');
     } finally {
@@ -3883,10 +3486,390 @@ export function IntegrationDashboard({
     }
   };
 
+  const refreshBillingUserDetail = async (userId = billingSelectedUserId) => {
+    const normalizedUserId = String(userId || '').trim();
+    if (!normalizedUserId) {
+      setBillingDetail(null);
+      return;
+    }
+    setBillingLoading(true);
+    setBillingError(null);
+    try {
+      const detail = await adminApi.getBillingUserDetail(normalizedUserId, {
+        month: billingMonth,
+        windowDays: billingWindowDays,
+        businessKey: billingBusinessKey,
+        pageSize: 20,
+      });
+      setBillingSelectedUserId(normalizedUserId);
+      setBillingDetail(detail);
+    } catch (error) {
+      setBillingError(extractErrorMessage(error) || '用户账单明细加载失败');
+    } finally {
+      setBillingLoading(false);
+    }
+  };
+
+  const refreshBillingOverview = async () => {
+    setBillingLoading(true);
+    setBillingError(null);
+    try {
+      const billingQuery = {
+        month: billingMonth,
+        windowDays: billingWindowDays,
+        tenantId: billingTenantId,
+        clientId: billingClientId,
+        businessKey: billingBusinessKey,
+        limit: 100,
+      };
+      const [
+        overview,
+        monthlySettlement,
+        monthlySettlementRecords,
+        packageAlertNotifications,
+        monthlyCollectionNotifications,
+        notificationConfig,
+        packagePurchaseOrders,
+        invoiceRequests,
+      ] = await Promise.all([
+        adminApi.getBillingOverview({
+          ...billingQuery,
+          issueLimit: 20,
+          packageAlertLimit: 20,
+        }),
+        adminApi.getBillingMonthlySettlement({ ...billingQuery, limit: 200 }),
+        adminApi.listBillingMonthlySettlements({ ...billingQuery, limit: 100 }),
+        adminApi.listBillingPackageAlertNotifications(20),
+        adminApi.listBillingMonthlyCollectionNotifications(20),
+        adminApi.getBillingNotificationConfig(),
+        adminApi.listPackagePurchaseOrders({ businessKey: billingBusinessKey, limit: 50 }),
+        adminApi.listBillingInvoiceRequests({ businessKey: billingBusinessKey, limit: 50 }),
+      ]);
+      setBillingOverview(overview);
+      setBillingMonthlySettlement(monthlySettlement);
+      setBillingMonthlySettlementRecords(monthlySettlementRecords);
+      setBillingPackageAlertNotifications(packageAlertNotifications);
+      setBillingMonthlyCollectionNotifications(monthlyCollectionNotifications);
+      setBillingNotificationConfig(notificationConfig);
+      setBillingPackagePurchaseOrders(packagePurchaseOrders);
+      setBillingInvoiceRequests(invoiceRequests);
+      const nextUserId =
+        (billingSelectedUserId &&
+        overview.items.some((item) => item.user.id === billingSelectedUserId)
+          ? billingSelectedUserId
+          : overview.items[0]?.user.id) || '';
+      setBillingSelectedUserId(nextUserId);
+      if (nextUserId) {
+        const detail = await adminApi.getBillingUserDetail(nextUserId, {
+          month: billingMonth,
+          windowDays: billingWindowDays,
+          businessKey: billingBusinessKey,
+          pageSize: 20,
+        });
+        setBillingDetail(detail);
+      } else {
+        setBillingDetail(null);
+      }
+    } catch (error) {
+      setBillingError(extractErrorMessage(error) || '账单费用数据加载失败');
+    } finally {
+      setBillingLoading(false);
+    }
+  };
+
+  const exportBillingUserLedger = async () => {
+    const userId = billingSelectedUserId || billingDetail?.user.id;
+    if (!userId) {
+      setBillingError('请先选择一个用户，再导出流水。');
+      return;
+    }
+    setBillingExporting(true);
+    setBillingError(null);
+    try {
+      const blob = await adminApi.exportBillingUserLedger(userId, billingMonth, { businessKey: billingBusinessKey });
+      const user = billingDetail?.user.username || userId;
+      downloadBlob(blob, `billing-ledger-${user}-${billingMonth}.csv`);
+    } catch (error) {
+      setBillingError(extractErrorMessage(error) || '账单流水导出失败');
+    } finally {
+      setBillingExporting(false);
+    }
+  };
+
+  const grantBillingPackage = async (payload: PackageGrantPayload) => {
+    const userId = billingSelectedUserId || billingDetail?.user.id;
+    if (!userId) {
+      setBillingError('请先选择一个用户，再发放套餐。');
+      return;
+    }
+    setBillingLoading(true);
+    setBillingError(null);
+    try {
+      await adminApi.grantBillingPackage(userId, payload);
+      await refreshBillingOverview();
+    } catch (error) {
+      setBillingError(extractErrorMessage(error) || '套餐发放失败，请检查套餐标识、额度和到期时间。');
+    } finally {
+      setBillingLoading(false);
+    }
+  };
+
+  const createPackagePurchaseOrder = async (payload: PackagePurchaseOrderCreatePayload) => {
+    const userId = billingSelectedUserId || billingDetail?.user.id;
+    if (!userId) {
+      setBillingError('请先选择一个用户，再创建购买订单。');
+      return;
+    }
+    setBillingLoading(true);
+    setBillingError(null);
+    try {
+      await adminApi.createPackagePurchaseOrder({ ...payload, userId });
+      await refreshBillingOverview();
+    } catch (error) {
+      setBillingError(extractErrorMessage(error) || '套餐购买订单创建失败，请检查用户、套餐、额度和金额。');
+    } finally {
+      setBillingLoading(false);
+    }
+  };
+
+  const markPackagePurchaseOrderPaid = async (orderId: string) => {
+    const normalizedId = String(orderId || '').trim();
+    if (!normalizedId) return;
+    setBillingLoading(true);
+    setBillingError(null);
+    try {
+      await adminApi.updatePackagePurchaseOrder(normalizedId, {
+        status: 'paid',
+        paymentReference: `manual-paid-${billingMonth}`,
+        note: '管理端手动确认付款并入账套餐',
+      });
+      await refreshBillingOverview();
+    } catch (error) {
+      setBillingError(extractErrorMessage(error) || '套餐购买订单付款确认失败。');
+    } finally {
+      setBillingLoading(false);
+    }
+  };
+
+  const createBillingInvoiceRequest = async (
+    orderId: string,
+    title: string,
+    taxNo?: string | null,
+    email?: string | null,
+  ) => {
+    const normalizedOrderId = String(orderId || '').trim();
+    const normalizedTitle = String(title || '').trim();
+    if (!normalizedOrderId) return;
+    if (!normalizedTitle) {
+      setBillingError('请先填写发票抬头。');
+      return;
+    }
+    setBillingLoading(true);
+    setBillingError(null);
+    try {
+      await adminApi.createBillingInvoiceRequest({
+        relatedOrderType: 'package_purchase_order',
+        relatedOrderId: normalizedOrderId,
+        invoiceTitle: normalizedTitle,
+        taxNo: String(taxNo || '').trim() || null,
+        deliveryEmail: String(email || '').trim() || null,
+        invoiceType: 'ordinary',
+      });
+      await refreshBillingOverview();
+    } catch (error) {
+      setBillingError(extractErrorMessage(error) || '发票申请创建失败，请确认订单已付款并填写发票抬头。');
+    } finally {
+      setBillingLoading(false);
+    }
+  };
+
+  const markBillingInvoiceRequestIssued = async (invoiceRequestId: string) => {
+    const normalizedId = String(invoiceRequestId || '').trim();
+    if (!normalizedId) return;
+    setBillingLoading(true);
+    setBillingError(null);
+    try {
+      await adminApi.updateBillingInvoiceRequest(normalizedId, {
+        status: 'issued',
+        invoiceNo: `manual-invoice-${billingMonth}-${normalizedId.slice(-8)}`,
+        note: '管理端手动标记已开票',
+      });
+      await refreshBillingOverview();
+    } catch (error) {
+      setBillingError(extractErrorMessage(error) || '标记开票失败，请检查发票状态。');
+    } finally {
+      setBillingLoading(false);
+    }
+  };
+
+  const issueBillingMonthlySettlement = async (tenantId?: string | null, clientId?: string | null) => {
+    setBillingLoading(true);
+    setBillingError(null);
+    try {
+      await adminApi.issueBillingMonthlySettlement({
+        month: billingMonth,
+        windowDays: billingWindowDays,
+        tenantId: tenantId || null,
+        clientId: clientId || null,
+        businessKey: billingBusinessKey === 'all' ? null : billingBusinessKey,
+        note: '管理端手动生成月结单',
+      });
+      await refreshBillingOverview();
+    } catch (error) {
+      setBillingError(extractErrorMessage(error) || '月结单生成失败，请先处理异常扣费后再试。');
+    } finally {
+      setBillingLoading(false);
+    }
+  };
+
+  const markBillingMonthlySettlementPaid = async (settlementId: string) => {
+    const normalizedId = String(settlementId || '').trim();
+    if (!normalizedId) return;
+    setBillingLoading(true);
+    setBillingError(null);
+    try {
+      await adminApi.updateBillingMonthlySettlement(normalizedId, {
+        status: 'paid',
+        paymentReference: `manual-paid-${billingMonth}`,
+      });
+      await refreshBillingOverview();
+    } catch (error) {
+      setBillingError(extractErrorMessage(error) || '月结单标记付款失败。');
+    } finally {
+      setBillingLoading(false);
+    }
+  };
+
+  const runBillingPackageAlertNotification = async (send: boolean, notificationTemplate?: string) => {
+    setBillingLoading(true);
+    setBillingError(null);
+    try {
+      await adminApi.runBillingPackageAlertNotification({
+        tenantId: billingTenantId || null,
+        clientId: billingClientId || null,
+        businessKey: billingBusinessKey === 'all' ? null : billingBusinessKey,
+        expiringDays: 14,
+        includeLowBalance: true,
+        send,
+        webhookFormat: 'generic',
+        notificationTemplate: notificationTemplate || (send ? 'client_followup' : 'ops_digest'),
+        note: send ? '管理端手动发送套餐预警' : '管理端手动生成套餐预警记录',
+        limit: 500,
+      });
+      await refreshBillingOverview();
+    } catch (error) {
+      setBillingError(extractErrorMessage(error) || (send ? '套餐预警通知发送失败。' : '套餐预警记录生成失败。'));
+    } finally {
+      setBillingLoading(false);
+    }
+  };
+
+  const runBillingMonthlyCollectionNotification = async (send: boolean, notificationTemplate?: string) => {
+    setBillingLoading(true);
+    setBillingError(null);
+    try {
+      await adminApi.runBillingMonthlyCollectionNotification({
+        month: billingMonth,
+        tenantId: billingTenantId || null,
+        clientId: billingClientId || null,
+        businessKey: billingBusinessKey === 'all' ? null : billingBusinessKey,
+        minCollectionLevel: 'remind',
+        send,
+        webhookFormat: 'generic',
+        notificationTemplate: notificationTemplate || (send ? 'finance_collection' : 'ops_digest'),
+        note: send ? '管理端手动发送月结催收通知' : '管理端手动生成月结催收记录',
+        limit: 200,
+      });
+      await refreshBillingOverview();
+    } catch (error) {
+      setBillingError(extractErrorMessage(error) || (send ? '月结催收通知发送失败。' : '月结催收记录生成失败。'));
+    } finally {
+      setBillingLoading(false);
+    }
+  };
+
+  const saveBillingNotificationConfig = async (
+    channels: Array<{
+      key: string;
+      enabled: boolean;
+      webhookUrl?: string | null;
+      webhookFormat?: string | null;
+    }>,
+  ) => {
+    setBillingLoading(true);
+    setBillingError(null);
+    try {
+      const response = await adminApi.updateBillingNotificationConfig({ channels });
+      setBillingNotificationConfig(response);
+    } catch (error) {
+      setBillingError(extractErrorMessage(error) || '通知渠道配置保存失败。');
+    } finally {
+      setBillingLoading(false);
+    }
+  };
+
+  const retryBillingIssue = async (runId: string) => {
+    const normalizedRunId = String(runId || '').trim();
+    if (!normalizedRunId) return;
+    setBillingLoading(true);
+    setBillingError(null);
+    try {
+      await adminApi.retryBusinessRunBilling(normalizedRunId);
+      await refreshBillingOverview();
+    } catch (error) {
+      setBillingError(extractErrorMessage(error) || '扣费重试失败，请先确认余额、定价和任务状态。');
+    } finally {
+      setBillingLoading(false);
+    }
+  };
+
+  const refundBillingIssue = async (runId: string) => {
+    const normalizedRunId = String(runId || '').trim();
+    if (!normalizedRunId) return;
+    setBillingLoading(true);
+    setBillingError(null);
+    try {
+      await adminApi.refundBusinessRunBilling(normalizedRunId);
+      await refreshBillingOverview();
+    } catch (error) {
+      setBillingError(extractErrorMessage(error) || '退回扣费失败，请先确认任务状态和历史扣费记录。');
+    } finally {
+      setBillingLoading(false);
+    }
+  };
+
   const load = async () => {
     setLoading(true);
     setLoadErrors([]);
     try {
+      if (isBusinessReadOnly) {
+        const settled = await Promise.allSettled([
+          adminApi.listBusinessCapabilities(),
+          adminApi.listBusinessRuns(businessRunFilters),
+          adminApi.getBusinessUsageSummary(businessRunFilters),
+        ]);
+        const errors: string[] = [];
+        if (settled[0].status === 'fulfilled') {
+          setBusinessCapabilities(settled[0].value.items || []);
+        } else {
+          errors.push(`业务能力：${settled[0].reason?.message || '请求失败'}`);
+        }
+        if (settled[1].status === 'fulfilled') {
+          setBusinessRuns(settled[1].value.items || []);
+          setBusinessRunTotal(Number(settled[1].value.total || 0));
+        } else {
+          errors.push(`业务运行记录：${settled[1].reason?.message || '请求失败'}`);
+        }
+        if (settled[2].status === 'fulfilled') {
+          setBusinessUsageSummary(settled[2].value);
+        } else {
+          errors.push(`业务统计：${settled[2].reason?.message || '请求失败'}`);
+        }
+        setBusinessOperationLogs([]);
+        setBusinessDefaultApprovals([]);
+        setLoadErrors(errors);
+        return;
+      }
       const settled = await Promise.allSettled([
         adminApi.listExecutors(),
         adminApi.listWorkflows(),
@@ -3896,9 +3879,18 @@ export function IntegrationDashboard({
         adminApi.getDispatchLogs(),
         adminApi.getSystemConfig(),
         adminApi.listBusinessCapabilities(),
-        adminApi.listBusinessClients().catch((error) => ({ __error: error })),
         adminApi.listBusinessRuns(businessRunFilters),
         adminApi.getBusinessUsageSummary(businessRunFilters).catch((error) => ({ __error: error })),
+        isBusinessReadOnly
+          ? Promise.resolve({ items: [] })
+          : adminApi
+              .listBusinessOperationLogs({ businessKey: businessRunFilters.businessKey, limit: 20 })
+              .catch((error) => ({ __error: error })),
+        isBusinessReadOnly
+          ? Promise.resolve({ items: [] })
+          : adminApi
+              .listBusinessDefaultApprovals({ businessKey: businessRunFilters.businessKey, status: 'pending', limit: 20 })
+              .catch((error) => ({ __error: error })),
         adminApi.listAbilities(),
         adminApi.getAbilityHealthSummary({ staleHours: 24, limit: 100 }).catch((error) => ({ __error: error })),
         adminApi.getAbilityLogMetrics({ windowHours: 24 }).catch(() => null),
@@ -3907,6 +3899,10 @@ export function IntegrationDashboard({
         adminApi.listVendorModels().catch((error) => ({ __error: error })),
         adminApi.getVendorUsageSummary(24).catch((error) => ({ __error: error })),
         adminApi.getVendorGovernanceSummary(24).catch((error) => ({ __error: error })),
+        adminApi.listReleasePreflightSnapshots(5).catch((error) => ({ __error: error })),
+        adminApi.listStrategySnapshots(8).catch((error) => ({ __error: error })),
+        adminApi.listReleasePatrolRecords(5).catch((error) => ({ __error: error })),
+        adminApi.listWeeklyReports(5).catch((error) => ({ __error: error })),
       ]);
 
       const errors: string[] = [];
@@ -3918,25 +3914,30 @@ export function IntegrationDashboard({
         return null;
       };
 
-      const execRes = unwrap<Executor[]>(0, '执行节点');
+      const execRes = unwrap<Executor[]>(0, '运行线路');
       const wfRes = unwrap<Workflow[]>(1, '工作流');
-      const bindingRes = unwrap<Binding[]>(2, '绑定策略');
-      const apiKeyRes = unwrap<ApiKey[]>(3, 'API Keys');
+      const bindingRes = unwrap<Binding[]>(2, '路由策略');
+      const apiKeyRes = unwrap<ApiKey[]>(3, '历史密钥');
       const metricsRes = unwrap<DashboardMetrics>(4, '监控指标');
       const logsRes = unwrap<{ entries: DispatchLogEntry[] }>(5, '调度事件');
       const configRes = unwrap<SystemConfig>(6, '系统配置');
       const businessCapabilityRes = unwrap<{ items: BusinessCapability[] }>(7, '业务能力');
-      const businessClientRes = settled[8].status === 'fulfilled' ? (settled[8].value as any) : null;
-      const businessRunRes = unwrap<{ total: number; items: BusinessRun[] }>(9, '业务运行记录');
-      const businessUsageRes = settled[10].status === 'fulfilled' ? (settled[10].value as any) : null;
-      const abilityRes = unwrap<Ability[]>(11, '能力目录');
-      const abilityHealthRes = settled[12].status === 'fulfilled' ? (settled[12].value as any) : null;
-      const abilityLogMetricsRes = settled[13].status === 'fulfilled' ? (settled[13].value as any) : null;
-      const vendorProviderRes = settled[14].status === 'fulfilled' ? (settled[14].value as any) : null;
-      const vendorKeyRes = settled[15].status === 'fulfilled' ? (settled[15].value as any) : null;
-      const vendorModelRes = settled[16].status === 'fulfilled' ? (settled[16].value as any) : null;
-      const vendorUsageRes = settled[17].status === 'fulfilled' ? (settled[17].value as any) : null;
-      const vendorGovernanceRes = settled[18].status === 'fulfilled' ? (settled[18].value as any) : null;
+      const businessRunRes = unwrap<{ total: number; items: BusinessRun[] }>(8, '业务运行记录');
+      const businessUsageRes = settled[9].status === 'fulfilled' ? (settled[9].value as any) : null;
+      const businessOperationLogRes = settled[10].status === 'fulfilled' ? (settled[10].value as any) : null;
+      const businessDefaultApprovalRes = settled[11].status === 'fulfilled' ? (settled[11].value as any) : null;
+      const abilityRes = unwrap<Ability[]>(12, '能力目录');
+      const abilityHealthRes = settled[13].status === 'fulfilled' ? (settled[13].value as any) : null;
+      const abilityLogMetricsRes = settled[14].status === 'fulfilled' ? (settled[14].value as any) : null;
+      const vendorProviderRes = settled[15].status === 'fulfilled' ? (settled[15].value as any) : null;
+      const vendorKeyRes = settled[16].status === 'fulfilled' ? (settled[16].value as any) : null;
+      const vendorModelRes = settled[17].status === 'fulfilled' ? (settled[17].value as any) : null;
+      const vendorUsageRes = settled[18].status === 'fulfilled' ? (settled[18].value as any) : null;
+      const vendorGovernanceRes = settled[19].status === 'fulfilled' ? (settled[19].value as any) : null;
+      const releasePreflightRes = settled[20].status === 'fulfilled' ? (settled[20].value as any) : null;
+      const strategySnapshotRes = settled[21].status === 'fulfilled' ? (settled[21].value as any) : null;
+      const releasePatrolRes = settled[22].status === 'fulfilled' ? (settled[22].value as any) : null;
+      const weeklyReportRes = settled[23].status === 'fulfilled' ? (settled[23].value as any) : null;
 
       if (execRes) setExecutors(execRes);
       if (wfRes) setWorkflows(wfRes);
@@ -3946,16 +3947,18 @@ export function IntegrationDashboard({
       if (logsRes) setDispatchLogs(logsRes.entries);
       if (configRes) setSystemConfig(configRes);
       if (businessCapabilityRes) setBusinessCapabilities(businessCapabilityRes.items || []);
-      if (businessClientRes && !businessClientRes.__error) setBusinessClients(businessClientRes.items || []);
-      if (businessClientRes?.__error) {
-        errors.push(`接入方策略：${businessClientRes.__error?.message || '请求失败'}`);
-      }
       if (businessRunRes) {
         setBusinessRuns(businessRunRes.items || []);
         setBusinessRunTotal(Number(businessRunRes.total || 0));
       }
       if (businessUsageRes && !businessUsageRes.__error) {
         setBusinessUsageSummary(businessUsageRes as BusinessUsageSummaryResponse);
+      }
+      if (businessOperationLogRes && !businessOperationLogRes.__error) {
+        setBusinessOperationLogs(businessOperationLogRes.items || []);
+      }
+      if (businessDefaultApprovalRes && !businessDefaultApprovalRes.__error) {
+        setBusinessDefaultApprovals(businessDefaultApprovalRes.items || []);
       }
       if (abilityRes) {
         const normalized = abilityRes.map((ability) => {
@@ -3999,6 +4002,32 @@ export function IntegrationDashboard({
         setVendorGovernanceSummary(vendorGovernanceRes);
         setVendorBaseUrl((prev) => prev || vendorGovernanceRes.baseUrl || vendorGovernanceRes.base_url || '');
       }
+      if (releasePreflightRes && !releasePreflightRes.__error) {
+        const items = releasePreflightRes.items || [];
+        setReleasePreflightSnapshots(items);
+        setReleasePreflightLatest(items[0] || null);
+        setReleasePreflightError(null);
+      } else if (releasePreflightRes?.__error) {
+        setReleasePreflightError(releasePreflightRes.__error?.message || '发布前门禁记录加载失败');
+      }
+      if (strategySnapshotRes && !strategySnapshotRes.__error) {
+        setStrategySnapshots(strategySnapshotRes.items || []);
+        setStrategySnapshotError(null);
+      } else if (strategySnapshotRes?.__error) {
+        setStrategySnapshotError(strategySnapshotRes.__error?.message || '战略指标快照加载失败');
+      }
+      if (releasePatrolRes && !releasePatrolRes.__error) {
+        setReleasePatrolRecords(releasePatrolRes.items || []);
+        setReleasePatrolError(null);
+      } else if (releasePatrolRes?.__error) {
+        setReleasePatrolError(releasePatrolRes.__error?.message || '完整巡检记录加载失败');
+      }
+      if (weeklyReportRes && !weeklyReportRes.__error) {
+        setWeeklyReports(weeklyReportRes.items || []);
+        setWeeklyReportError(null);
+      } else if (weeklyReportRes?.__error) {
+        setWeeklyReportError(weeklyReportRes.__error?.message || '周报记录加载失败');
+      }
 
       if (abilityRes) {
         if (abilityRes.length > 0) {
@@ -4013,6 +4042,140 @@ export function IntegrationDashboard({
       if (errors.length > 0) setLoadErrors(errors);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const refreshReleasePreflightSnapshots = async () => {
+    setReleasePreflightLoading(true);
+    try {
+      const response = await adminApi.listReleasePreflightSnapshots(5);
+      const items = response.items || [];
+      setReleasePreflightSnapshots(items);
+      setReleasePreflightLatest(items[0] || null);
+      setReleasePreflightError(null);
+    } catch (error) {
+      setReleasePreflightError(error instanceof Error ? error.message : '发布前门禁记录加载失败');
+    } finally {
+      setReleasePreflightLoading(false);
+    }
+  };
+
+  const refreshStrategySnapshots = async () => {
+    setStrategySnapshotLoading(true);
+    try {
+      const response = await adminApi.listStrategySnapshots(8);
+      setStrategySnapshots(response.items || []);
+      setStrategySnapshotError(null);
+    } catch (error) {
+      setStrategySnapshotError(error instanceof Error ? error.message : '战略指标快照加载失败');
+    } finally {
+      setStrategySnapshotLoading(false);
+    }
+  };
+
+  const createStrategySnapshot = async () => {
+    setStrategySnapshotLoading(true);
+    try {
+      const response = await adminApi.createStrategySnapshot({ windowHours: 168, note: 'weekly' });
+      setStrategySnapshots((prev) => [response, ...prev.filter((item) => item.id !== response.id)].slice(0, 8));
+      setStrategySnapshotError(null);
+    } catch (error) {
+      setStrategySnapshotError(error instanceof Error ? error.message : '战略指标快照保存失败');
+    } finally {
+      setStrategySnapshotLoading(false);
+    }
+  };
+
+  const refreshWeeklyReports = async () => {
+    setWeeklyReportLoading(true);
+    try {
+      const response = await adminApi.listWeeklyReports(5);
+      setWeeklyReports(response.items || []);
+      setWeeklyReportError(null);
+    } catch (error) {
+      setWeeklyReportError(error instanceof Error ? error.message : '周报记录加载失败');
+    } finally {
+      setWeeklyReportLoading(false);
+    }
+  };
+
+  const runWeeklyReport = async (send: boolean) => {
+    setWeeklyReportLoading(true);
+    try {
+      const response = await adminApi.runWeeklyReport({ windowHours: 168, note: 'weekly-report', send, webhookFormat: 'generic' });
+      setWeeklyReports((prev) => [response, ...prev.filter((item) => item.id !== response.id)].slice(0, 5));
+      setWeeklyReportError(null);
+    } catch (error) {
+      setWeeklyReportError(error instanceof Error ? error.message : '周报生成失败');
+    } finally {
+      setWeeklyReportLoading(false);
+    }
+  };
+
+  const runReleasePreflight = async () => {
+    setReleasePreflightLoading(true);
+    try {
+      const response = await adminApi.runReleasePreflight({ mode: 'light' });
+      setReleasePreflightLatest(response);
+      setReleasePreflightSnapshots((prev) => [response, ...prev.filter((item) => item.id !== response.id)].slice(0, 5));
+      setReleasePreflightError(null);
+    } catch (error) {
+      setReleasePreflightError(error instanceof Error ? error.message : '发布前门禁运行失败');
+    } finally {
+      setReleasePreflightLoading(false);
+    }
+  };
+
+  const refreshReleasePatrolRecords = async () => {
+    setReleasePatrolLoading(true);
+    try {
+      const response = await adminApi.listReleasePatrolRecords(5);
+      setReleasePatrolRecords(response.items || []);
+      setReleasePatrolError(null);
+    } catch (error) {
+      setReleasePatrolError(error instanceof Error ? error.message : '完整巡检记录加载失败');
+    } finally {
+      setReleasePatrolLoading(false);
+    }
+  };
+
+  const createReleasePatrolRecord = async (status: 'passed' | 'failed') => {
+    const command =
+      'python3 backend/scripts/patrol_eval_workflows.py --base-url http://127.0.0.1:8099 --timeout 1800 --report reports/eval_patrol_$(date +%Y%m%d_%H%M%S).json';
+    setReleasePatrolLoading(true);
+    try {
+      const response = await adminApi.createReleasePatrolRecord({
+        status,
+        command,
+        reportPath: 'reports/eval_patrol_*.json',
+        note: status === 'passed' ? '人工确认完整巡检通过' : '人工确认完整巡检失败，需查看报告处理',
+      });
+      setReleasePatrolRecords((prev) => [response, ...prev.filter((item) => item.id !== response.id)].slice(0, 5));
+      setReleasePatrolError(null);
+    } catch (error) {
+      setReleasePatrolError(error instanceof Error ? error.message : '完整巡检记录保存失败');
+    } finally {
+      setReleasePatrolLoading(false);
+    }
+  };
+
+  const importReleasePatrolReport = async (reportPath: string) => {
+    const normalizedPath = String(reportPath || '').trim();
+    if (!normalizedPath) {
+      setReleasePatrolError('请先填写巡检报告路径。');
+      return;
+    }
+    const command =
+      'python3 backend/scripts/patrol_eval_workflows.py --base-url http://127.0.0.1:8099 --timeout 1800 --report reports/eval_patrol_$(date +%Y%m%d_%H%M%S).json';
+    setReleasePatrolLoading(true);
+    try {
+      const response = await adminApi.importReleasePatrolReport({ reportPath: normalizedPath, command });
+      setReleasePatrolRecords((prev) => [response, ...prev.filter((item) => item.id !== response.id)].slice(0, 5));
+      setReleasePatrolError(null);
+    } catch (error) {
+      setReleasePatrolError(error instanceof Error ? error.message : '巡检报告导入失败，请确认路径在后端工作目录内且 JSON 格式正确');
+    } finally {
+      setReleasePatrolLoading(false);
     }
   };
 
@@ -4032,10 +4195,43 @@ export function IntegrationDashboard({
     downloadBlob(new Blob([payload], { type: 'application/json' }), filename);
   };
 
+  const exportGlobalAbilityLogs = async (format: 'csv' | 'json') => {
+    setExportingAbilityLogs(true);
+    try {
+      const blob = await adminApi.exportAbilityLogs({
+        format,
+        sinceHours: 24,
+        provider: globalAbilityLogProvider !== 'all' ? globalAbilityLogProvider : undefined,
+        capabilityKey: globalAbilityLogCapabilityKey !== 'all' ? globalAbilityLogCapabilityKey : undefined,
+        status: globalAbilityLogStatus !== 'all' ? globalAbilityLogStatus : undefined,
+        source: globalAbilityLogSource !== 'all' ? globalAbilityLogSource : undefined,
+        templatePublished:
+          globalAbilityLogTemplatePublished === 'all'
+            ? undefined
+            : globalAbilityLogTemplatePublished === 'published',
+      });
+      const filename = `ability_logs_24h_${new Date().toISOString().slice(0, 10)}.${format}`;
+      downloadBlob(blob, filename);
+    } catch (err: any) {
+      console.error('Export ability logs failed:', err);
+      setGlobalAbilityLogsError(err?.message || '导出失败');
+    } finally {
+      setExportingAbilityLogs(false);
+    }
+  };
+
   useEffect(() => {
     if (activeNav !== 'auth') return;
+    if (isBusinessReadOnly) return;
     void refreshAuthPanel();
-  }, [activeNav]);
+  }, [activeNav, isBusinessReadOnly]);
+
+  useEffect(() => {
+    if (activeNav !== 'billing') return;
+    if (isBusinessReadOnly) return;
+    if (billingOverview || billingLoading) return;
+    void refreshBillingOverview();
+  }, [activeNav, billingOverview, billingLoading, isBusinessReadOnly]);
 
   const refreshAbilityLogMetrics = async () => {
     setAbilityLogMetricsLoading(true);
@@ -5579,6 +5775,11 @@ export function IntegrationDashboard({
   );
 
   useEffect(() => {
+    if (activeNav !== 'comfyui-management' || comfyuiManageTab !== 'tasks') return;
+    refreshComfyQueueSummary({ silent: true });
+  }, [activeNav, comfyuiManageTab, refreshComfyQueueSummary]);
+
+  useEffect(() => {
     if (selectedAbility?.provider !== 'comfyui' || !activeComfyExecutorId) {
       setComfyQueueStatus(null);
       setComfyQueueError(null);
@@ -6197,92 +6398,6 @@ export function IntegrationDashboard({
     setBusinessActionError(null);
   };
 
-  const resetBusinessClientForm = () => {
-    setBusinessClientForm(defaultBusinessClientForm);
-    setBusinessClientFormError(null);
-    setBusinessActionError(null);
-  };
-
-  const refreshBusinessClients = async () => {
-    const res = await adminApi.listBusinessClients();
-    setBusinessClients(res.items || []);
-  };
-
-  const handleBusinessClientEdit = (item: BusinessClient) => {
-    setBusinessClientForm({
-      id: item.id,
-      tenantId: item.tenantId || '',
-      clientId: item.clientId || '',
-      displayName: item.displayName || '',
-      status: item.status || 'active',
-      allowedBusinessKeysText: (item.allowedBusinessKeys || []).join('\n'),
-      dailyRunLimit: item.dailyRunLimit ?? null,
-      dailyQuotaUnits: item.dailyQuotaUnits ?? null,
-      concurrentRunLimit: item.concurrentRunLimit ?? null,
-      metadataText: formatJsonValue(item.metadata || {}),
-    });
-    setBusinessClientFormError(null);
-    setBusinessActionError(null);
-    setBusinessClientDialogOpen(true);
-  };
-
-  const handleBusinessClientToggle = async (item: BusinessClient) => {
-    setBusinessActionError(null);
-    const nextStatus = item.status === 'active' ? 'disabled' : 'active';
-    setBusinessClientLoadingId(`status:${item.id}`);
-    try {
-      await adminApi.updateBusinessClient(item.id, { status: nextStatus });
-      await refreshBusinessClients();
-    } catch (error: any) {
-      console.error('toggle business client failed', error);
-      setBusinessActionError(error?.message || '更新接入方策略失败，请检查服务日志。');
-    } finally {
-      setBusinessClientLoadingId(null);
-    }
-  };
-
-  const handleBusinessClientSubmit = async () => {
-    const tenantId = businessClientForm.tenantId.trim();
-    const displayName = businessClientForm.displayName.trim();
-    if (!tenantId || !displayName) {
-      setBusinessClientFormError('请填写业务方标识和显示名称。');
-      return;
-    }
-    const metadata = safeParseJSON(businessClientForm.metadataText);
-    if (!metadata.ok) {
-      setBusinessClientFormError('元信息必须是合法 JSON。');
-      return;
-    }
-    const payload: Partial<BusinessClient> = {
-      tenantId,
-      clientId: businessClientForm.clientId.trim() || null,
-      displayName,
-      status: businessClientForm.status || 'active',
-      allowedBusinessKeys: splitLinesOrComma(businessClientForm.allowedBusinessKeysText),
-      dailyRunLimit: businessClientForm.dailyRunLimit ? Number(businessClientForm.dailyRunLimit) : null,
-      dailyQuotaUnits: businessClientForm.dailyQuotaUnits ? Number(businessClientForm.dailyQuotaUnits) : null,
-      concurrentRunLimit: businessClientForm.concurrentRunLimit ? Number(businessClientForm.concurrentRunLimit) : null,
-      metadata: metadata.value,
-    };
-    setBusinessClientFormError(null);
-    setBusinessClientLoadingId(businessClientForm.id ? `save:${businessClientForm.id}` : 'create');
-    try {
-      if (businessClientForm.id) {
-        await adminApi.updateBusinessClient(businessClientForm.id, payload);
-      } else {
-        await adminApi.createBusinessClient(payload);
-      }
-      resetBusinessClientForm();
-      setBusinessClientDialogOpen(false);
-      await refreshBusinessClients();
-    } catch (error: any) {
-      console.error('save business client failed', error);
-      setBusinessClientFormError(error?.message || '保存接入方策略失败，请检查配置是否重复。');
-    } finally {
-      setBusinessClientLoadingId(null);
-    }
-  };
-
   const handleBusinessEdit = (item: BusinessCapability) => {
     const rollout = readBusinessRollout(item.metadata);
     const vlAssist = readBusinessVlAssist(item.recipe);
@@ -6300,8 +6415,6 @@ export function IntegrationDashboard({
         (item.recipe && typeof item.recipe.primaryAbilityId === 'string' ? String(item.recipe.primaryAbilityId) : ''),
       vlAssistEnabled: vlAssist.enabled,
       vlAssistAbilityId: vlAssist.abilityId,
-      vlAssistWaitForResult: vlAssist.waitForResult,
-      vlAssistApplyToPrimary: vlAssist.applyToPrimary,
       rolloutEnabled: rollout.enabled,
       rolloutPercent: rollout.percent,
       rolloutAllowlistText: rollout.allowlistText,
@@ -6319,59 +6432,32 @@ export function IntegrationDashboard({
     setBusinessActionError(null);
     setBusinessActionLoadingId(`default:${item.id}`);
     try {
-      await adminApi.promoteBusinessCapability(item.id, {
-        activate: true,
-        note: '管理端切换默认版本',
+      await adminApi.createBusinessDefaultApproval(item.id, {
+        note: `申请切换 ${businessKeyLabel(item.businessKey)} 默认版本到 ${item.version}`,
       });
       await load();
     } catch (error: any) {
-      console.error('set default business capability failed', error);
-      setBusinessActionError(error?.message || '切换默认版本失败，请检查服务日志。');
+      console.error('create default approval failed', error);
+      setBusinessActionError(error?.message || '默认版本切换申请失败，请检查服务日志。');
     } finally {
       setBusinessActionLoadingId(null);
     }
   };
 
-  const handleBusinessPreviewRoute = async (item: BusinessCapability) => {
+  const handleBusinessDefaultApprovalDecision = async (item: BusinessDefaultApproval, decision: 'approve' | 'reject') => {
     setBusinessActionError(null);
-    setBusinessRoutePreview(null);
-    setBusinessActionLoadingId(`preview:${item.id}`);
+    const actionId = `${decision}:approval:${item.id}`;
+    setBusinessActionLoadingId(actionId);
     try {
-      const routeKey = businessRoutePreviewKey.trim();
-      const payload: JsonRecord = {
-        imageUrl: 'https://example.com/route-preview.png',
-      };
-      if (routeKey) {
-        payload.tenantId = routeKey;
-        payload.metadata = { grayKey: routeKey };
+      if (decision === 'approve') {
+        await adminApi.approveBusinessDefaultApproval(item.id, { note: '管理端审批通过' });
+      } else {
+        await adminApi.rejectBusinessDefaultApproval(item.id, { note: '管理端驳回' });
       }
-      const preview = await adminApi.previewBusinessRoute(item.businessKey, payload);
-      setBusinessRoutePreview(preview);
-    } catch (error: any) {
-      console.error('preview business route failed', error);
-      setBusinessActionError(error?.message || '灰度预览失败，请检查版本状态或服务日志。');
-    } finally {
-      setBusinessActionLoadingId(null);
-    }
-  };
-
-  const handleBusinessRollbackDefault = async (item: BusinessCapability) => {
-    setBusinessActionError(null);
-    if (!item.isDefault) {
-      setBusinessActionError('只有当前默认版本可以执行回滚。');
-      return;
-    }
-    if (!window.confirm(`确认将 ${businessKeyLabel(item.businessKey)} 从 ${item.version} 回滚到上一默认版本？`)) return;
-    setBusinessActionLoadingId(`rollback:${item.businessKey}`);
-    try {
-      await adminApi.rollbackBusinessCapability(item.businessKey, {
-        activate: true,
-        note: `管理端从 ${item.version} 回滚上一默认版本`,
-      });
       await load();
     } catch (error: any) {
-      console.error('rollback business capability failed', error);
-      setBusinessActionError(error?.message || '回滚默认版本失败，可能没有可回滚的上一版本。');
+      console.error('default approval decision failed', error);
+      setBusinessActionError(error?.message || '默认版本审批处理失败，请检查服务日志。');
     } finally {
       setBusinessActionLoadingId(null);
     }
@@ -6399,14 +6485,108 @@ export function IntegrationDashboard({
     }
   };
 
+  const handleBusinessCompare = async () => {
+    const leftId = effectiveBusinessCompareLeftId;
+    const rightId = effectiveBusinessCompareRightId;
+    setBusinessActionError(null);
+    setBusinessCompareResult(null);
+    if (!leftId || !rightId) {
+      setBusinessActionError('请选择要对比的两个业务版本。');
+      return;
+    }
+    setBusinessActionLoadingId('compare:business');
+    try {
+      const result = await adminApi.compareBusinessCapabilities(leftId, rightId);
+      setBusinessCompareResult(result);
+    } catch (error: any) {
+      console.error('compare business capability failed', error);
+      setBusinessActionError(error?.message || '版本对比失败，请检查服务日志。');
+    } finally {
+      setBusinessActionLoadingId(null);
+    }
+  };
+
+  const handleBusinessRollback = async () => {
+    const source = selectedBusinessCompareLeft;
+    const target = selectedBusinessCompareRight;
+    setBusinessActionError(null);
+    if (!source || !target) {
+      setBusinessActionError('请选择当前版本和要回到的目标版本。');
+      return;
+    }
+    if (source.businessKey !== target.businessKey) {
+      setBusinessActionError('只能在同一个业务下回滚版本。');
+      return;
+    }
+    if (target.status !== 'active') {
+      setBusinessActionError('目标版本不是启用状态，不能设为默认。');
+      return;
+    }
+    if (!window.confirm(`确认把 ${businessKeyLabel(target.businessKey)} 默认版本回到 ${target.version}？当前版本不会自动停用。`)) {
+      return;
+    }
+    setBusinessActionLoadingId('rollback:business');
+    try {
+      await adminApi.rollbackBusinessCapability(source.id, {
+        targetCapabilityId: target.id,
+        note: `管理端回滚：${source.version} -> ${target.version}`,
+      });
+      setBusinessCompareResult(null);
+      await load();
+    } catch (error: any) {
+      console.error('rollback business capability failed', error);
+      setBusinessActionError(error?.message || '业务版本回滚失败，请检查服务日志。');
+    } finally {
+      setBusinessActionLoadingId(null);
+    }
+  };
+
   const refreshBusinessRuns = async () => {
-    const [res, summary] = await Promise.all([
+    const [res, summary, operationLogs, approvals] = await Promise.all([
       adminApi.listBusinessRuns(businessRunFilters),
       adminApi.getBusinessUsageSummary(businessRunFilters),
+      isBusinessReadOnly
+        ? Promise.resolve({ items: [] })
+        : adminApi.listBusinessOperationLogs({ businessKey: businessRunFilters.businessKey, limit: 20 }),
+      isBusinessReadOnly
+        ? Promise.resolve({ items: [] })
+        : adminApi.listBusinessDefaultApprovals({ businessKey: businessRunFilters.businessKey, status: 'pending', limit: 20 }),
     ]);
     setBusinessRuns(res.items || []);
     setBusinessRunTotal(Number(res.total || 0));
     setBusinessUsageSummary(summary);
+    setBusinessOperationLogs(operationLogs.items || []);
+    setBusinessDefaultApprovals(approvals.items || []);
+  };
+
+  const exportBusinessRuns = async () => {
+    setBusinessActionError(null);
+    setBusinessActionLoadingId('export:runs');
+    try {
+      const blob = await adminApi.exportBusinessRuns({ ...businessRunFilters, limit: 1000 });
+      downloadBlob(blob, `business-runs-${Date.now()}.csv`);
+    } catch (error: any) {
+      console.error('export business runs failed', error);
+      setBusinessActionError(error?.message || '导出业务调用记录失败，请检查筛选条件或服务日志。');
+    } finally {
+      setBusinessActionLoadingId(null);
+    }
+  };
+
+  const handleBusinessCallbackRetry = async (row: BusinessRun) => {
+    setBusinessActionError(null);
+    setBusinessActionLoadingId(`callback:${row.id}`);
+    try {
+      const next = await adminApi.retryBusinessRunCallback(row.runId || row.id);
+      setBusinessRuns((prev) => prev.map((item) => (item.id === row.id ? next : item)));
+      setBusinessRunDetail((prev) => (prev && prev.id === row.id ? next : prev));
+      await refreshBusinessRuns();
+    } catch (error: any) {
+      console.error('retry business callback failed', error);
+      setBusinessActionError(error?.message || '回调重试失败，请检查回调地址或服务日志。');
+    } finally {
+      setBusinessActionLoadingId(null);
+    }
   };
 
   const handleAuthInviteSubmit = async () => {
@@ -6426,6 +6606,53 @@ export function IntegrationDashboard({
       await refreshAuthPanel();
     } catch (error) {
       setAuthError(extractErrorMessage(error) || '邀请码生成失败');
+    }
+  };
+
+  const handleAuthUserEditSelect = (user: AuthUser) => {
+    setAuthUserForm({
+      userId: user.id,
+      displayName: user.displayName || '',
+      role: user.role || 'user',
+      status: user.status || 'active',
+      tenantId: user.tenantId || '',
+      clientId: user.clientId || '',
+      note: '',
+    });
+  };
+
+  const handleAuthUserSubmit = async () => {
+    const userId = authUserForm.userId?.trim();
+    if (!userId) {
+      setAuthError('请先选择要调整的账号。');
+      return;
+    }
+    setAuthError(null);
+    setAuthLoading(true);
+    try {
+      const payload: AuthUserUpdatePayload = {
+        displayName: authUserForm.displayName?.trim() || null,
+        role: authUserForm.role || 'user',
+        status: authUserForm.status || 'active',
+        tenantId: authUserForm.tenantId?.trim() || null,
+        clientId: authUserForm.clientId?.trim() || null,
+        note: authUserForm.note?.trim() || undefined,
+      };
+      const updated = await adminApi.updateAuthUser(userId, payload);
+      setAuthUserForm({
+        userId: updated.id,
+        displayName: updated.displayName || '',
+        role: updated.role || 'user',
+        status: updated.status || 'active',
+        tenantId: updated.tenantId || '',
+        clientId: updated.clientId || '',
+        note: '',
+      });
+      await refreshAuthPanel();
+    } catch (error) {
+      setAuthError(extractErrorMessage(error) || '账号调整失败');
+    } finally {
+      setAuthLoading(false);
     }
   };
 
@@ -6460,7 +6687,7 @@ export function IntegrationDashboard({
 
   const handleBusinessSubmit = async () => {
     if (!businessForm.businessKey || !businessForm.version || !businessForm.displayName || !businessForm.primaryAbilityId) {
-      setBusinessFormError('请填写业务标识、版本、名称，并选择底层能力。');
+      setBusinessFormError('请填写业务标识、版本、名称，并选择主执行能力。');
       return;
     }
     const recipe = safeParseJSON(businessForm.recipeText);
@@ -6468,7 +6695,7 @@ export function IntegrationDashboard({
     const outputSchema = safeParseJSON(businessForm.outputSchemaText);
     const metadata = safeParseJSON(businessForm.metadataText);
     if (!recipe.ok || !inputSchema.ok || !outputSchema.ok || !metadata.ok) {
-      setBusinessFormError('配方、输入字段、输出字段、元信息必须是合法 JSON。');
+      setBusinessFormError('配方、输入字段、输出字段、元信息格式不正确。');
       return;
     }
     const nextRecipe: JsonRecord = { ...recipe.value };
@@ -6476,19 +6703,9 @@ export function IntegrationDashboard({
       nextRecipe.vlAssist = {
         enabled: true,
         abilityId: businessForm.vlAssistAbilityId || 'vl_analyze_image',
-        waitForResult: Boolean(businessForm.vlAssistWaitForResult),
-        applyToPrimary: Boolean(businessForm.vlAssistApplyToPrimary),
       };
-      if (businessForm.vlAssistWaitForResult) {
-        nextRecipe.mode = 'vl_then_primary';
-      } else if (nextRecipe.mode === 'vl_then_primary') {
-        nextRecipe.mode = 'pipeline';
-      }
     } else {
       delete nextRecipe.vlAssist;
-      if (nextRecipe.mode === 'vl_then_primary') {
-        nextRecipe.mode = 'pipeline';
-      }
     }
     const nextMetadata: JsonRecord = { ...metadata.value };
     const rolloutAllowlist = splitLinesOrComma(businessForm.rolloutAllowlistText);
@@ -6624,6 +6841,7 @@ export function IntegrationDashboard({
     setUploadingImage(true);
     setUploadError(null);
     try {
+      const { uploadAbilityTestFile } = await import('../utils/ossUploader');
       const uploadResult = await uploadAbilityTestFile(file, {
         action: selectedAbility?.capability_key || 'ability-test',
         channel: 'admin-console',
@@ -6827,6 +7045,63 @@ export function IntegrationDashboard({
           raw: response.raw ?? null,
         });
         return;
+        }
+        if (apiType === 'video_generation') {
+          const knownKeys = [
+            'prompt',
+            'model',
+            'image_url',
+            'duration',
+            'ratio',
+            'resolution',
+            'watermark',
+            'generate_audio',
+            'camera_fixed',
+          ];
+          const schemaSplit = splitByKeys(schemaPayload, knownKeys);
+          const baseSplit = splitByKeys(mergedBaseParams, knownKeys);
+          const promptValue = (schemaSplit.picked.prompt || baseSplit.picked.prompt) as string | undefined;
+          if (!promptValue) {
+            alert('请填写提示词');
+            return;
+          }
+          const modelValue = (schemaSplit.picked.model ||
+            baseSplit.picked.model ||
+            (typeof metadata.model_id === 'string' ? metadata.model_id : undefined)) as string | undefined;
+          if (!modelValue) {
+            alert('请在能力配置中设置默认模型或在表单中填写 model');
+            return;
+          }
+          const imageUrlValue = ((schemaSplit.picked.image_url || baseSplit.picked.image_url) as string | undefined) || resolvedImageUrl;
+          const extraParams = cleanParams({
+            ...baseSplit.rest,
+            ...schemaSplit.rest,
+            duration: schemaSplit.picked.duration || baseSplit.picked.duration,
+            ratio: schemaSplit.picked.ratio || baseSplit.picked.ratio,
+            resolution: schemaSplit.picked.resolution || baseSplit.picked.resolution,
+            watermark: schemaSplit.picked.watermark ?? baseSplit.picked.watermark,
+            generate_audio: schemaSplit.picked.generate_audio ?? baseSplit.picked.generate_audio,
+            camera_fixed: schemaSplit.picked.camera_fixed ?? baseSplit.picked.camera_fixed,
+          });
+          const response = await adminApi.testVolcengineVideo({
+            ...abilityContextPayload,
+            executorId: testForm.executorId,
+            model: modelValue,
+            prompt: promptValue,
+            imageUrl: imageUrlValue,
+            params: Object.keys(extraParams).length > 0 ? extraParams : undefined,
+          });
+          setTestResult({
+            provider: response.provider,
+            model: response.model,
+            logId: response.logId ?? undefined,
+            taskId: response.taskId,
+            state: response.state,
+            resultUrls: response.resultUrls || [],
+            assets: response.assets || undefined,
+            raw: response.raw ?? null,
+          });
+          return;
         }
       }
       if (selectedAbility.provider === 'comfyui') {
@@ -7078,11 +7353,6 @@ const stringifyJSON = (value?: string | JsonRecord) => {
   if (typeof value === 'string') return value;
   return JSON.stringify(value, null, 2);
 };
-const formatRawResponse = (record?: JsonRecord | null, max = 2000) => {
-  if (!record) return '';
-  const raw = stringifyJSON(record);
-  return raw.length > max ? `${raw.slice(0, max)}…` : raw;
-};
 const extractErrorMessage = (error: unknown): string => {
   if (!error) return '';
   if (error instanceof Error && error.message) return error.message;
@@ -7111,11 +7381,11 @@ const extractErrorMessage = (error: unknown): string => {
       return;
     }
     if (executorConfigJsonInvalid) {
-      setExecutorFormError(`配置 JSON 无法解析：${executorConfigJsonInvalid}`);
+      setExecutorFormError(`配置内容无法解析：${executorConfigJsonInvalid}`);
       return;
     }
     if (baseUrl && !(baseUrl.startsWith('http://') || baseUrl.startsWith('https://'))) {
-      setExecutorFormError('Base URL 需以 http:// 或 https:// 开头');
+      setExecutorFormError('服务地址需以 http:// 或 https:// 开头');
       return;
     }
 
@@ -7517,42 +7787,11 @@ const extractErrorMessage = (error: unknown): string => {
 
   const handleVendorEgressCheck = async (provider: string, includeAuth = false) => {
     setVendorError('');
-    setVendorNotice('');
     try {
-      const providerConfig = vendorProviders.find((item) => item.provider === provider);
-      const check = providerConfig?.supportedChecks?.[0] || 'models';
-      const result = await adminApi.checkVendorProviderEgress(provider, { check, includeAuth });
+      const result = await adminApi.checkVendorProviderEgress(provider, { check: 'models', includeAuth });
       setVendorEgressChecks((prev) => ({ ...prev, [provider]: result }));
-      if (result.success) {
-        setVendorNotice(includeAuth ? `${provider} Key 验证通过。` : `${provider} 出网检查通过。`);
-      } else {
-        setVendorError(result.message || result.errorCode || (includeAuth ? 'Key 验证失败' : '出网检查失败'));
-      }
     } catch (error) {
-      setVendorError(extractErrorMessage(error) || (includeAuth ? 'Key 验证失败' : '出网检查失败'));
-    }
-  };
-
-  const handleVendorKeyCheck = async (key: VendorKey) => {
-    setVendorError('');
-    setVendorNotice('');
-    setVendorKeyCheckingId(key.id);
-    try {
-      const providerConfig = vendorProviders.find((item) => item.provider === key.provider);
-      const check = providerConfig?.supportedChecks?.[0] || 'models';
-      const result = await adminApi.checkVendorKey(key.id, { check, includeAuth: true });
-      setVendorEgressChecks((prev) => ({ ...prev, [key.provider]: result }));
-      const keys = await adminApi.listVendorKeys();
-      setVendorKeys(keys.items || []);
-      if (result.success) {
-        setVendorNotice(`${key.alias} 验证通过。`);
-      } else {
-        setVendorError(`${key.alias} 验证失败：${result.message || result.errorCode || '请检查 Key、额度和厂商账号状态'}`);
-      }
-    } catch (error) {
-      setVendorError(extractErrorMessage(error) || `${key.alias} 验证失败`);
-    } finally {
-      setVendorKeyCheckingId(null);
+      setVendorError(extractErrorMessage(error) || '出网检查失败');
     }
   };
 
@@ -7577,7 +7816,7 @@ const extractErrorMessage = (error: unknown): string => {
 
   const handleVendorModelSubmit = async () => {
     if (!vendorModelForm.provider || !vendorModelForm.model || !vendorModelForm.displayName) {
-      setVendorModelFormError('请填写 Provider、模型 ID 和显示名称');
+      setVendorModelFormError('请填写厂商标识、模型编号和显示名称');
       return;
     }
     const jsonFields = [
@@ -7587,11 +7826,18 @@ const extractErrorMessage = (error: unknown): string => {
       ['inputSchema', vendorModelForm.inputSchemaText],
       ['costPolicy', vendorModelForm.costPolicyText],
     ] as const;
+    const jsonFieldLabels: Record<(typeof jsonFields)[number][0], string> = {
+      metadata: '元信息',
+      routePolicy: '路由策略',
+      defaultTaskPolicy: '默认任务策略',
+      inputSchema: '入参结构',
+      costPolicy: '计价策略',
+    };
     const parsedJson: Record<string, JsonRecord> = {};
     for (const [key, raw] of jsonFields) {
       const parsed = safeParseJSON(raw);
       if (!parsed.ok) {
-        setVendorModelFormError(`${key} 不是合法 JSON`);
+        setVendorModelFormError(`${jsonFieldLabels[key]}格式不正确`);
         return;
       }
       parsedJson[key] = parsed.value;
@@ -7636,27 +7882,24 @@ const extractErrorMessage = (error: unknown): string => {
     try {
       if (vendorKeyForm.id) {
         await adminApi.updateVendorKey(vendorKeyForm.id, {
+          alias: vendorKeyForm.alias,
+          key: vendorKeyForm.key,
+          secret: vendorKeyForm.secret,
+          model: vendorKeyForm.model,
           status: vendorKeyForm.status,
+          dailyQuota: vendorKeyForm.dailyQuota,
+          monthlyQuota: vendorKeyForm.monthlyQuota,
+          maxConcurrency: vendorKeyForm.maxConcurrency,
           metadata: vendorKeyForm.metadata,
         });
       } else if (vendorKeyForm.key) {
-        const provider = String(vendorKeyForm.provider).trim();
-        const alias = String(vendorKeyForm.alias).trim();
-        const key = String(vendorKeyForm.key || '').trim();
-        const secret = typeof vendorKeyForm.secret === 'string' ? vendorKeyForm.secret.trim() : vendorKeyForm.secret;
-        if (!key) {
-          setVendorError('请填写 API Key');
-          return;
-        }
-        if (provider === 'baidu' && !secret) {
-          setVendorError('百度需要同时填写 API Key 和 Secret Key');
-          return;
-        }
+        const provider = String(vendorKeyForm.provider);
+        const alias = String(vendorKeyForm.alias);
         await adminApi.createVendorKey({
           provider,
           alias,
-          key,
-          secret,
+          key: vendorKeyForm.key,
+          secret: vendorKeyForm.secret,
           model: vendorKeyForm.model,
           status: vendorKeyForm.status,
           dailyQuota: vendorKeyForm.dailyQuota,
@@ -7823,581 +8066,86 @@ const extractErrorMessage = (error: unknown): string => {
     );
   };
 
-  const renderAbilityOverview = () => {
-    if (!selectedAbility) {
-      return (
-        <Alert
-          theme="info"
-          message="请先在左侧“能力目录”中选中一条能力，系统会在此处展示能力描述、默认节点、成本与标签。"
-        />
-      );
-    }
-    const baseItems = [
-      { label: '能力 Key', value: selectedAbility.capability_key || '—' },
-      { label: '版本', value: selectedAbility.version || 'v1' },
-      { label: '能力类型', value: getAbilityTypeLabel(selectedAbility.ability_type) || '—' },
-      {
-        label: '默认节点',
-        value: pinnedAbilityExecutor ? `${pinnedAbilityExecutor.name} · ${pinnedAbilityExecutor.type}` : '按厂商类型自动匹配',
-      },
-      { label: '关联工作流', value: selectedAbilityWorkflowLabel || '未绑定' },
-    ];
-    return (
-      <Space direction="vertical" size="large" style={{ width: '100%' }}>
-        {selectedAbilitySchemaIssues.length > 0 ? (
-          <Alert
-            theme="warning"
-            title="能力配置不完整"
-            message={`请补齐：${selectedAbilitySchemaIssues.join(' / ')}`}
-          />
-        ) : null}
-        <Card bordered>
-          <Space align="start" style={{ justifyContent: 'space-between', width: '100%' }}>
-            <Space direction="vertical" size={2}>
-              <Typography.Text theme="secondary">
-                {getProviderLabel(selectedAbility.provider)} · {getCategoryLabel(selectedAbility.category)}
-              </Typography.Text>
-              <Typography.Title level="h4" style={{ margin: 0 }}>
-                {selectedAbility.display_name}
-              </Typography.Title>
-              <Typography.Text theme="secondary">
-                {selectedAbility.description || '暂无描述，建议在能力管理中补充。'}
-              </Typography.Text>
-              {selectedAbilityTags.length > 0 ? (
-                <Space breakLine>
-                  {selectedAbilityTags.map((tag, index) => (
-                    <Tag key={`selected-ability-tag-${index}`} theme="primary" variant="light">
-                      {tag}
-                    </Tag>
-                  ))}
-                </Space>
-              ) : null}
-            </Space>
-            <StatusPill status={selectedAbility.status} />
-          </Space>
-        </Card>
+  const renderAbilityOverview = () => (
+    <AbilityOverviewTab
+      selectedAbility={selectedAbility}
+      schemaIssues={selectedAbilitySchemaIssues}
+      tags={selectedAbilityTags}
+      defaultExecutorLabel={
+        pinnedAbilityExecutor ? `${pinnedAbilityExecutor.name} · ${pinnedAbilityExecutor.type}` : '按厂商类型自动匹配'
+      }
+      workflowLabel={selectedAbilityWorkflowLabel || '未绑定'}
+      pricingText={selectedAbilityPricingText}
+      health={selectedAbilityHealth}
+      getProviderLabel={getProviderLabel}
+      getCategoryLabel={getCategoryLabel}
+      getAbilityTypeLabel={getAbilityTypeLabel}
+    />
+  );
 
-        <Row gutter={[12, 12]}>
-          <Col xs={24} md={12}>
-            <InfoCard title="基础信息" items={baseItems} />
-          </Col>
-          <Col xs={24} md={12}>
-            <Card bordered title="计价信息">
-              <Space direction="vertical" size="small">
-                <Typography.Text>{selectedAbilityPricingText}</Typography.Text>
-                {selectedAbilityPricingText === '—' ? (
-                  <Typography.Text theme="secondary">
-                    可在 Metadata.pricing 中设置 `currency/unit/list_price/discount_price`，ComfyUI 默认按 ¥0.30 / 每张计算。
-                  </Typography.Text>
-                ) : null}
-              </Space>
-            </Card>
-          </Col>
-        </Row>
+  const renderAbilityParamsTab = () => (
+    <AbilityParamsTab selectedAbility={selectedAbility} schemaIssues={selectedAbilitySchemaIssues} />
+  );
 
-        <Row gutter={[12, 12]}>
-          <Col xs={24} md={12}>
-            <InfoCard
-              title="健康巡检"
-              items={[
-                { label: '状态', value: selectedAbilityHealth.status },
-                { label: '最近巡检', value: selectedAbilityHealth.checkedAt },
-              ]}
-            />
-          </Col>
-          <Col xs={24} md={12}>
-            <InfoCard
-              title="成功率（近 24h）"
-              items={[
-                { label: '成功率', value: selectedAbilityHealth.successRateText },
-                { label: '来源', value: 'ability_invocation_logs（详见“能力调用记录”）' },
-              ]}
-            />
-          </Col>
-        </Row>
-      </Space>
-    );
-  };
+  const renderAbilityMetadataTab = () => (
+    <AbilityMetadataTab
+      selectedAbility={selectedAbility}
+      schemaIssues={selectedAbilitySchemaIssues}
+      workflowLabel={selectedAbilityWorkflowLabel || '未绑定'}
+      pricingText={selectedAbilityPricingText}
+      health={selectedAbilityHealth}
+      templateState={abilityTemplateState}
+      templateLoading={abilityTemplateLoading}
+      templateActionLoading={abilityTemplateActionLoading}
+      templateVersionLabel={abilityTemplateVersionLabel}
+      templateRollbackId={abilityTemplateRollbackId}
+      templateNotes={abilityTemplateNotes}
+      templateError={abilityTemplateError}
+      templateValidateResult={abilityTemplateValidateResult}
+      onRefreshTemplate={refreshAbilityTemplateState}
+      onValidateTemplate={handleAbilityTemplateValidate}
+      onPublishTemplate={handleAbilityTemplatePublish}
+      onRollbackTemplate={handleAbilityTemplateRollback}
+      onTemplateVersionLabelChange={setAbilityTemplateVersionLabel}
+      onTemplateRollbackIdChange={setAbilityTemplateRollbackId}
+      onTemplateNotesChange={setAbilityTemplateNotes}
+      getAbilityTypeLabel={getAbilityTypeLabel}
+    />
+  );
 
-  const renderAbilityParamsTab = () => {
-    if (!selectedAbility) {
-      return (
-        <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-950/30 p-4 text-sm text-slate-400">
-          请在能力目录中选择一个能力后查看默认参数与动态 Schema。
-        </div>
-      );
-    }
-    const showParamIssues = selectedAbilitySchemaIssues.filter((issue) =>
-      ['缺少输入 Schema', '缺少默认参数'].includes(issue),
-    );
-    return (
-      <div className="space-y-4 text-xs text-slate-400">
-        {showParamIssues.length > 0 ? (
-          <Alert theme="warning" title="参数配置提醒" message={`尚未补齐：${showParamIssues.join(' / ')}`} />
-        ) : null}
-        <div>
-          <div className="text-slate-500">默认参数</div>
-          {selectedAbility.default_params ? (
-            <CodeBlock value={formatJsonValue(selectedAbility.default_params)} maxHeight={260} />
-          ) : (
-            <p className="mt-1">未配置，测试时可以在实时测试 Tab 的 JSON 输入框补充。</p>
-          )}
-        </div>
-        <div>
-          <div className="text-slate-500">输入 Schema</div>
-          {selectedAbility.input_schema ? (
-            <CodeBlock value={formatJsonValue(selectedAbility.input_schema)} maxHeight={260} />
-          ) : (
-            <p className="mt-1">尚未提供 Schema，表单将仅展示 JSON 编辑区。</p>
-          )}
-        </div>
-      </div>
-    );
-  };
-
-  const renderAbilityMetadataTab = () => {
-    if (!selectedAbility) {
-      return (
-        <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-950/30 p-4 text-sm text-slate-400">
-          请选择能力以查看 metadata/workflow_key/pricing 等元信息。
-        </div>
-      );
-    }
-    const showMetadataIssues = selectedAbilitySchemaIssues.filter((issue) =>
-      ['缺少 Metadata', '缺少计价'].includes(issue),
-    );
-    return (
-      <div className="space-y-4 text-xs text-slate-400">
-        {showMetadataIssues.length > 0 ? (
-          <Alert
-            theme="warning"
-            title="元信息缺失"
-            message={`尚未补齐：${showMetadataIssues.join(' / ')}。建议补充 api_type、pricing、requirements 等字段。`}
-          />
-        ) : null}
-        <div>
-          <div className="text-slate-500">能力 Metadata</div>
-          {selectedAbility.metadata ? (
-            <CodeBlock value={formatJsonValue(selectedAbility.metadata)} maxHeight={320} />
-          ) : (
-            <p className="mt-1">暂无 metadata，建议补充 workflow_key、api_type、pricing、requirements 等信息。</p>
-          )}
-        </div>
-        <Card bordered title="能力模板版本">
-          <Space direction="vertical" size="small" style={{ width: '100%' }}>
-            <Typography.Text theme="secondary">
-              模板用于固化当前能力参数与元信息，支持校验、发布与回滚。
-            </Typography.Text>
-            <Space align="center" size="small">
-              <Button
-                size="small"
-                variant="outline"
-                loading={abilityTemplateLoading}
-                onClick={() => refreshAbilityTemplateState(selectedAbility.id)}
-              >
-                刷新
-              </Button>
-              <Button
-                size="small"
-                variant="outline"
-                loading={abilityTemplateActionLoading}
-                onClick={handleAbilityTemplateValidate}
-              >
-                校验模板
-              </Button>
-              <Button size="small" theme="primary" loading={abilityTemplateActionLoading} onClick={handleAbilityTemplatePublish}>
-                发布模板
-              </Button>
-            </Space>
-            <Row gutter={[12, 12]}>
-              <Col span={12}>
-                <Typography.Text theme="secondary">版本标签（选填）</Typography.Text>
-                <Input
-                  value={abilityTemplateVersionLabel}
-                  onChange={(v) => setAbilityTemplateVersionLabel(String(v))}
-                  placeholder="例如：2026-02-26-kie-v2"
-                />
-              </Col>
-              <Col span={12}>
-                <Typography.Text theme="secondary">
-                  当前版本：{abilityTemplateState?.current_template_id || '未发布'}
-                </Typography.Text>
-                <Select
-                  value={abilityTemplateRollbackId}
-                  onChange={(v) => setAbilityTemplateRollbackId(String(v))}
-                  options={[
-                    { label: '请选择要回滚的版本', value: '' },
-                    ...(abilityTemplateState?.history || []).map((item) => ({
-                      label: `${item.version_label || item.id} · ${item.action} · ${formatDateTime(item.created_at)}`,
-                      value: item.id,
-                    })),
-                  ]}
-                />
-              </Col>
-            </Row>
-            <div>
-              <Typography.Text theme="secondary">说明（发布/回滚备注）</Typography.Text>
-              <Textarea
-                value={abilityTemplateNotes}
-                onChange={(v) => setAbilityTemplateNotes(String(v))}
-                autosize={{ minRows: 2, maxRows: 4 }}
-                placeholder="例如：补齐 image_urls 规则 + 更新默认参数"
-              />
-            </div>
-            <Space align="center" size="small">
-              <Button
-                size="small"
-                variant="outline"
-                theme="warning"
-                loading={abilityTemplateActionLoading}
-                disabled={!abilityTemplateRollbackId}
-                onClick={handleAbilityTemplateRollback}
-              >
-                回滚到所选版本
-              </Button>
-            </Space>
-            {abilityTemplateError ? <Alert theme="error" message={abilityTemplateError} /> : null}
-            {abilityTemplateValidateResult ? (
-              <Alert
-                theme={abilityTemplateValidateResult.ok ? 'success' : 'warning'}
-                title={abilityTemplateValidateResult.ok ? '模板校验通过' : '模板校验未通过'}
-                message={[
-                  abilityTemplateValidateResult.errors.length > 0
-                    ? `错误：${abilityTemplateValidateResult.errors.join('；')}`
-                    : '错误：无',
-                  abilityTemplateValidateResult.warnings.length > 0
-                    ? `提醒：${abilityTemplateValidateResult.warnings.join('；')}`
-                    : '提醒：无',
-                ].join(' ｜ ')}
-              />
-            ) : null}
-            <div className="max-h-[240px] overflow-auto rounded-2xl border border-slate-200/70 dark:border-slate-800">
-              <table className="w-full text-xs">
-                <thead className="sticky top-0 bg-slate-50 text-[11px] text-slate-600 dark:bg-slate-900/80 dark:text-slate-400">
-                  <tr className="text-left">
-                    <th className="px-3 py-2">模板ID</th>
-                    <th className="px-3 py-2">标签</th>
-                    <th className="px-3 py-2">动作</th>
-                    <th className="px-3 py-2">时间</th>
-                    <th className="px-3 py-2">备注</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(abilityTemplateState?.history || []).length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="px-4 py-6 text-center text-slate-500">
-                        {abilityTemplateLoading ? '加载中…' : '暂无模板历史'}
-                      </td>
-                    </tr>
-                  ) : (
-                    (abilityTemplateState?.history || []).map((item) => (
-                      <tr key={`ability-template-${item.id}`} className="border-t border-slate-100 dark:border-slate-800">
-                        <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{item.id}</td>
-                        <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{item.version_label || '—'}</td>
-                        <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{item.action}</td>
-                        <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{formatDateTime(item.created_at)}</td>
-                        <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{item.notes || '—'}</td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </Space>
-        </Card>
-        <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4 text-[11px] text-slate-400 space-y-1">
-          <div className="text-[11px] uppercase tracking-widest text-slate-500">调度 / 成本要点</div>
-          <p>能力类型：{getAbilityTypeLabel(selectedAbility.ability_type)}</p>
-          <p>关联 Workflow：{selectedAbilityWorkflowLabel || '未绑定'}</p>
-          <p>最近健康检查：{selectedAbilityHealth.checkedAt}</p>
-          <p>成功率：{selectedAbilityHealth.successRateText}</p>
-          <p>计价：{selectedAbilityPricingText}</p>
-        </div>
-      </div>
-    );
-  };
-
-  const renderAbilityTestingTab = () => {
-    if (!selectedAbility) {
-      return (
-        <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-950/30 p-4 text-sm text-slate-400">
-          请在左侧能力列表中选择一条能力后，再运行链路自检。
-        </div>
-      );
-    }
-    return (
-      <div className="space-y-4 text-sm">
-        <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-3 text-xs text-slate-400">
-          当前能力：<span className="text-white">{selectedAbility.display_name}</span>（{getProviderLabel(selectedAbility.provider)}）；
-          这里仅用于链路巡检 / 运营测试，实际业务仍应通过能力接口或工作流调度调用。
-        </div>
-        <StepTitle index={1} label="选择接入节点" hint="系统按厂商/标签优先匹配" />
-        <div className="rounded-2xl border border-slate-800 bg-slate-950/50 p-4 space-y-2">
-          <select
-            value={abilityExecutors.length === 0 ? '' : testForm.executorId ?? abilityExecutors[0]?.id ?? ''}
-            disabled={abilityExecutors.length === 0}
-            onChange={(e) => setTestForm((prev) => ({ ...prev, executorId: e.target.value || null }))}
-            className="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-white disabled:cursor-not-allowed disabled:border-slate-800 disabled:text-slate-500"
-          >
-            {abilityExecutors.length === 0 ? (
-              <option value="">暂无匹配节点</option>
-            ) : (
-              abilityExecutors.map((executor) => (
-                <option key={executor.id} value={executor.id}>
-                  {executor.name} · {executor.type}
-                </option>
-              ))
-            )}
-          </select>
-          {abilityExecutors.length === 0 && (
-            <p className="text-xs text-amber-400">
-              暂无 {getProviderLabel(selectedAbility.provider)} 类型/标签匹配的节点，请先前往“执行节点”创建并配置该厂商的 Key/Secret。
-            </p>
-          )}
-        </div>
-        {selectedAbility.provider === 'comfyui' && activeComfyExecutorId && (
-          <div className="rounded-2xl border border-sky-900/40 bg-slate-950/40 p-4 text-xs text-slate-300 space-y-2">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <p className="text-sm font-semibold text-white">ComfyUI 队列状态</p>
-                <p className="text-[11px] text-slate-500">
-                  节点：<span className="font-mono">{activeComfyExecutorId}</span>
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => refreshComfyQueueStatus()}
-                className="rounded-full border border-slate-600 px-3 py-1 text-[11px] text-slate-100 hover:border-slate-400"
-                disabled={comfyQueueLoading}
-              >
-                {comfyQueueLoading ? '刷新中…' : '刷新'}
-              </button>
-            </div>
-            {comfyQueueError ? (
-              <p className="text-rose-400 text-xs">{comfyQueueError}</p>
-            ) : comfyQueueStatus ? (
-              <>
-                <div className="grid grid-cols-3 gap-3 text-center text-slate-200">
-                  <div className="rounded-2xl border border-slate-800/70 bg-slate-950/60 p-3">
-                    <div className="text-[11px] uppercase tracking-widest text-slate-500">运行中</div>
-                    <div className="mt-1 text-2xl font-semibold">{comfyQueueStatus.runningCount}</div>
-                  </div>
-                  <div className="rounded-2xl border border-slate-800/70 bg-slate-950/60 p-3">
-                    <div className="text-[11px] uppercase tracking-widest text-slate-500">排队中</div>
-                    <div className="mt-1 text-2xl font-semibold">{comfyQueueStatus.pendingCount}</div>
-                  </div>
-                  <div className="rounded-2xl border border-slate-800/70 bg-slate-950/60 p-3">
-                    <div className="text-[11px] uppercase tracking-widest text-slate-500">队列上限</div>
-                    <div className="mt-1 text-2xl font-semibold">
-                      {typeof comfyQueueStatus.queueMaxSize === 'number' ? comfyQueueStatus.queueMaxSize : '—'}
-                    </div>
-                  </div>
-                </div>
-                <div className="text-[11px] text-slate-500">基座：{comfyQueueStatus.baseUrl || '—'}</div>
-                <div className="text-[11px] text-slate-500">
-                  最近刷新：{comfyQueueUpdatedAt ? formatDateTime(comfyQueueUpdatedAt) : '刚刚'}
-                </div>
-                {comfyQueueStatus.supported === false ? (
-                  <p className="text-[11px] text-amber-400">
-                    {comfyQueueStatus.message || '该 ComfyUI 版本未暴露 /queue/status，暂无法获取排队情况。'}
-                  </p>
-                ) : (
-                  <p className="text-[11px] text-slate-500">
-                    ComfyUI 默认单 worker 顺序执行，排队数量 &gt; 0 时说明仍在处理前序任务，可错峰提交或切换其他节点。
-                  </p>
-                )}
-              </>
-            ) : (
-              <p className="text-xs text-slate-500">
-                {comfyQueueLoading ? '正在获取队列状态…' : '暂无实时数据，请点击刷新。'}
-              </p>
-            )}
-          </div>
-        )}
-        <StepTitle index={2} label="准备输入" />
-        {abilityAllowsImageInput ? (
-          <>
-            <label className="text-xs text-slate-400">
-              图片 URL（可选）
-              <input
-                type="text"
-                value={testForm.imageUrl}
-                onChange={(e) => handleImageUrlInput(e.target.value)}
-                className="mt-1 w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-white placeholder:text-slate-600"
-                placeholder="https://xxx.example.com/image.png"
-              />
-            </label>
-            <label className="text-xs text-slate-400">
-              上传图片（或拖拽）
-              <input
-                type="file"
-                accept="image/*"
-                onChange={(e) => handleTestFile(e.target.files)}
-                className="mt-1 block w-full rounded-2xl border border-dashed border-slate-600 bg-slate-950/40 px-4 py-3 text-white"
-              />
-            </label>
-            {uploadingImage && <p className="text-xs text-sky-400">上传中，请稍候…</p>}
-            {uploadedImage && !uploadingImage && (
-              <p className="text-xs text-emerald-400">
-                已上传：{uploadedImage.name}（{(uploadedImage.size / 1024).toFixed(1)} KB）
-              </p>
-            )}
-            {uploadError && <p className="text-xs text-rose-400">{uploadError}</p>}
-            <p className="text-xs text-slate-500">
-              上传的文件会暂存到 OSS（podi/test/…），我们会优先使用该 URL；若接口不支持 URL，将自动回退为 Base64。
-              {abilityRequiresImageInput ? '本能力为必填输入。' : '若该厂商支持视觉输入，可选填。'}
-            </p>
-          </>
-        ) : (
-          <p className="text-xs text-slate-500">该能力不需要图片输入，请直接在下方填写参数或使用默认配置。</p>
-        )}
-        <StepTitle index={3} label="调节参数（可选）" hint="默认值来自能力配置" />
-        {renderedSchemaFields.length > 0 && (
-          <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-4 space-y-3">
-            <p className="text-xs text-slate-400">表单由能力输入 Schema 自动生成，可快速调整提示词、尺寸等关键参数。</p>
-            {selectedAbility.provider === 'comfyui' && activeComfyExecutorId && (
-              <p className="text-[11px] text-slate-500">
-                {comfyModelLoading
-                  ? '正在同步该执行节点的模型/LoRA 列表…'
-                  : comfyModelError
-                    ? `模型列表读取失败：${comfyModelError}`
-                    : comfyModelCache[activeComfyExecutorId]
-                      ? '模型/LoRA 列表已载入，可直接从下拉选项选择或手动输入。'
-                      : '正在准备模型/LoRA 列表…'}
-              </p>
-            )}
-            <div className="space-y-3">{renderedSchemaFields.map((field) => renderSchemaField(field))}</div>
-          </div>
-        )}
-        <label className="text-xs text-slate-400">
-          附加参数 JSON（覆盖默认值）
-          <textarea
-            rows={renderedSchemaFields.length > 0 ? 4 : 6}
-            className="mt-1 w-full rounded-2xl border border-slate-700 bg-slate-950/60 p-3 text-xs text-white font-mono"
-            placeholder='例如 {"temperature":0.6,"top_p":0.8}'
-            value={testForm.params}
-            onChange={(e) => setTestForm((prev) => ({ ...prev, params: e.target.value }))}
-          />
-        </label>
-        {selectedAbility?.provider === 'comfyui' && (
-          <div className="flex items-center gap-2 text-xs text-slate-400">
-            <Switch
-              value={testForm.comfyuiSubmitOnly}
-              onChange={(value) => setTestForm((prev) => ({ ...prev, comfyuiSubmitOnly: Boolean(value) }))}
-            />
-            提交后不等待（直接入队）
-          </div>
-        )}
-        <button
-          onClick={handleRunAbilityTest}
-          disabled={
-            testLoading ||
-            !selectedAbility ||
-            !testForm.executorId ||
-            (abilityRequiresImageInput && !testForm.imageBase64 && !testForm.imageUrl)
-          }
-          className="w-full rounded-2xl bg-gradient-to-r from-sky-500 to-indigo-500 px-4 py-3 text-white font-semibold disabled:opacity-40"
-        >
-          {testLoading ? '测试中…' : selectedAbility ? `运行：${selectedAbility.display_name}` : '请选择能力'}
-        </button>
-        {!testForm.executorId && (
-          <p className="text-xs text-amber-400">
-            {abilityExecutors.length === 0
-              ? '请先在“执行节点”中新建该厂商的节点，并填入 API Key/Secret。'
-              : '请选择一个执行节点，才能带着正确的 Key/Secret 调用接口。'}
-          </p>
-        )}
-        {abilityRequiresImageInput && !testForm.imageBase64 && !testForm.imageUrl && (
-          <p className="text-xs text-amber-400">该能力需要图片，请上传或填写一个可访问的 URL。</p>
-        )}
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
-          <h3 className="text-lg font-semibold text-white mb-3">测试结果</h3>
-          {testResult ? (
-            <>
-              {hasTestResultPreview && (
-                <img src={testResultPreviewSrc} alt="test-result" className="w-full max-h-[360px] rounded object-contain" />
-              )}
-              {testResult.text && (
-                <div className="mt-3 rounded-2xl border border-slate-800 bg-slate-950/40 p-4 text-sm text-slate-100 whitespace-pre-line">
-                  {testResult.text}
-                </div>
-              )}
-              <div className="mt-3 space-y-1 text-xs text-slate-400">
-                {testResult.provider && <div>厂商：{getProviderLabel(testResult.provider)}</div>}
-                {testResult.model && <div>模型：{testResult.model}</div>}
-                {testResult.state && <div>状态：{testResult.state}</div>}
-                {testResult.taskId && (
-                  <div className="break-all">
-                    任务 ID：<span className="font-mono text-slate-200">{testResult.taskId}</span>
-                  </div>
-                )}
-                {testResult.logId && <div>Log ID：{testResult.logId}</div>}
-                {typeof testResult.durationMs === 'number' && <div>耗时：{testResult.durationMs} ms</div>}
-                {testResult.storedUrl && (
-                  <div>
-                    OSS 预览：
-                    <a href={testResult.storedUrl} target="_blank" rel="noreferrer" className="text-emerald-400 underline">
-                      打开
-                    </a>
-                  </div>
-                )}
-                {testResult.imageUrl && !testResult.imageBase64 && (
-                  <div>
-                    厂商预览：
-                    <a href={testResult.imageUrl} target="_blank" rel="noreferrer" className="text-sky-400 underline">
-                      打开
-                    </a>
-                  </div>
-                )}
-              </div>
-              {testResult.assets && testResult.assets.length > 0 && (
-                <div className="mt-3 rounded-2xl border border-slate-800 bg-slate-950/40 p-3 text-xs text-slate-300">
-                  <div className="text-slate-200">已同步至 OSS</div>
-                  <ul className="mt-2 space-y-1">
-                    {testResult.assets.map((asset, index) => (
-                      <li key={asset.ossKey || index} className="break-all">
-                        <span className="text-slate-500">[{asset.tag || `asset-${index + 1}`}] </span>
-                        <a href={asset.ossUrl} target="_blank" rel="noreferrer" className="text-emerald-400 underline">
-                          {asset.ossUrl}
-                        </a>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              {testResult.resultUrls && testResult.resultUrls.length > 0 && (
-                <div className="mt-3 rounded-2xl border border-slate-800 bg-slate-950/40 p-3 text-xs text-slate-300">
-                  <div className="text-slate-200">厂商原始链接</div>
-                  <ul className="mt-2 space-y-1">
-                    {testResult.resultUrls.map((url, index) => (
-                      <li key={`result-url-${index}`} className="break-all">
-                        <a href={url} target="_blank" rel="noreferrer" className="text-sky-400 underline">
-                          {url}
-                        </a>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              {testResult.raw && (
-                <details className="mt-3 rounded-2xl border border-slate-800 bg-slate-950/40 p-3 text-xs text-slate-300">
-                  <summary className="cursor-pointer text-slate-200">查看原始响应</summary>
-                  <CodeBlock value={formatRawResponse(testResult.raw)} maxHeight={240} />
-                </details>
-              )}
-              {!hasTestResultPreview && !testResult.text && (
-                <div className="mt-4 text-sm text-slate-500">调用完成但未返回可预览内容，可展开原始响应确认详情。</div>
-              )}
-            </>
-          ) : (
-            <div className="text-sm text-slate-500">
-              步骤填写完成后点击“运行测试”，结果会在此处预览；如需保存到任务列表，请改用正式任务流程。
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  };
+  const renderAbilityTestingTab = () => (
+    <AbilityTestingTab
+      selectedAbility={selectedAbility}
+      abilityExecutors={abilityExecutors}
+      testForm={testForm}
+      testResult={testResult}
+      testLoading={testLoading}
+      abilityAllowsImageInput={abilityAllowsImageInput}
+      abilityRequiresImageInput={abilityRequiresImageInput}
+      uploadingImage={uploadingImage}
+      uploadedImage={uploadedImage}
+      uploadError={uploadError}
+      renderedSchemaFieldCount={renderedSchemaFields.length}
+      schemaFieldNodes={renderedSchemaFields.map((field) => renderSchemaField(field))}
+      activeComfyExecutorId={activeComfyExecutorId}
+      comfyQueueStatus={comfyQueueStatus}
+      comfyQueueLoading={comfyQueueLoading}
+      comfyQueueError={comfyQueueError}
+      comfyQueueUpdatedAt={comfyQueueUpdatedAt}
+      comfyModelLoading={comfyModelLoading}
+      comfyModelError={comfyModelError}
+      hasComfyModelCache={Boolean(activeComfyExecutorId && comfyModelCache[activeComfyExecutorId])}
+      testResultPreviewSrc={testResultPreviewSrc}
+      onExecutorChange={(executorId) => setTestForm((prev) => ({ ...prev, executorId }))}
+      onImageUrlChange={handleImageUrlInput}
+      onFileChange={handleTestFile}
+      onParamsChange={(params) => setTestForm((prev) => ({ ...prev, params }))}
+      onComfySubmitOnlyChange={(comfyuiSubmitOnly) => setTestForm((prev) => ({ ...prev, comfyuiSubmitOnly }))}
+      onRefreshComfyQueue={refreshComfyQueueStatus}
+      onRun={handleRunAbilityTest}
+      getProviderLabel={getProviderLabel}
+    />
+  );
 
   const renderAbilityDetailContent = (tab: AbilityDetailTab) => {
     switch (tab) {
@@ -8416,261 +8164,70 @@ const extractErrorMessage = (error: unknown): string => {
     }
   };
 
-  const renderAbilityLogsTab = () => {
-    if (!selectedAbility) {
-      return (
-        <Alert theme="info" message="请选择能力后查看最近的调用记录。" />
-      );
-    }
-    return (
-      <Card
-        bordered
-        title={
-          <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-            <div>
-              <Typography.Text strong>最近调用记录</Typography.Text>
-              <div>
-                <Typography.Text theme="secondary">
-                  已加载 {abilityLogs.length}
-                  {typeof abilityLogTotal === 'number' ? ` / ${abilityLogTotal}` : ''} 条 · 自动刷新仅更新最近一页
-                </Typography.Text>
-              </div>
-            </div>
-            <Space>
-              <Space align="center" size="small">
-                <Typography.Text theme="secondary">自动刷新</Typography.Text>
-                <Switch value={abilityLogsAutoRefresh} onChange={(v) => setAbilityLogsAutoRefresh(Boolean(v))} />
-              </Space>
-              {abilityLogsUpdatedAt ? (
-                <Typography.Text theme="secondary">更新：{formatDateTime(abilityLogsUpdatedAt)}</Typography.Text>
-              ) : null}
-              <Button variant="outline" loading={abilityLogsLoading} onClick={() => refreshAbilityLogs()}>
-                刷新
-              </Button>
-            </Space>
-          </Space>
-        }
-      >
-        <Space direction="vertical" size="large" style={{ width: '100%' }}>
-          {abilityLogsError ? <Alert theme="error" message={abilityLogsError} /> : null}
-          <Table
-            size="small"
-            rowKey="id"
-            loading={abilityLogsLoading}
-            data={abilityLogs}
-            empty={<Typography.Text theme="secondary">暂无历史记录，运行一次测试即可自动写入。</Typography.Text>}
-            columns={[
-              {
-                colKey: 'created_at',
-                title: '时间',
-                width: 180,
-                cell: ({ row }) => <Typography.Text>{formatDateTime(row.created_at)}</Typography.Text>,
-              },
-              {
-                colKey: 'source',
-                title: '来源',
-                width: 120,
-                cell: ({ row }) => (
-                  <Tag theme={getAbilitySourceTagTheme(row.source)} variant="light">
-                    {formatAbilitySource(row.source)}
-                  </Tag>
-                ),
-              },
-              {
-                colKey: 'executor',
-                title: '节点',
-                width: 220,
-                cell: ({ row }) => <Typography.Text theme="secondary">{row.executor_name || row.executor_id || '—'}</Typography.Text>,
-              },
-              {
-                colKey: 'status',
-                title: '提交',
-                width: 160,
-                cell: ({ row }) => {
-                  const durationMs = resolveLogDurationMs(row);
-                  const submitTag = getAbilityLogSubmitTag(row);
-                  return (
-                    <Space direction="vertical" size={2}>
-                      <Tag theme={submitTag.theme} variant="light">
-                        {submitTag.text}
-                      </Tag>
-                      {typeof durationMs === 'number' ? (
-                        <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
-                          {durationMs}ms
-                        </Typography.Text>
-                      ) : null}
-                    </Space>
-                  );
-                },
-              },
-              {
-                colKey: 'callback',
-                title: '回调阶段',
-                width: 160,
-                cell: ({ row }) => {
-                  const callbackTag = getAbilityLogCallbackStageTag(row);
-                  return (
-                    <Space direction="vertical" size={2}>
-                      <Tag theme={callbackTag.theme} variant="light">
-                        {callbackTag.text}
-                      </Tag>
-                      {typeof row.callback_http_status === 'number' ? (
-                        <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
-                          HTTP {row.callback_http_status}
-                        </Typography.Text>
-                      ) : null}
-                      {row.callback_finished_at ? (
-                        <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
-                          {formatDateTime(row.callback_finished_at)}
-                        </Typography.Text>
-                      ) : null}
-                    </Space>
-                  );
-                },
-              },
-              {
-                colKey: 'result',
-                title: '结果',
-                minWidth: 240,
-                cell: ({ row }) => {
-                  const previewUrl = resolvePrimaryLogPreviewUrl(row);
-                  const canPreviewImage = Boolean(previewUrl) && /\.(png|jpg|jpeg|webp|gif)(\?|#|$)/i.test(previewUrl);
-                  return (
-                    <Space size="small">
-                      {previewUrl ? (
-                        canPreviewImage ? (
-                          <Popup
-                            trigger="hover"
-                            placement="left"
-                            content={<img src={previewUrl} alt="preview" style={{ maxWidth: 360, maxHeight: 360, display: 'block' }} />}
-                          >
-                            <Button size="small" variant="text">
-                              预览
-                            </Button>
-                          </Popup>
-                        ) : (
-                          <Button size="small" variant="text" onClick={() => window.open(previewUrl, '_blank', 'noreferrer')}>
-                            打开
-                          </Button>
-                        )
-                      ) : null}
-                      <Button
-                        size="small"
-                        variant="text"
-                        onClick={() => {
-                          setAbilityLogDetail(row);
-                          setAbilityLogResolveError(null);
-                          setAbilityLogDetailOpen(true);
-                        }}
-                      >
-                        详情
-                      </Button>
-                      {row.error_message ? <Typography.Text theme="error">{toDisplayErrorMessage(row.error_message)}</Typography.Text> : null}
-                      {!previewUrl && !row.error_message ? (
-                        <Typography.Text theme="secondary">
-                          {isAbilityLogSuccessful(row.status) ? '结果回填中' : '—'}
-                        </Typography.Text>
-                      ) : null}
-                    </Space>
-                  );
-                },
-              },
-            ]}
-          />
-          <div className="flex items-center justify-between">
-            <Typography.Text theme="secondary">
-              {abilityLogsUpdatedAt ? `最近刷新：${formatDateTime(abilityLogsUpdatedAt)}` : '尚未刷新'}
-            </Typography.Text>
-            {abilityLogsHasMore ? (
-              <Button variant="outline" loading={abilityLogsLoading} onClick={() => loadMoreAbilityLogs()}>
-                加载更多
-              </Button>
-            ) : (
-              <Typography.Text theme="secondary">已加载全部</Typography.Text>
-            )}
-          </div>
-        </Space>
-      </Card>
-    );
-  };
+  const renderAbilityLogsTab = () => (
+    <AbilityRecentLogsPanel
+      selectedAbility={selectedAbility}
+      logs={abilityLogs}
+      total={abilityLogTotal}
+      loading={abilityLogsLoading}
+      error={abilityLogsError}
+      autoRefresh={abilityLogsAutoRefresh}
+      updatedAt={abilityLogsUpdatedAt}
+      hasMore={abilityLogsHasMore}
+      onAutoRefreshChange={setAbilityLogsAutoRefresh}
+      onRefresh={refreshAbilityLogs}
+      onLoadMore={loadMoreAbilityLogs}
+      onOpenDetail={(row) => {
+        setAbilityLogDetail(row);
+        setAbilityLogResolveError(null);
+        setAbilityLogDetailOpen(true);
+      }}
+    />
+  );
 
-  const renderAbilityWorkbenchCard = () => {
-    if (abilities.length === 0) {
-      return (
-        <Alert
-          theme="warning"
-          title="暂无可用能力"
-          message="请先在能力列表新增并激活能力（例如：百度 · 无损放大），再执行详情测试。"
-        />
-      );
-    }
-    return (
-      <Card bordered title="能力详情 & 链路自检">
-        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-          <Space align="start" style={{ justifyContent: 'space-between', width: '100%' }}>
-            <Typography.Text theme="secondary">
-              选择能力后，可查看概览、参数、元数据，并直接运行测试/查看日志。
-            </Typography.Text>
-            {selectedAbility ? (
-              <Space direction="vertical" size={2} style={{ textAlign: 'right' }}>
-                <Typography.Text theme="secondary">Ability ID：{selectedAbility.id}</Typography.Text>
-                <Typography.Text theme="secondary">{selectedAbility.capability_key}</Typography.Text>
-              </Space>
-            ) : null}
-          </Space>
-
-          <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-            <div style={{ width: 'min(100%, 420px)' }}>
-              <Select
-                value={selectedAbilityId ?? ''}
-                onChange={(v) => setSelectedAbilityId(String(v) || null)}
-                options={[
-                  { label: '请选择（或在能力管理中新建）', value: '' },
-                  ...abilities.map((ability) => ({
-                    label: `${ability.display_name} · ${getProviderLabel(ability.provider)}`,
-                    value: ability.id,
-                  })),
-                ]}
-                placeholder="快速选择能力"
-              />
-            </div>
-            <Button variant="outline" onClick={() => selectSection('abilities')}>
-              前往能力管理
-            </Button>
-          </Space>
-
-          {!selectedAbility ? (
-            <Alert theme="info" message="暂未选择能力，请先在下拉框选择，或回到“能力管理”点击一行。" />
-          ) : (
-            <Tabs
-              theme="card"
-              value={activeAbilityDetailTab}
-              onChange={(v) => setActiveAbilityDetailTab(v as AbilityDetailTab)}
-              list={abilityDetailTabs.map((tab) => ({
-                value: tab.id,
-                label: tab.label,
-                panel: <div style={{ paddingTop: 12 }}>{renderAbilityDetailContent(tab.id)}</div>,
-              }))}
-            />
-          )}
-        </Space>
-      </Card>
-    );
-  };
+  const renderAbilityWorkbenchCard = () => (
+    <AbilityWorkbenchPanel
+      abilities={abilities}
+      selectedAbility={selectedAbility}
+      selectedAbilityId={selectedAbilityId}
+      activeTab={activeAbilityDetailTab}
+      tabs={abilityDetailTabs}
+      onSelectAbility={setSelectedAbilityId}
+      onSelectAbilitiesSection={() => selectSection('abilities')}
+      onTabChange={(tab) => setActiveAbilityDetailTab(tab as AbilityDetailTab)}
+      renderContent={(tab) => renderAbilityDetailContent(tab as AbilityDetailTab)}
+      getProviderLabel={getProviderLabel}
+    />
+  );
 
   const selectSection = (id: NavId) => {
     setActiveNav(id);
+    if (id !== 'ability-evals') {
+      setFocusedEvalRunId('');
+    }
     // Only the right content pane scrolls. Switching sections resets scroll.
     contentRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const visibleNavItems = useMemo(
-    () => navItems.filter((item) => !(item as any).advanced || showAdvanced),
-    [showAdvanced],
-  );
+  const visibleNavItems = useMemo(() => {
+    const baseItems = navItems.filter((item) => !(item as any).advanced || showAdvanced);
+    if (!isBusinessReadOnly) return baseItems;
+    return baseItems.filter((item) => readOnlyNavIds.has(item.id as NavId));
+  }, [isBusinessReadOnly, showAdvanced]);
   const activeNavMeta = useMemo(
     () => visibleNavItems.find((item) => item.id === activeNav) || navItems.find((item) => item.id === activeNav),
     [activeNav, visibleNavItems],
+  );
+  const coreBusinessOverviewItems = useMemo(
+    () =>
+      coreBusinessKeys
+        .map(
+          (key) =>
+            businessCapabilities.find((item) => item.businessKey === key && item.isDefault) ||
+            businessCapabilities.find((item) => item.businessKey === key),
+        )
+        .filter((item): item is BusinessCapability => Boolean(item)),
+    [businessCapabilities],
   );
   const activeComfyTabMeta = comfyuiTabMeta[comfyuiManageTab];
   const comfyuiGroupMap = useMemo(() => {
@@ -8688,7 +8245,7 @@ const extractErrorMessage = (error: unknown): string => {
   const navSelectOptions = useMemo(
     () =>
       visibleNavItems.map((item) => ({
-        label: Boolean((item as any).advanced) ? `${item.label}（高级）` : item.label,
+        label: `${item.groupLabel || '模块'} / ${item.label}${Boolean((item as any).advanced) ? '（高级）' : ''}`,
         value: item.id,
       })),
     [visibleNavItems],
@@ -8702,17 +8259,25 @@ const extractErrorMessage = (error: unknown): string => {
       const rawNav = params?.get('nav') || '';
       if (rawNav === 'ability-tests') {
         setActiveNav('abilities');
+        setFocusedEvalRunId('');
         setActiveAbilityDetailTab('testing');
         return;
       }
 
       const navFromHash = readNavFromHash();
       if (!navFromHash) return;
+      if (isBusinessReadOnly && !readOnlyNavIds.has(navFromHash)) {
+        setActiveNav('business');
+        setFocusedEvalRunId('');
+        return;
+      }
       if (!showAdvanced && isAdvancedNav(navFromHash)) {
         setActiveNav('overview');
+        setFocusedEvalRunId('');
         return;
       }
       setActiveNav(navFromHash);
+      setFocusedEvalRunId(navFromHash === 'ability-evals' ? readEvalRunIdFromHash() : '');
       if (navFromHash === 'comfyui-management') {
         const comfyTabFromHash = readComfyuiTabFromHash();
         if (comfyTabFromHash) setComfyuiManageTab(comfyTabFromHash);
@@ -8722,7 +8287,13 @@ const extractErrorMessage = (error: unknown): string => {
     syncFromHash();
     window.addEventListener('hashchange', syncFromHash);
     return () => window.removeEventListener('hashchange', syncFromHash);
-  }, [showAdvanced]);
+  }, [isBusinessReadOnly, showAdvanced]);
+
+  useEffect(() => {
+    if (!isBusinessReadOnly) return;
+    if (readOnlyNavIds.has(activeNav)) return;
+    selectSection('business');
+  }, [activeNav, isBusinessReadOnly]);
 
   useEffect(() => {
     const params = new URLSearchParams();
@@ -8730,22 +8301,25 @@ const extractErrorMessage = (error: unknown): string => {
     if (activeNav === 'comfyui-management') {
       params.set('comfyTab', comfyuiManageTab);
     }
+    if (activeNav === 'ability-evals' && focusedEvalRunId) {
+      params.set('runId', focusedEvalRunId);
+    }
     const nextHash = params.toString();
     const currentHash = window.location.hash.replace(/^#/, '');
     if (currentHash === nextHash) return;
     window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#${nextHash}`);
-  }, [activeNav, comfyuiManageTab]);
+  }, [activeNav, comfyuiManageTab, focusedEvalRunId]);
 
   return (
     <AdminShell
       title="AI 管理端"
-      subtitle="集中管理执行节点、工作流、密钥与调度测试。"
+      subtitle="集中管理业务能力、模型、运行线路、密钥与调度测试。"
       theme={theme}
       navItems={visibleNavItems.map((item) => ({ ...item, icon: navIconMap[item.id as NavId] }))}
       activeNav={activeNav}
       onSelectNav={(value) => selectSection(value as NavId)}
       headerTitle={activeNavMeta?.label || '控制台'}
-      headerSubtitle={activeNavMeta?.description || '按模块管理执行节点、能力、任务与稳定性。'}
+      headerSubtitle={activeNavMeta?.description || '按模块管理能力、任务、运行线路与稳定性。'}
       contentRef={contentRef}
       headerActions={
         <Space align="center" size="small" style={{ flexWrap: 'wrap', justifyContent: 'flex-end', width: '100%' }}>
@@ -8777,6 +8351,15 @@ const extractErrorMessage = (error: unknown): string => {
             </div>
           </ErrorState>
         </div>
+      ) : null}
+      {isBusinessReadOnly ? (
+        <Alert
+          theme="warning"
+          message={`当前账号是业务方只读视图，只能查看 ${
+            currentUser?.tenantId || '当前业务方'
+          }${currentUser?.clientId ? ` / ${currentUser.clientId}` : ''} 范围内的业务任务和统计；配置、发布、密钥、执行资源、账号权限等后台能力已隐藏。`}
+          style={{ marginBottom: 16 }}
+        />
       ) : null}
       <div style={{ marginBottom: 16 }}>
         <ActionBar>
@@ -8822,2528 +8405,366 @@ const extractErrorMessage = (error: unknown): string => {
             <Tag variant="light" theme={loadErrors.length > 0 ? 'danger' : 'success'}>
               {loadErrors.length > 0 ? `异常 ${loadErrors.length}` : '状态正常'}
             </Tag>
+            <Tag variant="light" theme={isBusinessReadOnly ? 'warning' : 'success'}>
+              {isBusinessReadOnly ? '业务方只读' : '管理员'}
+            </Tag>
           </Space>
         </ActionBar>
       </div>
           {activeNav === 'overview' && (
             <Section id="overview" title="总体概览" description="观察运行快照、调度指标与刷新入口。">
-            <Card bordered style={{ marginBottom: 16 }}>
-              <Space direction="vertical" size="small" style={{ width: '100%' }}>
-                <Typography.Text strong>统计看板</Typography.Text>
-                <Typography.Text theme="secondary">
-                  今日任务与系统队列总览（用于快速判断“是否异常堆积”）。
-                </Typography.Text>
-                <div className="podi-overview-stat-grid">
-                  <div className="podi-overview-stat-item">
-                    <div className="podi-overview-stat-item__label">今日新增</div>
-                    <div className="podi-overview-stat-item__value">{dashboardMetrics?.today.created ?? 0}</div>
-                  </div>
-                  <div className="podi-overview-stat-item">
-                    <div className="podi-overview-stat-item__label">今日完成</div>
-                    <div className="podi-overview-stat-item__value">{dashboardMetrics?.today.completed ?? 0}</div>
-                  </div>
-                  <div className="podi-overview-stat-item">
-                    <div className="podi-overview-stat-item__label">今日失败</div>
-                    <div className="podi-overview-stat-item__value">{dashboardMetrics?.today.failed ?? 0}</div>
-                  </div>
-                  <div className="podi-overview-stat-item">
-                    <div className="podi-overview-stat-item__label">队列等待</div>
-                    <div className="podi-overview-stat-item__value">{pendingQueueTotal}</div>
-                  </div>
-                </div>
-              </Space>
-            </Card>
-            <Card bordered>
-              <Space direction="vertical" size="small" style={{ width: '100%' }}>
-                <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                  <div>
-                    <Typography.Text theme="secondary">控制台</Typography.Text>
-                    <Typography.Title level="h3" style={{ margin: '6px 0 0' }}>
-                      AI 集成管理控制台
-                    </Typography.Title>
-                    <Typography.Text theme="secondary">
-                      独立系统，聚合 OpenAI/ComfyUI/百度/火山等执行能力，支持链路自检。
-                    </Typography.Text>
-                  </div>
-                  <Space>
-                    <Button variant="outline" loading={loading} onClick={load}>
-                      刷新数据
-                    </Button>
-                  </Space>
-                </Space>
-              </Space>
-            </Card>
-            <div className="grid gap-4 pt-4 sm:grid-cols-2 lg:grid-cols-4">
-              <MetricCard label="执行节点" value={summary.executors} sub={`活跃 ${summary.activeExecutors}`} />
-              <MetricCard label="工作流" value={summary.workflows} sub="版本 & 类型" />
-              <MetricCard label="绑定策略" value={summary.bindings} sub="action → workflow → executor" />
-              <MetricCard label="API Keys" value={summary.apiKeys} sub="即将到期请注意" />
-              <MetricCard label="能力目录" value={summary.abilities || 0} sub="厂商 × 功能" />
-            </div>
+              <OverviewPanel
+                dashboardMetrics={dashboardMetrics}
+                pendingQueueTotal={pendingQueueTotal}
+                businessUsageSummary={businessUsageSummary}
+                coreBusinessOverviewItems={coreBusinessOverviewItems}
+                strategySnapshots={strategySnapshots}
+                strategySnapshotLoading={strategySnapshotLoading}
+                strategySnapshotError={strategySnapshotError}
+                weeklyReports={weeklyReports}
+                weeklyReportLoading={weeklyReportLoading}
+                weeklyReportError={weeklyReportError}
+                releasePreflightLatest={releasePreflightLatest}
+                releasePreflightSnapshots={releasePreflightSnapshots}
+                releasePreflightLoading={releasePreflightLoading}
+                releasePreflightError={releasePreflightError}
+                releasePatrolRecords={releasePatrolRecords}
+                releasePatrolLoading={releasePatrolLoading}
+                releasePatrolError={releasePatrolError}
+                summary={summary}
+                loading={loading}
+                onRefresh={load}
+                onCreateStrategySnapshot={createStrategySnapshot}
+                onRefreshStrategySnapshots={refreshStrategySnapshots}
+                onRunWeeklyReport={runWeeklyReport}
+                onRefreshWeeklyReports={refreshWeeklyReports}
+                onRunReleasePreflight={runReleasePreflight}
+                onRefreshReleasePreflight={refreshReleasePreflightSnapshots}
+                onCreateReleasePatrolRecord={createReleasePatrolRecord}
+                onImportReleasePatrolReport={importReleasePatrolReport}
+                onRefreshReleasePatrolRecords={refreshReleasePatrolRecords}
+                onCopyText={copyTextToClipboard}
+                onOpenEvalRun={(runId) => {
+                  setFocusedEvalRunId(runId);
+                  selectSection('ability-evals');
+                  copyTextToClipboard(runId);
+                }}
+              />
             </Section>
           )}
 
           {activeNav === 'business' && (
-            <Section id="business" title="业务能力" description="给业务方使用的稳定入口；底层能力可以换版本，但这里保持业务语义清楚。">
-              <Space direction="vertical" size="large" style={{ width: '100%' }}>
+            <Section id="business" title="业务能力" description="给业务方使用的稳定入口；执行能力可以换版本，但这里保持业务语义清楚。">
+              <Suspense
+                fallback={
+                  <div className="rounded-3xl border border-slate-200 bg-white px-6 py-5 text-sm text-slate-600 shadow-sm">
+                    业务能力加载中，请稍候...
+                  </div>
+                }
+              >
+                <Space direction="vertical" size="large" style={{ width: '100%' }}>
                 <Alert
                   theme="info"
-                  message="业务能力层用于沉淀图裂变、扩图等稳定 API。Coze 后续只调用这些入口，版本、灰度和回滚由中台管理。"
+                  message="业务能力层优先沉淀花纹提取、图裂变、扩图三个主业务。其他高清、DPI、抠图等能力作为辅助处理，不抢主业务入口。"
                 />
+                {isBusinessReadOnly ? (
+                  <Alert
+                    theme="warning"
+                    message={`当前为业务方只读视图，只展示 ${
+                      currentUser?.tenantId || '当前业务方'
+                    }${currentUser?.clientId ? ` / ${currentUser.clientId}` : ''} 范围内的任务和统计；版本发布、默认切换和停用请联系管理员处理。`}
+                  />
+                ) : null}
                 {businessActionError ? <Alert theme="error" message={businessActionError} /> : null}
                 <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
                   <Typography.Text theme="secondary">
                     默认版本会直接影响业务入口，请只在测试通过后切换。
                   </Typography.Text>
-                  <Button
-                    theme="primary"
-                    onClick={() => {
-                      resetBusinessForm();
-                      setBusinessDialogOpen(true);
-                    }}
-                  >
-                    新增业务版本
-                  </Button>
-                </Space>
-                <Card
-                  bordered
-                  title={
-                    <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                      <div>
-                        <Typography.Text strong>接入方策略</Typography.Text>
-                        <div>
-                          <Typography.Text theme="secondary">
-                            控制业务方能调用哪些能力、最多同时跑多少任务，以及每日调用/额度上限。
-                          </Typography.Text>
-                        </div>
-                      </div>
-                      <Space>
-                        <Button variant="outline" onClick={refreshBusinessClients}>
-                          刷新策略
-                        </Button>
-                        <Button
-                          theme="primary"
-                          onClick={() => {
-                            resetBusinessClientForm();
-                            setBusinessClientDialogOpen(true);
-                          }}
-                        >
-                          新增接入方
-                        </Button>
-                      </Space>
-                    </Space>
-                  }
-                >
-                  <Row gutter={[12, 12]} style={{ marginBottom: 12 }}>
-                    <Col xs={12} sm={4}>
-                      <MetricCard label="接入方策略" value={businessClients.length} sub="租户/客户端配置" />
-                    </Col>
-                    <Col xs={12} sm={4}>
-                      <MetricCard
-                        label="已启用"
-                        value={businessClients.filter((item) => item.status === 'active').length}
-                        sub="会参与业务入口校验"
-                      />
-                    </Col>
-                    <Col xs={12} sm={4}>
-                      <MetricCard
-                        label="有限额"
-                        value={
-                          businessClients.filter(
-                            (item) => item.concurrentRunLimit || item.dailyRunLimit || item.dailyQuotaUnits,
-                          ).length
-                        }
-                        sub="并发/日调用/日额度"
-                      />
-                    </Col>
-                  </Row>
-                  <Table
-                    size="small"
-                    rowKey="id"
-                    data={businessClients}
-                    empty={
-                      <Typography.Text theme="secondary">
-                        暂无接入方策略。未配置时旧业务会继续放行；需要限流或停用时再新增。
-                      </Typography.Text>
-                    }
-                    columns={[
-                      {
-                        colKey: 'displayName',
-                        title: '接入方',
-                        minWidth: 220,
-                        cell: ({ row }) => (
-                          <Space direction="vertical" size={2}>
-                            <Typography.Text strong>{row.displayName}</Typography.Text>
-                            <Typography.Text code>{businessClientScopeLabel(row)}</Typography.Text>
-                          </Space>
-                        ),
-                      },
-                      {
-                        colKey: 'allowed',
-                        title: '可用业务',
-                        minWidth: 180,
-                        cell: ({ row }) => <Typography.Text>{businessClientAllowedLabel(row)}</Typography.Text>,
-                      },
-                      {
-                        colKey: 'limits',
-                        title: '限制',
-                        minWidth: 180,
-                        cell: ({ row }) => <Typography.Text theme="secondary">{businessClientLimitLabel(row)}</Typography.Text>,
-                      },
-                      {
-                        colKey: 'status',
-                        title: '状态',
-                        width: 110,
-                        cell: ({ row }) => <StatusBadge status={row.status} />,
-                      },
-                      {
-                        colKey: 'updatedAt',
-                        title: '更新时间',
-                        width: 170,
-                        cell: ({ row }) => <Typography.Text theme="secondary">{formatDateTime(row.updatedAt)}</Typography.Text>,
-                      },
-                      {
-                        colKey: 'actions',
-                        title: '操作',
-                        width: 180,
-                        cell: ({ row }) => {
-                          const actionId = `status:${row.id}`;
-                          return (
-                            <Space size={6}>
-                              <Button size="small" variant="outline" onClick={() => handleBusinessClientEdit(row)}>
-                                编辑
-                              </Button>
-                              <Button
-                                size="small"
-                                theme={row.status === 'active' ? 'warning' : 'primary'}
-                                variant="outline"
-                                loading={businessClientLoadingId === actionId}
-                                disabled={Boolean(businessClientLoadingId && businessClientLoadingId !== actionId)}
-                                onClick={() => handleBusinessClientToggle(row)}
-                              >
-                                {row.status === 'active' ? '停用' : '启用'}
-                              </Button>
-                            </Space>
-                          );
-                        },
-                      },
-                    ]}
-                  />
-                </Card>
-                <Card bordered>
-                  <Space direction="vertical" size="small" style={{ width: '100%' }}>
-                    <Typography.Text strong>灰度命中预览</Typography.Text>
-                    <Typography.Text theme="secondary">
-                      输入业务方标识后，在任一业务版本卡片点击“预览灰度”，即可确认当前会命中默认版还是灰度版，不会提交真实任务。
-                    </Typography.Text>
-                    <Space align="center" style={{ flexWrap: 'wrap' }}>
-                      <Input
-                        style={{ width: 260 }}
-                        value={businessRoutePreviewKey}
-                        placeholder="业务方标识，例如 tenant-a"
-                        onChange={(v) => setBusinessRoutePreviewKey(String(v))}
-                      />
-                      {businessRoutePreview ? (
-                        <Tag theme={businessRoutePreview.selectedBy === 'default' ? 'default' : 'primary'} variant="light">
-                          命中：{businessRoutePreview.selectedDisplayName} · {businessRoutePreview.selectedVersion}
-                          （{businessRoutePreview.selectedBy === 'rollout_allowlist'
-                            ? '白名单'
-                            : businessRoutePreview.selectedBy === 'rollout_percent'
-                              ? '比例灰度'
-                              : businessRoutePreview.selectedBy === 'explicit'
-                                ? '指定版本'
-                                : '默认版本'}）
-                        </Tag>
-                      ) : null}
-                    </Space>
-                  </Space>
-                </Card>
-                <Row gutter={[16, 16]}>
-                  {businessCapabilities.map((item) => (
-                    <Col key={item.id} xs={12} sm={6} lg={4}>
-                      <Card bordered>
-                        <Space direction="vertical" size="small" style={{ width: '100%' }}>
-                          <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                            <Typography.Text strong>{item.displayName}</Typography.Text>
-                            <Tag theme={item.isDefault ? 'primary' : 'default'} variant="light">
-                              {item.isDefault ? '默认版本' : item.version}
-                            </Tag>
-                          </Space>
-                          <Typography.Text theme="secondary">{item.description || '暂无说明'}</Typography.Text>
-                          <Space breakLine>
-                            <StatusBadge status={item.status} />
-                            <Tag variant="light">{businessKeyLabel(item.businessKey)}</Tag>
-                            <Tag variant="light">{item.version}</Tag>
-                            {(() => {
-                              const vlAssist = readBusinessVlAssist(item.recipe);
-                              if (!vlAssist.enabled) return null;
-                              return (
-                                <Tag theme={vlAssist.waitForResult ? 'primary' : 'default'} variant="light">
-                                  VL：{vlAssist.waitForResult ? '串联' : '伴随'}
-                                  {vlAssist.applyToPrimary ? ' · 回填提示词' : ''}
-                                </Tag>
-                              );
-                            })()}
-                          </Space>
-                          <Typography.Text theme="secondary">
-                            发布时间：{formatDateTime(item.releaseTime || item.createdAt)}
-                          </Typography.Text>
-                          <Typography.Text theme="secondary">
-                            底层能力：{item.primaryAbilityName || String((item.recipe as any)?.primaryAbilityId || '未配置')}
-                          </Typography.Text>
-                          {item.recipeSteps && item.recipeSteps.length > 0 && (
-                            <Space direction="vertical" size={4}>
-                              <Typography.Text theme="secondary">
-                                配方步骤：{item.recipeSteps.length} 步
-                              </Typography.Text>
-                              <Space breakLine size={4}>
-                                {item.recipeSteps.slice(0, 3).map((step) => (
-                                  <Tag
-                                    key={`${step.order}-${step.id || step.abilityId || step.type}`}
-                                    variant="light"
-                                    theme={step.enabled ? 'default' : 'warning'}
-                                  >
-                                    {step.order}. {businessRecipeStepLabel(step.type, step.role)}
-                                    {step.abilityName ? ` · ${step.abilityName}` : ''}
-                                  </Tag>
-                                ))}
-                                {item.recipeSteps.length > 3 && (
-                                  <Tag variant="light">+{item.recipeSteps.length - 3} 步</Tag>
-                                )}
-                              </Space>
-                            </Space>
-                          )}
-                          <Typography.Text theme="secondary">
-                            模型来源：{item.vendorModelName || item.vendorModelProvider || '未绑定模型目录'}
-                          </Typography.Text>
-                          <Space align="center" size={6} style={{ flexWrap: 'wrap' }}>
-                            <Typography.Text theme="secondary">最近调用：</Typography.Text>
-                            {item.latestRun ? <StatusBadge status={item.latestRun.status} /> : null}
-                            <Typography.Text theme={item.latestRun?.error ? 'error' : 'secondary'}>
-                              {businessCapabilityLatestRunLabel(item)}
-                            </Typography.Text>
-                            {item.latestRun?.createdAt || item.latestRun?.created_at ? (
-                              <Typography.Text theme="secondary">
-                                {formatDateTime(item.latestRun.createdAt || item.latestRun.created_at || '')}
-                              </Typography.Text>
-                            ) : null}
-                          </Space>
-                          <Typography.Text
-                            theme={Number(item.runMetrics?.failed || 0) > 0 ? 'warning' : 'secondary'}
-                          >
-                            {businessCapabilityRunMetricsLabel(item)}
-                          </Typography.Text>
-                          {(() => {
-                            const rollout = readBusinessRollout(item.metadata);
-                            if (!rollout.enabled && rollout.percent <= 0 && !rollout.allowlistText) return null;
-                            return (
-                              <Typography.Text theme="secondary">
-                                灰度：{rollout.enabled ? `${rollout.percent}%` : '未启用'}
-                                {rollout.allowlistText ? ' · 含白名单' : ''}
-                              </Typography.Text>
-                            );
-                          })()}
-                          <Typography.Text theme="secondary">{businessReleaseEventLabel(item)}</Typography.Text>
-                          {(() => {
-                            const defaultActionId = `default:${item.id}`;
-                            const statusActionId = `status:${item.id}`;
-                            const rollbackActionId = `rollback:${item.businessKey}`;
-                            const isActive = item.status === 'active';
-                            const lockDefaultStop = isActive && item.isDefault;
-                            const actionBusy = businessActionLoadingId !== null;
-                            return (
-                              <Space breakLine size={6}>
-                                <Button size="small" variant="outline" onClick={() => handleBusinessEdit(item)}>
-                                  编辑
-                                </Button>
-                                {!item.isDefault && (
-                                  <Button
-                                    size="small"
-                                    theme="primary"
-                                    variant="outline"
-                                    loading={businessActionLoadingId === defaultActionId}
-                                    disabled={actionBusy && businessActionLoadingId !== defaultActionId}
-                                    onClick={() => handleBusinessSetDefault(item)}
-                                  >
-                                    设为默认
-                                  </Button>
-                                )}
-                                <Button
-                                  size="small"
-                                  variant="outline"
-                                  loading={businessActionLoadingId === `preview:${item.id}`}
-                                  disabled={actionBusy && businessActionLoadingId !== `preview:${item.id}`}
-                                  onClick={() => handleBusinessPreviewRoute(item)}
-                                >
-                                  预览灰度
-                                </Button>
-                                {item.isDefault && (
-                                  <Button
-                                    size="small"
-                                    theme="warning"
-                                    variant="outline"
-                                    loading={businessActionLoadingId === rollbackActionId}
-                                    disabled={actionBusy && businessActionLoadingId !== rollbackActionId}
-                                    onClick={() => handleBusinessRollbackDefault(item)}
-                                  >
-                                    回滚默认
-                                  </Button>
-                                )}
-                                <Button
-                                  size="small"
-                                  theme={isActive ? 'warning' : 'primary'}
-                                  variant="outline"
-                                  loading={businessActionLoadingId === statusActionId}
-                                  disabled={lockDefaultStop || (actionBusy && businessActionLoadingId !== statusActionId)}
-                                  onClick={() => handleBusinessToggleActive(item)}
-                                >
-                                  {lockDefaultStop ? '默认版不能停用' : isActive ? '停用' : '启用'}
-                                </Button>
-                              </Space>
-                            );
-                          })()}
-                        </Space>
-                      </Card>
-                    </Col>
-                  ))}
-                </Row>
-                <Card
-                  bordered
-                  title={
-                    <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                      <div>
-                        <Typography.Text strong>业务调用统计</Typography.Text>
-                        <div>
-                          <Typography.Text theme="secondary">
-                            当前筛选 · {businessUsageSummary?.windowHours || businessRunFilters.windowHours} 小时窗口
-                          </Typography.Text>
-                        </div>
-                      </div>
-                      <Tag theme={Number(businessUsageSummary?.failed || 0) > 0 ? 'warning' : 'success'} variant="light">
-                        {Number(businessUsageSummary?.failed || 0) > 0 ? '存在失败样本' : '暂无失败样本'}
-                      </Tag>
-                    </Space>
-                  }
-                >
-                  <Row gutter={[12, 12]}>
-                    <Col xs={12} sm={6} lg={2}>
-                      <MetricCard label="总调用" value={businessUsageSummary?.total ?? 0} sub="业务入口调用数" />
-                    </Col>
-                    <Col xs={12} sm={6} lg={2}>
-                      <MetricCard
-                        label="成功率"
-                        value={formatRatePercent(businessUsageSummary?.successRate)}
-                        sub={`失败 ${businessUsageSummary?.failed ?? 0} 次`}
-                      />
-                    </Col>
-                    <Col xs={12} sm={6} lg={2}>
-                      <MetricCard
-                        label="执行中"
-                        value={(businessUsageSummary?.running ?? 0) + (businessUsageSummary?.queued ?? 0)}
-                        sub={`排队 ${businessUsageSummary?.queued ?? 0}`}
-                      />
-                    </Col>
-                    <Col xs={12} sm={6} lg={2}>
-                      <MetricCard
-                        label="平均耗时"
-                        value={formatDurationMs(businessUsageSummary?.avgDurationMs)}
-                        sub="仅统计已记录耗时"
-                      />
-                    </Col>
-                    <Col xs={12} sm={6} lg={2}>
-                      <MetricCard
-                        label="成本"
-                        value={formatCurrencyTotals(businessUsageSummary?.costByCurrency)}
-                        sub={`${businessUsageSummary?.quotaUnits ?? 0} 额度`}
-                      />
-                    </Col>
-                    <Col xs={12} sm={6} lg={2}>
-                      <MetricCard
-                        label="已取消"
-                        value={businessUsageSummary?.cancelled ?? 0}
-                        sub="业务侧或系统取消"
-                      />
-                    </Col>
-                  </Row>
-                  <Row gutter={[12, 12]} style={{ marginTop: 12 }}>
-                    <Col xs={12} lg={4}>
-                      <Card bordered>
-                        <Space direction="vertical" size="small" style={{ width: '100%' }}>
-                          <Typography.Text strong>业务分布</Typography.Text>
-                          {(businessUsageSummary?.byBusiness || []).slice(0, 4).map((bucket) => (
-                            <Space key={bucket.key} align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                              <Typography.Text>{businessKeyLabel(bucket.key)}</Typography.Text>
-                              <Typography.Text theme={bucket.failed > 0 ? 'warning' : 'secondary'}>
-                                {formatBucketDigest(bucket)}
-                              </Typography.Text>
-                            </Space>
-                          ))}
-                          {(businessUsageSummary?.byBusiness || []).length === 0 ? (
-                            <Typography.Text theme="secondary">当前筛选下暂无调用。</Typography.Text>
-                          ) : null}
-                        </Space>
-                      </Card>
-                    </Col>
-                    <Col xs={12} lg={4}>
-                      <Card bordered>
-                        <Space direction="vertical" size="small" style={{ width: '100%' }}>
-                          <Typography.Text strong>来源 / 业务方</Typography.Text>
-                          {(businessUsageSummary?.bySource || []).slice(0, 3).map((bucket) => (
-                            <Space key={bucket.key} align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                              <Typography.Text>{bucket.label}</Typography.Text>
-                              <Typography.Text theme={bucket.failed > 0 ? 'warning' : 'secondary'}>
-                                {formatBucketDigest(bucket)}
-                              </Typography.Text>
-                            </Space>
-                          ))}
-                          {(businessUsageSummary?.byTenant || []).slice(0, 3).map((bucket) => (
-                            <Space key={`tenant:${bucket.key}`} align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                              <Typography.Text theme="secondary">业务方：{bucket.label}</Typography.Text>
-                              <Typography.Text theme={bucket.failed > 0 ? 'warning' : 'secondary'}>
-                                {formatBucketDigest(bucket)}
-                              </Typography.Text>
-                            </Space>
-                          ))}
-                          {(businessUsageSummary?.bySource || []).length === 0 && (businessUsageSummary?.byTenant || []).length === 0 ? (
-                            <Typography.Text theme="secondary">当前筛选下暂无来源数据。</Typography.Text>
-                          ) : null}
-                        </Space>
-                      </Card>
-                    </Col>
-                    <Col xs={12} lg={4}>
-                      <Card bordered>
-                        <Space direction="vertical" size="small" style={{ width: '100%' }}>
-                          <Typography.Text strong>最近失败</Typography.Text>
-                          {(businessUsageSummary?.recentFailures || []).slice(0, 4).map((item) => (
-                            <Space key={item.id} direction="vertical" size={2} style={{ width: '100%' }}>
-                              <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                                <Typography.Text>{businessKeyLabel(item.businessKey)} · {item.version || '未标记版本'}</Typography.Text>
-                                <Typography.Text theme="secondary">{formatDateTime(item.createdAt)}</Typography.Text>
-                              </Space>
-                              <Typography.Text theme="error">{item.error || '失败原因未记录'}</Typography.Text>
-                            </Space>
-                          ))}
-                          {(businessUsageSummary?.recentFailures || []).length === 0 ? (
-                            <Typography.Text theme="secondary">当前筛选下暂无失败记录。</Typography.Text>
-                          ) : null}
-                        </Space>
-                      </Card>
-                    </Col>
-                  </Row>
-                </Card>
-                <Card
-                  bordered
-                  title={
-                    <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                      <div>
-                        <Typography.Text strong>最近业务调用</Typography.Text>
-                        <div>
-                          <Typography.Text theme="secondary">已加载 {businessRuns.length} / {businessRunTotal} 条</Typography.Text>
-                        </div>
-                      </div>
-                      <Button
-                        variant="outline"
-                        onClick={refreshBusinessRuns}
-                      >
-                        刷新
-                      </Button>
-                    </Space>
-                  }
-                >
-                  <Space
-                    align="center"
-                    size="small"
-                    style={{ marginBottom: 12, width: '100%', flexWrap: 'wrap' }}
-                  >
-                    <Select
-                      style={{ width: 130 }}
-                      value={businessRunFilters.windowHours}
-                      options={businessUsageWindowOptions}
-                      onChange={(value) =>
-                        setBusinessRunFilters((prev) => ({
-                          ...prev,
-                          windowHours: Number(value || 24),
-                        }))
-                      }
-                    />
-                    <Select
-                      style={{ width: 160 }}
-                      value={businessRunFilters.businessKey}
-                      options={businessRunBusinessOptions}
-                      onChange={(value) =>
-                        setBusinessRunFilters((prev) => ({
-                          ...prev,
-                          businessKey: String(value),
-                          version: 'all',
-                        }))
-                      }
-                    />
-                    <Select
-                      style={{ width: 140 }}
-                      value={businessRunFilters.version}
-                      options={businessRunVersionOptions}
-                      onChange={(value) =>
-                        setBusinessRunFilters((prev) => ({
-                          ...prev,
-                          version: String(value),
-                        }))
-                      }
-                    />
-                    <Select
-                      style={{ width: 140 }}
-                      value={businessRunFilters.status}
-                      options={businessRunStatusOptions}
-                      onChange={(value) =>
-                        setBusinessRunFilters((prev) => ({
-                          ...prev,
-                          status: String(value),
-                        }))
-                      }
-                    />
-                    <Input
-                      style={{ width: 130 }}
-                      value={businessRunFilters.source}
-                      placeholder="来源，如 coze"
-                      clearable
-                      onChange={(value) =>
-                        setBusinessRunFilters((prev) => ({
-                          ...prev,
-                          source: String(value || ''),
-                        }))
-                      }
-                    />
-                    <Input
-                      style={{ width: 160 }}
-                      value={businessRunFilters.tenantId}
-                      placeholder="租户/业务方"
-                      clearable
-                      onChange={(value) =>
-                        setBusinessRunFilters((prev) => ({
-                          ...prev,
-                          tenantId: String(value || ''),
-                        }))
-                      }
-                    />
-                    <Input
-                      style={{ width: 160 }}
-                      value={businessRunFilters.clientId}
-                      placeholder="客户端/应用"
-                      clearable
-                      onChange={(value) =>
-                        setBusinessRunFilters((prev) => ({
-                          ...prev,
-                          clientId: String(value || ''),
-                        }))
-                      }
-                    />
-                    <Input
-                      style={{ width: 180 }}
-                      value={businessRunFilters.traceId}
-                      placeholder="追踪 ID"
-                      clearable
-                      onChange={(value) =>
-                        setBusinessRunFilters((prev) => ({
-                          ...prev,
-                          traceId: String(value || ''),
-                        }))
-                      }
-                    />
-                    <Select
-                      style={{ width: 120 }}
-                      value={businessRunFilters.limit}
-                      options={[
-                        { label: '最近 20 条', value: 20 },
-                        { label: '最近 50 条', value: 50 },
-                        { label: '最近 100 条', value: 100 },
-                        { label: '最近 200 条', value: 200 },
-                      ]}
-                      onChange={(value) =>
-                        setBusinessRunFilters((prev) => ({
-                          ...prev,
-                          limit: Number(value || 20),
-                        }))
-                      }
-                    />
-                    <Button theme="primary" variant="outline" onClick={refreshBusinessRuns}>
-                      应用筛选
+                  {!isBusinessReadOnly ? (
+                    <Button
+                      theme="primary"
+                      onClick={() => {
+                        resetBusinessForm();
+                        setBusinessDialogOpen(true);
+                      }}
+                    >
+                      新增业务版本
                     </Button>
-                  </Space>
-                  <Table
-                    size="small"
-                    rowKey="id"
-                    data={businessRuns}
-                    empty={<Typography.Text theme="secondary">暂无业务调用记录。</Typography.Text>}
-                    columns={[
-                      {
-                        colKey: 'createdAt',
-                        title: '时间',
-                        width: 180,
-                        cell: ({ row }) => <Typography.Text>{formatDateTime(row.createdAt)}</Typography.Text>,
-                      },
-                      {
-                        colKey: 'businessKey',
-                        title: '业务',
-                        cell: ({ row }) => <Typography.Text strong>{businessKeyLabel(row.businessKey)}</Typography.Text>,
-                      },
-                      {
-                        colKey: 'source',
-                        title: '来源',
-                        width: 180,
-                        cell: ({ row }) => (
-                          <Space direction="vertical" size={2}>
-                            <Typography.Text>{row.source || 'business-api'}</Typography.Text>
-                            <Typography.Text theme="secondary">
-                              {row.channel || '未标记渠道'}{row.tenantId ? ` · ${row.tenantId}` : ''}
-                            </Typography.Text>
-                            {row.traceId ? <Typography.Text code>{row.traceId}</Typography.Text> : null}
-                          </Space>
-                        ),
-                      },
-                      {
-                        colKey: 'version',
-                        title: '版本',
-                        width: 100,
-                        cell: ({ row }) => <Tag variant="light">{row.version || '—'}</Tag>,
-                      },
-                      {
-                        colKey: 'route',
-                        title: '路由方式',
-                        width: 160,
-                        cell: ({ row }) => {
-                          const route = (row.routeInfo || {}) as JsonRecord;
-                          const selectedBy = String(route.selectedBy || 'default');
-                          const percent = route.rolloutPercent;
-                          const label =
-                            selectedBy === 'explicit'
-                              ? '指定版本'
-                              : selectedBy === 'rollout_allowlist'
-                                ? '灰度名单'
-                                : selectedBy === 'rollout_percent'
-                                  ? `灰度比例 ${percent ?? ''}%`
-                                  : '默认版本';
-                          return <Typography.Text theme="secondary">{label}</Typography.Text>;
-                        },
-                      },
-                      {
-                        colKey: 'steps',
-                        title: '步骤',
-                        minWidth: 220,
-                        cell: ({ row }) => {
-                          const steps = row.steps || [];
-                          if (steps.length === 0) {
-                            return <Typography.Text theme="secondary">未记录</Typography.Text>;
-                          }
-                          return (
-                            <Space breakLine size={4}>
-                              {steps.slice(0, 3).map((step) => {
-                                const summaryLabel = businessRunStepSummaryLabel(step.resultSummary);
-                                return (
-                                  <Tag
-                                    key={step.id}
-                                    variant="light"
-                                    theme={step.status === 'failed' ? 'danger' : step.status === 'succeeded' ? 'success' : 'default'}
-                                  >
-                                    {step.order}. {businessRecipeStepLabel(step.stepType, step.role)} · {businessRunStepStatusLabel(step.status)}
-                                    {summaryLabel ? ` · ${summaryLabel}` : ''}
-                                  </Tag>
-                                );
-                              })}
-                              {steps.length > 3 ? <Tag variant="light">+{steps.length - 3} 步</Tag> : null}
-                            </Space>
-                          );
-                        },
-                      },
-                      {
-                        colKey: 'ability',
-                        title: '底层来源',
-                        width: 260,
-                        cell: ({ row }) => (
-                          <Space direction="vertical" size={2}>
-                            <Typography.Text>{row.abilityName || row.abilityId || '未记录'}</Typography.Text>
-                            <Typography.Text theme="secondary">
-                              {row.vendorModelName || row.vendorModelProvider || '未绑定模型目录'}
-                            </Typography.Text>
-                          </Space>
-                        ),
-                      },
-                      {
-                        colKey: 'status',
-                        title: '状态',
-                        width: 120,
-                        cell: ({ row }) => <StatusBadge status={row.status} />,
-                      },
-                      {
-                        colKey: 'cost',
-                        title: '耗时/成本',
-                        width: 150,
-                        cell: ({ row }) => (
-                          <Space direction="vertical" size={2}>
-                            <Typography.Text>{formatDurationMs(row.durationMs)}</Typography.Text>
-                            <Typography.Text theme="secondary">
-                              {formatPriceValue(row.costAmount ?? undefined, row.currency ?? undefined)}
-                              {typeof row.quotaUnits === 'number' ? ` · ${row.quotaUnits} 额度` : ''}
-                            </Typography.Text>
-                          </Space>
-                        ),
-                      },
-                      {
-                        colKey: 'taskId',
-                        title: '底层任务',
-                        ellipsis: true,
-                        cell: ({ row }) => <Typography.Text code>{row.taskId || row.abilityTaskId || '—'}</Typography.Text>,
-                      },
-                      {
-                        colKey: 'outputs',
-                        title: '结果',
-                        width: 100,
-                        cell: ({ row }) => <Typography.Text>{(row.imageUrls || []).length} 张图</Typography.Text>,
-                      },
-                      {
-                        colKey: 'error',
-                        title: '错误',
-                        ellipsis: true,
-                        cell: ({ row }) => <Typography.Text theme={row.error || row.errorMessage ? 'error' : 'secondary'}>{row.error || row.errorMessage || '—'}</Typography.Text>,
-                      },
-                      {
-                        colKey: 'actions',
-                        title: '操作',
-                        width: 90,
-                        cell: ({ row }) => (
-                          <Button
-                            size="small"
-                            variant="text"
-                            onClick={() => {
-                              setBusinessRunDetail(row);
-                              setBusinessRunDetailOpen(true);
-                            }}
-                          >
-                            详情
-                          </Button>
-                        ),
-                      },
-                    ]}
-                  />
-                </Card>
-                <Dialog
-                  header="业务调用详情"
-                  visible={businessRunDetailOpen}
-                  width={920}
-                  confirmBtn={null}
-                  cancelBtn="关闭"
-                  onClose={() => setBusinessRunDetailOpen(false)}
-                  onCancel={() => setBusinessRunDetailOpen(false)}
-                >
-                  {businessRunDetail ? (
-                    <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-                      <Row gutter={[12, 12]}>
-                        <Col span={6}>
-                          <Typography.Text theme="secondary">业务任务</Typography.Text>
-                          <Typography.Text code>{businessRunDetail.runId || businessRunDetail.id}</Typography.Text>
-                        </Col>
-                        <Col span={3}>
-                          <Typography.Text theme="secondary">业务</Typography.Text>
-                          <Typography.Text>{businessKeyLabel(businessRunDetail.businessKey)}</Typography.Text>
-                        </Col>
-                        <Col span={3}>
-                          <Typography.Text theme="secondary">状态</Typography.Text>
-                          <StatusBadge status={businessRunDetail.status} />
-                        </Col>
-                        <Col span={6}>
-                          <Typography.Text theme="secondary">来源 / 渠道</Typography.Text>
-                          <Typography.Text>
-                            {businessRunDetail.source || 'business-api'} · {businessRunDetail.channel || '未标记渠道'}
-                          </Typography.Text>
-                        </Col>
-                        <Col span={6}>
-                          <Typography.Text theme="secondary">耗时 / 成本</Typography.Text>
-                          <Typography.Text>
-                            {formatDurationMs(businessRunDetail.durationMs)} · {formatPriceValue(
-                              businessRunDetail.costAmount ?? undefined,
-                              businessRunDetail.currency ?? undefined,
-                            )}
-                            {typeof businessRunDetail.quotaUnits === 'number' ? ` · ${businessRunDetail.quotaUnits} 额度` : ''}
-                          </Typography.Text>
-                        </Col>
-                      </Row>
-                      <Row gutter={[12, 12]}>
-                        <Col span={6}>
-                          <Typography.Text theme="secondary">版本 / 路由</Typography.Text>
-                          <Typography.Text>
-                            {businessRunDetail.version || '—'} · {String((businessRunDetail.routeInfo || {}).selectedBy || 'default')}
-                          </Typography.Text>
-                        </Col>
-                        <Col span={6}>
-                          <Typography.Text theme="secondary">底层任务</Typography.Text>
-                          <Typography.Text code>{businessRunDetail.taskId || businessRunDetail.abilityTaskId || '—'}</Typography.Text>
-                        </Col>
-                        <Col span={6}>
-                          <Typography.Text theme="secondary">追踪 ID</Typography.Text>
-                          <Typography.Text code>{businessRunDetail.traceId || '—'}</Typography.Text>
-                        </Col>
-                        <Col span={6}>
-                          <Typography.Text theme="secondary">业务方 / 客户端</Typography.Text>
-                          <Typography.Text>
-                            {businessRunDetail.tenantId || '—'} · {businessRunDetail.clientId || '—'}
-                          </Typography.Text>
-                        </Col>
-                      </Row>
-                      <Table
-                        size="small"
-                        rowKey="id"
-                        data={businessRunDetail.steps || []}
-                        empty={<Typography.Text theme="secondary">暂无步骤记录。</Typography.Text>}
-                        columns={[
-                          {
-                            colKey: 'step',
-                            title: '步骤',
-                            minWidth: 180,
-                            cell: ({ row }) => (
-                              <Space direction="vertical" size={2}>
-                                <Typography.Text>
-                                  {row.order}. {businessRecipeStepLabel(row.stepType, row.role)}
-                                </Typography.Text>
-                                <Typography.Text theme="secondary">{row.abilityName || row.abilityId || '未绑定能力'}</Typography.Text>
-                              </Space>
-                            ),
-                          },
-                          {
-                            colKey: 'status',
-                            title: '状态',
-                            width: 120,
-                            cell: ({ row }) => <StatusBadge status={row.status} />,
-                          },
-                          {
-                            colKey: 'stepCost',
-                            title: '耗时/成本',
-                            width: 150,
-                            cell: ({ row }) => (
-                              <Space direction="vertical" size={2}>
-                                <Typography.Text>{formatDurationMs(row.durationMs)}</Typography.Text>
-                                <Typography.Text theme="secondary">
-                                  {formatPriceValue(row.costAmount ?? undefined, row.currency ?? undefined)}
-                                  {typeof row.quotaUnits === 'number' ? ` · ${row.quotaUnits} 额度` : ''}
-                                </Typography.Text>
-                              </Space>
-                            ),
-                          },
-                          {
-                            colKey: 'summary',
-                            title: '结果摘要',
-                            minWidth: 220,
-                            cell: ({ row }) => (
-                              <Typography.Text theme="secondary">
-                                {businessRunStepSummaryLabel(row.resultSummary) || row.error || '—'}
-                              </Typography.Text>
-                            ),
-                          },
-                          {
-                            colKey: 'task',
-                            title: '底层任务',
-                            minWidth: 220,
-                            ellipsis: true,
-                            cell: ({ row }) => <Typography.Text code>{row.abilityTaskId || '—'}</Typography.Text>,
-                          },
-                        ]}
-                      />
-                      <Row gutter={[12, 12]}>
-                        <Col span={6}>
-                          <Typography.Text theme="secondary">请求参数</Typography.Text>
-                          <Textarea
-                            value={formatJsonValue(businessRunDetail.requestPayload || {})}
-                            readonly
-                            autosize={{ minRows: 5, maxRows: 10 }}
-                            className="font-mono text-xs"
-                          />
-                        </Col>
-                        <Col span={6}>
-                          <Typography.Text theme="secondary">结果 / 错误</Typography.Text>
-                          <Textarea
-                            value={formatJsonValue({
-                              result: businessRunDetail.resultPayload || {},
-                              imageUrls: businessRunDetail.imageUrls || [],
-                              videoUrls: businessRunDetail.videoUrls || [],
-                              texts: businessRunDetail.texts || [],
-                              error: businessRunDetail.error || businessRunDetail.errorMessage || null,
-                              trace: {
-                                traceId: businessRunDetail.traceId ?? null,
-                                requestId: businessRunDetail.requestId ?? null,
-                                tenantId: businessRunDetail.tenantId ?? null,
-                                clientId: businessRunDetail.clientId ?? null,
-                              },
-                              cost: {
-                                durationMs: businessRunDetail.durationMs ?? null,
-                                costAmount: businessRunDetail.costAmount ?? null,
-                                currency: businessRunDetail.currency ?? null,
-                                quotaUnits: businessRunDetail.quotaUnits ?? null,
-                                costBreakdown: businessRunDetail.costBreakdown ?? null,
-                              },
-                            })}
-                            readonly
-                            autosize={{ minRows: 5, maxRows: 10 }}
-                            className="font-mono text-xs"
-                          />
-                        </Col>
-                      </Row>
-                    </Space>
                   ) : null}
-                </Dialog>
-                <Dialog
-                  header={businessClientForm.id ? '编辑接入方策略' : '新增接入方策略'}
-                  visible={businessClientDialogOpen}
-                  width={720}
-                  onClose={() => setBusinessClientDialogOpen(false)}
-                  onCancel={() => setBusinessClientDialogOpen(false)}
-                  onConfirm={handleBusinessClientSubmit}
-                >
-                  <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-                    {businessClientFormError ? <Alert theme="error" message={businessClientFormError} /> : null}
-                    <Alert
-                      theme="info"
-                      message="如果只填业务方标识、不填客户端标识，这条策略会作为该业务方的默认策略；如果两者都填，会优先匹配具体客户端。"
-                    />
-                    <Row gutter={[12, 12]}>
-                      <Col span={12}>
-                        <Typography.Text theme="secondary">业务方标识</Typography.Text>
-                        <Input
-                          value={businessClientForm.tenantId}
-                          placeholder="例如 tenant-a / coze-main"
-                          onChange={(value) =>
-                            setBusinessClientForm((prev) => ({ ...prev, tenantId: String(value || '') }))
-                          }
-                        />
-                      </Col>
-                      <Col span={12}>
-                        <Typography.Text theme="secondary">客户端标识</Typography.Text>
-                        <Input
-                          value={businessClientForm.clientId}
-                          placeholder="可选；为空表示该业务方全部客户端"
-                          onChange={(value) =>
-                            setBusinessClientForm((prev) => ({ ...prev, clientId: String(value || '') }))
-                          }
-                        />
-                      </Col>
-                    </Row>
-                    <Row gutter={[12, 12]}>
-                      <Col span={12}>
-                        <Typography.Text theme="secondary">显示名称</Typography.Text>
-                        <Input
-                          value={businessClientForm.displayName}
-                          placeholder="例如 AI 团队测试入口"
-                          onChange={(value) =>
-                            setBusinessClientForm((prev) => ({ ...prev, displayName: String(value || '') }))
-                          }
-                        />
-                      </Col>
-                      <Col span={12}>
-                        <Typography.Text theme="secondary">状态</Typography.Text>
-                        <Select
-                          value={businessClientForm.status}
-                          options={businessClientStatusOptions}
-                          onChange={(value) =>
-                            setBusinessClientForm((prev) => ({ ...prev, status: String(value || 'active') }))
-                          }
-                        />
-                      </Col>
-                    </Row>
-                    <Typography.Text theme="secondary">允许调用的业务</Typography.Text>
-                    <Textarea
-                      autosize={{ minRows: 3, maxRows: 5 }}
-                      value={businessClientForm.allowedBusinessKeysText}
-                      placeholder="每行一个业务标识；留空表示全部业务。例：fission / outpaint"
-                      onChange={(value) =>
-                        setBusinessClientForm((prev) => ({
-                          ...prev,
-                          allowedBusinessKeysText: String(value || ''),
-                        }))
-                      }
-                    />
-                    <Row gutter={[12, 12]}>
-                      <Col span={8}>
-                        <Typography.Text theme="secondary">并发上限</Typography.Text>
-                        <InputNumber
-                          min={1}
-                          value={businessClientForm.concurrentRunLimit ?? undefined}
-                          placeholder="不限制"
-                          onChange={(value) =>
-                            setBusinessClientForm((prev) => ({
-                              ...prev,
-                              concurrentRunLimit: value ? Number(value) : null,
-                            }))
-                          }
-                        />
-                      </Col>
-                      <Col span={8}>
-                        <Typography.Text theme="secondary">每日调用上限</Typography.Text>
-                        <InputNumber
-                          min={1}
-                          value={businessClientForm.dailyRunLimit ?? undefined}
-                          placeholder="不限制"
-                          onChange={(value) =>
-                            setBusinessClientForm((prev) => ({
-                              ...prev,
-                              dailyRunLimit: value ? Number(value) : null,
-                            }))
-                          }
-                        />
-                      </Col>
-                      <Col span={8}>
-                        <Typography.Text theme="secondary">每日额度上限</Typography.Text>
-                        <InputNumber
-                          min={1}
-                          value={businessClientForm.dailyQuotaUnits ?? undefined}
-                          placeholder="不限制"
-                          onChange={(value) =>
-                            setBusinessClientForm((prev) => ({
-                              ...prev,
-                              dailyQuotaUnits: value ? Number(value) : null,
-                            }))
-                          }
-                        />
-                      </Col>
-                    </Row>
-                    <Alert
-                      theme="warning"
-                      message="停用会直接阻断已匹配的业务方调用；配置日限额或并发前，建议先和业务方确认调用峰值。"
-                    />
-                    <Typography.Text theme="secondary">元信息 JSON</Typography.Text>
-                    <Textarea
-                      autosize={{ minRows: 3, maxRows: 6 }}
-                      value={businessClientForm.metadataText}
-                      onChange={(value) =>
-                        setBusinessClientForm((prev) => ({ ...prev, metadataText: String(value || '') }))
-                      }
-                    />
-                  </Space>
-                </Dialog>
-                <Dialog
-                  header={businessForm.id ? '编辑业务版本' : '新增业务版本'}
+                </Space>
+                <BusinessActionPanel
+                  capabilities={businessCapabilities}
+                  pendingApprovals={businessDefaultApprovals}
+                  summary={businessUsageSummary}
+                />
+                {!isBusinessReadOnly ? (
+                  <BusinessGovernancePanel
+                    capabilityOptions={businessCapabilityVersionOptions}
+                    targetOptions={businessCompareTargetOptions}
+                    compareLeftId={effectiveBusinessCompareLeftId}
+                    compareRightId={effectiveBusinessCompareRightId}
+                    selectedTarget={selectedBusinessCompareRight}
+                    compareResult={businessCompareResult}
+                    pendingApprovals={businessDefaultApprovals}
+                    actionLoadingId={businessActionLoadingId}
+                    onCompareLeftChange={(value) => {
+                      setBusinessCompareLeftId(value);
+                      setBusinessCompareRightId('');
+                      setBusinessCompareResult(null);
+                    }}
+                    onCompareRightChange={(value) => {
+                      setBusinessCompareRightId(value);
+                      setBusinessCompareResult(null);
+                    }}
+                    onCompare={handleBusinessCompare}
+                    onRollback={handleBusinessRollback}
+                    onApprovalDecision={handleBusinessDefaultApprovalDecision}
+                    formatDateTime={formatDateTime}
+                  />
+                ) : null}
+                <BusinessCapabilityGrid
+                  capabilities={businessCapabilities}
+                  pendingApprovals={businessDefaultApprovals}
+                  isReadOnly={isBusinessReadOnly}
+                  actionLoadingId={businessActionLoadingId}
+                  onEdit={handleBusinessEdit}
+                  onSetDefault={handleBusinessSetDefault}
+                  onToggleActive={handleBusinessToggleActive}
+                  formatDateTime={formatDateTime}
+                />
+                <BusinessUsageSummaryPanel
+                  summary={businessUsageSummary}
+                  windowHours={businessRunFilters.windowHours}
+                  formatDateTime={formatDateTime}
+                />
+                {!isBusinessReadOnly ? (
+                  <BusinessOperationLogPanel
+                    logs={businessOperationLogs}
+                    onRefresh={refreshBusinessRuns}
+                    formatDateTime={formatDateTime}
+                  />
+                ) : null}
+                <BusinessRunHistoryPanel
+                  runs={businessRuns}
+                  total={businessRunTotal}
+                  filters={businessRunFilters}
+                  businessOptions={businessRunBusinessOptions}
+                  versionOptions={businessRunVersionOptions}
+                  isReadOnly={isBusinessReadOnly}
+                  tenantId={currentUser?.tenantId}
+                  clientId={currentUser?.clientId}
+                  actionLoadingId={businessActionLoadingId}
+                  detail={businessRunDetail}
+                  detailOpen={businessRunDetailOpen}
+                  onFiltersChange={setBusinessRunFilters}
+                  onRefresh={refreshBusinessRuns}
+                  onExport={exportBusinessRuns}
+                  onOpenDetail={(row) => {
+                    setBusinessRunDetail(row);
+                    setBusinessRunDetailOpen(true);
+                  }}
+                  onCloseDetail={() => setBusinessRunDetailOpen(false)}
+                  onCallbackRetry={handleBusinessCallbackRetry}
+                  formatDateTime={formatDateTime}
+                />
+                <BusinessCapabilityEditorDialog
                   visible={businessDialogOpen}
-                  width={760}
+                  form={businessForm}
+                  error={businessFormError}
+                  abilityOptions={businessAbilityOptions}
+                  vlAbilityOptions={businessVlAbilityOptions}
+                  onChange={setBusinessForm}
                   onClose={() => setBusinessDialogOpen(false)}
                   onConfirm={handleBusinessSubmit}
-                >
-                  <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-                    {businessFormError ? <Alert theme="error" message={businessFormError} /> : null}
-                    <Row gutter={[12, 12]}>
-                      <Col span={6}>
-                        <Typography.Text theme="secondary">业务标识</Typography.Text>
-                        <Input
-                          value={businessForm.businessKey}
-                          placeholder="例如 fission / outpaint"
-                          onChange={(v) => setBusinessForm({ ...businessForm, businessKey: String(v) })}
-                        />
-                      </Col>
-                      <Col span={6}>
-                        <Typography.Text theme="secondary">版本</Typography.Text>
-                        <Input
-                          value={businessForm.version}
-                          placeholder="例如 v2"
-                          onChange={(v) => setBusinessForm({ ...businessForm, version: String(v) })}
-                        />
-                      </Col>
-                      <Col span={6}>
-                        <Typography.Text theme="secondary">状态</Typography.Text>
-                        <Select
-                          value={businessForm.status}
-                          onChange={(v) => setBusinessForm({ ...businessForm, status: String(v) })}
-                          options={statusOptions}
-                        />
-                      </Col>
-                      <Col span={6}>
-                        <Typography.Text theme="secondary">是否默认</Typography.Text>
-                        <div style={{ paddingTop: 8 }}>
-                          <Switch
-                            value={businessForm.isDefault}
-                            onChange={(v) => setBusinessForm({ ...businessForm, isDefault: Boolean(v) })}
-                          />
-                        </div>
-                      </Col>
-                    </Row>
-                    <Row gutter={[12, 12]}>
-                      <Col span={12}>
-                        <Typography.Text theme="secondary">业务名称</Typography.Text>
-                        <Input
-                          value={businessForm.displayName}
-                          placeholder="例如 图裂变 · GPT Image 2 测试版"
-                          onChange={(v) => setBusinessForm({ ...businessForm, displayName: String(v) })}
-                        />
-                      </Col>
-                      <Col span={12}>
-                        <Typography.Text theme="secondary">底层能力</Typography.Text>
-                        <Select
-                          value={businessForm.primaryAbilityId}
-                          filterable
-                          options={businessAbilityOptions}
-                          placeholder="选择这个业务版本调用的原子能力"
-                          onChange={(v) => setBusinessForm({ ...businessForm, primaryAbilityId: String(v) })}
-                        />
-                      </Col>
-                    </Row>
-                    <Typography.Text theme="secondary">说明</Typography.Text>
-                    <Textarea
-                      autosize={{ minRows: 2, maxRows: 4 }}
-                      value={businessForm.description || ''}
-                      onChange={(v) => setBusinessForm({ ...businessForm, description: String(v) })}
-                    />
-                    <Card bordered title="VL 前置分析">
-                      <Space direction="vertical" size="small" style={{ width: '100%' }}>
-                        <Space align="center" size="small">
-                          <Switch
-                            value={businessForm.vlAssistEnabled}
-                            onChange={(v) => setBusinessForm({ ...businessForm, vlAssistEnabled: Boolean(v) })}
-                          />
-                          <Typography.Text theme="secondary">
-                            启用后，业务配方会记录图像理解步骤，可用于自动生成提示词和风险提示。
-                          </Typography.Text>
-                        </Space>
-                        <Row gutter={[12, 12]}>
-                          <Col span={12}>
-                            <Typography.Text theme="secondary">VL 能力</Typography.Text>
-                            <Select
-                              value={businessForm.vlAssistAbilityId}
-                              filterable
-                              disabled={!businessForm.vlAssistEnabled}
-                              options={businessVlAbilityOptions.length > 0 ? businessVlAbilityOptions : businessAbilityOptions}
-                              placeholder="选择图像理解能力"
-                              onChange={(v) => setBusinessForm({ ...businessForm, vlAssistAbilityId: String(v) })}
-                            />
-                          </Col>
-                          <Col span={12}>
-                            <Typography.Text theme="secondary">串联方式</Typography.Text>
-                            <Space direction="vertical" size={6} style={{ width: '100%' }}>
-                              <Space align="center" size="small">
-                                <Switch
-                                  value={businessForm.vlAssistWaitForResult}
-                                  disabled={!businessForm.vlAssistEnabled}
-                                  onChange={(v) =>
-                                    setBusinessForm({
-                                      ...businessForm,
-                                      vlAssistWaitForResult: Boolean(v),
-                                      vlAssistApplyToPrimary: Boolean(v) ? businessForm.vlAssistApplyToPrimary : false,
-                                    })
-                                  }
-                                />
-                                <Typography.Text theme="secondary">等 VL 完成后再出图</Typography.Text>
-                              </Space>
-                              <Space align="center" size="small">
-                                <Switch
-                                  value={businessForm.vlAssistApplyToPrimary}
-                                  disabled={!businessForm.vlAssistEnabled || !businessForm.vlAssistWaitForResult}
-                                  onChange={(v) =>
-                                    setBusinessForm({
-                                      ...businessForm,
-                                      vlAssistApplyToPrimary: Boolean(v),
-                                      vlAssistWaitForResult: Boolean(v) ? true : businessForm.vlAssistWaitForResult,
-                                    })
-                                  }
-                                />
-                                <Typography.Text theme="secondary">用 VL 结果补主任务提示词</Typography.Text>
-                              </Space>
-                            </Space>
-                          </Col>
-                        </Row>
-                        <Alert
-                          theme="info"
-                          message={
-                            businessForm.vlAssistWaitForResult
-                              ? '当前是串联模式：先分析图片，成功后再提交主出图任务；VL 失败时主任务不会提交。'
-                              : '当前是伴随模式：主出图任务会立即提交，VL 只做记录和观测，不影响出图。'
-                          }
-                        />
-                      </Space>
-                    </Card>
-                    <Row gutter={[12, 12]}>
-                      <Col span={12}>
-                        <Typography.Text theme="secondary">发布时间</Typography.Text>
-                        <Input
-                          value={businessForm.releaseTime || ''}
-                          placeholder="例如 2026-04-25T10:00:00，可留空"
-                          onChange={(v) => setBusinessForm({ ...businessForm, releaseTime: String(v) })}
-                        />
-                      </Col>
-                    </Row>
-                    <Card bordered title="灰度发布">
-                      <Space direction="vertical" size="small" style={{ width: '100%' }}>
-                        <Space align="center" size="large">
-                          <Space align="center" size="small">
-                            <Switch
-                              value={businessForm.rolloutEnabled}
-                              onChange={(v) => setBusinessForm({ ...businessForm, rolloutEnabled: Boolean(v) })}
-                            />
-                            <Typography.Text theme="secondary">启用灰度</Typography.Text>
-                          </Space>
-                          <Space align="center" size="small">
-                            <Typography.Text theme="secondary">灰度比例</Typography.Text>
-                            <InputNumber
-                              min={0}
-                              max={100}
-                              value={businessForm.rolloutPercent}
-                              onChange={(v) => setBusinessForm({ ...businessForm, rolloutPercent: Number(v || 0) })}
-                            />
-                            <Typography.Text theme="secondary">%</Typography.Text>
-                          </Space>
-                        </Space>
-                        <Typography.Text theme="secondary">
-                          白名单每行一个客户标识；业务调用时在 metadata.grayKey 或 metadata.tenantId 传同样的值即可命中。
-                        </Typography.Text>
-                        <Textarea
-                          autosize={{ minRows: 2, maxRows: 5 }}
-                          value={businessForm.rolloutAllowlistText}
-                          placeholder="例如：tenant-a"
-                          onChange={(v) => setBusinessForm({ ...businessForm, rolloutAllowlistText: String(v) })}
-                        />
-                      </Space>
-                    </Card>
-                    <Alert
-                      theme="warning"
-                      message="高级配置一般不用改。底层能力已能决定模型来源，只有多步骤编排时才需要编辑配方。"
-                    />
-                    <Typography.Text theme="secondary">业务配方 JSON</Typography.Text>
-                    <Textarea
-                      autosize={{ minRows: 4, maxRows: 8 }}
-                      value={businessForm.recipeText}
-                      onChange={(v) => setBusinessForm({ ...businessForm, recipeText: String(v) })}
-                    />
-                    <Typography.Text theme="secondary">输入字段 JSON</Typography.Text>
-                    <Textarea
-                      autosize={{ minRows: 3, maxRows: 6 }}
-                      value={businessForm.inputSchemaText}
-                      onChange={(v) => setBusinessForm({ ...businessForm, inputSchemaText: String(v) })}
-                    />
-                    <Typography.Text theme="secondary">元信息 JSON</Typography.Text>
-                    <Textarea
-                      autosize={{ minRows: 3, maxRows: 6 }}
-                      value={businessForm.metadataText}
-                      onChange={(v) => setBusinessForm({ ...businessForm, metadataText: String(v) })}
-                    />
-                  </Space>
-                </Dialog>
-              </Space>
+                />
+                </Space>
+              </Suspense>
+            </Section>
+          )}
+
+          {activeNav === 'billing' && (
+            <Section id="billing" title="账单框架" description="当前只做成本核对、流水和对账雏形；充值、支付、正式发票放到后一阶段。">
+              <BillingPanel
+                month={billingMonth}
+                windowDays={billingWindowDays}
+                tenantId={billingTenantId}
+                clientId={billingClientId}
+                businessKey={billingBusinessKey}
+                overview={billingOverview}
+                monthlySettlement={billingMonthlySettlement}
+                monthlySettlementRecords={billingMonthlySettlementRecords}
+                packageAlertNotifications={billingPackageAlertNotifications}
+                monthlyCollectionNotifications={billingMonthlyCollectionNotifications}
+                notificationConfig={billingNotificationConfig}
+                packagePurchaseOrders={billingPackagePurchaseOrders}
+                invoiceRequests={billingInvoiceRequests}
+                detail={billingDetail}
+                selectedUserId={billingSelectedUserId}
+                loading={billingLoading}
+                exporting={billingExporting}
+                error={billingError}
+                onMonthChange={setBillingMonth}
+                onWindowDaysChange={setBillingWindowDays}
+                onTenantIdChange={setBillingTenantId}
+                onClientIdChange={setBillingClientId}
+                onBusinessKeyChange={setBillingBusinessKey}
+                onRefresh={refreshBillingOverview}
+                onExport={exportBillingUserLedger}
+                onSelectUser={refreshBillingUserDetail}
+                onRetryIssue={retryBillingIssue}
+                onRefundIssue={refundBillingIssue}
+                onGrantPackage={grantBillingPackage}
+                onIssueMonthlySettlement={issueBillingMonthlySettlement}
+                onMarkMonthlySettlementPaid={markBillingMonthlySettlementPaid}
+                onRunPackageAlertNotification={runBillingPackageAlertNotification}
+                onRunMonthlyCollectionNotification={runBillingMonthlyCollectionNotification}
+                onSaveNotificationConfig={saveBillingNotificationConfig}
+                onCreatePackagePurchaseOrder={createPackagePurchaseOrder}
+                onMarkPackagePurchaseOrderPaid={markPackagePurchaseOrderPaid}
+                onCreateInvoiceRequest={createBillingInvoiceRequest}
+                onMarkInvoiceRequestIssued={markBillingInvoiceRequestIssued}
+                formatDateTime={formatDateTime}
+              />
             </Section>
           )}
 
           {activeNav === 'auth' && (
             <Section id="auth" title="账号权限" description="管理用户、登录会话和邀请码；复杂权限后续再拆。">
-              <Space direction="vertical" size="large" style={{ width: '100%' }}>
-                <Alert
-                  theme="info"
-                  message="第一阶段闭环：管理员生成或失效邀请码，用户用邀请码注册，登录会话可追踪并可踢出。角色暂时仍使用用户表里的 role 字段。"
-                />
-                {authError ? <Alert theme="error" message={authError} /> : null}
-                <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                  <Space breakLine>
-                    <Tag variant="light">用户 {authUsers.length}</Tag>
-                    <Tag variant="light">登录会话 {authSessions.length}</Tag>
-                    <Tag variant="light">邀请码 {inviteCodes.length}</Tag>
-                    <Tag theme="warning" variant="light">多角色表未启用</Tag>
-                  </Space>
-                  <Button variant="outline" loading={authLoading} onClick={refreshAuthPanel}>
-                    刷新
-                  </Button>
-                </Space>
-                <Row gutter={[16, 16]}>
-                  <Col xs={12} lg={4}>
-                    <Card bordered title="生成邀请码">
-                      <Space direction="vertical" size="small" style={{ width: '100%' }}>
-                        <Typography.Text theme="secondary">角色</Typography.Text>
-                        <Select
-                          value={authInviteForm.role || 'user'}
-                          options={[
-                            { label: '管理员', value: 'admin' },
-                            { label: '内部用户', value: 'user' },
-                            { label: '业务方', value: 'client' },
-                          ]}
-                          onChange={(value) => setAuthInviteForm({ ...authInviteForm, role: String(value || 'user') })}
-                        />
-                        <Typography.Text theme="secondary">业务方标识</Typography.Text>
-                        <Input
-                          value={authInviteForm.tenantId || ''}
-                          placeholder="例如 tenant-a，可留空"
-                          onChange={(value) => setAuthInviteForm({ ...authInviteForm, tenantId: String(value || '') })}
-                        />
-                        <Typography.Text theme="secondary">客户端标识</Typography.Text>
-                        <Input
-                          value={authInviteForm.clientId || ''}
-                          placeholder="例如 web-client，可留空"
-                          onChange={(value) => setAuthInviteForm({ ...authInviteForm, clientId: String(value || '') })}
-                        />
-                        <Typography.Text theme="secondary">可用次数</Typography.Text>
-                        <InputNumber
-                          min={1}
-                          max={100}
-                          value={authInviteForm.maxUses || 1}
-                          onChange={(value) =>
-                            setAuthInviteForm({ ...authInviteForm, maxUses: Number(value || 1) })
-                          }
-                        />
-                        <Typography.Text theme="secondary">过期时间</Typography.Text>
-                        <Input
-                          value={authInviteForm.expiresAt || ''}
-                          placeholder="例如 2026-05-25T00:00:00，可留空"
-                          onChange={(value) => setAuthInviteForm({ ...authInviteForm, expiresAt: String(value || '') })}
-                        />
-                        <Typography.Text theme="secondary">备注</Typography.Text>
-                        <Textarea
-                          autosize={{ minRows: 2, maxRows: 4 }}
-                          value={authInviteForm.note || ''}
-                          placeholder="说明这个邀请码给谁用"
-                          onChange={(value) => setAuthInviteForm({ ...authInviteForm, note: String(value || '') })}
-                        />
-                        <Button theme="primary" loading={authLoading} onClick={handleAuthInviteSubmit}>
-                          生成邀请码
-                        </Button>
-                      </Space>
-                    </Card>
-                  </Col>
-                  <Col xs={12} lg={8}>
-                    <Card bordered title="邀请码">
-                      <Table
-                        size="small"
-                        rowKey="id"
-                        data={inviteCodes}
-                        loading={authLoading}
-                        empty={<Typography.Text theme="secondary">暂无邀请码。</Typography.Text>}
-                        columns={[
-                          {
-                            colKey: 'code',
-                            title: '邀请码',
-                            minWidth: 120,
-                            cell: ({ row }) => <Typography.Text code>{row.code}</Typography.Text>,
-                          },
-                          {
-                            colKey: 'scope',
-                            title: '归属',
-                            minWidth: 180,
-                            cell: ({ row }) => (
-                              <Space direction="vertical" size={2}>
-                                <Typography.Text>{row.tenantId || '未绑定业务方'}</Typography.Text>
-                                <Typography.Text theme="secondary">{row.clientId || '未绑定客户端'}</Typography.Text>
-                              </Space>
-                            ),
-                          },
-                          {
-                            colKey: 'role',
-                            title: '角色',
-                            width: 110,
-                            cell: ({ row }) => <Tag variant="light">{row.role}</Tag>,
-                          },
-                          {
-                            colKey: 'usage',
-                            title: '使用',
-                            width: 120,
-                            cell: ({ row }) => `${row.usedCount || 0}/${row.maxUses || 1}`,
-                          },
-                          {
-                            colKey: 'status',
-                            title: '状态',
-                            width: 120,
-                            cell: ({ row }) => <StatusBadge status={row.status} />,
-                          },
-                          {
-                            colKey: 'expiresAt',
-                            title: '过期时间',
-                            minWidth: 150,
-                            cell: ({ row }) => formatDateTime(row.expiresAt || ''),
-                          },
-                          {
-                            colKey: 'action',
-                            title: '操作',
-                            width: 100,
-                            cell: ({ row }) =>
-                              row.status === 'active' ? (
-                                <Button
-                                  size="small"
-                                  theme="danger"
-                                  variant="text"
-                                  onClick={() => handleAuthInviteDisable(row)}
-                                >
-                                  失效
-                                </Button>
-                              ) : (
-                                <Typography.Text theme="secondary">—</Typography.Text>
-                              ),
-                          },
-                        ]}
-                      />
-                    </Card>
-                  </Col>
-                </Row>
-                <Row gutter={[16, 16]}>
-                  <Col xs={12} lg={7}>
-                    <Card bordered title="用户">
-                      <Table
-                        size="small"
-                        rowKey="id"
-                        data={authUsers}
-                        loading={authLoading}
-                        empty={<Typography.Text theme="secondary">暂无用户。</Typography.Text>}
-                        columns={[
-                          {
-                            colKey: 'user',
-                            title: '用户',
-                            minWidth: 220,
-                            cell: ({ row }) => (
-                              <Space direction="vertical" size={2}>
-                                <Typography.Text strong>{row.displayName || row.username}</Typography.Text>
-                                <Typography.Text theme="secondary">{row.email}</Typography.Text>
-                              </Space>
-                            ),
-                          },
-                          {
-                            colKey: 'role',
-                            title: '角色',
-                            width: 110,
-                            cell: ({ row }) => <Tag variant="light">{row.role}</Tag>,
-                          },
-                          {
-                            colKey: 'scope',
-                            title: '业务归属',
-                            minWidth: 180,
-                            cell: ({ row }) => (
-                              <Typography.Text theme="secondary">
-                                {row.tenantId || '—'} · {row.clientId || '—'}
-                              </Typography.Text>
-                            ),
-                          },
-                          {
-                            colKey: 'status',
-                            title: '状态',
-                            width: 110,
-                            cell: ({ row }) => <StatusBadge status={row.status} />,
-                          },
-                          {
-                            colKey: 'lastLoginAt',
-                            title: '最近登录',
-                            minWidth: 150,
-                            cell: ({ row }) => formatDateTime(row.lastLoginAt || ''),
-                          },
-                        ]}
-                      />
-                    </Card>
-                  </Col>
-                  <Col xs={12} lg={5}>
-                    <Card bordered title="登录会话">
-                      <Table
-                        size="small"
-                        rowKey="id"
-                        data={authSessions}
-                        loading={authLoading}
-                        empty={<Typography.Text theme="secondary">暂无会话。</Typography.Text>}
-                        columns={[
-                          {
-                            colKey: 'user',
-                            title: '用户',
-                            minWidth: 170,
-                            cell: ({ row }) => (
-                              <Space direction="vertical" size={2}>
-                                <Typography.Text>{row.displayName || row.username || '未知用户'}</Typography.Text>
-                                <Typography.Text theme="secondary">{row.email || row.userId || '—'}</Typography.Text>
-                              </Space>
-                            ),
-                          },
-                          {
-                            colKey: 'status',
-                            title: '状态',
-                            width: 100,
-                            cell: ({ row }) => <StatusBadge status={row.status} />,
-                          },
-                          {
-                            colKey: 'ipAddress',
-                            title: 'IP',
-                            minWidth: 130,
-                            cell: ({ row }) => row.ipAddress || '—',
-                          },
-                          {
-                            colKey: 'expiresAt',
-                            title: '过期时间',
-                            minWidth: 150,
-                            cell: ({ row }) => formatDateTime(row.expiresAt || ''),
-                          },
-                          {
-                            colKey: 'action',
-                            title: '操作',
-                            width: 100,
-                            cell: ({ row }) =>
-                              row.status === 'active' ? (
-                                <Button
-                                  size="small"
-                                  theme="danger"
-                                  variant="text"
-                                  onClick={() => handleAuthSessionRevoke(row)}
-                                >
-                                  踢出
-                                </Button>
-                              ) : (
-                                <Typography.Text theme="secondary">—</Typography.Text>
-                              ),
-                          },
-                        ]}
-                      />
-                    </Card>
-                  </Col>
-                </Row>
-              </Space>
+              <AuthPanel
+                users={authUsers}
+                sessions={authSessions}
+                inviteCodes={inviteCodes}
+                scopeSummary={authScopeSummary}
+                userForm={authUserForm}
+                inviteForm={authInviteForm}
+                loading={authLoading}
+                error={authError}
+                onRefresh={refreshAuthPanel}
+                onUserFormChange={setAuthUserForm}
+                onUserEditSelect={handleAuthUserEditSelect}
+                onUserSubmit={handleAuthUserSubmit}
+                onInviteFormChange={setAuthInviteForm}
+                onInviteSubmit={handleAuthInviteSubmit}
+                onInviteDisable={handleAuthInviteDisable}
+                onSessionRevoke={handleAuthSessionRevoke}
+                formatDateTime={formatDateTime}
+              />
             </Section>
           )}
 
           {activeNav === 'monitor' && dashboardMetrics && (
             <Section id="monitor" title="运行监控" description="实时关注任务队列、当日执行概况以及节点健康状态。">
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                <MetricCard label="累计任务" value={dashboardMetrics.totals.total_tasks} sub="历史累计" />
-                <MetricCard label="排队中" value={pendingQueueTotal} sub={pendingQueueSub} />
-                <MetricCard label="执行中（含回调）" value={runningQueueTotal} sub={runningQueueSub} />
-                <MetricCard label="批次待处理" value={pendingBatchValue} sub={pendingBatchSub} />
-                <MetricCard label="失败任务" value={dashboardMetrics.totals.failed_tasks} sub="含错误待复盘" />
-                <MetricCard
-                  label="ComfyUI 排队"
-                  value={comfyQueueSummary ? comfyQueueSummary.totalPending : '—'}
-                  sub={
-                    comfyExecutors.length === 0
-                      ? '未配置 ComfyUI 节点'
-                      : comfyQueueSummaryLoading
-                        ? '加载中'
-                        : comfyQueueSummary
-                          ? `running ${comfyQueueSummary.totalRunning}`
-                          : '等待刷新'
-                  }
-                />
-              </div>
-              <Row gutter={[16, 16]}>
-                <Col span={12}>
-                  <Card title="状态分布" bordered>
-                    <Typography.Text theme="secondary">统计所有任务的最新状态，便于评估调度堵塞点。</Typography.Text>
-                    <div style={{ marginTop: 12 }}>
-                      <Table
-                        rowKey="status"
-                        size="small"
-                        data={dashboardMetrics.status_buckets}
-                        columns={[
-                          { colKey: 'status', title: '状态', width: 220 },
-                          { colKey: 'count', title: '数量' },
-                        ]}
-                      />
-                    </div>
-                  </Card>
-                </Col>
-                <Col span={12}>
-                  <Card title="今日任务" bordered>
-                    <Typography.Text theme="secondary">按东八区自然日统计。</Typography.Text>
-                    <div style={{ marginTop: 12 }} className="grid gap-4 sm:grid-cols-3">
-                      <MetricCard label="新建" value={dashboardMetrics.today.created} />
-                      <MetricCard label="完成" value={dashboardMetrics.today.completed} />
-                      <MetricCard label="失败" value={dashboardMetrics.today.failed} />
-                    </div>
-                  </Card>
-                </Col>
-              </Row>
-              <Row gutter={[16, 16]}>
-                <Col span={24}>
-                  <Card title="队列总览" bordered>
-                    <Typography.Text theme="secondary">
-                      排队=created/pending/queued；执行=running（含回调中）。批次任务显示“待处理批次 / 剩余任务数”。
-                    </Typography.Text>
-                    <div style={{ marginTop: 12 }}>
-                      <Table
-                        rowKey="key"
-                        size="small"
-                        data={queueOverviewRows}
-                        columns={[
-                          { colKey: 'label', title: '类型', width: 180 },
-                          { colKey: 'pending', title: '排队中', width: 140 },
-                          { colKey: 'running', title: '执行中', width: 140 },
-                          {
-                            colKey: 'total',
-                            title: '合计',
-                            width: 140,
-                            cell: ({ row }) => (row.pending || 0) + (row.running || 0),
-                          },
-                          {
-                            colKey: 'note',
-                            title: '备注',
-                            cell: ({ row }) => row.note || '—',
-                          },
-                        ]}
-                      />
-                    </div>
-                  </Card>
-                </Col>
-              </Row>
-              <Row gutter={[16, 16]}>
-                <Col span={24}>
-                  <Card
-                    title={
-                      <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                        <Space align="center">
-                          <span>ComfyUI 队列</span>
-                          <Typography.Text theme="secondary">跨节点汇总</Typography.Text>
-                        </Space>
-                        <Button
-                          size="small"
-                          variant="outline"
-                          onClick={() => refreshComfyQueueSummary()}
-                          loading={comfyQueueSummaryLoading}
-                          disabled={comfyExecutors.length === 0}
-                        >
-                          刷新
-                        </Button>
-                      </Space>
-                    }
-                    bordered
-                  >
-                    <Typography.Text theme="secondary">
-                      该队列来自 ComfyUI 节点自身的 /queue 状态，与内部任务队列分开统计。
-                    </Typography.Text>
-                    <div style={{ marginTop: 12 }} className="grid gap-4 sm:grid-cols-3">
-                      <MetricCard label="Running" value={comfyQueueSummary?.totalRunning ?? '—'} />
-                      <MetricCard label="Pending" value={comfyQueueSummary?.totalPending ?? '—'} />
-                      <MetricCard label="Total" value={comfyQueueSummary?.totalCount ?? '—'} />
-                    </div>
-                    <div style={{ marginTop: 12 }}>
-                      <Table
-                        rowKey="executorId"
-                        size="small"
-                        data={comfyQueueSummary?.servers || []}
-                        columns={[
-                          {
-                            colKey: 'executorId',
-                            title: '节点',
-                            cell: ({ row }) => {
-                              const ex = executors.find((item) => item.id === row.executorId);
-                              return (
-                                <Space direction="vertical" size={2}>
-                                  <Typography.Text>{ex?.name || row.executorId}</Typography.Text>
-                                  <Typography.Text theme="secondary">{row.executorId}</Typography.Text>
-                                </Space>
-                              );
-                            },
-                          },
-                          {
-                            colKey: 'baseUrl',
-                            title: 'Base URL',
-                            ellipsis: true,
-                          },
-                          { colKey: 'runningCount', title: 'Running', width: 120 },
-                          { colKey: 'pendingCount', title: 'Pending', width: 120 },
-                          {
-                            colKey: 'queueMaxSize',
-                            title: 'Max',
-                            width: 100,
-                            cell: ({ row }) => (typeof row.queueMaxSize === 'number' ? row.queueMaxSize : '—'),
-                          },
-                          {
-                            colKey: 'supported',
-                            title: '支持',
-                            width: 100,
-                            cell: ({ row }) => (row.supported === false ? '否' : '是'),
-                          },
-                          {
-                            colKey: 'message',
-                            title: '备注',
-                            ellipsis: true,
-                            cell: ({ row }) =>
-                              row.message ? <Typography.Text theme="warning">{row.message}</Typography.Text> : '—',
-                          },
-                        ]}
-                        empty={
-                          comfyQueueSummaryLoading ? (
-                            <Typography.Text theme="secondary">加载中…</Typography.Text>
-                          ) : (
-                            <Typography.Text theme="secondary">暂无队列数据。</Typography.Text>
-                          )
-                        }
-                      />
-                    </div>
-                  </Card>
-                </Col>
-              </Row>
-              <Row gutter={[16, 16]}>
-                <Col span={12}>
-                  <Card
-                    title={
-                      <Space align="center">
-                        <span>最近任务</span>
-                        <Typography.Text theme="secondary">最新 8 条</Typography.Text>
-                      </Space>
-                    }
-                    bordered
-                  >
-                    <Table
-                      rowKey="id"
-                      size="small"
-                      data={dashboardMetrics.recent_tasks}
-                      columns={[
-                        {
-                          colKey: 'tool_action',
-                          title: '任务',
-                          ellipsis: true,
-                          cell: ({ row }) => (
-                            <Space direction="vertical" size={2}>
-                              <Typography.Text>{row.tool_action}</Typography.Text>
-                              <Typography.Text theme="secondary">{row.id}</Typography.Text>
-                            </Space>
-                          ),
-                        },
-                        { colKey: 'channel', title: '渠道', width: 160, ellipsis: true },
-                        { colKey: 'status', title: '状态', width: 140, cell: ({ row }) => renderStatusTag(row.status) },
-                        {
-                          colKey: 'created_at',
-                          title: '时间',
-                          width: 220,
-                          cell: ({ row }) => <Typography.Text theme="secondary">{formatDateTime(row.created_at)}</Typography.Text>,
-                        },
-                      ]}
-                    />
-                  </Card>
-                </Col>
-                <Col span={12}>
-                  <Card title="节点健康" bordered>
-                    <Table
-                      rowKey="id"
-                      size="small"
-                      data={dashboardMetrics.executor_health}
-                      columns={[
-                        {
-                          colKey: 'name',
-                          title: '节点',
-                          ellipsis: true,
-                          cell: ({ row }) => (
-                            <Space direction="vertical" size={2}>
-                              <Typography.Text>{row.name}</Typography.Text>
-                              <Typography.Text theme="secondary">{row.id}</Typography.Text>
-                            </Space>
-                          ),
-                        },
-                        { colKey: 'status', title: '状态', width: 120, cell: ({ row }) => renderStatusTag(row.status) },
-                        { colKey: 'health_status', title: '健康', width: 120, ellipsis: true },
-                        { colKey: 'max_concurrency', title: '并发', width: 80 },
-                        { colKey: 'weight', title: '权重', width: 80 },
-                        {
-                          colKey: 'last_heartbeat_at',
-                          title: '心跳',
-                          width: 220,
-                          cell: ({ row }) =>
-                            row.last_heartbeat_at ? (
-                              <Typography.Text theme="secondary">{formatDateTime(row.last_heartbeat_at)}</Typography.Text>
-                            ) : (
-                              <Typography.Text theme="secondary">—</Typography.Text>
-                            ),
-                        },
-                      ]}
-                      empty={<Typography.Text theme="secondary">暂无节点数据。</Typography.Text>}
-                    />
-                  </Card>
-                </Col>
-              </Row>
+              <MonitorPanel
+                dashboardMetrics={dashboardMetrics}
+                pendingQueueTotal={pendingQueueTotal}
+                pendingQueueSub={pendingQueueSub}
+                runningQueueTotal={runningQueueTotal}
+                runningQueueSub={runningQueueSub}
+                pendingBatchValue={pendingBatchValue}
+                pendingBatchSub={pendingBatchSub}
+                queueOverviewRows={queueOverviewRows}
+                comfyExecutors={comfyExecutors}
+                comfyQueueSummary={comfyQueueSummary}
+                comfyQueueSummaryLoading={comfyQueueSummaryLoading}
+                executors={executors}
+                onRefreshComfyQueue={refreshComfyQueueSummary}
+              />
             </Section>
           )}
 
           {activeNav === 'executors' && (
-      <Section id="executors" title="执行节点" description="维护执行器的接入信息、并发能力与心跳状态。">
-        <ActionBar>
-          <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
-            <Typography.Text theme="secondary">
-              同一能力可配置多条线路（多中转站 / 多 ComfyUI 服务器），后续调度会基于优先级与健康度自动切换。
-            </Typography.Text>
-            <Space>
-              <Button
-                size="small"
-                variant={executorsView === 'channels' ? 'base' : 'outline'}
-                onClick={() => setExecutorsView('channels')}
-              >
-                渠道视图
-              </Button>
-              <Button size="small" variant={executorsView === 'list' ? 'base' : 'outline'} onClick={() => setExecutorsView('list')}>
-                列表/编辑
-              </Button>
-              <Button
-                size="small"
-                variant="outline"
-                onClick={() => refreshExecutorTraffic()}
-                loading={executorTrafficLoading}
-                title="刷新近 24h 调用指标（成功率/失败/耗时）"
-              >
-                刷新指标
-              </Button>
-              <Button
-                size="small"
-                variant="outline"
-                onClick={() => refreshComfyQueueSummary()}
-                loading={comfyQueueSummaryLoading}
-                disabled={comfyExecutors.length === 0}
-                title="刷新 ComfyUI 队列汇总"
-              >
-                刷新队列
-              </Button>
-            </Space>
-          </Space>
-        </ActionBar>
-
-        {executorsView === 'channels' ? (
-          <div className="space-y-4">
-            {executorTrafficError && (
-              <Alert theme="error" message={executorTrafficError} />
-            )}
-            {comfyQueueSummaryError && (
-              <Alert theme="error" message={`ComfyUI 队列：${comfyQueueSummaryError}`} />
-            )}
-            {(() => {
-              const groups = new Map<string, Executor[]>();
-              executors.forEach((ex) => {
-                const key = ex.type || 'unknown';
-                const list = groups.get(key) || [];
-                list.push(ex);
-                groups.set(key, list);
-              });
-              const entries = Array.from(groups.entries()).sort(([a], [b]) => a.localeCompare(b));
-              if (entries.length === 0) {
-                return <div className="text-sm text-slate-500">暂无执行节点，请先新增。</div>;
-              }
-              return (
-                <div className="grid gap-4 lg:grid-cols-2">
-                  {entries.map(([type, items]) => {
-                    const activeCount = items.filter((x) => x.status === 'active').length;
-                    const typeLower = (type || '').toLowerCase();
-                    const isComfyGroup = typeLower.includes('comfyui');
-                    const queueSummary = isComfyGroup ? comfyQueueSummary : null;
-                    const queueSummaryTimestamp = queueSummary?.timestamp || comfyQueueSummaryUpdatedAt;
-                    return (
-                      <div
-                        key={`channel-group-${type}`}
-                        className="rounded-2xl border border-slate-200/70 bg-white/80 p-5 dark:border-slate-800 dark:bg-slate-900/40"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <div className="text-xs uppercase tracking-[0.35em] text-slate-500">Provider / Type</div>
-                            <div className="mt-2 text-lg font-semibold text-slate-900 dark:text-white">{type}</div>
-                            <div className="mt-1 text-xs text-slate-600 dark:text-slate-400">
-                              {activeCount}/{items.length} active · 建议至少 2 条线路做容灾（主/备）
-                            </div>
-                            {isComfyGroup && (
-                              <div className="mt-2 text-xs text-slate-600 dark:text-slate-400">
-                                {comfyQueueSummaryLoading
-                                  ? 'ComfyUI 队列：加载中…'
-                                  : queueSummary
-                                    ? `ComfyUI 队列：running ${queueSummary.totalRunning} · pending ${queueSummary.totalPending}`
-                                    : 'ComfyUI 队列：—'}
-                                {queueSummaryTimestamp ? (
-                                  <span className="ml-2 text-[11px] text-slate-500">
-                                    更新：{formatDateTime(queueSummaryTimestamp)}
-                                  </span>
-                                ) : null}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="mt-4 space-y-3">
-                          {items
-                            .slice()
-                            .sort((a, b) => (b.weight || 0) - (a.weight || 0))
-                            .map((ex) => {
-                              const metric = executorTraffic[ex.id];
-                              const isComfyExecutor = (ex.type || '').toLowerCase().includes('comfyui');
-                              const queueStatus = isComfyExecutor ? comfyQueueByExecutor[ex.id] : null;
-                              const modelCatalog = isComfyExecutor ? comfyModelCache[ex.id] : undefined;
-                              const modelCounts = isComfyExecutor ? extractComfyuiModelCounts(modelCatalog) : null;
-                              const systemInfo = isComfyExecutor ? comfySystemCache[ex.id] : undefined;
-                              const versionInfo = isComfyExecutor ? extractComfyuiVersionInfo(ex, systemInfo) : null;
-                              const modelLoading = Boolean(comfyModelLoadingByExecutor[ex.id]);
-                              const modelError = comfyModelErrorByExecutor[ex.id];
-                              const systemLoading = Boolean(comfySystemLoadingByExecutor[ex.id]);
-                              const systemError = comfySystemErrorByExecutor[ex.id];
-                              return (
-                                <div
-                                  key={`channel-${ex.id}`}
-                                  className="rounded-2xl border border-slate-200 bg-slate-50/50 p-4 dark:border-slate-800 dark:bg-slate-950/20"
-                                >
-                                  <div className="flex items-start justify-between gap-3">
-                                    <div className="min-w-0">
-                                      <div className="flex items-center gap-2">
-                                        <div className="truncate font-semibold text-slate-900 dark:text-white">
-                                          {getExecutorChannelLabel(ex)}
-                                        </div>
-                                        <StatusPill status={ex.status} />
-                                      </div>
-                                      <div className="mt-1 truncate text-xs text-slate-600 dark:text-slate-400">
-                                        {ex.base_url || '—'}
-                                      </div>
-                                      {extractExecutorTags(ex).length > 0 ? (
-                                        <div className="mt-2 flex flex-wrap gap-1">
-                                          {extractExecutorTags(ex).map((tag) => (
-                                            <span
-                                              key={`${ex.id}-tag-${tag}`}
-                                              className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-600 dark:border-slate-700 dark:bg-slate-950/40 dark:text-slate-300"
-                                            >
-                                              {tag}
-                                            </span>
-                                          ))}
-                                        </div>
-                                      ) : null}
-                                    </div>
-                                    <div className="shrink-0 text-right text-xs text-slate-600 dark:text-slate-400">
-                                      <div>
-                                        并发/权重：{ex.max_concurrency}/{ex.weight}
-                                      </div>
-                                      <div>心跳：{ex.last_heartbeat_at ? formatDate(ex.last_heartbeat_at) : '—'}</div>
-                                    </div>
-                                  </div>
-
-                                  <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                                    <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-300">
-                                      <div className="text-[10px] uppercase tracking-widest text-slate-500">24h Calls</div>
-                                      <div className="mt-1 text-sm font-semibold text-slate-900 dark:text-white">
-                                        {metric ? metric.count : '—'}
-                                      </div>
-                                    </div>
-                                    <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-300">
-                                      <div className="text-[10px] uppercase tracking-widest text-slate-500">Success</div>
-                                      <div className="mt-1 text-sm font-semibold text-slate-900 dark:text-white">
-                                        {metric && metric.successRate !== null ? `${Math.round(metric.successRate * 100)}%` : '—'}
-                                      </div>
-                                      {metric?.lastFailedAt && (
-                                        <div className="mt-1 text-[11px] text-rose-700 dark:text-rose-300">
-                                          最近失败：{formatDateTime(metric.lastFailedAt)}
-                                        </div>
-                                      )}
-                                    </div>
-                                    <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-300">
-                                      <div className="text-[10px] uppercase tracking-widest text-slate-500">P95</div>
-                                      <div className="mt-1 text-sm font-semibold text-slate-900 dark:text-white">
-                                        {metric?.p95Ms ? `${Math.round(metric.p95Ms)}ms` : '—'}
-                                      </div>
-                                      <div className="mt-1 text-[11px] text-slate-500">
-                                        路由：按“分配策略”优先级（后续支持失败/超时自动回退）
-                                      </div>
-                                    </div>
-                                    {isComfyExecutor && (
-                                      <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-300">
-                                        <div className="text-[10px] uppercase tracking-widest text-slate-500">Queue</div>
-                                        <div className="mt-1 text-sm font-semibold text-slate-900 dark:text-white">
-                                          {queueStatus
-                                            ? `${queueStatus.runningCount}/${queueStatus.pendingCount}`
-                                            : comfyQueueSummaryLoading
-                                              ? '加载中…'
-                                              : '—'}
-                                        </div>
-                                        <div className="mt-1 text-[11px] text-slate-500">running/pending</div>
-                                        {queueStatus?.message ? (
-                                          <div className="mt-1 text-[11px] text-amber-600">{queueStatus.message}</div>
-                                        ) : null}
-                                      </div>
-                                    )}
-                                  </div>
-                                  {isComfyExecutor && (
-                                    <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                                      <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-300">
-                                        <div className="text-[10px] uppercase tracking-widest text-slate-500">ComfyUI 版本</div>
-                                        <div className="mt-1 text-sm font-semibold text-slate-900 dark:text-white">
-                                          {versionInfo?.version || '—'}
-                                        </div>
-                                        <div className="mt-1 text-[11px] text-slate-500">
-                                          节点：{versionInfo?.customNodes || '—'}
-                                        </div>
-                                        {systemError ? (
-                                          <div className="mt-1 text-[11px] text-rose-500">{systemError}</div>
-                                        ) : null}
-                                      </div>
-                                      <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-300">
-                                        <div className="text-[10px] uppercase tracking-widest text-slate-500">模型/LoRA</div>
-                                        <div className="mt-1 text-sm font-semibold text-slate-900 dark:text-white">
-                                          {modelCatalog ? `${modelCounts?.unet || 0}/${modelCounts?.lora || 0}` : '—'}
-                                        </div>
-                                        <div className="mt-1 text-[11px] text-slate-500">unet/lora</div>
-                                        {modelError ? (
-                                          <div className="mt-1 text-[11px] text-rose-500">{modelError}</div>
-                                        ) : null}
-                                      </div>
-                                      <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-300">
-                                        <div className="text-[10px] uppercase tracking-widest text-slate-500">同步标记</div>
-                                        <div className="mt-1 text-sm font-semibold text-slate-900 dark:text-white">
-                                          {versionInfo?.syncRole || '—'}
-                                        </div>
-                                        <div className="mt-1 text-[11px] text-slate-500">
-                                          {versionInfo?.lastSyncAt ? `更新：${versionInfo.lastSyncAt}` : '未标记时间'}
-                                        </div>
-                                        <div className="mt-2 grid grid-cols-2 gap-2">
-                                          <button
-                                            className="rounded border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700 hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200 dark:hover:bg-slate-900/60"
-                                            onClick={() => refreshComfyuiSystemStats(ex.id)}
-                                            disabled={systemLoading}
-                                          >
-                                            {systemLoading ? '同步中…' : '拉取版本'}
-                                          </button>
-                                          <button
-                                            className="rounded border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700 hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200 dark:hover:bg-slate-900/60"
-                                            onClick={() => refreshComfyuiModelCatalog(ex.id)}
-                                            disabled={modelLoading}
-                                          >
-                                            {modelLoading ? '同步中…' : '拉取模型'}
-                                          </button>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              );
-            })()}
-          </div>
-        ) : (
-          <Space direction="vertical" size="large" style={{ width: '100%' }}>
-            <Row gutter={[16, 16]}>
-              <Col xs={12} lg={7}>
-                <Card bordered title="节点列表" style={{ width: '100%' }}>
-                  <Space direction="vertical" size="small" style={{ width: '100%' }}>
-                    <Typography.Text theme="secondary">
-                      小贴士：并发（max_concurrency）保存后会立即生效；建议从 1~4 起逐步放量。
-                    </Typography.Text>
-                    <div style={{ overflowX: 'auto' }}>
-                      <table style={{ width: '100%' }}>
-                        <thead>
-                          <tr style={{ textAlign: 'left' }}>
-                            <th style={{ padding: '8px 6px' }}>名称</th>
-                            <th style={{ padding: '8px 6px' }}>类型</th>
-                            <th style={{ padding: '8px 6px' }}>状态</th>
-                            <th style={{ padding: '8px 6px', width: 220 }}>并发</th>
-                            <th style={{ padding: '8px 6px', width: 140 }}>权重</th>
-                            <th style={{ padding: '8px 6px', width: 160 }}>心跳</th>
-                            <th style={{ padding: '8px 6px', width: 120 }} />
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {executors.map((ex) => {
-                            const draft = Number(executorInlineConcurrency[ex.id] ?? ex.max_concurrency ?? 1) || 1;
-                            const changed = draft !== ex.max_concurrency;
-                            const saving = Boolean(executorInlineSaving[ex.id]);
-                            const err = executorInlineError[ex.id];
-                            const isComfyExecutor = (ex.type || '').toLowerCase().includes('comfyui');
-                            const systemInfo = isComfyExecutor ? comfySystemCache[ex.id] : undefined;
-                            const versionInfo = isComfyExecutor ? extractComfyuiVersionInfo(ex, systemInfo) : null;
-                            const modelCatalog = isComfyExecutor ? comfyModelCache[ex.id] : undefined;
-                            const modelCounts = isComfyExecutor ? extractComfyuiModelCounts(modelCatalog) : null;
-                            const modelLoading = Boolean(comfyModelLoadingByExecutor[ex.id]);
-                            const systemLoading = Boolean(comfySystemLoadingByExecutor[ex.id]);
-                            return (
-                              <tr key={ex.id}>
-                                <td style={{ padding: '10px 6px' }}>
-                                  <div style={{ fontWeight: 600 }}>{ex.name}</div>
-                                  <Typography.Text theme="secondary">{ex.base_url || '—'}</Typography.Text>
-                                  {extractExecutorTags(ex).length > 0 ? (
-                                    <div className="mt-1 text-[11px] text-slate-500">
-                                      标签：{extractExecutorTags(ex).join(', ')}
-                                    </div>
-                                  ) : null}
-                                  {isComfyExecutor && (
-                                    <div className="mt-1 text-[11px] text-slate-500">
-                                      版本：{versionInfo?.version || '—'} · 模型/LoRA：{modelCatalog ? `${modelCounts?.unet || 0}/${modelCounts?.lora || 0}` : '—'}
-                                    </div>
-                                  )}
-                                </td>
-                                <td style={{ padding: '10px 6px' }}>
-                                  <Typography.Text theme="secondary">{ex.type}</Typography.Text>
-                                </td>
-                                <td style={{ padding: '10px 6px' }}>
-                                  <StatusPill status={ex.status} />
-                                </td>
-                                <td style={{ padding: '10px 6px' }}>
-                                  <Space direction="vertical" size={2}>
-                                    <Space align="center" size="small">
-                                      <InputNumber
-                                        size="small"
-                                        min={1}
-                                        max={50}
-                                        value={draft}
-                                        onChange={(v) =>
-                                          setExecutorInlineConcurrency((prev) => ({ ...prev, [ex.id]: Number(v) || 1 }))
-                                        }
-                                      />
-                                      <Button
-                                        size="small"
-                                        theme="primary"
-                                        disabled={!changed || saving}
-                                        loading={saving}
-                                        onClick={() => saveExecutorConcurrency(ex.id)}
-                                      >
-                                        保存
-                                      </Button>
-                                    </Space>
-                                    {err ? (
-                                      <Typography.Text theme="error" style={{ fontSize: 12 }}>
-                                        {err}
-                                      </Typography.Text>
-                                    ) : null}
-                                  </Space>
-                                </td>
-                                <td style={{ padding: '10px 6px' }}>
-                                  <Typography.Text theme="secondary">{ex.weight}</Typography.Text>
-                                </td>
-                                <td style={{ padding: '10px 6px' }}>
-                                  <Typography.Text theme="secondary">{ex.last_heartbeat_at || '—'}</Typography.Text>
-                                </td>
-                                <td style={{ padding: '10px 6px' }}>
-                                  <Space size="small">
-                                    <Button
-                                      size="small"
-                                      variant="text"
-                                      onClick={() => {
-                                        const { config, ...rest } = ex;
-                                        setExecutorForm({ ...rest, config: stringifyJSON(config) });
-                                        setExecutorFormError(null);
-                                      }}
-                                    >
-                                      编辑
-                                    </Button>
-                                    {isComfyExecutor && (
-                                      <>
-                                        <Button
-                                          size="small"
-                                          variant="text"
-                                          disabled={systemLoading}
-                                          onClick={() => refreshComfyuiSystemStats(ex.id)}
-                                        >
-                                          {systemLoading ? '同步中…' : '拉取版本'}
-                                        </Button>
-                                        <Button
-                                          size="small"
-                                          variant="text"
-                                          disabled={modelLoading}
-                                          onClick={() => refreshComfyuiModelCatalog(ex.id)}
-                                        >
-                                          {modelLoading ? '同步中…' : '拉取模型'}
-                                        </Button>
-                                      </>
-                                    )}
-                                    <Button size="small" theme="danger" variant="text" onClick={() => handleDelete('executor', ex.id)}>
-                                      删除
-                                    </Button>
-                                  </Space>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </Space>
-                </Card>
-              </Col>
-
-              <Col xs={12} lg={5}>
-                <Card bordered title={executorForm.id ? '编辑节点' : '新增节点'} style={{ width: '100%' }}>
-                  <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-                    {executorFormError ? <Alert theme="error" message={executorFormError} /> : null}
-                    <div>
-                      <Typography.Text strong>名称</Typography.Text>
-                      <div style={{ marginTop: 8 }}>
-                        <Input value={String(executorForm.name || '')} onChange={(v) => setExecutorForm({ ...executorForm, name: String(v) })} placeholder="例如：KIE Market · Default Node" />
-                      </div>
-                    </div>
-
-                    <div>
-                      <Space align="center" size="small">
-                        <Typography.Text strong>类型</Typography.Text>
-                        <Tooltip content="常用：comfyui / kie / volcengine / baidu。用于路由与测试分支。">
-                          <Typography.Text theme="secondary">?</Typography.Text>
-                        </Tooltip>
-                      </Space>
-                      <div style={{ marginTop: 8 }}>
-                        <Input
-                          value={String(executorForm.type || '')}
-                          onChange={(v) => {
-                            const nextType = String(v);
-                            setExecutorForm((prev) => {
-                              const base = { ...prev, type: nextType };
-                              const norm = nextType.trim().toLowerCase();
-                              if (!base.base_url) {
-                                if (norm.includes('kie')) base.base_url = 'https://api.kie.ai';
-                                else if (norm.includes('volc') || norm.includes('ark')) base.base_url = 'https://ark.cn-beijing.volces.com';
-                                else if (norm.includes('baidu')) base.base_url = 'https://aip.baidubce.com';
-                              }
-                              return base;
-                            });
-                          }}
-                          placeholder="comfyui / kie / volcengine / baidu"
-                        />
-                      </div>
-                      <div style={{ marginTop: 8 }}>
-                        <Space size="small">
-                          {['comfyui', 'kie', 'volcengine', 'baidu'].map((t) => (
-                            <Button key={`ex-type-${t}`} size="small" variant="outline" onClick={() => setExecutorForm((prev) => ({ ...prev, type: t }))}>
-                              {t}
-                            </Button>
-                          ))}
-                        </Space>
-                      </div>
-                    </div>
-
-                    <div>
-                      <Typography.Text strong>Base URL</Typography.Text>
-                      <Typography.Text theme="secondary" style={{ marginLeft: 8 }}>
-                        （可选：部分 provider 也可在 config.baseUrl 填）
-                      </Typography.Text>
-                      <div style={{ marginTop: 8 }}>
-                        <Input
-                          value={String(executorForm.base_url || '')}
-                          onChange={(v) => setExecutorForm({ ...executorForm, base_url: String(v) })}
-                          placeholder="http://<ip>:<port> 或 https://..."
-                        />
-                      </div>
-                    </div>
-
-                    <Row gutter={[12, 12]}>
-                      <Col xs={6}>
-                        <Typography.Text strong>状态</Typography.Text>
-                        <div style={{ marginTop: 8 }}>
-                          <Select
-                            value={String(executorForm.status || 'inactive')}
-                            options={[
-                              { label: 'active', value: 'active' },
-                              { label: 'inactive', value: 'inactive' },
-                            ]}
-                            onChange={(v) => setExecutorForm({ ...executorForm, status: String(v) })}
-                          />
-                        </div>
-                      </Col>
-                      <Col xs={6}>
-                        <Typography.Text strong>权重</Typography.Text>
-                        <div style={{ marginTop: 8 }}>
-                          <InputNumber
-                            min={1}
-                            max={999}
-                            value={Number(executorForm.weight ?? 1)}
-                            onChange={(v) => setExecutorForm({ ...executorForm, weight: Number(v) || 1 })}
-                          />
-                        </div>
-                      </Col>
-                    </Row>
-
-                    <div>
-                      <Space align="center" size="small">
-                        <Typography.Text strong>最大并发</Typography.Text>
-                        <Tooltip content="1~50。并发越大越容易触发第三方限流/502，建议逐步放量。">
-                          <Typography.Text theme="secondary">?</Typography.Text>
-                        </Tooltip>
-                      </Space>
-                      <div style={{ marginTop: 8 }}>
-                        <InputNumber
-                          min={1}
-                          max={50}
-                          value={Number(executorForm.max_concurrency ?? 1)}
-                          onChange={(v) => setExecutorForm({ ...executorForm, max_concurrency: Number(v) || 1 })}
-                        />
-                      </div>
-                    </div>
-
-                    <Card
-                      bordered
-                      title="接入配置（推荐用下方表单，不需要懂 JSON）"
-                      style={{ background: 'var(--td-bg-color-secondarycontainer)' }}
-                    >
-                      <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-                        {executorConfigTemplates.map((item) => (
-                          <div key={`ex-cfg-${item.key}`}>
-                            <Space align="center" size="small">
-                              <Typography.Text strong>{item.label}</Typography.Text>
-                              <Typography.Text theme="secondary">{item.hint}</Typography.Text>
-                            </Space>
-                            <div style={{ marginTop: 8 }}>
-                              <Input
-                                value={String((executorConfigRecord as any)?.[item.key] ?? '')}
-                                placeholder={item.placeholder}
-                                onChange={(v) => setExecutorConfigField(item.key, String(v))}
-                              />
-                            </div>
-                          </div>
-                        ))}
-                        <div>
-                          <Typography.Text theme="secondary">
-                            高级：如需更多字段，可展开 JSON 编辑器（保存时会校验 JSON）。
-                          </Typography.Text>
-                        </div>
-                      </Space>
-                    </Card>
-
-                    <div>
-                      <Space align="center" size="small">
-                        <Typography.Text strong>配置 JSON（高级）</Typography.Text>
-                        {executorConfigJsonInvalid ? (
-                          <Typography.Text theme="error" style={{ fontSize: 12 }}>
-                            JSON 无效
-                          </Typography.Text>
-                        ) : (
-                          <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
-                            JSON 有效
-                          </Typography.Text>
-                        )}
-                      </Space>
-                      <div style={{ marginTop: 8 }}>
-                        <Textarea
-                          value={String(executorForm.config || '')}
-                          onChange={(v) => setExecutorForm({ ...executorForm, config: String(v) })}
-                          autosize={{ minRows: 5, maxRows: 10 }}
-                          placeholder='例如：{"apiKey":"***","baseUrl":"https://api.kie.ai"}'
-                        />
-                      </div>
-                    </div>
-
-                    <Space style={{ width: '100%' }}>
-                      <Button theme="primary" style={{ flex: 1 }} onClick={handleExecutorSubmit}>
-                        保存
-                      </Button>
-                      {executorForm.id ? (
-                        <Button variant="outline" onClick={() => { setExecutorForm(defaultExecutorForm); setExecutorFormError(null); }}>
-                          取消
-                        </Button>
-                      ) : null}
-                    </Space>
-                  </Space>
-                </Card>
-              </Col>
-            </Row>
-          </Space>
-        )}
-      </Section>
-        )}
+            <Section id="executors" title="运行线路" description="维护能力运行线路、并发能力与健康状态。">
+              <ExecutorsPanel
+                comfyExecutors={comfyExecutors}
+                comfyModelCache={comfyModelCache}
+                comfyModelErrorByExecutor={comfyModelErrorByExecutor}
+                comfyModelLoadingByExecutor={comfyModelLoadingByExecutor}
+                comfyQueueByExecutor={comfyQueueByExecutor}
+                comfyQueueSummary={comfyQueueSummary}
+                comfyQueueSummaryError={comfyQueueSummaryError}
+                comfyQueueSummaryLoading={comfyQueueSummaryLoading}
+                comfyQueueSummaryUpdatedAt={comfyQueueSummaryUpdatedAt}
+                comfySystemCache={comfySystemCache}
+                comfySystemErrorByExecutor={comfySystemErrorByExecutor}
+                comfySystemLoadingByExecutor={comfySystemLoadingByExecutor}
+                executorConfigJsonInvalid={executorConfigJsonInvalid}
+                executorConfigRecord={executorConfigRecord}
+                executorConfigTemplates={executorConfigTemplates}
+                executorForm={executorForm}
+                executorFormError={executorFormError}
+                executorInlineConcurrency={executorInlineConcurrency}
+                executorInlineError={executorInlineError}
+                executorInlineSaving={executorInlineSaving}
+                executorTraffic={executorTraffic}
+                executorTrafficError={executorTrafficError}
+                executorTrafficLoading={executorTrafficLoading}
+                executorTrafficTotals={executorTrafficTotals}
+                executors={executors}
+                executorsView={executorsView}
+                extractComfyuiModelCounts={extractComfyuiModelCounts}
+                extractComfyuiVersionInfo={extractComfyuiVersionInfo}
+                extractExecutorTags={extractExecutorTags}
+                formatDate={formatDate}
+                formatDateTime={formatDateTime}
+                getExecutorChannelLabel={getExecutorChannelLabel}
+                handleDelete={handleDelete}
+                handleExecutorSubmit={handleExecutorSubmit}
+                refreshComfyQueueSummary={refreshComfyQueueSummary}
+                refreshComfyuiModelCatalog={refreshComfyuiModelCatalog}
+                refreshComfyuiSystemStats={refreshComfyuiSystemStats}
+                refreshExecutorTraffic={refreshExecutorTraffic}
+                saveExecutorConcurrency={saveExecutorConcurrency}
+                setExecutorConfigField={setExecutorConfigField}
+                setExecutorForm={setExecutorForm}
+                setExecutorFormError={setExecutorFormError}
+                setExecutorInlineConcurrency={setExecutorInlineConcurrency}
+                setExecutorsView={setExecutorsView}
+                stringifyJSON={stringifyJSON}
+                summary={summary}
+              />
+            </Section>
+          )}
 
           {activeNav === 'abilities' && (
-      <Section
-        id="future-abilities"
-        title="原子能力类型路线"
-        description="把用户能理解的能力边界固定下来，避免所有能力都混在一张技术表里。"
-      >
-        <div className="grid gap-3 md:grid-cols-3">
-          {[
-            { title: '图像工作流', status: '已接入', body: 'ComfyUI 工作流、图裂变、扩图、抠图等，按执行节点和标签路由。' },
-            { title: '第三方模型', status: '已接入', body: 'OpenAI、KIE、火山、百度等统一走 vendor-api-ops，Key 与出网能力独立管理。' },
-            { title: '自研图像工具', status: '已拆分', body: '放大、DPI、扩边占位图等轻工具由 image-ops 承载，不占用 Coze 主机资源。' },
-            { title: '图像理解', status: '进行中', body: 'VL 作为弹药库原子能力，用于图片描述、主体、风格、风险和提示词建议。' },
-            { title: '向量检索', status: '规划中', body: '后续承载素材检索、模板匹配和知识库搜索，仍按能力、日志、自检统一治理。' },
-            { title: '内容安全', status: '规划中', body: '鉴黄、版权风险、文字审核等独立成安全能力，避免散落在业务流程里。' },
-          ].map((item) => (
-            <div
-              key={`future-ability-${item.title}`}
-              className="rounded-2xl border border-slate-200 bg-white/80 p-4 text-sm dark:border-slate-800 dark:bg-slate-950/40"
+            <Section
+              id="ability-overview"
+              title="原子能力总览"
+              description="先判断能力是否可用，再进入参数、节点和测试细节。"
             >
-              <div className="flex items-center justify-between gap-3">
-                <Typography.Text strong>{item.title}</Typography.Text>
-                <Tag size="small" variant="light" theme={item.status === '已接入' || item.status === '已拆分' ? 'success' : item.status === '进行中' ? 'warning' : 'default'}>
-                  {item.status}
-                </Tag>
-              </div>
-              <p className="mt-2 text-slate-600 dark:text-slate-400">{item.body}</p>
-            </div>
-          ))}
-        </div>
-      </Section>
-        )}
+              <AbilityOverviewSummaryPanel
+                abilityHealthSummary={abilityHealthSummary}
+                abilityTotalFallback={summary.abilities || 0}
+                filteredCount={filteredAbilities.length}
+              />
+            </Section>
+          )}
 
           {activeNav === 'abilities' && (
-      <Section
-        id="ability-api"
-        title="统一能力接口"
-        description="面向客户端/业务方公开的 `/api/abilities` 清单与调用示例，便于快速查找能力 ID、输入要求、是否支持多图等。"
-      >
-        <Card bordered>
-          <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-            <Space align="start" style={{ justifyContent: 'space-between', width: '100%' }}>
-              <Typography.Text theme="secondary">
-                所有终端都应通过{' '}
-                <Tag theme="primary" variant="outline" size="small">
-                  GET /api/abilities
-                </Tag>{' '}
-                查询能力，并使用{' '}
-                <Tag theme="primary" variant="outline" size="small">
-                  POST /api/abilities/&lt;abilityId&gt;/invoke
-                </Tag>{' '}
-                触发；调度层会根据能力配置、绑定规则与执行节点健康度自行分配资源。
-              </Typography.Text>
-              <Button variant="outline" size="small" loading={publicAbilitiesLoading} onClick={refreshPublicAbilities}>
-                刷新列表
-              </Button>
-            </Space>
+            <Section
+              id="future-abilities"
+              title="原子能力类型路线"
+              description="把用户能理解的能力边界固定下来，避免所有能力都混在一张技术表里。"
+            >
+              <AbilityRoadmapPanel />
+            </Section>
+          )}
 
-            <div>
-              <Typography.Text theme="secondary">调用示例（可复制到 Postman / cURL）</Typography.Text>
-              <CodeBlock value={abilityApiExample} maxHeight={260} />
-            </div>
-
-            <div>
-              <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                <Typography.Text theme="secondary">能力 ID 清单</Typography.Text>
-                <Typography.Text theme="secondary">更多细节见 docs/api/abilities.md</Typography.Text>
-              </Space>
-              <div style={{ marginTop: 12 }}>
-                <Table
-                  rowKey="id"
-                  size="small"
-                  data={publicAbilities}
-                  loading={publicAbilitiesLoading}
-                  maxHeight={360}
-                  columns={[
-                    {
-                      colKey: 'displayName',
-                      title: '能力',
-                      ellipsis: true,
-                      cell: ({ row }) => (
-                        <Space direction="vertical" size={2}>
-                          <Typography.Text>{row.displayName}</Typography.Text>
-                          <Typography.Text theme="secondary">
-                            {getProviderLabel(row.provider)} · {getCategoryLabel(row.category)}
-                          </Typography.Text>
-                          {row.description ? <Typography.Text theme="secondary">{row.description}</Typography.Text> : null}
-                        </Space>
-                      ),
-                    },
-                    {
-                      colKey: 'id',
-                      title: 'Ability ID',
-                      width: 360,
-                      cell: ({ row }) => (
-                        <Space>
-                          <Tag theme="default" variant="outline">
-                            {row.id}
-                          </Tag>
-                          <Button size="small" variant="text" onClick={() => copyTextToClipboard(row.id)}>
-                            复制
-                          </Button>
-                        </Space>
-                      ),
-                    },
-                    {
-                      colKey: 'features',
-                      title: '特性',
-                      width: 240,
-                      cell: ({ row }) => (
-                        <Space direction="vertical" size={2}>
-                          {row.requiresImage ? <Typography.Text theme="secondary">需图片输入</Typography.Text> : null}
-                          {row.supportsMultipleImages ? <Typography.Text theme="secondary">多图输出</Typography.Text> : null}
-                          {row.maxOutputImages ? (
-                            <Typography.Text theme="secondary">最高 {row.maxOutputImages} 张结果</Typography.Text>
-                          ) : null}
-                          {!row.requiresImage && !row.supportsMultipleImages && !row.maxOutputImages ? (
-                            <Typography.Text theme="secondary">标准调用</Typography.Text>
-                          ) : null}
-                        </Space>
-                      ),
-                    },
-                  ]}
-                  empty={
-                    <Typography.Text theme="secondary">
-                      暂无可用能力，请先在“能力管理”新增并设为 active。
-                    </Typography.Text>
-                  }
-                />
-              </div>
-            </div>
-          </Space>
-        </Card>
-      </Section>
+          {activeNav === 'abilities' && (
+            <Section
+              id="ability-api"
+              title="统一能力接口"
+              description="面向客户端/业务方公开的 `/api/abilities` 清单与调用示例，便于快速查找能力 ID、输入要求、是否支持多图等。"
+            >
+              <AbilityApiPanel
+                publicAbilities={publicAbilities}
+                publicAbilitiesLoading={publicAbilitiesLoading}
+                abilityApiExample={abilityApiExample}
+                onRefresh={refreshPublicAbilities}
+                onCopy={copyTextToClipboard}
+                getProviderLabel={getProviderLabel}
+                getCategoryLabel={getCategoryLabel}
+              />
+            </Section>
           )}
 
           {activeNav === 'ability-logs' && (
@@ -11364,658 +8785,64 @@ const extractErrorMessage = (error: unknown): string => {
             />
 
             {abilityLogTab === 'metrics' && (
-              <Space direction="vertical" size="large" style={{ width: '100%' }}>
-                <ActionBar>
-                  <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
-                    <div>
-                      <Typography.Text strong>调用指标</Typography.Text>
-                      <div>
-                        <Typography.Text theme="secondary">
-                          窗口：近 {abilityMetricsWindowHours} 小时（前 8）
-                        </Typography.Text>
-                      </div>
-                    </div>
-                    <Space>
-                      <Button variant="outline" loading={abilityLogMetricsLoading} onClick={() => refreshAbilityLogMetrics()}>
-                        刷新指标
-                      </Button>
-                    </Space>
-                  </Space>
-                </ActionBar>
-
-                {abilityLogMetricsError ? <Alert theme="error" message={abilityLogMetricsError} /> : null}
-
-                <Row gutter={[12, 12]}>
-                  <Col flex="160px">
-                    <Select
-                      value={abilityMetricsWindowHours}
-                      onChange={(v) => setAbilityMetricsWindowHours(Math.max(1, Number(v) || 24))}
-                      options={[
-                        { label: '近 6 小时', value: 6 },
-                        { label: '近 12 小时', value: 12 },
-                        { label: '近 24 小时', value: 24 },
-                        { label: '近 72 小时', value: 72 },
-                        { label: '近 7 天', value: 168 },
-                        { label: '近 30 天', value: 720 },
-                      ]}
-                    />
-                  </Col>
-                  <Col flex="180px">
-                    <Select
-                      value={abilityMetricsProvider}
-                      onChange={(v) => setAbilityMetricsProvider(String(v))}
-                      options={[
-                        { label: '全部厂商', value: 'all' },
-                        ...abilityProviders.map((p) => ({ label: getProviderLabel(p), value: p })),
-                      ]}
-                    />
-                  </Col>
-                  <Col flex="260px">
-                    <Select
-                      value={abilityMetricsCapabilityKey}
-                      onChange={(v) => setAbilityMetricsCapabilityKey(String(v))}
-                      disabled={abilityMetricsProvider === 'all'}
-                      options={[
-                        { label: abilityMetricsProvider === 'all' ? '请先选择厂商' : '全部能力', value: 'all' },
-                        ...abilityMetricsCapabilityOptions,
-                      ]}
-                    />
-                  </Col>
-                </Row>
-
-                {abilityLogMetrics ? (
-                  <Row gutter={[12, 12]}>
-                    <Col xs={24} sm={12} lg={6}>
-                      <Card bordered>
-                        <Space direction="vertical" size={2}>
-                          <Typography.Text theme="secondary">调用总次数</Typography.Text>
-                          <Typography.Text style={{ fontSize: 20, fontWeight: 600 }}>
-                            {abilityLogMetrics.total_count ?? 0}
-                          </Typography.Text>
-                        </Space>
-                      </Card>
-                    </Col>
-                    <Col xs={24} sm={12} lg={6}>
-                      <Card bordered>
-                        <Space direction="vertical" size={2}>
-                          <Typography.Text theme="secondary">成功 / 失败</Typography.Text>
-                          <Typography.Text style={{ fontSize: 20, fontWeight: 600 }}>
-                            {(abilityLogMetrics.total_success_count ?? 0)} / {(abilityLogMetrics.total_failed_count ?? 0)}
-                          </Typography.Text>
-                        </Space>
-                      </Card>
-                    </Col>
-                    <Col xs={24} sm={12} lg={6}>
-                      <Card bordered>
-                        <Space direction="vertical" size={2}>
-                          <Typography.Text theme="secondary">总成本（估算）</Typography.Text>
-                          <Typography.Text style={{ fontSize: 20, fontWeight: 600 }}>
-                            {abilityLogMetrics.total_cost !== null && abilityLogMetrics.total_cost !== undefined
-                              ? abilityLogMetrics.total_cost.toFixed(4)
-                              : '—'}
-                          </Typography.Text>
-                        </Space>
-                      </Card>
-                    </Col>
-                    <Col xs={24} sm={12} lg={6}>
-                      <Card bordered>
-                        <Space direction="vertical" size={2}>
-                          <Typography.Text theme="secondary">单次均价（估算）</Typography.Text>
-                          <Typography.Text style={{ fontSize: 20, fontWeight: 600 }}>
-                            {abilityLogMetrics.avg_cost_per_call !== null && abilityLogMetrics.avg_cost_per_call !== undefined
-                              ? abilityLogMetrics.avg_cost_per_call.toFixed(4)
-                              : '—'}
-                          </Typography.Text>
-                        </Space>
-                      </Card>
-                    </Col>
-                    <Col xs={24} sm={12} lg={6}>
-                      <Card bordered>
-                        <Space direction="vertical" size={2}>
-                          <Typography.Text theme="secondary">未计价调用数</Typography.Text>
-                          <Typography.Text style={{ fontSize: 20, fontWeight: 600 }}>
-                            {abilityLogMetrics.uncosted_count ?? 0}
-                          </Typography.Text>
-                        </Space>
-                      </Card>
-                    </Col>
-                  </Row>
-                ) : null}
-
-                {abilityLogMetrics ? (
-                  <Alert
-                    theme="warning"
-                    message="成本为估算值；跨币种不做直接换算汇总。建议按厂商或币种筛选后查看。"
-                  />
-                ) : null}
-
-                {abilityLogMetrics ? (
-                  <Row gutter={[12, 12]}>
-                    <Col xs={24} lg={12}>
-                      <Card bordered title="按厂商成本（估算）">
-                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                          {(abilityLogMetrics.provider_totals || []).length === 0 ? (
-                            <Typography.Text theme="secondary">暂无</Typography.Text>
-                          ) : (
-                            (abilityLogMetrics.provider_totals || []).slice(0, 8).map((item) => (
-                              <Tag key={`provider-${item.key}`} variant="light">
-                                {item.key}：{item.total_cost !== null && item.total_cost !== undefined ? item.total_cost.toFixed(4) : '—'}
-                              </Tag>
-                            ))
-                          )}
-                        </div>
-                      </Card>
-                    </Col>
-                    <Col xs={24} lg={12}>
-                      <Card bordered title="按币种成本（估算）">
-                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                          {(abilityLogMetrics.currency_totals || []).length === 0 ? (
-                            <Typography.Text theme="secondary">暂无</Typography.Text>
-                          ) : (
-                            (abilityLogMetrics.currency_totals || []).slice(0, 8).map((item) => (
-                              <Tag key={`currency-${item.key}`} variant="light">
-                                {item.key}：{item.total_cost !== null && item.total_cost !== undefined ? item.total_cost.toFixed(4) : '—'}
-                              </Tag>
-                            ))
-                          )}
-                        </div>
-                      </Card>
-                    </Col>
-                  </Row>
-                ) : null}
-
-                {abilityLogMetrics?.buckets && abilityLogMetrics.buckets.length > 0 ? (
-                  <Card bordered title={`近 ${abilityLogMetrics.window_hours}h 指标（前 8）`}>
-                    <div className="overflow-x-auto">
-                      <Table
-                        size="small"
-                        rowKey="__key"
-                        data={(abilityLogMetrics.buckets as AbilityLogMetricBucket[])
-                          .slice(0, 8)
-                          .map((b) => ({ ...b, __key: `${b.ability_provider}:${b.capability_key}` }))}
-                        columns={[
-                          {
-                            colKey: 'ability',
-                            title: '能力',
-                            cell: ({ row }) => (
-                              <Space direction="vertical" size={2}>
-                                <Typography.Text strong>{row.capability_key}</Typography.Text>
-                                <Typography.Text theme="secondary">{row.ability_provider}</Typography.Text>
-                              </Space>
-                            ),
-                          },
-                          {
-                            colKey: 'count',
-                            title: '次数',
-                            width: 120,
-                            cell: ({ row }) => (
-                              <Typography.Text theme="secondary">
-                                {row.count}（{row.success_count}/{row.failed_count}）
-                              </Typography.Text>
-                            ),
-                          },
-                          {
-                            colKey: 'success_rate',
-                            title: '成功率',
-                            width: 120,
-                            cell: ({ row }) => (
-                              <Typography.Text>
-                                {row.success_rate !== null && row.success_rate !== undefined ? `${(row.success_rate * 100).toFixed(1)}%` : '—'}
-                              </Typography.Text>
-                            ),
-                          },
-                          {
-                            colKey: 'p50',
-                            title: 'p50 / p95',
-                            width: 160,
-                            cell: ({ row }) => (
-                              <Typography.Text theme="secondary">
-                                {row.p50_duration_ms ?? '—'}ms / {row.p95_duration_ms ?? '—'}ms
-                              </Typography.Text>
-                            ),
-                          },
-                          {
-                            colKey: 'cost',
-                            title: '成本（总/均）',
-                            width: 160,
-                            cell: ({ row }) => (
-                              <Typography.Text theme="secondary">
-                                {row.total_cost !== null && row.total_cost !== undefined ? row.total_cost.toFixed(4) : '—'} /{' '}
-                                {row.avg_cost !== null && row.avg_cost !== undefined ? row.avg_cost.toFixed(4) : '—'}
-                              </Typography.Text>
-                            ),
-                          },
-                        ]}
-                      />
-                    </div>
-                  </Card>
-                ) : (
-                  <Typography.Text theme="secondary">暂无指标数据。</Typography.Text>
-                )}
-              </Space>
+              <AbilityLogMetricsPanel
+                windowHours={abilityMetricsWindowHours}
+                provider={abilityMetricsProvider}
+                capabilityKey={abilityMetricsCapabilityKey}
+                providerOptions={abilityProviders}
+                capabilityOptions={abilityMetricsCapabilityOptions}
+                metrics={abilityLogMetrics}
+                loading={abilityLogMetricsLoading}
+                error={abilityLogMetricsError}
+                onWindowHoursChange={setAbilityMetricsWindowHours}
+                onProviderChange={setAbilityMetricsProvider}
+                onCapabilityKeyChange={setAbilityMetricsCapabilityKey}
+                onRefresh={refreshAbilityLogMetrics}
+                getProviderLabel={getProviderLabel}
+              />
             )}
 
             {abilityLogTab === 'logs' && (
-            <Space direction="vertical" size="large" style={{ width: '100%' }}>
-            <ActionBar>
-              <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
-                <div>
-                  <Typography.Text strong>能力调用清单</Typography.Text>
-                  <div>
-                    <Typography.Text theme="secondary">
-                      已加载 {globalAbilityLogs.length}
-                      {typeof globalAbilityLogTotal === 'number' ? ` / ${globalAbilityLogTotal}` : ''} 条 · 支持导出最近 24 小时
-                    </Typography.Text>
-                  </div>
-                </div>
-                <Space>
-                  <Space align="center" size="small">
-                    <Typography.Text theme="secondary">自动刷新</Typography.Text>
-                    <Switch value={globalAbilityLogsAutoRefresh} onChange={(v) => setGlobalAbilityLogsAutoRefresh(Boolean(v))} />
-                  </Space>
-                  {globalAbilityLogsUpdatedAt ? (
-                    <Typography.Text theme="secondary">更新：{formatDateTime(globalAbilityLogsUpdatedAt)}</Typography.Text>
-                  ) : null}
-                  <Button variant="outline" loading={globalAbilityLogsLoading} onClick={() => refreshGlobalAbilityLogs()}>
-                    刷新
-                  </Button>
-                  {globalAbilityLogsHasMore ? (
-                    <Button variant="outline" loading={globalAbilityLogsLoading} onClick={() => loadMoreGlobalAbilityLogs()}>
-                      加载更多
-                    </Button>
-                  ) : (
-                    <Typography.Text theme="secondary">已加载全部</Typography.Text>
-                  )}
-                  <Button
-                    variant="outline"
-                    loading={exportingAbilityLogs}
-                    onClick={async () => {
-                      setExportingAbilityLogs(true);
-                      try {
-                        const blob = await adminApi.exportAbilityLogs({
-                          format: 'csv',
-                          sinceHours: 24,
-                          provider: globalAbilityLogProvider !== 'all' ? globalAbilityLogProvider : undefined,
-                          capabilityKey: globalAbilityLogCapabilityKey !== 'all' ? globalAbilityLogCapabilityKey : undefined,
-                          status: globalAbilityLogStatus !== 'all' ? globalAbilityLogStatus : undefined,
-                          source: globalAbilityLogSource !== 'all' ? globalAbilityLogSource : undefined,
-                          templatePublished:
-                            globalAbilityLogTemplatePublished === 'all'
-                              ? undefined
-                              : globalAbilityLogTemplatePublished === 'published',
-                        });
-                        const filename = `ability_logs_24h_${new Date().toISOString().slice(0, 10)}.csv`;
-                        downloadBlob(blob, filename);
-                      } catch (err: any) {
-                        console.error('Export ability logs failed:', err);
-                        setGlobalAbilityLogsError(err?.message || '导出失败');
-                      } finally {
-                        setExportingAbilityLogs(false);
-                      }
-                    }}
-                  >
-                    导出 CSV
-                  </Button>
-                  <Button
-                    variant="outline"
-                    loading={exportingAbilityLogs}
-                    onClick={async () => {
-                      setExportingAbilityLogs(true);
-                      try {
-                        const blob = await adminApi.exportAbilityLogs({
-                          format: 'json',
-                          sinceHours: 24,
-                          provider: globalAbilityLogProvider !== 'all' ? globalAbilityLogProvider : undefined,
-                          capabilityKey: globalAbilityLogCapabilityKey !== 'all' ? globalAbilityLogCapabilityKey : undefined,
-                          status: globalAbilityLogStatus !== 'all' ? globalAbilityLogStatus : undefined,
-                          source: globalAbilityLogSource !== 'all' ? globalAbilityLogSource : undefined,
-                          templatePublished:
-                            globalAbilityLogTemplatePublished === 'all'
-                              ? undefined
-                              : globalAbilityLogTemplatePublished === 'published',
-                        });
-                        const filename = `ability_logs_24h_${new Date().toISOString().slice(0, 10)}.json`;
-                        downloadBlob(blob, filename);
-                      } catch (err: any) {
-                        console.error('Export ability logs failed:', err);
-                        setGlobalAbilityLogsError(err?.message || '导出失败');
-                      } finally {
-                        setExportingAbilityLogs(false);
-                      }
-                    }}
-                  >
-                    导出 JSON
-                  </Button>
-                </Space>
-              </Space>
-            </ActionBar>
-
-            {globalAbilityLogsError ? <Alert theme="error" message={globalAbilityLogsError} /> : null}
-
-            <Space align="center" size="large">
-              <Space align="center" size="small">
-                <Switch
-                  value={globalAbilityLogStatus === 'failed'}
-                  onChange={(v) => setGlobalAbilityLogStatus(v ? 'failed' : 'all')}
-                />
-                <Typography.Text theme="secondary">只看失败</Typography.Text>
-              </Space>
-              <Space align="center" size="small">
-                <Switch
-                  value={globalAbilityLogOnlyCallbackFailed}
-                  onChange={(v) => setGlobalAbilityLogOnlyCallbackFailed(Boolean(v))}
-                />
-                <Typography.Text theme="secondary">只看回调异常</Typography.Text>
-              </Space>
-            </Space>
-
-            <Row gutter={[12, 12]}>
-              <Col flex="auto">
-                <Input
-                  value={globalAbilityLogSearch}
-                  placeholder="搜索：能力名/Key/节点/追踪/任务/回调ID…"
-                  onChange={(v) => setGlobalAbilityLogSearch(String(v))}
-                  clearable
-                />
-              </Col>
-              <Col flex="180px">
-                <Select
-                  value={globalAbilityLogProvider}
-                  onChange={(v) => setGlobalAbilityLogProvider(String(v))}
-                  options={[
-                    { label: '全部厂商', value: 'all' },
-                    ...globalAbilityLogProviders.map((p) => ({ label: p, value: p })),
-                  ]}
-                />
-              </Col>
-              <Col flex="180px">
-                <Select
-                  value={globalAbilityLogSource}
-                  onChange={(v) => setGlobalAbilityLogSource(String(v))}
-                  options={[
-                    { label: '全部来源', value: 'all' },
-                    ...globalAbilityLogSources.map((s) => ({ label: formatAbilitySource(s), value: s })),
-                  ]}
-                />
-              </Col>
-              <Col flex="180px">
-                <Select
-                  value={globalAbilityLogStatus}
-                  onChange={(v) => setGlobalAbilityLogStatus(String(v))}
-                  options={[
-                    { label: '全部状态', value: 'all' },
-                    ...globalAbilityLogStatuses.map((s) => ({ label: getAbilityLogStatusTag(s).text, value: s })),
-                  ]}
-                />
-              </Col>
-              <Col flex="180px">
-                <Select
-                  value={globalAbilityLogTemplatePublished}
-                  onChange={(v) => setGlobalAbilityLogTemplatePublished(String(v))}
-                  options={[
-                    { label: '模板状态：全部', value: 'all' },
-                    { label: '已发布模板', value: 'published' },
-                    { label: '未发布模板', value: 'unpublished' },
-                  ]}
-                />
-              </Col>
-              <Col flex="260px">
-                <Select
-                  value={globalAbilityLogCapabilityKey}
-                  onChange={(v) => setGlobalAbilityLogCapabilityKey(String(v))}
-                  disabled={globalAbilityLogProvider === 'all'}
-                  options={[
-                    { label: globalAbilityLogProvider === 'all' ? '请先选择厂商' : '全部能力', value: 'all' },
-                    ...globalAbilityLogCapabilityOptions,
-                  ]}
-                />
-              </Col>
-            </Row>
-
-            <Table
-              size="small"
-              rowKey="id"
-              loading={globalAbilityLogsLoading}
-              data={filteredGlobalAbilityLogs}
-              empty={<Typography.Text theme="secondary">暂无数据。</Typography.Text>}
-              columns={[
-                {
-                  colKey: 'created_at',
-                  title: '时间',
-                  width: 180,
-                  cell: ({ row }) => <Typography.Text>{formatDateTime(row.created_at)}</Typography.Text>,
-                },
-                {
-                  colKey: 'ability',
-                  title: '能力',
-                  minWidth: 240,
-                  cell: ({ row }) => (
-                    <Space direction="vertical" size={2}>
-                      <Typography.Text strong>{row.ability_name || row.capability_key || '—'}</Typography.Text>
-                      <Typography.Text theme="secondary">{row.ability_provider || '—'}</Typography.Text>
-                      {row.trace_id || row.workflow_run_id ? (
-                        <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
-                          {row.trace_id ? (
-                            <span style={{ marginRight: 12 }}>
-                              Trace: <span style={{ fontFamily: 'monospace' }}>{formatTaskMarker(row.trace_id)}</span>
-                            </span>
-                          ) : null}
-                          {row.workflow_run_id ? (
-                            <span>
-                              Flow: <span style={{ fontFamily: 'monospace' }}>{formatTaskMarker(row.workflow_run_id)}</span>
-                            </span>
-                          ) : null}
-                        </Typography.Text>
-                      ) : null}
-                    </Space>
-                  ),
-                },
-                {
-                  colKey: 'source',
-                  title: '来源',
-                  width: 120,
-                  cell: ({ row }) => (
-                    <Tag theme={getAbilitySourceTagTheme(row.source)} variant="light">
-                      {formatAbilitySource(row.source)}
-                    </Tag>
-                  ),
-                },
-                {
-                  colKey: 'template',
-                  title: '模板版本',
-                  width: 220,
-                  cell: ({ row }) => (
-                    <Space direction="vertical" size={2}>
-                      {row.ability_current_template_id ? (
-                        <Typography.Text style={{ fontFamily: 'monospace' }}>
-                          {formatTaskMarker(row.ability_current_template_id)}
-                        </Typography.Text>
-                      ) : (
-                        <Typography.Text theme="secondary">未发布模板</Typography.Text>
-                      )}
-                      <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
-                        历史 {row.ability_template_history_count ?? 0} 个版本
-                      </Typography.Text>
-                    </Space>
-                  ),
-                },
-                {
-                  colKey: 'executor',
-                  title: '节点',
-                  width: 220,
-                  cell: ({ row }) => <Typography.Text theme="secondary">{row.executor_name || row.executor_id || '—'}</Typography.Text>,
-                },
-                {
-                  colKey: 'status',
-                  title: '提交',
-                  width: 160,
-                  cell: ({ row }) => {
-                    const durationMs = resolveLogDurationMs(row);
-                    const submitTag = getAbilityLogSubmitTag(row);
-                    return (
-                      <Space direction="vertical" size={2}>
-                        <Tag theme={submitTag.theme} variant="light">
-                          {submitTag.text}
-                        </Tag>
-                        {typeof durationMs === 'number' ? (
-                          <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
-                            {durationMs}ms
-                          </Typography.Text>
-                        ) : null}
-                      </Space>
-                    );
-                  },
-                },
-                {
-                  colKey: 'error_summary',
-                  title: '错误摘要',
-                  width: 220,
-                  cell: ({ row }) => {
-                    const message = row.error_message || row.callback_error || '';
-                    if (!message) {
-                      return <Typography.Text theme="secondary">—</Typography.Text>;
-                    }
-                    return (
-                      <Typography.Text theme="error" style={{ fontSize: 12 }}>
-                        {truncateText(message, 80)}
-                      </Typography.Text>
-                    );
-                  },
-                },
-                {
-                  colKey: 'callback_id',
-                  title: '回调ID',
-                  width: 260,
-                  cell: ({ row }) => {
-                    if (!row.callback_id) {
-                      return <Typography.Text theme="secondary">—</Typography.Text>;
-                    }
-                    return (
-                      <Space size="small">
-                        <Typography.Text
-                          theme="secondary"
-                          style={{ fontFamily: 'monospace', wordBreak: 'break-all' }}
-                        >
-                          {row.callback_id}
-                        </Typography.Text>
-                        <Button size="small" variant="text" onClick={() => copyTextToClipboard(row.callback_id || '')}>
-                          复制
-                        </Button>
-                      </Space>
-                    );
-                  },
-                },
-                {
-                  colKey: 'callback',
-                  title: '回调阶段',
-                  width: 160,
-                  cell: ({ row }) => {
-                    const callbackTag = getAbilityLogCallbackStageTag(row);
-                    return (
-                      <Space direction="vertical" size={2}>
-                        <Tag theme={callbackTag.theme} variant="light">
-                          {callbackTag.text}
-                        </Tag>
-                        {typeof row.callback_http_status === 'number' ? (
-                          <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
-                            HTTP {row.callback_http_status}
-                          </Typography.Text>
-                        ) : null}
-                        {row.callback_finished_at ? (
-                          <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
-                            {formatDateTime(row.callback_finished_at)}
-                          </Typography.Text>
-                        ) : null}
-                      </Space>
-                    );
-                  },
-                },
-                {
-                  colKey: 'cost',
-                  title: '成本',
-                  width: 140,
-                  cell: ({ row }) => {
-                    const logPricing = resolveLogPricing(row);
-                    const primaryCost =
-                      logPricing && (logPricing.discountPrice ?? logPricing.listPrice) !== undefined
-                        ? `${formatPriceValue(logPricing.discountPrice ?? logPricing.listPrice, logPricing.currency)}`
-                        : null;
-                    return primaryCost ? (
-                      <Space direction="vertical" size={2}>
-                        <Typography.Text>{primaryCost}</Typography.Text>
-                        <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
-                          {formatUnitLabel(logPricing?.unit)}
-                        </Typography.Text>
-                      </Space>
-                    ) : (
-                      <Typography.Text theme="secondary">—</Typography.Text>
-                    );
-                  },
-                },
-                {
-                  colKey: 'result',
-                  title: '结果',
-                  minWidth: 220,
-                  cell: ({ row }) => {
-                    const previewUrl = resolvePrimaryLogPreviewUrl(row);
-                    const canPreviewImage = Boolean(previewUrl) && /\.(png|jpg|jpeg|webp|gif)(\?|#|$)/i.test(previewUrl);
-                    return (
-                      <Space size="small">
-                        {previewUrl ? (
-                          canPreviewImage ? (
-                            <Popup
-                              trigger="hover"
-                              placement="left"
-                              content={<img src={previewUrl} alt="preview" style={{ maxWidth: 360, maxHeight: 360, display: 'block' }} />}
-                            >
-                              <Button size="small" variant="text">
-                                预览
-                              </Button>
-                            </Popup>
-                          ) : (
-                            <Button size="small" variant="text" onClick={() => window.open(previewUrl, '_blank', 'noreferrer')}>
-                              打开
-                            </Button>
-                          )
-                        ) : null}
-                        <Button
-                          size="small"
-                          variant="text"
-                          onClick={() => {
-                            setAbilityLogDetail(row);
-                            setAbilityLogResolveError(null);
-                            setAbilityLogDetailOpen(true);
-                          }}
-                        >
-                          详情
-                        </Button>
-                        {row.error_message ? <Typography.Text theme="error">{toDisplayErrorMessage(row.error_message)}</Typography.Text> : null}
-                        {!previewUrl && !row.error_message ? (
-                          <Typography.Text theme="secondary">
-                            {isAbilityLogSuccessful(row.status) ? '结果回填中' : '—'}
-                          </Typography.Text>
-                        ) : null}
-                      </Space>
-                    );
-                  },
-                },
-              ]}
-            />
-            <div className="flex flex-col gap-2">
-              <Typography.Text theme="secondary">
-                {globalAbilityLogsUpdatedAt ? `最近刷新：${formatDateTime(globalAbilityLogsUpdatedAt)}` : '尚未刷新'}
-              </Typography.Text>
-              <div className="flex justify-center">
-                {globalAbilityLogsHasMore ? (
-                  <Button variant="outline" loading={globalAbilityLogsLoading} onClick={() => loadMoreGlobalAbilityLogs()}>
-                    加载更多
-                  </Button>
-                ) : (
-                  <Typography.Text theme="secondary">已加载全部</Typography.Text>
-                )}
-              </div>
-            </div>
-            </Space>
+              <AbilityLogListPanel
+                logs={globalAbilityLogs}
+                filteredLogs={filteredGlobalAbilityLogs}
+                total={globalAbilityLogTotal}
+                loading={globalAbilityLogsLoading}
+                exporting={exportingAbilityLogs}
+                error={globalAbilityLogsError}
+                updatedAt={globalAbilityLogsUpdatedAt}
+                hasMore={globalAbilityLogsHasMore}
+                autoRefresh={globalAbilityLogsAutoRefresh}
+                onlyCallbackFailed={globalAbilityLogOnlyCallbackFailed}
+                search={globalAbilityLogSearch}
+                provider={globalAbilityLogProvider}
+                source={globalAbilityLogSource}
+                status={globalAbilityLogStatus}
+                templatePublished={globalAbilityLogTemplatePublished}
+                capabilityKey={globalAbilityLogCapabilityKey}
+                providers={globalAbilityLogProviders}
+                sources={globalAbilityLogSources}
+                statuses={globalAbilityLogStatuses}
+                capabilityOptions={globalAbilityLogCapabilityOptions}
+                onAutoRefreshChange={setGlobalAbilityLogsAutoRefresh}
+                onRefresh={refreshGlobalAbilityLogs}
+                onLoadMore={loadMoreGlobalAbilityLogs}
+                onExport={exportGlobalAbilityLogs}
+                onOnlyCallbackFailedChange={setGlobalAbilityLogOnlyCallbackFailed}
+                onSearchChange={setGlobalAbilityLogSearch}
+                onProviderChange={setGlobalAbilityLogProvider}
+                onSourceChange={setGlobalAbilityLogSource}
+                onStatusChange={setGlobalAbilityLogStatus}
+                onTemplatePublishedChange={setGlobalAbilityLogTemplatePublished}
+                onCapabilityKeyChange={setGlobalAbilityLogCapabilityKey}
+                onCopy={copyTextToClipboard}
+                onOpenDetail={(row) => {
+                  setAbilityLogDetail(row);
+                  setAbilityLogResolveError(null);
+                  setAbilityLogDetailOpen(true);
+                }}
+                resolveLogPricing={resolveLogPricing}
+              />
             )}
           </Space>
         </Card>
@@ -12028,753 +8855,88 @@ const extractErrorMessage = (error: unknown): string => {
         title="能力管理"
         description="集中维护各厂商能力、默认参数和绑定节点，后续工作流和测试面板将直接引用这些配置。"
       >
-        <Card
-          bordered
-          title={
-            <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-              <div>
-                <Typography.Text strong>能力列表</Typography.Text>
-                <div>
-                  <Typography.Text theme="secondary">新增/编辑改为弹窗，列表占满宽度，操作不再被挤压。</Typography.Text>
-                </div>
-              </div>
-              <Space>
-                <Button variant="outline" loading={abilityHealthLoading} onClick={() => refreshAbilityHealthSummary()}>
-                  刷新健康
-                </Button>
-                <Button
-                  theme="primary"
-                  onClick={() => {
-                    setAbilityForm(defaultAbilityForm);
-                    setAbilityRoutingPolicy('auto');
-                    setAbilityAllowedExecutors([]);
-                    setAbilityRequiredTags('');
-                    setAbilityFallbackToDefault(true);
-                    setAbilityDialogOpen(true);
-                  }}
-                >
-                  新增能力
-                </Button>
-              </Space>
-            </Space>
-          }
-        >
-          {abilityHealthError ? (
-            <div style={{ marginBottom: 12 }}>
-              <Alert theme="error" message={abilityHealthError} />
-            </div>
-          ) : null}
-          {abilityHealthSummary ? (
-            <Space direction="vertical" size="middle" style={{ width: '100%', marginBottom: 16 }}>
-              <Row gutter={[12, 12]}>
-                <Col xs={24} sm={12} lg={4}>
-                  <MetricCard label="正常" value={abilityHealthSummary.healthy} sub="最近调用成功" />
-                </Col>
-                <Col xs={24} sm={12} lg={4}>
-                  <MetricCard label="需关注" value={abilityHealthSummary.degraded} sub="最近失败但总体可用" />
-                </Col>
-                <Col xs={24} sm={12} lg={4}>
-                  <MetricCard label="异常" value={abilityHealthSummary.failed} sub="需要优先排查" />
-                </Col>
-                <Col xs={24} sm={12} lg={4}>
-                  <MetricCard label="未测试" value={abilityHealthSummary.unknown} sub="没有有效调用记录" />
-                </Col>
-                <Col xs={24} sm={12} lg={4}>
-                  <MetricCard label="需要复测" value={abilityHealthSummary.needsTestCount} sub={`超过 ${abilityHealthSummary.staleHours} 小时或异常`} />
-                </Col>
-                <Col xs={24} sm={12} lg={4}>
-                  <MetricCard label="能力总数" value={abilityHealthSummary.total} sub={`更新：${formatDateTime(abilityHealthSummary.generatedAt)}`} />
-                </Col>
-              </Row>
-              {abilityHealthSummary.items.length > 0 ? (
-                <Card
-                  bordered
-                  title={
-                    <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
-                      <div>
-                        <Typography.Text strong>复测清单</Typography.Text>
-                        <div>
-                          <Typography.Text theme="secondary">
-                            默认只看需要复测；导出会按当前筛选生成 CSV。
-                          </Typography.Text>
-                        </div>
-                      </div>
-                      <Space>
-                        <Select
-                          value={abilityHealthFilter}
-                          onChange={(v) => setAbilityHealthFilter(String(v) as AbilityHealthFilter)}
-                          style={{ width: 180 }}
-                          options={[
-                            { label: '需要复测', value: 'needs_test' },
-                            { label: '异常', value: 'failed' },
-                            { label: '未测试', value: 'unknown' },
-                            { label: '超过 24 小时', value: 'stale' },
-                            { label: '需关注', value: 'degraded' },
-                            { label: '正常', value: 'healthy' },
-                            { label: '全部', value: 'all' },
-                          ]}
-                        />
-                        <Button variant="outline" loading={abilityHealthExporting} onClick={() => exportAbilityHealthSummary()}>
-                          导出清单
-                        </Button>
-                      </Space>
-                    </Space>
-                  }
-                >
-                  <Table
-                    rowKey="abilityId"
-                    size="small"
-                    data={filteredAbilityHealthItems}
-                    columns={[
-                      {
-                        colKey: 'ability',
-                        title: '能力',
-                        cell: ({ row }) => (
-                          <Space direction="vertical" size={2}>
-                            <Typography.Text strong>{row.displayName}</Typography.Text>
-                            <Typography.Text theme="secondary">
-                              {getProviderLabel(row.provider)} · {row.capabilityKey}
-                            </Typography.Text>
-                          </Space>
-                        ),
-                      },
-                      {
-                        colKey: 'health',
-                        title: '健康状态',
-                        width: 140,
-                        cell: ({ row }) => {
-                          const tag = getAbilityHealthTag(row.healthStatus);
-                          return (
-                            <Space direction="vertical" size={2}>
-                              <Tag theme={tag.theme} variant="light">
-                                {tag.text}
-                              </Tag>
-                              {row.needsTest ? (
-                                <Typography.Text theme="warning" style={{ fontSize: 12 }}>
-                                  建议复测
-                                </Typography.Text>
-                              ) : null}
-                            </Space>
-                          );
-                        },
-                      },
-                      {
-                        colKey: 'last',
-                        title: '最近有效调用',
-                        width: 220,
-                        cell: ({ row }) => (
-                          <Space direction="vertical" size={2}>
-                            <Typography.Text theme="secondary">
-                              {row.latestLogAt ? formatDateTime(row.latestLogAt) : '暂无记录'}
-                            </Typography.Text>
-                            <Typography.Text theme="secondary">
-                              成功率：{typeof row.successRate === 'number' ? `${(row.successRate * 100).toFixed(1)}%` : '—'}
-                            </Typography.Text>
-                          </Space>
-                        ),
-                      },
-                    ]}
-                    empty={<Typography.Text theme="secondary">当前筛选下暂无能力。</Typography.Text>}
-                  />
-                </Card>
-              ) : null}
-            </Space>
-          ) : null}
-          <Row gutter={[12, 12]}>
-            <Col span={4}>
-              <Input value={abilitySearch} onChange={(v) => setAbilitySearch(String(v))} placeholder="搜索名称/能力 Key" />
-            </Col>
-            <Col span={4}>
-              <Select
-                value={abilityProviderFilter}
-                onChange={(v) => setAbilityProviderFilter(String(v))}
-                options={[
-                  { label: '全部厂商', value: 'all' },
-                  ...abilityProviders.map((provider) => ({ label: getProviderLabel(provider), value: provider })),
-                ]}
-                placeholder="全部厂商"
-              />
-            </Col>
-            <Col span={4}>
-              <Select
-                value={abilityStatusFilter}
-                onChange={(v) => setAbilityStatusFilter(String(v))}
-                options={[{ label: '全部状态', value: 'all' }, ...statusOptions]}
-                placeholder="全部状态"
-              />
-            </Col>
-          </Row>
-          <div style={{ marginTop: 12 }}>
-            <Table
-              rowKey="id"
-              size="small"
-              data={filteredAbilities}
-              columns={[
-                {
-                  colKey: 'display_name',
-                  title: '名称',
-                  ellipsis: {
-                    props: { theme: 'light', placement: 'top' },
-                    content: ({ row }) => {
-                      const issues = getAbilitySchemaIssues(row as Ability);
-                      return (
-                        <div className="max-w-[360px] text-xs text-slate-900 dark:text-slate-100">
-                          <div className="font-semibold">{row.display_name}</div>
-                          <div className="mt-1 text-slate-600 dark:text-slate-400">{row.description || '—'}</div>
-                          {issues.length > 0 ? (
-                            <div className="mt-2 flex flex-wrap gap-1">
-                              {issues.map((issue) => (
-                                <Tag key={`${row.id}-tooltip-${issue}`} theme="warning" variant="light" size="small">
-                                  {issue}
-                                </Tag>
-                              ))}
-                            </div>
-                          ) : null}
-                        </div>
-                      );
-                    },
-                  },
-                  cell: ({ row }) => {
-                    const issues = getAbilitySchemaIssues(row);
-                    return (
-                      <Space direction="vertical" size={2}>
-                        <Typography.Text strong>{row.display_name}</Typography.Text>
-                        <Typography.Text theme="secondary">{row.description || '—'}</Typography.Text>
-                        {issues.length > 0 ? (
-                          <Space size="small" breakLine>
-                            {issues.map((issue) => (
-                              <Tag key={`${row.id}-${issue}`} theme="warning" variant="light" size="small">
-                                {issue}
-                              </Tag>
-                            ))}
-                          </Space>
-                        ) : null}
-                      </Space>
-                    );
-                  },
-                },
-                {
-                  colKey: 'provider',
-                  title: '厂商/能力',
-                  width: 260,
-                  cell: ({ row }) => (
-                    <Space direction="vertical" size={2}>
-                      <Typography.Text>{getProviderLabel(row.provider)}</Typography.Text>
-                      <Typography.Text theme="secondary">
-                        {row.capability_key} · {getCategoryLabel(row.category)}
-                      </Typography.Text>
-                      <Typography.Text theme="secondary">
-                        {getAbilityTypeLabel(row.ability_type)}
-                        {row.workflow_id ? ` · ${workflowLookup[row.workflow_id]?.name || row.workflow_id}` : ''}
-                      </Typography.Text>
-                      {row.vendor_model_id ? (
-                        <Typography.Text theme="secondary">
-                          模型：{vendorModels.find((item) => item.id === row.vendor_model_id)?.displayName || row.vendor_model_id}
-                        </Typography.Text>
-                      ) : null}
-                      {row.version ? <Typography.Text theme="secondary">版本 {row.version}</Typography.Text> : null}
-                    </Space>
-                  ),
-                },
-                { colKey: 'status', title: '状态', width: 120, cell: ({ row }) => renderStatusTag(row.status) },
-                {
-                  colKey: 'pricing',
-                  title: '成本',
-                  width: 180,
-                  cell: ({ row }) => {
-                    const pricing =
-                      abilityPricingMap[row.id] || abilityPricingMap[`${row.provider}:${row.capability_key}`] || null;
-                    const text = describePricing(pricing);
-                    return <Typography.Text theme="secondary">{text !== '—' ? text : '未设置'}</Typography.Text>;
-                  },
-                },
-                {
-                  colKey: 'executor',
-                  title: '绑定节点',
-                  width: 220,
-                  cell: ({ row }) => {
-                    const bound = row.executor_id ? executors.find((ex) => ex.id === row.executor_id) : null;
-                    return (
-                      <Typography.Text theme="secondary">
-                        {bound ? `${bound.name} · ${bound.type}` : '自动匹配（按厂商/标签）'}
-                      </Typography.Text>
-                    );
-                  },
-                },
-                {
-                  colKey: 'latest',
-                  title: '最近调用',
-                  width: 220,
-                  cell: ({ row }) => {
-                    const latestLog = latestAbilityLogMap[row.id];
-                    if (!latestLog) return <Typography.Text theme="secondary">—</Typography.Text>;
-                    const durationMs = resolveLogDurationMs(latestLog);
-                    return (
-                      <Space direction="vertical" size={2}>
-                        <Typography.Text theme="secondary">{formatDateTime(latestLog.created_at)}</Typography.Text>
-                        <Space size="small">
-                          <Tag theme={getAbilityLogStatusTag(latestLog.status).theme} variant="light" size="small">
-                            {getAbilityLogStatusTag(latestLog.status).text}
-                          </Tag>
-                          {typeof durationMs === 'number' ? (
-                            <Typography.Text theme="secondary">{durationMs}ms</Typography.Text>
-                          ) : null}
-                        </Space>
-                      </Space>
-                    );
-                  },
-                },
-                {
-                  colKey: 'template',
-                  title: '模板版本',
-                  width: 240,
-                  cell: ({ row }) => {
-                    const summary = abilityTemplateSummaryMap[row.id];
-                    if (!summary || (summary.historyCount === 0 && !summary.currentId)) {
-                      return <Typography.Text theme="secondary">未发布</Typography.Text>;
-                    }
-                    const label = summary.latestLabel || summary.currentId || '已发布';
-                    return (
-                      <Space direction="vertical" size={2}>
-                        <Space align="center" size={4}>
-                          <Tag theme={summary.currentId ? 'success' : 'warning'} variant="light" size="small">
-                            {summary.currentId ? '已发布' : '有历史'}
-                          </Tag>
-                          <Typography.Text theme="secondary">{label}</Typography.Text>
-                        </Space>
-                        <Typography.Text theme="secondary">
-                          历史 {summary.historyCount} 条
-                          {summary.latestAt ? ` · ${formatDateTime(summary.latestAt)}` : ''}
-                        </Typography.Text>
-                      </Space>
-                    );
-                  },
-                },
-                {
-                  colKey: 'actions',
-                  title: '操作',
-                  width: 240,
-                  cell: ({ row }) => (
-                    <Space size="small">
-                      <Button
-                        size="small"
-                        variant="text"
-                        onClick={(event) => {
-                          event?.stopPropagation?.();
-                          setSelectedAbilityId(row.id);
-                          setActiveAbilityDetailTab('metadata');
-                          selectSection('abilities');
-                        }}
-                      >
-                        模板
-                      </Button>
-                      <Button
-                        size="small"
-                        variant="text"
-                        onClick={(event) => {
-                          event?.stopPropagation?.();
-                          handleAbilityEdit(row);
-                        }}
-                      >
-                        编辑
-                      </Button>
-                      <Button
-                        size="small"
-                        variant="text"
-                        theme="danger"
-                        onClick={(event) => {
-                          event?.stopPropagation?.();
-                          handleAbilityDelete(row.id);
-                        }}
-                      >
-                        删除
-                      </Button>
-                    </Space>
-                  ),
-                },
-              ]}
-              onRowClick={({ row }) => setSelectedAbilityId((row as any).id)}
-              rowClassName={({ row }) => ((row as any).id === selectedAbilityId ? 'podi-row-selected' : '')}
-              empty={<Typography.Text theme="secondary">暂无满足筛选条件的能力。</Typography.Text>}
-            />
-          </div>
-        </Card>
+        <AbilityCatalogPanel
+          healthError={abilityHealthError}
+          healthLoading={abilityHealthLoading}
+          healthSummary={abilityHealthSummary}
+          healthFilter={abilityHealthFilter}
+          healthItems={filteredAbilityHealthItems}
+          healthExporting={abilityHealthExporting}
+          search={abilitySearch}
+          providerFilter={abilityProviderFilter}
+          statusFilter={abilityStatusFilter}
+          providerOptions={abilityProviders}
+          abilities={filteredAbilities}
+          selectedAbilityId={selectedAbilityId}
+          workflowsById={workflowLookup}
+          vendorModels={vendorModels}
+          executors={executors}
+          pricingByAbility={abilityPricingMap}
+          latestLogByAbility={latestAbilityLogMap}
+          templateSummaryByAbility={abilityTemplateSummaryMap}
+          onRefreshHealth={refreshAbilityHealthSummary}
+          onHealthFilterChange={setAbilityHealthFilter}
+          onExportHealth={exportAbilityHealthSummary}
+          onCreate={() => {
+            setAbilityForm(defaultAbilityForm);
+            setAbilityRoutingPolicy('auto');
+            setAbilityAllowedExecutors([]);
+            setAbilityRequiredTags('');
+            setAbilityFallbackToDefault(true);
+            setAbilityDialogOpen(true);
+          }}
+          onSearchChange={setAbilitySearch}
+          onProviderFilterChange={setAbilityProviderFilter}
+          onStatusFilterChange={setAbilityStatusFilter}
+          onSelectAbility={setSelectedAbilityId}
+          onOpenTemplate={(ability) => {
+            setSelectedAbilityId(ability.id);
+            setActiveAbilityDetailTab('metadata');
+            selectSection('abilities');
+          }}
+          onEdit={handleAbilityEdit}
+          onDelete={handleAbilityDelete}
+          getProviderLabel={getProviderLabel}
+          getCategoryLabel={getCategoryLabel}
+          getAbilityTypeLabel={getAbilityTypeLabel}
+          getAbilitySchemaIssues={getAbilitySchemaIssues}
+          describePricing={describePricing}
+        />
 
         <div style={{ marginTop: 16 }}>{renderAbilityWorkbenchCard()}</div>
 
-        <Dialog
-          header={abilityForm.id ? '编辑能力' : '新增能力'}
+        <AbilityEditorDialog
           visible={abilityDialogOpen}
-          width={760}
+          form={abilityForm}
+          executors={executors}
+          workflows={workflows}
+          vendorModels={vendorModels}
+          vendorModelOptions={abilityVendorModelOptions}
+          comfyExecutors={comfyExecutors}
+          routingPolicy={abilityRoutingPolicy}
+          fallbackToDefault={abilityFallbackToDefault}
+          allowedExecutors={abilityAllowedExecutors}
+          requiredTags={abilityRequiredTags}
+          loraDefault={abilityLoraDefault}
+          loraOptions={abilityFormLoraSelectOptions}
+          loraAllowedFiles={abilityLoraAllowedFiles}
+          loraAllowedTags={abilityLoraAllowedTags}
+          loraAllowedBaseModels={abilityLoraAllowedBaseModels}
+          baseModelOptions={abilityFormBaseModelOptions}
+          loraPolicy={abilityLoraPolicy}
           onClose={() => setAbilityDialogOpen(false)}
-          onConfirm={async () => {
-            await handleAbilitySubmit();
-          }}
-        >
-          <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-            <Row gutter={[12, 12]}>
-              <Col span={6}>
-                <Typography.Text theme="secondary">厂商</Typography.Text>
-                <Select
-                  value={abilityForm.provider || providerOptions[0].value}
-                  onChange={(v) => setAbilityForm({ ...abilityForm, provider: String(v) })}
-                  options={providerOptions}
-                />
-              </Col>
-              <Col span={6}>
-                <Typography.Text theme="secondary">能力类型</Typography.Text>
-                <Select
-                  value={abilityForm.ability_type || abilityTypeOptions[0].value}
-                  onChange={(v) => setAbilityForm({ ...abilityForm, ability_type: String(v) })}
-                  options={abilityTypeOptions}
-                />
-              </Col>
-              <Col span={6}>
-                <Typography.Text theme="secondary">能力分类</Typography.Text>
-                <Select
-                  value={abilityForm.category || categoryOptions[0].value}
-                  onChange={(v) => setAbilityForm({ ...abilityForm, category: String(v) })}
-                  options={categoryOptions}
-                />
-              </Col>
-              <Col span={6}>
-                <Typography.Text theme="secondary">状态</Typography.Text>
-                <Select
-                  value={abilityForm.status || statusOptions[0].value}
-                  onChange={(v) => setAbilityForm({ ...abilityForm, status: String(v) })}
-                  options={statusOptions}
-                />
-              </Col>
-            </Row>
-
-            <Row gutter={[12, 12]}>
-              <Col span={12}>
-                <Typography.Text theme="secondary">能力 Key</Typography.Text>
-                <Input
-                  value={abilityForm.capability_key || ''}
-                  onChange={(v) => setAbilityForm({ ...abilityForm, capability_key: String(v) })}
-                  placeholder="例如 quality_upgrade"
-                />
-              </Col>
-              <Col span={12}>
-                <Typography.Text theme="secondary">展示名称</Typography.Text>
-                <Input
-                  value={abilityForm.display_name || ''}
-                  onChange={(v) => setAbilityForm({ ...abilityForm, display_name: String(v) })}
-                  placeholder="例如 百度无损放大"
-                />
-              </Col>
-            </Row>
-
-            <Row gutter={[12, 12]}>
-              <Col span={6}>
-                <Typography.Text theme="secondary">版本</Typography.Text>
-                <Input
-                  value={abilityForm.version || 'v1'}
-                  onChange={(v) => setAbilityForm({ ...abilityForm, version: String(v) })}
-                  placeholder="例如 v1"
-                />
-              </Col>
-            </Row>
-
-            <div>
-              <Typography.Text theme="secondary">描述（选填）</Typography.Text>
-              <Input
-                value={abilityForm.description || ''}
-                onChange={(v) => setAbilityForm({ ...abilityForm, description: String(v) })}
-                placeholder="一句话说明用途"
-              />
-            </div>
-
-            <Row gutter={[12, 12]}>
-              <Col span={12}>
-                <Typography.Text theme="secondary">默认节点（可选）</Typography.Text>
-                <Select
-                  value={abilityForm.executor_id || ''}
-                  onChange={(v) => setAbilityForm({ ...abilityForm, executor_id: String(v) || undefined })}
-                  options={[
-                    { label: '自动匹配', value: '' },
-                    ...executors.map((executor) => ({
-                      label: `${executor.name} · ${executor.type}`,
-                      value: executor.id,
-                    })),
-                  ]}
-                  placeholder="自动匹配"
-                />
-              </Col>
-              <Col span={12}>
-                <Typography.Text theme="secondary">关联工作流（可选）</Typography.Text>
-                <Select
-                  value={abilityForm.workflow_id || ''}
-                  onChange={(v) => setAbilityForm({ ...abilityForm, workflow_id: String(v) || undefined })}
-                  options={[
-                    { label: '未绑定', value: '' },
-                    ...workflows.map((workflow) => ({
-                      label: `${workflow.name} · ${workflow.version || workflow.type}`,
-                      value: workflow.id,
-                    })),
-                  ]}
-                  placeholder="未绑定"
-                />
-              </Col>
-            </Row>
-
-            <Row gutter={[12, 12]}>
-              <Col span={12}>
-                <Typography.Text theme="secondary">绑定模型（可选，来自模型弹药库）</Typography.Text>
-                <Select
-                  value={abilityForm.vendor_model_id || 0}
-                  onChange={(v) => {
-                    const nextId = Number(v) || null;
-                    const selected = vendorModels.find((item) => item.id === nextId);
-                    setAbilityForm({
-                      ...abilityForm,
-                      vendor_model_id: nextId,
-                      provider: selected?.provider || abilityForm.provider,
-                    });
-                  }}
-                  options={[
-                    { label: '不绑定模型', value: 0 },
-                    ...abilityVendorModelOptions.map((item) => ({ label: item.label, value: item.value })),
-                  ]}
-                  placeholder="不绑定模型"
-                />
-                <Typography.Text theme="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
-                  绑定后，业务配方可直接引用这个模型配置，减少手填模型名和能力边界。
-                </Typography.Text>
-              </Col>
-            </Row>
-
-            {abilityForm.provider === 'comfyui' ? (
-              <div className="rounded-2xl border border-slate-200/70 bg-slate-50/40 p-4 dark:border-slate-800 dark:bg-slate-950/40">
-                <Space direction="vertical" size="small" style={{ width: '100%' }}>
-                  <Typography.Text strong>ComfyUI 路由策略（面向非技术同学的配置）</Typography.Text>
-                  <Typography.Text theme="secondary">
-                    这些字段会写入 ability.metadata，用于控制“哪些节点可用、如何分配、是否允许回退默认节点”。
-                  </Typography.Text>
-
-                  <Row gutter={[12, 12]}>
-                    <Col span={12}>
-                      <Typography.Text theme="secondary">路由策略 routing_policy</Typography.Text>
-                      <Select
-                        value={abilityRoutingPolicy}
-                        onChange={(v) => setAbilityRoutingPolicy(String(v) || 'auto')}
-                        options={[
-                          { label: '自动（默认：跟随系统设置）', value: 'auto' },
-                          { label: '按队列最短（queue）', value: 'queue' },
-                          { label: '按权重随机（weight）', value: 'weight' },
-                          { label: '轮询（round_robin）', value: 'round_robin' },
-                          { label: '固定第一个（fixed）', value: 'fixed' },
-                        ]}
-                      />
-                      <Typography.Text theme="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
-                        建议：对性能敏感可用 weight/round_robin，想避开排队可用 queue。
-                      </Typography.Text>
-                    </Col>
-                    <Col span={12}>
-                      <Space align="center" size="small">
-                        <Typography.Text theme="secondary">回退到默认节点</Typography.Text>
-                        <Tooltip content="当没有符合条件的节点时，是否允许系统回退到默认/绑定节点。">
-                          <Typography.Text theme="secondary">?</Typography.Text>
-                        </Tooltip>
-                      </Space>
-                      <div style={{ marginTop: 8 }}>
-                        <Switch value={abilityFallbackToDefault} onChange={(v) => setAbilityFallbackToDefault(Boolean(v))} />
-                      </div>
-                      <Typography.Text theme="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
-                        关闭后：不匹配即报错，适合严格分机的生产能力。
-                      </Typography.Text>
-                    </Col>
-                  </Row>
-
-                  <div>
-                    <Typography.Text theme="secondary">允许运行节点（多选）</Typography.Text>
-                    {comfyExecutors.length > 0 ? (
-                      <select
-                        multiple
-                        value={abilityAllowedExecutors}
-                        onChange={(e) =>
-                          setAbilityAllowedExecutors(Array.from(e.target.selectedOptions).map((option) => option.value))
-                        }
-                        className="mt-2 h-32 w-full rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white"
-                      >
-                        {comfyExecutors.map((executor) => (
-                          <option key={`ability-executor-${executor.id}`} value={executor.id}>
-                            {executor.name} · {executor.base_url || executor.type}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <div className="mt-2 rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-slate-700 dark:border-slate-700 dark:bg-slate-950/40 dark:text-slate-500">
-                        还没有 ComfyUI 执行节点，请先在“执行节点”里新增。
-                      </div>
-                    )}
-                    <Typography.Text theme="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
-                      不选表示“允许系统自动匹配所有 ComfyUI 节点”。
-                    </Typography.Text>
-                  </div>
-
-                  <div>
-                    <Typography.Text theme="secondary">要求标签（required_tags，可多选）</Typography.Text>
-                    <Input
-                      value={abilityRequiredTags}
-                      onChange={(v) => setAbilityRequiredTags(String(v))}
-                      placeholder="例如：gpu:4090, region:hz, comfyui-158"
-                    />
-                    <Typography.Text theme="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
-                      逗号分隔。要求执行节点 config.tags 中包含全部标签。
-                    </Typography.Text>
-                  </div>
-
-                  <div className="rounded-2xl border border-slate-200/70 bg-slate-50/70 p-4 dark:border-slate-800 dark:bg-slate-950/40">
-                    <Typography.Text className="text-sm font-semibold text-slate-900 dark:text-white">LoRA 绑定规则</Typography.Text>
-                    <Typography.Text theme="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
-                      用于限制能力可选 LoRA，并统一默认值（避免误选导致输出异常）。
-                    </Typography.Text>
-                    <Space direction="vertical" size="middle" style={{ width: '100%', marginTop: 12 }}>
-                      <div>
-                        <Typography.Text theme="secondary">默认 LoRA（不填则保持原参数）</Typography.Text>
-                        <input
-                          list="ability-lora-options"
-                          value={abilityLoraDefault}
-                          onChange={(e) => setAbilityLoraDefault(e.target.value)}
-                          placeholder="从 LoRA 清单选择或手动输入文件名"
-                          className={`${formControlClass} mt-2`}
-                        />
-                        <datalist id="ability-lora-options">
-                          {abilityFormLoraSelectOptions.map((option) => (
-                            <option key={`ability-lora-option-${option.value}`} value={option.value} />
-                          ))}
-                        </datalist>
-                      </div>
-                      <div>
-                        <Typography.Text theme="secondary">允许运行的 LoRA（多选）</Typography.Text>
-                        {abilityFormLoraSelectOptions.length > 0 ? (
-                          <select
-                            multiple
-                            value={abilityLoraAllowedFiles}
-                            onChange={(e) =>
-                              setAbilityLoraAllowedFiles(
-                                Array.from(e.target.selectedOptions).map((option) => option.value),
-                              )
-                            }
-                            className="mt-2 h-32 w-full rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white"
-                          >
-                            {abilityFormLoraSelectOptions.map((option) => (
-                              <option key={`ability-lora-${option.value}`} value={option.value}>
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
-                        ) : (
-                          <div className="mt-2 rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-3 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-950/40 dark:text-slate-500">
-                            LoRA 清单为空，请先在“ComfyUI 管理”中维护。
-                          </div>
-                        )}
-                        <Typography.Text theme="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
-                          不选表示“允许全部 LoRA”。
-                        </Typography.Text>
-                      </div>
-                      <div>
-                        <Typography.Text theme="secondary">允许运行的 LoRA 标签（逗号分隔）</Typography.Text>
-                        <Input
-                          value={abilityLoraAllowedTags}
-                          onChange={(v) => setAbilityLoraAllowedTags(String(v))}
-                          placeholder="例如：杯子, 毛毯, 服饰"
-                        />
-                        <Typography.Text theme="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
-                          标签会与 LoRA 清单匹配过滤，配合“允许运行的 LoRA”使用。
-                        </Typography.Text>
-                      </div>
-                      <div>
-                        <Typography.Text theme="secondary">允许运行的基座模型（多选）</Typography.Text>
-                        {abilityFormBaseModelOptions.length > 0 ? (
-                          <select
-                            multiple
-                            value={abilityLoraAllowedBaseModels}
-                            onChange={(e) =>
-                              setAbilityLoraAllowedBaseModels(
-                                Array.from(e.target.selectedOptions).map((option) => option.value),
-                              )
-                            }
-                            className="mt-2 h-28 w-full rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white"
-                          >
-                            {abilityFormBaseModelOptions.map((model) => (
-                              <option key={`ability-base-model-${model}`} value={model}>
-                                {model}
-                              </option>
-                            ))}
-                          </select>
-                        ) : (
-                          <div className="mt-2 rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-3 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-950/40 dark:text-slate-500">
-                            还未加载到基座模型清单，请刷新 ComfyUI 模型。
-                          </div>
-                        )}
-                        <Typography.Text theme="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
-                          不选表示不限制基座模型。
-                        </Typography.Text>
-                      </div>
-                      <div>
-                        <Typography.Text theme="secondary">不匹配时处理</Typography.Text>
-                        <Select
-                          value={abilityLoraPolicy}
-                          onChange={(v) => setAbilityLoraPolicy(String(v))}
-                          options={[
-                            { label: '回退到默认 LoRA', value: 'fallback' },
-                            { label: '直接忽略（使用原配置）', value: 'ignore' },
-                          ]}
-                        />
-                      </div>
-                    </Space>
-                  </div>
-                </Space>
-              </div>
-            ) : null}
-
-            {abilityForm.provider === 'coze' ? (
-              <div>
-                <Typography.Text theme="secondary">Coze Workflow ID</Typography.Text>
-                <Input
-                  value={abilityForm.coze_workflow_id || ''}
-                  onChange={(v) =>
-                    setAbilityForm({
-                      ...abilityForm,
-                      coze_workflow_id: String(v).trim() ? String(v).trim() : undefined,
-                    })
-                  }
-                  placeholder="例如 1234567890"
-                />
-              </div>
-            ) : null}
-
-            <div>
-              <Typography.Text theme="secondary">默认参数 JSON</Typography.Text>
-              <Textarea
-                value={abilityForm.default_params || ''}
-                onChange={(v) => setAbilityForm({ ...abilityForm, default_params: String(v) })}
-                autosize={{ minRows: 3, maxRows: 8 }}
-              />
-            </div>
-
-            <div>
-              <Typography.Text theme="secondary">输入表单 Schema（选填）</Typography.Text>
-              <Textarea
-                value={abilityForm.input_schema || ''}
-                onChange={(v) => setAbilityForm({ ...abilityForm, input_schema: String(v) })}
-                autosize={{ minRows: 3, maxRows: 8 }}
-              />
-            </div>
-
-            <div>
-              <Typography.Text theme="secondary">其他元信息（选填）</Typography.Text>
-              <Textarea
-                value={abilityForm.metadata || ''}
-                onChange={(v) => setAbilityForm({ ...abilityForm, metadata: String(v) })}
-                autosize={{ minRows: 3, maxRows: 8 }}
-              />
-            </div>
-          </Space>
-        </Dialog>
+          onSubmit={handleAbilitySubmit}
+          onFormChange={setAbilityForm}
+          onRoutingPolicyChange={setAbilityRoutingPolicy}
+          onFallbackToDefaultChange={setAbilityFallbackToDefault}
+          onAllowedExecutorsChange={setAbilityAllowedExecutors}
+          onRequiredTagsChange={setAbilityRequiredTags}
+          onLoraDefaultChange={setAbilityLoraDefault}
+          onLoraAllowedFilesChange={setAbilityLoraAllowedFiles}
+          onLoraAllowedTagsChange={setAbilityLoraAllowedTags}
+          onLoraAllowedBaseModelsChange={setAbilityLoraAllowedBaseModels}
+          onLoraPolicyChange={setAbilityLoraPolicy}
+        />
       </Section>
           )}
 
@@ -12784,5568 +8946,707 @@ const extractErrorMessage = (error: unknown): string => {
         title="能力评测"
         description="内部迭代工具：统一用 Coze 工作流试运行，并对输出做 1-5 评分与备注。"
       >
-        <AbilityEvaluationPage />
+        <Suspense
+          fallback={
+            <div className="rounded-3xl border border-slate-200 bg-white px-6 py-5 text-sm text-slate-600 shadow-sm">
+              能力评测加载中，请稍候...
+            </div>
+          }
+        >
+          <AbilityEvaluationPage focusRunId={focusedEvalRunId} />
+        </Suspense>
       </Section>
           )}
           {activeNav === 'comfyui-management' && (
       <Section
         id="comfyui-management"
         title="ComfyUI 管理"
-        description="维护 ComfyUI 侧 LoRA/基座模型与工作流模板，并与能力配置保持一致。"
+        description="纳管 ComfyUI 执行节点，关注机器可用性、能力部署一致性、队列衔接与结果回填；不替代 ComfyUI 工作流编辑后台。"
       >
-        <Space direction="vertical" size="small" style={{ marginBottom: 16, width: '100%' }}>
-          <div className="rounded-2xl border border-slate-200/70 bg-slate-50/70 px-3 py-2 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-300">
-            当前模块：<strong>{activeComfyTabMeta.label}</strong>（{activeComfyTabMeta.group}）
-          </div>
-          <div className="rounded-2xl border border-slate-200/70 bg-white px-3 py-3 dark:border-slate-800 dark:bg-slate-950/40">
-            <div className="podi-comfy-level-label">一级导航</div>
-            <div className="podi-comfy-group-grid">
-              {comfyuiTabGroupOrder.map((group) => {
-                const groupTabs = comfyuiGroupMap[group];
-                const active = group === activeComfyTabMeta.group;
-                const leadTab = comfyuiGroupMeta[group].primaryTab;
-                return (
-                  <button
-                    key={`comfy-group-${group}`}
-                    type="button"
-                    className={`podi-comfy-group-card${active ? ' is-active' : ''}${group === '同步发布' ? ' podi-comfy-group-card--subgroup' : ''}`}
-                    onClick={() => {
-                      const nextTab = groupTabs.includes(comfyuiManageTab) ? comfyuiManageTab : leadTab;
-                      setComfyuiManageTab(nextTab);
-                    }}
-                  >
-                    <div className="podi-comfy-group-card__header">
-                      <span className="podi-comfy-group-card__badge">{comfyuiGroupBadge[group]}</span>
-                      <span className="podi-comfy-group-card__title">{group}</span>
-                    </div>
-                    <div className="podi-comfy-group-card__hint">{comfyuiGroupMeta[group].hint}</div>
-                    {group === '同步发布' ? (
-                      <div className="podi-comfy-group-card__subnote">二级流程 · 服务器对比 / 清单发布 / 任务下发</div>
-                    ) : null}
-                  </button>
-                );
-              })}
-            </div>
-            {activeComfyTabMeta.group === '同步发布' ? (
-              <div className="podi-comfy-sync-steps">
-                {comfySyncSteps.map((step) => {
-                  const active = step.tab === comfyuiManageTab;
-                  const statusMeta = comfySyncStepStatusMeta[step.status];
-                  return (
-                    <button
-                      key={`comfy-sync-step-${step.tab}`}
-                      type="button"
-                      className={`podi-comfy-sync-step${active ? ' is-active' : ''}`}
-                      onClick={() => setComfyuiManageTab(step.tab)}
-                    >
-                      <div className="podi-comfy-sync-step__head">
-                        <span className="podi-comfy-sync-step__step">{step.step}</span>
-                        <Space align="center" size="small">
-                          <Tag size="small" theme={statusMeta.theme} variant="light">
-                            {statusMeta.text}
-                          </Tag>
-                          {active ? (
-                            <Tag size="small" theme="primary" variant="light">
-                              当前
-                            </Tag>
-                          ) : null}
-                        </Space>
-                      </div>
-                      <div className="podi-comfy-sync-step__title">{step.title}</div>
-                      <div className="podi-comfy-sync-step__hint">{step.hint}</div>
-                      <div className="podi-comfy-sync-step__metric">{step.metric}</div>
-                    </button>
-                  );
-                })}
-              </div>
-            ) : null}
-            {activeComfyTabMeta.group === '同步发布' ? (
-              <div className="podi-comfy-sync-action-bar">
-                <div className="podi-comfy-sync-action-bar__desc">
-                  <div className="podi-comfy-sync-action-bar__title">
-                    {comfySyncCurrentStep ? `${comfySyncCurrentStep.step} · ${comfySyncCurrentStep.title}` : '同步发布'}
-                  </div>
-                  <div className="podi-comfy-sync-action-bar__hint">
-                    {comfySyncCurrentStep?.hint || '按步骤执行，减少回滚与误下发。'}
-                  </div>
-                </div>
-                <Space align="center" size="small" style={{ flexWrap: 'wrap' }}>
-                  <Button
-                    size="small"
-                    variant="outline"
-                    onClick={() => {
-                      if (comfyuiManageTab === 'servers') {
-                        refreshComfyuiServers();
-                        return;
-                      }
-                      if (comfyuiManageTab === 'manifests') {
-                        refreshComfyManifests();
-                        return;
-                      }
-                      refreshComfyAgentTasks();
-                    }}
-                  >
-                    刷新当前步骤
-                  </Button>
-                  {comfyuiManageTab === 'servers' ? (
-                    <>
-                      <Button
-                        size="small"
-                        variant="outline"
-                        onClick={() => setComfyServersAssistOpen((prev) => !prev)}
-                      >
-                        {comfyServersAssistOpen ? '收起辅助面板' : '展开辅助面板'}
-                      </Button>
-                      <Button size="small" theme="primary" onClick={() => setComfyuiManageTab('manifests')}>
-                        下一步：清单发布
-                      </Button>
-                    </>
-                  ) : null}
-                  {comfyuiManageTab === 'manifests' ? (
-                    <>
-                      <Button
-                        size="small"
-                        variant="outline"
-                        onClick={() => setComfyManifestsAssistOpen((prev) => !prev)}
-                      >
-                        {comfyManifestsAssistOpen ? '收起修复任务' : '展开修复任务'}
-                      </Button>
-                      <Button
-                        size="small"
-                        theme="primary"
-                        onClick={() => {
-                          resetComfyManifestForm();
-                          setComfyManifestDialogOpen(true);
-                        }}
-                      >
-                        主操作：新增清单
-                      </Button>
-                    </>
-                  ) : null}
-                  {comfyuiManageTab === 'tasks' ? (
-                    <>
-                      <Button
-                        size="small"
-                        variant="outline"
-                        onClick={() => setComfyTaskAdvancedOpen((prev) => !prev)}
-                      >
-                        {comfyTaskAdvancedOpen ? '收起监控与历史' : '展开监控与历史'}
-                      </Button>
-                      <Button
-                        size="small"
-                        theme="primary"
-                        onClick={() => {
-                          const el = document.getElementById('comfy-task-create-card');
-                          if (el) {
-                            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                            return;
-                          }
-                          contentRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
-                        }}
-                      >
-                        主操作：创建任务
-                      </Button>
-                    </>
-                  ) : null}
-                </Space>
-              </div>
-            ) : null}
-            {activeComfyTabMeta.group === '同步发布' && comfySyncCurrentGuide ? (
-              <div className="rounded-2xl border border-slate-200/70 bg-slate-50/70 px-3 py-3 dark:border-slate-800 dark:bg-slate-950/40">
-                <div className="text-xs text-slate-600 dark:text-slate-300">{comfySyncCurrentGuide.progress}</div>
-                <div className="mt-2 grid gap-2 xl:grid-cols-3">
-                  <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-800 dark:bg-slate-900/60">
-                    <div className="text-[11px] font-semibold text-slate-900 dark:text-white">进入条件</div>
-                    <div className="mt-1 text-xs text-slate-600 dark:text-slate-300">{comfySyncCurrentGuide.entry}</div>
-                  </div>
-                  <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-800 dark:bg-slate-900/60">
-                    <div className="text-[11px] font-semibold text-slate-900 dark:text-white">完成条件</div>
-                    <div className="mt-1 text-xs text-slate-600 dark:text-slate-300">{comfySyncCurrentGuide.done}</div>
-                  </div>
-                  <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-800 dark:bg-slate-900/60">
-                    <div className="text-[11px] font-semibold text-slate-900 dark:text-white">失败后建议</div>
-                    <div className="mt-1 text-xs text-slate-600 dark:text-slate-300">{comfySyncCurrentGuide.failure}</div>
-                  </div>
-                </div>
-              </div>
-            ) : null}
-            <div className="podi-comfy-module-bar">
-              <div className="podi-comfy-module-controls">
-                <div style={{ width: 'min(100%, 320px)' }}>
-                  <Typography.Text theme="secondary">模块</Typography.Text>
-                  <Select
-                    value={comfyuiManageTab}
-                    onChange={(value) => setComfyuiManageTab(String(value) as ComfyuiManageTab)}
-                    options={activeComfyGroupTabs.map((tab) => ({
-                      label: comfyuiTabMeta[tab].label,
-                      value: tab,
-                    }))}
-                  />
-                </div>
-              </div>
-              <Space align="center" size="small" className="podi-comfy-module-switch">
-                <Switch value={comfyShowTestNodes} onChange={(v) => setComfyShowTestNodes(Boolean(v))} />
-                <Typography.Text theme="secondary">显示测试节点</Typography.Text>
-              </Space>
-            </div>
-          </div>
-          <Alert
-            theme="info"
-            message={
-              `${comfyuiTabHelpText[comfyuiManageTab] || ''}` +
-              `${comfyHiddenExecutorCount > 0 || comfyHiddenAgentCount > 0 ? `（已隐藏测试数据：执行节点 ${comfyHiddenExecutorCount}，代理服务 ${comfyHiddenAgentCount}）` : ''}`
+        <ComfyuiManagementHeader
+          activeTab={comfyuiManageTab}
+          activeTabMeta={activeComfyTabMeta}
+          groupOrder={comfyuiTabGroupOrder}
+          groupMap={comfyuiGroupMap}
+          groupMeta={comfyuiGroupMeta}
+          groupBadge={comfyuiGroupBadge}
+          tabMeta={comfyuiTabMeta}
+          activeGroupTabs={activeComfyGroupTabs}
+          tabHelpText={comfyuiTabHelpText}
+          syncSteps={comfySyncSteps}
+          syncStepStatusMeta={comfySyncStepStatusMeta}
+          syncCurrentStep={comfySyncCurrentStep}
+          syncCurrentGuide={comfySyncCurrentGuide}
+          showTestNodes={comfyShowTestNodes}
+          hiddenExecutorCount={comfyHiddenExecutorCount}
+          hiddenAgentCount={comfyHiddenAgentCount}
+          serversAssistOpen={comfyServersAssistOpen}
+          manifestsAssistOpen={comfyManifestsAssistOpen}
+          taskAdvancedOpen={comfyTaskAdvancedOpen}
+          onTabChange={(tab) => setComfyuiManageTab(tab as ComfyuiManageTab)}
+          onRefreshCurrentStep={() => {
+            if (comfyuiManageTab === 'servers') {
+              refreshComfyuiServers();
+              return;
             }
-          />
-        </Space>
+            if (comfyuiManageTab === 'manifests') {
+              refreshComfyManifests();
+              return;
+            }
+            refreshComfyAgentTasks();
+          }}
+          onToggleServersAssist={() => setComfyServersAssistOpen((prev) => !prev)}
+          onToggleManifestsAssist={() => setComfyManifestsAssistOpen((prev) => !prev)}
+          onCreateManifest={() => {
+            resetComfyManifestForm();
+            setComfyManifestDialogOpen(true);
+          }}
+          onToggleTaskAdvanced={() => setComfyTaskAdvancedOpen((prev) => !prev)}
+          onScrollToTaskCreate={() => {
+            const el = document.getElementById('comfy-task-create-card');
+            if (el) {
+              el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              return;
+            }
+            contentRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+          }}
+          onShowTestNodesChange={setComfyShowTestNodes}
+        />
         {comfyuiManageTab === 'lora' && (
-        <div className="space-y-4">
-          <Card bordered title="LoRA 素材库">
-            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-              <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                <Space align="center" size="middle">
-                  <div style={{ width: 'min(100%, 260px)' }}>
-                    <Select
-                      value={comfyLoraExecutorId}
-                      onChange={(v) => setComfyLoraExecutorId(String(v))}
-                      options={[
-                        { label: '请选择 ComfyUI 执行节点', value: '' },
-                        ...comfyExecutors.map((executor) => ({
-                          label: `${executor.name} · ${executor.id}`,
-                          value: executor.id,
-                        })),
-                      ]}
-                    />
-                  </div>
-                  <Button
-                    variant="outline"
-                    disabled={comfyLoraLoading}
-                    onClick={() => refreshComfyuiLoraCatalog({ includeUntracked: false })}
-                  >
-                    刷新库内 LoRA
-                  </Button>
-                  <Button
-                    variant="outline"
-                    disabled={!comfyLoraExecutorId}
-                    onClick={() => refreshComfyuiModelCatalog(comfyLoraExecutorId)}
-                  >
-                    刷新基座模型
-                  </Button>
-                  <Button
-                    variant="outline"
-                    disabled={!comfyLoraExecutorId || comfyLoraLoading}
-                    onClick={() => refreshComfyuiLoraCatalog({ includeUntracked: true })}
-                  >
-                    查看未入库 LoRA
-                  </Button>
-                </Space>
-                <Button
-                  theme="primary"
-                  onClick={() => {
-                    resetComfyLoraForm();
-                    setComfyLoraDialogOpen(true);
-                  }}
-                >
-                  新增 LoRA
-                </Button>
-              </Space>
-
-              {comfyLoraExecutor ? (
-                <div className="text-xs text-slate-600 dark:text-slate-400">
-                  当前节点：{comfyLoraExecutor.name} · {comfyLoraExecutor.id}{' '}
-                  {comfyLoraCatalog?.baseUrl ? `(${comfyLoraCatalog.baseUrl})` : ''}
-                </div>
-              ) : (
-                <Alert theme="warning" message="未选择执行节点，仅展示库内 LoRA；如需查看服务器安装/未入库，请先选择节点。" />
-              )}
-
-              {comfyLoraError ? <Alert theme="error" message={comfyLoraError} /> : null}
-
-              {comfyLoraExecutorId && comfyCachedBaseModels.length > 0 ? (
-                <div className="rounded-2xl border border-slate-200/70 bg-slate-50/60 p-3 text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-300">
-                  <div className="flex items-center justify-between">
-                    <div className="font-semibold">已缓存基座模型</div>
-                    <button
-                      className="text-[11px] text-slate-500 hover:text-slate-700 dark:hover:text-slate-200"
-                      onClick={() => clearComfyBaseModels(comfyLoraExecutorId)}
-                    >
-                      清空
-                    </button>
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {comfyCachedBaseModels.map((model) => (
-                      <button
-                        key={`base-model-cache-${model}`}
-                        className="rounded-full border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-300 dark:hover:bg-slate-900/60"
-                        onClick={() => removeComfyBaseModel(comfyLoraExecutorId, model)}
-                      >
-                        × {model}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="mt-2 text-[11px] text-slate-500">刷新基座模型仅做增补，不会清空已有缓存。</div>
-                </div>
-              ) : null}
-
-              <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                <Space align="center" size="small">
-                  <Input
-                    value={comfyLoraSearch}
-                    onChange={(v) => setComfyLoraSearch(String(v))}
-                    placeholder="搜索文件名/名称"
-                  />
-                  <Select
-                    value={comfyLoraStatusFilter}
-                    onChange={(v) => setComfyLoraStatusFilter(String(v))}
-                    options={[
-                      { label: '全部状态', value: 'all' },
-                      ...statusOptions.map((option) => ({ label: option.label, value: option.value })),
-                    ]}
-                  />
-                </Space>
-                <div className="text-xs text-slate-500">
-                  已入库 {comfyLoraItems.length}
-                  {comfyLoraServerScanned ? ` · 服务器已安装 ${comfyLoraInstalledCount}` : ' · 未加载服务器清单'}
-                </div>
-              </Space>
-
-              {comfyLoraServerScanned && comfyLoraUntracked.length > 0 ? (
-                <div className="rounded-2xl border border-dashed border-amber-300 bg-amber-50/60 p-3 text-xs text-amber-700">
-                  <div className="font-semibold">未入库 LoRA（来自执行节点）</div>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {comfyLoraUntracked.map((name) => (
-                      <button
-                        key={`lora-missing-${name}`}
-                        className="rounded-full border border-amber-400/60 bg-white px-3 py-1 text-[11px] text-amber-700 hover:bg-amber-100"
-                        onClick={() => {
-                          resetComfyLoraForm({
-                            file_name: name,
-                            display_name: name.replace(/\.safetensors$/i, ''),
-                          });
-                          setComfyLoraDialogOpen(true);
-                        }}
-                      >
-                        + {name}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-              {comfyLoraServerScanned && comfyLoraUntracked.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 p-3 text-xs text-slate-500">
-                  未发现未入库 LoRA。
-                </div>
-              ) : null}
-
-              <div className="max-h-[480px] overflow-auto rounded-2xl border border-slate-200/70 dark:border-slate-800">
-                <table className="w-full text-xs">
-                  <thead className="sticky top-0 bg-slate-50 text-[11px] text-slate-600 dark:bg-slate-900/80 dark:text-slate-400">
-                    <tr className="text-left">
-                      <th className="px-3 py-2">名称</th>
-                      <th className="px-3 py-2">文件名</th>
-                      <th className="px-3 py-2">基座模型</th>
-                      <th className="px-3 py-2">触发词</th>
-                      <th className="px-3 py-2">标签</th>
-                      <th className="px-3 py-2">状态</th>
-                      <th className="px-3 py-2">安装</th>
-                      <th className="px-3 py-2 text-right">操作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {comfyLoraItems.length === 0 ? (
-                      <tr>
-                        <td colSpan={8} className="px-4 py-6 text-center text-slate-500">
-                          {comfyLoraLoading ? '加载中…' : '暂无 LoRA 记录'}
-                        </td>
-                      </tr>
-                    ) : (
-                      comfyLoraItems.map((item) => (
-                        <tr key={`lora-${item.id}`} className="border-t border-slate-100 dark:border-slate-800">
-                          <td className="px-3 py-2 font-semibold text-slate-900 dark:text-white">{item.display_name}</td>
-                          <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{item.file_name}</td>
-                          <td className="px-3 py-2 text-slate-700 dark:text-slate-300">
-                            {(item.base_models && item.base_models.length > 0
-                              ? item.base_models.join(', ')
-                              : item.base_model) || '—'}
-                          </td>
-                          <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
-                            {item.trigger_words?.join(', ') || '—'}
-                          </td>
-                          <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{item.tags?.join(', ') || '—'}</td>
-                          <td className="px-3 py-2">{renderStatusTag(item.status)}</td>
-                          <td className="px-3 py-2">
-                            {item.installed === true ? (
-                              <Tag theme="success" variant="light">
-                                已安装
-                              </Tag>
-                            ) : item.installed === false ? (
-                              <Tag theme="default" variant="light">
-                                未安装
-                              </Tag>
-                            ) : (
-                              <Typography.Text theme="secondary">未检测</Typography.Text>
-                            )}
-                          </td>
-                          <td className="px-3 py-2 text-right space-x-2">
-                            <button
-                              className="text-sky-400"
-                              onClick={() => {
-                                resetComfyLoraForm(item);
-                                setComfyLoraDialogOpen(true);
-                              }}
-                            >
-                              编辑
-                            </button>
-                            <button
-                              className="text-red-400"
-                              onClick={() => handleComfyLoraDelete(item.id)}
-                            >
-                              删除
-                            </button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </Space>
-          </Card>
-
-          <Dialog
-            header={comfyLoraForm.id ? '编辑 LoRA' : '新增 LoRA'}
-            visible={comfyLoraDialogOpen}
-            width={640}
-            confirmBtn={comfyLoraSaving ? { loading: true } : undefined}
-            onClose={() => setComfyLoraDialogOpen(false)}
-            onConfirm={handleComfyLoraSave}
-          >
-            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-              <Row gutter={[12, 12]}>
-                <Col span={12}>
-                  <Typography.Text theme="secondary">LoRA 文件名（服务器）</Typography.Text>
-                  <Input
-                    value={comfyLoraForm.file_name || ''}
-                    onChange={(v) => setComfyLoraForm({ ...comfyLoraForm, file_name: String(v) })}
-                    placeholder="例如 xxx.safetensors"
-                    disabled={Boolean(comfyLoraForm.id)}
-                  />
-                </Col>
-                <Col span={12}>
-                  <Typography.Text theme="secondary">对外名称</Typography.Text>
-                  <Input
-                    value={comfyLoraForm.display_name || ''}
-                    onChange={(v) => setComfyLoraForm({ ...comfyLoraForm, display_name: String(v) })}
-                    placeholder="例如 杯子 / 毛毯"
-                  />
-                </Col>
-              </Row>
-
-              <Row gutter={[12, 12]}>
-                <Col span={12}>
-                  <Typography.Text theme="secondary">适用基座模型（UNET，可多选）</Typography.Text>
-                  {comfyLoraBaseModelOptions.length > 0 ? (
-                    <select
-                      multiple
-                      value={comfyLoraFormBaseModels}
-                      onChange={(e) => {
-                        const selected = Array.from(e.target.selectedOptions).map((option) => option.value);
-                        setComfyLoraForm({
-                          ...comfyLoraForm,
-                          base_models: selected,
-                          base_model: selected.length === 1 ? selected[0] : undefined,
-                        });
-                      }}
-                      className="mt-2 h-28 w-full rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white"
-                    >
-                      {comfyLoraBaseModelOptions.map((model) => (
-                        <option key={`base-model-${model}`} value={model}>
-                          {model}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <Input
-                      value={comfyLoraFormBaseModels.join(', ')}
-                      onChange={(v) =>
-                        setComfyLoraForm({
-                          ...comfyLoraForm,
-                          base_models: normalizeTextList(v),
-                          base_model: normalizeTextList(v)[0],
-                        })
-                      }
-                      placeholder="逗号分隔多个基座模型"
-                    />
-                  )}
-                  <Typography.Text theme="secondary" style={{ fontSize: 12, display: 'block', marginTop: 6 }}>
-                    可多选；若列表为空请先刷新基座模型。
-                  </Typography.Text>
-                </Col>
-                <Col span={12}>
-                  <Typography.Text theme="secondary">状态</Typography.Text>
-                  <Select
-                    value={comfyLoraForm.status || 'active'}
-                    onChange={(v) => setComfyLoraForm({ ...comfyLoraForm, status: String(v) })}
-                    options={statusOptions}
-                  />
-                </Col>
-              </Row>
-
-              <div>
-                <Typography.Text theme="secondary">触发词（逗号或换行分隔）</Typography.Text>
-                <Textarea
-                  value={comfyLoraTriggersInput}
-                  onChange={(v) => setComfyLoraTriggersInput(String(v))}
-                  autosize={{ minRows: 2, maxRows: 4 }}
-                  placeholder="例如: cup, 360, mockup"
-                />
-              </div>
-              <div>
-                <Typography.Text theme="secondary">标签（逗号或换行分隔）</Typography.Text>
-                <Textarea
-                  value={comfyLoraTagsInput}
-                  onChange={(v) => setComfyLoraTagsInput(String(v))}
-                  autosize={{ minRows: 2, maxRows: 4 }}
-                  placeholder="例如: 服饰, 杯子, 抱枕"
-                />
-              </div>
-              <div>
-                <Typography.Text theme="secondary">备注</Typography.Text>
-                <Textarea
-                  value={comfyLoraForm.description || ''}
-                  onChange={(v) => setComfyLoraForm({ ...comfyLoraForm, description: String(v) })}
-                  autosize={{ minRows: 3, maxRows: 6 }}
-                  placeholder="适用场景、注意事项"
-                />
-              </div>
-              {comfyLoraFormError ? <Alert theme="error" message={comfyLoraFormError} /> : null}
-            </Space>
-          </Dialog>
-        </div>
+          <ComfyuiLorasPanel
+            executors={comfyExecutors}
+            executorId={comfyLoraExecutorId}
+            executor={comfyLoraExecutor}
+            catalog={comfyLoraCatalog}
+            loading={comfyLoraLoading}
+            error={comfyLoraError}
+            cachedBaseModels={comfyCachedBaseModels}
+            baseModelOptions={comfyLoraBaseModelOptions}
+            formBaseModels={comfyLoraFormBaseModels}
+            items={comfyLoraItems}
+            untracked={comfyLoraUntracked}
+            installedCount={comfyLoraInstalledCount}
+            serverScanned={comfyLoraServerScanned}
+            search={comfyLoraSearch}
+            statusFilter={comfyLoraStatusFilter}
+            statusOptions={statusOptions}
+            dialogOpen={comfyLoraDialogOpen}
+            saving={comfyLoraSaving}
+            form={comfyLoraForm}
+            tagsInput={comfyLoraTagsInput}
+            triggersInput={comfyLoraTriggersInput}
+            formError={comfyLoraFormError}
+            onExecutorChange={setComfyLoraExecutorId}
+            onRefreshLibrary={() => refreshComfyuiLoraCatalog({ includeUntracked: false })}
+            onRefreshBaseModels={() => refreshComfyuiModelCatalog(comfyLoraExecutorId)}
+            onRefreshUntracked={() => refreshComfyuiLoraCatalog({ includeUntracked: true })}
+            onCreateLora={() => {
+              resetComfyLoraForm();
+              setComfyLoraDialogOpen(true);
+            }}
+            onClearBaseModels={clearComfyBaseModels}
+            onRemoveBaseModel={removeComfyBaseModel}
+            onSearchChange={setComfyLoraSearch}
+            onStatusFilterChange={setComfyLoraStatusFilter}
+            onCreateFromUntracked={(name) => {
+              resetComfyLoraForm({
+                file_name: name,
+                display_name: name.replace(/\.safetensors$/i, ''),
+              });
+              setComfyLoraDialogOpen(true);
+            }}
+            onEditLora={(item) => {
+              resetComfyLoraForm(item);
+              setComfyLoraDialogOpen(true);
+            }}
+            onDeleteLora={handleComfyLoraDelete}
+            onCloseDialog={() => setComfyLoraDialogOpen(false)}
+            onSaveLora={handleComfyLoraSave}
+            onFormPatch={(patch) => setComfyLoraForm((prev) => ({ ...prev, ...patch }))}
+            onBaseModelsChange={(baseModels) =>
+              setComfyLoraForm((prev) => ({
+                ...prev,
+                base_models: baseModels,
+                base_model: baseModels.length === 1 ? baseModels[0] : undefined,
+              }))
+            }
+            onTagsInputChange={setComfyLoraTagsInput}
+            onTriggersInputChange={setComfyLoraTriggersInput}
+          />
         )}
         {comfyuiManageTab === 'assets' && (
-        <div className="space-y-4">
-          <Card bordered title="ComfyUI 版本清单">
-            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-              <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                <Space align="center" size="small">
-                  <Input
-                    value={comfyVersionCatalogSearch}
-                    onChange={(v) => setComfyVersionCatalogSearch(String(v))}
-                    placeholder="搜索版本/commit/仓库"
-                  />
-                  <Select
-                    value={comfyVersionCatalogStatus}
-                    onChange={(v) => setComfyVersionCatalogStatus(String(v))}
-                    options={[
-                      { label: '全部状态', value: 'all' },
-                      ...statusOptions,
-                    ]}
-                  />
-                </Space>
-                <Space align="center" size="small">
-                  <Button
-                    variant="outline"
-                    loading={comfyVersionServerLoading}
-                    onClick={refreshComfyVersionUsage}
-                  >
-                    刷新服务器版本
-                  </Button>
-                  <Button
-                    variant="outline"
-                    loading={comfyVersionSyncing}
-                    onClick={handleComfyVersionSync}
-                  >
-                    增量同步版本
-                  </Button>
-                  <Button
-                    theme="primary"
-                    onClick={() => {
-                      resetComfyVersionForm();
-                      setComfyVersionDialogOpen(true);
-                    }}
-                  >
-                    新增版本
-                  </Button>
-                </Space>
-              </Space>
-              {comfyExecutors.some((executor) => (executor.type || '').toLowerCase() === 'comfyui') &&
-              comfyServerVersionUsage.size === 0 ? (
-                <Typography.Text theme="secondary">
-                  提示：点击“刷新服务器版本”后，会在列表中标记当前在用版本。
-                </Typography.Text>
-              ) : null}
-              {comfyVersionCatalogError ? <Alert theme="error" message={comfyVersionCatalogError} /> : null}
-              <div className="max-h-[320px] overflow-auto rounded-2xl border border-slate-200/70 dark:border-slate-800">
-                <table className="w-full text-xs">
-                  <thead className="sticky top-0 bg-slate-50 text-[11px] text-slate-600 dark:bg-slate-900/80 dark:text-slate-400">
-                    <tr className="text-left">
-                      <th className="px-3 py-2">版本</th>
-                      <th className="px-3 py-2">提交哈希</th>
-                      <th className="px-3 py-2">下载</th>
-                      <th className="px-3 py-2">来源</th>
-                      <th className="px-3 py-2">状态</th>
-                      <th className="px-3 py-2">更新时间</th>
-                      <th className="px-3 py-2 text-right">操作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {comfyVersionCatalogItems.length === 0 ? (
-                      <tr>
-                        <td colSpan={7} className="px-4 py-6 text-center text-slate-500">
-                          {comfyVersionCatalogLoading ? '加载中…' : '暂无记录'}
-                        </td>
-                      </tr>
-                    ) : (
-                      comfyVersionCatalogItems.map((item) => {
-                        const usage = new Set<string>();
-                        const addUsage = (key?: string | null) => {
-                          if (!key) return;
-                          const list = comfyServerVersionUsage.get(String(key).trim());
-                          if (!list) return;
-                          list.forEach((name) => usage.add(name));
-                        };
-                        addUsage(item.version);
-                        addUsage(item.commit_sha);
-                        const usageList = Array.from(usage);
-                        return (
-                        <tr key={`comfyui-version-${item.id}`} className="border-t border-slate-100 dark:border-slate-800">
-                          <td className="px-3 py-2 font-semibold text-slate-900 dark:text-white">
-                            <Space size="small">
-                              <span>{item.version}</span>
-                              {usageList.length > 0 ? (
-                                <Popup
-                                  placement="right"
-                                  trigger="hover"
-                                  content={
-                                    <div className="max-w-[320px] whitespace-pre-wrap text-xs text-slate-700">
-                                      在用服务器：{usageList.join('、')}
-                                    </div>
-                                  }
-                                >
-                                  <Tag theme="success" variant="light">
-                                    在用{usageList.length > 1 ? ` · ${usageList.length}台` : ''}
-                                  </Tag>
-                                </Popup>
-                              ) : null}
-                            </Space>
-                          </td>
-                          <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{item.commit_sha || '—'}</td>
-                          <td className="px-3 py-2">
-                            {item.download_url ? (
-                              <Button
-                                size="small"
-                                variant="text"
-                                onClick={() => window.open(item.download_url || '', '_blank', 'noreferrer')}
-                              >
-                                打开
-                              </Button>
-                            ) : (
-                              '—'
-                            )}
-                          </td>
-                          <td className="px-3 py-2">
-                            {item.source_url || item.repo_url ? (
-                              <Button
-                                size="small"
-                                variant="text"
-                                onClick={() =>
-                                  window.open(item.source_url || item.repo_url || '', '_blank', 'noreferrer')
-                                }
-                              >
-                                打开
-                              </Button>
-                            ) : (
-                              '—'
-                            )}
-                          </td>
-                          <td className="px-3 py-2">{renderStatusTag(item.status)}</td>
-                          <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
-                            {item.updated_at ? formatDateTime(item.updated_at) : '—'}
-                          </td>
-                          <td className="px-3 py-2 text-right space-x-2">
-                            <button
-                              className="text-sky-400"
-                              onClick={() => {
-                                resetComfyVersionForm(item);
-                                setComfyVersionDialogOpen(true);
-                              }}
-                            >
-                              编辑
-                            </button>
-                            <button className="text-red-400" onClick={() => handleComfyVersionDelete(item.id)}>
-                              删除
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </Space>
-          </Card>
-          <Dialog
-            header={comfyVersionForm.id ? '编辑版本' : '新增版本'}
-            visible={comfyVersionDialogOpen}
-            width={680}
-            confirmBtn={comfyVersionSaving ? { loading: true } : undefined}
-            onClose={() => setComfyVersionDialogOpen(false)}
-            onConfirm={handleComfyVersionSave}
-          >
-            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-              <Row gutter={[12, 12]}>
-                <Col span={12}>
-                  <Typography.Text theme="secondary">版本号</Typography.Text>
-                  <Input
-                    value={comfyVersionForm.version || ''}
-                    onChange={(v) => setComfyVersionForm({ ...comfyVersionForm, version: String(v) })}
-                    placeholder="例如 v0.2.x 或 标签/提交"
-                    disabled={Boolean(comfyVersionForm.id)}
-                  />
-                </Col>
-                <Col span={12}>
-                  <Typography.Text theme="secondary">提交哈希</Typography.Text>
-                  <Input
-                    value={comfyVersionForm.commit_sha || ''}
-                    onChange={(v) => setComfyVersionForm({ ...comfyVersionForm, commit_sha: String(v) })}
-                    placeholder="可选"
-                  />
-                </Col>
-              </Row>
-              <Row gutter={[12, 12]}>
-                <Col span={12}>
-                  <Typography.Text theme="secondary">仓库地址</Typography.Text>
-                  <Input
-                    value={comfyVersionForm.repo_url || ''}
-                    onChange={(v) => setComfyVersionForm({ ...comfyVersionForm, repo_url: String(v) })}
-                    placeholder="https://github.com/..."
-                  />
-                </Col>
-                <Col span={12}>
-                  <Typography.Text theme="secondary">来源地址</Typography.Text>
-                  <Input
-                    value={comfyVersionForm.source_url || ''}
-                    onChange={(v) => setComfyVersionForm({ ...comfyVersionForm, source_url: String(v) })}
-                    placeholder="发布页/文档链接"
-                  />
-                </Col>
-              </Row>
-              <Row gutter={[12, 12]}>
-                <Col span={12}>
-                  <Typography.Text theme="secondary">下载地址</Typography.Text>
-                  <Input
-                    value={comfyVersionForm.download_url || ''}
-                    onChange={(v) => setComfyVersionForm({ ...comfyVersionForm, download_url: String(v) })}
-                    placeholder="zip 或 git 地址"
-                  />
-                </Col>
-                <Col span={12}>
-                  <Typography.Text theme="secondary">发布时间</Typography.Text>
-                  <Input
-                    value={comfyVersionForm.released_at || ''}
-                    onChange={(v) => setComfyVersionForm({ ...comfyVersionForm, released_at: String(v) })}
-                    placeholder="YYYY-MM-DDTHH:mm:ssZ"
-                  />
-                </Col>
-              </Row>
-              <div>
-                <Typography.Text theme="secondary">备注</Typography.Text>
-                <Textarea
-                  value={comfyVersionForm.notes || ''}
-                  onChange={(v) => setComfyVersionForm({ ...comfyVersionForm, notes: String(v) })}
-                  autosize={{ minRows: 3, maxRows: 5 }}
-                />
-              </div>
-              <div>
-                <Typography.Text theme="secondary">状态</Typography.Text>
-                <Select
-                  value={comfyVersionForm.status || 'active'}
-                  onChange={(v) => setComfyVersionForm({ ...comfyVersionForm, status: String(v) })}
-                  options={statusOptions}
-                />
-              </div>
-              {comfyVersionFormError ? <Alert theme="error" message={comfyVersionFormError} /> : null}
-            </Space>
-          </Dialog>
-          <Card bordered title="模型清单">
-            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-              <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                <Space align="center" size="small">
-                  <Input
-                    value={comfyModelCatalogSearch}
-                    onChange={(v) => setComfyModelCatalogSearch(String(v))}
-                    placeholder="搜索文件名/名称"
-                  />
-                  <Select
-                    value={comfyModelCatalogType}
-                    onChange={(v) => setComfyModelCatalogType(String(v))}
-                    options={[
-                      { label: '全部类型', value: 'all' },
-                      ...comfyModelTypeOptions,
-                    ]}
-                  />
-                  <Select
-                    value={comfyModelCatalogStatus}
-                    onChange={(v) => setComfyModelCatalogStatus(String(v))}
-                    options={[
-                      { label: '全部状态', value: 'all' },
-                      ...statusOptions,
-                    ]}
-                  />
-                </Space>
-                <Button
-                  theme="primary"
-                  onClick={() => {
-                    resetComfyModelForm();
-                    setComfyModelDialogOpen(true);
-                  }}
-                >
-                  新增模型
-                </Button>
-              </Space>
-              {comfyModelCatalogError ? <Alert theme="error" message={comfyModelCatalogError} /> : null}
-              <div className="max-h-[360px] overflow-auto rounded-2xl border border-slate-200/70 dark:border-slate-800">
-                <table className="w-full text-xs">
-                  <thead className="sticky top-0 bg-slate-50 text-[11px] text-slate-600 dark:bg-slate-900/80 dark:text-slate-400">
-                    <tr className="text-left">
-                      <th className="px-3 py-2">名称</th>
-                      <th className="px-3 py-2">文件名</th>
-                      <th className="px-3 py-2">类型</th>
-                      <th className="px-3 py-2">下载</th>
-                      <th className="px-3 py-2">来源</th>
-                      <th className="px-3 py-2">状态</th>
-                      <th className="px-3 py-2 text-right">操作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {comfyModelCatalogItems.length === 0 ? (
-                      <tr>
-                        <td colSpan={7} className="px-4 py-6 text-center text-slate-500">
-                          {comfyModelCatalogLoading ? '加载中…' : '暂无记录'}
-                        </td>
-                      </tr>
-                    ) : (
-                      comfyModelCatalogItems.map((item) => (
-                        <tr key={`model-${item.id}`} className="border-t border-slate-100 dark:border-slate-800">
-                          <td className="px-3 py-2 font-semibold text-slate-900 dark:text-white">
-                            {item.display_name || item.file_name || '—'}
-                          </td>
-                          <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{item.file_name}</td>
-                          <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{item.model_type}</td>
-                          <td className="px-3 py-2">
-                            {item.download_url ? (
-                              <Button
-                                size="small"
-                                variant="text"
-                                onClick={() => window.open(item.download_url || '', '_blank', 'noreferrer')}
-                              >
-                                打开
-                              </Button>
-                            ) : (
-                              '—'
-                            )}
-                          </td>
-                          <td className="px-3 py-2">
-                            {item.source_url ? (
-                              <Button
-                                size="small"
-                                variant="text"
-                                onClick={() => window.open(item.source_url || '', '_blank', 'noreferrer')}
-                              >
-                                打开
-                              </Button>
-                            ) : (
-                              '—'
-                            )}
-                          </td>
-                          <td className="px-3 py-2">{renderStatusTag(item.status)}</td>
-                          <td className="px-3 py-2 text-right space-x-2">
-                            <button
-                              className="text-sky-400"
-                              onClick={() => {
-                                resetComfyModelForm(item);
-                                setComfyModelDialogOpen(true);
-                              }}
-                            >
-                              编辑
-                            </button>
-                            <button className="text-red-400" onClick={() => handleComfyModelDelete(item.id)}>
-                              删除
-                            </button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </Space>
-          </Card>
-          <Dialog
-            header={comfyModelForm.id ? '编辑模型' : '新增模型'}
-            visible={comfyModelDialogOpen}
-            width={640}
-            confirmBtn={comfyModelSaving ? { loading: true } : undefined}
-            onClose={() => setComfyModelDialogOpen(false)}
-            onConfirm={handleComfyModelSave}
-          >
-            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-              <Row gutter={[12, 12]}>
-                <Col span={12}>
-                  <Typography.Text theme="secondary">模型文件名</Typography.Text>
-                  <Input
-                    value={comfyModelForm.file_name || ''}
-                    onChange={(v) => setComfyModelForm({ ...comfyModelForm, file_name: String(v) })}
-                    placeholder="例如 xxx.safetensors"
-                    disabled={Boolean(comfyModelForm.id)}
-                  />
-                </Col>
-                <Col span={12}>
-                  <Typography.Text theme="secondary">对外名称</Typography.Text>
-                  <Input
-                    value={comfyModelForm.display_name || ''}
-                    onChange={(v) => setComfyModelForm({ ...comfyModelForm, display_name: String(v) })}
-                    placeholder="例如 基座模型A"
-                  />
-                </Col>
-              </Row>
-              <Row gutter={[12, 12]}>
-                <Col span={12}>
-                  <Typography.Text theme="secondary">模型类型</Typography.Text>
-                  <Select
-                    value={comfyModelForm.model_type || 'unet'}
-                    onChange={(v) => setComfyModelForm({ ...comfyModelForm, model_type: String(v) })}
-                    options={comfyModelTypeOptions}
-                  />
-                </Col>
-                <Col span={12}>
-                  <Typography.Text theme="secondary">状态</Typography.Text>
-                  <Select
-                    value={comfyModelForm.status || 'active'}
-                    onChange={(v) => setComfyModelForm({ ...comfyModelForm, status: String(v) })}
-                    options={statusOptions}
-                  />
-                </Col>
-              </Row>
-              <div>
-                <Typography.Text theme="secondary">下载地址</Typography.Text>
-                <Input
-                  value={comfyModelForm.download_url || ''}
-                  onChange={(v) => setComfyModelForm({ ...comfyModelForm, download_url: String(v) })}
-                  placeholder="https://..."
-                />
-              </div>
-              <div>
-                <Typography.Text theme="secondary">来源地址</Typography.Text>
-                <Input
-                  value={comfyModelForm.source_url || ''}
-                  onChange={(v) => setComfyModelForm({ ...comfyModelForm, source_url: String(v) })}
-                  placeholder="https://..."
-                />
-              </div>
-              <div>
-                <Typography.Text theme="secondary">标签（逗号或换行分隔）</Typography.Text>
-                <Textarea
-                  value={comfyModelFormTags}
-                  onChange={(v) => setComfyModelFormTags(String(v))}
-                  autosize={{ minRows: 2, maxRows: 4 }}
-                />
-              </div>
-              <div>
-                <Typography.Text theme="secondary">备注</Typography.Text>
-                <Textarea
-                  value={comfyModelForm.description || ''}
-                  onChange={(v) => setComfyModelForm({ ...comfyModelForm, description: String(v) })}
-                  autosize={{ minRows: 3, maxRows: 5 }}
-                />
-              </div>
-              {comfyModelFormError ? <Alert theme="error" message={comfyModelFormError} /> : null}
-            </Space>
-          </Dialog>
-          <Card bordered title="插件清单">
-            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-              <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                <Space align="center" size="small">
-                  <Input
-                    value={comfyPluginCatalogSearch}
-                    onChange={(v) => setComfyPluginCatalogSearch(String(v))}
-                    placeholder="搜索节点 key/名称/包名"
-                  />
-                  <Select
-                    value={comfyPluginCatalogStatus}
-                    onChange={(v) => setComfyPluginCatalogStatus(String(v))}
-                    options={[
-                      { label: '全部状态', value: 'all' },
-                      ...statusOptions,
-                    ]}
-                  />
-                </Space>
-                <Button
-                  theme="primary"
-                  onClick={() => {
-                    resetComfyPluginForm();
-                    setComfyPluginDialogOpen(true);
-                  }}
-                >
-                  新增插件
-                </Button>
-              </Space>
-              {comfyPluginCatalogError ? <Alert theme="error" message={comfyPluginCatalogError} /> : null}
-              <div className="max-h-[360px] overflow-auto rounded-2xl border border-slate-200/70 dark:border-slate-800">
-                <table className="w-full text-xs">
-                  <thead className="sticky top-0 bg-slate-50 text-[11px] text-slate-600 dark:bg-slate-900/80 dark:text-slate-400">
-                    <tr className="text-left">
-                      <th className="px-3 py-2">节点 Key</th>
-                      <th className="px-3 py-2">名称</th>
-                      <th className="px-3 py-2">包名</th>
-                      <th className="px-3 py-2">版本</th>
-                      <th className="px-3 py-2">下载</th>
-                      <th className="px-3 py-2">来源</th>
-                      <th className="px-3 py-2">状态</th>
-                      <th className="px-3 py-2 text-right">操作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {comfyPluginCatalogItems.length === 0 ? (
-                      <tr>
-                        <td colSpan={8} className="px-4 py-6 text-center text-slate-500">
-                          {comfyPluginCatalogLoading ? '加载中…' : '暂无记录'}
-                        </td>
-                      </tr>
-                    ) : (
-                      comfyPluginCatalogItems.map((item) => (
-                        <tr key={`plugin-${item.id}`} className="border-t border-slate-100 dark:border-slate-800">
-                          <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{item.node_key}</td>
-                          <td className="px-3 py-2 font-semibold text-slate-900 dark:text-white">{item.display_name}</td>
-                          <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{item.package_name || '—'}</td>
-                          <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{item.version || '—'}</td>
-                          <td className="px-3 py-2">
-                            {item.download_url ? (
-                              <Button
-                                size="small"
-                                variant="text"
-                                onClick={() => window.open(item.download_url || '', '_blank', 'noreferrer')}
-                              >
-                                打开
-                              </Button>
-                            ) : (
-                              '—'
-                            )}
-                          </td>
-                          <td className="px-3 py-2">
-                            {item.source_url ? (
-                              <Button
-                                size="small"
-                                variant="text"
-                                onClick={() => window.open(item.source_url || '', '_blank', 'noreferrer')}
-                              >
-                                打开
-                              </Button>
-                            ) : (
-                              '—'
-                            )}
-                          </td>
-                          <td className="px-3 py-2">{renderStatusTag(item.status)}</td>
-                          <td className="px-3 py-2 text-right space-x-2">
-                            <button
-                              className="text-sky-400"
-                              onClick={() => {
-                                resetComfyPluginForm(item);
-                                setComfyPluginDialogOpen(true);
-                              }}
-                            >
-                              编辑
-                            </button>
-                            <button className="text-red-400" onClick={() => handleComfyPluginDelete(item.id)}>
-                              删除
-                            </button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </Space>
-          </Card>
-          <Dialog
-            header={comfyPluginForm.id ? '编辑插件' : '新增插件'}
-            visible={comfyPluginDialogOpen}
-            width={640}
-            confirmBtn={comfyPluginSaving ? { loading: true } : undefined}
-            onClose={() => setComfyPluginDialogOpen(false)}
-            onConfirm={handleComfyPluginSave}
-          >
-            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-              <Row gutter={[12, 12]}>
-                <Col span={12}>
-                  <Typography.Text theme="secondary">节点 Key</Typography.Text>
-                  <Input
-                    value={comfyPluginForm.node_key || ''}
-                    onChange={(v) => setComfyPluginForm({ ...comfyPluginForm, node_key: String(v) })}
-                    placeholder="例如 ImageResize+"
-                    disabled={Boolean(comfyPluginForm.id)}
-                  />
-                </Col>
-                <Col span={12}>
-                  <Typography.Text theme="secondary">对外名称</Typography.Text>
-                  <Input
-                    value={comfyPluginForm.display_name || ''}
-                    onChange={(v) => setComfyPluginForm({ ...comfyPluginForm, display_name: String(v) })}
-                    placeholder="例如 图像缩放增强"
-                  />
-                </Col>
-              </Row>
-              <Row gutter={[12, 12]}>
-                <Col span={12}>
-                  <Typography.Text theme="secondary">包名</Typography.Text>
-                  <Input
-                    value={comfyPluginForm.package_name || ''}
-                    onChange={(v) => setComfyPluginForm({ ...comfyPluginForm, package_name: String(v) })}
-                    placeholder="例如 comfyui_essentials"
-                  />
-                </Col>
-                <Col span={12}>
-                  <Typography.Text theme="secondary">版本</Typography.Text>
-                  <Input
-                    value={comfyPluginForm.version || ''}
-                    onChange={(v) => setComfyPluginForm({ ...comfyPluginForm, version: String(v) })}
-                    placeholder="commit/tag"
-                  />
-                </Col>
-              </Row>
-              <Row gutter={[12, 12]}>
-                <Col span={12}>
-                  <Typography.Text theme="secondary">下载地址</Typography.Text>
-                  <Input
-                    value={comfyPluginForm.download_url || ''}
-                    onChange={(v) => setComfyPluginForm({ ...comfyPluginForm, download_url: String(v) })}
-                    placeholder="https://..."
-                  />
-                </Col>
-                <Col span={12}>
-                  <Typography.Text theme="secondary">来源地址</Typography.Text>
-                  <Input
-                    value={comfyPluginForm.source_url || ''}
-                    onChange={(v) => setComfyPluginForm({ ...comfyPluginForm, source_url: String(v) })}
-                    placeholder="https://..."
-                  />
-                </Col>
-              </Row>
-              <div>
-                <Typography.Text theme="secondary">标签（逗号或换行分隔）</Typography.Text>
-                <Textarea
-                  value={comfyPluginFormTags}
-                  onChange={(v) => setComfyPluginFormTags(String(v))}
-                  autosize={{ minRows: 2, maxRows: 4 }}
-                />
-              </div>
-              <div>
-                <Typography.Text theme="secondary">备注</Typography.Text>
-                <Textarea
-                  value={comfyPluginForm.description || ''}
-                  onChange={(v) => setComfyPluginForm({ ...comfyPluginForm, description: String(v) })}
-                  autosize={{ minRows: 3, maxRows: 5 }}
-                />
-              </div>
-              <div>
-                <Typography.Text theme="secondary">状态</Typography.Text>
-                <Select
-                  value={comfyPluginForm.status || 'active'}
-                  onChange={(v) => setComfyPluginForm({ ...comfyPluginForm, status: String(v) })}
-                  options={statusOptions}
-                />
-              </div>
-              {comfyPluginFormError ? <Alert theme="error" message={comfyPluginFormError} /> : null}
-            </Space>
-          </Dialog>
-        </div>
+          <ComfyuiAssetsPanel
+            executors={comfyExecutors}
+            versionItems={comfyVersionCatalogItems}
+            versionLoading={comfyVersionCatalogLoading}
+            versionError={comfyVersionCatalogError}
+            versionSearch={comfyVersionCatalogSearch}
+            versionStatus={comfyVersionCatalogStatus}
+            versionServerLoading={comfyVersionServerLoading}
+            versionSyncing={comfyVersionSyncing}
+            versionUsage={comfyServerVersionUsage}
+            versionDialogOpen={comfyVersionDialogOpen}
+            versionSaving={comfyVersionSaving}
+            versionForm={comfyVersionForm}
+            versionFormError={comfyVersionFormError}
+            modelItems={comfyModelCatalogItems}
+            modelLoading={comfyModelCatalogLoading}
+            modelError={comfyModelCatalogError}
+            modelSearch={comfyModelCatalogSearch}
+            modelType={comfyModelCatalogType}
+            modelStatus={comfyModelCatalogStatus}
+            modelDialogOpen={comfyModelDialogOpen}
+            modelSaving={comfyModelSaving}
+            modelForm={comfyModelForm}
+            modelFormTags={comfyModelFormTags}
+            modelFormError={comfyModelFormError}
+            pluginItems={comfyPluginCatalogItems}
+            pluginLoading={comfyPluginCatalogLoading}
+            pluginError={comfyPluginCatalogError}
+            pluginSearch={comfyPluginCatalogSearch}
+            pluginStatus={comfyPluginCatalogStatus}
+            pluginDialogOpen={comfyPluginDialogOpen}
+            pluginSaving={comfyPluginSaving}
+            pluginForm={comfyPluginForm}
+            pluginFormTags={comfyPluginFormTags}
+            pluginFormError={comfyPluginFormError}
+            statusOptions={statusOptions}
+            modelTypeOptions={comfyModelTypeOptions}
+            onVersionSearchChange={setComfyVersionCatalogSearch}
+            onVersionStatusChange={setComfyVersionCatalogStatus}
+            onRefreshVersionUsage={refreshComfyVersionUsage}
+            onSyncVersions={handleComfyVersionSync}
+            onCreateVersion={() => {
+              resetComfyVersionForm();
+              setComfyVersionDialogOpen(true);
+            }}
+            onEditVersion={(item) => {
+              resetComfyVersionForm(item);
+              setComfyVersionDialogOpen(true);
+            }}
+            onDeleteVersion={handleComfyVersionDelete}
+            onCloseVersionDialog={() => setComfyVersionDialogOpen(false)}
+            onSaveVersion={handleComfyVersionSave}
+            onVersionFormPatch={(patch) => setComfyVersionForm((prev) => ({ ...prev, ...patch }))}
+            onModelSearchChange={setComfyModelCatalogSearch}
+            onModelTypeChange={setComfyModelCatalogType}
+            onModelStatusChange={setComfyModelCatalogStatus}
+            onCreateModel={() => {
+              resetComfyModelForm();
+              setComfyModelDialogOpen(true);
+            }}
+            onEditModel={(item) => {
+              resetComfyModelForm(item);
+              setComfyModelDialogOpen(true);
+            }}
+            onDeleteModel={handleComfyModelDelete}
+            onCloseModelDialog={() => setComfyModelDialogOpen(false)}
+            onSaveModel={handleComfyModelSave}
+            onModelFormPatch={(patch) => setComfyModelForm((prev) => ({ ...prev, ...patch }))}
+            onModelTagsChange={setComfyModelFormTags}
+            onPluginSearchChange={setComfyPluginCatalogSearch}
+            onPluginStatusChange={setComfyPluginCatalogStatus}
+            onCreatePlugin={() => {
+              resetComfyPluginForm();
+              setComfyPluginDialogOpen(true);
+            }}
+            onEditPlugin={(item) => {
+              resetComfyPluginForm(item);
+              setComfyPluginDialogOpen(true);
+            }}
+            onDeletePlugin={handleComfyPluginDelete}
+            onClosePluginDialog={() => setComfyPluginDialogOpen(false)}
+            onSavePlugin={handleComfyPluginSave}
+            onPluginFormPatch={(patch) => setComfyPluginForm((prev) => ({ ...prev, ...patch }))}
+            onPluginTagsChange={setComfyPluginFormTags}
+          />
         )}
         {comfyuiManageTab === 'servers' && (
-        <div className="space-y-4">
-          <div className="text-sm text-slate-600 dark:text-slate-400">
-            选择一台“主服务器”作为基准，其它服务器会对比模型/插件是否缺失。差异只做提示，不会自动同步。
-          </div>
-          <div className="grid gap-6 lg:grid-cols-[2fr_1fr] lg:items-start">
-            <Card bordered title="服务器对比" style={{ width: '100%' }}>
-              <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-                <Space align="center" size="small" style={{ justifyContent: 'space-between', width: '100%' }}>
-                  <Space align="center" size="small">
-                    <div style={{ width: 'min(100%, 280px)' }}>
-                      <Select
-                        value={comfyBaselineExecutor?.id || ''}
-                        onChange={(v) => setComfyBaselineExecutorId(String(v))}
-                        options={[
-                          { label: '请选择主服务器', value: '' },
-                          ...comfyExecutors.map((executor) => ({
-                            label: `${executor.name} · ${executor.id}`,
-                            value: executor.id,
-                          })),
-                        ]}
-                      />
-                    </div>
-                    <Button
-                      variant="outline"
-                      disabled={comfyServerRefreshing || comfyExecutors.length === 0}
-                      onClick={refreshComfyuiServers}
-                    >
-                      {comfyServerRefreshing ? '刷新中…' : '刷新所有服务器'}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      disabled={!comfyBaselineExecutor?.id}
-                      onClick={() => {
-                        if (!comfyBaselineExecutor?.id) return;
-                        refreshComfyuiSystemStats(comfyBaselineExecutor.id);
-                        refreshComfyuiModelCatalog(comfyBaselineExecutor.id, { includeNodes: true });
-                      }}
-                    >
-                      刷新主服务器
-                    </Button>
-                    <Button
-                      variant="outline"
-                      disabled={!comfyBaselineExecutor?.id}
-                      onClick={() => {
-                        const snapshot = buildComfyDiffSnapshot();
-                        if (!snapshot) return;
-                        setComfyDiffDialogTitle('ComfyUI 服务器差异汇总');
-                        setComfyDiffDialogPayload(snapshot);
-                        setComfyDiffDialogOpen(true);
-                      }}
-                    >
-                      查看差异汇总
-                    </Button>
-                    <Button
-                      variant="outline"
-                      disabled={!comfyBaselineExecutor?.id}
-                      onClick={() => {
-                        const snapshot = buildComfyDiffSnapshot();
-                        if (!snapshot) return;
-                        const ts = new Date().toISOString().replace(/[:.]/g, '-');
-                        downloadJson(snapshot, `comfyui-diff-${ts}.json`);
-                      }}
-                    >
-                      导出差异
-                    </Button>
-                    <Button
-                      theme="primary"
-                      loading={comfyDiffSaving}
-                      disabled={!comfyBaselineExecutor?.id}
-                      onClick={handleSaveComfyDiffSnapshot}
-                    >
-                      保存对齐结果
-                    </Button>
-                  </Space>
-                  {comfyBaselineExecutor ? (
-                    <div className="text-xs text-slate-500">
-                      主服务器：{comfyBaselineExecutor.name} · {comfyBaselineExecutor.id}
-                    </div>
-                  ) : null}
-                </Space>
-
-                {comfyExecutors.length === 0 ? (
-                  <Alert theme="warning" message="还没有 ComfyUI 执行节点，请先新增服务器。" />
-                ) : (
-                  <div className="space-y-3">
-                    {comfyExecutors.map((executor) => {
-                      const isBaseline = executor.id === comfyBaselineExecutor?.id;
-                      const modelCatalog = comfyModelCache[executor.id];
-                      const modelCounts = extractComfyuiModelCounts(modelCatalog);
-                      const modelLoaded = Boolean(modelCatalog && Object.keys(modelCatalog).length > 0);
-                      const nodeKeys = comfyNodeCache[executor.id] || [];
-                      const nodesLoaded = nodeKeys.length > 0;
-                      const baselineCatalog = comfyBaselineExecutor?.id ? comfyModelCache[comfyBaselineExecutor.id] : null;
-                      const baselineUnetReady =
-                        Array.isArray(baselineCatalog?.unet) ||
-                        Boolean(
-                          comfyBaselineExecutor?.id && (comfyBaseModelCache[comfyBaselineExecutor.id] || []).length > 0,
-                        );
-                      const baselineClipReady = Array.isArray(baselineCatalog?.clip);
-                      const baselineVaeReady = Array.isArray(baselineCatalog?.vae);
-                      const baselineLoraReady = Array.isArray(baselineCatalog?.lora);
-                      const baselineNodesReady = Boolean(
-                        comfyBaselineExecutor?.id && (comfyNodeCache[comfyBaselineExecutor.id] || []).length > 0,
-                      );
-      const diffSnapshot = buildComfyServerDiff(executor);
-                      const missingUnet = diffSnapshot.missing.unet;
-                      const missingClip = diffSnapshot.missing.clip;
-                      const missingVae = diffSnapshot.missing.vae;
-                      const missingLora = diffSnapshot.missing.lora;
-                      const missingNodes = diffSnapshot.missing.nodes;
-                      const systemInfo = comfySystemCache[executor.id];
-                      const versionInfo = extractComfyuiVersionInfo(executor, systemInfo);
-                      const systemLoading = Boolean(comfySystemLoadingByExecutor[executor.id]);
-                      const modelLoading = Boolean(comfyModelLoadingByExecutor[executor.id]);
-                      const systemError = comfySystemErrorByExecutor[executor.id];
-                      const modelError = comfyModelErrorByExecutor[executor.id];
-                      return (
-                        <div
-                          key={`comfy-server-${executor.id}`}
-                          className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 dark:border-slate-800 dark:bg-slate-900/40"
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-2">
-                                <div className="truncate font-semibold text-slate-900 dark:text-white">
-                                  {executor.name}
-                                </div>
-                                <StatusPill status={executor.status} />
-                                {isBaseline ? (
-                                  <Tag theme="primary" variant="light">
-                                    主服务器
-                                  </Tag>
-                                ) : null}
-                              </div>
-                              <div className="mt-1 truncate text-xs text-slate-600 dark:text-slate-400">
-                                {executor.base_url || '—'}
-                              </div>
-                              <div className="mt-1 text-xs text-slate-500">
-                                并发/权重：{executor.max_concurrency}/{executor.weight}
-                              </div>
-                            </div>
-                            <div className="shrink-0 text-right text-xs text-slate-500">
-                              <button
-                                className="rounded border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700 hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200 dark:hover:bg-slate-900/60"
-                                onClick={() => {
-                                  refreshComfyuiSystemStats(executor.id);
-                                  refreshComfyuiModelCatalog(executor.id, { includeNodes: true });
-                                }}
-                                disabled={systemLoading || modelLoading}
-                              >
-                                {systemLoading || modelLoading ? '刷新中…' : '刷新'}
-                              </button>
-                            </div>
-                          </div>
-
-                          <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                            <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-300">
-                              <div className="text-[10px] uppercase tracking-widest text-slate-500">版本</div>
-                              <div className="mt-1 text-sm font-semibold text-slate-900 dark:text-white">
-                                {versionInfo?.version || '—'}
-                              </div>
-                              <div className="mt-1 text-[11px] text-slate-500">
-                                插件节点：{nodeKeys.length || '—'}
-                              </div>
-                              {versionInfo?.customNodes ? (
-                                <div className="mt-1 text-[11px] text-slate-500">
-                                  插件版本：{versionInfo.customNodes}
-                                </div>
-                              ) : null}
-                              {systemError ? <div className="mt-1 text-[11px] text-rose-500">{systemError}</div> : null}
-                            </div>
-                            <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-300">
-                                <div className="text-[10px] uppercase tracking-widest text-slate-500">模型 / LoRA</div>
-                                <div className="mt-1 text-sm font-semibold text-slate-900 dark:text-white">
-                                  {modelLoaded ? `${modelCounts.unet}/${modelCounts.lora}` : '—'}
-                                </div>
-                                <div className="mt-1 text-[11px] text-slate-500">unet/lora</div>
-                                {modelError ? <div className="mt-1 text-[11px] text-rose-500">{modelError}</div> : null}
-                              </div>
-                              <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-300">
-                                <div className="text-[10px] uppercase tracking-widest text-slate-500">差异提示</div>
-                                <div className="mt-1 text-[11px] text-slate-500">
-                                  {isBaseline ? '主服务器无需对比' : '对比模型 + 插件'}
-                                </div>
-                                <div className="mt-2 space-y-1 text-[11px] text-slate-600 dark:text-slate-400">
-                                <div className="flex items-center justify-between">
-                                  <span>UNET</span>
-                                  {isBaseline ? (
-                                    <Tag theme="success" variant="light">
-                                      主服务器
-                                    </Tag>
-                                  ) : (
-                                    renderComfyDiffTag({
-                                      baselineReady: baselineUnetReady,
-                                      targetReady: modelLoaded,
-                                      missing: missingUnet,
-                                    })
-                                  )}
-                                </div>
-                                <div className="flex items-center justify-between">
-                                  <span>CLIP</span>
-                                  {isBaseline ? (
-                                    <Tag theme="success" variant="light">
-                                      主服务器
-                                    </Tag>
-                                  ) : (
-                                    renderComfyDiffTag({
-                                      baselineReady: baselineClipReady,
-                                      targetReady: modelLoaded,
-                                      missing: missingClip,
-                                    })
-                                  )}
-                                </div>
-                                <div className="flex items-center justify-between">
-                                  <span>VAE</span>
-                                  {isBaseline ? (
-                                    <Tag theme="success" variant="light">
-                                      主服务器
-                                    </Tag>
-                                  ) : (
-                                    renderComfyDiffTag({
-                                      baselineReady: baselineVaeReady,
-                                      targetReady: modelLoaded,
-                                      missing: missingVae,
-                                    })
-                                  )}
-                                </div>
-                                <div className="flex items-center justify-between">
-                                  <span>LoRA</span>
-                                  {isBaseline ? (
-                                    <Tag theme="success" variant="light">
-                                      主服务器
-                                    </Tag>
-                                  ) : (
-                                    renderComfyDiffTag({
-                                      baselineReady: baselineLoraReady,
-                                      targetReady: modelLoaded,
-                                      missing: missingLora,
-                                    })
-                                  )}
-                                </div>
-                                <div className="flex items-center justify-between">
-                                  <span>插件节点</span>
-                                  {isBaseline ? (
-                                    <Tag theme="success" variant="light">
-                                      主服务器
-                                    </Tag>
-                                  ) : (
-                                    renderComfyDiffTag({
-                                      baselineReady: baselineNodesReady,
-                                      targetReady: nodesLoaded,
-                                      missing: missingNodes,
-                                      okLabel: '对齐',
-                                    })
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                          {!isBaseline && (
-                            <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
-                              <button
-                                className="rounded border border-slate-300 bg-white px-2 py-1 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-300 dark:hover:bg-slate-900/60"
-                                onClick={() => {
-                                  setComfyDiffDialogTitle(`${executor.name} · 差异明细`);
-                                  setComfyDiffDialogPayload({
-                                    ...diffSnapshot,
-                                    generatedAt: new Date().toISOString(),
-                                  });
-                                  setComfyDiffDialogOpen(true);
-                                }}
-                              >
-                                查看差异清单
-                              </button>
-                              <button
-                                className="rounded border border-slate-300 bg-white px-2 py-1 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-300 dark:hover:bg-slate-900/60"
-                                onClick={() => {
-                                  const ts = new Date().toISOString().replace(/[:.]/g, '-');
-                                  downloadJson(
-                                    { ...diffSnapshot, generatedAt: new Date().toISOString() },
-                                    `comfyui-diff-${executor.id}-${ts}.json`,
-                                  );
-                                }}
-                              >
-                                导出差异清单
-                              </button>
-                              <button
-                                className="rounded border border-slate-300 bg-white px-2 py-1 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-300 dark:hover:bg-slate-900/60"
-                                onClick={() => {
-                                  const ts = new Date().toISOString().replace(/[:.]/g, '-');
-                                  downloadJson(
-                                    {
-                                      generatedAt: new Date().toISOString(),
-                                      baseline: diffSnapshot.baseline,
-                                      server: diffSnapshot.server,
-                                      repos: diffSnapshot.missing_repo_groups?.repos || [],
-                                      missing_repo_nodes: diffSnapshot.missing_repo_groups?.missingRepoNodes || [],
-                                    },
-                                    `comfyui-repo-diff-${executor.id}-${ts}.json`,
-                                  );
-                                }}
-                              >
-                                导出仓库清单
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </Space>
-            </Card>
-            {comfyServersAssistOpen ? (
-              <div className="space-y-4">
-                <Card bordered title="新增 ComfyUI 服务器" style={{ width: '100%' }}>
-                  <Space direction="vertical" size="small" style={{ width: '100%' }}>
-                    <Input
-                      value={comfyServerForm.name}
-                      onChange={(v) => setComfyServerForm((prev) => ({ ...prev, name: String(v) }))}
-                      placeholder="服务器名称（如 ComfyUI-158）"
-                    />
-                    <Input
-                      value={comfyServerForm.base_url}
-                      onChange={(v) => setComfyServerForm((prev) => ({ ...prev, base_url: String(v) }))}
-                      placeholder="服务地址（例如 http://117.50.80.158:8079）"
-                    />
-                    <Row gutter={[12, 12]}>
-                      <Col span={12}>
-                        <Typography.Text theme="secondary">并发</Typography.Text>
-                        <InputNumber
-                          min={1}
-                          max={50}
-                          value={Number(comfyServerForm.max_concurrency)}
-                          onChange={(v) =>
-                            setComfyServerForm((prev) => ({
-                              ...prev,
-                              max_concurrency: Number(v) || 1,
-                            }))
-                          }
-                        />
-                      </Col>
-                      <Col span={12}>
-                        <Typography.Text theme="secondary">权重</Typography.Text>
-                        <InputNumber
-                          min={1}
-                          max={999}
-                          value={Number(comfyServerForm.weight)}
-                          onChange={(v) =>
-                            setComfyServerForm((prev) => ({
-                              ...prev,
-                              weight: Number(v) || 1,
-                            }))
-                          }
-                        />
-                      </Col>
-                    </Row>
-                    <div>
-                      <Typography.Text theme="secondary">状态</Typography.Text>
-                      <Select
-                        value={comfyServerForm.status || 'active'}
-                        onChange={(v) => setComfyServerForm((prev) => ({ ...prev, status: String(v) }))}
-                        options={statusOptions}
-                      />
-                    </div>
-                    {comfyServerFormError ? <Alert theme="error" message={comfyServerFormError} /> : null}
-                    <Button theme="primary" loading={comfyServerSaving} onClick={handleComfyuiServerCreate}>
-                      新增服务器
-                    </Button>
-                    <div className="text-xs text-slate-500">
-                      新增后会出现在“执行节点”列表中，可再配置权重/并发。
-                    </div>
-                  </Space>
-                </Card>
-                <Card bordered title="最近对齐记录" style={{ width: '100%' }}>
-                  <Space direction="vertical" size="small" style={{ width: '100%' }}>
-                    <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                      <Typography.Text theme="secondary">最近保存的对齐快照（最多 12 条）。</Typography.Text>
-                      <Button size="small" variant="outline" onClick={() => refreshComfyDiffLogs()}>
-                        刷新
-                      </Button>
-                    </Space>
-                    {comfyDiffLogsError ? <Alert theme="error" message={comfyDiffLogsError} /> : null}
-                    <div className="max-h-[320px] overflow-auto rounded-2xl border border-slate-200/70 dark:border-slate-800">
-                      <table className="w-full text-xs">
-                        <thead className="sticky top-0 bg-slate-50 text-[11px] text-slate-600 dark:bg-slate-900/80 dark:text-slate-400">
-                          <tr className="text-left">
-                            <th className="px-3 py-2">时间</th>
-                            <th className="px-3 py-2">主服务器</th>
-                            <th className="px-3 py-2 text-right">操作</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {comfyDiffLogs.length === 0 ? (
-                            <tr>
-                              <td colSpan={3} className="px-4 py-6 text-center text-slate-500">
-                                {comfyDiffLogsLoading ? '加载中…' : '暂无记录'}
-                              </td>
-                            </tr>
-                          ) : (
-                            comfyDiffLogs.map((item) => (
-                              <tr key={`comfy-diff-log-${item.id}`} className="border-t border-slate-100 dark:border-slate-800">
-                                <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
-                                  {item.created_at ? formatDateTime(item.created_at) : '—'}
-                                </td>
-                                <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
-                                  {item.baseline_executor_id}
-                                </td>
-                                <td className="px-3 py-2 text-right space-x-2">
-                                  <button
-                                    className="text-sky-400"
-                                    onClick={() => {
-                                      setComfyDiffDialogTitle('对齐记录详情');
-                                      setComfyDiffDialogPayload(item.payload || {});
-                                      setComfyDiffDialogOpen(true);
-                                    }}
-                                  >
-                                    查看
-                                  </button>
-                                  <button
-                                    className="text-slate-500"
-                                    onClick={() => {
-                                      const ts = new Date().toISOString().replace(/[:.]/g, '-');
-                                      downloadJson(item.payload || {}, `comfyui-diff-log-${item.id}-${ts}.json`);
-                                    }}
-                                  >
-                                    导出
-                                  </button>
-                                </td>
-                              </tr>
-                            ))
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </Space>
-                </Card>
-              </div>
-            ) : (
-              <Alert
-                theme="info"
-                message={`辅助面板已折叠：当前节点 ${comfyExecutors.length} 台，对齐记录 ${comfyDiffLogs.length} 条。需要新增服务器或查看历史对齐时，可在顶部“展开辅助面板”。`}
-              />
-            )}
-          </div>
-          <Dialog
-            header={comfyDiffDialogTitle || '差异明细'}
-            visible={comfyDiffDialogOpen}
-            width={720}
-            confirmBtn={{ content: '关闭' }}
-            onClose={() => setComfyDiffDialogOpen(false)}
-            onConfirm={() => setComfyDiffDialogOpen(false)}
-          >
-            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-              <Space align="center" size="small" style={{ justifyContent: 'space-between', width: '100%' }}>
-                <Typography.Text theme="secondary">导出/复制差异清单，方便给开发对齐服务器。</Typography.Text>
-                <Space size="small">
-                  <Button
-                    size="small"
-                    variant="outline"
-                    disabled={!comfyDiffDialogText}
-                    onClick={() => {
-                      if (!comfyDiffDialogText) return;
-                      copyTextToClipboard(comfyDiffDialogText);
-                    }}
-                  >
-                    复制 JSON
-                  </Button>
-                  <Button
-                    size="small"
-                    variant="outline"
-                    disabled={!comfyDiffDialogPayload}
-                    onClick={() => {
-                      if (!comfyDiffDialogPayload) return;
-                      const ts = new Date().toISOString().replace(/[:.]/g, '-');
-                      downloadJson(comfyDiffDialogPayload, `comfyui-diff-${ts}.json`);
-                    }}
-                  >
-                    导出 JSON
-                  </Button>
-                </Space>
-              </Space>
-              <Textarea
-                value={comfyDiffDialogText}
-                readonly
-                autosize={{ minRows: 12, maxRows: 20 }}
-                className="font-mono text-xs"
-              />
-            </Space>
-          </Dialog>
-        </div>
+          <ComfyuiServersPanel
+            executors={comfyExecutors}
+            baselineExecutor={comfyBaselineExecutor}
+            modelCache={comfyModelCache}
+            baseModelCache={comfyBaseModelCache}
+            nodeCache={comfyNodeCache}
+            systemCache={comfySystemCache}
+            systemLoadingByExecutor={comfySystemLoadingByExecutor}
+            modelLoadingByExecutor={comfyModelLoadingByExecutor}
+            systemErrorByExecutor={comfySystemErrorByExecutor}
+            modelErrorByExecutor={comfyModelErrorByExecutor}
+            serverRefreshing={comfyServerRefreshing}
+            diffSaving={comfyDiffSaving}
+            assistOpen={comfyServersAssistOpen}
+            serverForm={comfyServerForm}
+            serverFormError={comfyServerFormError}
+            serverSaving={comfyServerSaving}
+            statusOptions={statusOptions}
+            diffLogs={comfyDiffLogs}
+            diffLogsLoading={comfyDiffLogsLoading}
+            diffLogsError={comfyDiffLogsError}
+            diffDialogOpen={comfyDiffDialogOpen}
+            diffDialogTitle={comfyDiffDialogTitle}
+            diffDialogText={comfyDiffDialogText}
+            diffDialogPayload={comfyDiffDialogPayload}
+            buildServerDiff={buildComfyServerDiff}
+            buildDiffSnapshot={buildComfyDiffSnapshot}
+            onBaselineExecutorChange={setComfyBaselineExecutorId}
+            onRefreshAllServers={refreshComfyuiServers}
+            onRefreshExecutor={(executorId) => {
+              refreshComfyuiSystemStats(executorId);
+              refreshComfyuiModelCatalog(executorId, { includeNodes: true });
+            }}
+            onSaveDiffSnapshot={handleSaveComfyDiffSnapshot}
+            onCreateServer={handleComfyuiServerCreate}
+            onServerFormChange={(patch) => setComfyServerForm((prev) => ({ ...prev, ...patch }))}
+            onRefreshDiffLogs={refreshComfyDiffLogs}
+            onOpenDiffDialog={(title, payload) => {
+              setComfyDiffDialogTitle(title);
+              setComfyDiffDialogPayload(payload);
+              setComfyDiffDialogOpen(true);
+            }}
+            onDownloadJson={downloadJson}
+            onCopyText={copyTextToClipboard}
+            onCloseDiffDialog={() => setComfyDiffDialogOpen(false)}
+          />
         )}
         {comfyuiManageTab === 'agents' && (
-        <div className="space-y-4">
-          <Card bordered title="代理服务列表">
-            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-              <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                <Space align="center" size="small">
-                  <Select
-                    value={comfyAgentStatusFilter}
-                    onChange={(v) => setComfyAgentStatusFilter(String(v))}
-                    options={[
-                      { label: '全部状态', value: 'all' },
-                      ...statusOptions.map((option) => ({ label: option.label, value: option.value })),
-                    ]}
-                  />
-                  <Button size="small" variant="outline" onClick={() => refreshComfyAgents()}>
-                    刷新
-                  </Button>
-                </Space>
-                <Button
-                  theme="primary"
-                  onClick={() => {
-                    resetComfyAgentForm();
-                    setComfyAgentDialogOpen(true);
-                  }}
-                >
-                  新增代理服务
-                </Button>
-              </Space>
-              {comfyAgentError ? <Alert theme="error" message={comfyAgentError} /> : null}
-              {comfyAgentTokenError && !comfyAgentTokenDialogOpen ? (
-                <Alert theme="error" message={comfyAgentTokenError} />
-              ) : null}
-              <div className="max-h-[420px] overflow-auto rounded-2xl border border-slate-200/70 dark:border-slate-800">
-                <table className="w-full text-xs">
-                  <thead className="sticky top-0 bg-slate-50 text-[11px] text-slate-600 dark:bg-slate-900/80 dark:text-slate-400">
-                    <tr className="text-left">
-                      <th className="px-3 py-2">代理服务ID</th>
-                      <th className="px-3 py-2">名称</th>
-                      <th className="px-3 py-2">角色</th>
-                      <th className="px-3 py-2">服务地址</th>
-                      <th className="px-3 py-2">状态</th>
-                      <th className="px-3 py-2">允许</th>
-                      <th className="px-3 py-2">主节点</th>
-                      <th className="px-3 py-2">心跳</th>
-                      <th className="px-3 py-2">清单版本</th>
-                      <th className="px-3 py-2">指标</th>
-                      <th className="px-3 py-2 text-right">操作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {visibleComfyAgentList.length === 0 ? (
-                      <tr>
-                        <td colSpan={11} className="px-4 py-6 text-center text-slate-500">
-                          {comfyAgentLoading ? '加载中…' : '暂无代理服务'}
-                        </td>
-                      </tr>
-                    ) : (
-                      visibleComfyAgentList.map((agent) => {
-                        const baseUrl = resolveAgentBaseUrl(agent);
-                        const metricsText = stringifyJSON(agent.metrics as JsonRecord);
-                        const primary = isRolePrimaryAgent(agent);
-                        return (
-                          <tr key={`comfy-agent-${agent.id}`} className="border-t border-slate-100 dark:border-slate-800">
-                            <td className="px-3 py-2 text-slate-900 dark:text-white">{agent.id}</td>
-                            <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{agent.name || '—'}</td>
-                            <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{agent.role || '—'}</td>
-                            <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{baseUrl || '—'}</td>
-                            <td className="px-3 py-2">{renderStatusTag(agent.status)}</td>
-                            <td className="px-3 py-2">
-                              {agent.allowed ? (
-                                <Tag theme="success" variant="light">
-                                  允许
-                                </Tag>
-                              ) : (
-                                <Tag theme="warning" variant="light">
-                                  禁用
-                                </Tag>
-                              )}
-                            </td>
-                            <td className="px-3 py-2">
-                              {primary ? (
-                                <Tag theme="primary" variant="light">
-                                  是
-                                </Tag>
-                              ) : (
-                                <Typography.Text theme="secondary">—</Typography.Text>
-                              )}
-                            </td>
-                            <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
-                              {formatDateTime(agent.last_heartbeat_at || agent.last_seen_at)}
-                            </td>
-                            <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
-                              {agent.last_manifest_version || '—'}
-                            </td>
-                            <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
-                              {metricsText ? (
-                                <Popup
-                                  placement="right"
-                                  trigger="hover"
-                                  content={
-                                    <div className="max-w-[360px] whitespace-pre-wrap text-xs text-slate-700">
-                                      {metricsText}
-                                    </div>
-                                  }
-                                >
-                                  <button className="text-sky-400">查看</button>
-                                </Popup>
-                              ) : (
-                                '—'
-                              )}
-                            </td>
-                            <td className="px-3 py-2 text-right space-x-2">
-                              <button
-                                className="text-sky-400"
-                                onClick={() => {
-                                  resetComfyAgentForm({
-                                    ...agent,
-                                    baseUrl: baseUrl || undefined,
-                                  });
-                                  setComfyAgentDialogOpen(true);
-                                }}
-                              >
-                                编辑
-                              </button>
-                              <button
-                                className="text-emerald-400"
-                                disabled={comfyAgentTokenLoading}
-                                onClick={() => handleComfyAgentTokenIssue(agent.id)}
-                              >
-                                令牌
-                              </button>
-                              <button
-                                className="text-violet-500"
-                                disabled={primary || !agent.role || Boolean(comfyAgentPrimarySaving[agent.id])}
-                                onClick={() => handleComfyAgentSetPrimary(agent)}
-                              >
-                                {primary ? '主节点' : '设为主节点'}
-                              </button>
-                              <button className="text-red-400" onClick={() => handleComfyAgentDelete(agent.id)}>
-                                删除
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </Space>
-          </Card>
-
-          <Dialog
-            header={comfyAgentEditing ? '编辑代理服务' : '新增代理服务'}
-            visible={comfyAgentDialogOpen}
-            width={640}
-            confirmBtn={comfyAgentSaving ? { loading: true } : undefined}
-            onClose={() => setComfyAgentDialogOpen(false)}
-            onConfirm={handleComfyAgentSave}
-          >
-            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-              <Row gutter={[12, 12]}>
-                <Col span={12}>
-                  <Typography.Text theme="secondary">代理服务ID</Typography.Text>
-                  <Input
-                    value={comfyAgentForm.id || ''}
-                    onChange={(v) => setComfyAgentForm((prev) => ({ ...prev, id: String(v) }))}
-                    placeholder="例如 comfyui-158"
-                    disabled={comfyAgentEditing}
-                  />
-                </Col>
-                <Col span={12}>
-                  <Typography.Text theme="secondary">名称</Typography.Text>
-                  <Input
-                    value={comfyAgentForm.name || ''}
-                    onChange={(v) => setComfyAgentForm((prev) => ({ ...prev, name: String(v) }))}
-                    placeholder="例如 ComfyUI-158"
-                  />
-                </Col>
-              </Row>
-              <Row gutter={[12, 12]}>
-                <Col span={12}>
-                  <Typography.Text theme="secondary">角色</Typography.Text>
-                  <Input
-                    value={comfyAgentForm.role || ''}
-                    onChange={(v) => setComfyAgentForm((prev) => ({ ...prev, role: String(v) }))}
-                    placeholder="full / lite"
-                  />
-                </Col>
-                <Col span={12}>
-                  <Typography.Text theme="secondary">主机</Typography.Text>
-                  <Input
-                    value={comfyAgentForm.host || ''}
-                    onChange={(v) => setComfyAgentForm((prev) => ({ ...prev, host: String(v) }))}
-                    placeholder="117.50.80.158"
-                  />
-                </Col>
-              </Row>
-              <div>
-                <Typography.Text theme="secondary">服务地址</Typography.Text>
-                <Input
-                  value={comfyAgentForm.baseUrl || ''}
-                  onChange={(v) => setComfyAgentForm((prev) => ({ ...prev, baseUrl: String(v) }))}
-                  placeholder="http://117.50.80.158:18079"
-                />
-              </div>
-              <Row gutter={[12, 12]}>
-                <Col span={12}>
-                  <Typography.Text theme="secondary">状态</Typography.Text>
-                  <Select
-                    value={comfyAgentForm.status || 'active'}
-                    onChange={(v) => setComfyAgentForm((prev) => ({ ...prev, status: String(v) }))}
-                    options={statusOptions}
-                  />
-                </Col>
-                <Col span={12}>
-                  <Typography.Text theme="secondary">允许执行</Typography.Text>
-                  <div className="mt-2">
-                    <Switch
-                      value={Boolean(comfyAgentForm.allowed)}
-                      onChange={(value) => setComfyAgentForm((prev) => ({ ...prev, allowed: Boolean(value) }))}
-                    />
-                  </div>
-                </Col>
-              </Row>
-              <div>
-                <Typography.Text theme="secondary">扩展配置（JSON）</Typography.Text>
-                <Textarea
-                  value={comfyAgentConfigInput}
-                  onChange={(v) => setComfyAgentConfigInput(String(v))}
-                  autosize={{ minRows: 3, maxRows: 8 }}
-                  placeholder='{"baseUrl":"http://...","region":"hz"}'
-                />
-              </div>
-              {comfyAgentFormError ? <Alert theme="error" message={comfyAgentFormError} /> : null}
-            </Space>
-          </Dialog>
-
-          <Dialog
-            header={`访问令牌 · ${comfyAgentTokenAgentId || ''}`}
-            visible={comfyAgentTokenDialogOpen}
-            width={720}
-            confirmBtn={{ content: '关闭' }}
-            onClose={() => setComfyAgentTokenDialogOpen(false)}
-            onConfirm={() => setComfyAgentTokenDialogOpen(false)}
-          >
-            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-              {comfyAgentTokenError ? <Alert theme="error" message={comfyAgentTokenError} /> : null}
-              <div className="text-xs text-slate-500">
-                过期时间：{comfyAgentTokenExpiresAt ? formatDateTime(comfyAgentTokenExpiresAt) : '—'}
-              </div>
-              <Space align="center" size="small">
-                <Button
-                  size="small"
-                  variant="outline"
-                  disabled={!comfyAgentTokenValue}
-                  onClick={() => copyTextToClipboard(comfyAgentTokenValue)}
-                >
-                  复制令牌
-                </Button>
-              </Space>
-              <Textarea
-                value={comfyAgentTokenValue}
-                readonly
-                autosize={{ minRows: 6, maxRows: 10 }}
-                className="font-mono text-xs"
-              />
-            </Space>
-          </Dialog>
-        </div>
+          <ComfyuiAgentsPanel
+            agents={visibleComfyAgentList}
+            loading={comfyAgentLoading}
+            error={comfyAgentError}
+            statusFilter={comfyAgentStatusFilter}
+            statusOptions={statusOptions}
+            tokenError={comfyAgentTokenError}
+            tokenDialogOpen={comfyAgentTokenDialogOpen}
+            tokenLoading={comfyAgentTokenLoading}
+            primarySaving={comfyAgentPrimarySaving}
+            formDialogOpen={comfyAgentDialogOpen}
+            formEditing={comfyAgentEditing}
+            formSaving={comfyAgentSaving}
+            form={comfyAgentForm}
+            configInput={comfyAgentConfigInput}
+            formError={comfyAgentFormError}
+            tokenAgentId={comfyAgentTokenAgentId}
+            tokenValue={comfyAgentTokenValue}
+            tokenExpiresAt={comfyAgentTokenExpiresAt}
+            resolveBaseUrl={resolveAgentBaseUrl}
+            isPrimaryAgent={isRolePrimaryAgent}
+            onStatusFilterChange={setComfyAgentStatusFilter}
+            onRefresh={() => refreshComfyAgents()}
+            onCreate={() => {
+              resetComfyAgentForm();
+              setComfyAgentDialogOpen(true);
+            }}
+            onEdit={(agent, baseUrl) => {
+              resetComfyAgentForm({
+                ...agent,
+                baseUrl: baseUrl || undefined,
+              });
+              setComfyAgentDialogOpen(true);
+            }}
+            onIssueToken={handleComfyAgentTokenIssue}
+            onSetPrimary={handleComfyAgentSetPrimary}
+            onDelete={handleComfyAgentDelete}
+            onCloseForm={() => setComfyAgentDialogOpen(false)}
+            onSaveForm={handleComfyAgentSave}
+            onFormPatch={(patch) => setComfyAgentForm((prev) => ({ ...prev, ...patch }))}
+            onConfigInputChange={setComfyAgentConfigInput}
+            onCloseToken={() => setComfyAgentTokenDialogOpen(false)}
+            onCopyText={copyTextToClipboard}
+          />
         )}
         {comfyuiManageTab === 'desktop' && (
-        <div className="space-y-4">
-          <Card bordered title="桌面端一键安装（Windows）">
-            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-              <Alert
-                theme="info"
-                message={`当前中台地址：${comfyDesktopCenterUrl}（安装包内已固定中台地址，安装后自动握手接入）`}
-              />
-              <div style={{ width: 'min(100%, 440px)' }}>
-                <Typography.Text theme="secondary">选择安装版本（Windows / x64）</Typography.Text>
-                <Select
-                  value={comfyDesktopInstallReleaseId}
-                  onChange={(v) => setComfyDesktopInstallReleaseId(String(v))}
-                  options={comfyDesktopReleaseOptions.length > 0 ? comfyDesktopReleaseOptions : [{ label: '暂无可用版本', value: '' }]}
-                />
-              </div>
-              {!comfyDesktopHasWindowsX64Release && comfyDesktopReleases.length > 0 ? (
-                <Alert
-                  theme="warning"
-                  message="当前没有“Windows/x64”标准安装包，已回退展示其它平台版本。建议在下方发布一个 Windows x64 且状态为启用的版本。"
-                />
-              ) : null}
-              <Space align="center" size="small">
-                <Button size="small" variant="outline" onClick={() => copyTextToClipboard(comfyDesktopInstallCommand)}>
-                  复制安装命令
-                </Button>
-                <Button
-                  size="small"
-                  variant="outline"
-                  disabled={!comfyDesktopSelectedRelease?.downloadUrl}
-                  onClick={() => {
-                    const url = (comfyDesktopSelectedRelease?.downloadUrl || '').trim();
-                    if (!url) return;
-                    window.open(url, '_blank', 'noopener,noreferrer');
-                  }}
-                >
-                  下载安装包
-                </Button>
-                <Typography.Text theme="secondary">
-                  目标版本：{comfyDesktopSelectedRelease?.version || '未选择'}
-                </Typography.Text>
-                {comfyDesktopActiveRelease?.id && comfyDesktopSelectedRelease?.id === comfyDesktopActiveRelease.id ? (
-                  <Tag theme="success" variant="light">
-                    当前启用
-                  </Tag>
-                ) : null}
-              </Space>
-              <Textarea
-                value={comfyDesktopInstallCommand}
-                readonly
-                autosize={{ minRows: 6, maxRows: 12 }}
-                className="font-mono text-xs"
-              />
-            </Space>
-          </Card>
-
-          <Card bordered title="升级状态">
-            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-              <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                <Typography.Text theme="secondary">查看每台代理服务的桌面端版本、目标版本与升级状态。</Typography.Text>
-                <Button size="small" variant="outline" onClick={() => refreshComfyAgents({ status: 'all' })}>
-                  刷新
-                </Button>
-              </Space>
-              {comfyAgentError ? <Alert theme="error" message={comfyAgentError} /> : null}
-              <div className="max-h-[320px] overflow-auto rounded-2xl border border-slate-200/70 dark:border-slate-800">
-                <table className="w-full text-xs">
-                  <thead className="sticky top-0 bg-slate-50 text-[11px] text-slate-600 dark:bg-slate-900/80 dark:text-slate-400">
-                    <tr className="text-left">
-                      <th className="px-3 py-2">机器/代理</th>
-                      <th className="px-3 py-2">当前版本</th>
-                      <th className="px-3 py-2">目标版本</th>
-                      <th className="px-3 py-2">升级状态</th>
-                      <th className="px-3 py-2">最近心跳</th>
-                      <th className="px-3 py-2">失败原因</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {comfyDesktopAgentRows.length === 0 ? (
-                      <tr>
-                        <td colSpan={6} className="px-4 py-6 text-center text-slate-500">
-                          {comfyAgentLoading ? '加载中…' : '暂无代理服务'}
-                        </td>
-                      </tr>
-                    ) : (
-                      comfyDesktopAgentRows.map(({ agent, update }) => {
-                        const statusTag = getComfyDesktopUpdateTag(update.status);
-                        const machineLabel = agent.name || agent.host || '未命名机器';
-                        return (
-                          <tr key={`comfy-desktop-agent-${agent.id}`} className="border-t border-slate-100 dark:border-slate-800">
-                            <td className="px-3 py-2">
-                              <div className="font-medium text-slate-900 dark:text-white">{machineLabel}</div>
-                              <div className="text-[11px] text-slate-500 dark:text-slate-400">{agent.id}</div>
-                            </td>
-                            <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{update.currentVersion || '—'}</td>
-                            <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{update.targetVersion || '—'}</td>
-                            <td className="px-3 py-2">
-                              <Tag theme={statusTag.theme} variant="light">
-                                {statusTag.text}
-                              </Tag>
-                            </td>
-                            <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
-                              {formatDateTime(agent.last_heartbeat_at || agent.last_seen_at)}
-                            </td>
-                            <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
-                              {update.failureReason || '—'}
-                            </td>
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </Space>
-          </Card>
-
-          <Card bordered title="注册码（手动接入备用）">
-            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-              <Row gutter={[12, 12]}>
-                <Col span={6}>
-                  <Typography.Text theme="secondary">角色</Typography.Text>
-                  <Select
-                    value={comfyEnrollCodeRole}
-                    onChange={(v) => setComfyEnrollCodeRole(String(v))}
-                    options={[
-                      { label: '全量型（full）', value: 'full' },
-                      { label: '轻量型（lite）', value: 'lite' },
-                    ]}
-                  />
-                </Col>
-                <Col span={6}>
-                  <Typography.Text theme="secondary">有效期（秒）</Typography.Text>
-                  <InputNumber
-                    value={comfyEnrollCodeTtlSeconds}
-                    min={60}
-                    max={7 * 24 * 3600}
-                    onChange={(v) => setComfyEnrollCodeTtlSeconds(Number(v) || 600)}
-                  />
-                </Col>
-                <Col span={6}>
-                  <Typography.Text theme="secondary">最大使用次数</Typography.Text>
-                  <InputNumber
-                    value={comfyEnrollCodeMaxUses}
-                    min={1}
-                    max={99}
-                    onChange={(v) => setComfyEnrollCodeMaxUses(Number(v) || 1)}
-                  />
-                </Col>
-                <Col span={6}>
-                  <Typography.Text theme="secondary">备注</Typography.Text>
-                  <Input
-                    value={comfyEnrollCodeNote}
-                    onChange={(v) => setComfyEnrollCodeNote(String(v))}
-                    placeholder="例如：158 主机首装"
-                  />
-                </Col>
-              </Row>
-              <Space align="center" size="small">
-                <Button theme="primary" loading={comfyEnrollCodeCreating} onClick={handleComfyEnrollCodeCreate}>
-                  生成注册码
-                </Button>
-                <Button size="small" variant="outline" onClick={() => refreshComfyEnrollCodes()}>
-                  刷新
-                </Button>
-              </Space>
-              {comfyEnrollCodesError ? <Alert theme="error" message={comfyEnrollCodesError} /> : null}
-              <div className="max-h-[260px] overflow-auto rounded-2xl border border-slate-200/70 dark:border-slate-800">
-                <table className="w-full text-xs">
-                  <thead className="sticky top-0 bg-slate-50 text-[11px] text-slate-600 dark:bg-slate-900/80 dark:text-slate-400">
-                    <tr className="text-left">
-                      <th className="px-3 py-2">注册码</th>
-                      <th className="px-3 py-2">角色</th>
-                      <th className="px-3 py-2">状态</th>
-                      <th className="px-3 py-2">使用次数</th>
-                      <th className="px-3 py-2">过期时间</th>
-                      <th className="px-3 py-2 text-right">操作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {comfyEnrollCodes.length === 0 ? (
-                      <tr>
-                        <td colSpan={6} className="px-4 py-6 text-center text-slate-500">
-                          {comfyEnrollCodesLoading ? '加载中…' : '暂无注册码'}
-                        </td>
-                      </tr>
-                    ) : (
-                      comfyEnrollCodes.map((item) => (
-                        <tr key={`comfy-enroll-${item.id}`} className="border-t border-slate-100 dark:border-slate-800">
-                          <td className="px-3 py-2 font-mono text-[11px] text-slate-800 dark:text-slate-200">{item.code}</td>
-                          <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{item.role}</td>
-                          <td className="px-3 py-2">{renderStatusTag(item.status)}</td>
-                          <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
-                            {item.usedCount}/{item.maxUses}
-                          </td>
-                          <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{formatDateTime(item.expiresAt)}</td>
-                          <td className="px-3 py-2 text-right">
-                            <button className="text-sky-400" onClick={() => copyTextToClipboard(item.code)}>
-                              复制
-                            </button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </Space>
-          </Card>
-
-          <Card bordered title="桌面端安装包版本">
-            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-              <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                <Space align="center" size="small">
-                  <Select
-                    value={comfyDesktopReleaseStatusFilter}
-                    onChange={(v) => setComfyDesktopReleaseStatusFilter(String(v))}
-                    options={[{ label: '全部状态', value: 'all' }, ...comfyDesktopReleaseStatusOptions.map((item) => ({
-                      label: item.label,
-                      value: item.value,
-                    }))]}
-                  />
-                  <Button size="small" variant="outline" onClick={() => refreshComfyDesktopReleases()}>
-                    刷新
-                  </Button>
-                </Space>
-                <Button
-                  theme="primary"
-                  onClick={() => {
-                    resetComfyDesktopReleaseForm();
-                    setComfyDesktopReleaseDialogOpen(true);
-                  }}
-                >
-                  新增安装包
-                </Button>
-              </Space>
-              {comfyDesktopReleasesError ? <Alert theme="error" message={comfyDesktopReleasesError} /> : null}
-              <div className="max-h-[360px] overflow-auto rounded-2xl border border-slate-200/70 dark:border-slate-800">
-                <table className="w-full text-xs">
-                  <thead className="sticky top-0 bg-slate-50 text-[11px] text-slate-600 dark:bg-slate-900/80 dark:text-slate-400">
-                    <tr className="text-left">
-                      <th className="px-3 py-2">版本</th>
-                      <th className="px-3 py-2">通道</th>
-                      <th className="px-3 py-2">状态</th>
-                      <th className="px-3 py-2">系统</th>
-                      <th className="px-3 py-2">下载地址</th>
-                      <th className="px-3 py-2">发布时间</th>
-                      <th className="px-3 py-2 text-right">操作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {comfyDesktopReleases.length === 0 ? (
-                      <tr>
-                        <td colSpan={7} className="px-4 py-6 text-center text-slate-500">
-                          {comfyDesktopReleasesLoading ? '加载中…' : '暂无安装包版本'}
-                        </td>
-                      </tr>
-                    ) : (
-                      comfyDesktopReleases.map((item) => (
-                        <tr
-                          key={`comfy-desktop-release-${item.id}`}
-                          className={`border-t border-slate-100 cursor-pointer dark:border-slate-800 ${
-                            String(item.id) === comfyDesktopInstallReleaseId ? 'bg-sky-50/60 dark:bg-sky-900/20' : ''
-                          }`}
-                          onClick={() => setComfyDesktopInstallReleaseId(String(item.id))}
-                        >
-                          <td className="px-3 py-2 text-slate-900 dark:text-white">{item.version}</td>
-                          <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{item.channel}</td>
-                          <td className="px-3 py-2">{renderStatusTag(item.status)}</td>
-                          <td className="px-3 py-2 text-slate-700 dark:text-slate-300">
-                            {item.osType}/{item.arch}
-                          </td>
-                          <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{item.downloadUrl}</td>
-                          <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
-                            {item.publishedAt ? formatDateTime(item.publishedAt) : '—'}
-                          </td>
-                          <td className="px-3 py-2 text-right space-x-2">
-                            <button
-                              className="text-cyan-500"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                const url = (item.downloadUrl || '').trim();
-                                if (!url) return;
-                                window.open(url, '_blank', 'noopener,noreferrer');
-                              }}
-                            >
-                              下载
-                            </button>
-                            <button
-                              className="text-sky-400"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                setComfyDesktopInstallReleaseId(String(item.id));
-                                resetComfyDesktopReleaseForm(item);
-                                setComfyDesktopReleaseDialogOpen(true);
-                              }}
-                            >
-                              编辑
-                            </button>
-                            <button
-                              className="text-emerald-500"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                handleToggleComfyDesktopReleaseStatus(item);
-                              }}
-                            >
-                              {item.status === 'active' ? '停用' : '启用'}
-                            </button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </Space>
-          </Card>
-
-          <Dialog
-            header={comfyDesktopReleaseForm.id ? '编辑安装包版本' : '新增安装包版本'}
-            visible={comfyDesktopReleaseDialogOpen}
-            width={760}
-            confirmBtn={comfyDesktopReleaseSaving ? { loading: true } : undefined}
-            onClose={() => setComfyDesktopReleaseDialogOpen(false)}
-            onConfirm={handleComfyDesktopReleaseSave}
-          >
-            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-              <Row gutter={[12, 12]}>
-                <Col span={12}>
-                  <Typography.Text theme="secondary">版本号</Typography.Text>
-                  <Input
-                    value={comfyDesktopReleaseForm.version || ''}
-                    onChange={(v) => setComfyDesktopReleaseForm((prev) => ({ ...prev, version: String(v) }))}
-                    placeholder="例如 0.1.0"
-                  />
-                </Col>
-                <Col span={12}>
-                  <Typography.Text theme="secondary">通道</Typography.Text>
-                  <Input
-                    value={comfyDesktopReleaseForm.channel || 'stable'}
-                    onChange={(v) => setComfyDesktopReleaseForm((prev) => ({ ...prev, channel: String(v) }))}
-                    placeholder="stable / beta"
-                  />
-                </Col>
-              </Row>
-              <Row gutter={[12, 12]}>
-                <Col span={8}>
-                  <Typography.Text theme="secondary">系统</Typography.Text>
-                  <Select
-                    value={comfyDesktopReleaseForm.osType || 'windows'}
-                    onChange={(v) => setComfyDesktopReleaseForm((prev) => ({ ...prev, osType: String(v) }))}
-                    options={[
-                      { label: 'Windows', value: 'windows' },
-                      { label: 'Linux', value: 'linux' },
-                      { label: 'macOS', value: 'macos' },
-                    ]}
-                  />
-                </Col>
-                <Col span={8}>
-                  <Typography.Text theme="secondary">架构</Typography.Text>
-                  <Select
-                    value={comfyDesktopReleaseForm.arch || 'x64'}
-                    onChange={(v) => setComfyDesktopReleaseForm((prev) => ({ ...prev, arch: String(v) }))}
-                    options={[
-                      { label: 'x64', value: 'x64' },
-                      { label: 'arm64', value: 'arm64' },
-                    ]}
-                  />
-                </Col>
-                <Col span={8}>
-                  <Typography.Text theme="secondary">状态</Typography.Text>
-                  <Select
-                    value={comfyDesktopReleaseForm.status || 'active'}
-                    onChange={(v) => setComfyDesktopReleaseForm((prev) => ({ ...prev, status: String(v) }))}
-                    options={comfyDesktopReleaseStatusOptions.map((item) => ({
-                      label: item.label,
-                      value: item.value,
-                    }))}
-                  />
-                </Col>
-              </Row>
-              <div>
-                <Typography.Text theme="secondary">下载地址</Typography.Text>
-                <Input
-                  value={comfyDesktopReleaseForm.downloadUrl || ''}
-                  onChange={(v) => setComfyDesktopReleaseForm((prev) => ({ ...prev, downloadUrl: String(v) }))}
-                  placeholder="https://..."
-                />
-              </div>
-              <Row gutter={[12, 12]}>
-                <Col span={12}>
-                  <Typography.Text theme="secondary">SHA256</Typography.Text>
-                  <Input
-                    value={comfyDesktopReleaseForm.sha256 || ''}
-                    onChange={(v) => setComfyDesktopReleaseForm((prev) => ({ ...prev, sha256: String(v) }))}
-                    placeholder="安装包校验值"
-                  />
-                </Col>
-                <Col span={12}>
-                  <Typography.Text theme="secondary">最小代理版本（可选）</Typography.Text>
-                  <Input
-                    value={comfyDesktopReleaseForm.minAgentVersion || ''}
-                    onChange={(v) => setComfyDesktopReleaseForm((prev) => ({ ...prev, minAgentVersion: String(v) }))}
-                    placeholder="例如 0.1.0"
-                  />
-                </Col>
-              </Row>
-              <div>
-                <Typography.Text theme="secondary">备注（可选）</Typography.Text>
-                <Input
-                  value={comfyDesktopReleaseForm.notes || ''}
-                  onChange={(v) => setComfyDesktopReleaseForm((prev) => ({ ...prev, notes: String(v) }))}
-                  placeholder="发布说明"
-                />
-              </div>
-              <div>
-                <Typography.Text theme="secondary">扩展参数（JSON，可选）</Typography.Text>
-                <Textarea
-                  value={comfyDesktopReleasePayloadInput}
-                  onChange={(v) => setComfyDesktopReleasePayloadInput(String(v))}
-                  autosize={{ minRows: 3, maxRows: 8 }}
-                  className="font-mono text-xs"
-                  placeholder='{"fileSize": 123456}'
-                />
-              </div>
-              {comfyDesktopReleaseFormError ? <Alert theme="error" message={comfyDesktopReleaseFormError} /> : null}
-            </Space>
-          </Dialog>
-        </div>
+          <ComfyuiDesktopPanel
+            centerUrl={comfyDesktopCenterUrl}
+            installReleaseId={comfyDesktopInstallReleaseId}
+            releaseOptions={comfyDesktopReleaseOptions}
+            hasWindowsX64Release={comfyDesktopHasWindowsX64Release}
+            releases={comfyDesktopReleases}
+            selectedRelease={comfyDesktopSelectedRelease}
+            activeRelease={comfyDesktopActiveRelease}
+            installCommand={comfyDesktopInstallCommand}
+            agentRows={comfyDesktopAgentRows}
+            agentLoading={comfyAgentLoading}
+            agentError={comfyAgentError}
+            enrollCodes={comfyEnrollCodes}
+            enrollCodesLoading={comfyEnrollCodesLoading}
+            enrollCodesError={comfyEnrollCodesError}
+            enrollCodeRole={comfyEnrollCodeRole}
+            enrollCodeTtlSeconds={comfyEnrollCodeTtlSeconds}
+            enrollCodeMaxUses={comfyEnrollCodeMaxUses}
+            enrollCodeNote={comfyEnrollCodeNote}
+            enrollCodeCreating={comfyEnrollCodeCreating}
+            releaseStatusFilter={comfyDesktopReleaseStatusFilter}
+            releaseStatusOptions={comfyDesktopReleaseStatusOptions}
+            releasesLoading={comfyDesktopReleasesLoading}
+            releasesError={comfyDesktopReleasesError}
+            releaseDialogOpen={comfyDesktopReleaseDialogOpen}
+            releaseSaving={comfyDesktopReleaseSaving}
+            releaseForm={comfyDesktopReleaseForm}
+            releasePayloadInput={comfyDesktopReleasePayloadInput}
+            releaseFormError={comfyDesktopReleaseFormError}
+            getUpdateTag={getComfyDesktopUpdateTag}
+            onInstallReleaseChange={setComfyDesktopInstallReleaseId}
+            onCopyText={copyTextToClipboard}
+            onRefreshAgents={() => refreshComfyAgents({ status: 'all' })}
+            onEnrollRoleChange={setComfyEnrollCodeRole}
+            onEnrollTtlChange={setComfyEnrollCodeTtlSeconds}
+            onEnrollMaxUsesChange={setComfyEnrollCodeMaxUses}
+            onEnrollNoteChange={setComfyEnrollCodeNote}
+            onCreateEnrollCode={handleComfyEnrollCodeCreate}
+            onRefreshEnrollCodes={refreshComfyEnrollCodes}
+            onReleaseStatusFilterChange={setComfyDesktopReleaseStatusFilter}
+            onRefreshReleases={refreshComfyDesktopReleases}
+            onCreateRelease={() => {
+              resetComfyDesktopReleaseForm();
+              setComfyDesktopReleaseDialogOpen(true);
+            }}
+            onEditRelease={(release) => {
+              resetComfyDesktopReleaseForm(release);
+              setComfyDesktopReleaseDialogOpen(true);
+            }}
+            onToggleReleaseStatus={handleToggleComfyDesktopReleaseStatus}
+            onCloseReleaseDialog={() => setComfyDesktopReleaseDialogOpen(false)}
+            onSaveRelease={handleComfyDesktopReleaseSave}
+            onReleaseFormPatch={(patch) => setComfyDesktopReleaseForm((prev) => ({ ...prev, ...patch }))}
+            onReleasePayloadInputChange={setComfyDesktopReleasePayloadInput}
+          />
         )}
         {comfyuiManageTab === 'manifests' && (
-        <div className="space-y-4">
-          <Card bordered title="同步清单">
-            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-              <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                <Space align="center" size="small">
-                  <Input
-                    value={comfyManifestRoleFilter}
-                    onChange={(v) => setComfyManifestRoleFilter(String(v))}
-                    placeholder="过滤角色（如 full / lite）"
-                  />
-                  <Select
-                    value={comfyManifestStatusFilter}
-                    onChange={(v) => setComfyManifestStatusFilter(String(v))}
-                    options={[
-                      { label: '全部状态', value: 'all' },
-                      { label: '草稿', value: 'draft' },
-                      { label: '已发布', value: 'published' },
-                      { label: '已回滚', value: 'rolled_back' },
-                      { label: '启用（兼容）', value: 'active' },
-                      { label: '停用（兼容）', value: 'inactive' },
-                    ]}
-                  />
-                  <Button size="small" variant="outline" onClick={() => refreshComfyManifests()}>
-                    刷新
-                  </Button>
-                </Space>
-                <Button
-                  theme="primary"
-                  onClick={() => {
-                    resetComfyManifestForm();
-                    setComfyManifestDialogOpen(true);
-                  }}
-                >
-                  新增清单
-                </Button>
-              </Space>
-              {comfyManifestError ? <Alert theme="error" message={comfyManifestError} /> : null}
-              <div className="max-h-[420px] overflow-auto rounded-2xl border border-slate-200/70 dark:border-slate-800">
-                <table className="w-full text-xs">
-                  <thead className="sticky top-0 bg-slate-50 text-[11px] text-slate-600 dark:bg-slate-900/80 dark:text-slate-400">
-                    <tr className="text-left">
-                      <th className="px-3 py-2">ID</th>
-                      <th className="px-3 py-2">角色</th>
-                      <th className="px-3 py-2">版本</th>
-                      <th className="px-3 py-2">状态</th>
-                      <th className="px-3 py-2">清单地址</th>
-                      <th className="px-3 py-2">更新时间</th>
-                      <th className="px-3 py-2 text-right">操作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {comfyManifestList.length === 0 ? (
-                      <tr>
-                        <td colSpan={7} className="px-4 py-6 text-center text-slate-500">
-                          {comfyManifestLoading ? '加载中…' : '暂无清单'}
-                        </td>
-                      </tr>
-                    ) : (
-                      comfyManifestList.map((manifest) => (
-                        <tr key={`comfy-manifest-${manifest.id}`} className="border-t border-slate-100 dark:border-slate-800">
-                          <td className="px-3 py-2 text-slate-900 dark:text-white">{manifest.id}</td>
-                          <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{manifest.role}</td>
-                          <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{manifest.version}</td>
-                          <td className="px-3 py-2">{renderStatusTag(manifest.status)}</td>
-                          <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
-                            {manifest.downloadUrl || manifest.download_url || '—'}
-                          </td>
-                          <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
-                            {manifest.updated_at ? formatDateTime(manifest.updated_at) : '—'}
-                          </td>
-                          <td className="px-3 py-2 text-right space-x-2">
-                            <button
-                              className="text-sky-400"
-                              onClick={() => {
-                                resetComfyManifestForm({
-                                  ...manifest,
-                                  downloadUrl: manifest.downloadUrl || manifest.download_url || undefined,
-                                });
-                                setComfyManifestDialogOpen(true);
-                              }}
-                            >
-                              编辑
-                            </button>
-                            <button
-                              className="text-emerald-500"
-                              disabled={Boolean(comfyManifestActionLoading[manifest.id]) || manifest.status === 'published'}
-                              onClick={() => handleComfyManifestPublish(manifest.id)}
-                            >
-                              发布
-                            </button>
-                            <button
-                              className="text-amber-500"
-                              disabled={Boolean(comfyManifestActionLoading[manifest.id])}
-                              onClick={() => handleComfyManifestRollback(manifest.id)}
-                            >
-                              回滚
-                            </button>
-                            <button className="text-violet-500" onClick={() => handleOpenComfyManifestDrift(manifest)}>
-                              漂移
-                            </button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </Space>
-          </Card>
-
-          {comfyManifestsAssistOpen ? (
-            <Card bordered title="修复任务（增量补齐）">
-              <Space direction="vertical" size="small" style={{ width: '100%' }}>
-                <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                  <Typography.Text theme="secondary">从“漂移”一键生成后会自动出现在这里，便于追踪执行进度。</Typography.Text>
-                  <Button size="small" variant="outline" onClick={() => refreshComfyRepairJobs()}>
-                    刷新
-                  </Button>
-                </Space>
-                <div className="max-h-[260px] overflow-auto rounded-2xl border border-slate-200/70 dark:border-slate-800">
-                  <table className="w-full text-xs">
-                    <thead className="sticky top-0 bg-slate-50 text-[11px] text-slate-600 dark:bg-slate-900/80 dark:text-slate-400">
-                      <tr className="text-left">
-                        <th className="px-3 py-2">任务号</th>
-                        <th className="px-3 py-2">清单</th>
-                        <th className="px-3 py-2">状态</th>
-                        <th className="px-3 py-2">提交/成功/失败</th>
-                        <th className="px-3 py-2">更新时间</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {comfyRepairJobs.length === 0 ? (
-                        <tr>
-                          <td colSpan={5} className="px-4 py-6 text-center text-slate-500">
-                            暂无修复任务
-                          </td>
-                        </tr>
-                      ) : (
-                        comfyRepairJobs.map((job) => (
-                          <tr key={`repair-job-${job.id}`} className="border-t border-slate-100 dark:border-slate-800">
-                            <td className="px-3 py-2 text-slate-900 dark:text-white">{job.id}</td>
-                            <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{job.manifestId}</td>
-                            <td className="px-3 py-2">{renderStatusTag(job.status)}</td>
-                            <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
-                              {job.submittedTaskCount}/{job.succeededTaskCount}/{job.failedTaskCount}
-                            </td>
-                            <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{formatDateTime(job.updatedAt)}</td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </Space>
-            </Card>
-          ) : (
-            <Alert
-              theme="info"
-              message={`修复任务已折叠：运行中 ${comfyRepairRunningCount} 条，失败 ${comfyRepairFailedCount} 条。需要追踪修复回执时，可在顶部“展开修复任务”。`}
-            />
-          )}
-
-          <Dialog
-            header={comfyManifestForm.id ? '编辑清单' : '新增清单'}
-            visible={comfyManifestDialogOpen}
-            width={720}
-            confirmBtn={comfyManifestSaving ? { loading: true } : undefined}
-            onClose={() => setComfyManifestDialogOpen(false)}
-            onConfirm={handleComfyManifestSave}
-          >
-            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-              <Row gutter={[12, 12]}>
-                <Col span={12}>
-                  <Typography.Text theme="secondary">角色</Typography.Text>
-                  <Input
-                    value={comfyManifestForm.role || ''}
-                    onChange={(v) => setComfyManifestForm((prev) => ({ ...prev, role: String(v) }))}
-                    placeholder="full / lite"
-                  />
-                </Col>
-                <Col span={12}>
-                  <Typography.Text theme="secondary">版本号</Typography.Text>
-                  <Input
-                    value={comfyManifestForm.version || ''}
-                    onChange={(v) => setComfyManifestForm((prev) => ({ ...prev, version: String(v) }))}
-                    placeholder="2026.02.05-001"
-                  />
-                </Col>
-              </Row>
-              <Row gutter={[12, 12]}>
-                <Col span={12}>
-                  <Typography.Text theme="secondary">状态</Typography.Text>
-                  <Select
-                    value={comfyManifestForm.status || 'draft'}
-                    onChange={(v) => setComfyManifestForm((prev) => ({ ...prev, status: String(v) }))}
-                    options={[
-                      { label: '草稿', value: 'draft' },
-                      { label: '已发布', value: 'published' },
-                      { label: '已回滚', value: 'rolled_back' },
-                    ]}
-                  />
-                </Col>
-                <Col span={12}>
-                  <Typography.Text theme="secondary">清单地址</Typography.Text>
-                  <Input
-                    value={comfyManifestForm.downloadUrl || comfyManifestForm.download_url || ''}
-                    onChange={(v) =>
-                      setComfyManifestForm((prev) => ({ ...prev, downloadUrl: String(v) }))
-                    }
-                    placeholder="https://example.com/manifest.json"
-                  />
-                </Col>
-              </Row>
-              <div>
-                <Typography.Text theme="secondary">备注</Typography.Text>
-                <Input
-                  value={comfyManifestForm.notes || ''}
-                  onChange={(v) => setComfyManifestForm((prev) => ({ ...prev, notes: String(v) }))}
-                  placeholder="可选"
-                />
-              </div>
-              <Space align="center" size="small">
-                <Button
-                  size="small"
-                  variant={comfyManifestEditorMode === 'wizard' ? 'outline' : 'text'}
-                  theme={comfyManifestEditorMode === 'wizard' ? 'primary' : 'default'}
-                  onClick={() => setComfyManifestEditorMode('wizard')}
-                >
-                  向导模式
-                </Button>
-                <Button
-                  size="small"
-                  variant={comfyManifestEditorMode === 'json' ? 'outline' : 'text'}
-                  theme={comfyManifestEditorMode === 'json' ? 'primary' : 'default'}
-                  onClick={() => setComfyManifestEditorMode('json')}
-                >
-                  JSON 高级模式
-                </Button>
-              </Space>
-              {comfyManifestEditorMode === 'wizard' ? (
-                <Card bordered size="small" title="清单构建向导">
-                  <Space direction="vertical" size="small" style={{ width: '100%' }}>
-                    <Space align="center" size="small">
-                      <Switch
-                        value={comfyManifestIncludeInactive}
-                        onChange={(value) => setComfyManifestIncludeInactive(Boolean(value))}
-                      />
-                      <Typography.Text theme="secondary">包含停用资源（默认仅启用）</Typography.Text>
-                    </Space>
-                    <Typography.Text theme="secondary">
-                      将从资源目录自动生成清单：模型（含 LoRA）{` `}
-                      {Array.isArray((comfyManifestWizardPreview.models as unknown[]))
-                        ? (comfyManifestWizardPreview.models as unknown[]).length
-                        : 0}
-                      项，插件{` `}
-                      {Array.isArray((comfyManifestWizardPreview.plugins as unknown[]))
-                        ? (comfyManifestWizardPreview.plugins as unknown[]).length
-                        : 0}
-                      项，工作流{` `}
-                      {Array.isArray((comfyManifestWizardPreview.workflows as unknown[]))
-                        ? (comfyManifestWizardPreview.workflows as unknown[]).length
-                        : 0}
-                      项。
-                    </Typography.Text>
-                    <Button size="small" variant="outline" onClick={handleComfyManifestGenerateFromWizard}>
-                      生成清单内容
-                    </Button>
-                  </Space>
-                </Card>
-              ) : null}
-              <div>
-                <Typography.Text theme="secondary">清单内容（JSON）</Typography.Text>
-                <Textarea
-                  value={comfyManifestContentInput}
-                  onChange={(v) => setComfyManifestContentInput(String(v))}
-                  autosize={{ minRows: 6, maxRows: 16 }}
-                  className="font-mono text-xs"
-                />
-              </div>
-              {comfyManifestFormError ? <Alert theme="error" message={comfyManifestFormError} /> : null}
-            </Space>
-          </Dialog>
-
-          <Dialog
-            header={`清单漂移对比 · ${comfyManifestDriftTitle || ''}`}
-            visible={comfyManifestDriftDialogOpen}
-            width={760}
-            confirmBtn={{ content: '关闭' }}
-            onClose={() => setComfyManifestDriftDialogOpen(false)}
-            onConfirm={() => setComfyManifestDriftDialogOpen(false)}
-          >
-            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-              {comfyManifestDriftError ? <Alert theme="error" message={comfyManifestDriftError} /> : null}
-              {comfyManifestDriftLoading ? (
-                <Alert theme="info" message="正在拉取差异，请稍候…" />
-              ) : null}
-              <Space align="center" size="small" style={{ justifyContent: 'space-between', width: '100%' }}>
-                <Typography.Text theme="secondary">
-                  对比内容包含版本、模型、插件、工作流差异，便于判断是否需要补齐同步。
-                </Typography.Text>
-                <Space size="small">
-                  <Button
-                    size="small"
-                    variant="outline"
-                    disabled={!comfyManifestDriftText}
-                    onClick={() => copyTextToClipboard(comfyManifestDriftText)}
-                  >
-                    复制 JSON
-                  </Button>
-                  <Button
-                    size="small"
-                    variant="outline"
-                    disabled={!comfyManifestDriftData}
-                    onClick={() => {
-                      if (!comfyManifestDriftData) return;
-                      const ts = new Date().toISOString().replace(/[:.]/g, '-');
-                      downloadJson(comfyManifestDriftData, `comfyui-manifest-drift-${ts}.json`);
-                    }}
-                  >
-                    导出 JSON
-                  </Button>
-                </Space>
-              </Space>
-              <Space align="center" size="small">
-                <Button
-                  size="small"
-                  variant="outline"
-                  loading={comfyRepairPlanLoading}
-                  onClick={handleComfyGenerateRepairPlan}
-                >
-                  生成修复计划
-                </Button>
-                <Button
-                  size="small"
-                  theme="primary"
-                  loading={comfyRepairJobLoading}
-                  disabled={!comfyRepairPlan}
-                  onClick={handleComfyCreateRepairJob}
-                >
-                  一键下发修复任务
-                </Button>
-              </Space>
-              {comfyRepairPlan ? (
-                <Alert
-                  theme="info"
-                  message={`修复计划：可执行 ${comfyRepairPlan.summary.executableAgents} 台，跳过 ${comfyRepairPlan.summary.skippedAgents} 台，动作总数 ${comfyRepairPlan.summary.totalActions}。`}
-                />
-              ) : null}
-              <Textarea
-                value={comfyManifestDriftText}
-                readonly
-                autosize={{ minRows: 10, maxRows: 20 }}
-                className="font-mono text-xs"
-              />
-              {comfyRepairPlan ? (
-                <Textarea
-                  value={JSON.stringify(comfyRepairPlan, null, 2)}
-                  readonly
-                  autosize={{ minRows: 8, maxRows: 16 }}
-                  className="font-mono text-xs"
-                />
-              ) : null}
-            </Space>
-          </Dialog>
-        </div>
+          <ComfyuiManifestsPanel
+            manifests={comfyManifestList}
+            loading={comfyManifestLoading}
+            error={comfyManifestError}
+            roleFilter={comfyManifestRoleFilter}
+            statusFilter={comfyManifestStatusFilter}
+            actionLoading={comfyManifestActionLoading}
+            assistOpen={comfyManifestsAssistOpen}
+            repairJobs={comfyRepairJobs}
+            repairRunningCount={comfyRepairRunningCount}
+            repairFailedCount={comfyRepairFailedCount}
+            dialogOpen={comfyManifestDialogOpen}
+            saving={comfyManifestSaving}
+            form={comfyManifestForm}
+            editorMode={comfyManifestEditorMode}
+            includeInactive={comfyManifestIncludeInactive}
+            wizardPreview={comfyManifestWizardPreview}
+            contentInput={comfyManifestContentInput}
+            formError={comfyManifestFormError}
+            driftDialogOpen={comfyManifestDriftDialogOpen}
+            driftTitle={comfyManifestDriftTitle}
+            driftError={comfyManifestDriftError}
+            driftLoading={comfyManifestDriftLoading}
+            driftText={comfyManifestDriftText}
+            driftData={comfyManifestDriftData}
+            repairPlan={comfyRepairPlan}
+            repairPlanLoading={comfyRepairPlanLoading}
+            repairJobLoading={comfyRepairJobLoading}
+            onRoleFilterChange={setComfyManifestRoleFilter}
+            onStatusFilterChange={setComfyManifestStatusFilter}
+            onRefreshManifests={() => refreshComfyManifests()}
+            onCreateManifest={() => {
+              resetComfyManifestForm();
+              setComfyManifestDialogOpen(true);
+            }}
+            onEditManifest={(manifest) => {
+              resetComfyManifestForm({
+                ...manifest,
+                downloadUrl: manifest.downloadUrl || manifest.download_url || undefined,
+              });
+              setComfyManifestDialogOpen(true);
+            }}
+            onPublishManifest={handleComfyManifestPublish}
+            onRollbackManifest={handleComfyManifestRollback}
+            onOpenDrift={handleOpenComfyManifestDrift}
+            onRefreshRepairJobs={() => refreshComfyRepairJobs()}
+            onCloseDialog={() => setComfyManifestDialogOpen(false)}
+            onSaveManifest={handleComfyManifestSave}
+            onFormPatch={(patch) => setComfyManifestForm((prev) => ({ ...prev, ...patch }))}
+            onEditorModeChange={setComfyManifestEditorMode}
+            onIncludeInactiveChange={setComfyManifestIncludeInactive}
+            onGenerateFromWizard={handleComfyManifestGenerateFromWizard}
+            onContentInputChange={setComfyManifestContentInput}
+            onCloseDriftDialog={() => setComfyManifestDriftDialogOpen(false)}
+            onCopyText={copyTextToClipboard}
+            onDownloadJson={downloadJson}
+            onGenerateRepairPlan={handleComfyGenerateRepairPlan}
+            onCreateRepairJob={handleComfyCreateRepairJob}
+          />
         )}
         {comfyuiManageTab === 'tasks' && (
-        <div className="space-y-4">
-          <div id="comfy-task-create-card">
-          <Card bordered title="任务下发">
-            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-              <Row gutter={[12, 12]}>
-                <Col span={12}>
-                  <Typography.Text theme="secondary">代理服务</Typography.Text>
-                  <Select
-                    value={comfyAgentTaskForm.agentId}
-                    onChange={(v) => setComfyAgentTaskForm((prev) => ({ ...prev, agentId: String(v) }))}
-                    options={[{ label: '请选择代理服务', value: '' }, ...comfyAgentOptions]}
-                  />
-                </Col>
-                <Col span={12}>
-                  <Typography.Text theme="secondary">同步清单</Typography.Text>
-                  <Select
-                    value={comfyAgentTaskForm.manifestId}
-                    onChange={(v) => setComfyAgentTaskForm((prev) => ({ ...prev, manifestId: String(v) }))}
-                    options={[{ label: '不绑定（手填 URL）', value: '' }, ...comfyManifestOptions]}
-                  />
-                </Col>
-              </Row>
-              <Row gutter={[12, 12]}>
-                <Col span={12}>
-                  <Typography.Text theme="secondary">清单地址</Typography.Text>
-                  <Input
-                    value={comfyAgentTaskForm.manifestUrl}
-                    onChange={(v) => setComfyAgentTaskForm((prev) => ({ ...prev, manifestUrl: String(v) }))}
-                    placeholder="可选：自定义清单地址"
-                  />
-                </Col>
-                <Col span={12}>
-                  <Typography.Text theme="secondary">任务编号（可选）</Typography.Text>
-                  <Input
-                    value={comfyAgentTaskForm.taskId}
-                    onChange={(v) => setComfyAgentTaskForm((prev) => ({ ...prev, taskId: String(v) }))}
-                    placeholder="留空自动生成"
-                  />
-                </Col>
-              </Row>
-              <Row gutter={[12, 12]}>
-                <Col span={12}>
-                  <Typography.Text theme="secondary">动作列表</Typography.Text>
-                  <Input
-                    value={comfyAgentTaskForm.actions}
-                    onChange={(v) => setComfyAgentTaskForm((prev) => ({ ...prev, actions: String(v) }))}
-                    placeholder="sync_models, sync_plugins, sync_workflows, restart"
-                  />
-                  <div className="mt-2 text-xs text-slate-500">
-                    动作对照：sync_models=同步模型，sync_plugins=同步插件，sync_workflows=同步工作流，restart=重启服务。
-                  </div>
-                </Col>
-                <Col span={12}>
-                  <Typography.Text theme="secondary">过期时间（可选）</Typography.Text>
-                  <Input
-                    value={comfyAgentTaskForm.expiresAt}
-                    onChange={(v) => setComfyAgentTaskForm((prev) => ({ ...prev, expiresAt: String(v) }))}
-                    placeholder="2026-02-05T23:59:59Z"
-                  />
-                </Col>
-              </Row>
-              <Space align="center" size="small">
-                <Switch
-                  value={comfyAgentTaskPushAfterCreate}
-                  onChange={(value) => setComfyAgentTaskPushAfterCreate(Boolean(value))}
-                />
-                <Typography.Text theme="secondary">创建后立即推送</Typography.Text>
-              </Space>
-              {comfyAgentTaskFormError ? <Alert theme="error" message={comfyAgentTaskFormError} /> : null}
-              <Button theme="primary" loading={comfyAgentTaskSaving} onClick={handleComfyAgentTaskCreate}>
-                创建任务
-              </Button>
-              <div className="text-xs text-slate-500">
-                动作列表将按逗号/换行分割；未设置过期时间时默认 60 分钟。
-              </div>
-            </Space>
-          </Card>
-          </div>
-
-          {comfyTaskAdvancedOpen ? (
-          <>
-          <Card bordered title="链路监控汇总">
-            <Space direction="vertical" size="small" style={{ width: '100%' }}>
-              <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                <Space align="center" size="small">
-                  <Select
-                    value={String(comfyMonitoringWindowHours)}
-                    onChange={(v) => setComfyMonitoringWindowHours(Number(v) || 24)}
-                    options={[
-                      { label: '最近 24 小时', value: '24' },
-                      { label: '最近 72 小时', value: '72' },
-                      { label: '最近 168 小时', value: '168' },
-                    ]}
-                  />
-                  <Button size="small" variant="outline" onClick={() => refreshComfyMonitoringSummary()}>
-                    刷新
-                  </Button>
-                </Space>
-                <Typography.Text theme="secondary">
-                  {comfyMonitoringSummary?.generatedAt ? `更新时间：${formatDateTime(comfyMonitoringSummary.generatedAt)}` : '暂无数据'}
-                </Typography.Text>
-              </Space>
-              {comfyMonitoringError ? <Alert theme="error" message={comfyMonitoringError} /> : null}
-              <div className="max-h-[260px] overflow-auto rounded-2xl border border-slate-200/70 dark:border-slate-800">
-                <table className="w-full text-xs">
-                  <thead className="sticky top-0 bg-slate-50 text-[11px] text-slate-600 dark:bg-slate-900/80 dark:text-slate-400">
-                    <tr className="text-left">
-                      <th className="px-3 py-2">队列</th>
-                      <th className="px-3 py-2">总量</th>
-                      <th className="px-3 py-2">排队</th>
-                      <th className="px-3 py-2">执行中</th>
-                      <th className="px-3 py-2">成功</th>
-                      <th className="px-3 py-2">失败</th>
-                      <th className="px-3 py-2">失败率</th>
-                      <th className="px-3 py-2">平均等待(s)</th>
-                      <th className="px-3 py-2">重试次数</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {!comfyMonitoringSummary?.lanes?.length ? (
-                      <tr>
-                        <td colSpan={9} className="px-4 py-6 text-center text-slate-500">
-                          {comfyMonitoringLoading ? '加载中…' : '暂无监控数据'}
-                        </td>
-                      </tr>
-                    ) : (
-                      comfyMonitoringSummary.lanes.map((lane) => (
-                        <tr key={`monitor-lane-${lane.lane}`} className="border-t border-slate-100 dark:border-slate-800">
-                          <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{lane.lane}</td>
-                          <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{lane.total}</td>
-                          <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{lane.queued}</td>
-                          <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{lane.running}</td>
-                          <td className="px-3 py-2 text-emerald-600 dark:text-emerald-400">{lane.succeeded}</td>
-                          <td className="px-3 py-2 text-rose-600 dark:text-rose-400">{lane.failed}</td>
-                          <td className="px-3 py-2 text-slate-700 dark:text-slate-300">
-                            {Number.isFinite(lane.failureRate) ? `${(lane.failureRate * 100).toFixed(2)}%` : '—'}
-                          </td>
-                          <td className="px-3 py-2 text-slate-700 dark:text-slate-300">
-                            {Number.isFinite(lane.avgWaitSeconds) ? lane.avgWaitSeconds.toFixed(2) : '—'}
-                          </td>
-                          <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{lane.retryCount}</td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </Space>
-          </Card>
-
-          <Card bordered title="最近任务">
-            <Space direction="vertical" size="small" style={{ width: '100%' }}>
-              <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                <Space align="center" size="small">
-                  <Select
-                    value={comfyAgentTaskAgentFilter}
-                    onChange={(v) => setComfyAgentTaskAgentFilter(String(v))}
-                    options={[{ label: '全部代理服务', value: 'all' }, ...comfyAgentOptions]}
-                  />
-                  <Select
-                    value={comfyAgentTaskStatusFilter}
-                    onChange={(v) => setComfyAgentTaskStatusFilter(String(v))}
-                    options={[
-                      { label: '全部状态', value: 'all' },
-                      { label: '排队中', value: 'pending' },
-                      { label: '执行中', value: 'running' },
-                      { label: '成功', value: 'success' },
-                      { label: '失败', value: 'failed' },
-                      { label: '已拒绝', value: 'rejected' },
-                    ]}
-                  />
-                  <Button size="small" variant="outline" onClick={() => refreshComfyAgentTasks()}>
-                    刷新
-                  </Button>
-                </Space>
-                <Typography.Text theme="secondary">
-                  {visibleComfyAgentTasks.length ? `共 ${visibleComfyAgentTasks.length} 条` : '暂无任务'}
-                </Typography.Text>
-              </Space>
-              {comfyAgentTasksError ? <Alert theme="error" message={comfyAgentTasksError} /> : null}
-              <div className="max-h-[420px] overflow-auto rounded-2xl border border-slate-200/70 dark:border-slate-800">
-                <table className="w-full text-xs">
-                  <thead className="sticky top-0 bg-slate-50 text-[11px] text-slate-600 dark:bg-slate-900/80 dark:text-slate-400">
-                    <tr className="text-left">
-                      <th className="px-3 py-2">任务编号</th>
-                      <th className="px-3 py-2">代理服务</th>
-                      <th className="px-3 py-2">提交阶段</th>
-                      <th className="px-3 py-2">回调阶段</th>
-                      <th className="px-3 py-2">最终状态</th>
-                      <th className="px-3 py-2">动作</th>
-                      <th className="px-3 py-2">清单</th>
-                      <th className="px-3 py-2">过期</th>
-                      <th className="px-3 py-2">更新时间</th>
-                      <th className="px-3 py-2">失败原因</th>
-                      <th className="px-3 py-2 text-right">操作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {visibleComfyAgentTasks.length === 0 ? (
-                      <tr>
-                        <td colSpan={11} className="px-4 py-6 text-center text-slate-500">
-                          {comfyAgentTasksLoading ? '加载中…' : '暂无任务'}
-                        </td>
-                      </tr>
-                    ) : (
-                      visibleComfyAgentTasks.map((task) => {
-                        const manifest = task.manifestId
-                          ? comfyManifestList.find((item) => item.id === task.manifestId)
-                          : null;
-                        const manifestLabel = manifest
-                          ? `${manifest.role} · ${manifest.version}`
-                          : task.manifestUrl || '—';
-                        return (
-                          <tr key={`comfy-agent-task-${task.id}`} className="border-t border-slate-100 dark:border-slate-800">
-                            <td className="px-3 py-2 text-slate-900 dark:text-white">{task.id}</td>
-                            <td className="px-3 py-2 text-slate-700 dark:text-slate-300">
-                              {task.agentId}
-                            </td>
-                            <td className="px-3 py-2">{renderStatusTag(task.submitStatus || task.status)}</td>
-                            <td className="px-3 py-2">{renderStatusTag(task.callbackStatus || 'waiting')}</td>
-                            <td className="px-3 py-2">{renderStatusTag(task.finalStatus || task.status)}</td>
-                            <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
-                              {formatComfyAgentActions(task.actions)}
-                            </td>
-                            <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{manifestLabel}</td>
-                            <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
-                              {formatDateTime(task.expiresAt)}
-                            </td>
-                            <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
-                              {formatDateTime(task.updated_at)}
-                            </td>
-                            <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
-                              {task.errorMessage ? toDisplayErrorMessage(task.errorMessage) : '—'}
-                            </td>
-                            <td className="px-3 py-2 text-right space-x-2">
-                              <button
-                                className="text-sky-400"
-                                disabled={Boolean(comfyAgentTaskPushLoading[task.id])}
-                                onClick={() => handleComfyAgentTaskPush(task.id)}
-                              >
-                                推送
-                              </button>
-                              <button className="text-slate-500" onClick={() => openComfyAgentTaskEvents(task.id)}>
-                                事件
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </Space>
-          </Card>
-          </>
-          ) : (
-            <Alert
-              theme="info"
-              message={`监控与历史已折叠：运行中 ${comfyRunningTaskCount} 条，总任务 ${visibleComfyAgentTasks.length} 条。可在顶部“展开监控与历史”查看详情。`}
-            />
-          )}
-
-          <Dialog
-            header={`任务事件 · ${comfyAgentTaskEventsTaskId || ''}`}
-            visible={comfyAgentTaskEventsDialogOpen}
-            width={720}
-            confirmBtn={{ content: '关闭' }}
-            onClose={() => setComfyAgentTaskEventsDialogOpen(false)}
-            onConfirm={() => setComfyAgentTaskEventsDialogOpen(false)}
-          >
-            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-              {comfyAgentTaskEventsError ? <Alert theme="error" message={comfyAgentTaskEventsError} /> : null}
-              <div className="max-h-[360px] overflow-auto rounded-2xl border border-slate-200/70 dark:border-slate-800">
-                <table className="w-full text-xs">
-                  <thead className="sticky top-0 bg-slate-50 text-[11px] text-slate-600 dark:bg-slate-900/80 dark:text-slate-400">
-                    <tr className="text-left">
-                      <th className="px-3 py-2">时间</th>
-                      <th className="px-3 py-2">级别</th>
-                      <th className="px-3 py-2">内容</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {comfyAgentTaskEvents.length === 0 ? (
-                      <tr>
-                        <td colSpan={3} className="px-4 py-6 text-center text-slate-500">
-                          {comfyAgentTaskEventsLoading ? '加载中…' : '暂无事件'}
-                        </td>
-                      </tr>
-                    ) : (
-                      comfyAgentTaskEvents.map((event) => (
-                        <tr key={`comfy-agent-task-event-${event.id}`} className="border-t border-slate-100 dark:border-slate-800">
-                          <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
-                            {formatDateTime(event.created_at || event.eventTime)}
-                          </td>
-                          <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{event.level}</td>
-                          <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{event.message}</td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </Space>
-          </Dialog>
-        </div>
+          <ComfyuiTasksPanel
+            taskForm={comfyAgentTaskForm}
+            agentOptions={comfyAgentOptions}
+            manifestOptions={comfyManifestOptions}
+            pushAfterCreate={comfyAgentTaskPushAfterCreate}
+            formError={comfyAgentTaskFormError}
+            saving={comfyAgentTaskSaving}
+            advancedOpen={comfyTaskAdvancedOpen}
+            monitoringWindowHours={comfyMonitoringWindowHours}
+            monitoringSummary={comfyMonitoringSummary}
+            monitoringLoading={comfyMonitoringLoading}
+            monitoringError={comfyMonitoringError}
+            queueSummary={comfyQueueSummary}
+            queueSummaryLoading={comfyQueueSummaryLoading}
+            queueSummaryError={comfyQueueSummaryError}
+            queueSummaryUpdatedAt={comfyQueueSummaryUpdatedAt}
+            taskAgentFilter={comfyAgentTaskAgentFilter}
+            taskStatusFilter={comfyAgentTaskStatusFilter}
+            tasks={visibleComfyAgentTasks}
+            tasksLoading={comfyAgentTasksLoading}
+            tasksError={comfyAgentTasksError}
+            manifests={comfyManifestList}
+            taskPushLoading={comfyAgentTaskPushLoading}
+            runningTaskCount={comfyRunningTaskCount}
+            taskEventsDialogOpen={comfyAgentTaskEventsDialogOpen}
+            taskEventsTaskId={comfyAgentTaskEventsTaskId}
+            taskEvents={comfyAgentTaskEvents}
+            taskEventsLoading={comfyAgentTaskEventsLoading}
+            taskEventsError={comfyAgentTaskEventsError}
+            formatActions={formatComfyAgentActions}
+            onTaskFormPatch={(patch) => setComfyAgentTaskForm((prev) => ({ ...prev, ...patch }))}
+            onPushAfterCreateChange={setComfyAgentTaskPushAfterCreate}
+            onCreateTask={handleComfyAgentTaskCreate}
+            onMonitoringWindowChange={setComfyMonitoringWindowHours}
+            onRefreshMonitoring={() => refreshComfyMonitoringSummary()}
+            onRefreshQueueSummary={() => refreshComfyQueueSummary()}
+            onTaskAgentFilterChange={setComfyAgentTaskAgentFilter}
+            onTaskStatusFilterChange={setComfyAgentTaskStatusFilter}
+            onRefreshTasks={() => refreshComfyAgentTasks()}
+            onPushTask={handleComfyAgentTaskPush}
+            onOpenTaskEvents={openComfyAgentTaskEvents}
+            onCloseTaskEvents={() => setComfyAgentTaskEventsDialogOpen(false)}
+          />
         )}
         {comfyuiManageTab === 'alerts' && (
-        <div className="space-y-4">
-          <Card bordered title="代理服务告警">
-            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-              <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                <Space align="center" size="small">
-                  <Select
-                    value={comfyAgentAlertsAgentFilter}
-                    onChange={(v) => setComfyAgentAlertsAgentFilter(String(v))}
-                    options={[{ label: '全部代理服务', value: 'all' }, ...comfyAgentOptions]}
-                  />
-                  <Input
-                    value={comfyAgentAlertsTypeFilter}
-                    onChange={(v) => setComfyAgentAlertsTypeFilter(String(v))}
-                    placeholder="告警类型（如 disk_low）"
-                  />
-                  <InputNumber
-                    min={1}
-                    max={200}
-                    value={comfyAgentAlertsLimit}
-                    onChange={(value) => setComfyAgentAlertsLimit(Number(value) || 50)}
-                  />
-                  <Button size="small" variant="outline" onClick={() => refreshComfyAgentAlerts()}>
-                    刷新
-                  </Button>
-                </Space>
-                <Typography.Text theme="secondary">
-                  {visibleComfyAgentAlerts.length ? `共 ${visibleComfyAgentAlerts.length} 条` : '暂无告警'}
-                </Typography.Text>
-              </Space>
-              {comfyAgentAlertsError ? <Alert theme="error" message={comfyAgentAlertsError} /> : null}
-              <div className="max-h-[420px] overflow-auto rounded-2xl border border-slate-200/70 dark:border-slate-800">
-                <table className="w-full text-xs">
-                  <thead className="sticky top-0 bg-slate-50 text-[11px] text-slate-600 dark:bg-slate-900/80 dark:text-slate-400">
-                    <tr className="text-left">
-                      <th className="px-3 py-2">时间</th>
-                      <th className="px-3 py-2">代理服务</th>
-                      <th className="px-3 py-2">类型</th>
-                      <th className="px-3 py-2">内容</th>
-                      <th className="px-3 py-2">详情</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {visibleComfyAgentAlerts.length === 0 ? (
-                      <tr>
-                        <td colSpan={5} className="px-4 py-6 text-center text-slate-500">
-                          {comfyAgentAlertsLoading ? '加载中…' : '暂无告警'}
-                        </td>
-                      </tr>
-                    ) : (
-                      visibleComfyAgentAlerts.map((alert) => {
-                        const payloadText = stringifyJSON(alert.payload as JsonRecord);
-                        return (
-                          <tr key={`comfy-agent-alert-${alert.id}`} className="border-t border-slate-100 dark:border-slate-800">
-                            <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
-                              {formatDateTime(alert.created_at)}
-                            </td>
-                            <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{alert.agentId}</td>
-                            <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{alert.alertType}</td>
-                            <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{alert.message || '—'}</td>
-                            <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
-                              {payloadText ? (
-                                <Popup
-                                  placement="left"
-                                  trigger="hover"
-                                  content={
-                                    <div className="max-w-[360px] whitespace-pre-wrap text-xs text-slate-700">
-                                      {payloadText}
-                                    </div>
-                                  }
-                                >
-                                  <button className="text-sky-400">查看</button>
-                                </Popup>
-                              ) : (
-                                '—'
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </Space>
-          </Card>
-        </div>
+          <ComfyuiAlertsPanel
+            alerts={visibleComfyAgentAlerts}
+            loading={comfyAgentAlertsLoading}
+            error={comfyAgentAlertsError}
+            agentFilter={comfyAgentAlertsAgentFilter}
+            agentOptions={comfyAgentOptions}
+            typeFilter={comfyAgentAlertsTypeFilter}
+            limit={comfyAgentAlertsLimit}
+            onAgentFilterChange={setComfyAgentAlertsAgentFilter}
+            onTypeFilterChange={setComfyAgentAlertsTypeFilter}
+            onLimitChange={setComfyAgentAlertsLimit}
+            onRefresh={refreshComfyAgentAlerts}
+          />
         )}
         {comfyuiManageTab === 'templates' && (
-        <div className="space-y-4">
-          <div className="text-sm text-slate-600 dark:text-slate-400">
-            管理本地/云端多台 ComfyUI 服务器的工作流 JSON，指定允许运行的节点，作为一类原子能力。
-          </div>
-          <Space align="center" size="small">
-            <Button
-              variant="outline"
-              disabled={comfyServerRefreshing || comfyExecutors.length === 0}
-              onClick={refreshComfyuiServers}
-            >
-              {comfyServerRefreshing ? '刷新中…' : '刷新服务器能力'}
-            </Button>
-            <Typography.Text theme="secondary">
-              已加载 {comfyServersLoadedCount}/{comfyExecutors.length} 台
-            </Typography.Text>
-          </Space>
-          <div className="grid gap-6 lg:grid-cols-[320px_1fr] lg:items-start">
-          <div className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 dark:border-slate-800 dark:bg-slate-900/40 lg:sticky lg:top-4">
-            <h3 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">工作流列表</h3>
-            <div className="max-h-[460px] overflow-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="text-left text-[11px] text-slate-700 dark:text-slate-400">
-                    <th>动作</th>
-                    <th>名称</th>
-                    <th>版本</th>
-                    <th>允许运行节点</th>
-                    <th>可运行服务器</th>
-                    <th>状态</th>
-                    <th>更新时间</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {workflows.map((wf) => (
-                    <tr key={wf.id}>
-                      <td className="text-slate-800 dark:text-slate-300">{wf.action}</td>
-                      <td className="font-medium text-slate-900 dark:text-white">{wf.name}</td>
-                      <td className="text-slate-800 dark:text-slate-300">{wf.version}</td>
-                      <td className="text-xs text-slate-700 dark:text-slate-400">
-                        {(() => {
-                          const allowedIds = extractAllowedExecutorIds(wf.metadata);
-                          if (allowedIds.length === 0) return '未限制（匹配任意 ComfyUI 节点）';
-                          return allowedIds
-                            .map((id) => {
-                              const exec = executors.find((executor) => executor.id === id);
-                              return exec ? `${exec.name}` : id;
-                            })
-                            .join('、');
-                        })()}
-                      </td>
-                      <td className="text-xs text-slate-700 dark:text-slate-400">
-                        {(() => {
-                          if (!(wf.type || '').toLowerCase().includes('comfyui')) return '—';
-                          const deps = comfyWorkflowDepsMap[wf.id];
-                          if (!deps || !deps.ok) {
-                            return (
-                              <Tag theme="warning" variant="light">
-                                未解析
-                              </Tag>
-                            );
-                          }
-                          const candidates = resolveWorkflowExecutors(wf);
-                          if (candidates.length === 0) return '未绑定';
-                          const statuses = candidates.map((executor) => ({
-                            executor,
-                            status: evaluateWorkflowOnExecutor(deps, executor),
-                          }));
-                          const okServers = statuses.filter((item) => item.status.ok);
-                          const readyCount = statuses.filter((item) => item.status.ready).length;
-                          const summary = (
-                            <div className="space-y-2 text-xs text-slate-700">
-                              <div className="font-semibold">
-                                可运行 {okServers.length}/{candidates.length}
-                              </div>
-                              <div className="text-[11px] text-slate-500">
-                                已拉取 {readyCount}/{candidates.length} 台
-                              </div>
-                              <div className="space-y-1">
-                                {statuses.map((item) => {
-                                  const missing = item.status.missing;
-                                  const missingParts = [
-                                    missing.unet.length ? `UNET ${missing.unet.length}` : null,
-                                    missing.clip.length ? `CLIP ${missing.clip.length}` : null,
-                                    missing.vae.length ? `VAE ${missing.vae.length}` : null,
-                                    missing.lora.length ? `LoRA ${missing.lora.length}` : null,
-                                    missing.nodes.length ? `插件 ${missing.nodes.length}` : null,
-                                  ].filter(Boolean);
-                                  return (
-                                    <div key={`workflow-server-${wf.id}-${item.executor.id}`} className="flex justify-between gap-2">
-                                      <span>{item.executor.name}</span>
-                                      <span className="text-[11px] text-slate-500">
-                                        {item.status.ready ? (item.status.ok ? '可用' : missingParts.join(' · ')) : '未拉取'}
-                                      </span>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                              {(deps.dynamic.unet + deps.dynamic.clip + deps.dynamic.vae + deps.dynamic.lora) > 0 ? (
-                                <div className="text-[11px] text-amber-600">
-                                  含动态模型输入，未完全校验。
-                                </div>
-                              ) : null}
-                            </div>
-                          );
-                          return (
-                            <Popup trigger="hover" placement="right" content={summary}>
-                              <Tag theme={okServers.length > 0 ? 'success' : 'warning'} variant="light">
-                                {okServers.length}/{candidates.length}
-                              </Tag>
-                            </Popup>
-                          );
-                        })()}
-                      </td>
-                      <td>
-                        <StatusPill status={wf.status || 'inactive'} />
-                      </td>
-                      <td className="text-xs text-slate-700 dark:text-slate-500">{wf.updated_at || '—'}</td>
-                      <td className="text-right text-xs space-x-2">
-                        <button
-                          className="text-sky-400"
-                          onClick={() => {
-                            const { definition, metadata, ...rest } = wf;
-                            const parsedMeta = (metadata ? parseJSON(metadata) : {}) as JsonRecord;
-                            setWorkflowForm({
-                              ...rest,
-                              definition: stringifyJSON(definition),
-                              metadata: stringifyJSON(metadata),
-                            });
-                            setWorkflowFormAllowedExecutors(extractAllowedExecutorIds(parsedMeta));
-                            setWorkflowInputMap(normalizeInputNodeMap(parsedMeta));
-                            setWorkflowOutputNodeIds(normalizeOutputNodeIds(parsedMeta));
-                            setWorkflowOutputPickerNodeId('');
-                            setWorkflowOutputShowAll(false);
-                          }}
-                        >
-                          编辑
-                        </button>
-                        <button
-                          className="text-emerald-400"
-                          onClick={() => handleWorkflowClone(wf)}
-                        >
-                          复制为新版本
-                        </button>
-                        <button className="text-red-400" onClick={() => handleDelete('workflow', wf.id)}>
-                          删除
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-          <div className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 space-y-3 dark:border-slate-800 dark:bg-slate-900/40">
-            <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
-              {workflowForm.id ? '编辑工作流' : '导入/新增工作流'}
-            </h3>
-            <div className="flex flex-wrap gap-2">
-              <button
-                className="rounded border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200 dark:hover:bg-slate-900/60"
-                onClick={() => {
-                  const deps = extractComfyuiWorkflowDependencies(workflowForm.definition);
-                  if (!deps.ok) {
-                    alert('工作流 JSON 解析失败，无法导出依赖。');
-                    return;
-                  }
-                  const payload = {
-                    workflow: {
-                      id: workflowForm.id || '',
-                      action: workflowForm.action || '',
-                      name: workflowForm.name || '',
-                      version: workflowForm.version || '',
-                    },
-                    dependencies: deps,
-                    generatedAt: new Date().toISOString(),
-                  };
-                  const suffix = workflowForm.action || workflowForm.name || 'workflow';
-                  downloadJson(payload, `comfyui-workflow-deps-${suffix}.json`);
-                }}
-              >
-                导出依赖清单
-              </button>
-            </div>
-            <div className="flex flex-wrap gap-2 text-xs">
-              {[
-                { id: 'base', label: '工作流' },
-                { id: 'io', label: '输入/输出' },
-                { id: 'params', label: '内部参数' },
-                { id: 'executors', label: '运行节点' },
-              ].map((tab) => (
-                <button
-                  key={`workflow-edit-tab-${tab.id}`}
-                  className={`rounded-full px-3 py-1 ${
-                    workflowEditTab === tab.id
-                      ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
-                      : 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200 dark:hover:bg-slate-900/60'
-                  }`}
-                  onClick={() => setWorkflowEditTab(tab.id as typeof workflowEditTab)}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-            {workflowEditTab === 'base' && (
-            <div className="text-sm space-y-2">
-              <input
-                placeholder="动作标识"
-                value={workflowForm.action || ''}
-                onChange={(e) => setWorkflowForm({ ...workflowForm, action: e.target.value })}
-                className={formControlClass}
-              />
-              <input
-                placeholder="名称"
-                value={workflowForm.name || ''}
-                onChange={(e) => setWorkflowForm({ ...workflowForm, name: e.target.value })}
-                className={formControlClass}
-              />
-              <div className="flex gap-3">
-                <input
-                  placeholder="版本"
-                  value={workflowForm.version || ''}
-                  onChange={(e) => setWorkflowForm({ ...workflowForm, version: e.target.value })}
-                  className={formControlFlexClass}
-                />
-                <input
-                  placeholder="类型"
-                  value={workflowForm.type || ''}
-                  onChange={(e) => setWorkflowForm({ ...workflowForm, type: e.target.value })}
-                  className={formControlFlexClass}
-                />
-              </div>
-              <select
-                value={workflowForm.status || 'inactive'}
-                onChange={(e) => setWorkflowForm({ ...workflowForm, status: e.target.value })}
-                className={formControlClass}
-              >
-                {statusOptions.map((option) => (
-                  <option key={`workflow-status-${option.value}`} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-              <label className="block text-xs text-slate-700 dark:text-slate-400">
-                导入 JSON 文件
-                <input
-                  type="file"
-                  accept=".json"
-                  onChange={(e) => handleWorkflowFile(e.target.files)}
-                  className="mt-1 block w-full text-xs text-slate-700 file:mr-3 file:rounded-lg file:border file:border-slate-300 file:bg-white file:px-3 file:py-1 file:text-xs file:text-slate-700 hover:file:bg-slate-50 dark:text-slate-300 dark:file:border-slate-700 dark:file:bg-slate-950/50 dark:file:text-slate-200 dark:hover:file:bg-slate-900/60"
-                />
-              </label>
-              <textarea
-                rows={6}
-                placeholder="workflow definition JSON"
-                value={workflowForm.definition ?? ''}
-                onChange={(e) => setWorkflowForm({ ...workflowForm, definition: e.target.value })}
-                className={`${formControlClass} font-mono text-xs`}
-              />
-              {workflowDefinitionError ? (
-                <div className="text-xs text-rose-500">{workflowDefinitionError}</div>
-              ) : null}
-              {workflowDefinitionNotice ? (
-                <div className="text-xs text-amber-600">{workflowDefinitionNotice}</div>
-              ) : null}
-              <textarea
-                rows={4}
-                placeholder="metadata JSON（参数映射、依赖等）"
-                value={workflowForm.metadata ?? ''}
-                onChange={(e) => setWorkflowForm({ ...workflowForm, metadata: e.target.value })}
-                className={`${formControlClass} font-mono text-xs`}
-              />
-              {workflowMetadataError ? (
-                <div className="text-xs text-rose-500">{workflowMetadataError}</div>
-              ) : null}
-            </div>
-            )}
-            {workflowEditTab === 'io' && (
-              <div className="space-y-3">
-                {workflowCanMap ? (
-                  <div className="rounded-2xl border border-slate-200/70 bg-slate-50/80 p-3 space-y-3 dark:border-slate-800 dark:bg-slate-950/40">
-                    <div className="flex items-center justify-between">
-                      <div className="text-sm font-semibold text-slate-900 dark:text-white">节点映射（ComfyUI）</div>
-                      <div className="text-[11px] text-slate-500">
-                        {comfyWorkflowNodes.length > 0 ? `已解析 ${comfyWorkflowNodes.length} 个节点` : '未解析节点'}
-                      </div>
-                    </div>
-                    <p className="text-xs text-slate-600 dark:text-slate-400">
-                      选择需要对外暴露的输入/输出节点。未选择输出节点时默认返回全部输出；输入未填写时将使用工作流 JSON
-                      默认值。
-                    </p>
-                    <div className="space-y-3">
-                      <div className="rounded-2xl border border-slate-200/70 bg-white/70 p-3 space-y-2 dark:border-slate-800 dark:bg-slate-950/50">
-                        <div className="text-xs text-slate-700 dark:text-slate-300">快速按节点添加输入映射</div>
-                        <div className="space-y-2">
-                          <label className="block text-[11px] text-slate-600 dark:text-slate-400">输入节点（含 ID）</label>
-                          <select
-                            value={workflowInputPickerNodeId}
-                            onChange={(e) => {
-                              setWorkflowInputPickerNodeId(e.target.value);
-                              setWorkflowInputPickerKeys([]);
-                            }}
-                            className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white"
-                          >
-                            <option value="">选择输入节点（含 ID）</option>
-                            {comfyWorkflowNodes.map((node) => (
-                              <option key={`workflow-picker-node-${node.id}`} value={node.id}>
-                                #{node.id} · {node.title} · {node.classType}
-                              </option>
-                            ))}
-                          </select>
-                          <div className="flex items-center justify-between text-[11px] text-slate-600 dark:text-slate-400">
-                            <span>输入 Key（勾选）</span>
-                            <div className="space-x-2">
-                              <button
-                                className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
-                                onClick={() =>
-                                  setWorkflowInputPickerKeys(
-                                    comfyWorkflowNodeMap.get(workflowInputPickerNodeId)?.inputs || [],
-                                  )
-                                }
-                                disabled={!workflowInputPickerNodeId}
-                              >
-                                全选
-                              </button>
-                              <button
-                                className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
-                                onClick={() => setWorkflowInputPickerKeys([])}
-                                disabled={!workflowInputPickerNodeId}
-                              >
-                                清空
-                              </button>
-                            </div>
-                          </div>
-                          <div className="h-28 w-full overflow-auto rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white">
-                            {!workflowInputPickerNodeId ? (
-                              <div className="text-slate-500 dark:text-slate-500">请先选择节点</div>
-                            ) : (
-                              (comfyWorkflowNodeMap.get(workflowInputPickerNodeId)?.inputs || []).map((key) => (
-                                <label
-                                  key={`workflow-picker-input-${workflowInputPickerNodeId}-${key}`}
-                                  className="flex items-center gap-2 py-0.5"
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={workflowInputPickerKeys.includes(key)}
-                                    onChange={(e) =>
-                                      setWorkflowInputPickerKeys((prev) =>
-                                        e.target.checked ? [...prev, key] : prev.filter((item) => item !== key),
-                                      )
-                                    }
-                                  />
-                                  <span>{key}</span>
-                                </label>
-                              ))
-                            )}
-                          </div>
-                          <button
-                            className="w-full rounded border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200 dark:hover:bg-slate-900/60"
-                            onClick={addWorkflowInputMappingsForNode}
-                            disabled={!workflowInputPickerNodeId || workflowInputPickerKeys.length === 0}
-                          >
-                            添加到映射
-                          </button>
-                        </div>
-                        <p className="text-[11px] text-slate-600 dark:text-slate-500">
-                          以节点 ID 为主进行配置；每个输入会自动生成一条映射，参数名默认等于输入 Key，可在下方表格继续调整。
-                        </p>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-slate-700 dark:text-slate-400">输入参数映射</span>
-                        <button
-                          className="rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200 dark:hover:bg-slate-900/60"
-                          onClick={addWorkflowInputMap}
-                        >
-                          添加映射
-                        </button>
-                      </div>
-                      {workflowInputMap.length === 0 ? (
-                        <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-3 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-950/50 dark:text-slate-500">
-                          尚未配置输入映射。可选择需要暴露给 Coze 的字段。
-                        </div>
-                      ) : (
-                        <div className="space-y-2">
-                          <div className="grid grid-cols-[1.2fr_1fr_1fr_0.6fr_auto] gap-2 text-[11px] text-slate-500">
-                            <div>参数名</div>
-                            <div>节点</div>
-                            <div>输入 Key</div>
-                            <div>类型</div>
-                            <div></div>
-                          </div>
-                          {workflowInputMap.map((item, idx) => {
-                            const node = comfyWorkflowNodeMap.get(item.nodeId);
-                            const inputOptions = node?.inputs || [];
-                            return (
-                              <div
-                                key={`workflow-input-${idx}`}
-                                className="grid grid-cols-[1.2fr_1fr_1fr_0.6fr_auto] gap-2"
-                              >
-                                <input
-                                  value={item.field}
-                                  onChange={(e) => updateWorkflowInputMap(idx, { field: e.target.value })}
-                                  placeholder="参数名，如 prompt / width"
-                                  className="rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white"
-                                />
-                                <select
-                                  value={item.nodeId}
-                                  onChange={(e) => updateWorkflowInputMap(idx, { nodeId: e.target.value, inputKey: '' })}
-                                  className="rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white"
-                                >
-                                  <option value="">选择节点</option>
-                                  {comfyWorkflowNodes.map((nodeOption) => (
-                                    <option key={`workflow-node-${nodeOption.id}`} value={nodeOption.id}>
-                                      #{nodeOption.id} · {nodeOption.title}
-                                    </option>
-                                  ))}
-                                </select>
-                                <select
-                                  value={item.inputKey}
-                                  onChange={(e) => updateWorkflowInputMap(idx, { inputKey: e.target.value })}
-                                  disabled={!item.nodeId}
-                                  className="rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 disabled:bg-slate-100 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white dark:disabled:bg-slate-900/40"
-                                >
-                                  <option value="">选择输入</option>
-                                  {inputOptions.map((key) => (
-                                    <option key={`workflow-input-${item.nodeId}-${key}`} value={key}>
-                                      {key}
-                                    </option>
-                                  ))}
-                                </select>
-                                <select
-                                  value={item.valueType || ''}
-                                  onChange={(e) => updateWorkflowInputMap(idx, { valueType: e.target.value })}
-                                  className="rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white"
-                                >
-                                  <option value="">原样</option>
-                                  <option value="string">string</option>
-                                  <option value="int">int</option>
-                                  <option value="float">float</option>
-                                  <option value="bool">bool</option>
-                                  <option value="json">json</option>
-                                </select>
-                                <button
-                                  className="rounded border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200 dark:hover:bg-slate-900/60"
-                                  onClick={() => removeWorkflowInputMap(idx)}
-                                >
-                                  删除
-                                </button>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                      <div className="mt-4 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs text-slate-700 dark:text-slate-400">输出节点映射（保存图片为主）</span>
-                          <div className="space-x-2 text-[11px]">
-                            <button
-                              className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
-                              onClick={() => setWorkflowOutputShowAll((prev) => !prev)}
-                            >
-                              {workflowOutputShowAll ? '仅显示 SaveImage' : '显示全部节点'}
-                            </button>
-                            <button
-                              className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
-                              onClick={() => updateWorkflowOutputNodes([])}
-                            >
-                              清空输出
-                            </button>
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-[1fr_auto] gap-2">
-                          <select
-                            value={workflowOutputPickerNodeId}
-                            onChange={(e) => setWorkflowOutputPickerNodeId(e.target.value)}
-                            className="rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white"
-                          >
-                            <option value="">选择输出节点（含 ID）</option>
-                            {(workflowOutputShowAll
-                              ? comfyWorkflowNodes
-                              : comfyWorkflowNodes.filter((node) => node.classType.toLowerCase().includes('saveimage'))
-                            ).map((node) => (
-                              <option key={`workflow-output-picker-${node.id}`} value={node.id}>
-                                #{node.id} · {node.title} · {node.classType}
-                              </option>
-                            ))}
-                          </select>
-                          <button
-                            className="rounded border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200 dark:hover:bg-slate-900/60"
-                            onClick={addWorkflowOutputNode}
-                            disabled={!workflowOutputPickerNodeId}
-                          >
-                            添加映射
-                          </button>
-                        </div>
-                        {workflowOutputNodeIds.length === 0 ? (
-                          <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-3 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-950/50 dark:text-slate-500">
-                            未选择输出节点时，默认返回全部输出（建议选择 SaveImage 节点）。
-                          </div>
-                        ) : (
-                          <div className="space-y-2">
-                            <div className="grid grid-cols-[1fr_auto] gap-2 text-[11px] text-slate-500">
-                              <div>已选输出节点</div>
-                              <div></div>
-                            </div>
-                            {workflowOutputNodeIds.map((nodeId) => {
-                              const node = comfyWorkflowNodeMap.get(nodeId);
-                              const label = node ? `#${node.id} · ${node.title} · ${node.classType}` : `#${nodeId}`;
-                              return (
-                                <div key={`workflow-output-picked-${nodeId}`} className="grid grid-cols-[1fr_auto] gap-2">
-                                  <div className="rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white">
-                                    {label}
-                                  </div>
-                                  <button
-                                    className="rounded border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-200 dark:hover:bg-slate-900/60"
-                                    onClick={() => removeWorkflowOutputNode(nodeId)}
-                                  >
-                                    删除
-                                  </button>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                        <p className="text-[11px] text-slate-600 dark:text-slate-500">
-                          输出建议只选 SaveImage 节点，避免返回无用的中间数据。
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-6 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-950/50 dark:text-slate-500">
-                    请先从左侧选择工作流或导入工作流 JSON，再配置输入/输出节点。
-                  </div>
-                )}
-                {workflowMappingErrors.length > 0 ? (
-                  <div className="rounded-2xl border border-rose-200/80 bg-rose-50/80 p-3 text-xs text-rose-600 dark:border-rose-900/50 dark:bg-rose-950/30">
-                    <div className="font-semibold">映射校验未通过：</div>
-                    <ul className="mt-2 list-disc space-y-1 pl-5">
-                      {workflowMappingErrors.slice(0, 8).map((msg, idx) => (
-                        <li key={`workflow-map-error-${idx}`}>{msg}</li>
-                      ))}
-                    </ul>
-                    {workflowMappingErrors.length > 8 ? (
-                      <div className="mt-2">…共 {workflowMappingErrors.length} 条</div>
-                    ) : null}
-                  </div>
-                ) : null}
-              </div>
-            )}
-            {workflowEditTab === 'params' && (
-              <div className="space-y-3">
-              {!workflowCanMap ? (
-                <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-6 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-950/50 dark:text-slate-500">
-                  请先从左侧选择工作流或导入工作流 JSON，再调整内部节点参数。
-                </div>
-              ) : (
-                    <div className="rounded-2xl border border-slate-200/70 bg-white/70 p-3 space-y-3 dark:border-slate-800 dark:bg-slate-950/50">
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                          <div className="text-xs font-semibold text-slate-800 dark:text-slate-200">工作流参数（内部节点）</div>
-                          <div className="text-[11px] text-slate-500">
-                            输入/输出节点作为能力接口；其他节点用于版本迭代与内部调参。
-                          </div>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2 text-xs">
-                          <Input
-                            value={workflowNodeSearch}
-                            onChange={(v) => setWorkflowNodeSearch(String(v))}
-                            placeholder="搜索节点 ID / 名称 / 类型"
-                          />
-                          <Select
-                            value={workflowParamScope}
-                            onChange={(v) => setWorkflowParamScope(v === 'all' ? 'all' : 'internal')}
-                            options={[
-                              { label: '仅内部节点', value: 'internal' },
-                              { label: '全部节点', value: 'all' },
-                            ]}
-                          />
-                        </div>
-                      </div>
-                      {filteredWorkflowNodeDetails.length === 0 ? (
-                        <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-3 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-950/50 dark:text-slate-500">
-                          暂无可编辑节点，请先导入工作流 JSON 或切换筛选条件。
-                        </div>
-                      ) : (
-                        <div className="max-h-[420px] space-y-2 overflow-auto pr-1">
-                          {filteredWorkflowNodeDetails.map((node) => {
-                            const isInterface = workflowInterfaceNodeIds.has(node.id);
-                            return (
-                              <div
-                                key={`workflow-node-detail-${node.id}`}
-                                className="rounded-2xl border border-slate-200/70 bg-white p-3 text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-300"
-                              >
-                                <div className="flex flex-wrap items-center justify-between gap-2">
-                                  <div className="font-semibold text-slate-900 dark:text-white">
-                                    #{node.id} · {node.title} · {node.classType}
-                                  </div>
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    {isInterface ? (
-                                      <Tag theme="primary" variant="light" size="small">
-                                        接口节点
-                                      </Tag>
-                                    ) : (
-                                      <Tag theme="default" variant="light" size="small">
-                                        内部节点
-                                      </Tag>
-                                    )}
-                                      <Button
-                                        size="small"
-                                        theme="default"
-                                        variant="text"
-                                        onClick={() => addWorkflowOutputNodeById(node.id)}
-                                      >
-                                        设为输出
-                                      </Button>
-                                  </div>
-                                </div>
-                                {node.inputs.length === 0 ? (
-                                  <div className="mt-2 text-[11px] text-slate-500">无可编辑参数</div>
-                                ) : (
-                                  <div className="mt-2 space-y-2">
-                                    {node.inputs.map((input) => {
-                                      if (input.linked) {
-                                        return (
-                                          <div key={`workflow-node-${node.id}-input-${input.key}`} className="flex items-center justify-between gap-3">
-                                            <span className="text-slate-600">{input.key}</span>
-                                            <span className="text-[11px] text-slate-400">连接 {input.linkRef || '上游节点'}</span>
-                                          </div>
-                                        );
-                                      }
-                                      const value = input.value;
-                                      if (typeof value === 'boolean') {
-                                        return (
-                                          <div key={`workflow-node-${node.id}-input-${input.key}`} className="flex items-center justify-between gap-3">
-                                            <span className="text-slate-600">{input.key}</span>
-                                            <div className="flex items-center gap-2">
-                                              <Button
-                                                size="small"
-                                                theme="default"
-                                                variant="text"
-                                                onClick={() => addWorkflowInputMapEntry(node.id, input.key)}
-                                              >
-                                                暴露为输入
-                                              </Button>
-                                              <Switch
-                                                value={value}
-                                                onChange={(v) => updateWorkflowNodeInputValue(node.id, input.key, Boolean(v))}
-                                              />
-                                            </div>
-                                          </div>
-                                        );
-                                      }
-                                      if (typeof value === 'number') {
-                                        return (
-                                          <div key={`workflow-node-${node.id}-input-${input.key}`} className="flex items-center justify-between gap-3">
-                                            <span className="text-slate-600">{input.key}</span>
-                                            <div className="flex items-center gap-2">
-                                              <Button
-                                                size="small"
-                                                theme="default"
-                                                variant="text"
-                                                onClick={() => addWorkflowInputMapEntry(node.id, input.key)}
-                                              >
-                                                暴露为输入
-                                              </Button>
-                                              <InputNumber
-                                                value={value}
-                                                onChange={(v) => updateWorkflowNodeInputValue(node.id, input.key, Number(v))}
-                                                placeholder="数值"
-                                              />
-                                            </div>
-                                          </div>
-                                        );
-                                      }
-                                      if (typeof value === 'string' || value === null || value === undefined) {
-                                        return (
-                                          <div key={`workflow-node-${node.id}-input-${input.key}`} className="flex items-center justify-between gap-3">
-                                            <span className="text-slate-600">{input.key}</span>
-                                            <div className="flex items-center gap-2">
-                                              <Button
-                                                size="small"
-                                                theme="default"
-                                                variant="text"
-                                                onClick={() => addWorkflowInputMapEntry(node.id, input.key)}
-                                              >
-                                                暴露为输入
-                                              </Button>
-                                              <Input
-                                                value={value ?? ''}
-                                                onChange={(v) => updateWorkflowNodeInputValue(node.id, input.key, String(v))}
-                                                placeholder="文本"
-                                              />
-                                            </div>
-                                          </div>
-                                        );
-                                      }
-                                      return (
-                                        <div key={`workflow-node-${node.id}-input-${input.key}`} className="space-y-1">
-                                          <div className="flex items-center justify-between gap-3">
-                                            <span className="text-slate-600">{input.key}</span>
-                                            <div className="flex items-center gap-2 text-[11px] text-slate-400">
-                                              <Button
-                                                size="small"
-                                                theme="default"
-                                                variant="text"
-                                                onClick={() => addWorkflowInputMapEntry(node.id, input.key)}
-                                              >
-                                                暴露为输入
-                                              </Button>
-                                              <span>复杂结构</span>
-                                            </div>
-                                          </div>
-                                          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-500 dark:border-slate-800 dark:bg-slate-900/50">
-                                            {JSON.stringify(value)}
-                                          </div>
-                                          <div className="text-[11px] text-slate-400">
-                                            复杂参数请在 JSON 编辑区修改。
-                                          </div>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                )}
-              </div>
-            )}
-            {workflowEditTab === 'executors' && (
-              <label className="block text-xs text-slate-700 dark:text-slate-400">
-                允许运行节点（多选）
-                {comfyExecutors.length > 0 ? (
-                  <select
-                    multiple
-                    value={workflowFormAllowedExecutors}
-                    onChange={(e) =>
-                      (() => {
-                        const next = Array.from(e.target.selectedOptions).map((option) => option.value);
-                        setWorkflowFormAllowedExecutors(next);
-                        syncWorkflowMetadata({ allowedExecutorIds: next });
-                      })()
-                    }
-                    className="mt-1 h-32 w-full rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950/70 dark:text-white"
-                  >
-                    {comfyExecutors.map((executor) => (
-                      <option key={`workflow-executor-${executor.id}`} value={executor.id}>
-                        {executor.name} · {executor.base_url || executor.type}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <div className="mt-1 rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-slate-700 dark:border-slate-700 dark:bg-slate-950/40 dark:text-slate-500">
-                    还没有 ComfyUI 类型的执行节点，请先在“执行节点”中新建，再回到此处绑定允许运行的机器列表。
-                  </div>
-                )}
-                <p className="mt-1 text-[11px] text-slate-700 dark:text-slate-500">
-                  用于限制某个 ComfyUI 工作流可以在哪些机器上执行；保存后会写入 metadata.allowed_executor_ids，调度器会据此路由。
-                </p>
-              </label>
-            )}
-              {workflowFormErrors.length > 0 ? (
-                <div className="rounded-2xl border border-rose-200/80 bg-rose-50/80 p-3 text-xs text-rose-600 dark:border-rose-900/50 dark:bg-rose-950/30">
-                  <div className="font-semibold">请先处理以下问题：</div>
-                  <ul className="mt-2 list-disc space-y-1 pl-5">
-                    {workflowFormErrors.slice(0, 8).map((msg, idx) => (
-                      <li key={`workflow-form-error-${idx}`}>{msg}</li>
-                    ))}
-                  </ul>
-                  {workflowFormErrors.length > 8 ? <div className="mt-2">…共 {workflowFormErrors.length} 条</div> : null}
-                </div>
-              ) : null}
-              <div className="flex gap-3">
-                <button
-                  className={`flex-1 rounded py-2 text-white ${
-                    workflowSubmitDisabled
-                      ? 'bg-slate-400/60 text-slate-200 cursor-not-allowed'
-                      : 'bg-sky-500/80 hover:bg-sky-500'
-                  }`}
-                  onClick={handleWorkflowSubmit}
-                  disabled={workflowSubmitDisabled}
-                >
-                  保存
-                </button>
-                {workflowForm.id && (
-                <button
-                  className="rounded border border-slate-300 bg-white px-4 py-2 text-slate-700 hover:bg-slate-50 dark:border-slate-500 dark:bg-transparent dark:text-slate-200"
-                  onClick={() => {
-                    setWorkflowForm(defaultWorkflowForm);
-                    setWorkflowFormAllowedExecutors([]);
-                    setWorkflowInputMap([]);
-                    setWorkflowOutputNodeIds([]);
-                    setWorkflowOutputPickerNodeId('');
-                    setWorkflowOutputShowAll(false);
-                    setWorkflowFormErrors([]);
-                  }}
-                >
-                  取消
-                </button>
-              )}
-            </div>
-            </div>
-          </div>
-        </div>
+          <ComfyuiTemplatesPanel
+            comfyServerRefreshing={comfyServerRefreshing}
+            comfyExecutors={comfyExecutors}
+            refreshComfyuiServers={refreshComfyuiServers}
+            comfyServersLoadedCount={comfyServersLoadedCount}
+            workflows={workflows}
+            extractAllowedExecutorIds={extractAllowedExecutorIds}
+            executors={executors}
+            comfyWorkflowDepsMap={comfyWorkflowDepsMap}
+            resolveWorkflowExecutors={resolveWorkflowExecutors}
+            evaluateWorkflowOnExecutor={evaluateWorkflowOnExecutor}
+            parseJSON={parseJSON}
+            setWorkflowForm={setWorkflowForm}
+            stringifyJSON={stringifyJSON}
+            setWorkflowFormAllowedExecutors={setWorkflowFormAllowedExecutors}
+            normalizeInputNodeMap={normalizeInputNodeMap}
+            setWorkflowInputMap={setWorkflowInputMap}
+            normalizeOutputNodeIds={normalizeOutputNodeIds}
+            setWorkflowOutputNodeIds={setWorkflowOutputNodeIds}
+            setWorkflowOutputShowAll={setWorkflowOutputShowAll}
+            handleWorkflowClone={handleWorkflowClone}
+            handleDelete={handleDelete}
+            workflowForm={workflowForm}
+            extractComfyuiWorkflowDependencies={extractComfyuiWorkflowDependencies}
+            downloadJson={downloadJson}
+            workflowEditTab={workflowEditTab}
+            setWorkflowEditTab={setWorkflowEditTab}
+            statusOptions={statusOptions}
+            handleWorkflowFile={handleWorkflowFile}
+            workflowDefinitionError={workflowDefinitionError}
+            workflowDefinitionNotice={workflowDefinitionNotice}
+            workflowMetadataError={workflowMetadataError}
+            workflowCanMap={workflowCanMap}
+            comfyWorkflowNodes={comfyWorkflowNodes}
+            workflowInputMap={workflowInputMap}
+            workflowOutputNodeIds={workflowOutputNodeIds}
+            workflowInputPickerNodeId={workflowInputPickerNodeId}
+            setWorkflowInputPickerNodeId={setWorkflowInputPickerNodeId}
+            setWorkflowInputPickerKeys={setWorkflowInputPickerKeys}
+            comfyWorkflowNodeMap={comfyWorkflowNodeMap}
+            workflowInputPickerKeys={workflowInputPickerKeys}
+            addWorkflowInputMappingsForNode={addWorkflowInputMappingsForNode}
+            addWorkflowInputMap={addWorkflowInputMap}
+            updateWorkflowInputMap={updateWorkflowInputMap}
+            removeWorkflowInputMap={removeWorkflowInputMap}
+            workflowOutputShowAll={workflowOutputShowAll}
+            updateWorkflowOutputNodes={updateWorkflowOutputNodes}
+            workflowOutputPickerNodeId={workflowOutputPickerNodeId}
+            setWorkflowOutputPickerNodeId={setWorkflowOutputPickerNodeId}
+            addWorkflowOutputNode={addWorkflowOutputNode}
+            removeWorkflowOutputNode={removeWorkflowOutputNode}
+            workflowMappingErrors={workflowMappingErrors}
+            workflowNodeSearch={workflowNodeSearch}
+            setWorkflowNodeSearch={setWorkflowNodeSearch}
+            workflowParamScope={workflowParamScope}
+            setWorkflowParamScope={setWorkflowParamScope}
+            filteredWorkflowNodeDetails={filteredWorkflowNodeDetails}
+            workflowInterfaceNodeIds={workflowInterfaceNodeIds}
+            addWorkflowOutputNodeById={addWorkflowOutputNodeById}
+            addWorkflowInputMapEntry={addWorkflowInputMapEntry}
+            updateWorkflowNodeInputValue={updateWorkflowNodeInputValue}
+            workflowFormAllowedExecutors={workflowFormAllowedExecutors}
+            syncWorkflowMetadata={syncWorkflowMetadata}
+            workflowFormErrors={workflowFormErrors}
+            workflowSubmitDisabled={workflowSubmitDisabled}
+            handleWorkflowSubmit={handleWorkflowSubmit}
+            defaultWorkflowForm={defaultWorkflowForm}
+            setWorkflowFormErrors={setWorkflowFormErrors}
+          />
         )}
       </Section>
           )}
           {activeNav === 'workflow-builder' && (
-      <Section
-        id="workflow-builder"
-        title="工作流编排"
-        description="Coze Studio 承担原子能力的拖拽式编排，运行观测可选接入外部观测台，统一账号与 Token，避免多套系统割裂。"
-      >
-        {!systemConfig ? (
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6 text-sm text-slate-400">
-            正在加载系统配置…
-          </div>
-        ) : (
-          <div className="space-y-6">
-            <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-6">
-              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                <div>
-                  <div className="text-lg font-semibold text-white">Coze Studio · 工作流画布</div>
-                  <p className="mt-2 text-sm text-slate-400">
-                    Studio 负责节点拖拽/运行调试，运行诊断可选接入外部观测台。所有能力均在“能力目录”中填写 Coze Workflow ID，
-                    调度器即可根据 <code className="px-1">coze_workflow_id</code> 直接调用。
-                  </p>
-                  <div className="mt-3 grid gap-3 text-xs text-slate-400 md:grid-cols-3">
-                    <div>
-                      <div className="text-slate-500">Studio Base URL</div>
-                      <div className="font-mono text-sm text-white">{cozeBaseUrl || '未配置'}</div>
-                    </div>
-                    <div>
-                      <div className="text-slate-500">观测台 URL（可选）</div>
-                      <div className="font-mono text-sm text-white">{cozeLoopUrl || '未配置'}</div>
-                    </div>
-                    <div>
-                      <div className="text-slate-500">API Token</div>
-                      <div className="text-white">{cozeTokenHint}</div>
-                    </div>
-                    <div>
-                      <div className="text-slate-500">默认超时</div>
-                      <div className="text-white">{cozeConfig?.default_timeout ?? 0}s</div>
-                    </div>
-                    <div>
-                      <div className="text-slate-500">能力映射</div>
-                      <div className="text-white">
-                        {cozeAbilityStats.mapped}/{cozeAbilityStats.total} 已填写 Workflow ID
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <Space breakLine>
-                  <Button variant="outline" disabled={!cozeBaseUrl} onClick={handleOpenCozeStudio}>
-                    打开 Coze Studio
-                  </Button>
-                  <Button variant="outline" disabled={!cozeLoopUrl} onClick={handleOpenCozeLoop}>
-                    打开观测台
-                  </Button>
-                </Space>
-              </div>
-              <div className="mt-4 rounded-2xl border border-slate-800/70 bg-slate-950/40 p-4 text-xs text-slate-300">
-                <div className="font-semibold text-white">接入步骤提醒</div>
-                <ol className="mt-2 list-decimal space-y-1 pl-4">
-                  <li>在 Coze Studio 内创建 Workflow，复制 Workflow ID。</li>
-                  <li>在“能力目录”中选择 provider=Coze 的能力，填写 <code className="px-1">Coze Workflow ID</code> 字段。</li>
-                  <li>
-                    保存后即可在本平台触发能力，日志会写入 <code className="px-1">ability_invocation_logs</code> 并可在观测台中回放（如已接入）。
-                  </li>
-                </ol>
-              </div>
-            </div>
-            <div className="grid gap-6 lg:grid-cols-2">
-              <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-white text-lg font-semibold">Coze 能力映射</h3>
-                    <p className="text-xs text-slate-400">列出 provider=Coze 的能力与 workflow 绑定情况。</p>
-                  </div>
-                </div>
-                {cozeAbilityMappings.length === 0 ? (
-                  <div className="mt-4 rounded-2xl border border-slate-800/70 bg-slate-950/40 p-4 text-sm text-slate-400">
-                    还没有注册 Coze 能力，请在“能力目录”中新建 provider=Coze 的能力，并填写 Workflow ID。
-                  </div>
-                ) : (
-                  <div className="mt-4 overflow-x-auto">
-                    <table>
-                      <thead>
-                        <tr className="text-left text-xs uppercase tracking-widest text-slate-500">
-                          <th>能力</th>
-                          <th>Workflow ID</th>
-                          <th>最近运行</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {cozeAbilityMappings.map(({ ability, workflowId, latestLog }) => (
-                          <tr key={ability.id}>
-                            <td className="text-sm text-white">
-                              <div className="font-semibold">{ability.display_name}</div>
-                              <div className="text-xs text-slate-500">{ability.capability_key}</div>
-                              <div className="mt-1 text-xs text-slate-400">
-                                状态：<StatusPill status={ability.status} />
-                              </div>
-                            </td>
-                            <td className="text-sm text-slate-300">
-                              {workflowId ? (
-                                <span className="font-mono text-xs">{workflowId}</span>
-                              ) : (
-                                <span className="text-amber-300">未填写</span>
-                              )}
-                            </td>
-                            <td className="text-xs text-slate-400">
-                              {latestLog ? (
-                                <>
-                                  <StatusPill status={latestLog.status} />
-                                  <div className="mt-1">{formatDateTime(latestLog.created_at)}</div>
-                                </>
-                              ) : (
-                                '—'
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-              <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-white text-lg font-semibold">Coze 最新运行</h3>
-                  <span className="text-xs text-slate-500">按能力日志实时刷新</span>
-                </div>
-                {cozeRecentLogs.length === 0 ? (
-                  <div className="mt-4 rounded-2xl border border-slate-800/60 bg-slate-950/40 p-4 text-sm text-slate-400">
-                    暂无运行记录，可在上方能力详情中执行一次测试。
-                  </div>
-                ) : (
-                  <div className="mt-4 space-y-3">
-                    {cozeRecentLogs.map((log) => (
-                      <div
-                        key={log.id}
-                        className="rounded-2xl border border-slate-800/60 bg-slate-950/40 p-4 text-xs text-slate-300"
-                      >
-                        <div className="flex items-center justify-between text-white">
-                          <span>
-                            #{log.id} · {log.capability_key}
-                          </span>
-                          <StatusPill status={log.status} />
-                        </div>
-                        <div className="mt-1 text-slate-400">{formatDateTime(log.created_at)}</div>
-                        {log.result_assets && log.result_assets.length > 0 && (
-                          <div className="mt-2">
-                            <div className="text-slate-500">输出资源</div>
-                            {log.result_assets.map((asset, index) => {
-                              const url = resolveAssetUrl(asset);
-                              if (!url) return null;
-                              return (
-                                <div key={`${log.id}-asset-${index}`} className="truncate text-sky-300">
-                                  <a href={url} target="_blank" rel="noreferrer" className="underline">
-                                    {url}
-                                  </a>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                        {log.error_message && (
-                          <div className="mt-2 text-rose-300">错误：{toDisplayErrorMessage(log.error_message)}</div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-      </Section>
+            <Section
+              id="workflow-builder"
+              title="高级编排"
+              description="管理外部编排画布、流程绑定和运行观察入口；普通业务优先走“业务能力”，这里主要给高级配置和排查使用。"
+            >
+              <WorkflowBuilderPanel
+                loading={!systemConfig}
+                cozeBaseUrl={cozeBaseUrl}
+                cozeLoopUrl={cozeLoopUrl}
+                cozeTokenHint={cozeTokenHint}
+                defaultTimeout={cozeConfig?.default_timeout}
+                cozeAbilityStats={cozeAbilityStats}
+                cozeAbilityMappings={cozeAbilityMappings}
+                cozeRecentLogs={cozeRecentLogs}
+                onOpenCozeStudio={handleOpenCozeStudio}
+                onOpenCozeLoop={handleOpenCozeLoop}
+                resolveAssetUrl={resolveAssetUrl}
+              />
+            </Section>
           )}
 
           {activeNav === 'bindings' && (
-      <Section
-        id="bindings"
-        title="分配策略"
-        description="为业务入口（Action）配置工作流与执行节点的回退链路，优先级越大越先尝试，用于多节点容灾/流量分摊。"
-      >
-        <div style={{ margin: '0 0 12px' }}>
-          <Typography.Text theme="secondary">
-          例如：`action=pattern.extract` 可以先指向云端 ComfyUI 节点，若排队或失败再回落到本地节点；也可以为百度/火山能力配置不同 API Key 的执行器，实现配额切换。
-          </Typography.Text>
-        </div>
-
-        <Row gutter={[16, 16]}>
-          <Col xs={12} lg={8}>
-            <Card title="绑定列表" bordered>
-              <Table
-                rowKey="id"
-                data={bindings as any}
-                columns={
-                  [
-                    { colKey: 'action', title: 'Action', width: 220 },
-                    { colKey: 'workflow_id', title: 'Workflow ID', width: 220 },
-                    { colKey: 'executor_id', title: 'Executor ID', width: 220 },
-                    { colKey: 'priority', title: '优先级', width: 100 },
-                    {
-                      colKey: 'enabled',
-                      title: '启用',
-                      width: 90,
-                      cell: ({ row }: any) => <StatusPill status={row.enabled ? 'ON' : 'OFF'} />,
-                    },
-                    {
-                      colKey: 'op',
-                      title: '操作',
-                      width: 140,
-                      fixed: 'right',
-                      cell: ({ row }: any) => (
-                        <Space>
-                          <Button size="small" variant="text" onClick={() => setBindingForm(row)}>
-                            编辑
-                          </Button>
-                          <Button size="small" variant="text" theme="danger" onClick={() => handleDelete('binding', row.id)}>
-                            删除
-                          </Button>
-                        </Space>
-                      ),
-                    },
-                  ] as any
-                }
+            <Section
+              id="bindings"
+              title="路由策略"
+              description="配置业务入口使用哪套工作流、走哪条运行线路，以及失败时如何按优先级切换。"
+            >
+              <BindingRoutesPanel
+                bindings={bindings}
+                bindingForm={bindingForm}
+                onFormChange={setBindingForm}
+                onSubmit={handleBindingSubmit}
+                onDelete={(id) => handleDelete('binding', id)}
+                onReset={() => setBindingForm(defaultBindingForm)}
               />
-            </Card>
-          </Col>
-
-          <Col xs={12} lg={4}>
-            <Card title={bindingForm.id ? '编辑绑定' : '新增绑定'} bordered>
-              <Space direction="vertical" size="medium" style={{ width: '100%' }}>
-                <Input
-                  placeholder="动作标识"
-                  value={bindingForm.action || ''}
-                  onChange={(value) => setBindingForm({ ...bindingForm, action: String(value) })}
-                />
-                <Input
-                  placeholder="Workflow ID"
-                  value={bindingForm.workflow_id || ''}
-                  onChange={(value) => setBindingForm({ ...bindingForm, workflow_id: String(value) })}
-                />
-                <Input
-                  placeholder="Executor ID"
-                  value={bindingForm.executor_id || ''}
-                  onChange={(value) => setBindingForm({ ...bindingForm, executor_id: String(value) })}
-                />
-                <InputNumber
-                  placeholder="优先级"
-                  value={bindingForm.priority ?? 0}
-                  onChange={(value) => setBindingForm({ ...bindingForm, priority: Number(value || 0) })}
-                />
-                <div>
-                  <Space align="center">
-                    <Switch
-                      value={Boolean(bindingForm.enabled ?? true)}
-                      onChange={(value) => setBindingForm({ ...bindingForm, enabled: Boolean(value) })}
-                    />
-                    <Typography.Text>启用</Typography.Text>
-                  </Space>
-                </div>
-                <Space>
-                  <Button theme="primary" onClick={handleBindingSubmit} style={{ width: 120 }}>
-                    保存
-                  </Button>
-                  {bindingForm.id ? (
-                    <Button variant="outline" onClick={() => setBindingForm(defaultBindingForm)}>
-                      取消
-                    </Button>
-                  ) : null}
-                </Space>
-              </Space>
-            </Card>
-          </Col>
-        </Row>
-      </Section>
+            </Section>
           )}
 
           {activeNav === 'vendor-models' && (
-      <Section
-        id="vendor-models"
-        title="模型弹药库"
-        description="集中查看第三方模型、Key 池、出网状态与能力边界；业务能力只引用这里沉淀后的模型资源。"
-      >
-        <ActionBar>
-          <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
-            <Space direction="vertical" size={4}>
-              <Typography.Text strong>第三方模型控制面</Typography.Text>
-              <Typography.Text theme="secondary">
-                当前执行面：{vendorBaseUrl || '未连接'}。API Key 由中台保存，调用时随请求传给能力服务；能力服务不再作为 Key 仓库。
-              </Typography.Text>
-            </Space>
-            <Space size="small" style={{ flexWrap: 'wrap' }}>
-              <Tag variant="light">Provider {vendorProviders.length}</Tag>
-              <Tag variant="light">模型 {vendorModels.length}</Tag>
-              <Tag variant="light">Key {vendorKeys.length}</Tag>
-              <Button size="small" variant="outline" loading={vendorLoading} onClick={handleSyncVolcengineModels}>
-                同步火山模型
-              </Button>
-              <Button size="small" loading={vendorLoading} onClick={loadVendorCatalog}>
-                刷新弹药库
-              </Button>
-            </Space>
-          </Space>
-        </ActionBar>
-        {vendorError ? <Alert theme="warning" message={vendorError} /> : null}
-        {vendorNotice ? <Alert theme="success" message={vendorNotice} /> : null}
-        <Alert
-          theme="info"
-          message="OpenAI、KIE、火山、百度、中转站等第三方模型 Key 统一在中台 Key 池维护。新增 Key 后刷新弹药库，治理摘要会显示该厂商是否已经可调用。"
-          style={{ marginBottom: 16 }}
-        />
-
-        <Row gutter={[16, 16]}>
-          <Col xs={12} lg={4}>
-            <MetricCard label="可用 Provider" value={vendorProviders.length} sub="OpenAI / 火山 / KIE 等" />
-          </Col>
-          <Col xs={12} lg={4}>
-            <MetricCard label="活动 Key" value={vendorKeys.filter((item) => item.status === 'active').length} sub="中台托管" />
-          </Col>
-          <Col xs={12} lg={4}>
-            <MetricCard label="Global Egress" value={vendorProviders.filter((item) => item.requiresGlobalEgress).length} sub="需要特殊出网节点" />
-          </Col>
-          <Col xs={12} lg={4}>
-            <MetricCard label="24h 调用" value={vendorUsageTotal} sub={`窗口 ${vendorUsageWindowHours} 小时`} />
-          </Col>
-          <Col xs={12} lg={4}>
-            <MetricCard
-              label="24h 成功率"
-              value={vendorUsageSuccessRate === null ? '—' : `${vendorUsageSuccessRate}%`}
-              sub={vendorUsageFailed > 0 ? `失败 ${vendorUsageFailed}` : '暂无失败记录'}
-            />
-          </Col>
-        </Row>
-
-        <Card bordered title="第三方模型状态" style={{ marginTop: 16 }}>
-          <Space size="small" style={{ marginBottom: 12, flexWrap: 'wrap' }}>
-            <Tag theme={vendorGovernanceIssueCount > 0 ? 'warning' : 'success'} variant="light">
-              {vendorGovernanceIssueCount > 0 ? `需处理 ${vendorGovernanceIssueCount}` : '状态正常'}
-            </Tag>
-            <Tag variant="light">窗口 {vendorGovernanceSummary?.windowHours || vendorUsageWindowHours} 小时</Tag>
-          </Space>
-          {vendorGovernanceSummary ? (
-            <Space direction="vertical" style={{ width: '100%' }} size={12}>
-              {vendorGovernanceSummary.issues?.length ? (
-                <Alert
-                  theme="warning"
-                  message={`治理摘要部分降级：${vendorGovernanceSummary.issues.map(getVendorIssueLabel).join('；')}`}
-                />
-              ) : null}
-              <Row gutter={[12, 12]}>
-                <Col xs={12} lg={3}>
-                  <MetricCard label="厂商" value={vendorGovernanceSummary.totals.providerCount} sub="已纳入治理" />
-                </Col>
-                <Col xs={12} lg={3}>
-                  <MetricCard label="模型" value={vendorGovernanceSummary.totals.modelCount} sub="模型目录" />
-                </Col>
-                <Col xs={12} lg={3}>
-                  <MetricCard label="能力" value={vendorGovernanceSummary.totals.abilityCount} sub="已绑定能力" />
-                </Col>
-                <Col xs={12} lg={3}>
-                  <MetricCard
-                    label="最近失败"
-                    value={vendorGovernanceSummary.providers.reduce((sum, item) => sum + Number(item.failedCalls || 0), 0)}
-                    sub={`成功 ${vendorGovernanceSummary.providers.reduce((sum, item) => sum + Number(item.succeededCalls || 0), 0)}`}
-                  />
-                </Col>
-              </Row>
-              <Table
-                size="small"
-                rowKey="provider"
-                data={vendorGovernanceSummary.providers}
-                columns={[
-                  {
-                    colKey: 'provider',
-                    title: '厂商',
-                    minWidth: 180,
-                    cell: ({ row }) => (
-                      <Space direction="vertical" size={2}>
-                        <Space size={6}>
-                          <Typography.Text strong>{row.displayName}</Typography.Text>
-                          <Tag theme={getVendorProviderState(row).theme} variant="light">
-                            {getVendorProviderState(row).label}
-                          </Tag>
-                        </Space>
-                        <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
-                          {row.provider}
-                        </Typography.Text>
-                      </Space>
-                    ),
-                  },
-                  {
-                    colKey: 'runtime',
-                    title: '运行配置',
-                    minWidth: 220,
-                    cell: ({ row }) => (
-                      <Space size={4} style={{ flexWrap: 'wrap' }}>
-                        <Tag theme={row.envKeyConfigured ? 'success' : 'default'} variant="light">
-                          环境 Key {row.envKeyConfigured ? '已配' : '未配'}
-                        </Tag>
-                        <Tag theme={row.activeStoredKeyCount > 0 ? 'success' : 'default'} variant="light">
-                          Key 池 {row.activeStoredKeyCount}
-                        </Tag>
-                        {row.disabledKeyCount > 0 ? (
-                          <Tag theme="warning" variant="light">
-                            停用 {row.disabledKeyCount}
-                          </Tag>
-                        ) : null}
-                      </Space>
-                    ),
-                  },
-                  {
-                    colKey: 'catalog',
-                    title: '目录绑定',
-                    width: 160,
-                    cell: ({ row }) => `模型 ${row.modelCount} / 能力 ${row.abilityCount}`,
-                  },
-                  {
-                    colKey: 'recent',
-                    title: '最近调用',
-                    minWidth: 220,
-                    cell: ({ row }) => (
-                      <Space direction="vertical" size={2}>
-                        <Typography.Text>
-                          成功 {row.succeededCalls}，失败 {row.failedCalls}
-                        </Typography.Text>
-                        <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
-                          耗时 {row.avgLatencyMs ? formatDurationMs(row.avgLatencyMs) : '—'}
-                          {row.lastSeenAt ? ` · 最近 ${formatDateTime(row.lastSeenAt)}` : ''}
-                        </Typography.Text>
-                      </Space>
-                    ),
-                  },
-                  {
-                    colKey: 'issues',
-                    title: '问题',
-                    minWidth: 220,
-                    cell: ({ row }) =>
-                      row.issues?.length ? (
-                        <Space size={4} style={{ flexWrap: 'wrap' }}>
-                          {row.issues.map((issue) => (
-                            <Tag key={`${row.provider}-${issue}`} theme="warning" variant="light">
-                              {getVendorIssueLabel(issue)}
-                            </Tag>
-                          ))}
-                        </Space>
-                      ) : (
-                        <Typography.Text theme="success">暂无</Typography.Text>
-                      ),
-                  },
-                ]}
-              />
-            </Space>
-          ) : (
-            <Alert theme="info" message="暂未加载治理摘要，点击“刷新弹药库”后会显示各厂商可调用状态。" />
-          )}
-        </Card>
-
-        <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-          <Col xs={12} lg={6}>
-            <Card bordered title="厂商出网与能力边界">
-              <Table
-                size="small"
-                rowKey="provider"
-                data={vendorProviders}
-                columns={[
-                  {
-                    colKey: 'provider',
-                    title: '厂商',
-                    minWidth: 160,
-                    cell: ({ row }) => (
-                      <Space direction="vertical" size={2}>
-                        <Typography.Text strong>{row.displayName}</Typography.Text>
-                        <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
-                          {row.provider}
-                        </Typography.Text>
-                      </Space>
-                    ),
-                  },
-                  {
-                    colKey: 'apiTypes',
-                    title: '能力类型',
-                    minWidth: 220,
-                    cell: ({ row }) => (
-                      <Space size={4} style={{ flexWrap: 'wrap' }}>
-                        {(row.supportedApiTypes || []).map((item) => (
-                          <Tag key={`${row.provider}-${item}`} variant="light">
-                            {item}
-                          </Tag>
-                        ))}
-                      </Space>
-                    ),
-                  },
-                  {
-                    colKey: 'egress',
-                    title: '出网',
-                    width: 160,
-                    cell: ({ row }) => {
-                      const check = vendorEgressChecks[row.provider];
-                      return (
-                        <Space direction="vertical" size={2}>
-                          <Tag theme={row.requiresGlobalEgress ? 'warning' : 'success'} variant="light">
-                            {row.requiresGlobalEgress ? '需要特殊出网' : '国内可连'}
-                          </Tag>
-                          {check ? (
-                            <Typography.Text theme={check.success ? 'success' : 'error'} style={{ fontSize: 12 }}>
-                              {check.success ? '通过' : check.errorCode || '失败'} · {check.latencyMs ?? '—'}ms
-                            </Typography.Text>
-                          ) : null}
-                        </Space>
-                      );
-                    },
-                  },
-                  {
-                    colKey: 'actions',
-                    title: '操作',
-                    width: 180,
-                    cell: ({ row }) => (
-                      <Space size={4}>
-                        <Button size="small" variant="text" onClick={() => handleVendorEgressCheck(row.provider, false)}>
-                          检查网络
-                        </Button>
-                        <Button size="small" variant="text" onClick={() => handleVendorEgressCheck(row.provider, true)}>
-                          验证 Key
-                        </Button>
-                      </Space>
-                    ),
-                  },
-                ]}
-                empty={<Typography.Text theme="secondary">暂无 Provider，请检查 vendor-api-ops。</Typography.Text>}
-              />
-            </Card>
-          </Col>
-
-          <Col xs={12} lg={6}>
-            <Card bordered title="模型目录">
-              <Table
-                size="small"
-                rowKey="model"
-                data={vendorModels}
-                columns={[
-                  {
-                    colKey: 'model',
-                    title: '模型',
-                    minWidth: 220,
-                    cell: ({ row }) => (
-                      <Space direction="vertical" size={2}>
-                        <Typography.Text strong>{row.displayName}</Typography.Text>
-                        <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
-                          {row.provider} / {row.model}
-                        </Typography.Text>
-                      </Space>
-                    ),
-                  },
-                  {
-                    colKey: 'features',
-                    title: '能力边界',
-                    minWidth: 240,
-                    cell: ({ row }) => (
-                      <Space size={4} style={{ flexWrap: 'wrap' }}>
-                        {row.apiTypes.map((item) => (
-                          <Tag key={`${row.provider}-${row.model}-${item}`} variant="light">
-                            {item}
-                          </Tag>
-                        ))}
-                        {row.supportsMask ? <Tag theme="success" variant="light">蒙版</Tag> : null}
-                        {row.supportsMultipleImages ? <Tag theme="success" variant="light">多图</Tag> : null}
-                        {row.supportsVideo ? <Tag theme="warning" variant="light">视频</Tag> : null}
-                      </Space>
-                    ),
-                  },
-                  {
-                    colKey: 'source',
-                    title: '来源',
-                    width: 120,
-                    cell: ({ row }) => <Tag variant="light">{row.source}</Tag>,
-                  },
-                  {
-                    colKey: 'actions',
-                    title: '操作',
-                    width: 90,
-                    cell: ({ row }) => (
-                      <Button size="small" variant="text" onClick={() => resetVendorModelForm(row)}>
-                        编辑
-                      </Button>
-                    ),
-                  },
-                ]}
-                empty={<Typography.Text theme="secondary">暂无模型目录。</Typography.Text>}
-              />
-              <div style={{ borderTop: '1px solid var(--td-border-level-1-color)', marginTop: 16, paddingTop: 16 }}>
-                <Space direction="vertical" size="small" style={{ width: '100%' }}>
-                  <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                    <Typography.Text strong>{vendorModelForm.id ? '编辑模型配置' : '新增模型配置'}</Typography.Text>
-                    {vendorModelForm.id ? (
-                      <Button size="small" variant="outline" onClick={() => resetVendorModelForm()}>
-                        新增模式
-                      </Button>
-                    ) : null}
-                  </Space>
-                  {vendorModelFormError ? <Alert theme="error" message={vendorModelFormError} /> : null}
-                  <Row gutter={[12, 12]}>
-                    <Col span={4}>
-                      <Typography.Text theme="secondary">Provider</Typography.Text>
-                      <Input
-                        value={String(vendorModelForm.provider || '')}
-                        onChange={(v) => setVendorModelForm({ ...vendorModelForm, provider: String(v) })}
-                        placeholder="openai"
-                      />
-                    </Col>
-                    <Col span={4}>
-                      <Typography.Text theme="secondary">模型 ID</Typography.Text>
-                      <Input
-                        value={String(vendorModelForm.model || '')}
-                        onChange={(v) => setVendorModelForm({ ...vendorModelForm, model: String(v) })}
-                        placeholder="gpt-image-2"
-                      />
-                    </Col>
-                    <Col span={4}>
-                      <Typography.Text theme="secondary">状态</Typography.Text>
-                      <Select
-                        value={vendorModelForm.status || 'active'}
-                        onChange={(v) => setVendorModelForm({ ...vendorModelForm, status: String(v) })}
-                        options={apiKeyStatusOptions.map((item) => ({ ...item }))}
-                      />
-                    </Col>
-                  </Row>
-                  <div>
-                    <Typography.Text theme="secondary">显示名称</Typography.Text>
-                    <Input
-                      value={String(vendorModelForm.displayName || '')}
-                      onChange={(v) => setVendorModelForm({ ...vendorModelForm, displayName: String(v) })}
-                      placeholder="OpenAI · GPT Image 2"
-                    />
+            <Section
+              id="vendor-models"
+              title="模型弹药库"
+              description="集中查看第三方模型、密钥池、出网状态与能力边界；业务能力只引用这里沉淀后的模型资源。"
+            >
+              <Suspense
+                fallback={
+                  <div className="rounded-3xl border border-slate-200 bg-white px-6 py-5 text-sm text-slate-600 shadow-sm">
+                    模型弹药库加载中，请稍候...
                   </div>
-                  <Row gutter={[12, 12]}>
-                    <Col span={6}>
-                      <Typography.Text theme="secondary">能力类型（逗号分隔）</Typography.Text>
-                      <Input
-                        value={vendorModelForm.apiTypesText || ''}
-                        onChange={(v) => setVendorModelForm({ ...vendorModelForm, apiTypesText: String(v) })}
-                        placeholder="image_generation, image_edit"
-                      />
-                    </Col>
-                    <Col span={6}>
-                      <Typography.Text theme="secondary">执行模式（逗号分隔）</Typography.Text>
-                      <Input
-                        value={vendorModelForm.executionModesText || ''}
-                        onChange={(v) => setVendorModelForm({ ...vendorModelForm, executionModesText: String(v) })}
-                        placeholder="sync, async_submit_poll"
-                      />
-                    </Col>
-                  </Row>
-                  <Space size="large" style={{ flexWrap: 'wrap' }}>
-                    <Space size={4}>
-                      <Switch
-                        value={Boolean(vendorModelForm.supportsMask)}
-                        onChange={(v) => setVendorModelForm({ ...vendorModelForm, supportsMask: Boolean(v) })}
-                      />
-                      <Typography.Text theme="secondary">蒙版</Typography.Text>
-                    </Space>
-                    <Space size={4}>
-                      <Switch
-                        value={Boolean(vendorModelForm.supportsMultipleImages)}
-                        onChange={(v) => setVendorModelForm({ ...vendorModelForm, supportsMultipleImages: Boolean(v) })}
-                      />
-                      <Typography.Text theme="secondary">多图</Typography.Text>
-                    </Space>
-                    <Space size={4}>
-                      <Switch
-                        value={Boolean(vendorModelForm.supportsVideo)}
-                        onChange={(v) => setVendorModelForm({ ...vendorModelForm, supportsVideo: Boolean(v) })}
-                      />
-                      <Typography.Text theme="secondary">视频</Typography.Text>
-                    </Space>
-                    <Space size={4}>
-                      <Switch
-                        value={Boolean(vendorModelForm.supportsText)}
-                        onChange={(v) => setVendorModelForm({ ...vendorModelForm, supportsText: Boolean(v) })}
-                      />
-                      <Typography.Text theme="secondary">文本</Typography.Text>
-                    </Space>
-                    <Space size={4}>
-                      <Switch
-                        value={Boolean(vendorModelForm.requiresGlobalEgress)}
-                        onChange={(v) => setVendorModelForm({ ...vendorModelForm, requiresGlobalEgress: Boolean(v) })}
-                      />
-                      <Typography.Text theme="secondary">Global Egress</Typography.Text>
-                    </Space>
-                  </Space>
-                  <div>
-                    <Typography.Text theme="secondary">Metadata JSON</Typography.Text>
-                    <Textarea
-                      value={vendorModelForm.metadataText || '{}'}
-                      onChange={(v) => setVendorModelForm({ ...vendorModelForm, metadataText: String(v) })}
-                      autosize={{ minRows: 2, maxRows: 6 }}
-                    />
-                  </div>
-                  <Button theme="primary" onClick={handleVendorModelSubmit}>
-                    保存模型配置
-                  </Button>
-                </Space>
-              </div>
-            </Card>
-          </Col>
-        </Row>
-
-        <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-          <Col span={12}>
-            <Card bordered title="第三方调用统计">
-              <Typography.Text theme="secondary">
-                来自能力服务的最近 {vendorUsageWindowHours} 小时调用日志，用于判断 Key、模型和上游是否稳定。
-              </Typography.Text>
-              <div style={{ marginTop: 12 }}>
-                <Table
-                  size="small"
-                  rowKey="rowKey"
-                  data={vendorUsageItems.map((item, index) => ({
-                    ...item,
-                    rowKey: `${item.provider}-${item.model || 'all'}-${item.status}-${item.errorCode || 'ok'}-${index}`,
-                  }))}
-                  columns={[
-                    {
-                      colKey: 'provider',
-                      title: '厂商 / 模型',
-                      minWidth: 220,
-                      cell: ({ row }) => (
-                        <Space direction="vertical" size={2}>
-                          <Typography.Text>{row.provider}</Typography.Text>
-                          <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
-                            {row.model || '通用'}
-                          </Typography.Text>
-                        </Space>
-                      ),
-                    },
-                    {
-                      colKey: 'status',
-                      title: '状态',
-                      width: 120,
-                      cell: ({ row }) => <StatusPill status={row.status} />,
-                    },
-                    {
-                      colKey: 'count',
-                      title: '次数',
-                      width: 90,
-                    },
-                    {
-                      colKey: 'latency',
-                      title: '平均耗时',
-                      width: 120,
-                      cell: ({ row }) => (
-                        <Typography.Text theme="secondary">
-                          {typeof row.avgLatencyMs === 'number' ? `${row.avgLatencyMs}ms` : '—'}
-                        </Typography.Text>
-                      ),
-                    },
-                    {
-                      colKey: 'errorCode',
-                      title: '错误',
-                      minWidth: 180,
-                      cell: ({ row }) =>
-                        row.errorCode ? (
-                          <Typography.Text theme="error">{toDisplayErrorMessage(row.errorCode)}</Typography.Text>
-                        ) : (
-                          <Typography.Text theme="secondary">—</Typography.Text>
-                        ),
-                    },
-                    {
-                      colKey: 'lastSeenAt',
-                      title: '最近时间',
-                      width: 180,
-                      cell: ({ row }) => (
-                        <Typography.Text theme="secondary">
-                          {row.lastSeenAt ? formatDateTime(row.lastSeenAt) : '—'}
-                        </Typography.Text>
-                      ),
-                    },
-                  ]}
-                  empty={<Typography.Text theme="secondary">暂无第三方调用统计。跑一次模型测试后会自动出现。</Typography.Text>}
+                }
+              >
+                <VendorModelsPanel
+                  baseUrl={vendorBaseUrl}
+                  providers={vendorProviders}
+                  models={vendorModels}
+                  keys={vendorKeys}
+                  usageItems={vendorUsageItems}
+                  governanceSummary={vendorGovernanceSummary}
+                  usageTotal={vendorUsageTotal}
+                  usageFailed={vendorUsageFailed}
+                  usageSuccessRate={vendorUsageSuccessRate}
+                  usageWindowHours={vendorUsageWindowHours}
+                  governanceIssueCount={vendorGovernanceIssueCount}
+                  loading={vendorLoading}
+                  error={vendorError}
+                  notice={vendorNotice}
+                  egressChecks={vendorEgressChecks}
+                  modelForm={vendorModelForm}
+                  modelFormError={vendorModelFormError}
+                  keyForm={vendorKeyForm}
+                  onRefresh={loadVendorCatalog}
+                  onSyncVolcengine={handleSyncVolcengineModels}
+                  onEgressCheck={handleVendorEgressCheck}
+                  onModelFormChange={setVendorModelForm}
+                  onModelEdit={resetVendorModelForm}
+                  onModelReset={() => resetVendorModelForm()}
+                  onModelSubmit={handleVendorModelSubmit}
+                  onKeyFormChange={setVendorKeyForm}
+                  onKeySubmit={handleVendorKeySubmit}
+                  onKeyReset={() => setVendorKeyForm(defaultVendorKeyForm)}
                 />
-              </div>
-            </Card>
-          </Col>
-        </Row>
-
-        <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-          <Col xs={12} lg={7}>
-            <Card bordered title="第三方模型 Key 池">
-              <Table
-                size="small"
-                rowKey="id"
-                data={vendorKeys}
-                columns={[
-                  {
-                    colKey: 'alias',
-                    title: 'Key 名称',
-                    minWidth: 220,
-                    cell: ({ row }) => (
-                      <Space direction="vertical" size={2}>
-                        <Typography.Text>{row.alias}</Typography.Text>
-                        <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
-                          {row.provider} · {row.keyPreview}
-                        </Typography.Text>
-                      </Space>
-                    ),
-                  },
-                  {
-                    colKey: 'status',
-                    title: '状态',
-                    width: 110,
-                    cell: ({ row }) => <StatusPill status={row.status} />,
-                  },
-                  {
-                    colKey: 'usage',
-                    title: '用量/并发',
-                    width: 160,
-                    cell: ({ row }) => (
-                      <Typography.Text theme="secondary">
-                        {row.usageCount}/{row.dailyQuota ?? '—'} · 并发 {row.maxConcurrency}
-                      </Typography.Text>
-                    ),
-                  },
-                  {
-                    colKey: 'security',
-                    title: '归属',
-                    width: 110,
-                    cell: ({ row }) => {
-                      const metadata = getJsonRecord(row.metadata);
-                      const storage = String(metadata?.storage || 'backend');
-                      return (
-                        <Tag theme={storage === 'backend' ? 'success' : 'warning'} variant="light">
-                          {storage === 'backend' ? '中台托管' : '服务本地'}
-                        </Tag>
-                      );
-                    },
-                  },
-                  {
-                    colKey: 'last',
-                    title: '最近使用/验证',
-                    width: 210,
-                    cell: ({ row }) => {
-                      const metadata = getJsonRecord(row.metadata);
-                      const lastCheck = getJsonRecord(metadata?.lastCheck);
-                      const checkedAt = typeof lastCheck?.checkedAt === 'string' ? lastCheck.checkedAt : '';
-                      const checkOk = lastCheck?.success === true;
-                      return (
-                        <Space direction="vertical" size={2}>
-                          <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
-                            使用：{row.lastUsedAt ? formatDateTime(row.lastUsedAt) : '—'}
-                          </Typography.Text>
-                          {lastCheck ? (
-                            <Typography.Text theme={checkOk ? 'success' : 'error'} style={{ fontSize: 12 }}>
-                              验证：{checkOk ? '通过' : String(lastCheck.errorCode || '失败')}
-                              {checkedAt ? ` · ${formatDateTime(checkedAt)}` : ''}
-                            </Typography.Text>
-                          ) : (
-                            <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
-                              验证：未验证
-                            </Typography.Text>
-                          )}
-                        </Space>
-                      );
-                    },
-                  },
-                  {
-                    colKey: 'actions',
-                    title: '操作',
-                    width: 150,
-                    cell: ({ row }) => (
-                      <Space size={4}>
-                        <Button size="small" variant="text" loading={vendorKeyCheckingId === row.id} onClick={() => handleVendorKeyCheck(row)}>
-                          验证
-                        </Button>
-                        <Button size="small" variant="text" onClick={() => setVendorKeyForm({ ...row })}>
-                          编辑
-                        </Button>
-                      </Space>
-                    ),
-                  },
-                ]}
-                empty={<Typography.Text theme="secondary">暂无第三方模型 Key。可在右侧新增。</Typography.Text>}
-              />
-            </Card>
-          </Col>
-
-          <Col xs={12} lg={5}>
-            <Card bordered title={vendorKeyForm.id ? '编辑第三方模型 Key' : '新增第三方模型 Key'}>
-              <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-                <Alert
-                  theme="info"
-                  message={
-                    vendorKeyForm.id
-                      ? '编辑模式只允许改状态和备注，不回显明文。需要换 Key 时请新增一条，再停用旧 Key。'
-                      : getVendorKeyHint(vendorKeyForm.provider).note
-                  }
-                />
-                <Row gutter={[12, 12]}>
-                  <Col span={6}>
-                    <Typography.Text theme="secondary">厂商</Typography.Text>
-                    <Select
-                      value={vendorKeyForm.provider || ''}
-                      disabled={Boolean(vendorKeyForm.id)}
-                      onChange={(v) => setVendorKeyForm({ ...vendorKeyForm, provider: String(v) })}
-                      options={[
-                        { label: '请选择厂商…', value: '' },
-                        ...vendorProviders.map((item) => ({ label: `${item.displayName} (${item.provider})`, value: item.provider })),
-                      ]}
-                    />
-                  </Col>
-                  <Col span={6}>
-                    <Typography.Text theme="secondary">状态</Typography.Text>
-                    <Select
-                      value={vendorKeyForm.status || 'active'}
-                      onChange={(v) => setVendorKeyForm({ ...vendorKeyForm, status: String(v) })}
-                      options={apiKeyStatusOptions.map((item) => ({ ...item }))}
-                    />
-                  </Col>
-                </Row>
-                <div>
-                  <Typography.Text theme="secondary">Key 名称</Typography.Text>
-                  <Input
-                    disabled={Boolean(vendorKeyForm.id)}
-                    value={vendorKeyForm.alias || ''}
-                    onChange={(v) => setVendorKeyForm({ ...vendorKeyForm, alias: String(v) })}
-                    placeholder={getVendorKeyHint(vendorKeyForm.provider).alias}
-                  />
-                </div>
-                {!vendorKeyForm.id ? (
-                  <>
-                    <div>
-                      <Typography.Text theme="secondary">API Key</Typography.Text>
-                      <Input
-                        type="password"
-                        value={vendorKeyForm.key || ''}
-                        onChange={(v) => setVendorKeyForm({ ...vendorKeyForm, key: String(v) })}
-                        placeholder={getVendorKeyHint(vendorKeyForm.provider).key}
-                      />
-                    </div>
-                    <div>
-                      <Typography.Text theme="secondary">Secret Key（可选，百度必填）</Typography.Text>
-                      <Input
-                        type="password"
-                        value={vendorKeyForm.secret || ''}
-                        onChange={(v) => setVendorKeyForm({ ...vendorKeyForm, secret: String(v) })}
-                        placeholder={getVendorKeyHint(vendorKeyForm.provider).secret || defaultVendorKeyHint.secret}
-                      />
-                    </div>
-                  </>
-                ) : (
-                  <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
-                    当前 Key：{vendorKeyForm.keyPreview || '***'}。为了安全，编辑模式不回显明文。
-                  </Typography.Text>
-                )}
-                <Row gutter={[12, 12]}>
-                  <Col span={6}>
-                    <Typography.Text theme="secondary">日配额</Typography.Text>
-                    <InputNumber
-                      min={0}
-                      value={vendorKeyForm.dailyQuota ?? undefined}
-                      disabled={Boolean(vendorKeyForm.id)}
-                      onChange={(v) => setVendorKeyForm({ ...vendorKeyForm, dailyQuota: v === undefined || v === null ? undefined : Number(v) })}
-                    />
-                  </Col>
-                  <Col span={6}>
-                    <Typography.Text theme="secondary">最大并发</Typography.Text>
-                    <InputNumber
-                      min={1}
-                      value={vendorKeyForm.maxConcurrency ?? 1}
-                      disabled={Boolean(vendorKeyForm.id)}
-                      onChange={(v) => setVendorKeyForm({ ...vendorKeyForm, maxConcurrency: Number(v || 1) })}
-                    />
-                  </Col>
-                </Row>
-                <Space style={{ width: '100%' }}>
-                  <Button theme="primary" style={{ flex: 1 }} onClick={handleVendorKeySubmit}>
-                    保存到第三方 Key 池
-                  </Button>
-                  {vendorKeyForm.id ? (
-                    <Button variant="outline" onClick={() => setVendorKeyForm(defaultVendorKeyForm)}>
-                      取消
-                    </Button>
-                  ) : null}
-                </Space>
-              </Space>
-            </Card>
-          </Col>
-        </Row>
-      </Section>
+              </Suspense>
+            </Section>
           )}
 
           {activeNav === 'apikeys' && (
-      <Section
-        id="apikeys"
-        title="中台 API Key 原始表"
-        description="与“模型弹药库”的第三方 Key 池共用同一张中台 Key 表；这里保留为底层维护入口。"
-      >
-        <ActionBar>
-          <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
-            <Space direction="vertical" size={4}>
-              <Typography.Text strong>中台凭证池总览</Typography.Text>
-              <Typography.Text theme="secondary">
-                第三方模型 Key 现在由中台统一保存。普通用户优先用“模型弹药库”，这里用于排查和底层维护。
-              </Typography.Text>
-            </Space>
-            <Space size="small" style={{ flexWrap: 'wrap' }}>
-              <Tag variant="light">总数 {apiKeys.length}</Tag>
-              <Tag variant="light" theme="success">
-                active {apiKeys.filter((item) => item.status === 'active').length}
-              </Tag>
-              <Tag variant="light" theme="warning">
-                disabled {apiKeys.filter((item) => item.status === 'disabled').length}
-              </Tag>
-            </Space>
-          </Space>
-        </ActionBar>
-
-        <Row gutter={[16, 16]}>
-          <Col xs={12} lg={7}>
-            <Card bordered title="Key 列表" style={{ width: '100%' }}>
-              <Table
-                size="small"
-                rowKey="id"
-                data={apiKeys}
-                columns={[
-                  {
-                    colKey: 'provider',
-                    title: 'Provider',
-                    width: 140,
-                    cell: ({ row }) => <Typography.Text>{getProviderLabel(row.provider)}</Typography.Text>,
-                  },
-                  {
-                    colKey: 'name',
-                    title: '名称 / Key Preview',
-                    minWidth: 180,
-                    ellipsis: true,
-                    cell: ({ row }) => (
-                      <Space direction="vertical" size={2}>
-                        <Typography.Text>{row.name}</Typography.Text>
-                        <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
-                          {row.key_preview || '***'} · {row.id}
-                        </Typography.Text>
-                      </Space>
-                    ),
-                  },
-                  {
-                    colKey: 'status',
-                    title: '状态',
-                    width: 120,
-                    cell: ({ row }) => <StatusPill status={row.status} />,
-                  },
-                  {
-                    colKey: 'quota',
-                    title: '配额/用量',
-                    width: 140,
-                    cell: ({ row }) => (
-                      <Typography.Text theme="secondary">
-                        {(row.usage_count ?? 0)}/{row.daily_quota ?? '—'}
-                      </Typography.Text>
-                    ),
-                  },
-                  {
-                    colKey: 'expire_at',
-                    title: '过期时间',
-                    width: 180,
-                    cell: ({ row }) => <Typography.Text theme="secondary">{row.expire_at ? formatDateTime(row.expire_at) : '—'}</Typography.Text>,
-                  },
-                  {
-                    colKey: 'actions',
-                    title: '操作',
-                    width: 160,
-                    cell: ({ row }) => (
-                      <Space size={4}>
-                        <Button size="small" variant="text" onClick={() => setApiKeyForm(row)}>
-                          编辑
-                        </Button>
-                        <Button size="small" theme="danger" variant="text" onClick={() => handleDelete('apikey', row.id)}>
-                          删除
-                        </Button>
-                      </Space>
-                    ),
-                  },
-                ]}
-                empty={<Typography.Text theme="secondary">暂无 Key，请先新增。</Typography.Text>}
+            <Section
+              id="apikeys"
+              title="历史密钥仓库"
+              description="兼容旧版密钥表；第三方模型密钥请优先使用“模型弹药库”，这里后续会逐步降级为历史兼容入口。"
+            >
+              <LegacyApiKeysPanel
+                apiKeys={apiKeys}
+                apiKeyForm={apiKeyForm}
+                onFormChange={setApiKeyForm}
+                onSubmit={handleApiKeySubmit}
+                onDelete={(id) => handleDelete('apikey', String(id))}
+                onReset={() => setApiKeyForm(defaultApiKeyForm)}
+                getProviderLabel={getProviderLabel}
               />
-            </Card>
-          </Col>
-
-          <Col xs={12} lg={5}>
-            <Card bordered title={apiKeyForm.id ? '编辑 Key' : '新增 Key'} style={{ width: '100%' }}>
-              <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-                <Alert
-                  theme="info"
-                  message="Provider 选厂商，名称用于内部识别；新增时粘贴完整 Key，编辑模式下不会回显明文。"
-                />
-
-                <Row gutter={[12, 12]}>
-                  <Col span={6}>
-                    <Typography.Text theme="secondary">Provider</Typography.Text>
-                    <Select
-                      value={apiKeyForm.provider || ''}
-                      onChange={(v) => setApiKeyForm({ ...apiKeyForm, provider: String(v) })}
-                      options={[
-                        { label: '请选择厂商…', value: '' },
-                        ...providerOptions
-                          .filter((opt) => ['baidu', 'volcengine', 'kie', 'openai', 'aliyun', 'coze'].includes(opt.value))
-                          .map((opt) => ({
-                            label: `${opt.label} (${opt.value})`,
-                            value: opt.value,
-                          })),
-                      ]}
-                    />
-                  </Col>
-                  <Col span={6}>
-                    <Typography.Text theme="secondary">状态</Typography.Text>
-                    <Select
-                      value={apiKeyForm.status || 'active'}
-                      onChange={(v) => setApiKeyForm({ ...apiKeyForm, status: String(v) })}
-                      options={apiKeyStatusOptions.map((item) => ({ ...item }))}
-                    />
-                  </Col>
-                </Row>
-
-                <div>
-                  <Typography.Text theme="secondary">名称</Typography.Text>
-                  <Input
-                    value={apiKeyForm.name || ''}
-                    onChange={(v) => setApiKeyForm({ ...apiKeyForm, name: String(v) })}
-                    placeholder="例如：KIE-主账号"
-                  />
-                </div>
-
-                {!apiKeyForm.id ? (
-                  <div>
-                    <Typography.Text theme="secondary">Key 值</Typography.Text>
-                    <Input
-                      type="password"
-                      value={apiKeyForm.key || ''}
-                      onChange={(v) => setApiKeyForm({ ...apiKeyForm, key: String(v) })}
-                      placeholder="粘贴 API Key（保存后不展示明文）"
-                    />
-                  </div>
-                ) : (
-                  <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
-                    编辑模式不展示明文 Key；如需更换，请直接粘贴新值并保存。
-                  </Typography.Text>
-                )}
-
-                <Row gutter={[12, 12]}>
-                  <Col span={6}>
-                    <Typography.Text theme="secondary">日配额</Typography.Text>
-                    <InputNumber
-                      min={0}
-                      value={apiKeyForm.daily_quota ?? undefined}
-                      onChange={(v) =>
-                        setApiKeyForm({ ...apiKeyForm, daily_quota: v === undefined || v === null ? undefined : Number(v) })
-                      }
-                    />
-                  </Col>
-                  <Col span={6}>
-                    <Typography.Text theme="secondary">当前用量</Typography.Text>
-                    <InputNumber
-                      min={0}
-                      value={apiKeyForm.usage_count ?? undefined}
-                      onChange={(v) =>
-                        setApiKeyForm({ ...apiKeyForm, usage_count: v === undefined || v === null ? undefined : Number(v) })
-                      }
-                    />
-                  </Col>
-                </Row>
-
-                <div>
-                  <Typography.Text theme="secondary">过期时间（可选）</Typography.Text>
-                  <input
-                    type="datetime-local"
-                    value={apiKeyForm.expire_at ? new Date(apiKeyForm.expire_at).toISOString().slice(0, 16) : ''}
-                    onChange={(e) =>
-                      setApiKeyForm({
-                        ...apiKeyForm,
-                        expire_at: e.target.value ? new Date(e.target.value).toISOString() : undefined,
-                      })
-                    }
-                    className={formControlClass}
-                  />
-                </div>
-
-                <Space style={{ width: '100%' }}>
-                  <Button theme="primary" style={{ flex: 1 }} onClick={handleApiKeySubmit}>
-                    保存
-                  </Button>
-                  {apiKeyForm.id ? (
-                    <Button variant="outline" onClick={() => setApiKeyForm(defaultApiKeyForm)}>
-                      取消
-                    </Button>
-                  ) : null}
-                </Space>
-              </Space>
-            </Card>
-          </Col>
-        </Row>
-      </Section>
+            </Section>
           )}
 
-      {activeNav === 'system' && systemConfig && (
-        <Section id="system" title="系统配置" description="汇总环境信息、OSS 配置及安全参数，便于排障和入职交接。">
-          <ActionBar>
-            <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
-              <Space direction="vertical" size={4}>
-                <Typography.Text strong>运行环境快照</Typography.Text>
-                <Typography.Text theme="secondary">本页只展示当前配置快照，变更请在对应模块操作后再回到这里核对。</Typography.Text>
-              </Space>
-              <Space size="small" style={{ flexWrap: 'wrap' }}>
-                <Tag variant="light">DB: {systemConfig.database.driver || 'default'}</Tag>
-                <Tag variant="light" theme="primary">Bucket: {systemConfig.oss.bucket}</Tag>
-                <Tag variant="light" theme={systemConfig.coze?.token_present ? 'success' : 'warning'}>
-                  Coze Token {systemConfig.coze?.token_present ? '已配置' : '未配置'}
-                </Tag>
-              </Space>
-            </Space>
-          </ActionBar>
+          {activeNav === 'system' && systemConfig && (
+            <Section id="system" title="系统配置" description="汇总环境信息、OSS 配置及安全参数，便于排障和入职交接。">
+              <SystemConfigPanel systemConfig={systemConfig} />
+            </Section>
+          )}
 
-          <div className={`grid gap-6 ${systemConfig.coze ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`}>
-            <InfoCard
-              title="数据库"
-              items={[
-                { label: '后端', value: systemConfig.database.backend },
-                { label: '驱动', value: systemConfig.database.driver || 'default' },
-                { label: '主机', value: systemConfig.database.host || 'local' },
-                { label: 'DSN', value: systemConfig.database.dsn },
-              ]}
-            />
-            <InfoCard
-              title="OSS/上传"
-              items={[
-                { label: 'Bucket', value: systemConfig.oss.bucket },
-                { label: 'Endpoint', value: systemConfig.oss.endpoint },
-                { label: 'Public Domain', value: systemConfig.oss.public_domain || '未配置' },
-                { label: 'Root Prefix', value: systemConfig.oss.root_prefix },
-              ]}
-            />
-            <InfoCard
-              title="安全参数"
-              items={[
-                { label: 'JWT Access TTL', value: `${systemConfig.security.jwt_access_ttl}s` },
-                { label: 'JWT Refresh TTL', value: `${systemConfig.security.jwt_refresh_ttl}s` },
-                { label: '上传 Token TTL', value: `${systemConfig.security.upload_token_ttl}s` },
-              ]}
-            />
-            {systemConfig.coze && (
-              <InfoCard
-                title="Coze 集成"
-                items={[
-                  { label: 'Studio URL', value: systemConfig.coze.base_url || '未配置' },
-                  { label: 'Loop URL', value: systemConfig.coze.loop_base_url || '未配置' },
-                  { label: 'Token', value: systemConfig.coze.token_present ? systemConfig.coze.token_hint || '已配置' : '未配置' },
-                ]}
+          {activeNav === 'logs' && (
+            <Section id="logs" title="调度事件" description="追踪任务事件、调度动作与回调结果，便于排障和多用户并发分析。">
+              <DispatchLogsPanel
+                dispatchLogs={dispatchLogs}
+                onOpenDetail={(entry) => {
+                  setDispatchLogDetail(entry);
+                  setDispatchLogDetailOpen(true);
+                }}
               />
-            )}
-          </div>
+            </Section>
+          )}
 
-          <Card bordered title="特性开关">
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {Object.entries(systemConfig.feature_flags).map(([key, enabled]) => (
-                <div key={key} className="podi-overview-stat-item">
-                  <div className="podi-overview-stat-item__label">{key}</div>
-                  <div className="podi-overview-stat-item__value" style={{ fontSize: 18 }}>
-                    {enabled ? '启用' : '关闭'}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Card>
-
-          <Card bordered title="待办事项">
-            <Space direction="vertical" size="small" style={{ width: '100%' }}>
-              {systemConfig.todo_items.length === 0 ? (
-                <Typography.Text theme="secondary">当前无待办。</Typography.Text>
-              ) : (
-                systemConfig.todo_items.map((todo) => (
-                  <div key={todo.title} className="podi-empty-state">
-                    <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                      <Typography.Text strong>{todo.title}</Typography.Text>
-                      <Tag variant="light" theme={todo.severity === 'high' ? 'danger' : todo.severity === 'medium' ? 'warning' : 'default'}>
-                        {todo.severity}
-                      </Tag>
-                    </Space>
-                    <Typography.Text theme="secondary">{todo.description}</Typography.Text>
-                    <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
-                      状态：{todo.status}
-                    </Typography.Text>
-                  </div>
-                ))
-              )}
-            </Space>
-          </Card>
-        </Section>
-      )}
-
-      {activeNav === 'logs' && (
-      <Section
-        id="logs"
-        title="调度事件"
-        description="追踪任务事件、调度动作与回调结果，便于排障和多用户并发分析。"
-      >
-        <Card
-          bordered
-          title={
-            <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-              <Space direction="vertical" size={2}>
-                <Typography.Text strong>调度事件</Typography.Text>
-                <Typography.Text theme="secondary">最新 25 条，包含任务动作、回执摘要与处理时间。</Typography.Text>
-              </Space>
-              <Tag variant="light">{dispatchLogs.length} 条</Tag>
-            </Space>
-          }
-        >
-          <Table
-            size="small"
-            rowKey="id"
-            data={dispatchLogs}
-            columns={[
-              {
-                colKey: 'id',
-                title: 'ID',
-                width: 80,
-                cell: ({ row }) => <Typography.Text theme="secondary">{row.id}</Typography.Text>,
-              },
-              {
-                colKey: 'task',
-                title: '任务',
-                minWidth: 260,
-                cell: ({ row }) => (
-                  <Space direction="vertical" size={2}>
-                    <Typography.Text strong>{row.tool_action}</Typography.Text>
-                    <Typography.Text theme="secondary" style={{ fontSize: 12, fontFamily: 'monospace' }}>
-                      {row.task_id}
-                    </Typography.Text>
-                  </Space>
-                ),
-              },
-              {
-                colKey: 'event_type',
-                title: '类型',
-                width: 140,
-                cell: ({ row }) => <StatusPill status={row.event_type} />,
-              },
-              {
-                colKey: 'payload',
-                title: '回执摘要',
-                minWidth: 240,
-                cell: ({ row }) => <Typography.Text theme="secondary">{previewPayload(row.payload)}</Typography.Text>,
-              },
-              {
-                colKey: 'created_at',
-                title: '时间',
-                width: 180,
-                cell: ({ row }) => <Typography.Text theme="secondary">{formatDate(row.created_at)}</Typography.Text>,
-              },
-              {
-                colKey: 'actions',
-                title: '详情',
-                width: 100,
-                cell: ({ row }) => (
-                  <Button
-                    size="small"
-                    variant="text"
-                    onClick={() => {
-                      setDispatchLogDetail(row);
-                      setDispatchLogDetailOpen(true);
-                    }}
-                  >
-                    查看
-                  </Button>
-                ),
-              },
-            ]}
-            empty={<Typography.Text theme="secondary">暂无日志。</Typography.Text>}
-          />
-        </Card>
-      </Section>
-      )}
-
-      <Dialog
-        header={abilityLogDetail ? `能力调用详情 #${abilityLogDetail.id}` : '能力调用详情'}
+      <AbilityLogDetailDialog
+        detail={abilityLogDetail}
         visible={abilityLogDetailOpen}
-        width={860}
-        confirmBtn={null}
-        cancelBtn="关闭"
+        durationMs={abilityLogDetailDurationMs}
+        resolveError={abilityLogResolveError}
+        resolveLoading={abilityLogResolveLoading}
+        onResolve={resolveAbilityLog}
         onClose={() => {
           setAbilityLogDetailOpen(false);
           setAbilityLogResolveError(null);
           setAbilityLogResolveLoading(false);
         }}
-        onCancel={() => {
-          setAbilityLogDetailOpen(false);
-          setAbilityLogResolveError(null);
-          setAbilityLogResolveLoading(false);
-        }}
-      >
-        {abilityLogDetail ? (
-          <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-            <Row gutter={[12, 12]}>
-              <Col span={12}>
-                <Typography.Text theme="secondary">能力</Typography.Text>
-                <div>
-                  <Typography.Text strong>
-                    {abilityLogDetail.ability_name || abilityLogDetail.capability_key}
-                  </Typography.Text>
-                </div>
-                <Typography.Text theme="secondary">{abilityLogDetail.ability_provider}</Typography.Text>
-              </Col>
-              <Col span={12}>
-                <Typography.Text theme="secondary">状态</Typography.Text>
-                <div>
-                  <Tag theme={getAbilityLogStatusTag(abilityLogDetail.status).theme} variant="light">
-                    {getAbilityLogStatusTag(abilityLogDetail.status).text}
-                  </Tag>
-                </div>
-                <Typography.Text theme="secondary">
-                  {formatDateTime(abilityLogDetail.created_at)} · {formatDurationMs(abilityLogDetailDurationMs)}
-                </Typography.Text>
-              </Col>
-              <Col span={12}>
-                <Typography.Text theme="secondary">来源</Typography.Text>
-                <div>
-                  <Tag theme={getAbilitySourceTagTheme(abilityLogDetail.source)} variant="light">
-                    {formatAbilitySource(abilityLogDetail.source)}
-                  </Tag>
-                </div>
-              </Col>
-              <Col span={12}>
-                <Typography.Text theme="secondary">节点</Typography.Text>
-                <div>
-                  <Typography.Text>
-                    {abilityLogDetail.executor_name || abilityLogDetail.executor_type || abilityLogDetail.executor_id || '—'}
-                  </Typography.Text>
-                </div>
-              </Col>
-            </Row>
-            <Row gutter={[12, 12]}>
-              <Col span={12}>
-                <Typography.Text theme="secondary">回调ID</Typography.Text>
-                <div>
-                  <Typography.Text style={{ fontFamily: 'monospace' }}>
-                    {abilityLogDetail.callback_id || '—'}
-                  </Typography.Text>
-                </div>
-              </Col>
-              <Col span={12}>
-                <Typography.Text theme="secondary">追踪ID</Typography.Text>
-                <div>
-                  <Typography.Text style={{ fontFamily: 'monospace' }}>
-                    {abilityLogDetail.trace_id || '—'}
-                  </Typography.Text>
-                </div>
-                {abilityLogDetail.workflow_run_id ? (
-                  <Typography.Text theme="secondary" style={{ display: 'block', marginTop: 4 }}>
-                    流程ID：<span style={{ fontFamily: 'monospace' }}>{abilityLogDetail.workflow_run_id}</span>
-                  </Typography.Text>
-                ) : null}
-              </Col>
-            </Row>
+      />
 
-            {(() => {
-              const resolveMeta = (abilityLogDetail.response_payload || {}) as Record<string, any>;
-              const resolvePromptId = resolveMeta.promptId || resolveMeta.taskId;
-              const previewUrl = resolvePrimaryLogPreviewUrl(abilityLogDetail);
-              const canPreviewImage = Boolean(previewUrl) && /\.(png|jpg|jpeg|webp|gif)(\?|#|$)/i.test(previewUrl);
-              if (!previewUrl) {
-                if ((abilityLogDetail.ability_provider || '').toLowerCase() === 'comfyui' && resolvePromptId) {
-                  return (
-                    <div>
-                      <Typography.Text theme="secondary">结果预览</Typography.Text>
-                      <div style={{ marginTop: 8 }}>
-                        <Space direction="vertical" size="small">
-                          <Typography.Text theme="secondary">当前为提交态结果，尚未解析图片。</Typography.Text>
-                          {abilityLogResolveError ? <Alert theme="error" message={abilityLogResolveError} /> : null}
-                          <Button variant="outline" loading={abilityLogResolveLoading} onClick={resolveAbilityLog}>
-                            拉取回调结果
-                          </Button>
-                        </Space>
-                      </div>
-                    </div>
-                  );
-                }
-                return null;
-              }
-              return (
-                <div>
-                  <Typography.Text theme="secondary">结果预览</Typography.Text>
-                  <div style={{ marginTop: 8 }}>
-                    {canPreviewImage ? (
-                      <img src={previewUrl} alt="preview" style={{ maxWidth: '100%', maxHeight: 420, display: 'block' }} />
-                    ) : (
-                      <Button variant="outline" onClick={() => window.open(previewUrl, '_blank', 'noreferrer')}>
-                        打开结果链接
-                      </Button>
-                    )}
-                    {abilityLogResolveError ? <Alert theme="error" message={abilityLogResolveError} /> : null}
-                  </div>
-                </div>
-              );
-            })()}
-
-            {abilityLogDetail.request_payload ? (
-              <div>
-                <Typography.Text theme="secondary">Request</Typography.Text>
-                <CodeBlock value={formatRawResponse(abilityLogDetail.request_payload)} maxHeight={260} />
-              </div>
-            ) : null}
-
-            {abilityLogDetail.response_payload ? (
-              <div>
-                <Typography.Text theme="secondary">Response</Typography.Text>
-                <CodeBlock value={formatRawResponse(abilityLogDetail.response_payload)} maxHeight={260} />
-              </div>
-            ) : null}
-
-            {(() => {
-              const hasCallback =
-                abilityLogDetail.callback_status ||
-                abilityLogDetail.callback_http_status ||
-                abilityLogDetail.callback_started_at ||
-                abilityLogDetail.callback_finished_at ||
-                abilityLogDetail.callback_payload ||
-                abilityLogDetail.callback_response ||
-                abilityLogDetail.callback_error;
-              if (!hasCallback) return null;
-              return (
-                <div>
-                  <Typography.Text theme="secondary">回调记录</Typography.Text>
-                  <Space direction="vertical" size="small" style={{ marginTop: 8, width: '100%' }}>
-                    <Space align="center" size="small">
-                      {abilityLogDetail.callback_status ? (
-                        <Tag theme={getAbilityLogStatusTag(abilityLogDetail.callback_status).theme} variant="light">
-                          {getAbilityLogStatusTag(abilityLogDetail.callback_status).text}
-                        </Tag>
-                      ) : null}
-                      {typeof abilityLogDetail.callback_http_status === 'number' ? (
-                        <Typography.Text theme="secondary">HTTP {abilityLogDetail.callback_http_status}</Typography.Text>
-                      ) : null}
-                      {abilityLogDetail.callback_started_at ? (
-                        <Typography.Text theme="secondary">
-                          开始：{formatDateTime(abilityLogDetail.callback_started_at)}
-                        </Typography.Text>
-                      ) : null}
-                      {abilityLogDetail.callback_finished_at ? (
-                        <Typography.Text theme="secondary">
-                          完成：{formatDateTime(abilityLogDetail.callback_finished_at)}
-                        </Typography.Text>
-                      ) : null}
-                    </Space>
-                    {abilityLogDetail.callback_payload ? (
-                      <div>
-                        <Typography.Text theme="secondary">Callback Request</Typography.Text>
-                        <CodeBlock value={formatRawResponse(abilityLogDetail.callback_payload)} maxHeight={240} />
-                      </div>
-                    ) : null}
-                    {abilityLogDetail.callback_response ? (
-                      <div>
-                        <Typography.Text theme="secondary">Callback Response</Typography.Text>
-                        <CodeBlock value={formatRawResponse(abilityLogDetail.callback_response)} maxHeight={240} />
-                      </div>
-                    ) : null}
-                    {abilityLogDetail.callback_error ? (
-                      <Alert theme="error" message={toDisplayErrorMessage(abilityLogDetail.callback_error)} />
-                    ) : null}
-                  </Space>
-                </div>
-              );
-            })()}
-
-            {abilityLogDetail.error_message ? <Alert theme="error" message={toDisplayErrorMessage(abilityLogDetail.error_message)} /> : null}
-          </Space>
-        ) : null}
-      </Dialog>
-
-      <Dialog
-        header={dispatchLogDetail ? `调度回执详情 #${dispatchLogDetail.id}` : '调度回执详情'}
+      <DispatchLogDetailDialog
+        detail={dispatchLogDetail}
         visible={dispatchLogDetailOpen}
-        width={820}
-        confirmBtn={null}
-        cancelBtn="关闭"
         onClose={() => setDispatchLogDetailOpen(false)}
-        onCancel={() => setDispatchLogDetailOpen(false)}
-      >
-        {dispatchLogDetail ? (
-          <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-            <Row gutter={[12, 12]}>
-              <Col span={12}>
-                <Typography.Text theme="secondary">任务</Typography.Text>
-                <div>
-                  <Typography.Text strong>{dispatchLogDetail.tool_action || '—'}</Typography.Text>
-                </div>
-                <Typography.Text theme="secondary">{dispatchLogDetail.task_id || '—'}</Typography.Text>
-              </Col>
-              <Col span={12}>
-                <Typography.Text theme="secondary">事件类型</Typography.Text>
-                <div>
-                  <StatusPill status={dispatchLogDetail.event_type} />
-                </div>
-                <Typography.Text theme="secondary">{formatDate(dispatchLogDetail.created_at)}</Typography.Text>
-              </Col>
-              <Col span={12}>
-                <Typography.Text theme="secondary">任务状态</Typography.Text>
-                <div>{renderStatusTag(dispatchLogDetail.task_status)}</div>
-              </Col>
-            </Row>
-            {dispatchLogDetail.payload ? (
-              <div>
-                <Typography.Text theme="secondary">回执内容</Typography.Text>
-                <CodeBlock value={formatRawResponse(dispatchLogDetail.payload)} maxHeight={320} />
-              </div>
-            ) : (
-              <Typography.Text theme="secondary">无回执内容</Typography.Text>
-            )}
-          </Space>
-        ) : null}
-      </Dialog>
+      />
       </div>
     </AdminShell>
   );
@@ -18386,10 +9687,6 @@ function Section({
   );
 }
 
-function StatusPill({ status }: { status: string }) {
-  return <StatusBadge status={status} />;
-}
-
 function InfoCard({ title, items }: { title: string; items: { label: string; value: string }[] }) {
   return (
     <Card title={title} bordered>
@@ -18406,72 +9703,5 @@ function InfoCard({ title, items }: { title: string; items: { label: string; val
         ))}
       </Space>
     </Card>
-  );
-}
-
-function CodeBlock({ value, maxHeight = 320 }: { value: string; maxHeight?: number }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <div style={{ position: 'relative' }}>
-      <Button
-        size="small"
-        variant="text"
-        style={{ position: 'absolute', top: 6, right: 6, zIndex: 1 }}
-        onClick={async () => {
-          try {
-            await navigator.clipboard.writeText(value);
-            setCopied(true);
-            window.setTimeout(() => setCopied(false), 1200);
-          } catch {
-            // ignore clipboard errors
-          }
-        }}
-      >
-        {copied ? '已复制' : '复制'}
-      </Button>
-      <pre
-        style={{
-          marginTop: 8,
-          padding: 12,
-          paddingRight: 56,
-          borderRadius: 8,
-          border: '1px solid var(--td-border-level-1-color)',
-          background: 'var(--td-bg-color-secondarycontainer)',
-          color: 'var(--td-text-color-primary)',
-          fontSize: 12,
-          lineHeight: 1.5,
-          maxHeight,
-          overflow: 'auto',
-        }}
-      >
-        {value}
-      </pre>
-    </div>
-  );
-}
-
-function formatDate(value: string) {
-  const date = parseDateValue(value);
-  if (!date) return value;
-  return date.toLocaleString('zh-CN', { hour12: false, timeZone: 'Asia/Shanghai' });
-}
-
-function previewPayload(payload?: Record<string, unknown> | null) {
-  if (!payload) return '—';
-  const json = JSON.stringify(payload);
-  return json.length > 80 ? `${json.slice(0, 77)}…` : json;
-}
-
-function StepTitle({ index, label, hint }: { index: number; label: string; hint?: string }) {
-  return (
-    <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-      <Space align="center" size="small">
-        <Tag theme="primary" variant="light">
-          {index}
-        </Tag>
-        <Typography.Text strong>{label}</Typography.Text>
-      </Space>
-      {hint ? <Typography.Text theme="secondary">{hint}</Typography.Text> : null}
-    </Space>
   );
 }

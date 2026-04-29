@@ -1,14 +1,19 @@
 import { useEffect, useState } from 'react';
 import { adminAuthAPI } from '../services/authAPI';
 import { ADMIN_TOKEN_INVALID_EVENT } from '../services/adminApi';
+import type { AuthUser } from '../types/admin';
 
 const ACCESS_TOKEN_KEY = 'podi_admin_access_token';
 const REFRESH_TOKEN_KEY = 'podi_admin_refresh_token';
+const CURRENT_USER_KEY = 'podi_admin_current_user';
 const TOKEN_INVALID_FLAG = 'podi_admin_token_invalid';
 const TOKEN_INVALID_AT_KEY = 'podi_admin_token_invalid_at';
 
-export function LoginGate({ children }: { children: React.ReactNode }) {
+type LoginGateChildren = React.ReactNode | ((currentUser: AuthUser | null) => React.ReactNode);
+
+export function LoginGate({ children }: { children: LoginGateChildren }) {
   const [token, setToken] = useState<string | null>(null);
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [form, setForm] = useState({ username: '', password: '' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -35,20 +40,31 @@ export function LoginGate({ children }: { children: React.ReactNode }) {
     if (invalidReason) {
       localStorage.removeItem(ACCESS_TOKEN_KEY);
       localStorage.removeItem(REFRESH_TOKEN_KEY);
+      localStorage.removeItem(CURRENT_USER_KEY);
       localStorage.removeItem(TOKEN_INVALID_FLAG);
       localStorage.removeItem(TOKEN_INVALID_AT_KEY);
       setToken(null);
+      setCurrentUser(null);
       setError(invalidReason || '登录已失效，请重新登录');
     } else {
       const cached = localStorage.getItem(ACCESS_TOKEN_KEY);
       if (cached) {
         setToken(cached);
+        const cachedUser = localStorage.getItem(CURRENT_USER_KEY);
+        if (cachedUser) {
+          try {
+            setCurrentUser(JSON.parse(cachedUser));
+          } catch {
+            localStorage.removeItem(CURRENT_USER_KEY);
+          }
+        }
       }
     }
 
     const handleTokenInvalid = (event: Event) => {
       const detail = (event as CustomEvent<{ message?: string }>).detail;
       setToken(null);
+      setCurrentUser(null);
       setError(detail?.message || '登录已失效，请重新登录');
     };
     window.addEventListener(ADMIN_TOKEN_INVALID_EVENT, handleTokenInvalid);
@@ -99,6 +115,13 @@ export function LoginGate({ children }: { children: React.ReactNode }) {
       if (resp.refreshToken) {
         localStorage.setItem(REFRESH_TOKEN_KEY, resp.refreshToken);
       }
+      if (resp.user) {
+        localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(resp.user));
+        setCurrentUser(resp.user);
+      } else {
+        localStorage.removeItem(CURRENT_USER_KEY);
+        setCurrentUser(resp.role ? ({ role: resp.role } as AuthUser) : null);
+      }
       setToken(resp.accessToken);
       setForm({ username: '', password: '' });
     } catch (err) {
@@ -120,7 +143,9 @@ export function LoginGate({ children }: { children: React.ReactNode }) {
   const handleSignOut = () => {
     localStorage.removeItem(ACCESS_TOKEN_KEY);
     localStorage.removeItem(REFRESH_TOKEN_KEY);
+    localStorage.removeItem(CURRENT_USER_KEY);
     setToken(null);
+    setCurrentUser(null);
     setForm({ username: '', password: '' });
   };
 
@@ -176,7 +201,7 @@ export function LoginGate({ children }: { children: React.ReactNode }) {
       <button onClick={handleSignOut} className="podi-login-session__signout">
         退出登录
       </button>
-      {children}
+      {typeof children === 'function' ? children(currentUser) : children}
     </div>
   );
 }

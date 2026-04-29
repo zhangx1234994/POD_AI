@@ -51,12 +51,25 @@ export function AdminShell({
     return navItems.filter((item) => {
       const label = String(item.label || "").toLowerCase();
       const description = String(item.description || "").toLowerCase();
-      return label.includes(keyword) || description.includes(keyword);
+      const group = String(item.groupLabel || item.group || "").toLowerCase();
+      return label.includes(keyword) || description.includes(keyword) || group.includes(keyword);
     });
   }, [navItems, navKeyword]);
-  const coreItems = filteredNavItems.filter((item) => !item.advanced);
-  const advancedItems = filteredNavItems.filter((item) => item.advanced);
-  const hasNavResult = coreItems.length > 0 || advancedItems.length > 0;
+  const groupedNavSections = useMemo(() => {
+    const sections: Array<{ key: string; label: string; items: typeof filteredNavItems }> = [];
+    const sectionIndex = new Map<string, number>();
+    filteredNavItems.forEach((item) => {
+      const key = item.group || item.groupLabel || (item.advanced ? "advanced" : "core");
+      const label = item.groupLabel || item.group || (item.advanced ? "高级模块" : "核心模块");
+      if (!sectionIndex.has(key)) {
+        sectionIndex.set(key, sections.length);
+        sections.push({ key, label, items: [] });
+      }
+      sections[sectionIndex.get(key)!].items.push(item);
+    });
+    return sections;
+  }, [filteredNavItems]);
+  const hasNavResult = groupedNavSections.some((section) => section.items.length > 0);
 
   return (
     <Layout className="podi-shell" style={{ height: "100vh", minWidth: 0 }}>
@@ -97,28 +110,11 @@ export function AdminShell({
               <Typography.Text theme="secondary">未找到匹配模块，请换个关键词。</Typography.Text>
             </div>
           ) : null}
-          <div className="podi-shell__nav-section">
-            {!iconOnlyNav ? <Typography.Text theme="secondary">核心模块</Typography.Text> : null}
-            <Menu value={activeNav} theme={theme === "dark" ? "dark" : "light"} onChange={(value) => onSelectNav(String(value))}>
-              {coreItems.map((item) => (
-                <Menu.MenuItem key={item.id} value={item.id}>
-                  <Tooltip content={item.description || item.label}>
-                    <span className="podi-shell__nav-item-inner">
-                      <span className="podi-shell__nav-item-icon">
-                        {item.icon || renderNavContent(item.label, item.shortLabel)}
-                      </span>
-                      {!iconOnlyNav ? <span>{item.label}</span> : null}
-                    </span>
-                  </Tooltip>
-                </Menu.MenuItem>
-              ))}
-            </Menu>
-          </div>
-          {advancedItems.length > 0 ? (
-            <div className="podi-shell__nav-section">
-              {!iconOnlyNav ? <Typography.Text theme="secondary">高级模块</Typography.Text> : null}
+          {groupedNavSections.map((section) => (
+            <div className="podi-shell__nav-section" key={section.key}>
+              {!iconOnlyNav ? <Typography.Text theme="secondary">{section.label}</Typography.Text> : null}
               <Menu value={activeNav} theme={theme === "dark" ? "dark" : "light"} onChange={(value) => onSelectNav(String(value))}>
-                {advancedItems.map((item) => (
+                {section.items.map((item) => (
                   <Menu.MenuItem key={item.id} value={item.id}>
                     <Tooltip content={item.description || item.label}>
                       <span className="podi-shell__nav-item-inner">
@@ -132,7 +128,7 @@ export function AdminShell({
                 ))}
               </Menu>
             </div>
-          ) : null}
+          ))}
         </Space>
       </Layout.Aside>
 

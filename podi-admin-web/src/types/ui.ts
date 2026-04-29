@@ -25,6 +25,8 @@ export type AppShellNavItem = {
   shortLabel?: string;
   icon?: ReactNode;
   description?: string;
+  group?: string;
+  groupLabel?: string;
   advanced?: boolean;
 };
 

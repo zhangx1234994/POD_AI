@@ -66,7 +66,30 @@ export interface AuthUser {
   clientId?: string | null;
   createdAt?: string | null;
   lastLoginAt?: string | null;
+  adminAudit?: AuthUserAuditItem[];
 }
+
+export interface AuthUserAuditItem {
+  action?: string | null;
+  actorUserId?: string | null;
+  actorUsername?: string | null;
+  actorRole?: string | null;
+  note?: string | null;
+  changedFields?: string[];
+  before?: JsonRecord | null;
+  after?: JsonRecord | null;
+  createdAt?: string | null;
+}
+
+export type AuthUserUpdatePayload = Partial<
+  Pick<AuthUser, 'displayName' | 'role' | 'status' | 'tenantId' | 'clientId'>
+> & {
+  note?: string | null;
+};
+
+export type AuthUserFormState = AuthUserUpdatePayload & {
+  userId?: string;
+};
 
 export interface AuthSession {
   id: string;
@@ -104,6 +127,641 @@ export interface AuthUserListResponse {
   items: AuthUser[];
 }
 
+export interface AuthScopeTotals {
+  users: number;
+  activeUsers: number;
+  adminUsers: number;
+  clientUsers: number;
+  unscopedClientUsers: number;
+  activeSessions: number;
+  activeInvites: number;
+  unscopedActiveInvites: number;
+  expiredActiveInvites: number;
+}
+
+export interface AuthScopeRoleItem {
+  role: string;
+  count: number;
+  activeCount: number;
+}
+
+export interface AuthScopeTenantItem {
+  tenantId?: string | null;
+  clientId?: string | null;
+  userCount: number;
+  activeUserCount: number;
+  clientUserCount: number;
+  activeSessionCount: number;
+}
+
+export interface AuthScopeRiskItem {
+  key: string;
+  title: string;
+  severity: string;
+  count: number;
+  detail: string;
+}
+
+export interface AuthScopeSummaryResponse {
+  generatedAt: string;
+  totals: AuthScopeTotals;
+  roles: AuthScopeRoleItem[];
+  tenants: AuthScopeTenantItem[];
+  risks: AuthScopeRiskItem[];
+}
+
+export interface BillingUserRead {
+  id: string;
+  username: string;
+  email: string;
+  role: string;
+  status: string;
+  displayName?: string | null;
+  tenantId?: string | null;
+  clientId?: string | null;
+}
+
+export interface WalletBalance {
+  userId: string;
+  balance: number;
+  frozenBalance: number;
+  currency: string;
+}
+
+export interface WalletBill {
+  userId: string;
+  month: string;
+  income: number;
+  expense: number;
+  net: number;
+  count: number;
+}
+
+export interface WalletLedgerItem {
+  id: string;
+  changeType: string;
+  points: number;
+  beforeBalance: number;
+  afterBalance: number;
+  taskId?: string | null;
+  traceId?: string | null;
+  description?: string | null;
+  provider?: string | null;
+  modelKey?: string | null;
+  createdAt?: string | null;
+}
+
+export interface WalletLedger {
+  userId: string;
+  total: number;
+  page: number;
+  pageSize: number;
+  items: WalletLedgerItem[];
+}
+
+export interface WalletUsageDailyItem {
+  date: string;
+  expensePoints: number;
+  incomePoints: number;
+  count: number;
+}
+
+export interface WalletUsageDimensionItem {
+  key: string;
+  count: number;
+  points: number;
+}
+
+export interface WalletUsageSummary {
+  userId: string;
+  windowDays: number;
+  totalExpensePoints: number;
+  totalIncomePoints: number;
+  expenseCount: number;
+  incomeCount: number;
+  daily: WalletUsageDailyItem[];
+  providers: WalletUsageDimensionItem[];
+  models: WalletUsageDimensionItem[];
+}
+
+export interface WalletCostSnapshotItem {
+  date: string;
+  provider: string;
+  modelKey: string;
+  points: number;
+  taskId?: string | null;
+}
+
+export interface WalletCostSnapshot {
+  userId: string;
+  provider?: string | null;
+  modelKey?: string | null;
+  count: number;
+  totalPoints: number;
+  items: WalletCostSnapshotItem[];
+}
+
+export interface PackageBalanceItem {
+  id: string;
+  userId: string;
+  packageKey: string;
+  packageName?: string | null;
+  businessKey?: string | null;
+  totalUnits: number;
+  usedUnits: number;
+  frozenUnits: number;
+  remainingUnits: number;
+  unitName: string;
+  status: string;
+  source?: string | null;
+  expiresAt?: string | null;
+  createdAt?: string | null;
+}
+
+export interface PackageBalanceList {
+  userId: string;
+  businessKey?: string | null;
+  packageKey?: string | null;
+  totalRemainingUnits: number;
+  items: PackageBalanceItem[];
+}
+
+export interface PackageLedgerItem {
+  id: string;
+  packageBalanceId: string;
+  userId: string;
+  packageKey: string;
+  businessKey?: string | null;
+  changeType: string;
+  units: number;
+  balanceAfter: number;
+  taskId?: string | null;
+  traceId?: string | null;
+  source?: string | null;
+  description?: string | null;
+  createdAt?: string | null;
+}
+
+export interface PackageLedger {
+  userId: string;
+  businessKey?: string | null;
+  packageKey?: string | null;
+  total: number;
+  page: number;
+  pageSize: number;
+  items: PackageLedgerItem[];
+}
+
+export interface PackageGrantPayload {
+  packageKey: string;
+  units: number;
+  businessKey?: string | null;
+  packageName?: string | null;
+  unitName?: string | null;
+  expiresAt?: string | null;
+  traceId?: string | null;
+  description?: string | null;
+}
+
+export interface PackageGrantResponse {
+  transactionId: string;
+  ledgerIds: string[];
+  packageBalanceId: string;
+  userId: string;
+  packageKey: string;
+  businessKey?: string | null;
+  granted: number;
+  remainingUnits: number;
+  idempotent: boolean;
+  traceId?: string | null;
+  packageBalances: PackageBalanceList;
+  packageLedger: PackageLedger;
+}
+
+export interface BillingUserOverview {
+  user: BillingUserRead;
+  balance: number;
+  frozenBalance: number;
+  currency: string;
+  month: string;
+  income: number;
+  expense: number;
+  net: number;
+  billCount: number;
+  windowDays: number;
+  totalExpensePoints: number;
+  totalIncomePoints: number;
+  expenseCount: number;
+  incomeCount: number;
+  packageRemainingUnits: number;
+}
+
+export interface BillingIssue {
+  id: string;
+  runId: string;
+  businessKey: string;
+  version?: string | null;
+  status: string;
+  issueType: string;
+  issueLabel: string;
+  userId?: string | null;
+  userName?: string | null;
+  tenantId?: string | null;
+  clientId?: string | null;
+  billingStatus: string;
+  walletStatus?: string | null;
+  currency?: string | null;
+  costAmount?: number | null;
+  quotaUnits?: number | null;
+  error?: string | null;
+  createdAt?: string | null;
+}
+
+export interface BillingPackageAlert {
+  id: string;
+  alertType: string;
+  alertLabel: string;
+  userId: string;
+  userName?: string | null;
+  tenantId?: string | null;
+  clientId?: string | null;
+  packageKey: string;
+  packageName?: string | null;
+  businessKey?: string | null;
+  totalUnits: number;
+  remainingUnits: number;
+  unitName: string;
+  expiresAt?: string | null;
+  daysUntilExpiry?: number | null;
+}
+
+export interface BillingOverviewResponse {
+  month: string;
+  windowDays: number;
+  tenantId?: string | null;
+  clientId?: string | null;
+  businessKey?: string | null;
+  totalUsers: number;
+  totalBalance: number;
+  totalFrozenBalance: number;
+  totalIncome: number;
+  totalExpense: number;
+  totalNet: number;
+  totalExpensePoints: number;
+  totalIncomePoints: number;
+  expenseCount: number;
+  incomeCount: number;
+  totalPackageRemainingUnits: number;
+  issueCount: number;
+  issues: BillingIssue[];
+  packageAlertCount: number;
+  packageExpiringSoonCount: number;
+  packageLowBalanceCount: number;
+  packageAlerts: BillingPackageAlert[];
+  items: BillingUserOverview[];
+}
+
+export interface BillingMonthlySettlementItem {
+  id: string;
+  tenantId?: string | null;
+  clientId?: string | null;
+  userCount: number;
+  totalBalance: number;
+  totalFrozenBalance: number;
+  totalIncome: number;
+  totalExpense: number;
+  totalNet: number;
+  totalPackageRemainingUnits: number;
+  issueCount: number;
+  packageAlertCount: number;
+  settlementStatus: string;
+  settlementLabel: string;
+}
+
+export interface BillingMonthlySettlementResponse {
+  month: string;
+  windowDays: number;
+  businessKey?: string | null;
+  totalGroups: number;
+  issueGroupCount: number;
+  packageAlertGroupCount: number;
+  items: BillingMonthlySettlementItem[];
+}
+
+export interface BillingMonthlySettlementRecord {
+  id: string;
+  month: string;
+  scopeKey: string;
+  tenantId?: string | null;
+  clientId?: string | null;
+  businessKey?: string | null;
+  userCount: number;
+  totalBalance: number;
+  totalFrozenBalance: number;
+  totalIncome: number;
+  totalExpense: number;
+  totalNet: number;
+  totalPackageRemainingUnits: number;
+  issueCount: number;
+  packageAlertCount: number;
+  status: string;
+  statusLabel: string;
+  daysSinceIssued?: number | null;
+  collectionLevel: string;
+  collectionAction: string;
+  paymentReference?: string | null;
+  note?: string | null;
+  issuedByUserId?: string | null;
+  issuedByUsername?: string | null;
+  issuedAt?: string | null;
+  paidAt?: string | null;
+  cancelledAt?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface BillingMonthlySettlementListResponse {
+  month: string;
+  status?: string | null;
+  total: number;
+  items: BillingMonthlySettlementRecord[];
+}
+
+export interface BillingMonthlySettlementIssuePayload {
+  month?: string | null;
+  tenantId?: string | null;
+  clientId?: string | null;
+  businessKey?: string | null;
+  windowDays?: number | null;
+  note?: string | null;
+}
+
+export interface BillingMonthlySettlementIssueResponse {
+  settlement: BillingMonthlySettlementRecord;
+  idempotent: boolean;
+}
+
+export interface BillingMonthlySettlementUpdatePayload {
+  status?: string | null;
+  paymentReference?: string | null;
+  note?: string | null;
+}
+
+export interface PackageAlertNotificationPayload {
+  tenantId?: string | null;
+  clientId?: string | null;
+  businessKey?: string | null;
+  expiringDays?: number | null;
+  includeLowBalance?: boolean;
+  send?: boolean;
+  webhookFormat?: string | null;
+  notificationTemplate?: string | null;
+  note?: string | null;
+  limit?: number | null;
+}
+
+export interface PackageAlertNotificationResponse {
+  id: string;
+  generatedAt: string;
+  sendStatus: string;
+  sendDetail?: string | null;
+  webhookFormat: string;
+  webhookConfigured: boolean;
+  notificationTemplate: string;
+  nextAction: string;
+  alertCount: number;
+  expiringSoonCount: number;
+  lowBalanceCount: number;
+  alerts: BillingPackageAlert[];
+}
+
+export interface PackageAlertNotificationRecord {
+  id: string;
+  notificationType: string;
+  sendStatus: string;
+  sendDetail?: string | null;
+  webhookFormat: string;
+  webhookConfigured: boolean;
+  notificationTemplate: string;
+  nextAction: string;
+  alertCount: number;
+  expiringSoonCount: number;
+  lowBalanceCount: number;
+  createdByUserId?: string | null;
+  createdByUsername?: string | null;
+  sentAt?: string | null;
+  createdAt?: string | null;
+}
+
+export interface PackageAlertNotificationListResponse {
+  total: number;
+  items: PackageAlertNotificationRecord[];
+}
+
+export interface MonthlySettlementCollectionNotificationPayload {
+  month?: string | null;
+  tenantId?: string | null;
+  clientId?: string | null;
+  businessKey?: string | null;
+  minCollectionLevel?: string | null;
+  send?: boolean;
+  webhookFormat?: string | null;
+  notificationTemplate?: string | null;
+  note?: string | null;
+  limit?: number | null;
+}
+
+export interface MonthlySettlementCollectionNotificationResponse {
+  id: string;
+  generatedAt: string;
+  sendStatus: string;
+  sendDetail?: string | null;
+  webhookFormat: string;
+  webhookConfigured: boolean;
+  notificationTemplate: string;
+  nextAction: string;
+  settlementCount: number;
+  remindCount: number;
+  followUpCount: number;
+  escalateCount: number;
+  settlements: BillingMonthlySettlementRecord[];
+}
+
+export interface MonthlySettlementCollectionNotificationRecord {
+  id: string;
+  notificationType: string;
+  sendStatus: string;
+  sendDetail?: string | null;
+  webhookFormat: string;
+  webhookConfigured: boolean;
+  notificationTemplate: string;
+  nextAction: string;
+  settlementCount: number;
+  remindCount: number;
+  followUpCount: number;
+  escalateCount: number;
+  createdByUserId?: string | null;
+  createdByUsername?: string | null;
+  sentAt?: string | null;
+  createdAt?: string | null;
+}
+
+export interface MonthlySettlementCollectionNotificationListResponse {
+  total: number;
+  items: MonthlySettlementCollectionNotificationRecord[];
+}
+
+export interface BillingNotificationChannel {
+  key: string;
+  displayName: string;
+  description?: string | null;
+  enabled: boolean;
+  configured: boolean;
+  webhookUrl?: string | null;
+  webhookFormat: string;
+  source: string;
+}
+
+export interface BillingNotificationConfigResponse {
+  channels: BillingNotificationChannel[];
+}
+
+export interface BillingNotificationConfigPayload {
+  channels: Array<{
+    key: string;
+    enabled: boolean;
+    webhookUrl?: string | null;
+    webhookFormat?: string | null;
+  }>;
+}
+
+export interface PackagePurchaseOrder {
+  id: string;
+  orderNo: string;
+  userId: string;
+  userName?: string | null;
+  packageKey: string;
+  packageName?: string | null;
+  businessKey?: string | null;
+  units: number;
+  unitName: string;
+  amountCents: number;
+  currency: string;
+  channel: string;
+  status: string;
+  statusLabel: string;
+  paymentReference?: string | null;
+  transactionId?: string | null;
+  failReason?: string | null;
+  note?: string | null;
+  createdByUserId?: string | null;
+  createdByUsername?: string | null;
+  paidAt?: string | null;
+  cancelledAt?: string | null;
+  failedAt?: string | null;
+  expiresAt?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface PackagePurchaseOrderListResponse {
+  total: number;
+  items: PackagePurchaseOrder[];
+}
+
+export interface PackagePurchaseOrderCreatePayload {
+  userId: string;
+  packageKey: string;
+  units: number;
+  businessKey?: string | null;
+  packageName?: string | null;
+  unitName?: string | null;
+  amountCents?: number | null;
+  currency?: string | null;
+  channel?: string | null;
+  expiresAt?: string | null;
+  note?: string | null;
+}
+
+export interface PackagePurchaseOrderUpdatePayload {
+  status: string;
+  paymentReference?: string | null;
+  transactionId?: string | null;
+  failReason?: string | null;
+  note?: string | null;
+}
+
+export interface PackagePurchaseOrderUpdateResponse {
+  order: PackagePurchaseOrder;
+  packageBalances?: PackageBalanceList | null;
+  packageLedger?: PackageLedger | null;
+  idempotent: boolean;
+}
+
+export interface BillingInvoiceRequest {
+  id: string;
+  invoiceNo?: string | null;
+  relatedOrderType: string;
+  relatedOrderId?: string | null;
+  userId?: string | null;
+  userName?: string | null;
+  tenantId?: string | null;
+  clientId?: string | null;
+  businessKey?: string | null;
+  invoiceTitle: string;
+  taxNo?: string | null;
+  invoiceType: string;
+  amountCents: number;
+  currency: string;
+  deliveryEmail?: string | null;
+  status: string;
+  statusLabel: string;
+  note?: string | null;
+  createdByUserId?: string | null;
+  createdByUsername?: string | null;
+  issuedByUserId?: string | null;
+  issuedByUsername?: string | null;
+  issuedAt?: string | null;
+  cancelledAt?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface BillingInvoiceRequestListResponse {
+  total: number;
+  items: BillingInvoiceRequest[];
+}
+
+export interface BillingInvoiceRequestCreatePayload {
+  relatedOrderType?: string | null;
+  relatedOrderId?: string | null;
+  userId?: string | null;
+  invoiceTitle: string;
+  taxNo?: string | null;
+  invoiceType?: string | null;
+  amountCents?: number | null;
+  currency?: string | null;
+  deliveryEmail?: string | null;
+  note?: string | null;
+}
+
+export interface BillingInvoiceRequestUpdatePayload {
+  status: string;
+  invoiceNo?: string | null;
+  note?: string | null;
+}
+
+export interface BillingUserDetailResponse {
+  user: BillingUserRead;
+  balance: WalletBalance;
+  bill: WalletBill;
+  usage: WalletUsageSummary;
+  ledger: WalletLedger;
+  costSnapshots: WalletCostSnapshot;
+  packageBalances: PackageBalanceList;
+  packageLedger: PackageLedger;
+}
+
 export interface AuthSessionListResponse {
   items: AuthSession[];
 }
@@ -136,8 +794,8 @@ export interface VendorProvider {
   provider: string;
   displayName: string;
   status: string;
-  requiresGlobalEgress: boolean;
   envKeyConfigured?: boolean;
+  requiresGlobalEgress: boolean;
   supportedChecks: string[];
   supportedApiTypes: string[];
   executionModes: string[];
@@ -200,46 +858,65 @@ export interface VendorUsageSummaryResponse {
 }
 
 export interface VendorGovernanceTotals {
-  providerCount: number;
-  modelCount: number;
-  activeModelCount: number;
-  abilityCount: number;
-  activeAbilityCount: number;
-  keyCount: number;
-  activeStoredKeyCount: number;
-  envKeyProviderCount: number;
-  issueCount: number;
+  providers: number;
+  models: number;
+  abilities: number;
+  activeKeys: number;
+  disabledKeys: number;
+  quotaWarningKeys: number;
+  quotaExhaustedKeys: number;
+  costPolicyMissingModels: number;
+  uncostedSuccessCalls: number;
+  recentCalls: number;
+  recentFailures: number;
+  queuedTasks: number;
+  runningTasks: number;
+  succeededTasks: number;
+  failedTasks: number;
+}
+
+export interface VendorGovernanceTaskError {
+  taskId: string;
+  capabilityKey?: string | null;
+  status?: string | null;
+  errorMessage?: string | null;
+  updatedAt?: string | null;
 }
 
 export interface VendorGovernanceProviderItem {
   provider: string;
   displayName: string;
-  providerStatus: string;
-  requiresGlobalEgress: boolean;
+  status: string;
   envKeyConfigured: boolean;
   runtimeKeyConfigured: boolean;
-  keyCount: number;
-  activeStoredKeyCount: number;
+  activeKeyCount: number;
   disabledKeyCount: number;
-  cooldownKeyCount: number;
-  exhaustedKeyCount: number;
-  errorKeyCount: number;
+  quotaWarningKeyCount: number;
+  quotaExhaustedKeyCount: number;
+  costPolicyMissingModelCount: number;
+  uncostedSuccessCount: number;
   modelCount: number;
-  activeModelCount: number;
   abilityCount: number;
-  activeAbilityCount: number;
-  succeededCalls: number;
-  failedCalls: number;
+  recentCalls: number;
+  recentFailures: number;
+  queuedTaskCount: number;
+  runningTaskCount: number;
+  succeededTaskCount: number;
+  failedTaskCount: number;
+  oldestRunningAgeSeconds?: number | null;
+  lastTaskAt?: string | null;
+  recentTaskErrors: VendorGovernanceTaskError[];
   avgLatencyMs?: number | null;
   lastSeenAt?: string | null;
+  requiresGlobalEgress: boolean;
+  supportedApiTypes: string[];
+  executionModes: string[];
   issues: string[];
-  suggestions: string[];
 }
 
 export interface VendorGovernanceSummaryResponse {
   baseUrl: string;
   windowHours: number;
-  generatedAt: string;
   totals: VendorGovernanceTotals;
   providers: VendorGovernanceProviderItem[];
   issues: string[];
@@ -440,6 +1117,17 @@ export interface BusinessRecipeStep {
   role?: string | null;
   displayName?: string | null;
   enabled: boolean;
+  componentLabel?: string | null;
+  componentKind?: string | null;
+  componentDescription?: string | null;
+  dependsOn?: string[] | null;
+  inputs?: string[] | null;
+  outputs?: string[] | null;
+  params?: JsonValue | null;
+  onError?: string | null;
+  timeout?: number | null;
+  retry?: JsonValue | null;
+  visibility?: string | null;
   abilityId?: string | null;
   abilityName?: string | null;
   abilityProvider?: string | null;
@@ -457,8 +1145,6 @@ export interface BusinessCapabilityFormState {
   primaryAbilityId: string;
   vlAssistEnabled: boolean;
   vlAssistAbilityId: string;
-  vlAssistWaitForResult: boolean;
-  vlAssistApplyToPrimary: boolean;
   rolloutEnabled: boolean;
   rolloutPercent: number;
   rolloutAllowlistText: string;
@@ -468,61 +1154,57 @@ export interface BusinessCapabilityFormState {
   metadataText: string;
 }
 
-export interface BusinessRoutePreviewResponse {
-  businessKey: string;
-  requestedVersion?: string | null;
-  selectedCapabilityId: string;
-  selectedVersion: string;
-  selectedDisplayName: string;
-  selectedStatus: string;
-  selectedIsDefault: boolean;
-  selectedBy: string;
-  routeInfo: JsonRecord;
-  defaultCapabilityId?: string | null;
-  defaultVersion?: string | null;
-  activeVersions: Array<{
-    id: string;
-    version: string;
-    displayName: string;
-    isDefault: boolean;
-    hasRollout: boolean;
-  }>;
-}
-
 export interface BusinessCapabilityListResponse {
   items: BusinessCapability[];
 }
 
-export interface BusinessClient {
+export interface BusinessCapabilityCompareField {
+  section: string;
+  field: string;
+  left?: unknown;
+  right?: unknown;
+}
+
+export interface BusinessCapabilityCompareResponse {
+  left: BusinessCapability;
+  right: BusinessCapability;
+  sameBusinessKey: boolean;
+  changedFields: BusinessCapabilityCompareField[];
+  summary: {
+    changedCount: number;
+    leftVersion?: string | null;
+    rightVersion?: string | null;
+    leftIsDefault?: boolean | null;
+    rightIsDefault?: boolean | null;
+    rightStatus?: string | null;
+    [key: string]: unknown;
+  };
+}
+
+export interface BusinessDefaultApproval {
   id: string;
-  tenantId: string;
-  clientId?: string | null;
-  displayName: string;
+  businessKey: string;
+  sourceCapabilityId?: string | null;
+  targetCapabilityId: string;
   status: string;
-  allowedBusinessKeys: string[];
-  dailyRunLimit?: number | null;
-  dailyQuotaUnits?: number | null;
-  concurrentRunLimit?: number | null;
-  metadata?: JsonRecord | null;
+  requesterUserId?: string | null;
+  requesterUsername?: string | null;
+  approverUserId?: string | null;
+  approverUsername?: string | null;
+  requestNote?: string | null;
+  decisionNote?: string | null;
+  beforePayload?: JsonRecord | null;
+  afterPayload?: JsonRecord | null;
+  sourceCapability?: BusinessCapability | null;
+  targetCapability?: BusinessCapability | null;
   createdAt: string;
   updatedAt: string;
+  decidedAt?: string | null;
+  appliedAt?: string | null;
 }
 
-export interface BusinessClientListResponse {
-  items: BusinessClient[];
-}
-
-export interface BusinessClientFormState {
-  id?: string;
-  tenantId: string;
-  clientId: string;
-  displayName: string;
-  status: string;
-  allowedBusinessKeysText: string;
-  dailyRunLimit?: number | null;
-  dailyQuotaUnits?: number | null;
-  concurrentRunLimit?: number | null;
-  metadataText: string;
+export interface BusinessDefaultApprovalListResponse {
+  items: BusinessDefaultApproval[];
 }
 
 export interface BusinessRun {
@@ -538,6 +1220,8 @@ export interface BusinessRun {
   requestId?: string | null;
   tenantId?: string | null;
   clientId?: string | null;
+  userId?: string | null;
+  userName?: string | null;
   abilityId?: string | null;
   abilityName?: string | null;
   abilityProvider?: string | null;
@@ -561,13 +1245,37 @@ export interface BusinessRun {
   currency?: string | null;
   quotaUnits?: number | null;
   costBreakdown?: JsonRecord | null;
+  billingStatus?: string | null;
+  chargeable?: boolean | null;
+  noChargeReason?: string | null;
   callbackStatus?: string | null;
+  callbackHttpStatus?: number | null;
+  callbackError?: string | null;
   debugUrl?: string | null;
   routeInfo?: JsonRecord | null;
+  flowSummary?: BusinessRunFlowSummary | null;
   steps?: BusinessRunStep[];
   createdAt: string;
   updatedAt: string;
   finishedAt?: string | null;
+}
+
+export interface BusinessRunFlowSummary {
+  total?: number | null;
+  succeeded?: number | null;
+  failed?: number | null;
+  running?: number | null;
+  queued?: number | null;
+  planned?: number | null;
+  skipped?: number | null;
+  cancelled?: number | null;
+  progressPercent?: number | null;
+  currentStepOrder?: number | null;
+  currentStepLabel?: string | null;
+  currentStepStatus?: string | null;
+  currentStepError?: string | null;
+  message?: string | null;
+  nextAction?: string | null;
 }
 
 export interface BusinessRunStep {
@@ -580,6 +1288,9 @@ export interface BusinessRunStep {
   displayName?: string | null;
   enabled: boolean;
   status: string;
+  componentLabel?: string | null;
+  componentKind?: string | null;
+  componentDescription?: string | null;
   abilityId?: string | null;
   abilityName?: string | null;
   abilityProvider?: string | null;
@@ -594,6 +1305,9 @@ export interface BusinessRunStep {
   currency?: string | null;
   quotaUnits?: number | null;
   costBreakdown?: JsonRecord | null;
+  billingStatus?: string | null;
+  chargeable?: boolean | null;
+  noChargeReason?: string | null;
   startedAt?: string | null;
   finishedAt?: string | null;
   createdAt: string;
@@ -605,6 +1319,27 @@ export interface BusinessRunListResponse {
   items: BusinessRun[];
 }
 
+export interface BusinessOperationLog {
+  id: string;
+  action: string;
+  targetType: string;
+  targetId?: string | null;
+  businessKey?: string | null;
+  tenantId?: string | null;
+  clientId?: string | null;
+  actorUserId?: string | null;
+  actorUsername?: string | null;
+  actorRole?: string | null;
+  note?: string | null;
+  beforePayload?: JsonRecord | null;
+  afterPayload?: JsonRecord | null;
+  createdAt: string;
+}
+
+export interface BusinessOperationLogListResponse {
+  items: BusinessOperationLog[];
+}
+
 export interface BusinessUsageBucket {
   key: string;
   label: string;
@@ -614,6 +1349,14 @@ export interface BusinessUsageBucket {
   running: number;
   queued: number;
   cancelled: number;
+  billable?: number;
+  unpriced?: number;
+  noCharge?: number;
+  billingPending?: number;
+  callbackSuccess?: number;
+  callbackFailed?: number;
+  callbackRunning?: number;
+  callbackMissing?: number;
   successRate?: number | null;
   avgDurationMs?: number | null;
   costByCurrency?: Record<string, number>;
@@ -645,6 +1388,14 @@ export interface BusinessUsageSummaryResponse {
   running: number;
   queued: number;
   cancelled: number;
+  billable?: number;
+  unpriced?: number;
+  noCharge?: number;
+  billingPending?: number;
+  callbackSuccess?: number;
+  callbackFailed?: number;
+  callbackRunning?: number;
+  callbackMissing?: number;
   successRate?: number | null;
   avgDurationMs?: number | null;
   costByCurrency: Record<string, number>;
@@ -713,7 +1464,22 @@ export interface ComfyuiQueueStatus {
   baseUrl: string;
   runningCount: number;
   pendingCount: number;
+  totalCount?: number | null;
   queueMaxSize?: number | null;
+  capacityTarget?: number | null;
+  idleSlots?: number | null;
+  utilization?: number | null;
+  saturation?: string | null;
+  diagnosisLevel?: string | null;
+  diagnosis?: string | null;
+  backendQueued?: number | null;
+  backendRunning?: number | null;
+  backendActive?: number | null;
+  backendOldestQueuedAt?: string | null;
+  backendOldestRunningAt?: string | null;
+  feedCode?: string | null;
+  feedDiagnosisLevel?: string | null;
+  feedDiagnosis?: string | null;
   supported?: boolean;
   message?: string | null;
   raw?: JsonRecord | null;
@@ -731,6 +1497,21 @@ export interface ComfyuiQueueSummary {
   totalRunning: number;
   totalPending: number;
   totalCount: number;
+  totalCapacity?: number | null;
+  totalIdleSlots?: number | null;
+  utilization?: number | null;
+  backendQueuedTotal?: number | null;
+  backendRunningTotal?: number | null;
+  backendActiveTotal?: number | null;
+  supportedServers?: number | null;
+  unsupportedServers?: number | null;
+  saturatedServers?: number | null;
+  idleServers?: number | null;
+  stalledServers?: number | null;
+  underUsedServers?: number | null;
+  feedGapServers?: number | null;
+  backendBlockedServers?: number | null;
+  diagnostics?: Array<{ level: string; code: string; message: string }>;
   timestamp?: string | null;
   servers: ComfyuiQueueStatus[];
 }
@@ -1151,6 +1932,94 @@ export interface ExecutorHealth {
   last_heartbeat_at?: string | null;
 }
 
+export interface DashboardStrategySummary {
+  window_hours: number;
+  business_total: number;
+  business_succeeded: number;
+  business_failed: number;
+  success_rate?: number | null;
+  billable: number;
+  unpriced: number;
+  no_charge: number;
+  billing_pending: number;
+  callback_failed: number;
+  callback_missing: number;
+  wallet_settled: number;
+  wallet_failed: number;
+  cost_by_currency: Record<string, number>;
+  quota_units: number;
+  risk_count: number;
+}
+
+export interface StrategySnapshotResponse {
+  id: string;
+  generatedAt: string;
+  windowHours: number;
+  note?: string | null;
+  summary: DashboardStrategySummary;
+}
+
+export interface StrategySnapshotListResponse {
+  items: StrategySnapshotResponse[];
+}
+
+export interface ReleasePreflightCheck {
+  name: string;
+  title: string;
+  status: 'pass' | 'warn' | 'fail' | string;
+  blocking: boolean;
+  detail: string;
+  durationMs?: number | null;
+  suggestion?: string | null;
+}
+
+export interface ReleasePreflightResponse {
+  id: string;
+  mode: string;
+  status: 'passed' | 'warning' | 'blocked' | string;
+  canRelease: boolean;
+  generatedAt: string;
+  baseUrl: string;
+  blockingCount: number;
+  warningCount: number;
+  checks: ReleasePreflightCheck[];
+}
+
+export interface ReleasePreflightSnapshotListResponse {
+  items: ReleasePreflightResponse[];
+}
+
+export interface ReleasePatrolRecordResponse {
+  id: string;
+  status: 'passed' | 'failed' | 'cancelled' | 'manual' | string;
+  generatedAt: string;
+  command?: string | null;
+  reportPath?: string | null;
+  note?: string | null;
+  summary: JsonRecord;
+}
+
+export interface ReleasePatrolRecordListResponse {
+  items: ReleasePatrolRecordResponse[];
+}
+
+export interface WeeklyReportResponse {
+  id: string;
+  generatedAt: string;
+  windowHours: number;
+  reportPath: string;
+  snapshotId: string;
+  sendStatus: 'not_sent' | 'sent' | 'failed' | string;
+  sendDetail?: string | null;
+  webhookFormat: 'generic' | 'feishu' | 'dingtalk' | string;
+  webhookConfigured: boolean;
+  summary: DashboardStrategySummary;
+}
+
+export interface WeeklyReportListResponse {
+  items: WeeklyReportResponse[];
+}
+
 export interface DashboardMetrics {
   totals: DashboardTotals;
   queue_overview: QueueOverview;
@@ -1158,6 +2027,7 @@ export interface DashboardMetrics {
   today: TodaySummary;
   recent_tasks: RecentTask[];
   executor_health: ExecutorHealth[];
+  strategy_summary: DashboardStrategySummary;
 }
 
 export interface DispatchLogEntry {

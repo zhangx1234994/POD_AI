@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { EvalRun } from '../../../types/eval';
 import { toDisplayErrorMessage } from '../../../utils/errorMessageMap';
 
 type Props = {
   results: EvalRun[];
+  highlightRunId?: string;
   onAnnotate: (runId: string, payload: { rating: number; comment?: string }) => Promise<void> | void;
   onClearRuns?: (scope: 'current' | 'all') => void;
   clearing?: boolean;
@@ -15,7 +16,7 @@ const formatDuration = (ms?: number | null) => {
   return `${(ms / 1000).toFixed(2)}s`;
 };
 
-export function EvaluationResultPanel({ results, onAnnotate, onClearRuns, clearing }: Props) {
+export function EvaluationResultPanel({ results, highlightRunId = '', onAnnotate, onClearRuns, clearing }: Props) {
   const sorted = useMemo(
     () => results.slice().sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
     [results],
@@ -24,6 +25,15 @@ export function EvaluationResultPanel({ results, onAnnotate, onClearRuns, cleari
   const [comments, setComments] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    const runId = String(highlightRunId || '').trim();
+    if (!runId || !sorted.some((run) => run.id === runId)) return;
+    const timer = window.setTimeout(() => {
+      document.getElementById(`eval-run-${runId}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [highlightRunId, sorted]);
 
   const submit = async (runId: string) => {
     const rating = ratings[runId];
@@ -81,7 +91,15 @@ export function EvaluationResultPanel({ results, onAnnotate, onClearRuns, cleari
           const images = run.result_image_urls_json || [];
           const hasImages = images.length > 0;
           return (
-            <div key={run.id} className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950/40">
+            <div
+              key={run.id}
+              id={`eval-run-${run.id}`}
+              className={`rounded-2xl border bg-white p-4 dark:bg-slate-950/40 ${
+                highlightRunId === run.id
+                  ? 'border-amber-400 shadow-[0_0_0_3px_rgba(245,158,11,0.18)] dark:border-amber-500/80'
+                  : 'border-slate-200 dark:border-slate-800'
+              }`}
+            >
               <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                 <div>
                   <div className="text-xs text-slate-600 dark:text-slate-500">Run</div>

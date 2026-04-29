@@ -1,0 +1,225 @@
+import type { AbilityInvocationLog } from '../../../types/admin';
+
+const getJsonRecord = (value: unknown): Record<string, any> | null => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, any>;
+};
+
+const collectAssetUrls = (assets: unknown): string[] => {
+  if (!Array.isArray(assets)) return [];
+  const urls: string[] = [];
+  assets.forEach((asset) => {
+    if (!asset || typeof asset !== 'object') return;
+    const row = asset as Record<string, any>;
+    const candidate = row.ossUrl || row.url || row.sourceUrl;
+    if (typeof candidate === 'string' && candidate.trim()) {
+      urls.push(candidate.trim());
+    }
+  });
+  return urls;
+};
+
+const collectStringUrls = (items: unknown): string[] => {
+  if (!Array.isArray(items)) return [];
+  const urls: string[] = [];
+  items.forEach((item) => {
+    if (typeof item === 'string' && item.trim()) {
+      urls.push(item.trim());
+      return;
+    }
+    if (!item || typeof item !== 'object') return;
+    const row = item as Record<string, any>;
+    const candidate = row.ossUrl || row.url || row.sourceUrl;
+    if (typeof candidate === 'string' && candidate.trim()) {
+      urls.push(candidate.trim());
+    }
+  });
+  return urls;
+};
+
+const collectTexts = (items: unknown): string[] => {
+  if (!Array.isArray(items)) return [];
+  return items
+    .map((item) => {
+      if (typeof item === 'string') return item.trim();
+      if (!item || typeof item !== 'object') return '';
+      const row = item as Record<string, any>;
+      const candidate = row.text || row.content || row.value || row.output;
+      return typeof candidate === 'string' ? candidate.trim() : '';
+    })
+    .filter(Boolean);
+};
+
+const dedupUrls = (items: string[]) => {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    if (!item || seen.has(item)) return false;
+    seen.add(item);
+    return true;
+  });
+};
+
+const classifyOutputUrl = (url?: string | null) => {
+  const value = String(url || '').toLowerCase();
+  if (/\.(png|jpg|jpeg|webp|gif|bmp|svg)(\?|#|$)/i.test(value)) return 'image' as const;
+  if (/\.(mp4|mov|webm|m4v|avi|mkv)(\?|#|$)/i.test(value)) return 'video' as const;
+  return 'asset' as const;
+};
+
+export const resolveLogPreviewUrls = (row: AbilityInvocationLog): string[] => {
+  const responsePayload = getJsonRecord(row.response_payload);
+  return dedupUrls([
+    ...(typeof row.stored_url === 'string' && row.stored_url.trim() ? [row.stored_url.trim()] : []),
+    ...collectAssetUrls(row.result_assets),
+    ...collectAssetUrls(responsePayload?.assets),
+    ...collectAssetUrls(responsePayload?.images),
+    ...collectAssetUrls(responsePayload?.videos),
+    ...collectStringUrls(responsePayload?.imageUrls),
+    ...collectStringUrls(responsePayload?.videoUrls),
+    ...collectStringUrls(responsePayload?.resultUrls),
+    ...(typeof responsePayload?.imageUrl === 'string' && responsePayload.imageUrl.trim()
+      ? [responsePayload.imageUrl.trim()]
+      : []),
+    ...(typeof responsePayload?.videoUrl === 'string' && responsePayload.videoUrl.trim()
+      ? [responsePayload.videoUrl.trim()]
+      : []),
+  ]);
+};
+
+export const resolvePrimaryLogPreviewUrl = (row: AbilityInvocationLog): string => {
+  const urls = resolveLogPreviewUrls(row);
+  return urls[0] || '';
+};
+
+export const resolveLogOutputSummary = (row: AbilityInvocationLog) => {
+  const responsePayload = getJsonRecord(row.response_payload);
+  const urls = resolveLogPreviewUrls(row);
+  const imageUrls = urls.filter((url) => classifyOutputUrl(url) === 'image');
+  const videoUrls = urls.filter((url) => classifyOutputUrl(url) === 'video');
+  const texts = [
+    ...(typeof responsePayload?.text === 'string' && responsePayload.text.trim() ? [responsePayload.text.trim()] : []),
+    ...collectTexts(responsePayload?.texts),
+  ];
+  const primaryUrl = urls[0] || '';
+  const primaryKind = texts.length > 0 && !primaryUrl ? 'text' : classifyOutputUrl(primaryUrl);
+  const textPreview = texts[0] ? (texts[0].length > 120 ? `${texts[0].slice(0, 117)}...` : texts[0]) : '';
+  const labelParts = [
+    imageUrls.length > 0 ? `${imageUrls.length} 张图` : '',
+    videoUrls.length > 0 ? `${videoUrls.length} 个视频` : '',
+    texts.length > 0 ? `${texts.length} 段文字` : '',
+    urls.length > imageUrls.length + videoUrls.length ? `${urls.length - imageUrls.length - videoUrls.length} 个资源` : '',
+  ].filter(Boolean);
+  return {
+    urls,
+    imageUrls,
+    videoUrls,
+    texts,
+    primaryUrl,
+    primaryKind,
+    textPreview,
+    label: labelParts.join(' · ') || '无输出',
+    hasOutput: urls.length > 0 || texts.length > 0,
+  };
+};
+
+export const resolveLogDurationMs = (row: AbilityInvocationLog): number | null => {
+  if (typeof row.duration_ms === 'number') return row.duration_ms;
+  const payload = getJsonRecord(row.response_payload);
+  const candidate = payload?.durationMs ?? payload?.duration_ms;
+  return typeof candidate === 'number' ? candidate : null;
+};
+
+export const getAbilityLogCallbackConfigured = (row: AbilityInvocationLog): boolean | null => {
+  const payload = getJsonRecord(row.request_payload);
+  const value = payload?.callbackConfigured;
+  return typeof value === 'boolean' ? value : null;
+};
+
+export const isAbilityLogSuccessful = (status?: string | null): boolean => {
+  const normalized = (status || '').trim().toLowerCase();
+  return ['success', 'succeeded', 'completed', 'done', 'ok'].includes(normalized);
+};
+
+export const isAbilityLogFailed = (status?: string | null): boolean => {
+  const normalized = (status || '').trim().toLowerCase();
+  return ['failed', 'error', 'timeout', 'rejected'].includes(normalized);
+};
+
+export const getAbilityLogSubmitTag = (row: AbilityInvocationLog) => {
+  const normalized = (row.status || '').trim().toLowerCase();
+  if (['failed', 'error', 'timeout', 'rejected'].includes(normalized)) {
+    return { theme: 'danger' as const, text: '提交失败' };
+  }
+  if (['running', 'processing', 'in_progress', 'queued', 'pending', 'created'].includes(normalized)) {
+    return { theme: 'warning' as const, text: '提交中' };
+  }
+  if (['success', 'succeeded', 'completed', 'done', 'ok'].includes(normalized)) {
+    return { theme: 'success' as const, text: '提交成功' };
+  }
+  if (['cancelled', 'canceled', 'stopped', 'aborted'].includes(normalized)) {
+    return { theme: 'default' as const, text: '已取消' };
+  }
+  return { theme: 'default' as const, text: row.status || '未知' };
+};
+
+export const getAbilityLogCallbackStageTag = (row: AbilityInvocationLog) => {
+  const callbackConfigured = getAbilityLogCallbackConfigured(row);
+  const callbackStatus = (row.callback_status || '').trim().toLowerCase();
+  const callbackFailed =
+    isAbilityLogFailed(callbackStatus) ||
+    Boolean(row.callback_error) ||
+    (typeof row.callback_http_status === 'number' && row.callback_http_status >= 400);
+  const callbackFinished = Boolean(row.callback_finished_at);
+  if (callbackFailed) return { theme: 'danger' as const, text: '回调失败' };
+  if (isAbilityLogSuccessful(callbackStatus)) return { theme: 'success' as const, text: '回调成功' };
+  if (callbackStatus && ['running', 'processing', 'pending', 'queued'].includes(callbackStatus)) {
+    return { theme: 'warning' as const, text: '回调中' };
+  }
+  if (callbackFinished && typeof row.callback_http_status === 'number' && row.callback_http_status < 400) {
+    return { theme: 'success' as const, text: '回调成功' };
+  }
+
+  const hasCallbackId = Boolean(row.callback_id);
+  const previewUrl = resolvePrimaryLogPreviewUrl(row);
+  if (callbackConfigured === true) {
+    return { theme: 'warning' as const, text: '待回调' };
+  }
+  if (hasCallbackId) {
+    if (previewUrl) return { theme: 'success' as const, text: '输出已回填' };
+    if (isAbilityLogSuccessful(row.status)) return { theme: 'warning' as const, text: '输出回填中' };
+    if (isAbilityLogFailed(row.status)) return { theme: 'danger' as const, text: '执行失败' };
+    return { theme: 'default' as const, text: '可查询' };
+  }
+  if (callbackConfigured === false) {
+    return { theme: 'default' as const, text: '未配置' };
+  }
+  return { theme: 'default' as const, text: '—' };
+};
+
+export const getAbilityLogStatusTag = (status?: string | null) => {
+  const normalized = (status || '').trim().toLowerCase();
+  if (['success', 'succeeded', 'completed', 'done', 'ok'].includes(normalized)) {
+    return { theme: 'success' as const, text: '成功' };
+  }
+  if (['failed', 'error', 'timeout', 'rejected'].includes(normalized)) {
+    return { theme: 'danger' as const, text: '失败' };
+  }
+  if (['running', 'processing', 'in_progress'].includes(normalized)) {
+    return { theme: 'warning' as const, text: '执行中' };
+  }
+  if (['queued', 'pending', 'created'].includes(normalized)) {
+    return { theme: 'warning' as const, text: '排队中' };
+  }
+  if (['cancelled', 'canceled', 'stopped', 'aborted'].includes(normalized)) {
+    return { theme: 'default' as const, text: '已取消' };
+  }
+  return { theme: 'default' as const, text: status || '未知' };
+};
+
+export const getAbilityHealthTag = (status?: string | null) => {
+  const normalized = (status || '').trim().toLowerCase();
+  if (normalized === 'healthy') return { theme: 'success' as const, text: '正常' };
+  if (normalized === 'degraded') return { theme: 'warning' as const, text: '需关注' };
+  if (normalized === 'failed') return { theme: 'danger' as const, text: '异常' };
+  return { theme: 'default' as const, text: '未测试' };
+};

@@ -10,13 +10,30 @@ import type {
   ApiKey,
   AuthSession,
   AuthSessionListResponse,
+  AuthScopeSummaryResponse,
+  AuthUser,
   AuthUserListResponse,
+  AuthUserUpdatePayload,
+  BillingMonthlySettlementIssuePayload,
+  BillingMonthlySettlementIssueResponse,
+  BillingMonthlySettlementListResponse,
+  BillingMonthlySettlementResponse,
+  BillingMonthlySettlementUpdatePayload,
+  BillingMonthlySettlementRecord,
+  BillingNotificationConfigPayload,
+  BillingNotificationConfigResponse,
+  BillingInvoiceRequestCreatePayload,
+  BillingInvoiceRequestListResponse,
+  BillingInvoiceRequestUpdatePayload,
+  BillingInvoiceRequest,
+  BillingOverviewResponse,
+  BillingUserDetailResponse,
   Binding,
   BusinessCapability,
+  BusinessCapabilityCompareResponse,
   BusinessCapabilityListResponse,
-  BusinessClient,
-  BusinessClientListResponse,
-  BusinessRoutePreviewResponse,
+  BusinessDefaultApprovalListResponse,
+  BusinessOperationLogListResponse,
   BusinessRunListResponse,
   BusinessUsageSummaryResponse,
   DashboardMetrics,
@@ -55,13 +72,33 @@ import type {
   InviteCode,
   InviteCodeCreatePayload,
   InviteCodeListResponse,
+  PackageAlertNotificationListResponse,
+  PackageAlertNotificationPayload,
+  PackageAlertNotificationResponse,
+  PackagePurchaseOrderCreatePayload,
+  PackagePurchaseOrderListResponse,
+  PackagePurchaseOrderUpdatePayload,
+  PackagePurchaseOrderUpdateResponse,
+  MonthlySettlementCollectionNotificationListResponse,
+  MonthlySettlementCollectionNotificationPayload,
+  MonthlySettlementCollectionNotificationResponse,
+  PackageGrantPayload,
+  PackageGrantResponse,
   PublicAbility,
+  ReleasePreflightResponse,
+  ReleasePreflightSnapshotListResponse,
+  ReleasePatrolRecordListResponse,
+  ReleasePatrolRecordResponse,
+  StrategySnapshotListResponse,
+  StrategySnapshotResponse,
   StoredAsset,
   SystemConfig,
   VendorEgressCheckResponse,
   VendorGovernanceSummaryResponse,
   VendorKey,
   VendorKeyListResponse,
+  WeeklyReportListResponse,
+  WeeklyReportResponse,
   VendorModel,
   VendorModelListResponse,
   VendorModelSyncResponse,
@@ -98,6 +135,8 @@ type AbilityHealthQueryOptions = {
 type BusinessRunQueryOptions = {
   businessKey?: string;
   status?: string;
+  billingStatus?: string;
+  callbackStatus?: string;
   version?: string;
   source?: string;
   tenantId?: string;
@@ -107,10 +146,33 @@ type BusinessRunQueryOptions = {
   limit?: number;
 };
 
-type BusinessClientQueryOptions = {
+type BusinessOperationLogQueryOptions = {
+  action?: string;
+  targetType?: string;
+  businessKey?: string;
   tenantId?: string;
   clientId?: string;
+  actorUserId?: string;
+  limit?: number;
+};
+
+type BusinessDefaultApprovalQueryOptions = {
   status?: string;
+  businessKey?: string;
+  limit?: number;
+};
+
+type BillingQueryOptions = {
+  month?: string;
+  windowDays?: number;
+  limit?: number;
+  page?: number;
+  pageSize?: number;
+  tenantId?: string;
+  clientId?: string;
+  businessKey?: string;
+  issueLimit?: number;
+  packageAlertLimit?: number;
 };
 
 type BaiduImageTestResponse = {
@@ -165,8 +227,9 @@ function resolveHttpError(status: number, statusText: string, bodyText: string):
     case 400:
       return message || '请求参数错误';
     case 401:
-    case 403:
       return AUTH_INVALID_MESSAGE;
+    case 403:
+      return message && message !== 'ADMIN_ONLY' ? message : '当前账号没有权限访问这个功能';
     case 404:
       return message || '接口不存在或已下线';
     case 408:
@@ -263,6 +326,12 @@ function buildBusinessRunQuery(options?: BusinessRunQueryOptions) {
   const params = new URLSearchParams();
   if (options?.businessKey && options.businessKey !== 'all') params.set('business_key', options.businessKey);
   if (options?.status && options.status !== 'all') params.set('status', options.status);
+  if (options?.billingStatus && options.billingStatus !== 'all') {
+    params.set('billing_status', options.billingStatus);
+  }
+  if (options?.callbackStatus && options.callbackStatus !== 'all') {
+    params.set('callback_status', options.callbackStatus);
+  }
   if (options?.version && options.version !== 'all') params.set('version', options.version);
   if (options?.source?.trim()) params.set('source', options.source.trim());
   if (options?.tenantId?.trim()) params.set('tenant_id', options.tenantId.trim());
@@ -273,11 +342,40 @@ function buildBusinessRunQuery(options?: BusinessRunQueryOptions) {
   return params;
 }
 
-function buildBusinessClientQuery(options?: BusinessClientQueryOptions) {
+function buildBusinessOperationLogQuery(options?: BusinessOperationLogQueryOptions) {
   const params = new URLSearchParams();
+  if (options?.action && options.action !== 'all') params.set('action', options.action);
+  if (options?.targetType && options.targetType !== 'all') params.set('target_type', options.targetType);
+  if (options?.businessKey && options.businessKey !== 'all') params.set('business_key', options.businessKey);
   if (options?.tenantId?.trim()) params.set('tenant_id', options.tenantId.trim());
   if (options?.clientId?.trim()) params.set('client_id', options.clientId.trim());
-  if (options?.status && options.status !== 'all') params.set('status', options.status);
+  if (options?.actorUserId?.trim()) params.set('actor_user_id', options.actorUserId.trim());
+  if (options?.limit) params.set('limit', String(options.limit));
+  return params;
+}
+
+function buildBusinessDefaultApprovalQuery(options?: BusinessDefaultApprovalQueryOptions) {
+  const params = new URLSearchParams();
+  if (options?.status && options.status !== 'all') params.set('approval_status', options.status);
+  if (options?.businessKey && options.businessKey !== 'all') params.set('business_key', options.businessKey);
+  if (options?.limit) params.set('limit', String(options.limit));
+  return params;
+}
+
+function buildBillingQuery(options?: BillingQueryOptions) {
+  const params = new URLSearchParams();
+  if (options?.month?.trim()) params.set('month', options.month.trim());
+  if (options?.windowDays) params.set('window_days', String(options.windowDays));
+  if (options?.limit) params.set('limit', String(options.limit));
+  if (options?.page) params.set('page', String(options.page));
+  if (options?.pageSize) params.set('page_size', String(options.pageSize));
+  if (options?.tenantId?.trim()) params.set('tenant_id', options.tenantId.trim());
+  if (options?.clientId?.trim()) params.set('client_id', options.clientId.trim());
+  if (options?.businessKey?.trim() && options.businessKey !== 'all') {
+    params.set('business_key', options.businessKey.trim());
+  }
+  if (options?.issueLimit) params.set('issue_limit', String(options.issueLimit));
+  if (options?.packageAlertLimit) params.set('package_alert_limit', String(options.packageAlertLimit));
   return params;
 }
 
@@ -302,7 +400,7 @@ async function request<T>(path: string, options: RequestInit = {}, timeoutMs = D
   if (!resp.ok) {
     const text = await resp.text();
     const message = resolveHttpError(resp.status, resp.statusText, text);
-    if (resp.status === 401 || resp.status === 403) {
+    if (resp.status === 401) {
       forceReLogin(message);
     }
     throw new Error(message);
@@ -340,7 +438,7 @@ async function requestBlob(path: string, options: RequestInit = {}, timeoutMs = 
   if (!resp.ok) {
     const text = await resp.text();
     const message = resolveHttpError(resp.status, resp.statusText, text);
-    if (resp.status === 401 || resp.status === 403) {
+    if (resp.status === 401) {
       forceReLogin(message);
     }
     throw new Error(message);
@@ -350,6 +448,9 @@ async function requestBlob(path: string, options: RequestInit = {}, timeoutMs = 
 
 export const adminApi = {
   listAuthUsers: () => request<AuthUserListResponse>('/api/auth/users'),
+  updateAuthUser: (userId: string, payload: AuthUserUpdatePayload) =>
+    request<AuthUser>(`/api/auth/users/${userId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  getAuthScopeSummary: () => request<AuthScopeSummaryResponse>('/api/auth/scope-summary'),
   listAuthSessions: () => request<AuthSessionListResponse>('/api/auth/sessions/all'),
   revokeAuthSession: (sessionId: string) =>
     request<AuthSession>(`/api/auth/sessions/${sessionId}/revoke`, { method: 'POST' }),
@@ -405,15 +506,10 @@ export const adminApi = {
     ),
   createVendorKey: (payload: Partial<VendorKey> & { key: string; secret?: string | null; provider: string; alias: string }) =>
     request<VendorKey>('/api/admin/vendor-api/keys', { method: 'POST', body: JSON.stringify(payload) }),
-  updateVendorKey: (id: string, payload: Partial<VendorKey>) =>
+  updateVendorKey: (id: string, payload: Partial<VendorKey> & { key?: string; secret?: string | null }) =>
     request<VendorKey>(`/api/admin/vendor-api/keys/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       body: JSON.stringify(payload),
-    }),
-  checkVendorKey: (id: string, payload?: { check?: string; includeAuth?: boolean }) =>
-    request<VendorEgressCheckResponse>(`/api/admin/vendor-api/keys/${encodeURIComponent(id)}/check`, {
-      method: 'POST',
-      body: JSON.stringify(payload || { includeAuth: true }),
     }),
   listVendorModels: () => request<VendorModelListResponse>('/api/admin/vendor-api/models'),
   syncVolcengineModels: () =>
@@ -486,6 +582,30 @@ export const adminApi = {
       raw?: JsonRecord | null;
     }>(
       '/api/admin/tests/volcengine/image',
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      },
+      TEST_TIMEOUT_MS,
+    ),
+  testVolcengineVideo: (payload: AbilityContextPayload & {
+    executorId: string;
+    model: string;
+    prompt: string;
+    imageUrl?: string;
+    params?: Record<string, unknown>;
+  }) =>
+    request<{
+      provider: string;
+      model: string;
+      logId?: number | string;
+      taskId?: string;
+      state?: string;
+      resultUrls?: string[];
+      assets?: StoredAsset[];
+      raw?: JsonRecord | null;
+    }>(
+      '/api/admin/tests/volcengine/video',
       {
         method: 'POST',
         body: JSON.stringify(payload),
@@ -886,19 +1006,46 @@ export const adminApi = {
   getDashboardMetrics: () => request<DashboardMetrics>('/api/admin/dashboard/metrics'),
   getDispatchLogs: () => request<DispatchLogResponse>('/api/admin/dashboard/logs'),
   getSystemConfig: () => request<SystemConfig>('/api/admin/dashboard/system-config'),
-  listBusinessCapabilities: () => request<BusinessCapabilityListResponse>('/api/admin/business/capabilities'),
-  listBusinessClients: (options?: BusinessClientQueryOptions) => {
-    const params = buildBusinessClientQuery(options);
-    const suffix = params.toString() ? `?${params.toString()}` : '';
-    return request<BusinessClientListResponse>(`/api/admin/business/clients${suffix}`);
-  },
-  createBusinessClient: (payload: Partial<BusinessClient>) =>
-    request<BusinessClient>('/api/admin/business/clients', { method: 'POST', body: JSON.stringify(payload) }),
-  updateBusinessClient: (id: string, payload: Partial<BusinessClient>) =>
-    request<BusinessClient>(`/api/admin/business/clients/${encodeURIComponent(id)}`, {
-      method: 'PATCH',
+  createStrategySnapshot: (payload?: { windowHours?: number; note?: string }) =>
+    request<StrategySnapshotResponse>('/api/admin/dashboard/strategy-summary/snapshots', {
+      method: 'POST',
+      body: JSON.stringify(payload || { windowHours: 168 }),
+    }),
+  listStrategySnapshots: (limit = 8) =>
+    request<StrategySnapshotListResponse>(`/api/admin/dashboard/strategy-summary/snapshots?limit=${limit}`),
+  runWeeklyReport: (payload?: { windowHours?: number; note?: string; send?: boolean; webhookFormat?: string }) =>
+    request<WeeklyReportResponse>('/api/admin/dashboard/weekly-report/run', {
+      method: 'POST',
+      body: JSON.stringify(payload || { windowHours: 168, send: false }),
+    }),
+  listWeeklyReports: (limit = 5) =>
+    request<WeeklyReportListResponse>(`/api/admin/dashboard/weekly-report/records?limit=${limit}`),
+  runReleasePreflight: (payload?: { mode?: string; baseUrl?: string; expectServerUrl?: string }) =>
+    request<ReleasePreflightResponse>('/api/admin/dashboard/release-preflight/run', {
+      method: 'POST',
+      body: JSON.stringify(payload || { mode: 'light' }),
+    }),
+  listReleasePreflightSnapshots: (limit = 5) =>
+    request<ReleasePreflightSnapshotListResponse>(`/api/admin/dashboard/release-preflight/snapshots?limit=${limit}`),
+  createReleasePatrolRecord: (payload: {
+    status: string;
+    command?: string;
+    reportPath?: string;
+    note?: string;
+    summary?: JsonRecord;
+  }) =>
+    request<ReleasePatrolRecordResponse>('/api/admin/dashboard/release-patrol/records', {
+      method: 'POST',
       body: JSON.stringify(payload),
     }),
+  importReleasePatrolReport: (payload: { reportPath: string; command?: string }) =>
+    request<ReleasePatrolRecordResponse>('/api/admin/dashboard/release-patrol/import-report', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  listReleasePatrolRecords: (limit = 5) =>
+    request<ReleasePatrolRecordListResponse>(`/api/admin/dashboard/release-patrol/records?limit=${limit}`),
+  listBusinessCapabilities: () => request<BusinessCapabilityListResponse>('/api/admin/business/capabilities'),
   createBusinessCapability: (payload: Partial<BusinessCapability>) =>
     request<BusinessCapability>('/api/admin/business/capabilities', { method: 'POST', body: JSON.stringify(payload) }),
   updateBusinessCapability: (id: string, payload: Partial<BusinessCapability>) =>
@@ -906,35 +1053,193 @@ export const adminApi = {
       method: 'PATCH',
       body: JSON.stringify(payload),
     }),
-  promoteBusinessCapability: (id: string, payload?: { activate?: boolean; note?: string }) =>
-    request<BusinessCapability>(`/api/admin/business/capabilities/${encodeURIComponent(id)}/promote`, {
-      method: 'POST',
-      body: JSON.stringify(payload || { activate: true }),
-    }),
-  rollbackBusinessCapability: (
-    businessKey: string,
-    payload?: { targetCapabilityId?: string; target_capability_id?: string; activate?: boolean; note?: string },
-  ) =>
-    request<BusinessCapability>(`/api/admin/business/rollback/${encodeURIComponent(businessKey)}`, {
-      method: 'POST',
-      body: JSON.stringify(payload || { activate: true }),
-    }),
-  previewBusinessRoute: (businessKey: string, payload: JsonRecord) =>
-    request<BusinessRoutePreviewResponse>(`/api/admin/business/route-preview/${encodeURIComponent(businessKey)}`, {
+  compareBusinessCapabilities: (id: string, targetId: string) =>
+    request<BusinessCapabilityCompareResponse>(
+      `/api/admin/business/capabilities/${encodeURIComponent(id)}/compare?target_id=${encodeURIComponent(targetId)}`,
+    ),
+  rollbackBusinessCapability: (id: string, payload: { targetCapabilityId: string; note?: string }) =>
+    request<BusinessCapability>(`/api/admin/business/capabilities/${encodeURIComponent(id)}/rollback`, {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
+  createBusinessDefaultApproval: (id: string, payload: { note?: string }) =>
+    request<BusinessDefaultApprovalListResponse['items'][number]>(
+      `/api/admin/business/capabilities/${encodeURIComponent(id)}/default-approvals`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      },
+    ),
+  listBusinessDefaultApprovals: (options?: BusinessDefaultApprovalQueryOptions) => {
+    const params = buildBusinessDefaultApprovalQuery(options);
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    return request<BusinessDefaultApprovalListResponse>(`/api/admin/business/default-approvals${suffix}`);
+  },
+  approveBusinessDefaultApproval: (id: string, payload: { note?: string }) =>
+    request<BusinessDefaultApprovalListResponse['items'][number]>(
+      `/api/admin/business/default-approvals/${encodeURIComponent(id)}/approve`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      },
+    ),
+  rejectBusinessDefaultApproval: (id: string, payload: { note?: string }) =>
+    request<BusinessDefaultApprovalListResponse['items'][number]>(
+      `/api/admin/business/default-approvals/${encodeURIComponent(id)}/reject`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      },
+    ),
   listBusinessRuns: (options?: BusinessRunQueryOptions) => {
     const params = buildBusinessRunQuery(options);
     params.delete('window_hours');
     const suffix = params.toString() ? `?${params.toString()}` : '';
     return request<BusinessRunListResponse>(`/api/admin/business/runs${suffix}`);
   },
+  exportBusinessRuns: (options?: BusinessRunQueryOptions) => {
+    const params = buildBusinessRunQuery({ ...options, limit: options?.limit ?? 1000 });
+    params.delete('window_hours');
+    return requestBlob(`/api/admin/business/runs/export?${params.toString()}`, {
+      method: 'GET',
+      headers: { Accept: 'text/csv' },
+    });
+  },
+  retryBusinessRunCallback: (runId: string) =>
+    request<BusinessRunListResponse['items'][number]>(
+      `/api/admin/business/runs/${encodeURIComponent(runId)}/callback/retry`,
+      { method: 'POST' },
+    ),
+  retryBusinessRunBilling: (runId: string) =>
+    request<BusinessRunListResponse['items'][number]>(
+      `/api/admin/business/runs/${encodeURIComponent(runId)}/billing/retry`,
+      { method: 'POST' },
+    ),
+  refundBusinessRunBilling: (runId: string) =>
+    request<BusinessRunListResponse['items'][number]>(
+      `/api/admin/business/runs/${encodeURIComponent(runId)}/billing/refund`,
+      { method: 'POST' },
+    ),
   getBusinessUsageSummary: (options?: BusinessRunQueryOptions) => {
     const params = buildBusinessRunQuery(options);
     params.delete('limit');
     if (!params.has('window_hours')) params.set('window_hours', '24');
     return request<BusinessUsageSummaryResponse>(`/api/admin/business/usage-summary?${params.toString()}`);
+  },
+  listBusinessOperationLogs: (options?: BusinessOperationLogQueryOptions) => {
+    const params = buildBusinessOperationLogQuery(options);
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    return request<BusinessOperationLogListResponse>(`/api/admin/business/operation-logs${suffix}`);
+  },
+  getBillingOverview: (options?: BillingQueryOptions) => {
+    const params = buildBillingQuery({ ...options, limit: options?.limit ?? 100 });
+    return request<BillingOverviewResponse>(`/api/admin/billing/overview?${params.toString()}`);
+  },
+  getBillingMonthlySettlement: (options?: BillingQueryOptions) => {
+    const params = buildBillingQuery({ ...options, limit: options?.limit ?? 200 });
+    params.delete('issue_limit');
+    params.delete('package_alert_limit');
+    return request<BillingMonthlySettlementResponse>(`/api/admin/billing/monthly-settlement?${params.toString()}`);
+  },
+  listBillingMonthlySettlements: (options?: BillingQueryOptions & { status?: string }) => {
+    const params = buildBillingQuery({ ...options, limit: options?.limit ?? 100 });
+    params.delete('issue_limit');
+    params.delete('package_alert_limit');
+    if (options?.status?.trim() && options.status !== 'all') params.set('status', options.status.trim());
+    return request<BillingMonthlySettlementListResponse>(`/api/admin/billing/monthly-settlements?${params.toString()}`);
+  },
+  issueBillingMonthlySettlement: (payload: BillingMonthlySettlementIssuePayload) =>
+    request<BillingMonthlySettlementIssueResponse>('/api/admin/billing/monthly-settlements/issue', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  updateBillingMonthlySettlement: (settlementId: string, payload: BillingMonthlySettlementUpdatePayload) =>
+    request<BillingMonthlySettlementRecord>(`/api/admin/billing/monthly-settlements/${encodeURIComponent(settlementId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+  runBillingPackageAlertNotification: (payload: PackageAlertNotificationPayload) =>
+    request<PackageAlertNotificationResponse>('/api/admin/billing/package-alerts/notify', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  listBillingPackageAlertNotifications: (limit = 20) =>
+    request<PackageAlertNotificationListResponse>(
+      `/api/admin/billing/package-alert-notifications?limit=${encodeURIComponent(String(limit))}`,
+    ),
+  getBillingNotificationConfig: () => request<BillingNotificationConfigResponse>('/api/admin/billing/notification-config'),
+  updateBillingNotificationConfig: (payload: BillingNotificationConfigPayload) =>
+    request<BillingNotificationConfigResponse>('/api/admin/billing/notification-config', {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+  listPackagePurchaseOrders: (options?: Pick<BillingQueryOptions, 'businessKey'> & { userId?: string; status?: string; limit?: number }) => {
+    const params = new URLSearchParams();
+    if (options?.businessKey?.trim() && options.businessKey !== 'all') params.set('business_key', options.businessKey.trim());
+    if (options?.userId?.trim()) params.set('user_id', options.userId.trim());
+    if (options?.status?.trim() && options.status !== 'all') params.set('status', options.status.trim());
+    params.set('limit', String(options?.limit ?? 50));
+    return request<PackagePurchaseOrderListResponse>(`/api/admin/billing/package-purchase-orders?${params.toString()}`);
+  },
+  createPackagePurchaseOrder: (payload: PackagePurchaseOrderCreatePayload) =>
+    request<PackagePurchaseOrderUpdateResponse['order']>('/api/admin/billing/package-purchase-orders', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  updatePackagePurchaseOrder: (orderId: string, payload: PackagePurchaseOrderUpdatePayload) =>
+    request<PackagePurchaseOrderUpdateResponse>(`/api/admin/billing/package-purchase-orders/${encodeURIComponent(orderId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+  listBillingInvoiceRequests: (options?: Pick<BillingQueryOptions, 'businessKey'> & { userId?: string; status?: string; relatedOrderType?: string; limit?: number }) => {
+    const params = new URLSearchParams();
+    if (options?.businessKey?.trim() && options.businessKey !== 'all') params.set('business_key', options.businessKey.trim());
+    if (options?.userId?.trim()) params.set('user_id', options.userId.trim());
+    if (options?.status?.trim() && options.status !== 'all') params.set('status', options.status.trim());
+    if (options?.relatedOrderType?.trim()) params.set('related_order_type', options.relatedOrderType.trim());
+    params.set('limit', String(options?.limit ?? 50));
+    return request<BillingInvoiceRequestListResponse>(`/api/admin/billing/invoice-requests?${params.toString()}`);
+  },
+  createBillingInvoiceRequest: (payload: BillingInvoiceRequestCreatePayload) =>
+    request<BillingInvoiceRequest>('/api/admin/billing/invoice-requests', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  updateBillingInvoiceRequest: (invoiceRequestId: string, payload: BillingInvoiceRequestUpdatePayload) =>
+    request<BillingInvoiceRequest>(`/api/admin/billing/invoice-requests/${encodeURIComponent(invoiceRequestId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+  runBillingMonthlyCollectionNotification: (payload: MonthlySettlementCollectionNotificationPayload) =>
+    request<MonthlySettlementCollectionNotificationResponse>('/api/admin/billing/monthly-settlements/collections/notify', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  listBillingMonthlyCollectionNotifications: (limit = 20) =>
+    request<MonthlySettlementCollectionNotificationListResponse>(
+      `/api/admin/billing/monthly-settlement-collection-notifications?limit=${encodeURIComponent(String(limit))}`,
+    ),
+  getBillingUserDetail: (userId: string, options?: BillingQueryOptions) => {
+    const params = buildBillingQuery({ ...options, pageSize: options?.pageSize ?? 20 });
+    return request<BillingUserDetailResponse>(
+      `/api/admin/billing/users/${encodeURIComponent(userId)}?${params.toString()}`,
+    );
+  },
+  grantBillingPackage: (userId: string, payload: PackageGrantPayload) =>
+    request<PackageGrantResponse>(`/api/admin/billing/users/${encodeURIComponent(userId)}/packages/grant`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  exportBillingUserLedger: (userId: string, month?: string, options?: Pick<BillingQueryOptions, 'businessKey'>) => {
+    const params = new URLSearchParams();
+    if (month?.trim()) params.set('month', month.trim());
+    if (options?.businessKey?.trim() && options.businessKey !== 'all') {
+      params.set('business_key', options.businessKey.trim());
+    }
+    return requestBlob(`/api/admin/billing/users/${encodeURIComponent(userId)}/ledger/export?${params.toString()}`, {
+      method: 'GET',
+      headers: { Accept: 'text/csv' },
+    });
   },
   // Abilities
   listAbilities: () => request<Ability[]>('/api/admin/abilities'),

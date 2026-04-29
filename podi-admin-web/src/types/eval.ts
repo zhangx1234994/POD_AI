@@ -1,24 +1,3 @@
-export type EvalWorkflowGovernance = {
-  role?: string | null;
-  roleLabel?: string | null;
-  roleReason?: string | null;
-  rank?: number | null;
-  isPrimary?: boolean | null;
-};
-
-export type EvalWorkflowPresentation = {
-  visible?: boolean | null;
-  sortOrder?: number | null;
-  categoryLabel?: string | null;
-  usageHint?: string | null;
-  operationLabel?: string | null;
-  variantLabel?: string | null;
-  entryMode?: string | null;
-  resultMode?: string | null;
-  supportsBatch?: boolean | null;
-  recommendedRepeatCount?: number | null;
-};
-
 export type EvalWorkflowVersion = {
   id: string;
   category: string;
@@ -30,11 +9,6 @@ export type EvalWorkflowVersion = {
   output_schema?: Record<string, unknown> | null;
   notes?: string | null;
   status: string;
-  metadata?: Record<string, unknown> | null;
-  presentation?: EvalWorkflowPresentation | null;
-  usage?: Record<string, unknown> | null;
-  deprecation?: Record<string, unknown> | null;
-  governance?: EvalWorkflowGovernance | null;
   created_at: string;
   updated_at: string;
 };

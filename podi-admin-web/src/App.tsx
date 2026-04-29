@@ -1,10 +1,13 @@
 import { LoginGate } from './components/LoginGate';
-import { IntegrationDashboard } from './pages/IntegrationDashboard';
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { ConfigProvider } from 'tdesign-react';
 import zhCN from 'tdesign-react/es/locale/zh_CN';
 
 type ThemeMode = 'light' | 'dark';
+
+const IntegrationDashboard = lazy(() =>
+  import('./pages/IntegrationDashboard').then((mod) => ({ default: mod.IntegrationDashboard })),
+);
 
 function readTheme(): ThemeMode {
   const stored = window.localStorage.getItem('podi.admin.theme');
@@ -26,10 +29,19 @@ function App() {
   return (
     <ConfigProvider globalConfig={zhCN}>
       <LoginGate>
-        <IntegrationDashboard
-          theme={theme}
-          onToggleTheme={() => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}
-        />
+        {(currentUser) => (
+          <Suspense
+            fallback={
+              <div style={{ padding: 32, color: '#344054', fontSize: 14 }}>管理端加载中，请稍候...</div>
+            }
+          >
+            <IntegrationDashboard
+              theme={theme}
+              currentUser={currentUser}
+              onToggleTheme={() => setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}
+            />
+          </Suspense>
+        )}
       </LoginGate>
     </ConfigProvider>
   );
