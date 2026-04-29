@@ -28,7 +28,7 @@ import type {
 import { toDisplayErrorMessage } from '../../../utils/errorMessageMap';
 import { StatusBadge } from '../shared/ui';
 import { apiKeyStatusOptions } from './formOptions';
-import { formatDateTime, formatDurationMs, formatDurationSeconds } from './formatters';
+import { formatDateTime, formatDurationMs } from './formatters';
 import { getVendorIssueLabel, getVendorProviderState } from './vendor';
 
 const hasJsonContent = (value: unknown): boolean => {
@@ -58,27 +58,36 @@ const isVendorUsageFailed = (item: VendorUsageSummaryItem): boolean => {
 };
 
 const apiTypeLabels: Record<string, string> = {
-  chat: '对话',
+  chat: '文字/多模态对话',
+  chat_completions: '文字/多模态对话',
   image: '图片',
   image_edit: '图片编辑',
+  image_edits: '图片编辑',
   image_generation: '文生图',
   image_process: '图片处理',
+  text_to_image: '文生图',
   image_to_image: '图生图',
+  image_to_video: '图生视频',
   market_image_to_image: '图生图',
   market_text_to_video: '文生视频',
+  multimodal: '多模态',
+  responses: '多模态生成/编辑',
   text: '文本',
   text_generation: '文本生成',
+  text_to_video: '文生视频',
   video: '视频',
   video_generation: '视频生成',
+  vision: '图像理解',
+  vision_language: '图像理解',
   vl: '图像理解',
 };
 
 const executionModeLabels: Record<string, string> = {
-  callback: '回调',
-  async: '异步',
+  callback: '厂商回调',
+  async: '后台异步',
   async_submit_poll: '提交后轮询',
-  polling: '轮询',
-  sync: '同步',
+  polling: '持续查询',
+  sync: '立即返回',
   sync_then_store: '同步后入库',
 };
 
@@ -88,7 +97,7 @@ const getReadableTokenLabel = (value?: string | null, labels: Record<string, str
   return labels[raw] || raw.replace(/_/g, ' ');
 };
 
-const getEgressModeLabel = (requiresGlobalEgress?: boolean) => (requiresGlobalEgress ? '需要特殊出网' : '国内直连');
+const getEgressModeLabel = (requiresGlobalEgress?: boolean) => (requiresGlobalEgress ? '需要出网节点' : '国内直连');
 
 const getVendorSourceLabel = (source?: string | null) => {
   const value = String(source || '').trim();
@@ -164,7 +173,7 @@ const buildVendorAcceptanceItem = (
     return { ...target, status: 'missing_key', theme: 'warning' as const, labelText: '缺密钥', suggestion: '先配置可用密钥，再做带密钥出网检查。', modelCount: modelRows.length, activeKeyCount: 0, totalCount, failedCount };
   }
   if (!modelRows.length) {
-    return { ...target, status: 'missing_model', theme: 'warning' as const, labelText: '缺模型', suggestion: '补模型目录和能力边界，否则业务无法稳定引用。', modelCount: 0, activeKeyCount: activeKeys.length, totalCount, failedCount };
+    return { ...target, status: 'missing_model', theme: 'warning' as const, labelText: '缺模型', suggestion: '补模型目录和能力范围，否则业务无法稳定引用。', modelCount: 0, activeKeyCount: activeKeys.length, totalCount, failedCount };
   }
   if (failedCount > 0) {
     return { ...target, status: 'needs_retest', theme: 'warning' as const, labelText: '需复测', suggestion: '先处理失败样本，再做一次小流量测试。', modelCount: modelRows.length, activeKeyCount: activeKeys.length, totalCount, failedCount };
@@ -192,6 +201,8 @@ function MetricCard({ label, value, sub }: { label: string; value: number | stri
 function StatusPill({ status }: { status: string }) {
   return <StatusBadge status={status} />;
 }
+
+const safeNumber = (value: unknown): number => Number(value || 0);
 
 type VendorModelsPanelProps = {
   baseUrl: string;
@@ -271,9 +282,9 @@ export function VendorModelsPanel({
       <div className="podi-action-bar">
         <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
           <Space direction="vertical" size={4}>
-            <Typography.Text strong>第三方模型控制面</Typography.Text>
+            <Typography.Text strong>模型弹药库</Typography.Text>
             <Typography.Text theme="secondary">
-              当前能力服务：{baseUrl || '未连接'}。密钥明文只在新增时提交，列表只显示隐藏后的预览。
+              统一管理火山、OpenAI、中转站、KIE 等商业模型。先看密钥和出网，再看模型目录，最后绑定业务能力。
             </Typography.Text>
           </Space>
           <Space size="small" style={{ flexWrap: 'wrap' }}>
@@ -300,7 +311,7 @@ export function VendorModelsPanel({
           <MetricCard label="可用密钥" value={activeKeyCount} sub="能力服务托管" />
         </Col>
         <Col xs={12} lg={4}>
-          <MetricCard label="国际出网" value={egressProviderCount} sub="需要特殊出网节点" />
+          <MetricCard label="特殊出网" value={egressProviderCount} sub="需要代理或海外通道" />
         </Col>
         <Col xs={12} lg={4}>
           <MetricCard label="近24小时调用" value={usageTotal} sub={`窗口 ${usageWindowHours} 小时`} />
@@ -318,7 +329,7 @@ export function VendorModelsPanel({
         <Row gutter={[12, 12]}>
           {[
             ['1', '先看风险', '密钥、出网、失败样本有问题时，先处理这里，不急着接业务。'],
-            ['2', '再看模型', '确认模型目录、能力边界、输出类型和计价口径是否完整。'],
+            ['2', '再看模型', '确认模型目录、能力范围、输出类型和计价口径是否完整。'],
             ['3', '再绑能力', '模型稳定后再绑定到原子能力或业务版本，避免业务默认版本踩坑。'],
             ['4', '最后小流量', '用能力测试和测评端跑通，再逐步放量。'],
           ].map(([index, title, body]) => (
@@ -479,7 +490,7 @@ export function VendorModelsPanel({
 
       <Card bordered title="第三方能力验收标记" style={{ marginTop: 16 }}>
         <Typography.Text theme="secondary">
-          这里先做自动判断：厂商是否接入、密钥是否可用、模型目录是否存在、最近是否跑通过。人工签字验收后续再单独落表。
+          这里先做自动判断：厂商是否接入、密钥是否可用、模型目录是否存在、最近是否跑通过。后续再补人工确认记录。
         </Typography.Text>
         <div style={{ marginTop: 12 }}>
           <Table
@@ -533,7 +544,7 @@ export function VendorModelsPanel({
         </div>
       </Card>
 
-      <Card bordered title="第三方模型状态" style={{ marginTop: 16 }}>
+      <Card bordered title="厂商健康与风险" style={{ marginTop: 16 }}>
         <Space size="small" style={{ marginBottom: 12, flexWrap: 'wrap' }}>
           <Tag theme={governanceIssueCount > 0 ? 'warning' : 'success'} variant="light">
             {governanceIssueCount > 0 ? `需处理 ${governanceIssueCount}` : '状态正常'}
@@ -550,40 +561,41 @@ export function VendorModelsPanel({
             ) : null}
             <Row gutter={[12, 12]}>
               <Col xs={12} lg={3}>
-                <MetricCard label="厂商" value={governanceSummary.totals.providers} sub="已纳入治理" />
-              </Col>
-              <Col xs={12} lg={3}>
-                <MetricCard label="模型" value={governanceSummary.totals.models} sub="模型目录" />
-              </Col>
-              <Col xs={12} lg={3}>
-                <MetricCard label="能力" value={governanceSummary.totals.abilities} sub="已绑定能力" />
+                <MetricCard label="厂商" value={safeNumber(governanceSummary.totals.providerCount)} sub="已纳入治理" />
               </Col>
               <Col xs={12} lg={3}>
                 <MetricCard
-                  label="最近失败"
-                  value={governanceSummary.totals.recentFailures}
-                  sub={`调用 ${governanceSummary.totals.recentCalls}`}
+                  label="模型"
+                  value={safeNumber(governanceSummary.totals.modelCount)}
+                  sub={`可用 ${safeNumber(governanceSummary.totals.activeModelCount)}`}
                 />
               </Col>
               <Col xs={12} lg={3}>
                 <MetricCard
-                  label="密钥配额"
-                  value={governanceSummary.totals.quotaExhaustedKeys || 0}
-                  sub={`接近上限 ${governanceSummary.totals.quotaWarningKeys || 0}`}
+                  label="能力"
+                  value={safeNumber(governanceSummary.totals.abilityCount)}
+                  sub={`可用 ${safeNumber(governanceSummary.totals.activeAbilityCount)}`}
                 />
               </Col>
               <Col xs={12} lg={3}>
                 <MetricCard
-                  label="计费缺口"
-                  value={governanceSummary.totals.uncostedSuccessCalls || 0}
-                  sub={`缺计价模型 ${governanceSummary.totals.costPolicyMissingModels || 0}`}
+                  label="密钥池"
+                  value={safeNumber(governanceSummary.totals.activeStoredKeyCount)}
+                  sub={`环境密钥 ${safeNumber(governanceSummary.totals.envKeyProviderCount)}`}
                 />
               </Col>
               <Col xs={12} lg={3}>
                 <MetricCard
-                  label="异步任务"
-                  value={`${governanceSummary.totals.runningTasks}/${governanceSummary.totals.queuedTasks}`}
-                  sub={`运行/排队，失败 ${governanceSummary.totals.failedTasks}`}
+                  label="最近调用"
+                  value={usageTotal}
+                  sub={usageFailed > 0 ? `失败 ${usageFailed}` : '暂无失败'}
+                />
+              </Col>
+              <Col xs={12} lg={3}>
+                <MetricCard
+                  label="待处理问题"
+                  value={safeNumber(governanceSummary.totals.issueCount)}
+                  sub="密钥 / 目录 / 调用"
                 />
               </Col>
             </Row>
@@ -605,7 +617,7 @@ export function VendorModelsPanel({
                         </Tag>
                       </Space>
                       <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
-                          厂商标识：{row.provider}
+                        排障代码：{row.provider}
                       </Typography.Text>
                     </Space>
                   ),
@@ -619,32 +631,27 @@ export function VendorModelsPanel({
                       <Tag theme={row.envKeyConfigured ? 'success' : 'default'} variant="light">
                         环境密钥 {row.envKeyConfigured ? '已配' : '未配'}
                       </Tag>
-                      <Tag theme={row.activeKeyCount > 0 ? 'success' : 'default'} variant="light">
-                        密钥池 {row.activeKeyCount}
+                      <Tag theme={row.activeStoredKeyCount > 0 ? 'success' : 'default'} variant="light">
+                        密钥池 {safeNumber(row.activeStoredKeyCount)}
                       </Tag>
                       {row.disabledKeyCount > 0 ? (
                         <Tag theme="warning" variant="light">
                           停用 {row.disabledKeyCount}
                         </Tag>
                       ) : null}
-                      {row.quotaExhaustedKeyCount > 0 ? (
+                      {row.cooldownKeyCount > 0 ? (
+                        <Tag theme="warning" variant="light">
+                          冷却中 {row.cooldownKeyCount}
+                        </Tag>
+                      ) : null}
+                      {row.exhaustedKeyCount > 0 ? (
                         <Tag theme="danger" variant="light">
-                          配额用完 {row.quotaExhaustedKeyCount}
+                          配额用完 {row.exhaustedKeyCount}
                         </Tag>
                       ) : null}
-                      {row.quotaWarningKeyCount > 0 ? (
+                      {row.errorKeyCount > 0 ? (
                         <Tag theme="warning" variant="light">
-                          配额接近上限 {row.quotaWarningKeyCount}
-                        </Tag>
-                      ) : null}
-                      {row.costPolicyMissingModelCount > 0 ? (
-                        <Tag theme="warning" variant="light">
-                          缺计价模型 {row.costPolicyMissingModelCount}
-                        </Tag>
-                      ) : null}
-                      {row.uncostedSuccessCount > 0 ? (
-                        <Tag theme="warning" variant="light">
-                          成功未计费 {row.uncostedSuccessCount}
+                          密钥报错 {row.errorKeyCount}
                         </Tag>
                       ) : null}
                     </Space>
@@ -654,7 +661,8 @@ export function VendorModelsPanel({
                   colKey: 'catalog',
                   title: '目录绑定',
                   width: 160,
-                  cell: ({ row }) => `模型 ${row.modelCount} / 能力 ${row.abilityCount}`,
+                  cell: ({ row }) =>
+                    `模型 ${safeNumber(row.activeModelCount)}/${safeNumber(row.modelCount)} · 能力 ${safeNumber(row.activeAbilityCount)}/${safeNumber(row.abilityCount)}`,
                 },
                 {
                   colKey: 'recent',
@@ -663,7 +671,7 @@ export function VendorModelsPanel({
                   cell: ({ row }) => (
                     <Space direction="vertical" size={2}>
                       <Typography.Text>
-                        调用 {row.recentCalls}，失败 {row.recentFailures}
+                        成功 {safeNumber(row.succeededCalls)}，失败 {safeNumber(row.failedCalls)}
                       </Typography.Text>
                       <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
                         耗时 {row.avgLatencyMs ? formatDurationMs(row.avgLatencyMs) : '—'}
@@ -673,18 +681,17 @@ export function VendorModelsPanel({
                   ),
                 },
                 {
-                  colKey: 'asyncTasks',
-                  title: '任务状态',
+                  colKey: 'suggestions',
+                  title: '建议',
                   minWidth: 220,
                   cell: ({ row }) => (
                     <Space direction="vertical" size={2}>
-                      <Typography.Text>
-                        运行 {row.runningTaskCount || 0}，排队 {row.queuedTaskCount || 0}，失败 {row.failedTaskCount || 0}
-                      </Typography.Text>
-                      <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
-                        {row.oldestRunningAgeSeconds ? `最长 ${formatDurationSeconds(row.oldestRunningAgeSeconds)}` : '无长任务'}
-                        {row.lastTaskAt ? ` · 最近 ${formatDateTime(row.lastTaskAt)}` : ''}
-                      </Typography.Text>
+                      {(row.suggestions || []).slice(0, 2).map((suggestion) => (
+                        <Typography.Text key={`${row.provider}-${suggestion}`} theme="secondary">
+                          {suggestion}
+                        </Typography.Text>
+                      ))}
+                      {(row.suggestions || []).length === 0 ? <Typography.Text theme="success">暂无特殊处理</Typography.Text> : null}
                     </Space>
                   ),
                 },
@@ -702,15 +709,6 @@ export function VendorModelsPanel({
                             </Tag>
                           ))}
                         </Space>
-                        {(row.recentTaskErrors || []).slice(0, 2).map((taskError) => (
-                          <Typography.Text
-                            key={`${row.provider}-${taskError.taskId}`}
-                            theme="secondary"
-                            style={{ fontSize: 12 }}
-                          >
-                            {taskError.capabilityKey || '任务'}：{taskError.errorMessage || taskError.status || '失败'}
-                          </Typography.Text>
-                        ))}
                       </Space>
                     ) : (
                       <Typography.Text theme="success">暂无</Typography.Text>
@@ -726,7 +724,7 @@ export function VendorModelsPanel({
 
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col xs={12} lg={6}>
-          <Card bordered title="厂商出网与能力边界">
+          <Card bordered title="厂商通道与能力范围">
             <Table
               size="small"
               rowKey="provider"
@@ -740,7 +738,7 @@ export function VendorModelsPanel({
                     <Space direction="vertical" size={2}>
                       <Typography.Text strong>{row.displayName}</Typography.Text>
                       <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
-                        {row.provider}
+                        排障代码：{row.provider}
                       </Typography.Text>
                     </Space>
                   ),
@@ -822,7 +820,7 @@ export function VendorModelsPanel({
                 },
                 {
                   colKey: 'features',
-                  title: '能力边界',
+                  title: '能力范围',
                   minWidth: 240,
                   cell: ({ row }) => (
                     <Space size={4} style={{ flexWrap: 'wrap' }}>
@@ -926,7 +924,7 @@ export function VendorModelsPanel({
                     {selectedModelDetail.supportsMask ? <Tag theme="success" variant="light">支持蒙版</Tag> : null}
                     {selectedModelDetail.supportsMultipleImages ? <Tag theme="success" variant="light">支持多图</Tag> : null}
                     {selectedModelDetail.supportsVideo ? <Tag theme="warning" variant="light">支持视频</Tag> : null}
-                    {selectedModelDetail.requiresGlobalEgress ? <Tag theme="warning" variant="light">需要国际出网</Tag> : null}
+                    {selectedModelDetail.requiresGlobalEgress ? <Tag theme="warning" variant="light">需要出网节点</Tag> : null}
                   </Space>
                   <Row gutter={[12, 12]}>
                     {[
@@ -972,7 +970,7 @@ export function VendorModelsPanel({
                 {modelFormError ? <Alert theme="error" message={modelFormError} /> : null}
                 <Row gutter={[12, 12]}>
                   <Col span={4}>
-                    <Typography.Text theme="secondary">厂商标识</Typography.Text>
+                    <Typography.Text theme="secondary">厂商代码（排障用）</Typography.Text>
                     <Input
                       value={String(modelForm.provider || '')}
                       onChange={(v) => onModelFormChange({ ...modelForm, provider: String(v) })}
@@ -1014,7 +1012,7 @@ export function VendorModelsPanel({
                     />
                   </Col>
                   <Col span={6}>
-                    <Typography.Text theme="secondary">执行模式（逗号分隔）</Typography.Text>
+                    <Typography.Text theme="secondary">返回方式（逗号分隔）</Typography.Text>
                     <Input
                       value={modelForm.executionModesText || ''}
                       onChange={(v) => onModelFormChange({ ...modelForm, executionModesText: String(v) })}
@@ -1056,7 +1054,7 @@ export function VendorModelsPanel({
                       value={Boolean(modelForm.requiresGlobalEgress)}
                       onChange={(v) => onModelFormChange({ ...modelForm, requiresGlobalEgress: Boolean(v) })}
                     />
-                    <Typography.Text theme="secondary">需要特殊出网</Typography.Text>
+                    <Typography.Text theme="secondary">需要出网节点</Typography.Text>
                   </Space>
                 </Space>
                 <details
@@ -1068,7 +1066,7 @@ export function VendorModelsPanel({
                 >
                   <summary style={{ cursor: 'pointer', fontWeight: 600 }}>高级配置：计价和元信息</summary>
                   <Space direction="vertical" size="small" style={{ width: '100%', marginTop: 12 }}>
-                    <Alert theme="info" message="普通接入只需要填厂商、模型编号、显示名称和能力边界。计价策略和元信息仅在做成本核算或特殊路由时调整。" />
+                    <Alert theme="info" message="普通接入只需要填厂商、模型编号、显示名称和能力范围。计价策略和元信息仅在做成本核算或特殊路由时调整。" />
                     <div>
                       <Typography.Text theme="secondary">计价策略</Typography.Text>
                       <Textarea

@@ -89,6 +89,10 @@
 | BUSINESS_ROLLBACK_TARGET_NOT_FOUND | 没有可回滚的上一业务版本 | 409 |
 | BUSINESS_STATUS_INVALID | 业务版本状态非法 | 400 |
 | BUSINESS_DEFAULT_VERSION_MUST_BE_ACTIVE | 默认业务版本必须是 active 状态 | 400 |
+| BUSINESS_DEFAULT_ALREADY_ACTIVE | 目标业务版本已经是默认版本 | 409，默认版本审批申请 |
+| BUSINESS_DEFAULT_APPROVAL_PENDING | 目标业务版本已有待审批的默认切换申请 | 409，避免重复申请 |
+| BUSINESS_DEFAULT_APPROVAL_NOT_FOUND | 默认版本审批记录不存在 | 404 |
+| BUSINESS_DEFAULT_APPROVAL_ALREADY_DECIDED | 默认版本审批记录已处理，不能重复审批/驳回 | 409 |
 | BUSINESS_RECIPE_INVALID | 业务能力配方非法 | 400，缺少 primaryAbilityId/steps、步骤类型非法或步骤结构非法 |
 | BUSINESS_RECIPE_ABILITY_NOT_AVAILABLE | 业务配方指向的原子能力不可用 | 400，主能力/步骤能力/VL 辅助能力不存在 |
 | BUSINESS_CLIENT_ID_REQUIRED | 业务方配置自定义 ID 为空 | 400 |
@@ -136,6 +140,7 @@
 | RECHARGE_CALLBACK_SIGNATURE_INVALID | 充值回调签名非法（缺失/错误） | 401 |
 | RECHARGE_CALLBACK_SIGNATURE_EXPIRED | 充值回调签名过期（时间戳超窗） | 401 |
 | BILL_MONTH_INVALID | 账单月份格式非法（需 YYYY-MM） | 400 |
+| RELEASE_DECISION_STATUS_INVALID | 上线结论登记状态非法 | 400，仅允许 approved/deferred/blocked |
 
 ---
 

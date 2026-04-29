@@ -58,6 +58,89 @@ class BusinessCapabilitySeed:
 
 DEFAULT_BUSINESS_CAPABILITY_SEEDS: list[BusinessCapabilitySeed] = [
     BusinessCapabilitySeed(
+        id="biz_pattern_extract_v1_yinhua_tiqu",
+        business_key="pattern_extract",
+        version="v1",
+        display_name="花纹提取 · 印花提取稳定版",
+        description="面向业务侧的花纹提取稳定入口，底层使用当前印花提取 ComfyUI 工作流。",
+        status="active",
+        is_default=True,
+        release_time=datetime(2026, 4, 24, 0, 0, 0),
+        recipe={
+            "mode": "single_ability_task",
+            "primaryAbilityId": "comfyui_yinhua_tiqu",
+            "steps": [
+                {
+                    "id": "pattern_extract",
+                    "type": "ability_task",
+                    "abilityId": "comfyui_yinhua_tiqu",
+                }
+            ],
+            "vlAssist": {"enabled": False, "abilityId": "vl_analyze_image"},
+        },
+        input_schema={
+            "fields": [
+                _field("imageUrl", "原图 URL Image URL", required=True, description="业务侧只需要传入可访问图片地址。"),
+                _field("prompt", "提取要求 Prompt", field_type="textarea", required=False),
+                _field("negative_prompt", "不要出现的内容 Negative Prompt", field_type="textarea", required=False),
+                _field("width", "输出宽度 Width", field_type="number", default=1800),
+                _field("height", "输出高度 Height", field_type="number", default=1800),
+                _field("batch", "生成张数 Batch", field_type="number", default=1),
+                _field("lora", "LoRA 方案 LoRA", field_type="text", required=False),
+            ]
+        },
+        output_schema=_image_generation_output_schema(),
+        metadata={
+            "category": "pattern_extract",
+            "entry": "business-api",
+            "coze_strategy": "Coze 只调用该业务入口，不再手搓底层节点。",
+            "seed_version": 1,
+        },
+    ),
+    BusinessCapabilitySeed(
+        id="biz_pattern_extract_rollback_lora_8step",
+        business_key="pattern_extract",
+        version="rollback-lora-8step-v1",
+        display_name="花纹提取 · 8步加速备选版",
+        description="花纹提取业务入口的备选版本，底层使用 8 步加速可换 LoRA 工作流；用于稳定版异常时快速切回。",
+        status="active",
+        is_default=False,
+        release_time=datetime(2026, 4, 16, 0, 0, 0),
+        recipe={
+            "mode": "single_ability_task",
+            "primaryAbilityId": "comfyui_yinhua_tiqu_lora_8step",
+            "steps": [
+                {
+                    "id": "primary",
+                    "type": "ability_task",
+                    "role": "primary",
+                    "displayName": "8步加速可换 LoRA",
+                    "abilityId": "comfyui_yinhua_tiqu_lora_8step",
+                }
+            ],
+            "vlAssist": {"enabled": False, "abilityId": "vl_analyze_image"},
+        },
+        input_schema={
+            "fields": [
+                _field("imageUrl", "原图 URL Image URL", required=True, description="业务侧只需要传入可访问图片地址。"),
+                _field("prompt", "提取要求 Prompt", field_type="textarea", required=False),
+                _field("negative_prompt", "不要出现的内容 Negative Prompt", field_type="textarea", required=False),
+                _field("batch", "生成张数 Batch", field_type="number", default=1),
+                _field("lora", "LoRA 方案 LoRA", field_type="text", required=False),
+            ]
+        },
+        output_schema=_image_generation_output_schema(),
+        metadata={
+            "category": "pattern_extract",
+            "entry": "business-api",
+            "role": "rollback_safety",
+            "rollbackSafety": True,
+            "rollbackReason": "默认花纹提取版本异常时，保留可直接切回的 8 步加速执行链路。",
+            "coze_strategy": "Coze 仍调用同一个业务入口，回滚只在中台切默认版本。",
+            "seed_version": 1,
+        },
+    ),
+    BusinessCapabilitySeed(
         id="biz_fission_v1_flux_strong_hq_softstyle",
         business_key="fission",
         version="v1",

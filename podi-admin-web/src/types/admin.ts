@@ -858,65 +858,48 @@ export interface VendorUsageSummaryResponse {
 }
 
 export interface VendorGovernanceTotals {
-  providers: number;
-  models: number;
-  abilities: number;
-  activeKeys: number;
-  disabledKeys: number;
-  quotaWarningKeys: number;
-  quotaExhaustedKeys: number;
-  costPolicyMissingModels: number;
-  uncostedSuccessCalls: number;
-  recentCalls: number;
-  recentFailures: number;
-  queuedTasks: number;
-  runningTasks: number;
-  succeededTasks: number;
-  failedTasks: number;
-}
-
-export interface VendorGovernanceTaskError {
-  taskId: string;
-  capabilityKey?: string | null;
-  status?: string | null;
-  errorMessage?: string | null;
-  updatedAt?: string | null;
+  providerCount: number;
+  modelCount: number;
+  activeModelCount: number;
+  abilityCount: number;
+  activeAbilityCount: number;
+  keyCount: number;
+  activeStoredKeyCount: number;
+  envKeyProviderCount: number;
+  issueCount: number;
 }
 
 export interface VendorGovernanceProviderItem {
   provider: string;
   displayName: string;
-  status: string;
+  providerStatus: string;
   envKeyConfigured: boolean;
   runtimeKeyConfigured: boolean;
-  activeKeyCount: number;
+  keyCount: number;
+  activeStoredKeyCount: number;
   disabledKeyCount: number;
-  quotaWarningKeyCount: number;
-  quotaExhaustedKeyCount: number;
-  costPolicyMissingModelCount: number;
-  uncostedSuccessCount: number;
+  cooldownKeyCount: number;
+  exhaustedKeyCount: number;
+  errorKeyCount: number;
   modelCount: number;
+  activeModelCount: number;
   abilityCount: number;
-  recentCalls: number;
-  recentFailures: number;
-  queuedTaskCount: number;
-  runningTaskCount: number;
-  succeededTaskCount: number;
-  failedTaskCount: number;
-  oldestRunningAgeSeconds?: number | null;
-  lastTaskAt?: string | null;
-  recentTaskErrors: VendorGovernanceTaskError[];
+  activeAbilityCount: number;
+  succeededCalls: number;
+  failedCalls: number;
   avgLatencyMs?: number | null;
   lastSeenAt?: string | null;
   requiresGlobalEgress: boolean;
   supportedApiTypes: string[];
   executionModes: string[];
   issues: string[];
+  suggestions: string[];
 }
 
 export interface VendorGovernanceSummaryResponse {
   baseUrl: string;
   windowHours: number;
+  generatedAt: string;
   totals: VendorGovernanceTotals;
   providers: VendorGovernanceProviderItem[];
   issues: string[];
@@ -2001,6 +1984,21 @@ export interface ReleasePatrolRecordResponse {
 
 export interface ReleasePatrolRecordListResponse {
   items: ReleasePatrolRecordResponse[];
+}
+
+export interface ReleaseDecisionRecordResponse {
+  id: string;
+  status: 'approved' | 'deferred' | 'blocked' | string;
+  title: string;
+  generatedAt: string;
+  preflightId?: string | null;
+  patrolId?: string | null;
+  note?: string | null;
+  summary: JsonRecord;
+}
+
+export interface ReleaseDecisionRecordListResponse {
+  items: ReleaseDecisionRecordResponse[];
 }
 
 export interface WeeklyReportResponse {

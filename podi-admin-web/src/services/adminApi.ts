@@ -85,6 +85,8 @@ import type {
   PackageGrantPayload,
   PackageGrantResponse,
   PublicAbility,
+  ReleaseDecisionRecordListResponse,
+  ReleaseDecisionRecordResponse,
   ReleasePreflightResponse,
   ReleasePreflightSnapshotListResponse,
   ReleasePatrolRecordListResponse,
@@ -1045,6 +1047,20 @@ export const adminApi = {
     }),
   listReleasePatrolRecords: (limit = 5) =>
     request<ReleasePatrolRecordListResponse>(`/api/admin/dashboard/release-patrol/records?limit=${limit}`),
+  createReleaseDecisionRecord: (payload: {
+    status: string;
+    title?: string;
+    preflightId?: string | null;
+    patrolId?: string | null;
+    note?: string;
+    summary?: JsonRecord;
+  }) =>
+    request<ReleaseDecisionRecordResponse>('/api/admin/dashboard/release-decisions/records', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  listReleaseDecisionRecords: (limit = 5) =>
+    request<ReleaseDecisionRecordListResponse>(`/api/admin/dashboard/release-decisions/records?limit=${limit}`),
   listBusinessCapabilities: () => request<BusinessCapabilityListResponse>('/api/admin/business/capabilities'),
   createBusinessCapability: (payload: Partial<BusinessCapability>) =>
     request<BusinessCapability>('/api/admin/business/capabilities', { method: 'POST', body: JSON.stringify(payload) }),

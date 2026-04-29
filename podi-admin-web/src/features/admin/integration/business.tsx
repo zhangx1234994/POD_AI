@@ -181,6 +181,175 @@ export const BusinessActionPanel = ({
   );
 };
 
+export const BusinessReleaseGuardPanel = ({
+  capabilities,
+  pendingApprovals,
+  summary,
+}: {
+  capabilities: BusinessCapability[];
+  pendingApprovals: BusinessDefaultApproval[];
+  summary?: BusinessUsageSummaryResponse | null;
+}) => {
+  const rows = coreBusinessKeys.map((businessKey) => {
+    const versions = capabilities.filter((item) => item.businessKey === businessKey);
+    const defaultVersion = versions.find((item) => item.isDefault);
+    const rollbackVersions = versions.filter((item) => item.status === 'active' && !item.isDefault);
+    const hasPendingApproval = pendingApprovals.some((item) => item.businessKey === businessKey && item.status === 'pending');
+    const failedCount = versions
+      .filter((item) => item.isDefault)
+      .reduce((total, item) => total + Number(item.runMetrics?.failed || 0), 0);
+    const latestDefaultError = defaultVersion?.latestRun?.error || '';
+    const defaultReady = Boolean(defaultVersion && defaultVersion.status === 'active' && (defaultVersion.primaryAbilityId || defaultVersion.primaryAbilityName));
+    const rollbackReady = rollbackVersions.length > 0;
+    const blockedReason = !defaultVersion
+      ? '缺少默认版本'
+      : defaultVersion.status !== 'active'
+        ? '默认版本未启用'
+        : !(defaultVersion.primaryAbilityId || defaultVersion.primaryAbilityName)
+          ? '默认版本缺主能力'
+          : hasPendingApproval
+            ? '有切换审批待处理'
+            : failedCount > 0 || latestDefaultError
+              ? '默认版本最近失败'
+              : '';
+    return {
+      businessKey,
+      name: businessKeyLabel(businessKey),
+      defaultVersion,
+      rollbackVersions,
+      hasPendingApproval,
+      failedCount,
+      latestDefaultError,
+      defaultReady,
+      rollbackReady,
+      blockedReason,
+    };
+  });
+  const blockedCount = rows.filter((row) => row.blockedReason).length;
+  const rollbackMissingCount = rows.filter((row) => !row.rollbackReady).length;
+  const callbackFailed = Number(summary?.callbackFailed || 0);
+  const unpriced = Number(summary?.unpriced || 0);
+  const canRelease = blockedCount === 0 && callbackFailed === 0;
+
+  return (
+    <Card
+      bordered
+      title={
+        <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+          <div>
+            <Typography.Text strong>上线 / 切换前检查</Typography.Text>
+            <div>
+              <Typography.Text theme="secondary">
+                涉及默认版本、回滚、停用的动作都会影响业务入口；先看这里，再处理审批或回滚。
+              </Typography.Text>
+            </div>
+          </div>
+          <Tag theme={canRelease ? (rollbackMissingCount > 0 || unpriced > 0 ? 'warning' : 'success') : 'danger'} variant="light">
+            {canRelease ? (rollbackMissingCount > 0 || unpriced > 0 ? '可小流量，需补安全垫' : '可进入测评') : `阻塞 ${blockedCount + (callbackFailed > 0 ? 1 : 0)}`}
+          </Tag>
+        </Space>
+      }
+    >
+      <Space direction="vertical" size="small" style={{ width: '100%' }}>
+        <Alert
+          theme={canRelease ? 'info' : 'warning'}
+          message={
+            canRelease
+              ? '默认入口没有明显阻塞。发布前仍需要跑测评端真实链路，确认 Coze 到中台再到能力服务的结果回填。'
+              : '存在默认入口或回调风险。处理完成前，不建议切默认版本或对外说明新版本已可用。'
+          }
+        />
+        <Table
+          size="small"
+          rowKey="businessKey"
+          data={rows}
+          columns={[
+            {
+              colKey: 'name',
+              title: '主业务',
+              width: 130,
+              cell: ({ row }) => <Typography.Text strong>{row.name}</Typography.Text>,
+            },
+            {
+              colKey: 'default',
+              title: '默认入口',
+              minWidth: 240,
+              cell: ({ row }) => (
+                <Space direction="vertical" size={2}>
+                  <Space size={6}>
+                    <Tag theme={row.defaultReady ? 'success' : 'danger'} variant="light">
+                      {row.defaultReady ? '可用' : '需处理'}
+                    </Tag>
+                    <Typography.Text>
+                      {row.defaultVersion ? `${row.defaultVersion.version} · ${row.defaultVersion.displayName}` : '未设置'}
+                    </Typography.Text>
+                  </Space>
+                  <Typography.Text theme="secondary">
+                    {row.defaultVersion?.primaryAbilityName || row.defaultVersion?.primaryAbilityId || '未绑定主能力'}
+                  </Typography.Text>
+                </Space>
+              ),
+            },
+            {
+              colKey: 'rollback',
+              title: '回滚安全垫',
+              width: 180,
+              cell: ({ row }) => (
+                <Space direction="vertical" size={2}>
+                  <Tag theme={row.rollbackReady ? 'success' : 'warning'} variant="light">
+                    {row.rollbackReady ? `${row.rollbackVersions.length} 个备选` : '缺备选'}
+                  </Tag>
+                  <Typography.Text theme="secondary">
+                    {row.rollbackReady ? row.rollbackVersions.map((item: BusinessCapability) => item.version).join('、') : '建议保留一个启用的非默认版本'}
+                  </Typography.Text>
+                </Space>
+              ),
+            },
+            {
+              colKey: 'risk',
+              title: '当前风险',
+              minWidth: 260,
+              cell: ({ row }) => (
+                <Space direction="vertical" size={2}>
+                  <Tag theme={row.blockedReason ? 'warning' : 'success'} variant="light">
+                    {row.blockedReason || '暂无阻塞'}
+                  </Tag>
+                  <Typography.Text theme={row.latestDefaultError ? 'error' : 'secondary'}>
+                    {row.latestDefaultError || (row.failedCount > 0 ? `近24小时失败 ${row.failedCount} 次` : '默认版本最近无失败样本')}
+                  </Typography.Text>
+                  {row.hasPendingApproval ? <Typography.Text theme="warning">存在默认版本切换审批，请先处理。</Typography.Text> : null}
+                </Space>
+              ),
+            },
+            {
+              colKey: 'action',
+              title: '建议动作',
+              minWidth: 260,
+              cell: ({ row }) => {
+                const suggestion = row.blockedReason
+                  ? '先处理风险，再做版本切换。'
+                  : row.rollbackReady
+                    ? '可进入测评端做真实链路验证。'
+                    : '先补一个启用的备选版本，避免切换后无法快速回滚。';
+                return <Typography.Text theme="secondary">{suggestion}</Typography.Text>;
+              },
+            },
+          ]}
+        />
+        {(callbackFailed > 0 || unpriced > 0) ? (
+          <Alert
+            theme="warning"
+            message={[
+              callbackFailed > 0 ? `当前还有 ${callbackFailed} 次回调失败，业务方可能拿不到结果。` : '',
+              unpriced > 0 ? `${unpriced} 次成功调用未定价，正式收费前需要补成本口径。` : '',
+            ].filter(Boolean).join(' ')}
+          />
+        ) : null}
+      </Space>
+    </Card>
+  );
+};
+
 export const businessOperationActionLabel = (action?: string | null) => {
   if (action === 'business_capability_create') return '新增版本';
   if (action === 'business_capability_update') return '修改配置';
@@ -1658,12 +1827,12 @@ export const businessRecipeStepLabel = (type?: string | null, role?: string | nu
   if (type === 'input') return '输入';
   if (type === 'input_mapping') return '参数整理';
   if (type === 'prompt_template') return '提示词组装';
-  if (type === 'vl_analyze' || type === 'vl_analyze_image') return 'VL 分析';
-  if (type === 'comfyui_workflow') return 'ComfyUI';
-  if (type === 'vendor_api') return '第三方 API';
+  if (type === 'vl_analyze' || type === 'vl_analyze_image') return '图像理解';
+  if (type === 'comfyui_workflow') return '生图工作流';
+  if (type === 'vendor_api') return '商业模型/API';
   if (type === 'ability_task') return '原子能力';
   if (type === 'condition') return '条件判断';
-  if (type === 'fanout') return '并行分发';
+  if (type === 'fanout') return '批量分发';
   if (type === 'merge') return '结果合并';
   if (type === 'output_mapping') return '结果整理';
   if (type === 'callback') return '回调通知';
@@ -1783,6 +1952,47 @@ const readCapabilityRollout = (metadata?: JsonRecord | null) => {
   };
 };
 
+const businessCapabilityGroupHint = (businessKey?: string | null) => {
+  if (businessKey === 'pattern_extract') return '从原图中提取可复用花纹资产，是后续裂变和扩图的上游入口。';
+  if (businessKey === 'fission') return '围绕原图生成多张变化图，是当前最核心的业务入口。';
+  if (businessKey === 'outpaint') return '在原图基础上向外扩展画面，主要服务构图补全和素材延展。';
+  return '承载一个对业务方稳定暴露的功能入口，底层能力可以独立换版本。';
+};
+
+const businessCapabilityMediaLabel = (item: BusinessCapability) => {
+  const key = item.businessKey;
+  if (key === 'pattern_extract') return '输入图片 · 输出花纹图';
+  if (key === 'fission') return '输入图片 · 输出多张图';
+  if (key === 'outpaint') return '输入图片 · 输出扩展图';
+  const output = item.outputSchema || {};
+  const text = JSON.stringify(output).toLowerCase();
+  if (text.includes('video')) return '输出视频';
+  if (text.includes('text')) return '输出文字';
+  if (text.includes('image')) return '输出图片';
+  return '按接口配置输出';
+};
+
+const businessCapabilityRiskTag = (item: BusinessCapability) => {
+  if (item.status !== 'active') {
+    return { theme: 'default', text: '未对外启用', detail: '不会承接新的业务请求。' };
+  }
+  if (!item.primaryAbilityId && !item.primaryAbilityName) {
+    return { theme: 'danger', text: '缺底层能力', detail: '需要先绑定实际执行能力。' };
+  }
+  if (item.latestRun?.error || Number(item.runMetrics?.failed || 0) > 0) {
+    return { theme: 'warning', text: '最近有失败', detail: businessCapabilityLatestRunLabel(item) };
+  }
+  if (item.isDefault) {
+    return { theme: 'success', text: '生产默认', detail: '当前业务入口默认使用这个版本。' };
+  }
+  return { theme: 'primary', text: '备用版本', detail: '可用于灰度、对照或回滚。' };
+};
+
+const businessCapabilityGroupSortValue = (businessKey?: string | null) => {
+  const index = coreBusinessKeys.indexOf((businessKey || '') as (typeof coreBusinessKeys)[number]);
+  return index >= 0 ? index : coreBusinessKeys.length;
+};
+
 export const BusinessCapabilityGrid = ({
   capabilities,
   pendingApprovals,
@@ -1801,110 +2011,186 @@ export const BusinessCapabilityGrid = ({
   onSetDefault: (item: BusinessCapability) => void;
   onToggleActive: (item: BusinessCapability) => void;
   formatDateTime: (value?: string | null) => string;
-}) => (
-  <Row gutter={[16, 16]}>
-    {capabilities.map((item) => {
-      const rollout = readCapabilityRollout(item.metadata);
-      const defaultActionId = `default:${item.id}`;
-      const statusActionId = `status:${item.id}`;
-      const isActive = item.status === 'active';
-      const lockDefaultStop = isActive && item.isDefault;
-      const actionBusy = Boolean(actionLoadingId);
-      const pendingApproval = pendingApprovals.find(
-        (approval) => approval.targetCapabilityId === item.id && approval.status === 'pending',
-      );
+}) => {
+  const grouped = capabilities.reduce<Record<string, BusinessCapability[]>>((map, item) => {
+    const key = item.businessKey || 'other';
+    map[key] = map[key] || [];
+    map[key].push(item);
+    return map;
+  }, {});
+  const groupKeys = Object.keys(grouped).sort((left, right) => {
+    const diff = businessCapabilityGroupSortValue(left) - businessCapabilityGroupSortValue(right);
+    return diff !== 0 ? diff : left.localeCompare(right);
+  });
 
-      return (
-        <Col key={item.id} xs={12} sm={6} lg={6}>
-          <Card bordered>
-            <Space direction="vertical" size="small" style={{ width: '100%' }}>
-              <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                <Typography.Text strong>{item.displayName}</Typography.Text>
-                <Tag theme={item.isDefault ? 'primary' : 'default'} variant="light">
-                  {item.isDefault ? '默认版本' : item.version}
-                </Tag>
-              </Space>
-              <Typography.Text theme="secondary">{item.description || '暂无说明'}</Typography.Text>
-              <Space breakLine>
-                <StatusBadge status={item.status} />
-                <Tag variant="light">{businessKeyLabel(item.businessKey)}</Tag>
-                <Tag variant="light">{item.version}</Tag>
-              </Space>
-              <Typography.Text theme="secondary">
-                发布时间：{formatDateTime(item.releaseTime || item.createdAt)}
-              </Typography.Text>
-              <Typography.Text theme="secondary">
-                主执行能力：{item.primaryAbilityName || String(item.recipe?.primaryAbilityId || '未配置')}
-              </Typography.Text>
-              {item.recipeSteps && item.recipeSteps.length > 0 ? (
-                <Space direction="vertical" size={4}>
-                  <Typography.Text theme="secondary">
-                    业务流程：{item.recipeSteps.length} 步，可按顺序审阅输入、处理、执行和输出。
-                  </Typography.Text>
-                  <BusinessRecipeFlow steps={item.recipeSteps} compact />
+  if (capabilities.length === 0) {
+    return (
+      <Card bordered>
+        <Typography.Text theme="secondary">暂无业务版本。请先新增花纹提取、图裂变或扩图的业务入口。</Typography.Text>
+      </Card>
+    );
+  }
+
+  return (
+    <Space direction="vertical" size="large" style={{ width: '100%' }}>
+      {groupKeys.map((businessKey) => {
+        const items = grouped[businessKey].slice().sort((left, right) => {
+          if (left.isDefault !== right.isDefault) return left.isDefault ? -1 : 1;
+          if (left.status !== right.status) return left.status === 'active' ? -1 : 1;
+          return String(right.releaseTime || right.createdAt || '').localeCompare(String(left.releaseTime || left.createdAt || ''));
+        });
+        const defaultItem = items.find((item) => item.isDefault);
+        const activeCount = items.filter((item) => item.status === 'active').length;
+        return (
+          <Card
+            key={businessKey}
+            bordered
+            title={
+              <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+                <div>
+                  <Typography.Text strong>{businessKeyLabel(businessKey)}</Typography.Text>
+                  <div>
+                    <Typography.Text theme="secondary">{businessCapabilityGroupHint(businessKey)}</Typography.Text>
+                  </div>
+                </div>
+                <Space breakLine>
+                  <Tag theme={defaultItem ? 'success' : 'danger'} variant="light">
+                    默认：{defaultItem ? `${defaultItem.version} · ${defaultItem.displayName}` : '未设置'}
+                  </Tag>
+                  <Tag variant="light">启用 {activeCount}/{items.length}</Tag>
                 </Space>
-              ) : null}
-              <Typography.Text theme="secondary">
-                模型/供应方：{item.vendorModelName || item.vendorModelProvider || '未绑定模型目录'}
-              </Typography.Text>
-              <Space align="center" size={6} style={{ flexWrap: 'wrap' }}>
-                <Typography.Text theme="secondary">最近调用：</Typography.Text>
-                {item.latestRun ? <StatusBadge status={item.latestRun.status} /> : null}
-                <Typography.Text theme={item.latestRun?.error ? 'error' : 'secondary'}>
-                  {businessCapabilityLatestRunLabel(item)}
-                </Typography.Text>
-                {item.latestRun?.createdAt || item.latestRun?.created_at ? (
-                  <Typography.Text theme="secondary">
-                    {formatDateTime(item.latestRun.createdAt || item.latestRun.created_at || '')}
-                  </Typography.Text>
-                ) : null}
               </Space>
-              <Typography.Text theme={Number(item.runMetrics?.failed || 0) > 0 ? 'warning' : 'secondary'}>
-                {businessCapabilityRunMetricsLabel(item)}
-              </Typography.Text>
-              {rollout.enabled || rollout.percent > 0 || rollout.allowlistText ? (
-                <Typography.Text theme="secondary">
-                  灰度：{rollout.enabled ? `${rollout.percent}%` : '未启用'}
-                  {rollout.allowlistText ? ' · 含白名单' : ''}
-                </Typography.Text>
-              ) : null}
-              {isReadOnly ? (
-                <Tag theme="default" variant="light">
-                  只读查看
-                </Tag>
-              ) : (
-                <Space breakLine size={6}>
-                  <Button size="small" variant="outline" onClick={() => onEdit(item)}>
-                    编辑
-                  </Button>
-                  {!item.isDefault ? (
-                    <Button
-                      size="small"
-                      theme="primary"
-                      variant="outline"
-                      loading={actionLoadingId === defaultActionId}
-                      disabled={Boolean(pendingApproval) || (actionBusy && actionLoadingId !== defaultActionId)}
-                      onClick={() => onSetDefault(item)}
-                    >
-                      {pendingApproval ? '默认审批中' : '申请设为默认'}
-                    </Button>
-                  ) : null}
-                  <Button
-                    size="small"
-                    theme={isActive ? 'warning' : 'primary'}
-                    variant="outline"
-                    loading={actionLoadingId === statusActionId}
-                    disabled={lockDefaultStop || (actionBusy && actionLoadingId !== statusActionId)}
-                    onClick={() => onToggleActive(item)}
-                  >
-                    {lockDefaultStop ? '默认版不能停用' : isActive ? '停用' : '启用'}
-                  </Button>
-                </Space>
-              )}
-            </Space>
+            }
+          >
+            <Row gutter={[16, 16]}>
+              {items.map((item) => {
+                const rollout = readCapabilityRollout(item.metadata);
+                const risk = businessCapabilityRiskTag(item);
+                const defaultActionId = `default:${item.id}`;
+                const statusActionId = `status:${item.id}`;
+                const isActive = item.status === 'active';
+                const lockDefaultStop = isActive && item.isDefault;
+                const actionBusy = Boolean(actionLoadingId);
+                const pendingApproval = pendingApprovals.find(
+                  (approval) => approval.targetCapabilityId === item.id && approval.status === 'pending',
+                );
+
+                return (
+                  <Col key={item.id} xs={12} md={6} xl={4}>
+                    <Card bordered size="small" style={{ height: '100%' }}>
+                      <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                        <Space align="start" style={{ justifyContent: 'space-between', width: '100%', gap: 10 }}>
+                          <div style={{ minWidth: 0 }}>
+                            <Typography.Text strong>{item.displayName}</Typography.Text>
+                            <div>
+                              <Typography.Text theme="secondary">
+                                {item.version} · {businessCapabilityMediaLabel(item)}
+                              </Typography.Text>
+                            </div>
+                          </div>
+                          <Tag theme={risk.theme as any} variant="light">
+                            {risk.text}
+                          </Tag>
+                        </Space>
+                        <Typography.Text theme="secondary">{item.description || risk.detail}</Typography.Text>
+                        <Row gutter={[8, 8]}>
+                          <Col span={6}>
+                            <Typography.Text theme="secondary">发布时间</Typography.Text>
+                            <div>
+                              <Typography.Text>{formatDateTime(item.releaseTime || item.createdAt)}</Typography.Text>
+                            </div>
+                          </Col>
+                          <Col span={6}>
+                            <Typography.Text theme="secondary">最近结果</Typography.Text>
+                            <div>
+                              <Space size={4}>
+                                {item.latestRun ? <StatusBadge status={item.latestRun.status} /> : null}
+                                <Typography.Text theme={item.latestRun?.error ? 'error' : 'secondary'}>
+                                  {businessCapabilityLatestRunLabel(item)}
+                                </Typography.Text>
+                              </Space>
+                            </div>
+                          </Col>
+                          <Col span={6}>
+                            <Typography.Text theme="secondary">底层能力</Typography.Text>
+                            <div>
+                              <Typography.Text>{item.primaryAbilityName || String(item.recipe?.primaryAbilityId || '未配置')}</Typography.Text>
+                            </div>
+                          </Col>
+                          <Col span={6}>
+                            <Typography.Text theme="secondary">模型来源</Typography.Text>
+                            <div>
+                              <Typography.Text>{item.vendorModelName || item.vendorModelProvider || '未绑定'}</Typography.Text>
+                            </div>
+                          </Col>
+                        </Row>
+                        <Typography.Text theme={Number(item.runMetrics?.failed || 0) > 0 ? 'warning' : 'secondary'}>
+                          {businessCapabilityRunMetricsLabel(item)}
+                        </Typography.Text>
+                        {rollout.enabled || rollout.percent > 0 || rollout.allowlistText ? (
+                          <Typography.Text theme="secondary">
+                            灰度：{rollout.enabled ? `${rollout.percent}%` : '未启用'}
+                            {rollout.allowlistText ? ' · 含白名单' : ''}
+                          </Typography.Text>
+                        ) : null}
+                        {item.recipeSteps && item.recipeSteps.length > 0 ? (
+                          <details
+                            style={{
+                              border: '1px solid var(--td-border-level-1-color)',
+                              borderRadius: 10,
+                              padding: 10,
+                            }}
+                          >
+                            <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
+                              查看业务流程（{item.recipeSteps.length} 步）
+                            </summary>
+                            <div style={{ marginTop: 10 }}>
+                              <BusinessRecipeFlow steps={item.recipeSteps} compact />
+                            </div>
+                          </details>
+                        ) : null}
+                        {isReadOnly ? (
+                          <Tag theme="default" variant="light">
+                            只读查看
+                          </Tag>
+                        ) : (
+                          <Space breakLine size={6}>
+                            <Button size="small" variant="outline" onClick={() => onEdit(item)}>
+                              编辑
+                            </Button>
+                            {!item.isDefault ? (
+                              <Button
+                                size="small"
+                                theme="primary"
+                                variant="outline"
+                                loading={actionLoadingId === defaultActionId}
+                                disabled={Boolean(pendingApproval) || (actionBusy && actionLoadingId !== defaultActionId)}
+                                onClick={() => onSetDefault(item)}
+                              >
+                                {pendingApproval ? '默认审批中' : '申请设为默认'}
+                              </Button>
+                            ) : null}
+                            <Button
+                              size="small"
+                              theme={isActive ? 'warning' : 'primary'}
+                              variant="outline"
+                              loading={actionLoadingId === statusActionId}
+                              disabled={lockDefaultStop || (actionBusy && actionLoadingId !== statusActionId)}
+                              onClick={() => onToggleActive(item)}
+                            >
+                              {lockDefaultStop ? '默认版不能停用' : isActive ? '停用' : '启用'}
+                            </Button>
+                          </Space>
+                        )}
+                      </Space>
+                    </Card>
+                  </Col>
+                );
+              })}
+            </Row>
           </Card>
-        </Col>
-      );
-    })}
-  </Row>
-);
+        );
+      })}
+    </Space>
+  );
+};

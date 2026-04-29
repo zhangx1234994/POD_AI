@@ -34,7 +34,7 @@ def test_business_seed_keeps_rollback_safety_versions_available() -> None:
         assert ensure_default_business_capabilities(session) is True
         assert ensure_default_business_capabilities(session) is False
 
-        for business_key in ("fission", "outpaint"):
+        for business_key in ("pattern_extract", "fission", "outpaint"):
             rows = (
                 session.execute(
                     select(BusinessCapability)
@@ -63,6 +63,18 @@ def test_business_seed_keeps_rollback_safety_versions_available() -> None:
 
         fission_fallback = session.get(BusinessCapability, "biz_fission_rollback_e7_flux2_liebian")
         outpaint_fallback = session.get(BusinessCapability, "biz_outpaint_rollback_huawen_kuotu")
+        pattern_extract_default = session.get(BusinessCapability, "biz_pattern_extract_v1_yinhua_tiqu")
+        pattern_extract_fallback = session.get(BusinessCapability, "biz_pattern_extract_rollback_lora_8step")
+
+        assert pattern_extract_default is not None
+        assert pattern_extract_default.recipe["primaryAbilityId"] == "comfyui_yinhua_tiqu"
+        assert pattern_extract_default.version == "v1"
+        assert pattern_extract_default.is_default is True
+
+        assert pattern_extract_fallback is not None
+        assert pattern_extract_fallback.recipe["primaryAbilityId"] == "comfyui_yinhua_tiqu_lora_8step"
+        assert pattern_extract_fallback.version == "rollback-lora-8step-v1"
+        assert pattern_extract_fallback.is_default is False
 
         assert fission_fallback is not None
         assert fission_fallback.recipe["primaryAbilityId"] == "comfyui_e7_flux2_liebian"

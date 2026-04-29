@@ -16,6 +16,8 @@ from app.schemas.business import (
     BusinessCapabilityPromoteRequest,
     BusinessCapabilityRollbackRequest,
     BusinessCapabilityUpdateRequest,
+    BusinessDefaultApprovalCreateRequest,
+    BusinessDefaultApprovalDecisionRequest,
     BusinessRunCreateRequest,
     BusinessUsageSummaryResponse,
 )
@@ -217,6 +219,48 @@ def test_business_capability_promote_sets_default_and_records_event(monkeypatch)
     assert events[-1]["action"] == "promote_default"
     assert events[-1]["note"] == "验证通过后切默认"
     assert events[-1]["previousDefaultCapabilityId"] == "biz_fission_old"
+
+
+def test_business_default_approval_approves_default_and_records_operation_log(monkeypatch) -> None:
+    install_business_db(monkeypatch)
+    service = BusinessRunService()
+
+    created = service.create_capability(
+        BusinessCapabilityCreateRequest(
+            businessKey="fission",
+            version="approval-v2",
+            displayName="审批图裂变",
+            status="active",
+            isDefault=False,
+            primaryAbilityId="ability_openai_fission",
+        )
+    )
+
+    approval = service.create_default_approval(
+        created["id"],
+        BusinessDefaultApprovalCreateRequest(note="灰度通过，申请切默认"),
+    )
+    assert approval["status"] == "pending"
+    assert approval["business_key"] == "fission"
+
+    decided = service.decide_default_approval(
+        approval["id"],
+        BusinessDefaultApprovalDecisionRequest(note="确认发布"),
+        approve=True,
+    )
+    assert decided["status"] == "approved"
+    assert decided["applied_at"] is not None
+
+    listed = {item["id"]: item for item in service.list_capabilities()}
+    assert listed[created["id"]]["is_default"] is True
+    assert listed["biz_fission_old"]["is_default"] is False
+
+    approvals = service.list_default_approvals(status="approved", business_key="fission")
+    assert approvals[0]["id"] == approval["id"]
+
+    actions = [item["action"] for item in service.list_operation_logs(business_key="fission")]
+    assert "request_default_approval" in actions
+    assert "approve_default_approval" in actions
 
 
 def test_business_capability_rollback_restores_previous_default(monkeypatch) -> None:

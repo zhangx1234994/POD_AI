@@ -152,6 +152,20 @@ def test_vendor_usage_summary_proxy(monkeypatch) -> None:
     assert body["items"][0]["count"] == 3
 
 
+def test_vendor_usage_summary_degrades_when_vendor_service_rejects(monkeypatch) -> None:
+    def raise_unauthorized(*, window_hours: int = 24):
+        raise HTTPException(status_code=403, detail="INTERNAL_ONLY")
+
+    monkeypatch.setattr(vendor_admin_client_module.vendor_admin_client, "usage_summary", raise_unauthorized)
+
+    response = client.get("/api/admin/vendor-api/usage/summary?windowHours=12")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["windowHours"] == 12
+    assert body["items"] == []
+
+
 def test_vendor_governance_summary_combines_keys_models_abilities_and_usage(monkeypatch) -> None:
     get_session = install_vendor_governance_db(monkeypatch)
     with get_session() as session:

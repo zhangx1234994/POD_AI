@@ -478,6 +478,73 @@ def admin_promote_business_capability(
     return get_business_run_service().promote_capability(capability_id, payload, actor=user)
 
 
+@admin_router.post(
+    "/capabilities/{capability_id}/default-approvals",
+    response_model=schemas.BusinessDefaultApprovalRead,
+    response_model_by_alias=False,
+)
+def admin_create_business_default_approval(
+    capability_id: str,
+    payload: schemas.BusinessDefaultApprovalCreateRequest | None = None,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessDefaultApprovalRead:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    return get_business_run_service().create_default_approval(capability_id, payload, actor=user)
+
+
+@admin_router.get(
+    "/default-approvals",
+    response_model=schemas.BusinessDefaultApprovalListResponse,
+    response_model_by_alias=False,
+)
+def admin_list_business_default_approvals(
+    status: str | None = Query(default=None),
+    business_key: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessDefaultApprovalListResponse:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    return schemas.BusinessDefaultApprovalListResponse(
+        items=get_business_run_service().list_default_approvals(
+            status=status,
+            business_key=business_key,
+            limit=limit,
+        )
+    )
+
+
+@admin_router.post(
+    "/default-approvals/{approval_id}/approve",
+    response_model=schemas.BusinessDefaultApprovalRead,
+    response_model_by_alias=False,
+)
+def admin_approve_business_default_approval(
+    approval_id: str,
+    payload: schemas.BusinessDefaultApprovalDecisionRequest | None = None,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessDefaultApprovalRead:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    return get_business_run_service().decide_default_approval(approval_id, payload, actor=user, approve=True)
+
+
+@admin_router.post(
+    "/default-approvals/{approval_id}/reject",
+    response_model=schemas.BusinessDefaultApprovalRead,
+    response_model_by_alias=False,
+)
+def admin_reject_business_default_approval(
+    approval_id: str,
+    payload: schemas.BusinessDefaultApprovalDecisionRequest | None = None,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessDefaultApprovalRead:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    return get_business_run_service().decide_default_approval(approval_id, payload, actor=user, approve=False)
+
+
 @admin_router.post("/rollback/{business_key}", response_model=schemas.BusinessCapabilityRead, response_model_by_alias=False)
 def admin_rollback_business_default(
     business_key: str,
@@ -525,6 +592,36 @@ def admin_list_business_runs(
         trace_id=trace_id,
     )
     return schemas.BusinessRunListResponse(items=items, total=total)
+
+
+@admin_router.get(
+    "/operation-logs",
+    response_model=schemas.BusinessOperationLogListResponse,
+    response_model_by_alias=False,
+)
+def admin_list_business_operation_logs(
+    action: str | None = Query(default=None),
+    target_type: str | None = Query(default=None),
+    business_key: str | None = Query(default=None),
+    tenant_id: str | None = Query(default=None),
+    client_id: str | None = Query(default=None),
+    actor_user_id: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessOperationLogListResponse:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    return schemas.BusinessOperationLogListResponse(
+        items=get_business_run_service().list_operation_logs(
+            action=action,
+            target_type=target_type,
+            business_key=business_key,
+            tenant_id=tenant_id,
+            client_id=client_id,
+            actor_user_id=actor_user_id,
+            limit=limit,
+        )
+    )
 
 
 @admin_router.get("/usage-summary", response_model=schemas.BusinessUsageSummaryResponse, response_model_by_alias=False)

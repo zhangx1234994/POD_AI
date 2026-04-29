@@ -60,6 +60,25 @@ class ExecutorHealth(BaseModel):
     last_heartbeat_at: datetime | None = None
 
 
+class DashboardStrategySummary(BaseModel):
+    window_hours: int
+    business_total: int
+    business_succeeded: int
+    business_failed: int
+    success_rate: float | None = None
+    billable: int
+    unpriced: int
+    no_charge: int
+    billing_pending: int
+    callback_failed: int
+    callback_missing: int
+    wallet_settled: int
+    wallet_failed: int
+    cost_by_currency: dict[str, float]
+    quota_units: int
+    risk_count: int
+
+
 class DashboardMetricsResponse(BaseModel):
     totals: DashboardTotals
     queue_overview: QueueOverview
@@ -67,6 +86,7 @@ class DashboardMetricsResponse(BaseModel):
     today: TodaySummary
     recent_tasks: list[RecentTask]
     executor_health: list[ExecutorHealth]
+    strategy_summary: DashboardStrategySummary
 
 
 class DispatchLogEntry(BaseModel):
@@ -133,3 +153,141 @@ class SystemConfigResponse(BaseModel):
     coze: CozeConfig | None = None
     feature_flags: dict[str, bool]
     todo_items: list[TodoItem]
+
+
+class StrategySnapshotCreateRequest(BaseModel):
+    window_hours: int = Field(default=168, alias="windowHours", ge=1, le=2160)
+    note: str | None = None
+
+
+class StrategySnapshotResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str
+    generated_at: datetime = Field(alias="generatedAt")
+    window_hours: int = Field(alias="windowHours")
+    note: str | None = None
+    summary: DashboardStrategySummary
+
+
+class StrategySnapshotListResponse(BaseModel):
+    items: list[StrategySnapshotResponse]
+
+
+class WeeklyReportRunRequest(BaseModel):
+    window_hours: int = Field(default=168, alias="windowHours", ge=1, le=2160)
+    note: str | None = None
+    send: bool = False
+    webhook_format: str = Field(default="generic", alias="webhookFormat")
+
+
+class WeeklyReportResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str
+    generated_at: datetime = Field(alias="generatedAt")
+    window_hours: int = Field(alias="windowHours")
+    report_path: str = Field(alias="reportPath")
+    snapshot_id: str = Field(alias="snapshotId")
+    send_status: str = Field(alias="sendStatus")
+    send_detail: str | None = Field(default=None, alias="sendDetail")
+    webhook_format: str = Field(alias="webhookFormat")
+    webhook_configured: bool = Field(alias="webhookConfigured")
+    summary: DashboardStrategySummary
+
+
+class WeeklyReportListResponse(BaseModel):
+    items: list[WeeklyReportResponse]
+
+
+class ReleasePreflightRunRequest(BaseModel):
+    mode: str = "light"
+    base_url: str | None = Field(default=None, alias="baseUrl")
+    expect_server_url: str | None = Field(default=None, alias="expectServerUrl")
+
+
+class ReleasePreflightCheck(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    name: str
+    title: str
+    status: str
+    blocking: bool
+    detail: str
+    duration_ms: int | None = Field(default=None, alias="durationMs")
+    suggestion: str | None = None
+
+
+class ReleasePreflightResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str
+    mode: str
+    status: str
+    can_release: bool = Field(alias="canRelease")
+    generated_at: datetime = Field(alias="generatedAt")
+    base_url: str = Field(alias="baseUrl")
+    blocking_count: int = Field(alias="blockingCount")
+    warning_count: int = Field(alias="warningCount")
+    checks: list[ReleasePreflightCheck]
+
+
+class ReleasePreflightSnapshotListResponse(BaseModel):
+    items: list[ReleasePreflightResponse]
+
+
+class ReleasePatrolRecordCreateRequest(BaseModel):
+    status: str
+    command: str | None = None
+    report_path: str | None = Field(default=None, alias="reportPath")
+    note: str | None = None
+    summary: dict[str, Any] = Field(default_factory=dict)
+
+
+class ReleasePatrolImportRequest(BaseModel):
+    report_path: str = Field(alias="reportPath")
+    command: str | None = None
+
+
+class ReleasePatrolRecordResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str
+    status: str
+    generated_at: datetime = Field(alias="generatedAt")
+    command: str | None = None
+    report_path: str | None = Field(default=None, alias="reportPath")
+    note: str | None = None
+    summary: dict[str, Any]
+
+
+class ReleasePatrolRecordListResponse(BaseModel):
+    items: list[ReleasePatrolRecordResponse]
+
+
+class ReleaseDecisionRecordCreateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    status: str
+    title: str | None = None
+    preflight_id: str | None = Field(default=None, alias="preflightId")
+    patrol_id: str | None = Field(default=None, alias="patrolId")
+    note: str | None = None
+    summary: dict[str, Any] = Field(default_factory=dict)
+
+
+class ReleaseDecisionRecordResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str
+    status: str
+    title: str
+    generated_at: datetime = Field(alias="generatedAt")
+    preflight_id: str | None = Field(default=None, alias="preflightId")
+    patrol_id: str | None = Field(default=None, alias="patrolId")
+    note: str | None = None
+    summary: dict[str, Any]
+
+
+class ReleaseDecisionRecordListResponse(BaseModel):
+    items: list[ReleaseDecisionRecordResponse]

@@ -66,6 +66,7 @@ import type {
   PackagePurchaseOrderCreatePayload,
   PackagePurchaseOrderListResponse,
   PublicAbility,
+  ReleaseDecisionRecordResponse,
   ReleasePatrolRecordResponse,
   ReleasePreflightResponse,
   StrategySnapshotResponse,
@@ -190,6 +191,9 @@ const BusinessCapabilityEditorDialog = lazy(() =>
 );
 const BusinessActionPanel = lazy(() =>
   import('../features/admin/integration/business').then((mod) => ({ default: mod.BusinessActionPanel })),
+);
+const BusinessReleaseGuardPanel = lazy(() =>
+  import('../features/admin/integration/business').then((mod) => ({ default: mod.BusinessReleaseGuardPanel })),
 );
 const BusinessGovernancePanel = lazy(() =>
   import('../features/admin/integration/business').then((mod) => ({ default: mod.BusinessGovernancePanel })),
@@ -1679,6 +1683,9 @@ export function IntegrationDashboard({
   const [releasePatrolRecords, setReleasePatrolRecords] = useState<ReleasePatrolRecordResponse[]>([]);
   const [releasePatrolLoading, setReleasePatrolLoading] = useState(false);
   const [releasePatrolError, setReleasePatrolError] = useState<string | null>(null);
+  const [releaseDecisionRecords, setReleaseDecisionRecords] = useState<ReleaseDecisionRecordResponse[]>([]);
+  const [releaseDecisionLoading, setReleaseDecisionLoading] = useState(false);
+  const [releaseDecisionError, setReleaseDecisionError] = useState<string | null>(null);
   const [strategySnapshots, setStrategySnapshots] = useState<StrategySnapshotResponse[]>([]);
   const [strategySnapshotLoading, setStrategySnapshotLoading] = useState(false);
   const [strategySnapshotError, setStrategySnapshotError] = useState<string | null>(null);
@@ -3903,6 +3910,7 @@ export function IntegrationDashboard({
         adminApi.listStrategySnapshots(8).catch((error) => ({ __error: error })),
         adminApi.listReleasePatrolRecords(5).catch((error) => ({ __error: error })),
         adminApi.listWeeklyReports(5).catch((error) => ({ __error: error })),
+        adminApi.listReleaseDecisionRecords(5).catch((error) => ({ __error: error })),
       ]);
 
       const errors: string[] = [];
@@ -3938,6 +3946,7 @@ export function IntegrationDashboard({
       const strategySnapshotRes = settled[21].status === 'fulfilled' ? (settled[21].value as any) : null;
       const releasePatrolRes = settled[22].status === 'fulfilled' ? (settled[22].value as any) : null;
       const weeklyReportRes = settled[23].status === 'fulfilled' ? (settled[23].value as any) : null;
+      const releaseDecisionRes = settled[24].status === 'fulfilled' ? (settled[24].value as any) : null;
 
       if (execRes) setExecutors(execRes);
       if (wfRes) setWorkflows(wfRes);
@@ -4027,6 +4036,12 @@ export function IntegrationDashboard({
         setWeeklyReportError(null);
       } else if (weeklyReportRes?.__error) {
         setWeeklyReportError(weeklyReportRes.__error?.message || '周报记录加载失败');
+      }
+      if (releaseDecisionRes && !releaseDecisionRes.__error) {
+        setReleaseDecisionRecords(releaseDecisionRes.items || []);
+        setReleaseDecisionError(null);
+      } else if (releaseDecisionRes?.__error) {
+        setReleaseDecisionError(releaseDecisionRes.__error?.message || '上线结论登记加载失败');
       }
 
       if (abilityRes) {
@@ -4176,6 +4191,44 @@ export function IntegrationDashboard({
       setReleasePatrolError(error instanceof Error ? error.message : '巡检报告导入失败，请确认路径在后端工作目录内且 JSON 格式正确');
     } finally {
       setReleasePatrolLoading(false);
+    }
+  };
+
+  const refreshReleaseDecisionRecords = async () => {
+    setReleaseDecisionLoading(true);
+    try {
+      const response = await adminApi.listReleaseDecisionRecords(5);
+      setReleaseDecisionRecords(response.items || []);
+      setReleaseDecisionError(null);
+    } catch (error) {
+      setReleaseDecisionError(error instanceof Error ? error.message : '上线结论登记加载失败');
+    } finally {
+      setReleaseDecisionLoading(false);
+    }
+  };
+
+  const createReleaseDecisionRecord = async (payload: {
+    status: 'approved' | 'deferred' | 'blocked';
+    title: string;
+    note?: string;
+    summary?: Record<string, unknown>;
+  }) => {
+    setReleaseDecisionLoading(true);
+    try {
+      const response = await adminApi.createReleaseDecisionRecord({
+        status: payload.status,
+        title: payload.title,
+        note: payload.note,
+        preflightId: releasePreflightLatest?.id || releasePreflightSnapshots[0]?.id || null,
+        patrolId: releasePatrolRecords[0]?.id || null,
+        summary: (payload.summary || {}) as JsonRecord,
+      });
+      setReleaseDecisionRecords((prev) => [response, ...prev.filter((item) => item.id !== response.id)].slice(0, 5));
+      setReleaseDecisionError(null);
+    } catch (error) {
+      setReleaseDecisionError(error instanceof Error ? error.message : '上线结论登记失败');
+    } finally {
+      setReleaseDecisionLoading(false);
     }
   };
 
@@ -6430,6 +6483,13 @@ export function IntegrationDashboard({
 
   const handleBusinessSetDefault = async (item: BusinessCapability) => {
     setBusinessActionError(null);
+    if (
+      !window.confirm(
+        `确认申请把 ${businessKeyLabel(item.businessKey)} 的默认版本切到 ${item.version}？审批通过后，业务入口会优先使用这个版本。请确认已完成测评端真实链路测试。`,
+      )
+    ) {
+      return;
+    }
     setBusinessActionLoadingId(`default:${item.id}`);
     try {
       await adminApi.createBusinessDefaultApproval(item.id, {
@@ -6468,6 +6528,14 @@ export function IntegrationDashboard({
     const isActive = item.status === 'active';
     if (isActive && item.isDefault) {
       setBusinessActionError('默认版本不能直接停用，请先把同业务的其他版本设为默认。');
+      return;
+    }
+    if (
+      isActive &&
+      !window.confirm(
+        `确认停用 ${businessKeyLabel(item.businessKey)} ${item.version}？停用后它不能再作为灰度、对照或回滚目标使用。`,
+      )
+    ) {
       return;
     }
     setBusinessActionLoadingId(`status:${item.id}`);
@@ -6522,7 +6590,11 @@ export function IntegrationDashboard({
       setBusinessActionError('目标版本不是启用状态，不能设为默认。');
       return;
     }
-    if (!window.confirm(`确认把 ${businessKeyLabel(target.businessKey)} 默认版本回到 ${target.version}？当前版本不会自动停用。`)) {
+    if (
+      !window.confirm(
+        `确认把 ${businessKeyLabel(target.businessKey)} 默认版本回到 ${target.version}？当前版本不会自动停用，但新的业务入口会切到目标版本。请确认目标版本最近测试通过。`,
+      )
+    ) {
       return;
     }
     setBusinessActionLoadingId('rollback:business');
@@ -8418,6 +8490,11 @@ const extractErrorMessage = (error: unknown): string => {
                 pendingQueueTotal={pendingQueueTotal}
                 businessUsageSummary={businessUsageSummary}
                 coreBusinessOverviewItems={coreBusinessOverviewItems}
+                abilityHealthSummary={abilityHealthSummary}
+                vendorModelCount={vendorModels.length}
+                vendorKeyCount={vendorKeys.length}
+                vendorUsageFailed={vendorUsageFailed}
+                vendorGovernanceIssueCount={vendorGovernanceIssueCount}
                 strategySnapshots={strategySnapshots}
                 strategySnapshotLoading={strategySnapshotLoading}
                 strategySnapshotError={strategySnapshotError}
@@ -8431,6 +8508,9 @@ const extractErrorMessage = (error: unknown): string => {
                 releasePatrolRecords={releasePatrolRecords}
                 releasePatrolLoading={releasePatrolLoading}
                 releasePatrolError={releasePatrolError}
+                releaseDecisionRecords={releaseDecisionRecords}
+                releaseDecisionLoading={releaseDecisionLoading}
+                releaseDecisionError={releaseDecisionError}
                 summary={summary}
                 loading={loading}
                 onRefresh={load}
@@ -8443,12 +8523,15 @@ const extractErrorMessage = (error: unknown): string => {
                 onCreateReleasePatrolRecord={createReleasePatrolRecord}
                 onImportReleasePatrolReport={importReleasePatrolReport}
                 onRefreshReleasePatrolRecords={refreshReleasePatrolRecords}
+                onCreateReleaseDecisionRecord={createReleaseDecisionRecord}
+                onRefreshReleaseDecisionRecords={refreshReleaseDecisionRecords}
                 onCopyText={copyTextToClipboard}
                 onOpenEvalRun={(runId) => {
                   setFocusedEvalRunId(runId);
                   selectSection('ability-evals');
                   copyTextToClipboard(runId);
                 }}
+                onNavigate={(target) => selectSection(target)}
               />
             </Section>
           )}
@@ -8497,6 +8580,13 @@ const extractErrorMessage = (error: unknown): string => {
                   pendingApprovals={businessDefaultApprovals}
                   summary={businessUsageSummary}
                 />
+                {!isBusinessReadOnly ? (
+                  <BusinessReleaseGuardPanel
+                    capabilities={businessCapabilities}
+                    pendingApprovals={businessDefaultApprovals}
+                    summary={businessUsageSummary}
+                  />
+                ) : null}
                 {!isBusinessReadOnly ? (
                   <BusinessGovernancePanel
                     capabilityOptions={businessCapabilityVersionOptions}
@@ -8743,7 +8833,7 @@ const extractErrorMessage = (error: unknown): string => {
             <Section
               id="future-abilities"
               title="原子能力类型路线"
-              description="把用户能理解的能力边界固定下来，避免所有能力都混在一张技术表里。"
+              description="把用户能理解的能力范围固定下来，避免所有能力都混在一张技术表里。"
             >
               <AbilityRoadmapPanel />
             </Section>
@@ -8870,6 +8960,7 @@ const extractErrorMessage = (error: unknown): string => {
           selectedAbilityId={selectedAbilityId}
           workflowsById={workflowLookup}
           vendorModels={vendorModels}
+          vendorGovernanceSummary={vendorGovernanceSummary}
           executors={executors}
           pricingByAbility={abilityPricingMap}
           latestLogByAbility={latestAbilityLogMap}
@@ -9549,7 +9640,7 @@ const extractErrorMessage = (error: unknown): string => {
             <Section
               id="vendor-models"
               title="模型弹药库"
-              description="集中查看第三方模型、密钥池、出网状态与能力边界；业务能力只引用这里沉淀后的模型资源。"
+              description="集中查看第三方模型、密钥池、出网状态与能力范围；业务能力只引用这里沉淀后的模型资源。"
             >
               <Suspense
                 fallback={

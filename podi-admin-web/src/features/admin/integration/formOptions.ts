@@ -9,17 +9,21 @@ export const providerOptions = [
 ];
 
 export const abilityTypeOptions = [
-  { value: 'api', label: 'API 能力（HTTP 接口）' },
-  { value: 'comfyui', label: 'ComfyUI 工作流' },
-  { value: 'workflow', label: '内部工作流调度' },
-  { value: 'tool', label: '工具/服务（PDI、校验等）' },
+  { value: 'api', label: '第三方模型/API' },
+  { value: 'comfyui', label: '生图工作流' },
+  { value: 'workflow', label: '中台编排' },
+  { value: 'tool', label: '平台工具' },
 ];
 
 export const categoryOptions = [
+  { value: 'image_generation', label: '图片生成' },
   { value: 'image_process', label: '图像处理' },
-  { value: 'text_generation', label: '文本生成' },
-  { value: 'speech', label: '语音/音频' },
+  { value: 'vision_language', label: '图像理解' },
+  { value: 'text_generation', label: '文字生成' },
+  { value: 'video_generation', label: '视频生成' },
   { value: 'video', label: '视频处理' },
+  { value: 'speech', label: '语音/音频' },
+  { value: 'utilities', label: '平台工具' },
   { value: 'other', label: '其他' },
 ];
 

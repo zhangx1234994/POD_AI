@@ -403,6 +403,60 @@ class BusinessCapability(Base):
     )
 
 
+class BusinessDefaultApproval(Base):
+    __tablename__ = "business_default_approvals"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    business_key: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    source_capability_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("business_capabilities.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    target_capability_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("business_capabilities.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False, index=True)
+    requester_user_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    requester_username: Mapped[str | None] = mapped_column(String(128))
+    approver_user_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    approver_username: Mapped[str | None] = mapped_column(String(128))
+    request_note: Mapped[str | None] = mapped_column(Text)
+    decision_note: Mapped[str | None] = mapped_column(Text)
+    before_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    after_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime)
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    source_capability: Mapped[BusinessCapability | None] = relationship(
+        foreign_keys=[source_capability_id],
+    )
+    target_capability: Mapped[BusinessCapability] = relationship(
+        foreign_keys=[target_capability_id],
+    )
+
+
+class BusinessOperationLog(Base):
+    __tablename__ = "business_operation_logs"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    action: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    target_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    target_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    business_key: Mapped[str | None] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    client_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    actor_user_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    actor_username: Mapped[str | None] = mapped_column(String(128))
+    actor_role: Mapped[str | None] = mapped_column(String(32))
+    note: Mapped[str | None] = mapped_column(Text)
+    before_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    after_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+
 class BusinessClient(Base):
     __tablename__ = "business_clients"
 

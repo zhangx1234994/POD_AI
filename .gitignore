@@ -22,6 +22,8 @@ tmp/
 
 # Local test outputs
 reports/
+backend/reports/
+backend/runtime/
 
 # Local test reports / one-off scripts
 backend/coze_workflow_*.json

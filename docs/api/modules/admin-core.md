@@ -158,6 +158,92 @@ GET /api/admin/abilities/health/export?needsTest=true
 
 ---
 
+## 4.1) 业务能力治理
+
+### GET /api/admin/business/capabilities
+### POST /api/admin/business/capabilities
+### PATCH /api/admin/business/capabilities/{capabilityId}
+### POST /api/admin/business/capabilities/{capabilityId}/promote
+### POST /api/admin/business/rollback/{businessKey}
+
+用途：维护图裂变、扩图等业务能力版本，支持默认版本切换、回滚和灰度配方管理。
+
+### POST /api/admin/business/capabilities/{capabilityId}/default-approvals
+
+提交“设为默认版本”的审批申请。目标版本必须是 `active`，已是默认版本或已有待审批申请时会拒绝。
+
+请求：
+
+```json
+{
+  "note": "灰度验证通过，申请切默认"
+}
+```
+
+错误：
+
+- `BUSINESS_CAPABILITY_NOT_FOUND`
+- `BUSINESS_DEFAULT_VERSION_MUST_BE_ACTIVE`
+- `BUSINESS_DEFAULT_ALREADY_ACTIVE`
+- `BUSINESS_DEFAULT_APPROVAL_PENDING`
+
+### GET /api/admin/business/default-approvals
+
+查询默认版本审批记录。
+
+```text
+GET /api/admin/business/default-approvals?status=pending&business_key=fission&limit=20
+```
+
+### POST /api/admin/business/default-approvals/{approvalId}/approve
+### POST /api/admin/business/default-approvals/{approvalId}/reject
+
+审批或驳回默认版本切换。审批通过后会将目标版本切为默认版本，并把同业务其他版本取消默认。
+
+请求：
+
+```json
+{
+  "note": "确认发布"
+}
+```
+
+错误：
+
+- `BUSINESS_DEFAULT_APPROVAL_NOT_FOUND`
+- `BUSINESS_DEFAULT_APPROVAL_ALREADY_DECIDED`
+- `BUSINESS_CAPABILITY_NOT_FOUND`
+- `BUSINESS_DEFAULT_VERSION_MUST_BE_ACTIVE`
+
+### GET /api/admin/business/operation-logs
+
+查询业务能力治理操作日志，管理端用于追踪默认版本申请、审批、驳回等关键动作。
+
+```text
+GET /api/admin/business/operation-logs?business_key=fission&limit=20
+```
+
+响应摘要：
+
+```json
+{
+  "items": [
+    {
+      "id": "bizop_xxx",
+      "action": "approve_default_approval",
+      "targetType": "business_default_approval",
+      "targetId": "bizappr_xxx",
+      "businessKey": "fission",
+      "actorUsername": "admin",
+      "note": "确认发布",
+      "createdAt": "2026-04-29T12:05:00"
+    }
+  ]
+}
+```
+
+---
+
 ## 5) API Key 管理
 
 > 该模块是中台 Key 原始表。“模型弹药库”的第三方 Key 池与这里共用 `api_keys`，普通维护优先使用“模型弹药库”。
@@ -258,6 +344,7 @@ GET /api/admin/vendor-api/governance/summary?windowHours=24
 
 ### GET /api/admin/vendor-api/usage/summary
 返回 vendor-api-ops 最近一段时间的第三方调用统计，用于观察厂商、模型、Key 池和上游错误是否稳定。
+如果 vendor-api-ops 临时未授权或不可达，该接口会降级返回空 `items`，避免管理端总览页被单个能力服务拖垮；详细风险仍通过 `/api/admin/vendor-api/governance/summary` 展示。
 
 请求：
 
@@ -434,7 +521,8 @@ Key 写入中台 `api_keys` 表，返回只允许包含 `keyPreview`，不返回
 
 ### GET /api/admin/dashboard/metrics
 
-- 汇总任务/评测/能力任务状态
+- 汇总任务/评测/能力任务状态。
+- 同时返回 `strategy_summary`，用于管理端首页展示近 24 小时业务调用、成功率、计费待处理、回调风险、成本与额度口径。
 
 ### GET /api/admin/dashboard/logs
 
@@ -443,6 +531,180 @@ Key 写入中台 `api_keys` 表，返回只允许包含 `keyPreview`，不返回
 ### GET /api/admin/dashboard/system-config
 
 - 返回系统配置概览（脱敏）
+
+### POST /api/admin/dashboard/strategy-summary/snapshots
+
+用途：保存一份战略指标快照，给周报和阶段复盘使用。
+
+请求：
+
+```json
+{
+  "windowHours": 168,
+  "note": "weekly"
+}
+```
+
+响应：
+
+```json
+{
+  "id": "strategy_xxx",
+  "generatedAt": "2026-04-29T12:00:00Z",
+  "windowHours": 168,
+  "note": "weekly",
+  "summary": {
+    "window_hours": 168,
+    "business_total": 12,
+    "business_succeeded": 10,
+    "business_failed": 2,
+    "success_rate": 0.8333,
+    "billable": 8,
+    "unpriced": 2,
+    "no_charge": 2,
+    "billing_pending": 2,
+    "callback_failed": 0,
+    "callback_missing": 0,
+    "wallet_settled": 0,
+    "wallet_failed": 0,
+    "cost_by_currency": {"CNY": 1.23},
+    "quota_units": 100,
+    "risk_count": 4
+  }
+}
+```
+
+### GET /api/admin/dashboard/strategy-summary/snapshots
+
+- 参数：`limit`，默认 8。
+- 返回最近保存的战略指标快照。
+
+### POST /api/admin/dashboard/weekly-report/run
+
+用途：生成一份轻量周报 Markdown，并登记记录。当前阶段不自动发送外部通知；如果请求 `send=true` 但未配置 webhook，会返回 `sendStatus=failed`，但报告文件仍会保存。
+
+请求：
+
+```json
+{
+  "windowHours": 168,
+  "note": "weekly-report",
+  "send": false,
+  "webhookFormat": "generic"
+}
+```
+
+### GET /api/admin/dashboard/weekly-report/records
+
+- 参数：`limit`，默认 5。
+- 返回最近周报记录。
+
+### POST /api/admin/dashboard/release-preflight/run
+
+用途：运行轻量发布门禁，不触发真实付费生图。当前检查项包括后端存活、Coze 工具箱文档、内部任务查询、ComfyUI 队列、测评目录、评测运行健康、周报/账单守护状态。
+
+请求：
+
+```json
+{
+  "mode": "light",
+  "baseUrl": "http://127.0.0.1:8099",
+  "expectServerUrl": "http://10.11.0.7:8099"
+}
+```
+
+响应重点字段：
+
+- `status`：`passed/warning/blocked`。
+- `canRelease`：是否没有阻塞项。
+- `blockingCount`：阻塞项数量。
+- `warningCount`：提醒项数量。
+- `checks[]`：每个检查项的结果、详情和处理建议。
+
+### GET /api/admin/dashboard/release-preflight/snapshots
+
+- 参数：`limit`，默认 5。
+- 返回最近发布门禁记录。
+
+### POST /api/admin/dashboard/release-patrol/records
+
+用途：人工登记完整巡检结果。完整巡检会真实提交启用的测评工作流，可能产生成本，因此不在管理端自动触发。
+
+请求：
+
+```json
+{
+  "status": "passed",
+  "command": "python3 backend/scripts/patrol_eval_workflows.py ...",
+  "reportPath": "reports/eval_patrol_20260429_120000.json",
+  "note": "人工确认完整巡检通过",
+  "summary": {
+    "total": 22,
+    "failedOrUnfinished": 0,
+    "abilityHealthEvidence": []
+  }
+}
+```
+
+### POST /api/admin/dashboard/release-patrol/import-report
+
+用途：从后端工作目录内的 JSON 巡检报告导入完整巡检记录。路径必须在 backend 目录内，避免任意文件读取。
+
+导入新版 `backend/scripts/patrol_eval_workflows.py` 生成的报告时，后端会自动归一化：
+
+- `total`：本次巡检工作流总数。
+- `succeeded`：状态成功且有图片或结构化结果回填的数量。
+- `failedOrUnfinished`：失败、未完成或“成功但无回填”的数量。
+- `outputReady/noOutput`：结果回填数量和无回填数量。
+- `failedItems`：失败项明细，包含工作流、runId、taskId、错误摘要。
+- `abilityHealthEvidence`：每条工作流的健康证据，管理端用于展示“最近巡检健康证据”。
+
+### GET /api/admin/dashboard/release-patrol/records
+
+- 参数：`limit`，默认 5。
+- 返回最近完整巡检记录。
+
+### POST /api/admin/dashboard/release-decisions/records
+
+用途：登记本次上线结论。该接口不执行部署，只把“可上线 / 暂缓 / 阻塞”的人工判断和当时的门禁、巡检摘要落成记录，便于复盘。
+
+请求：
+
+```json
+{
+  "status": "approved",
+  "title": "确认可上线：可以上线",
+  "preflightId": "preflight_xxx",
+  "patrolId": "patrol_xxx",
+  "note": "轻量门禁、完整巡检和能力状态均已确认",
+  "summary": {
+    "readinessTitle": "可以上线",
+    "blockers": [],
+    "warnings": []
+  }
+}
+```
+
+字段说明：
+
+- `status`：`approved/deferred/blocked`，分别表示确认可上线、暂缓上线、阻塞上线。
+- `preflightId`：最近轻量门禁记录 ID，可为空。
+- `patrolId`：最近完整巡检记录 ID，可为空。
+- `summary`：记录当时页面展示的阻塞项、提醒项和结论摘要。
+
+### GET /api/admin/dashboard/release-decisions/records
+
+- 参数：`limit`，默认 5。
+- 返回最近上线结论登记。
+
+**错误（常见）**
+
+- `REPORT_PATH_REQUIRED`
+- `REPORT_PATH_OUTSIDE_BACKEND`
+- `REPORT_NOT_FOUND`
+- `REPORT_JSON_INVALID`
+- `REPORT_JSON_NOT_OBJECT`
+- `RELEASE_DECISION_STATUS_INVALID`
 
 ---
 

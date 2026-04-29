@@ -132,14 +132,40 @@ Before any server update, verify the release target from `origin/main` instead o
 
 Required checks:
 
-1. Confirm target commit is already in `origin/main`
-   - `git fetch origin`
-   - `git log --oneline -1 origin/main`
-2. In the server working copy, confirm the repo is actually on `main`
-   - `git branch --show-current`
-   - `git rev-parse --short HEAD`
-3. If the running service is frontend/dev-server based, confirm the process is started from this updated directory
-   - do not assume “already restarted” means “already updated”
+1. Confirm target commit is already in `origin/main`.
+2. Confirm the release source tree is clean.
+3. Confirm Alembic migration files are a single valid chain.
+4. Confirm the package does not contain macOS `._*` AppleDouble files.
+
+Recommended command before packaging:
+
+```bash
+bash scripts/release_source_preflight.sh
+```
+
+If the package is being tested from a temporary worktree with intentional uncommitted
+changes, use this only for local development validation, not for a formal release:
+
+```bash
+ALLOW_DIRTY=1 CHECK_GIT_SYNC=0 bash scripts/release_source_preflight.sh
+```
+
+On the production host, if the backend code has already been copied and the production
+`.env` is present, also validate that the database's current Alembic revision exists
+in the deployed code before running `alembic upgrade head`:
+
+```bash
+cd /srv/pod
+CHECK_GIT_SYNC=0 CHECK_DB_CURRENT=1 bash scripts/release_source_preflight.sh
+```
+
+When packaging from macOS, disable AppleDouble metadata and exclude any existing
+`._*` files:
+
+```bash
+COPYFILE_DISABLE=1 tar --exclude='._*' -czf /tmp/pod_release.tgz \
+  backend scripts docs config podi-admin-web podi-eval-web
+```
 
 Do **not** use the following as the release signal by itself:
 
@@ -147,6 +173,7 @@ Do **not** use the following as the release signal by itself:
 - “someone said it was updated”
 - “current workspace can see the commit”
 - “there is only one listening process on the port”
+- “Alembic upgrade failed but the service can still start”
 
 ## 1) Multi-ComfyUI Connectivity
 

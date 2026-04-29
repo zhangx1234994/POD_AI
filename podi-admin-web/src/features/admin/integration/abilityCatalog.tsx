@@ -5,6 +5,7 @@ import type {
   AbilityHealthSummaryResponse,
   AbilityInvocationLog,
   Executor,
+  VendorGovernanceSummaryResponse,
   VendorModel,
   Workflow,
 } from '../../../types/admin';
@@ -139,6 +140,7 @@ export function AbilityCatalogPanel({
   selectedAbilityId,
   workflowsById,
   vendorModels,
+  vendorGovernanceSummary,
   executors,
   pricingByAbility,
   latestLogByAbility,
@@ -174,6 +176,7 @@ export function AbilityCatalogPanel({
   selectedAbilityId?: string | null;
   workflowsById: Record<string, Workflow>;
   vendorModels: VendorModel[];
+  vendorGovernanceSummary?: VendorGovernanceSummaryResponse | null;
   executors: Executor[];
   pricingByAbility: Record<string, AbilityPricing>;
   latestLogByAbility: Record<string, AbilityInvocationLog>;
@@ -203,6 +206,29 @@ export function AbilityCatalogPanel({
     getAbilitySchemaIssues,
     describePricing,
   });
+  const vendorModelById = new Map(vendorModels.map((item) => [Number(item.id), item]));
+  const vendorGovernanceByProvider = new Map(
+    (vendorGovernanceSummary?.providers || []).map((item) => [item.provider, item]),
+  );
+  const resolveVendorModelForAbility = (ability: Ability) => {
+    const modelId = ability.vendor_model_id;
+    if (modelId === undefined || modelId === null) return null;
+    return vendorModelById.get(Number(modelId)) || null;
+  };
+  const resolveVendorRiskForAbility = (ability: Ability) => {
+    const model = resolveVendorModelForAbility(ability);
+    const provider = model?.provider || ability.provider;
+    const governance = vendorGovernanceByProvider.get(provider);
+    if (!model) return { theme: 'default' as const, text: '未绑定商业模型', detail: 'ComfyUI 或平台工具能力可以不绑定商业模型。' };
+    if (!governance) return { theme: 'warning' as const, text: '缺厂商状态', detail: '模型已绑定，但还没有厂商健康数据。' };
+    if ((governance.issues || []).length > 0) {
+      return { theme: 'warning' as const, text: '厂商需检查', detail: (governance.suggestions || [])[0] || '请到模型弹药库查看密钥、出网或调用失败。' };
+    }
+    if (!governance.runtimeKeyConfigured) {
+      return { theme: 'warning' as const, text: '缺可用密钥', detail: '请到模型弹药库配置密钥后再做真实调用。' };
+    }
+    return { theme: 'success' as const, text: '模型可用', detail: '模型目录和厂商状态当前没有明显阻塞。' };
+  };
 
   return (
     <Card
@@ -226,6 +252,43 @@ export function AbilityCatalogPanel({
         </Space>
       }
     >
+      <Card bordered style={{ marginBottom: 12 }} title="能力接入顺序">
+        <Row gutter={[12, 12]}>
+          {[
+            ['1', '先确认能力类型', '区分图片、视频、文字、图像理解，避免所有能力都塞进“生图”。'],
+            ['2', '补齐业务表单', '字段名称、中文说明、默认值和错误提示要让非技术同学看得懂。'],
+            ['3', '绑定模型或线路', '商业模型走模型弹药库，ComfyUI 能力走运行线路，不要让业务方理解底层节点。'],
+            ['4', '测试后再发布', '能力测试通过、模板发布、成本口径确认后，再绑定到业务版本。'],
+          ].map(([index, title, body]) => (
+            <Col key={index} xs={12} md={3}>
+              <div
+                style={{
+                  border: '1px solid var(--td-border-level-1-color)',
+                  borderRadius: 12,
+                  padding: 12,
+                  height: '100%',
+                }}
+              >
+                <Space direction="vertical" size={4}>
+                  <Tag theme="primary" variant="light">
+                    {index}
+                  </Tag>
+                  <Typography.Text strong>{title}</Typography.Text>
+                  <Typography.Text theme="secondary">{body}</Typography.Text>
+                </Space>
+              </div>
+            </Col>
+          ))}
+        </Row>
+      </Card>
+
+      <Card bordered style={{ marginBottom: 12 }} title="能力和模型怎么对应">
+        <Alert
+          theme="info"
+          message="商业模型先在“模型弹药库”维护密钥、出网和模型目录；能力目录只引用稳定后的模型。ComfyUI、平台工具这类本地/执行节点能力可以不绑定商业模型。"
+        />
+      </Card>
+
       <Card bordered style={{ marginBottom: 12 }} title="当前先处理什么">
         <Row gutter={[12, 12]}>
           {actionItems.map((item) => (
@@ -349,22 +412,30 @@ export function AbilityCatalogPanel({
             },
             {
               colKey: 'provider',
-              title: '厂商/能力标识',
+              title: '来源/分类',
               width: 260,
               cell: ({ row }) => (
                 <Space direction="vertical" size={2}>
                   <Typography.Text>{getProviderLabel(row.provider)}</Typography.Text>
                   <Typography.Text theme="secondary">
-                    {row.capability_key} · {getCategoryLabel(row.category)}
+                    {getCategoryLabel(row.category)} · {getAbilityTypeLabel(row.ability_type)}
                   </Typography.Text>
                   <Typography.Text theme="secondary">
-                    {getAbilityTypeLabel(row.ability_type)}
+                    能力标识：{row.capability_key}
                     {row.workflow_id ? ` · ${workflowsById[row.workflow_id]?.name || row.workflow_id}` : ''}
                   </Typography.Text>
                   {row.vendor_model_id ? (
-                    <Typography.Text theme="secondary">
-                      模型：{vendorModels.find((item) => item.id === row.vendor_model_id)?.displayName || row.vendor_model_id}
-                    </Typography.Text>
+                    <Space size={6} style={{ flexWrap: 'wrap' }}>
+                      <Typography.Text theme="secondary">
+                        模型：{resolveVendorModelForAbility(row)?.displayName || row.vendor_model_id}
+                      </Typography.Text>
+                      <Tag theme={resolveVendorRiskForAbility(row).theme} variant="light" size="small">
+                        {resolveVendorRiskForAbility(row).text}
+                      </Tag>
+                    </Space>
+                  ) : null}
+                  {!row.vendor_model_id && row.provider !== 'comfyui' ? (
+                    <Typography.Text theme="secondary">模型：未绑定商业模型</Typography.Text>
                   ) : null}
                   {row.version ? <Typography.Text theme="secondary">版本 {row.version}</Typography.Text> : null}
                 </Space>

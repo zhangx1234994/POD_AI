@@ -5,9 +5,12 @@
 
 ## 1) 部署前确认
 
+- [ ] 发版源已通过检查：`bash scripts/release_source_preflight.sh`
 - [ ] 后端环境变量已更新（`backend/.env`）
+- [ ] 如果是在 114 的 `/srv/pod` 已复制代码后执行迁移，先跑：`CHECK_GIT_SYNC=0 CHECK_DB_CURRENT=1 bash scripts/release_source_preflight.sh`
 - [ ] 端口约定固定：8099 / 8199 / 8200；如启用第三方 API 执行面，额外开放 8310
 - [ ] 若使用 Nginx 反代：`proxy_pass` 指向 `127.0.0.1:8099`
+- [ ] 只有改到 `image-ops-service`、ComfyUI 工作流执行服务或 117 本机配置时，才需要更新 117；普通 backend/admin/eval 发版只更新 114
 
 ## 2) 服务启动顺序
 

@@ -45,7 +45,13 @@ def list_vendor_keys(provider: str | None = None) -> dict[str, Any]:
 
 @router.get("/usage/summary", response_model=schemas.VendorUsageSummaryResponse)
 def get_vendor_usage_summary(windowHours: int = 24) -> dict[str, Any]:
-    return vendor_admin_client.usage_summary(window_hours=max(1, int(windowHours or 24)))
+    window_hours = max(1, int(windowHours or 24))
+    try:
+        return vendor_admin_client.usage_summary(window_hours=window_hours)
+    except HTTPException:
+        # 管理端总览不能因为 vendor-api-ops 未授权/临时离线而整体报错；
+        # 详细问题仍由治理摘要接口统一展示。
+        return {"baseUrl": get_settings().vendor_api_base_url, "windowHours": window_hours, "items": []}
 
 
 @router.get("/governance/summary", response_model=schemas.VendorGovernanceSummaryResponse)

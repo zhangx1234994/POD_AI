@@ -10,6 +10,7 @@ BACKEND_URL="${BACKEND_URL:-http://127.0.0.1:8099}"
 ADMIN_URL="${ADMIN_URL:-http://127.0.0.1:8199}"
 EVAL_URL="${EVAL_URL:-http://127.0.0.1:8200}"
 RUN_STATUS_ERROR_CHECKS="${RUN_STATUS_ERROR_CHECKS:-0}"
+RUN_RELEASE_SOURCE_CHECKS="${RUN_RELEASE_SOURCE_CHECKS:-0}"
 
 PASS_COUNT=0
 FAIL_COUNT=0
@@ -49,7 +50,18 @@ echo "BACKEND_URL=$BACKEND_URL"
 echo "ADMIN_URL=$ADMIN_URL"
 echo "EVAL_URL=$EVAL_URL"
 echo "RUN_STATUS_ERROR_CHECKS=$RUN_STATUS_ERROR_CHECKS"
+echo "RUN_RELEASE_SOURCE_CHECKS=$RUN_RELEASE_SOURCE_CHECKS"
 echo ""
+
+# 0) Optional source-tree gate. Use before packaging/deploying from a git checkout.
+# On copied release directories such as /srv/pod, keep this disabled.
+if [[ "$RUN_RELEASE_SOURCE_CHECKS" == "1" ]]; then
+  if bash scripts/release_source_preflight.sh; then
+    print_ok "Release source preflight"
+  else
+    print_fail "Release source preflight"
+  fi
+fi
 
 # 1) Backend health
 check_code "$BACKEND_URL/health" "200" "Backend health"

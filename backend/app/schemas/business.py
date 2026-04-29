@@ -40,6 +40,65 @@ class BusinessCapabilityListResponse(BaseModel):
     items: list[BusinessCapabilityRead]
 
 
+class BusinessDefaultApprovalCreateRequest(BaseModel):
+    note: str | None = None
+
+
+class BusinessDefaultApprovalDecisionRequest(BaseModel):
+    note: str | None = None
+
+
+class BusinessDefaultApprovalRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    id: str
+    businessKey: str = Field(alias="business_key")
+    sourceCapabilityId: str | None = Field(default=None, alias="source_capability_id")
+    targetCapabilityId: str = Field(alias="target_capability_id")
+    status: str
+    requesterUserId: str | None = Field(default=None, alias="requester_user_id")
+    requesterUsername: str | None = Field(default=None, alias="requester_username")
+    approverUserId: str | None = Field(default=None, alias="approver_user_id")
+    approverUsername: str | None = Field(default=None, alias="approver_username")
+    requestNote: str | None = Field(default=None, alias="request_note")
+    decisionNote: str | None = Field(default=None, alias="decision_note")
+    beforePayload: dict[str, Any] | None = Field(default=None, alias="before_payload")
+    afterPayload: dict[str, Any] | None = Field(default=None, alias="after_payload")
+    sourceCapability: BusinessCapabilityRead | None = Field(default=None, alias="source_capability")
+    targetCapability: BusinessCapabilityRead | None = Field(default=None, alias="target_capability")
+    createdAt: datetime = Field(alias="created_at")
+    updatedAt: datetime = Field(alias="updated_at")
+    decidedAt: datetime | None = Field(default=None, alias="decided_at")
+    appliedAt: datetime | None = Field(default=None, alias="applied_at")
+
+
+class BusinessDefaultApprovalListResponse(BaseModel):
+    items: list[BusinessDefaultApprovalRead]
+
+
+class BusinessOperationLogRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    id: str
+    action: str
+    targetType: str = Field(alias="target_type")
+    targetId: str | None = Field(default=None, alias="target_id")
+    businessKey: str | None = Field(default=None, alias="business_key")
+    tenantId: str | None = Field(default=None, alias="tenant_id")
+    clientId: str | None = Field(default=None, alias="client_id")
+    actorUserId: str | None = Field(default=None, alias="actor_user_id")
+    actorUsername: str | None = Field(default=None, alias="actor_username")
+    actorRole: str | None = Field(default=None, alias="actor_role")
+    note: str | None = None
+    beforePayload: dict[str, Any] | None = Field(default=None, alias="before_payload")
+    afterPayload: dict[str, Any] | None = Field(default=None, alias="after_payload")
+    createdAt: datetime = Field(alias="created_at")
+
+
+class BusinessOperationLogListResponse(BaseModel):
+    items: list[BusinessOperationLogRead]
+
+
 class BusinessClientRead(BaseModel):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 

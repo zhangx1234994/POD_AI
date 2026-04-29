@@ -9,6 +9,7 @@ import logging
 import threading
 import time
 from datetime import datetime, timedelta
+from decimal import Decimal
 from typing import Any
 from uuid import uuid4
 
@@ -23,6 +24,8 @@ from app.models.integration import (
     AbilityTask,
     BusinessCapability,
     BusinessClient,
+    BusinessDefaultApproval,
+    BusinessOperationLog,
     BusinessRun,
     BusinessRunStep,
     VendorModelCatalog,
@@ -36,6 +39,8 @@ from app.schemas.business import (
     BusinessCapabilityUpdateRequest,
     BusinessClientCreateRequest,
     BusinessClientUpdateRequest,
+    BusinessDefaultApprovalCreateRequest,
+    BusinessDefaultApprovalDecisionRequest,
     BusinessRunCreateRequest,
 )
 from app.services.ability_seed import ensure_default_abilities
@@ -383,6 +388,221 @@ class BusinessRunService:
             session.commit()
             session.refresh(target)
             return self._capability_to_dict(target, session=session)
+
+    def create_default_approval(
+        self,
+        capability_id: str,
+        payload: BusinessDefaultApprovalCreateRequest | None = None,
+        *,
+        actor: User | None = None,
+    ) -> dict[str, Any]:
+        request = payload or BusinessDefaultApprovalCreateRequest()
+        with get_session() as session:
+            target = session.get(BusinessCapability, capability_id)
+            if not target:
+                raise HTTPException(status_code=404, detail="BUSINESS_CAPABILITY_NOT_FOUND")
+            if target.status != "active":
+                raise HTTPException(status_code=400, detail="BUSINESS_DEFAULT_VERSION_MUST_BE_ACTIVE")
+            if target.is_default:
+                raise HTTPException(status_code=409, detail="BUSINESS_DEFAULT_ALREADY_ACTIVE")
+            current_default = (
+                session.execute(
+                    select(BusinessCapability)
+                    .where(
+                        BusinessCapability.business_key == target.business_key,
+                        BusinessCapability.is_default.is_(True),
+                    )
+                    .order_by(BusinessCapability.updated_at.desc(), BusinessCapability.created_at.desc())
+                )
+                .scalars()
+                .first()
+            )
+            pending = (
+                session.execute(
+                    select(BusinessDefaultApproval).where(
+                        BusinessDefaultApproval.target_capability_id == target.id,
+                        BusinessDefaultApproval.status == "pending",
+                    )
+                )
+                .scalars()
+                .first()
+            )
+            if pending:
+                raise HTTPException(status_code=409, detail="BUSINESS_DEFAULT_APPROVAL_PENDING")
+            row = BusinessDefaultApproval(
+                id=f"bizappr_{uuid4().hex}",
+                business_key=target.business_key,
+                source_capability_id=current_default.id if current_default else None,
+                target_capability_id=target.id,
+                status="pending",
+                requester_user_id=self._safe_user_id(actor),
+                requester_username=self._actor_username(actor),
+                request_note=self._clean_optional_text(request.note),
+                before_payload=self._json_safe_payload(
+                    self._capability_to_dict(current_default, session=session) if current_default else None
+                ),
+                after_payload=self._json_safe_payload(self._capability_to_dict(target, session=session)),
+            )
+            session.add(row)
+            self._record_business_operation(
+                session=session,
+                action="request_default_approval",
+                target_type="business_default_approval",
+                target_id=row.id,
+                business_key=row.business_key,
+                actor=actor,
+                note=row.request_note,
+                before_payload=row.before_payload,
+                after_payload=row.after_payload,
+            )
+            session.commit()
+            session.refresh(row)
+            return self._default_approval_to_dict(row, session=session)
+
+    def list_default_approvals(
+        self,
+        *,
+        status: str | None = None,
+        business_key: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        with get_session() as session:
+            stmt = select(BusinessDefaultApproval)
+            if status:
+                stmt = stmt.where(BusinessDefaultApproval.status == status)
+            if business_key:
+                stmt = stmt.where(BusinessDefaultApproval.business_key == business_key)
+            rows = (
+                session.execute(
+                    stmt.order_by(BusinessDefaultApproval.created_at.desc()).limit(max(1, min(limit, 200)))
+                )
+                .scalars()
+                .all()
+            )
+            return [self._default_approval_to_dict(row, session=session) for row in rows]
+
+    def decide_default_approval(
+        self,
+        approval_id: str,
+        payload: BusinessDefaultApprovalDecisionRequest | None = None,
+        *,
+        actor: User | None = None,
+        approve: bool,
+    ) -> dict[str, Any]:
+        request = payload or BusinessDefaultApprovalDecisionRequest()
+        now = datetime.utcnow()
+        with get_session() as session:
+            row = session.get(BusinessDefaultApproval, approval_id)
+            if not row:
+                raise HTTPException(status_code=404, detail="BUSINESS_DEFAULT_APPROVAL_NOT_FOUND")
+            if row.status != "pending":
+                raise HTTPException(status_code=409, detail="BUSINESS_DEFAULT_APPROVAL_ALREADY_DECIDED")
+            target = session.get(BusinessCapability, row.target_capability_id)
+            if not target:
+                raise HTTPException(status_code=404, detail="BUSINESS_CAPABILITY_NOT_FOUND")
+            row.approver_user_id = self._safe_user_id(actor)
+            row.approver_username = self._actor_username(actor)
+            row.decision_note = self._clean_optional_text(request.note)
+            row.decided_at = now
+            if not approve:
+                row.status = "rejected"
+                self._record_business_operation(
+                    session=session,
+                    action="reject_default_approval",
+                    target_type="business_default_approval",
+                    target_id=row.id,
+                    business_key=row.business_key,
+                    actor=actor,
+                    note=row.decision_note,
+                    before_payload=row.before_payload,
+                    after_payload=row.after_payload,
+                )
+                session.add(row)
+                session.commit()
+                session.refresh(row)
+                return self._default_approval_to_dict(row, session=session)
+            if target.status != "active":
+                raise HTTPException(status_code=400, detail="BUSINESS_DEFAULT_VERSION_MUST_BE_ACTIVE")
+            current_default = (
+                session.execute(
+                    select(BusinessCapability)
+                    .where(
+                        BusinessCapability.business_key == row.business_key,
+                        BusinessCapability.is_default.is_(True),
+                        BusinessCapability.id != target.id,
+                    )
+                    .order_by(BusinessCapability.updated_at.desc(), BusinessCapability.created_at.desc())
+                )
+                .scalars()
+                .first()
+            )
+            target.is_default = True
+            target.extra_metadata = self._append_release_event(
+                target.extra_metadata,
+                action="approve_default",
+                note=row.decision_note,
+                actor=actor,
+                previous_default=current_default,
+            )
+            session.execute(
+                update(BusinessCapability)
+                .where(
+                    BusinessCapability.business_key == row.business_key,
+                    BusinessCapability.id != target.id,
+                )
+                .values(is_default=False)
+            )
+            row.status = "approved"
+            row.applied_at = now
+            row.after_payload = self._json_safe_payload(self._capability_to_dict(target, session=session))
+            session.add(row)
+            session.add(target)
+            self._record_business_operation(
+                session=session,
+                action="approve_default_approval",
+                target_type="business_default_approval",
+                target_id=row.id,
+                business_key=row.business_key,
+                actor=actor,
+                note=row.decision_note,
+                before_payload=row.before_payload,
+                after_payload=row.after_payload,
+            )
+            session.commit()
+            session.refresh(row)
+            return self._default_approval_to_dict(row, session=session)
+
+    def list_operation_logs(
+        self,
+        *,
+        action: str | None = None,
+        target_type: str | None = None,
+        business_key: str | None = None,
+        tenant_id: str | None = None,
+        client_id: str | None = None,
+        actor_user_id: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        with get_session() as session:
+            stmt = select(BusinessOperationLog)
+            if action:
+                stmt = stmt.where(BusinessOperationLog.action == action)
+            if target_type:
+                stmt = stmt.where(BusinessOperationLog.target_type == target_type)
+            if business_key:
+                stmt = stmt.where(BusinessOperationLog.business_key == business_key)
+            if tenant_id:
+                stmt = stmt.where(BusinessOperationLog.tenant_id == tenant_id)
+            if client_id:
+                stmt = stmt.where(BusinessOperationLog.client_id == client_id)
+            if actor_user_id:
+                stmt = stmt.where(BusinessOperationLog.actor_user_id == actor_user_id)
+            rows = (
+                session.execute(stmt.order_by(BusinessOperationLog.created_at.desc()).limit(max(1, min(limit, 200))))
+                .scalars()
+                .all()
+            )
+            return [self._operation_log_to_dict(row) for row in rows]
 
     def preview_route(
         self,
@@ -2425,6 +2645,107 @@ class BusinessRunService:
             return None
         user_id = str(getattr(user, "id", "") or "").strip()
         return None if user_id == "service" else user_id or None
+
+    @staticmethod
+    def _actor_username(user: User | None) -> str | None:
+        if not user:
+            return None
+        value = getattr(user, "username", None) or getattr(user, "email", None) or getattr(user, "id", None)
+        return str(value).strip() if value else None
+
+    @staticmethod
+    def _clean_optional_text(value: str | None) -> str | None:
+        text = str(value or "").strip()
+        return text or None
+
+    @staticmethod
+    def _json_safe_payload(value: Any) -> Any:
+        if isinstance(value, datetime):
+            return value.isoformat()
+        if isinstance(value, Decimal):
+            return float(value)
+        if isinstance(value, dict):
+            return {str(key): BusinessRunService._json_safe_payload(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [BusinessRunService._json_safe_payload(item) for item in value]
+        return value
+
+    def _record_business_operation(
+        self,
+        *,
+        session,
+        action: str,
+        target_type: str,
+        target_id: str | None = None,
+        business_key: str | None = None,
+        tenant_id: str | None = None,
+        client_id: str | None = None,
+        actor: User | None = None,
+        note: str | None = None,
+        before_payload: dict[str, Any] | None = None,
+        after_payload: dict[str, Any] | None = None,
+    ) -> None:
+        session.add(
+            BusinessOperationLog(
+                id=f"bizop_{uuid4().hex}",
+                action=action,
+                target_type=target_type,
+                target_id=target_id,
+                business_key=business_key,
+                tenant_id=tenant_id,
+                client_id=client_id,
+                actor_user_id=self._safe_user_id(actor),
+                actor_username=self._actor_username(actor),
+                actor_role=str(getattr(actor, "role", "") or "").strip() or None if actor else None,
+                note=self._clean_optional_text(note),
+                before_payload=before_payload,
+                after_payload=after_payload,
+            )
+        )
+
+    def _default_approval_to_dict(self, row: BusinessDefaultApproval, *, session=None) -> dict[str, Any]:
+        source = session.get(BusinessCapability, row.source_capability_id) if session is not None and row.source_capability_id else None
+        target = session.get(BusinessCapability, row.target_capability_id) if session is not None and row.target_capability_id else None
+        return {
+            "id": row.id,
+            "business_key": row.business_key,
+            "source_capability_id": row.source_capability_id,
+            "target_capability_id": row.target_capability_id,
+            "status": row.status,
+            "requester_user_id": row.requester_user_id,
+            "requester_username": row.requester_username,
+            "approver_user_id": row.approver_user_id,
+            "approver_username": row.approver_username,
+            "request_note": row.request_note,
+            "decision_note": row.decision_note,
+            "before_payload": row.before_payload,
+            "after_payload": row.after_payload,
+            "source_capability": self._capability_to_dict(source, session=session) if source else None,
+            "target_capability": self._capability_to_dict(target, session=session) if target else None,
+            "created_at": row.created_at,
+            "updated_at": row.updated_at,
+            "decided_at": row.decided_at,
+            "applied_at": row.applied_at,
+        }
+
+    @staticmethod
+    def _operation_log_to_dict(row: BusinessOperationLog) -> dict[str, Any]:
+        return {
+            "id": row.id,
+            "action": row.action,
+            "target_type": row.target_type,
+            "target_id": row.target_id,
+            "business_key": row.business_key,
+            "tenant_id": row.tenant_id,
+            "client_id": row.client_id,
+            "actor_user_id": row.actor_user_id,
+            "actor_username": row.actor_username,
+            "actor_role": row.actor_role,
+            "note": row.note,
+            "before_payload": row.before_payload,
+            "after_payload": row.after_payload,
+            "created_at": row.created_at,
+        }
 
     def _business_client_to_dict(self, row: BusinessClient) -> dict[str, Any]:
         return {

@@ -1,9 +1,11 @@
 import { Fragment, useState } from 'react';
 import { Alert, Button, Card, Col, Input, Row, Space, Tag, Typography } from 'tdesign-react';
 import type {
+  AbilityHealthSummaryResponse,
   BusinessCapability,
   BusinessUsageSummaryResponse,
   DashboardMetrics,
+  ReleaseDecisionRecordResponse,
   ReleasePreflightCheck,
   ReleasePatrolRecordResponse,
   ReleasePreflightResponse,
@@ -15,6 +17,7 @@ import {
   businessCapabilityLatestRunLabel,
   businessCapabilityRunMetricsLabel,
   businessKeyLabel,
+  coreBusinessKeys,
 } from './businessLabels';
 import { formatCurrencyTotals, formatDateTime, formatRatePercent } from './formatters';
 
@@ -39,6 +42,16 @@ type PatrolFailedItem = {
   status: string;
   podiTaskId: string;
   error: string;
+};
+
+type PatrolHealthEvidence = PatrolFailedItem & {
+  finalStatus: string;
+  callbackStatus: string;
+  cozeExecuteId: string;
+  imageCount: number;
+  hasOutput: boolean;
+  issueCode: string;
+  healthStatus: string;
 };
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
@@ -79,6 +92,44 @@ function patrolFailedItems(record: ReleasePatrolRecordResponse): PatrolFailedIte
   return items;
 }
 
+function patrolHealthEvidence(record: ReleasePatrolRecordResponse): PatrolHealthEvidence[] {
+  const rawItems = record.summary?.abilityHealthEvidence;
+  if (!Array.isArray(rawItems)) return [];
+  const items: PatrolHealthEvidence[] = [];
+  for (const rawItem of rawItems) {
+    if (!isPlainRecord(rawItem)) continue;
+    const item = rawItem as Record<string, unknown>;
+    const imageCountValue = item.imageCount;
+    const imageCount = typeof imageCountValue === 'number' ? imageCountValue : Number(imageCountValue || 0) || 0;
+    const hasOutputValue = item.hasOutput;
+    const evidence = {
+      name: patrolText(item.name),
+      workflowId: patrolText(item.workflowId),
+      runId: patrolText(item.runId),
+      status: patrolText(item.status),
+      finalStatus: patrolText(item.finalStatus),
+      callbackStatus: patrolText(item.callbackStatus),
+      cozeExecuteId: patrolText(item.cozeExecuteId),
+      podiTaskId: patrolText(item.podiTaskId),
+      imageCount,
+      hasOutput: typeof hasOutputValue === 'boolean' ? hasOutputValue : imageCount > 0,
+      issueCode: patrolText(item.issueCode) || 'UNKNOWN',
+      healthStatus: patrolText(item.healthStatus) || 'unknown',
+      error: patrolText(item.error),
+    };
+    if (evidence.name || evidence.workflowId || evidence.runId || evidence.podiTaskId || evidence.issueCode) {
+      items.push(evidence);
+    }
+  }
+  return items;
+}
+
+function patrolHealthTag(item: PatrolHealthEvidence): { theme: 'success' | 'danger' | 'warning' | 'default'; text: string } {
+  if (item.issueCode === 'OK' || item.healthStatus === 'healthy') return { theme: 'success', text: '通过' };
+  if (item.issueCode === 'EVAL_SUCCEEDED_WITHOUT_OUTPUT') return { theme: 'warning', text: '无回填' };
+  return { theme: 'danger', text: '失败' };
+}
+
 function weeklyReportStatusLabel(status: string): string {
   if (status === 'sent') return '已发送';
   if (status === 'failed') return '发送失败';
@@ -106,6 +157,20 @@ function releasePreflightCheckTheme(status: string): 'success' | 'warning' | 'da
   return 'default';
 }
 
+function releaseDecisionStatusLabel(status: string): string {
+  if (status === 'approved') return '确认可上线';
+  if (status === 'deferred') return '暂缓上线';
+  if (status === 'blocked') return '阻塞上线';
+  return status || '未知';
+}
+
+function releaseDecisionStatusTheme(status: string): 'success' | 'warning' | 'danger' | 'default' {
+  if (status === 'approved') return 'success';
+  if (status === 'deferred') return 'warning';
+  if (status === 'blocked') return 'danger';
+  return 'default';
+}
+
 function releasePreflightCheckByName(
   snapshot: ReleasePreflightResponse | null,
   name: string,
@@ -122,11 +187,18 @@ type OverviewSummary = {
   abilities: number;
 };
 
+type OverviewNavTarget = 'business' | 'vendor-models' | 'abilities' | 'ability-evals';
+
 type OverviewPanelProps = {
   dashboardMetrics?: DashboardMetrics | null;
   pendingQueueTotal: number;
   businessUsageSummary?: BusinessUsageSummaryResponse | null;
   coreBusinessOverviewItems: BusinessCapability[];
+  abilityHealthSummary?: AbilityHealthSummaryResponse | null;
+  vendorModelCount: number;
+  vendorKeyCount: number;
+  vendorUsageFailed: number;
+  vendorGovernanceIssueCount: number;
   strategySnapshots: StrategySnapshotResponse[];
   strategySnapshotLoading: boolean;
   strategySnapshotError?: string | null;
@@ -140,6 +212,9 @@ type OverviewPanelProps = {
   releasePatrolRecords: ReleasePatrolRecordResponse[];
   releasePatrolLoading: boolean;
   releasePatrolError?: string | null;
+  releaseDecisionRecords: ReleaseDecisionRecordResponse[];
+  releaseDecisionLoading: boolean;
+  releaseDecisionError?: string | null;
   summary: OverviewSummary;
   loading: boolean;
   onRefresh: () => void;
@@ -152,8 +227,16 @@ type OverviewPanelProps = {
   onCreateReleasePatrolRecord: (status: 'passed' | 'failed') => void;
   onImportReleasePatrolReport: (reportPath: string) => void;
   onRefreshReleasePatrolRecords: () => void;
+  onCreateReleaseDecisionRecord: (payload: {
+    status: 'approved' | 'deferred' | 'blocked';
+    title: string;
+    note?: string;
+    summary?: Record<string, unknown>;
+  }) => void;
+  onRefreshReleaseDecisionRecords: () => void;
   onCopyText?: (value: string) => void;
   onOpenEvalRun?: (runId: string) => void;
+  onNavigate?: (target: OverviewNavTarget) => void;
 };
 
 export function OverviewPanel({
@@ -161,6 +244,11 @@ export function OverviewPanel({
   pendingQueueTotal,
   businessUsageSummary,
   coreBusinessOverviewItems,
+  abilityHealthSummary,
+  vendorModelCount,
+  vendorKeyCount,
+  vendorUsageFailed,
+  vendorGovernanceIssueCount,
   strategySnapshots,
   strategySnapshotLoading,
   strategySnapshotError,
@@ -174,6 +262,9 @@ export function OverviewPanel({
   releasePatrolRecords,
   releasePatrolLoading,
   releasePatrolError,
+  releaseDecisionRecords,
+  releaseDecisionLoading,
+  releaseDecisionError,
   summary,
   loading,
   onRefresh,
@@ -186,16 +277,24 @@ export function OverviewPanel({
   onCreateReleasePatrolRecord,
   onImportReleasePatrolReport,
   onRefreshReleasePatrolRecords,
+  onCreateReleaseDecisionRecord,
+  onRefreshReleaseDecisionRecords,
   onCopyText,
   onOpenEvalRun,
+  onNavigate,
 }: OverviewPanelProps) {
   const [releasePatrolReportPath, setReleasePatrolReportPath] = useState('');
+  const [releaseDecisionNote, setReleaseDecisionNote] = useState('');
   const strategySummary = dashboardMetrics?.strategy_summary;
   const latestWeeklyReport = weeklyReports[0] || null;
   const fullPatrolCommand =
     'python3 backend/scripts/patrol_eval_workflows.py --base-url http://127.0.0.1:8099 --timeout 1800 --report reports/eval_patrol_$(date +%Y%m%d_%H%M%S).json';
   const preflightLatest = releasePreflightLatest || releasePreflightSnapshots[0] || null;
   const latestPatrolRecord = releasePatrolRecords[0] || null;
+  const latestPatrolEvidence = latestPatrolRecord ? patrolHealthEvidence(latestPatrolRecord) : [];
+  const latestPatrolFailedEvidence = latestPatrolEvidence.filter((item) => item.issueCode !== 'OK' && item.healthStatus !== 'healthy');
+  const latestPatrolOutputReady = latestPatrolEvidence.filter((item) => item.hasOutput).length;
+  const latestReleaseDecision = releaseDecisionRecords[0] || null;
   const preflightBlocked = Number(preflightLatest?.blockingCount || 0);
   const preflightWarnings = Number(preflightLatest?.warningCount || 0);
   const releaseCronChecks = [
@@ -223,6 +322,197 @@ export function OverviewPanel({
     preflightBlocked > 0 ? `轻量门禁存在 ${preflightBlocked} 个阻塞项` : '',
     latestPatrolRecord?.status === 'failed' ? `最近完整巡检失败：${latestPatrolRecord.note || latestPatrolRecord.reportPath || '请查看巡检报告'}` : '',
   ].filter(Boolean);
+  const activeDefaultBusinessKeys = new Set(
+    coreBusinessOverviewItems
+      .filter((item) => item.isDefault && item.status === 'active')
+      .map((item) => item.businessKey),
+  );
+  const missingCoreBusinessLabels = coreBusinessKeys
+    .filter((key) => !activeDefaultBusinessKeys.has(key))
+    .map((key) => businessKeyLabel(key));
+  const businessFailedCount = Number(businessUsageSummary?.failed || 0);
+  const businessPathLoading = loading && coreBusinessOverviewItems.length === 0;
+  const vendorPathLoading = loading && vendorModelCount === 0 && vendorKeyCount === 0;
+  const abilityPathLoading = loading && !abilityHealthSummary && Number(summary.abilities || 0) === 0;
+  const abilityRiskCount =
+    Number(abilityHealthSummary?.failed || 0) +
+    Number(abilityHealthSummary?.degraded || 0) +
+    Number(abilityHealthSummary?.needsTestCount || 0);
+  const operationPathItems: Array<{
+    step: string;
+    title: string;
+    body: string;
+    status: string;
+    theme: 'success' | 'warning' | 'danger' | 'default';
+    action: string;
+    target: OverviewNavTarget;
+  }> = [
+    {
+      step: '1',
+      title: '先定业务入口',
+      body: '确认花纹提取、图裂变、扩图都有 active 默认版本，业务方只认这里的稳定入口。',
+      status: businessPathLoading
+        ? '加载中'
+        : missingCoreBusinessLabels.length > 0
+          ? `缺 ${missingCoreBusinessLabels.join('、')}`
+          : businessFailedCount > 0
+            ? `失败 ${businessFailedCount}`
+            : '入口完整',
+      theme: businessPathLoading ? 'default' : missingCoreBusinessLabels.length > 0 ? 'danger' : businessFailedCount > 0 ? 'warning' : 'success',
+      action: '进入业务能力',
+      target: 'business',
+    },
+    {
+      step: '2',
+      title: '再看模型弹药',
+      body: '检查商业模型、密钥、出网和最近失败样本；模型不稳定时不要绑定到业务默认版本。',
+      status: vendorPathLoading
+        ? '加载中'
+        : vendorKeyCount <= 0
+          ? '缺密钥'
+          : vendorGovernanceIssueCount > 0
+            ? `问题 ${vendorGovernanceIssueCount}`
+            : vendorUsageFailed > 0
+              ? `失败 ${vendorUsageFailed}`
+              : `模型 ${vendorModelCount}`,
+      theme: vendorPathLoading ? 'default' : vendorKeyCount <= 0 ? 'warning' : vendorGovernanceIssueCount > 0 || vendorUsageFailed > 0 ? 'warning' : 'success',
+      action: '检查模型弹药库',
+      target: 'vendor-models',
+    },
+    {
+      step: '3',
+      title: '核对原子能力',
+      body: '确认能力分类、输入字段、默认线路和最近健康状态；底层细节不要暴露给业务方。',
+      status: abilityPathLoading
+        ? '加载中'
+        : abilityHealthSummary
+          ? abilityRiskCount > 0
+            ? `需处理 ${abilityRiskCount}`
+            : '能力正常'
+          : `能力 ${summary.abilities || 0}`,
+      theme: abilityPathLoading ? 'default' : abilityRiskCount > 0 ? 'warning' : 'success',
+      action: '查看能力目录',
+      target: 'abilities',
+    },
+    {
+      step: '4',
+      title: '最后做真实测评',
+      body: '发版前用测评端或巡检脚本跑真实链路，确认 Coze 到中台再到能力服务的回填闭环。',
+      status: latestPatrolRecord ? (latestPatrolRecord.status === 'passed' ? '最近通过' : '最近失败') : '待巡检',
+      theme: latestPatrolRecord?.status === 'failed' ? 'danger' : latestPatrolRecord?.status === 'passed' ? 'success' : 'default',
+      action: '进入能力评测',
+      target: 'ability-evals',
+    },
+  ];
+  const operationPathLoading = operationPathItems.some((item) => item.status === '加载中');
+  const operationPathHasBlocker = operationPathItems.some((item) => item.theme === 'danger');
+  const operationPathHasWarning = operationPathItems.some((item) => item.theme === 'warning');
+  const callbackFailedCount = Number(businessUsageSummary?.callbackFailed || 0);
+  const releaseReadinessItems: Array<{
+    title: string;
+    status: string;
+    detail: string;
+    theme: 'success' | 'warning' | 'danger' | 'default';
+  }> = [
+    {
+      title: '业务入口',
+      status: businessPathLoading
+        ? '加载中'
+        : missingCoreBusinessLabels.length > 0
+          ? '阻塞'
+          : businessFailedCount > 0 || callbackFailedCount > 0
+            ? '需处理'
+            : '通过',
+      detail: businessPathLoading
+        ? '正在加载默认版本和最近调用。'
+        : missingCoreBusinessLabels.length > 0
+          ? `缺少 ${missingCoreBusinessLabels.join('、')} 的 active 默认版本。`
+          : businessFailedCount > 0
+            ? `近 ${businessUsageSummary?.windowHours || 24} 小时业务失败 ${businessFailedCount} 次。`
+            : callbackFailedCount > 0
+              ? `当前还有 ${callbackFailedCount} 次回调失败。`
+              : '三大主业务默认入口完整，最近无明显失败。',
+      theme: businessPathLoading ? 'default' : missingCoreBusinessLabels.length > 0 || businessFailedCount > 0 || callbackFailedCount > 0 ? 'danger' : 'success',
+    },
+    {
+      title: '轻量门禁',
+      status: !preflightLatest ? '待运行' : preflightBlocked > 0 ? '阻塞' : preflightWarnings > 0 ? '提醒' : '通过',
+      detail: !preflightLatest
+        ? '上线前需要先运行轻量门禁。'
+        : preflightBlocked > 0
+          ? `${preflightBlocked} 个阻塞项需要处理。`
+          : preflightWarnings > 0
+            ? `${preflightWarnings} 个提醒项，需确认是否可接受。`
+            : `最近检查通过：${formatDateTime(preflightLatest.generatedAt)}`,
+      theme: !preflightLatest ? 'warning' : preflightBlocked > 0 ? 'danger' : preflightWarnings > 0 ? 'warning' : 'success',
+    },
+    {
+      title: '完整巡检',
+      status: !latestPatrolRecord ? '待登记' : latestPatrolRecord.status === 'passed' ? '通过' : '阻塞',
+      detail: !latestPatrolRecord
+        ? '上线前需要跑一次真实工作流巡检，并登记结果。'
+        : latestPatrolRecord.status === 'passed'
+          ? `最近完整巡检通过：${formatDateTime(latestPatrolRecord.generatedAt)}`
+          : latestPatrolRecord.note || latestPatrolRecord.reportPath || '最近完整巡检失败，请先查看报告。',
+      theme: !latestPatrolRecord ? 'warning' : latestPatrolRecord.status === 'passed' ? 'success' : 'danger',
+    },
+    {
+      title: '模型与能力',
+      status: vendorGovernanceIssueCount > 0 || vendorUsageFailed > 0 || abilityRiskCount > 0 ? '提醒' : '通过',
+      detail:
+        vendorGovernanceIssueCount > 0 || vendorUsageFailed > 0 || abilityRiskCount > 0
+          ? `模型问题 ${vendorGovernanceIssueCount}，模型调用失败 ${vendorUsageFailed}，能力需处理 ${abilityRiskCount}。`
+          : '模型弹药库和能力目录当前没有明显阻塞。',
+      theme: vendorGovernanceIssueCount > 0 || vendorUsageFailed > 0 || abilityRiskCount > 0 ? 'warning' : 'success',
+    },
+  ];
+  const releaseReadinessHasLoading = releaseReadinessItems.some((item) => item.status === '加载中');
+  const releaseReadinessBlockers = releaseReadinessItems.filter((item) => item.theme === 'danger');
+  const releaseReadinessWarnings = releaseReadinessItems.filter((item) => item.theme === 'warning');
+  const releaseReadinessTitle = releaseReadinessHasLoading
+    ? '正在加载'
+    : releaseReadinessBlockers.length > 0
+      ? '暂不能上线'
+      : releaseReadinessWarnings.length > 0
+        ? '待验收确认'
+        : '可以上线';
+  const releaseReadinessTheme = releaseReadinessHasLoading
+    ? 'default'
+    : releaseReadinessBlockers.length > 0
+      ? 'danger'
+      : releaseReadinessWarnings.length > 0
+        ? 'warning'
+        : 'success';
+  const releaseReadinessMessage = releaseReadinessHasLoading
+    ? '正在加载业务、门禁和巡检数据，加载完成后再判断。'
+    : releaseReadinessBlockers.length > 0
+      ? `存在 ${releaseReadinessBlockers.length} 个阻塞项：${releaseReadinessBlockers.map((item) => item.title).join('、')}。处理完成前不要发版。`
+      : releaseReadinessWarnings.length > 0
+        ? `还需要确认 ${releaseReadinessWarnings.length} 个事项：${releaseReadinessWarnings.map((item) => item.title).join('、')}。确认后再安排线上闭环。`
+        : '业务入口、轻量门禁、完整巡检和能力状态都已满足上线前检查要求。';
+  const submitReleaseDecision = (status: 'approved' | 'deferred' | 'blocked') => {
+    const note = releaseDecisionNote.trim();
+    const title =
+      status === 'approved'
+        ? `确认可上线：${releaseReadinessTitle}`
+        : status === 'blocked'
+          ? `阻塞上线：${releaseReadinessTitle}`
+          : `暂缓上线：${releaseReadinessTitle}`;
+    onCreateReleaseDecisionRecord({
+      status,
+      title,
+      note: note || releaseReadinessMessage,
+      summary: {
+        readinessTitle: releaseReadinessTitle,
+        readinessMessage: releaseReadinessMessage,
+        blockers: releaseReadinessBlockers.map((item) => ({ title: item.title, status: item.status, detail: item.detail })),
+        warnings: releaseReadinessWarnings.map((item) => ({ title: item.title, status: item.status, detail: item.detail })),
+        preflightId: preflightLatest?.id || null,
+        patrolId: latestPatrolRecord?.id || null,
+      },
+    });
+    setReleaseDecisionNote('');
+  };
 
   return (
     <>
@@ -236,6 +526,177 @@ export function OverviewPanel({
           style={{ marginBottom: 16 }}
         />
       ) : null}
+
+      <Card bordered style={{ marginBottom: 16 }}>
+        <Space direction="vertical" size="small" style={{ width: '100%' }}>
+          <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+            <div>
+              <Typography.Text strong>上线结论</Typography.Text>
+              <div>
+                <Typography.Text theme="secondary">
+                  这里汇总业务入口、轻量门禁、完整巡检、模型与能力状态，直接判断是否能进入线上闭环。
+                </Typography.Text>
+              </div>
+            </div>
+            <Tag theme={releaseReadinessTheme} variant="light">
+              {releaseReadinessTitle}
+            </Tag>
+          </Space>
+          <Alert
+            theme={
+              releaseReadinessTheme === 'danger'
+                ? 'error'
+                : releaseReadinessTheme === 'default'
+                  ? 'info'
+                  : releaseReadinessTheme
+            }
+            message={releaseReadinessMessage}
+          />
+          <Row gutter={[12, 12]}>
+            {releaseReadinessItems.map((item) => (
+              <Col key={item.title} xs={12} sm={6} lg={3}>
+                <Card bordered size="small" style={{ height: '100%' }}>
+                  <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                    <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                      <Typography.Text strong>{item.title}</Typography.Text>
+                      <Tag theme={item.theme} variant="light">
+                        {item.status}
+                      </Tag>
+                    </Space>
+                    <Typography.Text theme="secondary">{item.detail}</Typography.Text>
+                  </Space>
+                </Card>
+              </Col>
+            ))}
+          </Row>
+          <Space size="small" style={{ flexWrap: 'wrap' }}>
+            <Button size="small" theme="primary" loading={releasePreflightLoading} onClick={onRunReleasePreflight}>
+              运行轻量门禁
+            </Button>
+            <Button size="small" variant="outline" onClick={() => onCopyText?.(fullPatrolCommand)}>
+              复制完整巡检命令
+            </Button>
+            <Button size="small" variant="outline" onClick={() => onNavigate?.('business')}>
+              检查业务入口
+            </Button>
+            <Button size="small" variant="outline" onClick={() => onNavigate?.('ability-evals')}>
+              进入能力评测
+            </Button>
+          </Space>
+          {releaseDecisionError ? <Alert theme="error" message={releaseDecisionError} /> : null}
+          <Card bordered size="small">
+            <Space direction="vertical" size="small" style={{ width: '100%' }}>
+              <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+                <div>
+                  <Typography.Text strong>上线结论登记</Typography.Text>
+                  <div>
+                    <Typography.Text theme="secondary">
+                      把本次判断落成记录，后续复盘能看到当时的门禁、巡检和人工说明。
+                    </Typography.Text>
+                  </div>
+                </div>
+                {latestReleaseDecision ? (
+                  <Tag theme={releaseDecisionStatusTheme(latestReleaseDecision.status)} variant="light">
+                    最近：{releaseDecisionStatusLabel(latestReleaseDecision.status)}
+                  </Tag>
+                ) : (
+                  <Tag theme="default" variant="light">暂无登记</Tag>
+                )}
+              </Space>
+              {latestReleaseDecision ? (
+                <Typography.Text theme="secondary">
+                  {formatDateTime(latestReleaseDecision.generatedAt)} · {latestReleaseDecision.title}
+                  {latestReleaseDecision.note ? ` · ${latestReleaseDecision.note}` : ''}
+                </Typography.Text>
+              ) : null}
+              <Input
+                value={releaseDecisionNote}
+                onChange={(value) => setReleaseDecisionNote(String(value))}
+                placeholder="可选：写清楚本次为什么可上线、为什么暂缓，或还差什么"
+              />
+              <Space size="small" style={{ flexWrap: 'wrap' }}>
+                <Button
+                  size="small"
+                  theme="success"
+                  loading={releaseDecisionLoading}
+                  disabled={releaseReadinessHasLoading || releaseReadinessBlockers.length > 0}
+                  onClick={() => submitReleaseDecision('approved')}
+                >
+                  登记可上线
+                </Button>
+                <Button
+                  size="small"
+                  variant="outline"
+                  loading={releaseDecisionLoading}
+                  disabled={releaseReadinessHasLoading}
+                  onClick={() => submitReleaseDecision('deferred')}
+                >
+                  登记暂缓
+                </Button>
+                <Button
+                  size="small"
+                  theme="danger"
+                  variant="outline"
+                  loading={releaseDecisionLoading}
+                  disabled={releaseReadinessHasLoading}
+                  onClick={() => submitReleaseDecision('blocked')}
+                >
+                  登记阻塞
+                </Button>
+                <Button size="small" variant="text" loading={releaseDecisionLoading} onClick={onRefreshReleaseDecisionRecords}>
+                  刷新登记
+                </Button>
+              </Space>
+            </Space>
+          </Card>
+        </Space>
+      </Card>
+
+      <Card bordered style={{ marginBottom: 16 }}>
+        <Space direction="vertical" size="small" style={{ width: '100%' }}>
+          <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+            <div>
+              <Typography.Text strong>业务上线路径</Typography.Text>
+              <div>
+                <Typography.Text theme="secondary">
+                  按这个顺序检查：业务入口先稳定，模型和能力再绑定，最后用真实测评确认回填。
+                </Typography.Text>
+              </div>
+            </div>
+            <Tag
+              theme={operationPathLoading ? 'default' : operationPathHasBlocker ? 'danger' : operationPathHasWarning ? 'warning' : 'success'}
+              variant="light"
+            >
+              {operationPathLoading ? '正在加载' : operationPathHasBlocker ? '存在阻塞' : operationPathHasWarning ? '需要处理' : '路径清晰'}
+            </Tag>
+          </Space>
+          <Row gutter={[12, 12]}>
+            {operationPathItems.map((item) => (
+              <Col key={item.step} xs={12} md={3}>
+                <Card bordered size="small" style={{ height: '100%' }}>
+                  <Space direction="vertical" size="small" style={{ width: '100%', height: '100%', justifyContent: 'space-between' }}>
+                    <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                      <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                        <Tag theme="primary" variant="light">
+                          {item.step}
+                        </Tag>
+                        <Tag theme={item.theme} variant="light">
+                          {item.status}
+                        </Tag>
+                      </Space>
+                      <Typography.Text strong>{item.title}</Typography.Text>
+                      <Typography.Text theme="secondary">{item.body}</Typography.Text>
+                    </Space>
+                    <Button size="small" variant="outline" onClick={() => onNavigate?.(item.target)}>
+                      {item.action}
+                    </Button>
+                  </Space>
+                </Card>
+              </Col>
+            ))}
+          </Row>
+        </Space>
+      </Card>
 
       <Card bordered style={{ marginBottom: 16 }}>
         <Space direction="vertical" size="small" style={{ width: '100%' }}>
@@ -605,6 +1066,82 @@ export function OverviewPanel({
           />
           {releasePatrolError ? <Alert theme="error" message={releasePatrolError} /> : null}
           <pre className="overflow-auto rounded-2xl bg-slate-950 p-3 text-xs text-slate-100">{fullPatrolCommand}</pre>
+          {latestPatrolRecord && latestPatrolEvidence.length > 0 ? (
+            <Card bordered size="small" className="bg-slate-50/70 dark:bg-slate-950/40">
+              <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+                  <div>
+                    <Typography.Text strong>最近巡检健康证据</Typography.Text>
+                    <div>
+                      <Typography.Text theme="secondary">
+                        来自 {formatDateTime(latestPatrolRecord.generatedAt)} 的真实工作流巡检，展示每个能力是否完成、是否有结果回填。
+                      </Typography.Text>
+                    </div>
+                  </div>
+                  <Space size={6} breakLine>
+                    <Tag theme="default" variant="light">总数 {latestPatrolEvidence.length}</Tag>
+                    <Tag theme="success" variant="light">通过 {latestPatrolEvidence.length - latestPatrolFailedEvidence.length}</Tag>
+                    <Tag theme={latestPatrolFailedEvidence.length > 0 ? 'danger' : 'success'} variant="light">
+                      失败 {latestPatrolFailedEvidence.length}
+                    </Tag>
+                    <Tag theme={latestPatrolOutputReady === latestPatrolEvidence.length ? 'success' : 'warning'} variant="light">
+                      已回填 {latestPatrolOutputReady}
+                    </Tag>
+                  </Space>
+                </Space>
+                <div className="max-h-[240px] overflow-auto rounded-2xl border border-slate-200/70 dark:border-slate-800">
+                  <table className="w-full text-xs">
+                    <thead className="sticky top-0 bg-slate-50 text-[11px] text-slate-600 dark:bg-slate-900/80 dark:text-slate-400">
+                      <tr className="text-left">
+                        <th className="px-3 py-2">功能</th>
+                        <th className="px-3 py-2">状态</th>
+                        <th className="px-3 py-2">结果回填</th>
+                        <th className="px-3 py-2">任务编号</th>
+                        <th className="px-3 py-2">问题</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {latestPatrolEvidence.slice(0, 20).map((item, index) => {
+                        const tag = patrolHealthTag(item);
+                        return (
+                          <tr key={`${item.workflowId || item.runId || index}`} className="border-t border-slate-100 dark:border-slate-800">
+                            <td className="px-3 py-2">
+                              <Space direction="vertical" size={2}>
+                                <Typography.Text>{item.name || '未命名工作流'}</Typography.Text>
+                                <Typography.Text theme="secondary">{item.workflowId || '无 workflowId'}</Typography.Text>
+                              </Space>
+                            </td>
+                            <td className="px-3 py-2">
+                              <Tag theme={tag.theme} variant="light">{tag.text}</Tag>
+                            </td>
+                            <td className="px-3 py-2">
+                              <Tag theme={item.hasOutput ? 'success' : 'warning'} variant="light">
+                                {item.hasOutput ? `${item.imageCount || 1} 个结果` : '未回填'}
+                              </Tag>
+                            </td>
+                            <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
+                              {item.podiTaskId || item.runId || item.cozeExecuteId || '—'}
+                            </td>
+                            <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
+                              {item.issueCode === 'OK' ? '—' : item.error || item.issueCode}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                {latestPatrolEvidence.length > 20 ? (
+                  <Typography.Text theme="secondary">仅展示前 20 条；完整明细以巡检报告为准。</Typography.Text>
+                ) : null}
+              </Space>
+            </Card>
+          ) : latestPatrolRecord ? (
+            <Alert
+              theme="warning"
+              message="最近巡检记录没有逐条健康证据。请导入新版巡检脚本生成的报告，报告中需要包含 items 明细。"
+            />
+          ) : null}
           <Space align="center" style={{ width: '100%', flexWrap: 'wrap' }}>
             <Input
               value={releasePatrolReportPath}
