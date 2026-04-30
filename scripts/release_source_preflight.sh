@@ -5,11 +5,13 @@ set -euo pipefail
 # This catches two high-risk release issues:
 # 1) packaging from a local branch/dirty tree instead of origin/main
 # 2) broken Alembic migration graph or macOS AppleDouble files copied into the package
+# 3) entry documents pointing at missing local files
 
 REMOTE="${REMOTE:-origin}"
 BRANCH="${BRANCH:-main}"
 CHECK_GIT_SYNC="${CHECK_GIT_SYNC:-1}"
 CHECK_APPLEDOUBLE="${CHECK_APPLEDOUBLE:-1}"
+CHECK_DOC_ENTRY_REFS="${CHECK_DOC_ENTRY_REFS:-1}"
 CHECK_ALEMBIC="${CHECK_ALEMBIC:-1}"
 CHECK_DB_CURRENT="${CHECK_DB_CURRENT:-0}"
 ALLOW_DIRTY="${ALLOW_DIRTY:-0}"
@@ -51,6 +53,7 @@ echo "REMOTE=$REMOTE"
 echo "BRANCH=$BRANCH"
 echo "CHECK_GIT_SYNC=$CHECK_GIT_SYNC"
 echo "CHECK_APPLEDOUBLE=$CHECK_APPLEDOUBLE"
+echo "CHECK_DOC_ENTRY_REFS=$CHECK_DOC_ENTRY_REFS"
 echo "CHECK_ALEMBIC=$CHECK_ALEMBIC"
 echo "CHECK_DB_CURRENT=$CHECK_DB_CURRENT"
 echo "ALLOW_DIRTY=$ALLOW_DIRTY"
@@ -121,6 +124,25 @@ if [[ "$CHECK_APPLEDOUBLE" == "1" ]]; then
       fail "发现 macOS AppleDouble 文件，必须清理后再打包。"
       echo "$appledouble_files"
     fi
+  fi
+fi
+
+if [[ "$CHECK_DOC_ENTRY_REFS" == "1" ]]; then
+  python_bin="${PYTHON_BIN:-}"
+  if [[ -z "$python_bin" ]]; then
+    if [[ -x backend/.venv/bin/python ]]; then
+      python_bin="backend/.venv/bin/python"
+    elif command -v python3 >/dev/null 2>&1; then
+      python_bin="$(command -v python3)"
+    else
+      python_bin="$(command -v python)"
+    fi
+  fi
+
+  if "$python_bin" scripts/check_doc_entry_references.py; then
+    ok "入口文档本地路径引用检查通过。"
+  else
+    fail "入口文档存在缺失的本地路径引用。"
   fi
 fi
 
