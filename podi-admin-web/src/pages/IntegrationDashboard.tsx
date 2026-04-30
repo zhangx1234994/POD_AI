@@ -133,7 +133,6 @@ import {
 import {
   integrationNavItems as navItems,
   isAdvancedIntegrationNav as isAdvancedNav,
-  isIntegrationNavId as isNavId,
   type IntegrationNavId as NavId,
 } from '../features/admin/integration/navigation';
 import { integrationNavIconMap as navIconMap } from '../features/admin/integration/navigationIcons';
@@ -161,6 +160,34 @@ import {
   formatPriceValue,
   formatUnitLabel,
 } from '../features/admin/integration/formatters';
+import {
+  abilityDetailTabs,
+  abilityLogPageSize,
+  abilityLogTabs,
+  currentMonthValue,
+  defaultAbilityForm,
+  defaultApiKeyForm,
+  defaultAuthUserForm,
+  defaultBindingForm,
+  defaultBusinessCapabilityForm,
+  defaultComfyPricing,
+  defaultExecutorForm,
+  defaultInviteCodeForm,
+  defaultTestForm,
+  defaultVendorKeyForm,
+  defaultVendorModelForm,
+  defaultWorkflowForm,
+  globalAbilityLogPageSize,
+  readEvalRunIdFromHash,
+  readHashParams,
+  readNavFromHash,
+  readOnlyNavIds,
+  type AbilityDetailTab,
+  type AbilityLogTab,
+  type AbilityPricing,
+  type AbilityTestForm,
+  type AbilityTestResultPayload,
+} from '../features/admin/integration/integrationDashboardConfig';
 import {
   AbilityEvaluationPage,
   AuthPanel,
@@ -194,85 +221,6 @@ import {
 } from '../features/admin/integration/lazyPanels';
 import { ActionBar, ErrorState, PageHeader } from '../features/admin/shared/ui';
 
-const readHashParams = (): URLSearchParams | null => {
-  if (typeof window === 'undefined') return null;
-  const hash = window.location.hash.replace(/^#/, '');
-  if (!hash) return null;
-  return new URLSearchParams(hash.includes('=') ? hash : `nav=${hash}`);
-};
-const readNavFromHash = (): NavId | null => {
-  const params = readHashParams();
-  if (!params) return null;
-  const value = params.get('nav') || '';
-  if (value === 'ability-tests') return 'abilities';
-  return isNavId(value) ? value : null;
-};
-const readEvalRunIdFromHash = (): string => {
-  const params = readHashParams();
-  return String(params?.get('runId') || params?.get('evalRunId') || '').trim();
-};
-const abilityDetailTabs = [
-  { id: 'overview', label: '概览' },
-  { id: 'params', label: '参数' },
-  { id: 'metadata', label: '元信息' },
-  { id: 'testing', label: '实时测试' },
-  { id: 'logs', label: '调用记录' },
-] as const;
-type AbilityDetailTab = (typeof abilityDetailTabs)[number]['id'];
-const abilityLogTabs = [
-  { id: 'metrics', label: '指标' },
-  { id: 'logs', label: '调用清单' },
-] as const;
-type AbilityLogTab = (typeof abilityLogTabs)[number]['id'];
-
-const defaultExecutorForm: ExecutorFormState = { status: 'inactive', weight: 1, max_concurrency: 1 };
-const defaultWorkflowForm: WorkflowFormState = { action: '', name: '', version: 'v1', status: 'inactive', type: 'generic' };
-const defaultBindingForm: BindingFormState = { enabled: true, priority: 0 };
-const defaultApiKeyForm: ApiKeyFormState = { status: 'active' };
-const defaultInviteCodeForm: InviteCodeCreatePayload = { role: 'user', maxUses: 1 };
-const defaultAuthUserForm: AuthUserFormState = { role: 'user', status: 'active' };
-const readOnlyNavIds = new Set<NavId>(['business']);
-const currentMonthValue = () => {
-  const now = new Date();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  return `${now.getFullYear()}-${month}`;
-};
-const defaultVendorKeyForm: VendorKeyFormState = { status: 'active', maxConcurrency: 1 };
-const defaultVendorModelForm: VendorModelFormState = {
-  status: 'active',
-  source: 'backend-admin',
-  supportsMask: false,
-  supportsMultipleImages: false,
-  supportsVideo: false,
-  supportsText: true,
-  requiresGlobalEgress: false,
-  apiTypesText: 'image_generation',
-  executionModesText: 'sync',
-  metadataText: '{}',
-  routePolicyText: '{}',
-  defaultTaskPolicyText: '{}',
-  inputSchemaText: '{}',
-  costPolicyText: '{}',
-};
-const defaultBusinessCapabilityForm: BusinessCapabilityFormState = {
-  businessKey: 'pattern_extract',
-  version: 'v1',
-  displayName: '',
-  description: '',
-  status: 'inactive',
-  isDefault: false,
-  releaseTime: '',
-  primaryAbilityId: '',
-  vlAssistEnabled: false,
-  vlAssistAbilityId: 'vl_analyze_image',
-  rolloutEnabled: false,
-  rolloutPercent: 0,
-  rolloutAllowlistText: '',
-  recipeText: '{}',
-  inputSchemaText: '{"fields":[]}',
-  outputSchemaText: '{"fields":[]}',
-  metadataText: '{}',
-};
 type ExecutorTraffic = {
   count: number;
   success: number;
@@ -615,61 +563,11 @@ const buildWorkflowClonePayload = (workflow: Workflow) => {
   };
 };
 
-const defaultAbilityForm: AbilityFormState = {
-  provider: providerOptions[0].value,
-  category: categoryOptions[0].value,
-  capability_key: '',
-  version: 'v1',
-  display_name: '',
-  status: 'inactive',
-  ability_type: abilityTypeOptions[0].value,
-};
-
-type AbilityTestForm = {
-  abilityId: string | null;
-  provider: string | null;
-  capabilityKey: string | null;
-  executorId: string | null;
-  params: string;
-  imageBase64: string;
-  imageUrl: string;
-  comfyuiSubmitOnly: boolean;
-};
-
-type AbilityTestResultPayload = {
-  provider?: string;
-  model?: string;
-  logId?: string | number;
-  durationMs?: number;
-  taskId?: string;
-  state?: string;
-  imageBase64?: string;
-  imageUrl?: string;
-  storedUrl?: string;
-  resultUrls?: string[];
-  assets?: StoredAsset[];
-  text?: string;
-  raw?: JsonRecord | null;
-};
-
-const defaultTestForm: AbilityTestForm = {
-  abilityId: null,
-  provider: null,
-  capabilityKey: null,
-  executorId: null,
-  params: '',
-  imageBase64: '',
-  imageUrl: '',
-  comfyuiSubmitOnly: false,
-};
-
 const formatJsonValue = (value?: JsonRecord | null) => (value ? JSON.stringify(value, null, 2) : '');
 const toImagePreview = (value?: string | null) => {
   if (!value) return '';
   return value.startsWith('data:') ? value : `data:image/png;base64,${value}`;
 };
-const abilityLogPageSize = 20;
-const globalAbilityLogPageSize = 30;
 const getAbilityHealthFilterQuery = (filter: AbilityHealthFilter) => {
   if (filter === 'needs_test') return { needsTest: true };
   if (filter === 'stale') return { staleOnly: true };
@@ -818,16 +716,9 @@ type AbilitySchemaField = {
 };
 
 type SchemaFormValues = Record<string, string | boolean>;
-type AbilityPricing = {
-  currency?: string;
-  unit?: string;
-  listPrice?: number;
-  discountPrice?: number;
-};
 
 const allowedSchemaTypes: SchemaFieldType[] = ['text', 'textarea', 'select', 'number', 'switch', 'image'];
 const allowedSchemaComponents: SchemaFieldComponent[] = ['select'];
-const defaultComfyPricing: AbilityPricing = { currency: 'CNY', unit: 'per_image', listPrice: 0.5, discountPrice: 0.3 };
 
 const getString = (value: unknown): string | undefined => {
   if (typeof value === 'string') {
