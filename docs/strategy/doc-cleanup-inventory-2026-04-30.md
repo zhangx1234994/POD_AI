@@ -15,6 +15,7 @@
 - 当前仓库已不包含客户端代码目录。
 - `docs/client/` 只作为历史客户端资料入口。
 - 当前开发主线是 `backend/`、`podi-admin-web/`、`podi-eval-web/`、`image-ops-service/`、`vendor-api-ops/`。
+- `AGENTS.md` 已同步当前凭证、KIE dispatcher、火山模型同步与执行节点标签口径。
 
 ## 2. 文档分区
 
@@ -79,6 +80,7 @@
 
 - 文档入口已经修正客户端当前状态，但深层历史文档仍大量引用旧客户端目录。
 - `docs/CREDENTIALS.md` 已改为去敏配置清单；真实凭证只能放环境变量、密钥系统或本地忽略文件。
+- 根目录 `AGENTS.md` 已清理过期 TODO，不再把已完成能力当作待办。
 
 ### P1
 
