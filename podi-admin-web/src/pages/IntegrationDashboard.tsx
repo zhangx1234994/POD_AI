@@ -169,6 +169,7 @@ import {
   type ComfyuiManageTab,
 } from '../features/admin/integration/comfyuiDashboardConfig';
 import { useComfyuiDashboardDerivedState } from '../features/admin/integration/comfyuiDashboardState';
+import { useComfyuiAgentActions } from '../features/admin/integration/comfyuiAgentActions';
 import { useComfyuiResourceCatalogActions } from '../features/admin/integration/comfyuiResourceCatalogActions';
 import {
   useComfyuiTaskActions,
@@ -4270,109 +4271,34 @@ export function IntegrationDashboard({
     setComfyVersionSyncing,
   });
 
-  const resetComfyAgentForm = useCallback((seed?: Partial<ComfyuiAgent>) => {
-    const next = seed || { status: 'active', allowed: true };
-    setComfyAgentForm(next);
-    setComfyAgentConfigInput(stringifyJSON(next.config as JsonRecord));
-    setComfyAgentFormError(null);
-  }, []);
-
-  const refreshComfyAgents = useCallback(
-    async (options?: { silent?: boolean; status?: string }) => {
-      const silent = Boolean(options?.silent);
-      const statusFilter = options?.status ?? comfyAgentStatusFilter;
-      if (!silent) setComfyAgentLoading(true);
-      setComfyAgentError(null);
-      try {
-        const resp = await adminApi.listComfyuiAgents({
-          status: statusFilter !== 'all' ? statusFilter : undefined,
-        });
-        setComfyAgentList(resp || []);
-      } catch (error: any) {
-        console.error('Failed to load ComfyUI agents:', error);
-        setComfyAgentError(error?.message || '获取代理服务列表失败');
-      } finally {
-        if (!silent) setComfyAgentLoading(false);
-      }
-    },
-    [comfyAgentStatusFilter],
-  );
-
-  const handleComfyAgentSave = useCallback(async () => {
-    const id = String(comfyAgentForm.id || '').trim();
-    if (!id) {
-      setComfyAgentFormError('请填写代理服务ID');
-      return;
-    }
-    const baseUrl = String(comfyAgentForm.baseUrl || '').trim();
-    const configInput = comfyAgentConfigInput.trim();
-    if (configInput) {
-      const parsed = safeParseJSON(configInput);
-      if (!parsed.ok) {
-        setComfyAgentFormError('配置内容格式不正确（需 JSON）');
-        return;
-      }
-    }
-    setComfyAgentSaving(true);
-    setComfyAgentFormError(null);
-    try {
-      const payload: Partial<ComfyuiAgent> & { id: string } = {
-        id,
-        name: comfyAgentForm.name ? String(comfyAgentForm.name).trim() : undefined,
-        role: comfyAgentForm.role ? String(comfyAgentForm.role).trim() : undefined,
-        host: comfyAgentForm.host ? String(comfyAgentForm.host).trim() : undefined,
-        baseUrl: baseUrl || undefined,
-        status: comfyAgentForm.status || 'active',
-        allowed: typeof comfyAgentForm.allowed === 'boolean' ? comfyAgentForm.allowed : true,
-      };
-      if (configInput) {
-        payload.config = parseJSON(configInput);
-      }
-      if (comfyAgentList.some((item) => item.id === id)) {
-        await adminApi.updateComfyuiAgent(id, payload);
-      } else {
-        await adminApi.createComfyuiAgent(payload);
-      }
-      setComfyAgentDialogOpen(false);
-      resetComfyAgentForm();
-      refreshComfyAgents({ silent: true });
-    } catch (error: any) {
-      console.error('save comfyui agent failed', error);
-      setComfyAgentFormError(error?.message || '保存失败，请检查必填项');
-    } finally {
-      setComfyAgentSaving(false);
-    }
-  }, [comfyAgentForm, comfyAgentConfigInput, comfyAgentList, refreshComfyAgents, resetComfyAgentForm]);
-
-  const handleComfyAgentDelete = useCallback(
-    async (agentId: string) => {
-      await adminApi.deleteComfyuiAgent(agentId);
-      refreshComfyAgents({ silent: true });
-    },
-    [refreshComfyAgents],
-  );
-
-  const handleComfyAgentSetPrimary = useCallback(
-    async (agent: ComfyuiAgent) => {
-      const role = String(agent.role || '').trim();
-      if (!role) {
-        setComfyAgentError('该代理服务未配置角色，无法设为主节点。');
-        return;
-      }
-      setComfyAgentPrimarySaving((prev) => ({ ...prev, [agent.id]: true }));
-      setComfyAgentError(null);
-      try {
-        await adminApi.setComfyuiRolePrimary(role, agent.id);
-        refreshComfyAgents({ silent: true });
-      } catch (error: any) {
-        console.error('set comfyui role primary failed', error);
-        setComfyAgentError(error?.message || '设置主节点失败，请稍后重试');
-      } finally {
-        setComfyAgentPrimarySaving((prev) => ({ ...prev, [agent.id]: false }));
-      }
-    },
-    [refreshComfyAgents],
-  );
+  const {
+    handleComfyAgentDelete,
+    handleComfyAgentSave,
+    handleComfyAgentSetPrimary,
+    handleComfyAgentTokenIssue,
+    refreshComfyAgents,
+    resetComfyAgentForm,
+  } = useComfyuiAgentActions({
+    comfyAgentConfigInput,
+    comfyAgentForm,
+    comfyAgentList,
+    comfyAgentStatusFilter,
+    setComfyAgentConfigInput,
+    setComfyAgentDialogOpen,
+    setComfyAgentError,
+    setComfyAgentForm,
+    setComfyAgentFormError,
+    setComfyAgentList,
+    setComfyAgentLoading,
+    setComfyAgentPrimarySaving,
+    setComfyAgentSaving,
+    setComfyAgentTokenAgentId,
+    setComfyAgentTokenDialogOpen,
+    setComfyAgentTokenError,
+    setComfyAgentTokenExpiresAt,
+    setComfyAgentTokenLoading,
+    setComfyAgentTokenValue,
+  });
 
   const resetComfyManifestForm = useCallback((seed?: Partial<ComfyuiAgentManifest>) => {
     const next = seed || { status: 'draft' };
@@ -4646,27 +4572,6 @@ export function IntegrationDashboard({
       }
     },
     [comfyAgentAlertsAgentFilter, comfyAgentAlertsTypeFilter, comfyAgentAlertsLimit],
-  );
-
-  const handleComfyAgentTokenIssue = useCallback(
-    async (agentId: string) => {
-      if (!agentId) return;
-      setComfyAgentTokenLoading(true);
-      setComfyAgentTokenError(null);
-      try {
-        const resp = await adminApi.issueComfyuiAgentToken(agentId);
-        setComfyAgentTokenAgentId(resp.agentId || agentId);
-        setComfyAgentTokenValue(resp.token || '');
-        setComfyAgentTokenExpiresAt(resp.expiresAt || '');
-        setComfyAgentTokenDialogOpen(true);
-      } catch (error: any) {
-        console.error('issue comfyui agent token failed', error);
-      setComfyAgentTokenError(error?.message || '签发访问令牌失败');
-      } finally {
-        setComfyAgentTokenLoading(false);
-      }
-    },
-    [],
   );
 
   const refreshComfyEnrollCodes = useCallback(
