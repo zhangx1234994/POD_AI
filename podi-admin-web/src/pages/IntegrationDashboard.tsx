@@ -170,6 +170,7 @@ import {
 } from '../features/admin/integration/comfyuiDashboardConfig';
 import { useComfyuiDashboardDerivedState } from '../features/admin/integration/comfyuiDashboardState';
 import { useComfyuiAgentActions } from '../features/admin/integration/comfyuiAgentActions';
+import { useComfyuiDesktopActions } from '../features/admin/integration/comfyuiDesktopActions';
 import { useComfyuiManifestActions } from '../features/admin/integration/comfyuiManifestActions';
 import { useComfyuiResourceCatalogActions } from '../features/admin/integration/comfyuiResourceCatalogActions';
 import {
@@ -4402,150 +4403,35 @@ export function IntegrationDashboard({
     [comfyAgentAlertsAgentFilter, comfyAgentAlertsTypeFilter, comfyAgentAlertsLimit],
   );
 
-  const refreshComfyEnrollCodes = useCallback(
-    async (options?: { silent?: boolean }) => {
-      const silent = Boolean(options?.silent);
-      if (!silent) setComfyEnrollCodesLoading(true);
-      setComfyEnrollCodesError(null);
-      try {
-        const resp = await adminApi.listComfyuiEnrollCodes({ limit: 50 });
-        setComfyEnrollCodes(resp || []);
-      } catch (error: any) {
-        console.error('load comfy enroll codes failed', error);
-        setComfyEnrollCodesError(error?.message || '获取注册码失败');
-      } finally {
-        if (!silent) setComfyEnrollCodesLoading(false);
-      }
-    },
-    [],
-  );
-
-  const handleComfyEnrollCodeCreate = useCallback(async () => {
-    setComfyEnrollCodeCreating(true);
-    setComfyEnrollCodesError(null);
-    try {
-      await adminApi.createComfyuiEnrollCode({
-        role: comfyEnrollCodeRole || 'full',
-        ttlSeconds: Math.max(60, Math.min(7 * 24 * 3600, Number(comfyEnrollCodeTtlSeconds) || 600)),
-        maxUses: Math.max(1, Math.min(99, Number(comfyEnrollCodeMaxUses) || 1)),
-        note: comfyEnrollCodeNote.trim() || undefined,
-      });
-      setComfyEnrollCodeNote('');
-      refreshComfyEnrollCodes({ silent: true });
-    } catch (error: any) {
-      console.error('create comfy enroll code failed', error);
-      setComfyEnrollCodesError(error?.message || '生成注册码失败');
-    } finally {
-      setComfyEnrollCodeCreating(false);
-    }
-  }, [
+  const {
+    handleComfyDesktopReleaseSave,
+    handleComfyEnrollCodeCreate,
+    handleToggleComfyDesktopReleaseStatus,
+    refreshComfyDesktopReleases,
+    refreshComfyEnrollCodes,
+    resetComfyDesktopReleaseForm,
+  } = useComfyuiDesktopActions({
+    comfyDesktopReleaseForm,
+    comfyDesktopReleasePayloadInput,
+    comfyDesktopReleaseStatusFilter,
     comfyEnrollCodeMaxUses,
     comfyEnrollCodeNote,
     comfyEnrollCodeRole,
     comfyEnrollCodeTtlSeconds,
-    refreshComfyEnrollCodes,
-  ]);
-
-  const refreshComfyDesktopReleases = useCallback(
-    async (options?: { silent?: boolean }) => {
-      const silent = Boolean(options?.silent);
-      if (!silent) setComfyDesktopReleasesLoading(true);
-      setComfyDesktopReleasesError(null);
-      try {
-        const resp = await adminApi.listComfyuiDesktopReleases({
-          status: comfyDesktopReleaseStatusFilter !== 'all' ? comfyDesktopReleaseStatusFilter : undefined,
-          limit: 100,
-        });
-        setComfyDesktopReleases(resp || []);
-      } catch (error: any) {
-        console.error('load comfy desktop releases failed', error);
-        setComfyDesktopReleasesError(error?.message || '获取安装包列表失败');
-      } finally {
-        if (!silent) setComfyDesktopReleasesLoading(false);
-      }
-    },
-    [comfyDesktopReleaseStatusFilter],
-  );
-
-  const resetComfyDesktopReleaseForm = useCallback((seed?: Partial<ComfyuiDesktopRelease>) => {
-    const next = seed || {
-      channel: 'stable',
-      osType: 'windows',
-      arch: 'x64',
-      status: 'active',
-    };
-    setComfyDesktopReleaseForm(next);
-    setComfyDesktopReleasePayloadInput(stringifyJSON(next.payload as JsonRecord));
-    setComfyDesktopReleaseFormError(null);
-  }, []);
-
-  const handleComfyDesktopReleaseSave = useCallback(async () => {
-    const version = String(comfyDesktopReleaseForm.version || '').trim();
-    const downloadUrl = String(comfyDesktopReleaseForm.downloadUrl || '').trim();
-    const sha256 = String(comfyDesktopReleaseForm.sha256 || '').trim();
-    if (!version || !downloadUrl || !sha256) {
-      setComfyDesktopReleaseFormError('请填写版本号、下载地址、SHA256。');
-      return;
-    }
-    if (comfyDesktopReleasePayloadInput.trim()) {
-      const parsed = safeParseJSON(comfyDesktopReleasePayloadInput.trim());
-      if (!parsed.ok) {
-        setComfyDesktopReleaseFormError('扩展参数格式不正确（需 JSON）。');
-        return;
-      }
-    }
-    setComfyDesktopReleaseSaving(true);
-    setComfyDesktopReleaseFormError(null);
-    try {
-      const payload: Partial<ComfyuiDesktopRelease> = {
-        channel: String(comfyDesktopReleaseForm.channel || 'stable').trim() || 'stable',
-        version,
-        osType: String(comfyDesktopReleaseForm.osType || 'windows').trim() || 'windows',
-        arch: String(comfyDesktopReleaseForm.arch || 'x64').trim() || 'x64',
-        status: String(comfyDesktopReleaseForm.status || 'active').trim() || 'active',
-        downloadUrl,
-        sha256,
-        minAgentVersion: String(comfyDesktopReleaseForm.minAgentVersion || '').trim() || undefined,
-        notes: String(comfyDesktopReleaseForm.notes || '').trim() || undefined,
-      };
-      if (comfyDesktopReleasePayloadInput.trim()) {
-        payload.payload = parseJSON(comfyDesktopReleasePayloadInput.trim());
-      }
-      if (comfyDesktopReleaseForm.id) {
-        await adminApi.updateComfyuiDesktopRelease(comfyDesktopReleaseForm.id, payload);
-      } else {
-        await adminApi.createComfyuiDesktopRelease(payload);
-      }
-      setComfyDesktopReleaseDialogOpen(false);
-      resetComfyDesktopReleaseForm();
-      refreshComfyDesktopReleases({ silent: true });
-    } catch (error: any) {
-      console.error('save comfy desktop release failed', error);
-      setComfyDesktopReleaseFormError(error?.message || '保存安装包失败');
-    } finally {
-      setComfyDesktopReleaseSaving(false);
-    }
-  }, [
-    comfyDesktopReleaseForm,
-    comfyDesktopReleasePayloadInput,
-    refreshComfyDesktopReleases,
-    resetComfyDesktopReleaseForm,
-  ]);
-
-  const handleToggleComfyDesktopReleaseStatus = useCallback(
-    async (release: ComfyuiDesktopRelease) => {
-      if (!release?.id) return;
-      const nextStatus = release.status === 'active' ? 'inactive' : 'active';
-      try {
-        await adminApi.updateComfyuiDesktopRelease(release.id, { status: nextStatus });
-        refreshComfyDesktopReleases({ silent: true });
-      } catch (error: any) {
-        console.error('toggle comfy desktop release status failed', error);
-        setComfyDesktopReleasesError(error?.message || '更新安装包状态失败');
-      }
-    },
-    [refreshComfyDesktopReleases],
-  );
+    setComfyDesktopReleaseDialogOpen,
+    setComfyDesktopReleaseForm,
+    setComfyDesktopReleaseFormError,
+    setComfyDesktopReleasePayloadInput,
+    setComfyDesktopReleases,
+    setComfyDesktopReleasesError,
+    setComfyDesktopReleasesLoading,
+    setComfyDesktopReleaseSaving,
+    setComfyEnrollCodeCreating,
+    setComfyEnrollCodeNote,
+    setComfyEnrollCodes,
+    setComfyEnrollCodesError,
+    setComfyEnrollCodesLoading,
+  });
 
   const refreshComfyDiffLogs = useCallback(
     async (options?: { silent?: boolean }) => {
