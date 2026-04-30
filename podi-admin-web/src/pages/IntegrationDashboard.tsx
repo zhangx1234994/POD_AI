@@ -174,6 +174,10 @@ import { useComfyuiDesktopActions } from '../features/admin/integration/comfyuiD
 import { useComfyuiManifestActions } from '../features/admin/integration/comfyuiManifestActions';
 import { useComfyuiResourceCatalogActions } from '../features/admin/integration/comfyuiResourceCatalogActions';
 import {
+  useComfyuiServerActions,
+  type ComfyServerFormState,
+} from '../features/admin/integration/comfyuiServerActions';
+import {
   useComfyuiTaskActions,
   type ComfyuiAgentTaskFormState,
 } from '../features/admin/integration/comfyuiTaskActions';
@@ -1719,7 +1723,7 @@ export function IntegrationDashboard({
   const [comfyLoraTagsInput, setComfyLoraTagsInput] = useState('');
   const [comfyLoraTriggersInput, setComfyLoraTriggersInput] = useState('');
   const [comfyLoraFormError, setComfyLoraFormError] = useState<string | null>(null);
-  const [comfyServerForm, setComfyServerForm] = useState({
+  const [comfyServerForm, setComfyServerForm] = useState<ComfyServerFormState>({
     name: '',
     base_url: '',
     max_concurrency: 1,
@@ -2406,30 +2410,6 @@ export function IntegrationDashboard({
       })),
     };
   }, [buildComfyServerDiff, comfyBaselineExecutor, comfyExecutors]);
-  const handleSaveComfyDiffSnapshot = useCallback(async () => {
-    const snapshot = buildComfyDiffSnapshot();
-    if (!snapshot) {
-      alert('请先选择主服务器');
-      return;
-    }
-    if (!snapshot.baseline?.id) {
-      alert('缺少主服务器 ID');
-      return;
-    }
-    setComfyDiffSaving(true);
-    try {
-      await adminApi.saveComfyuiServerDiff({
-        baseline_executor_id: snapshot.baseline.id,
-        payload: snapshot,
-      });
-      alert('已保存对齐结果');
-    } catch (error: any) {
-      console.error('save comfyui server diff failed', error);
-      alert(error?.message || '保存失败');
-    } finally {
-      setComfyDiffSaving(false);
-    }
-  }, [buildComfyDiffSnapshot]);
   const evaluateWorkflowOnExecutor = useCallback(
     (deps: ComfyWorkflowDependencies, executor: Executor) => {
       const nodeKeys = comfyNodeCache[executor.id] || [];
@@ -4381,28 +4361,6 @@ export function IntegrationDashboard({
     setComfyQueueSummaryUpdatedAt,
   });
 
-  const refreshComfyAgentAlerts = useCallback(
-    async (options?: { silent?: boolean }) => {
-      const silent = Boolean(options?.silent);
-      if (!silent) setComfyAgentAlertsLoading(true);
-      setComfyAgentAlertsError(null);
-      try {
-        const resp = await adminApi.listComfyuiAgentAlerts({
-          agentId: comfyAgentAlertsAgentFilter !== 'all' ? comfyAgentAlertsAgentFilter : undefined,
-          alertType: comfyAgentAlertsTypeFilter.trim() || undefined,
-          limit: Math.max(1, Math.min(200, Number(comfyAgentAlertsLimit) || 50)),
-        });
-        setComfyAgentAlerts(resp || []);
-      } catch (error: any) {
-        console.error('Failed to load ComfyUI alerts:', error);
-      setComfyAgentAlertsError(error?.message || '获取告警失败，请稍后重试');
-      } finally {
-        if (!silent) setComfyAgentAlertsLoading(false);
-      }
-    },
-    [comfyAgentAlertsAgentFilter, comfyAgentAlertsTypeFilter, comfyAgentAlertsLimit],
-  );
-
   const {
     handleComfyDesktopReleaseSave,
     handleComfyEnrollCodeCreate,
@@ -4432,24 +4390,6 @@ export function IntegrationDashboard({
     setComfyEnrollCodesError,
     setComfyEnrollCodesLoading,
   });
-
-  const refreshComfyDiffLogs = useCallback(
-    async (options?: { silent?: boolean }) => {
-      const silent = Boolean(options?.silent);
-      if (!silent) setComfyDiffLogsLoading(true);
-      setComfyDiffLogsError(null);
-      try {
-        const resp = await adminApi.listComfyuiServerDiff(12);
-        setComfyDiffLogs(resp || []);
-      } catch (error: any) {
-        console.error('Failed to load comfyui diff logs', error);
-        setComfyDiffLogsError(error?.message || '获取对齐记录失败');
-      } finally {
-        if (!silent) setComfyDiffLogsLoading(false);
-      }
-    },
-    [],
-  );
 
   const refreshComfyuiSystemStats = useCallback(
     async (executorId: string, options?: { silent?: boolean }) => {
@@ -4492,51 +4432,34 @@ export function IntegrationDashboard({
     }
   }, [comfyExecutors, refreshComfyuiSystemStats]);
 
-  const refreshComfyuiServers = useCallback(async () => {
-    if (comfyExecutors.length === 0) return;
-    setComfyServerRefreshing(true);
-    await Promise.all(
-      comfyExecutors.map(async (executor) => {
-        await Promise.all([
-          refreshComfyuiSystemStats(executor.id, { silent: true }),
-          refreshComfyuiModelCatalog(executor.id, { silent: true, includeNodes: true }),
-        ]);
-      }),
-    );
-    setComfyServerRefreshing(false);
-  }, [comfyExecutors, refreshComfyuiModelCatalog, refreshComfyuiSystemStats]);
-
-  const handleComfyuiServerCreate = async () => {
-    const name = comfyServerForm.name.trim();
-    const baseUrl = comfyServerForm.base_url.trim();
-    if (!name) {
-      setComfyServerFormError('请填写服务器名称');
-      return;
-    }
-    if (!baseUrl || !(baseUrl.startsWith('http://') || baseUrl.startsWith('https://'))) {
-      setComfyServerFormError('服务地址需以 http:// 或 https:// 开头');
-      return;
-    }
-    setComfyServerSaving(true);
-    setComfyServerFormError(null);
-    try {
-      await adminApi.createExecutor({
-        name,
-        type: 'comfyui',
-        base_url: baseUrl,
-        status: comfyServerForm.status || 'active',
-        weight: Math.max(1, Math.min(999, Number(comfyServerForm.weight) || 1)),
-        max_concurrency: Math.max(1, Math.min(50, Number(comfyServerForm.max_concurrency) || 1)),
-      });
-      setComfyServerForm({ name: '', base_url: '', max_concurrency: 1, weight: 1, status: 'active' });
-      await load();
-    } catch (error: any) {
-      console.error('create comfyui server failed', error);
-      setComfyServerFormError(error?.message || '新增失败');
-    } finally {
-      setComfyServerSaving(false);
-    }
-  };
+  const {
+    handleComfyuiServerCreate,
+    handleSaveComfyDiffSnapshot,
+    refreshComfyAgentAlerts,
+    refreshComfyDiffLogs,
+    refreshComfyuiServers,
+  } = useComfyuiServerActions({
+    buildComfyDiffSnapshot,
+    comfyAgentAlertsAgentFilter,
+    comfyAgentAlertsLimit,
+    comfyAgentAlertsTypeFilter,
+    comfyExecutors,
+    comfyServerForm,
+    load,
+    refreshComfyuiModelCatalog,
+    refreshComfyuiSystemStats,
+    setComfyAgentAlerts,
+    setComfyAgentAlertsError,
+    setComfyAgentAlertsLoading,
+    setComfyDiffLogs,
+    setComfyDiffLogsError,
+    setComfyDiffLogsLoading,
+    setComfyDiffSaving,
+    setComfyServerForm,
+    setComfyServerFormError,
+    setComfyServerRefreshing,
+    setComfyServerSaving,
+  });
 
   useEffect(() => {
     if (activeNav !== 'comfyui-management') return;

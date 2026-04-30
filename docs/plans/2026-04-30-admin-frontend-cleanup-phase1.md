@@ -31,10 +31,11 @@
 - ComfyUI 轻 Agent 的注册、刷新、保存、删除、主节点设置与令牌签发动作已抽离到 `podi-admin-web/src/features/admin/integration/comfyuiAgentActions.ts`，节点接入基础动作不再堆在主页面。
 - ComfyUI 清单发布、回滚、差异检测和修复任务创建动作已抽离到 `podi-admin-web/src/features/admin/integration/comfyuiManifestActions.ts`，资源一致性闭环从主页面移出。
 - ComfyUI 桌面端注册码、安装包版本刷新、保存和启停动作已抽离到 `podi-admin-web/src/features/admin/integration/comfyuiDesktopActions.ts`，桌面接入维护动作不再堆在主页面。
+- ComfyUI 服务器刷新、新增、告警列表、差异日志和对齐快照保存动作已抽离到 `podi-admin-web/src/features/admin/integration/comfyuiServerActions.ts`，服务器纳管动作层基本完成。
 
 ## 4. 仍未处理的问题
 
-- `IntegrationDashboard.tsx` 仍然过大，ComfyUI 服务器纳管、告警、差异日志、模型弹药库状态和其他管理域请求动作还集中在一个文件中；下一步应继续拆 ComfyUI 服务器纳管动作或模型弹药库状态域。
+- `IntegrationDashboard.tsx` 仍然过大，ComfyUI LoRA、模板、模型弹药库状态和其他管理域请求动作还集中在一个文件中；下一步应继续拆 LoRA/模板动作或模型弹药库状态域。
 - 导航信息架构还需要继续压缩，尤其是能力目录、ComfyUI 管理、模型弹药库之间的边界说明。
 - TDesign 和本地存储相关 vendor 包仍偏大，需要在后续阶段评估组件级引入、路由级拆包或替代方案。
 - 视觉层还没有整体重做，当前只是降低加载和结构风险。
