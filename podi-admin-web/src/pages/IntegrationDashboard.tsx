@@ -171,6 +171,7 @@ import {
 import { useComfyuiDashboardDerivedState } from '../features/admin/integration/comfyuiDashboardState';
 import { useComfyuiAgentActions } from '../features/admin/integration/comfyuiAgentActions';
 import { useComfyuiDesktopActions } from '../features/admin/integration/comfyuiDesktopActions';
+import { useComfyuiLoraActions } from '../features/admin/integration/comfyuiLoraActions';
 import { useComfyuiManifestActions } from '../features/admin/integration/comfyuiManifestActions';
 import { useComfyuiResourceCatalogActions } from '../features/admin/integration/comfyuiResourceCatalogActions';
 import {
@@ -4167,38 +4168,30 @@ export function IntegrationDashboard({
     refreshComfyuiModelCatalog(abilityFormComfyExecutorId, { silent: true });
   }, [abilityDialogOpen, abilityForm.provider, abilityFormComfyExecutorId, comfyModelCache, refreshComfyuiModelCatalog]);
 
-  const refreshComfyuiLoraCatalog = useCallback(
-    async (options?: { silent?: boolean; includeUntracked?: boolean }) => {
-      const silent = Boolean(options?.silent);
-      const includeUntracked = Boolean(options?.includeUntracked);
-      if (includeUntracked && !comfyLoraExecutorId) {
-        setComfyLoraError('请先选择 ComfyUI 执行节点');
-        return;
-      }
-      if (!silent) {
-        setComfyLoraLoading(true);
-      }
-      setComfyLoraError(null);
-      try {
-        const resp = await adminApi.listComfyuiLoras({
-          executorId: includeUntracked ? comfyLoraExecutorId : undefined,
-          q: comfyLoraSearch.trim() || undefined,
-          status: comfyLoraStatusFilter !== 'all' ? comfyLoraStatusFilter : undefined,
-          includeUntracked,
-        });
-        setComfyLoraCatalog(resp);
-        setComfyLoraUntrackedLoaded(includeUntracked);
-      } catch (error: any) {
-        console.error('Failed to load ComfyUI LoRA catalog:', error);
-        setComfyLoraError(error?.message || '获取 LoRA 清单失败');
-      } finally {
-        if (!silent) {
-          setComfyLoraLoading(false);
-        }
-      }
-    },
-    [comfyLoraExecutorId, comfyLoraSearch, comfyLoraStatusFilter],
-  );
+  const {
+    handleComfyLoraDelete,
+    handleComfyLoraSave,
+    refreshComfyuiLoraCatalog,
+    resetComfyLoraForm,
+  } = useComfyuiLoraActions({
+    comfyLoraExecutorId,
+    comfyLoraForm,
+    comfyLoraSearch,
+    comfyLoraStatusFilter,
+    comfyLoraTagsInput,
+    comfyLoraTriggersInput,
+    comfyLoraUntrackedLoaded,
+    setComfyLoraCatalog,
+    setComfyLoraDialogOpen,
+    setComfyLoraError,
+    setComfyLoraForm,
+    setComfyLoraFormError,
+    setComfyLoraLoading,
+    setComfyLoraSaving,
+    setComfyLoraTagsInput,
+    setComfyLoraTriggersInput,
+    setComfyLoraUntrackedLoaded,
+  });
 
   const {
     handleComfyModelDelete,
@@ -6086,74 +6079,6 @@ const extractErrorMessage = (error: unknown): string => {
     } catch (err: any) {
       console.error(err);
       setExecutorFormError(err?.message || '保存失败');
-    }
-  };
-
-  const resetComfyLoraForm = (seed?: Partial<ComfyuiLora>) => {
-    const next = { status: 'active', ...(seed || {}) };
-    const baseModels = resolveLoraBaseModels(next);
-    setComfyLoraForm({ ...next, base_models: baseModels });
-    setComfyLoraTagsInput(formatTextList(next.tags));
-    setComfyLoraTriggersInput(formatTextList(next.trigger_words));
-    setComfyLoraFormError(null);
-  };
-
-  const handleComfyLoraSave = async () => {
-    const fileName = String(comfyLoraForm.file_name || '').trim();
-    const displayName = String(comfyLoraForm.display_name || '').trim();
-    if (!fileName) {
-      setComfyLoraFormError('请填写服务器上的 LoRA 文件名');
-      return;
-    }
-    if (!displayName) {
-      setComfyLoraFormError('请填写对外展示名称');
-      return;
-    }
-    const payload: Partial<ComfyuiLora> = {
-      file_name: fileName,
-      display_name: displayName,
-      description: String(comfyLoraForm.description || '').trim() || undefined,
-      status: String(comfyLoraForm.status || 'active'),
-    };
-    const baseModels = resolveLoraBaseModels(comfyLoraForm);
-    if (baseModels.length > 0) {
-      payload.base_models = baseModels;
-      if (baseModels.length === 1) {
-        payload.base_model = baseModels[0];
-      }
-    }
-    const tags = normalizeTextList(comfyLoraTagsInput);
-    const triggers = normalizeTextList(comfyLoraTriggersInput);
-    if (tags.length > 0) payload.tags = tags;
-    if (triggers.length > 0) payload.trigger_words = triggers;
-
-    setComfyLoraSaving(true);
-    setComfyLoraFormError(null);
-    try {
-      if (comfyLoraForm.id) {
-        await adminApi.updateComfyuiLora(Number(comfyLoraForm.id), payload);
-      } else {
-        await adminApi.createComfyuiLora(payload);
-      }
-      setComfyLoraDialogOpen(false);
-      resetComfyLoraForm();
-      await refreshComfyuiLoraCatalog({ includeUntracked: comfyLoraUntrackedLoaded });
-    } catch (error: any) {
-      console.error('save comfyui lora failed', error);
-      setComfyLoraFormError(error?.message || '保存失败，请检查网络或参数');
-    } finally {
-      setComfyLoraSaving(false);
-    }
-  };
-
-  const handleComfyLoraDelete = async (id: number) => {
-    if (!id) return;
-    try {
-      await adminApi.deleteComfyuiLora(id);
-      await refreshComfyuiLoraCatalog({ silent: true, includeUntracked: comfyLoraUntrackedLoaded });
-    } catch (error: any) {
-      console.error('delete comfyui lora failed', error);
-      setComfyLoraError(error?.message || '删除 LoRA 失败');
     }
   };
 
