@@ -9,6 +9,7 @@
 - `todo-master-2026q2.md`：唯一待办池（P0/P1/P2）
 - `user-segments-main-paths-2026q2.md`：业务方 / 平台管理员 / 开发接入方三类用户主路径与权限边界
 - `context-cleanup-policy.md`：上下文清理、归档与文档治理规则
+- `doc-cleanup-inventory-2026-04-30.md`：当前文档脏内容盘点、分区和后续清理顺序
 - `doc-governance-owners-2026q2.md`：文档治理 owner 与发布前核对动作
 - `status-error-audit-2026q2.md`：状态与错误口径核对表（P0-4 执行面）
 - `auth-scheme-decision-2026q2.md`：认证方案选型结论（Q2）

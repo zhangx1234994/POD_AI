@@ -27,7 +27,6 @@
 
 - `docs/README.md`
 - `docs/api/INDEX.md`
-- `docs/client/README.md`
 - `docs/eval/eval-platform.md`
 - `docs/coze/toolbox-inventory.md`
 - `docs/comfyui/README.md`
@@ -112,7 +111,7 @@
 做文档整理时，顺序固定：
 
 1. 总索引 `docs/README.md`
-2. 模块索引 `docs/api/INDEX.md`、`docs/strategy/README.md`、`docs/client/README.md`
+2. 模块索引 `docs/api/INDEX.md`、`docs/strategy/README.md`、对应现行模块入口；若涉及历史客户端资料，再更新 `docs/client/README.md`
 3. 周报归档 `docs/weekly/README.md`
 4. 当前真源文档
 5. 历史资料与阶段记录

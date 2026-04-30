@@ -16,12 +16,12 @@
 5. `docs/BUSINESS_MODEL.md`
 6. `docs/api/INDEX.md`
 7. 对应模块文档：
-   - 客户端：`docs/client/README.md`
    - 评测端：`docs/eval/eval-platform.md`
    - Coze：`docs/coze/toolbox-inventory.md`
    - ComfyUI：`docs/comfyui/README.md`
    - 第三方模型 Key：`docs/admin/integration-dashboard.md`
 8. 想回看阶段过程，再看：`docs/weekly/README.md`
+9. 需要回看历史客户端资料时，再看：`docs/client/README.md`
 
 ## 当前运行基线（2026-04-27）
 
@@ -29,6 +29,7 @@
 - Coze 工具箱统一指向 backend，不再以 `117.50.80.158:8099` 作为现行工具箱入口。
 - `117.50.80.158` 当前作为能力执行服务器使用，承载 image-ops 与 vendor-api-ops 等执行面；旧 backend 不再作为 Coze 工具箱主入口。
 - backend 是控制面，只负责能力目录、路由、任务、回调、OSS、日志与 OpenAPI；不承载高清放大、ComfyUI 或第三方 API 重执行。
+- 当前仓库不包含客户端代码目录；`docs/client/` 只作为历史客户端资料入口，不再代表当前开发主线。
 - 2026-04-27 发生 Coze 工具箱 `INTERNAL_ONLY` 事故，已记录复盘：`docs/retrospectives/2026-04-27-coze-toolbox-internal-only-incident.md`。
 - 更新服务后先在 114/Coze 主机内执行 `backend/scripts/podi_release_smoke.py`，确认工具箱入口、内部任务查询和 ComfyUI 队列都可达。
 - 发版后必须执行 `backend/scripts/patrol_eval_workflows.py` 做全量测评巡检。
@@ -55,8 +56,6 @@
 - `docs/architecture.md`
 - `docs/BUSINESS_MODEL.md`
 - `docs/api/INDEX.md`
-- `docs/client/README.md`
-- `docs/client/plans/README.md`
 - `docs/admin/integration-dashboard.md`
 - `docs/eval/eval-platform.md`
 - `docs/coze/toolbox-inventory.md`
@@ -77,8 +76,7 @@
 | 平台边界 | `docs/PLATFORM_SURFACES.md` | 管理端 / 测评端 / 客户端 / 对话式助手边界 |
 | 战略规划 | `docs/strategy/README.md` | 平台愿景、路线、待办、治理 |
 | API | `docs/api/INDEX.md` | 全量接口模块入口 |
-| 客户端 | `docs/client/README.md` | 客户端唯一入口 |
-| 客户端 Plans | `docs/client/plans/README.md` | 客户端现行计划 / 历史计划 / 测试包分层入口 |
+| 历史客户端资料 | `docs/client/README.md` | 当前仓库已无客户端代码，仅保留历史方案和测试包 |
 | 管理端 | `docs/admin/integration-dashboard.md` | 执行节点、能力、第三方模型 Key、测试与日志 |
 | 评测端 | `docs/eval/eval-platform.md` | 评测平台功能与约束 |
 | Coze 工具箱 | `docs/coze/toolbox-inventory.md` | 当前工具箱清单与契约 |
@@ -95,6 +93,9 @@
 
 以下内容保留，但不作为当前执行口径：
 
+- `docs/client/README.md`
+- `docs/client/plans/README.md`
+- `docs/client/tech-review-2026-04-16/*`
 - `docs/client/plans/2026-03-16-*`
 - `docs/client/plans/2026-03-17-*`
 - `docs/client/START_HERE.md`
