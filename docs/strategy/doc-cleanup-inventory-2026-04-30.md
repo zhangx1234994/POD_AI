@@ -83,11 +83,12 @@
 - 根目录 `AGENTS.md` 已清理过期 TODO，不再把已完成能力当作待办。
 - `docs/project-takeover-prep-2026-03-12.md` 已补历史文档提示，并校正凭证与执行节点标签路由口径。
 - `docs/client/tech-review-2026-04-16/README.md` 已补齐，避免客户端历史评审入口断链。
+- `docs/handover/README.md` 已补齐，明确交接资料默认是历史参考，旧客户端内容不能当当前事实。
 
 ### P1
 
 - `docs/client/` 入口已改为历史归档口径；深层历史正文仍保留原始语境，后续按需压缩。
-- `docs/handover/` 和 `docs/client/tech-review-2026-04-16/` 有大量重复说明，可压缩到周报或历史索引。
+- `docs/handover/` 和 `docs/client/tech-review-2026-04-16/` 仍有大量重复正文，可后续继续压缩到周报或历史索引。
 - `docs/plans/2026-04-16-experience-center-redesign/` 文件较多，应确认是否仍有当前价值。
 
 ### P2

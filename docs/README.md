@@ -101,6 +101,7 @@
 - `docs/client/START_HERE.md`
 - `docs/client/OPEN_TEST_NOW.md`
 - `docs/client/REVIEW_NOW.md`
+- `docs/handover/README.md`
 - `docs/async-task-monitoring.md`
 - `docs/smart-polling-mechanism.md`
 - `docs/error-codes.md`
@@ -113,7 +114,8 @@
 | 目录 | 作用 |
 | --- | --- |
 | `docs/api/` | 接口模块说明与契约 |
-| `docs/client/` | 客户端现状、计划、阶段文档 |
+| `docs/client/` | 客户端历史方案、计划与阶段测试包 |
+| `docs/handover/` | 历史交接、阶段评审与修复计划 |
 | `docs/plans/` | 平台级方案与跨模块计划文档 |
 | `docs/comfyui/` | ComfyUI workflow 与执行节点维护 |
 | `docs/coze/` | Coze 工具箱、工作流、插件契约 |
