@@ -24,10 +24,11 @@
 - 懒加载面板声明已抽离到 `podi-admin-web/src/features/admin/integration/lazyPanels.tsx`，`IntegrationDashboard` 不再直接维护模块注册表。
 - 导航解析、页签、默认表单、分页大小、默认定价等纯配置已抽离到 `podi-admin-web/src/features/admin/integration/integrationDashboardConfig.ts`。
 - 业务能力页的灰度读取、视觉辅助读取、业务/版本筛选、版本对比派生状态、编辑表单映射和保存载荷构建已抽离到 `podi-admin-web/src/features/admin/integration/businessDashboardState.ts`，主页面继续收口为页面编排层。
+- 业务能力页的默认版本申请、审批、启停、对比、回滚、运行记录刷新、导出和回调重试已抽离到 `podi-admin-web/src/features/admin/integration/businessDashboardActions.ts`，主页面不再直接维护业务请求动作。
 
 ## 4. 仍未处理的问题
 
-- `IntegrationDashboard.tsx` 仍然过大，业务能力请求动作、ComfyUI 状态、模型弹药库状态还集中在一个文件中；下一步应继续拆业务能力请求动作层和 ComfyUI 状态域，而不是继续只搬常量。
+- `IntegrationDashboard.tsx` 仍然过大，ComfyUI 状态、模型弹药库状态和其他管理域请求动作还集中在一个文件中；下一步应继续拆 ComfyUI 状态域，而不是继续只搬常量。
 - 导航信息架构还需要继续压缩，尤其是能力目录、ComfyUI 管理、模型弹药库之间的边界说明。
 - TDesign 和本地存储相关 vendor 包仍偏大，需要在后续阶段评估组件级引入、路由级拆包或替代方案。
 - 视觉层还没有整体重做，当前只是降低加载和结构风险。
