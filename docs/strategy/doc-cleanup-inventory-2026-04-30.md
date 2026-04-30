@@ -88,6 +88,7 @@
 - `docs/COZE_INTEGRATION_GUIDE.md` 已标记为历史兼容指南，当前 Coze 接口真源收敛到 `docs/api/modules/coze.md`。
 - `docs/standards/document-maintenance.md` 已补历史路径与断链规则，避免旧客户端目录和本地忽略凭证文件在检查中误判。
 - `scripts/check_doc_entry_references.py` 已补入口文档路径检查，并接入发布源预检。
+- `docs/BUSINESS_MODEL.md` 顶部已修正客户端引用口径，不再指向“最新前台骨架”。
 
 ### P1
 
@@ -97,7 +98,7 @@
 
 ### P2
 
-- `docs/BUSINESS_MODEL.md` 篇幅较长，后续可拆成当前摘要和历史附录。
+- `docs/BUSINESS_MODEL.md` 篇幅较长，后续仍可拆成当前摘要和历史附录。
 - `docs/COZE_INTEGRATION_GUIDE.md` 仍可进一步压缩，当前已先标记历史兼容状态。
 - 旧的 mock、dev server、临时测试说明需要逐步从主入口移出。
 

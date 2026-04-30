@@ -1,7 +1,7 @@
 # POD AI Studio 业务建模文档
 
 > 注意：本文包含规划中的账号体系（短信登录/第三方 SSO/积分与钱包）。当前线上仅落地账号密码登录（`/api/auth/login`）与能力调用/AbilityTask 链路，规划内容仅作为设计参考。
-> 文档状态：本文是平台级业务建模背景文档，不是客户端当前页面结构真源。客户端最新前台骨架请看 `docs/client/README.md` 与 `docs/plans/2026-03-19-style3d-client-rearchitecture-design.md`。
+> 文档状态：本文是平台级业务建模背景文档，不是客户端当前页面结构真源。当前仓库已不包含客户端代码；如需回看历史客户端方案，请先看 `docs/client/README.md`。
 
 ## 目录
 
