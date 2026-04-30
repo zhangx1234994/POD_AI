@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, ReactNode } from 'react';
 import {
   Alert,
@@ -161,96 +161,38 @@ import {
   formatPriceValue,
   formatUnitLabel,
 } from '../features/admin/integration/formatters';
+import {
+  AbilityEvaluationPage,
+  AuthPanel,
+  BillingPanel,
+  BindingRoutesPanel,
+  BusinessActionPanel,
+  BusinessCapabilityEditorDialog,
+  BusinessCapabilityGrid,
+  BusinessGovernancePanel,
+  BusinessOperationLogPanel,
+  BusinessReleaseGuardPanel,
+  BusinessRunHistoryPanel,
+  BusinessUsageSummaryPanel,
+  ComfyuiAgentsPanel,
+  ComfyuiAlertsPanel,
+  ComfyuiAssetsPanel,
+  ComfyuiDesktopPanel,
+  ComfyuiLorasPanel,
+  ComfyuiManifestsPanel,
+  ComfyuiServersPanel,
+  ComfyuiTasksPanel,
+  ComfyuiTemplatesPanel,
+  DispatchLogsPanel,
+  ExecutorsPanel,
+  LegacyApiKeysPanel,
+  MonitorPanel,
+  SystemConfigPanel,
+  VendorModelsPanel,
+  WorkflowBuilderPanel,
+  panelFallback,
+} from '../features/admin/integration/lazyPanels';
 import { ActionBar, ErrorState, PageHeader } from '../features/admin/shared/ui';
-
-const AbilityEvaluationPage = lazy(() =>
-  import('./AbilityEvaluation/AbilityEvaluationPage').then((mod) => ({ default: mod.AbilityEvaluationPage })),
-);
-const BusinessCapabilityGrid = lazy(() =>
-  import('../features/admin/integration/business').then((mod) => ({ default: mod.BusinessCapabilityGrid })),
-);
-const BusinessCapabilityEditorDialog = lazy(() =>
-  import('../features/admin/integration/business').then((mod) => ({ default: mod.BusinessCapabilityEditorDialog })),
-);
-const BusinessActionPanel = lazy(() =>
-  import('../features/admin/integration/business').then((mod) => ({ default: mod.BusinessActionPanel })),
-);
-const BusinessReleaseGuardPanel = lazy(() =>
-  import('../features/admin/integration/business').then((mod) => ({ default: mod.BusinessReleaseGuardPanel })),
-);
-const BusinessGovernancePanel = lazy(() =>
-  import('../features/admin/integration/business').then((mod) => ({ default: mod.BusinessGovernancePanel })),
-);
-const BusinessOperationLogPanel = lazy(() =>
-  import('../features/admin/integration/business').then((mod) => ({ default: mod.BusinessOperationLogPanel })),
-);
-const BusinessRunHistoryPanel = lazy(() =>
-  import('../features/admin/integration/business').then((mod) => ({ default: mod.BusinessRunHistoryPanel })),
-);
-const BusinessUsageSummaryPanel = lazy(() =>
-  import('../features/admin/integration/business').then((mod) => ({ default: mod.BusinessUsageSummaryPanel })),
-);
-const VendorModelsPanel = lazy(() =>
-  import('../features/admin/integration/vendorModels').then((mod) => ({ default: mod.VendorModelsPanel })),
-);
-const AuthPanel = lazy(() => import('../features/admin/integration/auth').then((mod) => ({ default: mod.AuthPanel })));
-const BillingPanel = lazy(() =>
-  import('../features/admin/integration/billing').then((mod) => ({ default: mod.BillingPanel })),
-);
-const BindingRoutesPanel = lazy(() =>
-  import('../features/admin/integration/bindings').then((mod) => ({ default: mod.BindingRoutesPanel })),
-);
-const DispatchLogsPanel = lazy(() =>
-  import('../features/admin/integration/dispatchLogs').then((mod) => ({ default: mod.DispatchLogsPanel })),
-);
-const ExecutorsPanel = lazy(() =>
-  import('../features/admin/integration/executors').then((mod) => ({ default: mod.ExecutorsPanel })),
-);
-const LegacyApiKeysPanel = lazy(() =>
-  import('../features/admin/integration/legacyApiKeys').then((mod) => ({ default: mod.LegacyApiKeysPanel })),
-);
-const MonitorPanel = lazy(() =>
-  import('../features/admin/integration/monitor').then((mod) => ({ default: mod.MonitorPanel })),
-);
-const SystemConfigPanel = lazy(() =>
-  import('../features/admin/integration/systemConfig').then((mod) => ({ default: mod.SystemConfigPanel })),
-);
-const WorkflowBuilderPanel = lazy(() =>
-  import('../features/admin/integration/workflowBuilder').then((mod) => ({ default: mod.WorkflowBuilderPanel })),
-);
-const ComfyuiAgentsPanel = lazy(() =>
-  import('../features/admin/integration/comfyuiAgents').then((mod) => ({ default: mod.ComfyuiAgentsPanel })),
-);
-const ComfyuiAlertsPanel = lazy(() =>
-  import('../features/admin/integration/comfyuiAlerts').then((mod) => ({ default: mod.ComfyuiAlertsPanel })),
-);
-const ComfyuiAssetsPanel = lazy(() =>
-  import('../features/admin/integration/comfyuiAssets').then((mod) => ({ default: mod.ComfyuiAssetsPanel })),
-);
-const ComfyuiDesktopPanel = lazy(() =>
-  import('../features/admin/integration/comfyuiDesktop').then((mod) => ({ default: mod.ComfyuiDesktopPanel })),
-);
-const ComfyuiLorasPanel = lazy(() =>
-  import('../features/admin/integration/comfyuiLoras').then((mod) => ({ default: mod.ComfyuiLorasPanel })),
-);
-const ComfyuiManifestsPanel = lazy(() =>
-  import('../features/admin/integration/comfyuiManifests').then((mod) => ({ default: mod.ComfyuiManifestsPanel })),
-);
-const ComfyuiServersPanel = lazy(() =>
-  import('../features/admin/integration/comfyuiServers').then((mod) => ({ default: mod.ComfyuiServersPanel })),
-);
-const ComfyuiTasksPanel = lazy(() =>
-  import('../features/admin/integration/comfyuiTasks').then((mod) => ({ default: mod.ComfyuiTasksPanel })),
-);
-const ComfyuiTemplatesPanel = lazy(() =>
-  import('../features/admin/integration/comfyuiTemplates').then((mod) => ({ default: mod.ComfyuiTemplatesPanel })),
-);
-
-const panelFallback = (label: string) => (
-  <div className="rounded-3xl border border-slate-200 bg-white px-6 py-5 text-sm text-slate-600 shadow-sm">
-    {label}加载中，请稍候...
-  </div>
-);
 
 const readHashParams = (): URLSearchParams | null => {
   if (typeof window === 'undefined') return null;
