@@ -152,6 +152,11 @@ import {
   businessKeyLabel,
   coreBusinessKeys,
 } from '../features/admin/integration/businessLabels';
+import {
+  createBusinessCapabilityFormState,
+  createBusinessCapabilityPayload,
+  useBusinessDashboardDerivedState,
+} from '../features/admin/integration/businessDashboardState';
 import { ComfyuiManagementHeader } from '../features/admin/integration/comfyuiManagement';
 import {
   formatDate,
@@ -1021,37 +1026,6 @@ const safeParseJSON = (value?: string | JsonRecord): { ok: boolean; value: JsonR
   } catch {
     return { ok: false, value: {} };
   }
-};
-
-const splitLinesOrComma = (value?: string): string[] =>
-  String(value || '')
-    .split(/[\n,，]/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-
-const readBusinessRollout = (metadata?: JsonRecord | null) => {
-  const rollout = metadata && typeof metadata.rollout === 'object' && !Array.isArray(metadata.rollout)
-    ? (metadata.rollout as JsonRecord)
-    : {};
-  const allowlist = Array.isArray(rollout.allowlist) ? rollout.allowlist : [];
-  const percent = Number(rollout.percent || 0);
-  return {
-    enabled: Boolean(rollout.enabled),
-    percent: Number.isFinite(percent) ? percent : 0,
-    allowlistText: allowlist.map((item) => String(item)).join('\n'),
-  };
-};
-
-const readBusinessVlAssist = (recipe?: JsonRecord | null) => {
-  const vlAssist = recipe && typeof recipe.vlAssist === 'object' && !Array.isArray(recipe.vlAssist)
-    ? (recipe.vlAssist as JsonRecord)
-    : {};
-  return {
-    enabled: Boolean(vlAssist.enabled),
-    abilityId: typeof vlAssist.abilityId === 'string' && vlAssist.abilityId.trim()
-      ? vlAssist.abilityId
-      : 'vl_analyze_image',
-  };
 };
 
 const isComfyUiDefinition = (record: Record<string, unknown>): boolean => {
@@ -2384,88 +2358,24 @@ export function IntegrationDashboard({
       }))
       .filter((item) => item.value > 0);
   }, [abilityForm.provider, vendorModels]);
-  const businessAbilityOptions = useMemo(
-    () =>
-      abilities.map((item) => ({
-        label: `${item.display_name} · ${item.provider}/${item.capability_key}`,
-        value: item.id,
-      })),
-    [abilities],
-  );
-  const businessVlAbilityOptions = useMemo(
-    () =>
-      abilities
-        .filter((item) => {
-          const text = `${item.id} ${item.provider} ${item.category} ${item.capability_key}`.toLowerCase();
-          return text.includes('vl') || text.includes('vision') || text.includes('analyze_image');
-        })
-        .map((item) => ({
-          label: `${item.display_name} · ${item.provider}/${item.capability_key}`,
-          value: item.id,
-        })),
-    [abilities],
-  );
-  const businessRunBusinessOptions = useMemo(() => {
-    const seen = new Set<string>();
-    const options = businessCapabilities
-      .map((item) => item.businessKey)
-      .filter((key) => {
-        if (!key || seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      })
-      .map((key) => ({ label: businessKeyLabel(key), value: key }));
-    return [{ label: '全部业务', value: 'all' }, ...options];
-  }, [businessCapabilities]);
-  const businessRunVersionOptions = useMemo(() => {
-    const businessKey = businessRunFilters.businessKey;
-    const versions = businessCapabilities
-      .filter((item) => businessKey === 'all' || item.businessKey === businessKey)
-      .map((item) => item.version)
-      .filter(Boolean);
-    return [
-      { label: '全部版本', value: 'all' },
-      ...Array.from(new Set(versions)).map((version) => ({ label: version, value: version })),
-    ];
-  }, [businessCapabilities, businessRunFilters.businessKey]);
-  const businessCapabilityVersionOptions = useMemo(
-    () =>
-      businessCapabilities.map((item) => ({
-        label: `${businessKeyLabel(item.businessKey)} · ${item.version}${item.isDefault ? ' · 默认' : ''} · ${item.displayName}`,
-        value: item.id,
-      })),
-    [businessCapabilities],
-  );
-  const effectiveBusinessCompareLeftId =
-    businessCompareLeftId ||
-    businessCapabilities.find((item) => item.isDefault)?.id ||
-    businessCapabilities[0]?.id ||
-    '';
-  const selectedBusinessCompareLeft = useMemo(
-    () => businessCapabilities.find((item) => item.id === effectiveBusinessCompareLeftId) || null,
-    [businessCapabilities, effectiveBusinessCompareLeftId],
-  );
-  const businessCompareTargetOptions = useMemo(
-    () =>
-      businessCapabilities
-        .filter((item) => {
-          if (!selectedBusinessCompareLeft) return true;
-          return item.businessKey === selectedBusinessCompareLeft.businessKey && item.id !== selectedBusinessCompareLeft.id;
-        })
-        .map((item) => ({
-          label: `${item.version}${item.isDefault ? ' · 默认' : ''} · ${item.displayName}`,
-          value: item.id,
-        })),
-    [businessCapabilities, selectedBusinessCompareLeft],
-  );
-  const effectiveBusinessCompareRightId =
-    businessCompareRightId && businessCompareTargetOptions.some((item) => item.value === businessCompareRightId)
-      ? businessCompareRightId
-      : businessCompareTargetOptions[0]?.value || '';
-  const selectedBusinessCompareRight = useMemo(
-    () => businessCapabilities.find((item) => item.id === effectiveBusinessCompareRightId) || null,
-    [businessCapabilities, effectiveBusinessCompareRightId],
-  );
+  const {
+    businessAbilityOptions,
+    businessVlAbilityOptions,
+    businessRunBusinessOptions,
+    businessRunVersionOptions,
+    businessCapabilityVersionOptions,
+    effectiveBusinessCompareLeftId,
+    selectedBusinessCompareLeft,
+    businessCompareTargetOptions,
+    effectiveBusinessCompareRightId,
+    selectedBusinessCompareRight,
+  } = useBusinessDashboardDerivedState({
+    abilities,
+    businessCapabilities,
+    businessRunFilters,
+    businessCompareLeftId,
+    businessCompareRightId,
+  });
   const resolveComfyModelList = useCallback(
     (executorId: string, key: string) => {
       if (!executorId) return [];
@@ -6326,30 +6236,7 @@ export function IntegrationDashboard({
   };
 
   const handleBusinessEdit = (item: BusinessCapability) => {
-    const rollout = readBusinessRollout(item.metadata);
-    const vlAssist = readBusinessVlAssist(item.recipe);
-    setBusinessForm({
-      id: item.id,
-      businessKey: item.businessKey || 'fission',
-      version: item.version || 'v1',
-      displayName: item.displayName || '',
-      description: item.description || '',
-      status: item.status || 'inactive',
-      isDefault: Boolean(item.isDefault),
-      releaseTime: item.releaseTime || '',
-      primaryAbilityId:
-        item.primaryAbilityId ||
-        (item.recipe && typeof item.recipe.primaryAbilityId === 'string' ? String(item.recipe.primaryAbilityId) : ''),
-      vlAssistEnabled: vlAssist.enabled,
-      vlAssistAbilityId: vlAssist.abilityId,
-      rolloutEnabled: rollout.enabled,
-      rolloutPercent: rollout.percent,
-      rolloutAllowlistText: rollout.allowlistText,
-      recipeText: formatJsonValue(item.recipe),
-      inputSchemaText: formatJsonValue(item.inputSchema),
-      outputSchemaText: formatJsonValue(item.outputSchema),
-      metadataText: formatJsonValue(item.metadata),
-    });
+    setBusinessForm(createBusinessCapabilityFormState(item));
     setBusinessFormError(null);
     setBusinessActionError(null);
     setBusinessDialogOpen(true);
@@ -6632,52 +6519,12 @@ export function IntegrationDashboard({
   };
 
   const handleBusinessSubmit = async () => {
-    if (!businessForm.businessKey || !businessForm.version || !businessForm.displayName || !businessForm.primaryAbilityId) {
-      setBusinessFormError('请填写业务标识、版本、名称，并选择主执行能力。');
+    const nextPayload = createBusinessCapabilityPayload(businessForm);
+    if (!nextPayload.ok) {
+      setBusinessFormError(nextPayload.error);
       return;
     }
-    const recipe = safeParseJSON(businessForm.recipeText);
-    const inputSchema = safeParseJSON(businessForm.inputSchemaText);
-    const outputSchema = safeParseJSON(businessForm.outputSchemaText);
-    const metadata = safeParseJSON(businessForm.metadataText);
-    if (!recipe.ok || !inputSchema.ok || !outputSchema.ok || !metadata.ok) {
-      setBusinessFormError('配方、输入字段、输出字段、元信息格式不正确。');
-      return;
-    }
-    const nextRecipe: JsonRecord = { ...recipe.value };
-    if (businessForm.vlAssistEnabled) {
-      nextRecipe.vlAssist = {
-        enabled: true,
-        abilityId: businessForm.vlAssistAbilityId || 'vl_analyze_image',
-      };
-    } else {
-      delete nextRecipe.vlAssist;
-    }
-    const nextMetadata: JsonRecord = { ...metadata.value };
-    const rolloutAllowlist = splitLinesOrComma(businessForm.rolloutAllowlistText);
-    if (businessForm.rolloutEnabled || Number(businessForm.rolloutPercent || 0) > 0 || rolloutAllowlist.length > 0) {
-      nextMetadata.rollout = {
-        enabled: Boolean(businessForm.rolloutEnabled),
-        percent: Math.max(0, Math.min(100, Number(businessForm.rolloutPercent || 0))),
-        allowlist: rolloutAllowlist,
-      };
-    } else {
-      delete nextMetadata.rollout;
-    }
-    const payload: Partial<BusinessCapability> = {
-      businessKey: businessForm.businessKey.trim(),
-      version: businessForm.version.trim(),
-      displayName: businessForm.displayName.trim(),
-      description: businessForm.description?.trim() || null,
-      status: businessForm.status || 'inactive',
-      isDefault: Boolean(businessForm.isDefault),
-      releaseTime: businessForm.releaseTime || null,
-      primaryAbilityId: businessForm.primaryAbilityId,
-      recipe: nextRecipe,
-      inputSchema: inputSchema.value,
-      outputSchema: outputSchema.value,
-      metadata: nextMetadata,
-    };
+    const { payload } = nextPayload;
     if (businessForm.id) {
       await adminApi.updateBusinessCapability(businessForm.id, payload);
     } else {
