@@ -82,6 +82,7 @@
 - `docs/CREDENTIALS.md` 已改为去敏配置清单；真实凭证只能放环境变量、密钥系统或本地忽略文件。
 - 根目录 `AGENTS.md` 已清理过期 TODO，不再把已完成能力当作待办。
 - `docs/project-takeover-prep-2026-03-12.md` 已补历史文档提示，并校正凭证与执行节点标签路由口径。
+- `docs/client/tech-review-2026-04-16/README.md` 已补齐，避免客户端历史评审入口断链。
 
 ### P1
 
