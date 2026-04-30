@@ -170,6 +170,10 @@ import {
 } from '../features/admin/integration/comfyuiDashboardConfig';
 import { useComfyuiDashboardDerivedState } from '../features/admin/integration/comfyuiDashboardState';
 import { useComfyuiResourceCatalogActions } from '../features/admin/integration/comfyuiResourceCatalogActions';
+import {
+  useComfyuiTaskActions,
+  type ComfyuiAgentTaskFormState,
+} from '../features/admin/integration/comfyuiTaskActions';
 import { ComfyuiManagementHeader } from '../features/admin/integration/comfyuiManagement';
 import {
   formatDate,
@@ -1638,7 +1642,7 @@ export function IntegrationDashboard({
   const [comfyAgentTasksError, setComfyAgentTasksError] = useState<string | null>(null);
   const [comfyAgentTaskAgentFilter, setComfyAgentTaskAgentFilter] = useState('all');
   const [comfyAgentTaskStatusFilter, setComfyAgentTaskStatusFilter] = useState('all');
-  const [comfyAgentTaskForm, setComfyAgentTaskForm] = useState({
+  const [comfyAgentTaskForm, setComfyAgentTaskForm] = useState<ComfyuiAgentTaskFormState>({
     taskId: '',
     agentId: '',
     manifestId: '',
@@ -4587,118 +4591,40 @@ export function IntegrationDashboard({
     }
   }, [comfyRepairPlan, refreshComfyRepairJobs]);
 
-  const refreshComfyAgentTasks = useCallback(
-    async (options?: { silent?: boolean }) => {
-      const silent = Boolean(options?.silent);
-      if (!silent) setComfyAgentTasksLoading(true);
-      setComfyAgentTasksError(null);
-      try {
-        const resp = await adminApi.listComfyuiAgentTasks({
-          agentId: comfyAgentTaskAgentFilter !== 'all' ? comfyAgentTaskAgentFilter : undefined,
-          status: comfyAgentTaskStatusFilter !== 'all' ? comfyAgentTaskStatusFilter : undefined,
-          limit: 50,
-        });
-        setComfyAgentTasks(resp || []);
-      } catch (error: any) {
-        console.error('Failed to load ComfyUI tasks:', error);
-        setComfyAgentTasksError(error?.message || '获取任务列表失败，请稍后重试');
-      } finally {
-        if (!silent) setComfyAgentTasksLoading(false);
-      }
-    },
-    [comfyAgentTaskAgentFilter, comfyAgentTaskStatusFilter],
-  );
-
-  const refreshComfyMonitoringSummary = useCallback(
-    async (options?: { silent?: boolean }) => {
-      const silent = Boolean(options?.silent);
-      if (!silent) setComfyMonitoringLoading(true);
-      setComfyMonitoringError(null);
-      try {
-        const summary = await adminApi.getComfyuiMonitoringSummary(comfyMonitoringWindowHours);
-        setComfyMonitoringSummary(summary);
-      } catch (error: any) {
-        console.error('load comfyui monitoring summary failed', error);
-        setComfyMonitoringError(error?.message || '获取监控汇总失败，请稍后重试');
-      } finally {
-        if (!silent) setComfyMonitoringLoading(false);
-      }
-    },
-    [comfyMonitoringWindowHours],
-  );
-
-  const handleComfyAgentTaskCreate = useCallback(async () => {
-    const agentId = comfyAgentTaskForm.agentId.trim();
-    if (!agentId) {
-      setComfyAgentTaskFormError('请选择代理服务');
-      return;
-    }
-    const actions = normalizeTextList(comfyAgentTaskForm.actions);
-    if (actions.length === 0) {
-      setComfyAgentTaskFormError('请至少填写一个动作（同步模型/同步插件/同步工作流/重启服务）');
-      return;
-    }
-    const manifestId = comfyAgentTaskForm.manifestId ? Number(comfyAgentTaskForm.manifestId) : null;
-    const manifestUrl = comfyAgentTaskForm.manifestUrl.trim();
-    const payload = {
-      agentId,
-      actions,
-      manifestId: manifestId || undefined,
-      manifestUrl: manifestUrl || undefined,
-      expiresAt: comfyAgentTaskForm.expiresAt.trim() || undefined,
-      taskId: comfyAgentTaskForm.taskId.trim() || undefined,
-    };
-    setComfyAgentTaskSaving(true);
-    setComfyAgentTaskFormError(null);
-    try {
-      await adminApi.createComfyuiAgentTask(payload, { push: comfyAgentTaskPushAfterCreate });
-      setComfyAgentTaskForm({
-        taskId: '',
-        agentId,
-        manifestId: '',
-        manifestUrl: '',
-        actions: '',
-        expiresAt: '',
-      });
-      refreshComfyAgentTasks({ silent: true });
-    } catch (error: any) {
-      console.error('create comfyui task failed', error);
-      setComfyAgentTaskFormError(error?.message || '创建任务失败，请稍后重试');
-    } finally {
-      setComfyAgentTaskSaving(false);
-    }
-  }, [comfyAgentTaskForm, comfyAgentTaskPushAfterCreate, refreshComfyAgentTasks]);
-
-  const handleComfyAgentTaskPush = useCallback(
-    async (taskId: string) => {
-      setComfyAgentTaskPushLoading((prev) => ({ ...prev, [taskId]: true }));
-      try {
-        await adminApi.pushComfyuiAgentTask(taskId);
-        refreshComfyAgentTasks({ silent: true });
-      } catch (error) {
-        console.error('push comfyui task failed', error);
-      } finally {
-        setComfyAgentTaskPushLoading((prev) => ({ ...prev, [taskId]: false }));
-      }
-    },
-    [refreshComfyAgentTasks],
-  );
-
-  const openComfyAgentTaskEvents = useCallback(async (taskId: string) => {
-    setComfyAgentTaskEventsTaskId(taskId);
-    setComfyAgentTaskEventsDialogOpen(true);
-    setComfyAgentTaskEventsLoading(true);
-    setComfyAgentTaskEventsError(null);
-    try {
-      const resp = await adminApi.listComfyuiAgentTaskEvents(taskId, 50);
-      setComfyAgentTaskEvents(resp || []);
-    } catch (error: any) {
-      console.error('load comfyui task events failed', error);
-      setComfyAgentTaskEventsError(error?.message || '获取任务事件失败');
-    } finally {
-      setComfyAgentTaskEventsLoading(false);
-    }
-  }, []);
+  const {
+    handleComfyAgentTaskCreate,
+    handleComfyAgentTaskPush,
+    openComfyAgentTaskEvents,
+    refreshComfyAgentTasks,
+    refreshComfyMonitoringSummary,
+    refreshComfyQueueSummary,
+  } = useComfyuiTaskActions({
+    comfyAgentTaskAgentFilter,
+    comfyAgentTaskForm,
+    comfyAgentTaskPushAfterCreate,
+    comfyAgentTaskStatusFilter,
+    comfyExecutors,
+    comfyMonitoringWindowHours,
+    setComfyAgentTaskEvents,
+    setComfyAgentTaskEventsDialogOpen,
+    setComfyAgentTaskEventsError,
+    setComfyAgentTaskEventsLoading,
+    setComfyAgentTaskEventsTaskId,
+    setComfyAgentTaskForm,
+    setComfyAgentTaskFormError,
+    setComfyAgentTaskPushLoading,
+    setComfyAgentTaskSaving,
+    setComfyAgentTasks,
+    setComfyAgentTasksError,
+    setComfyAgentTasksLoading,
+    setComfyMonitoringError,
+    setComfyMonitoringLoading,
+    setComfyMonitoringSummary,
+    setComfyQueueSummary,
+    setComfyQueueSummaryError,
+    setComfyQueueSummaryLoading,
+    setComfyQueueSummaryUpdatedAt,
+  });
 
   const refreshComfyAgentAlerts = useCallback(
     async (options?: { silent?: boolean }) => {
@@ -5196,37 +5122,6 @@ export function IntegrationDashboard({
       }
     },
     [selectedAbility?.provider, activeComfyExecutorId],
-  );
-
-  const refreshComfyQueueSummary = useCallback(
-    async (options?: { silent?: boolean }) => {
-      const silent = Boolean(options?.silent);
-      const executorIds = comfyExecutors.map((ex) => ex.id).filter(Boolean);
-      if (!executorIds.length) {
-        setComfyQueueSummary(null);
-        setComfyQueueSummaryError(null);
-        setComfyQueueSummaryUpdatedAt(null);
-        if (!silent) setComfyQueueSummaryLoading(false);
-        return;
-      }
-      if (!silent) {
-        setComfyQueueSummaryLoading(true);
-      }
-      try {
-        const response = await adminApi.getComfyuiQueueSummary(executorIds);
-        setComfyQueueSummary(response);
-        setComfyQueueSummaryError(null);
-        setComfyQueueSummaryUpdatedAt(response.timestamp || new Date().toISOString());
-      } catch (error) {
-        console.error('load ComfyUI queue summary failed', error);
-        setComfyQueueSummaryError(error instanceof Error ? error.message : '获取 ComfyUI 队列汇总失败');
-      } finally {
-        if (!silent) {
-          setComfyQueueSummaryLoading(false);
-        }
-      }
-    },
-    [comfyExecutors],
   );
 
   useEffect(() => {
