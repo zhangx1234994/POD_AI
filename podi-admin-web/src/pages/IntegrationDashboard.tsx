@@ -20,7 +20,6 @@ import {
   Typography,
 } from 'tdesign-react';
 import { adminApi } from '../services/adminApi';
-import { AuthPanel } from '../features/admin/integration/auth';
 import type {
   Ability,
   AbilityHealthSummaryResponse,
@@ -139,16 +138,8 @@ import {
 } from '../features/admin/integration/navigation';
 import { integrationNavIconMap as navIconMap } from '../features/admin/integration/navigationIcons';
 import { moduleGuides } from '../features/admin/integration/moduleGuides';
-import { BillingPanel } from '../features/admin/integration/billing';
-import { ExecutorsPanel } from '../features/admin/integration/executors';
-import { BindingRoutesPanel } from '../features/admin/integration/bindings';
-import { DispatchLogsPanel } from '../features/admin/integration/dispatchLogs';
-import { LegacyApiKeysPanel } from '../features/admin/integration/legacyApiKeys';
 import { AbilityLogDetailDialog, DispatchLogDetailDialog } from '../features/admin/integration/logDetailDialogs';
-import { MonitorPanel } from '../features/admin/integration/monitor';
 import { OverviewPanel } from '../features/admin/integration/overview';
-import { SystemConfigPanel } from '../features/admin/integration/systemConfig';
-import { WorkflowBuilderPanel } from '../features/admin/integration/workflowBuilder';
 import {
   abilityTypeOptions,
   categoryOptions,
@@ -162,16 +153,7 @@ import {
   businessKeyLabel,
   coreBusinessKeys,
 } from '../features/admin/integration/businessLabels';
-import { ComfyuiAgentsPanel } from '../features/admin/integration/comfyuiAgents';
-import { ComfyuiAlertsPanel } from '../features/admin/integration/comfyuiAlerts';
-import { ComfyuiAssetsPanel } from '../features/admin/integration/comfyuiAssets';
-import { ComfyuiDesktopPanel } from '../features/admin/integration/comfyuiDesktop';
-import { ComfyuiLorasPanel } from '../features/admin/integration/comfyuiLoras';
 import { ComfyuiManagementHeader } from '../features/admin/integration/comfyuiManagement';
-import { ComfyuiManifestsPanel } from '../features/admin/integration/comfyuiManifests';
-import { ComfyuiServersPanel } from '../features/admin/integration/comfyuiServers';
-import { ComfyuiTasksPanel } from '../features/admin/integration/comfyuiTasks';
-import { ComfyuiTemplatesPanel } from '../features/admin/integration/comfyuiTemplates';
 import {
   formatDate,
   formatDateTime,
@@ -210,6 +192,64 @@ const BusinessUsageSummaryPanel = lazy(() =>
 );
 const VendorModelsPanel = lazy(() =>
   import('../features/admin/integration/vendorModels').then((mod) => ({ default: mod.VendorModelsPanel })),
+);
+const AuthPanel = lazy(() => import('../features/admin/integration/auth').then((mod) => ({ default: mod.AuthPanel })));
+const BillingPanel = lazy(() =>
+  import('../features/admin/integration/billing').then((mod) => ({ default: mod.BillingPanel })),
+);
+const BindingRoutesPanel = lazy(() =>
+  import('../features/admin/integration/bindings').then((mod) => ({ default: mod.BindingRoutesPanel })),
+);
+const DispatchLogsPanel = lazy(() =>
+  import('../features/admin/integration/dispatchLogs').then((mod) => ({ default: mod.DispatchLogsPanel })),
+);
+const ExecutorsPanel = lazy(() =>
+  import('../features/admin/integration/executors').then((mod) => ({ default: mod.ExecutorsPanel })),
+);
+const LegacyApiKeysPanel = lazy(() =>
+  import('../features/admin/integration/legacyApiKeys').then((mod) => ({ default: mod.LegacyApiKeysPanel })),
+);
+const MonitorPanel = lazy(() =>
+  import('../features/admin/integration/monitor').then((mod) => ({ default: mod.MonitorPanel })),
+);
+const SystemConfigPanel = lazy(() =>
+  import('../features/admin/integration/systemConfig').then((mod) => ({ default: mod.SystemConfigPanel })),
+);
+const WorkflowBuilderPanel = lazy(() =>
+  import('../features/admin/integration/workflowBuilder').then((mod) => ({ default: mod.WorkflowBuilderPanel })),
+);
+const ComfyuiAgentsPanel = lazy(() =>
+  import('../features/admin/integration/comfyuiAgents').then((mod) => ({ default: mod.ComfyuiAgentsPanel })),
+);
+const ComfyuiAlertsPanel = lazy(() =>
+  import('../features/admin/integration/comfyuiAlerts').then((mod) => ({ default: mod.ComfyuiAlertsPanel })),
+);
+const ComfyuiAssetsPanel = lazy(() =>
+  import('../features/admin/integration/comfyuiAssets').then((mod) => ({ default: mod.ComfyuiAssetsPanel })),
+);
+const ComfyuiDesktopPanel = lazy(() =>
+  import('../features/admin/integration/comfyuiDesktop').then((mod) => ({ default: mod.ComfyuiDesktopPanel })),
+);
+const ComfyuiLorasPanel = lazy(() =>
+  import('../features/admin/integration/comfyuiLoras').then((mod) => ({ default: mod.ComfyuiLorasPanel })),
+);
+const ComfyuiManifestsPanel = lazy(() =>
+  import('../features/admin/integration/comfyuiManifests').then((mod) => ({ default: mod.ComfyuiManifestsPanel })),
+);
+const ComfyuiServersPanel = lazy(() =>
+  import('../features/admin/integration/comfyuiServers').then((mod) => ({ default: mod.ComfyuiServersPanel })),
+);
+const ComfyuiTasksPanel = lazy(() =>
+  import('../features/admin/integration/comfyuiTasks').then((mod) => ({ default: mod.ComfyuiTasksPanel })),
+);
+const ComfyuiTemplatesPanel = lazy(() =>
+  import('../features/admin/integration/comfyuiTemplates').then((mod) => ({ default: mod.ComfyuiTemplatesPanel })),
+);
+
+const panelFallback = (label: string) => (
+  <div className="rounded-3xl border border-slate-200 bg-white px-6 py-5 text-sm text-slate-600 shadow-sm">
+    {label}加载中，请稍候...
+  </div>
 );
 
 const readHashParams = (): URLSearchParams | null => {
@@ -8694,144 +8734,152 @@ const extractErrorMessage = (error: unknown): string => {
 
           {activeNav === 'billing' && (
             <Section id="billing" title="账单框架" description="当前只做成本核对、流水和对账雏形；充值、支付、正式发票放到后一阶段。">
-              <BillingPanel
-                month={billingMonth}
-                windowDays={billingWindowDays}
-                tenantId={billingTenantId}
-                clientId={billingClientId}
-                businessKey={billingBusinessKey}
-                overview={billingOverview}
-                monthlySettlement={billingMonthlySettlement}
-                monthlySettlementRecords={billingMonthlySettlementRecords}
-                packageAlertNotifications={billingPackageAlertNotifications}
-                monthlyCollectionNotifications={billingMonthlyCollectionNotifications}
-                notificationConfig={billingNotificationConfig}
-                packagePurchaseOrders={billingPackagePurchaseOrders}
-                invoiceRequests={billingInvoiceRequests}
-                detail={billingDetail}
-                selectedUserId={billingSelectedUserId}
-                loading={billingLoading}
-                exporting={billingExporting}
-                error={billingError}
-                onMonthChange={setBillingMonth}
-                onWindowDaysChange={setBillingWindowDays}
-                onTenantIdChange={setBillingTenantId}
-                onClientIdChange={setBillingClientId}
-                onBusinessKeyChange={setBillingBusinessKey}
-                onRefresh={refreshBillingOverview}
-                onExport={exportBillingUserLedger}
-                onSelectUser={refreshBillingUserDetail}
-                onRetryIssue={retryBillingIssue}
-                onRefundIssue={refundBillingIssue}
-                onGrantPackage={grantBillingPackage}
-                onIssueMonthlySettlement={issueBillingMonthlySettlement}
-                onMarkMonthlySettlementPaid={markBillingMonthlySettlementPaid}
-                onRunPackageAlertNotification={runBillingPackageAlertNotification}
-                onRunMonthlyCollectionNotification={runBillingMonthlyCollectionNotification}
-                onSaveNotificationConfig={saveBillingNotificationConfig}
-                onCreatePackagePurchaseOrder={createPackagePurchaseOrder}
-                onMarkPackagePurchaseOrderPaid={markPackagePurchaseOrderPaid}
-                onCreateInvoiceRequest={createBillingInvoiceRequest}
-                onMarkInvoiceRequestIssued={markBillingInvoiceRequestIssued}
-                formatDateTime={formatDateTime}
-              />
+              <Suspense fallback={panelFallback('账单框架')}>
+                <BillingPanel
+                  month={billingMonth}
+                  windowDays={billingWindowDays}
+                  tenantId={billingTenantId}
+                  clientId={billingClientId}
+                  businessKey={billingBusinessKey}
+                  overview={billingOverview}
+                  monthlySettlement={billingMonthlySettlement}
+                  monthlySettlementRecords={billingMonthlySettlementRecords}
+                  packageAlertNotifications={billingPackageAlertNotifications}
+                  monthlyCollectionNotifications={billingMonthlyCollectionNotifications}
+                  notificationConfig={billingNotificationConfig}
+                  packagePurchaseOrders={billingPackagePurchaseOrders}
+                  invoiceRequests={billingInvoiceRequests}
+                  detail={billingDetail}
+                  selectedUserId={billingSelectedUserId}
+                  loading={billingLoading}
+                  exporting={billingExporting}
+                  error={billingError}
+                  onMonthChange={setBillingMonth}
+                  onWindowDaysChange={setBillingWindowDays}
+                  onTenantIdChange={setBillingTenantId}
+                  onClientIdChange={setBillingClientId}
+                  onBusinessKeyChange={setBillingBusinessKey}
+                  onRefresh={refreshBillingOverview}
+                  onExport={exportBillingUserLedger}
+                  onSelectUser={refreshBillingUserDetail}
+                  onRetryIssue={retryBillingIssue}
+                  onRefundIssue={refundBillingIssue}
+                  onGrantPackage={grantBillingPackage}
+                  onIssueMonthlySettlement={issueBillingMonthlySettlement}
+                  onMarkMonthlySettlementPaid={markBillingMonthlySettlementPaid}
+                  onRunPackageAlertNotification={runBillingPackageAlertNotification}
+                  onRunMonthlyCollectionNotification={runBillingMonthlyCollectionNotification}
+                  onSaveNotificationConfig={saveBillingNotificationConfig}
+                  onCreatePackagePurchaseOrder={createPackagePurchaseOrder}
+                  onMarkPackagePurchaseOrderPaid={markPackagePurchaseOrderPaid}
+                  onCreateInvoiceRequest={createBillingInvoiceRequest}
+                  onMarkInvoiceRequestIssued={markBillingInvoiceRequestIssued}
+                  formatDateTime={formatDateTime}
+                />
+              </Suspense>
             </Section>
           )}
 
           {activeNav === 'auth' && (
             <Section id="auth" title="账号权限" description="管理用户、登录会话和邀请码；复杂权限后续再拆。">
-              <AuthPanel
-                users={authUsers}
-                sessions={authSessions}
-                inviteCodes={inviteCodes}
-                scopeSummary={authScopeSummary}
-                userForm={authUserForm}
-                inviteForm={authInviteForm}
-                loading={authLoading}
-                error={authError}
-                onRefresh={refreshAuthPanel}
-                onUserFormChange={setAuthUserForm}
-                onUserEditSelect={handleAuthUserEditSelect}
-                onUserSubmit={handleAuthUserSubmit}
-                onInviteFormChange={setAuthInviteForm}
-                onInviteSubmit={handleAuthInviteSubmit}
-                onInviteDisable={handleAuthInviteDisable}
-                onSessionRevoke={handleAuthSessionRevoke}
-                formatDateTime={formatDateTime}
-              />
+              <Suspense fallback={panelFallback('账号权限')}>
+                <AuthPanel
+                  users={authUsers}
+                  sessions={authSessions}
+                  inviteCodes={inviteCodes}
+                  scopeSummary={authScopeSummary}
+                  userForm={authUserForm}
+                  inviteForm={authInviteForm}
+                  loading={authLoading}
+                  error={authError}
+                  onRefresh={refreshAuthPanel}
+                  onUserFormChange={setAuthUserForm}
+                  onUserEditSelect={handleAuthUserEditSelect}
+                  onUserSubmit={handleAuthUserSubmit}
+                  onInviteFormChange={setAuthInviteForm}
+                  onInviteSubmit={handleAuthInviteSubmit}
+                  onInviteDisable={handleAuthInviteDisable}
+                  onSessionRevoke={handleAuthSessionRevoke}
+                  formatDateTime={formatDateTime}
+                />
+              </Suspense>
             </Section>
           )}
 
           {activeNav === 'monitor' && dashboardMetrics && (
             <Section id="monitor" title="运行监控" description="实时关注任务队列、当日执行概况以及节点健康状态。">
-              <MonitorPanel
-                dashboardMetrics={dashboardMetrics}
-                pendingQueueTotal={pendingQueueTotal}
-                pendingQueueSub={pendingQueueSub}
-                runningQueueTotal={runningQueueTotal}
-                runningQueueSub={runningQueueSub}
-                pendingBatchValue={pendingBatchValue}
-                pendingBatchSub={pendingBatchSub}
-                queueOverviewRows={queueOverviewRows}
-                comfyExecutors={comfyExecutors}
-                comfyQueueSummary={comfyQueueSummary}
-                comfyQueueSummaryLoading={comfyQueueSummaryLoading}
-                executors={executors}
-                onRefreshComfyQueue={refreshComfyQueueSummary}
-              />
+              <Suspense fallback={panelFallback('运行监控')}>
+                <MonitorPanel
+                  dashboardMetrics={dashboardMetrics}
+                  pendingQueueTotal={pendingQueueTotal}
+                  pendingQueueSub={pendingQueueSub}
+                  runningQueueTotal={runningQueueTotal}
+                  runningQueueSub={runningQueueSub}
+                  pendingBatchValue={pendingBatchValue}
+                  pendingBatchSub={pendingBatchSub}
+                  queueOverviewRows={queueOverviewRows}
+                  comfyExecutors={comfyExecutors}
+                  comfyQueueSummary={comfyQueueSummary}
+                  comfyQueueSummaryLoading={comfyQueueSummaryLoading}
+                  executors={executors}
+                  onRefreshComfyQueue={refreshComfyQueueSummary}
+                />
+              </Suspense>
             </Section>
           )}
 
           {activeNav === 'executors' && (
             <Section id="executors" title="运行线路" description="维护能力运行线路、并发能力与健康状态。">
-              <ExecutorsPanel
-                comfyExecutors={comfyExecutors}
-                comfyModelCache={comfyModelCache}
-                comfyModelErrorByExecutor={comfyModelErrorByExecutor}
-                comfyModelLoadingByExecutor={comfyModelLoadingByExecutor}
-                comfyQueueByExecutor={comfyQueueByExecutor}
-                comfyQueueSummary={comfyQueueSummary}
-                comfyQueueSummaryError={comfyQueueSummaryError}
-                comfyQueueSummaryLoading={comfyQueueSummaryLoading}
-                comfyQueueSummaryUpdatedAt={comfyQueueSummaryUpdatedAt}
-                comfySystemCache={comfySystemCache}
-                comfySystemErrorByExecutor={comfySystemErrorByExecutor}
-                comfySystemLoadingByExecutor={comfySystemLoadingByExecutor}
-                executorConfigJsonInvalid={executorConfigJsonInvalid}
-                executorConfigRecord={executorConfigRecord}
-                executorConfigTemplates={executorConfigTemplates}
-                executorForm={executorForm}
-                executorFormError={executorFormError}
-                executorInlineConcurrency={executorInlineConcurrency}
-                executorInlineError={executorInlineError}
-                executorInlineSaving={executorInlineSaving}
-                executorTraffic={executorTraffic}
-                executorTrafficError={executorTrafficError}
-                executorTrafficLoading={executorTrafficLoading}
-                executorTrafficTotals={executorTrafficTotals}
-                executors={executors}
-                executorsView={executorsView}
-                extractComfyuiModelCounts={extractComfyuiModelCounts}
-                extractComfyuiVersionInfo={extractComfyuiVersionInfo}
-                extractExecutorTags={extractExecutorTags}
-                formatDate={formatDate}
-                formatDateTime={formatDateTime}
-                getExecutorChannelLabel={getExecutorChannelLabel}
-                handleDelete={handleDelete}
-                handleExecutorSubmit={handleExecutorSubmit}
-                refreshComfyQueueSummary={refreshComfyQueueSummary}
-                refreshComfyuiModelCatalog={refreshComfyuiModelCatalog}
-                refreshComfyuiSystemStats={refreshComfyuiSystemStats}
-                refreshExecutorTraffic={refreshExecutorTraffic}
-                saveExecutorConcurrency={saveExecutorConcurrency}
-                setExecutorConfigField={setExecutorConfigField}
-                setExecutorForm={setExecutorForm}
-                setExecutorFormError={setExecutorFormError}
-                setExecutorInlineConcurrency={setExecutorInlineConcurrency}
-                setExecutorsView={setExecutorsView}
-                stringifyJSON={stringifyJSON}
-                summary={summary}
-              />
+              <Suspense fallback={panelFallback('运行线路')}>
+                <ExecutorsPanel
+                  comfyExecutors={comfyExecutors}
+                  comfyModelCache={comfyModelCache}
+                  comfyModelErrorByExecutor={comfyModelErrorByExecutor}
+                  comfyModelLoadingByExecutor={comfyModelLoadingByExecutor}
+                  comfyQueueByExecutor={comfyQueueByExecutor}
+                  comfyQueueSummary={comfyQueueSummary}
+                  comfyQueueSummaryError={comfyQueueSummaryError}
+                  comfyQueueSummaryLoading={comfyQueueSummaryLoading}
+                  comfyQueueSummaryUpdatedAt={comfyQueueSummaryUpdatedAt}
+                  comfySystemCache={comfySystemCache}
+                  comfySystemErrorByExecutor={comfySystemErrorByExecutor}
+                  comfySystemLoadingByExecutor={comfySystemLoadingByExecutor}
+                  executorConfigJsonInvalid={executorConfigJsonInvalid}
+                  executorConfigRecord={executorConfigRecord}
+                  executorConfigTemplates={executorConfigTemplates}
+                  executorForm={executorForm}
+                  executorFormError={executorFormError}
+                  executorInlineConcurrency={executorInlineConcurrency}
+                  executorInlineError={executorInlineError}
+                  executorInlineSaving={executorInlineSaving}
+                  executorTraffic={executorTraffic}
+                  executorTrafficError={executorTrafficError}
+                  executorTrafficLoading={executorTrafficLoading}
+                  executorTrafficTotals={executorTrafficTotals}
+                  executors={executors}
+                  executorsView={executorsView}
+                  extractComfyuiModelCounts={extractComfyuiModelCounts}
+                  extractComfyuiVersionInfo={extractComfyuiVersionInfo}
+                  extractExecutorTags={extractExecutorTags}
+                  formatDate={formatDate}
+                  formatDateTime={formatDateTime}
+                  getExecutorChannelLabel={getExecutorChannelLabel}
+                  handleDelete={handleDelete}
+                  handleExecutorSubmit={handleExecutorSubmit}
+                  refreshComfyQueueSummary={refreshComfyQueueSummary}
+                  refreshComfyuiModelCatalog={refreshComfyuiModelCatalog}
+                  refreshComfyuiSystemStats={refreshComfyuiSystemStats}
+                  refreshExecutorTraffic={refreshExecutorTraffic}
+                  saveExecutorConcurrency={saveExecutorConcurrency}
+                  setExecutorConfigField={setExecutorConfigField}
+                  setExecutorForm={setExecutorForm}
+                  setExecutorFormError={setExecutorFormError}
+                  setExecutorInlineConcurrency={setExecutorInlineConcurrency}
+                  setExecutorsView={setExecutorsView}
+                  stringifyJSON={stringifyJSON}
+                  summary={summary}
+                />
+              </Suspense>
             </Section>
           )}
 
@@ -9123,6 +9171,7 @@ const extractErrorMessage = (error: unknown): string => {
           }}
           onShowTestNodesChange={setComfyShowTestNodes}
         />
+        <Suspense fallback={panelFallback('ComfyUI 管理')}>
         {comfyuiManageTab === 'lora' && (
           <ComfyuiLorasPanel
             executors={comfyExecutors}
@@ -9615,6 +9664,7 @@ const extractErrorMessage = (error: unknown): string => {
             setWorkflowFormErrors={setWorkflowFormErrors}
           />
         )}
+        </Suspense>
       </Section>
           )}
           {activeNav === 'workflow-builder' && (
@@ -9623,19 +9673,21 @@ const extractErrorMessage = (error: unknown): string => {
               title="高级编排"
               description="管理外部编排画布、流程绑定和运行观察入口；普通业务优先走“业务能力”，这里主要给高级配置和排查使用。"
             >
-              <WorkflowBuilderPanel
-                loading={!systemConfig}
-                cozeBaseUrl={cozeBaseUrl}
-                cozeLoopUrl={cozeLoopUrl}
-                cozeTokenHint={cozeTokenHint}
-                defaultTimeout={cozeConfig?.default_timeout}
-                cozeAbilityStats={cozeAbilityStats}
-                cozeAbilityMappings={cozeAbilityMappings}
-                cozeRecentLogs={cozeRecentLogs}
-                onOpenCozeStudio={handleOpenCozeStudio}
-                onOpenCozeLoop={handleOpenCozeLoop}
-                resolveAssetUrl={resolveAssetUrl}
-              />
+              <Suspense fallback={panelFallback('高级编排')}>
+                <WorkflowBuilderPanel
+                  loading={!systemConfig}
+                  cozeBaseUrl={cozeBaseUrl}
+                  cozeLoopUrl={cozeLoopUrl}
+                  cozeTokenHint={cozeTokenHint}
+                  defaultTimeout={cozeConfig?.default_timeout}
+                  cozeAbilityStats={cozeAbilityStats}
+                  cozeAbilityMappings={cozeAbilityMappings}
+                  cozeRecentLogs={cozeRecentLogs}
+                  onOpenCozeStudio={handleOpenCozeStudio}
+                  onOpenCozeLoop={handleOpenCozeLoop}
+                  resolveAssetUrl={resolveAssetUrl}
+                />
+              </Suspense>
             </Section>
           )}
 
@@ -9645,14 +9697,16 @@ const extractErrorMessage = (error: unknown): string => {
               title="路由策略"
               description="配置业务入口使用哪套工作流、走哪条运行线路，以及失败时如何按优先级切换。"
             >
-              <BindingRoutesPanel
-                bindings={bindings}
-                bindingForm={bindingForm}
-                onFormChange={setBindingForm}
-                onSubmit={handleBindingSubmit}
-                onDelete={(id) => handleDelete('binding', id)}
-                onReset={() => setBindingForm(defaultBindingForm)}
-              />
+              <Suspense fallback={panelFallback('路由策略')}>
+                <BindingRoutesPanel
+                  bindings={bindings}
+                  bindingForm={bindingForm}
+                  onFormChange={setBindingForm}
+                  onSubmit={handleBindingSubmit}
+                  onDelete={(id) => handleDelete('binding', id)}
+                  onReset={() => setBindingForm(defaultBindingForm)}
+                />
+              </Suspense>
             </Section>
           )}
 
@@ -9709,33 +9763,39 @@ const extractErrorMessage = (error: unknown): string => {
               title="历史密钥仓库"
               description="兼容旧版密钥表；第三方模型密钥请优先使用“模型弹药库”，这里后续会逐步降级为历史兼容入口。"
             >
-              <LegacyApiKeysPanel
-                apiKeys={apiKeys}
-                apiKeyForm={apiKeyForm}
-                onFormChange={setApiKeyForm}
-                onSubmit={handleApiKeySubmit}
-                onDelete={(id) => handleDelete('apikey', String(id))}
-                onReset={() => setApiKeyForm(defaultApiKeyForm)}
-                getProviderLabel={getProviderLabel}
-              />
+              <Suspense fallback={panelFallback('历史密钥仓库')}>
+                <LegacyApiKeysPanel
+                  apiKeys={apiKeys}
+                  apiKeyForm={apiKeyForm}
+                  onFormChange={setApiKeyForm}
+                  onSubmit={handleApiKeySubmit}
+                  onDelete={(id) => handleDelete('apikey', String(id))}
+                  onReset={() => setApiKeyForm(defaultApiKeyForm)}
+                  getProviderLabel={getProviderLabel}
+                />
+              </Suspense>
             </Section>
           )}
 
           {activeNav === 'system' && systemConfig && (
             <Section id="system" title="系统配置" description="汇总环境信息、OSS 配置及安全参数，便于排障和入职交接。">
-              <SystemConfigPanel systemConfig={systemConfig} />
+              <Suspense fallback={panelFallback('系统配置')}>
+                <SystemConfigPanel systemConfig={systemConfig} />
+              </Suspense>
             </Section>
           )}
 
           {activeNav === 'logs' && (
             <Section id="logs" title="调度事件" description="追踪任务事件、调度动作与回调结果，便于排障和多用户并发分析。">
-              <DispatchLogsPanel
-                dispatchLogs={dispatchLogs}
-                onOpenDetail={(entry) => {
-                  setDispatchLogDetail(entry);
-                  setDispatchLogDetailOpen(true);
-                }}
-              />
+              <Suspense fallback={panelFallback('调度事件')}>
+                <DispatchLogsPanel
+                  dispatchLogs={dispatchLogs}
+                  onOpenDetail={(entry) => {
+                    setDispatchLogDetail(entry);
+                    setDispatchLogDetailOpen(true);
+                  }}
+                />
+              </Suspense>
             </Section>
           )}
 
