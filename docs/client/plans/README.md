@@ -1,10 +1,10 @@
 # 客户端 Plans 索引
 
-> 目的：把 `docs/client/plans/` 里的现行文档、历史基线、阶段测试包分开，避免直接在目录里猜哪份该看。
+> 当前状态：本仓库已不再包含客户端代码目录。这里保留的是历史计划、阶段测试包和复盘材料，不代表当前仍在本仓库内推进客户端开发。
 
-## 1. 当前优先看哪几份
+## 1. 回看历史计划时先看哪几份
 
-如果你是继续开发、整理页面、或判断客户端现在做到哪一步，按这个顺序看：
+如果你要回看当时客户端如何规划、如何重构、做到哪一步，按这个顺序看：
 
 1. `docs/client/plans/2026-04-16-client-phase1-operating-model.md`
 2. `docs/client/plans/2026-03-17-style3d-client-current-status.md`
@@ -12,13 +12,13 @@
 
 这 3 份分别回答：
 
-- 当前客户端按什么经营模型推进
-- 当前版本做到哪一步
-- 当前页面骨架按什么方向继续收口
+- 当时客户端按什么经营模型推进
+- 当时版本做到哪一步
+- 当时页面骨架按什么方向继续收口
 
 ## 2. 当前目录怎么分
 
-### A. 现行真源 / 现行状态
+### A. 历史入口 / 历史状态
 
 - `docs/client/plans/2026-04-16-client-phase1-operating-model.md`
 - `docs/client/plans/2026-03-17-style3d-client-current-status.md`
@@ -59,7 +59,7 @@
 
 ## 3. 当前维护规则
 
-客户端有明显变化时，优先同步：
+如果未来重新启动客户端开发，优先同步：
 
 1. `docs/client/README.md`
 2. `docs/client/DOC_STATUS.md`
@@ -68,6 +68,6 @@
 5. `docs/client/plans/2026-03-17-style3d-client-current-status.md`
 6. `docs/plans/2026-03-19-style3d-client-rearchitecture-design.md`
 
-如果这几份没有一起更新，客户端文档默认不算整理完成。
+如果这几份没有一起更新，客户端文档默认不算重新启用完成。
 
-*最后更新: 2026-04-16*
+*最后更新: 2026-04-30*

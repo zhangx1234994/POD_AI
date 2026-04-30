@@ -10,9 +10,9 @@
 1. `docs/PLATFORM_SURFACES.md`
    - 先确认客户端和管理端、测评端的边界
 2. `docs/client/DOC_STATUS.md`
-   - 先判断文档属于现行真源、历史基线，还是阶段测试包
+   - 先判断文档属于历史入口、历史基线，还是阶段测试包
 3. `docs/client/plans/README.md`
-   - 先区分现行 plans、历史基线和测试包
+   - 先区分历史 plans、历史基线和测试包
 4. `docs/client/plans/2026-04-16-client-phase1-operating-model.md`
    - 看当时客户端按什么产品经营模型推进
 5. `docs/client/plans/2026-03-17-style3d-client-current-status.md`
@@ -43,7 +43,7 @@
 
 客户端文档只按下面 3 类理解：
 
-### A. 现行真源
+### A. 历史入口
 
 - `docs/client/DOC_STATUS.md`
 - `docs/client/plans/README.md`
@@ -95,7 +95,7 @@
 6. `docs/client/plans/2026-03-17-style3d-client-current-status.md`
 7. `docs/plans/2026-03-19-style3d-client-rearchitecture-design.md`
 
-如果这 7 份没更新，其他客户端文档默认都不算整理完成。
+如果未来重新启动客户端开发，这 7 份必须先更新；在此之前，客户端文档默认只作为历史资料。
 
 ## 5. 当前代码位置
 

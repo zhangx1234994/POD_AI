@@ -1,112 +1,147 @@
-# 凭证速查
+# 凭证配置清单
 
-> 说明：以下内容仅供联调阶段使用，所有 Key 已记录在此文档，便于管理端或本地开发配置。上线前请按安全要求替换为正式密钥、接入 KMS/Secret Manager，并更新策略与有效期。
+> 本文件只记录“需要哪些凭证、放在哪里、如何轮换”，不记录真实账号、密码、密钥或临时令牌。真实凭证必须放在服务器环境变量、部署平台密钥、数据库加密字段，或本地忽略文件 `docs/CREDENTIALS.local.md`。
 
-## 阿里云
+## 1. 硬性规则
 
-- RAM 账号：`<ram-account>@<tenant>.onaliyun.com`
-- RAM 密码：`<ram-password>`
-- 账号角色：`CLTZ`
-- 角色 ARN：`acs:ram::<tenant>:role/<role>`
-- 信任策略：
-  ```json
-  {
-    "Statement": [
-      {
-        "Action": ["sts:AssumeRole", "sts:SetSourceIdentity"],
-        "Effect": "Allow",
-        "Principal": { "RAM": ["acs:ram::<tenant>:root"] }
-      }
-    ],
-    "Version": "1"
-  }
-  ```
-- AccessKey（全局）：
-  - `AccessKeyId = ${ALIYUN_ACCESS_KEY_ID}`
-  - `AccessKeySecret = ${ALIYUN_ACCESS_KEY_SECRET}`
+- 不允许把真实 `API Key`、`AccessKey`、账号密码、回调令牌提交到仓库。
+- 示例值只能使用 `${ENV_NAME}`、`<placeholder>` 或已公开的接口域名。
+- 如果线上密钥已经误入历史提交，处理顺序是：先轮换密钥，再清理当前文件，最后评估是否需要重写历史。
+- 新增第三方能力时，必须同步补充本文件的环境变量清单和轮换说明。
 
-### OSS 配置
+## 2. 当前凭证来源
 
-```
-aliyun.oss.endpoint = oss-cn-hangzhou.aliyuncs.com
-aliyun.oss.access-key-id = ${ALIYUN_OSS_KEY_ID}
-aliyun.oss.access-key-secret = ${ALIYUN_OSS_KEY_SECRET}
-aliyun.oss.bucket = podi
-aliyun.oss.public-domain = https://podi.oss-cn-hangzhou.aliyuncs.com
-aliyun.oss.root-prefix = test
+| 类型 | 当前推荐位置 | 说明 |
+| --- | --- | --- |
+| 后端运行密钥 | 服务器 `.env` 或系统环境变量 | `backend`、`vendor-api-ops`、`image-ops-service` 运行时读取 |
+| 执行节点配置 | `config/executors.yaml` 或管理端执行节点 | 只允许引用环境变量，不直接写真实密钥 |
+| 第三方能力密钥 | 中台加密保存或服务器环境变量 | 后续由管理端密钥页统一维护 |
+| 本地联调密钥 | `docs/CREDENTIALS.local.md` | 已加入 `.gitignore`，只在个人机器存在 |
+
+## 3. 阿里云 / OSS
+
+### 必需配置
+
+```bash
+ALIYUN_ACCESS_KEY_ID=<required>
+ALIYUN_ACCESS_KEY_SECRET=<required>
+ALIYUN_OSS_KEY_ID=<required>
+ALIYUN_OSS_KEY_SECRET=<required>
 ```
 
-> 后台上传全部经 OSS 统一落地，建议为前端用户下发 STS 临时凭证，并按用户/日期归档（`podi/<user>/YYYYMMDD/`）。
+### OSS 运行参数
 
-## 百度智能云
+```bash
+ALIYUN_OSS_ENDPOINT=oss-cn-hangzhou.aliyuncs.com
+ALIYUN_OSS_INTERNAL_ENDPOINT=oss-cn-hangzhou-internal.aliyuncs.com
+ALIYUN_OSS_BUCKET=podi
+ALIYUN_OSS_PUBLIC_DOMAIN=https://podi.oss-cn-hangzhou.aliyuncs.com
+ALIYUN_OSS_ROOT_PREFIX=test
+```
 
-- API Key：`<baidu-api-key>`
-- Secret Key：`<baidu-secret-key>`
-- Access Key：`<baidu-access-key>`
-- 平台 API Key（bce-v3）：`<baidu-platform-api-key>`
-- 文档：
-  - 鉴权：https://ai.baidu.com/ai-doc/REFERENCE/Lkru0zoz4
-  - 图像处理：https://cloud.baidu.com/doc/IMAGEPROCESS/s/ok3bclnkg
-- 已开通能力：无损放大、老照片上色、摩尔纹去除、拉伸修复、去雾增强、对比度增强、去噪等 7 大接口。
+### 维护要求
 
-## 火山引擎（Doubao/Seedream）
+- 对外返回继续使用公网稳定地址。
+- 内网地址只用于中台、Coze 同机服务、执行节点之间的内部下载提速。
+- STS 临时凭证必须按用户、目录、有效期限制权限。
+- RAM 信任策略和临时密钥失效流程仍需单独收紧。
 
-- 通用 API Key：`${VOLCENGINE_API_KEY}`
-- Base URL：`https://ark.cn-beijing.volces.com`
-- 重点模型：
-  1. `doubao-seed-1-8-251228`（Doubao Seed 1.8，支持图文多模态）
-     ```bash
-     curl https://ark.cn-beijing.volces.com/api/v3/chat/completions \
-       -H "Content-Type: application/json" \
-       -H "Authorization: Bearer ${VOLCENGINE_API_KEY}" \
-       -d '{
-         "model": "doubao-seed-1-8-251228",
-         "messages": [{
-           "role": "user",
-           "content": [
-             { "type": "image_url", "image_url": { "url": "https://ark-project.tos-cn-beijing.ivolces.com/images/view.jpeg" } },
-             { "type": "text", "text": "图片主要讲了什么?" }
-           ]
-         }]
-       }'
-     ```
-  2. `doubao-seedream-4-5-251128`（Seedream 4.5 文生图）
-     ```bash
-     curl -X POST https://ark.cn-beijing.volces.com/api/v3/images/generations \
-       -H "Content-Type: application/json" \
-       -H "Authorization: Bearer ${VOLCENGINE_API_KEY}" \
-       -d '{
-         "model": "doubao-seedream-4-5-251128",
-         "prompt": "星际穿越…",
-         "response_format": "url",
-         "size": "2K",
-         "stream": false,
-         "watermark": true
-       }'
-     ```
-- 文档：
-  - Chat/VL：https://www.volcengine.com/docs/82379/1399008?lang=zh
-  - 文生图：https://www.volcengine.com/docs/82379/1541523?lang=zh
+## 4. 百度智能云
 
-## KIE 中转站（境外模型代理）
+### 必需配置
 
-- API Key：`${KIE_API_KEY}`
-- Base URL：`https://api.kie.ai`
-- 核心模型：
-  1. `nano-banana-pro`（Google Nano Banana Pro 图生图，支持 4K 与多张参考图）
-  2. `flux-2/pro-image-to-image`（Flux-2 Pro 图生图，必须传 1-8 张 `input_urls`）
-  3. `sora-2-pro-text-to-video`（Sora2 Pro 文生视频，支持角色 ID、去水印、10/15 帧）
-- 调用说明：
-  - 创建任务统一走 `POST /api/v1/jobs/createTask`，成功返回 `taskId`
-  - 任务状态与结果通过 `GET /api/v1/jobs/recordInfo?taskId=xxx` 查询，`resultJson` 字段包含 `resultUrls`
-  - 生产环境建议传 `callBackUrl` 以免频繁轮询
-- 文档：
-  - Nano Banana Pro：https://docs.kie.ai/cn/market/google/pro-image-to-image.json
-  - Flux-2 Pro：https://docs.kie.ai/cn/market/flux2/pro-image-to-image.json
-  - Sora2 Pro：https://docs.kie.ai/cn/market/sora2/sora-2-pro-text-to-video.json
-  - 查询任务：https://docs.kie.ai/cn/market/common/get-task-detail.json
+```bash
+BAIDU_API_KEY=<required>
+BAIDU_SECRET_KEY=<required>
+BAIDU_ACCESS_KEY=<optional>
+BAIDU_PLATFORM_API_KEY=<optional>
+```
 
-## 备注
+### 已接能力
 
-- 所有凭证已同步到管理端“执行节点”配置中，可直接绑定到能力目录；如需刷新或替换，请同时更新本文件与系统配置。
-- 2026-04-25：火山模型列表同步接口已接入管理端：`POST /api/admin/vendor-api/models/sync/volcengine`，读取 `VOLCENGINE_API_KEY` 后调用 `GET https://ark.cn-beijing.volces.com/api/v3/models` 并写入 `vendor_model_catalog`。RAM 信任策略与临时密钥失效流程仍需在阿里云账号侧继续细化。
+- 无损放大
+- 老照片上色
+- 摩尔纹去除
+- 拉伸修复
+- 去雾增强
+- 对比度增强
+- 去噪
+
+### 维护要求
+
+- 能力节点在 `config/executors.yaml` 中声明，数据库执行节点只保存可追溯配置。
+- 调用失败时必须区分鉴权失败、额度不足、限流和上游异常。
+
+## 5. 火山引擎
+
+### 必需配置
+
+```bash
+VOLCENGINE_API_KEY=<required>
+VOLCENGINE_BASE_URL=https://ark.cn-beijing.volces.com
+```
+
+### 已接能力
+
+- Doubao Seed 多模态理解
+- Seedream 文生图
+- Seedance 图生视频
+- 火山模型列表同步
+
+### 维护要求
+
+- 模型列表同步接口读取 `VOLCENGINE_API_KEY`，不得在前端或文档中输出真实值。
+- 生图、生视频、文字/VL 能力需要在能力目录中明确区分。
+
+## 6. KIE 中转站
+
+### 必需配置
+
+```bash
+KIE_API_KEY=<required>
+KIE_BASE_URL=https://api.kie.ai
+```
+
+### 已接能力
+
+- Nano Banana Pro 图生图
+- Flux-2 Pro 图生图
+- Sora2 Pro 文生视频
+
+### 维护要求
+
+- KIE 余额和额度监控暂缓，但错误必须能明确提示“余额不足/额度不足/上游限流”。
+- 创建任务和轮询结果必须保留 `taskId`，便于和中台任务追踪关联。
+
+## 7. OpenAI / 兼容中转
+
+### 必需配置
+
+```bash
+OPENAI_API_KEY=<required>
+OPENAI_BASE_URL=<optional>
+OPENAI_ORG_ID=<optional>
+OPENAI_PROJECT_ID=<optional>
+```
+
+### 维护要求
+
+- OpenAI、兼容中转、代理出口都归入第三方能力管理，不直接写入业务代码。
+- 支持蒙版、多图、同步返回、异步轮询的模型，都必须通过能力 schema 单独描述参数。
+- 对外仍统一为“提交任务 -> 查询结果”，不让业务方感知厂商差异。
+
+## 8. 轮换与泄露处理
+
+1. 立即禁用或轮换疑似泄露密钥。
+2. 更新服务器环境变量或管理端密钥配置。
+3. 重启相关服务并跑能力自检。
+4. 检查调用日志，确认没有继续使用旧密钥。
+5. 如果密钥进入 Git 历史，记录影响范围，再决定是否执行历史清理。
+
+## 9. 文档维护规则
+
+- 本文件变更必须和能力接入、执行节点、部署说明保持一致。
+- 新增供应商时，只补充配置项、能力范围、错误分类和轮换方式。
+- 真实密钥只允许进入 `docs/CREDENTIALS.local.md` 或受控密钥系统。
+
+*最后更新: 2026-04-30*

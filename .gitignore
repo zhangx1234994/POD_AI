@@ -22,6 +22,7 @@ podi-eval-web/node_modules/
 podi-eval-web/dist/
 tmp/
 .trae/
+docs/CREDENTIALS.local.md
 
 # Local test outputs
 reports/
