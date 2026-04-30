@@ -85,6 +85,7 @@
 - `docs/client/tech-review-2026-04-16/README.md` 已补齐，避免客户端历史评审入口断链。
 - `docs/handover/README.md` 已补齐，明确交接资料默认是历史参考，旧客户端内容不能当当前事实。
 - `AGENTS.md` 的“休假前暂停点”已替换为当前唯一待办池与恢复工作顺序。
+- `docs/COZE_INTEGRATION_GUIDE.md` 已标记为历史兼容指南，当前 Coze 接口真源收敛到 `docs/api/modules/coze.md`。
 
 ### P1
 
@@ -94,7 +95,8 @@
 
 ### P2
 
-- `docs/BUSINESS_MODEL.md`、`docs/COZE_INTEGRATION_GUIDE.md` 篇幅较长，后续可拆成当前摘要和历史附录。
+- `docs/BUSINESS_MODEL.md` 篇幅较长，后续可拆成当前摘要和历史附录。
+- `docs/COZE_INTEGRATION_GUIDE.md` 仍可进一步压缩，当前已先标记历史兼容状态。
 - 旧的 mock、dev server、临时测试说明需要逐步从主入口移出。
 
 ## 5. 验收标准

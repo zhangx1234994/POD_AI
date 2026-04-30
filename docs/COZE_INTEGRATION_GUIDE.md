@@ -1,5 +1,8 @@
 # Coze 工作流对接指南
 
+> 文档状态：历史兼容指南。当前 Coze 工具箱、OpenAPI、鉴权和任务轮询接口真源请看 `docs/api/modules/coze.md` 与 `docs/coze/toolbox-inventory.md`。
+> 本文保留旧能力示例、旧 workflow ID 和历史对接方式，不能直接作为当前工具箱导入或发版验收依据。
+
 ## 1. 文档介绍
 
 本文档详细介绍了如何对接中台项目的 Coze 工作流 API，用于集成各种 AI 能力。通过本指南，您可以了解如何调用 Coze 工作流，获取执行结果，并处理回调事件。

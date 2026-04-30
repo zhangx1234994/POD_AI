@@ -106,6 +106,7 @@
 - `docs/smart-polling-mechanism.md`
 - `docs/error-codes.md`
 - `docs/TODO_PLATFORM.md`
+- `docs/COZE_INTEGRATION_GUIDE.md`
 
 阅读这些文档时，默认按“历史基线 / 阶段记录”理解，不能直接当作当前实现依据。
 
