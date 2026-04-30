@@ -86,6 +86,7 @@
 - `docs/handover/README.md` 已补齐，明确交接资料默认是历史参考，旧客户端内容不能当当前事实。
 - `AGENTS.md` 的“休假前暂停点”已替换为当前唯一待办池与恢复工作顺序。
 - `docs/COZE_INTEGRATION_GUIDE.md` 已标记为历史兼容指南，当前 Coze 接口真源收敛到 `docs/api/modules/coze.md`。
+- `docs/standards/document-maintenance.md` 已补历史路径与断链规则，避免旧客户端目录和本地忽略凭证文件在检查中误判。
 
 ### P1
 
