@@ -183,6 +183,7 @@ import {
   type ComfyuiAgentTaskFormState,
 } from '../features/admin/integration/comfyuiTaskActions';
 import { useWorkflowTemplateActions } from '../features/admin/integration/workflowTemplateActions';
+import { useVendorModelActions } from '../features/admin/integration/vendorModelActions';
 import { ComfyuiManagementHeader } from '../features/admin/integration/comfyuiManagement';
 import {
   formatDate,
@@ -6103,180 +6104,32 @@ const extractErrorMessage = (error: unknown): string => {
     load();
   };
 
-  const loadVendorCatalog = async () => {
-    setVendorLoading(true);
-    setVendorError('');
-    setVendorNotice('');
-    try {
-      const [providers, keys, models, usage, governance] = await Promise.all([
-        adminApi.listVendorProviders(),
-        adminApi.listVendorKeys(),
-        adminApi.listVendorModels(),
-        adminApi.getVendorUsageSummary(24),
-        adminApi.getVendorGovernanceSummary(24).catch(() => null),
-      ]);
-      setVendorProviders(providers.providers || []);
-      setVendorKeys(keys.items || []);
-      setVendorModels(models.items || []);
-      setVendorUsageItems(usage.items || []);
-      setVendorUsageWindowHours(Number(usage.windowHours || 24));
-      if (governance) setVendorGovernanceSummary(governance);
-      setVendorBaseUrl(providers.baseUrl || keys.baseUrl || models.baseUrl || usage.baseUrl || governance?.baseUrl || '');
-    } catch (error) {
-      setVendorError(extractErrorMessage(error) || '模型弹药库加载失败');
-    } finally {
-      setVendorLoading(false);
-    }
-  };
-
-  const handleSyncVolcengineModels = async () => {
-    setVendorLoading(true);
-    setVendorError('');
-    setVendorNotice('');
-    try {
-      const result = await adminApi.syncVolcengineModels();
-      await loadVendorCatalog();
-      setVendorNotice(
-        `火山模型已同步：新增 ${result.created} 个，更新 ${result.updated} 个，跳过 ${result.skipped} 个。`,
-      );
-    } catch (error) {
-      setVendorError(extractErrorMessage(error) || '火山模型同步失败，请检查 VOLCENGINE_API_KEY 和服务出网。');
-    } finally {
-      setVendorLoading(false);
-    }
-  };
-
-  const handleVendorEgressCheck = async (provider: string, includeAuth = false) => {
-    setVendorError('');
-    try {
-      const result = await adminApi.checkVendorProviderEgress(provider, { check: 'models', includeAuth });
-      setVendorEgressChecks((prev) => ({ ...prev, [provider]: result }));
-    } catch (error) {
-      setVendorError(extractErrorMessage(error) || '出网检查失败');
-    }
-  };
-
-  const resetVendorModelForm = (seed?: VendorModel) => {
-    if (!seed) {
-      setVendorModelForm(defaultVendorModelForm);
-      setVendorModelFormError(null);
-      return;
-    }
-    setVendorModelForm({
-      ...seed,
-      apiTypesText: formatTextList(seed.apiTypes),
-      executionModesText: formatTextList(seed.executionModes),
-      metadataText: stringifyJSON(seed.metadata as JsonRecord),
-      routePolicyText: stringifyJSON(seed.routePolicy as JsonRecord),
-      defaultTaskPolicyText: stringifyJSON(seed.defaultTaskPolicy as JsonRecord),
-      inputSchemaText: stringifyJSON(seed.inputSchema as JsonRecord),
-      costPolicyText: stringifyJSON(seed.costPolicy as JsonRecord),
-    });
-    setVendorModelFormError(null);
-  };
-
-  const handleVendorModelSubmit = async () => {
-    if (!vendorModelForm.provider || !vendorModelForm.model || !vendorModelForm.displayName) {
-      setVendorModelFormError('请填写厂商标识、模型编号和显示名称');
-      return;
-    }
-    const jsonFields = [
-      ['metadata', vendorModelForm.metadataText],
-      ['routePolicy', vendorModelForm.routePolicyText],
-      ['defaultTaskPolicy', vendorModelForm.defaultTaskPolicyText],
-      ['inputSchema', vendorModelForm.inputSchemaText],
-      ['costPolicy', vendorModelForm.costPolicyText],
-    ] as const;
-    const jsonFieldLabels: Record<(typeof jsonFields)[number][0], string> = {
-      metadata: '元信息',
-      routePolicy: '路由策略',
-      defaultTaskPolicy: '默认任务策略',
-      inputSchema: '入参结构',
-      costPolicy: '计价策略',
-    };
-    const parsedJson: Record<string, JsonRecord> = {};
-    for (const [key, raw] of jsonFields) {
-      const parsed = safeParseJSON(raw);
-      if (!parsed.ok) {
-        setVendorModelFormError(`${jsonFieldLabels[key]}格式不正确`);
-        return;
-      }
-      parsedJson[key] = parsed.value;
-    }
-    setVendorModelFormError(null);
-    setVendorError('');
-    const payload: Partial<VendorModel> = {
-      provider: String(vendorModelForm.provider),
-      model: String(vendorModelForm.model),
-      displayName: String(vendorModelForm.displayName),
-      status: String(vendorModelForm.status || 'active'),
-      apiTypes: normalizeTextList(vendorModelForm.apiTypesText || vendorModelForm.apiTypes),
-      executionModes: normalizeTextList(vendorModelForm.executionModesText || vendorModelForm.executionModes),
-      supportsMask: Boolean(vendorModelForm.supportsMask),
-      supportsMultipleImages: Boolean(vendorModelForm.supportsMultipleImages),
-      supportsVideo: Boolean(vendorModelForm.supportsVideo),
-      supportsText: Boolean(vendorModelForm.supportsText),
-      requiresGlobalEgress: Boolean(vendorModelForm.requiresGlobalEgress),
-      source: String(vendorModelForm.source || 'backend-admin'),
-      metadata: parsedJson.metadata,
-      routePolicy: parsedJson.routePolicy,
-      defaultTaskPolicy: parsedJson.defaultTaskPolicy,
-      inputSchema: parsedJson.inputSchema,
-      costPolicy: parsedJson.costPolicy,
-    };
-    try {
-      if (vendorModelForm.id) {
-        await adminApi.updateVendorModel(Number(vendorModelForm.id), payload);
-      } else {
-        await adminApi.createVendorModel(payload);
-      }
-      resetVendorModelForm();
-      await loadVendorCatalog();
-    } catch (error) {
-      setVendorModelFormError(extractErrorMessage(error) || '保存模型失败');
-    }
-  };
-
-  const handleVendorKeySubmit = async () => {
-    if (!vendorKeyForm.provider || !vendorKeyForm.alias || !vendorKeyForm.status) return;
-    setVendorError('');
-    try {
-      if (vendorKeyForm.id) {
-        await adminApi.updateVendorKey(vendorKeyForm.id, {
-          alias: vendorKeyForm.alias,
-          key: vendorKeyForm.key,
-          secret: vendorKeyForm.secret,
-          model: vendorKeyForm.model,
-          status: vendorKeyForm.status,
-          dailyQuota: vendorKeyForm.dailyQuota,
-          monthlyQuota: vendorKeyForm.monthlyQuota,
-          maxConcurrency: vendorKeyForm.maxConcurrency,
-          metadata: vendorKeyForm.metadata,
-        });
-      } else if (vendorKeyForm.key) {
-        const provider = String(vendorKeyForm.provider);
-        const alias = String(vendorKeyForm.alias);
-        await adminApi.createVendorKey({
-          provider,
-          alias,
-          key: vendorKeyForm.key,
-          secret: vendorKeyForm.secret,
-          model: vendorKeyForm.model,
-          status: vendorKeyForm.status,
-          dailyQuota: vendorKeyForm.dailyQuota,
-          monthlyQuota: vendorKeyForm.monthlyQuota,
-          maxConcurrency: vendorKeyForm.maxConcurrency,
-          metadata: vendorKeyForm.metadata,
-        });
-      } else {
-        return;
-      }
-      setVendorKeyForm(defaultVendorKeyForm);
-      await loadVendorCatalog();
-    } catch (error) {
-      setVendorError(extractErrorMessage(error) || '保存 vendor key 失败');
-    }
-  };
+  const {
+    handleSyncVolcengineModels,
+    handleVendorEgressCheck,
+    handleVendorKeySubmit,
+    handleVendorModelSubmit,
+    loadVendorCatalog,
+    resetVendorModelForm,
+  } = useVendorModelActions({
+    extractErrorMessage,
+    setVendorBaseUrl,
+    setVendorEgressChecks,
+    setVendorError,
+    setVendorGovernanceSummary,
+    setVendorKeyForm,
+    setVendorKeys,
+    setVendorLoading,
+    setVendorModelForm,
+    setVendorModelFormError,
+    setVendorModels,
+    setVendorNotice,
+    setVendorProviders,
+    setVendorUsageItems,
+    setVendorUsageWindowHours,
+    vendorKeyForm,
+    vendorModelForm,
+  });
 
   const handleDelete = async (type: 'executor' | 'workflow' | 'binding' | 'apikey', id: string) => {
     const map = {

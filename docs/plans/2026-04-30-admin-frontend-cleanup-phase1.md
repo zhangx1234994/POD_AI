@@ -34,10 +34,11 @@
 - ComfyUI 服务器刷新、新增、告警列表、差异日志和对齐快照保存动作已抽离到 `podi-admin-web/src/features/admin/integration/comfyuiServerActions.ts`，服务器纳管动作层基本完成。
 - ComfyUI LoRA 清单刷新、表单重置、保存和删除动作已抽离到 `podi-admin-web/src/features/admin/integration/comfyuiLoraActions.ts`，LoRA 素材库维护动作不再堆在主页面。
 - ComfyUI 工作流模板的输入/输出映射、节点参数写回、导入、克隆和保存动作已抽离到 `podi-admin-web/src/features/admin/integration/workflowTemplateActions.ts`，模板编辑器的核心动作层从主页面移出。
+- 模型弹药库的厂商/模型/密钥加载、火山模型同步、出网检查、模型保存和密钥保存动作已抽离到 `podi-admin-web/src/features/admin/integration/vendorModelActions.ts`，第三方模型接入动作从主页面移出。
 
 ## 4. 仍未处理的问题
 
-- `IntegrationDashboard.tsx` 仍然过大，模型弹药库状态、账号权限、账单和部分通用管理域请求动作还集中在一个文件中；下一步应转入模型弹药库状态域或权限/账单动作拆分。
+- `IntegrationDashboard.tsx` 仍然过大，账号权限、账单和部分通用管理域请求动作还集中在一个文件中；下一步应转入权限/账单动作拆分或阶段性页面走查。
 - 导航信息架构还需要继续压缩，尤其是能力目录、ComfyUI 管理、模型弹药库之间的边界说明。
 - TDesign 和本地存储相关 vendor 包仍偏大，需要在后续阶段评估组件级引入、路由级拆包或替代方案。
 - 视觉层还没有整体重做，当前只是降低加载和结构风险。
