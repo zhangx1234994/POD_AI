@@ -84,6 +84,7 @@
 - `docs/project-takeover-prep-2026-03-12.md` 已补历史文档提示，并校正凭证与执行节点标签路由口径。
 - `docs/client/tech-review-2026-04-16/README.md` 已补齐，避免客户端历史评审入口断链。
 - `docs/handover/README.md` 已补齐，明确交接资料默认是历史参考，旧客户端内容不能当当前事实。
+- `AGENTS.md` 的“休假前暂停点”已替换为当前唯一待办池与恢复工作顺序。
 
 ### P1
 
