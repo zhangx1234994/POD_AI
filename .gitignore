@@ -1,7 +1,11 @@
 .DS_Store
+._*
 __pycache__/
 *.pyc
 *.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 *.pid
 *.log
 logs/
@@ -16,7 +20,6 @@ podi-admin-web/node_modules/
 podi-admin-web/dist/
 podi-eval-web/node_modules/
 podi-eval-web/dist/
-**/package-lock.json
 tmp/
 .trae/
 
