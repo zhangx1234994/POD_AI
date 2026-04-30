@@ -26,10 +26,11 @@
 - 业务能力页的灰度读取、视觉辅助读取、业务/版本筛选、版本对比派生状态、编辑表单映射和保存载荷构建已抽离到 `podi-admin-web/src/features/admin/integration/businessDashboardState.ts`，主页面继续收口为页面编排层。
 - 业务能力页的默认版本申请、审批、启停、对比、回滚、运行记录刷新、导出和回调重试已抽离到 `podi-admin-web/src/features/admin/integration/businessDashboardActions.ts`，主页面不再直接维护业务请求动作。
 - ComfyUI 管理页签、分区、同步发布步骤文案和轻 Agent 动作文案已抽离到 `podi-admin-web/src/features/admin/integration/comfyuiDashboardConfig.ts`；可见节点过滤、隐藏计数、任务运行统计和同步步骤派生状态已抽离到 `podi-admin-web/src/features/admin/integration/comfyuiDashboardState.ts`。
+- ComfyUI 模型、版本、插件资源目录的刷新、保存、删除与版本同步动作已抽离到 `podi-admin-web/src/features/admin/integration/comfyuiResourceCatalogActions.ts`，主页面只负责接线，不再直接维护这组资源请求动作。
 
 ## 4. 仍未处理的问题
 
-- `IntegrationDashboard.tsx` 仍然过大，ComfyUI 请求动作、桌面端部署状态、模型弹药库状态和其他管理域请求动作还集中在一个文件中；下一步应继续拆 ComfyUI 请求动作或模型弹药库状态域。
+- `IntegrationDashboard.tsx` 仍然过大，ComfyUI 服务器/轻 Agent/任务请求动作、桌面端部署状态、模型弹药库状态和其他管理域请求动作还集中在一个文件中；下一步应继续拆 ComfyUI 执行管理动作或模型弹药库状态域。
 - 导航信息架构还需要继续压缩，尤其是能力目录、ComfyUI 管理、模型弹药库之间的边界说明。
 - TDesign 和本地存储相关 vendor 包仍偏大，需要在后续阶段评估组件级引入、路由级拆包或替代方案。
 - 视觉层还没有整体重做，当前只是降低加载和结构风险。
@@ -51,4 +52,4 @@
 - 非技术用户可根据页面文案完成查看版本、查看失败原因、查看运行线路三类操作。
 - 高级配置仍可找到，但不作为默认阅读路径。
 
-*最后更新: 2026-04-30*
+*最后更新: 2026-05-01*
