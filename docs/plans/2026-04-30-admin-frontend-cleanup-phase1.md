@@ -36,10 +36,11 @@
 - ComfyUI 工作流模板的输入/输出映射、节点参数写回、导入、克隆和保存动作已抽离到 `podi-admin-web/src/features/admin/integration/workflowTemplateActions.ts`，模板编辑器的核心动作层从主页面移出。
 - 模型弹药库的厂商/模型/密钥加载、火山模型同步、出网检查、模型保存和密钥保存动作已抽离到 `podi-admin-web/src/features/admin/integration/vendorModelActions.ts`，第三方模型接入动作从主页面移出。
 - 账号权限的用户、会话、邀请码刷新、调整、失效和踢出动作已抽离到 `podi-admin-web/src/features/admin/integration/authActions.ts`，权限维护动作从主页面移出。
+- 账单框架的数据刷新、导出、套餐发放、订单、发票、月结、通知和扣费重试/退回动作已抽离到 `podi-admin-web/src/features/admin/integration/billingActions.ts`，账单请求动作从主页面移出。
 
 ## 4. 仍未处理的问题
 
-- `IntegrationDashboard.tsx` 仍然过大，账单和部分通用管理域请求动作还集中在一个文件中；下一步应转入账单动作拆分或阶段性页面走查。
+- `IntegrationDashboard.tsx` 仍然较大，部分通用管理域请求动作和页面编排仍集中在一个文件中；下一步应进入阶段性页面走查，再决定是否继续拆状态层。
 - 导航信息架构还需要继续压缩，尤其是能力目录、ComfyUI 管理、模型弹药库之间的边界说明。
 - TDesign 和本地存储相关 vendor 包仍偏大，需要在后续阶段评估组件级引入、路由级拆包或替代方案。
 - 视觉层还没有整体重做，当前只是降低加载和结构风险。
