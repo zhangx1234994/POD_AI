@@ -124,6 +124,36 @@ def test_summarize_fanout_errors_groups_by_kind():
     assert "TASK_IMAGES_EMPTY=1" in summary
 
 
+def test_extract_workflow_tool_error_detects_queue_full_payload():
+    from app.services.eval_service import EvalService
+
+    payload = {
+        "text": "queue_full",
+        "texts": ["COMFYUI_QUEUE_FULL(limit=10, current=10)；请稍后重试"],
+        "taskId": "ERR|Q1001|COMFYUI_QUEUE_FULL(limit=10, current=10)",
+        "taskStatus": "failed",
+        "errorCode": "Q1001",
+        "retryAfterSeconds": 60,
+        "debugResponse": "COMFYUI_QUEUE_FULL(limit=10, current=10)",
+    }
+
+    assert EvalService._extract_workflow_tool_error(payload) == "ERR|Q1001|COMFYUI_QUEUE_FULL(limit=10, current=10)"
+
+
+def test_extract_workflow_tool_error_detects_nested_failed_tool_without_err_task_id():
+    from app.services.eval_service import EvalService
+
+    payload = {
+        "output": {
+            "taskStatus": "failed",
+            "errorCode": "Q1001",
+            "debugResponse": "COMFYUI_QUEUE_FULL(limit=10, current=10)",
+        }
+    }
+
+    assert EvalService._extract_workflow_tool_error(payload) == "ERR|Q1001|COMFYUI_QUEUE_FULL(limit=10, current=10)"
+
+
 def test_extract_image_urls_from_task_payload_accepts_stored_url():
     from app.services.eval_service import EvalService
 

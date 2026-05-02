@@ -1741,16 +1741,16 @@ export function IntegrationDashboard({
   const [abilityLogsLoading, setAbilityLogsLoading] = useState(false);
   const [abilityLogsError, setAbilityLogsError] = useState<string | null>(null);
   const [abilityLogTotal, setAbilityLogTotal] = useState<number | null>(null);
+  const [abilityLogPage, setAbilityLogPage] = useState(1);
   const [abilityLogsAutoRefresh, setAbilityLogsAutoRefresh] = useState(true);
   const [abilityLogsUpdatedAt, setAbilityLogsUpdatedAt] = useState<string | null>(null);
   const [globalAbilityLogs, setGlobalAbilityLogs] = useState<AbilityInvocationLog[]>([]);
   const [globalAbilityLogsLoading, setGlobalAbilityLogsLoading] = useState(false);
   const [globalAbilityLogsError, setGlobalAbilityLogsError] = useState<string | null>(null);
   const [globalAbilityLogTotal, setGlobalAbilityLogTotal] = useState<number | null>(null);
+  const [globalAbilityLogPage, setGlobalAbilityLogPage] = useState(1);
   const [globalAbilityLogsAutoRefresh, setGlobalAbilityLogsAutoRefresh] = useState(true);
   const [globalAbilityLogsUpdatedAt, setGlobalAbilityLogsUpdatedAt] = useState<string | null>(null);
-  const abilityLogsCountRef = useRef(0);
-  const globalAbilityLogsCountRef = useRef(0);
   const [abilityLogMetrics, setAbilityLogMetrics] = useState<AbilityLogMetricsResponse | null>(null);
   const [abilityLogMetricsLoading, setAbilityLogMetricsLoading] = useState(false);
   const [abilityLogMetricsError, setAbilityLogMetricsError] = useState<string | null>(null);
@@ -2706,18 +2706,6 @@ export function IntegrationDashboard({
     () => (abilityLogDetail ? resolveLogDurationMs(abilityLogDetail) : null),
     [abilityLogDetail],
   );
-  const abilityLogsHasMore = useMemo(() => {
-    if (abilityLogTotal !== null) {
-      return abilityLogs.length < abilityLogTotal;
-    }
-    return abilityLogs.length >= abilityLogPageSize;
-  }, [abilityLogTotal, abilityLogs.length]);
-  const globalAbilityLogsHasMore = useMemo(() => {
-    if (globalAbilityLogTotal !== null) {
-      return globalAbilityLogs.length < globalAbilityLogTotal;
-    }
-    return globalAbilityLogs.length >= globalAbilityLogPageSize;
-  }, [globalAbilityLogTotal, globalAbilityLogs.length]);
   const abilitySchemaFields = useMemo(
     () => parseAbilitySchemaFields(selectedAbility?.input_schema),
     [selectedAbility],
@@ -4330,7 +4318,7 @@ export function IntegrationDashboard({
     }
   };
   const refreshAbilityLogs = useCallback(
-    async (options?: { silent?: boolean; keepSize?: boolean }) => {
+    async (options?: { silent?: boolean; page?: number }) => {
     if (!selectedAbility?.id) {
       setAbilityLogs([]);
       setAbilityLogsError(null);
@@ -4338,17 +4326,19 @@ export function IntegrationDashboard({
       return;
     }
     const silent = options?.silent;
+    const targetPage = Math.max(1, options?.page ?? abilityLogPage);
     if (!silent) {
       setAbilityLogsLoading(true);
     }
     try {
-      const keepSize = Boolean(options?.keepSize);
-      const currentSize = abilityLogsCountRef.current;
-      const limit = keepSize ? Math.max(abilityLogPageSize, currentSize) : abilityLogPageSize;
-      const response = await adminApi.listAbilityLogs(selectedAbility.id, { limit, offset: 0 });
+      const response = await adminApi.listAbilityLogs(selectedAbility.id, {
+        limit: abilityLogPageSize,
+        offset: (targetPage - 1) * abilityLogPageSize,
+      });
       const items = response.items || [];
       setAbilityLogs(items);
       setAbilityLogTotal(typeof response.total === 'number' ? response.total : items.length);
+      setAbilityLogPage(targetPage);
       setAbilityLogsUpdatedAt(new Date().toISOString());
       setAbilityLogsError(null);
     } catch (error) {
@@ -4360,48 +4350,37 @@ export function IntegrationDashboard({
       }
     }
     },
-    [selectedAbility?.id],
+    [selectedAbility?.id, abilityLogPage],
   );
-
-  const loadMoreAbilityLogs = useCallback(async () => {
-    if (!selectedAbility?.id) return;
-    setAbilityLogsLoading(true);
-    try {
-      const offset = abilityLogs.length;
-      const response = await adminApi.listAbilityLogs(selectedAbility.id, { limit: abilityLogPageSize, offset });
-      const items = response.items || [];
-      setAbilityLogs((prev) => prev.concat(items));
-      setAbilityLogTotal(
-        typeof response.total === 'number' ? response.total : offset + items.length,
-      );
-      setAbilityLogsUpdatedAt(new Date().toISOString());
-      setAbilityLogsError(null);
-    } catch (error) {
-      console.error('load more ability logs failed', error);
-      setAbilityLogsError(error instanceof Error ? error.message : '加载更多调用记录失败');
-    } finally {
-      setAbilityLogsLoading(false);
-    }
-  }, [selectedAbility?.id, abilityLogs.length]);
 
   useEffect(() => {
     void refreshAbilityLogs();
   }, [refreshAbilityLogs]);
 
   const refreshGlobalAbilityLogs = useCallback(
-    async (options?: { silent?: boolean; keepSize?: boolean }) => {
+    async (options?: { silent?: boolean; page?: number }) => {
     const silent = options?.silent;
+    const targetPage = Math.max(1, options?.page ?? globalAbilityLogPage);
     if (!silent) {
       setGlobalAbilityLogsLoading(true);
     }
     try {
-      const keepSize = Boolean(options?.keepSize);
-      const currentSize = globalAbilityLogsCountRef.current;
-      const limit = keepSize ? Math.max(globalAbilityLogPageSize, currentSize) : globalAbilityLogPageSize;
-      const response = await adminApi.listAllAbilityLogs({ limit, offset: 0 });
+      const response = await adminApi.listAllAbilityLogs({
+        limit: globalAbilityLogPageSize,
+        offset: (targetPage - 1) * globalAbilityLogPageSize,
+        provider: globalAbilityLogProvider !== 'all' ? globalAbilityLogProvider : undefined,
+        capabilityKey: globalAbilityLogCapabilityKey !== 'all' ? globalAbilityLogCapabilityKey : undefined,
+        status: globalAbilityLogStatus !== 'all' ? globalAbilityLogStatus : undefined,
+        source: globalAbilityLogSource !== 'all' ? globalAbilityLogSource : undefined,
+        templatePublished:
+          globalAbilityLogTemplatePublished === 'all'
+            ? undefined
+            : globalAbilityLogTemplatePublished === 'published',
+      });
       const items = response.items || [];
       setGlobalAbilityLogs(items);
       setGlobalAbilityLogTotal(typeof response.total === 'number' ? response.total : items.length);
+      setGlobalAbilityLogPage(targetPage);
       setGlobalAbilityLogsUpdatedAt(new Date().toISOString());
       setGlobalAbilityLogsError(null);
     } catch (error) {
@@ -4413,28 +4392,15 @@ export function IntegrationDashboard({
       }
     }
     },
-    [],
+    [
+      globalAbilityLogCapabilityKey,
+      globalAbilityLogPage,
+      globalAbilityLogProvider,
+      globalAbilityLogSource,
+      globalAbilityLogStatus,
+      globalAbilityLogTemplatePublished,
+    ],
   );
-
-  const loadMoreGlobalAbilityLogs = useCallback(async () => {
-    setGlobalAbilityLogsLoading(true);
-    try {
-      const offset = globalAbilityLogs.length;
-      const response = await adminApi.listAllAbilityLogs({ limit: globalAbilityLogPageSize, offset });
-      const items = response.items || [];
-      setGlobalAbilityLogs((prev) => prev.concat(items));
-      setGlobalAbilityLogTotal(
-        typeof response.total === 'number' ? response.total : offset + items.length,
-      );
-      setGlobalAbilityLogsUpdatedAt(new Date().toISOString());
-      setGlobalAbilityLogsError(null);
-    } catch (error) {
-      console.error('load more global ability logs failed', error);
-      setGlobalAbilityLogsError(error instanceof Error ? error.message : '加载更多调用清单失败');
-    } finally {
-      setGlobalAbilityLogsLoading(false);
-    }
-  }, [globalAbilityLogs.length]);
 
   const resolveAbilityLog = useCallback(async () => {
     if (!abilityLogDetail) return;
@@ -4443,8 +4409,8 @@ export function IntegrationDashboard({
     try {
       const updated = await adminApi.resolveAbilityLog(abilityLogDetail.id);
       setAbilityLogDetail(updated);
-      await refreshAbilityLogs({ silent: true, keepSize: true });
-      await refreshGlobalAbilityLogs({ silent: true, keepSize: true });
+      await refreshAbilityLogs({ silent: true });
+      await refreshGlobalAbilityLogs({ silent: true });
     } catch (error: any) {
       console.error('resolve ability log failed', error);
       setAbilityLogResolveError(error?.message || '回调解析失败');
@@ -4492,12 +4458,20 @@ export function IntegrationDashboard({
   }, [refreshGlobalAbilityLogs]);
 
   useEffect(() => {
-    abilityLogsCountRef.current = abilityLogs.length;
-  }, [abilityLogs.length]);
+    setAbilityLogPage(1);
+  }, [selectedAbility?.id]);
 
   useEffect(() => {
-    globalAbilityLogsCountRef.current = globalAbilityLogs.length;
-  }, [globalAbilityLogs.length]);
+    setGlobalAbilityLogPage(1);
+  }, [
+    globalAbilityLogCapabilityKey,
+    globalAbilityLogOnlyCallbackFailed,
+    globalAbilityLogProvider,
+    globalAbilityLogSearch,
+    globalAbilityLogSource,
+    globalAbilityLogStatus,
+    globalAbilityLogTemplatePublished,
+  ]);
 
   useEffect(() => {
     if (activeNav !== 'ability-logs' || abilityLogTab !== 'metrics') return;
@@ -4507,7 +4481,7 @@ export function IntegrationDashboard({
   useEffect(() => {
     if (!selectedAbility?.id || !abilityLogsAutoRefresh || !pageVisible) return;
     const interval = window.setInterval(() => {
-      void refreshAbilityLogs({ silent: true, keepSize: true });
+      void refreshAbilityLogs({ silent: true });
     }, 10000);
     return () => window.clearInterval(interval);
   }, [selectedAbility?.id, abilityLogsAutoRefresh, refreshAbilityLogs, pageVisible]);
@@ -4515,7 +4489,7 @@ export function IntegrationDashboard({
   useEffect(() => {
     if (activeNav !== 'ability-logs' || !globalAbilityLogsAutoRefresh || !pageVisible) return;
     const interval = window.setInterval(() => {
-      void refreshGlobalAbilityLogs({ silent: true, keepSize: true });
+      void refreshGlobalAbilityLogs({ silent: true });
     }, 12000);
     return () => window.clearInterval(interval);
   }, [activeNav, globalAbilityLogsAutoRefresh, refreshGlobalAbilityLogs, pageVisible]);
@@ -5961,10 +5935,11 @@ const extractErrorMessage = (error: unknown): string => {
       error={abilityLogsError}
       autoRefresh={abilityLogsAutoRefresh}
       updatedAt={abilityLogsUpdatedAt}
-      hasMore={abilityLogsHasMore}
+      page={abilityLogPage}
+      pageSize={abilityLogPageSize}
       onAutoRefreshChange={setAbilityLogsAutoRefresh}
       onRefresh={refreshAbilityLogs}
-      onLoadMore={loadMoreAbilityLogs}
+      onPageChange={setAbilityLogPage}
       onOpenDetail={(row) => {
         setAbilityLogDetail(row);
         setAbilityLogResolveError(null);
@@ -6634,7 +6609,8 @@ const extractErrorMessage = (error: unknown): string => {
                 exporting={exportingAbilityLogs}
                 error={globalAbilityLogsError}
                 updatedAt={globalAbilityLogsUpdatedAt}
-                hasMore={globalAbilityLogsHasMore}
+                page={globalAbilityLogPage}
+                pageSize={globalAbilityLogPageSize}
                 autoRefresh={globalAbilityLogsAutoRefresh}
                 onlyCallbackFailed={globalAbilityLogOnlyCallbackFailed}
                 search={globalAbilityLogSearch}
@@ -6649,7 +6625,7 @@ const extractErrorMessage = (error: unknown): string => {
                 capabilityOptions={globalAbilityLogCapabilityOptions}
                 onAutoRefreshChange={setGlobalAbilityLogsAutoRefresh}
                 onRefresh={refreshGlobalAbilityLogs}
-                onLoadMore={loadMoreGlobalAbilityLogs}
+                onPageChange={setGlobalAbilityLogPage}
                 onExport={exportGlobalAbilityLogs}
                 onOnlyCallbackFailedChange={setGlobalAbilityLogOnlyCallbackFailed}
                 onSearchChange={setGlobalAbilityLogSearch}

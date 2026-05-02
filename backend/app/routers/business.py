@@ -75,6 +75,14 @@ def create_outpaint_run(
     return get_business_run_service().create_run(business_key="outpaint", payload=payload, user=user)
 
 
+@router.post("/pattern-extract/runs", response_model=schemas.BusinessRunRead, response_model_by_alias=False)
+def create_pattern_extract_run(
+    payload: schemas.BusinessRunCreateRequest,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessRunRead:
+    return get_business_run_service().create_run(business_key="pattern_extract", payload=payload, user=user)
+
+
 @router.post("/fission/route-preview", response_model=schemas.BusinessRoutePreviewResponse, response_model_by_alias=False)
 def preview_fission_route(
     payload: schemas.BusinessRunCreateRequest,
@@ -89,6 +97,14 @@ def preview_outpaint_route(
     user: User = Depends(_resolve_business_user),
 ) -> schemas.BusinessRoutePreviewResponse:
     return get_business_run_service().preview_route(business_key="outpaint", payload=payload, user=user)
+
+
+@router.post("/pattern-extract/route-preview", response_model=schemas.BusinessRoutePreviewResponse, response_model_by_alias=False)
+def preview_pattern_extract_route(
+    payload: schemas.BusinessRunCreateRequest,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessRoutePreviewResponse:
+    return get_business_run_service().preview_route(business_key="pattern_extract", payload=payload, user=user)
 
 
 @router.get("/runs/{run_id}", response_model=schemas.BusinessRunRead, response_model_by_alias=False)
@@ -216,8 +232,25 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "cfg": {"type": "number", "nullable": True, "description": "提示词控制强度。"},
         },
     }
+    pattern_extract_submit_schema = {
+        "type": "object",
+        "required": ["imageUrl"],
+        "properties": {
+            **base_submit_properties,
+            "negative_prompt": {"type": "string", "nullable": True, "description": "不要出现的内容。"},
+            "width": {"type": "integer", "nullable": True, "description": "输出宽度。"},
+            "height": {"type": "integer", "nullable": True, "description": "输出高度。"},
+            "batch": {"type": "integer", "nullable": True, "description": "生成张数；数值越大耗时越久。"},
+            "lora": {"type": "string", "nullable": True, "description": "LoRA 方案；为空使用当前业务版本默认值。"},
+            "timeout": {"type": "integer", "nullable": True, "description": "任务超时时间，单位秒。"},
+        },
+    }
     fission_route_preview_schema = {
         **fission_submit_schema,
+        "required": [],
+    }
+    pattern_extract_route_preview_schema = {
+        **pattern_extract_submit_schema,
         "required": [],
     }
     outpaint_submit_schema = {
@@ -327,10 +360,19 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
         "info": {
             "title": "PODI Business APIs",
             "version": "0.1.0",
-            "description": "业务层稳定入口：图裂变、扩图、任务查询。Coze 只需要调用这些扁平 API。",
+            "description": "业务层稳定入口：花纹提取、图裂变、扩图、任务查询。Coze 只需要调用这些扁平 API。",
         },
         "servers": [{"url": server}],
         "paths": {
+            "/api/business/pattern-extract/runs": {
+                "post": {
+                    "operationId": "podi_business_pattern_extract_run",
+                    "summary": "PODI · 花纹提取",
+                    "description": "提交花纹提取业务任务。业务方只需要传原图和可选提取要求，底层版本由中台路由。",
+                    "requestBody": {"required": True, "content": {"application/json": {"schema": pattern_extract_submit_schema}}},
+                    "responses": _business_responses(success_description="Business run", errors_by_status=submit_errors),
+                }
+            },
             "/api/business/fission/runs": {
                 "post": {
                     "operationId": "podi_business_fission_run",
@@ -347,6 +389,15 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                     "description": "提交扩图业务任务。宽高、上下左右扩展量从 inputs 传入，底层版本由中台路由。",
                     "requestBody": {"required": True, "content": {"application/json": {"schema": outpaint_submit_schema}}},
                     "responses": _business_responses(success_description="Business run", errors_by_status=submit_errors),
+                }
+            },
+            "/api/business/pattern-extract/route-preview": {
+                "post": {
+                    "operationId": "podi_business_pattern_extract_route_preview",
+                    "summary": "PODI · 花纹提取路由预览",
+                    "description": "不提交真实任务，只预览当前 tenantId/clientId/grayKey 会命中哪个花纹提取版本，用于灰度验证。",
+                    "requestBody": {"required": True, "content": {"application/json": {"schema": pattern_extract_route_preview_schema}}},
+                    "responses": _route_preview_responses(errors_by_status=submit_errors),
                 }
             },
             "/api/business/fission/route-preview": {

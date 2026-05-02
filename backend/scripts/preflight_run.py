@@ -33,7 +33,10 @@ from app.services.coze_client import coze_client
 # Keep this URL stable and publicly reachable from both:
 # - the PODI backend host (for base64/upload fallbacks)
 # - ComfyUI executors (for URL loader nodes)
-DEFAULT_TEST_IMAGE_URL = "https://podi.oss-cn-hangzhou.aliyuncs.com/test/abilities/admin/20260120/fc661480-1768882378.jpg"
+DEFAULT_TEST_IMAGE_URL = (
+    "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/"
+    "98904c502d9d4dd78432ec2bd1f79def/20260424/228be55f-1777009905.jpg"
+)
 
 
 @dataclass

@@ -319,6 +319,12 @@ def _build_openapi(*, podi_server: str | None = None) -> dict[str, Any]:
             },
             "logId": {"type": "integer", "nullable": True, "description": "PODI log id (if available)."},
             "requestId": _nullable_str("PODI request id (if available)."),
+            "errorCode": _nullable_str("Standard PODI error code when taskStatus=failed."),
+            "retryAfterSeconds": {
+                "type": "integer",
+                "nullable": True,
+                "description": "Recommended wait seconds before retrying queue/executor failures.",
+            },
             # String-typed debug fields so Coze never strips them.
             "debugRequest": _nullable_str("Debug: provider request payload (truncated)."),
             "debugResponse": _nullable_str("Debug: provider response payload (truncated)."),
@@ -1298,6 +1304,8 @@ def invoke_tool(
         "expectedImageCount",
         "logId",
         "requestId",
+        "errorCode",
+        "retryAfterSeconds",
         "debugRequest",
         "debugResponse",
     }
@@ -1328,14 +1336,30 @@ def invoke_tool(
         return _prune(
             {
                 "text": text,
-                "texts": [message],
+                "texts": [f"{message}；请稍后重试"],
                 "taskId": task_error,
                 "taskStatus": "failed",
+                "errorCode": code,
+                "retryAfterSeconds": 60 if text == "queue_full" else 120,
                 **executor_info,
                 "debugRequest": None,
                 "debugResponse": message,
             }
         )
+
+    blocked_comfyui_executor_ids: list[str] = []
+
+    def _reroute_comfyui_executor(current_executor_id: str, _reason: str) -> tuple[str | None, dict[str, Any]]:
+        if current_executor_id not in blocked_comfyui_executor_ids:
+            blocked_comfyui_executor_ids.append(current_executor_id)
+        alternative_executor_id = ability_invocation_service._pick_comfyui_executor_id(  # type: ignore[attr-defined]
+            ability,
+            body,
+            exclude_executor_ids=blocked_comfyui_executor_ids,
+        )
+        if not alternative_executor_id:
+            return None, _resolve_executor_info(current_executor_id)
+        return alternative_executor_id, _resolve_executor_info(alternative_executor_id)
     provider_lower = provider.lower()
     ability_meta = ability.extra_metadata or {}
     api_type = str(ability_meta.get("api_type") or "").lower()
@@ -1365,8 +1389,16 @@ def invoke_tool(
                 limit=MAX_QUEUE_PER_EXECUTOR,
             )
             if pending_count >= MAX_QUEUE_PER_EXECUTOR:
-                message = f"COMFYUI_QUEUE_FULL(limit={MAX_QUEUE_PER_EXECUTOR}, current={pending_count})"
-                return _queue_limit_response(ERR_CODE_COMFYUI_QUEUE_FULL, message, executor_id)
+                alternative_executor_id, alternative_executor_info = _reroute_comfyui_executor(
+                    executor_id,
+                    f"local_queue_full:{pending_count}",
+                )
+                if not alternative_executor_id:
+                    message = f"COMFYUI_QUEUE_FULL(limit={MAX_QUEUE_PER_EXECUTOR}, current={pending_count})"
+                    return _queue_limit_response(ERR_CODE_COMFYUI_QUEUE_FULL, message, executor_id)
+                executor_id = alternative_executor_id
+                payload.executorId = executor_id
+                executor_info = alternative_executor_info
             try:
                 queue_status = integration_test_service.get_comfyui_queue_status(executor_id=executor_id)
                 if queue_status.get("supported", True):
@@ -1374,20 +1406,27 @@ def invoke_tool(
                     pending = int(queue_status.get("pendingCount") or 0)
                     total = running + pending
                     if total >= MAX_QUEUE_PER_EXECUTOR:
-                        message = f"COMFYUI_QUEUE_FULL(limit={MAX_QUEUE_PER_EXECUTOR}, current={total})"
-                        return _queue_limit_response(ERR_CODE_COMFYUI_QUEUE_FULL, message, executor_id)
+                        alternative_executor_id, alternative_executor_info = _reroute_comfyui_executor(
+                            executor_id,
+                            f"remote_queue_full:{total}",
+                        )
+                        if not alternative_executor_id:
+                            message = f"COMFYUI_QUEUE_FULL(limit={MAX_QUEUE_PER_EXECUTOR}, current={total})"
+                            return _queue_limit_response(ERR_CODE_COMFYUI_QUEUE_FULL, message, executor_id)
+                        executor_id = alternative_executor_id
+                        payload.executorId = executor_id
+                        executor_info = alternative_executor_info
             except Exception:
-                alternative_executor_id = ability_invocation_service._pick_comfyui_executor_id(  # type: ignore[attr-defined]
-                    ability,
-                    body,
-                    exclude_executor_ids=[executor_id],
+                alternative_executor_id, alternative_executor_info = _reroute_comfyui_executor(
+                    executor_id,
+                    "queue_status_failed",
                 )
                 if not alternative_executor_id:
                     message = f"COMFYUI_EXECUTOR_UNAVAILABLE: {executor_id} 当前不可连通，且没有其他兼容节点"
                     return _queue_limit_response("Q1002", message, executor_id)
                 executor_id = alternative_executor_id
                 payload.executorId = executor_id
-                executor_info = _resolve_executor_info(executor_id)
+                executor_info = alternative_executor_info
 
         # Best-effort: we know batch for the common ComfyUI flows we expose.
         expected_images = 1

@@ -129,3 +129,76 @@ def test_allowed_comfyui_executors_do_not_escape_to_legacy_default_when_unreacha
 
     picked = service._pick_comfyui_executor_id(ability, {})
     assert picked is None
+
+
+def test_workflow_default_can_reroute_to_general_executor_when_default_excluded(monkeypatch):
+    service = AbilityInvocationService()
+    ability = SimpleNamespace(
+        id="ability_test",
+        capability_key="flux_strong_hq_softstyle_fission",
+        extra_metadata={
+            "workflow_key": "flux_strong_hq_softstyle_fission",
+            "routing_policy": "queue",
+            "fallback_to_default": True,
+        },
+    )
+
+    monkeypatch.setattr(
+        service,
+        "_list_active_comfyui_executor_ids",
+        lambda exclude_executor_ids=None: ["executor_comfyui_seamless_117"],
+    )
+    monkeypatch.setattr(
+        service,
+        "_prepare_comfyui_candidates",
+        lambda executor_ids, required_tags: [SimpleNamespace(id=eid) for eid in executor_ids],
+    )
+
+    def _fake_status(*, executor_id: str):
+        return {"runningCount": 0, "pendingCount": 0, "supported": True}
+
+    monkeypatch.setattr(integration_test_service, "get_comfyui_queue_status", _fake_status)
+
+    picked = service._pick_comfyui_executor_id(
+        ability,
+        {},
+        exclude_executor_ids=["executor_comfyui_pattern_extract_158"],
+    )
+    assert picked == "executor_comfyui_seamless_117"
+
+
+def test_workflow_default_pool_uses_less_busy_general_executor(monkeypatch):
+    service = AbilityInvocationService()
+    ability = SimpleNamespace(
+        id="ability_test",
+        capability_key="flux_strong_hq_softstyle_fission",
+        extra_metadata={
+            "workflow_key": "flux_strong_hq_softstyle_fission",
+            "routing_policy": "queue",
+            "fallback_to_default": True,
+        },
+    )
+
+    monkeypatch.setattr(
+        service,
+        "_list_active_comfyui_executor_ids",
+        lambda exclude_executor_ids=None: [
+            "executor_comfyui_seamless_117",
+            "executor_comfyui_pattern_extract_158",
+        ],
+    )
+    monkeypatch.setattr(
+        service,
+        "_prepare_comfyui_candidates",
+        lambda executor_ids, required_tags: [SimpleNamespace(id=eid) for eid in executor_ids],
+    )
+
+    def _fake_status(*, executor_id: str):
+        if executor_id == "executor_comfyui_pattern_extract_158":
+            return {"runningCount": 1, "pendingCount": 3, "supported": True}
+        return {"runningCount": 0, "pendingCount": 0, "supported": True}
+
+    monkeypatch.setattr(integration_test_service, "get_comfyui_queue_status", _fake_status)
+
+    picked = service._pick_comfyui_executor_id(ability, {})
+    assert picked == "executor_comfyui_seamless_117"

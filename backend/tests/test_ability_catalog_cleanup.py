@@ -67,3 +67,77 @@ def test_seed_applies_cleanup_for_overridden_abilities() -> None:
     assert upscale_resize_metadata["execution_target"] == "image_ops"
     assert upscale_resize_metadata["image_ops"]["operation"] == "upscale-resize"
     assert upscale_resize_metadata["image_ops"]["heavy"] is True
+
+
+def test_seed_repairs_stale_comfyui_allowed_executor_ids() -> None:
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        session.add(
+            Ability(
+                id="comfyui_yinhua_tiqu",
+                provider="comfyui",
+                category="image_generation",
+                capability_key="yinhua_tiqu",
+                display_name="印花提取",
+                description="stale route metadata",
+                status="active",
+                ability_type="comfyui",
+                workflow_id="workflow_comfyui_yinhua_tiqu_v1",
+                default_params={},
+                input_schema={},
+                extra_metadata={
+                    "seed_version": 999,
+                    "allowed_executor_ids": ["executor_comfyui_pattern_extract_158"],
+                    "routing_policy": "queue",
+                    "custom_note": "keep me",
+                },
+            )
+        )
+        session.commit()
+
+        ensure_default_abilities(session)
+
+        refreshed = session.execute(
+            select(Ability).where(Ability.provider == "comfyui", Ability.capability_key == "yinhua_tiqu")
+        ).scalar_one()
+        metadata = refreshed.extra_metadata or {}
+
+    assert metadata["allowed_executor_ids"] == [
+        "executor_comfyui_seamless_117",
+        "executor_comfyui_pattern_extract_158",
+    ]
+    assert metadata["routing_policy"] == "queue"
+    assert metadata["custom_note"] == "keep me"
+
+
+def test_seed_repairs_empty_schema_field_list() -> None:
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        session.add(
+            Ability(
+                id="baidu_colourize",
+                provider="baidu",
+                category="image_process",
+                capability_key="colourize",
+                display_name="百度 · 老照片上色",
+                description="stale empty schema",
+                status="active",
+                ability_type="api",
+                default_params={},
+                input_schema={"fields": []},
+                extra_metadata={},
+            )
+        )
+        session.commit()
+
+        ensure_default_abilities(session)
+
+        refreshed = session.execute(
+            select(Ability).where(Ability.provider == "baidu", Ability.capability_key == "colourize")
+        ).scalar_one()
+        fields = (refreshed.input_schema or {}).get("fields")
+
+    assert isinstance(fields, list)
+    assert [field.get("name") for field in fields] == ["image_url"]

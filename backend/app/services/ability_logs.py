@@ -145,6 +145,8 @@ class AbilityLogService:
         ability_ids: list[str] | None = None,
         provider: str | None = None,
         capability_key: str | None = None,
+        status: str | None = None,
+        source: str | None = None,
         limit: int = 20,
         offset: int = 0,
     ) -> list[AbilityInvocationLog]:
@@ -162,6 +164,10 @@ class AbilityLogService:
                 stmt = stmt.where(AbilityInvocationLog.ability_provider == provider)
             if capability_key:
                 stmt = stmt.where(AbilityInvocationLog.capability_key == capability_key)
+            if status:
+                stmt = stmt.where(AbilityInvocationLog.status == status)
+            if source:
+                stmt = stmt.where(AbilityInvocationLog.source == source)
             stmt = (
                 stmt.order_by(desc(AbilityInvocationLog.created_at))
                 .offset(max(0, offset))
@@ -176,6 +182,8 @@ class AbilityLogService:
         ability_ids: list[str] | None = None,
         provider: str | None = None,
         capability_key: str | None = None,
+        status: str | None = None,
+        source: str | None = None,
     ) -> int:
         """Return total count for the same filters used in list_logs."""
         with get_session() as session:
@@ -191,6 +199,10 @@ class AbilityLogService:
                 stmt = stmt.where(AbilityInvocationLog.ability_provider == provider)
             if capability_key:
                 stmt = stmt.where(AbilityInvocationLog.capability_key == capability_key)
+            if status:
+                stmt = stmt.where(AbilityInvocationLog.status == status)
+            if source:
+                stmt = stmt.where(AbilityInvocationLog.source == source)
             return int(session.execute(stmt).scalar() or 0)
 
     def get_log_by_workflow_run_id(self, workflow_run_id: str) -> AbilityInvocationLog | None:

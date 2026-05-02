@@ -66,7 +66,18 @@ def _baidu_image_schema(
     type_default: str | None = None,
     type_options: list[str] | None = None,
 ) -> dict[str, Any]:
-    fields: list[dict[str, Any]] = []
+    fields: list[dict[str, Any]] = [
+        {
+            "name": "image_url",
+            "type": "image",
+            "label": _compose_bilingual_label("输入图片", "Input Image"),
+            "description": _compose_bilingual_label(
+                "上传或填写需要处理的图片地址；测试时会统一上传到 OSS。",
+                "Upload or provide the image URL; tests store it in OSS first.",
+            ),
+            "required": True,
+        }
+    ]
     if include_resolution:
         fields.append(
             {

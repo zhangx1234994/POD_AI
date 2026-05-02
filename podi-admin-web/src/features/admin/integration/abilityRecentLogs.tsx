@@ -43,10 +43,11 @@ export function AbilityRecentLogsPanel({
   error,
   autoRefresh,
   updatedAt,
-  hasMore,
+  page,
+  pageSize,
   onAutoRefreshChange,
   onRefresh,
-  onLoadMore,
+  onPageChange,
   onOpenDetail,
 }: {
   selectedAbility?: Ability | null;
@@ -56,15 +57,24 @@ export function AbilityRecentLogsPanel({
   error?: string | null;
   autoRefresh: boolean;
   updatedAt?: string | null;
-  hasMore: boolean;
+  page: number;
+  pageSize: number;
   onAutoRefreshChange: (value: boolean) => void;
   onRefresh: () => void;
-  onLoadMore: () => void;
+  onPageChange: (page: number) => void;
   onOpenDetail: (row: AbilityInvocationLog) => void;
 }) {
   if (!selectedAbility) {
     return <Alert theme="info" message="请选择能力后查看最近的调用记录。" />;
   }
+  const safePageSize = Math.max(1, pageSize || 1);
+  const totalCount = typeof total === 'number' ? total : logs.length;
+  const totalPages = Math.max(1, Math.ceil(totalCount / safePageSize));
+  const currentPage = Math.min(Math.max(1, page || 1), totalPages);
+  const pageStart = totalCount === 0 ? 0 : (currentPage - 1) * safePageSize + 1;
+  const pageEnd = totalCount === 0 ? 0 : Math.min(currentPage * safePageSize, totalCount);
+  const canGoPrev = currentPage > 1;
+  const canGoNext = currentPage < totalPages;
 
   return (
     <Card
@@ -75,8 +85,8 @@ export function AbilityRecentLogsPanel({
             <Typography.Text strong>最近调用记录</Typography.Text>
             <div>
               <Typography.Text theme="secondary">
-                已加载 {logs.length}
-                {typeof total === 'number' ? ` / ${total}` : ''} 条 · 自动刷新仅更新最近一页
+                第 {currentPage} / {totalPages} 页 · 当前页 {logs.length} 条
+                {typeof total === 'number' ? ` · 共 ${total} 条` : ''} · 自动刷新仅更新当前页
               </Typography.Text>
             </div>
           </div>
@@ -213,14 +223,20 @@ export function AbilityRecentLogsPanel({
           ]}
         />
         <div className="flex items-center justify-between">
-          <Typography.Text theme="secondary">{updatedAt ? `最近刷新：${formatDateTime(updatedAt)}` : '尚未刷新'}</Typography.Text>
-          {hasMore ? (
-            <Button variant="outline" loading={loading} onClick={onLoadMore}>
-              加载更多
+          <Typography.Text theme="secondary">
+            {updatedAt ? `最近刷新：${formatDateTime(updatedAt)}` : '尚未刷新'} · 显示 {pageStart}-{pageEnd} / {totalCount}
+          </Typography.Text>
+          <Space>
+            <Button variant="outline" disabled={!canGoPrev || loading} onClick={() => onPageChange(currentPage - 1)}>
+              上一页
             </Button>
-          ) : (
-            <Typography.Text theme="secondary">已加载全部</Typography.Text>
-          )}
+            <Typography.Text theme="secondary">
+              第 {currentPage} / {totalPages} 页
+            </Typography.Text>
+            <Button variant="outline" disabled={!canGoNext || loading} onClick={() => onPageChange(currentPage + 1)}>
+              下一页
+            </Button>
+          </Space>
         </div>
       </Space>
     </Card>

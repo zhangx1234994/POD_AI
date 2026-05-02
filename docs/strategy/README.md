@@ -7,6 +7,7 @@
 - `platform-vision-and-goals-2026.md`：平台愿景与核心目标（中台 / 测评端 / 客户端 / 对话式助手统一叙事）
 - `strategy-one-page-2026q2.md`：战略一页纸（北极星、KPI、90天里程碑）
 - `todo-master-2026q2.md`：唯一待办池（P0/P1/P2）
+- `core-business-chain-review-2026-05-03.md`：花纹提取 / 图裂变 / 扩图三条核心业务链路体检与后续优先级
 - `user-segments-main-paths-2026q2.md`：业务方 / 平台管理员 / 开发接入方三类用户主路径与权限边界
 - `context-cleanup-policy.md`：上下文清理、归档与文档治理规则
 - `doc-cleanup-inventory-2026-04-30.md`：当前文档脏内容盘点、分区和后续清理顺序

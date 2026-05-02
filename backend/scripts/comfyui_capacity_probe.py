@@ -42,6 +42,26 @@ def _post(client: httpx.Client, path: str, payload: dict[str, Any] | None = None
     return data
 
 
+def _check_sample_image_url(sample_image_url: str) -> tuple[bool, str]:
+    url = str(sample_image_url or "").strip()
+    if not url:
+        return False, "样例图 URL 为空"
+    try:
+        timeout = httpx.Timeout(10.0, connect=5.0)
+        with httpx.Client(timeout=timeout, follow_redirects=True, trust_env=False) as client:
+            response = client.head(url)
+            if response.status_code == 405:
+                response = client.get(url, headers={"Range": "bytes=0-0"})
+            if response.status_code >= 400:
+                return False, f"样例图 URL 返回 HTTP {response.status_code}"
+            content_type = str(response.headers.get("content-type") or "").lower()
+            if content_type and "image" not in content_type and "octet-stream" not in content_type:
+                return False, f"样例图 URL 类型不是图片：{content_type}"
+            return True, f"样例图 URL 可访问：HTTP {response.status_code}"
+    except Exception as exc:
+        return False, f"样例图 URL 检查失败：{str(exc)[:240]}"
+
+
 def _get(client: httpx.Client, path: str) -> Any:
     response = client.get(path)
     response.raise_for_status()
@@ -272,6 +292,7 @@ def main() -> int:
     parser.add_argument("--allow-failures", type=int, default=0, help="Allowed failed/query_failed tasks.")
     parser.add_argument("--report", default="", help="Optional JSON report path.")
     parser.add_argument("--yes", action="store_true", help="Required when --count > 0 to acknowledge real cost.")
+    parser.add_argument("--skip-sample-check", action="store_true", help="Skip sample image URL HEAD/Range check.")
     args = parser.parse_args()
 
     batch_id = f"comfyui-capacity-{_now_slug()}"
@@ -295,6 +316,12 @@ def main() -> int:
         if not args.capability_key:
             print("--capability-key is required when --count > 0.", file=sys.stderr)
             return 2
+        if not args.skip_sample_check:
+            sample_ok, sample_detail = _check_sample_image_url(args.sample_image_url)
+            if not sample_ok:
+                print(f"sample image precheck failed: {sample_detail}", file=sys.stderr)
+                return 2
+            print(sample_detail)
 
         ability = _find_ability(client, args.capability_key)
         print(f"probe batch: {batch_id}")

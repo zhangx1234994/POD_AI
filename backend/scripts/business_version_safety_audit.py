@@ -20,7 +20,7 @@ if str(ROOT) not in sys.path:
 from business_rollback_drill import _build_drill_report  # noqa: E402
 
 
-DEFAULT_BUSINESS_KEYS = ("fission", "outpaint")
+DEFAULT_BUSINESS_KEYS = ("pattern_extract", "fission", "outpaint")
 
 
 def _parse_business_keys(raw: str | None) -> list[str]:
@@ -62,7 +62,7 @@ def main() -> int:
     parser.add_argument(
         "--business-keys",
         default=",".join(DEFAULT_BUSINESS_KEYS),
-        help="Comma-separated business keys. Default: fission,outpaint.",
+        help=f"Comma-separated business keys. Default: {','.join(DEFAULT_BUSINESS_KEYS)}.",
     )
     parser.add_argument("--json", action="store_true", help="Print JSON.")
     args = parser.parse_args()

@@ -54,7 +54,10 @@ def _first_sample_url() -> str:
     env_url = (os.getenv("SAMPLE_IMAGE_URL") or "").strip()
     if env_url:
         return env_url
-    return "https://podi.oss-cn-hangzhou.aliyuncs.com/test/abilities/admin/20260120/fc661480-1768882378.jpg"
+    return (
+        "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/"
+        "98904c502d9d4dd78432ec2bd1f79def/20260424/228be55f-1777009905.jpg"
+    )
 
 
 def _build_params(workflow_id: str, item: dict[str, Any], sample_url: str) -> dict[str, Any]:

@@ -79,7 +79,7 @@
 | ABILITY_EXECUTOR_NOT_CONFIGURED | 能力未配置执行节点 | 400 |
 | ABILITY_LOG_NOT_FOUND | 能力日志不存在 | 404 |
 | ABILITY_LOG_NOT_COMFYUI | 日志非 ComfyUI | 400 |
-| BUSINESS_IMAGE_URL_REQUIRED | 业务任务缺少主图 URL | 400，图裂变/扩图提交 |
+| BUSINESS_IMAGE_URL_REQUIRED | 业务任务缺少主图 URL | 400，花纹提取/图裂变/扩图提交 |
 | BUSINESS_KEY_REQUIRED | 业务版本缺少业务标识 | 400 |
 | BUSINESS_VERSION_REQUIRED | 业务版本缺少版本号 | 400 |
 | BUSINESS_DISPLAY_NAME_REQUIRED | 业务版本缺少展示名称 | 400 |

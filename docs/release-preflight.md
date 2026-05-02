@@ -46,6 +46,31 @@ backend/.venv/bin/python backend/scripts/check_eval_operations_health.py \
   --recent-hours 24
 ```
 
+Core business API gate:
+
+```bash
+backend/.venv/bin/python backend/scripts/patrol_business_api.py \
+  --base-url http://127.0.0.1:8099 \
+  --mode route \
+  --business all
+```
+
+真实出图闭环必须单独执行，不能只看路由预览。巡检脚本会先检查样例图 URL；手动执行前也建议先确认 HTTP 200，避免失效 OSS 链接误报为能力失败：
+
+```bash
+PATROL_IMAGE_URL="https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/98904c502d9d4dd78432ec2bd1f79def/20260424/228be55f-1777009905.jpg"
+curl -fsSI "$PATROL_IMAGE_URL"
+
+backend/.venv/bin/python backend/scripts/patrol_business_api.py \
+  --base-url http://127.0.0.1:8099 \
+  --mode live \
+  --business pattern_extract,fission,outpaint \
+  --image-url "$PATROL_IMAGE_URL" \
+  --timeout 1200 \
+  --interval 10 \
+  --require-executor-evidence
+```
+
 Expected:
 
 - `health` passes.
@@ -56,6 +81,7 @@ Expected:
 - `check_eval_operations_health.py` returns `healthy` or only an accepted `warning`; `critical` blocks release. `EVAL_NO_RECENT_RUNS` means patrol did not run recently, and `EVAL_NO_RECENT_SUCCESS` means the recent business chain has no successful sample.
 - `check_eval_operations_health.py` prints the real concurrency snapshot; if ComfyUI queue capacity is 20 but `evalFanoutMaxWorkers=1`, a single fission run is intentionally sequential and must not be treated as a GPU capacity issue without running `comfyui_capacity_probe.py`.
 - `COMFYUI_EXECUTOR_UNREACHABLE` is not ignored: either restore the executor service or explicitly mark the executor offline before release.
+- `patrol_business_api.py --mode live` must show all three core businesses succeeded with output and executor evidence. If executor evidence is missing, the backend is not surfacing enough routing proof for release acceptance.
 
 Manual checks:
 
@@ -86,16 +112,22 @@ Manual checks:
    ```bash
    python3 backend/scripts/patrol_eval_workflows.py \
      --base-url http://<backend-host>:8099 \
+     --role production \
+     --max-in-flight 1 \
      --timeout 1800
    ```
-   Expected: all active workflows end in `succeeded`, and each succeeded run has at least one result image or structured output.
+   Expected: all production entry workflows end in `succeeded`, and each succeeded run has at least one result image or structured output.
    Failure examples: `INTERNAL_ONLY`, `COZE_WORKFLOW_ERROR`, `EVAL_SUCCEEDED_WITHOUT_OUTPUT`.
+   This is a periodic self-check, not a load test. It must stay throttled to avoid filling ComfyUI queues by itself.
+   If a full catalog sweep is needed, run it manually with `--role all` and keep `--max-in-flight` low unless queue capacity has just been verified.
 
    On the 114 production host, use the backend virtualenv instead of system Python:
    ```bash
    cd /srv/pod
    backend/.venv/bin/python backend/scripts/patrol_eval_workflows.py \
      --base-url http://127.0.0.1:8099 \
+     --role production \
+     --max-in-flight 1 \
      --timeout 1800
    ```
    Do not use `/usr/bin/python3` on 114; it is too old for the backend scripts.
@@ -109,6 +141,7 @@ Manual checks:
    backend/.venv/bin/python backend/scripts/comfyui_capacity_probe.py
    ```
    Expected: all active ComfyUI executors return queue counts.
+   When submitting real capacity tasks with `--count`, the script now checks the sample image URL before enqueueing. A bad sample image is a preflight failure, not a ComfyUI capacity result.
 
 Optional timer for 114 after manual confirmation:
 

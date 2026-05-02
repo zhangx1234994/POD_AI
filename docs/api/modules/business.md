@@ -3,7 +3,7 @@
 ## 用途
 
 业务能力接口是给业务方、Coze、客户端、MCP/技能复用的稳定入口。
-第一阶段先开放两个样板业务：图裂变、扩图；底层仍复用统一能力任务和 ComfyUI workflow，但对外不暴露节点、workflow、executor 等实现细节。
+第一阶段开放三个核心业务：花纹提取、图裂变、扩图；底层仍复用统一能力任务和 ComfyUI workflow，但对外不暴露节点、workflow、executor 等实现细节。
 
 核心约定：
 
@@ -81,7 +81,7 @@
 - `vlAssist.enabled=true` 时，业务层会把 VL 步骤作为伴随任务提交并记录在 `steps` 中。
 - 默认模式下，VL 不阻塞主能力，适合先做观测和结果积累。
 - 如果配方设置 `mode=vl_then_primary`，或设置 `vlAssist.waitForResult=true` / `vlAssist.applyToPrimary=true`，业务层会先提交 VL，等 VL 成功后再提交主能力。
-- 阻塞式 VL 串联会把 `promptCard.imageDesc` 回填到图裂变 `image_desc`，把 `promptCard.positivePrompt` 回填到图裂变/扩图 `prompt`；只有原请求未填写这些字段时才自动回填。
+- 阻塞式 VL 串联会把 `promptCard.imageDesc` 回填到图裂变 `image_desc`，把 `promptCard.positivePrompt` 回填到花纹提取/图裂变/扩图 `prompt`；只有原请求未填写这些字段时才自动回填。
 
 推荐结构：
 
@@ -151,7 +151,58 @@
 
 ---
 
-## 2) 提交图裂变
+## 2) 提交花纹提取
+
+### POST /api/business/pattern-extract/runs
+
+请求体：
+
+```json
+{
+  "imageUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/demo/input.png",
+  "prompt": "提取主体花纹，保留清晰边缘和面料纹理",
+  "negative_prompt": "不要背景、不要阴影、不要文字水印",
+  "width": 1800,
+  "height": 1800,
+  "batch": 1,
+  "lora": "杯子1124.safetensors",
+  "source": "coze",
+  "channel": "coze-workflow",
+  "traceId": "trace-pattern-001",
+  "requestId": "req-pattern-001",
+  "tenantId": "tenant-a",
+  "clientId": "coze-main-workflow",
+  "metadata": {
+    "grayKey": "tenant-a"
+  }
+}
+```
+
+响应体同图裂变。
+
+常见错误：
+
+- `BUSINESS_IMAGE_URL_REQUIRED`
+- `BUSINESS_CAPABILITY_NOT_FOUND`
+- `BUSINESS_RECIPE_INVALID`
+- `BUSINESS_RECIPE_ABILITY_NOT_AVAILABLE`
+- `BUSINESS_CLIENT_DISABLED`
+- `BUSINESS_CLIENT_BUSINESS_NOT_ALLOWED`
+- `BUSINESS_CLIENT_CONCURRENCY_LIMITED`
+- `BUSINESS_CLIENT_DAILY_RUN_LIMITED`
+- `BUSINESS_CLIENT_DAILY_QUOTA_LIMITED`
+- `COMFYUI_IMAGE_REQUIRED`
+- `COMFYUI_TIMEOUT`
+
+说明：
+
+- 新接入建议把 `prompt/negative_prompt/width/height/batch/lora/timeout` 直接作为顶层字段传入。
+- 旧调用仍兼容把同名参数放在 `inputs` 内。
+- LoRA 为空时使用当前默认业务版本内置配置；切换默认版本由中台完成，业务方不需要替换底层 workflow。
+
+---
+
+## 3) 提交图裂变
 
 ### POST /api/business/fission/runs
 
@@ -235,7 +286,7 @@
 
 ---
 
-## 3) 提交扩图
+## 4) 提交扩图
 
 ### POST /api/business/outpaint/runs
 
@@ -282,7 +333,9 @@
 
 ---
 
-## 4) 查询业务任务
+## 5) 查询业务任务
+
+### POST /api/business/pattern-extract/route-preview
 
 ### POST /api/business/fission/route-preview
 
@@ -389,6 +442,47 @@
     "selectedBy": "default",
     "routeKeyHash": "6f8d7a9c21ab"
   },
+  "flowSummary": {
+    "total": 2,
+    "succeeded": 2,
+    "failed": 0,
+    "running": 0,
+    "queued": 0,
+    "progressPercent": 100,
+    "message": "业务链路执行成功",
+    "nextAction": "结果已回填，可继续检查回调状态",
+    "route": {
+      "businessKey": "outpaint",
+      "businessVersionId": "biz_outpaint_v1_flux2_klein_9b",
+      "version": "v1",
+      "selectedBy": "default"
+    },
+    "ability": {
+      "id": "comfyui_flux2_klein_9b_outpaint",
+      "name": "扩图 · FLUX2-Klein 9B",
+      "taskId": "task_xxx",
+      "logId": 1234
+    },
+    "executor": {
+      "id": "executor_comfyui_pattern_extract_158",
+      "name": "ComfyUI 5090 · 158 · 117.50.80.158",
+      "type": "comfyui",
+      "abilityLogId": 1234
+    },
+    "output": {
+      "hasOutput": true,
+      "hasOssOutput": true,
+      "imageCount": 1,
+      "videoCount": 0,
+      "textCount": 0,
+      "firstImageUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/results/outpaint.png"
+    },
+    "callback": {
+      "status": null,
+      "httpStatus": null,
+      "error": null
+    }
+  },
   "steps": [
     {
       "order": 1,
@@ -399,6 +493,18 @@
       "abilityId": "vl_analyze_image",
       "abilityName": "VL · 图像结构化分析",
       "abilityTaskId": "t1.outpaint.auto.vl_xxx",
+      "executorId": "executor_vendor_api_default",
+      "executorName": "第三方 API 通道",
+      "executorType": "vendor-api",
+      "executionEvidence": {
+        "abilityLogId": 1233,
+        "executorId": "executor_vendor_api_default",
+        "executorName": "第三方 API 通道",
+        "executorType": "vendor-api",
+        "status": "succeeded",
+        "hasOssOutput": false,
+        "assetCount": 0
+      },
       "durationMs": 1830,
       "costAmount": 0.01,
       "currency": "USD",
@@ -416,7 +522,20 @@
       "status": "succeeded",
       "abilityId": "comfyui_flux2_klein_9b_outpaint",
       "abilityName": "扩图 · FLUX2-Klein 9B",
-      "abilityTaskId": "t1.outpaint.auto.xxx"
+      "abilityTaskId": "t1.outpaint.auto.xxx",
+      "executorId": "executor_comfyui_pattern_extract_158",
+      "executorName": "ComfyUI 5090 · 158 · 117.50.80.158",
+      "executorType": "comfyui",
+      "executionEvidence": {
+        "abilityLogId": 1234,
+        "executorId": "executor_comfyui_pattern_extract_158",
+        "executorName": "ComfyUI 5090 · 158 · 117.50.80.158",
+        "executorType": "comfyui",
+        "status": "succeeded",
+        "storedUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/results/outpaint.png",
+        "hasOssOutput": true,
+        "assetCount": 1
+      }
     }
   ],
   "taskId": "t1.outpaint.default.xxx",
@@ -443,14 +562,17 @@
 说明：
 
 - `steps` 是业务配方步骤状态。当前版本至少记录主执行能力；启用 VL 辅助后会额外提交并记录 VL 步骤。
+- `flowSummary` 是给管理端和排障使用的链路证据：包含业务版本、原子能力、实际执行节点、输出回填和回调状态。业务方正常轮询只需要关注 `status/imageUrls/videoUrls/texts/error`。
+- `steps[].executorId/executorName/executionEvidence` 来自能力调用日志，用于确认任务是否真的打到预期机器，以及结果是否已经落 OSS。
 - 默认情况下最终出图仍以主执行能力为准，VL 伴随步骤用于链路观测和结果积累。
 - 阻塞式 VL 串联开启后，主能力会等 VL 成功后再提交；查询时可能先看到 VL 运行中、主能力仍是 `planned`。
 - `steps[].resultSummary` 只返回安全摘要，例如 VL 图片描述、提示词建议、图片/视频数量，不返回完整第三方原始响应或大字段。
+- 结果 URL 提取同时兼容 `storedUrl/stored_url/ossUrl/url/sourceUrl`，避免底层已落 OSS 但业务层没有回填。
 - `durationMs/costAmount/currency/quotaUnits` 是成本与配额预留字段。现阶段以底层能力日志和厂商返回为准，缺失时返回 `null`，不会影响业务轮询。
 
 ---
 
-## 5) VL 图像理解原子能力
+## 6) VL 图像理解原子能力
 
 VL 进入统一能力弹药库，能力 ID：
 
@@ -459,7 +581,7 @@ VL 进入统一能力弹药库，能力 ID：
 调用方式仍走统一能力接口：
 
 - `POST /api/abilities/vl_analyze_image/invoke`
-- 后续也可通过业务配方把 VL 作为图裂变/扩图的前置分析步骤。
+- 后续也可通过业务配方把 VL 作为花纹提取/图裂变/扩图的前置分析步骤。
 
 请求体示例：
 
@@ -493,7 +615,7 @@ VL 进入统一能力弹药库，能力 ID：
 
 ---
 
-## 6) OpenAPI 工具箱
+## 7) OpenAPI 工具箱
 
 ### GET /api/business/openapi.json
 
@@ -502,8 +624,10 @@ VL 进入统一能力弹药库，能力 ID：
 
 - `podi_business_fission_run`
 - `podi_business_outpaint_run`
+- `podi_business_pattern_extract_run`
 - `podi_business_fission_route_preview`
 - `podi_business_outpaint_route_preview`
+- `podi_business_pattern_extract_route_preview`
 - `podi_business_run_get`
 
 OpenAPI 内每个工具都会枚举错误响应：
@@ -729,7 +853,7 @@ OpenAPI 内每个工具都会枚举错误响应：
 - 回滚成功后，目标版本会成为默认版本，其它版本自动取消默认。
 - 后端会在目标版本 `metadata.releaseEvents` 追加 `rollback_default` 事件，记录回滚原因、操作者和回滚前默认版本。
 - 如果没有可回滚版本，返回 `BUSINESS_ROLLBACK_TARGET_NOT_FOUND`。
-- 发版前必须执行 `backend/scripts/business_version_safety_audit.py`，确认图裂变、扩图都有 active 默认版本和 active 保底版本。
+- 发版前必须执行 `backend/scripts/business_version_safety_audit.py`，确认花纹提取、图裂变、扩图都有 active 默认版本和 active 保底版本。
 
 常见错误：
 
@@ -763,7 +887,7 @@ OpenAPI 内每个工具都会枚举错误响应：
 
 参数：
 
-- `business_key`：可选，`fission` / `outpaint`
+- `business_key`：可选，`pattern_extract` / `fission` / `outpaint`
 - `version`：可选，按业务版本过滤，例如 `v1`
 - `status`：可选，按运行状态过滤，常见值为 `queued` / `running` / `succeeded` / `failed` / `cancelled`
 - `source`：可选，按调用来源过滤，例如 `coze` / `client` / `partner-api`
@@ -787,7 +911,7 @@ OpenAPI 内每个工具都会枚举错误响应：
 参数：
 
 - `window_hours`：统计窗口，默认 24，范围 1-2160。
-- `business_key`：可选，`fission` / `outpaint`。
+- `business_key`：可选，`pattern_extract` / `fission` / `outpaint`。
 - `version`：可选，按业务版本过滤。
 - `status`：可选，按运行状态过滤。
 - `source`：可选，按调用来源过滤，例如 `coze` / `client` / `partner-api`。

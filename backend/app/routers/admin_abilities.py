@@ -670,6 +670,8 @@ def list_all_ability_logs(
     ability_id: str | None = Query(default=None, alias="abilityId"),
     provider: str | None = Query(default=None),
     capability_key: str | None = Query(default=None, alias="capabilityKey"),
+    status: str | None = Query(default=None),
+    source: str | None = Query(default=None),
     template_id: str | None = Query(default=None, alias="templateId"),
     template_published: bool | None = Query(default=None, alias="templatePublished"),
 ):
@@ -682,12 +684,16 @@ def list_all_ability_logs(
         ability_ids=template_ability_ids,
         provider=provider,
         capability_key=capability_key,
+        status=status,
+        source=source,
     )
     entries = ability_log_service.list_logs(
         ability_id=ability_id,
         ability_ids=template_ability_ids,
         provider=provider,
         capability_key=capability_key,
+        status=status,
+        source=source,
         limit=limit,
         offset=offset,
     )

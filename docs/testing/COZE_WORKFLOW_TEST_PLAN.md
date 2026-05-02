@@ -2,6 +2,24 @@
 
 > 目标：在上线前确认「入参/出参一致性、回调稳定性、队列上限、OSS落盘」等关键路径可交付。
 
+## 0. 发布前覆盖审计（必须先跑）
+- 工具：`backend/scripts/audit_ability_test_coverage.py`
+- 目的：先检查数据库最终态，而不是只看代码常量，避免能力路由、执行节点、schema 与测试覆盖漂移。
+- 推荐命令：
+  ```bash
+  cd backend
+  python3 scripts/audit_ability_test_coverage.py --probe-comfyui --fail-on P1
+  ```
+- 阻断规则：
+  - P0/P1：不允许上线。
+  - P2：必须记录并排期，若影响当前业务入口则升级为 P1。
+- 已覆盖问题：
+  - ComfyUI 普通能力只路由到单台机器。
+  - ComfyUI 执行节点不可达。
+  - 测试/mock 节点误设为 active。
+  - 能力 schema 为空，无法形成稳定测试用例。
+  - 公开测评工作流缺少入参/出参 schema。
+
 ## 1. 冒烟测试（功能可用）
 - 工具：`scripts/coze_workflow_smoke.py`
 - 目的：逐个工作流验证是否可跑通、是否返回预期字段（`output/prompt/ip`），并拉取回调任务状态。
@@ -20,6 +38,23 @@
   - `python3 scripts/eval_workflow_regression.py --poll 600 --callback-workflow-id <workflow_id>`
 - 说明：
   - 当 `/api/coze/podi/tasks/get` 不可达（如 401）时，会触发回调 workflow 轮询。
+
+## 1.2 定期自检（线上主入口）
+- 工具：`backend/scripts/patrol_eval_workflows.py`
+- 目的：定期确认线上生产主入口可以跑通，不把灰度/历史工作流混在同一轮里压测。
+- 推荐命令：
+  ```bash
+  cd /srv/pod
+  backend/.venv/bin/python backend/scripts/patrol_eval_workflows.py \
+    --base-url http://127.0.0.1:8099 \
+    --role production \
+    --max-in-flight 1 \
+    --timeout 1800
+  ```
+- 说明：
+  - `--role production` 只跑生产主入口；全量排查时才显式使用 `--role all`。
+  - `--max-in-flight 1` 表示同一时间最多一个未完成评测任务，避免巡检自身触发 `COMFYUI_QUEUE_FULL`。
+  - 全量覆盖 20 条以上工作流时，必须先看 ComfyUI 队列，再决定是否提高并发。
 
 ## 2. 入参/出参一致性（防“对接参数不一致”）
 - 覆盖点：

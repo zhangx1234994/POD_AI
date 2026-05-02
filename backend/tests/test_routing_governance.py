@@ -123,3 +123,37 @@ def test_executor_seed_persists_routing_block_to_config() -> None:
             assert "selection_policy" in routing
             if row.type == "comfyui":
                 assert "comfyui-general" in (routing.get("tags") or [])
+        by_id = {row.id: row for row in rows}
+        node_233 = by_id["executor_comfyui_seamless_117"]
+        node_158 = by_id["executor_comfyui_pattern_extract_158"]
+        assert node_233.name == "ComfyUI 4090 · 233 · 117.50.216.233"
+        assert node_158.name == "ComfyUI 5090 · 158 · 117.50.80.158"
+        assert {"gpu:4090", "host:233", "comfyui-233"}.issubset(set(node_233.config["tags"]))
+        assert {"gpu:5090", "host:158", "comfyui-158"}.issubset(set(node_158.config["tags"]))
+
+
+def test_executor_seed_repairs_comfyui_display_name_and_tags() -> None:
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        session.add(
+            Executor(
+                id="executor_comfyui_seamless_117",
+                name="ComfyUI 四方连续 · 117.50.216.233",
+                type="comfyui",
+                base_url="http://117.50.216.233:8079",
+                status="active",
+                weight=1,
+                max_concurrency=10,
+                config={"baseUrl": "http://117.50.216.233:8079", "tags": ["comfyui-general"]},
+            )
+        )
+        session.commit()
+
+        changed = ensure_default_executors(session)
+        refreshed = session.get(Executor, "executor_comfyui_seamless_117")
+
+        assert changed is True
+        assert refreshed is not None
+        assert refreshed.name == "ComfyUI 4090 · 233 · 117.50.216.233"
+        assert {"gpu:4090", "host:233", "comfyui-233"}.issubset(set(refreshed.config["tags"]))

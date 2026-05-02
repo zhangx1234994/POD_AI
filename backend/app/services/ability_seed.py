@@ -52,6 +52,8 @@ def _is_missing_payload(payload: Any | None) -> bool:
         return True
     if isinstance(payload, dict) and len(payload) == 0:
         return True
+    if isinstance(payload, dict) and isinstance(payload.get("fields"), list) and len(payload["fields"]) == 0:
+        return True
     return False
 
 
@@ -71,6 +73,37 @@ def _seed_metadata(seed: AbilitySeed) -> dict[str, Any] | None:
     if cleanup:
         metadata = _merge_dict(metadata, cleanup)
     return metadata or None
+
+
+_COMFYUI_ROUTING_KEYS = {
+    "allowed_executor_ids",
+    "fallback_to_default",
+    "required_executor_tags",
+    "required_tags",
+    "routing",
+    "routing_policy",
+}
+
+
+def _repair_comfyui_routing_metadata(
+    existing_metadata: dict[str, Any],
+    seed_metadata: dict[str, Any] | None,
+) -> tuple[dict[str, Any], bool]:
+    """Keep ComfyUI routing source-of-truth in seed even when seed_version is unchanged."""
+
+    if not seed_metadata:
+        return existing_metadata, False
+
+    repaired = deepcopy(existing_metadata)
+    changed = False
+    for key in _COMFYUI_ROUTING_KEYS:
+        if key not in seed_metadata:
+            continue
+        seed_value = seed_metadata[key]
+        if repaired.get(key) != seed_value:
+            repaired[key] = deepcopy(seed_value)
+            changed = True
+    return repaired, changed
 
 
 def _build_default_seeds() -> list[AbilitySeed]:
@@ -242,6 +275,7 @@ def ensure_default_abilities(session: Session) -> bool:
                     existing.default_params = seed.default_params
                 merged_metadata = _merge_dict(existing_metadata, seed_metadata or {})
                 existing.extra_metadata = merged_metadata
+                existing_metadata = merged_metadata
                 updated = True
             else:
                 if seed.input_schema and _is_missing_payload(existing.input_schema):
@@ -254,7 +288,13 @@ def ensure_default_abilities(session: Session) -> bool:
                     merged_metadata = _merge_dict(seed_metadata, existing_metadata)
                     if merged_metadata != existing_metadata:
                         existing.extra_metadata = merged_metadata
+                        existing_metadata = merged_metadata
                         updated = True
+            if seed.provider == "comfyui":
+                repaired_metadata, repaired = _repair_comfyui_routing_metadata(existing_metadata, seed_metadata)
+                if repaired:
+                    existing.extra_metadata = repaired_metadata
+                    updated = True
             if updated:
                 session.add(existing)
                 changed = True

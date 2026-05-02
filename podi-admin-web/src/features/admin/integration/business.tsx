@@ -606,6 +606,17 @@ const formatJsonValue = (value?: unknown) => {
   return JSON.stringify(value, null, 2);
 };
 
+const asJsonRecord = (value?: unknown): JsonRecord => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return value as JsonRecord;
+};
+
+const recordText = (record: JsonRecord, key: string, fallback = '—') => {
+  const value = record[key];
+  if (value === undefined || value === null || value === '') return fallback;
+  return String(value);
+};
+
 const businessRunRouteLabel = (routeInfo?: JsonRecord | null) => {
   const route = (routeInfo || {}) as JsonRecord;
   const selectedBy = String(route.selectedBy || 'default');
@@ -1096,6 +1107,79 @@ export const BusinessRunHistoryPanel = ({
               </Space>
             </Col>
           </Row>
+          {detail.flowSummary ? (
+            <Card bordered title="链路证据">
+              {(() => {
+                const route = asJsonRecord(detail.flowSummary?.route);
+                const ability = asJsonRecord(detail.flowSummary?.ability);
+                const executor = asJsonRecord(detail.flowSummary?.executor);
+                const output = asJsonRecord(detail.flowSummary?.output);
+                const callback = asJsonRecord(detail.flowSummary?.callback);
+                const hasOutput = Boolean(output.hasOutput);
+                const hasOssOutput = Boolean(output.hasOssOutput);
+                return (
+                  <Row gutter={[12, 12]}>
+                    <Col span={6}>
+                      <Typography.Text theme="secondary">业务版本</Typography.Text>
+                      <Space direction="vertical" size={2}>
+                        <Typography.Text>
+                          {recordText(route, 'version')} · {businessRunRouteLabel(detail.routeInfo)}
+                        </Typography.Text>
+                        <Typography.Text code>{recordText(route, 'selectedCapabilityId')}</Typography.Text>
+                      </Space>
+                    </Col>
+                    <Col span={6}>
+                      <Typography.Text theme="secondary">实际原子能力</Typography.Text>
+                      <Space direction="vertical" size={2}>
+                        <Typography.Text>{recordText(ability, 'name', detail.abilityName || detail.abilityId || '—')}</Typography.Text>
+                        <Typography.Text code>{recordText(ability, 'taskId', formatShortBusinessId(detail.abilityTaskId))}</Typography.Text>
+                      </Space>
+                    </Col>
+                    <Col span={6}>
+                      <Typography.Text theme="secondary">命中执行节点</Typography.Text>
+                      <Space direction="vertical" size={2}>
+                        <Typography.Text>{recordText(executor, 'name')}</Typography.Text>
+                        <Typography.Text theme="secondary">
+                          {recordText(executor, 'id')} · {recordText(executor, 'type')}
+                        </Typography.Text>
+                      </Space>
+                    </Col>
+                    <Col span={6}>
+                      <Typography.Text theme="secondary">结果回填</Typography.Text>
+                      <Space direction="vertical" size={2}>
+                        <Space size={4}>
+                          <Tag variant="light" theme={hasOutput ? 'success' : 'warning'}>
+                            {hasOutput ? '有业务结果' : '无业务结果'}
+                          </Tag>
+                          <Tag variant="light" theme={hasOssOutput ? 'success' : 'warning'}>
+                            {hasOssOutput ? '已落 OSS' : '未见 OSS'}
+                          </Tag>
+                        </Space>
+                        <Typography.Text theme="secondary">
+                          图 {recordText(output, 'imageCount', '0')} · 视频 {recordText(output, 'videoCount', '0')} · 文字{' '}
+                          {recordText(output, 'textCount', '0')}
+                        </Typography.Text>
+                      </Space>
+                    </Col>
+                    <Col span={6}>
+                      <Typography.Text theme="secondary">回调</Typography.Text>
+                      <Typography.Text>
+                        {businessCallbackStatusLabel(recordText(callback, 'status', ''))}
+                        {recordText(callback, 'httpStatus', '') ? ` · HTTP ${recordText(callback, 'httpStatus')}` : ''}
+                      </Typography.Text>
+                    </Col>
+                    <Col span={18}>
+                      <Typography.Text theme="secondary">排查建议</Typography.Text>
+                      <Typography.Text>
+                        {detail.flowSummary.message || '—'}
+                        {detail.flowSummary.nextAction ? `。${detail.flowSummary.nextAction}` : ''}
+                      </Typography.Text>
+                    </Col>
+                  </Row>
+                );
+              })()}
+            </Card>
+          ) : null}
           <Card bordered title="业务流程执行记录">
             <Space direction="vertical" size="small" style={{ width: '100%' }}>
               {detail.flowSummary ? (
@@ -1159,6 +1243,19 @@ export const BusinessRunHistoryPanel = ({
                   <Typography.Text theme="secondary">
                     {businessRunStepSummaryLabel(row.resultSummary) || row.error || '—'}
                   </Typography.Text>
+                ),
+              },
+              {
+                colKey: 'executor',
+                title: '执行节点',
+                minWidth: 220,
+                cell: ({ row }) => (
+                  <Space direction="vertical" size={2}>
+                    <Typography.Text>{row.executorName || row.executorId || '未记录'}</Typography.Text>
+                    <Typography.Text theme="secondary">
+                      {row.executorId || '—'} · {row.executorType || '—'}
+                    </Typography.Text>
+                  </Space>
                 ),
               },
               {

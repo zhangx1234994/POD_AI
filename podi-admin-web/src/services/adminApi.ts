@@ -1315,6 +1315,8 @@ export const adminApi = {
     abilityId?: string;
     provider?: string;
     capabilityKey?: string;
+    status?: string;
+    source?: string;
     templateId?: string;
     templatePublished?: boolean;
   }) => {
@@ -1325,6 +1327,8 @@ export const adminApi = {
     if (options?.abilityId) params.set('abilityId', options.abilityId);
     if (options?.provider) params.set('provider', options.provider);
     if (options?.capabilityKey) params.set('capabilityKey', options.capabilityKey);
+    if (options?.status) params.set('status', options.status);
+    if (options?.source) params.set('source', options.source);
     if (options?.templateId) params.set('templateId', options.templateId);
     if (typeof options?.templatePublished === 'boolean') {
       params.set('templatePublished', options.templatePublished ? 'true' : 'false');

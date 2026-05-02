@@ -32,6 +32,12 @@
 
 ## 其他测试计划
 
+- `ABILITY_TEST_LEDGER.md`
+  - 能力测试台账与上线闸门；所有能力发版前先看这里
+- `backend/scripts/patrol_business_api.py`
+  - 花纹提取 / 图裂变 / 扩图三条业务 API 巡检；默认只做路由预览，真实出图需显式 `--mode live --image-url <url>`。
+  - 真实出图前脚本会先检查图片 URL 是否可访问，避免样例图失效误报为能力失败。
+  - 发布验收时必须加 `--require-executor-evidence`，确认任务成功之外还能看到实际执行节点，避免只看终态漏掉路由问题。
 - `RELEASE_REGRESSION_REPORT_2026-04-30.md`
   - 2026-04-30 文档治理与发布前完整回归记录
 - `COZE_WORKFLOW_TEST_PLAN.md`
@@ -41,13 +47,17 @@
 
 ## 使用原则
 
-1. 迁移当天优先看：
+1. 平时能力上线优先看：
+   - `ABILITY_TEST_LEDGER.md`
+   - `backend/scripts/patrol_business_api.py`
+   - `COZE_WORKFLOW_TEST_PLAN.md`
+2. 迁移当天优先看：
    - `COZE_CONTROL_PLANE_RUNBOOK_v1.md`
    - `COZE_SERVER_COMMANDS_v1.md`
-2. 需要完整口径时再回到：
+3. 需要完整口径时再回到：
    - `docs/strategy/coze-mid-platform-migration-v1.md`
    - `docs/strategy/coze-migration-inventory-v1.md`
-3. 需要脚本时，对照：
+4. 需要脚本时，对照：
    - `scripts/run_coze_control_plane_cutover.sh`
    - `scripts/rollback_coze_control_plane.sh`
    - `scripts/rollback_verify_coze_control_plane.sh`

@@ -423,6 +423,79 @@ def test_business_run_accepts_flat_fission_params(monkeypatch) -> None:
     assert run["ability_task_id"] == "t1.fission.auto.task_run_flat"
 
 
+def test_business_run_accepts_flat_pattern_extract_params(monkeypatch) -> None:
+    install_business_db(monkeypatch)
+    with business_runs_module.get_session() as session:
+        session.add(
+            Ability(
+                id="ability_pattern_extract",
+                provider="comfyui",
+                category="image_generation",
+                capability_key="pattern_extract",
+                version="v1",
+                display_name="花纹提取",
+                status="active",
+                ability_type="workflow",
+            )
+        )
+        session.add(
+            BusinessCapability(
+                id="biz_pattern_extract_test",
+                business_key="pattern_extract",
+                version="old",
+                display_name="花纹提取测试版",
+                status="active",
+                is_default=True,
+                recipe={
+                    "mode": "single_ability_task",
+                    "primaryAbilityId": "ability_pattern_extract",
+                    "steps": [
+                        {
+                            "id": "primary",
+                            "type": "ability_task",
+                            "role": "primary",
+                            "abilityId": "ability_pattern_extract",
+                        }
+                    ],
+                },
+            )
+        )
+        session.commit()
+
+    class FakeAbilityTaskService:
+        def enqueue(self, *, ability_id, payload, user):
+            assert ability_id == "ability_pattern_extract"
+            assert payload.imageUrl == "https://example.com/pattern.png"
+            assert payload.inputs["prompt"] == "提取主体花纹"
+            assert payload.inputs["negative_prompt"] == "不要背景"
+            assert payload.inputs["width"] == 1800
+            assert payload.inputs["height"] == 1800
+            assert payload.inputs["batch"] == 2
+            assert payload.inputs["lora"] == "杯子1124.safetensors"
+            return {"id": "task_pattern_flat", "status": "queued"}
+
+    monkeypatch.setattr(business_runs_module, "get_ability_task_service", lambda: FakeAbilityTaskService())
+    service = BusinessRunService()
+
+    run = service.create_run(
+        business_key="pattern_extract",
+        payload=BusinessRunCreateRequest(
+            imageUrl="https://example.com/pattern.png",
+            version="old",
+            prompt="提取主体花纹",
+            negative_prompt="不要背景",
+            width=1800,
+            height=1800,
+            batch=2,
+            lora="杯子1124.safetensors",
+        ),
+        user=None,
+    )
+
+    assert run["status"] == "queued"
+    assert run["ability_task_id"] == "t1.pattern_extract.auto.task_pattern_flat"
+
+
 def test_business_run_records_trace_and_cost_from_ability_log(monkeypatch) -> None:
     install_business_db(monkeypatch)
     started = datetime.utcnow() - timedelta(seconds=3)
@@ -998,6 +1071,69 @@ def test_business_run_step_returns_safe_vl_result_summary(monkeypatch) -> None:
     assert vl_step["result_summary"]["style"] == "清新手绘"
     assert vl_step["result_summary"]["imageDesc"] == "蓝白色植物纹样"
     assert vl_step["result_summary"]["positivePrompt"] == "蓝白植物连续花型"
+
+
+def test_business_run_detail_includes_flow_evidence(monkeypatch) -> None:
+    install_business_db(monkeypatch)
+    service = BusinessRunService()
+
+    class FakeAbilityTaskService:
+        def enqueue(self, *, ability_id, payload, user):
+            return {"id": "task_primary", "status": "queued"}
+
+    monkeypatch.setattr(business_runs_module, "get_ability_task_service", lambda: FakeAbilityTaskService())
+    run = service.create_run(
+        business_key="fission",
+        payload=BusinessRunCreateRequest(imageUrl="https://example.com/a.png", source="coze"),
+        user=None,
+    )
+
+    with business_runs_module.get_session() as session:
+        log = AbilityInvocationLog(
+            ability_id="ability_openai_fission",
+            ability_provider="openai",
+            capability_key="gpt_image_2_fission",
+            ability_name="GPT Image 2 图裂变",
+            executor_id="executor_comfyui_4090",
+            executor_name="ComfyUI 4090 · 233",
+            executor_type="comfyui",
+            source="business-api",
+            task_id="task_primary",
+            status="succeeded",
+            duration_ms=1200,
+            stored_url="https://oss.example.com/result.png",
+            result_assets=[{"storedUrl": "https://oss.example.com/result.png"}],
+        )
+        session.add(log)
+        session.flush()
+        session.add(
+            AbilityTask(
+                id="task_primary",
+                ability_id="ability_openai_fission",
+                ability_name="GPT Image 2 图裂变",
+                ability_provider="openai",
+                capability_key="gpt_image_2_fission",
+                status="succeeded",
+                log_id=log.id,
+                duration_ms=1200,
+                result_payload={"assets": [{"storedUrl": "https://oss.example.com/result.png"}]},
+                started_at=datetime.utcnow(),
+                finished_at=datetime.utcnow(),
+            )
+        )
+        session.commit()
+
+    fetched = service.get_run(run_id=run["id"], user=None)
+
+    assert fetched["status"] == "succeeded"
+    assert fetched["image_urls"] == ["https://oss.example.com/result.png"]
+    assert fetched["flow_summary"]["message"] == "业务链路执行成功"
+    assert fetched["flow_summary"]["route"]["businessKey"] == "fission"
+    assert fetched["flow_summary"]["ability"]["id"] == "ability_openai_fission"
+    assert fetched["flow_summary"]["executor"]["id"] == "executor_comfyui_4090"
+    assert fetched["flow_summary"]["output"]["hasOssOutput"] is True
+    assert fetched["steps"][0]["executor_name"] == "ComfyUI 4090 · 233"
+    assert fetched["steps"][0]["execution_evidence"]["hasOssOutput"] is True
 
 
 def test_business_capability_update_rejects_missing_ability(monkeypatch) -> None:

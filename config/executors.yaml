@@ -58,7 +58,7 @@ executors:
       apiKey: "${KIE_API_KEY}"
       baseUrl: "https://api.kie.ai"
   - id: executor_comfyui_seamless_117
-    name: "ComfyUI 四方连续 · 117.50.216.233"
+    name: "ComfyUI 4090 · 233 · 117.50.216.233"
     type: comfyui
     base_url: "http://117.50.216.233:8079"
     status: active
@@ -69,8 +69,11 @@ executors:
       provider: "comfyui"
       tags:
         - "comfyui-general"
+        - "gpu:4090"
+        - "host:233"
+        - "comfyui-233"
   - id: executor_comfyui_pattern_extract_158
-    name: "ComfyUI 印花提取 · 117.50.80.158"
+    name: "ComfyUI 5090 · 158 · 117.50.80.158"
     type: comfyui
     base_url: "http://117.50.80.158:8079"
     status: active
@@ -81,3 +84,6 @@ executors:
       provider: "comfyui"
       tags:
         - "comfyui-general"
+        - "gpu:5090"
+        - "host:158"
+        - "comfyui-158"

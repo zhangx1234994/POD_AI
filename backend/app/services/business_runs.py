@@ -2373,6 +2373,18 @@ class BusinessRunService:
                 "colormatch_strength",
                 "image_desc",
             }
+        elif capability_key == "pattern_extract":
+            pass_keys = {
+                "prompt",
+                "negative_prompt",
+                "width",
+                "height",
+                "batch",
+                "batch_size",
+                "lora",
+                "seed",
+                "timeout",
+            }
         elif capability_key == "outpaint":
             pass_keys = {
                 "prompt",
@@ -2391,6 +2403,8 @@ class BusinessRunService:
         for key in pass_keys:
             if key not in inputs and key in flat_payload:
                 inputs[key] = flat_payload[key]
+        if capability_key == "pattern_extract" and "batch" not in inputs and "batch_size" in inputs:
+            inputs["batch"] = inputs.pop("batch_size")
         if payload.prompt and "prompt" not in inputs:
             inputs["prompt"] = payload.prompt
         if vl_summary and self._should_apply_vl_to_primary(recipe or {}):
@@ -2521,7 +2535,7 @@ class BusinessRunService:
             if isinstance(value, str) and value.strip().startswith(("http://", "https://")):
                 urls.append(value.strip())
             elif isinstance(value, dict):
-                for key in ("ossUrl", "url", "sourceUrl"):
+                for key in ("storedUrl", "stored_url", "ossUrl", "url", "sourceUrl"):
                     candidate = value.get(key)
                     if isinstance(candidate, str) and candidate.strip():
                         urls.append(candidate.strip())
@@ -2898,6 +2912,8 @@ class BusinessRunService:
         if vendor_model:
             vendor_model_name = vendor_model.display_name
             vendor_model_provider = vendor_model.provider
+        route_info = (row.request_payload or {}).get("_route") if isinstance(row.request_payload, dict) else None
+        steps = self._run_steps_to_dict(row, session=session)
         return {
             "id": row.id,
             "business_key": row.business_key,
@@ -2938,9 +2954,12 @@ class BusinessRunService:
             "quota_units": row.quota_units,
             "cost_breakdown": row.cost_breakdown,
             "callback_status": row.callback_status,
+            "callback_http_status": row.callback_http_status,
+            "callback_error": row.callback_error,
             "debug_url": row.debug_url,
-            "route_info": (row.request_payload or {}).get("_route") if isinstance(row.request_payload, dict) else None,
-            "steps": self._run_steps_to_dict(row, session=session),
+            "route_info": route_info,
+            "flow_summary": self._build_run_flow_summary(row, steps=steps, route_info=route_info, session=session),
+            "steps": steps,
             "created_at": row.created_at,
             "updated_at": row.updated_at,
             "started_at": row.started_at,
@@ -2959,42 +2978,207 @@ class BusinessRunService:
             .scalars()
             .all()
         )
-        return [
-            {
-                "id": step.id,
-                "run_id": step.run_id,
-                "step_order": step.step_order,
-                "step_id": step.step_id,
-                "step_type": step.step_type,
-                "role": step.role,
-                "display_name": step.display_name,
-                "enabled": step.enabled,
-                "status": step.status,
-                "ability_id": step.ability_id,
-                "ability_name": step.ability_name,
-                "ability_provider": step.ability_provider,
-                "ability_task_id": (
-                    encode_task_id(task_id=step.ability_task_id, provider=row.business_key, executor_id=None)
-                    if step.ability_task_id
-                    else None
-                ),
-                "ability_log_id": step.ability_log_id,
-                "result_summary": self._build_step_result_summary(step),
-                "error_message": step.error_message,
-                "duration_ms": step.duration_ms,
-                "billing_unit": step.billing_unit,
-                "unit_price": float(step.unit_price) if step.unit_price is not None else None,
-                "cost_amount": float(step.cost_amount) if step.cost_amount is not None else None,
-                "currency": step.currency,
-                "quota_units": step.quota_units,
-                "cost_breakdown": step.cost_breakdown,
-                "started_at": step.started_at,
-                "finished_at": step.finished_at,
-                "created_at": step.created_at,
-                "updated_at": step.updated_at,
-            }
-            for step in steps
-        ]
+        log_map = self._load_ability_log_map(
+            session,
+            [int(step.ability_log_id) for step in steps if step.ability_log_id],
+        )
+        rows: list[dict[str, Any]] = []
+        for step in steps:
+            log = log_map.get(int(step.ability_log_id)) if step.ability_log_id else None
+            rows.append(
+                {
+                    "id": step.id,
+                    "run_id": step.run_id,
+                    "step_order": step.step_order,
+                    "step_id": step.step_id,
+                    "step_type": step.step_type,
+                    "role": step.role,
+                    "display_name": step.display_name,
+                    "enabled": step.enabled,
+                    "status": step.status,
+                    "ability_id": step.ability_id,
+                    "ability_name": step.ability_name,
+                    "ability_provider": step.ability_provider,
+                    "ability_task_id": (
+                        encode_task_id(task_id=step.ability_task_id, provider=row.business_key, executor_id=None)
+                        if step.ability_task_id
+                        else None
+                    ),
+                    "ability_log_id": step.ability_log_id,
+                    "executor_id": log.executor_id if log else None,
+                    "executor_name": log.executor_name if log else None,
+                    "executor_type": log.executor_type if log else None,
+                    "execution_evidence": self._build_execution_evidence(log),
+                    "result_summary": self._build_step_result_summary(step),
+                    "error_message": step.error_message,
+                    "duration_ms": step.duration_ms,
+                    "billing_unit": step.billing_unit,
+                    "unit_price": float(step.unit_price) if step.unit_price is not None else None,
+                    "cost_amount": float(step.cost_amount) if step.cost_amount is not None else None,
+                    "currency": step.currency,
+                    "quota_units": step.quota_units,
+                    "cost_breakdown": step.cost_breakdown,
+                    "started_at": step.started_at,
+                    "finished_at": step.finished_at,
+                    "created_at": step.created_at,
+                    "updated_at": step.updated_at,
+                }
+            )
+        return rows
+
+    def _load_ability_log_map(self, session, log_ids: list[int]) -> dict[int, AbilityInvocationLog]:
+        if not session or not log_ids:
+            return {}
+        unique_ids = sorted({int(item) for item in log_ids if item})
+        if not unique_ids:
+            return {}
+        rows = (
+            session.execute(select(AbilityInvocationLog).where(AbilityInvocationLog.id.in_(unique_ids)))
+            .scalars()
+            .all()
+        )
+        return {int(row.id): row for row in rows}
+
+    def _build_execution_evidence(self, log: AbilityInvocationLog | None) -> dict[str, Any] | None:
+        if not log:
+            return None
+        assets = log.result_assets if isinstance(log.result_assets, list) else []
+        return {
+            "abilityLogId": log.id,
+            "executorId": log.executor_id,
+            "executorName": log.executor_name,
+            "executorType": log.executor_type,
+            "status": log.status,
+            "storedUrl": log.stored_url,
+            "assetCount": len(assets),
+            "hasOssOutput": bool(log.stored_url or assets),
+            "callbackStatus": log.callback_status,
+            "callbackHttpStatus": log.callback_http_status,
+            "callbackError": log.callback_error,
+            "durationMs": log.duration_ms,
+        }
+
+    def _build_run_flow_summary(
+        self,
+        row: BusinessRun,
+        *,
+        steps: list[dict[str, Any]],
+        route_info: dict[str, Any] | None,
+        session=None,
+    ) -> dict[str, Any]:
+        counts = {
+            "total": len(steps),
+            "succeeded": 0,
+            "failed": 0,
+            "running": 0,
+            "queued": 0,
+            "planned": 0,
+            "skipped": 0,
+            "cancelled": 0,
+        }
+        active_step: dict[str, Any] | None = None
+        primary_step: dict[str, Any] | None = None
+        for step in steps:
+            status = str(step.get("status") or "").lower()
+            if status in counts:
+                counts[status] += 1
+            if not active_step and status in {"failed", "running", "queued"}:
+                active_step = step
+            if not primary_step and step.get("role") == "primary":
+                primary_step = step
+        if not active_step and steps:
+            active_step = steps[-1]
+        if not primary_step and steps:
+            primary_step = steps[-1]
+
+        total = int(counts["total"] or 0)
+        finished = counts["succeeded"] + counts["failed"] + counts["skipped"] + counts["cancelled"]
+        progress = round((finished / total) * 100) if total else None
+        route = route_info if isinstance(route_info, dict) else {}
+        run_log = None
+        if session is not None and row.ability_log_id:
+            run_log = session.get(AbilityInvocationLog, int(row.ability_log_id))
+        if not run_log and primary_step and primary_step.get("ability_log_id") and session is not None:
+            run_log = session.get(AbilityInvocationLog, int(primary_step["ability_log_id"]))
+
+        image_count = len(row.image_urls or [])
+        video_count = len(row.video_urls or [])
+        text_count = len(row.texts or [])
+        has_output = bool(image_count or video_count or text_count)
+        failed = counts["failed"] > 0 or row.status == "failed"
+        if failed:
+            message = "业务链路执行失败"
+            next_action = row.error_message or (active_step or {}).get("error_message") or "查看失败步骤和执行日志"
+        elif row.status in {"queued", "running"}:
+            message = "业务链路执行中"
+            next_action = "等待任务终态，必要时查看执行节点队列"
+        elif row.status == "succeeded" and not has_output:
+            message = "业务执行成功但未发现结果回填"
+            next_action = "优先检查原子能力结果解析和 OSS 落盘"
+        elif row.status == "succeeded":
+            message = "业务链路执行成功"
+            next_action = "结果已回填，可继续检查回调状态"
+        else:
+            message = f"业务链路状态：{row.status}"
+            next_action = None
+
+        return {
+            **counts,
+            "progressPercent": progress,
+            "currentStepOrder": (active_step or {}).get("step_order"),
+            "currentStepLabel": (active_step or {}).get("display_name")
+            or (active_step or {}).get("ability_name")
+            or (active_step or {}).get("step_id"),
+            "currentStepStatus": (active_step or {}).get("status"),
+            "currentStepError": (active_step or {}).get("error_message"),
+            "message": message,
+            "nextAction": next_action,
+            "route": {
+                "businessKey": row.business_key,
+                "businessVersionId": row.business_version_id,
+                "version": row.version,
+                "selectedBy": route.get("selectedBy") or route.get("selected_by"),
+                "selectedCapabilityId": route.get("selectedCapabilityId") or route.get("selected_capability_id"),
+            },
+            "ability": {
+                "id": row.ability_id or (primary_step or {}).get("ability_id"),
+                "name": (primary_step or {}).get("ability_name") or row.ability_id,
+                "provider": (primary_step or {}).get("ability_provider"),
+                "taskId": row.ability_task_id or (primary_step or {}).get("ability_task_id"),
+                "logId": row.ability_log_id or (primary_step or {}).get("ability_log_id"),
+            },
+            "executor": self._build_flow_executor_summary(run_log, primary_step),
+            "output": {
+                "hasOutput": has_output,
+                "imageCount": image_count,
+                "videoCount": video_count,
+                "textCount": text_count,
+                "firstImageUrl": (row.image_urls or [None])[0],
+                "firstVideoUrl": (row.video_urls or [None])[0],
+                "hasOssOutput": bool((row.image_urls or []) or (run_log and (run_log.stored_url or run_log.result_assets))),
+            },
+            "callback": {
+                "status": row.callback_status,
+                "httpStatus": row.callback_http_status,
+                "error": row.callback_error,
+            },
+        }
+
+    def _build_flow_executor_summary(
+        self,
+        log: AbilityInvocationLog | None,
+        primary_step: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        evidence = primary_step.get("execution_evidence") if isinstance(primary_step, dict) else None
+        evidence = evidence if isinstance(evidence, dict) else {}
+        return {
+            "id": (log.executor_id if log else None) or (primary_step.get("executor_id") if primary_step else None),
+            "name": (log.executor_name if log else None) or (primary_step.get("executor_name") if primary_step else None),
+            "type": (log.executor_type if log else None) or (primary_step.get("executor_type") if primary_step else None),
+            "abilityLogId": (log.id if log else None) or evidence.get("abilityLogId"),
+            "storedUrl": (log.stored_url if log else None) or evidence.get("storedUrl"),
+            "assetCount": len(log.result_assets) if log and isinstance(log.result_assets, list) else evidence.get("assetCount"),
+        }
 
     def _build_step_result_summary(self, step: BusinessRunStep) -> dict[str, Any] | None:
         payload = step.result_payload if isinstance(step.result_payload, dict) else {}

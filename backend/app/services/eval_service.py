@@ -645,6 +645,10 @@ class EvalService:
             if isinstance(parsed.get("error_msg"), str) and parsed.get("error_msg"):
                 self._mark_failed(run_id, message=f"COZE_WORKFLOW_ERROR: {parsed.get('error_msg')}", started=None)
                 return
+            tool_error = self._extract_workflow_tool_error(parsed)
+            if tool_error:
+                self._mark_failed(run_id, message=tool_error, started=None)
+                return
 
         image_urls = self._extract_image_urls(parsed)
         output = parsed.get("output")
@@ -1187,6 +1191,9 @@ class EvalService:
                     return [], f"COZE_WORKFLOW_ERROR: {parsed.get('$error')}", execute_id, debug_url
                 if isinstance(parsed.get("error_msg"), str) and parsed.get("error_msg"):
                     return [], f"COZE_WORKFLOW_ERROR: {parsed.get('error_msg')}", execute_id, debug_url
+                tool_error = self._extract_workflow_tool_error(parsed)
+                if tool_error:
+                    return [], tool_error, execute_id, debug_url
             images = self._extract_image_urls(parsed)
             output = parsed.get("output")
             # Treat empty-string output as "not ready yet" (common while tools are still running).
@@ -1326,6 +1333,73 @@ class EvalService:
         if isinstance(output, str) and _HEX_TASK_ID.match(output.strip()):
             return output.strip()
         return None
+
+    @staticmethod
+    def _format_tool_error(code: Any, message: Any) -> str:
+        safe_code = str(code or "COZE_TOOL_FAILED").strip() or "COZE_TOOL_FAILED"
+        safe_message = " ".join(str(message or safe_code).strip().split())
+        safe_message = safe_message.replace("|", "/")
+        return f"ERR|{safe_code}|{safe_message}"
+
+    @classmethod
+    def _extract_workflow_tool_error(cls, payload: dict[str, Any]) -> str | None:
+        """Detect tool-level failures returned inside a successful Coze run.
+
+        Coze can mark a workflow execution as Success even when a plugin tool
+        returns `taskStatus=failed`, for example queue-full responses from PODI.
+        Eval runs must fail immediately instead of waiting until async timeout.
+        """
+
+        def _scan(value: Any, *, depth: int = 0) -> str | None:
+            if depth > 5:
+                return None
+            if isinstance(value, str):
+                text = value.strip()
+                if text.startswith("ERR|"):
+                    return text
+                return None
+            if isinstance(value, list):
+                for item in value:
+                    found = _scan(item, depth=depth + 1)
+                    if found:
+                        return found
+                return None
+            if not isinstance(value, dict):
+                return None
+
+            task_id = value.get("taskId") or value.get("task_id") or value.get("output")
+            if isinstance(task_id, str) and task_id.strip().startswith("ERR|"):
+                return task_id.strip()
+
+            status = str(value.get("taskStatus") or value.get("task_status") or "").strip().lower()
+            code = value.get("errorCode") or value.get("error_code")
+            message = (
+                value.get("debugResponse")
+                or value.get("debug_response")
+                or value.get("error_message")
+                or value.get("error")
+                or value.get("text")
+            )
+            if status == "failed" and (code or message):
+                return cls._format_tool_error(code, message)
+            if isinstance(message, str) and any(
+                marker in message
+                for marker in ("COMFYUI_QUEUE_FULL", "COMMERCIAL_QUEUE_FULL", "PROMPT_REQUIRED")
+            ):
+                inferred_code = code
+                if not inferred_code and "COMFYUI_QUEUE_FULL" in message:
+                    inferred_code = "Q1001"
+                if not inferred_code and "COMMERCIAL_QUEUE_FULL" in message:
+                    inferred_code = "Q2001"
+                return cls._format_tool_error(inferred_code, message)
+
+            for item in value.values():
+                found = _scan(item, depth=depth + 1)
+                if found:
+                    return found
+            return None
+
+        return _scan(payload)
 
     @staticmethod
     def _extract_image_urls(payload: dict[str, Any]) -> list[str]:

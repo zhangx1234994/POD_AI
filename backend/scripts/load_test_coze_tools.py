@@ -258,7 +258,8 @@ async def main() -> int:
         "--image-url",
         default=os.environ.get(
             "LOAD_TEST_IMAGE_URL",
-            "https://podi.oss-cn-hangzhou.aliyuncs.com/test/abilities/admin/20260120/fc661480-1768882378.jpg",
+            "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/"
+            "98904c502d9d4dd78432ec2bd1f79def/20260424/228be55f-1777009905.jpg",
         ),
     )
     args = parser.parse_args()

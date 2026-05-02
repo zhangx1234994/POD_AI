@@ -12,12 +12,21 @@ def test_business_openapi_exposes_flat_business_tools() -> None:
     data = resp.json()
     paths = data.get("paths") or {}
 
+    assert "/api/business/pattern-extract/runs" in paths
     assert "/api/business/fission/runs" in paths
     assert "/api/business/outpaint/runs" in paths
+    assert "/api/business/pattern-extract/route-preview" in paths
     assert "/api/business/fission/route-preview" in paths
     assert "/api/business/outpaint/route-preview" in paths
     assert "/api/business/runs/get" in paths
 
+    pattern_schema = paths["/api/business/pattern-extract/runs"]["post"]["requestBody"]["content"]["application/json"][
+        "schema"
+    ]
+    assert pattern_schema["required"] == ["imageUrl"]
+    assert {"imageUrl", "prompt", "negative_prompt", "width", "height", "batch", "lora", "timeout"}.issubset(
+        pattern_schema["properties"]
+    )
     submit_schema = paths["/api/business/fission/runs"]["post"]["requestBody"]["content"]["application/json"][
         "schema"
     ]
@@ -50,6 +59,10 @@ def test_business_openapi_exposes_flat_business_tools() -> None:
     ]
     assert preview_schema["required"] == []
     assert {"tenantId", "clientId", "version", "metadata"}.issubset(preview_schema["properties"])
+    pattern_preview_schema = paths["/api/business/pattern-extract/route-preview"]["post"]["requestBody"]["content"][
+        "application/json"
+    ]["schema"]
+    assert pattern_preview_schema["required"] == []
     preview_response = paths["/api/business/fission/route-preview"]["post"]["responses"]["200"]["content"][
         "application/json"
     ]["schema"]
@@ -123,6 +136,17 @@ def test_business_capabilities_response_uses_public_camel_case(monkeypatch) -> N
 
 def test_business_fission_requires_image_url() -> None:
     resp = client.post("/api/business/fission/runs", json={"inputs": {"prompt": "test"}}, headers={"x-real-ip": "127.0.0.1"})
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "BUSINESS_IMAGE_URL_REQUIRED"
+
+
+def test_business_pattern_extract_requires_image_url() -> None:
+    resp = client.post(
+        "/api/business/pattern-extract/runs",
+        json={"inputs": {"prompt": "test"}},
+        headers={"x-real-ip": "127.0.0.1"},
+    )
 
     assert resp.status_code == 400
     assert resp.json()["detail"] == "BUSINESS_IMAGE_URL_REQUIRED"

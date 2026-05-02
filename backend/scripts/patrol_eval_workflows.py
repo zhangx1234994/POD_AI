@@ -19,6 +19,7 @@ DEFAULT_SAMPLE_IMAGE_URL = (
     "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/"
     "98904c502d9d4dd78432ec2bd1f79def/20260424/228be55f-1777009905.jpg"
 )
+TERMINAL_STATUSES = {"succeeded", "failed", "create_failed", "query_failed"}
 
 
 def _now_slug() -> str:
@@ -29,6 +30,67 @@ def _workflow_fields(workflow: dict[str, Any]) -> list[dict[str, Any]]:
     schema = workflow.get("parameters_schema") or workflow.get("parametersSchema") or {}
     fields = schema.get("fields") if isinstance(schema, dict) else None
     return [field for field in fields if isinstance(field, dict)] if isinstance(fields, list) else []
+
+
+def _metadata_dict(workflow: dict[str, Any]) -> dict[str, Any]:
+    metadata = workflow.get("metadata") or workflow.get("extra_metadata") or workflow.get("extraMetadata") or {}
+    if isinstance(metadata, str):
+        try:
+            parsed = json.loads(metadata)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def _workflow_role(workflow: dict[str, Any]) -> str:
+    governance = workflow.get("governance")
+    if isinstance(governance, dict) and governance.get("role"):
+        return str(governance.get("role")).strip() or "unknown"
+
+    metadata = _metadata_dict(workflow)
+    metadata_governance = metadata.get("governance")
+    if isinstance(metadata_governance, dict) and metadata_governance.get("role"):
+        return str(metadata_governance.get("role")).strip() or "unknown"
+    for key in ("governance_role", "governanceRole", "role"):
+        if metadata.get(key):
+            return str(metadata.get(key)).strip() or "unknown"
+    return "unknown"
+
+
+def _role_matches(workflow: dict[str, Any], role_filter: str) -> bool:
+    requested = {part.strip() for part in str(role_filter or "").split(",") if part.strip()}
+    if not requested or "all" in requested:
+        return True
+    return _workflow_role(workflow) in requested
+
+
+def _select_workflows(
+    items: list[Any],
+    *,
+    category: str,
+    role_filter: str,
+    limit: int,
+) -> list[dict[str, Any]]:
+    selected = [
+        workflow
+        for workflow in items
+        if isinstance(workflow, dict)
+        and (not category or str(workflow.get("category") or "") == category)
+        and _role_matches(workflow, role_filter)
+    ]
+    if limit > 0:
+        return selected[:limit]
+    return selected
+
+
+def _is_blank(value: Any) -> bool:
+    return value is None or (isinstance(value, str) and not value.strip())
+
+
+def _set_if_blank(params: dict[str, Any], key: str, value: Any) -> None:
+    if _is_blank(params.get(key)):
+        params[key] = value
 
 
 def _build_params(workflow: dict[str, Any], sample_url: str, tag: str) -> dict[str, Any]:
@@ -44,18 +106,19 @@ def _build_params(workflow: dict[str, Any], sample_url: str, tag: str) -> dict[s
             params[name] = default_value
 
     if {"url", "Url", "URL", "image_url"} & field_names:
-        params.setdefault("url", sample_url)
-        params.setdefault("Url", sample_url)
-        params.setdefault("URL", sample_url)
-        params.setdefault("image_url", sample_url)
+        _set_if_blank(params, "url", sample_url)
+        _set_if_blank(params, "Url", sample_url)
+        _set_if_blank(params, "URL", sample_url)
+        _set_if_blank(params, "image_url", sample_url)
     if "cankaotu" in field_names:
-        params.setdefault("cankaotu", sample_url)
+        _set_if_blank(params, "cankaotu", sample_url)
     if "image_urls" in field_names:
-        params.setdefault("image_urls", [sample_url])
+        if _is_blank(params.get("image_urls")):
+            params["image_urls"] = [sample_url]
     if "prompt" in field_names:
-        params.setdefault("prompt", "日常巡检测试，请保持主体和风格稳定")
+        _set_if_blank(params, "prompt", "日常巡检测试，请保持主体和风格稳定")
     if "bili" in field_names:
-        params.setdefault("bili", "0.35")
+        _set_if_blank(params, "bili", "0.35")
     # Patrol is a functional smoke, not a load test. Force single output even
     # when workflow defaults use multi-image fan-out.
     if "count" in field_names:
@@ -71,17 +134,17 @@ def _build_params(workflow: dict[str, Any], sample_url: str, tag: str) -> dict[s
     if "batch_size" in field_names:
         params["batch_size"] = 1
     if "expand_left" in field_names:
-        params.setdefault("expand_left", 64)
+        _set_if_blank(params, "expand_left", 64)
     if "expand_right" in field_names:
-        params.setdefault("expand_right", 64)
+        _set_if_blank(params, "expand_right", 64)
     if "expand_top" in field_names:
-        params.setdefault("expand_top", 64)
+        _set_if_blank(params, "expand_top", 64)
     if "expand_bottom" in field_names:
-        params.setdefault("expand_bottom", 64)
+        _set_if_blank(params, "expand_bottom", 64)
     if "width" in field_names:
-        params.setdefault("width", 1024)
+        _set_if_blank(params, "width", 1024)
     if "height" in field_names:
-        params.setdefault("height", 1024)
+        _set_if_blank(params, "height", 1024)
 
     params["__patrol_tag"] = tag
     return params
@@ -115,6 +178,10 @@ def _classify_issue(item: dict[str, Any]) -> str:
     error_text = f"{item.get('error') or ''} {item.get('errorCode') or ''}".upper()
     if "INTERNAL_ONLY" in error_text:
         return "INTERNAL_ONLY"
+    if "COMFYUI_QUEUE_FULL" in error_text:
+        return "COMFYUI_QUEUE_FULL"
+    if "PROMPT_REQUIRED" in error_text:
+        return "PROMPT_REQUIRED"
     if "COZE_WORKFLOW_ERROR" in error_text:
         return "COZE_WORKFLOW_ERROR"
     if status == "succeeded" and not item.get("hasOutput"):
@@ -135,6 +202,7 @@ def _make_report_item(row: dict[str, Any]) -> dict[str, Any]:
     item = {
         "name": workflow.get("name"),
         "workflowId": workflow.get("workflow_id"),
+        "role": _workflow_role(workflow),
         "runId": latest.get("id") or run.get("id"),
         "status": latest.get("status"),
         "finalStatus": latest.get("final_status"),
@@ -148,6 +216,11 @@ def _make_report_item(row: dict[str, Any]) -> dict[str, Any]:
     }
     item["issueCode"] = _classify_issue(item)
     return item
+
+
+def _is_terminal(row: dict[str, Any]) -> bool:
+    latest = row.get("latest", {}) if isinstance(row.get("latest"), dict) else {}
+    return str(latest.get("status") or "") in TERMINAL_STATUSES
 
 
 def _failed_items(items: list[dict[str, Any]], *, allow_empty_output: bool = False) -> list[dict[str, Any]]:
@@ -180,7 +253,24 @@ def main() -> int:
     parser.add_argument("--sample-image-url", default=DEFAULT_SAMPLE_IMAGE_URL, help="Stable sample image URL.")
     parser.add_argument("--status", default="active", help="Workflow status filter.")
     parser.add_argument("--category", default="", help="Optional category filter.")
+    parser.add_argument(
+        "--role",
+        default="production",
+        help="Governance role filter. Use production for periodic patrol, comma-separated roles, or all.",
+    )
     parser.add_argument("--limit", type=int, default=0, help="Limit workflows, 0 means all.")
+    parser.add_argument(
+        "--max-in-flight",
+        type=int,
+        default=1,
+        help="Maximum submitted eval runs that may be unfinished at the same time.",
+    )
+    parser.add_argument(
+        "--submit-delay",
+        type=float,
+        default=0.0,
+        help="Optional delay in seconds after each submission.",
+    )
     parser.add_argument("--timeout", type=int, default=1800, help="Total wait timeout in seconds.")
     parser.add_argument("--poll-interval", type=float, default=10.0, help="Polling interval in seconds.")
     parser.add_argument("--fail-fast", action="store_true", help="Stop immediately when any run fails.")
@@ -195,50 +285,66 @@ def main() -> int:
 
     tag = f"eval-patrol-{_now_slug()}"
     base_url = args.base_url.rstrip("/")
+    max_in_flight = max(1, args.max_in_flight)
     timeout = httpx.Timeout(30.0, connect=10.0)
     with httpx.Client(base_url=base_url, timeout=timeout) as client:
         workflows = _get_json(client, f"/api/evals/workflow-versions?status={args.status}")
-        items = workflows.get("items") or workflows.get("data") or [] if isinstance(workflows, dict) else workflows
+        items = (workflows.get("items") or workflows.get("data") or []) if isinstance(workflows, dict) else workflows
         if not isinstance(items, list):
             print("workflow list response is not a list", file=sys.stderr)
             return 2
 
-        selected = [
-            workflow
-            for workflow in items
-            if isinstance(workflow, dict) and (not args.category or str(workflow.get("category") or "") == args.category)
-        ]
-        if args.limit > 0:
-            selected = selected[: args.limit]
+        selected = _select_workflows(items, category=args.category, role_filter=args.role, limit=args.limit)
 
         print(f"patrol tag: {tag}")
         print(f"backend: {base_url}")
+        print(f"role filter: {args.role}")
+        print(f"category filter: {args.category or 'all'}")
+        print(f"max in flight: {max_in_flight}")
         print(f"workflows: {len(selected)}")
+        if not selected:
+            print("no workflows selected; check role/category/status filters", file=sys.stderr)
+            return 2
         if args.dry_run:
             for workflow in selected:
                 params = _build_params(workflow, args.sample_image_url, tag)
-                print(f"- {workflow.get('name')} | {workflow.get('workflow_id')} | params={sorted(params.keys())}")
+                print(
+                    f"- {workflow.get('name')} | {workflow.get('workflow_id')} | "
+                    f"role={_workflow_role(workflow)} | params={sorted(params.keys())}"
+                )
             return 0
 
+        pending = list(selected)
         runs: list[dict[str, Any]] = []
-        for workflow in selected:
-            payload = {
-                "workflow_version_id": workflow.get("id"),
-                "input_oss_urls_json": [args.sample_image_url],
-                "parameters_json": _build_params(workflow, args.sample_image_url, tag),
-            }
-            try:
-                run = _post_json(client, "/api/evals/runs", payload)
-            except Exception as exc:
-                run = {"status": "create_failed", "error_message": repr(exc)}
-            runs.append({"workflow": workflow, "run": run})
-            print(f"submitted: {workflow.get('name')} | workflow={workflow.get('workflow_id')} | run={run.get('id')} | status={run.get('status')}")
-            if args.fail_fast and run.get("status") == "create_failed":
-                break
-
         deadline = time.monotonic() + max(30, args.timeout)
         final_rows: list[dict[str, Any]] = []
         while True:
+            active_count = len([row for row in final_rows if not _is_terminal(row)])
+            while pending and active_count < max_in_flight:
+                workflow = pending.pop(0)
+                payload = {
+                    "workflow_version_id": workflow.get("id"),
+                    "input_oss_urls_json": [args.sample_image_url],
+                    "parameters_json": _build_params(workflow, args.sample_image_url, tag),
+                }
+                try:
+                    run = _post_json(client, "/api/evals/runs", payload)
+                except Exception as exc:
+                    run = {"status": "create_failed", "error_message": repr(exc)}
+                submitted_row = {"workflow": workflow, "run": run, "latest": run}
+                runs.append(submitted_row)
+                if not _is_terminal(submitted_row):
+                    active_count += 1
+                print(
+                    f"submitted: {workflow.get('name')} | role={_workflow_role(workflow)} | "
+                    f"workflow={workflow.get('workflow_id')} | run={run.get('id')} | status={run.get('status')}"
+                )
+                if args.fail_fast and run.get("status") == "create_failed":
+                    pending.clear()
+                    break
+                if args.submit_delay > 0:
+                    time.sleep(args.submit_delay)
+
             final_rows = []
             for item in runs:
                 run_id = item.get("run", {}).get("id")
@@ -252,21 +358,23 @@ def main() -> int:
                 final_rows.append({**item, "latest": latest})
 
             counts = Counter(str(row.get("latest", {}).get("status") or "") for row in final_rows)
-            print(f"status: {dict(counts)}")
-            unfinished = [
-                row
-                for row in final_rows
-                if str(row.get("latest", {}).get("status") or "") not in {"succeeded", "failed", "create_failed", "query_failed"}
-            ]
+            print(f"status: {dict(counts)} | pending submit: {len(pending)}")
+            unfinished = [row for row in final_rows if not _is_terminal(row)]
             if args.fail_fast and any(str(row.get("latest", {}).get("status") or "") in {"failed", "create_failed", "query_failed"} for row in final_rows):
                 break
-            if not unfinished or time.monotonic() >= deadline:
+            if (not pending and not unfinished) or time.monotonic() >= deadline:
                 break
             time.sleep(max(1.0, args.poll_interval))
 
         report = {
             "tag": tag,
             "baseUrl": base_url,
+            "roleFilter": args.role,
+            "categoryFilter": args.category or "all",
+            "maxInFlight": max_in_flight,
+            "selectedCount": len(selected),
+            "submittedCount": len(runs),
+            "notSubmittedCount": max(0, len(selected) - len(runs)),
             "summary": dict(Counter(str(row.get("latest", {}).get("status") or "") for row in final_rows)),
             "items": [_make_report_item(row) for row in final_rows],
         }

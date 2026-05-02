@@ -76,3 +76,59 @@ def test_capacity_probe_assessment_fails_when_queue_does_not_fill() -> None:
     assert ok is False
     assert any("峰值队列" in issue for issue in issues)
     assert any("执行节点" in issue for issue in issues)
+
+
+def test_capacity_probe_sample_image_check_rejects_http_errors(monkeypatch) -> None:
+    module = _load_probe_module()
+
+    class FakeResponse:
+        status_code = 404
+        headers = {"content-type": "application/xml"}
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def head(self, url):
+            return FakeResponse()
+
+    monkeypatch.setattr(module.httpx, "Client", FakeClient)
+
+    ok, detail = module._check_sample_image_url("https://example.com/missing.png")
+
+    assert ok is False
+    assert "HTTP 404" in detail
+
+
+def test_capacity_probe_sample_image_check_accepts_images(monkeypatch) -> None:
+    module = _load_probe_module()
+
+    class FakeResponse:
+        status_code = 200
+        headers = {"content-type": "image/png"}
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def head(self, url):
+            return FakeResponse()
+
+    monkeypatch.setattr(module.httpx, "Client", FakeClient)
+
+    ok, detail = module._check_sample_image_url("https://example.com/a.png")
+
+    assert ok is True
+    assert "HTTP 200" in detail

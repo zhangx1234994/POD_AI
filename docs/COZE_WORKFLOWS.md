@@ -122,7 +122,7 @@ curl -sS -X POST "$COZE_BASE_URL/v1/workflow/run" \
   -d '{
     "workflow_id":"7598589746561941504",
     "parameters":{
-      "url":"https://podi.oss-cn-hangzhou.aliyuncs.com/test/abilities/admin-kie-input/20260126/81d56182-1769389464.webp",
+      "url":"https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/98904c502d9d4dd78432ec2bd1f79def/20260424/228be55f-1777009905.jpg",
       "dpi":300
     }
   }'

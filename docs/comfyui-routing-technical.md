@@ -19,8 +19,8 @@
    - 取最高 priority 的绑定
    - 再做 tags 过滤 + routing_policy 选
 5. **历史兼容 fallback（少量 legacy workflow）**
-   - `sifang_lianxu / huawen_kuotu` → `executor_comfyui_seamless_117`
-   - `yinhua_tiqu / jisu_chuli / zhongsu_tisheng` → `executor_comfyui_pattern_extract_158`
+   - `sifang_lianxu / huawen_kuotu` → `executor_comfyui_seamless_117`（233 / 4090，历史 ID 保持不变）
+   - `yinhua_tiqu / jisu_chuli / zhongsu_tisheng` → `executor_comfyui_pattern_extract_158`（158 / 5090）
 6. **默认执行节点**（fallback_to_default=true 时）
    - 选择 type=comfyui 中 weight 最大的 active 节点
 
@@ -159,11 +159,11 @@
 ```json
 {
   "type": "comfyui",
-  "base_url": "http://117.50.80.158:8079",  // 示例，实际以管理端配置为准
+  "base_url": "http://117.50.80.158:8079",  // 158 / 5090 示例，实际以管理端配置为准
   "weight": 2,
   "max_concurrency": 2,
   "config": {
-    "tags": ["gpu:4090", "region:hz", "comfyui-158"]
+    "tags": ["comfyui-general", "gpu:5090", "host:158", "comfyui-158"]
   }
 }
 ```
@@ -173,7 +173,7 @@
 {
   "routing_policy": "queue",
   "allowed_executor_ids": ["executor_comfyui_pattern_extract_158"],
-  "required_tags": ["gpu:4090"],
+  "required_tags": ["comfyui-general"],
   "fallback_to_default": true,
   "workflow_key": "yinhua_tiqu",
   "action": "pattern_extract"

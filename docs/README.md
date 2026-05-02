@@ -32,7 +32,8 @@
 - 当前仓库不包含客户端代码目录；`docs/client/` 只作为历史客户端资料入口，不再代表当前开发主线。
 - 2026-04-27 发生 Coze 工具箱 `INTERNAL_ONLY` 事故，已记录复盘：`docs/retrospectives/2026-04-27-coze-toolbox-internal-only-incident.md`。
 - 更新服务后先在 114/Coze 主机内执行 `backend/scripts/podi_release_smoke.py`，确认工具箱入口、内部任务查询和 ComfyUI 队列都可达。
-- 发版后必须执行 `backend/scripts/patrol_eval_workflows.py` 做全量测评巡检。
+- 发版后必须执行 `backend/scripts/patrol_eval_workflows.py --role production --max-in-flight 1` 做生产主入口巡检；需要全量覆盖灰度/历史能力时再显式使用 `--role all`，不能让定期自检一次性打满 ComfyUI 队列。
+- 发版前必须先执行 `backend/scripts/audit_ability_test_coverage.py --probe-comfyui --fail-on P1`，确认数据库最终态里不存在单机路由、测试节点误激活、节点不可达或 schema 缺失等问题。
 - ComfyUI 单机 10、双机 20 不能只看配置，必须通过 `backend/scripts/comfyui_capacity_probe.py` 验证实际队列喂入和任务分布。
 
 ## 现行真源
@@ -42,6 +43,7 @@
 - `docs/PLATFORM_SURFACES.md`
 - `docs/strategy/platform-vision-and-goals-2026.md`
 - `docs/strategy/strategy-one-page-2026q2.md`
+- `docs/strategy/core-business-chain-review-2026-05-03.md`
 - `docs/strategy/coze-mid-platform-migration-v1.md`
 - `docs/strategy/coze-control-plane-migration-pack-v1.md`
 - `docs/strategy/coze-migration-status-summary-2026-04-24.md`
@@ -58,6 +60,7 @@
 - `docs/api/INDEX.md`
 - `docs/admin/integration-dashboard.md`
 - `docs/eval/eval-platform.md`
+- `docs/testing/ABILITY_TEST_LEDGER.md`
 - `docs/coze/toolbox-inventory.md`
 - `docs/comfyui/README.md`
 - `docs/weekly/README.md`
@@ -75,6 +78,7 @@
 | --- | --- | --- |
 | 平台边界 | `docs/PLATFORM_SURFACES.md` | 管理端 / 测评端 / 客户端 / 对话式助手边界 |
 | 战略规划 | `docs/strategy/README.md` | 平台愿景、路线、待办、治理 |
+| 核心业务链路 | `docs/strategy/core-business-chain-review-2026-05-03.md` | 花纹提取 / 图裂变 / 扩图的入口、路由、回填、测试和后续优先级 |
 | API | `docs/api/INDEX.md` | 全量接口模块入口 |
 | 历史客户端资料 | `docs/client/README.md` | 当前仓库已无客户端代码，仅保留历史方案和测试包 |
 | 管理端 | `docs/admin/integration-dashboard.md` | 执行节点、能力、第三方模型 Key、测试与日志 |
@@ -85,6 +89,7 @@
 | 周报归档 | `docs/weekly/README.md` | 按周汇总过程记录与阶段结论 |
 | 工程规范 | `docs/standards/` | 错误契约、接口一致性、文档维护等规范 |
 | 测试计划 | `docs/testing/README.md` | 回归计划、线上 smoke 清单、迁移 runbook |
+| 能力测试台账 | `docs/testing/ABILITY_TEST_LEDGER.md` | 每个功能族的必测用例、必查链路和上线闸门 |
 | 复盘记录 | `docs/retrospectives/` | 复盘、风险、后续动作 |
 | 事故复盘 | `docs/retrospectives/2026-04-27-coze-toolbox-internal-only-incident.md` | Coze 工具箱不可用事故、巡检与并发整改项 |
 | 发布门禁 | `docs/release-preflight.md` | 发版前必须执行的业务链路巡检、ComfyUI 队列验证和构建测试 |

@@ -1259,6 +1259,11 @@ export interface BusinessRunFlowSummary {
   currentStepError?: string | null;
   message?: string | null;
   nextAction?: string | null;
+  route?: JsonRecord | null;
+  ability?: JsonRecord | null;
+  executor?: JsonRecord | null;
+  output?: JsonRecord | null;
+  callback?: JsonRecord | null;
 }
 
 export interface BusinessRunStep {
@@ -1279,6 +1284,10 @@ export interface BusinessRunStep {
   abilityProvider?: string | null;
   abilityTaskId?: string | null;
   abilityLogId?: number | null;
+  executorId?: string | null;
+  executorName?: string | null;
+  executorType?: string | null;
+  executionEvidence?: JsonRecord | null;
   resultSummary?: JsonRecord | null;
   error?: string | null;
   durationMs?: number | null;

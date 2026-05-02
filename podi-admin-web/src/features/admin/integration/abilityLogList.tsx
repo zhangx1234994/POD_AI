@@ -71,7 +71,8 @@ export function AbilityLogListPanel({
   exporting,
   error,
   updatedAt,
-  hasMore,
+  page,
+  pageSize,
   autoRefresh,
   onlyCallbackFailed,
   search,
@@ -86,7 +87,7 @@ export function AbilityLogListPanel({
   capabilityOptions,
   onAutoRefreshChange,
   onRefresh,
-  onLoadMore,
+  onPageChange,
   onExport,
   onOnlyCallbackFailedChange,
   onSearchChange,
@@ -106,7 +107,8 @@ export function AbilityLogListPanel({
   exporting: boolean;
   error?: string | null;
   updatedAt?: string | null;
-  hasMore: boolean;
+  page: number;
+  pageSize: number;
   autoRefresh: boolean;
   onlyCallbackFailed: boolean;
   search: string;
@@ -121,7 +123,7 @@ export function AbilityLogListPanel({
   capabilityOptions: SelectOption[];
   onAutoRefreshChange: (value: boolean) => void;
   onRefresh: () => void;
-  onLoadMore: () => void;
+  onPageChange: (page: number) => void;
   onExport: (format: 'csv' | 'json') => void;
   onOnlyCallbackFailedChange: (value: boolean) => void;
   onSearchChange: (value: string) => void;
@@ -134,6 +136,15 @@ export function AbilityLogListPanel({
   onOpenDetail: (row: AbilityInvocationLog) => void;
   resolveLogPricing: (row: AbilityInvocationLog) => AbilityPricing | null;
 }) {
+  const safePageSize = Math.max(1, pageSize || 1);
+  const totalCount = typeof total === 'number' ? total : logs.length;
+  const totalPages = Math.max(1, Math.ceil(totalCount / safePageSize));
+  const currentPage = Math.min(Math.max(1, page || 1), totalPages);
+  const pageStart = totalCount === 0 ? 0 : (currentPage - 1) * safePageSize + 1;
+  const pageEnd = totalCount === 0 ? 0 : Math.min(currentPage * safePageSize, totalCount);
+  const canGoPrev = currentPage > 1;
+  const canGoNext = currentPage < totalPages;
+
   return (
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
       <ActionBar>
@@ -142,8 +153,8 @@ export function AbilityLogListPanel({
             <Typography.Text strong>能力调用清单</Typography.Text>
             <div>
               <Typography.Text theme="secondary">
-                已加载 {logs.length}
-                {typeof total === 'number' ? ` / ${total}` : ''} 条 · 支持导出最近 24 小时
+                第 {currentPage} / {totalPages} 页 · 当前页 {logs.length} 条
+                {typeof total === 'number' ? ` · 共 ${total} 条` : ''} · 支持导出最近 24 小时
               </Typography.Text>
             </div>
           </div>
@@ -156,13 +167,6 @@ export function AbilityLogListPanel({
             <Button variant="outline" loading={loading} onClick={onRefresh}>
               刷新
             </Button>
-            {hasMore ? (
-              <Button variant="outline" loading={loading} onClick={onLoadMore}>
-                加载更多
-              </Button>
-            ) : (
-              <Typography.Text theme="secondary">已加载全部</Typography.Text>
-            )}
             <Button variant="outline" loading={exporting} onClick={() => onExport('csv')}>
               导出 CSV
             </Button>
@@ -450,15 +454,21 @@ export function AbilityLogListPanel({
       />
 
       <div className="flex flex-col gap-2">
-        <Typography.Text theme="secondary">{updatedAt ? `最近刷新：${formatDateTime(updatedAt)}` : '尚未刷新'}</Typography.Text>
-        <div className="flex justify-center">
-          {hasMore ? (
-            <Button variant="outline" loading={loading} onClick={onLoadMore}>
-              加载更多
+        <div className="flex items-center justify-between gap-3">
+          <Typography.Text theme="secondary">
+            {updatedAt ? `最近刷新：${formatDateTime(updatedAt)}` : '尚未刷新'} · 显示 {pageStart}-{pageEnd} / {totalCount}
+          </Typography.Text>
+          <Space>
+            <Button variant="outline" disabled={!canGoPrev || loading} onClick={() => onPageChange(currentPage - 1)}>
+              上一页
             </Button>
-          ) : (
-            <Typography.Text theme="secondary">已加载全部</Typography.Text>
-          )}
+            <Typography.Text theme="secondary">
+              第 {currentPage} / {totalPages} 页
+            </Typography.Text>
+            <Button variant="outline" disabled={!canGoNext || loading} onClick={() => onPageChange(currentPage + 1)}>
+              下一页
+            </Button>
+          </Space>
         </div>
       </div>
     </Space>

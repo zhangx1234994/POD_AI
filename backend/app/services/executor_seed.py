@@ -205,6 +205,32 @@ def ensure_default_executors(session: Session) -> bool:
             return out, changed_local
         return existing, False
 
+    def merge_tags(existing_config: dict[str, Any], desired_config: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+        desired_tags = desired_config.get("tags")
+        if not isinstance(desired_tags, list):
+            return existing_config, False
+        current_tags = existing_config.get("tags")
+        if isinstance(current_tags, str):
+            merged_tags = [current_tags]
+        elif isinstance(current_tags, list):
+            merged_tags = [str(item) for item in current_tags if str(item or "").strip()]
+        else:
+            merged_tags = []
+        seen = {item.strip().lower() for item in merged_tags if item.strip()}
+        changed_local = False
+        for item in desired_tags:
+            tag = str(item or "").strip()
+            if not tag or tag.lower() in seen:
+                continue
+            merged_tags.append(tag)
+            seen.add(tag.lower())
+            changed_local = True
+        if not changed_local:
+            return existing_config, False
+        updated = dict(existing_config)
+        updated["tags"] = merged_tags
+        return updated, True
+
     changed = False
     for seed in DEFAULT_EXECUTOR_SEEDS:
         if not seed.config:
@@ -232,6 +258,17 @@ def ensure_default_executors(session: Session) -> bool:
             if (existing.base_url or "") != (seed.base_url or "") and seed.base_url:
                 existing.base_url = seed.base_url
                 changed = True
+            if seed.type == "comfyui":
+                if seed.name and existing.name != seed.name:
+                    existing.name = seed.name
+                    changed = True
+                merged_config, did_merge_tags = merge_tags(existing.config or {}, seed_config)
+                if did_merge_tags:
+                    existing.config = enrich_executor_config_with_routing(
+                        merged_config,
+                        max_concurrency=max(1, int(existing.max_concurrency or seed.max_concurrency or 1)),
+                    )
+                    changed = True
             if existing.status != seed.status:
                 existing.status = seed.status
                 changed = True

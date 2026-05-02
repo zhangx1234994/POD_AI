@@ -79,6 +79,35 @@ def test_report_item_classifies_internal_only_and_coze_workflow_error() -> None:
     assert coze_failed["issueCode"] == "COZE_WORKFLOW_ERROR"
 
 
+def test_report_item_classifies_queue_full_and_prompt_required() -> None:
+    queue_full = patrol._make_report_item(
+        {
+            "workflow": {"name": "图裂变", "workflow_id": "wf_queue"},
+            "run": {"id": "run_queue"},
+            "latest": {
+                "id": "run_queue",
+                "status": "failed",
+                "error_message": "ERR|Q1001|COMFYUI_QUEUE_FULL(limit=10, current=10)",
+            },
+        }
+    )
+    prompt_required = patrol._make_report_item(
+        {
+            "workflow": {"name": "多模型生图", "workflow_id": "wf_prompt"},
+            "run": {"id": "run_prompt"},
+            "latest": {
+                "id": "run_prompt",
+                "status": "failed",
+                "error_code": "PROMPT_REQUIRED",
+                "error_message": "prompt is required",
+            },
+        }
+    )
+
+    assert queue_full["issueCode"] == "COMFYUI_QUEUE_FULL"
+    assert prompt_required["issueCode"] == "PROMPT_REQUIRED"
+
+
 def test_allow_empty_output_keeps_legacy_terminal_status_check() -> None:
     item = {
         "status": "succeeded",
@@ -88,3 +117,51 @@ def test_allow_empty_output_keeps_legacy_terminal_status_check() -> None:
 
     assert patrol._failed_items([item]) == [item]
     assert patrol._failed_items([item], allow_empty_output=True) == []
+
+
+def test_select_workflows_defaults_to_production_role() -> None:
+    items = [
+        {"workflow_id": "wf_prod", "category": "图裂变", "governance": {"role": "production"}},
+        {"workflow_id": "wf_candidate", "category": "图裂变", "governance": {"role": "candidate"}},
+        {"workflow_id": "wf_other", "category": "扩图", "metadata": {"governance": {"role": "production"}}},
+    ]
+
+    selected = patrol._select_workflows(items, category="图裂变", role_filter="production", limit=0)
+
+    assert [item["workflow_id"] for item in selected] == ["wf_prod"]
+
+
+def test_select_workflows_can_run_all_or_multiple_roles() -> None:
+    items = [
+        {"workflow_id": "wf_prod", "governance": {"role": "production"}},
+        {"workflow_id": "wf_candidate", "metadata": '{"governance":{"role":"candidate"}}'},
+        {"workflow_id": "wf_legacy", "metadata": {"governance_role": "legacy"}},
+    ]
+
+    all_selected = patrol._select_workflows(items, category="", role_filter="all", limit=0)
+    selected = patrol._select_workflows(items, category="", role_filter="production,candidate", limit=0)
+
+    assert [item["workflow_id"] for item in all_selected] == ["wf_prod", "wf_candidate", "wf_legacy"]
+    assert [item["workflow_id"] for item in selected] == ["wf_prod", "wf_candidate"]
+
+
+def test_build_params_replaces_blank_schema_defaults_for_patrol() -> None:
+    workflow = {
+        "parameters_schema": {
+            "fields": [
+                {"name": "url", "defaultValue": ""},
+                {"name": "prompt", "defaultValue": ""},
+                {"name": "width", "defaultValue": ""},
+                {"name": "height", "defaultValue": ""},
+                {"name": "image_urls", "defaultValue": ""},
+            ]
+        }
+    }
+
+    params = patrol._build_params(workflow, "https://oss.example/input.png", "tag_1")
+
+    assert params["url"] == "https://oss.example/input.png"
+    assert params["prompt"]
+    assert params["width"] == 1024
+    assert params["height"] == 1024
+    assert params["image_urls"] == ["https://oss.example/input.png"]

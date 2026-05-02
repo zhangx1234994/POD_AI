@@ -21,6 +21,7 @@ def test_parse_business_keys_ignores_empty_values() -> None:
     module = _load_module()
 
     assert module._parse_business_keys(" fission, ,outpaint,, ") == ["fission", "outpaint"]
+    assert module.DEFAULT_BUSINESS_KEYS == ("pattern_extract", "fission", "outpaint")
 
 
 def test_report_safe_requires_default_and_rollback_target() -> None:

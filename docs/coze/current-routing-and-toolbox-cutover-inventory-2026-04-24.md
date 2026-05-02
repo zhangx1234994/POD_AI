@@ -42,7 +42,7 @@ Coze 不应直接调用 ComfyUI、image-ops 或 vendor-api-ops。
 | `IMAGE_OPS_LOCAL_FALLBACK_ENABLED` | `false` | 符合 Coze 主机不跑本地图像重任务原则 |
 | `DISABLE_LOCAL_HEAVY_IMAGE_TASKS` | `true` | 符合高清放大不落 Coze 主机原则 |
 | `VENDOR_API_ENABLED` | `true` | 已启用 vendor-api-ops |
-| `VENDOR_API_BASE_URL` | `http://117.50.80.158:8310` | 已指向 117 执行面 |
+| `VENDOR_API_BASE_URL` | `http://117.50.80.158:8310` | 已指向 158 / 5090 执行面 |
 | `VENDOR_API_LEGACY_FALLBACK_ENABLED` | `true` | 迁移期可接受；全量 smoke 后建议关闭 |
 | `COZE_TRUSTED_IPS` | `114.55.0.56,127.0.0.1` | 同机 Coze 调用 backend 可通过 |
 
@@ -63,8 +63,8 @@ Coze 不应直接调用 ComfyUI、image-ops 或 vendor-api-ops。
 | --- | --- | --- | --- | --- |
 | `executor_vendor_api_domestic_default` | `vendor_api` | `http://117.50.80.158:8310` | active | 国内三方 API 执行面，承载 baidu/volcengine/kie |
 | `executor_vendor_api_global_default` | `vendor_api` | `http://117.50.80.158:8310` | active | global-egress 执行面，承载 openai/openai_compatible |
-| `executor_comfyui_pattern_extract_158` | `comfyui` | `http://117.50.80.158:8079` | active | 外部 ComfyUI 通用节点 |
-| `executor_comfyui_seamless_117` | `comfyui` | `http://117.50.216.233:8079` | active | 外部 ComfyUI 通用节点 |
+| `executor_comfyui_pattern_extract_158` | `comfyui` | `http://117.50.80.158:8079` | active | 158 / 5090 ComfyUI 通用节点 |
+| `executor_comfyui_seamless_117` | `comfyui` | `http://117.50.216.233:8079` | active | 233 / 4090 ComfyUI 通用节点 |
 | `executor_baidu_image_default` | `baidu` | `https://aip.baidubce.com` | active | legacy executor，迁移期 fallback 仍可能使用 |
 | `executor_volcengine_default` | `volcengine` | `https://ark.cn-beijing.volces.com` | active | legacy executor，迁移期 fallback 仍可能使用 |
 | `executor_kie_market_default` | `kie` | `https://api.kie.ai` | active | legacy executor，迁移期 fallback 仍可能使用 |
@@ -76,20 +76,20 @@ Coze 不应直接调用 ComfyUI、image-ops 或 vendor-api-ops。
 
 | capability | 展示名 | workflow | 当前 executor 约束 | Coze 可见性 |
 | --- | --- | --- | --- | --- |
-| `beijing_koutu` | 背景抠图 | `beijing_koutu` | 158 / 117 通用节点 | 默认可见 |
-| `duotu_ronghe` | 多图融合 | `duotu_ronghe` | 158 / 117 通用节点 | 默认可见 |
-| `e7_flux2_liebian` | E7裂变重绘 | `e7_flux2_liebian` | 158 / 117 通用节点 | 默认可见 |
-| `flux2_9b_liebian_sifang` | FLUX2裂变+四方 | `flux2_9b_liebian_sifang` | 158 / 117 通用节点 | presentation 标记 `coze=false` |
-| `flux2_klein_9b_outpaint` | FLUX2-Klein 扩图 | `flux2_klein_9b_outpaint` | 158 / 117 通用节点 | presentation 标记 `coze=true` |
-| `flux_strong_hq_softstyle_fission` | 多元素花纹裂变 | `flux_strong_hq_softstyle_fission` | 158 / 117 通用节点 | presentation 标记 `coze=true` |
-| `huawen_kuotu` | 花纹扩图 | `huawen_kuotu` | 158 / 117 通用节点 | 已 deprecated / hidden |
-| `jisu_chuli` | 极速处理版 | `jisu_chuli` | 158 / 117 通用节点 | 默认可见 |
-| `qwen2512_print_shape_text_enhance` | 裂变文字强化 | `qwen2512_print_shape_text_enhance` | 158 / 117 通用节点 | presentation 标记 `coze=true` |
-| `sifang_lianxu` | 四方连续 | `sifang_lianxu` | 158 / 117 通用节点 | presentation 标记 `coze=false` |
-| `toubu_kouxiang` | 头部抠像 | `toubu_kouxiang` | 158 / 117 通用节点 | 默认可见 |
-| `yinhua_tiqu` | 印花提取 | `yinhua_tiqu` | 158 / 117 通用节点 | presentation 标记 `coze=true` |
-| `yinhua_tiqu_lora_8step` | 8步加速可换LoRA | `yinhua_tiqu_lora_8step` | 158 / 117 通用节点 | 默认可见 |
-| `zhongsu_tisheng` | 中速提质版 | `zhongsu_tisheng` | 158 / 117 通用节点 | 默认可见 |
+| `beijing_koutu` | 背景抠图 | `beijing_koutu` | 158 / 5090 + 233 / 4090 通用节点 | 默认可见 |
+| `duotu_ronghe` | 多图融合 | `duotu_ronghe` | 158 / 5090 + 233 / 4090 通用节点 | 默认可见 |
+| `e7_flux2_liebian` | E7裂变重绘 | `e7_flux2_liebian` | 158 / 5090 + 233 / 4090 通用节点 | 默认可见 |
+| `flux2_9b_liebian_sifang` | FLUX2裂变+四方 | `flux2_9b_liebian_sifang` | 158 / 5090 + 233 / 4090 通用节点 | presentation 标记 `coze=false` |
+| `flux2_klein_9b_outpaint` | FLUX2-Klein 扩图 | `flux2_klein_9b_outpaint` | 158 / 5090 + 233 / 4090 通用节点 | presentation 标记 `coze=true` |
+| `flux_strong_hq_softstyle_fission` | 多元素花纹裂变 | `flux_strong_hq_softstyle_fission` | 158 / 5090 + 233 / 4090 通用节点 | presentation 标记 `coze=true` |
+| `huawen_kuotu` | 花纹扩图 | `huawen_kuotu` | 158 / 5090 + 233 / 4090 通用节点 | 已 deprecated / hidden |
+| `jisu_chuli` | 极速处理版 | `jisu_chuli` | 158 / 5090 + 233 / 4090 通用节点 | 默认可见 |
+| `qwen2512_print_shape_text_enhance` | 裂变文字强化 | `qwen2512_print_shape_text_enhance` | 158 / 5090 + 233 / 4090 通用节点 | presentation 标记 `coze=true` |
+| `sifang_lianxu` | 四方连续 | `sifang_lianxu` | 158 / 5090 + 233 / 4090 通用节点 | presentation 标记 `coze=false` |
+| `toubu_kouxiang` | 头部抠像 | `toubu_kouxiang` | 158 / 5090 + 233 / 4090 通用节点 | 默认可见 |
+| `yinhua_tiqu` | 印花提取 | `yinhua_tiqu` | 158 / 5090 + 233 / 4090 通用节点 | presentation 标记 `coze=true` |
+| `yinhua_tiqu_lora_8step` | 8步加速可换LoRA | `yinhua_tiqu_lora_8step` | 158 / 5090 + 233 / 4090 通用节点 | 默认可见 |
+| `zhongsu_tisheng` | 中速提质版 | `zhongsu_tisheng` | 158 / 5090 + 233 / 4090 通用节点 | 默认可见 |
 
 说明：
 

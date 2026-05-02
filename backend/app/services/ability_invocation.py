@@ -430,13 +430,38 @@ class AbilityInvocationService:
             fallback_ids = []
         if excluded_ids:
             fallback_ids = [executor_id for executor_id in fallback_ids if executor_id not in excluded_ids]
-        fallback_candidates = self._prepare_comfyui_candidates(fallback_ids, required_tags)
-        return self._select_comfyui_executor(
+        fallback_candidate_ids = list(fallback_ids)
+        fallback_required_tags = required_tags
+        if route_by_queue or policy in {"queue", "round_robin", "weight"}:
+            fallback_required_tags = required_tags or ["comfyui-general"]
+            for executor_id in self._list_active_comfyui_executor_ids(exclude_executor_ids=excluded_ids):
+                if executor_id not in fallback_candidate_ids:
+                    fallback_candidate_ids.append(executor_id)
+        fallback_candidates = self._prepare_comfyui_candidates(fallback_candidate_ids, fallback_required_tags)
+        picked = self._select_comfyui_executor(
             fallback_candidates,
             policy=policy,
             route_by_queue=route_by_queue,
             ability_id=ability.id,
-            preferred_order=fallback_ids,
+            preferred_order=fallback_candidate_ids,
+        )
+        if picked:
+            return picked
+
+        # If the workflow-specific default node is full/down and excluded by
+        # the caller, try another active ComfyUI node with compatible tags.
+        # This keeps production moving when homogeneous ComfyUI images are
+        # deployed on multiple machines, without falling back to high-mem-only
+        # or unrelated execution nodes.
+        broad_required_tags = required_tags or ["comfyui-general"]
+        broad_ids = self._list_active_comfyui_executor_ids(exclude_executor_ids=excluded_ids)
+        broad_candidates = self._prepare_comfyui_candidates(broad_ids, broad_required_tags)
+        return self._select_comfyui_executor(
+            broad_candidates,
+            policy=policy,
+            route_by_queue=route_by_queue,
+            ability_id=ability.id,
+            preferred_order=broad_ids,
         )
 
     @staticmethod
@@ -515,6 +540,20 @@ class AbilityInvocationService:
             if required.issubset(tags):
                 filtered.append(ex)
         return filtered
+
+    def _list_active_comfyui_executor_ids(self, *, exclude_executor_ids: Iterable[str] | None = None) -> list[str]:
+        excluded = set(self._normalize_executor_ids(exclude_executor_ids))
+        with get_session() as session:
+            rows = (
+                session.execute(
+                    select(Executor.id)
+                    .where(Executor.status == "active", Executor.type == "comfyui")
+                    .order_by(Executor.id.asc())
+                )
+                .scalars()
+                .all()
+            )
+        return [row for row in rows if row not in excluded]
 
     def _select_comfyui_executor(
         self,
