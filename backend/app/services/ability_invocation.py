@@ -35,6 +35,7 @@ from app.services.integration_test import integration_test_service
 from app.services.api_key_selector import build_vendor_credentials, bump_usage, pick_vendor_api_key
 from app.services.coze_client import coze_client
 from app.services.oss import oss_service
+from app.services.routing_governance import normalize_ability_routing
 from app.services.vendor_api_client import vendor_api_client
 from app.services.vendor_media import persist_vendor_media_payload
 from app.services.workflow_seed import ensure_default_bindings, ensure_default_workflows
@@ -152,7 +153,9 @@ class AbilityInvocationService:
             (payload.metadata or {}).get("excludeExecutorIds")
             or (payload.metadata or {}).get("exclude_executor_ids")
         )
-        executor_id = payload.executorId or ability.executor_id
+        executor_id = payload.executorId
+        if not executor_id and provider_key != "comfyui":
+            executor_id = ability.executor_id
         if provider_key == "comfyui" and executor_id in excluded_executor_ids:
             executor_id = None
         if get_settings().vendor_api_enabled and provider_key in VENDOR_API_PROVIDERS and not payload.executorId:
@@ -334,24 +337,23 @@ class AbilityInvocationService:
         forced_id = (settings.comfyui_default_executor_id or "").strip()
 
         metadata = ability.extra_metadata if isinstance(ability.extra_metadata, dict) else {}
-        policy = str(metadata.get("routing_policy") or "").strip().lower()
+        routing = normalize_ability_routing(metadata)
+        policy = str(routing.get("selection_policy") or metadata.get("routing_policy") or "").strip().lower()
         if not policy:
             policy = "auto"
-        required_tags = self._normalize_tags(metadata.get("required_tags"))
-        fallback_to_default = metadata.get("fallback_to_default")
-        if fallback_to_default is None:
-            fallback_to_default = True
+        required_tags = self._normalize_tags(
+            routing.get("required_executor_tags") or metadata.get("required_tags")
+        )
+        fallback_to_default = routing.get("fallback_to_default")
         fallback_to_default = bool(fallback_to_default)
-        allowed_ids_raw = metadata.get("allowed_executor_ids")
-        allowed_ids: list[str] = []
-        if isinstance(allowed_ids_raw, list):
-            allowed_ids = [str(x).strip() for x in allowed_ids_raw if isinstance(x, str) and x.strip()]
+        allowed_ids = self._normalize_executor_ids(routing.get("allowed_executor_ids"))
         declared_allowed_ids = bool(allowed_ids)
         if excluded_ids:
             allowed_ids = [executor_id for executor_id in allowed_ids if executor_id not in excluded_ids]
-        action = (metadata.get("action") or "").strip() or "generic"
+        action = str(routing.get("action") or metadata.get("action") or "").strip() or "generic"
         workflow_key = (
             (merged_inputs.get("workflow_key") if isinstance(merged_inputs, dict) else None)
+            or routing.get("workflow_key")
             or metadata.get("workflow_key")
             or ability.capability_key
         )

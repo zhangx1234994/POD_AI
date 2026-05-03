@@ -247,3 +247,40 @@ def test_exact_workflow_binding_uses_compatible_executor_even_if_other_node_is_l
 
     picked = service._pick_comfyui_executor_id(ability, {})
     assert picked == "executor_comfyui_pattern_extract_158"
+
+
+def test_nested_routing_allowed_ids_override_legacy_top_level_ids(monkeypatch):
+    service = AbilityInvocationService()
+    ability = SimpleNamespace(
+        id="ability_test",
+        capability_key="flux_strong_hq_softstyle_fission",
+        extra_metadata={
+            "workflow_key": "flux_strong_hq_softstyle_fission",
+            "routing_policy": "queue",
+            "allowed_executor_ids": [
+                "executor_comfyui_seamless_117",
+                "executor_comfyui_pattern_extract_158",
+            ],
+            "routing": {
+                "workflow_key": "flux_strong_hq_softstyle_fission",
+                "selection_policy": "queue",
+                "fallback_to_default": False,
+                "allowed_executor_ids": ["executor_comfyui_pattern_extract_158"],
+            },
+        },
+    )
+
+    monkeypatch.setattr(
+        service,
+        "_prepare_comfyui_candidates",
+        lambda executor_ids, required_tags: [SimpleNamespace(id=eid) for eid in executor_ids],
+    )
+
+    def _fake_status(*, executor_id: str):
+        return {"runningCount": 0, "pendingCount": 0, "supported": True}
+
+    monkeypatch.setattr(integration_test_service, "get_comfyui_queue_status", _fake_status)
+
+    picked = service._pick_comfyui_executor_id(ability, {})
+
+    assert picked == "executor_comfyui_pattern_extract_158"

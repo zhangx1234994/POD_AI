@@ -2486,9 +2486,9 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "requires_image_input": True,
             "supports_vision": True,
             "output_node_ids": ["111"],
-            "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
+            "allowed_executor_ids": ["executor_comfyui_pattern_extract_158"],
             "routing_policy": "queue",
-            "seed_version": 1,
+            "seed_version": 2,
             "pricing": {
                 "currency": "CNY",
                 "unit": "per_image",
