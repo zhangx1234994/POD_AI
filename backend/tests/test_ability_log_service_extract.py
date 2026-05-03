@@ -168,6 +168,26 @@ def test_finish_log_updates_ability_health_summary(monkeypatch):
         assert ability.success_rate == 1.0
 
 
+def test_start_log_truncates_long_source_to_column_limit(monkeypatch):
+    testing_session = install_log_db(monkeypatch)
+    svc = AbilityLogService()
+
+    log_id = svc.start_log(
+        ability_logs_module.AbilityLogStartParams(
+            ability_id="ability_health_test",
+            provider="openai",
+            capability_key="gpt_image_2_generate",
+            source="codex-dual-node-softstyle-release-check",
+        )
+    )
+
+    with testing_session() as session:
+        log = session.get(AbilityInvocationLog, log_id)
+        assert log is not None
+        assert log.source == "codex-dual-node-softstyle-releas"
+        assert len(log.source) == 32
+
+
 def test_latest_failed_log_marks_ability_degraded_when_recent_rate_ok(monkeypatch):
     testing_session = install_log_db(monkeypatch)
     svc = AbilityLogService()

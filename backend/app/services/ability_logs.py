@@ -86,7 +86,7 @@ class AbilityLogService:
                     executor_id=params.executor_id,
                     executor_name=executor_name,
                     executor_type=executor_type,
-                    source=params.source or "admin-test",
+                    source=self._truncate_text(params.source or "admin-test", 32) or "admin-test",
                     task_id=params.task_id,
                     status="pending",
                     request_payload=self._sanitize_payload(params.request_payload),
@@ -104,6 +104,13 @@ class AbilityLogService:
         except Exception as exc:  # pragma: no cover - best effort logging
             self._logger.warning("Failed to create ability log: %s", exc)
             return None
+
+    @staticmethod
+    def _truncate_text(value: Any, max_length: int) -> str:
+        text = str(value or "").strip()
+        if max_length <= 0:
+            return text
+        return text[:max_length]
 
     def finish_success(
         self,
