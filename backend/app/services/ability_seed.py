@@ -22,6 +22,7 @@ from app.constants.abilities import (
 )
 from app.models.integration import Ability
 from app.services.ability_catalog_cleanup import get_cleanup_overrides
+from app.services.routing_governance import enrich_ability_metadata_with_routing
 
 
 @dataclass(frozen=True)
@@ -72,6 +73,8 @@ def _seed_metadata(seed: AbilitySeed) -> dict[str, Any] | None:
     cleanup = get_cleanup_overrides(provider=seed.provider, capability_key=seed.capability_key)
     if cleanup:
         metadata = _merge_dict(metadata, cleanup)
+    if seed.provider == "comfyui" and metadata:
+        metadata = enrich_ability_metadata_with_routing(metadata)
     return metadata or None
 
 

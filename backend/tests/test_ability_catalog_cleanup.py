@@ -108,6 +108,11 @@ def test_seed_repairs_stale_comfyui_allowed_executor_ids() -> None:
         "executor_comfyui_pattern_extract_158",
     ]
     assert metadata["routing_policy"] == "queue"
+    assert metadata["routing"]["allowed_executor_ids"] == [
+        "executor_comfyui_seamless_117",
+        "executor_comfyui_pattern_extract_158",
+    ]
+    assert metadata["routing"]["selection_policy"] == "queue"
     assert metadata["custom_note"] == "keep me"
 
 
