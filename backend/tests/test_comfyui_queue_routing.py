@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from fastapi import HTTPException
 
 import app.services.ability_invocation as ability_invocation_module
+from app.constants.abilities import COMFYUI_ABILITIES
 from app.services.ability_invocation import AbilityInvocationService
 from app.services.integration_test import integration_test_service
 
@@ -20,6 +21,13 @@ def test_pick_comfyui_executor_by_queue_prefers_lower_queue(monkeypatch):
     monkeypatch.setattr(integration_test_service, "get_comfyui_queue_status", _fake_status)
     picked = service._pick_comfyui_executor_by_queue(["executor_a", "executor_b"])
     assert picked == "executor_b"
+
+
+def test_flux_strong_hq_seed_excludes_known_incompatible_4090_node():
+    metadata = COMFYUI_ABILITIES["flux_strong_hq_softstyle_fission"]["metadata"]
+
+    assert metadata["allowed_executor_ids"] == ["executor_comfyui_pattern_extract_158"]
+    assert metadata["seed_version"] >= 2
 
 
 def test_pick_comfyui_executor_by_queue_round_robin_on_tie(monkeypatch):
