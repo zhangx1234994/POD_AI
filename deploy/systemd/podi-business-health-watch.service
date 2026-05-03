@@ -1,0 +1,11 @@
+[Unit]
+Description=PODI Business Chain Lightweight Health Watch
+After=network.target podi-backend.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/srv/pod
+EnvironmentFile=/srv/pod/backend/.env
+ExecStart=/srv/pod/scripts/run_podi_health_watch.sh light
+SuccessExitStatus=1
+User=root

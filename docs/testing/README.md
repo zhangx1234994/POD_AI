@@ -38,6 +38,8 @@
   - 花纹提取 / 图裂变 / 扩图三条业务 API 巡检；默认只做路由预览，真实出图需显式 `--mode live --image-url <url>`。
   - 真实出图前脚本会先检查图片 URL 是否可访问，避免样例图失效误报为能力失败。
   - 发布验收时必须加 `--require-executor-evidence`，确认任务成功之外还能看到实际执行节点，避免只看终态漏掉路由问题。
+- `scripts/run_podi_health_watch.sh` / `scripts/install_business_health_watch.sh`
+  - 114 业务链路定时自检入口。轻量检查每 15 分钟跑一次，不消耗生图；真实巡检每天单并发跑一次，覆盖三大业务和 production 测评工作流。
 - `RELEASE_REGRESSION_REPORT_2026-04-30.md`
   - 2026-04-30 文档治理与发布前完整回归记录
 - `COZE_WORKFLOW_TEST_PLAN.md`

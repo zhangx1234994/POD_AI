@@ -61,6 +61,7 @@
 - 进展（2026-04-30）：补充 Coze 容器级工具箱 smoke 脚本 `scripts/smoke_coze_container_backend.sh`，上线后直接从 `coze-server` 容器访问 backend OpenAPI 与 `tasks/get`；已在 114 上验证 OpenAPI `200`、`tasks/get` `404 TASK_NOT_FOUND`，比单纯本机 curl 更贴近真实工作流链路。
 - 进展（2026-04-30）：维护后的 ComfyUI 服务器已复核，`117.50.216.233:8079` 与 `117.50.80.158:8079` 的 `/system_stats`、`/queue`、`/object_info` 均可访问，队列为空；当前结论是节点连通和资源查询正常，后续发版前仍需跑真实工作流生成测试。
 - 进展（2026-05-02）：114 线上 Coze 业务自检确认 `podi_release_smoke.py` 通过，`INTERNAL_ONLY` 未复发；但一次性巡检 22 条 active 工作流会触发 `COMFYUI_QUEUE_FULL(limit=10, current=10)` 并造成部分评测记录长期 running。已将 `patrol_eval_workflows.py` 改为默认只跑 `production` 主入口且 `--max-in-flight 1` 限流，全量覆盖需显式 `--role all`。
+- 进展（2026-05-03）：新增 114 业务链路定时自检：`podi-business-health-watch.timer` 每 15 分钟做轻量检查，`podi-business-live-patrol.timer` 每天单并发跑花纹提取、图裂变、扩图和 production 测评工作流，避免服务存活但核心业务长期不可用。
 - 进展（2026-05-03）：按业务流程复核花纹提取 / 图裂变 / 扩图三条主链路，确认两台 ComfyUI 路由已修复；新增体检文档 `docs/strategy/core-business-chain-review-2026-05-03.md`。本轮发现花纹提取已在业务版本库中但缺公开业务 API，已补齐 `/api/business/pattern-extract/runs` 与 route-preview，并纳入 OpenAPI、文档和契约测试。
 - 当前未收口（2026-04-28）：KIE 商业模型余额不足导致 2 条图裂变失败；需要等账户余额或 Key 恢复后重新巡检。
 

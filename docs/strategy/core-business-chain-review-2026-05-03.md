@@ -129,6 +129,7 @@ flowchart LR
 - 覆盖花纹提取、图裂变、扩图。
 - 每条都检查提交成功、轮询终态、OSS 链接、底层任务 ID、实际执行节点。
 - 已落地 `backend/scripts/patrol_business_api.py`。默认 `--mode route` 只做路由预览，不消耗出图；需要真实出图时显式执行 `--mode live --image-url <url>`。
+- 已补充 114 定时自检模板：`scripts/run_podi_health_watch.sh`、`scripts/install_business_health_watch.sh`、`podi-business-health-watch.timer`、`podi-business-live-patrol.timer`。轻量检查每 15 分钟跑一次，真实巡检每天单并发跑一次。
 
 2. 管理端运行详情补链路证据
 - 每次业务运行必须能看到业务版本、主能力、执行节点、队列状态、能力任务、OSS 回填、失败原因。

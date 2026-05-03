@@ -43,6 +43,8 @@ Coze 主机统一使用：
 - `podi-admin-web`
 - `podi-eval-web`
 - `podi-eval-health-watch.timer`
+- `podi-business-health-watch.timer`
+- `podi-business-live-patrol.timer`
 
 对应模板：
 
@@ -52,6 +54,10 @@ Coze 主机统一使用：
 - `deploy/systemd/podi-eval-web.service`
 - `deploy/systemd/podi-eval-health-watch.service`
 - `deploy/systemd/podi-eval-health-watch.timer`
+- `deploy/systemd/podi-business-health-watch.service`
+- `deploy/systemd/podi-business-health-watch.timer`
+- `deploy/systemd/podi-business-live-patrol.service`
+- `deploy/systemd/podi-business-live-patrol.timer`
 
 要求：
 
@@ -106,6 +112,8 @@ journalctl -u image-ops -f
 journalctl -u podi-admin-web -f
 journalctl -u podi-eval-web -f
 journalctl -u podi-eval-health-watch.service -n 80 --no-pager
+journalctl -u podi-business-health-watch.service -n 120 --no-pager
+journalctl -u podi-business-live-patrol.service -n 160 --no-pager
 ```
 
 ### 脚本兜底
@@ -181,6 +189,20 @@ systemctl enable --now podi-eval-health-watch.timer
 - 该定时任务每 15 分钟执行一次评测链路健康检查。
 - `warning` 和 `critical` 都会让单次 service 以失败状态结束，便于通过 `systemctl status` / `journalctl` 发现。
 - 启用前必须先手工跑通 `backend/.venv/bin/python backend/scripts/check_eval_operations_health.py`。
+
+### business health watch（推荐）
+
+```bash
+cd /srv/pod
+scripts/install_business_health_watch.sh
+```
+
+说明：
+
+- `podi-business-health-watch.timer` 每 15 分钟执行轻量检查：发布 smoke、三大业务路由预览、ComfyUI 队列可见性、最近评测运行健康。
+- `podi-business-live-patrol.timer` 每天早上执行真实单并发巡检：花纹提取、图裂变、扩图，以及 production 测评工作流。
+- 轻量检查不提交生图任务；真实巡检会消耗少量算力，用于发现“服务活着但业务链路不通”的问题。
+- 安装脚本会先执行轻量预检，严重错误会阻断安装。
 
 ## 8. 最小结论
 

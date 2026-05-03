@@ -143,17 +143,25 @@ Manual checks:
    Expected: all active ComfyUI executors return queue counts.
    When submitting real capacity tasks with `--count`, the script now checks the sample image URL before enqueueing. A bad sample image is a preflight failure, not a ComfyUI capacity result.
 
-Optional timer for 114 after manual confirmation:
+Optional timers for 114 after manual confirmation:
 
 ```bash
 cd /srv/pod
 sudo scripts/install_eval_health_watch.sh
+sudo scripts/install_business_health_watch.sh
 ```
 
-View the latest check:
+Business health watch includes two layers:
+
+- `podi-business-health-watch.timer`: every 15 minutes; checks release smoke, core business route preview, ComfyUI queue visibility, and recent eval operations health. It does not submit image-generation jobs.
+- `podi-business-live-patrol.timer`: daily around 08:30; submits real single-concurrency patrols for pattern extract, fission, outpaint, and production eval workflows.
+
+View the latest checks:
 
 ```bash
 journalctl -u podi-eval-health-watch.service -n 80 --no-pager
+journalctl -u podi-business-health-watch.service -n 120 --no-pager
+journalctl -u podi-business-live-patrol.service -n 160 --no-pager
 ```
 
 Rollback drill for business versions:
@@ -166,7 +174,7 @@ backend/.venv/bin/python backend/scripts/business_rollback_drill.py --business-k
 
 The safety audit verifies each core business has one active default version and at least one active non-default rollback target. The drill is read-only by default. Actual rollback requires `--apply --yes` and must not be used as a routine smoke check.
 
-Timer exit code rule: `0=healthy`, `1=warning and systemd still treats it as completed`, `2=critical and systemd marks the unit failed`.
+Timer exit code rule: `0=healthy`, `1=warning and systemd still treats it as completed`, `2=critical and systemd marks the unit failed`. The business live patrol is stricter: any failed real business chain should be treated as a release/operations blocker until classified.
 
 If any of the above fails, do not continue with frontend/admin acceptance.
 
