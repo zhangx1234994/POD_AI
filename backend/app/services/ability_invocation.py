@@ -23,7 +23,7 @@ import httpx
 
 from app.core.config import get_settings
 from app.core.db import get_session
-from app.models.integration import Ability, AbilityTask, ApiKey, ComfyuiLora, Executor, WorkflowBinding
+from app.models.integration import Ability, AbilityTask, ApiKey, ComfyuiLora, Executor, Workflow, WorkflowBinding
 from app.models.user import User
 from app.schemas import abilities as schemas
 from app.services.ability_logs import AbilityLogStartParams, ability_log_service
@@ -349,19 +349,6 @@ class AbilityInvocationService:
         declared_allowed_ids = bool(allowed_ids)
         if excluded_ids:
             allowed_ids = [executor_id for executor_id in allowed_ids if executor_id not in excluded_ids]
-        # A global default executor is useful for single-node emergency fallback,
-        # but it must not override an ability that explicitly declares multiple
-        # compatible ComfyUI nodes and asks for queue-aware routing.
-        default_can_force = not (
-            declared_allowed_ids
-            and len(allowed_ids) > 1
-            and policy in {"auto", "queue", "round_robin", "weight"}
-        )
-        if forced_id and forced_id not in excluded_ids and default_can_force:
-            with get_session() as session:
-                executor = session.get(Executor, forced_id)
-                if executor and executor.status == "active" and (executor.type or "").lower() == "comfyui":
-                    return executor.id
         action = (metadata.get("action") or "").strip() or "generic"
         workflow_key = (
             (merged_inputs.get("workflow_key") if isinstance(merged_inputs, dict) else None)
@@ -393,7 +380,35 @@ class AbilityInvocationService:
             ensure_default_executors(session)
             ensure_default_workflows(session)
             ensure_default_bindings(session)
-            # Prefer bindings for the action.
+            workflow_id = self._find_comfyui_workflow_id(session, workflow_key)
+            if workflow_id:
+                exact_bindings = (
+                    session.execute(
+                        select(WorkflowBinding)
+                        .where(
+                            WorkflowBinding.enabled.is_(True),
+                            WorkflowBinding.workflow_id == workflow_id,
+                        )
+                        .order_by(WorkflowBinding.priority.desc(), WorkflowBinding.id.asc())
+                    )
+                    .scalars()
+                    .all()
+                )
+                if exact_bindings:
+                    picked = self._pick_from_comfyui_bindings(
+                        exact_bindings,
+                        excluded_ids=excluded_ids,
+                        required_tags=required_tags,
+                        policy=policy,
+                        route_by_queue=route_by_queue,
+                        ability_id=ability.id,
+                    )
+                    # A concrete workflow binding is a compatibility contract.
+                    # If every compatible node is down/full, fail loudly instead
+                    # of escaping to another workflow's generic action binding.
+                    return picked
+
+            # Legacy fallback for old abilities that do not have workflow-level bindings.
             bindings = (
                 session.execute(
                     select(WorkflowBinding)
@@ -404,23 +419,25 @@ class AbilityInvocationService:
                 .all()
             )
             if bindings:
-                priority_groups: dict[int, list[str]] = {}
-                for binding in bindings:
-                    if not binding.executor_id or binding.executor_id in excluded_ids:
-                        continue
-                    priority_groups.setdefault(int(binding.priority or 0), []).append(binding.executor_id)
-                for priority in sorted(priority_groups.keys(), reverse=True):
-                    candidate_ids = priority_groups[priority]
-                    candidates = self._prepare_comfyui_candidates(candidate_ids, required_tags)
-                    picked = self._select_comfyui_executor(
-                        candidates,
-                        policy=policy,
-                        route_by_queue=route_by_queue,
-                        ability_id=ability.id,
-                        preferred_order=candidate_ids,
-                    )
-                    if picked:
-                        return picked
+                picked = self._pick_from_comfyui_bindings(
+                    bindings,
+                    excluded_ids=excluded_ids,
+                    required_tags=required_tags,
+                    policy=policy,
+                    route_by_queue=route_by_queue,
+                    ability_id=ability.id,
+                )
+                if picked:
+                    return picked
+
+        # A global default executor is an emergency fallback only. It must not
+        # override ability allow-lists or workflow bindings, otherwise one
+        # workflow can be submitted to a node missing its model assets.
+        if forced_id and forced_id not in excluded_ids:
+            with get_session() as session:
+                executor = session.get(Executor, forced_id)
+                if executor and executor.status == "active" and (executor.type or "").lower() == "comfyui":
+                    return executor.id
 
         # Fallback: keep current single-host defaults predictable.
         if not fallback_to_default:
@@ -470,6 +487,56 @@ class AbilityInvocationService:
             ability_id=ability.id,
             preferred_order=broad_ids,
         )
+
+    @staticmethod
+    def _find_comfyui_workflow_id(session: Any, workflow_key: Any) -> str | None:
+        key = str(workflow_key or "").strip()
+        if not key:
+            return None
+        rows = session.execute(select(Workflow)).scalars().all()
+        for workflow in rows:
+            meta = workflow.extra_metadata if isinstance(workflow.extra_metadata, dict) else {}
+            definition = workflow.definition if isinstance(workflow.definition, dict) else {}
+            candidates = {
+                str(workflow.id or "").strip(),
+                str(workflow.action or "").strip(),
+                str(meta.get("workflow_key") or "").strip(),
+                str(definition.get("workflow_key") or "").strip(),
+            }
+            if key in candidates:
+                return workflow.id
+        return None
+
+    def _pick_from_comfyui_bindings(
+        self,
+        bindings: list[WorkflowBinding],
+        *,
+        excluded_ids: set[str],
+        required_tags: list[str],
+        policy: str,
+        route_by_queue: bool,
+        ability_id: str,
+    ) -> str | None:
+        priority_groups: dict[int, list[str]] = {}
+        for binding in bindings:
+            if not binding.executor_id or binding.executor_id in excluded_ids:
+                continue
+            group = priority_groups.setdefault(int(binding.priority or 0), [])
+            if binding.executor_id not in group:
+                group.append(binding.executor_id)
+        for priority in sorted(priority_groups.keys(), reverse=True):
+            candidate_ids = priority_groups[priority]
+            candidates = self._prepare_comfyui_candidates(candidate_ids, required_tags)
+            picked = self._select_comfyui_executor(
+                candidates,
+                policy=policy,
+                route_by_queue=route_by_queue,
+                ability_id=ability_id,
+                preferred_order=candidate_ids,
+            )
+            if picked:
+                return picked
+        return None
 
     @staticmethod
     def _normalize_tags(value: Any) -> list[str]:

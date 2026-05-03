@@ -189,7 +189,7 @@ def test_global_default_does_not_override_multi_executor_queue_policy(monkeypatc
     assert picked == "executor_b"
 
 
-def test_workflow_default_can_reroute_to_general_executor_when_default_excluded(monkeypatch):
+def test_exact_workflow_binding_does_not_reroute_when_compatible_executor_excluded(monkeypatch):
     service = AbilityInvocationService()
     ability = SimpleNamespace(
         id="ability_test",
@@ -201,11 +201,6 @@ def test_workflow_default_can_reroute_to_general_executor_when_default_excluded(
         },
     )
 
-    monkeypatch.setattr(
-        service,
-        "_list_active_comfyui_executor_ids",
-        lambda exclude_executor_ids=None: ["executor_comfyui_seamless_117"],
-    )
     monkeypatch.setattr(
         service,
         "_prepare_comfyui_candidates",
@@ -222,10 +217,10 @@ def test_workflow_default_can_reroute_to_general_executor_when_default_excluded(
         {},
         exclude_executor_ids=["executor_comfyui_pattern_extract_158"],
     )
-    assert picked == "executor_comfyui_seamless_117"
+    assert picked is None
 
 
-def test_workflow_default_pool_uses_less_busy_general_executor(monkeypatch):
+def test_exact_workflow_binding_uses_compatible_executor_even_if_other_node_is_less_busy(monkeypatch):
     service = AbilityInvocationService()
     ability = SimpleNamespace(
         id="ability_test",
@@ -237,14 +232,6 @@ def test_workflow_default_pool_uses_less_busy_general_executor(monkeypatch):
         },
     )
 
-    monkeypatch.setattr(
-        service,
-        "_list_active_comfyui_executor_ids",
-        lambda exclude_executor_ids=None: [
-            "executor_comfyui_seamless_117",
-            "executor_comfyui_pattern_extract_158",
-        ],
-    )
     monkeypatch.setattr(
         service,
         "_prepare_comfyui_candidates",
@@ -259,4 +246,4 @@ def test_workflow_default_pool_uses_less_busy_general_executor(monkeypatch):
     monkeypatch.setattr(integration_test_service, "get_comfyui_queue_status", _fake_status)
 
     picked = service._pick_comfyui_executor_id(ability, {})
-    assert picked == "executor_comfyui_seamless_117"
+    assert picked == "executor_comfyui_pattern_extract_158"

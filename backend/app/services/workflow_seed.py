@@ -320,8 +320,10 @@ def _build_binding_seeds() -> list[WorkflowBindingSeed]:
             workflow_id="workflow_comfyui_flux_strong_hq_softstyle_fission_v1",
             executor_id="executor_comfyui_seamless_117",
             priority=95,
-            enabled=True,
-            metadata={"notes": "Secondary binding for 多元素花纹裂变 workflow (117.50.216.233:8079)"},
+            enabled=False,
+            metadata={
+                "notes": "Disabled until 117.50.216.233 has the required CLIPVision/IPAdapter assets for 多元素花纹裂变."
+            },
         ),
         WorkflowBindingSeed(
             id="binding_flux_strong_hq_softstyle_fission_comfyui_158_v1",
@@ -424,10 +426,25 @@ def ensure_default_workflows(session: Session) -> bool:
 def ensure_default_bindings(session: Session) -> bool:
     """Insert default bindings (action → workflow → executor)."""
 
-    created = False
+    changed = False
     for seed in DEFAULT_BINDING_SEEDS:
         stmt = select(WorkflowBinding).where(WorkflowBinding.id == seed.id)
-        if session.execute(stmt).scalar_one_or_none():
+        binding = session.execute(stmt).scalar_one_or_none()
+        if binding:
+            next_fields = {
+                "action": seed.action,
+                "workflow_id": seed.workflow_id,
+                "executor_id": seed.executor_id,
+                "priority": seed.priority,
+                "enabled": seed.enabled,
+                "extra_metadata": seed.metadata,
+            }
+            for field, next_value in next_fields.items():
+                if getattr(binding, field) != next_value:
+                    setattr(binding, field, next_value)
+                    changed = True
+            if changed:
+                session.add(binding)
             continue
         workflow = session.get(Workflow, seed.workflow_id)
         executor = session.get(Executor, seed.executor_id)
@@ -443,7 +460,7 @@ def ensure_default_bindings(session: Session) -> bool:
             extra_metadata=seed.metadata,
         )
         session.add(binding)
-        created = True
-    if created:
+        changed = True
+    if changed:
         session.commit()
-    return created
+    return changed

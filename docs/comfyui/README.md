@@ -32,7 +32,11 @@
 - 多图融合评测端在 `width/height` 留空时会先读取主图尺寸再提交；直接绕过前端调用工具箱时，不传尺寸仍沿用 workflow 默认 `1024x1024`。
 - `背景抠图` 存在过程图，正式回填只认最终输出节点 `4`；`头部抠像` 正式回填只认 `140`；`FLUX2裂变+四方` 正式回填只认 `111`；`裂变文字强化` 正式回填只认 `29`。
 - `FLUX2-Klein 扩图` 的源图节点是 `76 · LoadImage.image`，后端会先把 OSS URL 上传到 ComfyUI input 目录，再回填文件名；不要直接把外部 URL 填进 workflow JSON。
-- `多元素花纹裂变` 的源图节点是 `10 · LoadImage.image`，后端会先把 OSS URL 上传到 ComfyUI input 目录，再回填文件名；`bili` 沿用旧图裂变口径映射到节点 `24.denoise`，默认 `90 ≈ 0.59`。2026-04-29 已确认 `executor_comfyui_seamless_117` 缺少 `ImageResize+`，该 workflow 必须固定到 `executor_comfyui_pattern_extract_158`，不允许默认回退。
+- `多元素花纹裂变` 的源图节点是 `10 · LoadImage.image`，后端会先把 OSS URL 上传到 ComfyUI input 目录，再回填文件名；`bili` 沿用旧图裂变口径映射到节点 `24.denoise`，默认 `90 ≈ 0.59`。2026-05-03 已确认 233 机器缺少该 workflow 依赖的 CLIPVision/IPAdapter 模型，当前只允许固定走 `executor_comfyui_pattern_extract_158`，不允许默认回退。
+- 233 若要承接 `flux_strong_hq_softstyle_fission`，必须先补齐：
+  - `ComfyUI/models/clip_vision/CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors`
+  - `ComfyUI/models/ipadapter/ip-adapter-plus_sdxl_vit-h.safetensors`
+  - 补齐后重启 ComfyUI，并确认 `/object_info` 中 `CLIPVisionLoader.clip_name` 和 `IPAdapterModelLoader.ipadapter_file` 均能列出对应文件，再打开 workflow binding。
 - `FLUX2裂变+四方` 的节点 `104` 为 workflow 内部固定输入，不作为外部参数暴露，也不应在工具箱适配层覆盖。
 
 ## 管理端入口
