@@ -23,11 +23,14 @@ def test_pick_comfyui_executor_by_queue_prefers_lower_queue(monkeypatch):
     assert picked == "executor_b"
 
 
-def test_flux_strong_hq_seed_excludes_known_incompatible_4090_node():
+def test_flux_strong_hq_seed_allows_both_verified_comfyui_nodes():
     metadata = COMFYUI_ABILITIES["flux_strong_hq_softstyle_fission"]["metadata"]
 
-    assert metadata["allowed_executor_ids"] == ["executor_comfyui_pattern_extract_158"]
-    assert metadata["seed_version"] >= 2
+    assert metadata["allowed_executor_ids"] == [
+        "executor_comfyui_seamless_117",
+        "executor_comfyui_pattern_extract_158",
+    ]
+    assert metadata["seed_version"] >= 3
 
 
 def test_pick_comfyui_executor_by_queue_round_robin_on_tie(monkeypatch):
@@ -197,7 +200,7 @@ def test_global_default_does_not_override_multi_executor_queue_policy(monkeypatc
     assert picked == "executor_b"
 
 
-def test_exact_workflow_binding_does_not_reroute_when_compatible_executor_excluded(monkeypatch):
+def test_exact_workflow_binding_uses_remaining_compatible_executor_when_one_is_excluded(monkeypatch):
     service = AbilityInvocationService()
     ability = SimpleNamespace(
         id="ability_test",
@@ -225,7 +228,7 @@ def test_exact_workflow_binding_does_not_reroute_when_compatible_executor_exclud
         {},
         exclude_executor_ids=["executor_comfyui_pattern_extract_158"],
     )
-    assert picked is None
+    assert picked == "executor_comfyui_seamless_117"
 
 
 def test_exact_workflow_binding_uses_compatible_executor_even_if_other_node_is_less_busy(monkeypatch):

@@ -20,7 +20,7 @@
 | `beijing_koutu` | `comfyui.beijing_koutu` / `background_remove` | `url` | `4` | 线上在用 |
 | `toubu_kouxiang` | `comfyui.toubu_kouxiang` / `head_extract` | `url` | `140` | 线上在用 |
 | `flux2_klein_9b_outpaint` | `comfyui.flux2_klein_9b_outpaint` / `outpaint` | `url`、`expand_left`、`expand_right`、`expand_top`、`expand_bottom` | `9` | 新增工具箱 |
-| `flux_strong_hq_softstyle_fission` | `comfyui.flux_strong_hq_softstyle_fission` / `image_fission` | `url`、`prompt`、`image_desc`、`bili`、`width`、`height` | `31` | 高质量图裂变，固定走 `executor_comfyui_pattern_extract_158` |
+| `flux_strong_hq_softstyle_fission` | `comfyui.flux_strong_hq_softstyle_fission` / `image_fission` | `url`、`prompt`、`image_desc`、`bili`、`width`、`height` | `31` | 高质量图裂变，158 / 233 均可按队列路由 |
 | `flux2_9b_liebian_sifang` | `comfyui.flux2_9b_liebian_sifang` / `image_fission` | `url`、`prompt` | `111` | 线上在用；上游 prompt 质量待优化 |
 | `qwen2512_print_shape_text_enhance` | `comfyui.qwen2512_print_shape_text_enhance` / `text_enhance` | `url`、`prompt`、`bili` | `29` | 线上在用；上游 prompt 质量待优化 |
 | `yinhua_tiqu` | `comfyui.yinhua_tiqu` / `pattern_extract` | `url`、`prompt`、`negative_prompt`、`output_width`、`output_height`、`lora_name` | `421` | 线上在用 |
@@ -32,11 +32,11 @@
 - 多图融合评测端在 `width/height` 留空时会先读取主图尺寸再提交；直接绕过前端调用工具箱时，不传尺寸仍沿用 workflow 默认 `1024x1024`。
 - `背景抠图` 存在过程图，正式回填只认最终输出节点 `4`；`头部抠像` 正式回填只认 `140`；`FLUX2裂变+四方` 正式回填只认 `111`；`裂变文字强化` 正式回填只认 `29`。
 - `FLUX2-Klein 扩图` 的源图节点是 `76 · LoadImage.image`，后端会先把 OSS URL 上传到 ComfyUI input 目录，再回填文件名；不要直接把外部 URL 填进 workflow JSON。
-- `多元素花纹裂变` 的源图节点是 `10 · LoadImage.image`，后端会先把 OSS URL 上传到 ComfyUI input 目录，再回填文件名；`bili` 沿用旧图裂变口径映射到节点 `24.denoise`，默认 `90 ≈ 0.59`。2026-05-03 已确认 233 机器缺少该 workflow 依赖的 CLIPVision/IPAdapter 模型，当前只允许固定走 `executor_comfyui_pattern_extract_158`，不允许默认回退。
-- 233 若要承接 `flux_strong_hq_softstyle_fission`，必须先补齐：
+- `多元素花纹裂变` 的源图节点是 `10 · LoadImage.image`，后端会先把 OSS URL 上传到 ComfyUI input 目录，再回填文件名；`bili` 沿用旧图裂变口径映射到节点 `24.denoise`，默认 `90 ≈ 0.59`。2026-05-04 已确认 233 机器补齐 CLIPVision/IPAdapter 后可完整出图并完成 OSS 回填，当前允许 158 / 233 双节点按队列路由。
+- 233 承接 `flux_strong_hq_softstyle_fission` 依赖：
   - `ComfyUI/models/clip_vision/CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors`
   - `ComfyUI/models/ipadapter/ip-adapter-plus_sdxl_vit-h.safetensors`
-  - 补齐后重启 ComfyUI，并确认 `/object_info` 中 `CLIPVisionLoader.clip_name` 和 `IPAdapterModelLoader.ipadapter_file` 均能列出对应文件，再打开 workflow binding。
+  - 重启 ComfyUI 后需确认 `/object_info` 中 `CLIPVisionLoader.clip_name` 和 `IPAdapterModelLoader.ipadapter_file` 均能列出对应文件。
 - `FLUX2裂变+四方` 的节点 `104` 为 workflow 内部固定输入，不作为外部参数暴露，也不应在工具箱适配层覆盖。
 
 ## 管理端入口

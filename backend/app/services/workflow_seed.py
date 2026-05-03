@@ -320,9 +320,9 @@ def _build_binding_seeds() -> list[WorkflowBindingSeed]:
             workflow_id="workflow_comfyui_flux_strong_hq_softstyle_fission_v1",
             executor_id="executor_comfyui_seamless_117",
             priority=95,
-            enabled=False,
+            enabled=True,
             metadata={
-                "notes": "Disabled until 117.50.216.233 has the required CLIPVision/IPAdapter assets for 多元素花纹裂变."
+                "notes": "Secondary binding for 多元素花纹裂变 workflow (117.50.216.233:8079); CLIPVision/IPAdapter assets verified."
             },
         ),
         WorkflowBindingSeed(

@@ -441,19 +441,13 @@ class AbilityInvocationService:
                 if executor and executor.status == "active" and (executor.type or "").lower() == "comfyui":
                     return executor.id
 
-        # Fallback: keep current single-host defaults predictable.
+        # Legacy fallback for stale ability rows without explicit routing metadata.
+        # Current ComfyUI nodes are treated as homogeneous images, so do not pin
+        # a business type to 158/233 here; exact workflow bindings and ability
+        # allowed_executor_ids remain the real compatibility contract.
         if not fallback_to_default:
             return None
-        if workflow_key in {"sifang_lianxu", "huawen_kuotu", "beijing_koutu", "toubu_kouxiang"}:
-            fallback_ids = ["executor_comfyui_seamless_117"]
-        elif workflow_key in {
-            "yinhua_tiqu", "yinhua_tiqu_lora_8step", "jisu_chuli", "zhongsu_tisheng",
-            "duotu_ronghe", "e7_flux2_liebian", "flux_strong_hq_softstyle_fission", "flux2_9b_liebian_sifang",
-            "qwen2512_print_shape_text_enhance",
-        }:
-            fallback_ids = ["executor_comfyui_pattern_extract_158"]
-        else:
-            fallback_ids = []
+        fallback_ids: list[str] = []
         if excluded_ids:
             fallback_ids = [executor_id for executor_id in fallback_ids if executor_id not in excluded_ids]
         fallback_candidate_ids = list(fallback_ids)

@@ -14,6 +14,7 @@ def test_new_comfyui_workflow_seeds_exist_with_expected_output_nodes():
 
 def test_new_comfyui_bindings_cover_two_executors():
     binding_pairs = {(seed.workflow_id, seed.executor_id) for seed in DEFAULT_BINDING_SEEDS}
+    bindings_by_pair = {(seed.workflow_id, seed.executor_id): seed for seed in DEFAULT_BINDING_SEEDS}
 
     assert (
         "workflow_comfyui_flux2_klein_9b_outpaint_v1",
@@ -63,6 +64,12 @@ def test_new_comfyui_bindings_cover_two_executors():
         "workflow_comfyui_flux_strong_hq_softstyle_fission_v1",
         "executor_comfyui_pattern_extract_158",
     ) in binding_pairs
+    assert bindings_by_pair[
+        (
+            "workflow_comfyui_flux_strong_hq_softstyle_fission_v1",
+            "executor_comfyui_seamless_117",
+        )
+    ].enabled is True
 
 
 def test_qwen2512_text_enhance_negative_prompt_does_not_suppress_text():

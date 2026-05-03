@@ -172,7 +172,7 @@
 ```json
 {
   "routing_policy": "queue",
-  "allowed_executor_ids": ["executor_comfyui_pattern_extract_158"],
+  "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
   "required_tags": ["comfyui-general"],
   "fallback_to_default": true,
   "workflow_key": "yinhua_tiqu",
