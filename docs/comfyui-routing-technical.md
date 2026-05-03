@@ -5,6 +5,31 @@
 
 ---
 
+## 0. 线上验证记录（2026-05-04）
+
+本次验证目标是确认 Coze/测评端工作流经过中台后，能稳定提交任务、轮询结果、回填 OSS，并能合理使用两台 ComfyUI 机器。
+
+验证结论：
+- 114 backend 已更新到 `d8725975`。
+- 生产工作流巡检 2 轮，均为 6/6 成功，全部有 OSS 图片回填。
+- 全部 active 测评工作流巡检 1 轮，22/22 成功，全部有 OSS 图片回填。
+- 高质量裂变并发压测 6 个真实任务，158/233 各执行 3 个，证明双节点自动路由已恢复。
+
+本次发现的问题：
+- 历史能力数据中存在 stale `metadata.routing.allowed_executor_ids`，顶层 `allowed_executor_ids` 已是双节点，但嵌套路由仍只写 158，导致并发任务全部打到 158。
+- 已修复 seed：ComfyUI 内置能力会把顶层路由规范化写回 `metadata.routing`，避免“页面看到双节点、运行只打一台”的不一致。
+- 233 当前仍缺少部分工作流依赖，系统会先失败再重路由到 158，业务最终成功，但会带来额外延迟。缺失清单：
+  - 自定义节点 `String`，来源：`custom_nodes.comfyui_bmad_nodes`
+  - 自定义节点 `ComposeRGBAImageFromMask`，来源：`custom_nodes.comfyui-logicutils`
+  - ControlNet 模型：`qwen-image\instantx\Qwen-Image-InstantX-ControlNet-Inpainting.safetensors`
+
+处理原则：
+- 不为 233 缺依赖单独增加复杂路由分支。
+- 优先把 233 镜像/模型/节点补齐，让两台机器保持同构。
+- 在补齐前，重路由机制作为保底；如业务对延迟敏感，应先修 233 依赖。
+
+---
+
 ## 1. 路由决策总览（实际代码顺序）
 
 以下为当前服务端 `AbilityInvocationService._pick_comfyui_executor_id` 的真实流程：
