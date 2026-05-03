@@ -111,6 +111,7 @@
 - 展示层必须区分：
   - 成功但无预览：显示“结果回填中”，禁止直接显示 `—`
   - **JSON 能力不走图片回填**：若输出类型为 `json_output`，直接渲染结构化 JSON。
+- 能力调用日志必须输出 `output_summary`，至少包含图片、视频、文字、结构化结果和普通资源数量，展示层优先使用该摘要，不再只靠 URL 后缀猜测。
 
 ---
 
@@ -122,7 +123,8 @@
 2. `result_assets[*].ossUrl/url/sourceUrl`
 3. `response_payload.assets[*]`
 4. `response_payload.images[*]`
-5. `response_payload.resultUrls[] / imageUrls[] / imageUrl`
+5. `response_payload.videos[*]`
+6. `response_payload.resultUrls[] / imageUrls[] / videoUrls[] / imageUrl / videoUrl`
 
 ---
 
@@ -132,6 +134,8 @@
 
 - `callback_task_id`：`output` 为 task id，统一通过 `/api/coze/podi/tasks/get` 轮询结果
 - `image_url`：直接输出图片 URL（无需回调）
+- `video_url`：直接输出视频 URL（无需回调）
+- `text_output`：直接输出文本或分析结果
 - `json_output`：直接输出结构化 JSON（如 `items/lora_names`、标签结果）
 
 评测端/管理端展示层必须按上述类型选择渲染策略。

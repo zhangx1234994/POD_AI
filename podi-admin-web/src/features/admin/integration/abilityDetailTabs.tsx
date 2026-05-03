@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Alert, Button, Card, Col, Input, Row, Select, Space, Tag, Textarea, Typography } from 'tdesign-react';
 import type { Ability, AbilityTemplateStateResponse, AbilityTemplateValidateResponse } from '../../../types/admin';
 import { StatusBadge } from '../shared/ui';
+import { resolveAbilityOutputProfile } from './abilityOutputProfile';
 import { formatDateTime } from './formatters';
 
 type AbilityHealthView = {
@@ -104,10 +105,12 @@ export function AbilityOverviewTab({
     );
   }
 
+  const outputProfile = resolveAbilityOutputProfile(selectedAbility);
   const baseItems = [
     { label: '能力标识', value: selectedAbility.capability_key || '—' },
     { label: '版本', value: selectedAbility.version || 'v1' },
     { label: '能力类型', value: getAbilityTypeLabel(selectedAbility.ability_type) || '—' },
+    { label: '输出类型', value: outputProfile.label },
     { label: '默认节点', value: defaultExecutorLabel || '按厂商类型自动匹配' },
     { label: '关联工作流', value: workflowLabel || '未绑定' },
   ];
@@ -129,15 +132,21 @@ export function AbilityOverviewTab({
             <Typography.Text theme="secondary">
               {selectedAbility.description || '暂无描述，建议在能力管理中补充。'}
             </Typography.Text>
-            {tags.length > 0 ? (
-              <Space breakLine>
-                {tags.map((tag, index) => (
-                  <Tag key={`selected-ability-tag-${index}`} theme="primary" variant="light">
-                    {tag}
-                  </Tag>
-                ))}
-              </Space>
-            ) : null}
+            <Space breakLine>
+              <Tag theme={outputProfile.theme} variant="light">
+                {outputProfile.label}
+              </Tag>
+              {[...outputProfile.outputTags, ...outputProfile.inputTags].map((tag) => (
+                <Tag key={`selected-ability-profile-${tag}`} theme="primary" variant="outline">
+                  {tag}
+                </Tag>
+              ))}
+              {tags.map((tag, index) => (
+                <Tag key={`selected-ability-tag-${index}`} theme="primary" variant="light">
+                  {tag}
+                </Tag>
+              ))}
+            </Space>
           </Space>
           <StatusBadge status={selectedAbility.status} />
         </Space>

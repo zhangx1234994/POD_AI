@@ -227,6 +227,9 @@ export function AbilityRecentLogsPanel({
             {updatedAt ? `最近刷新：${formatDateTime(updatedAt)}` : '尚未刷新'} · 显示 {pageStart}-{pageEnd} / {totalCount}
           </Typography.Text>
           <Space>
+            <Button variant="outline" disabled={currentPage === 1 || loading} onClick={() => onPageChange(1)}>
+              第一页
+            </Button>
             <Button variant="outline" disabled={!canGoPrev || loading} onClick={() => onPageChange(currentPage - 1)}>
               上一页
             </Button>
@@ -235,6 +238,9 @@ export function AbilityRecentLogsPanel({
             </Typography.Text>
             <Button variant="outline" disabled={!canGoNext || loading} onClick={() => onPageChange(currentPage + 1)}>
               下一页
+            </Button>
+            <Button variant="outline" disabled={currentPage === totalPages || loading} onClick={() => onPageChange(totalPages)}>
+              最后一页
             </Button>
           </Space>
         </div>

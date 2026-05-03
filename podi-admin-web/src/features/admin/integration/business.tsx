@@ -501,9 +501,9 @@ export const BusinessUsageSummaryPanel = ({
       </Col>
       <Col xs={12} sm={6} lg={2}>
         <BusinessMetricCard
-          label="成本记录"
+          label="可计费成本"
           value={formatCurrencyTotals(summary?.costByCurrency)}
-          sub={`已定价 ${summary?.billable ?? 0} · 待补口径 ${summary?.unpriced ?? 0}`}
+          sub={`实际 ${formatCurrencyTotals(summary?.actualCostByCurrency)} · 不计费 ${summary?.noCharge ?? 0}`}
         />
       </Col>
       <Col xs={12} sm={6} lg={2}>
@@ -617,6 +617,22 @@ const recordText = (record: JsonRecord, key: string, fallback = '—') => {
   return String(value);
 };
 
+const businessBillingReasonLabel = (row?: BusinessRun | null) => {
+  if (!row) return '';
+  if (row.billingStatus === 'no_charge') {
+    if (row.noChargeReason === 'failed') return '失败不扣费';
+    if (row.noChargeReason === 'cancelled') return '取消不扣费';
+    if (row.noChargeReason === 'timeout') return '超时不扣费';
+    return row.noChargeReason ? `不计费：${row.noChargeReason}` : '不计费';
+  }
+  if (row.billingStatus === 'unpriced') return '成功但未配置价格';
+  if (row.billingStatus === 'billing_pending') return '任务未结束，暂不计费';
+  if (row.billingStatus === 'billable' && !getBusinessWalletSettlement(row) && row.userId) {
+    return '待确认钱包扣费';
+  }
+  return '';
+};
+
 const businessRunRouteLabel = (routeInfo?: JsonRecord | null) => {
   const route = (routeInfo || {}) as JsonRecord;
   const selectedBy = String(route.selectedBy || 'default');
@@ -626,6 +642,183 @@ const businessRunRouteLabel = (routeInfo?: JsonRecord | null) => {
   if (selectedBy === 'rollout_percent') return `灰度比例 ${percent ?? ''}%`;
   return '默认版本';
 };
+
+type BusinessRunFlowStageTheme = 'success' | 'warning' | 'danger' | 'primary' | 'default';
+
+type BusinessRunFlowStage = {
+  title: string;
+  result: string;
+  detail: string;
+  hint?: string;
+  theme: BusinessRunFlowStageTheme;
+};
+
+const hasBusinessEvidenceValue = (value?: unknown) => {
+  if (value === undefined || value === null) return false;
+  return String(value).trim() !== '';
+};
+
+const recordNumber = (record: JsonRecord, key: string, fallback = 0) => {
+  const value = Number(record[key]);
+  return Number.isFinite(value) ? value : fallback;
+};
+
+const businessRunIsFinished = (status?: string | null) => {
+  const normalized = String(status || '').toLowerCase();
+  return normalized === 'succeeded' || normalized === 'success' || normalized === 'completed';
+};
+
+const businessRunIsFailed = (status?: string | null) => {
+  const normalized = String(status || '').toLowerCase();
+  return normalized === 'failed' || normalized === 'error' || normalized === 'cancelled' || normalized === 'timeout';
+};
+
+const businessRunIsActive = (status?: string | null) => {
+  const normalized = String(status || '').toLowerCase();
+  return normalized === 'queued' || normalized === 'running' || normalized === 'pending';
+};
+
+const businessFlowStageColor = (theme: BusinessRunFlowStageTheme) => {
+  if (theme === 'success') return 'var(--td-success-color)';
+  if (theme === 'warning') return 'var(--td-warning-color)';
+  if (theme === 'danger') return 'var(--td-error-color)';
+  if (theme === 'primary') return 'var(--td-brand-color)';
+  return 'var(--td-border-level-2-color)';
+};
+
+const buildBusinessRunFlowStages = (detail: BusinessRun): BusinessRunFlowStage[] => {
+  const route = asJsonRecord(detail.flowSummary?.route);
+  const ability = asJsonRecord(detail.flowSummary?.ability);
+  const executor = asJsonRecord(detail.flowSummary?.executor);
+  const output = asJsonRecord(detail.flowSummary?.output);
+  const callback = asJsonRecord(detail.flowSummary?.callback);
+  const finished = businessRunIsFinished(detail.status);
+  const failed = businessRunIsFailed(detail.status);
+  const active = businessRunIsActive(detail.status);
+
+  const routeVersion = recordText(route, 'version', detail.version || '—');
+  const routeCapabilityId = recordText(route, 'selectedCapabilityId', detail.abilityId || '');
+  const routeOk = hasBusinessEvidenceValue(routeVersion) && routeVersion !== '—';
+
+  const abilityName = recordText(ability, 'name', detail.abilityName || detail.abilityId || '');
+  const abilityTaskId = recordText(ability, 'taskId', detail.abilityTaskId || detail.taskId || '');
+  const abilityOk = hasBusinessEvidenceValue(abilityName) || hasBusinessEvidenceValue(abilityTaskId);
+
+  const executorName = recordText(executor, 'name', '');
+  const executorId = recordText(executor, 'id', '');
+  const executorType = recordText(executor, 'type', '');
+  const executorOk = hasBusinessEvidenceValue(executorName) || hasBusinessEvidenceValue(executorId);
+
+  const imageCount = recordNumber(output, 'imageCount', detail.imageUrls?.length || 0);
+  const videoCount = recordNumber(output, 'videoCount', detail.videoUrls?.length || 0);
+  const textCount = recordNumber(output, 'textCount', detail.texts?.length || 0);
+  const hasOutput = Boolean(output.hasOutput) || imageCount > 0 || videoCount > 0 || textCount > 0;
+  const hasOssOutput = Boolean(output.hasOssOutput);
+
+  const callbackStatus = recordText(callback, 'status', detail.callbackStatus || '');
+  const callbackHttpStatus = recordText(callback, 'httpStatus', detail.callbackHttpStatus ? String(detail.callbackHttpStatus) : '');
+  const callbackError = recordText(callback, 'error', detail.callbackError || '');
+  const callbackConfigured =
+    hasBusinessEvidenceValue(callbackStatus) || hasBusinessEvidenceValue(callbackHttpStatus) || hasBusinessEvidenceValue(callbackError);
+  const callbackFailed =
+    callbackStatus === 'failed' ||
+    callbackError !== '' ||
+    (hasBusinessEvidenceValue(callbackHttpStatus) && Number(callbackHttpStatus) >= 400);
+
+  return [
+    {
+      title: '版本选择',
+      result: routeOk ? '已确定业务版本' : '未确认版本',
+      detail: `${routeVersion} · ${businessRunRouteLabel(detail.routeInfo)}`,
+      hint: routeCapabilityId ? `对应能力：${formatShortBusinessId(routeCapabilityId)}` : '需要确认默认版本是否生效。',
+      theme: routeOk ? 'success' : failed ? 'danger' : 'warning',
+    },
+    {
+      title: '能力下发',
+      result: abilityOk ? '已下发到原子能力' : active ? '等待下发' : '未见能力任务',
+      detail: abilityName || detail.abilityName || detail.abilityId || '未记录能力',
+      hint: abilityTaskId ? `排障编号：${formatShortBusinessId(abilityTaskId)}` : '若任务已失败，先查业务版本是否绑定了能力。',
+      theme: abilityOk ? 'success' : failed ? 'danger' : 'warning',
+    },
+    {
+      title: '执行节点',
+      result: executorOk ? '已命中执行节点' : abilityOk && active ? '等待调度节点' : '未见执行节点',
+      detail: executorName || executorId || '未记录节点',
+      hint: executorOk ? [formatShortBusinessId(executorId), executorType].filter(Boolean).join(' · ') : '需检查节点健康、标签、并发和路由规则。',
+      theme: executorOk ? 'success' : failed && abilityOk ? 'danger' : abilityOk ? 'warning' : 'default',
+    },
+    {
+      title: '输出回填',
+      result: hasOutput ? (hasOssOutput ? '结果已回填' : '有结果，未确认自有链接') : finished ? '完成但无结果' : '等待结果',
+      detail: `图 ${imageCount} · 视频 ${videoCount} · 文字 ${textCount}`,
+      hint: hasOutput
+        ? hasOssOutput
+          ? '业务侧可直接取结果。'
+          : '有输出但未确认 OSS 回填，需防止外链过期。'
+        : finished
+          ? '完成状态没有结果，优先查输出解析和 OSS 回填。'
+          : '未完成任务先看执行节点和队列状态。',
+      theme: hasOutput ? (hasOssOutput ? 'success' : 'warning') : finished ? 'danger' : active ? 'warning' : 'default',
+    },
+    {
+      title: '业务回调',
+      result: callbackConfigured ? businessCallbackStatusLabel(callbackStatus) : '未配置回调',
+      detail: callbackHttpStatus ? `HTTP ${callbackHttpStatus}` : callbackError || '无回调地址或无需回调',
+      hint: callbackFailed ? '先重试回调；若仍失败，检查业务方地址和签名。' : '回调不影响已回填结果，但会影响业务方自动接收。',
+      theme: callbackFailed ? 'danger' : callbackStatus === 'success' ? 'success' : callbackStatus === 'running' ? 'warning' : 'default',
+    },
+  ];
+};
+
+function BusinessRunFlowEvidenceBar({ detail }: { detail: BusinessRun }) {
+  const stages = buildBusinessRunFlowStages(detail);
+  return (
+    <Card bordered title="业务链路判定">
+      <Space direction="vertical" size="small" style={{ width: '100%' }}>
+        <Typography.Text theme="secondary">
+          按业务真实链路分段查看：红色优先处理，黄色表示等待或证据不足。
+        </Typography.Text>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+            gap: 10,
+          }}
+        >
+          {stages.map((stage, index) => (
+            <div
+              key={stage.title}
+              style={{
+                border: '1px solid var(--td-border-level-1-color)',
+                borderTop: `3px solid ${businessFlowStageColor(stage.theme)}`,
+                borderRadius: 12,
+                padding: 12,
+                background: 'var(--td-bg-color-container)',
+                minHeight: 142,
+              }}
+            >
+              <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                  <Typography.Text strong>{stage.title}</Typography.Text>
+                  <Tag variant="light" theme={stage.theme as any}>
+                    {index + 1}
+                  </Tag>
+                </Space>
+                <Typography.Text>{stage.result}</Typography.Text>
+                <Typography.Text theme="secondary">{stage.detail}</Typography.Text>
+                {stage.hint ? (
+                  <Typography.Text theme={stage.theme === 'danger' ? 'error' : 'secondary'}>
+                    {stage.hint}
+                  </Typography.Text>
+                ) : null}
+              </Space>
+            </div>
+          ))}
+        </div>
+      </Space>
+    </Card>
+  );
+}
 
 export const BusinessRunHistoryPanel = ({
   runs,
@@ -956,6 +1149,10 @@ export const BusinessRunHistoryPanel = ({
                   </Typography.Text>
                   {walletSettlement ? (
                     <Typography.Text theme="secondary">{businessWalletSummary(walletSettlement)}</Typography.Text>
+                  ) : businessBillingReasonLabel(row) ? (
+                    <Typography.Text theme={row.billingStatus === 'no_charge' ? 'secondary' : 'warning'}>
+                      {businessBillingReasonLabel(row)}
+                    </Typography.Text>
                   ) : null}
                 </Space>
               );
@@ -1093,8 +1290,16 @@ export const BusinessRunHistoryPanel = ({
               </Space>
             </Col>
             <Col span={6}>
-              <Typography.Text theme="secondary">成本记录</Typography.Text>
+              <Typography.Text theme="secondary">计费状态</Typography.Text>
               <Space direction="vertical" size={2}>
+                <Tag variant="light" theme={businessBillingStatusTheme(detail.billingStatus)}>
+                  {businessBillingStatusLabel(detail.billingStatus)}
+                </Tag>
+                {businessBillingReasonLabel(detail) ? (
+                  <Typography.Text theme={detail.billingStatus === 'no_charge' ? 'secondary' : 'warning'}>
+                    {businessBillingReasonLabel(detail)}
+                  </Typography.Text>
+                ) : null}
                 <Tag variant="light" theme={businessWalletStatusTheme(getBusinessWalletSettlement(detail))}>
                   {businessWalletStatusLabel(getBusinessWalletSettlement(detail))}
                 </Tag>
@@ -1107,6 +1312,7 @@ export const BusinessRunHistoryPanel = ({
               </Space>
             </Col>
           </Row>
+          <BusinessRunFlowEvidenceBar detail={detail} />
           {detail.flowSummary ? (
             <Card bordered title="链路证据">
               {(() => {
@@ -2083,6 +2289,109 @@ const businessCapabilityRiskTag = (item: BusinessCapability) => {
     return { theme: 'success', text: '生产默认', detail: '当前业务入口默认使用这个版本。' };
   }
   return { theme: 'primary', text: '备用版本', detail: '可用于灰度、对照或回滚。' };
+};
+
+const businessCoreEntrySuggestion = ({
+  defaultItem,
+  activeCount,
+  hasPendingApproval,
+}: {
+  defaultItem?: BusinessCapability;
+  activeCount: number;
+  hasPendingApproval: boolean;
+}) => {
+  if (!defaultItem) return '先补一个启用版本并设为默认，否则业务方没有稳定入口。';
+  if (defaultItem.status !== 'active') return '默认版本未启用，先启用或切换到可用版本。';
+  if (!defaultItem.primaryAbilityId && !defaultItem.primaryAbilityName) return '默认版本缺少底层能力，先绑定真实执行能力。';
+  if (defaultItem.latestRun?.error || Number(defaultItem.runMetrics?.failed || 0) > 0) return '最近有失败样本，先打开运行记录确认卡点。';
+  if (hasPendingApproval) return '存在默认版本切换审批，先处理审批再对外说明。';
+  if (activeCount < 2) return '建议保留一个可用备选版本，便于灰度和快速回滚。';
+  return '入口稳定，可进入测评端或小流量业务验证。';
+};
+
+export const BusinessCoreEntryPanel = ({
+  capabilities,
+  pendingApprovals,
+  formatDateTime,
+}: {
+  capabilities: BusinessCapability[];
+  pendingApprovals: BusinessDefaultApproval[];
+  formatDateTime: (value?: string | null) => string;
+}) => {
+  const rows = coreBusinessKeys.map((businessKey) => {
+    const items = capabilities.filter((item) => item.businessKey === businessKey);
+    const defaultItem = items.find((item) => item.isDefault);
+    const activeCount = items.filter((item) => item.status === 'active').length;
+    const hasPendingApproval = pendingApprovals.some((item) => item.businessKey === businessKey && item.status === 'pending');
+    const risk = defaultItem ? businessCapabilityRiskTag(defaultItem) : { theme: 'danger', text: '缺默认入口', detail: '业务方无法稳定调用。' };
+    return {
+      businessKey,
+      items,
+      defaultItem,
+      activeCount,
+      hasPendingApproval,
+      risk,
+      suggestion: businessCoreEntrySuggestion({ defaultItem, activeCount, hasPendingApproval }),
+    };
+  });
+
+  return (
+    <Card bordered title="核心业务入口总览">
+      <Row gutter={[12, 12]}>
+        {rows.map((row) => (
+          <Col key={row.businessKey} xs={12} lg={4}>
+            <Card bordered size="small" style={{ height: '100%' }}>
+              <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                  <Typography.Text strong>{businessKeyLabel(row.businessKey)}</Typography.Text>
+                  <Tag theme={row.risk.theme as any} variant="light">
+                    {row.risk.text}
+                  </Tag>
+                </Space>
+                <Typography.Text theme="secondary">{businessCapabilityGroupHint(row.businessKey)}</Typography.Text>
+                <div>
+                  <Typography.Text theme="secondary">默认版本</Typography.Text>
+                  <div>
+                    <Typography.Text>
+                      {row.defaultItem ? `${row.defaultItem.version} · ${row.defaultItem.displayName}` : '未设置'}
+                    </Typography.Text>
+                  </div>
+                </div>
+                <Space size={6} style={{ flexWrap: 'wrap' }}>
+                  <Tag theme={row.defaultItem?.status === 'active' ? 'success' : 'warning'} variant="light">
+                    启用 {row.activeCount}/{row.items.length}
+                  </Tag>
+                  <Tag variant="light">{row.defaultItem ? businessCapabilityMediaLabel(row.defaultItem) : '缺输出定义'}</Tag>
+                  {row.hasPendingApproval ? (
+                    <Tag theme="warning" variant="light">
+                      有切换审批
+                    </Tag>
+                  ) : null}
+                </Space>
+                <div>
+                  <Typography.Text theme="secondary">最近结果</Typography.Text>
+                  <div>
+                    <Space size={6}>
+                      {row.defaultItem?.latestRun ? <StatusBadge status={row.defaultItem.latestRun.status} /> : null}
+                      <Typography.Text theme={row.defaultItem?.latestRun?.error ? 'error' : 'secondary'}>
+                        {row.defaultItem ? businessCapabilityLatestRunLabel(row.defaultItem) : '无运行记录'}
+                      </Typography.Text>
+                    </Space>
+                  </div>
+                </div>
+                <Typography.Text theme="secondary">
+                  发布时间：{row.defaultItem ? formatDateTime(row.defaultItem.releaseTime || row.defaultItem.createdAt) : '—'}
+                </Typography.Text>
+                <Typography.Text theme={row.risk.theme === 'danger' ? 'error' : row.risk.theme === 'warning' ? 'warning' : 'secondary'}>
+                  {row.suggestion}
+                </Typography.Text>
+              </Space>
+            </Card>
+          </Col>
+        ))}
+      </Row>
+    </Card>
+  );
 };
 
 const businessCapabilityGroupSortValue = (businessKey?: string | null) => {

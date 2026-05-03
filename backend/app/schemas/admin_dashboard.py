@@ -291,3 +291,31 @@ class ReleaseDecisionRecordResponse(BaseModel):
 
 class ReleaseDecisionRecordListResponse(BaseModel):
     items: list[ReleaseDecisionRecordResponse]
+
+
+class HealthWatchUnitStatus(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    unit: str
+    title: str
+    kind: str
+    status: str
+    summary: str
+    load_state: str | None = Field(default=None, alias="loadState")
+    active_state: str | None = Field(default=None, alias="activeState")
+    sub_state: str | None = Field(default=None, alias="subState")
+    unit_file_state: str | None = Field(default=None, alias="unitFileState")
+    result: str | None = None
+    exec_main_status: int | None = Field(default=None, alias="execMainStatus")
+    last_trigger: str | None = Field(default=None, alias="lastTrigger")
+    next_elapse: str | None = Field(default=None, alias="nextElapse")
+    recent_logs: list[str] = Field(default_factory=list, alias="recentLogs")
+
+
+class HealthWatchStatusResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    generated_at: datetime = Field(alias="generatedAt")
+    supported: bool
+    items: list[HealthWatchUnitStatus]
+    issues: list[str] = Field(default_factory=list)

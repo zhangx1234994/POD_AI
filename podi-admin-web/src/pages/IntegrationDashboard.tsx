@@ -54,6 +54,7 @@ import type {
   DispatchLogEntry,
   Executor,
   ExecutorFormState,
+  HealthWatchStatusResponse,
   JsonRecord,
   JsonValue,
   InviteCode,
@@ -125,7 +126,6 @@ import {
   getAbilityHealthTag,
   getAbilityLogCallbackStageTag,
   getAbilityLogSubmitTag,
-  isAbilityLogFailed,
   isAbilityLogSuccessful,
   resolveLogDurationMs,
 } from '../features/admin/integration/abilityLogs';
@@ -227,6 +227,7 @@ import {
   BusinessActionPanel,
   BusinessCapabilityEditorDialog,
   BusinessCapabilityGrid,
+  BusinessCoreEntryPanel,
   BusinessGovernancePanel,
   BusinessOperationLogPanel,
   BusinessReleaseGuardPanel,
@@ -1416,6 +1417,9 @@ export function IntegrationDashboard({
   const [releaseDecisionRecords, setReleaseDecisionRecords] = useState<ReleaseDecisionRecordResponse[]>([]);
   const [releaseDecisionLoading, setReleaseDecisionLoading] = useState(false);
   const [releaseDecisionError, setReleaseDecisionError] = useState<string | null>(null);
+  const [healthWatchStatus, setHealthWatchStatus] = useState<HealthWatchStatusResponse | null>(null);
+  const [healthWatchLoading, setHealthWatchLoading] = useState(false);
+  const [healthWatchError, setHealthWatchError] = useState<string | null>(null);
   const [strategySnapshots, setStrategySnapshots] = useState<StrategySnapshotResponse[]>([]);
   const [strategySnapshotLoading, setStrategySnapshotLoading] = useState(false);
   const [strategySnapshotError, setStrategySnapshotError] = useState<string | null>(null);
@@ -2660,48 +2664,45 @@ export function IntegrationDashboard({
     return map;
   }, [globalAbilityLogs]);
   const globalAbilityLogProviders = useMemo(
-    () => Array.from(new Set(globalAbilityLogs.map((log) => log.ability_provider))).sort(),
-    [globalAbilityLogs],
+    () =>
+      Array.from(
+        new Set([
+          ...abilities.map((ability) => ability.provider).filter(Boolean),
+          ...globalAbilityLogs.map((log) => log.ability_provider).filter(Boolean),
+        ]),
+      ).sort(),
+    [abilities, globalAbilityLogs],
   );
   const globalAbilityLogSources = useMemo(
-    () => Array.from(new Set(globalAbilityLogs.map((log) => log.source))).sort(),
+    () =>
+      Array.from(
+        new Set([
+          'admin-test',
+          'workflow',
+          'task',
+          'ability-api',
+          'ability-task',
+          'ability_api',
+          'ability_task',
+          'business-api',
+          ...globalAbilityLogs.map((log) => log.source).filter(Boolean),
+        ]),
+      ).sort(),
     [globalAbilityLogs],
   );
   const globalAbilityLogStatuses = useMemo(
-    () => Array.from(new Set(globalAbilityLogs.map((log) => log.status).filter(Boolean) as string[])).sort(),
+    () =>
+      Array.from(
+        new Set([
+          'pending',
+          'success',
+          'failed',
+          ...globalAbilityLogs.map((log) => log.status).filter(Boolean) as string[],
+        ]),
+      ).sort(),
     [globalAbilityLogs],
   );
-  const filteredGlobalAbilityLogs = useMemo(() => {
-    const keyword = globalAbilityLogSearch.trim().toLowerCase();
-    return globalAbilityLogs.filter((log) => {
-      const callbackStatus = (log.callback_status || '').toLowerCase();
-      const hasCallbackError =
-        isAbilityLogFailed(callbackStatus) ||
-        (typeof log.callback_http_status === 'number' && log.callback_http_status >= 400) ||
-        Boolean(log.callback_error);
-      if (globalAbilityLogProvider !== 'all' && log.ability_provider !== globalAbilityLogProvider) return false;
-      if (globalAbilityLogCapabilityKey !== 'all' && log.capability_key !== globalAbilityLogCapabilityKey) return false;
-      if (globalAbilityLogSource !== 'all' && log.source !== globalAbilityLogSource) return false;
-      if (globalAbilityLogStatus !== 'all' && (log.status || '') !== globalAbilityLogStatus) return false;
-      if (globalAbilityLogTemplatePublished === 'published' && !log.ability_template_published) return false;
-      if (globalAbilityLogTemplatePublished === 'unpublished' && log.ability_template_published) return false;
-      if (globalAbilityLogOnlyCallbackFailed && !hasCallbackError) return false;
-      if (!keyword) return true;
-      const haystack = `${log.ability_name || ''} ${log.capability_key} ${log.ability_provider} ${log.executor_name || ''} ${
-        log.executor_id || ''
-      } ${log.task_id || ''} ${log.callback_id || ''} ${log.trace_id || ''} ${log.ability_current_template_id || ''}`.toLowerCase();
-      return haystack.includes(keyword);
-    });
-  }, [
-    globalAbilityLogs,
-    globalAbilityLogProvider,
-    globalAbilityLogCapabilityKey,
-    globalAbilityLogSource,
-    globalAbilityLogStatus,
-    globalAbilityLogTemplatePublished,
-    globalAbilityLogOnlyCallbackFailed,
-    globalAbilityLogSearch,
-  ]);
+  const filteredGlobalAbilityLogs = globalAbilityLogs;
   const abilityLogDetailDurationMs = useMemo(
     () => (abilityLogDetail ? resolveLogDurationMs(abilityLogDetail) : null),
     [abilityLogDetail],
@@ -2983,6 +2984,18 @@ export function IntegrationDashboard({
       (vendorGovernanceSummary?.providers || []).reduce((sum, item) => sum + (item.issues?.length || 0), 0),
     [vendorGovernanceSummary],
   );
+  const healthWatchIssueCount = useMemo(
+    () =>
+      (healthWatchStatus?.items || []).filter((item) =>
+        ['failed', 'disabled', 'unavailable'].includes(item.status),
+      ).length,
+    [healthWatchStatus],
+  );
+  const healthWatchHeaderText = healthWatchStatus
+    ? healthWatchIssueCount > 0
+      ? `巡检守护异常 ${healthWatchIssueCount}`
+      : '巡检守护正常'
+    : '巡检守护待检查';
 
   const {
     handleAuthInviteDisable,
@@ -3112,6 +3125,7 @@ export function IntegrationDashboard({
         adminApi.listReleasePatrolRecords(5).catch((error) => ({ __error: error })),
         adminApi.listWeeklyReports(5).catch((error) => ({ __error: error })),
         adminApi.listReleaseDecisionRecords(5).catch((error) => ({ __error: error })),
+        adminApi.getHealthWatchStatus().catch((error) => ({ __error: error })),
       ]);
 
       const errors: string[] = [];
@@ -3148,6 +3162,7 @@ export function IntegrationDashboard({
       const releasePatrolRes = settled[22].status === 'fulfilled' ? (settled[22].value as any) : null;
       const weeklyReportRes = settled[23].status === 'fulfilled' ? (settled[23].value as any) : null;
       const releaseDecisionRes = settled[24].status === 'fulfilled' ? (settled[24].value as any) : null;
+      const healthWatchRes = settled[25].status === 'fulfilled' ? (settled[25].value as any) : null;
 
       if (execRes) setExecutors(execRes);
       if (wfRes) setWorkflows(wfRes);
@@ -3243,6 +3258,12 @@ export function IntegrationDashboard({
         setReleaseDecisionError(null);
       } else if (releaseDecisionRes?.__error) {
         setReleaseDecisionError(releaseDecisionRes.__error?.message || '上线结论登记加载失败');
+      }
+      if (healthWatchRes && !healthWatchRes.__error) {
+        setHealthWatchStatus(healthWatchRes as HealthWatchStatusResponse);
+        setHealthWatchError(null);
+      } else if (healthWatchRes?.__error) {
+        setHealthWatchError(healthWatchRes.__error?.message || '线上自检守护状态加载失败');
       }
 
       if (abilityRes) {
@@ -3355,6 +3376,19 @@ export function IntegrationDashboard({
     }
   };
 
+  const refreshHealthWatchStatus = async () => {
+    setHealthWatchLoading(true);
+    try {
+      const response = await adminApi.getHealthWatchStatus();
+      setHealthWatchStatus(response);
+      setHealthWatchError(null);
+    } catch (error) {
+      setHealthWatchError(error instanceof Error ? error.message : '线上自检守护状态加载失败');
+    } finally {
+      setHealthWatchLoading(false);
+    }
+  };
+
   const createReleasePatrolRecord = async (status: 'passed' | 'failed') => {
     const command =
       'python3 backend/scripts/patrol_eval_workflows.py --base-url http://127.0.0.1:8099 --timeout 1800 --report reports/eval_patrol_$(date +%Y%m%d_%H%M%S).json';
@@ -3463,6 +3497,8 @@ export function IntegrationDashboard({
           globalAbilityLogTemplatePublished === 'all'
             ? undefined
             : globalAbilityLogTemplatePublished === 'published',
+        search: globalAbilityLogSearch.trim() || undefined,
+        callbackFailed: globalAbilityLogOnlyCallbackFailed || undefined,
       });
       const filename = `ability_logs_24h_${new Date().toISOString().slice(0, 10)}.${format}`;
       downloadBlob(blob, filename);
@@ -4376,6 +4412,8 @@ export function IntegrationDashboard({
           globalAbilityLogTemplatePublished === 'all'
             ? undefined
             : globalAbilityLogTemplatePublished === 'published',
+        search: globalAbilityLogSearch.trim() || undefined,
+        callbackFailed: globalAbilityLogOnlyCallbackFailed || undefined,
       });
       const items = response.items || [];
       setGlobalAbilityLogs(items);
@@ -4396,6 +4434,8 @@ export function IntegrationDashboard({
       globalAbilityLogCapabilityKey,
       globalAbilityLogPage,
       globalAbilityLogProvider,
+      globalAbilityLogOnlyCallbackFailed,
+      globalAbilityLogSearch,
       globalAbilityLogSource,
       globalAbilityLogStatus,
       globalAbilityLogTemplatePublished,
@@ -6173,6 +6213,9 @@ const extractErrorMessage = (error: unknown): string => {
             <Tag variant="light" theme={vendorGovernanceIssueCount > 0 ? 'warning' : 'success'}>
               模型风险 {vendorGovernanceIssueCount}
             </Tag>
+            <Tag variant="light" theme={healthWatchIssueCount > 0 ? 'danger' : healthWatchStatus ? 'success' : 'warning'}>
+              {healthWatchHeaderText}
+            </Tag>
             <Tag variant="light">运行线路 {summary.activeExecutors}/{summary.executors}</Tag>
             <Tag variant="light" theme={loadErrors.length > 0 ? 'danger' : 'success'}>
               {loadErrors.length > 0 ? `异常 ${loadErrors.length}` : '状态正常'}
@@ -6205,6 +6248,9 @@ const extractErrorMessage = (error: unknown): string => {
                 releasePreflightSnapshots={releasePreflightSnapshots}
                 releasePreflightLoading={releasePreflightLoading}
                 releasePreflightError={releasePreflightError}
+                healthWatchStatus={healthWatchStatus}
+                healthWatchLoading={healthWatchLoading}
+                healthWatchError={healthWatchError}
                 releasePatrolRecords={releasePatrolRecords}
                 releasePatrolLoading={releasePatrolLoading}
                 releasePatrolError={releasePatrolError}
@@ -6220,6 +6266,7 @@ const extractErrorMessage = (error: unknown): string => {
                 onRefreshWeeklyReports={refreshWeeklyReports}
                 onRunReleasePreflight={runReleasePreflight}
                 onRefreshReleasePreflight={refreshReleasePreflightSnapshots}
+                onRefreshHealthWatchStatus={refreshHealthWatchStatus}
                 onCreateReleasePatrolRecord={createReleasePatrolRecord}
                 onImportReleasePatrolReport={importReleasePatrolReport}
                 onRefreshReleasePatrolRecords={refreshReleasePatrolRecords}
@@ -6279,6 +6326,11 @@ const extractErrorMessage = (error: unknown): string => {
                   capabilities={businessCapabilities}
                   pendingApprovals={businessDefaultApprovals}
                   summary={businessUsageSummary}
+                />
+                <BusinessCoreEntryPanel
+                  capabilities={businessCapabilities}
+                  pendingApprovals={businessDefaultApprovals}
+                  formatDateTime={formatDateTime}
                 />
                 {!isBusinessReadOnly ? (
                   <BusinessReleaseGuardPanel
@@ -6627,13 +6679,34 @@ const extractErrorMessage = (error: unknown): string => {
                 onRefresh={refreshGlobalAbilityLogs}
                 onPageChange={setGlobalAbilityLogPage}
                 onExport={exportGlobalAbilityLogs}
-                onOnlyCallbackFailedChange={setGlobalAbilityLogOnlyCallbackFailed}
-                onSearchChange={setGlobalAbilityLogSearch}
-                onProviderChange={setGlobalAbilityLogProvider}
-                onSourceChange={setGlobalAbilityLogSource}
-                onStatusChange={setGlobalAbilityLogStatus}
-                onTemplatePublishedChange={setGlobalAbilityLogTemplatePublished}
-                onCapabilityKeyChange={setGlobalAbilityLogCapabilityKey}
+                onOnlyCallbackFailedChange={(value) => {
+                  setGlobalAbilityLogPage(1);
+                  setGlobalAbilityLogOnlyCallbackFailed(value);
+                }}
+                onSearchChange={(value) => {
+                  setGlobalAbilityLogPage(1);
+                  setGlobalAbilityLogSearch(value);
+                }}
+                onProviderChange={(value) => {
+                  setGlobalAbilityLogPage(1);
+                  setGlobalAbilityLogProvider(value);
+                }}
+                onSourceChange={(value) => {
+                  setGlobalAbilityLogPage(1);
+                  setGlobalAbilityLogSource(value);
+                }}
+                onStatusChange={(value) => {
+                  setGlobalAbilityLogPage(1);
+                  setGlobalAbilityLogStatus(value);
+                }}
+                onTemplatePublishedChange={(value) => {
+                  setGlobalAbilityLogPage(1);
+                  setGlobalAbilityLogTemplatePublished(value);
+                }}
+                onCapabilityKeyChange={(value) => {
+                  setGlobalAbilityLogPage(1);
+                  setGlobalAbilityLogCapabilityKey(value);
+                }}
                 onCopy={copyTextToClipboard}
                 onOpenDetail={(row) => {
                   setAbilityLogDetail(row);

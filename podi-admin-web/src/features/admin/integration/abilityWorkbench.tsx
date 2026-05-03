@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
-import { Alert, Button, Card, Select, Space, Tabs, Typography } from 'tdesign-react';
+import { Alert, Button, Card, Select, Space, Tabs, Tag, Typography } from 'tdesign-react';
 import type { Ability } from '../../../types/admin';
+import { resolveAbilityOutputProfile } from './abilityOutputProfile';
 
 type AbilityTab = {
   id: string;
@@ -30,6 +31,7 @@ export function AbilityWorkbenchPanel({
   renderContent: (tab: string) => ReactNode;
   getProviderLabel: (provider: string) => string;
 }) {
+  const selectedOutputProfile = selectedAbility ? resolveAbilityOutputProfile(selectedAbility) : null;
   if (abilities.length === 0) {
     return (
       <Alert
@@ -51,6 +53,18 @@ export function AbilityWorkbenchPanel({
             <Space direction="vertical" size={2} style={{ textAlign: 'right' }}>
               <Typography.Text theme="secondary">能力编号：{selectedAbility.id}</Typography.Text>
               <Typography.Text theme="secondary">能力标识：{selectedAbility.capability_key}</Typography.Text>
+              {selectedOutputProfile ? (
+                <Space size={4} style={{ justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                  <Tag theme={selectedOutputProfile.theme} variant="light" size="small">
+                    {selectedOutputProfile.label}
+                  </Tag>
+                  {[...selectedOutputProfile.outputTags, ...selectedOutputProfile.inputTags].slice(0, 4).map((tag) => (
+                    <Tag key={`selected-ability-profile-${tag}`} variant="light" size="small">
+                      {tag}
+                    </Tag>
+                  ))}
+                </Space>
+              ) : null}
             </Space>
           ) : null}
         </Space>
@@ -62,10 +76,13 @@ export function AbilityWorkbenchPanel({
               onChange={(value) => onSelectAbility(String(value) || null)}
               options={[
                 { label: '请选择（或在能力管理中新建）', value: '' },
-                ...abilities.map((ability) => ({
-                  label: `${ability.display_name} · ${getProviderLabel(ability.provider)}`,
-                  value: ability.id,
-                })),
+                ...abilities.map((ability) => {
+                  const profile = resolveAbilityOutputProfile(ability);
+                  return {
+                    label: `${ability.display_name} · ${profile.label} · ${getProviderLabel(ability.provider)}`,
+                    value: ability.id,
+                  };
+                }),
               ]}
               placeholder="快速选择能力"
             />

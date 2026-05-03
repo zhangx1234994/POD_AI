@@ -136,3 +136,55 @@ def test_eval_workflow_catalog_check_allows_configured_production_limit() -> Non
 
     assert ok is True
     assert "productionByCategory" in detail
+
+
+def test_comfyui_queue_summary_check_blocks_unavailable_executors() -> None:
+    module = _load_smoke_module()
+
+    ok, detail = module._validate_comfyui_queue_summary(
+        {
+            "servers": [{"executorId": "executor_233"}],
+            "unsupportedServers": 1,
+            "backendBlockedServers": 0,
+            "diagnostics": [{"code": "COMFYUI_EXECUTOR_UNAVAILABLE"}],
+        }
+    )
+
+    assert ok is False
+    assert "unsupportedServers=1" in detail
+
+
+def test_comfyui_queue_summary_check_blocks_backend_running_not_visible() -> None:
+    module = _load_smoke_module()
+
+    ok, detail = module._validate_comfyui_queue_summary(
+        {
+            "servers": [{"executorId": "executor_158"}],
+            "unsupportedServers": 0,
+            "backendBlockedServers": 1,
+            "diagnostics": [{"code": "COMFYUI_BACKEND_RUNNING_NOT_VISIBLE"}],
+        }
+    )
+
+    assert ok is False
+    assert "backendBlockedServers=1" in detail
+
+
+def test_comfyui_queue_summary_check_allows_feed_gap_as_warning_detail() -> None:
+    module = _load_smoke_module()
+
+    ok, detail = module._validate_comfyui_queue_summary(
+        {
+            "servers": [{"executorId": "executor_158"}, {"executorId": "executor_233"}],
+            "unsupportedServers": 0,
+            "backendBlockedServers": 0,
+            "feedGapServers": 1,
+            "totalCapacity": 20,
+            "totalIdleSlots": 8,
+            "utilization": 0.6,
+            "diagnostics": [{"code": "COMFYUI_FEED_GAP"}],
+        }
+    )
+
+    assert ok is True
+    assert "feedGapServers=1" in detail

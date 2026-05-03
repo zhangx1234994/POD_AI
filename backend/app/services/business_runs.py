@@ -15,7 +15,7 @@ from uuid import uuid4
 
 import httpx
 from fastapi import HTTPException
-from sqlalchemy import func, select, update
+from sqlalchemy import and_, func, or_, select, update
 
 from app.core.db import get_session
 from app.models.integration import (
@@ -675,6 +675,8 @@ class BusinessRunService:
         limit: int = 50,
         business_key: str | None = None,
         status: str | None = None,
+        billing_status: str | None = None,
+        callback_status: str | None = None,
         version: str | None = None,
         source: str | None = None,
         tenant_id: str | None = None,
@@ -689,6 +691,8 @@ class BusinessRunService:
                 filters.append(BusinessRun.business_key == business_key)
             if status:
                 filters.append(BusinessRun.status == status)
+            if callback_status:
+                filters.append(BusinessRun.callback_status == callback_status)
             if version:
                 filters.append(BusinessRun.version == version)
             if source:
@@ -702,6 +706,11 @@ class BusinessRunService:
             if filters:
                 stmt = stmt.where(*filters)
                 count_stmt = count_stmt.where(*filters)
+            if billing_status:
+                status_filter = self._billing_status_filter(billing_status)
+                if status_filter is not None:
+                    stmt = stmt.where(status_filter)
+                    count_stmt = count_stmt.where(status_filter)
             total = int(session.scalar(count_stmt) or 0)
             rows = (
                 session.execute(stmt.order_by(BusinessRun.created_at.desc()).limit(max(1, min(limit, 200))))
@@ -816,19 +825,51 @@ class BusinessRunService:
         }
         durations: list[int] = []
         cost_by_currency: dict[str, float] = {}
+        actual_cost_by_currency: dict[str, float] = {}
         quota_units = 0
+        actual_quota_units = 0
+        billable = 0
+        unpriced = 0
+        no_charge = 0
+        billing_pending = 0
+        callback_success = 0
+        callback_failed = 0
+        callback_running = 0
+        callback_missing = 0
         latest_at: datetime | None = None
         for row in rows:
             status = str(row.status or "").strip().lower()
             if status in statuses:
                 statuses[status] += 1
+            callback_status = str(row.callback_status or "").strip().lower()
+            if callback_status == "success":
+                callback_success += 1
+            elif callback_status == "failed" or row.callback_error:
+                callback_failed += 1
+            elif callback_status == "running":
+                callback_running += 1
+            elif row.callback_url:
+                callback_missing += 1
             if isinstance(row.duration_ms, int):
                 durations.append(row.duration_ms)
             cost_amount = self._first_number(row.cost_amount)
             if cost_amount is not None:
                 currency = str(row.currency or "UNKNOWN").strip() or "UNKNOWN"
-                cost_by_currency[currency] = round(cost_by_currency.get(currency, 0.0) + cost_amount, 4)
-            quota_units += int(row.quota_units or 0)
+                actual_cost_by_currency[currency] = round(actual_cost_by_currency.get(currency, 0.0) + cost_amount, 4)
+            actual_quota_units += int(row.quota_units or 0)
+            billing_status = self._business_billing_status(row)
+            if billing_status == "billable":
+                billable += 1
+                if cost_amount is not None:
+                    currency = str(row.currency or "UNKNOWN").strip() or "UNKNOWN"
+                    cost_by_currency[currency] = round(cost_by_currency.get(currency, 0.0) + cost_amount, 4)
+                quota_units += int(row.quota_units or 0)
+            elif billing_status == "unpriced":
+                unpriced += 1
+            elif billing_status == "no_charge":
+                no_charge += 1
+            elif billing_status == "billing_pending":
+                billing_pending += 1
             if row.created_at and (latest_at is None or row.created_at > latest_at):
                 latest_at = row.created_at
         total = len(rows)
@@ -842,7 +883,17 @@ class BusinessRunService:
             "success_rate": success_rate,
             "avg_duration_ms": avg_duration_ms,
             "cost_by_currency": cost_by_currency,
+            "actual_cost_by_currency": actual_cost_by_currency,
             "quota_units": quota_units,
+            "actual_quota_units": actual_quota_units,
+            "billable": billable,
+            "unpriced": unpriced,
+            "no_charge": no_charge,
+            "billing_pending": billing_pending,
+            "callback_success": callback_success,
+            "callback_failed": callback_failed,
+            "callback_running": callback_running,
+            "callback_missing": callback_missing,
             "latest_at": latest_at,
         }
 
@@ -1817,6 +1868,68 @@ class BusinessRunService:
                 "usage": usage_payload or None,
             }
         )
+
+    @staticmethod
+    def _business_billing_status(row: BusinessRun) -> str:
+        status = str(row.status or "").strip().lower()
+        if status in {"queued", "running", "pending", "planned"}:
+            return "billing_pending"
+        if status in {"failed", "cancelled", "timeout"}:
+            return "no_charge"
+        if status == "succeeded":
+            cost_amount = BusinessRunService._first_number(row.cost_amount)
+            quota_units = BusinessRunService._first_int(row.quota_units)
+            if (cost_amount is not None and cost_amount > 0) or (quota_units is not None and quota_units > 0):
+                return "billable"
+            return "unpriced"
+        return "billing_pending"
+
+    @staticmethod
+    def _business_no_charge_reason(row: BusinessRun) -> str | None:
+        billing_status = BusinessRunService._business_billing_status(row)
+        status = str(row.status or "").strip().lower()
+        if billing_status == "no_charge":
+            if status == "failed":
+                return "任务失败，不向业务方计费"
+            if status == "cancelled":
+                return "任务已取消，不向业务方计费"
+            if status == "timeout":
+                return "任务超时，不向业务方计费"
+            return "非成功任务，不向业务方计费"
+        if billing_status == "billing_pending":
+            return "任务未终态，暂不计费"
+        if billing_status == "unpriced":
+            return "任务成功但缺少定价，待确认计费口径"
+        return None
+
+    @staticmethod
+    def _billing_status_filter(billing_status: str):
+        normalized = str(billing_status or "").strip()
+        if normalized == "billable":
+            return and_(
+                BusinessRun.status == "succeeded",
+                or_(
+                    BusinessRun.cost_amount > 0,
+                    BusinessRun.quota_units > 0,
+                ),
+            )
+        if normalized == "unpriced":
+            return and_(
+                BusinessRun.status == "succeeded",
+                or_(
+                    BusinessRun.cost_amount.is_(None),
+                    BusinessRun.cost_amount <= 0,
+                ),
+                or_(
+                    BusinessRun.quota_units.is_(None),
+                    BusinessRun.quota_units <= 0,
+                ),
+            )
+        if normalized == "no_charge":
+            return BusinessRun.status.in_(["failed", "cancelled", "timeout"])
+        if normalized == "billing_pending":
+            return BusinessRun.status.in_(["queued", "running", "pending", "planned"])
+        return None
 
     @staticmethod
     def _first_number(*values: Any) -> float | None:
@@ -2914,6 +3027,7 @@ class BusinessRunService:
             vendor_model_provider = vendor_model.provider
         route_info = (row.request_payload or {}).get("_route") if isinstance(row.request_payload, dict) else None
         steps = self._run_steps_to_dict(row, session=session)
+        billing_status = self._business_billing_status(row)
         return {
             "id": row.id,
             "business_key": row.business_key,
@@ -2953,6 +3067,9 @@ class BusinessRunService:
             "currency": row.currency,
             "quota_units": row.quota_units,
             "cost_breakdown": row.cost_breakdown,
+            "billing_status": billing_status,
+            "chargeable": billing_status == "billable",
+            "no_charge_reason": self._business_no_charge_reason(row),
             "callback_status": row.callback_status,
             "callback_http_status": row.callback_http_status,
             "callback_error": row.callback_error,

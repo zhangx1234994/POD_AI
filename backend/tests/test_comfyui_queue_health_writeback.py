@@ -81,6 +81,8 @@ def test_comfyui_queue_summary_writes_executor_health(monkeypatch) -> None:
 
     assert summary["totalRunning"] == 1
     assert summary["totalPending"] == 2
+    assert summary["totalCapacity"] == 10
+    assert summary["unsupportedServers"] == 1
     with testing_session() as session:
         ok = session.get(Executor, "executor_ok")
         down = session.get(Executor, "executor_down")
@@ -90,3 +92,59 @@ def test_comfyui_queue_summary_writes_executor_health(monkeypatch) -> None:
         assert ok.last_heartbeat_at is not None
         assert down.health_status == "failed"
         assert down.last_heartbeat_at is None
+
+
+def test_comfyui_queue_summary_exposes_backend_feed_gap(monkeypatch) -> None:
+    testing_session = _install_executor_db(monkeypatch)
+    with testing_session() as session:
+        session.add(
+            Executor(
+                id="executor_idle",
+                name="Idle GPU",
+                type="comfyui",
+                base_url="http://idle.example",
+                status="active",
+                max_concurrency=10,
+                config={},
+            )
+        )
+        session.commit()
+
+    service = IntegrationTestService()
+
+    monkeypatch.setattr(
+        service,
+        "get_comfyui_queue_status",
+        lambda *, executor_id: {
+            "executorId": executor_id,
+            "baseUrl": "http://idle.example",
+            "runningCount": 0,
+            "pendingCount": 0,
+            "queueMaxSize": 10,
+            "supported": True,
+            "raw": {},
+        },
+    )
+    monkeypatch.setattr(
+        service,
+        "_summarize_backend_comfyui_tasks",
+        lambda executor_ids: {
+            "executor_idle": {
+                "queued": 3,
+                "running": 0,
+                "oldestQueuedAt": "2026-05-03T10:00:00",
+                "oldestRunningAt": None,
+            }
+        },
+    )
+
+    summary = service.get_comfyui_queue_summary()
+    server = summary["servers"][0]
+
+    assert summary["backendQueuedTotal"] == 3
+    assert summary["feedGapServers"] == 1
+    assert summary["diagnostics"][0]["code"] == "COMFYUI_FEED_GAP"
+    assert server["backendQueued"] == 3
+    assert server["idleSlots"] == 10
+    assert server["feedCode"] == "backend_queued_with_idle_capacity"
+    assert server["feedDiagnosisLevel"] == "warning"

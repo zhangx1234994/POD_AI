@@ -108,6 +108,71 @@ const getVendorSourceLabel = (source?: string | null) => {
   return value.replace(/_/g, ' ');
 };
 
+type VendorModelProfileTheme = 'default' | 'primary' | 'success' | 'warning' | 'danger';
+
+type VendorModelProfile = {
+  label: string;
+  theme: VendorModelProfileTheme;
+  detail: string;
+  tags: Array<{ label: string; theme?: VendorModelProfileTheme }>;
+  suggestions: string[];
+};
+
+const hasTokenLike = (tokens: string[], keywords: string[]) =>
+  tokens.some((token) => keywords.some((keyword) => token.includes(keyword)));
+
+const resolveVendorModelProfile = (model: VendorModel): VendorModelProfile => {
+  const apiTypes = (model.apiTypes || []).map((item) => String(item || '').toLowerCase()).filter(Boolean);
+  const tags: VendorModelProfile['tags'] = [];
+  const suggestions: string[] = [];
+
+  let label = '通用模型';
+  let theme: VendorModelProfileTheme = 'default';
+  let detail = '需要补齐能力范围后再绑定到业务能力。';
+
+  if (model.supportsVideo || hasTokenLike(apiTypes, ['video'])) {
+    label = '视频模型';
+    theme = 'warning';
+    detail = '适合生视频、图生视频或视频处理，任务耗时和成本通常更高。';
+  } else if (hasTokenLike(apiTypes, ['vision', 'vl'])) {
+    label = '图像理解';
+    theme = 'primary';
+    detail = '适合看图分析、图片描述、质检和提示词辅助。';
+  } else if (hasTokenLike(apiTypes, ['image', 'edit']) || model.supportsMask || model.supportsMultipleImages) {
+    label = '图片模型';
+    theme = 'success';
+    detail = '适合文生图、图生图、图片编辑或图片处理。';
+  } else if (model.supportsText || hasTokenLike(apiTypes, ['chat', 'text', 'response'])) {
+    label = '文字/多模态';
+    theme = 'primary';
+    detail = '适合文本生成、改写、对话或多模态推理。';
+  }
+
+  apiTypes.slice(0, 4).forEach((item) => {
+    tags.push({ label: getReadableTokenLabel(item, apiTypeLabels) });
+  });
+  if (apiTypes.length > 4) tags.push({ label: `还有 ${apiTypes.length - 4} 类` });
+  if (model.supportsMask) tags.push({ label: '支持蒙版', theme: 'success' });
+  if (model.supportsMultipleImages) tags.push({ label: '支持多图', theme: 'success' });
+  if (model.supportsVideo) tags.push({ label: '支持视频', theme: 'warning' });
+  if (model.supportsText) tags.push({ label: '支持文字', theme: 'primary' });
+  tags.push({
+    label: model.requiresGlobalEgress ? '需要出网' : '国内直连',
+    theme: model.requiresGlobalEgress ? 'warning' : 'success',
+  });
+  tags.push({
+    label: hasJsonContent(model.costPolicy) ? '已配计价' : '缺计价',
+    theme: hasJsonContent(model.costPolicy) ? 'success' : 'warning',
+  });
+
+  if (!apiTypes.length) suggestions.push('先补能力范围，否则业务绑定时容易选错模型。');
+  if (!hasJsonContent(model.costPolicy)) suggestions.push('上线前补计价策略，避免后续账单无法核算。');
+  if (model.requiresGlobalEgress) suggestions.push('发布前必须做带密钥出网检查。');
+  if (model.status !== 'active') suggestions.push('当前未启用，不能作为业务默认模型。');
+
+  return { label, theme, detail, tags, suggestions };
+};
+
 const resolveVendorFailureSuggestion = (item: VendorUsageSummaryItem): string => {
   const code = String(item.errorCode || item.status || '').toUpperCase();
   if (code.includes('KEY') || code.includes('AUTH') || code.includes('401') || code.includes('403')) {
@@ -200,6 +265,49 @@ function MetricCard({ label, value, sub }: { label: string; value: number | stri
 
 function StatusPill({ status }: { status: string }) {
   return <StatusBadge status={status} />;
+}
+
+function VendorModelProfileSummary({ model }: { model: VendorModel }) {
+  const profile = resolveVendorModelProfile(model);
+  return (
+    <div
+      style={{
+        border: '1px solid var(--td-border-level-1-color)',
+        borderRadius: 10,
+        padding: 12,
+        background: 'var(--td-bg-color-secondarycontainer)',
+      }}
+    >
+      <Space direction="vertical" size={6} style={{ width: '100%' }}>
+        <Space size={8} align="center" style={{ flexWrap: 'wrap' }}>
+          <Tag theme={profile.theme} variant="light">
+            {profile.label}
+          </Tag>
+          <Typography.Text>{profile.detail}</Typography.Text>
+        </Space>
+        <Space size={4} style={{ flexWrap: 'wrap' }}>
+          {profile.tags.map((item) => (
+            <Tag key={`profile-${model.provider}-${model.model}-${item.label}`} theme={item.theme} variant="light">
+              {item.label}
+            </Tag>
+          ))}
+        </Space>
+        {profile.suggestions.length ? (
+          <Space direction="vertical" size={2}>
+            {profile.suggestions.map((item) => (
+              <Typography.Text key={`suggestion-${model.provider}-${model.model}-${item}`} theme="warning" style={{ fontSize: 12 }}>
+                {item}
+              </Typography.Text>
+            ))}
+          </Space>
+        ) : (
+          <Typography.Text theme="success" style={{ fontSize: 12 }}>
+            基础信息完整，可进入能力绑定和小流量测试。
+          </Typography.Text>
+        )}
+      </Space>
+    </div>
+  );
 }
 
 const safeNumber = (value: unknown): number => Number(value || 0);
@@ -820,32 +928,35 @@ export function VendorModelsPanel({
                 },
                 {
                   colKey: 'features',
-                  title: '能力范围',
-                  minWidth: 240,
-                  cell: ({ row }) => (
-                    <Space size={4} style={{ flexWrap: 'wrap' }}>
-                      {row.apiTypes.map((item) => (
-                        <Tag key={`${row.provider}-${row.model}-${item}`} variant="light">
-                          {getReadableTokenLabel(item, apiTypeLabels)}
-                        </Tag>
-                      ))}
-                      {row.supportsMask ? (
-                        <Tag theme="success" variant="light">
-                          蒙版
-                        </Tag>
-                      ) : null}
-                      {row.supportsMultipleImages ? (
-                        <Tag theme="success" variant="light">
-                          多图
-                        </Tag>
-                      ) : null}
-                      {row.supportsVideo ? (
-                        <Tag theme="warning" variant="light">
-                          视频
-                        </Tag>
-                      ) : null}
-                    </Space>
-                  ),
+                  title: '适合场景',
+                  minWidth: 300,
+                  cell: ({ row }) => {
+                    const profile = resolveVendorModelProfile(row);
+                    return (
+                      <Space direction="vertical" size={4}>
+                        <Space size={6} align="center">
+                          <Tag theme={profile.theme} variant="light">
+                            {profile.label}
+                          </Tag>
+                          <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                            {profile.detail}
+                          </Typography.Text>
+                        </Space>
+                        <Space size={4} style={{ flexWrap: 'wrap' }}>
+                          {profile.tags.slice(0, 7).map((item) => (
+                            <Tag key={`${row.provider}-${row.model}-${item.label}`} theme={item.theme} variant="light">
+                              {item.label}
+                            </Tag>
+                          ))}
+                        </Space>
+                        {profile.suggestions[0] ? (
+                          <Typography.Text theme="warning" style={{ fontSize: 12 }}>
+                            {profile.suggestions[0]}
+                          </Typography.Text>
+                        ) : null}
+                      </Space>
+                    );
+                  },
                 },
                 {
                   colKey: 'source',
@@ -910,6 +1021,7 @@ export function VendorModelsPanel({
                       </Button>
                     </Space>
                   </Space>
+                  <VendorModelProfileSummary model={selectedModelDetail} />
                   <Space size={4} style={{ flexWrap: 'wrap' }}>
                     {(selectedModelDetail.apiTypes || []).map((item) => (
                       <Tag key={`detail-api-${item}`} variant="light">
@@ -924,6 +1036,7 @@ export function VendorModelsPanel({
                     {selectedModelDetail.supportsMask ? <Tag theme="success" variant="light">支持蒙版</Tag> : null}
                     {selectedModelDetail.supportsMultipleImages ? <Tag theme="success" variant="light">支持多图</Tag> : null}
                     {selectedModelDetail.supportsVideo ? <Tag theme="warning" variant="light">支持视频</Tag> : null}
+                    {selectedModelDetail.supportsText ? <Tag theme="primary" variant="light">支持文字</Tag> : null}
                     {selectedModelDetail.requiresGlobalEgress ? <Tag theme="warning" variant="light">需要出网节点</Tag> : null}
                   </Space>
                   <Row gutter={[12, 12]}>
@@ -968,6 +1081,10 @@ export function VendorModelsPanel({
                   ) : null}
                 </Space>
                 {modelFormError ? <Alert theme="error" message={modelFormError} /> : null}
+                <Alert
+                  theme="info"
+                  message="先确认模型适合图片、视频、文字还是图像理解，再绑定到具体业务能力；需要出网或缺计价的模型不要直接设为默认版本。"
+                />
                 <Row gutter={[12, 12]}>
                   <Col span={4}>
                     <Typography.Text theme="secondary">厂商代码（排障用）</Typography.Text>
@@ -1047,7 +1164,7 @@ export function VendorModelsPanel({
                       value={Boolean(modelForm.supportsText)}
                       onChange={(v) => onModelFormChange({ ...modelForm, supportsText: Boolean(v) })}
                     />
-                    <Typography.Text theme="secondary">文本</Typography.Text>
+                    <Typography.Text theme="secondary">文字/多模态</Typography.Text>
                   </Space>
                   <Space size={4}>
                     <Switch

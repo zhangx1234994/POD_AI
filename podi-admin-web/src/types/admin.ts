@@ -1352,7 +1352,9 @@ export interface BusinessUsageBucket {
   successRate?: number | null;
   avgDurationMs?: number | null;
   costByCurrency?: Record<string, number>;
+  actualCostByCurrency?: Record<string, number>;
   quotaUnits: number;
+  actualQuotaUnits?: number;
   latestAt?: string | null;
 }
 
@@ -1391,7 +1393,9 @@ export interface BusinessUsageSummaryResponse {
   successRate?: number | null;
   avgDurationMs?: number | null;
   costByCurrency: Record<string, number>;
+  actualCostByCurrency?: Record<string, number>;
   quotaUnits: number;
+  actualQuotaUnits?: number;
   byBusiness: BusinessUsageBucket[];
   bySource: BusinessUsageBucket[];
   byTenant: BusinessUsageBucket[];
@@ -1401,13 +1405,18 @@ export interface BusinessUsageSummaryResponse {
 }
 
 export interface StoredAsset {
-  ossUrl: string;
-  ossKey: string;
+  ossUrl?: string | null;
+  ossKey?: string | null;
   sourceUrl?: string | null;
   contentType?: string | null;
+  mimeType?: string | null;
   size?: number | null;
   tag?: string | null;
   url?: string | null;
+  type?: string | null;
+  kind?: string | null;
+  role?: string | null;
+  outputType?: string | null;
 }
 
 export interface AbilityInvocationLog {
@@ -1436,6 +1445,7 @@ export interface AbilityInvocationLog {
   request_payload?: JsonRecord | null;
   response_payload?: JsonRecord | null;
   result_assets?: StoredAsset[] | null;
+  output_summary?: AbilityInvocationOutputSummary | null;
   error_message?: string | null;
   callback_status?: string | null;
   callback_http_status?: number | null;
@@ -1451,9 +1461,25 @@ export interface AbilityInvocationLog {
   created_at: string;
 }
 
+export interface AbilityInvocationOutputSummary {
+  image_count: number;
+  video_count: number;
+  text_count: number;
+  structured_count?: number;
+  asset_count: number;
+  primary_kind?: 'image' | 'video' | 'text' | 'structured' | 'asset' | string | null;
+  primary_url?: string | null;
+  text_preview?: string | null;
+  has_output: boolean;
+}
+
 export interface ComfyuiQueueStatus {
   executorId: string;
   baseUrl: string;
+  executorName?: string | null;
+  executorStatus?: string | null;
+  maxConcurrency?: number | null;
+  tags?: string[] | null;
   runningCount: number;
   pendingCount: number;
   totalCount?: number | null;
@@ -1993,6 +2019,30 @@ export interface ReleasePatrolRecordResponse {
 
 export interface ReleasePatrolRecordListResponse {
   items: ReleasePatrolRecordResponse[];
+}
+
+export interface HealthWatchUnitStatus {
+  unit: string;
+  title: string;
+  kind: 'timer' | 'service' | string;
+  status: 'healthy' | 'running' | 'failed' | 'disabled' | 'unavailable' | 'unknown' | string;
+  summary: string;
+  loadState?: string | null;
+  activeState?: string | null;
+  subState?: string | null;
+  unitFileState?: string | null;
+  result?: string | null;
+  execMainStatus?: number | null;
+  lastTrigger?: string | null;
+  nextElapse?: string | null;
+  recentLogs: string[];
+}
+
+export interface HealthWatchStatusResponse {
+  generatedAt: string;
+  supported: boolean;
+  items: HealthWatchUnitStatus[];
+  issues: string[];
 }
 
 export interface ReleaseDecisionRecordResponse {

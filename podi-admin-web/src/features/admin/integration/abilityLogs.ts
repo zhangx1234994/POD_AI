@@ -93,6 +93,7 @@ export const resolvePrimaryLogPreviewUrl = (row: AbilityInvocationLog): string =
 
 export const resolveLogOutputSummary = (row: AbilityInvocationLog) => {
   const responsePayload = getJsonRecord(row.response_payload);
+  const serverSummary = row.output_summary;
   const urls = resolveLogPreviewUrls(row);
   const imageUrls = urls.filter((url) => classifyOutputUrl(url) === 'image');
   const videoUrls = urls.filter((url) => classifyOutputUrl(url) === 'video');
@@ -100,15 +101,32 @@ export const resolveLogOutputSummary = (row: AbilityInvocationLog) => {
     ...(typeof responsePayload?.text === 'string' && responsePayload.text.trim() ? [responsePayload.text.trim()] : []),
     ...collectTexts(responsePayload?.texts),
   ];
-  const primaryUrl = urls[0] || '';
-  const primaryKind = texts.length > 0 && !primaryUrl ? 'text' : classifyOutputUrl(primaryUrl);
-  const textPreview = texts[0] ? (texts[0].length > 120 ? `${texts[0].slice(0, 117)}...` : texts[0]) : '';
+  const primaryUrl = (typeof serverSummary?.primary_url === 'string' && serverSummary.primary_url.trim()) || urls[0] || '';
+  const primaryKind =
+    typeof serverSummary?.primary_kind === 'string' && serverSummary.primary_kind
+      ? serverSummary.primary_kind
+      : texts.length > 0 && !primaryUrl
+        ? 'text'
+        : classifyOutputUrl(primaryUrl);
+  const textPreview =
+    (typeof serverSummary?.text_preview === 'string' && serverSummary.text_preview) ||
+    (texts[0] ? (texts[0].length > 120 ? `${texts[0].slice(0, 117)}...` : texts[0]) : '');
+  const imageCount = typeof serverSummary?.image_count === 'number' ? serverSummary.image_count : imageUrls.length;
+  const videoCount = typeof serverSummary?.video_count === 'number' ? serverSummary.video_count : videoUrls.length;
+  const textCount = typeof serverSummary?.text_count === 'number' ? serverSummary.text_count : texts.length;
+  const structuredCount = typeof serverSummary?.structured_count === 'number' ? serverSummary.structured_count : 0;
+  const assetCount =
+    typeof serverSummary?.asset_count === 'number'
+      ? serverSummary.asset_count
+      : Math.max(0, urls.length - imageUrls.length - videoUrls.length);
   const labelParts = [
-    imageUrls.length > 0 ? `${imageUrls.length} 张图` : '',
-    videoUrls.length > 0 ? `${videoUrls.length} 个视频` : '',
-    texts.length > 0 ? `${texts.length} 段文字` : '',
-    urls.length > imageUrls.length + videoUrls.length ? `${urls.length - imageUrls.length - videoUrls.length} 个资源` : '',
+    imageCount > 0 ? `${imageCount} 张图` : '',
+    videoCount > 0 ? `${videoCount} 个视频` : '',
+    textCount > 0 ? `${textCount} 段文字` : '',
+    structuredCount > 0 ? `${structuredCount} 个结构化结果` : '',
+    assetCount > 0 ? `${assetCount} 个资源` : '',
   ].filter(Boolean);
+  const hasOutput = Boolean(serverSummary?.has_output) || urls.length > 0 || texts.length > 0;
   return {
     urls,
     imageUrls,
@@ -118,7 +136,7 @@ export const resolveLogOutputSummary = (row: AbilityInvocationLog) => {
     primaryKind,
     textPreview,
     label: labelParts.join(' · ') || '无输出',
-    hasOutput: urls.length > 0 || texts.length > 0,
+    hasOutput,
   };
 };
 

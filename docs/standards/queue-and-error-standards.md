@@ -8,6 +8,10 @@
 
 - **ComfyUI 单台服务器队列上限：10**
   - 判断依据：`running + pending`（ComfyUI /queue/status）
+  - 路由选择时还必须计入中台内部已选中该执行节点但尚未进入 ComfyUI `/queue` 的 `queued` 任务，避免突发请求集中打到同一台空队列机器。
+  - 队列诊断必须同时展示 ComfyUI 侧队列和中台内部任务队列；如果中台有待下发任务但 ComfyUI 仍有空闲容量，应标记 `COMFYUI_FEED_GAP`。
+  - 如果中台显示执行中但 ComfyUI 队列为空，应标记 `COMFYUI_BACKEND_RUNNING_NOT_VISIBLE`，优先排查下发、promptId 记录和结果回填。
+  - 若能力已声明多个兼容执行节点并使用 `auto/queue/round_robin/weight` 策略，`COMFYUI_DEFAULT_EXECUTOR_ID` 不能压过该多节点路由，只能作为单节点应急/固定能力的兜底。
   - 超过或等于 10：直接返回错误（不再提交任务）
 
 - **商业模型（Volcengine/KIE）单台服务器等待上限：10**

@@ -5,6 +5,8 @@ import type {
   BusinessCapability,
   BusinessUsageSummaryResponse,
   DashboardMetrics,
+  HealthWatchStatusResponse,
+  HealthWatchUnitStatus,
   ReleaseDecisionRecordResponse,
   ReleasePreflightCheck,
   ReleasePatrolRecordResponse,
@@ -157,6 +159,23 @@ function releasePreflightCheckTheme(status: string): 'success' | 'warning' | 'da
   return 'default';
 }
 
+function healthWatchStatusLabel(status: string): string {
+  if (status === 'healthy') return '正常';
+  if (status === 'running') return '运行中';
+  if (status === 'failed') return '异常';
+  if (status === 'disabled') return '未启用';
+  if (status === 'unavailable') return '未安装';
+  return status || '未知';
+}
+
+function healthWatchStatusTheme(status: string): 'success' | 'warning' | 'danger' | 'default' {
+  if (status === 'healthy') return 'success';
+  if (status === 'running') return 'warning';
+  if (status === 'failed' || status === 'disabled') return 'danger';
+  if (status === 'unavailable') return 'default';
+  return 'default';
+}
+
 function releaseDecisionStatusLabel(status: string): string {
   if (status === 'approved') return '确认可上线';
   if (status === 'deferred') return '暂缓上线';
@@ -209,6 +228,9 @@ type OverviewPanelProps = {
   releasePreflightSnapshots: ReleasePreflightResponse[];
   releasePreflightLoading: boolean;
   releasePreflightError?: string | null;
+  healthWatchStatus?: HealthWatchStatusResponse | null;
+  healthWatchLoading: boolean;
+  healthWatchError?: string | null;
   releasePatrolRecords: ReleasePatrolRecordResponse[];
   releasePatrolLoading: boolean;
   releasePatrolError?: string | null;
@@ -224,6 +246,7 @@ type OverviewPanelProps = {
   onRefreshWeeklyReports: () => void;
   onRunReleasePreflight: () => void;
   onRefreshReleasePreflight: () => void;
+  onRefreshHealthWatchStatus: () => void;
   onCreateReleasePatrolRecord: (status: 'passed' | 'failed') => void;
   onImportReleasePatrolReport: (reportPath: string) => void;
   onRefreshReleasePatrolRecords: () => void;
@@ -259,6 +282,9 @@ export function OverviewPanel({
   releasePreflightSnapshots,
   releasePreflightLoading,
   releasePreflightError,
+  healthWatchStatus,
+  healthWatchLoading,
+  healthWatchError,
   releasePatrolRecords,
   releasePatrolLoading,
   releasePatrolError,
@@ -274,6 +300,7 @@ export function OverviewPanel({
   onRefreshWeeklyReports,
   onRunReleasePreflight,
   onRefreshReleasePreflight,
+  onRefreshHealthWatchStatus,
   onCreateReleasePatrolRecord,
   onImportReleasePatrolReport,
   onRefreshReleasePatrolRecords,
@@ -290,6 +317,21 @@ export function OverviewPanel({
   const fullPatrolCommand =
     'python3 backend/scripts/patrol_eval_workflows.py --base-url http://127.0.0.1:8099 --timeout 1800 --report reports/eval_patrol_$(date +%Y%m%d_%H%M%S).json';
   const preflightLatest = releasePreflightLatest || releasePreflightSnapshots[0] || null;
+  const healthWatchItems = healthWatchStatus?.items || [];
+  const healthWatchProblemItems = healthWatchItems.filter((item) =>
+    ['failed', 'disabled', 'unavailable'].includes(item.status),
+  );
+  const healthWatchRunningItems = healthWatchItems.filter((item) => item.status === 'running');
+  const healthWatchSummaryTheme =
+    healthWatchProblemItems.length > 0 ? 'danger' : healthWatchRunningItems.length > 0 ? 'warning' : healthWatchItems.length > 0 ? 'success' : 'default';
+  const healthWatchSummaryText =
+    healthWatchProblemItems.length > 0
+      ? `异常 ${healthWatchProblemItems.length}`
+      : healthWatchRunningItems.length > 0
+        ? `运行中 ${healthWatchRunningItems.length}`
+        : healthWatchItems.length > 0
+          ? '守护正常'
+          : '待检查';
   const latestPatrolRecord = releasePatrolRecords[0] || null;
   const latestPatrolEvidence = latestPatrolRecord ? patrolHealthEvidence(latestPatrolRecord) : [];
   const latestPatrolFailedEvidence = latestPatrolEvidence.filter((item) => item.issueCode !== 'OK' && item.healthStatus !== 'healthy');
@@ -445,6 +487,28 @@ export function OverviewPanel({
             ? `${preflightWarnings} 个提醒项，需确认是否可接受。`
             : `最近检查通过：${formatDateTime(preflightLatest.generatedAt)}`,
       theme: !preflightLatest ? 'warning' : preflightBlocked > 0 ? 'danger' : preflightWarnings > 0 ? 'warning' : 'success',
+    },
+    {
+      title: '自检守护',
+      status: healthWatchProblemItems.length > 0
+        ? '阻塞'
+        : healthWatchRunningItems.length > 0
+          ? '运行中'
+          : healthWatchItems.length > 0
+            ? '通过'
+            : '待检查',
+      detail: healthWatchProblemItems.length > 0
+        ? healthWatchProblemItems.slice(0, 2).map((item) => `${item.title}：${item.summary}`).join('；')
+        : healthWatchRunningItems.length > 0
+          ? `当前有 ${healthWatchRunningItems.length} 个自检任务正在执行，稍后刷新确认结果。`
+          : healthWatchItems.length > 0
+            ? '业务轻量自检、真实巡检和评测健康守护均已纳入页面检查。'
+            : '尚未读取到线上自检守护状态，上线前需要确认 114 定时巡检是否运行。',
+      theme: healthWatchProblemItems.length > 0
+        ? 'danger'
+        : healthWatchRunningItems.length > 0 || healthWatchItems.length === 0
+          ? 'warning'
+          : 'success',
     },
     {
       title: '完整巡检',
@@ -649,6 +713,78 @@ export function OverviewPanel({
               </Space>
             </Space>
           </Card>
+        </Space>
+      </Card>
+
+      <Card bordered style={{ marginBottom: 16 }}>
+        <Space direction="vertical" size="small" style={{ width: '100%' }}>
+          <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+            <div>
+              <Typography.Text strong>线上自检守护</Typography.Text>
+              <div>
+                <Typography.Text theme="secondary">
+                  展示 114 上的业务轻量自检、真实巡检和评测健康定时器，确认“事故后防复发”机制是否真的在运行。
+                </Typography.Text>
+              </div>
+            </div>
+            <Space>
+              <Tag theme={healthWatchSummaryTheme} variant="light">{healthWatchSummaryText}</Tag>
+              <Button size="small" variant="outline" loading={healthWatchLoading} onClick={onRefreshHealthWatchStatus}>
+                刷新守护状态
+              </Button>
+            </Space>
+          </Space>
+          {healthWatchError ? <Alert theme="error" message={healthWatchError} /> : null}
+          {healthWatchStatus && !healthWatchStatus.supported ? (
+            <Alert theme="warning" message="当前后端运行环境无法读取 systemd 状态。线上 114 应能正常展示；本地开发环境可忽略。" />
+          ) : null}
+          {healthWatchStatus?.issues?.length ? (
+            <Alert theme="warning" message={`需要处理：${healthWatchStatus.issues.slice(0, 3).join('；')}`} />
+          ) : null}
+          {healthWatchItems.length > 0 ? (
+            <div className="max-h-[320px] overflow-auto rounded-2xl border border-slate-200/70 dark:border-slate-800">
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-slate-50 text-[11px] text-slate-600 dark:bg-slate-900/80 dark:text-slate-400">
+                  <tr className="text-left">
+                    <th className="px-3 py-2">守护项</th>
+                    <th className="px-3 py-2">状态</th>
+                    <th className="px-3 py-2">上次 / 下次</th>
+                    <th className="px-3 py-2">结论</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {healthWatchItems.map((item: HealthWatchUnitStatus) => (
+                    <tr key={item.unit} className="border-t border-slate-100 dark:border-slate-800">
+                      <td className="px-3 py-2">
+                        <Space direction="vertical" size={2}>
+                          <Typography.Text>{item.title}</Typography.Text>
+                          <Typography.Text theme="secondary">{item.unit}</Typography.Text>
+                        </Space>
+                      </td>
+                      <td className="px-3 py-2">
+                        <Tag theme={healthWatchStatusTheme(item.status)} variant="light">
+                          {healthWatchStatusLabel(item.status)}
+                        </Tag>
+                      </td>
+                      <td className="px-3 py-2 text-slate-600 dark:text-slate-400">
+                        {item.kind === 'timer'
+                          ? `上次 ${item.lastTrigger || '—'} / 下次 ${item.nextElapse || '—'}`
+                          : `结果 ${item.result || '—'} / exit ${item.execMainStatus ?? '—'}`}
+                      </td>
+                      <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{item.summary || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <Typography.Text theme="secondary">
+              暂无定时自检状态。点击“刷新守护状态”，或确认后端已包含 `/api/admin/dashboard/health-watch/status`。
+            </Typography.Text>
+          )}
+          {healthWatchStatus?.generatedAt ? (
+            <Typography.Text theme="secondary">状态读取时间：{formatDateTime(healthWatchStatus.generatedAt)}</Typography.Text>
+          ) : null}
         </Space>
       </Card>
 

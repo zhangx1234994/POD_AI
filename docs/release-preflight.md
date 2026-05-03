@@ -34,8 +34,19 @@ Fast path on the backend/Coze host:
 python3 backend/scripts/podi_release_smoke.py \
   --base-url http://127.0.0.1:8099 \
   --expect-server-url http://10.11.0.7:8099 \
-  --max-production-per-category 2
+  --max-production-per-category 2 \
+  --eval-admin-token "$EVAL_ADMIN_TOKEN"
 ```
+
+This smoke command now covers the no-cost release chain in one pass:
+
+- backend health
+- Coze toolbox OpenAPI server URL
+- Coze internal `tasks/get` boundary
+- ComfyUI queue summary and routing blockers
+- eval workflow public catalog governance
+- core business route-preview for pattern extract, fission, and outpaint
+- eval operations health when `--eval-admin-token` is provided
 
 Eval operations gate:
 
@@ -76,8 +87,9 @@ Expected:
 - `health` passes.
 - `coze_openapi` passes and shows the address Coze uses.
 - `internal_tasks_get` returns `404 TASK_NOT_FOUND`, not `401 INTERNAL_ONLY`.
-- `comfyui_queue_summary` returns all active ComfyUI executors.
+- `comfyui_queue_summary` returns all active ComfyUI executors and does not report `unsupportedServers` or `backendBlockedServers`.
 - `eval_workflow_catalog` returns a non-empty public catalog, includes at least one `production` workflow, does not leak `legacy/auxiliary/disabled` roles, has no duplicate workflow IDs, and does not exceed 2 production entries in one business category.
+- `business_route_pattern_extract / business_route_fission / business_route_outpaint` each select a valid business capability without submitting real image-generation tasks.
 - `check_eval_operations_health.py` returns `healthy` or only an accepted `warning`; `critical` blocks release. `EVAL_NO_RECENT_RUNS` means patrol did not run recently, and `EVAL_NO_RECENT_SUCCESS` means the recent business chain has no successful sample.
 - `check_eval_operations_health.py` prints the real concurrency snapshot; if ComfyUI queue capacity is 20 but `evalFanoutMaxWorkers=1`, a single fission run is intentionally sequential and must not be treated as a GPU capacity issue without running `comfyui_capacity_probe.py`.
 - `COMFYUI_EXECUTOR_UNREACHABLE` is not ignored: either restore the executor service or explicitly mark the executor offline before release.
@@ -117,6 +129,7 @@ Manual checks:
      --timeout 1800
    ```
    Expected: all production entry workflows end in `succeeded`, and each succeeded run has at least one result image or structured output.
+   Video and text/VL workflows are valid outputs too; patrol reports `outputKind` as `image/video/text/structured` and should not fail them simply because `imageCount=0`.
    Failure examples: `INTERNAL_ONLY`, `COZE_WORKFLOW_ERROR`, `EVAL_SUCCEEDED_WITHOUT_OUTPUT`.
    This is a periodic self-check, not a load test. It must stay throttled to avoid filling ComfyUI queues by itself.
    If a full catalog sweep is needed, run it manually with `--role all` and keep `--max-in-flight` low unless queue capacity has just been verified.

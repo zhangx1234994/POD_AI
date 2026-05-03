@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Alert, Button, Card, Col, Row, Space, Table, Tag, Typography } from 'tdesign-react';
-import type { AbilityHealthSummaryResponse, PublicAbility } from '../../../types/admin';
+import type { Ability, AbilityHealthSummaryResponse, PublicAbility } from '../../../types/admin';
+import { resolveAbilityOutputProfile } from './abilityOutputProfile';
 
 function MetricCard({ label, value, sub }: { label: string; value: number | string; sub?: string }) {
   return (
@@ -56,6 +57,35 @@ function CodeBlock({ value, maxHeight = 320 }: { value: string; maxHeight?: numb
     </div>
   );
 }
+
+const publicAbilityToAbility = (row: PublicAbility): Ability => {
+  const metadata = { ...(row.metadata || {}) };
+  if (row.requiresImage !== undefined) metadata.requires_image_input = row.requiresImage;
+  if (row.supportsMultipleImages !== undefined) metadata.supports_multiple_images = row.supportsMultipleImages;
+  return {
+    id: row.id,
+    provider: row.provider,
+    category: row.category,
+    capability_key: row.capabilityKey,
+    version: row.version,
+    display_name: row.displayName,
+    description: row.description,
+    status: row.status,
+    ability_type: row.abilityType,
+    executor_id: row.executorId,
+    workflow_id: row.workflowId,
+    vendor_model_id: row.vendorModelId,
+    coze_workflow_id: row.cozeWorkflowId,
+    default_params: row.defaultParams,
+    input_schema: row.inputSchema,
+    metadata,
+    last_health_check_at: row.lastHealthCheckAt,
+    last_health_status: row.lastHealthStatus,
+    success_rate: row.successRate,
+    created_at: '',
+    updated_at: '',
+  };
+};
 
 export function AbilityOverviewSummaryPanel({
   abilityHealthSummary,
@@ -235,18 +265,32 @@ export function AbilityApiPanel({
                 },
                 {
                   colKey: 'features',
-                  title: '特性',
-                  width: 240,
-                  cell: ({ row }) => (
-                    <Space direction="vertical" size={2}>
-                      {row.requiresImage ? <Typography.Text theme="secondary">需图片输入</Typography.Text> : null}
-                      {row.supportsMultipleImages ? <Typography.Text theme="secondary">多图输出</Typography.Text> : null}
-                      {row.maxOutputImages ? <Typography.Text theme="secondary">最高 {row.maxOutputImages} 张结果</Typography.Text> : null}
-                      {!row.requiresImage && !row.supportsMultipleImages && !row.maxOutputImages ? (
-                        <Typography.Text theme="secondary">标准调用</Typography.Text>
-                      ) : null}
-                    </Space>
-                  ),
+                  title: '输入 / 输出',
+                  width: 280,
+                  cell: ({ row }) => {
+                    const profile = resolveAbilityOutputProfile(publicAbilityToAbility(row));
+                    const tags = [...profile.outputTags, ...profile.inputTags];
+                    return (
+                      <Space direction="vertical" size={4}>
+                        <Tag theme={profile.theme} variant="light" size="small">
+                          {profile.label}
+                        </Tag>
+                        <Typography.Text theme="secondary">{profile.detail}</Typography.Text>
+                        <Space size={4} breakLine>
+                          {tags.map((tag) => (
+                            <Tag key={`${row.id}-public-profile-${tag}`} variant="light" size="small">
+                              {tag}
+                            </Tag>
+                          ))}
+                          {row.maxOutputImages ? (
+                            <Tag variant="outline" size="small">
+                              最高 {row.maxOutputImages} 张结果
+                            </Tag>
+                          ) : null}
+                        </Space>
+                      </Space>
+                    );
+                  },
                 },
               ]}
               empty={<Typography.Text theme="secondary">暂无可用能力，请先在“能力管理”新增并设为 active。</Typography.Text>}

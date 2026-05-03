@@ -39,6 +39,7 @@ import type {
   DashboardMetrics,
   DispatchLogResponse,
   Executor,
+  HealthWatchStatusResponse,
   ComfyuiModelCatalogResponse,
   ComfyuiModelCatalogItem,
   ComfyuiLora,
@@ -1047,6 +1048,7 @@ export const adminApi = {
     }),
   listReleasePatrolRecords: (limit = 5) =>
     request<ReleasePatrolRecordListResponse>(`/api/admin/dashboard/release-patrol/records?limit=${limit}`),
+  getHealthWatchStatus: () => request<HealthWatchStatusResponse>('/api/admin/dashboard/health-watch/status'),
   createReleaseDecisionRecord: (payload: {
     status: string;
     title?: string;
@@ -1301,10 +1303,12 @@ export const adminApi = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
-  listAbilityLogs: (abilityId: string, options?: { limit?: number; offset?: number }) => {
+  listAbilityLogs: (abilityId: string, options?: { limit?: number; offset?: number; search?: string; callbackFailed?: boolean }) => {
     const params = new URLSearchParams();
     params.set('limit', String(options?.limit ?? 20));
     if (typeof options?.offset === 'number') params.set('offset', String(options.offset));
+    if (options?.search) params.set('search', options.search);
+    if (options?.callbackFailed) params.set('callbackFailed', 'true');
     return request<AbilityLogListResponse>(
       `/api/admin/abilities/${encodeURIComponent(abilityId)}/logs?${params.toString()}`,
     );
@@ -1319,6 +1323,8 @@ export const adminApi = {
     source?: string;
     templateId?: string;
     templatePublished?: boolean;
+    search?: string;
+    callbackFailed?: boolean;
   }) => {
     const params = new URLSearchParams();
     const limit = options?.limit ?? 20;
@@ -1333,6 +1339,8 @@ export const adminApi = {
     if (typeof options?.templatePublished === 'boolean') {
       params.set('templatePublished', options.templatePublished ? 'true' : 'false');
     }
+    if (options?.search) params.set('search', options.search);
+    if (options?.callbackFailed) params.set('callbackFailed', 'true');
     return request<AbilityLogListResponse>(`/api/admin/abilities/logs?${params.toString()}`);
   },
   resolveAbilityLog: (logId: number) =>
@@ -1356,6 +1364,8 @@ export const adminApi = {
     status?: string;
     source?: string;
     sinceHours?: number;
+    search?: string;
+    callbackFailed?: boolean;
   }) => {
     const params = new URLSearchParams();
     params.set('format', options?.format ?? 'csv');
@@ -1370,6 +1380,8 @@ export const adminApi = {
     if (options?.executorId) params.set('executorId', options.executorId);
     if (options?.status) params.set('status', options.status);
     if (options?.source) params.set('source', options.source);
+    if (options?.search) params.set('search', options.search);
+    if (options?.callbackFailed) params.set('callbackFailed', 'true');
     return requestBlob(`/api/admin/abilities/logs/export?${params.toString()}`, {
       method: 'GET',
       headers: { Accept: options?.format === 'json' ? 'application/json' : 'text/csv' },

@@ -117,6 +117,25 @@ export function ComfyuiTasksPanel({
     if (typeof value !== 'number' || Number.isNaN(value)) return '—';
     return `${Math.round(value * 100)}%`;
   };
+  const formatServerIdentity = (server: NonNullable<ComfyuiQueueSummary['servers']>[number]) => {
+    let host = '';
+    try {
+      host = server.baseUrl ? new URL(server.baseUrl).hostname : '';
+    } catch {
+      host = server.baseUrl || '';
+    }
+    const tags = Array.isArray(server.tags) ? server.tags.map((item) => String(item || '').trim()).filter(Boolean) : [];
+    const gpuTag = tags.find((item) => item.toLowerCase().startsWith('gpu:'));
+    const hostTag = tags.find((item) => item.toLowerCase().startsWith('host:'));
+    const gpu = gpuTag ? gpuTag.replace(/^gpu:/i, '') : '';
+    const hostHint = hostTag ? hostTag.replace(/^host:/i, '') : '';
+    const parts = [
+      hostHint ? `${hostHint} 机器` : host,
+      gpu ? `${gpu} 显卡` : '',
+      `并发 ${server.maxConcurrency ?? server.capacityTarget ?? '—'}`,
+    ].filter(Boolean);
+    return parts.join(' · ');
+  };
   const mapAlertTheme = (level?: string | null): 'success' | 'info' | 'warning' | 'error' => {
     if (level === 'danger') return 'error';
     if (level === 'warning') return 'warning';
@@ -222,8 +241,9 @@ export function ComfyuiTasksPanel({
                   queueSummary.servers.map((server) => (
                     <tr key={`comfy-queue-diagnosis-${server.executorId}`} className="border-t border-slate-100 dark:border-slate-800">
                       <td className="px-3 py-2 text-slate-700 dark:text-slate-300">
-                        <div className="font-semibold text-slate-900 dark:text-white">{server.executorId}</div>
-                        <div className="mt-1 max-w-[260px] truncate text-[11px] text-slate-500">{server.baseUrl}</div>
+                        <div className="font-semibold text-slate-900 dark:text-white">{server.executorName || server.executorId}</div>
+                        <div className="mt-1 text-[11px] text-slate-500">{formatServerIdentity(server)}</div>
+                        <div className="mt-1 max-w-[260px] truncate text-[11px] text-slate-400">{server.executorId} · {server.baseUrl}</div>
                       </td>
                       <td className="px-3 py-2 text-slate-700 dark:text-slate-300">
                         执行 {server.runningCount} · 等待 {server.pendingCount}

@@ -8,7 +8,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.core.config import get_settings
-from app.core.db import get_session
 from app.deps.auth import get_current_user
 from app.deps.internal import is_internal_request
 from app.models.user import User
@@ -183,6 +182,16 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "costAmount": {"type": "number", "nullable": True},
             "currency": {"type": "string", "nullable": True},
             "quotaUnits": {"type": "integer", "nullable": True},
+            "billingStatus": {
+                "type": "string",
+                "nullable": True,
+                "description": "业务计费状态：billable/unpriced/no_charge/billing_pending。",
+            },
+            "chargeable": {"type": "boolean", "nullable": True, "description": "是否可进入业务方正式账单。"},
+            "noChargeReason": {"type": "string", "nullable": True, "description": "不计费或暂不计费原因。"},
+            "callbackStatus": {"type": "string", "nullable": True},
+            "callbackHttpStatus": {"type": "integer", "nullable": True},
+            "callbackError": {"type": "string", "nullable": True},
             "debugUrl": {"type": "string", "nullable": True},
         },
     }
@@ -617,6 +626,8 @@ def admin_preview_business_route(
 def admin_list_business_runs(
     business_key: str | None = Query(default=None),
     status: str | None = Query(default=None),
+    billing_status: str | None = Query(default=None),
+    callback_status: str | None = Query(default=None),
     version: str | None = Query(default=None),
     source: str | None = Query(default=None),
     tenant_id: str | None = Query(default=None),
@@ -631,6 +642,8 @@ def admin_list_business_runs(
         limit=limit,
         business_key=business_key,
         status=status,
+        billing_status=billing_status,
+        callback_status=callback_status,
         version=version,
         source=source,
         tenant_id=tenant_id,

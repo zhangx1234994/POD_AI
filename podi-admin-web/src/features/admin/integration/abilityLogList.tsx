@@ -154,7 +154,7 @@ export function AbilityLogListPanel({
             <div>
               <Typography.Text theme="secondary">
                 第 {currentPage} / {totalPages} 页 · 当前页 {logs.length} 条
-                {typeof total === 'number' ? ` · 共 ${total} 条` : ''} · 支持导出最近 24 小时
+                {typeof total === 'number' ? ` · 符合条件共 ${total} 条` : ''} · 筛选会查询全量历史
               </Typography.Text>
             </div>
           </div>
@@ -459,6 +459,9 @@ export function AbilityLogListPanel({
             {updatedAt ? `最近刷新：${formatDateTime(updatedAt)}` : '尚未刷新'} · 显示 {pageStart}-{pageEnd} / {totalCount}
           </Typography.Text>
           <Space>
+            <Button variant="outline" disabled={currentPage === 1 || loading} onClick={() => onPageChange(1)}>
+              第一页
+            </Button>
             <Button variant="outline" disabled={!canGoPrev || loading} onClick={() => onPageChange(currentPage - 1)}>
               上一页
             </Button>
@@ -467,6 +470,9 @@ export function AbilityLogListPanel({
             </Typography.Text>
             <Button variant="outline" disabled={!canGoNext || loading} onClick={() => onPageChange(currentPage + 1)}>
               下一页
+            </Button>
+            <Button variant="outline" disabled={currentPage === totalPages || loading} onClick={() => onPageChange(totalPages)}>
+              最后一页
             </Button>
           </Space>
         </div>

@@ -9,6 +9,9 @@ export const AbilityEvaluationPage = lazy(() =>
 export const BusinessCapabilityGrid = lazy(() =>
   import('./business').then((mod) => ({ default: mod.BusinessCapabilityGrid })),
 );
+export const BusinessCoreEntryPanel = lazy(() =>
+  import('./business').then((mod) => ({ default: mod.BusinessCoreEntryPanel })),
+);
 export const BusinessCapabilityEditorDialog = lazy(() =>
   import('./business').then((mod) => ({ default: mod.BusinessCapabilityEditorDialog })),
 );

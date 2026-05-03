@@ -579,6 +579,9 @@ def test_business_run_records_trace_and_cost_from_ability_log(monkeypatch) -> No
     assert fetched["cost_amount"] == 0.24
     assert fetched["currency"] == "USD"
     assert fetched["quota_units"] == 12
+    assert fetched["billing_status"] == "billable"
+    assert fetched["chargeable"] is True
+    assert fetched["no_charge_reason"] is None
     assert fetched["image_urls"] == ["https://example.com/result.png"]
     primary_step = fetched["steps"][0]
     assert primary_step["duration_ms"] == 3000
@@ -604,6 +607,10 @@ def test_business_run_list_filters_by_business_status_and_version(monkeypatch) -
                     trace_id="trace-filter",
                     ability_id="ability_openai_fission",
                     image_urls=["https://example.com/a.png"],
+                    cost_amount=0.2,
+                    currency="USD",
+                    quota_units=1,
+                    callback_status="success",
                 ),
                 BusinessRun(
                     id="run_fission_v2_fail",
@@ -611,6 +618,10 @@ def test_business_run_list_filters_by_business_status_and_version(monkeypatch) -
                     version="v2",
                     status="failed",
                     ability_id="ability_openai_fission",
+                    cost_amount=0.1,
+                    currency="USD",
+                    quota_units=1,
+                    callback_status="failed",
                     error_message="TASK_FAILED",
                 ),
                 BusinessRun(
@@ -637,6 +648,21 @@ def test_business_run_list_filters_by_business_status_and_version(monkeypatch) -
 
     assert total == 1
     assert [item["id"] for item in items] == ["run_fission_v1_ok"]
+    assert items[0]["billing_status"] == "billable"
+    assert items[0]["chargeable"] is True
+
+    total, items = service.list_runs(
+        business_key="fission",
+        billing_status="no_charge",
+        callback_status="failed",
+        limit=20,
+    )
+
+    assert total == 1
+    assert [item["id"] for item in items] == ["run_fission_v2_fail"]
+    assert items[0]["billing_status"] == "no_charge"
+    assert items[0]["chargeable"] is False
+    assert items[0]["no_charge_reason"] == "任务失败，不向业务方计费"
 
 
 def test_business_usage_summary_groups_source_tenant_and_cost(monkeypatch) -> None:
@@ -662,6 +688,7 @@ def test_business_usage_summary_groups_source_tenant_and_cost(monkeypatch) -> No
                     cost_amount=0.2,
                     currency="USD",
                     quota_units=1,
+                    callback_status="success",
                     created_at=now - timedelta(minutes=10),
                 ),
                 BusinessRun(
@@ -678,6 +705,7 @@ def test_business_usage_summary_groups_source_tenant_and_cost(monkeypatch) -> No
                     cost_amount=0.1,
                     currency="USD",
                     quota_units=1,
+                    callback_status="failed",
                     error_message="TASK_FAILED",
                     created_at=now - timedelta(minutes=5),
                 ),
@@ -702,9 +730,21 @@ def test_business_usage_summary_groups_source_tenant_and_cost(monkeypatch) -> No
     assert summary["failed"] == 1
     assert summary["success_rate"] == 0.5
     assert summary["avg_duration_ms"] == 3000
-    assert summary["cost_by_currency"] == {"USD": 0.3}
-    assert summary["quota_units"] == 2
+    assert summary["cost_by_currency"] == {"USD": 0.2}
+    assert summary["actual_cost_by_currency"] == {"USD": 0.3}
+    assert summary["quota_units"] == 1
+    assert summary["actual_quota_units"] == 2
+    assert summary["billable"] == 1
+    assert summary["no_charge"] == 1
+    assert summary["unpriced"] == 0
+    assert summary["billing_pending"] == 0
+    assert summary["callback_success"] == 1
+    assert summary["callback_failed"] == 1
+    assert summary["callback_running"] == 0
+    assert summary["callback_missing"] == 0
     assert summary["by_business"][0]["key"] == "fission"
+    assert summary["by_business"][0]["cost_by_currency"] == {"USD": 0.2}
+    assert summary["by_business"][0]["actual_cost_by_currency"] == {"USD": 0.3}
     assert summary["by_source"][0]["key"] == "coze"
     assert summary["by_tenant"][0]["key"] == "tenant-a"
     assert summary["by_client"][0]["key"] == "client-web"
@@ -714,6 +754,9 @@ def test_business_usage_summary_groups_source_tenant_and_cost(monkeypatch) -> No
 
     trace_summary = service.usage_summary(window_hours=24, trace_id="trace-usage-2")
     assert trace_summary["total"] == 1
+    assert trace_summary["cost_by_currency"] == {}
+    assert trace_summary["actual_cost_by_currency"] == {"USD": 0.1}
+    assert trace_summary["no_charge"] == 1
     assert trace_summary["recent_failures"][0]["trace_id"] == "trace-usage-2"
 
 

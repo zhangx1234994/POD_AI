@@ -46,6 +46,50 @@ def test_report_item_accepts_structured_output_without_images() -> None:
     )
 
     assert item["hasOutput"] is True
+    assert item["outputKind"] == "structured"
+    assert item["issueCode"] == ""
+    assert patrol._failed_items([item]) == []
+
+
+def test_report_item_accepts_video_output_without_images() -> None:
+    item = patrol._make_report_item(
+        {
+            "workflow": {"name": "图生视频", "workflow_id": "wf_video"},
+            "run": {"id": "run_video"},
+            "latest": {
+                "id": "run_video",
+                "status": "succeeded",
+                "result_image_urls_json": [],
+                "videoUrls": ["https://oss.example.com/out.mp4"],
+                "result_output_json": None,
+            },
+        }
+    )
+
+    assert item["hasOutput"] is True
+    assert item["videoCount"] == 1
+    assert item["outputKind"] == "video"
+    assert item["issueCode"] == ""
+    assert patrol._failed_items([item]) == []
+
+
+def test_report_item_accepts_text_output_without_images() -> None:
+    item = patrol._make_report_item(
+        {
+            "workflow": {"name": "VL 分析", "workflow_id": "wf_text"},
+            "run": {"id": "run_text"},
+            "latest": {
+                "id": "run_text",
+                "status": "succeeded",
+                "result_image_urls_json": [],
+                "result_output_json": "图片主体是蓝色花纹",
+            },
+        }
+    )
+
+    assert item["hasOutput"] is True
+    assert item["textCount"] == 1
+    assert item["outputKind"] == "text"
     assert item["issueCode"] == ""
     assert patrol._failed_items([item]) == []
 

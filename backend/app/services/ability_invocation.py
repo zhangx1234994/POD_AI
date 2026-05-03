@@ -23,7 +23,7 @@ import httpx
 
 from app.core.config import get_settings
 from app.core.db import get_session
-from app.models.integration import Ability, ApiKey, ComfyuiLora, Executor, WorkflowBinding
+from app.models.integration import Ability, AbilityTask, ApiKey, ComfyuiLora, Executor, WorkflowBinding
 from app.models.user import User
 from app.schemas import abilities as schemas
 from app.services.ability_logs import AbilityLogStartParams, ability_log_service
@@ -331,13 +331,7 @@ class AbilityInvocationService:
         settings = get_settings()
         excluded_ids = set(self._normalize_executor_ids(exclude_executor_ids))
         route_by_queue = bool(settings.comfyui_route_by_queue)
-        if settings.comfyui_default_executor_id:
-            forced_id = settings.comfyui_default_executor_id.strip()
-            if forced_id and forced_id not in excluded_ids:
-                with get_session() as session:
-                    executor = session.get(Executor, forced_id)
-                    if executor and executor.status == "active" and (executor.type or "").lower() == "comfyui":
-                        return executor.id
+        forced_id = (settings.comfyui_default_executor_id or "").strip()
 
         metadata = ability.extra_metadata if isinstance(ability.extra_metadata, dict) else {}
         policy = str(metadata.get("routing_policy") or "").strip().lower()
@@ -355,6 +349,19 @@ class AbilityInvocationService:
         declared_allowed_ids = bool(allowed_ids)
         if excluded_ids:
             allowed_ids = [executor_id for executor_id in allowed_ids if executor_id not in excluded_ids]
+        # A global default executor is useful for single-node emergency fallback,
+        # but it must not override an ability that explicitly declares multiple
+        # compatible ComfyUI nodes and asks for queue-aware routing.
+        default_can_force = not (
+            declared_allowed_ids
+            and len(allowed_ids) > 1
+            and policy in {"auto", "queue", "round_robin", "weight"}
+        )
+        if forced_id and forced_id not in excluded_ids and default_can_force:
+            with get_session() as session:
+                executor = session.get(Executor, forced_id)
+                if executor and executor.status == "active" and (executor.type or "").lower() == "comfyui":
+                    return executor.id
         action = (metadata.get("action") or "").strip() or "generic"
         workflow_key = (
             (merged_inputs.get("workflow_key") if isinstance(merged_inputs, dict) else None)
@@ -657,8 +664,9 @@ class AbilityInvocationService:
                 continue
             running = int(status.get("runningCount") or 0)
             pending = int(status.get("pendingCount") or 0)
-            total = running + pending
-            stats.append((total, pending, running, executor_id))
+            internal_queued = self._count_internal_comfyui_queued(executor_id)
+            total = running + pending + internal_queued
+            stats.append((total, pending + internal_queued, running, executor_id))
         if not stats:
             if not alive_without_queue:
                 return None
@@ -686,6 +694,40 @@ class AbilityInvocationService:
                 idx = 0
             self._rr_cursors[rr_key] = idx
             return tied_ids[idx]
+
+    def _count_internal_comfyui_queued(self, executor_id: str) -> int:
+        """Count PODI tasks selected for an executor but not yet visible in ComfyUI.
+
+        Remote `/queue` does not see tasks that are still waiting in our own
+        worker pool. Including them prevents burst submissions from repeatedly
+        selecting the same currently-empty node.
+        """
+
+        normalized_executor_id = str(executor_id or "").strip()
+        if not normalized_executor_id:
+            return 0
+        try:
+            with get_session() as session:
+                rows = (
+                    session.execute(
+                        select(AbilityTask.request_payload).where(
+                            AbilityTask.status == "queued",
+                            AbilityTask.ability_provider == "comfyui",
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+        except Exception as exc:  # pragma: no cover - defensive, routing must degrade safely
+            self._logger.warning("Failed to count internal ComfyUI queued tasks for %s: %s", normalized_executor_id, exc)
+            return 0
+        count = 0
+        for payload in rows:
+            if not isinstance(payload, dict):
+                continue
+            if str(payload.get("executorId") or "").strip() == normalized_executor_id:
+                count += 1
+        return count
 
     def _is_comfyui_executor_reachable(self, executor_id: str) -> bool:
         try:

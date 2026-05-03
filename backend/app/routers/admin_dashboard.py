@@ -7,6 +7,7 @@ import json
 import logging
 import os
 from pathlib import Path
+import subprocess
 from time import perf_counter
 from typing import Any
 from uuid import uuid4
@@ -38,6 +39,44 @@ logger = logging.getLogger(__name__)
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 DASHBOARD_RUNTIME_DIR = BACKEND_ROOT / "runtime" / "admin_dashboard"
 DASHBOARD_REPORT_DIR = BACKEND_ROOT / "reports"
+HEALTH_WATCH_UNITS = (
+    {
+        "unit": "podi-business-health-watch.timer",
+        "title": "业务轻量自检定时器",
+        "kind": "timer",
+        "description": "每 15 分钟检查发布 smoke、三大业务路由、ComfyUI 队列和最近评测健康。",
+    },
+    {
+        "unit": "podi-business-health-watch.service",
+        "title": "业务轻量自检最近执行",
+        "kind": "service",
+        "description": "最近一次轻量自检执行结果。",
+    },
+    {
+        "unit": "podi-business-live-patrol.timer",
+        "title": "业务真实巡检定时器",
+        "kind": "timer",
+        "description": "每天单并发真实跑花纹提取、图裂变、扩图和 production 测评工作流。",
+    },
+    {
+        "unit": "podi-business-live-patrol.service",
+        "title": "业务真实巡检最近执行",
+        "kind": "service",
+        "description": "最近一次真实巡检执行结果。",
+    },
+    {
+        "unit": "podi-eval-health-watch.timer",
+        "title": "评测运行健康定时器",
+        "kind": "timer",
+        "description": "每 15 分钟检查评测运行是否卡住、是否无回填、是否有近期失败。",
+    },
+    {
+        "unit": "podi-eval-health-watch.service",
+        "title": "评测运行健康最近执行",
+        "kind": "service",
+        "description": "最近一次评测运行健康检查结果。",
+    },
+)
 
 
 def _now_utc() -> datetime:
@@ -73,6 +112,142 @@ def _append_record(name: str, record: dict[str, Any], *, keep: int = 50) -> None
     current = _read_records(name)
     current = [record, *[item for item in current if item.get("id") != record.get("id")]]
     _write_records(name, current, keep=keep)
+
+
+def _run_system_command(args: list[str], *, timeout: float = 3.0) -> tuple[int, str, str]:
+    try:
+        completed = subprocess.run(
+            args,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except FileNotFoundError:
+        return 127, "", f"{args[0]} not found"
+    except subprocess.TimeoutExpired:
+        return 124, "", f"{args[0]} timed out"
+    return completed.returncode, completed.stdout or "", completed.stderr or ""
+
+
+def _parse_systemctl_show(output: str) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for line in output.splitlines():
+        key, sep, value = line.partition("=")
+        if sep:
+            result[key] = value.strip()
+    return result
+
+
+def _clean_systemd_text(value: str | None) -> str | None:
+    if not value:
+        return None
+    cleaned = value.strip()
+    if not cleaned or cleaned.lower() == "n/a":
+        return None
+    return cleaned
+
+
+def _format_systemd_time(value: str | None) -> str | None:
+    cleaned = _clean_systemd_text(value)
+    if not cleaned:
+        return None
+    parts = cleaned.split()
+    if len(parts) >= 4 and len(parts[1]) == 10 and parts[1][4] == "-":
+        suffix = f" {parts[3]}" if len(parts) >= 4 else ""
+        return f"{parts[1]} {parts[2]}{suffix}".strip()
+    return cleaned
+
+
+def _safe_optional_int(value: str | None) -> int | None:
+    try:
+        if value is None or str(value).strip() == "":
+            return None
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _classify_health_watch_unit(kind: str, props: dict[str, str], command_code: int) -> tuple[str, str]:
+    if command_code == 127:
+        return "unavailable", "当前运行环境没有 systemctl，无法读取定时器状态。"
+    if command_code == 124:
+        return "failed", "读取 systemd 状态超时。"
+
+    load_state = _clean_systemd_text(props.get("LoadState")) or "unknown"
+    active_state = _clean_systemd_text(props.get("ActiveState")) or "unknown"
+    unit_file_state = _clean_systemd_text(props.get("UnitFileState"))
+    result = _clean_systemd_text(props.get("Result"))
+    exec_status = _safe_optional_int(props.get("ExecMainStatus"))
+
+    if load_state in {"not-found", "masked", "bad-setting", "error"}:
+        return "unavailable", "没有安装或无法加载该 systemd 单元。"
+
+    if kind == "timer":
+        if unit_file_state and unit_file_state not in {"enabled", "static", "linked", "generated"}:
+            return "disabled", "定时器已安装但没有启用。"
+        if active_state == "active":
+            next_elapse = _format_systemd_time(props.get("NextElapseUSecRealtime"))
+            return "healthy", f"定时器运行中，下次触发：{next_elapse or '等待 systemd 调度'}。"
+        if active_state in {"activating", "reloading"}:
+            return "running", "定时器正在启动。"
+        return "failed", f"定时器未处于 active 状态：{active_state}。"
+
+    if active_state in {"active", "activating"}:
+        return "running", "检查任务正在执行。"
+    if result in {None, "success"} and (exec_status is None or exec_status == 0):
+        return "healthy", "最近一次执行成功。"
+    if result in {"exit-code", "timeout", "signal", "core-dump", "watchdog", "resources"} or (exec_status or 0) != 0:
+        return "failed", f"最近一次执行失败：result={result or 'unknown'}，exit={exec_status if exec_status is not None else 'unknown'}。"
+    return "unknown", f"当前状态：active={active_state}，result={result or 'unknown'}。"
+
+
+def _journal_tail(unit: str, *, lines: int = 8) -> list[str]:
+    code, stdout, _stderr = _run_system_command(
+        ["journalctl", "-u", unit, "-n", str(max(1, min(lines, 40))), "--no-pager", "-o", "short-iso"],
+        timeout=3,
+    )
+    if code != 0:
+        return []
+    return [line for line in stdout.splitlines() if line.strip()][-lines:]
+
+
+def _health_watch_unit_status(definition: dict[str, str]) -> schemas.HealthWatchUnitStatus:
+    unit = definition["unit"]
+    kind = definition["kind"]
+    code, stdout, stderr = _run_system_command(
+        [
+            "systemctl",
+            "show",
+            unit,
+            "--property=LoadState,ActiveState,SubState,UnitFileState,Result,ExecMainStatus,LastTriggerUSec,NextElapseUSecRealtime",
+            "--no-pager",
+        ],
+        timeout=3,
+    )
+    props = _parse_systemctl_show(stdout)
+    status, summary = _classify_health_watch_unit(kind, props, code)
+    if code not in {0, 127, 124} and not props:
+        status = "failed"
+        summary = (stderr or stdout or "读取 systemd 状态失败。").strip().splitlines()[0][:240]
+
+    logs = _journal_tail(unit, lines=8) if code == 0 and props.get("LoadState") != "not-found" else []
+    return schemas.HealthWatchUnitStatus(
+        unit=unit,
+        title=definition["title"],
+        kind=kind,
+        status=status,
+        summary=summary,
+        loadState=_clean_systemd_text(props.get("LoadState")),
+        activeState=_clean_systemd_text(props.get("ActiveState")),
+        subState=_clean_systemd_text(props.get("SubState")),
+        unitFileState=_clean_systemd_text(props.get("UnitFileState")),
+        result=_clean_systemd_text(props.get("Result")),
+        execMainStatus=_safe_optional_int(props.get("ExecMainStatus")),
+        lastTrigger=_format_systemd_time(props.get("LastTriggerUSec")),
+        nextElapse=_format_systemd_time(props.get("NextElapseUSecRealtime")),
+        recentLogs=logs,
+    )
 
 
 def _relative_backend_path(path: Path) -> str:
@@ -1103,6 +1278,23 @@ def import_release_patrol_report(
 def list_release_patrol_records(limit: int = Query(default=5, ge=1, le=50)) -> schemas.ReleasePatrolRecordListResponse:
     items = [schemas.ReleasePatrolRecordResponse.model_validate(item) for item in _read_records("release_patrol_records.json")[:limit]]
     return schemas.ReleasePatrolRecordListResponse(items=items)
+
+
+@router.get("/health-watch/status", response_model=schemas.HealthWatchStatusResponse, response_model_by_alias=True)
+def get_health_watch_status() -> schemas.HealthWatchStatusResponse:
+    items = [_health_watch_unit_status(definition) for definition in HEALTH_WATCH_UNITS]
+    issues = [
+        f"{item.title}：{item.summary}"
+        for item in items
+        if item.status in {"failed", "unavailable", "disabled"}
+    ]
+    supported = any(item.status != "unavailable" for item in items)
+    return schemas.HealthWatchStatusResponse(
+        generatedAt=_now_utc(),
+        supported=supported,
+        items=items,
+        issues=issues,
+    )
 
 
 _RELEASE_DECISION_TITLES = {

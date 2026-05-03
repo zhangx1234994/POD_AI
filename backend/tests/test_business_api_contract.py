@@ -87,6 +87,10 @@ def test_business_openapi_exposes_flat_business_tools() -> None:
         "durationMs",
         "costAmount",
         "currency",
+        "billingStatus",
+        "chargeable",
+        "noChargeReason",
+        "callbackStatus",
     }.issubset(run_schema["properties"])
     step_props = run_schema["properties"]["steps"]["items"]["properties"]
     assert "resultSummary" in step_props

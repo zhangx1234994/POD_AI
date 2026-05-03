@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from uuid import uuid4
 from typing import Any
 
-from sqlalchemy import desc, func, select
+from sqlalchemy import String, cast, desc, func, or_, select
 
 from app.core.db import get_session
 from app.models.integration import Ability, AbilityInvocationLog, Executor
@@ -147,27 +147,27 @@ class AbilityLogService:
         capability_key: str | None = None,
         status: str | None = None,
         source: str | None = None,
+        search: str | None = None,
+        callback_failed: bool = False,
         limit: int = 20,
         offset: int = 0,
     ) -> list[AbilityInvocationLog]:
         """Return the most recent logs for an ability or provider/key pair."""
         with get_session() as session:
             stmt = select(AbilityInvocationLog)
-            if ability_ids is not None:
-                normalized_ids = [item for item in ability_ids if item]
-                if not normalized_ids:
-                    return []
-                stmt = stmt.where(AbilityInvocationLog.ability_id.in_(normalized_ids))
-            if ability_id:
-                stmt = stmt.where(AbilityInvocationLog.ability_id == ability_id)
-            if provider:
-                stmt = stmt.where(AbilityInvocationLog.ability_provider == provider)
-            if capability_key:
-                stmt = stmt.where(AbilityInvocationLog.capability_key == capability_key)
-            if status:
-                stmt = stmt.where(AbilityInvocationLog.status == status)
-            if source:
-                stmt = stmt.where(AbilityInvocationLog.source == source)
+            stmt = self._apply_log_filters(
+                stmt,
+                ability_id=ability_id,
+                ability_ids=ability_ids,
+                provider=provider,
+                capability_key=capability_key,
+                status=status,
+                source=source,
+                search=search,
+                callback_failed=callback_failed,
+            )
+            if stmt is None:
+                return []
             stmt = (
                 stmt.order_by(desc(AbilityInvocationLog.created_at))
                 .offset(max(0, offset))
@@ -184,26 +184,87 @@ class AbilityLogService:
         capability_key: str | None = None,
         status: str | None = None,
         source: str | None = None,
+        search: str | None = None,
+        callback_failed: bool = False,
     ) -> int:
         """Return total count for the same filters used in list_logs."""
         with get_session() as session:
             stmt = select(func.count(AbilityInvocationLog.id))
-            if ability_ids is not None:
-                normalized_ids = [item for item in ability_ids if item]
-                if not normalized_ids:
-                    return 0
-                stmt = stmt.where(AbilityInvocationLog.ability_id.in_(normalized_ids))
-            if ability_id:
-                stmt = stmt.where(AbilityInvocationLog.ability_id == ability_id)
-            if provider:
-                stmt = stmt.where(AbilityInvocationLog.ability_provider == provider)
-            if capability_key:
-                stmt = stmt.where(AbilityInvocationLog.capability_key == capability_key)
-            if status:
-                stmt = stmt.where(AbilityInvocationLog.status == status)
-            if source:
-                stmt = stmt.where(AbilityInvocationLog.source == source)
+            stmt = self._apply_log_filters(
+                stmt,
+                ability_id=ability_id,
+                ability_ids=ability_ids,
+                provider=provider,
+                capability_key=capability_key,
+                status=status,
+                source=source,
+                search=search,
+                callback_failed=callback_failed,
+            )
+            if stmt is None:
+                return 0
             return int(session.execute(stmt).scalar() or 0)
+
+    def _apply_log_filters(
+        self,
+        stmt: Any,
+        *,
+        ability_id: str | None = None,
+        ability_ids: list[str] | None = None,
+        provider: str | None = None,
+        capability_key: str | None = None,
+        status: str | None = None,
+        source: str | None = None,
+        search: str | None = None,
+        callback_failed: bool = False,
+    ) -> Any | None:
+        if ability_ids is not None:
+            normalized_ids = [item for item in ability_ids if item]
+            if not normalized_ids:
+                return None
+            stmt = stmt.where(AbilityInvocationLog.ability_id.in_(normalized_ids))
+        if ability_id:
+            stmt = stmt.where(AbilityInvocationLog.ability_id == ability_id)
+        if provider:
+            stmt = stmt.where(AbilityInvocationLog.ability_provider == provider)
+        if capability_key:
+            stmt = stmt.where(AbilityInvocationLog.capability_key == capability_key)
+        if status:
+            stmt = stmt.where(AbilityInvocationLog.status == status)
+        if source:
+            stmt = stmt.where(AbilityInvocationLog.source == source)
+        if callback_failed:
+            stmt = stmt.where(
+                or_(
+                    AbilityInvocationLog.callback_status.in_(["failed", "failure", "error", "timeout"]),
+                    AbilityInvocationLog.callback_http_status >= 400,
+                    AbilityInvocationLog.callback_error.is_not(None),
+                )
+            )
+        keyword = (search or "").strip()
+        if keyword:
+            pattern = f"%{keyword[:128]}%"
+            stmt = stmt.where(
+                or_(
+                    AbilityInvocationLog.ability_name.ilike(pattern),
+                    AbilityInvocationLog.capability_key.ilike(pattern),
+                    AbilityInvocationLog.ability_provider.ilike(pattern),
+                    AbilityInvocationLog.executor_name.ilike(pattern),
+                    AbilityInvocationLog.executor_id.ilike(pattern),
+                    AbilityInvocationLog.executor_type.ilike(pattern),
+                    AbilityInvocationLog.source.ilike(pattern),
+                    AbilityInvocationLog.task_id.ilike(pattern),
+                    AbilityInvocationLog.trace_id.ilike(pattern),
+                    AbilityInvocationLog.workflow_run_id.ilike(pattern),
+                    AbilityInvocationLog.stored_url.ilike(pattern),
+                    AbilityInvocationLog.error_message.ilike(pattern),
+                    AbilityInvocationLog.callback_error.ilike(pattern),
+                    cast(AbilityInvocationLog.request_payload, String).ilike(pattern),
+                    cast(AbilityInvocationLog.response_payload, String).ilike(pattern),
+                    cast(AbilityInvocationLog.result_assets, String).ilike(pattern),
+                )
+            )
+        return stmt
 
     def get_log_by_workflow_run_id(self, workflow_run_id: str) -> AbilityInvocationLog | None:
         """Return the latest log that matches a workflow_run_id."""
@@ -538,8 +599,22 @@ class AbilityLogService:
         assets = payload.get("assets") or payload.get("storedAssets")
         if not isinstance(assets, list) or not assets:
             assets = payload.get("images")
+            if isinstance(assets, list):
+                assets = [{**item, "type": item.get("type") or "image"} if isinstance(item, dict) else item for item in assets]
         if not isinstance(assets, list) or not assets:
-            result_urls = payload.get("resultUrls") or payload.get("imageUrls")
+            assets = payload.get("videos")
+            if isinstance(assets, list):
+                assets = [{**item, "type": item.get("type") or "video"} if isinstance(item, dict) else item for item in assets]
+        if not isinstance(assets, list) or not assets:
+            result_urls = payload.get("imageUrls")
+            if isinstance(result_urls, list):
+                assets = [{"url": url, "type": "image"} for url in result_urls if isinstance(url, str) and url]
+        if not isinstance(assets, list) or not assets:
+            result_urls = payload.get("videoUrls")
+            if isinstance(result_urls, list):
+                assets = [{"url": url, "type": "video"} for url in result_urls if isinstance(url, str) and url]
+        if not isinstance(assets, list) or not assets:
+            result_urls = payload.get("resultUrls")
             if isinstance(result_urls, list):
                 assets = [{"url": url} for url in result_urls if isinstance(url, str) and url]
         if not isinstance(assets, list) or not assets:
@@ -548,7 +623,20 @@ class AbilityLogService:
         for entry in assets[:20]:
             if isinstance(entry, dict):
                 record: dict[str, Any] = {}
-                for key in ("ossUrl", "ossKey", "sourceUrl", "contentType", "size", "tag", "url"):
+                for key in (
+                    "ossUrl",
+                    "ossKey",
+                    "sourceUrl",
+                    "contentType",
+                    "mimeType",
+                    "size",
+                    "tag",
+                    "url",
+                    "type",
+                    "kind",
+                    "role",
+                    "outputType",
+                ):
                     value = entry.get(key)
                     if value is not None:
                         record[key] = value

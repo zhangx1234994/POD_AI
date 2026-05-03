@@ -151,18 +151,56 @@ class ComfyuiModelCatalogResponse(BaseModel):
 class ComfyuiQueueStatusResponse(BaseModel):
     executorId: str
     baseUrl: str
+    executorName: str | None = None
+    executorStatus: str | None = None
+    maxConcurrency: int | None = None
+    tags: list[str] | None = None
     runningCount: int
     pendingCount: int
+    totalCount: int | None = None
     queueMaxSize: int | None = None
+    capacityTarget: int | None = None
+    idleSlots: int | None = None
+    utilization: float | None = None
+    saturation: str | None = None
+    diagnosisLevel: str | None = None
+    diagnosis: str | None = None
+    backendQueued: int | None = None
+    backendRunning: int | None = None
+    backendActive: int | None = None
+    backendOldestQueuedAt: str | None = None
+    backendOldestRunningAt: str | None = None
+    feedCode: str | None = None
+    feedDiagnosisLevel: str | None = None
+    feedDiagnosis: str | None = None
     supported: bool = True
     message: str | None = None
     raw: dict[str, Any] | None = None
+
+
+class ComfyuiQueueDiagnostic(BaseModel):
+    level: str
+    code: str
+    message: str
 
 
 class ComfyuiQueueSummaryResponse(BaseModel):
     totalRunning: int
     totalPending: int
     totalCount: int
+    totalCapacity: int | None = None
+    totalIdleSlots: int | None = None
+    utilization: float | None = None
+    backendQueuedTotal: int | None = None
+    backendRunningTotal: int | None = None
+    backendActiveTotal: int | None = None
+    supportedServers: int | None = None
+    unsupportedServers: int | None = None
+    saturatedServers: int | None = None
+    idleServers: int | None = None
+    feedGapServers: int | None = None
+    backendBlockedServers: int | None = None
+    diagnostics: list[ComfyuiQueueDiagnostic] | None = None
     timestamp: str | None = None
     servers: list[ComfyuiQueueStatusResponse]
 

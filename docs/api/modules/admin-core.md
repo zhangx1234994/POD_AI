@@ -476,11 +476,14 @@ Key 写入中台 `api_keys` 表，返回只允许包含 `keyPreview`，不返回
 
 ### GET /api/admin/abilities/{id}/logs
 
-- 参数：`limit`（1-200）、`offset`
+- 参数：`limit`（1-200）、`offset`、`search`、`callbackFailed`
+- `search` 会查询能力名、能力标识、厂商、节点、任务编号、追踪编号、错误摘要、结果摘要等字段。
+- `callbackFailed=true` 只返回回调失败、回调 HTTP 4xx/5xx、或存在回调错误信息的记录。
 
 ### GET /api/admin/abilities/logs
 
-- 参数：`limit`、`offset`、`abilityId`、`provider`、`capabilityKey`
+- 参数：`limit`、`offset`、`abilityId`、`provider`、`capabilityKey`、`status`、`source`、`templateId`、`templatePublished`、`search`、`callbackFailed`
+- 管理端必须使用该接口的后端分页与筛选结果，不允许只在当前页做本地过滤，否则会误导排障。
 
 ### POST /api/admin/abilities/logs/{log_id}/resolve
 
@@ -489,7 +492,8 @@ Key 写入中台 `api_keys` 表，返回只允许包含 `keyPreview`，不返回
 ### GET /api/admin/abilities/logs/export
 
 - 导出 JSON/CSV
-- 参数：`start` / `end` / `format`（`csv/json`）
+- 参数：`start` / `end` / `format`（`csv/json`），并支持与调用清单一致的 `provider`、`capabilityKey`、`status`、`source`、`search`、`callbackFailed` 等筛选。
+- CSV 会展开 `output_summary` 为 `output_kind/output_image_count/output_video_count/output_text_count/output_structured_count/output_asset_count/output_primary_url/output_text_preview`，便于人工排障时直接判断是图片、视频、文字、结构化结果还是普通资源。
 
 ### GET /api/admin/abilities/logs/metrics
 
@@ -512,8 +516,9 @@ Key 写入中台 `api_keys` 表，返回只允许包含 `keyPreview`，不返回
   - `提交`：基于 `status` 判断是否提交成功（提交中/提交成功/提交失败/已取消）。
   - `回调阶段`：基于 `callback_status/callback_http_status/callback_finished_at/callback_id` 判断（待回调/回调成功/回调失败/结果回填中/结果已回填）。
 - 结果预览字段解析需按统一顺序兜底（`stored_url` → `result_assets` → `response_payload`）。
+- 日志响应会额外返回 `output_summary`，用于区分图片、视频、文字、结构化结果和普通资源：`image_count/video_count/text_count/structured_count/asset_count/primary_kind/primary_url/text_preview/has_output`。
 - 成功但暂无预览时，UI 文案应为“结果回填中”，避免误判为无结果。
-- `response_payload` 建议统一使用公开响应结构（`abilityId/provider/status/images/assets/metadata/...`），避免不同能力日志字段漂移。
+- `response_payload` 建议统一使用公开响应结构（`abilityId/provider/status/images/videoUrls/texts/assets/metadata/...`），避免不同能力日志字段漂移。
 
 ---
 
@@ -626,6 +631,29 @@ Key 写入中台 `api_keys` 表，返回只允许包含 `keyPreview`，不返回
 - 参数：`limit`，默认 5。
 - 返回最近发布门禁记录。
 
+### GET /api/admin/comfyui/queue-summary
+
+用途：读取所有启用的 ComfyUI 执行节点队列，并对比中台内部任务队列，用于判断 GPU 是否被充分利用、是否存在“中台执行中但 ComfyUI 队列不可见”、节点不可达等问题。
+
+请求参数：
+
+- `executorIds`：可重复传入，限制只检查指定执行节点；不传时检查所有 active 的 ComfyUI 节点。
+
+响应重点字段：
+
+- `totalRunning/totalPending/totalCount`：ComfyUI 侧实际运行、等待、总数。
+- `totalCapacity/totalIdleSlots/utilization`：按执行节点并发上限计算的总容量、空闲槽位、利用率。
+- `backendQueuedTotal/backendRunningTotal/backendActiveTotal`：中台内部待下发、执行中、总活跃任务数。
+- `feedGapServers`：中台有待下发任务但 ComfyUI 仍有空闲容量的节点数。
+- `backendBlockedServers`：中台显示执行中但 ComfyUI 队列为空的节点数。
+- `diagnostics[]`：面向运维的诊断项，可能包含 `COMFYUI_EXECUTOR_UNAVAILABLE`、`COMFYUI_BACKEND_RUNNING_NOT_VISIBLE`、`COMFYUI_FEED_GAP`、`COMFYUI_EXECUTOR_EMPTY`。
+- `servers[]`：每台节点的名称、标签、队列、容量、中台任务和诊断结果；前端应优先展示 `executorName/tags/baseUrl`，避免只用“117”这类模糊称呼。
+
+错误与降级：
+
+- 单台节点不可达时不让整个接口失败；该节点 `supported=false`，并写入 `message/diagnosis/feedDiagnosis`。
+- 全部节点不可达时仍返回 200，`diagnostics[]` 标记阻塞原因，前端必须展示为业务风险。
+
 ### POST /api/admin/dashboard/release-patrol/records
 
 用途：人工登记完整巡检结果。完整巡检会真实提交启用的测评工作流，可能产生成本，因此不在管理端自动触发。
@@ -663,6 +691,52 @@ Key 写入中台 `api_keys` 表，返回只允许包含 `keyPreview`，不返回
 
 - 参数：`limit`，默认 5。
 - 返回最近完整巡检记录。
+
+### GET /api/admin/dashboard/health-watch/status
+
+用途：读取线上自检守护状态，用于管理端总览页确认定时巡检是否真的在运行。接口只读取固定白名单 systemd 单元，不接受前端传入 unit 名称或命令。
+
+请求：无请求体。
+
+响应示例：
+
+```json
+{
+  "generatedAt": "2026-05-03T00:42:10Z",
+  "supported": true,
+  "items": [
+    {
+      "unit": "podi-business-health-watch.timer",
+      "title": "业务轻量自检定时器",
+      "kind": "timer",
+      "status": "healthy",
+      "summary": "定时器运行中，下次触发：2026-05-03 08:51:32 CST。",
+      "loadState": "loaded",
+      "activeState": "active",
+      "subState": "waiting",
+      "unitFileState": "enabled",
+      "result": "success",
+      "execMainStatus": 0,
+      "lastTrigger": "2026-05-03 08:36:02 CST",
+      "nextElapse": "2026-05-03 08:51:32 CST",
+      "recentLogs": []
+    }
+  ],
+  "issues": []
+}
+```
+
+字段说明：
+
+- `supported`：当前后端运行环境是否能读取 systemd。线上 114 应为 `true`；本地开发环境可能为 `false`。
+- `items[].status`：`healthy/running/failed/disabled/unavailable/unknown`。
+- `items[].kind`：`timer` 表示定时器，`service` 表示最近一次执行。
+- `issues`：需要人工处理的问题摘要。注意：定时器未安装、未启用或最近执行失败都会进入 `issues`，但接口本身仍返回 200。
+
+错误：
+
+- 认证失败沿用管理端统一认证错误。
+- systemd 不可用、unit 未安装、unit 执行失败不会作为 HTTP 错误抛出，而是写入 `items[].status` 与 `issues`，避免页面因为守护异常整体白屏。
 
 ### POST /api/admin/dashboard/release-decisions/records
 

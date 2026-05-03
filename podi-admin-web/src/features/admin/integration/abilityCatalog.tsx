@@ -11,6 +11,7 @@ import type {
 } from '../../../types/admin';
 import { mapStatusToBadge } from '../shared/status';
 import { getAbilityLogStatusTag, resolveLogDurationMs } from './abilityLogs';
+import { resolveAbilityOutputProfile } from './abilityOutputProfile';
 import { AbilityHealthPanel, type AbilityHealthFilter } from './abilityHealth';
 import { formatDateTime } from './formatters';
 import { statusOptions } from './formOptions';
@@ -229,6 +230,14 @@ export function AbilityCatalogPanel({
     }
     return { theme: 'success' as const, text: '模型可用', detail: '模型目录和厂商状态当前没有明显阻塞。' };
   };
+  const outputSummaryCounts = abilities.reduce(
+    (acc, ability) => {
+      const profile = resolveAbilityOutputProfile(ability);
+      acc[profile.kind] = (acc[profile.kind] || 0) + 1;
+      return acc;
+    },
+    {} as Record<string, number>,
+  );
 
   return (
     <Card
@@ -275,6 +284,36 @@ export function AbilityCatalogPanel({
                   </Tag>
                   <Typography.Text strong>{title}</Typography.Text>
                   <Typography.Text theme="secondary">{body}</Typography.Text>
+                </Space>
+              </div>
+            </Col>
+          ))}
+        </Row>
+      </Card>
+
+      <Card bordered style={{ marginBottom: 12 }} title="能力输出分布">
+        <Row gutter={[12, 12]}>
+          {[
+            ['图片能力', outputSummaryCounts.image || 0, '生成、编辑、处理图片结果'],
+            ['视频能力', outputSummaryCounts.video || 0, '生视频或视频处理结果'],
+            ['文字能力', outputSummaryCounts.text || 0, '文字增强、文案生成等'],
+            ['图像理解', outputSummaryCounts.structured || 0, 'VL 分析、标签、JSON 判断'],
+          ].map(([label, value, detail]) => (
+            <Col key={String(label)} xs={12} md={3}>
+              <div
+                style={{
+                  border: '1px solid var(--td-border-level-1-color)',
+                  borderRadius: 12,
+                  padding: 12,
+                  height: '100%',
+                }}
+              >
+                <Space direction="vertical" size={4}>
+                  <Typography.Text theme="secondary">{label}</Typography.Text>
+                  <Typography.Title level="h3" style={{ margin: 0 }}>
+                    {value}
+                  </Typography.Title>
+                  <Typography.Text theme="secondary">{detail}</Typography.Text>
                 </Space>
               </div>
             </Col>
@@ -393,10 +432,26 @@ export function AbilityCatalogPanel({
               },
               cell: ({ row }) => {
                 const issues = getAbilitySchemaIssues(row);
+                const outputProfile = resolveAbilityOutputProfile(row);
                 return (
                   <Space direction="vertical" size={2}>
                     <Typography.Text strong>{row.display_name}</Typography.Text>
                     <Typography.Text theme="secondary">{row.description || '—'}</Typography.Text>
+                    <Space size="small" breakLine>
+                      <Tag theme={outputProfile.theme} variant="light" size="small">
+                        {outputProfile.label}
+                      </Tag>
+                      {outputProfile.outputTags.map((tag) => (
+                        <Tag key={`${row.id}-output-${tag}`} theme="default" variant="light" size="small">
+                          {tag}
+                        </Tag>
+                      ))}
+                      {outputProfile.inputTags.map((tag) => (
+                        <Tag key={`${row.id}-input-${tag}`} theme="primary" variant="outline" size="small">
+                          {tag}
+                        </Tag>
+                      ))}
+                    </Space>
                     {issues.length > 0 ? (
                       <Space size="small" breakLine>
                         {issues.map((issue) => (

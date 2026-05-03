@@ -329,6 +329,9 @@ class BusinessRunRead(BaseModel):
     currency: str | None = None
     quotaUnits: int | None = Field(default=None, alias="quota_units")
     costBreakdown: dict[str, Any] | None = Field(default=None, alias="cost_breakdown")
+    billingStatus: str | None = Field(default=None, alias="billing_status")
+    chargeable: bool | None = None
+    noChargeReason: str | None = Field(default=None, alias="no_charge_reason")
     callbackStatus: str | None = Field(default=None, alias="callback_status")
     callbackHttpStatus: int | None = Field(default=None, alias="callback_http_status")
     callbackError: str | None = Field(default=None, alias="callback_error")
@@ -359,7 +362,17 @@ class BusinessUsageBucket(BaseModel):
     successRate: float | None = Field(default=None, alias="success_rate")
     avgDurationMs: int | None = Field(default=None, alias="avg_duration_ms")
     costByCurrency: dict[str, float] = Field(default_factory=dict, alias="cost_by_currency")
+    actualCostByCurrency: dict[str, float] = Field(default_factory=dict, alias="actual_cost_by_currency")
     quotaUnits: int = Field(default=0, alias="quota_units")
+    actualQuotaUnits: int = Field(default=0, alias="actual_quota_units")
+    billable: int = 0
+    unpriced: int = 0
+    noCharge: int = Field(default=0, alias="no_charge")
+    billingPending: int = Field(default=0, alias="billing_pending")
+    callbackSuccess: int = Field(default=0, alias="callback_success")
+    callbackFailed: int = Field(default=0, alias="callback_failed")
+    callbackRunning: int = Field(default=0, alias="callback_running")
+    callbackMissing: int = Field(default=0, alias="callback_missing")
     latestAt: datetime | None = Field(default=None, alias="latest_at")
 
 
@@ -390,7 +403,17 @@ class BusinessUsageSummaryResponse(BaseModel):
     successRate: float | None = Field(default=None, alias="success_rate")
     avgDurationMs: int | None = Field(default=None, alias="avg_duration_ms")
     costByCurrency: dict[str, float] = Field(default_factory=dict, alias="cost_by_currency")
+    actualCostByCurrency: dict[str, float] = Field(default_factory=dict, alias="actual_cost_by_currency")
     quotaUnits: int = Field(default=0, alias="quota_units")
+    actualQuotaUnits: int = Field(default=0, alias="actual_quota_units")
+    billable: int = 0
+    unpriced: int = 0
+    noCharge: int = Field(default=0, alias="no_charge")
+    billingPending: int = Field(default=0, alias="billing_pending")
+    callbackSuccess: int = Field(default=0, alias="callback_success")
+    callbackFailed: int = Field(default=0, alias="callback_failed")
+    callbackRunning: int = Field(default=0, alias="callback_running")
+    callbackMissing: int = Field(default=0, alias="callback_missing")
     byBusiness: list[BusinessUsageBucket] = Field(default_factory=list, alias="by_business")
     bySource: list[BusinessUsageBucket] = Field(default_factory=list, alias="by_source")
     byTenant: list[BusinessUsageBucket] = Field(default_factory=list, alias="by_tenant")

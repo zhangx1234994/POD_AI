@@ -51,18 +51,53 @@ const collectTestResultUrls = (result?: AbilityTestResultView | null) => {
   return Array.from(new Set(urls));
 };
 
+const hasStructuredValue = (value: unknown) => {
+  if (value === undefined || value === null) return false;
+  if (typeof value === 'string') return value.trim().length > 0;
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === 'object') return Object.keys(value).length > 0;
+  return true;
+};
+
+const resolveStructuredOutput = (result?: AbilityTestResultView | null): unknown => {
+  const raw = result?.raw;
+  if (!raw || typeof raw !== 'object') return null;
+  const rawRecord = raw as Record<string, unknown>;
+  const containers = [
+    rawRecord,
+    typeof rawRecord.data === 'object' && rawRecord.data ? (rawRecord.data as Record<string, unknown>) : null,
+    typeof rawRecord.result === 'object' && rawRecord.result ? (rawRecord.result as Record<string, unknown>) : null,
+  ].filter(Boolean) as Record<string, unknown>[];
+  const keys = ['jsonOutput', 'outputJson', 'resultOutputJson', 'result_output_json', 'structuredOutput', 'json'];
+  for (const container of containers) {
+    for (const key of keys) {
+      const value = container[key];
+      if (hasStructuredValue(value)) return value;
+    }
+  }
+  return null;
+};
+
 const resolveTestResultOutput = (result?: AbilityTestResultView | null, previewSrc?: string) => {
   const urls = collectTestResultUrls(result);
   const imageUrls = urls.filter((url) => classifyOutputUrl(url) === 'image');
   const videoUrls = urls.filter((url) => classifyOutputUrl(url) === 'video');
   const resourceUrls = urls.filter((url) => classifyOutputUrl(url) === 'resource');
   const base64Preview = result?.imageBase64 ? previewSrc || '' : '';
+  const structuredOutput = resolveStructuredOutput(result);
   return {
     base64Preview,
     imageUrls,
     videoUrls,
     resourceUrls,
-    hasOutput: Boolean(base64Preview) || imageUrls.length > 0 || videoUrls.length > 0 || resourceUrls.length > 0 || Boolean(result?.text),
+    structuredOutput,
+    hasOutput:
+      Boolean(base64Preview) ||
+      imageUrls.length > 0 ||
+      videoUrls.length > 0 ||
+      resourceUrls.length > 0 ||
+      Boolean(result?.text) ||
+      hasStructuredValue(structuredOutput),
   };
 };
 
@@ -384,6 +419,12 @@ export function AbilityTestingTab({
                 {testResult.text}
               </div>
             ) : null}
+            {hasStructuredValue(output.structuredOutput) ? (
+              <div className="mt-3 rounded-2xl border border-slate-800 bg-slate-950/40 p-3 text-xs text-slate-300">
+                <div className="text-slate-200">结构化结果</div>
+                <CodeBlock value={stringifyJSON(output.structuredOutput as JsonRecord)} maxHeight={220} />
+              </div>
+            ) : null}
             <div className="mt-3 space-y-1 text-xs text-slate-400">
               {testResult.provider ? <div>厂商：{getProviderLabel(testResult.provider)}</div> : null}
               {testResult.model ? <div>模型：{testResult.model}</div> : null}
@@ -428,14 +469,18 @@ export function AbilityTestingTab({
               <div className="mt-3 rounded-2xl border border-slate-800 bg-slate-950/40 p-3 text-xs text-slate-300">
                 <div className="text-slate-200">已同步至素材存储</div>
                 <ul className="mt-2 space-y-1">
-                  {testResult.assets.map((asset, index) => (
-                    <li key={asset.ossKey || index} className="break-all">
-                      <span className="text-slate-500">[{asset.tag || `asset-${index + 1}`}] </span>
-                      <a href={asset.ossUrl} target="_blank" rel="noreferrer" className="text-emerald-400 underline">
-                        {asset.ossUrl}
-                      </a>
-                    </li>
-                  ))}
+                  {testResult.assets.map((asset, index) => {
+                    const assetUrl = asset.ossUrl || asset.url || asset.sourceUrl || '';
+                    if (!assetUrl) return null;
+                    return (
+                      <li key={asset.ossKey || assetUrl || index} className="break-all">
+                        <span className="text-slate-500">[{asset.tag || asset.type || `asset-${index + 1}`}] </span>
+                        <a href={assetUrl} target="_blank" rel="noreferrer" className="text-emerald-400 underline">
+                          {assetUrl}
+                        </a>
+                      </li>
+                    );
+                  })}
                 </ul>
               </div>
             ) : null}

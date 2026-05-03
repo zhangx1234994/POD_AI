@@ -161,16 +161,73 @@ def _result_image_count(run: dict[str, Any]) -> int:
         images = run.get("resultImageUrlsJson")
     if not isinstance(images, list):
         images = run.get("imageUrls")
+    if not isinstance(images, list):
+        images = run.get("image_urls")
+    if not isinstance(images, list):
+        output = run.get("result_output_json") or run.get("resultOutputJson") or run.get("outputJson") or run.get("jsonOutput")
+        if isinstance(output, dict):
+            images = output.get("imageUrls") or output.get("image_urls") or output.get("images")
     return len([item for item in images or [] if isinstance(item, str) and item.strip()])
+
+
+def _result_video_count(run: dict[str, Any]) -> int:
+    videos = run.get("result_video_urls_json")
+    if not isinstance(videos, list):
+        videos = run.get("resultVideoUrlsJson")
+    if not isinstance(videos, list):
+        videos = run.get("videoUrls")
+    if not isinstance(videos, list):
+        videos = run.get("video_urls")
+    if not isinstance(videos, list):
+        output = run.get("result_output_json") or run.get("resultOutputJson") or run.get("outputJson") or run.get("jsonOutput")
+        if isinstance(output, dict):
+            videos = output.get("videoUrls") or output.get("video_urls") or output.get("videos")
+    return len([item for item in videos or [] if isinstance(item, str) and item.strip()])
+
+
+def _result_text_count(run: dict[str, Any]) -> int:
+    texts = run.get("texts")
+    if not isinstance(texts, list):
+        texts = run.get("result_texts_json")
+    if not isinstance(texts, list):
+        texts = run.get("resultTextsJson")
+    output = run.get("result_output_json") or run.get("resultOutputJson") or run.get("outputJson") or run.get("jsonOutput")
+    if isinstance(output, str) and output.strip():
+        return 1
+    if isinstance(output, dict) and not isinstance(texts, list):
+        texts = output.get("texts") or output.get("resultTexts") or output.get("result_texts")
+        if not isinstance(texts, list):
+            single = output.get("text") or output.get("content") or output.get("message")
+            if isinstance(single, str) and single.strip():
+                return 1
+    return len([item for item in texts or [] if isinstance(item, str) and item.strip()])
+
+
+def _has_structured_output(run: dict[str, Any]) -> bool:
+    for key in ("result_output_json", "resultOutputJson", "outputJson", "jsonOutput"):
+        if key not in run:
+            continue
+        value = run.get(key)
+        if value is None:
+            continue
+        if isinstance(value, str):
+            return bool(value.strip())
+        if isinstance(value, list):
+            return any(item is not None and (not isinstance(item, str) or item.strip()) for item in value)
+        if isinstance(value, dict):
+            return bool(value)
+        return True
+    return False
 
 
 def _has_output(run: dict[str, Any]) -> bool:
     if _result_image_count(run) > 0:
         return True
-    for key in ("result_output_json", "resultOutputJson", "outputJson", "jsonOutput"):
-        if key in run and run.get(key) is not None:
-            return True
-    return False
+    if _result_video_count(run) > 0:
+        return True
+    if _result_text_count(run) > 0:
+        return True
+    return _has_structured_output(run)
 
 
 def _classify_issue(item: dict[str, Any]) -> str:
@@ -198,7 +255,18 @@ def _make_report_item(row: dict[str, Any]) -> dict[str, Any]:
     run = row.get("run", {}) if isinstance(row.get("run"), dict) else {}
     workflow = row.get("workflow", {}) if isinstance(row.get("workflow"), dict) else {}
     image_count = _result_image_count(latest)
+    video_count = _result_video_count(latest)
+    text_count = _result_text_count(latest)
     has_output = _has_output(latest)
+    output_kind = "none"
+    if image_count > 0:
+        output_kind = "image"
+    elif video_count > 0:
+        output_kind = "video"
+    elif text_count > 0:
+        output_kind = "text"
+    elif _has_structured_output(latest):
+        output_kind = "structured"
     item = {
         "name": workflow.get("name"),
         "workflowId": workflow.get("workflow_id"),
@@ -210,6 +278,9 @@ def _make_report_item(row: dict[str, Any]) -> dict[str, Any]:
         "cozeExecuteId": latest.get("coze_execute_id"),
         "podiTaskId": latest.get("podi_task_id"),
         "imageCount": image_count,
+        "videoCount": video_count,
+        "textCount": text_count,
+        "outputKind": output_kind,
         "hasOutput": has_output,
         "errorCode": latest.get("error_code") or run.get("error_code"),
         "error": _short_error(latest.get("error_message") or run.get("error_message")),

@@ -8,7 +8,8 @@ from sqlalchemy.pool import StaticPool
 
 import app.services.ability_logs as ability_logs_module
 from app.core.db import Base
-from app.models.integration import Ability
+from app.models.integration import Ability, AbilityInvocationLog
+from app.schemas.admin_ability_logs import AbilityInvocationLogRead
 from app.services.ability_logs import AbilityLogService
 
 
@@ -68,8 +69,82 @@ def test_extract_assets_fallback_from_images_and_result_urls():
     svc = AbilityLogService()
     from_images = svc._extract_assets({"images": [{"ossUrl": "https://oss.example.com/a.png", "tag": "comfyui"}]})
     assert isinstance(from_images, list) and from_images[0]["ossUrl"] == "https://oss.example.com/a.png"
+    assert from_images[0]["type"] == "image"
     from_urls = svc._extract_assets({"resultUrls": ["https://oss.example.com/c.png"]})
     assert isinstance(from_urls, list) and from_urls[0]["url"] == "https://oss.example.com/c.png"
+
+
+def test_extract_assets_preserves_video_output_type():
+    svc = AbilityLogService()
+    assets = svc._extract_assets({"videoUrls": ["https://oss.example.com/output.mp4"]})
+    assert isinstance(assets, list)
+    assert assets[0]["url"] == "https://oss.example.com/output.mp4"
+    assert assets[0]["type"] == "video"
+
+
+def test_log_read_outputs_summary_for_image_video_and_text():
+    log = AbilityInvocationLog(
+        id=1,
+        ability_provider="openai",
+        capability_key="mixed_output",
+        source="ability-api",
+        status="success",
+        stored_url=None,
+        response_payload={
+            "imageUrls": ["https://oss.example.com/a.png"],
+            "videoUrls": ["https://oss.example.com/b.mp4"],
+            "texts": ["结构化分析完成"],
+        },
+        result_assets=None,
+        created_at=datetime.utcnow(),
+    )
+
+    read = AbilityInvocationLogRead.model_validate(log)
+
+    assert read.output_summary.has_output is True
+    assert read.output_summary.image_count == 1
+    assert read.output_summary.video_count == 1
+    assert read.output_summary.text_count == 1
+    assert read.output_summary.primary_kind == "image"
+    assert read.output_summary.primary_url == "https://oss.example.com/a.png"
+    assert read.output_summary.text_preview == "结构化分析完成"
+
+
+def test_log_read_outputs_summary_for_text_only():
+    log = AbilityInvocationLog(
+        id=2,
+        ability_provider="volcengine",
+        capability_key="vl_analyze",
+        source="ability-api",
+        status="success",
+        response_payload={"texts": [{"text": "图片主体是花纹布料"}]},
+        created_at=datetime.utcnow(),
+    )
+
+    read = AbilityInvocationLogRead.model_validate(log)
+
+    assert read.output_summary.has_output is True
+    assert read.output_summary.primary_kind == "text"
+    assert read.output_summary.primary_url is None
+    assert read.output_summary.text_count == 1
+
+
+def test_log_read_outputs_summary_for_structured_only():
+    log = AbilityInvocationLog(
+        id=3,
+        ability_provider="volcengine",
+        capability_key="image_tags",
+        source="ability-api",
+        status="success",
+        response_payload={"jsonOutput": {"tags": ["花纹", "蓝色"]}},
+        created_at=datetime.utcnow(),
+    )
+
+    read = AbilityInvocationLogRead.model_validate(log)
+
+    assert read.output_summary.has_output is True
+    assert read.output_summary.primary_kind == "structured"
+    assert read.output_summary.structured_count == 1
 
 
 def test_finish_log_updates_ability_health_summary(monkeypatch):
@@ -242,3 +317,73 @@ def test_refresh_health_summaries_filters_export_items(monkeypatch):
 
     healthy_summary = svc.refresh_health_summaries(health_status="healthy", stale_hours=24, limit=10)
     assert [item["abilityId"] for item in healthy_summary["items"]] == ["ability_health_test"]
+
+
+def test_list_logs_search_filters_full_log_history(monkeypatch):
+    install_log_db(monkeypatch)
+    svc = AbilityLogService()
+
+    for executor_id, executor_name in [
+        ("executor_comfyui_4090_233", "ComfyUI 4090 · 117.50.216.233"),
+        ("executor_comfyui_5090_158", "ComfyUI 5090 · 117.50.80.158"),
+    ]:
+        log_id = svc.start_log(
+            ability_logs_module.AbilityLogStartParams(
+                provider="comfyui",
+                capability_key="image_fission",
+                ability_name="图裂变",
+                executor_id=executor_id,
+                executor_name=executor_name,
+                source="workflow",
+                task_id=f"task_{executor_id}",
+                trace_id=f"trace_{executor_id}",
+                request_payload={"imageUrl": f"https://example.com/{executor_id}.png"},
+            )
+        )
+        svc.finish_success(log_id, response_payload={"storedUrl": f"https://oss.example.com/{executor_id}.png"})
+
+    entries = svc.list_logs(provider="comfyui", search="4090", limit=20)
+
+    assert len(entries) == 1
+    assert entries[0].executor_id == "executor_comfyui_4090_233"
+    assert svc.count_logs(provider="comfyui", search="4090") == 1
+
+
+def test_list_logs_callback_failed_filter(monkeypatch):
+    testing_session = install_log_db(monkeypatch)
+    svc = AbilityLogService()
+
+    ok_id = svc.start_log(
+        ability_logs_module.AbilityLogStartParams(
+            provider="comfyui",
+            capability_key="image_fission",
+            ability_name="图裂变",
+            source="workflow",
+            task_id="task_ok",
+        )
+    )
+    failed_id = svc.start_log(
+        ability_logs_module.AbilityLogStartParams(
+            provider="comfyui",
+            capability_key="image_fission",
+            ability_name="图裂变",
+            source="workflow",
+            task_id="task_callback_failed",
+        )
+    )
+    svc.finish_success(ok_id, response_payload={"ok": True})
+    svc.finish_success(failed_id, response_payload={"ok": True})
+    with testing_session() as session:
+        log = session.get(AbilityInvocationLog, failed_id)
+        assert log is not None
+        log.callback_status = "failed"
+        log.callback_http_status = 401
+        log.callback_error = "INTERNAL_ONLY"
+        session.add(log)
+        session.commit()
+
+    entries = svc.list_logs(provider="comfyui", callback_failed=True, limit=20)
+
+    assert len(entries) == 1
+    assert entries[0].task_id == "task_callback_failed"
+    assert svc.count_logs(provider="comfyui", callback_failed=True) == 1

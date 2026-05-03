@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 from fastapi import HTTPException
 
+import app.services.ability_invocation as ability_invocation_module
 from app.services.ability_invocation import AbilityInvocationService
 from app.services.integration_test import integration_test_service
 
@@ -34,6 +35,23 @@ def test_pick_comfyui_executor_by_queue_round_robin_on_tie(monkeypatch):
     assert first in {"executor_a", "executor_b"}
     assert second in {"executor_a", "executor_b"}
     assert first != second
+
+
+def test_pick_comfyui_executor_by_queue_counts_internal_queued_tasks(monkeypatch):
+    service = AbilityInvocationService()
+
+    def _fake_status(*, executor_id: str):
+        return {"runningCount": 0, "pendingCount": 0, "supported": True}
+
+    def _fake_internal_queued(executor_id: str):
+        return {"executor_a": 2, "executor_b": 0}.get(executor_id, 0)
+
+    monkeypatch.setattr(integration_test_service, "get_comfyui_queue_status", _fake_status)
+    monkeypatch.setattr(service, "_count_internal_comfyui_queued", _fake_internal_queued)
+
+    picked = service._pick_comfyui_executor_by_queue(["executor_a", "executor_b"])
+
+    assert picked == "executor_b"
 
 
 def test_queue_auto_selection_skips_unreachable_executor(monkeypatch):
@@ -129,6 +147,46 @@ def test_allowed_comfyui_executors_do_not_escape_to_legacy_default_when_unreacha
 
     picked = service._pick_comfyui_executor_id(ability, {})
     assert picked is None
+
+
+def test_global_default_does_not_override_multi_executor_queue_policy(monkeypatch):
+    service = AbilityInvocationService()
+    ability = SimpleNamespace(
+        id="ability_test",
+        capability_key="flux_strong_hq_softstyle_fission",
+        extra_metadata={
+            "allowed_executor_ids": ["executor_a", "executor_b"],
+            "routing_policy": "queue",
+            "fallback_to_default": True,
+        },
+    )
+
+    monkeypatch.setattr(
+        ability_invocation_module,
+        "get_settings",
+        lambda: SimpleNamespace(
+            comfyui_default_executor_id="executor_a",
+            comfyui_route_by_queue=True,
+            comfyui_queue_batch_size=10,
+        ),
+    )
+    monkeypatch.setattr(
+        service,
+        "_prepare_comfyui_candidates",
+        lambda executor_ids, required_tags: [SimpleNamespace(id=eid) for eid in executor_ids],
+    )
+    monkeypatch.setattr(service, "_count_internal_comfyui_queued", lambda executor_id: 0)
+
+    def _fake_status(*, executor_id: str):
+        if executor_id == "executor_a":
+            return {"runningCount": 4, "pendingCount": 2, "supported": True}
+        return {"runningCount": 0, "pendingCount": 0, "supported": True}
+
+    monkeypatch.setattr(integration_test_service, "get_comfyui_queue_status", _fake_status)
+
+    picked = service._pick_comfyui_executor_id(ability, {})
+
+    assert picked == "executor_b"
 
 
 def test_workflow_default_can_reroute_to_general_executor_when_default_excluded(monkeypatch):

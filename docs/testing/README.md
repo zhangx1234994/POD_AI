@@ -42,6 +42,8 @@
   - 114 业务链路定时自检入口。轻量检查每 15 分钟跑一次，不消耗生图；真实巡检每天单并发跑一次，覆盖三大业务和 production 测评工作流。
 - `RELEASE_REGRESSION_REPORT_2026-04-30.md`
   - 2026-04-30 文档治理与发布前完整回归记录
+- `RELEASE_REGRESSION_REPORT_2026-05-03.md`
+  - 2026-05-03 事故整改后核心链路、业务计费口径与管理端构建回归记录
 - `COZE_WORKFLOW_TEST_PLAN.md`
 - `COMFYUI_TASK_STATE_REGRESSION_PLAN.md`
 - `AUTH_BILLING_TEST_PLAN.md`

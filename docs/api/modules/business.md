@@ -20,6 +20,39 @@
 
 ---
 
+## 0) 业务方快速接入口径
+
+业务方只需要理解三件事：
+
+1. 提交任务后保存 `runId`。
+2. 用 `runId` 轮询 `/api/business/runs/get`。
+3. 终态只看 `status/imageUrls/videoUrls/texts/error`，不要依赖底层能力、执行节点或工作流 ID。
+
+当前三个主业务入口：
+
+| 业务 | 提交接口 | 必填字段 | 常用可调字段 | 终态输出 | 业务说明 |
+| --- | --- | --- | --- | --- | --- |
+| 花纹提取 | `POST /api/business/pattern-extract/runs` | `imageUrl` | `prompt`、`negative_prompt`、`width`、`height`、`batch`、`lora` | `imageUrls` | 从原图中提取可复用花纹资产，通常是后续裂变和扩图的上游。 |
+| 图裂变 | `POST /api/business/fission/runs` | `imageUrl` | `prompt`、`bili`、`width`、`height`、`image_desc`、`batch_size` | `imageUrls` | 基于原图生成变化图；`bili` 越大，变化幅度通常越明显。 |
+| 扩图 | `POST /api/business/outpaint/runs` | `imageUrl` | `prompt`、`expand_left`、`expand_right`、`expand_top`、`expand_bottom`、`width`、`height` | `imageUrls` | 在原图四周扩展画面，适合补构图、补背景和素材延展。 |
+
+通用追踪字段：
+
+- `source`：调用来源，例如 `coze`、`client`、`partner-api`。
+- `channel`：具体入口，例如 `coze-workflow`、`open-api`、`eval`。
+- `traceId`：跨系统排查 ID，建议业务方生成并传入。
+- `requestId`：业务方请求 ID，后续用于幂等和日志关联。
+- `tenantId/clientId`：租户和客户端标识，用于灰度、配额、统计和隔离。
+- `callbackUrl`：可选。配置后任务终态会回调业务方；即使回调失败，业务方仍可用 `runId` 查询结果。
+
+状态约定：
+
+- `queued/running`：任务还在排队或执行，业务方继续轮询。
+- `succeeded`：任务成功，读取 `imageUrls/videoUrls/texts`。
+- `failed/cancelled/timeout`：任务不可继续，读取 `error/errorMessage` 并按错误码处理。
+
+---
+
 ## 1) 业务能力清单
 
 ### GET /api/business/capabilities
@@ -890,6 +923,8 @@ OpenAPI 内每个工具都会枚举错误响应：
 - `business_key`：可选，`pattern_extract` / `fission` / `outpaint`
 - `version`：可选，按业务版本过滤，例如 `v1`
 - `status`：可选，按运行状态过滤，常见值为 `queued` / `running` / `succeeded` / `failed` / `cancelled`
+- `billing_status`：可选，按计费状态过滤，取值为 `billable` / `unpriced` / `no_charge` / `billing_pending`
+- `callback_status`：可选，按回调状态过滤，取值为 `success` / `failed` / `running`
 - `source`：可选，按调用来源过滤，例如 `coze` / `client` / `partner-api`
 - `tenant_id`：可选，按租户/业务方过滤
 - `client_id`：可选，按客户端/应用过滤
@@ -902,7 +937,8 @@ OpenAPI 内每个工具都会枚举错误响应：
 
 - `traceId/requestId/tenantId/clientId/channel/source`：定位一次业务调用来自哪里、属于哪个业务方或客户端。
 - `durationMs`：业务任务主链路耗时，终态后回填。
-- `costAmount/currency/quotaUnits/costBreakdown`：成本和配额预留字段，后续收费系统会基于这些字段做正式账单。
+- `costAmount/currency/quotaUnits/costBreakdown`：底层能力返回的成本和用量，保留做排查与成本测算。
+- `billingStatus/chargeable/noChargeReason`：业务计费口径。`billable` 表示成功且有成本或额度，可进入正式账单；`no_charge` 表示失败、取消或超时，不向业务方计费；`billing_pending` 表示任务未终态；`unpriced` 表示成功但缺少定价，需要先补成本规则。
 
 ### GET /api/admin/business/usage-summary
 
@@ -940,7 +976,15 @@ OpenAPI 内每个工具都会枚举错误响应：
   "costByCurrency": {
     "USD": 2.4
   },
+  "actualCostByCurrency": {
+    "USD": 2.6
+  },
   "quotaUnits": 12,
+  "actualQuotaUnits": 13,
+  "billable": 10,
+  "unpriced": 0,
+  "noCharge": 2,
+  "billingPending": 0,
   "byBusiness": [
     {
       "key": "fission",
@@ -954,7 +998,13 @@ OpenAPI 内每个工具都会枚举错误响应：
       "successRate": 0.8333,
       "avgDurationMs": 128000,
       "costByCurrency": { "USD": 2.4 },
+      "actualCostByCurrency": { "USD": 2.6 },
       "quotaUnits": 12,
+      "actualQuotaUnits": 13,
+      "billable": 10,
+      "unpriced": 0,
+      "noCharge": 2,
+      "billingPending": 0,
       "latestAt": "2026-04-25T10:00:00"
     }
   ],
@@ -980,6 +1030,12 @@ OpenAPI 内每个工具都会枚举错误响应：
   ]
 }
 ```
+
+计费口径：
+
+- `costByCurrency/quotaUnits` 只统计 `billable` 的成功任务，用于后续正式账单。
+- `actualCostByCurrency/actualQuotaUnits` 统计底层实际返回的所有成本和用量，用于内部排查和供应商成本复盘。
+- 失败、取消、超时任务即使底层返回了成本，也会进入 `noCharge`，不进入业务方正式账单。
 
 常见错误：
 

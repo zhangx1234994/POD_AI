@@ -651,9 +651,21 @@ def list_ability_logs(
     ability_id: str,
     limit: int = Query(20, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    search: str | None = Query(default=None, max_length=128),
+    callback_failed: bool = Query(default=False, alias="callbackFailed"),
 ):
-    total = ability_log_service.count_logs(ability_id=ability_id)
-    entries = ability_log_service.list_logs(ability_id=ability_id, limit=limit, offset=offset)
+    total = ability_log_service.count_logs(
+        ability_id=ability_id,
+        search=search,
+        callback_failed=callback_failed,
+    )
+    entries = ability_log_service.list_logs(
+        ability_id=ability_id,
+        search=search,
+        callback_failed=callback_failed,
+        limit=limit,
+        offset=offset,
+    )
     entries = _enrich_log_entries(entries)
     return {
         "total": total,
@@ -674,6 +686,8 @@ def list_all_ability_logs(
     source: str | None = Query(default=None),
     template_id: str | None = Query(default=None, alias="templateId"),
     template_published: bool | None = Query(default=None, alias="templatePublished"),
+    search: str | None = Query(default=None, max_length=128),
+    callback_failed: bool = Query(default=False, alias="callbackFailed"),
 ):
     template_ability_ids = _resolve_template_filtered_ability_ids(
         template_id=template_id,
@@ -686,6 +700,8 @@ def list_all_ability_logs(
         capability_key=capability_key,
         status=status,
         source=source,
+        search=search,
+        callback_failed=callback_failed,
     )
     entries = ability_log_service.list_logs(
         ability_id=ability_id,
@@ -694,6 +710,8 @@ def list_all_ability_logs(
         capability_key=capability_key,
         status=status,
         source=source,
+        search=search,
+        callback_failed=callback_failed,
         limit=limit,
         offset=offset,
     )
@@ -837,6 +855,8 @@ def export_ability_logs(
     executor_id: str | None = Query(default=None, alias="executorId"),
     status: str | None = Query(default=None),
     source: str | None = Query(default=None),
+    search: str | None = Query(default=None, max_length=128),
+    callback_failed: bool = Query(default=False, alias="callbackFailed"),
     since_hours: int = Query(default=24, ge=1, le=24 * 30, alias="sinceHours"),
     start: str | None = Query(default=None),
     end: str | None = Query(default=None),
@@ -857,24 +877,26 @@ def export_ability_logs(
             AbilityInvocationLog.created_at >= start_dt,
             AbilityInvocationLog.created_at <= end_dt,
         )
-        if provider:
-            stmt = stmt.where(AbilityInvocationLog.ability_provider == provider)
-        if capability_key:
-            stmt = stmt.where(AbilityInvocationLog.capability_key == capability_key)
-        if ability_id:
-            stmt = stmt.where(AbilityInvocationLog.ability_id == ability_id)
         if template_ability_ids is not None:
             if not template_ability_ids:
                 rows: list[AbilityInvocationLog] = []
                 stmt = None
             else:
                 stmt = stmt.where(AbilityInvocationLog.ability_id.in_(template_ability_ids))
-        if executor_id:
+
+        if stmt is not None:
+            stmt = ability_log_service._apply_log_filters(
+                stmt,
+                ability_id=ability_id,
+                provider=provider,
+                capability_key=capability_key,
+                status=status,
+                source=source,
+                search=search,
+                callback_failed=callback_failed,
+            )
+        if stmt is not None and executor_id:
             stmt = stmt.where(AbilityInvocationLog.executor_id == executor_id)
-        if status:
-            stmt = stmt.where(AbilityInvocationLog.status == status)
-        if source:
-            stmt = stmt.where(AbilityInvocationLog.source == source)
 
         if stmt is not None:
             stmt = stmt.order_by(AbilityInvocationLog.created_at.desc()).limit(limit)
@@ -928,6 +950,14 @@ def export_ability_logs(
                 "source",
                 "duration_ms",
                 "stored_url",
+                "output_kind",
+                "output_image_count",
+                "output_video_count",
+                "output_text_count",
+                "output_structured_count",
+                "output_asset_count",
+                "output_primary_url",
+                "output_text_preview",
                 "error_message",
                 "error_code",
                 "task_id",
@@ -944,6 +974,8 @@ def export_ability_logs(
         buf.truncate(0)
 
         for r in rows:
+            read = log_schemas.AbilityInvocationLogRead.model_validate(r)
+            summary = read.output_summary
             w.writerow(
                 [
                     r.id,
@@ -964,6 +996,14 @@ def export_ability_logs(
                     r.source,
                     r.duration_ms if r.duration_ms is not None else "",
                     r.stored_url or "",
+                    summary.primary_kind or "",
+                    summary.image_count,
+                    summary.video_count,
+                    summary.text_count,
+                    summary.structured_count,
+                    summary.asset_count,
+                    summary.primary_url or "",
+                    summary.text_preview or "",
                     (r.error_message or "").replace("\n", " ").strip(),
                     getattr(r, "error_code", None) or "",
                     r.task_id or "",

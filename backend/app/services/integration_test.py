@@ -19,7 +19,7 @@ from sqlalchemy import select
 from app.constants.abilities import BAIDU_IMAGE_ABILITIES
 from app.core.config import get_settings
 from app.core.db import get_session
-from app.models.integration import ApiKey, Executor, Workflow
+from app.models.integration import AbilityTask, ApiKey, Executor, Workflow
 from app.services.api_key_selector import bump_usage, mark_cooldown, pick_executor_api_key, pick_provider_api_key
 from app.services.comfyui_graph import normalize_comfyui_prompt_graph
 from app.services.executors import ExecutionContext, registry
@@ -1320,10 +1320,19 @@ class IntegrationTestService:
             if not str(ex.id or "").startswith("executor_mock_")
             and not bool((ex.config or {}).get("mock"))
         ]
+        backend_tasks = self._summarize_backend_comfyui_tasks([executor.id for executor in executors])
 
         servers: list[dict[str, Any]] = []
         total_running = 0
         total_pending = 0
+        total_capacity = 0
+        supported_servers = 0
+        unsupported_servers = 0
+        saturated_servers = 0
+        idle_servers = 0
+        feed_gap_servers = 0
+        backend_blocked_servers = 0
+        diagnostics: list[dict[str, str]] = []
         for executor in executors:
             try:
                 fallback_queue_max = max(1, int(executor.max_concurrency or 0))
@@ -1346,18 +1355,207 @@ class IntegrationTestService:
             else:
                 # Queue payloads can be very large; summary should only expose counts.
                 status["raw"] = None
+            backend = backend_tasks.get(executor.id, {})
+            capacity = self._coerce_positive_int(status.get("queueMaxSize"), fallback=fallback_queue_max)
+            running = int(status.get("runningCount") or 0)
+            pending = int(status.get("pendingCount") or 0)
+            remote_total = running + pending
+            backend_queued = int(backend.get("queued") or 0)
+            backend_running = int(backend.get("running") or 0)
+            backend_active = backend_queued + backend_running
+            idle_slots = max(0, capacity - remote_total)
+            utilization = round(remote_total / capacity, 4) if capacity > 0 else None
+            saturation = "full" if capacity > 0 and remote_total >= capacity else ("busy" if remote_total > 0 else "idle")
+            diagnosis_level = "success"
+            diagnosis = "节点可用，队列未满。"
+            feed_code = "normal"
+            feed_level = "success"
+            feed_diagnosis = "中台与 ComfyUI 队列衔接正常。"
+
+            if status.get("supported") is not True:
+                unsupported_servers += 1
+                diagnosis_level = "danger"
+                diagnosis = str(status.get("message") or "节点不可达或队列接口不可用。")
+                feed_code = "executor_unavailable"
+                feed_level = "danger"
+                feed_diagnosis = "该节点当前不可用于路由，任务应自动避开。"
+            else:
+                supported_servers += 1
+                total_capacity += capacity
+                if remote_total >= capacity:
+                    saturated_servers += 1
+                    diagnosis_level = "warning"
+                    diagnosis = "ComfyUI 队列已接近或达到容量上限。"
+                elif remote_total == 0:
+                    idle_servers += 1
+                if backend_running > 0 and remote_total == 0:
+                    backend_blocked_servers += 1
+                    feed_code = "backend_running_not_visible"
+                    feed_level = "danger"
+                    feed_diagnosis = "中台显示执行中，但 ComfyUI 队列没有对应任务，需检查下发或结果回填。"
+                elif backend_queued > 0 and idle_slots > 0:
+                    feed_gap_servers += 1
+                    feed_code = "backend_queued_with_idle_capacity"
+                    feed_level = "warning"
+                    feed_diagnosis = "中台仍有待下发任务，但该节点还有空闲容量，需检查 worker 并发或调度节奏。"
+                elif backend_active > capacity and remote_total < capacity:
+                    feed_gap_servers += 1
+                    feed_code = "backend_active_over_capacity"
+                    feed_level = "warning"
+                    feed_diagnosis = "中台侧任务数超过该节点容量，但 ComfyUI 未被填满，需检查任务衔接。"
+
+            status.update(
+                {
+                    "executorName": executor.name,
+                    "executorStatus": executor.status,
+                    "maxConcurrency": int(executor.max_concurrency or 1),
+                    "tags": executor.tags,
+                    "totalCount": remote_total,
+                    "capacityTarget": capacity,
+                    "idleSlots": idle_slots if status.get("supported") is True else 0,
+                    "utilization": utilization,
+                    "saturation": saturation,
+                    "diagnosisLevel": diagnosis_level,
+                    "diagnosis": diagnosis,
+                    "backendQueued": backend_queued,
+                    "backendRunning": backend_running,
+                    "backendActive": backend_active,
+                    "backendOldestQueuedAt": backend.get("oldestQueuedAt"),
+                    "backendOldestRunningAt": backend.get("oldestRunningAt"),
+                    "feedCode": feed_code,
+                    "feedDiagnosisLevel": feed_level,
+                    "feedDiagnosis": feed_diagnosis,
+                }
+            )
             servers.append(status)
             if status.get("supported"):
-                total_running += int(status.get("runningCount") or 0)
-                total_pending += int(status.get("pendingCount") or 0)
+                total_running += running
+                total_pending += pending
 
         self._write_comfyui_queue_health(servers)
+        total_count = total_running + total_pending
+        total_idle_slots = max(0, total_capacity - total_count)
+        utilization = round(total_count / total_capacity, 4) if total_capacity > 0 else None
+        if unsupported_servers:
+            diagnostics.append(
+                {
+                    "level": "danger",
+                    "code": "COMFYUI_EXECUTOR_UNAVAILABLE",
+                    "message": f"{unsupported_servers} 台 ComfyUI 节点不可达或队列接口不可用，路由会避开这些节点。",
+                }
+            )
+        if backend_blocked_servers:
+            diagnostics.append(
+                {
+                    "level": "danger",
+                    "code": "COMFYUI_BACKEND_RUNNING_NOT_VISIBLE",
+                    "message": f"{backend_blocked_servers} 台节点存在“中台执行中但 ComfyUI 队列为空”的情况，优先排查下发和回填。",
+                }
+            )
+        if feed_gap_servers:
+            diagnostics.append(
+                {
+                    "level": "warning",
+                    "code": "COMFYUI_FEED_GAP",
+                    "message": f"{feed_gap_servers} 台节点存在中台待下发但 GPU 未填满的情况，需检查 worker 并发和路由节奏。",
+                }
+            )
+        if not executors:
+            diagnostics.append(
+                {
+                    "level": "danger",
+                    "code": "COMFYUI_EXECUTOR_EMPTY",
+                    "message": "当前没有可用的 ComfyUI 执行节点，生图类业务无法承载。",
+                }
+            )
         return {
             "totalRunning": total_running,
             "totalPending": total_pending,
-            "totalCount": total_running + total_pending,
+            "totalCount": total_count,
+            "totalCapacity": total_capacity,
+            "totalIdleSlots": total_idle_slots,
+            "utilization": utilization,
+            "backendQueuedTotal": sum(int(item.get("queued") or 0) for item in backend_tasks.values()),
+            "backendRunningTotal": sum(int(item.get("running") or 0) for item in backend_tasks.values()),
+            "backendActiveTotal": sum(int(item.get("queued") or 0) + int(item.get("running") or 0) for item in backend_tasks.values()),
+            "supportedServers": supported_servers,
+            "unsupportedServers": unsupported_servers,
+            "saturatedServers": saturated_servers,
+            "idleServers": idle_servers,
+            "feedGapServers": feed_gap_servers,
+            "backendBlockedServers": backend_blocked_servers,
+            "diagnostics": diagnostics,
             "servers": servers,
         }
+
+    @staticmethod
+    def _coerce_positive_int(value: Any, *, fallback: int) -> int:
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            parsed = int(fallback or 1)
+        return max(1, parsed)
+
+    def _summarize_backend_comfyui_tasks(self, executor_ids: list[str]) -> dict[str, dict[str, Any]]:
+        executor_id_set = {str(item).strip() for item in executor_ids if str(item).strip()}
+        summary: dict[str, dict[str, Any]] = {
+            executor_id: {"queued": 0, "running": 0, "oldestQueuedAt": None, "oldestRunningAt": None}
+            for executor_id in executor_id_set
+        }
+        if not executor_id_set:
+            return summary
+        try:
+            with get_session() as session:
+                rows = (
+                    session.execute(
+                        select(
+                            AbilityTask.status,
+                            AbilityTask.request_payload,
+                            AbilityTask.created_at,
+                            AbilityTask.started_at,
+                        ).where(
+                            AbilityTask.ability_provider == "comfyui",
+                            AbilityTask.status.in_(["queued", "running"]),
+                        )
+                    )
+                    .all()
+                )
+        except Exception as exc:  # pragma: no cover - diagnostic endpoint must degrade safely
+            self._logger.warning("Failed to summarize backend ComfyUI tasks: %s", exc)
+            return summary
+        for status, request_payload, created_at, started_at in rows:
+            payload = request_payload if isinstance(request_payload, dict) else {}
+            executor_id = str(payload.get("executorId") or "").strip()
+            if executor_id not in executor_id_set:
+                continue
+            bucket = summary.setdefault(
+                executor_id,
+                {"queued": 0, "running": 0, "oldestQueuedAt": None, "oldestRunningAt": None},
+            )
+            normalized_status = str(status or "").strip().lower()
+            if normalized_status == "queued":
+                bucket["queued"] = int(bucket.get("queued") or 0) + 1
+                self._keep_oldest_iso(bucket, "oldestQueuedAt", created_at)
+            elif normalized_status == "running":
+                bucket["running"] = int(bucket.get("running") or 0) + 1
+                self._keep_oldest_iso(bucket, "oldestRunningAt", started_at or created_at)
+        return summary
+
+    @staticmethod
+    def _keep_oldest_iso(bucket: dict[str, Any], key: str, value: datetime | None) -> None:
+        if value is None:
+            return
+        current = bucket.get(key)
+        if not isinstance(current, str) or not current:
+            bucket[key] = value.isoformat()
+            return
+        try:
+            current_dt = datetime.fromisoformat(current)
+        except ValueError:
+            bucket[key] = value.isoformat()
+            return
+        if value < current_dt:
+            bucket[key] = value.isoformat()
 
     def _write_comfyui_queue_health(self, servers: list[dict[str, Any]]) -> None:
         """Persist lightweight executor health from queue checks.
