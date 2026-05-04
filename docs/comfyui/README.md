@@ -37,6 +37,17 @@
   - `ComfyUI/models/clip_vision/CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors`
   - `ComfyUI/models/ipadapter/ip-adapter-plus_sdxl_vit-h.safetensors`
   - 重启 ComfyUI 后需确认 `/object_info` 中 `CLIPVisionLoader.clip_name` 和 `IPAdapterModelLoader.ipadapter_file` 均能列出对应文件。
+- 233 承接 `flux2_9b_liebian_sifang` / `toubu_kouxiang` / `qwen2512_print_shape_text_enhance` 的补齐记录（2026-05-04）：
+  - `custom_nodes/comfyui_bmad_nodes` 提供 `String` 等 Bmad 节点。
+  - `custom_nodes/ComfyUI-LogicUtils` 提供 `ComposeRGBAImageFromMask`。
+  - `models/controlnet/qwen-image/instantx/Qwen-Image-InstantX-ControlNet-Inpainting.safetensors` 为 Qwen 文字增强 ControlNet。
+  - Linux 233 还需保留同 inode 硬链接 `models/controlnet/qwen-image\instantx\Qwen-Image-InstantX-ControlNet-Inpainting.safetensors`，兼容现有 workflow JSON 的反斜杠路径。
+  - `models/diffusion_models/qwen-image-2512-fp8.safetensors` 为 Qwen 文字增强 UNet。
+  - `custom_nodes/ComfyUI-QualityOfLifeSuit_Omar92` 提供花纹扩图使用的 `Text _O`。
+  - `custom_nodes/masquerade-nodes-comfyui` 提供花纹扩图使用的 `Get Image Size`。
+  - 已通过强制 233 执行验证：FLUX2 裂变+四方、头部抠像、Qwen 裂变文字强化均成功，终态 executor 均为 `executor_comfyui_seamless_117`。
+  - 花纹扩图、四方连续也已强制 233 执行并生成 OSS 图片；注意中台 `/api/coze/podi/tasks/get` 必须避免返回“成功但空图”的假终态。
+  - 2026-05-04 已对 14 个 active ComfyUI 能力做全量强制 233 复测，14/14 成功、14/14 终态 executor 为 `executor_comfyui_seamless_117`、14/14 有 OSS 图片回填。
 - `FLUX2裂变+四方` 的节点 `104` 为 workflow 内部固定输入，不作为外部参数暴露，也不应在工具箱适配层覆盖。
 
 ## 管理端入口

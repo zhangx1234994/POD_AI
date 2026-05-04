@@ -24,7 +24,7 @@ from app.constants.kie_model_catalog import get_kie_model
 from app.constants.kie_model_catalog import list_kie_models
 from app.core.db import get_session
 from app.deps.internal import is_internal_request
-from app.models.integration import Ability, AbilityTask, ComfyuiLora, Executor
+from app.models.integration import Ability, AbilityInvocationLog, AbilityTask, ComfyuiLora, Executor
 from app.schemas import abilities as ability_schemas
 from app.services.ability_invocation import ability_invocation_service
 from app.services.ability_logs import ability_log_service
@@ -137,6 +137,13 @@ def _limit_comfyui_images(capability_key: Any, images: list[dict[str, Any]]) -> 
     if key == "sifang_lianxu":
         return images[:1]
     return images
+
+
+def _positive_int(value: Any) -> int:
+    try:
+        return max(0, int(value or 0))
+    except Exception:
+        return 0
 
 
 def _field_to_schema(field: dict[str, Any]) -> dict[str, Any]:
@@ -1732,6 +1739,52 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
         texts = result_payload.get("texts") or []
         images = result_payload.get("images") or []
         videos = result_payload.get("videos") or []
+        if not images and isinstance(result_payload.get("assets"), list):
+            images = result_payload.get("assets") or []
+        expected_image_count = _positive_int(expected_images)
+        if expected_image_count > 0 and not images and task.get("log_id"):
+            with get_session() as session:
+                db_task = session.get(AbilityTask, task_id.strip())
+                log = session.get(AbilityInvocationLog, task.get("log_id")) if db_task else None
+                if db_task and log:
+                    log_payload = log.response_payload if isinstance(log.response_payload, dict) else {}
+                    recovered_images = log_payload.get("images") if isinstance(log_payload.get("images"), list) else []
+                    if not recovered_images:
+                        recovered_images = log.result_assets if isinstance(log.result_assets, list) else []
+                    if not recovered_images and log.stored_url:
+                        recovered_images = [{"ossUrl": log.stored_url}]
+                    if recovered_images:
+                        next_payload = dict(result_payload)
+                        next_payload["images"] = recovered_images
+                        next_payload["assets"] = recovered_images
+                        next_payload["status"] = "succeeded"
+                        db_task.result_payload = next_payload
+                        db_task.error_message = None
+                        session.add(db_task)
+                        session.commit()
+                        task = get_ability_task_service().to_dict(db_task)
+                        result_payload = task.get("result_payload") or {}
+                        images = result_payload.get("images") or result_payload.get("assets") or []
+
+        if expected_image_count > 0 and not images:
+            return _prune(
+                {
+                    "text": "running",
+                    "texts": ["running"],
+                    "taskId": external_task_id or task.get("id"),
+                    "taskStatus": "running",
+                    **executor_info,
+                    "expectedImageCount": expected_images,
+                    "logId": task.get("log_id"),
+                    "requestId": (result_payload.get("requestId") if isinstance(result_payload, dict) else None),
+                    "imageUrl": None,
+                    "imageUrls": [],
+                    "videoUrl": None,
+                    "videoUrls": [],
+                    "debugRequest": None,
+                    "debugResponse": "RESULT_IMAGES_NOT_READY",
+                }
+            )
         if isinstance(images, list):
             images = _limit_comfyui_images(capability_key, images)
 

@@ -15,18 +15,25 @@
 - 全部 active 测评工作流巡检 1 轮，22/22 成功，全部有 OSS 图片回填。
 - 高质量裂变并发压测 6 个真实任务，158/233 各执行 3 个，证明双节点自动路由已恢复。
 
-本次发现的问题：
+本次发现并已处理的问题：
 - 历史能力数据中存在 stale `metadata.routing.allowed_executor_ids`，顶层 `allowed_executor_ids` 已是双节点，但嵌套路由仍只写 158，导致并发任务全部打到 158。
 - 已修复 seed：ComfyUI 内置能力会把顶层路由规范化写回 `metadata.routing`，避免“页面看到双节点、运行只打一台”的不一致。
-- 233 当前仍缺少部分工作流依赖，系统会先失败再重路由到 158，业务最终成功，但会带来额外延迟。缺失清单：
-  - 自定义节点 `String`，来源：`custom_nodes.comfyui_bmad_nodes`
-  - 自定义节点 `ComposeRGBAImageFromMask`，来源：`custom_nodes.comfyui-logicutils`
-  - ControlNet 模型：`qwen-image\instantx\Qwen-Image-InstantX-ControlNet-Inpainting.safetensors`
+- 233 曾缺少部分工作流依赖，系统会先失败再重路由到 158，业务最终成功，但会带来额外延迟。2026-05-04 已补齐并强制 233 复测通过：
+  - 自定义节点 `String`：`/home/ubuntu/apps/ComfyUI/custom_nodes/comfyui_bmad_nodes`
+  - 自定义节点 `ComposeRGBAImageFromMask`：`/home/ubuntu/apps/ComfyUI/custom_nodes/ComfyUI-LogicUtils`
+  - ControlNet 模型：`models/controlnet/qwen-image/instantx/Qwen-Image-InstantX-ControlNet-Inpainting.safetensors`
+  - ControlNet 反斜杠兼容硬链接：`models/controlnet/qwen-image\instantx\Qwen-Image-InstantX-ControlNet-Inpainting.safetensors`
+  - Qwen 2512 UNet：`models/diffusion_models/qwen-image-2512-fp8.safetensors`
+  - 花纹扩图补齐自定义节点 `Text _O`：`custom_nodes/ComfyUI-QualityOfLifeSuit_Omar92`
+  - 花纹扩图补齐自定义节点 `Get Image Size`：`custom_nodes/masquerade-nodes-comfyui`
+  - 强制 233 验证报告：`reports/force233_flux2_sifang_20260504_023736.json`、`reports/force233_toubu_kouxiang_20260504_023820.json`、`reports/force233_qwen2512_text_enhance_after_deps_20260504_034530.json`
+  - 花纹扩图 / 四方连续强制 233 验证报告：`reports/force233_huawen_kuotu_after_fix.json`、`reports/force233_sifang_lianxu_recheck.json`
+  - 14 个 active ComfyUI 能力全量强制 233 复测报告：`reports/force233_all_after_deps_20260504/summary.json`；结果为 14/14 `succeeded`，14/14 终态 executor 均为 `executor_comfyui_seamless_117`，14/14 有 OSS 图片回填。
 
 处理原则：
 - 不为 233 缺依赖单独增加复杂路由分支。
 - 优先把 233 镜像/模型/节点补齐，让两台机器保持同构。
-- 在补齐前，重路由机制作为保底；如业务对延迟敏感，应先修 233 依赖。
+- 重路由机制只作为保底；如果某台机器缺节点/缺模型，应先修机器依赖，不应长期把业务类型写死到单机。
 
 ---
 
