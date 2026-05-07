@@ -97,6 +97,21 @@ async def record_expense(payload: schemas.ExpenseRecordRequest) -> schemas.Expen
     return schemas.ExpenseRecordResponse(**data)
 
 
+@router.post("/v1/adjustments", response_model=schemas.WalletAdjustmentResponse)
+async def record_adjustment(payload: schemas.WalletAdjustmentRequest) -> schemas.WalletAdjustmentResponse:
+    data = wallet_service.record_adjustment(
+        user_id=payload.userId,
+        direction=payload.direction,
+        points=payload.points,
+        task_id=payload.taskId,
+        trace_id=payload.traceId,
+        provider=payload.provider,
+        model_key=payload.modelKey,
+        description=payload.description,
+    )
+    return schemas.WalletAdjustmentResponse(**data)
+
+
 @router.post("/v1/confirm")
 async def confirm_points(payload: schemas.HoldActionRequest) -> dict:
     points = wallet_service.confirm(payload.holdId)

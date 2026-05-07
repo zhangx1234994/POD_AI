@@ -130,6 +130,10 @@ class EvalRunBase(BaseModel):
     result_output_json: Optional[Any] = Field(None, description="非图片结果（如打标签 JSON）")
     error_message: Optional[str] = Field(None, description="错误信息")
     duration_ms: Optional[int] = Field(None, description="执行时长（毫秒）")
+    billing_unit: Optional[str] = Field(None, description="成本计费单位")
+    unit_price: Optional[float] = Field(None, description="单位成本")
+    currency: Optional[str] = Field(None, description="成本币种")
+    cost_amount: Optional[float] = Field(None, description="本次成本金额")
 
 
 class EvalRunCreate(BaseModel):

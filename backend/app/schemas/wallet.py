@@ -36,6 +36,30 @@ class ExpenseRecordResponse(BaseModel):
     modelKey: str | None = None
 
 
+class WalletAdjustmentRequest(BaseModel):
+    userId: str
+    direction: str = Field(..., description="increase/decrease/refund/deduct")
+    points: int = Field(..., gt=0)
+    taskId: str | None = None
+    traceId: str | None = None
+    provider: str | None = None
+    modelKey: str | None = None
+    description: str | None = None
+
+
+class WalletAdjustmentResponse(BaseModel):
+    transactionId: str
+    userId: str
+    direction: str
+    adjusted: int
+    balance: int
+    idempotent: bool
+    taskId: str | None = None
+    traceId: str | None = None
+    provider: str | None = None
+    modelKey: str | None = None
+
+
 class HoldActionRequest(BaseModel):
     holdId: str
 

@@ -1,6 +1,12 @@
 from app.services.workflow_seed import DEFAULT_BINDING_SEEDS, DEFAULT_WORKFLOW_SEEDS, load_comfy_workflow
 
 
+DUAL_COMFYUI_EXECUTORS = {
+    "executor_comfyui_seamless_117",
+    "executor_comfyui_pattern_extract_158",
+}
+
+
 def test_new_comfyui_workflow_seeds_exist_with_expected_output_nodes():
     workflows = {seed.workflow_key: seed for seed in DEFAULT_WORKFLOW_SEEDS}
 
@@ -70,6 +76,31 @@ def test_new_comfyui_bindings_cover_two_executors():
             "executor_comfyui_seamless_117",
         )
     ].enabled is True
+
+
+def test_core_comfyui_workflows_have_dual_executor_bindings():
+    executors_by_workflow: dict[str, set[str]] = {}
+    for seed in DEFAULT_BINDING_SEEDS:
+        if seed.enabled:
+            executors_by_workflow.setdefault(seed.workflow_id, set()).add(seed.executor_id)
+
+    dual_routed_workflows = {
+        "workflow_comfyui_sifang_lianxu_v1",
+        "workflow_comfyui_huawen_kuotu_v1",
+        "workflow_comfyui_yinhua_tiqu_v2",
+        "workflow_comfyui_yinhua_tiqu_lora_8step_v1",
+        "workflow_comfyui_duotu_ronghe_v1",
+        "workflow_comfyui_e7_flux2_liebian_v1",
+        "workflow_comfyui_flux2_klein_9b_outpaint_v1",
+        "workflow_comfyui_beijing_koutu_v1",
+        "workflow_comfyui_toubu_kouxiang_v1",
+        "workflow_comfyui_flux2_9b_liebian_sifang_v1",
+        "workflow_comfyui_qwen2512_print_shape_text_enhance_v1",
+        "workflow_comfyui_flux_strong_hq_softstyle_fission_v1",
+    }
+
+    for workflow_id in dual_routed_workflows:
+        assert executors_by_workflow[workflow_id] >= DUAL_COMFYUI_EXECUTORS
 
 
 def test_qwen2512_text_enhance_negative_prompt_does_not_suppress_text():

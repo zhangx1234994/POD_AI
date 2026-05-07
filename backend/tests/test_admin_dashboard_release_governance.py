@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from datetime import datetime, timedelta
 import os
 
 os.environ.setdefault("DATABASE_URL", "sqlite+pysqlite:///:memory:")
@@ -14,6 +15,8 @@ import app.routers.admin_dashboard as admin_dashboard_module
 from app.core.db import Base
 from app.deps.auth import require_admin
 from app.main import app
+from app.models.integration import Ability, BusinessCapability, BusinessRun
+from app.models.user import InviteCode, User
 from app.services.auth_service import auth_service
 
 
@@ -82,6 +85,64 @@ def test_strategy_snapshot_and_weekly_report_records(monkeypatch, tmp_path) -> N
     weekly_list = client.get("/api/admin/dashboard/weekly-report/records?limit=5")
     assert weekly_list.status_code == 200
     assert weekly_list.json()["items"][0]["id"] == weekly["id"]
+
+
+def test_strategy_summary_exposes_north_star_and_kpi_actions(monkeypatch) -> None:
+    fake_get_session = _install_dashboard_db(monkeypatch)
+    now = datetime.utcnow()
+    with fake_get_session() as session:
+        session.add_all(
+            [
+                BusinessRun(
+                    id="run_success_priced",
+                    business_key="fission",
+                    status="succeeded",
+                    cost_amount=0.35,
+                    currency="CNY",
+                    quota_units=1,
+                    callback_status="succeeded",
+                    created_at=now - timedelta(hours=1),
+                    updated_at=now - timedelta(hours=1),
+                ),
+                BusinessRun(
+                    id="run_success_unpriced",
+                    business_key="outpaint",
+                    status="succeeded",
+                    callback_status="succeeded",
+                    created_at=now - timedelta(hours=2),
+                    updated_at=now - timedelta(hours=2),
+                ),
+                BusinessRun(
+                    id="run_failed_callback",
+                    business_key="pattern_extract",
+                    status="failed",
+                    callback_status="failed",
+                    callback_error="callback 500",
+                    created_at=now - timedelta(hours=3),
+                    updated_at=now - timedelta(hours=3),
+                ),
+            ]
+        )
+        session.commit()
+
+    resp = client.get("/api/admin/dashboard/metrics")
+    assert resp.status_code == 200
+    summary = resp.json()["strategy_summary"]
+    assert summary["north_star"]["key"] == "north_star"
+    assert summary["north_star"]["status"] == "warning"
+    indicators = {item["key"]: item for item in summary["indicators"]}
+    assert set(indicators) == {
+        "business_success_rate",
+        "billing_coverage",
+        "callback_health",
+        "wallet_settlement",
+        "risk_closure",
+    }
+    assert indicators["business_success_rate"]["status"] == "critical"
+    assert indicators["billing_coverage"]["status"] == "critical"
+    assert indicators["callback_health"]["status"] == "critical"
+    assert indicators["risk_closure"]["value"] == "3 个风险"
+    assert "先看业务调用详情" in indicators["business_success_rate"]["action"]
 
 
 def test_release_preflight_and_patrol_records(monkeypatch, tmp_path) -> None:
@@ -163,6 +224,114 @@ def test_release_preflight_and_patrol_records(monkeypatch, tmp_path) -> None:
     )
     assert invalid_decision.status_code == 400
     assert invalid_decision.json()["detail"] == "RELEASE_DECISION_STATUS_INVALID"
+
+
+def _seed_core_business_capabilities(fake_get_session, *, fission_default: bool = True) -> None:
+    with fake_get_session() as session:
+        for business_key in admin_dashboard_module.CORE_BUSINESS_KEYS:
+            ability_id = f"ability_{business_key}"
+            session.add(
+                Ability(
+                    id=ability_id,
+                    provider="comfyui",
+                    category="image",
+                    capability_key=business_key,
+                    display_name=f"{business_key} ability",
+                    status="active",
+                    ability_type="workflow",
+                )
+            )
+            session.add(
+                BusinessCapability(
+                    id=f"biz_{business_key}_v1",
+                    business_key=business_key,
+                    version="v1",
+                    display_name=f"{business_key} v1",
+                    status="active",
+                    is_default=fission_default if business_key == "fission" else True,
+                    recipe={
+                        "primaryAbilityId": ability_id,
+                        "steps": [
+                            {
+                                "id": "primary",
+                                "type": "ability_task",
+                                "role": "primary",
+                                "abilityId": ability_id,
+                            }
+                        ],
+                    },
+                )
+            )
+        session.commit()
+
+
+def test_business_capability_governance_preflight_passes_ready_core_defaults(monkeypatch) -> None:
+    fake_get_session = _install_dashboard_db(monkeypatch)
+    monkeypatch.setattr(admin_dashboard_module, "ensure_default_abilities", lambda session: False)
+    monkeypatch.setattr(admin_dashboard_module, "ensure_default_business_capabilities", lambda session: False)
+    _seed_core_business_capabilities(fake_get_session)
+
+    check = admin_dashboard_module._run_business_capability_governance_preflight()
+
+    assert check.name == "business_capability_governance"
+    assert check.status == "pass"
+    assert check.blocking is False
+
+
+def test_business_capability_governance_preflight_blocks_missing_default(monkeypatch) -> None:
+    fake_get_session = _install_dashboard_db(monkeypatch)
+    monkeypatch.setattr(admin_dashboard_module, "ensure_default_abilities", lambda session: False)
+    monkeypatch.setattr(admin_dashboard_module, "ensure_default_business_capabilities", lambda session: False)
+    _seed_core_business_capabilities(fake_get_session, fission_default=False)
+
+    check = admin_dashboard_module._run_business_capability_governance_preflight()
+
+    assert check.status == "fail"
+    assert check.blocking is True
+    assert "图裂变缺少默认版本" in check.detail
+
+
+def test_auth_scope_preflight_blocks_unscoped_client_account(monkeypatch) -> None:
+    fake_get_session = _install_dashboard_db(monkeypatch)
+    with fake_get_session() as session:
+        session.add(
+            User(
+                id="admin_1",
+                email="admin@example.com",
+                username="admin",
+                password_hash="x",
+                role="admin",
+                status="active",
+            )
+        )
+        session.add(
+            User(
+                id="client_1",
+                email="client@example.com",
+                username="client",
+                password_hash="x",
+                role="client",
+                status="active",
+            )
+        )
+        session.add(
+            InviteCode(
+                id="invite_1",
+                code="invite",
+                role="client",
+                tenant_id="tenant_a",
+                client_id="client_a",
+                status="active",
+            )
+        )
+        session.commit()
+
+    check = admin_dashboard_module._run_auth_scope_preflight()
+
+    assert check.name == "auth_scope_summary"
+    assert check.status == "fail"
+    assert check.blocking is True
+    assert "业务方账号未绑定范围" in check.detail
 
 
 def test_release_patrol_report_import(monkeypatch, tmp_path) -> None:

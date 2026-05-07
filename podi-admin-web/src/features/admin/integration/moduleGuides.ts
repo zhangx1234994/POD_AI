@@ -19,6 +19,12 @@ export const moduleGuides: Record<IntegrationNavId, ModuleGuide> = {
     nextAction: '测试通过后再申请默认版本切换；异常时先回滚。',
     riskHint: '默认版本会影响业务入口。',
   },
+  'api-exposure': {
+    audience: '平台管理员 / 开发接入方',
+    firstLook: '先区分业务 API、原子能力 API 和 Coze 工具箱。',
+    nextAction: '业务方优先给业务 API；内部编排再用原子能力 API；Coze 只导入工具箱。',
+    riskHint: '不要让业务方直接理解底层模型、工作流和执行节点。',
+  },
   'ability-evals': {
     audience: '平台管理员 / 测试人员',
     firstLook: '先确认生产主入口是否能提交、回调和回填结果。',

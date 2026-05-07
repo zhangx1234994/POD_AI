@@ -4,7 +4,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from app.core.db import Base
-from app.models.integration import Ability, Executor
+from app.models.integration import Ability, Executor, VendorModelCatalog
 from app.models.user import User  # noqa: F401 - register FK tables
 from scripts.audit_ability_test_coverage import build_audit_report
 
@@ -116,3 +116,88 @@ def test_audit_flags_active_mock_executor() -> None:
 
     codes = {issue["code"] for issue in report["issues"]}
     assert "ACTIVE_MOCK_EXECUTOR" in codes
+
+
+def test_audit_flags_active_vendor_ability_without_model_acceptance() -> None:
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        model = VendorModelCatalog(
+            provider="openai",
+            model="gpt-image-2",
+            display_name="GPT Image 2",
+            status="active",
+            api_types=["image_edit"],
+            execution_modes=["sync_then_store"],
+            supports_mask=True,
+            supports_multiple_images=True,
+            supports_text=True,
+            requires_global_egress=True,
+            cost_policy={"unitPrice": 0.2, "billingUnit": "image"},
+            source="test",
+        )
+        session.add(model)
+        session.flush()
+        session.add(
+            Ability(
+                id="ability_openai_edit",
+                provider="openai",
+                category="image_generation",
+                capability_key="gpt_image_2_edit",
+                display_name="GPT Image 2 编辑",
+                status="active",
+                ability_type="api",
+                vendor_model_id=model.id,
+                input_schema=_schema(),
+            )
+        )
+        session.commit()
+
+        report = build_audit_report(session)
+
+    codes = {issue["code"] for issue in report["issues"]}
+    assert "VENDOR_MODEL_ACCEPTANCE_MISSING" in codes
+
+
+def test_audit_accepts_vendor_model_with_acceptance_and_cost_policy() -> None:
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        model = VendorModelCatalog(
+            provider="openai",
+            model="gpt-image-2",
+            display_name="GPT Image 2",
+            status="active",
+            api_types=["image_edit"],
+            execution_modes=["sync_then_store"],
+            supports_mask=True,
+            supports_multiple_images=True,
+            supports_text=True,
+            requires_global_egress=True,
+            cost_policy={"unitPrice": 0.2, "billingUnit": "image"},
+            extra_metadata={"latestAcceptance": {"status": "passed", "note": "测试通过"}},
+            source="test",
+        )
+        session.add(model)
+        session.flush()
+        session.add(
+            Ability(
+                id="ability_openai_edit",
+                provider="openai",
+                category="image_generation",
+                capability_key="gpt_image_2_edit",
+                display_name="GPT Image 2 编辑",
+                status="active",
+                ability_type="api",
+                vendor_model_id=model.id,
+                input_schema=_schema(),
+            )
+        )
+        session.commit()
+
+        report = build_audit_report(session)
+
+    codes = {issue["code"] for issue in report["issues"]}
+    assert "VENDOR_MODEL_ACCEPTANCE_MISSING" not in codes
+    assert "VENDOR_MODEL_COST_POLICY_MISSING" not in codes
+    assert report["summary"]["issueCount"] == 0

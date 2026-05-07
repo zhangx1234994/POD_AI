@@ -6,6 +6,7 @@ import type {
   ComfyuiAgentTaskEvent,
   ComfyuiMonitoringSummary,
   ComfyuiQueueSummary,
+  ComfyuiWorkflowCompatibility,
   Executor,
 } from '../../../types/admin';
 
@@ -91,6 +92,10 @@ interface ComfyuiTaskActionsParams {
   setComfyQueueSummaryError: Dispatch<SetStateAction<string | null>>;
   setComfyQueueSummaryLoading: Dispatch<SetStateAction<boolean>>;
   setComfyQueueSummaryUpdatedAt: Dispatch<SetStateAction<string | null>>;
+  setComfyWorkflowCompatibility: Dispatch<SetStateAction<ComfyuiWorkflowCompatibility | null>>;
+  setComfyWorkflowCompatibilityError: Dispatch<SetStateAction<string | null>>;
+  setComfyWorkflowCompatibilityLoading: Dispatch<SetStateAction<boolean>>;
+  setComfyWorkflowCompatibilityUpdatedAt: Dispatch<SetStateAction<string | null>>;
 }
 
 export const useComfyuiTaskActions = ({
@@ -119,6 +124,10 @@ export const useComfyuiTaskActions = ({
   setComfyQueueSummaryError,
   setComfyQueueSummaryLoading,
   setComfyQueueSummaryUpdatedAt,
+  setComfyWorkflowCompatibility,
+  setComfyWorkflowCompatibilityError,
+  setComfyWorkflowCompatibilityLoading,
+  setComfyWorkflowCompatibilityUpdatedAt,
 }: ComfyuiTaskActionsParams) => {
   const refreshComfyAgentTasks = useCallback(
     async (options?: RefreshOptions) => {
@@ -290,6 +299,43 @@ export const useComfyuiTaskActions = ({
     ],
   );
 
+  const refreshComfyWorkflowCompatibility = useCallback(
+    async (options?: RefreshOptions) => {
+      const silent = Boolean(options?.silent);
+      const executorIds = comfyExecutors.map((ex) => ex.id).filter(Boolean);
+      if (!executorIds.length) {
+        setComfyWorkflowCompatibility(null);
+        setComfyWorkflowCompatibilityError(null);
+        setComfyWorkflowCompatibilityUpdatedAt(null);
+        if (!silent) setComfyWorkflowCompatibilityLoading(false);
+        return;
+      }
+      if (!silent) {
+        setComfyWorkflowCompatibilityLoading(true);
+      }
+      try {
+        const response = await adminApi.getComfyuiWorkflowCompatibility(executorIds);
+        setComfyWorkflowCompatibility(response);
+        setComfyWorkflowCompatibilityError(null);
+        setComfyWorkflowCompatibilityUpdatedAt(response.checkedAt || new Date().toISOString());
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '获取 ComfyUI 能力对齐检查失败';
+        setComfyWorkflowCompatibilityError(message);
+      } finally {
+        if (!silent) {
+          setComfyWorkflowCompatibilityLoading(false);
+        }
+      }
+    },
+    [
+      comfyExecutors,
+      setComfyWorkflowCompatibility,
+      setComfyWorkflowCompatibilityError,
+      setComfyWorkflowCompatibilityLoading,
+      setComfyWorkflowCompatibilityUpdatedAt,
+    ],
+  );
+
   return {
     handleComfyAgentTaskCreate,
     handleComfyAgentTaskPush,
@@ -297,5 +343,6 @@ export const useComfyuiTaskActions = ({
     refreshComfyAgentTasks,
     refreshComfyMonitoringSummary,
     refreshComfyQueueSummary,
+    refreshComfyWorkflowCompatibility,
   };
 };

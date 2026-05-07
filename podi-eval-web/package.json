@@ -12,7 +12,6 @@
     "test:ui:update": "playwright test --update-snapshots"
   },
   "dependencies": {
-    "ali-oss": "^6.23.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-markdown": "^9.0.1",
@@ -21,6 +20,7 @@
     "tdesign-react": "^1.16.4"
   },
   "devDependencies": {
+    "@playwright/test": "^1.54.2",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.4",
@@ -28,7 +28,6 @@
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.15",
     "typescript": "^5.6.2",
-    "vite": "^6.3.5",
-    "@playwright/test": "^1.54.2"
+    "vite": "^6.3.5"
   }
 }

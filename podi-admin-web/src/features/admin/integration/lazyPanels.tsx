@@ -12,6 +12,12 @@ export const BusinessCapabilityGrid = lazy(() =>
 export const BusinessCoreEntryPanel = lazy(() =>
   import('./business').then((mod) => ({ default: mod.BusinessCoreEntryPanel })),
 );
+export const BusinessCoreClosurePanel = lazy(() =>
+  import('./business').then((mod) => ({ default: mod.BusinessCoreClosurePanel })),
+);
+export const BusinessOrchestrationMapPanel = lazy(() =>
+  import('./business').then((mod) => ({ default: mod.BusinessOrchestrationMapPanel })),
+);
 export const BusinessCapabilityEditorDialog = lazy(() =>
   import('./business').then((mod) => ({ default: mod.BusinessCapabilityEditorDialog })),
 );
@@ -32,6 +38,10 @@ export const BusinessRunHistoryPanel = lazy(() =>
 );
 export const BusinessUsageSummaryPanel = lazy(() =>
   import('./business').then((mod) => ({ default: mod.BusinessUsageSummaryPanel })),
+);
+
+export const ApiExposurePanel = lazy(() =>
+  import('./apiExposure').then((mod) => ({ default: mod.ApiExposurePanel })),
 );
 
 export const VendorModelsPanel = lazy(() =>

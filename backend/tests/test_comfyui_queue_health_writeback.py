@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from datetime import datetime, timedelta
 
 from fastapi import HTTPException
 from sqlalchemy import create_engine
@@ -8,18 +9,27 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 import app.services.integration_test as integration_test_module
-from app.models.integration import Executor
+from app.models.integration import Ability, AbilityTask, Executor, VendorModelCatalog, Workflow
+from app.models.user import User
 from app.services.integration_test import IntegrationTestService
 
 
-def _install_executor_db(monkeypatch):
+def _install_executor_db(monkeypatch, *, include_tasks: bool = False):
     engine = create_engine(
         "sqlite+pysqlite:///:memory:",
         future=True,
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
-    Executor.__table__.create(engine)
+    if include_tasks:
+        User.__table__.create(engine)
+        Executor.__table__.create(engine)
+        Workflow.__table__.create(engine)
+        VendorModelCatalog.__table__.create(engine)
+        Ability.__table__.create(engine)
+        AbilityTask.__table__.create(engine)
+    else:
+        Executor.__table__.create(engine)
     testing_session = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
 
     @contextmanager
@@ -148,3 +158,94 @@ def test_comfyui_queue_summary_exposes_backend_feed_gap(monkeypatch) -> None:
     assert server["idleSlots"] == 10
     assert server["feedCode"] == "backend_queued_with_idle_capacity"
     assert server["feedDiagnosisLevel"] == "warning"
+
+
+def test_comfyui_queue_summary_exposes_recent_route_evidence(monkeypatch) -> None:
+    testing_session = _install_executor_db(monkeypatch, include_tasks=True)
+    now = datetime.utcnow()
+    with testing_session() as session:
+        session.add_all(
+            [
+                Executor(
+                    id="executor_158",
+                    name="ComfyUI-158",
+                    type="comfyui",
+                    base_url="http://158.example",
+                    status="active",
+                    max_concurrency=10,
+                    config={"tags": ["host:158", "gpu:5090", "comfyui-general"]},
+                ),
+                Executor(
+                    id="executor_233",
+                    name="ComfyUI-233",
+                    type="comfyui",
+                    base_url="http://233.example",
+                    status="active",
+                    max_concurrency=10,
+                    config={"tags": ["host:233", "gpu:4090", "comfyui-general"]},
+                ),
+                Ability(
+                    id="ability_fission",
+                    provider="comfyui",
+                    category="image",
+                    capability_key="fission",
+                    display_name="图裂变",
+                    status="active",
+                ),
+                AbilityTask(
+                    id="task_recent_158",
+                    ability_id="ability_fission",
+                    ability_name="图裂变",
+                    ability_provider="comfyui",
+                    capability_key="fission",
+                    status="succeeded",
+                    request_payload={},
+                    result_payload={"metadata": {"executorId": "executor_158"}},
+                    created_at=now - timedelta(minutes=10),
+                    updated_at=now - timedelta(minutes=8),
+                    finished_at=now - timedelta(minutes=8),
+                ),
+                AbilityTask(
+                    id="task_old_233",
+                    ability_id="ability_fission",
+                    ability_name="图裂变",
+                    ability_provider="comfyui",
+                    capability_key="fission",
+                    status="succeeded",
+                    request_payload={"executorId": "executor_233"},
+                    result_payload={},
+                    created_at=now - timedelta(days=2),
+                    updated_at=now - timedelta(days=2),
+                    finished_at=now - timedelta(days=2),
+                ),
+            ]
+        )
+        session.commit()
+
+    service = IntegrationTestService()
+
+    monkeypatch.setattr(
+        service,
+        "get_comfyui_queue_status",
+        lambda *, executor_id: {
+            "executorId": executor_id,
+            "baseUrl": f"http://{executor_id}.example",
+            "runningCount": 0,
+            "pendingCount": 0,
+            "queueMaxSize": 10,
+            "supported": True,
+            "raw": {},
+        },
+    )
+
+    summary = service.get_comfyui_queue_summary()
+    servers = {item["executorId"]: item for item in summary["servers"]}
+
+    assert summary["routeEvidenceTotal"] == 1
+    assert summary["routeEvidenceCoveredServers"] == 1
+    assert summary["recentRouteMissingServers"] == 1
+    assert any(item["code"] == "COMFYUI_ROUTE_EVIDENCE_MISSING" for item in summary["diagnostics"])
+    assert servers["executor_158"]["routeEvidence"]["recentSucceeded"] == 1
+    assert servers["executor_158"]["routeEvidence"]["latestTaskId"] == "task_recent_158"
+    assert servers["executor_233"]["routeEvidence"]["recentTotal"] == 0
+    assert servers["executor_233"]["routeDiagnosisLevel"] == "warning"

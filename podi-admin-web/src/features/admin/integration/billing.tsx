@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Alert, Button, Card, Col, Input, Row, Select, Space, Table, Tag, Textarea, Typography } from 'tdesign-react';
 
 import type {
+  BillingCommercialReportResponse,
   BillingMonthlySettlementListResponse,
   BillingMonthlySettlementResponse,
   BillingNotificationConfigResponse,
@@ -10,6 +11,9 @@ import type {
   BillingUserDetailResponse,
   MonthlySettlementCollectionNotificationListResponse,
   PackageAlertNotificationListResponse,
+  PackageCatalogItem,
+  PackageCatalogListResponse,
+  PackageCatalogPayload,
   PackageGrantPayload,
   PackagePurchaseOrderCreatePayload,
   PackagePurchaseOrderListResponse,
@@ -40,9 +44,60 @@ const formatMoney = (amountCents?: number | null, currency = 'CNY') => {
   return `${prefix}${amount.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
 
+const formatCurrencyAmountList = (
+  items?: Array<{ currency?: string | null; amount?: number | null; amountCents?: number | null }> | null,
+  empty = '¥0.00',
+) => {
+  const values = (items || []).filter((item) => Number(item.amount || item.amountCents || 0) !== 0);
+  if (!values.length) return empty;
+  return values
+    .map((item) =>
+      item.amountCents !== undefined && item.amountCents !== null
+        ? formatMoney(item.amountCents, item.currency || 'CNY')
+        : formatPriceValue(Number(item.amount || 0), item.currency || 'CNY'),
+    )
+    .join(' / ');
+};
+
 const isExpenseChangeType = (value?: string | null) => {
   const normalized = String(value || '').toLowerCase();
   return ['consume', 'expense', 'decrease', 'deduct', 'confirm', 'freeze_confirm'].includes(normalized);
+};
+
+const billingIssueActionHint = (value?: string | null) => {
+  if (value === 'wallet_failed') return '建议：查看失败原因后重试收费';
+  if (value === 'wallet_missing') return '建议：确认可收费后补收费';
+  if (value === 'failed_run_charged') return '建议：失败任务不收费，先退回';
+  if (value === 'unpriced_success') return '建议：先补定价规则再结算';
+  if (value === 'billing_pending') return '建议：等待任务结束后再核对';
+  return '建议：进入业务任务详情核对';
+};
+
+const ledgerChangeTypeLabel = (value?: string | null) => {
+  if (value === 'recharge') return '充值入账';
+  if (value === 'consume' || value === 'expense' || value === 'deduct') return '业务收费';
+  if (value === 'refund') return '退回收费';
+  if (value === 'adjustment') return '人工调整';
+  if (value === 'grant') return '赠送额度';
+  if (value === 'freeze') return '冻结额度';
+  if (value === 'freeze_confirm' || value === 'confirm') return '确认收费';
+  if (value === 'freeze_release') return '释放冻结';
+  return value || '未记录';
+};
+
+const webhookFormatLabel = (value?: string | null) => {
+  if (value === 'feishu') return '飞书';
+  if (value === 'dingtalk') return '钉钉';
+  if (value === 'generic') return '通用通知';
+  return value || '未设置';
+};
+
+const userRoleLabel = (value?: string | null) => {
+  if (value === 'admin') return '管理员';
+  if (value === 'operator') return '运营';
+  if (value === 'developer') return '开发接入方';
+  if (value === 'client') return '业务方';
+  return value || '未设置角色';
 };
 
 const formatLedgerPoints = (changeType?: string | null, value?: number | null) => {
@@ -162,15 +217,15 @@ const BillingActionPanel = ({
   if (Number(overview?.issueCount || 0) > 0) {
     actions.push({
       theme: 'danger',
-      title: '先处理异常扣费',
-      detail: `${overview?.issueCount || 0} 条样本需要核对，优先处理扣费失败、应扣未扣和失败误扣。`,
+      title: '先处理收费问题',
+      detail: `${overview?.issueCount || 0} 条业务记录需要核对，优先处理应收费未收、收费失败和失败后误收费。`,
     });
   }
   if (overview && Number(overview.totalPackageRemainingUnits || 0) <= 0) {
     actions.push({
       theme: 'warning',
-      title: '套餐总余量不足',
-      detail: '当前筛选范围内没有可用套餐余量，需要补赠送入口或确认业务是否改走钱包扣费。',
+      title: '可用套餐不足',
+      detail: '当前筛选范围内没有可用套餐余量，需要先补套餐，或确认这批业务是否允许改走钱包余额。',
     });
   }
   if (Number(overview?.packageExpiringSoonCount || 0) > 0) {
@@ -198,7 +253,7 @@ const BillingActionPanel = ({
     actions.push({
       theme: 'warning',
       title: '当前用户无套餐',
-      detail: '该用户没有套餐额度，后续套餐赠送/购买入口落地前需要人工确认是否允许继续调用。',
+      detail: '该用户没有套餐额度，需要先确认是否允许继续调用，或先补发套餐。',
     });
   }
   if (expiringPackages.length > 0) {
@@ -206,7 +261,7 @@ const BillingActionPanel = ({
     actions.push({
       theme: 'warning',
       title: '套餐即将到期',
-      detail: `${first.packageName || first.packageKey} 将在 ${formatDateTime(first.expiresAt)} 到期，需提前续期或转钱包扣费。`,
+      detail: `${first.packageName || first.packageKey} 将在 ${formatDateTime(first.expiresAt)} 到期，需提前续期或确认备用收费方式。`,
     });
   }
   if (lowPackages.length > 0) {
@@ -221,12 +276,12 @@ const BillingActionPanel = ({
     actions.push({
       theme: 'success',
       title: '账单当前无明显阻塞',
-      detail: '异常扣费、套餐余量和到期风险没有明显问题，可继续做业务账单核对。',
+      detail: '收费问题、套餐余量和到期风险没有明显问题，可继续做业务账单核对。',
     });
   }
 
   return (
-    <Card bordered title="当前先处理什么">
+    <Card bordered title="当前先看什么">
       <Row gutter={[12, 12]}>
         {actions.slice(0, 5).map((item) => (
           <Col key={`${item.title}-${item.detail}`} xs={12} lg={actions.length === 1 ? 12 : 4}>
@@ -353,7 +408,7 @@ const BillingNotificationConfigCard = ({
                     size="small"
                     value={draft[channel.key]?.webhookFormat || 'generic'}
                     options={[
-                      { label: '通用 Webhook', value: 'generic' },
+                      { label: '通用通知地址', value: 'generic' },
                       { label: '飞书', value: 'feishu' },
                       { label: '钉钉', value: 'dingtalk' },
                     ]}
@@ -362,11 +417,11 @@ const BillingNotificationConfigCard = ({
                   <Input
                     size="small"
                     value={draft[channel.key]?.webhookUrl || ''}
-                    placeholder={channel.source?.startsWith('env:') ? '已通过环境变量配置；填写后会覆盖' : '填写 Webhook 地址'}
+                    placeholder={channel.source?.startsWith('env:') ? '已通过环境变量配置；填写后会覆盖' : '填写通知地址'}
                     onChange={(value) => updateDraft(channel.key, { webhookUrl: String(value || '') })}
                   />
                   <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
-                    来源：{channel.source || 'unset'}
+                    配置来源：{channel.source || '未设置'}
                   </Typography.Text>
                 </Space>
               </Card>
@@ -486,6 +541,373 @@ const PackageGrantCard = ({
             发放套餐
           </Button>
         </Space>
+      </Space>
+    </Card>
+  );
+};
+
+const CommercialReportCard = ({
+  report,
+  loading,
+  exporting,
+  onExport,
+  formatDateTime,
+}: {
+  report?: BillingCommercialReportResponse | null;
+  loading: boolean;
+  exporting: boolean;
+  onExport: () => void;
+  formatDateTime: (value?: string | null) => string;
+}) => {
+  const rows = report?.businessRows || [];
+  const statusTheme = report?.status === 'ready' ? 'success' : 'warning';
+  return (
+    <Card bordered title="商业化复核报表">
+      <Space direction="vertical" size="small" style={{ width: '100%' }}>
+        <Alert
+          theme={report?.status === 'blocked' ? 'warning' : 'success'}
+          message={report ? `${report.statusLabel}：${report.nextAction}` : '这里汇总本账期的订单收入、任务成本和收费风险。'}
+        />
+        <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+          <Space>
+            <Tag theme={statusTheme} variant="light">
+              {report?.statusLabel || '未加载'}
+            </Tag>
+            <Typography.Text theme="secondary">
+              账期 {report?.month || '-'}，生成时间 {formatDateTime(report?.generatedAt)}
+            </Typography.Text>
+          </Space>
+          <Typography.Text theme="secondary">
+            启用套餐 {report?.activePackageCatalogCount || 0} 个，业务维度 {rows.length} 个
+          </Typography.Text>
+        </Space>
+        <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+          <Typography.Text theme="secondary">
+            这份报表用于上线前和运营复核：先看收费风险是否为 0，再看收入、成本和套餐消耗是否合理。
+          </Typography.Text>
+          <Button variant="outline" loading={exporting} onClick={onExport}>
+            导出商业化报表
+          </Button>
+        </Space>
+        <Row gutter={[12, 12]}>
+          <Col xs={12} sm={6} lg={2}>
+            <BillingMetricCard
+              label="已确认收入"
+              value={formatCurrencyAmountList(report?.packageOrderRevenueByCurrency)}
+              sub={`${report?.paidPackageOrderCount || 0} 笔已付款订单`}
+            />
+          </Col>
+          <Col xs={12} sm={6} lg={2}>
+            <BillingMetricCard
+              label="待确认金额"
+              value={formatCurrencyAmountList(report?.pendingPackageRevenueByCurrency)}
+              sub={`${report?.pendingPackageOrderCount || 0} 笔待付款订单`}
+            />
+          </Col>
+          <Col xs={12} sm={6} lg={2}>
+            <BillingMetricCard label="应收费任务" value={report?.billableRunCount || 0} sub={`总任务 ${report?.runCount || 0}`} />
+          </Col>
+          <Col xs={12} sm={6} lg={2}>
+            <BillingMetricCard
+              label="已收费任务"
+              value={report?.chargedRunCount || 0}
+              sub={`套餐 ${report?.packageChargedRunCount || 0} / 钱包 ${report?.walletChargedRunCount || 0}`}
+            />
+          </Col>
+          <Col xs={12} sm={6} lg={2}>
+            <BillingMetricCard label="套餐消耗" value={formatPackageUnits(report?.quotaUnits || 0)} sub={`售出 ${formatPackageUnits(report?.packageSoldUnits || 0)}`} />
+          </Col>
+          <Col xs={12} sm={6} lg={2}>
+            <BillingMetricCard label="收费风险" value={report?.billingIssueCount || 0} sub={`未定价 ${report?.unpricedRunCount || 0}`} />
+          </Col>
+        </Row>
+        <Table
+          size="small"
+          rowKey="businessKey"
+          loading={loading}
+          data={rows.slice(0, 8)}
+          empty={<Typography.Text theme="secondary">当前账期暂无业务任务数据。</Typography.Text>}
+          columns={[
+            {
+              colKey: 'businessKey',
+              title: '业务',
+              minWidth: 150,
+              cell: ({ row }) => (
+                <Space direction="vertical" size={2}>
+                  <Typography.Text strong>{businessKeyLabel(row.businessKey)}</Typography.Text>
+                  <Typography.Text theme="secondary">{row.businessKey}</Typography.Text>
+                </Space>
+              ),
+            },
+            {
+              colKey: 'runs',
+              title: '任务 / 收费',
+              width: 160,
+              cell: ({ row }) => `${row.runCount} 个任务，${row.chargedRunCount} 个已收费`,
+            },
+            {
+              colKey: 'cost',
+              title: '成本',
+              width: 160,
+              cell: ({ row }) => formatCurrencyAmountList(row.costByCurrency, '暂无成本'),
+            },
+            {
+              colKey: 'quota',
+              title: '套餐消耗',
+              width: 140,
+              cell: ({ row }) => formatPackageUnits(row.quotaUnits),
+            },
+            {
+              colKey: 'risk',
+              title: '收费风险',
+              width: 180,
+              cell: ({ row }) => (
+                <Space>
+                  <Tag theme={row.billingIssueCount ? 'warning' : 'success'} variant="light">
+                    异常 {row.billingIssueCount}
+                  </Tag>
+                  <Tag theme={row.unpricedRunCount ? 'danger' : 'default'} variant="light">
+                    未定价 {row.unpricedRunCount}
+                  </Tag>
+                </Space>
+              ),
+            },
+          ]}
+        />
+      </Space>
+    </Card>
+  );
+};
+
+const PackageCatalogCard = ({
+  catalog,
+  loading,
+  onSave,
+  formatDateTime,
+}: {
+  catalog?: PackageCatalogListResponse | null;
+  loading: boolean;
+  onSave: (payload: PackageCatalogPayload) => Promise<void> | void;
+  formatDateTime: (value?: string | null) => string;
+}) => {
+  const [form, setForm] = useState<PackageCatalogPayload>({
+    packageKey: 'fission-pro',
+    packageName: '图裂变正式套餐',
+    businessKey: 'fission',
+    description: '',
+    units: 300,
+    unitName: '次',
+    amountCents: 19900,
+    currency: 'CNY',
+    validityDays: 30,
+    status: 'active',
+    sortOrder: 100,
+  });
+  const [localError, setLocalError] = useState<string | null>(null);
+  const items = catalog?.items || [];
+
+  const updateForm = (patch: Partial<PackageCatalogPayload>) => setForm((current) => ({ ...current, ...patch }));
+
+  const editCatalog = (item: PackageCatalogItem) => {
+    setForm({
+      packageKey: item.packageKey,
+      packageName: item.packageName,
+      businessKey: item.businessKey || '',
+      description: item.description || '',
+      units: item.units,
+      unitName: item.unitName || '次',
+      amountCents: item.amountCents,
+      currency: item.currency || 'CNY',
+      validityDays: item.validityDays || null,
+      status: item.status || 'active',
+      sortOrder: item.sortOrder || 100,
+    });
+    setLocalError(null);
+  };
+
+  const submit = async () => {
+    const packageKey = String(form.packageKey || '').trim();
+    const packageName = String(form.packageName || '').trim();
+    const units = Number(form.units || 0);
+    const amountCents = Number(form.amountCents || 0);
+    const validityDays =
+      form.validityDays === null || form.validityDays === undefined || String(form.validityDays).trim() === ''
+        ? null
+        : Number(form.validityDays);
+    if (!packageKey) {
+      setLocalError('请填写套餐标识，例如 fission-pro。');
+      return;
+    }
+    if (!packageName) {
+      setLocalError('请填写套餐名称，方便业务方和运营识别。');
+      return;
+    }
+    if (!Number.isFinite(units) || units <= 0) {
+      setLocalError('套餐额度必须大于 0。');
+      return;
+    }
+    if (!Number.isFinite(amountCents) || amountCents < 0) {
+      setLocalError('套餐金额不能小于 0。');
+      return;
+    }
+    if (validityDays !== null && (!Number.isFinite(validityDays) || validityDays <= 0)) {
+      setLocalError('有效期天数必须为空或大于 0。');
+      return;
+    }
+    setLocalError(null);
+    await onSave({
+      ...form,
+      packageKey,
+      packageName,
+      businessKey: String(form.businessKey || '').trim() || null,
+      description: String(form.description || '').trim() || null,
+      units,
+      unitName: String(form.unitName || '').trim() || '次',
+      amountCents: Math.round(amountCents),
+      currency: String(form.currency || 'CNY').trim() || 'CNY',
+      validityDays,
+      status: String(form.status || 'active').trim() || 'active',
+      sortOrder: Number(form.sortOrder || 100),
+    });
+  };
+
+  return (
+    <Card bordered title="套餐目录和定价">
+      <Space direction="vertical" size="small" style={{ width: '100%' }}>
+        <Alert
+          theme="info"
+          message="先维护套餐目录，再创建订单或手工发放。只填套餐标识时，系统会自动带出业务、额度、金额和有效期。"
+        />
+        {localError ? <Alert theme="error" message={localError} /> : null}
+        <Row gutter={[12, 12]}>
+          <Col xs={12} sm={4} lg={2}>
+            <Typography.Text theme="secondary">套餐标识</Typography.Text>
+            <Input value={form.packageKey} placeholder="fission-pro" onChange={(value) => updateForm({ packageKey: String(value || '') })} />
+          </Col>
+          <Col xs={12} sm={4} lg={2}>
+            <Typography.Text theme="secondary">套餐名称</Typography.Text>
+            <Input value={form.packageName} placeholder="图裂变正式套餐" onChange={(value) => updateForm({ packageName: String(value || '') })} />
+          </Col>
+          <Col xs={12} sm={4} lg={2}>
+            <Typography.Text theme="secondary">适用业务</Typography.Text>
+            <Select
+              value={form.businessKey || ''}
+              options={[
+                { label: '通用额度', value: '' },
+                ...coreBusinessKeys.map((key) => ({ label: businessKeyLabel(key), value: key })),
+              ]}
+              onChange={(value) => updateForm({ businessKey: String(value || '') })}
+            />
+          </Col>
+          <Col xs={12} sm={3} lg={1}>
+            <Typography.Text theme="secondary">额度</Typography.Text>
+            <Input value={String(form.units || '')} placeholder="300" onChange={(value) => updateForm({ units: Number(value || 0) })} />
+          </Col>
+          <Col xs={12} sm={3} lg={1}>
+            <Typography.Text theme="secondary">单位</Typography.Text>
+            <Input value={form.unitName || '次'} placeholder="次" onChange={(value) => updateForm({ unitName: String(value || '') })} />
+          </Col>
+          <Col xs={12} sm={4} lg={1}>
+            <Typography.Text theme="secondary">金额</Typography.Text>
+            <Input
+              value={String(Number(form.amountCents || 0) / 100)}
+              placeholder="199.00"
+              onChange={(value) => updateForm({ amountCents: Math.round(Number(value || 0) * 100) })}
+            />
+          </Col>
+          <Col xs={12} sm={4} lg={1}>
+            <Typography.Text theme="secondary">有效期</Typography.Text>
+            <Input
+              value={form.validityDays ? String(form.validityDays) : ''}
+              placeholder="天，可空"
+              onChange={(value) => updateForm({ validityDays: String(value || '').trim() ? Number(value) : null })}
+            />
+          </Col>
+          <Col xs={12} sm={4} lg={1}>
+            <Typography.Text theme="secondary">状态</Typography.Text>
+            <Select
+              value={form.status || 'active'}
+              options={[
+                { label: '启用', value: 'active' },
+                { label: '停用', value: 'inactive' },
+              ]}
+              onChange={(value) => updateForm({ status: String(value || 'active') })}
+            />
+          </Col>
+          <Col xs={12} sm={4} lg={1}>
+            <Typography.Text theme="secondary">排序</Typography.Text>
+            <Input value={String(form.sortOrder || 100)} onChange={(value) => updateForm({ sortOrder: Number(value || 100) })} />
+          </Col>
+          <Col xs={12}>
+            <Typography.Text theme="secondary">说明</Typography.Text>
+            <Textarea
+              autosize={{ minRows: 1, maxRows: 2 }}
+              value={form.description || ''}
+              placeholder="例如图裂变主线生产套餐，默认 30 天有效"
+              onChange={(value) => updateForm({ description: String(value || '') })}
+            />
+          </Col>
+        </Row>
+        <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+          <Typography.Text theme="secondary">已配置 {catalog?.total || 0} 个套餐，订单和发放会自动复用启用中的规则。</Typography.Text>
+          <Button theme="primary" loading={loading} onClick={submit}>
+            保存套餐规则
+          </Button>
+        </Space>
+        <Table
+          size="small"
+          rowKey="packageKey"
+          data={items.slice(0, 8)}
+          loading={loading}
+          empty={<Typography.Text theme="secondary">暂无套餐规则，先创建一个图裂变或扩图套餐。</Typography.Text>}
+          columns={[
+            {
+              colKey: 'package',
+              title: '套餐',
+              minWidth: 220,
+              cell: ({ row }) => (
+                <Space direction="vertical" size={2}>
+                  <Typography.Text strong>{row.packageName}</Typography.Text>
+                  <Typography.Text theme="secondary">{row.packageKey}</Typography.Text>
+                </Space>
+              ),
+            },
+            {
+              colKey: 'scope',
+              title: '业务 / 额度',
+              width: 160,
+              cell: ({ row }) => `${row.businessKey ? businessKeyLabel(row.businessKey) : '通用额度'} · ${formatPackageUnits(row.units, row.unitName)}`,
+            },
+            {
+              colKey: 'price',
+              title: '金额 / 有效期',
+              width: 160,
+              cell: ({ row }) => `${formatMoney(row.amountCents, row.currency)} · ${row.validityDays ? `${row.validityDays} 天` : '长期'}`,
+            },
+            {
+              colKey: 'status',
+              title: '状态',
+              width: 120,
+              cell: ({ row }) => <Tag theme={row.status === 'active' ? 'success' : 'default'} variant="light">{row.status === 'active' ? '启用' : '停用'}</Tag>,
+            },
+            {
+              colKey: 'updatedAt',
+              title: '更新时间',
+              width: 150,
+              cell: ({ row }) => formatDateTime(row.updatedAt || row.createdAt || ''),
+            },
+            {
+              colKey: 'action',
+              title: '操作',
+              width: 90,
+              cell: ({ row }) => (
+                <Button size="small" variant="outline" onClick={() => editCatalog(row)}>
+                  编辑
+                </Button>
+              ),
+            },
+          ]}
+        />
       </Space>
     </Card>
   );
@@ -773,6 +1195,8 @@ export const BillingPanel = ({
   packageAlertNotifications,
   monthlyCollectionNotifications,
   notificationConfig,
+  commercialReport,
+  packageCatalog,
   packagePurchaseOrders,
   invoiceRequests,
   detail,
@@ -786,6 +1210,7 @@ export const BillingPanel = ({
   onClientIdChange,
   onBusinessKeyChange,
   onRefresh,
+  onExportCommercialReport,
   onExport,
   onSelectUser,
   onRetryIssue,
@@ -796,6 +1221,7 @@ export const BillingPanel = ({
   onRunPackageAlertNotification,
   onRunMonthlyCollectionNotification,
   onSaveNotificationConfig,
+  onSavePackageCatalog,
   onCreatePackagePurchaseOrder,
   onMarkPackagePurchaseOrderPaid,
   onCreateInvoiceRequest,
@@ -813,6 +1239,8 @@ export const BillingPanel = ({
   packageAlertNotifications?: PackageAlertNotificationListResponse | null;
   monthlyCollectionNotifications?: MonthlySettlementCollectionNotificationListResponse | null;
   notificationConfig?: BillingNotificationConfigResponse | null;
+  commercialReport?: BillingCommercialReportResponse | null;
+  packageCatalog?: PackageCatalogListResponse | null;
   packagePurchaseOrders?: PackagePurchaseOrderListResponse | null;
   invoiceRequests?: BillingInvoiceRequestListResponse | null;
   detail?: BillingUserDetailResponse | null;
@@ -826,6 +1254,7 @@ export const BillingPanel = ({
   onClientIdChange: (value: string) => void;
   onBusinessKeyChange: (value: string) => void;
   onRefresh: () => void;
+  onExportCommercialReport: () => void;
   onExport: () => void;
   onSelectUser: (userId: string) => void;
   onRetryIssue: (runId: string) => void;
@@ -843,6 +1272,7 @@ export const BillingPanel = ({
       webhookFormat?: string | null;
     }>,
   ) => Promise<void> | void;
+  onSavePackageCatalog: (payload: PackageCatalogPayload) => Promise<void> | void;
   onCreatePackagePurchaseOrder: (payload: PackagePurchaseOrderCreatePayload) => Promise<void> | void;
   onMarkPackagePurchaseOrderPaid: (orderId: string) => Promise<void> | void;
   onCreateInvoiceRequest: (orderId: string, title: string, taxNo?: string | null, email?: string | null) => Promise<void> | void;
@@ -852,11 +1282,18 @@ export const BillingPanel = ({
   <Space direction="vertical" size="large" style={{ width: '100%' }}>
     <Alert
       theme="info"
-      message="当前只保留账单框架：用于成本核对、流水查看和对账导出。充值、支付、正式发票和完整收费体验放到后一阶段，不作为当前主线验收。"
+      message="当前页面用于内部核对：先确认业务是否正常收费、套餐是否够用、收入和成本是否能对上。线上支付、正式开票和客户自助充值放到后续阶段。"
     />
     {error ? <Alert theme="error" message={error} /> : null}
     <BillingActionPanel overview={overview} detail={detail} formatDateTime={formatDateTime} />
     <BillingNotificationConfigCard config={notificationConfig} loading={loading} onSave={onSaveNotificationConfig} />
+    <CommercialReportCard
+      report={commercialReport}
+      loading={loading}
+      exporting={exporting}
+      onExport={onExportCommercialReport}
+      formatDateTime={formatDateTime}
+    />
     <Card bordered>
       <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
         <Space breakLine>
@@ -892,14 +1329,14 @@ export const BillingPanel = ({
           <Input
             style={{ width: 160 }}
             value={tenantId}
-            placeholder="tenantId，可留空"
+            placeholder="业务方标识，可留空"
             onChange={(value) => onTenantIdChange(String(value || ''))}
           />
           <Typography.Text theme="secondary">客户端</Typography.Text>
           <Input
             style={{ width: 160 }}
             value={clientId}
-            placeholder="clientId，可留空"
+            placeholder="客户端标识，可留空"
             onChange={(value) => onClientIdChange(String(value || ''))}
           />
         </Space>
@@ -908,20 +1345,21 @@ export const BillingPanel = ({
             刷新账单
           </Button>
           <Button variant="outline" loading={exporting} disabled={!selectedUserId} onClick={onExport}>
-            导出当前用户流水
+            导出用户流水
           </Button>
         </Space>
       </Space>
     </Card>
+    <PackageCatalogCard catalog={packageCatalog} loading={loading} onSave={onSavePackageCatalog} formatDateTime={formatDateTime} />
     <Row gutter={[12, 12]}>
       <Col xs={12} sm={6} lg={2}>
         <BillingMetricCard label="用户数" value={overview?.totalUsers ?? 0} sub="纳入本次对账" />
       </Col>
       <Col xs={12} sm={6} lg={2}>
         <BillingMetricCard
-          label="异常样本"
+          label="待处理记录"
           value={overview?.issueCount ?? 0}
-          sub={(overview?.issueCount ?? 0) > 0 ? '需要先核对' : '暂无异常'}
+          sub={(overview?.issueCount ?? 0) > 0 ? '需要先核对' : '暂无问题'}
         />
       </Col>
       <Col xs={12} sm={6} lg={2}>
@@ -933,7 +1371,7 @@ export const BillingPanel = ({
       </Col>
       <Col xs={12} sm={6} lg={2}>
         <BillingMetricCard
-          label="本月扣费"
+          label="本月收费"
           value={formatPoints(overview?.totalExpense)}
           sub={`流水 ${overview?.expenseCount ?? 0} 笔`}
         />
@@ -968,10 +1406,10 @@ export const BillingPanel = ({
       title={
         <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
           <div>
-            <Typography.Text strong>异常扣费样本</Typography.Text>
+            <Typography.Text strong>收费问题样本</Typography.Text>
             <div>
               <Typography.Text theme="secondary">
-                只展示需要人工核对的样本：成功未定价、扣费失败、应扣未扣、失败后仍扣费。
+                只展示需要人工核对的记录：成功未定价、收费失败、应收费未收、失败后仍收费。
               </Typography.Text>
             </div>
           </div>
@@ -986,7 +1424,7 @@ export const BillingPanel = ({
         rowKey="id"
         data={overview?.issues || []}
         loading={loading}
-        empty={<Typography.Text theme="secondary">当前筛选下暂无异常扣费样本。</Typography.Text>}
+        empty={<Typography.Text theme="secondary">当前筛选下暂无收费问题记录。</Typography.Text>}
         columns={[
           {
             colKey: 'createdAt',
@@ -1001,7 +1439,7 @@ export const BillingPanel = ({
             cell: ({ row }) => (
               <Space direction="vertical" size={2}>
                 <Typography.Text theme="warning">{row.issueLabel}</Typography.Text>
-                <Typography.Text theme="secondary">{row.issueType}</Typography.Text>
+                <Typography.Text theme="secondary">{billingIssueActionHint(row.issueType)}</Typography.Text>
               </Space>
             ),
           },
@@ -1024,7 +1462,7 @@ export const BillingPanel = ({
               <Space direction="vertical" size={2}>
                 <Typography.Text>{row.userName || row.userId || '未绑定用户'}</Typography.Text>
                 <Typography.Text theme="secondary">
-                  {row.tenantId || '未绑定业务方'} · {row.clientId || '未绑定客户端'}
+                  业务方 {row.tenantId || '未绑定'} · 客户端 {row.clientId || '未绑定'}
                 </Typography.Text>
               </Space>
             ),
@@ -1043,7 +1481,7 @@ export const BillingPanel = ({
                     theme={row.walletStatus === 'failed' ? 'danger' : row.walletStatus === 'settled' ? 'success' : 'default'}
                     variant="light"
                   >
-                    {row.walletStatus === 'settled' ? '已扣费' : row.walletStatus === 'failed' ? '扣费失败' : '未扣费'}
+                    {row.walletStatus === 'settled' ? '已收费' : row.walletStatus === 'failed' ? '收费失败' : '未收费'}
                   </Tag>
                 </Space>
                 <Typography.Text theme="secondary">
@@ -1054,7 +1492,7 @@ export const BillingPanel = ({
           },
           {
             colKey: 'run',
-            title: '任务',
+            title: '任务编号',
             width: 180,
             cell: ({ row }) => <Typography.Text code>{row.runId}</Typography.Text>,
           },
@@ -1066,14 +1504,14 @@ export const BillingPanel = ({
               if (row.issueType === 'wallet_failed' || row.issueType === 'wallet_missing') {
                 return (
                   <Button size="small" theme="primary" variant="outline" loading={loading} onClick={() => onRetryIssue(row.runId)}>
-                    重试扣费
+                    重试收费
                   </Button>
                 );
               }
               if (row.issueType === 'failed_run_charged') {
                 return (
                   <Button size="small" theme="danger" variant="outline" loading={loading} onClick={() => onRefundIssue(row.runId)}>
-                    退回扣费
+                    退回收费
                   </Button>
                 );
               }
@@ -1132,7 +1570,7 @@ export const BillingPanel = ({
               <Space direction="vertical" size={2}>
                 <Typography.Text>{row.userName || row.userId}</Typography.Text>
                 <Typography.Text theme="secondary">
-                  {row.tenantId || '未绑定业务方'} · {row.clientId || '未绑定客户端'}
+                  业务方 {row.tenantId || '未绑定'} · 客户端 {row.clientId || '未绑定'}
                 </Typography.Text>
               </Space>
             ),
@@ -1253,7 +1691,7 @@ export const BillingPanel = ({
                 <Tag theme={row.webhookConfigured ? 'success' : 'warning'} variant="light">
                   {row.webhookConfigured ? '已配置' : '未配置'}
                 </Tag>
-                <Typography.Text theme="secondary">{row.webhookFormat || 'generic'}</Typography.Text>
+                <Typography.Text theme="secondary">{webhookFormatLabel(row.webhookFormat)}</Typography.Text>
               </Space>
             ),
           },
@@ -1312,8 +1750,8 @@ export const BillingPanel = ({
             minWidth: 220,
             cell: ({ row }) => (
               <Space direction="vertical" size={2}>
-                <Typography.Text>{row.tenantId || '未绑定业务方'}</Typography.Text>
-                <Typography.Text theme="secondary">{row.clientId || '未绑定客户端'} · {row.userCount || 0} 个用户</Typography.Text>
+                <Typography.Text>业务方 {row.tenantId || '未绑定'}</Typography.Text>
+                <Typography.Text theme="secondary">客户端 {row.clientId || '未绑定'} · {row.userCount || 0} 个用户</Typography.Text>
               </Space>
             ),
           },
@@ -1332,7 +1770,7 @@ export const BillingPanel = ({
           },
           {
             colKey: 'expense',
-            title: '本月扣费 / 入账',
+            title: '本月收费 / 入账',
             width: 170,
             cell: ({ row }) => (
               <Space direction="vertical" size={2}>
@@ -1496,7 +1934,7 @@ export const BillingPanel = ({
                 <Tag theme={row.webhookConfigured ? 'success' : 'warning'} variant="light">
                   {row.webhookConfigured ? '已配置' : '未配置'}
                 </Tag>
-                <Typography.Text theme="secondary">{row.webhookFormat || 'generic'}</Typography.Text>
+                <Typography.Text theme="secondary">{webhookFormatLabel(row.webhookFormat)}</Typography.Text>
               </Space>
             ),
           },
@@ -1555,8 +1993,8 @@ export const BillingPanel = ({
                 minWidth: 160,
                 cell: ({ row }) => (
                   <Space direction="vertical" size={2}>
-                    <Typography.Text>{row.user.tenantId || '未绑定业务方'}</Typography.Text>
-                    <Typography.Text theme="secondary">{row.user.clientId || '未绑定客户端'}</Typography.Text>
+                    <Typography.Text>业务方 {row.user.tenantId || '未绑定'}</Typography.Text>
+                    <Typography.Text theme="secondary">客户端 {row.user.clientId || '未绑定'}</Typography.Text>
                   </Space>
                 ),
               },
@@ -1579,7 +2017,7 @@ export const BillingPanel = ({
                 cell: ({ row }) => (
                   <Space direction="vertical" size={2}>
                     <Typography.Text theme={Number(row.expense || 0) > 0 ? 'warning' : 'secondary'}>
-                      扣费 {formatPoints(row.expense)}
+                      收费 {formatPoints(row.expense)}
                     </Typography.Text>
                     <Typography.Text theme="secondary">入账 {formatPoints(row.income)}</Typography.Text>
                   </Space>
@@ -1613,7 +2051,7 @@ export const BillingPanel = ({
                 <Typography.Text strong>用户明细</Typography.Text>
                 <div>
                   <Typography.Text theme="secondary">
-                    {detail ? `${detail.user.displayName || detail.user.username} · ${detail.user.role}` : '请选择左侧用户'}
+                    {detail ? `${detail.user.displayName || detail.user.username} · ${userRoleLabel(detail.user.role)}` : '请选择左侧用户'}
                   </Typography.Text>
                 </div>
               </div>
@@ -1636,14 +2074,14 @@ export const BillingPanel = ({
                 </Col>
                 <Col xs={12} sm={6}>
                   <BillingMetricCard
-                    label="窗口扣费"
+                    label="窗口收费"
                     value={formatPoints(detail.usage.totalExpensePoints)}
-                    sub={`${detail.usage.expenseCount || 0} 笔扣费`}
+                    sub={`${detail.usage.expenseCount || 0} 笔收费`}
                   />
                 </Col>
                 <Col xs={12} sm={6}>
                   <BillingMetricCard
-                    label="成本快照"
+                    label="成本记录"
                     value={formatPoints(detail.costSnapshots.totalPoints)}
                     sub={`${detail.costSnapshots.count || 0} 条`}
                   />
@@ -1764,7 +2202,7 @@ export const BillingPanel = ({
                     colKey: 'changeType',
                     title: '类型',
                     width: 110,
-                    cell: ({ row }) => <Tag variant="light">{row.changeType}</Tag>,
+                    cell: ({ row }) => <Tag variant="light">{ledgerChangeTypeLabel(row.changeType)}</Tag>,
                   },
                   {
                     colKey: 'points',

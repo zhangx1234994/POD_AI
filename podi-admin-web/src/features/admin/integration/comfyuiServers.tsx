@@ -1,6 +1,6 @@
 import { Alert, Button, Card, Col, Dialog, Input, InputNumber, Popup, Row, Select, Space, Tag, Textarea, Typography } from 'tdesign-react';
 import type { ComfyuiServerDiffLog, Executor } from '../../../types/admin';
-import { StatusBadge } from '../shared/ui';
+import { GuidanceQueueCard, StatusBadge, type GuidanceQueueItem } from '../shared/ui';
 import { formatDateTime } from './formatters';
 
 type SelectOption = {
@@ -148,6 +148,23 @@ function renderDiffTag(options: { baselineReady: boolean; targetReady: boolean; 
   );
 }
 
+const countMissingItems = (snapshot?: ComfyServerDiffSnapshot | null) => {
+  if (!snapshot) return 0;
+  return (
+    snapshot.missing.unet.length +
+    snapshot.missing.clip.length +
+    snapshot.missing.vae.length +
+    snapshot.missing.lora.length +
+    snapshot.missing.nodes.length
+  );
+};
+
+const getServerStatusText = (executor: Executor) => {
+  if (executor.status === 'active') return '可接任务';
+  if (executor.status === 'disabled') return '已停用';
+  return '暂不可用';
+};
+
 const withTimestamp = (prefix: string) => `${prefix}-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
 
 export function ComfyuiServersPanel({
@@ -197,9 +214,133 @@ export function ComfyuiServersPanel({
   const baselineVaeReady = Array.isArray(baselineCatalog?.vae);
   const baselineLoraReady = Array.isArray(baselineCatalog?.lora);
   const baselineNodesReady = Boolean(baselineExecutor?.id && (nodeCache[baselineExecutor.id] || []).length > 0);
+  const hasBaseline = Boolean(baselineExecutor?.id);
+  const activeExecutors = executors.filter((executor) => executor.status === 'active');
+  const inactiveExecutors = executors.filter((executor) => executor.status !== 'active');
+  const loadingServerCount = executors.filter(
+    (executor) => systemLoadingByExecutor[executor.id] || modelLoadingByExecutor[executor.id],
+  ).length;
+  const unrefreshedExecutors = executors.filter((executor) => {
+    const hasSystem = Boolean(systemCache[executor.id]);
+    const hasModel = Boolean(modelCache[executor.id] && Object.keys(modelCache[executor.id]).length > 0);
+    return !hasSystem && !hasModel && !systemLoadingByExecutor[executor.id] && !modelLoadingByExecutor[executor.id];
+  });
+  const errorExecutors = executors.filter((executor) => systemErrorByExecutor[executor.id] || modelErrorByExecutor[executor.id]);
+  const diffProblemCount =
+    hasBaseline && baselineExecutor?.id
+      ? executors.filter((executor) => executor.id !== baselineExecutor.id && countMissingItems(buildServerDiff(executor)) > 0).length
+      : 0;
+  const serverActionItems: GuidanceQueueItem[] = [];
+  if (executors.length === 0) {
+    serverActionItems.push({
+      key: 'no-server',
+      theme: 'danger',
+      priority: '阻塞',
+      title: '还没有服务器',
+      detail: '当前没有可路由的 ComfyUI 节点，生图任务无法进入执行侧。',
+      action: '先新增 ComfyUI 服务器',
+    });
+  } else if (!hasBaseline) {
+    serverActionItems.push({
+      key: 'no-baseline',
+      theme: 'warning',
+      priority: '先处理',
+      title: '未选择主服务器',
+      detail: '没有基准机器时，无法判断其它机器是否缺模型、缺 LoRA 或缺插件节点。',
+      action: '先选择一台稳定机器作为主服务器',
+    });
+  }
+  if (errorExecutors.length > 0) {
+    serverActionItems.push({
+      key: 'server-error',
+      theme: 'danger',
+      priority: '需处理',
+      title: '有服务器读不到',
+      detail: `${errorExecutors.length} 台服务器状态或模型列表读取失败，路由前要先确认机器和端口是否正常。`,
+      action: '打开对应服务器卡片查看错误',
+    });
+  }
+  if (unrefreshedExecutors.length > 0) {
+    serverActionItems.push({
+      key: 'server-unrefreshed',
+      theme: 'primary',
+      priority: '建议',
+      title: '状态还未刷新',
+      detail: `${unrefreshedExecutors.length} 台服务器还没有拉取模型/插件信息，差异判断可能不完整。`,
+      action: '点击“刷新所有服务器”',
+      onClick: onRefreshAllServers,
+      loading: serverRefreshing,
+    });
+  }
+  if (diffProblemCount > 0) {
+    serverActionItems.push({
+      key: 'server-diff',
+      theme: 'warning',
+      priority: '需确认',
+      title: '资源不完全一致',
+      detail: `${diffProblemCount} 台服务器相对主服务器存在模型、LoRA 或插件节点缺失。`,
+      action: '先处理缺失项，再放开全量路由',
+    });
+  }
+  if (inactiveExecutors.length > 0) {
+    serverActionItems.push({
+      key: 'server-inactive',
+      theme: 'warning',
+      priority: '关注',
+      title: '有服务器未启用',
+      detail: `${inactiveExecutors.length} 台服务器当前不是 active，不会作为正常执行节点使用。`,
+      action: '确认是主动下线还是配置遗漏',
+    });
+  }
+  if (serverActionItems.length === 0) {
+    serverActionItems.push({
+      key: 'server-ok',
+      theme: 'success',
+      priority: '可用',
+      title: '服务器纳管正常',
+      detail: '当前服务器可接任务，主服务器已选择，暂未发现读取失败或明显资源差异。',
+      action: '继续做业务链路巡检',
+    });
+  }
 
   return (
     <div className="space-y-4">
+      <GuidanceQueueCard items={serverActionItems} maxItems={4} />
+      <Card bordered title="服务器健康总览">
+        <div className="grid gap-3 md:grid-cols-5">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/40">
+            <div className="text-xs text-slate-500">纳管服务器</div>
+            <div className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">{executors.length}</div>
+            <div className="mt-1 text-xs text-slate-500">当前记录的 ComfyUI 节点</div>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/40">
+            <div className="text-xs text-slate-500">可接任务</div>
+            <div className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">{activeExecutors.length}</div>
+            <div className="mt-1 text-xs text-slate-500">未启用 {inactiveExecutors.length}</div>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/40">
+            <div className="text-xs text-slate-500">主服务器</div>
+            <div className="mt-1 truncate text-lg font-semibold text-slate-900 dark:text-white">
+              {baselineExecutor?.name || '未选择'}
+            </div>
+            <div className="mt-1 text-xs text-slate-500">{baselineExecutor?.id || '先选基准再做资源对齐'}</div>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/40">
+            <div className="text-xs text-slate-500">资源差异</div>
+            <div className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">
+              {hasBaseline ? diffProblemCount : '—'}
+            </div>
+            <div className="mt-1 text-xs text-slate-500">相对主服务器缺模型/插件的机器</div>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/40">
+            <div className="text-xs text-slate-500">读取状态</div>
+            <div className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">
+              {errorExecutors.length > 0 ? `${errorExecutors.length} 异常` : loadingServerCount > 0 ? `${loadingServerCount} 读取中` : '正常'}
+            </div>
+            <div className="mt-1 text-xs text-slate-500">状态接口和模型列表读取结果</div>
+          </div>
+        </div>
+      </Card>
       <div className="text-sm text-slate-600 dark:text-slate-400">
         选择一台“主服务器”作为基准，其它服务器会对比模型/插件是否缺失。差异只做提示，不会自动同步。
       </div>
@@ -281,6 +422,7 @@ export function ComfyuiServersPanel({
                   const missingVae = diffSnapshot.missing.vae;
                   const missingLora = diffSnapshot.missing.lora;
                   const missingNodes = diffSnapshot.missing.nodes;
+                  const missingTotal = countMissingItems(diffSnapshot);
                   const systemInfo = systemCache[executor.id];
                   const versionInfo = extractVersionInfo(executor, systemInfo);
                   const systemLoading = Boolean(systemLoadingByExecutor[executor.id]);
@@ -308,6 +450,19 @@ export function ComfyuiServersPanel({
                           </div>
                           <div className="mt-1 text-xs text-slate-500">
                             并发/权重：{executor.max_concurrency}/{executor.weight}
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
+                            <Tag theme={executor.status === 'active' ? 'success' : 'warning'} variant="light">
+                              {getServerStatusText(executor)}
+                            </Tag>
+                            <Tag theme={modelLoaded || nodesLoaded ? 'success' : 'warning'} variant="light">
+                              {modelLoaded || nodesLoaded ? '已拉取资源' : '待刷新资源'}
+                            </Tag>
+                            {!isBaseline && hasBaseline ? (
+                              <Tag theme={missingTotal > 0 ? 'danger' : 'success'} variant="light">
+                                {missingTotal > 0 ? `缺 ${missingTotal} 项` : '资源对齐'}
+                              </Tag>
+                            ) : null}
                           </div>
                         </div>
                         <div className="shrink-0 text-right text-xs text-slate-500">

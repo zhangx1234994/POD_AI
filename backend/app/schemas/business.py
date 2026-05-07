@@ -30,6 +30,15 @@ class BusinessCapabilityRead(BaseModel):
     vendorModelName: str | None = Field(default=None, alias="vendor_model_name")
     vendorModelProvider: str | None = Field(default=None, alias="vendor_model_provider")
     recipeSteps: list[dict[str, Any]] = Field(default_factory=list, alias="recipe_steps")
+    governanceStatus: str = Field(default="unknown", alias="governance_status")
+    governanceIssues: list[str] = Field(default_factory=list, alias="governance_issues")
+    governanceSuggestions: list[str] = Field(default_factory=list, alias="governance_suggestions")
+    runtimeKeyConfigured: bool | None = Field(default=None, alias="runtime_key_configured")
+    modelCostConfigured: bool | None = Field(default=None, alias="model_cost_configured")
+    egressVerified: bool | None = Field(default=None, alias="egress_verified")
+    latestAcceptance: dict[str, Any] | None = Field(default=None, alias="latest_acceptance")
+    acceptanceRecords: list[dict[str, Any]] = Field(default_factory=list, alias="acceptance_records")
+    releaseGate: dict[str, Any] | None = Field(default=None, alias="release_gate")
     latestRun: dict[str, Any] | None = Field(default=None, alias="latest_run")
     runMetrics: dict[str, Any] | None = Field(default=None, alias="run_metrics")
     createdAt: datetime = Field(alias="created_at")
@@ -74,6 +83,17 @@ class BusinessDefaultApprovalRead(BaseModel):
 
 class BusinessDefaultApprovalListResponse(BaseModel):
     items: list[BusinessDefaultApprovalRead]
+
+
+class BusinessAcceptanceRecordRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    status: str = Field(default="passed", description="passed / failed / warning / waived")
+    note: str | None = Field(default=None, description="验收说明")
+    evidenceRunId: str | None = Field(default=None, alias="evidence_run_id", description="关联业务运行 ID")
+    evidenceUrl: str | None = Field(default=None, alias="evidence_url", description="证据链接，例如测评报告或截图")
+    checklist: dict[str, Any] | None = Field(default=None, description="人工验收勾选项")
+    metadata: dict[str, Any] | None = Field(default=None, description="补充信息")
 
 
 class BusinessOperationLogRead(BaseModel):
@@ -248,6 +268,8 @@ class BusinessRunCreateRequest(BaseModel):
     requestId: str | None = Field(default=None, description="业务方请求 ID，用于幂等和日志关联")
     tenantId: str | None = Field(default=None, description="租户/业务方 ID")
     clientId: str | None = Field(default=None, description="客户端/应用 ID")
+    userId: str | None = Field(default=None, description="业务用户 ID / 计费归属 ID；为空时按登录用户、clientId、tenantId 依次兜底")
+    userName: str | None = Field(default=None, description="业务用户展示名，用于管理端排查")
     callbackUrl: str | None = Field(default=None, description="业务任务终态回调地址")
     callbackHeaders: dict[str, str] | None = Field(default=None, description="业务任务回调请求头")
     metadata: dict[str, Any] | None = Field(default=None, description="调用来源、灰度标识等业务上下文")
@@ -337,6 +359,17 @@ class BusinessRunRead(BaseModel):
     callbackError: str | None = Field(default=None, alias="callback_error")
     debugUrl: str | None = Field(default=None, alias="debug_url")
     routeInfo: dict[str, Any] | None = Field(default=None, alias="route_info")
+    issueCategory: str | None = Field(default=None, alias="issue_category")
+    issueLabel: str | None = Field(default=None, alias="issue_label")
+    issueSeverity: str | None = Field(default=None, alias="issue_severity")
+    issueAction: str | None = Field(default=None, alias="issue_action")
+    issueEvidence: str | None = Field(default=None, alias="issue_evidence")
+    retestSourceRunId: str | None = Field(default=None, alias="retest_source_run_id")
+    retestLatestRunId: str | None = Field(default=None, alias="retest_latest_run_id")
+    retestLatestStatus: str | None = Field(default=None, alias="retest_latest_status")
+    retestAttempts: int = Field(default=0, alias="retest_attempts")
+    retestRecovered: bool = Field(default=False, alias="retest_recovered")
+    retestSummary: dict[str, Any] | None = Field(default=None, alias="retest_summary")
     flowSummary: dict[str, Any] | None = Field(default=None, alias="flow_summary")
     steps: list[BusinessRunStepRead] = Field(default_factory=list)
     createdAt: datetime = Field(alias="created_at")
@@ -348,6 +381,70 @@ class BusinessRunRead(BaseModel):
 class BusinessRunListResponse(BaseModel):
     items: list[BusinessRunRead]
     total: int
+
+
+class BusinessRunBulkActionRequest(BaseModel):
+    runIds: list[str] = Field(default_factory=list)
+    note: str | None = None
+    onlyFailed: bool = True
+
+
+class BusinessRunBulkActionItem(BaseModel):
+    runId: str = Field(alias="run_id")
+    newRunId: str | None = Field(default=None, alias="new_run_id")
+    ok: bool
+    status: str
+    message: str | None = None
+
+
+class BusinessRunBulkActionResponse(BaseModel):
+    action: str
+    total: int
+    succeeded: int
+    failed: int
+    items: list[BusinessRunBulkActionItem]
+
+
+class BusinessRunIssueChecklistRequest(BaseModel):
+    runIds: list[str] = Field(default_factory=list)
+    onlyFailed: bool = True
+
+
+class BusinessRunIssueChecklistItem(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    runId: str = Field(alias="run_id")
+    businessKey: str | None = Field(default=None, alias="business_key")
+    version: str | None = None
+    status: str
+    issueCategory: str = Field(alias="issue_category")
+    issueLabel: str = Field(alias="issue_label")
+    issueSeverity: str = Field(alias="issue_severity")
+    issueAction: str | None = Field(default=None, alias="issue_action")
+    issueEvidence: str | None = Field(default=None, alias="issue_evidence")
+    recommendedActions: list[str] = Field(default_factory=list, alias="recommended_actions")
+    diagnostics: list[str] = Field(default_factory=list)
+    abilityId: str | None = Field(default=None, alias="ability_id")
+    abilityName: str | None = Field(default=None, alias="ability_name")
+    executorId: str | None = Field(default=None, alias="executor_id")
+    executorName: str | None = Field(default=None, alias="executor_name")
+    callbackStatus: str | None = Field(default=None, alias="callback_status")
+    retestLatestRunId: str | None = Field(default=None, alias="retest_latest_run_id")
+    retestLatestStatus: str | None = Field(default=None, alias="retest_latest_status")
+    createdAt: datetime | None = Field(default=None, alias="created_at")
+
+
+class BusinessRunIssueChecklistResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    generatedAt: str = Field(alias="generated_at")
+    total: int
+    issueCount: int = Field(alias="issue_count")
+    skippedCount: int = Field(default=0, alias="skipped_count")
+    byCategory: dict[str, int] = Field(default_factory=dict, alias="by_category")
+    bySeverity: dict[str, int] = Field(default_factory=dict, alias="by_severity")
+    markdown: str
+    items: list[BusinessRunIssueChecklistItem]
 
 
 class BusinessUsageBucket(BaseModel):
@@ -391,6 +488,35 @@ class BusinessUsageFailure(BaseModel):
     createdAt: datetime = Field(alias="created_at")
 
 
+class BusinessIssueBucket(BusinessUsageBucket):
+    severity: str | None = None
+    action: str | None = None
+
+
+class BusinessUnresolvedIssueBucket(BusinessIssueBucket):
+    retested: int = 0
+    retestAttempts: int = Field(default=0, alias="retest_attempts")
+
+
+class BusinessUnresolvedIssueItem(BaseModel):
+    id: str
+    runId: str = Field(alias="id")
+    businessKey: str = Field(alias="business_key")
+    version: str | None = None
+    status: str
+    source: str
+    tenantId: str | None = Field(default=None, alias="tenant_id")
+    clientId: str | None = Field(default=None, alias="client_id")
+    traceId: str | None = Field(default=None, alias="trace_id")
+    issueCategory: str = Field(alias="issue_category")
+    issueLabel: str = Field(alias="issue_label")
+    issueAction: str | None = Field(default=None, alias="issue_action")
+    retestAttempts: int = Field(default=0, alias="retest_attempts")
+    retestLatestRunId: str | None = Field(default=None, alias="retest_latest_run_id")
+    retestLatestStatus: str | None = Field(default=None, alias="retest_latest_status")
+    createdAt: datetime = Field(alias="created_at")
+
+
 class BusinessUsageSummaryResponse(BaseModel):
     windowHours: int = Field(alias="window_hours")
     filters: dict[str, Any]
@@ -419,4 +545,7 @@ class BusinessUsageSummaryResponse(BaseModel):
     byTenant: list[BusinessUsageBucket] = Field(default_factory=list, alias="by_tenant")
     byClient: list[BusinessUsageBucket] = Field(default_factory=list, alias="by_client")
     byVersion: list[BusinessUsageBucket] = Field(default_factory=list, alias="by_version")
+    byIssue: list[BusinessIssueBucket] = Field(default_factory=list, alias="by_issue")
+    unresolvedIssues: list[BusinessUnresolvedIssueBucket] = Field(default_factory=list, alias="unresolved_issues")
+    recentUnresolvedIssues: list[BusinessUnresolvedIssueItem] = Field(default_factory=list, alias="recent_unresolved_issues")
     recentFailures: list[BusinessUsageFailure] = Field(default_factory=list, alias="recent_failures")

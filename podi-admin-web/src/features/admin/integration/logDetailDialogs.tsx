@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Alert, Button, Col, Dialog, Row, Space, Tag, Typography } from 'tdesign-react';
 import type { AbilityInvocationLog, DispatchLogEntry, JsonRecord } from '../../../types/admin';
 import { toDisplayErrorMessage } from '../../../utils/errorMessageMap';
-import { getAbilityLogStatusTag, resolveLogOutputSummary } from './abilityLogs';
+import { getAbilityLogStatusTag, resolveAbilityLogAction, resolveLogOutputSummary } from './abilityLogs';
 import { formatDate, formatDateTime, formatDurationMs } from './formatters';
 import { StatusBadge } from '../shared/ui';
 
@@ -115,6 +115,18 @@ export function AbilityLogDetailDialog({
     >
       {detail ? (
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+          {(() => {
+            const action = resolveAbilityLogAction(detail);
+            const alertTheme =
+              action.theme === 'danger'
+                ? 'error'
+                : action.theme === 'success'
+                  ? 'success'
+                  : action.theme === 'warning'
+                    ? 'warning'
+                    : 'info';
+            return <Alert theme={alertTheme} message={`${action.title}：${action.detail}`} />;
+          })()}
           <Row gutter={[12, 12]}>
             <Col span={12}>
               <Typography.Text theme="secondary">能力</Typography.Text>

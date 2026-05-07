@@ -16,6 +16,40 @@
 
 ---
 
+## 0) 与管理端 API 开放页对齐
+
+管理端“API 开放”页展示的 Coze 工具箱必须和本文档保持一致：
+
+| 页面名称 | OpenAPI / 接口 | 类型 | 文档位置 | 冒烟口径 |
+| --- | --- | --- | --- | --- |
+| PODI 综合工具箱 | `GET /api/coze/podi/openapi.json` | 主入口 | 1) OpenAPI 文档 | 返回 200，且包含能力提交、任务查询和主要工具定义。 |
+| ComfyUI 工具箱 | `GET /api/coze/podi/comfyui/openapi.json` | 专项工具箱 | 1) OpenAPI 文档 | 返回 200，Coze 可重新导入。 |
+| 高质量图裂变 | `GET /api/coze/podi/comfyui/execute/flux-strong-hq-softstyle-fission/openapi.json` | 专项工具箱 | 1) OpenAPI 文档 | 返回 200，工具 contract 不随 host 切换而变化。 |
+| 扩图主线 | `GET /api/coze/podi/comfyui/execute/flux2-klein-9b-outpaint/openapi.json` | 专项工具箱 | 1) OpenAPI 文档 | 返回 200，工具 contract 不随 host 切换而变化。 |
+| 背景抠图 | `GET /api/coze/podi/comfyui/execute/beijing-koutu/openapi.json` | 专项工具箱 | 1) OpenAPI 文档 | 返回 200，工具 contract 不随 host 切换而变化。 |
+| 头部抠像 | `GET /api/coze/podi/comfyui/execute/toubu-kouxiang/openapi.json` | 专项工具箱 | 1) OpenAPI 文档 | 返回 200，工具 contract 不随 host 切换而变化。 |
+| KIE 模型工具箱 | `GET /api/coze/podi/kie/openapi.json` | 专项工具箱 | 7) KIE 模型查询 | 返回 200，模型工具和任务查询可用。 |
+| 任务查询 | `POST /api/coze/podi/tasks/get` | 查询工具箱 | 4) 查询任务结果 | 不存在的 `taskId` 应返回 `TASK_NOT_FOUND`，不能返回 `INTERNAL_ONLY` 或 500。 |
+
+维护规则：
+
+- Coze 工具箱只允许指向 backend，不允许直连 ComfyUI、vendor-api-ops 或测试地址。
+- 工具箱 URL 切换只换 host，不换 contract；如字段变化，必须同步 Coze 工作流、测评端、本文档和错误码总表。
+- 业务新编排优先沉淀到中台业务 API；Coze 保留为业务接入和快速实验入口。
+
+## 0.1) Coze 工具箱错误处理口径
+
+| 场景 | 常见错误码 | Coze 工作流动作 | 平台动作 |
+| --- | --- | --- | --- |
+| 非可信调用 | `INTERNAL_ONLY` | 检查工具箱 host 是否为 Coze 同机/可信内网 backend，或是否带服务 Token。 | 发版 smoke 必须阻断 `INTERNAL_ONLY`。 |
+| 缺少必要参数 | `TASK_ID_REQUIRED`、`IMAGE_REQUIRED`、`COMFYUI_IMAGE_REQUIRED`、`KIE_MODEL_KEY_REQUIRED` | 修正 Coze 工具参数，不建议自动重试。 | 工具箱描述必须写清必填字段和中文说明。 |
+| 能力或模型不存在 | `ABILITY_NOT_FOUND`、`ABILITY_INACTIVE`、`KIE_MODEL_NOT_FOUND` | 暂停使用该工具或切回旧工作流。 | 检查能力启停、模型目录、工作流绑定和工具箱导入版本。 |
+| 队列满或并发受限 | `Q1001`、`Q2001`、`COMFYUI_QUEUE_FULL` | 直接返回“稍后重试”，不要继续递归提交。 | 中台应给出明确错误码，不允许长期 `running`。 |
+| 上游失败或超时 | `TASK_FAILED`、`TASK_TIMEOUT`、`COMFYUI_TIMEOUT`、`KIE_TIMEOUT`、`VENDOR_API_EXECUTION_FAILED` | 可按业务策略重试一次；连续失败时带 `taskId/requestId` 排查。 | 检查执行节点、队列、OSS 回填、厂商 Key 和出网。 |
+| 上游成功但无输出 | `COMFYUI_IMAGES_EMPTY`、`EVAL_SUCCEEDED_WITHOUT_OUTPUT` | 视为失败，不要把空结果回给业务方。 | 巡检和发版门禁必须阻断“成功无回填”。 |
+
+---
+
 ## 1) OpenAPI 文档
 
 ### GET /api/coze/podi/openapi.json
@@ -27,6 +61,32 @@
 ```bash
 curl http://127.0.0.1:8099/api/coze/podi/openapi.json
 ```
+
+### GET /api/coze/podi/comfyui/openapi.json
+
+**用途**：ComfyUI 类能力总工具箱，包含当前可暴露给 Coze 的 ComfyUI 工具和任务查询。
+
+**示例**
+
+```bash
+curl http://127.0.0.1:8099/api/coze/podi/comfyui/openapi.json
+```
+
+### GET /api/coze/podi/comfyui/execute/flux-strong-hq-softstyle-fission/openapi.json
+
+**用途**：高质量图裂变专项工具箱。
+
+### GET /api/coze/podi/comfyui/execute/flux2-klein-9b-outpaint/openapi.json
+
+**用途**：扩图主线专项工具箱。
+
+### GET /api/coze/podi/comfyui/execute/beijing-koutu/openapi.json
+
+**用途**：背景抠图专项工具箱。
+
+### GET /api/coze/podi/comfyui/execute/toubu-kouxiang/openapi.json
+
+**用途**：头部抠像专项工具箱。
 
 ### GET /api/coze/podi/comfyui/lora/openapi.json
 
@@ -77,6 +137,10 @@ curl http://127.0.0.1:8099/api/coze/podi/kie/catalog/nano-banana-pro-image-to-im
 ```bash
 curl http://127.0.0.1:8099/api/coze/podi/kie/execute/nano-banana-2-image-to-image/openapi.json
 ```
+
+### GET /api/coze/podi/kie/openapi.json
+
+**用途**：KIE 模型工具箱聚合入口，供管理端“API 开放”页和 Coze 导入使用。
 
 ---
 
@@ -432,7 +496,14 @@ curl -X POST http://127.0.0.1:8099/api/coze/podi/kie/models/nano-banana-pro-imag
 
 | 工具箱 | OpenAPI | 主要接口 | 必填参数 | 说明 |
 | --- | --- | --- | --- | --- |
+| PODI 综合工具箱 | `/api/coze/podi/openapi.json` | 多能力提交 + `/api/coze/podi/tasks/get` | 按具体工具 | Coze 主入口 |
+| ComfyUI 总工具箱 | `/api/coze/podi/comfyui/openapi.json` | ComfyUI 能力提交 + `/tasks/get` | 按具体工具 | ComfyUI 类能力聚合入口 |
+| 高质量图裂变 | `/api/coze/podi/comfyui/execute/flux-strong-hq-softstyle-fission/openapi.json` | `POST /api/coze/podi/tools/comfyui/flux_strong_hq_softstyle_fission` | `url` | 新高质量裂变专项入口 |
+| 扩图主线 | `/api/coze/podi/comfyui/execute/flux2-klein-9b-outpaint/openapi.json` | `POST /api/coze/podi/tools/comfyui/flux2_klein_9b_outpaint` | `url` | 扩图专项入口 |
+| 背景抠图 | `/api/coze/podi/comfyui/execute/beijing-koutu/openapi.json` | `POST /api/coze/podi/tools/comfyui/beijing_koutu` | `url` | 背景抠图专项入口 |
+| 头部抠像 | `/api/coze/podi/comfyui/execute/toubu-kouxiang/openapi.json` | `POST /api/coze/podi/tools/comfyui/toubu_kouxiang` | `url` | 头部抠像专项入口 |
 | ComfyUI LoRA 查询 | `/api/coze/podi/comfyui/lora/openapi.json` | `POST /api/coze/podi/comfyui/lora-catalog/default` | 无 | 零参数，直接返回 LoRA 清单 |
 | KIE 模型查询 | `/api/coze/podi/kie/catalog/openapi.json` | `POST /api/coze/podi/kie/models/list/default` | 无 | 零参数，返回结构化模型列表 |
+| KIE 聚合工具箱 | `/api/coze/podi/kie/openapi.json` | KIE 执行 + 查询 | 按具体模型 | 管理端 API 开放页展示入口 |
 | KIE 单模型参数查询 | `/api/coze/podi/kie/catalog/{model_key}/openapi.json` | `POST /api/coze/podi/kie/models/{model_key}/schema` | 无 | 一模型一工具箱，直接出 schema |
 | KIE 单模型执行（示例：Nano Banana 2） | `/api/coze/podi/kie/execute/nano-banana-2-image-to-image/openapi.json` | `POST /api/coze/podi/tools/kie/nano_banana_2_image_to_image` | `prompt`、`url` | 提交执行任务，结果用 `/tasks/get` 轮询 |

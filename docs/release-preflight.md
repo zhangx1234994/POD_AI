@@ -35,6 +35,12 @@ python3 backend/scripts/podi_release_smoke.py \
   --base-url http://127.0.0.1:8099 \
   --expect-server-url http://10.11.0.7:8099 \
   --max-production-per-category 2 \
+  --business-summary-window-hours 24 \
+  --max-unresolved-business-issues 0 \
+  --max-business-governance-warnings 0 \
+  --max-billing-issues 0 \
+  --max-unpriced-billing-runs 0 \
+  --admin-token "$SERVICE_API_TOKEN" \
   --eval-admin-token "$EVAL_ADMIN_TOKEN"
 ```
 
@@ -44,9 +50,18 @@ This smoke command now covers the no-cost release chain in one pass:
 - Coze toolbox OpenAPI server URL
 - Coze internal `tasks/get` boundary
 - ComfyUI queue summary and routing blockers
+- ComfyUI active workflow compatibility: missing custom nodes, missing model files, and routing/binding mismatch
 - eval workflow public catalog governance
 - core business route-preview for pattern extract, fission, and outpaint
+- core business default-version governance: active default, primary ability binding, executable recipe, runtime blockers, and governance warnings
+- business usage summary: unresolved issue buckets, recent unresolved issue schema, and retest recovery signal
+- commercial billing report: succeeded-but-unpriced runs, billing issues, revenue/cost summary schema
+- auth scope summary: active admin presence, account scope schema, business API permission boundary, and blocking auth risks
 - eval operations health when `--eval-admin-token` is provided
+
+If a release intentionally carries known historical issues, raise
+`--max-unresolved-business-issues` explicitly for that run and record the reason
+in the release note. Do not silently remove this gate.
 
 Eval operations gate:
 
@@ -82,18 +97,67 @@ backend/.venv/bin/python backend/scripts/patrol_business_api.py \
   --require-executor-evidence
 ```
 
+若这轮真实巡检准备用作发布验收依据，并且当前账号/服务令牌具备管理权限，可以在同一轮通过后自动写入业务版本验收记录：
+
+```bash
+backend/.venv/bin/python backend/scripts/patrol_business_api.py \
+  --base-url http://127.0.0.1:8099 \
+  --token "$SERVICE_API_TOKEN" \
+  --mode live \
+  --business pattern_extract,fission,outpaint \
+  --image-url "$PATROL_IMAGE_URL" \
+  --timeout 1200 \
+  --interval 10 \
+  --require-executor-evidence \
+  --record-acceptance \
+  --acceptance-note "发布前真实业务巡检通过：业务链路、执行节点证据、OSS 结果回填均正常。"
+```
+
+注意：`--record-acceptance` 只允许在 `--mode live` 下使用，并且只有所有被选中的业务都通过后才会写入；任一业务失败时不会写入部分验收，避免把不完整结果误当成上线依据。
+
+若这轮巡检还要沉淀到管理端“发版巡检记录”，加上 `--report` 与 `--record-release-patrol`。脚本会写出 JSON 报告，并把本轮结果写入 `/api/admin/dashboard/release-patrol/records`；命令记录会自动隐藏 `--token` 的值。
+
+```bash
+backend/.venv/bin/python backend/scripts/patrol_business_api.py \
+  --base-url http://127.0.0.1:8099 \
+  --token "$SERVICE_API_TOKEN" \
+  --mode live \
+  --business pattern_extract,fission,outpaint \
+  --image-url "$PATROL_IMAGE_URL" \
+  --timeout 1200 \
+  --interval 10 \
+  --require-executor-evidence \
+  --record-acceptance \
+  --report "reports/business_patrol_$(date +%Y%m%d_%H%M%S).json" \
+  --record-release-patrol \
+  --release-patrol-note "发布前真实业务巡检完成，已沉淀到总览发版巡检记录。"
+```
+
 Expected:
 
 - `health` passes.
 - `coze_openapi` passes and shows the address Coze uses.
 - `internal_tasks_get` returns `404 TASK_NOT_FOUND`, not `401 INTERNAL_ONLY`.
 - `comfyui_queue_summary` returns all active ComfyUI executors and does not report `unsupportedServers` or `backendBlockedServers`.
+- `comfyui_workflow_compatibility` returns all active ComfyUI workflows as compatible on their routed executors. By default, both `failedCount>0` and `warningCount>0` block release; only use `--allow-comfyui-compat-warnings` for an explicit temporary exception.
 - `eval_workflow_catalog` returns a non-empty public catalog, includes at least one `production` workflow, does not leak `legacy/auxiliary/disabled` roles, has no duplicate workflow IDs, and does not exceed 2 production entries in one business category.
 - `business_route_pattern_extract / business_route_fission / business_route_outpaint` each select a valid business capability without submitting real image-generation tasks.
+- `business_capability_governance` must show active default versions for pattern extract, fission, and outpaint, with no bottom-layer blocker, no governance warning by default, and a latest `passed` acceptance record. If a known warning is intentionally carried, raise `--max-business-governance-warnings` for that run and record the reason. Missing acceptance is not a warning; it blocks release.
+- `commercial_report` must return the current billing report schema and no billing issue by default. If a release intentionally carries known billing exceptions, raise `--max-billing-issues` or `--max-unpriced-billing-runs` only for that run and document the reason.
+- `auth_scope_summary` must show at least one active admin account, no blocking auth risk, business API permission boundary policies enforced, and role boundaries for admin/client/service token/Coze toolbox present. If this fails, the management console may be impossible to operate after release or business accounts may bypass isolation.
 - `check_eval_operations_health.py` returns `healthy` or only an accepted `warning`; `critical` blocks release. `EVAL_NO_RECENT_RUNS` means patrol did not run recently, and `EVAL_NO_RECENT_SUCCESS` means the recent business chain has no successful sample.
 - `check_eval_operations_health.py` prints the real concurrency snapshot; if ComfyUI queue capacity is 20 but `evalFanoutMaxWorkers=1`, a single fission run is intentionally sequential and must not be treated as a GPU capacity issue without running `comfyui_capacity_probe.py`.
 - `COMFYUI_EXECUTOR_UNREACHABLE` is not ignored: either restore the executor service or explicitly mark the executor offline before release.
 - `patrol_business_api.py --mode live` must show all three core businesses succeeded with output and executor evidence. If executor evidence is missing, the backend is not surfacing enough routing proof for release acceptance.
+
+The management console button **总览 -> 发布前门禁 -> 运行轻量门禁** calls `/api/admin/dashboard/release-preflight/run` and must surface the same core blockers:
+
+- `business_capability_governance`
+- `auth_scope_summary`
+- `internal_tasks_get`
+- `comfyui_queue_summary`
+
+If the page does not show these items, treat the backend as not updated enough for release acceptance.
 
 Manual checks:
 
@@ -129,7 +193,7 @@ Manual checks:
      --timeout 1800
    ```
    Expected: all production entry workflows end in `succeeded`, and each succeeded run has at least one result image or structured output.
-   Video and text/VL workflows are valid outputs too; patrol reports `outputKind` as `image/video/text/structured` and should not fail them simply because `imageCount=0`.
+   Video and text/VL workflows are valid outputs too; patrol reports each item `outputKind` plus `outputKindSummary` as `image/video/text/structured/none` and should not fail them simply because `imageCount=0`.
    Failure examples: `INTERNAL_ONLY`, `COZE_WORKFLOW_ERROR`, `EVAL_SUCCEEDED_WITHOUT_OUTPUT`.
    This is a periodic self-check, not a load test. It must stay throttled to avoid filling ComfyUI queues by itself.
    If a full catalog sweep is needed, run it manually with `--role all` and keep `--max-in-flight` low unless queue capacity has just been verified.

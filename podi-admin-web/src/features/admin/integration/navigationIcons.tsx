@@ -14,6 +14,7 @@ import type { IntegrationNavId } from './navigation';
 export const integrationNavIconMap: Record<IntegrationNavId, ReactNode> = {
   overview: <DashboardIcon size="18px" />,
   business: <AppIcon size="18px" />,
+  'api-exposure': <ApiIcon size="18px" />,
   auth: <SettingIcon size="18px" />,
   'vendor-models': <ApiIcon size="18px" />,
   abilities: <AppIcon size="18px" />,

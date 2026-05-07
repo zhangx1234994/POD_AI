@@ -5,9 +5,11 @@ import type {
   ComfyuiAgentTaskEvent,
   ComfyuiMonitoringSummary,
   ComfyuiQueueSummary,
+  ComfyuiWorkflowCompatibility,
+  ComfyuiWorkflowCompatibilityServer,
 } from '../../../types/admin';
 import { toDisplayErrorMessage } from '../../../utils/errorMessageMap';
-import { StatusBadge } from '../shared/ui';
+import { GuidanceQueueCard, StatusBadge, type GuidanceQueueItem } from '../shared/ui';
 import { formatDateTime } from './formatters';
 
 type SelectOption = {
@@ -25,6 +27,7 @@ type ComfyAgentTaskFormState = {
 };
 
 type TaskFormPatch = Partial<ComfyAgentTaskFormState>;
+type ComfyuiActionItem = GuidanceQueueItem;
 
 type ComfyuiTasksPanelProps = {
   taskForm: ComfyAgentTaskFormState;
@@ -42,6 +45,10 @@ type ComfyuiTasksPanelProps = {
   queueSummaryLoading: boolean;
   queueSummaryError?: string | null;
   queueSummaryUpdatedAt?: string | null;
+  workflowCompatibility?: ComfyuiWorkflowCompatibility | null;
+  workflowCompatibilityLoading: boolean;
+  workflowCompatibilityError?: string | null;
+  workflowCompatibilityUpdatedAt?: string | null;
   taskAgentFilter: string;
   taskStatusFilter: string;
   tasks: ComfyuiAgentTask[];
@@ -62,6 +69,7 @@ type ComfyuiTasksPanelProps = {
   onMonitoringWindowChange: (hours: number) => void;
   onRefreshMonitoring: () => void;
   onRefreshQueueSummary: () => void;
+  onRefreshWorkflowCompatibility: () => void;
   onTaskAgentFilterChange: (agentId: string) => void;
   onTaskStatusFilterChange: (status: string) => void;
   onRefreshTasks: () => void;
@@ -69,6 +77,30 @@ type ComfyuiTasksPanelProps = {
   onOpenTaskEvents: (taskId: string) => void;
   onCloseTaskEvents: () => void;
 };
+
+function summarizeCompatibilityIssue(server?: ComfyuiWorkflowCompatibilityServer): string {
+  if (!server) return '路由配置需统一';
+  if (!server.reachable) return `执行机 ${server.executorId} 不可访问，请先检查 ComfyUI 服务和网络。`;
+  const missingNodes = (server.missingNodes || [])
+    .slice(0, 3)
+    .map((item) => item.classType || item.nodeId)
+    .filter(Boolean);
+  const missingModels = (server.missingModels || [])
+    .slice(0, 3)
+    .map((item) => item.value || item.inputName)
+    .filter(Boolean);
+  const parts: string[] = [];
+  if (missingNodes.length > 0) {
+    parts.push(`缺节点：${missingNodes.join('、')}`);
+  }
+  if (missingModels.length > 0) {
+    parts.push(`缺模型：${missingModels.join('、')}`);
+  }
+  if (parts.length === 0 && server.message) {
+    parts.push(server.message);
+  }
+  return parts.length > 0 ? `${server.executorId} · ${parts.join('；')}` : `${server.executorId} · 不兼容`;
+}
 
 export function ComfyuiTasksPanel({
   taskForm,
@@ -86,6 +118,10 @@ export function ComfyuiTasksPanel({
   queueSummaryLoading,
   queueSummaryError,
   queueSummaryUpdatedAt,
+  workflowCompatibility,
+  workflowCompatibilityLoading,
+  workflowCompatibilityError,
+  workflowCompatibilityUpdatedAt,
   taskAgentFilter,
   taskStatusFilter,
   tasks,
@@ -106,6 +142,7 @@ export function ComfyuiTasksPanel({
   onMonitoringWindowChange,
   onRefreshMonitoring,
   onRefreshQueueSummary,
+  onRefreshWorkflowCompatibility,
   onTaskAgentFilterChange,
   onTaskStatusFilterChange,
   onRefreshTasks,
@@ -144,14 +181,137 @@ export function ComfyuiTasksPanel({
   };
   const feedGapCount = queueSummary?.feedGapServers ?? 0;
   const blockedCount = queueSummary?.backendBlockedServers ?? 0;
+  const routeMissingCount = queueSummary?.recentRouteMissingServers ?? 0;
+  const routeEvidenceWindowHours = queueSummary?.routeEvidenceWindowHours ?? 24;
   const queueRiskText = blockedCount > 0
     ? `疑似卡住 ${blockedCount} 条`
+    : routeMissingCount > 0
+      ? `未命中 ${routeMissingCount} 台`
     : feedGapCount > 0
       ? `下发偏慢 ${feedGapCount} 条`
       : '暂无明显风险';
+  const compatibilityRiskText = workflowCompatibility?.failedCount
+    ? `不可运行 ${workflowCompatibility.failedCount} 个`
+    : workflowCompatibility?.warningCount
+      ? `需关注 ${workflowCompatibility.warningCount} 个`
+      : workflowCompatibility
+        ? '全部可运行'
+        : workflowCompatibilityLoading
+          ? '读取中…'
+          : '—';
+  const compatibilityRiskClass = workflowCompatibility?.failedCount
+    ? 'mt-1 text-lg font-semibold text-rose-600'
+    : workflowCompatibility?.warningCount
+      ? 'mt-1 text-lg font-semibold text-amber-600'
+      : 'mt-1 text-lg font-semibold text-emerald-600';
+  const compatibilityProblemWorkflows = (workflowCompatibility?.workflows || [])
+    .filter((item) => item.status !== 'ok')
+    .slice(0, 6);
+  const topActionItems: ComfyuiActionItem[] = [];
+  if (!queueSummary && !queueSummaryLoading && !queueSummaryError) {
+    topActionItems.push({
+      key: 'queue-not-loaded',
+      theme: 'primary',
+      title: '先刷新队列诊断',
+      detail: '还没有读取中台和 ComfyUI 队列，无法判断 GPU 是否吃满或任务是否卡住。',
+      action: '点击刷新诊断',
+      onClick: onRefreshQueueSummary,
+      loading: queueSummaryLoading,
+    });
+  }
+  if (queueSummaryError) {
+    topActionItems.push({
+      key: 'queue-error',
+      theme: 'danger',
+      title: '队列诊断读不到',
+      detail: '当前无法确认任务是否正常分流，先检查后端到 ComfyUI 机器的网络和执行节点状态。',
+      action: '重新读取队列',
+      onClick: onRefreshQueueSummary,
+      loading: queueSummaryLoading,
+    });
+  } else if (blockedCount > 0) {
+    topActionItems.push({
+      key: 'queue-blocked',
+      theme: 'danger',
+      title: '有任务疑似卡住',
+      detail: `中台显示任务执行中，但 ComfyUI 队列没有对应执行证据，涉及 ${blockedCount} 条线路。`,
+      action: '先看下方线路判断',
+    });
+  } else if (routeMissingCount > 0 && (queueSummary?.routeEvidenceTotal || 0) > 0) {
+    topActionItems.push({
+      key: 'route-evidence-missing',
+      theme: 'warning',
+      title: '有机器最近没被打到',
+      detail: `近 ${routeEvidenceWindowHours} 小时已有 ComfyUI 任务，但 ${routeMissingCount} 台机器没有命中记录。`,
+      action: '检查路由和工作流绑定',
+    });
+  } else if (feedGapCount > 0) {
+    topActionItems.push({
+      key: 'queue-feed-gap',
+      theme: 'warning',
+      title: '有空闲但下发偏慢',
+      detail: `ComfyUI 仍有空闲容量，但中台还有待下发任务，涉及 ${feedGapCount} 条线路。`,
+      action: '先看下方待下发线路',
+    });
+  }
+  if (!workflowCompatibility && !workflowCompatibilityLoading && !workflowCompatibilityError) {
+    topActionItems.push({
+      key: 'compat-not-loaded',
+      theme: 'primary',
+      title: '再刷新能力对齐',
+      detail: '还没有检查各台机器是否都具备相同节点、模型和路由配置。',
+      action: '点击刷新对齐',
+      onClick: onRefreshWorkflowCompatibility,
+      loading: workflowCompatibilityLoading,
+    });
+  }
+  if (workflowCompatibilityError) {
+    topActionItems.push({
+      key: 'compat-error',
+      theme: 'warning',
+      title: '能力对齐暂时读不到',
+      detail: '如果某台机器离线或依赖查询超时，先不要直接判断业务可上线。',
+      action: '重新检查对齐',
+      onClick: onRefreshWorkflowCompatibility,
+      loading: workflowCompatibilityLoading,
+    });
+  } else if ((workflowCompatibility?.failedCount || 0) > 0) {
+    topActionItems.push({
+      key: 'compat-failed',
+      theme: 'danger',
+      title: '有能力不可运行',
+      detail: `${workflowCompatibility?.failedCount || 0} 个 ComfyUI 能力在目标机器上缺节点、缺模型或路由不完整。`,
+      action: '先修复能力对齐',
+    });
+  } else if ((workflowCompatibility?.warningCount || 0) > 0) {
+    topActionItems.push({
+      key: 'compat-warning',
+      theme: 'warning',
+      title: '部分机器需关注',
+      detail: `${workflowCompatibility?.warningCount || 0} 个能力存在部分机器依赖不一致，上线前要确认是否接受。`,
+      action: '查看异常机器清单',
+    });
+  }
+  if (
+    topActionItems.length === 0 &&
+    queueSummary &&
+    workflowCompatibility &&
+    !queueSummaryError &&
+    !workflowCompatibilityError
+  ) {
+    topActionItems.push({
+      key: 'all-clear',
+      theme: 'success',
+      title: '线路当前可用',
+      detail: '队列衔接和能力对齐没有明显阻塞，可以继续做真实业务巡检或发布前门禁。',
+      action: '继续跑业务巡检',
+    });
+  }
 
   return (
     <div className="space-y-4">
+      <GuidanceQueueCard items={topActionItems} />
+
       <Card bordered title="任务衔接诊断">
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
           <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
@@ -168,7 +328,7 @@ export function ComfyuiTasksPanel({
             </Space>
           </Space>
           {queueSummaryError ? <Alert theme="error" message={`队列诊断读取失败：${queueSummaryError}`} /> : null}
-          <div className="grid gap-3 md:grid-cols-4">
+          <div className="grid gap-3 md:grid-cols-5">
             <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/40">
               <div className="text-xs text-slate-500">中台积压</div>
               <div className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">
@@ -195,11 +355,32 @@ export function ComfyuiTasksPanel({
               <div className="mt-1 text-xs text-slate-500">使用率 {formatPercent(queueSummary?.utilization)}</div>
             </div>
             <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/40">
+              <div className="text-xs text-slate-500">真实命中</div>
+              <div
+                className={
+                  routeMissingCount > 0 && (queueSummary?.routeEvidenceTotal || 0) > 0
+                    ? 'mt-1 text-lg font-semibold text-amber-600'
+                    : 'mt-1 text-lg font-semibold text-slate-900 dark:text-white'
+                }
+              >
+                {queueSummary
+                  ? `${queueSummary.routeEvidenceCoveredServers ?? 0}/${queueSummary.supportedServers ?? 0}`
+                  : queueSummaryLoading
+                    ? '读取中…'
+                    : '—'}
+              </div>
+              <div className="mt-1 text-xs text-slate-500">
+                近 {routeEvidenceWindowHours} 小时任务 {queueSummary?.routeEvidenceTotal ?? 0}
+              </div>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/40">
               <div className="text-xs text-slate-500">风险判断</div>
               <div
                 className={
                   blockedCount > 0
                     ? 'mt-1 text-lg font-semibold text-rose-600'
+                    : routeMissingCount > 0 && (queueSummary?.routeEvidenceTotal || 0) > 0
+                      ? 'mt-1 text-lg font-semibold text-amber-600'
                     : feedGapCount > 0
                       ? 'mt-1 text-lg font-semibold text-amber-600'
                       : 'mt-1 text-lg font-semibold text-emerald-600'
@@ -208,7 +389,7 @@ export function ComfyuiTasksPanel({
                 {queueSummary ? queueRiskText : queueSummaryLoading ? '读取中…' : '—'}
               </div>
               <div className="mt-1 text-xs text-slate-500">
-                下发偏慢 {feedGapCount} · 疑似卡住 {blockedCount}
+                未命中 {routeMissingCount} · 下发偏慢 {feedGapCount} · 疑似卡住 {blockedCount}
               </div>
             </div>
           </div>
@@ -227,13 +408,14 @@ export function ComfyuiTasksPanel({
                   <th className="px-3 py-2">ComfyUI 队列</th>
                   <th className="px-3 py-2">容量</th>
                   <th className="px-3 py-2">中台任务</th>
+                  <th className="px-3 py-2">最近命中</th>
                   <th className="px-3 py-2">判断</th>
                 </tr>
               </thead>
               <tbody>
                 {!queueSummary?.servers?.length ? (
                   <tr>
-                    <td colSpan={5} className="px-4 py-6 text-center text-slate-500">
+                    <td colSpan={6} className="px-4 py-6 text-center text-slate-500">
                       {queueSummaryLoading ? '加载中…' : '暂无 ComfyUI 线路诊断'}
                     </td>
                   </tr>
@@ -262,6 +444,28 @@ export function ComfyuiTasksPanel({
                       </td>
                       <td
                         className={
+                          server.routeDiagnosisLevel === 'warning'
+                            ? 'px-3 py-2 text-amber-600'
+                            : server.routeDiagnosisLevel === 'danger'
+                              ? 'px-3 py-2 text-rose-600'
+                              : 'px-3 py-2 text-slate-700 dark:text-slate-300'
+                        }
+                      >
+                        <div>
+                          总 {server.routeEvidence?.recentTotal ?? 0} · 成功 {server.routeEvidence?.recentSucceeded ?? 0} · 失败 {server.routeEvidence?.recentFailed ?? 0}
+                        </div>
+                        <div className="mt-1 text-[11px] text-slate-500">
+                          运行 {server.routeEvidence?.recentRunning ?? 0} · 排队 {server.routeEvidence?.recentQueued ?? 0}
+                        </div>
+                        {server.routeEvidence?.latestTaskAt ? (
+                          <div className="mt-1 text-[11px] text-slate-500">最近：{formatDateTime(server.routeEvidence.latestTaskAt)}</div>
+                        ) : null}
+                        {server.routeDiagnosis ? (
+                          <div className="mt-1 text-[11px]">{server.routeDiagnosis}</div>
+                        ) : null}
+                      </td>
+                      <td
+                        className={
                           server.feedDiagnosisLevel === 'danger'
                             ? 'px-3 py-2 text-rose-600'
                             : server.feedDiagnosisLevel === 'warning'
@@ -273,6 +477,105 @@ export function ComfyuiTasksPanel({
                       </td>
                     </tr>
                   ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </Space>
+      </Card>
+
+      <Card bordered title="能力对齐检查">
+        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+          <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+            <Typography.Text theme="secondary">
+              检查每个线上 ComfyUI 能力在各台执行机器上是否缺节点、缺模型，以及路由配置是否一致。用于避免“只打到一台机器”或“换机器后工作流失败”。
+            </Typography.Text>
+            <Space>
+              <Button size="small" variant="outline" loading={workflowCompatibilityLoading} onClick={onRefreshWorkflowCompatibility}>
+                刷新对齐
+              </Button>
+              <Typography.Text theme="secondary">
+                {workflowCompatibility?.checkedAt || workflowCompatibilityUpdatedAt ? `更新：${formatDateTime(workflowCompatibility?.checkedAt || workflowCompatibilityUpdatedAt)}` : '暂无刷新时间'}
+              </Typography.Text>
+            </Space>
+          </Space>
+          {workflowCompatibilityError ? (
+            <Alert
+              theme="warning"
+              message={`暂时无法完成能力对齐检查：${workflowCompatibilityError}。页面可继续使用，请稍后刷新，或先检查对应 ComfyUI 机器是否在线。`}
+            />
+          ) : null}
+          <div className="grid gap-3 md:grid-cols-4">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/40">
+              <div className="text-xs text-slate-500">检查能力</div>
+              <div className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">
+                {workflowCompatibility ? workflowCompatibility.totalWorkflows : workflowCompatibilityLoading ? '读取中…' : '—'}
+              </div>
+              <div className="mt-1 text-xs text-slate-500">active ComfyUI 能力</div>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/40">
+              <div className="text-xs text-slate-500">可运行</div>
+              <div className="mt-1 text-lg font-semibold text-emerald-600">
+                {workflowCompatibility ? workflowCompatibility.okCount : workflowCompatibilityLoading ? '读取中…' : '—'}
+              </div>
+              <div className="mt-1 text-xs text-slate-500">路由机器依赖完整</div>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/40">
+              <div className="text-xs text-slate-500">需关注</div>
+              <div className="mt-1 text-lg font-semibold text-amber-600">
+                {workflowCompatibility ? workflowCompatibility.warningCount : workflowCompatibilityLoading ? '读取中…' : '—'}
+              </div>
+              <div className="mt-1 text-xs text-slate-500">部分机器缺依赖或配置不一致</div>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/40">
+              <div className="text-xs text-slate-500">风险判断</div>
+              <div className={compatibilityRiskClass}>{compatibilityRiskText}</div>
+              <div className="mt-1 text-xs text-slate-500">
+                不可运行 {workflowCompatibility?.failedCount ?? 0} · 检查机器 {workflowCompatibility?.servers?.length ?? 0}
+              </div>
+            </div>
+          </div>
+          <div className="max-h-[260px] overflow-auto rounded-2xl border border-slate-200/70 dark:border-slate-800">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-slate-50 text-[11px] text-slate-600 dark:bg-slate-900/80 dark:text-slate-400">
+                <tr className="text-left">
+                  <th className="px-3 py-2">能力</th>
+                  <th className="px-3 py-2">可运行机器</th>
+                  <th className="px-3 py-2">异常机器</th>
+                  <th className="px-3 py-2">原因</th>
+                </tr>
+              </thead>
+              <tbody>
+                {!workflowCompatibility ? (
+                  <tr>
+                    <td colSpan={4} className="px-4 py-6 text-center text-slate-500">
+                      {workflowCompatibilityLoading ? '加载中…' : '暂无能力对齐检查'}
+                    </td>
+                  </tr>
+                ) : compatibilityProblemWorkflows.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="px-4 py-6 text-center text-emerald-600">
+                      当前检查范围内没有发现缺节点、缺模型或路由不一致。
+                    </td>
+                  </tr>
+                ) : (
+                  compatibilityProblemWorkflows.map((item) => {
+                    const firstProblem = item.servers.find((server) => !server.compatible);
+                    const reason = firstProblem
+                      ? summarizeCompatibilityIssue(firstProblem)
+                      : item.diagnostics?.[0]?.message || '路由配置需统一';
+                    return (
+                      <tr key={`comfy-workflow-compat-${item.abilityId}`} className="border-t border-slate-100 dark:border-slate-800">
+                        <td className="px-3 py-2">
+                          <div className="font-semibold text-slate-900 dark:text-white">{item.displayName}</div>
+                          <div className="mt-1 text-[11px] text-slate-500">{item.workflowKey}</div>
+                        </td>
+                        <td className="px-3 py-2 text-emerald-600">{item.compatibleExecutorIds.join('、') || '无'}</td>
+                        <td className="px-3 py-2 text-rose-600">{item.incompatibleExecutorIds.join('、') || '无'}</td>
+                        <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{reason}</td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>

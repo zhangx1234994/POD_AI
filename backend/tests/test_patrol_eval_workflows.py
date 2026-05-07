@@ -73,6 +73,25 @@ def test_report_item_accepts_video_output_without_images() -> None:
     assert patrol._failed_items([item]) == []
 
 
+def test_report_item_accepts_object_url_outputs() -> None:
+    item = patrol._make_report_item(
+        {
+            "workflow": {"name": "图生视频", "workflow_id": "wf_video_obj"},
+            "run": {"id": "run_video_obj"},
+            "latest": {
+                "id": "run_video_obj",
+                "status": "succeeded",
+                "result_image_urls_json": [],
+                "result_output_json": {"videos": [{"url": "https://oss.example.com/out.mp4"}]},
+            },
+        }
+    )
+
+    assert item["hasOutput"] is True
+    assert item["videoCount"] == 1
+    assert item["outputKind"] == "video"
+
+
 def test_report_item_accepts_text_output_without_images() -> None:
     item = patrol._make_report_item(
         {
@@ -161,6 +180,25 @@ def test_allow_empty_output_keeps_legacy_terminal_status_check() -> None:
 
     assert patrol._failed_items([item]) == [item]
     assert patrol._failed_items([item], allow_empty_output=True) == []
+
+
+def test_output_kind_summary_counts_non_image_results() -> None:
+    items = [
+        {"outputKind": "image"},
+        {"outputKind": "video"},
+        {"outputKind": "text"},
+        {"outputKind": "structured"},
+        {"outputKind": "none"},
+        {"outputKind": ""},
+    ]
+
+    assert patrol._output_kind_summary(items) == {
+        "image": 1,
+        "video": 1,
+        "text": 1,
+        "structured": 1,
+        "none": 2,
+    }
 
 
 def test_select_workflows_defaults_to_production_role() -> None:

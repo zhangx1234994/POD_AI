@@ -66,39 +66,162 @@ export const AuthPanel = ({
     </Space>
     {scopeSummary ? (
       <Card bordered title="当前先处理什么">
-        <Row gutter={[12, 12]}>
-          {(scopeSummary.risks || []).slice(0, 4).map((risk) => (
-            <Col key={risk.key} xs={12} lg={(scopeSummary.risks || []).length === 1 ? 12 : 4}>
-              <div
-                style={{
-                  border: '1px solid var(--td-border-level-1-color)',
-                  borderRadius: 12,
-                  padding: 12,
-                  height: '100%',
-                }}
-              >
-                <Space direction="vertical" size={4}>
-                  <Tag
-                    theme={
-                      risk.severity === 'danger'
-                        ? 'danger'
-                        : risk.severity === 'warning'
-                          ? 'warning'
-                          : risk.severity === 'success'
-                            ? 'success'
-                            : 'default'
-                    }
-                    variant="light"
-                  >
-                    {risk.title}
-                  </Tag>
-                  <Typography.Text theme="secondary">{risk.detail}</Typography.Text>
-                  {risk.count > 0 ? <Typography.Text theme="secondary">数量：{risk.count}</Typography.Text> : null}
-                </Space>
-              </div>
-            </Col>
-          ))}
-        </Row>
+        <Space direction="vertical" size="small" style={{ width: '100%' }}>
+          <Alert
+            theme={scopeSummary.releaseReady ? 'success' : 'warning'}
+            message={
+              scopeSummary.releaseReady
+                ? '账号权限当前满足上线检查：管理员、业务方范围、邀请码和会话追踪都没有明显阻塞。'
+                : `账号权限仍需处理：阻塞 ${scopeSummary.blockingRiskCount || 0} 项，提醒 ${scopeSummary.warningRiskCount || 0} 项。`
+            }
+          />
+          <Row gutter={[12, 12]}>
+            {(scopeSummary.risks || []).slice(0, 4).map((risk) => (
+              <Col key={risk.key} xs={12} lg={(scopeSummary.risks || []).length === 1 ? 12 : 4}>
+                <div
+                  style={{
+                    border: '1px solid var(--td-border-level-1-color)',
+                    borderRadius: 12,
+                    padding: 12,
+                    height: '100%',
+                  }}
+                >
+                  <Space direction="vertical" size={4}>
+                    <Tag
+                      theme={
+                        risk.severity === 'danger'
+                          ? 'danger'
+                          : risk.severity === 'warning'
+                            ? 'warning'
+                            : risk.severity === 'success'
+                              ? 'success'
+                              : 'default'
+                      }
+                      variant="light"
+                    >
+                      {risk.title}
+                    </Tag>
+                    <Typography.Text theme="secondary">{risk.detail}</Typography.Text>
+                    {risk.count > 0 ? <Typography.Text theme="secondary">数量：{risk.count}</Typography.Text> : null}
+                  </Space>
+                </div>
+              </Col>
+            ))}
+          </Row>
+          <Table
+            size="small"
+            rowKey="key"
+            data={scopeSummary.checklist || []}
+            columns={[
+              {
+                colKey: 'title',
+                title: '上线检查项',
+                minWidth: 180,
+                cell: ({ row }) => (
+                  <Space size={6}>
+                    <Tag theme={row.passed ? 'success' : 'warning'} variant="light">
+                      {row.passed ? '已通过' : '需处理'}
+                    </Tag>
+                    <Typography.Text strong>{row.title}</Typography.Text>
+                  </Space>
+                ),
+              },
+              {
+                colKey: 'detail',
+                title: '检查口径',
+                minWidth: 260,
+                cell: ({ row }) => <Typography.Text theme="secondary">{row.detail}</Typography.Text>,
+              },
+              {
+                colKey: 'action',
+                title: '没通过时怎么做',
+                minWidth: 260,
+                cell: ({ row }) => <Typography.Text theme={row.passed ? 'secondary' : 'warning'}>{row.action}</Typography.Text>,
+              },
+            ]}
+            empty={<Typography.Text theme="secondary">暂无上线检查项。</Typography.Text>}
+          />
+          <Card bordered title="业务 API 权限边界">
+            <Space direction="vertical" size="small" style={{ width: '100%' }}>
+              <Typography.Text theme="secondary">
+                这里确认业务方账号调用业务接口时的隔离规则。业务人员只需要看是否全部“已生效”。
+              </Typography.Text>
+              <Table
+                size="small"
+                rowKey="key"
+                data={scopeSummary.businessApiPolicy || []}
+                columns={[
+                  {
+                    colKey: 'title',
+                    title: '规则',
+                    minWidth: 220,
+                    cell: ({ row }) => (
+                      <Space size={6}>
+                        <Tag theme={row.enforced ? 'success' : 'warning'} variant="light">
+                          {row.enforced ? '已生效' : '未生效'}
+                        </Tag>
+                        <Typography.Text strong>{row.title}</Typography.Text>
+                      </Space>
+                    ),
+                  },
+                  {
+                    colKey: 'detail',
+                    title: '实际效果',
+                    minWidth: 360,
+                    cell: ({ row }) => <Typography.Text theme="secondary">{row.detail}</Typography.Text>,
+                  },
+                ]}
+                empty={<Typography.Text theme="secondary">当前后端未返回业务 API 权限边界，请先更新后端。</Typography.Text>}
+              />
+            </Space>
+          </Card>
+          <Card bordered title="角色边界">
+            <Space direction="vertical" size="small" style={{ width: '100%' }}>
+              <Typography.Text theme="secondary">
+                这里说明每类调用方能做什么、不能做什么。上线前需要确认全部“已生效”。
+              </Typography.Text>
+              <Table
+                size="small"
+                rowKey="key"
+                data={scopeSummary.roleBoundary || []}
+                columns={[
+                  {
+                    colKey: 'title',
+                    title: '调用方',
+                    minWidth: 180,
+                    cell: ({ row }) => (
+                      <Space size={6}>
+                        <Tag theme={row.enforced ? 'success' : 'warning'} variant="light">
+                          {row.enforced ? '已生效' : '未生效'}
+                        </Tag>
+                        <Typography.Text strong>{row.title}</Typography.Text>
+                      </Space>
+                    ),
+                  },
+                  {
+                    colKey: 'principal',
+                    title: '适用对象',
+                    minWidth: 180,
+                    cell: ({ row }) => <Typography.Text theme="secondary">{row.principal}</Typography.Text>,
+                  },
+                  {
+                    colKey: 'allowed',
+                    title: '允许',
+                    minWidth: 300,
+                    cell: ({ row }) => <Typography.Text theme="secondary">{row.allowed}</Typography.Text>,
+                  },
+                  {
+                    colKey: 'blocked',
+                    title: '不允许',
+                    minWidth: 300,
+                    cell: ({ row }) => <Typography.Text theme={row.enforced ? 'secondary' : 'warning'}>{row.blocked}</Typography.Text>,
+                  },
+                ]}
+                empty={<Typography.Text theme="secondary">当前后端未返回角色边界，请先更新后端。</Typography.Text>}
+              />
+            </Space>
+          </Card>
+        </Space>
       </Card>
     ) : null}
     {scopeSummary ? (

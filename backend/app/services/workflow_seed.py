@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from threading import RLock
 from typing import Any
 
 from sqlalchemy import select
@@ -216,6 +217,15 @@ def _build_binding_seeds() -> list[WorkflowBindingSeed]:
             metadata={"notes": "Default binding for ComfyUI seamless pattern workflow"},
         ),
         WorkflowBindingSeed(
+            id="binding_seamless_comfyui_158_v1",
+            action="seamless",
+            workflow_id="workflow_comfyui_sifang_lianxu_v1",
+            executor_id="executor_comfyui_pattern_extract_158",
+            priority=95,
+            enabled=True,
+            metadata={"notes": "Fallback binding for ComfyUI seamless pattern workflow (117.50.80.158:8079)"},
+        ),
+        WorkflowBindingSeed(
             id="binding_pattern_expand_comfyui_v1",
             action="pattern_expand",
             workflow_id="workflow_comfyui_huawen_kuotu_v1",
@@ -223,6 +233,15 @@ def _build_binding_seeds() -> list[WorkflowBindingSeed]:
             priority=100,
             enabled=True,
             metadata={"notes": "Default binding for ComfyUI 花纹扩图 workflow (117.50.216.233:8079)"},
+        ),
+        WorkflowBindingSeed(
+            id="binding_pattern_expand_comfyui_158_v1",
+            action="pattern_expand",
+            workflow_id="workflow_comfyui_huawen_kuotu_v1",
+            executor_id="executor_comfyui_pattern_extract_158",
+            priority=95,
+            enabled=True,
+            metadata={"notes": "Fallback binding for ComfyUI 花纹扩图 workflow (117.50.80.158:8079)"},
         ),
         WorkflowBindingSeed(
             id="binding_flux2_klein_9b_outpaint_comfyui_158_v1",
@@ -344,6 +363,15 @@ def _build_binding_seeds() -> list[WorkflowBindingSeed]:
             metadata={"notes": "Default binding for ComfyUI 印花提取 workflow (117.50.80.158:8079)"},
         ),
         WorkflowBindingSeed(
+            id="binding_pattern_extract_comfyui_117_v2",
+            action="pattern_extract",
+            workflow_id="workflow_comfyui_yinhua_tiqu_v2",
+            executor_id="executor_comfyui_seamless_117",
+            priority=95,
+            enabled=True,
+            metadata={"notes": "Fallback binding for ComfyUI 印花提取 workflow (117.50.216.233:8079)"},
+        ),
+        WorkflowBindingSeed(
             id="binding_pattern_extract_lora_8step_comfyui_v1",
             action="pattern_extract",
             workflow_id="workflow_comfyui_yinhua_tiqu_lora_8step_v1",
@@ -351,6 +379,15 @@ def _build_binding_seeds() -> list[WorkflowBindingSeed]:
             priority=95,
             enabled=True,
             metadata={"notes": "Default binding for ComfyUI 8步加速可换LoRA workflow (117.50.80.158:8079)"},
+        ),
+        WorkflowBindingSeed(
+            id="binding_pattern_extract_lora_8step_comfyui_117_v1",
+            action="pattern_extract",
+            workflow_id="workflow_comfyui_yinhua_tiqu_lora_8step_v1",
+            executor_id="executor_comfyui_seamless_117",
+            priority=90,
+            enabled=True,
+            metadata={"notes": "Fallback binding for ComfyUI 8步加速可换LoRA workflow (117.50.216.233:8079)"},
         ),
         WorkflowBindingSeed(
             id="binding_multi_image_fusion_comfyui_v1",
@@ -362,6 +399,15 @@ def _build_binding_seeds() -> list[WorkflowBindingSeed]:
             metadata={"notes": "Default binding for ComfyUI 多图融合 workflow (117.50.80.158:8079)"},
         ),
         WorkflowBindingSeed(
+            id="binding_multi_image_fusion_comfyui_117_v1",
+            action="multi_image_fusion",
+            workflow_id="workflow_comfyui_duotu_ronghe_v1",
+            executor_id="executor_comfyui_seamless_117",
+            priority=95,
+            enabled=True,
+            metadata={"notes": "Fallback binding for ComfyUI 多图融合 workflow (117.50.216.233:8079)"},
+        ),
+        WorkflowBindingSeed(
             id="binding_image_fission_comfyui_v1",
             action="image_fission",
             workflow_id="workflow_comfyui_e7_flux2_liebian_v1",
@@ -370,16 +416,31 @@ def _build_binding_seeds() -> list[WorkflowBindingSeed]:
             enabled=True,
             metadata={"notes": "Default binding for ComfyUI E7 裂变重绘 workflow (117.50.80.158:8079)"},
         ),
+        WorkflowBindingSeed(
+            id="binding_image_fission_comfyui_117_v1",
+            action="image_fission",
+            workflow_id="workflow_comfyui_e7_flux2_liebian_v1",
+            executor_id="executor_comfyui_seamless_117",
+            priority=95,
+            enabled=True,
+            metadata={"notes": "Fallback binding for ComfyUI E7 裂变重绘 workflow (117.50.216.233:8079)"},
+        ),
     ]
 
 
 DEFAULT_WORKFLOW_SEEDS = _build_workflow_seeds()
 DEFAULT_BINDING_SEEDS = _build_binding_seeds()
+_WORKFLOW_SEED_LOCK = RLock()
 
 
 def ensure_default_workflows(session: Session) -> bool:
     """Insert or refresh built-in workflows."""
 
+    with _WORKFLOW_SEED_LOCK:
+        return _ensure_default_workflows(session)
+
+
+def _ensure_default_workflows(session: Session) -> bool:
     changed = False
     for seed in DEFAULT_WORKFLOW_SEEDS:
         definition = {
@@ -426,6 +487,11 @@ def ensure_default_workflows(session: Session) -> bool:
 def ensure_default_bindings(session: Session) -> bool:
     """Insert default bindings (action → workflow → executor)."""
 
+    with _WORKFLOW_SEED_LOCK:
+        return _ensure_default_bindings(session)
+
+
+def _ensure_default_bindings(session: Session) -> bool:
     changed = False
     for seed in DEFAULT_BINDING_SEEDS:
         stmt = select(WorkflowBinding).where(WorkflowBinding.id == seed.id)

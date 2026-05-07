@@ -2,6 +2,7 @@ import { Alert, Button, Card, Popup, Space, Switch, Table, Tag, Typography } fro
 import type { Ability, AbilityInvocationLog } from '../../../types/admin';
 import { toDisplayErrorMessage } from '../../../utils/errorMessageMap';
 import {
+  resolveAbilityLogAction,
   getAbilityLogCallbackStageTag,
   getAbilityLogSubmitTag,
   isAbilityLogSuccessful,
@@ -151,6 +152,24 @@ export function AbilityRecentLogsPanel({
                         {durationMs}ms
                       </Typography.Text>
                     ) : null}
+                  </Space>
+                );
+              },
+            },
+            {
+              colKey: 'action',
+              title: '当前要做',
+              width: 220,
+              cell: ({ row }) => {
+                const action = resolveAbilityLogAction(row);
+                return (
+                  <Space direction="vertical" size={2}>
+                    <Tag theme={action.theme} variant="light">
+                      {action.title}
+                    </Tag>
+                    <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                      {action.detail}
+                    </Typography.Text>
                   </Space>
                 );
               },

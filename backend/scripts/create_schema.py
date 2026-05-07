@@ -4,7 +4,7 @@ Simple helper to create database tables using SQLAlchemy metadata.
 Usage:
     cd backend
     source .venv/bin/activate
-    DATABASE_URL=mysql+pymysql://user:pass@localhost:3306/podi python scripts/create_schema.py
+    DATABASE_URL='mysql+pymysql://<user>:<password>@<mysql-host>:3306/<database>' python scripts/create_schema.py
 """
 
 from app.core.db import Base, engine  # pylint: disable=unused-import

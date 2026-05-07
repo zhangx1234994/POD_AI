@@ -322,15 +322,26 @@ GET /api/admin/vendor-api/governance/summary?windowHours=24
       "providerStatus": "active",
       "requiresGlobalEgress": true,
       "envKeyConfigured": false,
+      "supportedApiTypes": ["image_generation", "image_edit"],
+      "executionModes": ["sync_then_store"],
       "runtimeKeyConfigured": true,
       "keyCount": 1,
       "activeStoredKeyCount": 1,
+      "disabledKeyCount": 0,
+      "cooldownKeyCount": 0,
+      "exhaustedKeyCount": 0,
+      "errorKeyCount": 0,
+      "uncheckedKeyCount": 0,
+      "staleKeyCheckCount": 0,
+      "failedKeyCheckCount": 0,
       "modelCount": 1,
       "activeModelCount": 1,
       "abilityCount": 2,
       "activeAbilityCount": 2,
       "succeededCalls": 12,
       "failedCalls": 0,
+      "queuedCalls": 0,
+      "runningCalls": 0,
       "issues": [],
       "suggestions": []
     }
@@ -339,8 +350,67 @@ GET /api/admin/vendor-api/governance/summary?windowHours=24
 }
 ```
 
+说明：
+
+- `failedCalls` 只统计明确失败的调用；排队和运行中分别进入 `queuedCalls`、`runningCalls`，避免把正常排队误判为失败。
+- `uncheckedKeyCount` / `staleKeyCheckCount` / `failedKeyCheckCount` 用于判断 active Key 是否从未验证、验证超过 7 天或最近验证失败。
+- `issues` 会聚合密钥缺失、配额接近上限、密钥最近报错、Key 未验证/验证过期/验证失败、模型缺少计价、已有成功调用但未计价、任务排队/运行中/失败等治理风险。
+- 该接口只做读侧汇总，不会主动调用第三方厂商，也不会消耗额度。
+
 ### GET /api/admin/vendor-api/models
 返回 backend 当前沉淀的第三方模型目录视图，包括模型 ID、支持蒙版/多图/视频、执行模式、出网要求、路由策略与成本策略。接口会优先读取 `vendor_model_catalog`，目录为空时根据 vendor-api-ops Provider 信息写入一批默认模型。
+
+响应中会附带模型上线门禁：
+
+```json
+{
+  "items": [
+    {
+      "id": 1,
+      "provider": "openai",
+      "model": "gpt-image-2",
+      "displayName": "OpenAI · GPT Image 2",
+      "latestAcceptance": {
+        "status": "passed",
+        "note": "能力测试已跑通，OSS 回填正常",
+        "createdAt": "2026-05-06T10:00:00Z"
+      },
+      "auditRecords": [
+        {
+          "action": "record_acceptance",
+          "note": "能力测试已跑通，OSS 回填正常",
+          "createdAt": "2026-05-06T10:00:00Z"
+        }
+      ],
+      "releaseGate": {
+        "status": "ready",
+        "label": "可上线",
+        "canRelease": true,
+        "acceptancePassed": true,
+        "runtimeKeyConfigured": true,
+        "egressVerified": true,
+        "blockers": [],
+        "warnings": [],
+        "suggestions": [
+          "基础门禁通过，可进入业务绑定和小流量验证。"
+        ],
+        "primaryIssue": null,
+        "primaryActionLabel": "可上线",
+        "primaryAction": "基础门禁通过，可进入业务绑定和小流量验证。",
+        "primarySeverity": "success"
+      }
+    }
+  ]
+}
+```
+
+门禁规则：
+
+- 未启用、缺少模型验收、缺少可用密钥、所有密钥最近验证失败会进入 `blockers`。
+- 缺少能力类型、返回方式、计价策略、密钥未验证/验证过期会进入 `warnings`。
+- 对 `requiresGlobalEgress=true` 的模型，只有最近 7 天内存在一次 active Key 的带密钥出网验证成功，`egressVerified` 才为 true；否则会提示 `VENDOR_MODEL_GLOBAL_EGRESS_REQUIRED`。
+- `primaryIssue/primaryActionLabel/primaryAction/primarySeverity` 固定按“启用模型 -> 补密钥/验密钥 -> 查出网 -> 跑验收 -> 补计价”的业务顺序返回，避免在缺密钥时误提示先验收。
+- 业务能力引用第三方模型时，会同步检查该模型是否有 `passed` 验收记录。
 
 ### GET /api/admin/vendor-api/usage/summary
 返回 vendor-api-ops 最近一段时间的第三方调用统计，用于观察厂商、模型、Key 池和上游错误是否稳定。
@@ -410,13 +480,121 @@ GET /api/admin/vendor-api/usage/summary?windowHours=24
   "routePolicy": { "executorType": "vendor_api" },
   "defaultTaskPolicy": { "timeoutSeconds": 180 },
   "inputSchema": {},
-  "costPolicy": {},
+  "costPolicy": {
+    "currency": "CNY",
+    "billingUnit": "image",
+    "unitPrice": 0.3,
+    "quotaUnits": 1,
+    "pricingVersion": "v1"
+  },
   "metadata": { "outputFormats": ["png", "jpeg", "webp"] }
 }
 ```
 
 ### PATCH /api/admin/vendor-api/models/{modelId}
 更新模型目录项，可用于灰度启停、修改能力边界、补充输入 schema 或成本策略。
+
+`costPolicy` 约定：
+
+- `currency`：成本币种，如 `CNY`、`USD`
+- `billingUnit`：计费单位，如 `run`、`image`、`video`、`second`、`token`
+- `unitPrice`：单价，不能小于 0
+- `quotaUnits`：平台套餐额度消耗，不能小于 0
+- `quantityField`：可选，按返回/用量字段计算数量，例如 `output_count`
+- `pricingVersion`：定价版本，便于后续调价追溯
+
+后端会兼容 `unit_price/quota_units/pricing_version` 等蛇形字段，并统一归一为驼峰字段。
+
+说明：
+
+- 普通编辑 `metadata` 不会误删 `latestAcceptance`、`acceptanceRecords` 与 `modelAuditRecords`。
+- 每次编辑会追加 `auditRecords`，用于管理端展示最近处理记录。
+
+### POST /api/admin/vendor-api/models/bulk-action
+批量处理模型目录项，用于上线前收口：批量启用/停用、批量记录验收、批量应用计价策略。每条成功处理的模型都会写入 `auditRecords`。
+
+请求：
+
+```json
+{
+  "modelIds": [1, 2, 3],
+  "action": "record_acceptance",
+  "note": "能力测试已跑通，结果回填正常",
+  "acceptance": {
+    "status": "passed",
+    "note": "能力测试已跑通，结果回填正常",
+    "metadata": {
+      "source": "admin-model-catalog-bulk"
+    }
+  }
+}
+```
+
+`action` 可选：
+
+- `enable`：批量启用模型。
+- `disable`：批量停用模型。
+- `record_acceptance`：批量记录验收。
+- `apply_cost_policy`：批量应用 `costPolicy`，仍会执行计价规则校验。
+
+响应：
+
+```json
+{
+  "action": "record_acceptance",
+  "total": 3,
+  "updated": 2,
+  "failed": 1,
+  "items": [
+    {
+      "modelId": 1,
+      "success": true,
+      "model": {
+        "id": 1,
+        "releaseGate": {
+          "primaryActionLabel": "补密钥"
+        }
+      }
+    },
+    {
+      "modelId": 999,
+      "success": false,
+      "error": "VENDOR_MODEL_NOT_FOUND"
+    }
+  ]
+}
+```
+
+常见错误：
+
+- `VENDOR_MODEL_BULK_ACTION_INVALID`
+- `VENDOR_MODEL_BULK_MODEL_IDS_REQUIRED`
+- `VENDOR_MODEL_COST_POLICY_INVALID`
+- `VENDOR_MODEL_NOT_FOUND`
+
+### POST /api/admin/vendor-api/models/{modelId}/acceptance-records
+记录第三方模型验收结果。上线前常用 `status=passed`，用于说明该模型已经通过能力测试或测评端真实链路验证。
+
+请求：
+
+```json
+{
+  "status": "passed",
+  "note": "能力测试已跑通，OSS 回填正常",
+  "evidenceRunId": "run_vendor_test",
+  "evidenceUrl": "https://example.com/evidence",
+  "metadata": {
+    "source": "admin-model-catalog"
+  }
+}
+```
+
+响应：返回更新后的模型目录项，包含 `latestAcceptance`、`acceptanceRecords` 与 `releaseGate`。
+
+常见错误：
+
+- `VENDOR_MODEL_NOT_FOUND`
+- `VENDOR_MODEL_ACCEPTANCE_STATUS_INVALID`
 
 ### GET /api/admin/vendor-api/keys
 ### POST /api/admin/vendor-api/keys
@@ -445,12 +623,33 @@ Key 写入中台 `api_keys` 表，返回只允许包含 `keyPreview`，不返回
 - `VENDOR_USAGE_SUMMARY_UNAVAILABLE`
 - `VENDOR_GOVERNANCE_DB_UNAVAILABLE`
 - `VENDOR_API_RECENT_FAILURES`
+- `VENDOR_API_KEY_QUOTA_EXHAUSTED`
+- `VENDOR_API_KEY_QUOTA_NEAR_LIMIT`
+- `VENDOR_API_KEY_RECENT_ERROR`
+- `VENDOR_MODEL_COST_POLICY_MISSING`
+- `VENDOR_API_UNCOSTED_SUCCESS_CALLS`
+- `VENDOR_API_TASKS_QUEUED`
+- `VENDOR_API_TASKS_RUNNING_LONG`
+- `VENDOR_API_TASK_FAILURES`
 - `VOLCENGINE_API_KEY_MISSING`
 - `VOLCENGINE_MODEL_SYNC_HTTP_ERROR`
 - `VOLCENGINE_MODEL_SYNC_RESPONSE_INVALID`
 - `VOLCENGINE_MODEL_SYNC_DATA_INVALID`
 - `VENDOR_MODEL_DUPLICATED`
 - `VENDOR_MODEL_NOT_FOUND`
+- `VENDOR_MODEL_INACTIVE`
+- `VENDOR_MODEL_COST_POLICY_INVALID`
+- `VENDOR_MODEL_ACCEPTANCE_STATUS_INVALID`
+- `VENDOR_MODEL_ACCEPTANCE_REQUIRED`
+- `VENDOR_MODEL_RUNTIME_KEY_MISSING`
+- `VENDOR_MODEL_KEY_CHECK_FAILED`
+- `VENDOR_MODEL_KEY_CHECK_PARTIAL_FAILED`
+- `VENDOR_MODEL_KEY_NEVER_CHECKED`
+- `VENDOR_MODEL_KEY_CHECK_STALE`
+- `VENDOR_MODEL_API_TYPES_MISSING`
+- `VENDOR_MODEL_EXECUTION_MODE_MISSING`
+- `VENDOR_MODEL_COST_POLICY_MISSING`
+- `VENDOR_MODEL_GLOBAL_EGRESS_REQUIRED`
 
 ---
 
@@ -528,6 +727,7 @@ Key 写入中台 `api_keys` 表，返回只允许包含 `keyPreview`，不返回
 
 - 汇总任务/评测/能力任务状态。
 - 同时返回 `strategy_summary`，用于管理端首页展示近 24 小时业务调用、成功率、计费待处理、回调风险、成本与额度口径。
+- `strategy_summary` 现在包含 `north_star` 与 `indicators`：前者是“成功业务交付”北极星，后者固定覆盖业务成功率、计费完整度、回调健康、扣费闭环、风险闭环 5 个 KPI。每个指标都返回 `status/detail/action`，管理端直接展示中文下一步动作。
 
 ### GET /api/admin/dashboard/logs
 
@@ -560,6 +760,26 @@ Key 写入中台 `api_keys` 表，返回只允许包含 `keyPreview`，不返回
   "note": "weekly",
   "summary": {
     "window_hours": 168,
+    "north_star": {
+      "key": "north_star",
+      "title": "北极星：成功业务交付",
+      "value": "10 次",
+      "target": "持续增长，且不能靠失败或无回填堆量",
+      "status": "warning",
+      "detail": "有成功交付，但仍存在风险信号。",
+      "action": "先处理失败、回调和计费风险，再扩大发版或接入流量。"
+    },
+    "indicators": [
+      {
+        "key": "business_success_rate",
+        "title": "业务成功率",
+        "value": "83%",
+        "target": ">= 90%",
+        "status": "warning",
+        "detail": "统计窗口内业务调用 12 次，失败 2 次。",
+        "action": "成功率低于目标时，先看业务调用详情里的五段链路判定。"
+      }
+    ],
     "business_total": 12,
     "business_succeeded": 10,
     "business_failed": 2,
@@ -606,7 +826,7 @@ Key 写入中台 `api_keys` 表，返回只允许包含 `keyPreview`，不返回
 
 ### POST /api/admin/dashboard/release-preflight/run
 
-用途：运行轻量发布门禁，不触发真实付费生图。当前检查项包括后端存活、Coze 工具箱文档、内部任务查询、ComfyUI 队列、测评目录、评测运行健康、周报/账单守护状态。
+用途：运行轻量发布门禁，不触发真实付费生图。当前检查项包括后端存活、Coze 工具箱文档、内部任务查询、ComfyUI 队列、测评目录、评测运行健康、三大核心业务默认版本治理、账号权限上线检查、周报/账单守护状态。
 
 请求：
 
@@ -625,6 +845,13 @@ Key 写入中台 `api_keys` 表，返回只允许包含 `keyPreview`，不返回
 - `blockingCount`：阻塞项数量。
 - `warningCount`：提醒项数量。
 - `checks[]`：每个检查项的结果、详情和处理建议。
+
+关键检查项：
+
+- `business_capability_governance`：花纹提取、图裂变、扩图必须存在 active 默认版本，且默认版本要绑定主能力、可执行配方、可用第三方密钥；底层阻塞会直接阻断上线。
+- `auth_scope_summary`：必须至少有一个 active 管理员；业务方账号、可用邀请码不能缺业务范围，过期邀请码不能继续激活；业务 API 权限边界和角色边界必须声明并已生效。
+- `internal_tasks_get`：必须返回 `404 TASK_NOT_FOUND`，不能返回 `401 INTERNAL_ONLY`。
+- `comfyui_queue_summary`：必须能看到 active ComfyUI 队列，节点不可达时需要先恢复或标记离线。
 
 ### GET /api/admin/dashboard/release-preflight/snapshots
 
@@ -646,13 +873,36 @@ Key 写入中台 `api_keys` 表，返回只允许包含 `keyPreview`，不返回
 - `backendQueuedTotal/backendRunningTotal/backendActiveTotal`：中台内部待下发、执行中、总活跃任务数。
 - `feedGapServers`：中台有待下发任务但 ComfyUI 仍有空闲容量的节点数。
 - `backendBlockedServers`：中台显示执行中但 ComfyUI 队列为空的节点数。
-- `diagnostics[]`：面向运维的诊断项，可能包含 `COMFYUI_EXECUTOR_UNAVAILABLE`、`COMFYUI_BACKEND_RUNNING_NOT_VISIBLE`、`COMFYUI_FEED_GAP`、`COMFYUI_EXECUTOR_EMPTY`。
-- `servers[]`：每台节点的名称、标签、队列、容量、中台任务和诊断结果；前端应优先展示 `executorName/tags/baseUrl`，避免只用“117”这类模糊称呼。
+- `routeEvidenceWindowHours/routeEvidenceTotal/routeEvidenceCoveredServers/recentRouteMissingServers`：近 24 小时真实任务命中统计，用于判断 158/233 是否都被路由到。
+- `diagnostics[]`：面向运维的诊断项，可能包含 `COMFYUI_EXECUTOR_UNAVAILABLE`、`COMFYUI_BACKEND_RUNNING_NOT_VISIBLE`、`COMFYUI_FEED_GAP`、`COMFYUI_ROUTE_EVIDENCE_MISSING`、`COMFYUI_EXECUTOR_EMPTY`。
+- `servers[]`：每台节点的名称、标签、队列、容量、中台任务、近 24 小时真实命中证据和诊断结果；前端应优先展示 `executorName/tags/baseUrl`，避免只用“117”这类模糊称呼。
 
 错误与降级：
 
 - 单台节点不可达时不让整个接口失败；该节点 `supported=false`，并写入 `message/diagnosis/feedDiagnosis`。
 - 全部节点不可达时仍返回 200，`diagnostics[]` 标记阻塞原因，前端必须展示为业务风险。
+
+### GET /api/admin/comfyui/workflow-compatibility
+
+用途：检查 active 的 ComfyUI 能力在当前路由机器上是否缺节点、缺模型或路由配置不一致。该接口不提交真实任务、不消耗出图额度，用于上线前和日常巡检。
+
+请求参数：
+
+- `executorIds`：可重复传入，限制只检查指定执行节点；不传时检查所有 active 的 ComfyUI 节点。
+
+响应重点字段：
+
+- `okCount/warningCount/failedCount`：能力对齐结论，`failedCount>0` 视为上线阻断。
+- `servers[]`：每台执行节点的 `/object_info` 读取状态。
+- `workflows[].expectedExecutorIds`：该能力应参与路由的机器。
+- `workflows[].compatibleExecutorIds`：实际依赖完整的机器。
+- `workflows[].servers[].missingNodes/missingModels`：缺失的自定义节点和模型文件。
+
+错误与降级：
+
+- 单台节点不可达不会让接口整体失败；该节点会进入 `reachable=false`。
+- 工作流图缺失或没有可检查执行节点时，workflow `status=failed`，发版前必须补齐配置。
+- 可能涉及错误码：`COMFYUI_BASE_URL_MISSING`、`COMFYUI_OBJECT_INFO_ERROR`、`COMFYUI_OBJECT_INFO_INVALID`、`COMFYUI_WORKFLOW_GRAPH_MISSING`、`COMFYUI_NO_ROUTED_EXECUTOR`、`COMFYUI_ROUTING_BINDING_MISMATCH`。
 
 ### POST /api/admin/dashboard/release-patrol/records
 

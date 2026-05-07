@@ -5,7 +5,8 @@ from __future__ import annotations
 import logging
 import json
 import time
-from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta
 from typing import Any
 from types import SimpleNamespace
 from uuid import uuid4
@@ -19,7 +20,7 @@ from sqlalchemy import select
 from app.constants.abilities import BAIDU_IMAGE_ABILITIES
 from app.core.config import get_settings
 from app.core.db import get_session
-from app.models.integration import AbilityTask, ApiKey, Executor, Workflow
+from app.models.integration import Ability, AbilityTask, ApiKey, Executor, Workflow, WorkflowBinding
 from app.services.api_key_selector import bump_usage, mark_cooldown, pick_executor_api_key, pick_provider_api_key
 from app.services.comfyui_graph import normalize_comfyui_prompt_graph
 from app.services.executors import ExecutionContext, registry
@@ -79,6 +80,421 @@ class IntegrationTestService:
             if graph:
                 return graph
         return load_comfy_workflow(workflow_key)
+
+    @staticmethod
+    def _base_url_for_executor(executor: Executor) -> str:
+        config = executor.config or {}
+        base_url = (
+            executor.base_url
+            or config.get("baseUrl")
+            or config.get("base_url")
+            or ""
+        ).rstrip("/")
+        return base_url
+
+    def _fetch_comfyui_object_info(self, executor: Executor, *, timeout_seconds: float = 8.0) -> tuple[str, dict[str, Any]]:
+        base_url = self._base_url_for_executor(executor)
+        if not base_url:
+            raise HTTPException(status_code=400, detail="COMFYUI_BASE_URL_MISSING")
+        try:
+            timeout = httpx.Timeout(timeout_seconds, connect=min(2.0, timeout_seconds))
+            response = httpx.get(f"{base_url}/object_info", timeout=timeout)
+            response.raise_for_status()
+        except httpx.HTTPError as exc:  # pragma: no cover - defensive
+            self._logger.warning("Failed to fetch ComfyUI object info: %s", exc)
+            raise HTTPException(status_code=502, detail="COMFYUI_OBJECT_INFO_ERROR") from exc
+        data = response.json()
+        if not isinstance(data, dict):
+            raise HTTPException(status_code=502, detail="COMFYUI_OBJECT_INFO_INVALID")
+        return base_url, data
+
+    @staticmethod
+    def _is_comfyui_resource_choice_input(class_type: str, input_name: str) -> bool:
+        """Only model-like finite choices should block release compatibility.
+
+        ComfyUI also exposes runtime choices such as input image filenames or
+        method selectors. Those values are patched per request and must not be
+        reported as missing model files.
+        """
+
+        name = str(input_name or "").strip().lower()
+        if not name:
+            return False
+        ignored_exact = {
+            "image",
+            "images",
+            "mask",
+            "file",
+            "filename",
+            "input_image",
+            "image_name",
+            "image_path",
+            "upload",
+            "method",
+            "mode",
+            "select",
+            "option",
+            "preset",
+        }
+        if name in ignored_exact:
+            return False
+        resource_hints = (
+            "ckpt",
+            "checkpoint",
+            "model",
+            "lora",
+            "loras",
+            "unet",
+            "clip",
+            "vae",
+            "controlnet",
+            "control_net",
+            "ipadapter",
+            "ip_adapter",
+            "sam",
+            "grounding",
+            "upscale",
+            "embedding",
+            "insightface",
+            "instantid",
+        )
+        if any(hint in name for hint in resource_hints):
+            return True
+        class_key = str(class_type or "").strip().lower()
+        return "loader" in class_key and any(hint in class_key for hint in resource_hints)
+
+    @classmethod
+    def _extract_comfyui_choice_inputs(cls, class_type: str, class_info: dict[str, Any] | None) -> dict[str, list[str]]:
+        """Return object_info inputs that expose a finite filename/model choice list."""
+
+        if not isinstance(class_info, dict):
+            return {}
+        raw_input = class_info.get("input")
+        if not isinstance(raw_input, dict):
+            return {}
+        choices: dict[str, list[str]] = {}
+        for section_name in ("required", "optional"):
+            section = raw_input.get(section_name)
+            if not isinstance(section, dict):
+                continue
+            for input_name, descriptor in section.items():
+                if not isinstance(input_name, str):
+                    continue
+                if not cls._is_comfyui_resource_choice_input(class_type, input_name):
+                    continue
+                options: Any | None = None
+                if isinstance(descriptor, (list, tuple)) and descriptor:
+                    options = descriptor[0]
+                if not isinstance(options, (list, tuple)):
+                    continue
+                values = [str(item) for item in options if isinstance(item, str) and item.strip()]
+                if values:
+                    choices[input_name] = values
+        return choices
+
+    @staticmethod
+    def _extract_comfyui_workflow_requirements(graph: dict[str, Any]) -> dict[str, Any]:
+        nodes: list[dict[str, str]] = []
+        for node_id, node in sorted(graph.items(), key=lambda item: str(item[0])):
+            if not isinstance(node, dict):
+                continue
+            class_type = str(node.get("class_type") or "").strip()
+            if not class_type:
+                continue
+            nodes.append({"nodeId": str(node_id), "classType": class_type})
+        return {"nodes": nodes, "nodeKeys": sorted({node["classType"] for node in nodes})}
+
+    @classmethod
+    def _check_comfyui_graph_compatibility(
+        cls,
+        graph: dict[str, Any],
+        object_info: dict[str, Any],
+    ) -> dict[str, Any]:
+        missing_nodes: list[dict[str, str]] = []
+        missing_models: list[dict[str, str]] = []
+        object_node_keys = {str(key) for key in object_info.keys() if isinstance(key, str)}
+
+        for node_id, node in sorted(graph.items(), key=lambda item: str(item[0])):
+            if not isinstance(node, dict):
+                continue
+            class_type = str(node.get("class_type") or "").strip()
+            if not class_type:
+                continue
+            if class_type not in object_node_keys:
+                missing_nodes.append({"nodeId": str(node_id), "classType": class_type})
+                continue
+
+            inputs = node.get("inputs")
+            if not isinstance(inputs, dict):
+                continue
+            choice_inputs = cls._extract_comfyui_choice_inputs(class_type, object_info.get(class_type))
+            if not choice_inputs:
+                continue
+            for input_name, value in inputs.items():
+                if input_name not in choice_inputs or not isinstance(value, str) or not value.strip():
+                    continue
+                allowed_values = choice_inputs[input_name]
+                if value in allowed_values:
+                    continue
+                missing_models.append(
+                    {
+                        "nodeId": str(node_id),
+                        "classType": class_type,
+                        "inputName": str(input_name),
+                        "value": value,
+                    }
+                )
+
+        return {
+            "compatible": not missing_nodes and not missing_models,
+            "missingNodes": missing_nodes,
+            "missingModels": missing_models,
+        }
+
+    @staticmethod
+    def _normalize_executor_id_list(value: Any) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            raw_items = value.replace(";", ",").split(",")
+        elif isinstance(value, (list, tuple, set)):
+            raw_items = list(value)
+        else:
+            raw_items = [value]
+        result: list[str] = []
+        seen: set[str] = set()
+        for item in raw_items:
+            text = str(item or "").strip()
+            if not text or text in seen:
+                continue
+            seen.add(text)
+            result.append(text)
+        return result
+
+    def get_comfyui_workflow_compatibility(
+        self,
+        *,
+        executor_ids: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Check whether active ComfyUI abilities can run on their routed executors."""
+
+        with get_session() as session:
+            ability_rows = (
+                session.execute(
+                    select(Ability).where(Ability.status == "active", Ability.provider == "comfyui")
+                    .order_by(Ability.id.asc())
+                )
+                .scalars()
+                .all()
+            )
+            workflow_rows = session.execute(select(Workflow).where(Workflow.type == "comfyui")).scalars().all()
+            binding_rows = (
+                session.execute(select(WorkflowBinding).where(WorkflowBinding.enabled.is_(True))).scalars().all()
+            )
+            executor_query = select(Executor).where(Executor.status == "active", Executor.type == "comfyui")
+            if executor_ids:
+                executor_query = executor_query.where(Executor.id.in_(executor_ids))
+            executor_rows = session.execute(executor_query.order_by(Executor.id.asc())).scalars().all()
+
+        workflow_by_id = {workflow.id: workflow for workflow in workflow_rows}
+        workflow_by_key: dict[str, Workflow] = {}
+        for workflow in workflow_rows:
+            meta = workflow.extra_metadata if isinstance(workflow.extra_metadata, dict) else {}
+            definition = workflow.definition if isinstance(workflow.definition, dict) else {}
+            for key in (
+                workflow.id,
+                workflow.action,
+                meta.get("workflow_key"),
+                definition.get("workflow_key"),
+            ):
+                normalized = str(key or "").strip()
+                if normalized:
+                    workflow_by_key[normalized] = workflow
+
+        binding_ids_by_workflow: dict[str, list[str]] = {}
+        for binding in binding_rows:
+            if not binding.workflow_id or not binding.executor_id:
+                continue
+            ids = binding_ids_by_workflow.setdefault(binding.workflow_id, [])
+            if binding.executor_id not in ids:
+                ids.append(binding.executor_id)
+
+        object_info_by_executor: dict[str, dict[str, Any] | None] = {}
+        server_payloads: list[dict[str, Any]] = []
+        active_executor_ids = [executor.id for executor in executor_rows]
+
+        def fetch_executor_object_info(executor: Executor) -> tuple[str, dict[str, Any] | None, dict[str, Any]]:
+            base_url = self._base_url_for_executor(executor)
+            try:
+                fetched_base_url, object_info = self._fetch_comfyui_object_info(executor, timeout_seconds=4.0)
+                return (
+                    executor.id,
+                    object_info,
+                    {
+                        "executorId": executor.id,
+                        "executorName": executor.name,
+                        "baseUrl": fetched_base_url,
+                        "status": executor.status,
+                        "reachable": True,
+                        "nodeCount": len(object_info),
+                        "message": None,
+                    },
+                )
+            except HTTPException as exc:
+                return (
+                    executor.id,
+                    None,
+                    {
+                        "executorId": executor.id,
+                        "executorName": executor.name,
+                        "baseUrl": base_url,
+                        "status": executor.status,
+                        "reachable": False,
+                        "nodeCount": None,
+                        "message": str(exc.detail),
+                    },
+                )
+
+        if executor_rows:
+            with ThreadPoolExecutor(max_workers=min(8, len(executor_rows))) as pool:
+                for executor_id, object_info, payload in pool.map(fetch_executor_object_info, executor_rows):
+                    object_info_by_executor[executor_id] = object_info
+                    server_payloads.append(payload)
+            executor_order = {executor_id: index for index, executor_id in enumerate(active_executor_ids)}
+            server_payloads.sort(key=lambda item: executor_order.get(str(item.get("executorId") or ""), 9999))
+
+        workflow_payloads: list[dict[str, Any]] = []
+        ok_count = warning_count = failed_count = 0
+        for ability in ability_rows:
+            metadata = ability.extra_metadata if isinstance(ability.extra_metadata, dict) else {}
+            defaults = ability.default_params if isinstance(ability.default_params, dict) else {}
+            workflow_key = (
+                str(metadata.get("workflow_key") or defaults.get("workflow_key") or ability.capability_key or "").strip()
+            )
+            workflow = workflow_by_key.get(workflow_key)
+            if workflow and isinstance(workflow.definition, dict):
+                graph = self._normalize_comfyui_graph(workflow.definition)
+            else:
+                graph = {}
+            if not graph and workflow_key:
+                try:
+                    graph = load_comfy_workflow(workflow_key)
+                except Exception:
+                    graph = {}
+
+            diagnostics: list[dict[str, str]] = []
+            if not graph:
+                diagnostics.append(
+                    {
+                        "level": "critical",
+                        "code": "COMFYUI_WORKFLOW_GRAPH_MISSING",
+                        "message": "该能力没有可检查的 ComfyUI 工作流图，无法确认节点和模型依赖。",
+                    }
+                )
+
+            allowed_ids = self._normalize_executor_id_list(metadata.get("allowed_executor_ids"))
+            workflow_id = workflow.id if workflow else None
+            binding_ids = binding_ids_by_workflow.get(workflow_id or "", [])
+            expected_ids = allowed_ids or binding_ids or active_executor_ids
+            if executor_ids:
+                selected = set(executor_ids)
+                expected_ids = [executor_id for executor_id in expected_ids if executor_id in selected]
+
+            requirements = self._extract_comfyui_workflow_requirements(graph)
+            server_checks: list[dict[str, Any]] = []
+            compatible_ids: list[str] = []
+            incompatible_ids: list[str] = []
+            for executor_id in expected_ids:
+                executor_info = object_info_by_executor.get(executor_id)
+                if executor_info is None:
+                    server_checks.append(
+                        {
+                            "executorId": executor_id,
+                            "compatible": False,
+                            "reachable": False,
+                            "missingNodes": [],
+                            "missingModels": [],
+                            "message": "执行节点不可访问或 object_info 读取失败",
+                        }
+                    )
+                    incompatible_ids.append(executor_id)
+                    continue
+                check = self._check_comfyui_graph_compatibility(graph, executor_info)
+                server_checks.append(
+                    {
+                        "executorId": executor_id,
+                        "compatible": check["compatible"],
+                        "reachable": True,
+                        "missingNodes": check["missingNodes"],
+                        "missingModels": check["missingModels"],
+                        "message": None if check["compatible"] else "缺少工作流依赖",
+                    }
+                )
+                if check["compatible"]:
+                    compatible_ids.append(executor_id)
+                else:
+                    incompatible_ids.append(executor_id)
+
+            if allowed_ids and binding_ids:
+                allowed_set = set(allowed_ids)
+                binding_set = set(binding_ids)
+                if allowed_set != binding_set:
+                    diagnostics.append(
+                        {
+                            "level": "warning",
+                            "code": "COMFYUI_ROUTING_BINDING_MISMATCH",
+                            "message": "能力允许节点与工作流绑定节点不一致，后续应统一口径。",
+                        }
+                    )
+            if not expected_ids:
+                diagnostics.append(
+                    {
+                        "level": "critical",
+                        "code": "COMFYUI_NO_ROUTED_EXECUTOR",
+                        "message": "该能力没有可检查的执行节点。",
+                    }
+                )
+            has_critical_diagnostic = any(item.get("level") == "critical" for item in diagnostics)
+            if has_critical_diagnostic or (expected_ids and not compatible_ids):
+                status = "failed"
+                failed_count += 1
+            elif incompatible_ids or diagnostics:
+                status = "warning"
+                warning_count += 1
+            else:
+                status = "ok"
+                ok_count += 1
+
+            workflow_payloads.append(
+                {
+                    "abilityId": ability.id,
+                    "displayName": ability.display_name,
+                    "capabilityKey": ability.capability_key,
+                    "workflowKey": workflow_key,
+                    "workflowId": workflow_id,
+                    "action": metadata.get("action") or getattr(workflow, "action", None),
+                    "allowedExecutorIds": allowed_ids,
+                    "bindingExecutorIds": binding_ids,
+                    "expectedExecutorIds": expected_ids,
+                    "compatibleExecutorIds": compatible_ids,
+                    "incompatibleExecutorIds": incompatible_ids,
+                    "requiredNodeKeys": requirements["nodeKeys"],
+                    "requiredNodeCount": len(requirements["nodes"]),
+                    "status": status,
+                    "diagnostics": diagnostics,
+                    "servers": server_checks,
+                }
+            )
+
+        return {
+            "checkedAt": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+            "totalWorkflows": len(workflow_payloads),
+            "okCount": ok_count,
+            "warningCount": warning_count,
+            "failedCount": failed_count,
+            "servers": server_payloads,
+            "workflows": workflow_payloads,
+        }
 
     def run_baidu_image_process(
         self,
@@ -1178,24 +1594,7 @@ class IntegrationTestService:
         executor = self._get_executor(executor_id)
         if (executor.type or "").lower() != "comfyui":
             raise HTTPException(status_code=400, detail="EXECUTOR_TYPE_NOT_COMFYUI")
-        config = executor.config or {}
-        base_url = (
-            executor.base_url
-            or config.get("baseUrl")
-            or config.get("base_url")
-            or ""
-        ).rstrip("/")
-        if not base_url:
-            raise HTTPException(status_code=400, detail="COMFYUI_BASE_URL_MISSING")
-        try:
-            response = httpx.get(f"{base_url}/object_info", timeout=30)
-            response.raise_for_status()
-        except httpx.HTTPError as exc:  # pragma: no cover - defensive
-            self._logger.warning("Failed to fetch ComfyUI object info: %s", exc)
-            raise HTTPException(status_code=502, detail="COMFYUI_OBJECT_INFO_ERROR") from exc
-        data = response.json()
-        if not isinstance(data, dict):
-            raise HTTPException(status_code=502, detail="COMFYUI_OBJECT_INFO_INVALID")
+        base_url, data = self._fetch_comfyui_object_info(executor)
 
         catalog = {
             "unet": self._extract_comfy_choices(data, "UNETLoader", "unet_name"),
@@ -1320,7 +1719,9 @@ class IntegrationTestService:
             if not str(ex.id or "").startswith("executor_mock_")
             and not bool((ex.config or {}).get("mock"))
         ]
-        backend_tasks = self._summarize_backend_comfyui_tasks([executor.id for executor in executors])
+        executor_ids = [executor.id for executor in executors]
+        backend_tasks = self._summarize_backend_comfyui_tasks(executor_ids)
+        route_evidence = self._summarize_recent_comfyui_route_evidence(executor_ids)
 
         servers: list[dict[str, Any]] = []
         total_running = 0
@@ -1332,6 +1733,7 @@ class IntegrationTestService:
         idle_servers = 0
         feed_gap_servers = 0
         backend_blocked_servers = 0
+        recent_route_missing_servers = 0
         diagnostics: list[dict[str, str]] = []
         for executor in executors:
             try:
@@ -1356,6 +1758,7 @@ class IntegrationTestService:
                 # Queue payloads can be very large; summary should only expose counts.
                 status["raw"] = None
             backend = backend_tasks.get(executor.id, {})
+            evidence = route_evidence.get(executor.id, self._empty_comfyui_route_evidence())
             capacity = self._coerce_positive_int(status.get("queueMaxSize"), fallback=fallback_queue_max)
             running = int(status.get("runningCount") or 0)
             pending = int(status.get("pendingCount") or 0)
@@ -1371,6 +1774,8 @@ class IntegrationTestService:
             feed_code = "normal"
             feed_level = "success"
             feed_diagnosis = "中台与 ComfyUI 队列衔接正常。"
+            route_diagnosis_level = "success"
+            route_diagnosis = "最近真实任务已命中过该线路。"
 
             if status.get("supported") is not True:
                 unsupported_servers += 1
@@ -1379,6 +1784,8 @@ class IntegrationTestService:
                 feed_code = "executor_unavailable"
                 feed_level = "danger"
                 feed_diagnosis = "该节点当前不可用于路由，任务应自动避开。"
+                route_diagnosis_level = "danger"
+                route_diagnosis = "线路不可达，最近命中证据只能作为历史参考。"
             else:
                 supported_servers += 1
                 total_capacity += capacity
@@ -1403,6 +1810,10 @@ class IntegrationTestService:
                     feed_code = "backend_active_over_capacity"
                     feed_level = "warning"
                     feed_diagnosis = "中台侧任务数超过该节点容量，但 ComfyUI 未被填满，需检查任务衔接。"
+                if int(evidence.get("recentTotal") or 0) <= 0:
+                    recent_route_missing_servers += 1
+                    route_diagnosis_level = "warning"
+                    route_diagnosis = "近 24 小时没有真实任务命中该线路，需确认路由是否只打到另一台机器。"
 
             status.update(
                 {
@@ -1425,6 +1836,9 @@ class IntegrationTestService:
                     "feedCode": feed_code,
                     "feedDiagnosisLevel": feed_level,
                     "feedDiagnosis": feed_diagnosis,
+                    "routeEvidence": evidence,
+                    "routeDiagnosisLevel": route_diagnosis_level,
+                    "routeDiagnosis": route_diagnosis,
                 }
             )
             servers.append(status)
@@ -1460,6 +1874,16 @@ class IntegrationTestService:
                     "message": f"{feed_gap_servers} 台节点存在中台待下发但 GPU 未填满的情况，需检查 worker 并发和路由节奏。",
                 }
             )
+        route_evidence_total = sum(int(item.get("recentTotal") or 0) for item in route_evidence.values())
+        route_evidence_covered = sum(1 for item in route_evidence.values() if int(item.get("recentTotal") or 0) > 0)
+        if route_evidence_total > 0 and recent_route_missing_servers > 0:
+            diagnostics.append(
+                {
+                    "level": "warning",
+                    "code": "COMFYUI_ROUTE_EVIDENCE_MISSING",
+                    "message": f"{recent_route_missing_servers} 台 ComfyUI 节点近 24 小时没有真实任务命中，需确认路由没有长期偏向单机。",
+                }
+            )
         if not executors:
             diagnostics.append(
                 {
@@ -1484,6 +1908,10 @@ class IntegrationTestService:
             "idleServers": idle_servers,
             "feedGapServers": feed_gap_servers,
             "backendBlockedServers": backend_blocked_servers,
+            "routeEvidenceWindowHours": 24,
+            "routeEvidenceTotal": route_evidence_total,
+            "routeEvidenceCoveredServers": route_evidence_covered,
+            "recentRouteMissingServers": recent_route_missing_servers,
             "diagnostics": diagnostics,
             "servers": servers,
         }
@@ -1540,6 +1968,115 @@ class IntegrationTestService:
                 bucket["running"] = int(bucket.get("running") or 0) + 1
                 self._keep_oldest_iso(bucket, "oldestRunningAt", started_at or created_at)
         return summary
+
+    @staticmethod
+    def _empty_comfyui_route_evidence() -> dict[str, Any]:
+        return {
+            "recentTotal": 0,
+            "recentQueued": 0,
+            "recentRunning": 0,
+            "recentSucceeded": 0,
+            "recentFailed": 0,
+            "recentCancelled": 0,
+            "recentOther": 0,
+            "latestTaskId": None,
+            "latestStatus": None,
+            "latestTaskAt": None,
+        }
+
+    def _summarize_recent_comfyui_route_evidence(
+        self,
+        executor_ids: list[str],
+        *,
+        window_hours: int = 24,
+    ) -> dict[str, dict[str, Any]]:
+        executor_id_set = {str(item).strip() for item in executor_ids if str(item).strip()}
+        summary = {executor_id: self._empty_comfyui_route_evidence() for executor_id in executor_id_set}
+        if not executor_id_set:
+            return summary
+        since = datetime.utcnow() - timedelta(hours=max(1, int(window_hours or 24)))
+        try:
+            with get_session() as session:
+                rows = (
+                    session.execute(
+                        select(
+                            AbilityTask.id,
+                            AbilityTask.status,
+                            AbilityTask.request_payload,
+                            AbilityTask.result_payload,
+                            AbilityTask.created_at,
+                            AbilityTask.updated_at,
+                            AbilityTask.finished_at,
+                        ).where(
+                            AbilityTask.ability_provider == "comfyui",
+                            AbilityTask.created_at >= since,
+                        )
+                    )
+                    .all()
+                )
+        except Exception as exc:  # pragma: no cover - diagnostic endpoint must degrade safely
+            self._logger.warning("Failed to summarize recent ComfyUI route evidence: %s", exc)
+            return summary
+        for task_id, status, request_payload, result_payload, created_at, updated_at, finished_at in rows:
+            executor_id = self._extract_comfyui_route_executor_id(request_payload, result_payload)
+            if executor_id not in executor_id_set:
+                continue
+            bucket = summary.setdefault(executor_id, self._empty_comfyui_route_evidence())
+            normalized_status = str(status or "").strip().lower()
+            bucket["recentTotal"] = int(bucket.get("recentTotal") or 0) + 1
+            if normalized_status in {"queued", "pending"}:
+                bucket["recentQueued"] = int(bucket.get("recentQueued") or 0) + 1
+            elif normalized_status in {"running", "processing", "submitted"}:
+                bucket["recentRunning"] = int(bucket.get("recentRunning") or 0) + 1
+            elif normalized_status in {"succeeded", "success", "completed"}:
+                bucket["recentSucceeded"] = int(bucket.get("recentSucceeded") or 0) + 1
+            elif normalized_status in {"failed", "error", "timeout", "rejected"}:
+                bucket["recentFailed"] = int(bucket.get("recentFailed") or 0) + 1
+            elif normalized_status in {"cancelled", "canceled", "stopped", "aborted"}:
+                bucket["recentCancelled"] = int(bucket.get("recentCancelled") or 0) + 1
+            else:
+                bucket["recentOther"] = int(bucket.get("recentOther") or 0) + 1
+            latest_at = finished_at or updated_at or created_at
+            if self._is_later_iso(latest_at, bucket.get("latestTaskAt")):
+                bucket["latestTaskId"] = task_id
+                bucket["latestStatus"] = normalized_status or status
+                bucket["latestTaskAt"] = latest_at.isoformat() if isinstance(latest_at, datetime) else None
+        return summary
+
+    @staticmethod
+    def _extract_comfyui_route_executor_id(
+        request_payload: dict[str, Any] | None,
+        result_payload: dict[str, Any] | None,
+    ) -> str:
+        candidates = []
+        if isinstance(result_payload, dict):
+            candidates.append(result_payload)
+            meta = result_payload.get("metadata")
+            if isinstance(meta, dict):
+                candidates.append(meta)
+        if isinstance(request_payload, dict):
+            candidates.append(request_payload)
+            meta = request_payload.get("metadata")
+            if isinstance(meta, dict):
+                candidates.append(meta)
+        for payload in candidates:
+            for key in ("executorId", "executor_id", "executor"):
+                value = payload.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+        return ""
+
+    @staticmethod
+    def _is_later_iso(value: datetime | None, current_iso: Any) -> bool:
+        if value is None:
+            return False
+        if not isinstance(current_iso, str) or not current_iso:
+            return True
+        try:
+            current = datetime.fromisoformat(current_iso)
+        except ValueError:
+            return True
+        return value > current
 
     @staticmethod
     def _keep_oldest_iso(bucket: dict[str, Any], key: str, value: datetime | None) -> None:

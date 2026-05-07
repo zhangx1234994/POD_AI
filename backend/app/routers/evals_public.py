@@ -29,7 +29,13 @@ from app.models.eval import (
     EvalRun,
     EvalWorkflowVersion,
 )
-from app.models.integration import AbilityTask, ComfyuiLora, ComfyuiModelCatalog, ComfyuiPluginCatalog
+from app.models.integration import (
+    AbilityInvocationLog,
+    AbilityTask,
+    ComfyuiLora,
+    ComfyuiModelCatalog,
+    ComfyuiPluginCatalog,
+)
 from app.schemas import admin_integrations as admin_schemas
 from app.schemas import admin_tests
 from app.schemas.eval import (
@@ -213,11 +219,119 @@ def _dedupe_workflow_versions(rows: list[EvalWorkflowVersion]) -> list[EvalWorkf
     return list(dedup.values())
 
 
-def _serialize_eval_run(run: EvalRun) -> EvalRunResponse:
-    has_result = bool(
-        (isinstance(run.result_image_urls_json, list) and len(run.result_image_urls_json) > 0)
-        or run.result_output_json is not None
-    )
+def _safe_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _serialize_eval_billing(log: AbilityInvocationLog | None) -> dict[str, Any]:
+    if not log:
+        return {}
+    return {
+        "billing_unit": log.billing_unit,
+        "unit_price": _safe_float(log.unit_price),
+        "currency": log.currency,
+        "cost_amount": _safe_float(log.cost_amount),
+    }
+
+
+def _non_empty_strings(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    results: list[str] = []
+    for item in value:
+        if isinstance(item, str) and item.strip():
+            results.append(item.strip())
+            continue
+        if isinstance(item, dict):
+            for key in ("url", "storedUrl", "stored_url", "outputUrl", "output_url", "imageUrl", "videoUrl"):
+                nested = item.get(key)
+                if isinstance(nested, str) and nested.strip():
+                    results.append(nested.strip())
+                    break
+    return results
+
+
+def _output_payload(value: Any) -> Any:
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        if (text.startswith("{") and text.endswith("}")) or (text.startswith("[") and text.endswith("]")):
+            try:
+                return json.loads(text)
+            except json.JSONDecodeError:
+                return text
+        return text
+    return value
+
+
+def _collect_output_list(output: Any, keys: tuple[str, ...]) -> list[Any]:
+    if not isinstance(output, dict):
+        return []
+    for key in keys:
+        value = output.get(key)
+        if isinstance(value, list):
+            return value
+        if value not in (None, "", [], {}):
+            return [value]
+    return []
+
+
+def _eval_run_output_kind(run: EvalRun) -> tuple[str, bool]:
+    images = run.result_image_urls_json if isinstance(run.result_image_urls_json, list) else []
+    if _non_empty_strings(images):
+        return "image", True
+    output = _output_payload(run.result_output_json)
+    if output in (None, "", [], {}):
+        return "none", False
+    if isinstance(output, dict):
+        nested_images = _collect_output_list(output, ("imageUrls", "image_urls", "images", "resultUrls", "result_urls"))
+        if _non_empty_strings(nested_images):
+            return "image", True
+        nested_videos = _collect_output_list(output, ("videoUrls", "video_urls", "videos"))
+        if _non_empty_strings(nested_videos):
+            return "video", True
+        nested_texts = _collect_output_list(output, ("texts", "resultTexts", "result_texts", "text", "content", "message"))
+        if _non_empty_strings(nested_texts):
+            return "text", True
+        return "structured", True
+    if isinstance(output, list):
+        if _non_empty_strings(output):
+            return "text", True
+        return ("structured", True) if any(item not in (None, "", [], {}) for item in output) else ("none", False)
+    if isinstance(output, str):
+        return ("text", True) if output.strip() else ("none", False)
+    return "structured", True
+
+
+def _build_eval_billing_map(db: Session, runs: list[EvalRun]) -> dict[str, dict[str, Any]]:
+    task_ids = [str(run.podi_task_id).strip() for run in runs if isinstance(run.podi_task_id, str) and run.podi_task_id.strip()]
+    if not task_ids:
+        return {}
+    try:
+        tasks = db.execute(select(AbilityTask).where(AbilityTask.id.in_(task_ids))).scalars().all()
+        log_ids = [int(task.log_id) for task in tasks if task.log_id is not None]
+        if not log_ids:
+            return {}
+        logs = db.execute(select(AbilityInvocationLog).where(AbilityInvocationLog.id.in_(log_ids))).scalars().all()
+    except SQLAlchemyError as exc:
+        logger.warning("load eval billing summary failed: %s", exc)
+        return {}
+    log_by_id = {int(log.id): log for log in logs}
+    return {
+        task.id: _serialize_eval_billing(log_by_id.get(int(task.log_id)))
+        for task in tasks
+        if task.log_id is not None and log_by_id.get(int(task.log_id))
+    }
+
+
+def _serialize_eval_run(run: EvalRun, billing: dict[str, Any] | None = None) -> EvalRunResponse:
+    _, has_result = _eval_run_output_kind(run)
     stage = derive_eval_run_status(
         status=run.status,
         podi_task_id=run.podi_task_id,
@@ -231,6 +345,7 @@ def _serialize_eval_run(run: EvalRun) -> EvalRunResponse:
             "callback_status": stage.callback_status,
             "final_status": stage.final_status,
             "error_code": stage.error_code,
+            **(billing or {}),
         }
     )
     return EvalRunResponse.model_validate(payload)
@@ -2389,7 +2504,8 @@ def list_runs(
 
     total = int(db.execute(count_stmt).scalar_one())
     rows = db.execute(stmt.order_by(EvalRun.created_at.desc()).offset(offset).limit(limit)).scalars().all()
-    items = [_serialize_eval_run(row) for row in rows]
+    billing_map = _build_eval_billing_map(db, rows)
+    items = [_serialize_eval_run(row, billing_map.get(str(row.podi_task_id or ""))) for row in rows]
     return EvalRunListResponse(total=total, items=items)
 
 
@@ -2596,12 +2712,13 @@ def list_runs_with_latest_annotation(
             if ann.run_id not in latest_map:
                 latest_map[ann.run_id] = ann
 
+    billing_map = _build_eval_billing_map(db, runs)
     items: list[EvalRunWithLatestAnnotationResponse] = []
     for r in runs:
         items.append(
             EvalRunWithLatestAnnotationResponse.model_validate(
                 {
-                    **_serialize_eval_run(r).model_dump(),
+                    **_serialize_eval_run(r, billing_map.get(str(r.podi_task_id or ""))).model_dump(),
                     "latest_annotation": EvalAnnotationResponse.model_validate(latest_map.get(r.id)).model_dump()
                     if latest_map.get(r.id)
                     else None,
@@ -2623,7 +2740,8 @@ def get_run(
     run = db.get(EvalRun, run_id)
     if not run:
         raise HTTPException(status_code=404, detail="NOT_FOUND")
-    return _serialize_eval_run(run)
+    billing_map = _build_eval_billing_map(db, [run])
+    return _serialize_eval_run(run, billing_map.get(str(run.podi_task_id or "")))
 
 
 @router.post("/runs/{run_id}/annotations", response_model=EvalAnnotationResponse)
@@ -2670,6 +2788,7 @@ def list_run_annotations(
 def workflow_metrics(
     request: Request,
     response: Response,
+    recent_hours: int = Query(72, ge=1, le=720),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     """Return per-workflow aggregate rating metrics for business comparison."""
@@ -2679,6 +2798,7 @@ def workflow_metrics(
     rows = db.execute(
         select(
             EvalRun.workflow_version_id,
+            func.count(func.distinct(EvalRun.id)).label("run_count"),
             func.count(EvalAnnotation.id).label("rating_count"),
             func.avg(EvalAnnotation.rating).label("avg_rating"),
         )
@@ -2687,11 +2807,82 @@ def workflow_metrics(
         .group_by(EvalRun.workflow_version_id)
     ).all()
     metrics: dict[str, Any] = {}
-    for workflow_version_id, rating_count, avg_rating in rows:
+    for workflow_version_id, run_count, rating_count, avg_rating in rows:
         if not workflow_version_id:
             continue
         metrics[str(workflow_version_id)] = {
             "ratingCount": int(rating_count or 0),
             "avgRating": float(avg_rating) if avg_rating is not None else None,
+            "runCount": int(run_count or 0),
+            "recentRunCount": 0,
+            "recentSuccessCount": 0,
+            "recentFailureCount": 0,
+            "recentRunningCount": 0,
+            "recentNoOutputCount": 0,
+            "recentOutputKindCounts": {"image": 0, "video": 0, "text": 0, "structured": 0, "none": 0},
+            "recentHours": recent_hours,
         }
-    return {"metrics": metrics}
+    recent_since = datetime.utcnow() - timedelta(hours=recent_hours)
+    run_rows = (
+        db.execute(
+            select(EvalRun)
+            .where(EvalRun.created_at >= recent_since)
+            .order_by(EvalRun.workflow_version_id.asc(), EvalRun.updated_at.desc())
+        )
+        .scalars()
+        .all()
+    )
+    for run in run_rows:
+        workflow_version_id = str(run.workflow_version_id or "").strip()
+        if not workflow_version_id:
+            continue
+        bucket = metrics.setdefault(
+            workflow_version_id,
+            {
+                "ratingCount": 0,
+                "avgRating": None,
+                "runCount": 0,
+                "recentRunCount": 0,
+                "recentSuccessCount": 0,
+                "recentFailureCount": 0,
+                "recentRunningCount": 0,
+                "recentNoOutputCount": 0,
+                "recentOutputKindCounts": {"image": 0, "video": 0, "text": 0, "structured": 0, "none": 0},
+                "recentHours": recent_hours,
+            },
+        )
+        output_kind, has_result = _eval_run_output_kind(run)
+        stage = derive_eval_run_status(
+            status=run.status,
+            podi_task_id=run.podi_task_id,
+            error_message=run.error_message,
+            has_result=has_result,
+        )
+        final_status = stage.final_status
+        bucket["recentRunCount"] = int(bucket.get("recentRunCount") or 0) + 1
+        if final_status == "success":
+            bucket["recentSuccessCount"] = int(bucket.get("recentSuccessCount") or 0) + 1
+        elif final_status in {"failed", "canceled"}:
+            bucket["recentFailureCount"] = int(bucket.get("recentFailureCount") or 0) + 1
+        else:
+            bucket["recentRunningCount"] = int(bucket.get("recentRunningCount") or 0) + 1
+        if str(run.status or "").lower() in {"succeeded", "success", "completed"} and not has_result:
+            bucket["recentNoOutputCount"] = int(bucket.get("recentNoOutputCount") or 0) + 1
+        kind_counts = bucket.setdefault(
+            "recentOutputKindCounts",
+            {"image": 0, "video": 0, "text": 0, "structured": 0, "none": 0},
+        )
+        if isinstance(kind_counts, dict):
+            kind_counts[output_kind] = int(kind_counts.get(output_kind) or 0) + 1
+        if "lastRunAt" not in bucket:
+            bucket.update(
+                {
+                    "lastRunStatus": final_status,
+                    "lastRunAt": run.updated_at.isoformat() if run.updated_at else None,
+                    "lastRunHasOutput": has_result,
+                    "lastRunOutputKind": output_kind,
+                    "lastErrorCode": stage.error_code,
+                    "lastErrorMessage": run.error_message,
+                }
+            )
+    return {"metrics": metrics, "recentHours": recent_hours}

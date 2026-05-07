@@ -18,6 +18,14 @@ export const integrationNavItems = [
     description: '业务版本、发布时间、默认入口',
   },
   {
+    id: 'api-exposure',
+    label: 'API 开放',
+    shortLabel: 'API',
+    group: 'business',
+    groupLabel: '业务能力',
+    description: '中台自有 API 与 Coze 工具箱',
+  },
+  {
     id: 'ability-evals',
     label: '能力评测',
     shortLabel: '评',

@@ -24,8 +24,23 @@
 | ComfyUI Agent | `docs/api/modules/agent.md` |
 | 评测平台 | `docs/api/modules/eval.md` |
 | 管理端核心 | `docs/api/modules/admin-core.md` |
+| 管理端账单 | `docs/api/modules/admin-billing.md` |
 | 任务与调度 | `docs/api/modules/tasks.md` |
 | 通知/钱包 | `docs/api/modules/notify-wallet.md` |
+
+---
+
+## 管理端 API 开放页对应关系
+
+管理端“API 开放”页分为三类入口：
+
+| 页面分组 | 模块文档 | 回归清单 |
+| --- | --- | --- |
+| 中台自有业务 API | `docs/api/modules/business.md` | `docs/testing/API_EXPOSURE_SMOKE_CHECKLIST.md` |
+| 中台原子能力 API | `docs/api/modules/abilities.md` | `docs/testing/API_EXPOSURE_SMOKE_CHECKLIST.md` |
+| Coze 工具箱 API | `docs/api/modules/coze.md` | `docs/testing/API_EXPOSURE_SMOKE_CHECKLIST.md` |
+
+这三类入口任意新增或改名时，必须同步更新管理端页面、模块文档、错误码说明和冒烟清单。
 
 ---
 

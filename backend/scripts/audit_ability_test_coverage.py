@@ -26,13 +26,14 @@ if str(ROOT) not in sys.path:
 
 from app.core.db import get_session  # noqa: E402
 from app.models.eval import EvalWorkflowVersion  # noqa: E402
-from app.models.integration import Ability, Executor  # noqa: E402
+from app.models.integration import Ability, Executor, VendorModelCatalog  # noqa: E402
 from app.services.eval_workflow_response import build_eval_workflow_response_metadata  # noqa: E402
 from app.services.eval_workflow_routing_governance import resolve_eval_workflow_routing_governance  # noqa: E402
 
 
 FAIL_RANK = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
 PUBLIC_WORKFLOW_ROLES = {"production", "candidate"}
+VENDOR_PROVIDERS = {"openai", "openai_compatible", "volcengine", "baidu", "kie"}
 
 
 def _now_slug() -> str:
@@ -54,6 +55,31 @@ def _field_names(schema: Any) -> list[str]:
         if isinstance(field, dict) and str(field.get("name") or "").strip():
             names.append(str(field["name"]).strip())
     return names
+
+
+def _acceptance_passed(metadata: Any) -> bool:
+    if not isinstance(metadata, dict):
+        return False
+    latest = metadata.get("latestAcceptance")
+    records = metadata.get("acceptanceRecords")
+    if not isinstance(latest, dict) and isinstance(records, list):
+        latest = next((item for item in records if isinstance(item, dict)), None)
+    return isinstance(latest, dict) and str(latest.get("status") or "").strip().lower() == "passed"
+
+
+def _has_cost_policy(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    for key in ("unitPrice", "unit_price", "discountPrice", "discount_price", "listPrice", "list_price", "price"):
+        raw = value.get(key)
+        if raw in (None, ""):
+            continue
+        try:
+            if float(raw) > 0:
+                return True
+        except (TypeError, ValueError):
+            return False
+    return False
 
 
 def _tags(executor: Executor) -> set[str]:
@@ -311,6 +337,101 @@ def _audit_eval_workflows(session: Session) -> list[dict[str, str]]:
     return issues
 
 
+def _audit_vendor_models(session: Session) -> list[dict[str, str]]:
+    issues: list[dict[str, str]] = []
+    abilities = (
+        session.execute(select(Ability).where(Ability.status == "active", Ability.provider.in_(VENDOR_PROVIDERS)))
+        .scalars()
+        .all()
+    )
+    model_ids = sorted({ability.vendor_model_id for ability in abilities if ability.vendor_model_id})
+    models = (
+        session.execute(select(VendorModelCatalog).where(VendorModelCatalog.id.in_(model_ids))).scalars().all()
+        if model_ids
+        else []
+    )
+    model_by_id = {model.id: model for model in models}
+    for ability in abilities:
+        object_id = f"{ability.provider}.{ability.capability_key}"
+        if not ability.vendor_model_id:
+            issues.append(
+                _issue(
+                    severity="P2",
+                    area="vendor_model",
+                    code="VENDOR_ABILITY_MODEL_UNBOUND",
+                    object_id=object_id,
+                    title="第三方能力未绑定模型目录",
+                    detail="active 第三方能力没有 vendor_model_id，业务治理无法稳定拿到模型边界、计价和验收状态。",
+                    fix="在能力目录中绑定模型弹药库条目，或先将能力置为 inactive。",
+                )
+            )
+            continue
+        model = model_by_id.get(ability.vendor_model_id)
+        if not model:
+            issues.append(
+                _issue(
+                    severity="P1",
+                    area="vendor_model",
+                    code="VENDOR_ABILITY_MODEL_NOT_FOUND",
+                    object_id=object_id,
+                    title="第三方能力绑定的模型目录不存在",
+                    detail=f"vendor_model_id={ability.vendor_model_id} 不存在，业务版本无法做上线门禁。",
+                    fix="修正能力 vendor_model_id，或恢复模型目录项。",
+                )
+            )
+            continue
+        model_object_id = f"{model.provider}.{model.model}"
+        if model.status != "active":
+            issues.append(
+                _issue(
+                    severity="P1",
+                    area="vendor_model",
+                    code="VENDOR_ABILITY_MODEL_INACTIVE",
+                    object_id=model_object_id,
+                    title="第三方能力绑定了未启用模型",
+                    detail=f"能力 {object_id} 绑定模型状态为 {model.status}。",
+                    fix="启用模型，或把能力切到已启用模型。",
+                )
+            )
+        if not _acceptance_passed(model.extra_metadata):
+            issues.append(
+                _issue(
+                    severity="P1",
+                    area="vendor_model",
+                    code="VENDOR_MODEL_ACCEPTANCE_MISSING",
+                    object_id=model_object_id,
+                    title="第三方模型缺少验收通过记录",
+                    detail=f"能力 {object_id} 正在引用该模型，但模型弹药库没有 passed 验收记录。",
+                    fix="在管理端模型弹药库完成能力测试/测评端实跑，并记录模型验收通过。",
+                )
+            )
+        if not _has_cost_policy(model.cost_policy):
+            issues.append(
+                _issue(
+                    severity="P2",
+                    area="vendor_model",
+                    code="VENDOR_MODEL_COST_POLICY_MISSING",
+                    object_id=model_object_id,
+                    title="第三方模型缺少计价策略",
+                    detail=f"能力 {object_id} 正在引用该模型，但成本口径为空。",
+                    fix="补齐 costPolicy.unitPrice、billingUnit、currency 和定价版本。",
+                )
+            )
+        if not model.api_types:
+            issues.append(
+                _issue(
+                    severity="P2",
+                    area="vendor_model",
+                    code="VENDOR_MODEL_API_TYPES_MISSING",
+                    object_id=model_object_id,
+                    title="第三方模型缺少能力类型",
+                    detail="用户无法判断该模型用于图片、视频、文字还是图像理解。",
+                    fix="补齐 apiTypes，例如 image_generation、image_edit、vision、video_generation。",
+                )
+            )
+    return issues
+
+
 def build_audit_report(
     session: Session,
     *,
@@ -325,7 +446,8 @@ def build_audit_report(
     )
     ability_issues = _audit_abilities(session, executors)
     workflow_issues = _audit_eval_workflows(session)
-    issues = executor_issues + ability_issues + workflow_issues
+    vendor_model_issues = _audit_vendor_models(session)
+    issues = executor_issues + ability_issues + workflow_issues + vendor_model_issues
     severity_counts = Counter(issue["severity"] for issue in issues)
     area_counts = Counter(issue["area"] for issue in issues)
     code_counts = Counter(issue["code"] for issue in issues)

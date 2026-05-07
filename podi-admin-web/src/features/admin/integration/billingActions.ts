@@ -2,6 +2,7 @@ import { useCallback } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import { adminApi } from '../../../services/adminApi';
 import type {
+  BillingCommercialReportResponse,
   BillingInvoiceRequestListResponse,
   BillingMonthlySettlementListResponse,
   BillingMonthlySettlementResponse,
@@ -10,6 +11,8 @@ import type {
   BillingUserDetailResponse,
   MonthlySettlementCollectionNotificationListResponse,
   PackageAlertNotificationListResponse,
+  PackageCatalogListResponse,
+  PackageCatalogPayload,
   PackageGrantPayload,
   PackagePurchaseOrderCreatePayload,
   PackagePurchaseOrderListResponse,
@@ -26,6 +29,7 @@ interface BillingActionsParams {
   downloadBlob: (blob: Blob, filename: string) => void;
   extractErrorMessage: (error: unknown) => string;
   setBillingDetail: Dispatch<SetStateAction<BillingUserDetailResponse | null>>;
+  setBillingCommercialReport: Dispatch<SetStateAction<BillingCommercialReportResponse | null>>;
   setBillingError: Dispatch<SetStateAction<string | null>>;
   setBillingExporting: Dispatch<SetStateAction<boolean>>;
   setBillingInvoiceRequests: Dispatch<SetStateAction<BillingInvoiceRequestListResponse | null>>;
@@ -38,6 +42,7 @@ interface BillingActionsParams {
   setBillingNotificationConfig: Dispatch<SetStateAction<BillingNotificationConfigResponse | null>>;
   setBillingOverview: Dispatch<SetStateAction<BillingOverviewResponse | null>>;
   setBillingPackageAlertNotifications: Dispatch<SetStateAction<PackageAlertNotificationListResponse | null>>;
+  setBillingPackageCatalog: Dispatch<SetStateAction<PackageCatalogListResponse | null>>;
   setBillingPackagePurchaseOrders: Dispatch<SetStateAction<PackagePurchaseOrderListResponse | null>>;
   setBillingSelectedUserId: Dispatch<SetStateAction<string>>;
 }
@@ -53,6 +58,7 @@ export const useBillingActions = ({
   downloadBlob,
   extractErrorMessage,
   setBillingDetail,
+  setBillingCommercialReport,
   setBillingError,
   setBillingExporting,
   setBillingInvoiceRequests,
@@ -63,6 +69,7 @@ export const useBillingActions = ({
   setBillingNotificationConfig,
   setBillingOverview,
   setBillingPackageAlertNotifications,
+  setBillingPackageCatalog,
   setBillingPackagePurchaseOrders,
   setBillingSelectedUserId,
 }: BillingActionsParams) => {
@@ -122,6 +129,8 @@ export const useBillingActions = ({
         packageAlertNotifications,
         monthlyCollectionNotifications,
         notificationConfig,
+        commercialReport,
+        packageCatalog,
         packagePurchaseOrders,
         invoiceRequests,
       ] = await Promise.all([
@@ -135,6 +144,8 @@ export const useBillingActions = ({
         adminApi.listBillingPackageAlertNotifications(20),
         adminApi.listBillingMonthlyCollectionNotifications(20),
         adminApi.getBillingNotificationConfig(),
+        adminApi.getBillingCommercialReport({ ...billingQuery, limit: 1000 }),
+        adminApi.listPackageCatalog({ businessKey: billingBusinessKey, status: 'all', limit: 100 }),
         adminApi.listPackagePurchaseOrders({ businessKey: billingBusinessKey, limit: 50 }),
         adminApi.listBillingInvoiceRequests({ businessKey: billingBusinessKey, limit: 50 }),
       ]);
@@ -144,6 +155,8 @@ export const useBillingActions = ({
       setBillingPackageAlertNotifications(packageAlertNotifications);
       setBillingMonthlyCollectionNotifications(monthlyCollectionNotifications);
       setBillingNotificationConfig(notificationConfig);
+      setBillingCommercialReport(commercialReport);
+      setBillingPackageCatalog(packageCatalog);
       setBillingPackagePurchaseOrders(packagePurchaseOrders);
       setBillingInvoiceRequests(invoiceRequests);
       const nextUserId =
@@ -176,6 +189,7 @@ export const useBillingActions = ({
     billingWindowDays,
     extractErrorMessage,
     setBillingDetail,
+    setBillingCommercialReport,
     setBillingError,
     setBillingInvoiceRequests,
     setBillingLoading,
@@ -185,6 +199,7 @@ export const useBillingActions = ({
     setBillingNotificationConfig,
     setBillingOverview,
     setBillingPackageAlertNotifications,
+    setBillingPackageCatalog,
     setBillingPackagePurchaseOrders,
     setBillingSelectedUserId,
   ]);
@@ -211,6 +226,35 @@ export const useBillingActions = ({
     billingDetail,
     billingMonth,
     billingSelectedUserId,
+    downloadBlob,
+    extractErrorMessage,
+    setBillingError,
+    setBillingExporting,
+  ]);
+
+  const exportBillingCommercialReport = useCallback(async () => {
+    setBillingExporting(true);
+    setBillingError(null);
+    try {
+      const blob = await adminApi.exportBillingCommercialReport({
+        month: billingMonth,
+        tenantId: billingTenantId,
+        clientId: billingClientId,
+        businessKey: billingBusinessKey,
+        limit: 1000,
+      });
+      const scope = billingBusinessKey && billingBusinessKey !== 'all' ? billingBusinessKey : 'all';
+      downloadBlob(blob, `billing-commercial-report-${billingMonth}-${scope}.csv`);
+    } catch (error) {
+      setBillingError(extractErrorMessage(error) || '商业化报表导出失败');
+    } finally {
+      setBillingExporting(false);
+    }
+  }, [
+    billingBusinessKey,
+    billingClientId,
+    billingMonth,
+    billingTenantId,
     downloadBlob,
     extractErrorMessage,
     setBillingError,
@@ -271,6 +315,22 @@ export const useBillingActions = ({
       setBillingError,
       setBillingLoading,
     ],
+  );
+
+  const savePackageCatalog = useCallback(
+    async (payload: PackageCatalogPayload) => {
+      setBillingLoading(true);
+      setBillingError(null);
+      try {
+        await adminApi.upsertPackageCatalog(payload);
+        await refreshBillingOverview();
+      } catch (error) {
+        setBillingError(extractErrorMessage(error) || '套餐目录保存失败，请检查套餐标识、名称、额度和金额。');
+      } finally {
+        setBillingLoading(false);
+      }
+    },
+    [extractErrorMessage, refreshBillingOverview, setBillingError, setBillingLoading],
   );
 
   const markPackagePurchaseOrderPaid = useCallback(
@@ -532,6 +592,7 @@ export const useBillingActions = ({
   return {
     createBillingInvoiceRequest,
     createPackagePurchaseOrder,
+    exportBillingCommercialReport,
     exportBillingUserLedger,
     grantBillingPackage,
     issueBillingMonthlySettlement,
@@ -545,5 +606,6 @@ export const useBillingActions = ({
     runBillingMonthlyCollectionNotification,
     runBillingPackageAlertNotification,
     saveBillingNotificationConfig,
+    savePackageCatalog,
   };
 };

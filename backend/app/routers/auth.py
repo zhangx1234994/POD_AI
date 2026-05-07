@@ -126,3 +126,32 @@ def list_users(
     _: User = Depends(require_admin),
 ) -> schemas.UserListResponse:
     return schemas.UserListResponse(items=auth_service.list_users(limit=limit))
+
+
+@router.patch("/users/{user_id}", response_model=schemas.UserRead, response_model_by_alias=False)
+def update_user(
+    user_id: str,
+    payload: schemas.UserUpdateRequest,
+    user: User = Depends(require_admin),
+) -> schemas.UserRead:
+    return schemas.UserRead.model_validate(
+        auth_service.update_user(
+            user_id=user_id,
+            display_name=payload.displayName,
+            role=payload.role,
+            status=payload.status,
+            tenant_id=payload.tenantId,
+            client_id=payload.clientId,
+            note=payload.note,
+            actor=user,
+        )
+    )
+
+
+@router.get(
+    "/scope-summary",
+    response_model=schemas.AuthScopeSummaryResponse,
+    response_model_by_alias=False,
+)
+def get_scope_summary(_: User = Depends(require_admin)) -> schemas.AuthScopeSummaryResponse:
+    return schemas.AuthScopeSummaryResponse.model_validate(auth_service.scope_summary())

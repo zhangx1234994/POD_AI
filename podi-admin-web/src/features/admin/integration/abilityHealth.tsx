@@ -17,6 +17,42 @@ const AbilityMetricCard = ({ label, value, sub }: { label: string; value: number
   </Card>
 );
 
+const resolveAbilityHealthAction = (row: AbilityHealthSummaryItem): { theme: 'success' | 'warning' | 'danger' | 'default'; text: string; detail: string } => {
+  if (row.healthStatus === 'failed') {
+    return {
+      theme: 'danger',
+      text: '先排查失败',
+      detail: '看最近失败日志，修复后再跑能力测试。',
+    };
+  }
+  if (row.healthStatus === 'degraded') {
+    return {
+      theme: 'warning',
+      text: '先复测',
+      detail: '成功率下降，发布前不要直接绑定业务默认版本。',
+    };
+  }
+  if (row.needsTest) {
+    return {
+      theme: 'warning',
+      text: row.latestLogAt ? '重新复测' : '先跑测试',
+      detail: row.latestLogAt ? '最近测试结果已过期，先补一条新样本。' : '还没有有效调用记录，先跑通一条真实样本。',
+    };
+  }
+  if (row.healthStatus === 'healthy') {
+    return {
+      theme: 'success',
+      text: '可继续',
+      detail: '当前健康正常，可进入业务绑定或小流量验证。',
+    };
+  }
+  return {
+    theme: 'default',
+    text: '待确认',
+    detail: '缺少足够样本，先跑能力测试确认输出回填。',
+  };
+};
+
 export function AbilityHealthPanel({
   summary,
   filter,
@@ -141,6 +177,22 @@ export function AbilityHealthPanel({
                     </Typography.Text>
                   </Space>
                 ),
+              },
+              {
+                colKey: 'nextAction',
+                title: '当前要做',
+                minWidth: 260,
+                cell: ({ row }) => {
+                  const action = resolveAbilityHealthAction(row);
+                  return (
+                    <Space direction="vertical" size={2}>
+                      <Tag theme={action.theme} variant="light">
+                        {action.text}
+                      </Tag>
+                      <Typography.Text theme="secondary">{action.detail}</Typography.Text>
+                    </Space>
+                  );
+                },
               },
             ]}
             empty={<Typography.Text theme="secondary">当前筛选下暂无能力。</Typography.Text>}

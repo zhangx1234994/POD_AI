@@ -43,6 +43,8 @@
 - `docs/PLATFORM_SURFACES.md`
 - `docs/strategy/platform-vision-and-goals-2026.md`
 - `docs/strategy/strategy-one-page-2026q2.md`
+- `docs/strategy/mid-platform-gap-and-roadmap-2026-05-07.md`
+- `docs/strategy/mid-platform-detailed-execution-plan-2026-05-07.md`
 - `docs/strategy/core-business-chain-review-2026-05-03.md`
 - `docs/strategy/coze-mid-platform-migration-v1.md`
 - `docs/strategy/coze-control-plane-migration-pack-v1.md`

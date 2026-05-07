@@ -26,6 +26,7 @@
 - `docs/api/modules/auth.md`：登录与刷新
 - `docs/api/modules/abilities.md`：统一能力调用
 - `docs/api/modules/admin-core.md`：管理端核心接口
+- `docs/api/modules/admin-billing.md`：管理端账单、套餐、月结和发票
 - `docs/api/modules/comfyui-admin.md`：ComfyUI 管理
 - `docs/api/modules/agent.md`：Agent 回执/心跳/清单
 - `docs/api/modules/eval.md`：评测平台
@@ -42,4 +43,3 @@
 1. 接口新增/变更必须同步模块文档。  
 2. 字段/错误码变更必须更新错误码总表。  
 3. 评测端/管理端变更需同步文档与前端实现。  
-

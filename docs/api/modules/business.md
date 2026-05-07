@@ -17,6 +17,8 @@
 - 推荐使用 `Authorization: Bearer <SERVICE_API_TOKEN>`。
 - Coze 同机/可信内网调用可通过 `COZE_TRUSTED_IPS` 或内网地址放行。
 - 管理端业务能力接口仍要求管理员权限。
+- 业务方登录账号调用时，只能使用账号绑定的 `tenantId/clientId`。如果传入其他业务方范围，会返回 `BUSINESS_USER_SCOPE_FORBIDDEN`；如果业务方账号没有绑定 `tenantId`，会返回 `BUSINESS_USER_SCOPE_REQUIRED`。
+- 管理员和服务 Token 可显式指定 `tenantId/clientId`，用于 Coze 工具箱、巡检脚本和后台代业务方提交。
 
 ---
 
@@ -26,7 +28,9 @@
 
 1. 提交任务后保存 `runId`。
 2. 用 `runId` 轮询 `/api/business/runs/get`。
-3. 终态只看 `status/imageUrls/videoUrls/texts/error`，不要依赖底层能力、执行节点或工作流 ID。
+3. 终态优先看 `status/imageUrls/videoUrls/texts/error`；结构化和普通资源可从 `resultPayload` 与 `flowSummary.output` 查看，后续公开字段按同一口径扩展。
+
+这条链路不要求业务方传 Coze 工作流 ID。Coze 可以继续作为接入入口，但业务 API 本身已经能完成“提交任务 -> 查询结果”的闭环；灰度或默认版本命中可先用 `route-preview` 验证。
 
 当前三个主业务入口：
 
@@ -48,8 +52,37 @@
 状态约定：
 
 - `queued/running`：任务还在排队或执行，业务方继续轮询。
-- `succeeded`：任务成功，读取 `imageUrls/videoUrls/texts`。
+- `succeeded`：任务成功，读取 `imageUrls/videoUrls/texts`；结构化和普通资源查看 `resultPayload` 与 `flowSummary.output`。
 - `failed/cancelled/timeout`：任务不可继续，读取 `error/errorMessage` 并按错误码处理。
+
+### 0.1) 与管理端 API 开放页对齐
+
+管理端“API 开放”页展示的业务接口必须和本文档保持一致：
+
+| 页面名称 | 接口 | 文档位置 | 必填/核心字段 | 冒烟口径 |
+| --- | --- | --- | --- | --- |
+| 业务 OpenAPI | `GET /api/business/openapi.json` | 7) OpenAPI 工具箱 | 无 | 返回 200，且包含三主业务提交、路由预览、任务查询工具。 |
+| 花纹提取 | `POST /api/business/pattern-extract/runs` | 2) 提交花纹提取 | `imageUrl` | 可先用 route-preview 验证版本命中；真实出图必须确认 `runId/status/imageUrls`。 |
+| 图裂变 | `POST /api/business/fission/runs` | 3) 提交图裂变 | `imageUrl` | 可先用 route-preview 验证版本命中；真实出图必须确认 `runId/status/imageUrls`。 |
+| 扩图 | `POST /api/business/outpaint/runs` | 4) 提交扩图 | `imageUrl` | 可先用 route-preview 验证版本命中；真实出图必须确认 `runId/status/imageUrls`。 |
+| 查询业务任务 | `POST /api/business/runs/get` | 5) 查询业务任务 | `runId` | 使用不存在的 `runId` 时应返回 `BUSINESS_RUN_NOT_FOUND` 或等价 404，不应返回 500。 |
+
+维护规则：
+
+- 页面新增业务接口时，本文档必须同步新增请求、响应和错误说明。
+- 本文档新增业务接口时，管理端“API 开放”页必须同步露出或说明暂不露出的原因。
+- 业务方默认只需要使用提交接口和查询接口；路由预览属于上线、灰度和排障工具。
+
+### 0.2) 业务 API 错误处理口径
+
+| 场景 | 常见错误码 | 业务方动作 | 平台动作 |
+| --- | --- | --- | --- |
+| 缺少主图或 runId | `BUSINESS_IMAGE_URL_REQUIRED`、`BUSINESS_RUN_ID_REQUIRED` | 修正入参后重新提交，不建议自动重试。 | 前端表单必须提前提示必填项。 |
+| 鉴权或业务方范围不允许 | `AUTHORIZATION_REQUIRED`、`BUSINESS_USER_SCOPE_REQUIRED`、`BUSINESS_USER_SCOPE_FORBIDDEN` | 检查 Token、账号绑定的业务方范围或接入配置。 | 管理端账号权限页和业务方配置页给出中文处理建议。 |
+| 业务版本或配方不可用 | `BUSINESS_CAPABILITY_NOT_FOUND`、`BUSINESS_RECIPE_INVALID`、`BUSINESS_RECIPE_ABILITY_NOT_AVAILABLE` | 暂停调用该业务版本，保留 `traceId/requestId` 给平台排查。 | 检查默认版本、配方步骤、能力启停、模型门禁和回滚版本。 |
+| 业务方额度或并发限制 | `BUSINESS_CLIENT_DISABLED`、`BUSINESS_CLIENT_BUSINESS_NOT_ALLOWED`、`BUSINESS_CLIENT_CONCURRENCY_LIMITED`、`BUSINESS_CLIENT_DAILY_RUN_LIMITED`、`BUSINESS_CLIENT_DAILY_QUOTA_LIMITED` | 不要高频重试；等并发释放或联系平台调整策略。 | 管理端业务方配置页必须能看到限制来源。 |
+| 执行节点、队列或上游失败 | `COMFYUI_IMAGE_REQUIRED`、`COMFYUI_TIMEOUT`、`ABILITY_TASK_FAILED`、`VENDOR_API_EXECUTION_FAILED` | 可按业务策略稍后重试一次；连续失败时保留 `runId/taskId` 排查。 | 检查执行节点健康、队列、模型 Key、出网、OSS 回填和能力调用日志。 |
+| 查询不到任务 | `BUSINESS_RUN_NOT_FOUND`、`BUSINESS_RUN_FORBIDDEN` | 确认 `runId` 是否属于当前业务方，不要把底层 `taskId` 当 `runId` 使用。 | 排查租户隔离、任务写入和历史数据迁移。 |
 
 ---
 
@@ -221,6 +254,8 @@
 - `BUSINESS_RECIPE_ABILITY_NOT_AVAILABLE`
 - `BUSINESS_CLIENT_DISABLED`
 - `BUSINESS_CLIENT_BUSINESS_NOT_ALLOWED`
+- `BUSINESS_USER_SCOPE_REQUIRED`
+- `BUSINESS_USER_SCOPE_FORBIDDEN`
 - `BUSINESS_CLIENT_CONCURRENCY_LIMITED`
 - `BUSINESS_CLIENT_DAILY_RUN_LIMITED`
 - `BUSINESS_CLIENT_DAILY_QUOTA_LIMITED`
@@ -305,6 +340,8 @@
 - `BUSINESS_VL_PREPROCESS_FAILED`
 - `BUSINESS_CLIENT_DISABLED`
 - `BUSINESS_CLIENT_BUSINESS_NOT_ALLOWED`
+- `BUSINESS_USER_SCOPE_REQUIRED`
+- `BUSINESS_USER_SCOPE_FORBIDDEN`
 - `BUSINESS_CLIENT_CONCURRENCY_LIMITED`
 - `BUSINESS_CLIENT_DAILY_RUN_LIMITED`
 - `BUSINESS_CLIENT_DAILY_QUOTA_LIMITED`
@@ -353,6 +390,8 @@
 - `BUSINESS_RECIPE_ABILITY_NOT_AVAILABLE`
 - `BUSINESS_CLIENT_DISABLED`
 - `BUSINESS_CLIENT_BUSINESS_NOT_ALLOWED`
+- `BUSINESS_USER_SCOPE_REQUIRED`
+- `BUSINESS_USER_SCOPE_FORBIDDEN`
 - `BUSINESS_CLIENT_CONCURRENCY_LIMITED`
 - `BUSINESS_CLIENT_DAILY_RUN_LIMITED`
 - `BUSINESS_CLIENT_DAILY_QUOTA_LIMITED`
@@ -595,13 +634,14 @@
 说明：
 
 - `steps` 是业务配方步骤状态。当前版本至少记录主执行能力；启用 VL 辅助后会额外提交并记录 VL 步骤。
-- `flowSummary` 是给管理端和排障使用的链路证据：包含业务版本、原子能力、实际执行节点、输出回填和回调状态。业务方正常轮询只需要关注 `status/imageUrls/videoUrls/texts/error`。
+- `flowSummary` 是给管理端和排障使用的链路证据：包含业务版本、原子能力、实际执行节点、输出回填和回调状态。业务方正常轮询只需要关注 `status/imageUrls/videoUrls/texts/error`，结构化和普通资源通过 `resultPayload` 与 `flowSummary.output` 补充判断。
+- `flowSummary.output` 会按 `imageCount/videoCount/textCount/structuredCount/resourceCount` 分开展示，管理端不得继续把所有结果都当图片处理。
 - `steps[].executorId/executorName/executionEvidence` 来自能力调用日志，用于确认任务是否真的打到预期机器，以及结果是否已经落 OSS。
 - 默认情况下最终出图仍以主执行能力为准，VL 伴随步骤用于链路观测和结果积累。
 - 阻塞式 VL 串联开启后，主能力会等 VL 成功后再提交；查询时可能先看到 VL 运行中、主能力仍是 `planned`。
 - `steps[].resultSummary` 只返回安全摘要，例如 VL 图片描述、提示词建议、图片/视频数量，不返回完整第三方原始响应或大字段。
 - 结果 URL 提取同时兼容 `storedUrl/stored_url/ossUrl/url/sourceUrl`，避免底层已落 OSS 但业务层没有回填。
-- `durationMs/costAmount/currency/quotaUnits` 是成本与配额预留字段。现阶段以底层能力日志和厂商返回为准，缺失时返回 `null`，不会影响业务轮询。
+- `durationMs/costAmount/currency/quotaUnits` 是成本与配额字段。优先读取底层能力日志和厂商返回；若厂商未返回成本，则回退读取模型目录 `costPolicy` 或能力元数据 `pricing/costPolicy` 自动估算。
 
 ---
 
@@ -680,7 +720,7 @@ OpenAPI 内每个工具都会枚举错误响应：
 
 ---
 
-## 7) 管理端接口
+## 8) 管理端接口
 
 ### GET /api/admin/business/clients
 
@@ -757,8 +797,30 @@ OpenAPI 内每个工具都会枚举错误响应：
 
 - `primaryAbilityId` / `primaryAbilityName`：配方中的主原子能力。
 - `vendorModelId` / `vendorModelName`：主原子能力绑定的模型目录项；没有绑定时为空。
+- `governanceStatus`：上线前体检状态，`ready` 表示底层就绪，`blocker` 表示默认入口存在阻塞，`warning` 表示可测试但需要补治理信息。
+- `governanceIssues` / `governanceSuggestions`：体检发现的问题和建议，例如主能力不存在、模型未启用、第三方密钥不可用、模型成本未配置。
+- `runtimeKeyConfigured`：第三方模型所需密钥是否可用；非第三方能力可能为空。
+- `modelCostConfigured`：第三方模型成本策略是否已配置；非第三方能力可能为空。
+- `egressVerified`：需要出网的第三方模型是否在最近 7 天内有 active Key 带密钥出网检查成功；非出网模型可能为空。
+- `latestAcceptance` / `acceptanceRecords`：人工验收记录；默认版本切换前必须有最近一次 `passed`。
+- `releaseGate`：上线判断摘要，包含 `status`、`label`、`canRelease`、`canRequestDefault`、`blockers`、`warnings`、`suggestions`。管理端以它判断是否能申请默认切换。
 - `latestRun`：该业务版本最近一次调用摘要，包含状态、时间、结果数量和错误摘要，供管理端快速判断版本健康度。
 - `runMetrics`：该业务版本近 24 小时运行统计，包含总调用、成功、失败、排队、运行中、成功率，供默认版本切换前判断风险。
+
+业务治理提示码：
+
+| 提示码 | 含义 | 建议动作 |
+| --- | --- | --- |
+| `BUSINESS_GOVERNANCE_PRIMARY_ABILITY_MISSING` | 业务版本未绑定主能力 | 编辑业务版本，绑定真实主能力后再测试或设为默认。 |
+| `BUSINESS_GOVERNANCE_PRIMARY_ABILITY_NOT_FOUND` | 主能力编号在能力目录中不存在 | 修正配方，或恢复对应能力。 |
+| `BUSINESS_GOVERNANCE_PRIMARY_ABILITY_INACTIVE` | 主能力未启用 | 先启用主能力，或切换到已启用能力。 |
+| `BUSINESS_GOVERNANCE_EXECUTABLE_STEP_MISSING` | 配方没有可执行步骤 | 补齐可执行步骤，避免只剩配置壳。 |
+| `BUSINESS_GOVERNANCE_VENDOR_MODEL_NOT_FOUND` | 绑定的第三方模型目录不存在 | 修正模型绑定或重新同步模型目录。 |
+| `BUSINESS_GOVERNANCE_VENDOR_MODEL_INACTIVE` | 绑定的第三方模型未启用 | 启用模型，或切到其他可用模型。 |
+| `BUSINESS_GOVERNANCE_VENDOR_MODEL_ACCEPTANCE_REQUIRED` | 第三方模型缺少验收通过记录 | 在模型弹药库跑通能力测试或测评端样例，并记录模型验收通过。 |
+| `BUSINESS_GOVERNANCE_VENDOR_MODEL_COST_MISSING` | 第三方模型缺少成本策略 | 正式收费或对外开放前补成本口径。 |
+| `BUSINESS_GOVERNANCE_VENDOR_KEY_MISSING` | 第三方模型没有可用密钥 | 到模型弹药库配置并验证密钥。 |
+| `BUSINESS_GOVERNANCE_VENDOR_EGRESS_NOT_VERIFIED` | 出网模型缺少最近一次带密钥出网验证成功记录 | 在模型弹药库对该厂商 Key 执行验证，确认网络、Key 和上游账号都可用。 |
 
 ### POST /api/admin/business/capabilities
 
@@ -796,9 +858,9 @@ OpenAPI 内每个工具都会枚举错误响应：
 
 - `primaryAbilityId` 是必填的业务主能力；后端会自动写入 `recipe.primaryAbilityId` 和第一步配方。
 - `isDefault=true` 时，后端会把同一个 `businessKey` 下其它版本改成非默认。
-- 默认版本必须是 `active` 状态，避免业务入口指向不可用版本。
+- 默认版本必须是 `active` 状态，并且必须通过完整上线门禁：业务验收通过、底层治理无阻断、第三方模型有验收、计价、可用 Key，出网模型还需要最近 7 天带密钥出网验证成功。
 - 预置业务版本只负责初始化和补齐字段，不会在后续刷新时覆盖管理端已经切换的默认版本或启停状态。
-- 核心业务必须至少保留一个 active 非默认保底版本；图裂变预置 `biz_fission_rollback_e7_flux2_liebian`，扩图预置 `biz_outpaint_rollback_huawen_kuotu`，用于默认版本异常时快速切回。
+- 核心业务必须至少保留一个可回滚保底版本；“可回滚”不只看 active 非默认，还要有最近一次验收通过、最近成功真实样本且有输出、上线门禁不阻塞。图裂变预置 `biz_fission_rollback_e7_flux2_liebian`，扩图预置 `biz_outpaint_rollback_huawen_kuotu`，用于默认版本异常时快速切回。
 - `metadata.rollout` 是灰度规则；业务方不指定 `version` 时才会生效。
 - 灰度命中优先级：明确传 `version` > 灰度白名单 > 灰度比例 > 默认版本。
 - 灰度使用 `metadata.grayKey`、`metadata.tenantId`、`metadata.userId`、顶层 `tenantId/clientId/traceId/requestId`、用户 ID 或图片 URL 做稳定分流；对外只返回 `routeKeyHash`，不直接暴露原始标识。
@@ -812,6 +874,8 @@ OpenAPI 内每个工具都会枚举错误响应：
 - `BUSINESS_RECIPE_INVALID`
 - `BUSINESS_RECIPE_ABILITY_NOT_AVAILABLE`
 - `BUSINESS_DEFAULT_VERSION_MUST_BE_ACTIVE`
+- `BUSINESS_ACCEPTANCE_REQUIRED`
+- `BUSINESS_RELEASE_GATE_BLOCKED`
 - `VENDOR_MODEL_NOT_FOUND`
 
 ### PATCH /api/admin/business/capabilities/{capabilityId}
@@ -830,6 +894,43 @@ OpenAPI 内每个工具都会枚举错误响应：
 
 常见错误同新增接口。
 
+当本次编辑会把版本设为默认，或修改现有默认版本的状态/配方/主能力时，同样会执行完整上线门禁；未通过时返回 `BUSINESS_ACCEPTANCE_REQUIRED` 或 `BUSINESS_RELEASE_GATE_BLOCKED`。
+
+### POST /api/admin/business/capabilities/{capabilityId}/acceptance-records
+
+用途：记录业务版本的人工验收结论。它不改变业务流量，只把“测评端真实链路是否通过、回调和 OSS 回填是否正常”等证据写入版本元数据，方便后续切默认、灰度和回滚时有依据。
+
+请求体：
+
+```json
+{
+  "status": "passed",
+  "note": "测评端真实链路通过，回调和结果回填正常。",
+  "evidenceRunId": "run_xxx",
+  "evidenceUrl": "https://example.com/report",
+  "checklist": {
+    "businessFlow": true,
+    "callback": true,
+    "resultAssets": true
+  }
+}
+```
+
+响应：返回更新后的业务版本，新增字段包括：
+
+- `latestAcceptance`：最近一次验收记录。
+- `acceptanceRecords`：最近 5 条验收记录摘要。
+- `releaseGate`：会同步更新；`status=ready` 才表示没有明显上线阻断。
+- `metadata.latestAcceptance` / `metadata.acceptanceRecords`：完整元数据记录，最多保留 20 条。
+
+常见错误：
+
+- `ADMIN_ONLY`
+- `BUSINESS_CAPABILITY_NOT_FOUND`
+- `BUSINESS_ACCEPTANCE_STATUS_INVALID`
+
+自动化入口：真实业务巡检通过后，可以用 `backend/scripts/patrol_business_api.py --mode live --record-acceptance` 自动写入验收记录。脚本会把 `runId`、实际执行节点证据、输出数量和巡检来源写入 `metadata`，后续发布门禁读取同一份验收结论。
+
 ### POST /api/admin/business/capabilities/{capabilityId}/promote
 
 用途：把某个业务版本切为默认版本，并写入版本事件。相比直接 PATCH `isDefault=true`，这个接口语义更明确，适合管理端按钮、发布记录和后续审计。
@@ -847,6 +948,8 @@ OpenAPI 内每个工具都会枚举错误响应：
 
 - `activate=true` 时，如果目标版本当前未启用，会先启用再设为默认。
 - `activate=false` 且目标版本未启用时，返回 `BUSINESS_DEFAULT_VERSION_MUST_BE_ACTIVE`。
+- 目标版本必须先记录最近一次 `passed` 验收，否则返回 `BUSINESS_ACCEPTANCE_REQUIRED`。
+- 目标版本还必须通过完整上线门禁；第三方模型缺计价、缺模型验收、缺可用 Key、出网未验证等都会返回 `BUSINESS_RELEASE_GATE_BLOCKED`。
 - 成功后同一个 `businessKey` 下其它版本会自动取消默认。
 - 后端会在 `metadata.releaseEvents` 追加 `promote_default` 事件，记录切换原因、操作者和时间。
 
@@ -855,6 +958,8 @@ OpenAPI 内每个工具都会枚举错误响应：
 - `ADMIN_ONLY`
 - `BUSINESS_CAPABILITY_NOT_FOUND`
 - `BUSINESS_DEFAULT_VERSION_MUST_BE_ACTIVE`
+- `BUSINESS_ACCEPTANCE_REQUIRED`
+- `BUSINESS_RELEASE_GATE_BLOCKED`
 
 ### POST /api/admin/business/rollback/{businessKey}
 
@@ -925,6 +1030,7 @@ OpenAPI 内每个工具都会枚举错误响应：
 - `status`：可选，按运行状态过滤，常见值为 `queued` / `running` / `succeeded` / `failed` / `cancelled`
 - `billing_status`：可选，按计费状态过滤，取值为 `billable` / `unpriced` / `no_charge` / `billing_pending`
 - `callback_status`：可选，按回调状态过滤，取值为 `success` / `failed` / `running`
+- `issue_category`：可选，按链路问题过滤，取值为 `executor` / `output` / `callback` / `billing` / `parameter` / `version` / `none`
 - `source`：可选，按调用来源过滤，例如 `coze` / `client` / `partner-api`
 - `tenant_id`：可选，按租户/业务方过滤
 - `client_id`：可选，按客户端/应用过滤
@@ -939,6 +1045,8 @@ OpenAPI 内每个工具都会枚举错误响应：
 - `durationMs`：业务任务主链路耗时，终态后回填。
 - `costAmount/currency/quotaUnits/costBreakdown`：底层能力返回的成本和用量，保留做排查与成本测算。
 - `billingStatus/chargeable/noChargeReason`：业务计费口径。`billable` 表示成功且有成本或额度，可进入正式账单；`no_charge` 表示失败、取消或超时，不向业务方计费；`billing_pending` 表示任务未终态；`unpriced` 表示成功但缺少定价，需要先补成本规则。
+- `issueCategory/issueLabel/issueAction/issueEvidence`：链路问题分类。用于管理端快速区分执行节点、结果回填、业务回调、计费扣减、参数、版本/路由等问题。
+- `retestSourceRunId/retestAttempts/retestLatestRunId/retestLatestStatus/retestRecovered/retestSummary`：复测追踪字段。原问题任务会显示复测次数、最新复测任务和是否恢复；复测任务会显示来源任务，便于从“发现问题”追到“确认恢复”。
 
 ### GET /api/admin/business/usage-summary
 
@@ -950,6 +1058,7 @@ OpenAPI 内每个工具都会枚举错误响应：
 - `business_key`：可选，`pattern_extract` / `fission` / `outpaint`。
 - `version`：可选，按业务版本过滤。
 - `status`：可选，按运行状态过滤。
+- `issue_category`：可选，按链路问题过滤，取值同 `/api/admin/business/runs`。
 - `source`：可选，按调用来源过滤，例如 `coze` / `client` / `partner-api`。
 - `tenant_id`：可选，按租户/业务方过滤。
 - `client_id`：可选，按客户端/应用过滤。
@@ -1012,6 +1121,55 @@ OpenAPI 内每个工具都会枚举错误响应：
   "byTenant": [],
   "byClient": [],
   "byVersion": [],
+  "byIssue": [
+    {
+      "key": "executor",
+      "label": "执行节点问题",
+      "total": 2,
+      "succeeded": 0,
+      "failed": 2,
+      "running": 0,
+      "queued": 0,
+      "cancelled": 0,
+      "severity": "danger",
+      "action": "检查执行节点连通性、队列、模型依赖和能力日志。"
+    }
+  ],
+  "unresolvedIssues": [
+    {
+      "key": "executor",
+      "label": "执行节点问题",
+      "total": 1,
+      "failed": 1,
+      "running": 0,
+      "queued": 0,
+      "cancelled": 0,
+      "retested": 1,
+      "retestAttempts": 2,
+      "severity": "danger",
+      "action": "检查执行节点连通性、队列、模型依赖和能力日志。"
+    }
+  ],
+  "recentUnresolvedIssues": [
+    {
+      "id": "run_xxx",
+      "runId": "run_xxx",
+      "businessKey": "fission",
+      "version": "v2",
+      "status": "failed",
+      "source": "coze",
+      "tenantId": "tenant-a",
+      "clientId": "coze-main",
+      "traceId": "trace-demo-001",
+      "issueCategory": "executor",
+      "issueLabel": "执行节点问题",
+      "issueAction": "检查执行节点连通性、队列、模型依赖和能力日志。",
+      "retestAttempts": 2,
+      "retestLatestRunId": "run_retest_xxx",
+      "retestLatestStatus": "failed",
+      "createdAt": "2026-04-25T10:00:00"
+    }
+  ],
   "recentFailures": [
     {
       "id": "run_xxx",
@@ -1036,14 +1194,239 @@ OpenAPI 内每个工具都会枚举错误响应：
 - `costByCurrency/quotaUnits` 只统计 `billable` 的成功任务，用于后续正式账单。
 - `actualCostByCurrency/actualQuotaUnits` 统计底层实际返回的所有成本和用量，用于内部排查和供应商成本复盘。
 - 失败、取消、超时任务即使底层返回了成本，也会进入 `noCharge`，不进入业务方正式账单。
+- `unresolvedIssues/recentUnresolvedIssues` 会排除已经复测成功且有业务结果回填的原问题任务；复测任务本身不会重复计入原问题清单。
 
 常见错误：
 
 - `AUTHORIZATION_REQUIRED`
 - `ADMIN_ONLY`
 
+### GET /api/admin/business/runs/export
+
+用途：按当前筛选导出业务运行 CSV，便于把“执行节点问题 / 结果回填问题 / 业务回调问题”等清单交给运维或业务方复核。
+
+参数同 `/api/admin/business/runs`，其中 `limit` 默认 1000、最大 1000。导出内容包含业务、版本、状态、链路问题、处理建议、入口、业务方、客户端、排障编号、能力、输出数量、计费状态、回调状态和错误信息。
+
+常见错误：
+
+- `AUTHORIZATION_REQUIRED`
+- `ADMIN_ONLY`
+
+### POST /api/admin/business/runs/{runId}/retest
+
+用途：按旧任务的原始入参创建一条新的复测任务。复测不会修改旧任务状态，也不会沿用旧任务的业务回调地址，避免管理端测试误回调业务方。
+
+处理规则：
+
+- 保留原业务、版本、租户、客户端和主要业务参数。
+- 新任务来源固定为 `admin-retest`，渠道固定为 `manual-retest`。
+- 新任务 `metadata.adminRetest` 会记录原 `runId/traceId/requestId/status`，便于复盘。
+- 旧任务仍处于 `queued/running` 时不允许复测。
+
+常见错误：
+
+- `AUTHORIZATION_REQUIRED`
+- `ADMIN_ONLY`
+- `BUSINESS_RUN_NOT_FOUND`
+- `BUSINESS_RUN_NOT_FINISHED`
+- `BUSINESS_RUN_RETEST_PAYLOAD_INVALID`
+
+### POST /api/admin/business/runs/bulk/retest
+
+用途：批量复测当前已加载的问题任务。管理端默认只对失败、取消或链路问题分类不为 `none` 的记录发起复测。
+
+请求体示例：
+
+```json
+{
+  "runIds": ["run_a", "run_b"],
+  "onlyFailed": true
+}
+```
+
+响应示例：
+
+```json
+{
+  "action": "retest",
+  "total": 2,
+  "succeeded": 1,
+  "failed": 1,
+  "items": [
+    { "runId": "run_a", "newRunId": "run_new", "ok": true, "status": "queued", "message": "已创建新的复测任务。" },
+    { "runId": "run_b", "ok": false, "status": "skipped", "message": "当前记录没有明显链路问题，已跳过。" }
+  ]
+}
+```
+
+常见错误：
+
+- `AUTHORIZATION_REQUIRED`
+- `ADMIN_ONLY`
+- `BUSINESS_RUN_IDS_REQUIRED`
+- `BUSINESS_RUN_BULK_LIMIT_EXCEEDED`
+
+### POST /api/admin/business/runs/{runId}/callback/retry
+
+用途：单条重试业务终态回调。仅用于任务已终态且配置了 `callbackUrl` 的记录；回调成功后会刷新 `callbackStatus/callbackHttpStatus/callbackError`。
+
+常见错误：
+
+- `AUTHORIZATION_REQUIRED`
+- `ADMIN_ONLY`
+- `BUSINESS_RUN_NOT_FOUND`
+- `BUSINESS_CALLBACK_NOT_CONFIGURED`
+- `BUSINESS_RUN_NOT_FINISHED`
+
+### POST /api/admin/business/runs/{runId}/billing/retry
+
+用途：对单条业务任务重试计费扣减。用于“成功且可计费，但套餐/钱包扣减缺失或失败”的记录。
+
+处理规则：
+
+- 仅允许已终态且 `billingStatus=billable` 的任务扣费。
+- 缺少 `userId` 时拒绝扣费，避免无法归属到账户。
+- 有可用套餐时优先按 `quotaUnits` 扣套餐，幂等键为 `business_run_package:{runId}`。
+- 无可用套餐时再按 `costAmount + currency` 换算钱包点数；`USD` 按 `WALLET_POINTS_PER_USD` 换算；缺少成本时可退到 `quotaUnits`，幂等键为 `business_run:{runId}`。
+- 结果写回 `costBreakdown.billingSettlement`；套餐路径同时写 `packageSettlement`，钱包路径同时写 `walletSettlement`。
+- 同时写 `business_operation_logs`，方便审计是谁触发了重试。
+
+常见错误：
+
+- `AUTHORIZATION_REQUIRED`
+- `ADMIN_ONLY`
+- `BUSINESS_RUN_NOT_FOUND`
+- `BUSINESS_RUN_NOT_FINISHED`
+- `BUSINESS_RUN_NOT_BILLABLE`
+- `BUSINESS_RUN_UNPRICED`
+- `BUSINESS_RUN_USER_REQUIRED`
+
+### POST /api/admin/business/runs/{runId}/billing/refund
+
+用途：对已扣费的业务任务执行套餐或钱包退回。用于“失败任务被误扣费”或人工确认需要退款的场景。
+
+处理规则：
+
+- 套餐扣减优先退回套餐，幂等键为 `business_run_package_refund:{runId}`。
+- 钱包扣费通过钱包调账接口写正向流水，幂等键为 `business_run_refund:{runId}`。
+- 不删除原扣减流水，保留完整审计链。
+- 结果写回 `costBreakdown.billingSettlement.status=refunded`，并同步更新 `packageSettlement` 或 `walletSettlement`。
+- 同时写 `business_operation_logs`。
+
+常见错误：
+
+- `AUTHORIZATION_REQUIRED`
+- `ADMIN_ONLY`
+- `BUSINESS_RUN_NOT_FOUND`
+- `BUSINESS_RUN_NOT_FINISHED`
+- `BUSINESS_RUN_USER_REQUIRED`
+- `BUSINESS_WALLET_SETTLEMENT_NOT_FOUND`
+- `BUSINESS_PACKAGE_SETTLEMENT_NOT_FOUND`
+- `BUSINESS_PACKAGE_SETTLEMENT_INVALID`
+
+### POST /api/admin/business/runs/bulk/callback-retry
+
+用途：批量重试当前筛选出的回调失败任务。管理端默认只对 `callbackStatus=failed` 或存在 `callbackError` 的已加载记录发起批量重试。
+
+请求体示例：
+
+```json
+{
+  "runIds": ["run_a", "run_b"],
+  "onlyFailed": true
+}
+```
+
+响应示例：
+
+```json
+{
+  "action": "callback_retry",
+  "total": 2,
+  "succeeded": 1,
+  "failed": 1,
+  "items": [
+    { "runId": "run_a", "ok": true, "status": "success" },
+    { "runId": "run_b", "ok": false, "status": "skipped", "message": "当前不是回调失败状态，已跳过。" }
+  ]
+}
+```
+
+常见错误：
+
+- `AUTHORIZATION_REQUIRED`
+- `ADMIN_ONLY`
+- `BUSINESS_RUN_IDS_REQUIRED`
+- `BUSINESS_RUN_BULK_LIMIT_EXCEEDED`
+
+### POST /api/admin/business/runs/bulk/mark-ignored
+
+用途：把一批已人工确认的问题记录标记为“无需处理”。该操作不修改真实任务状态，只在结果载荷中写入管理侧处理结论，后续链路问题分类会显示为“已标记无需处理”。
+
+请求体示例：
+
+```json
+{
+  "runIds": ["run_a", "run_b"],
+  "note": "已人工确认，本轮暂不继续处理。"
+}
+```
+
+常见错误：
+
+- `AUTHORIZATION_REQUIRED`
+- `ADMIN_ONLY`
+- `BUSINESS_RUN_IDS_REQUIRED`
+- `BUSINESS_RUN_BULK_LIMIT_EXCEEDED`
+
+### POST /api/admin/business/runs/issue-checklist
+
+用途：把当前已加载的问题任务生成排障清单，供值班、复盘或交给执行节点维护同学处理。该接口只读任务状态，不重试任务、不改业务结果。
+
+请求体示例：
+
+```json
+{
+  "runIds": ["run_a", "run_b"],
+  "onlyFailed": true
+}
+```
+
+响应示例：
+
+```json
+{
+  "generatedAt": "2026-05-06T10:00:00",
+  "total": 2,
+  "issueCount": 1,
+  "skippedCount": 1,
+  "byCategory": { "executor": 1 },
+  "bySeverity": { "danger": 1 },
+  "markdown": "# 业务运行排障清单\n...",
+  "items": [
+    {
+      "runId": "run_a",
+      "businessKey": "fission",
+      "status": "failed",
+      "issueCategory": "executor",
+      "issueLabel": "执行节点问题",
+      "issueSeverity": "danger",
+      "recommendedActions": ["检查执行节点健康、队列长度、模型文件和工作流依赖。"],
+      "diagnostics": ["任务状态：failed", "执行节点：ComfyUI 4090"]
+    }
+  ]
+}
+```
+
+常见错误：
+
+- `AUTHORIZATION_REQUIRED`
+- `ADMIN_ONLY`
+- `BUSINESS_RUN_IDS_REQUIRED`
+- `BUSINESS_RUN_BULK_LIMIT_EXCEEDED`
+
 说明：
 
 - 统计接口只读业务运行记录，不触发任何任务重试。
-- `costByCurrency/quotaUnits` 当前来自底层能力日志或任务结果回填；如果厂商没有返回成本信息，对应字段会为空或为 0。
+- `costByCurrency/quotaUnits` 当前来自底层能力日志、任务结果回填或模型/能力成本规则估算；如果三者都没有成本信息，对应任务会进入 `unpriced`。
 - 管理端“业务能力”页的统计卡片、业务分布、来源/业务方分布和最近失败列表均来自该接口。

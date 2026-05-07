@@ -37,6 +37,7 @@ import { ApiRequestError, evalApi } from './api';
 import type { ComfyuiQueueSummary, EvalOperationsHealth, EvalRun, EvalWorkflowVersion, SchemaField, WorkflowDoc } from './types';
 import { EvalShell } from './layouts/EvalShell';
 import { ActionBar, FilterBar, StatusBadge } from './features/eval/shared/ui';
+import { mapStatusToBadge } from './features/eval/shared/status';
 import type { ThemeMode } from './types/ui';
 import { toDisplayErrorMessage } from './utils/errorMessageMap';
 
@@ -64,6 +65,27 @@ type PromptHint = {
 };
 
 type LoraOption = { label: string; value: string };
+
+type WorkflowMetric = {
+  ratingCount: number;
+  avgRating: number | null;
+  runCount?: number;
+  recentRunCount?: number;
+  recentSuccessCount?: number;
+  recentFailureCount?: number;
+  recentRunningCount?: number;
+  recentNoOutputCount?: number;
+  recentOutputKindCounts?: Record<string, number>;
+  recentHours?: number;
+  lastRunStatus?: string | null;
+  lastRunAt?: string | null;
+  lastRunHasOutput?: boolean | null;
+  lastRunOutputKind?: string | null;
+  lastErrorCode?: string | null;
+  lastErrorMessage?: string | null;
+};
+
+type ToolHistoryFocus = 'all' | 'succeeded' | 'failed' | 'running' | 'no_output';
 
 type LoraBatchWorkflowMeta = {
   workflow: EvalWorkflowVersion;
@@ -229,6 +251,61 @@ const formatErrorCodeLabel = (code?: string | null): string => {
   if (!raw) return '未归类错误';
   const mapped = toDisplayErrorMessage(raw);
   return mapped ? mapped.replace(`（${raw}）`, '') : raw;
+};
+
+const formatEvalStageStatus = (
+  stage: 'submit' | 'callback' | 'final',
+  status?: string | null,
+): string => {
+  const value = String(status || '').toLowerCase();
+  if (!value) return '未记录';
+  if (stage === 'submit') {
+    if (value === 'pending') return '待提交';
+    if (value === 'submitting') return '提交中';
+    if (value === 'submit_failed') return '提交失败';
+    if (value === 'submitted') return '已提交';
+  }
+  if (stage === 'callback') {
+    if (value === 'waiting') return '等待回填';
+    if (value === 'running') return '回填中';
+    if (value === 'success') return '回填成功';
+    if (value === 'failed') return '回填失败';
+    if (value === 'not_configured') return '未配置回调';
+  }
+  if (stage === 'final') {
+    if (value === 'pending') return '未结束';
+    if (value === 'canceled' || value === 'cancelled') return '已取消';
+    return mapStatusToBadge(value).text;
+  }
+  return value;
+};
+
+const getEvalStageTone = (
+  status?: string | null,
+): 'default' | 'primary' | 'success' | 'warning' | 'danger' => {
+  const value = String(status || '').toLowerCase();
+  if (!value || value === 'not_configured') return 'default';
+  if (value.includes('fail') || value.includes('error') || value.includes('cancel')) return 'danger';
+  if (value === 'success' || value === 'succeeded' || value === 'completed') return 'success';
+  if (value === 'submitted' || value === 'running' || value === 'submitting') return 'primary';
+  if (value === 'waiting' || value === 'pending' || value === 'queued') return 'warning';
+  return 'default';
+};
+
+const getOutputTone = (
+  outputLabel: string,
+): 'default' | 'primary' | 'success' | 'warning' | 'danger' => {
+  if (
+    outputLabel.includes('已回填') ||
+    outputLabel.includes('非图片') ||
+    outputLabel.includes('文字') ||
+    outputLabel.includes('结构化') ||
+    outputLabel.includes('视频')
+  ) return 'success';
+  if (outputLabel.includes('等待')) return 'primary';
+  if (outputLabel.includes('成功无回填')) return 'warning';
+  if (outputLabel.includes('无结果')) return 'danger';
+  return 'default';
 };
 
 const formatComfyuiExecutorLabel = (executorId?: string | null): string => {
@@ -421,6 +498,12 @@ const getWorkflowOperationLabel = (wf: EvalWorkflowVersion | null | undefined): 
 const getWorkflowVariantLabel = (wf: EvalWorkflowVersion | null | undefined): string =>
   String(getWorkflowPresentation(wf)?.variantLabel || '').trim();
 
+const getWorkflowShortId = (wf: EvalWorkflowVersion | null | undefined): string => {
+  const id = String(wf?.workflow_id || '').trim();
+  if (!id) return '-';
+  return id.length > 8 ? id.slice(-8) : id;
+};
+
 const getWorkflowGovernanceRank = (wf: EvalWorkflowVersion | null | undefined): number => {
   const raw = Number(getWorkflowGovernance(wf)?.rank);
   if (Number.isFinite(raw)) return raw;
@@ -528,16 +611,28 @@ const getSchemaFields = (schema: Record<string, unknown> | null | undefined): Sc
 const getWorkflowCardTitle = (wf: EvalWorkflowVersion): string => {
   const operationLabel = getWorkflowOperationLabel(wf);
   const variantLabel = getWorkflowVariantLabel(wf);
-  if (operationLabel && variantLabel) return `${operationLabel} · ${variantLabel}`;
-  if (operationLabel) return operationLabel;
+  if (variantLabel) return variantLabel;
   const category = getWorkflowCategory(wf);
   const rawName = String(wf.name || wf.workflow_id || '未命名功能').trim();
   const parts = rawName
     .split(/[·|｜:：/-]/)
     .map((item) => item.trim())
     .filter(Boolean);
-  const distinctPart = parts.find((item) => item !== category && item !== '图裂变' && item !== '图延伸');
-  return distinctPart || rawName;
+  const noisy = new Set([category, operationLabel, '图裂变', '裂变', '图延伸', '扩图', 'ComfyUI', '商业模型']);
+  const distinctPart = parts.find((item) => !noisy.has(item));
+  if (distinctPart) return distinctPart;
+  if (operationLabel && rawName !== operationLabel) return rawName.replace(operationLabel, '').replace(/[·|｜:：/-]/g, ' ').trim() || operationLabel;
+  return operationLabel || rawName || `工作流 ${getWorkflowShortId(wf)}`;
+};
+
+const getWorkflowOperationTitle = (wf: EvalWorkflowVersion): string =>
+  getWorkflowOperationLabel(wf) || getWorkflowCategory(wf);
+
+const getWorkflowCardSubtitle = (wf: EvalWorkflowVersion): string => {
+  const usageHint = getWorkflowUsageHint(wf);
+  const title = getWorkflowCardTitle(wf);
+  const cleaned = usageHint.replace(title, '').replace(getWorkflowOperationTitle(wf), '').replace(/^[\s，。,:：·|-]+/, '').trim();
+  return cleaned || usageHint;
 };
 
 const getWorkflowStatusLabel = (status: string | undefined | null): string => {
@@ -578,7 +673,106 @@ const getWorkflowOutputSummary = (wf: EvalWorkflowVersion): string => {
   return '图片/任务结果';
 };
 
-const getWorkflowReleaseDate = (wf: EvalWorkflowVersion): string => fmtTime(wf.created_at).split(' ')[0] || '-';
+const getWorkflowReleaseDate = (wf: EvalWorkflowVersion): string => {
+  const metadata = wf.metadata && typeof wf.metadata === 'object' ? wf.metadata : {};
+  const raw =
+    getWorkflowPresentation(wf)?.['releaseTime' as keyof NonNullable<EvalWorkflowVersion['presentation']>] ||
+    metadata.releaseTime ||
+    metadata.release_time ||
+    metadata.publishedAt ||
+    metadata.published_at ||
+    wf.created_at;
+  return fmtTime(String(raw || '')).split(' ')[0] || '-';
+};
+
+const getWorkflowRuntimeHealth = (
+  metric?: WorkflowMetric,
+): {
+  label: string;
+  detail: string;
+  theme: 'default' | 'primary' | 'success' | 'warning' | 'danger';
+  focus: ToolHistoryFocus;
+  cta: string;
+} => {
+  const recentHours = Math.max(1, Number(metric?.recentHours || 72));
+  const recentRunCount = Number(metric?.recentRunCount || 0);
+  const recentSuccessCount = Number(metric?.recentSuccessCount || 0);
+  const recentFailureCount = Number(metric?.recentFailureCount || 0);
+  const recentRunningCount = Number(metric?.recentRunningCount || 0);
+  const recentNoOutputCount = Number(metric?.recentNoOutputCount || 0);
+  if (!metric || recentRunCount <= 0) {
+    return { label: '暂无运行', detail: `近 ${recentHours} 小时没有评测记录`, theme: 'default', focus: 'all', cta: '看历史记录' };
+  }
+  if (recentNoOutputCount > 0) {
+    return {
+      label: '生成未回填',
+      detail: `近 ${recentHours} 小时 ${recentNoOutputCount} 次成功但没有结果图`,
+      theme: 'warning',
+      focus: 'no_output',
+      cta: '看未回填',
+    };
+  }
+  if (recentFailureCount > 0 && recentSuccessCount <= 0) {
+    return {
+      label: '最近失败',
+      detail: `近 ${recentHours} 小时失败 ${recentFailureCount} 次，需要先排查`,
+      theme: 'danger',
+      focus: 'failed',
+      cta: '看异常记录',
+    };
+  }
+  if (recentFailureCount > 0) {
+    return {
+      label: '有失败样本',
+      detail: `近 ${recentHours} 小时成功 ${recentSuccessCount} 次，失败 ${recentFailureCount} 次`,
+      theme: 'warning',
+      focus: 'failed',
+      cta: '看失败样本',
+    };
+  }
+  if (recentRunningCount > 0 && recentSuccessCount <= 0) {
+    return {
+      label: '运行中',
+      detail: `近 ${recentHours} 小时还有 ${recentRunningCount} 次未完成`,
+      theme: 'primary',
+      focus: 'running',
+      cta: '看执行中',
+    };
+  }
+  return {
+    label: '最近可用',
+    detail: `近 ${recentHours} 小时成功 ${recentSuccessCount} 次`,
+    theme: 'success',
+    focus: 'succeeded',
+    cta: '看成功记录',
+  };
+};
+
+const getWorkflowRecentOutputLabel = (metric?: WorkflowMetric): string => {
+  const counts = metric?.recentOutputKindCounts || {};
+  const entries = [
+    ['image', '图片'],
+    ['video', '视频'],
+    ['text', '文字/VL'],
+    ['structured', '结构化'],
+    ['none', '未回填'],
+  ] as const;
+  const visible = entries
+    .map(([key, label]) => ({ label, count: Number(counts[key] || 0) }))
+    .filter((item) => item.count > 0);
+  if (!visible.length) return '';
+  return `近期输出：${visible.map((item) => `${item.label}${item.count}`).join(' / ')}`;
+};
+
+const getHistoryFocusMeta = (
+  focus: ToolHistoryFocus,
+): { label: string; message: string; theme: 'info' | 'success' | 'warning' | 'error' } | null => {
+  if (focus === 'failed') return { label: '失败记录', message: '已定位到最近失败任务，优先查看错误码、调试链接和中台任务 ID。', theme: 'error' };
+  if (focus === 'no_output') return { label: '生成未回填', message: '已定位到状态成功但没有图片/结构化结果的任务，优先排查回填链路。', theme: 'warning' };
+  if (focus === 'running') return { label: '执行中', message: '已定位到正在排队或运行的任务，用于观察是否卡住。', theme: 'info' };
+  if (focus === 'succeeded') return { label: '成功记录', message: '已定位到近期成功任务，可直接对照输出质量和参数。', theme: 'success' };
+  return null;
+};
 
 const dedupeWorkflowVersionsForDisplay = (rows: EvalWorkflowVersion[]): EvalWorkflowVersion[] => {
   const seen = new Set<string>();
@@ -815,6 +1009,27 @@ const formatDuration = (ms?: number | null) => {
   return `${(ms / 1000).toFixed(2)}s`;
 };
 
+const billingUnitLabel = (value?: string | null) => {
+  if (value === 'image' || value === 'per_image') return '按图片';
+  if (value === 'video' || value === 'per_video') return '按视频';
+  if (value === 'run' || value === 'task' || value === 'per_run') return '按任务';
+  if (value === 'token' || value === 'tokens') return '按文字量';
+  return value || '未标单位';
+};
+
+const formatEvalRunCost = (run: Pick<EvalRun, 'cost_amount' | 'currency' | 'billing_unit' | 'unit_price'>) => {
+  const amount = Number(run.cost_amount ?? 0);
+  const unitPrice = Number(run.unit_price ?? 0);
+  const currency = String(run.currency || '').trim() || '未标币种';
+  if (Number.isFinite(amount) && amount > 0) {
+    return `${currency} ${amount.toFixed(4)} · ${billingUnitLabel(run.billing_unit)}`;
+  }
+  if (Number.isFinite(unitPrice) && unitPrice > 0) {
+    return `已配置单价 ${currency} ${unitPrice.toFixed(4)} · 本次成本待回填`;
+  }
+  return '成本未记录';
+};
+
 const fmtTime = (iso: string) => {
   try {
     const raw = String(iso || '').trim();
@@ -972,6 +1187,14 @@ const formatBatchSessionStatusDisplay = (item: LoraBatchSession): string => {
   if (runFailed <= 0 && uploadFailed > 0) return '已完成（含上传失败）';
   if (runFailed > 0) return '已完成（部分失败）';
   return '已失败';
+};
+
+const formatLoraReviewGroupStatusLabel = (status?: string | null): string => {
+  const value = String(status || '').toLowerCase();
+  if (value === 'has_output') return '已有结果';
+  if (value === 'no_output') return '暂无结果';
+  if (value === 'failed') return '执行失败';
+  return value || '未知';
 };
 
 const formatLoraReviewVerdictLabel = (verdict: LoraBatchReviewVerdict): string => {
@@ -1274,6 +1497,7 @@ const isLikelyImageUrl = (url: string): boolean => {
   const u = String(url || '').trim();
   if (!u.startsWith('http://') && !u.startsWith('https://')) return false;
   const lower = u.toLowerCase();
+  if (/\.(mp4|mov|webm|m4v|avi)(\?|$)/.test(lower)) return false;
   // Coze debug URLs (HTML) are not image assets; avoid showing broken thumbnails.
   if (lower.includes('/work_flow') || (lower.includes('/workflow') && lower.includes('execute_id='))) return false;
   if (lower.includes('execute_mode=') && lower.includes('execute_id=')) return false;
@@ -1285,6 +1509,12 @@ const isLikelyImageUrl = (url: string): boolean => {
   return false;
 };
 
+const isLikelyVideoUrl = (url: string): boolean => {
+  const u = String(url || '').trim();
+  if (!u.startsWith('http://') && !u.startsWith('https://')) return false;
+  return /\.(mp4|mov|webm|m4v|avi)(\?|$)/.test(u.toLowerCase());
+};
+
 const filterImageUrls = (urls: unknown): string[] => {
   if (!Array.isArray(urls)) return [];
   return urls
@@ -1292,6 +1522,108 @@ const filterImageUrls = (urls: unknown): string[] => {
     .map((u) => u.trim())
     .filter((u) => u && isLikelyImageUrl(u));
 };
+
+const parseOutputValue = (value: unknown): unknown => {
+  if (typeof value !== 'string') return value;
+  const text = value.trim();
+  if (!text) return '';
+  if ((text.startsWith('{') && text.endsWith('}')) || (text.startsWith('[') && text.endsWith(']'))) {
+    try {
+      return JSON.parse(text) as unknown;
+    } catch {
+      return text;
+    }
+  }
+  return text;
+};
+
+const dedupeStrings = (items: string[]): string[] => {
+  const seen = new Set<string>();
+  const next: string[] = [];
+  for (const item of items) {
+    const text = item.trim();
+    if (!text || seen.has(text)) continue;
+    seen.add(text);
+    next.push(text);
+  }
+  return next;
+};
+
+const collectOutputStrings = (value: unknown, keys: string[]): string[] => {
+  const output = parseOutputValue(value);
+  const results: string[] = [];
+  const pushValue = (candidate: unknown) => {
+    if (typeof candidate === 'string') {
+      const text = candidate.trim();
+      if (text) results.push(text);
+      return;
+    }
+    if (Array.isArray(candidate)) {
+      candidate.forEach(pushValue);
+      return;
+    }
+    if (candidate && typeof candidate === 'object') {
+      const record = candidate as Record<string, unknown>;
+      for (const key of ['url', 'storedUrl', 'stored_url', 'outputUrl', 'output_url', 'imageUrl', 'videoUrl']) {
+        pushValue(record[key]);
+      }
+    }
+  };
+  if (Array.isArray(output)) {
+    output.forEach(pushValue);
+    return dedupeStrings(results);
+  }
+  if (!output || typeof output !== 'object') return dedupeStrings(results);
+  const record = output as Record<string, unknown>;
+  keys.forEach((key) => pushValue(record[key]));
+  return dedupeStrings(results);
+};
+
+type RunOutputDescriptor = {
+  kind: 'image' | 'video' | 'text' | 'structured' | 'none';
+  label: string;
+  hasOutput: boolean;
+  imageUrls: string[];
+  videoUrls: string[];
+  textCount: number;
+  preview: string;
+};
+
+const getRunOutputDescriptor = (
+  run: Pick<EvalRun, 'result_image_urls_json' | 'result_output_json'>,
+): RunOutputDescriptor => {
+  const output = parseOutputValue((run as any).result_output_json);
+  const directImages = filterImageUrls(run.result_image_urls_json);
+  const nestedImages = collectOutputStrings(output, ['imageUrls', 'image_urls', 'images', 'resultUrls', 'result_urls']).filter(
+    isLikelyImageUrl,
+  );
+  const imageUrls = dedupeStrings([...directImages, ...nestedImages]);
+  const videoUrls = collectOutputStrings(output, ['videoUrls', 'video_urls', 'videos', 'imageUrls', 'image_urls', 'images', 'resultUrls', 'result_urls'])
+    .filter(isLikelyVideoUrl);
+  const textValues = collectOutputStrings(output, ['texts', 'resultTexts', 'result_texts', 'text', 'content', 'message'])
+    .filter((item) => !isLikelyImageUrl(item) && !isLikelyVideoUrl(item));
+  const preview = formatJsonPreview(output, 1200);
+  if (imageUrls.length > 0) {
+    return { kind: 'image', label: `已回填 ${imageUrls.length} 张`, hasOutput: true, imageUrls, videoUrls, textCount: textValues.length, preview };
+  }
+  if (videoUrls.length > 0) {
+    return { kind: 'video', label: `已回填 ${videoUrls.length} 个视频`, hasOutput: true, imageUrls, videoUrls, textCount: textValues.length, preview };
+  }
+  if ((typeof output === 'string' && output.trim()) || textValues.length > 0) {
+    return { kind: 'text', label: '有文字/VL结果', hasOutput: true, imageUrls, videoUrls, textCount: Math.max(1, textValues.length), preview };
+  }
+  if (output && ((Array.isArray(output) && output.length > 0) || (typeof output === 'object' && Object.keys(output as Record<string, unknown>).length > 0))) {
+    return { kind: 'structured', label: '有结构化结果', hasOutput: true, imageUrls, videoUrls, textCount: textValues.length, preview };
+  }
+  return { kind: 'none', label: '无结果', hasOutput: false, imageUrls, videoUrls, textCount: 0, preview: '' };
+};
+
+const runHasVisibleOutput = (run: Pick<EvalRun, 'result_image_urls_json' | 'result_output_json'>): boolean => {
+  return getRunOutputDescriptor(run).hasOutput;
+};
+
+const isSucceededWithoutVisibleOutput = (run: Pick<EvalRun, 'status' | 'result_image_urls_json' | 'result_output_json'>): boolean =>
+  ['succeeded', 'success', 'completed'].includes(String(run.status || '').toLowerCase()) && !runHasVisibleOutput(run);
 
 function Lightbox({
   url,
@@ -1362,11 +1694,13 @@ function ToolCard({
   active,
   metric,
   onClick,
+  onOpenRecent,
 }: {
   wf: EvalWorkflowVersion;
   active: boolean;
-  metric?: { ratingCount: number; avgRating: number | null };
+  metric?: WorkflowMetric;
   onClick: () => void;
+  onOpenRecent?: (focus: ToolHistoryFocus) => void;
 }) {
   const ratingText = metric?.avgRating ? metric.avgRating.toFixed(2) : '—';
   const ratingCountText = metric?.ratingCount ? `${metric.ratingCount}票` : '未评分';
@@ -1374,9 +1708,14 @@ function ToolCard({
   const visual = getCategoryVisual(categoryName);
   const accent = getWorkflowAccent(wf);
   const title = getWorkflowCardTitle(wf);
-  const usageHint = getWorkflowUsageHint(wf);
+  const operationTitle = getWorkflowOperationTitle(wf);
+  const usageHint = getWorkflowCardSubtitle(wf);
   const inputSummary = getWorkflowInputSummary(wf);
   const outputSummary = getWorkflowOutputSummary(wf);
+  const releaseDate = getWorkflowReleaseDate(wf);
+  const shortId = getWorkflowShortId(wf);
+  const runtimeHealth = getWorkflowRuntimeHealth(metric);
+  const recentOutputLabel = getWorkflowRecentOutputLabel(metric);
   const governance = getWorkflowGovernance(wf);
   const routingGovernance = getWorkflowRoutingGovernance(wf);
   const roleLabel = String(governance?.roleLabel || '可测版本').trim();
@@ -1412,7 +1751,8 @@ function ToolCard({
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
           <div className="podi-eval-tool-card__identity">
             <div style={{ minWidth: 0 }}>
-              <div className="podi-eval-tool-card__title">{title}</div>
+              <div className="podi-eval-tool-card__kicker">{operationTitle}</div>
+              <div className="podi-eval-tool-card__title" title={wf.name || title}>{title}</div>
               <div className="podi-eval-tool-card__subtitle podi-clamp-2">{usageHint}</div>
             </div>
             <Space direction="vertical" size={2} style={{ alignItems: 'flex-end' }}>
@@ -1423,6 +1763,30 @@ function ToolCard({
             </Space>
           </div>
 
+          <div className="podi-eval-tool-card__signature">
+            <span>{wf.version || 'v1'}</span>
+            <span>发布 {releaseDate}</span>
+            <span title={wf.workflow_id}>ID {shortId}</span>
+          </div>
+          <div className="podi-eval-tool-card__runtime">
+            <Tag variant="light" theme={runtimeHealth.theme}>
+              {runtimeHealth.label}
+            </Tag>
+            <span title={runtimeHealth.detail}>
+              <Typography.Text theme="secondary">{runtimeHealth.detail}</Typography.Text>
+            </span>
+            <Button
+              size="small"
+              variant="text"
+              onClick={(event) => {
+                event.stopPropagation();
+                onOpenRecent?.(runtimeHealth.focus);
+              }}
+            >
+              {runtimeHealth.cta}
+            </Button>
+          </div>
+
           <div className="podi-eval-tool-card__meta-grid">
             <div>
               <span>输入</span>
@@ -1431,14 +1795,6 @@ function ToolCard({
             <div>
               <span>输出</span>
               <strong>{outputSummary}</strong>
-            </div>
-            <div>
-              <span>版本</span>
-              <strong>{wf.version || 'v1'}</strong>
-            </div>
-            <div>
-              <span>发布</span>
-              <strong>{getWorkflowReleaseDate(wf)}</strong>
             </div>
             <div>
               <span>执行面</span>
@@ -1456,8 +1812,9 @@ function ToolCard({
               <Tag variant="light" theme={routingTheme}>
                 {routingGovernance?.governanceLabel || '链路治理待确认'}
               </Tag>
-              <Tag variant="light">工作流 {wf.workflow_id}</Tag>
+              <Tag variant="light">工作流 {shortId}</Tag>
               <Tag variant="light">{getWorkflowStatusLabel(wf.status)}</Tag>
+              {recentOutputLabel ? <Tag variant="light">{recentOutputLabel}</Tag> : null}
               {isWorkflowBatchEnabled(wf) ? <Tag variant="light">支持批量</Tag> : null}
             </Space>
           </div>
@@ -1587,6 +1944,38 @@ function StepGuide({
   );
 }
 
+function IntegrationDocBlock({
+  doc,
+  expanded,
+  onToggle,
+  onCopy,
+}: {
+  doc: string;
+  expanded: boolean;
+  onToggle: () => void;
+  onCopy: () => void;
+}) {
+  return (
+    <div className="podi-integration-doc">
+      <div className="podi-integration-doc__head">
+        <div>
+          <strong>业务接入文档（Coze OpenAPI）</strong>
+          <span>低频资料默认收起；需要给业务方核对参数时再展开。</span>
+        </div>
+        <Space>
+          <Button size="small" variant="outline" onClick={onCopy}>
+            复制
+          </Button>
+          <Button size="small" variant="text" onClick={onToggle}>
+            {expanded ? '收起' : '展开'}
+          </Button>
+        </Space>
+      </div>
+      {expanded ? <pre className="podi-integration-doc__pre">{doc}</pre> : null}
+    </div>
+  );
+}
+
 function TaskTable({
   runs,
   workflowMap,
@@ -1666,9 +2055,10 @@ function TaskTable({
                   <Tag variant="light">未返回中台任务 ID</Tag>
                 )}
                 <Space breakLine>
-                  <Tag variant="light">提交：{row.submit_status || '—'}</Tag>
-                  <Tag variant="light">回填：{row.callback_status || '—'}</Tag>
-                  <Tag variant="light">最终：{row.final_status || row.status || '—'}</Tag>
+                  <Tag variant="light">提交：{formatEvalStageStatus('submit', row.submit_status)}</Tag>
+                  <Tag variant="light">回填：{formatEvalStageStatus('callback', row.callback_status)}</Tag>
+                  <Tag variant="light">最终：{formatEvalStageStatus('final', row.final_status || row.status)}</Tag>
+                  <Tag variant="light">成本：{formatEvalRunCost(row)}</Tag>
                 </Space>
                 {row.error_code ? (
                   <Typography.Text theme="error" style={{ fontSize: 12 }}>
@@ -1696,22 +2086,31 @@ function TaskTable({
             title: '输出',
             minWidth: 220,
             cell: ({ row }) => {
-              const outputs = filterImageUrls(row.result_image_urls_json);
-              const jsonPreview = formatJsonPreview((row as any).result_output_json, 240);
-              if (outputs.length > 0) {
+              const output = getRunOutputDescriptor(row);
+              if (output.imageUrls.length > 0) {
                 return (
                   <Space breakLine>
-                    <Typography.Text theme="secondary">{outputs.length} 张</Typography.Text>
-                    <Button size="small" variant="text" onClick={() => window.open(outputs[0], '_blank', 'noreferrer')}>
+                    <Typography.Text theme="secondary">{output.label}</Typography.Text>
+                    <Button size="small" variant="text" onClick={() => window.open(output.imageUrls[0], '_blank', 'noreferrer')}>
                       打开首张
                     </Button>
                   </Space>
                 );
               }
-              if (jsonPreview) {
+              if (output.videoUrls.length > 0) {
+                return (
+                  <Space breakLine>
+                    <Typography.Text theme="secondary">{output.label}</Typography.Text>
+                    <Button size="small" variant="text" onClick={() => window.open(output.videoUrls[0], '_blank', 'noreferrer')}>
+                      打开视频
+                    </Button>
+                  </Space>
+                );
+              }
+              if (output.preview) {
                 return (
                   <Typography.Text theme="secondary" style={{ fontFamily: 'monospace', fontSize: 12 }} ellipsis>
-                    {jsonPreview}
+                    {output.label}：{output.preview}
                   </Typography.Text>
                 );
               }
@@ -1762,17 +2161,17 @@ function ImageTile({
     <button
       type="button"
       onClick={onOpen}
-      className="relative block rounded-2xl border border-slate-800 bg-slate-950/30 p-2 hover:border-slate-700"
+      className="podi-image-tile"
     >
       {!loaded && !failed ? (
-        <div className="absolute inset-2 rounded-xl border border-slate-800 bg-slate-950/60 flex items-center justify-center text-xs text-slate-400">
+        <div className="podi-image-tile__loading">
           加载中…
         </div>
       ) : null}
       {failed ? (
-        <div className="absolute inset-2 rounded-xl border border-rose-500/30 bg-rose-500/5 flex flex-col items-center justify-center gap-2 text-xs text-rose-200 px-3">
-          <div className="font-semibold">图片加载失败</div>
-          <div className="break-all text-[10px] text-rose-300/80">{url}</div>
+        <div className="podi-image-tile__error">
+          <strong>图片加载失败</strong>
+          <span>{url}</span>
         </div>
       ) : null}
       <img
@@ -1781,20 +2180,19 @@ function ImageTile({
         loading="lazy"
         onLoad={() => setLoaded(true)}
         onError={() => setFailed(true)}
-        className="h-56 w-full rounded-xl object-contain"
+        className="podi-image-tile__img"
       />
+      <span className="podi-image-tile__caption">{title}</span>
     </button>
   );
 }
 
 function SkeletonTile({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
-    <div className="relative block rounded-2xl border border-slate-800 bg-slate-950/30 p-2">
-      <div className="h-56 w-full rounded-xl border border-slate-800 bg-slate-950/60 animate-pulse" />
-      <div className="mt-2 px-1">
-        <div className="text-xs font-semibold text-slate-200">{title}</div>
-        {subtitle ? <div className="mt-1 text-[11px] text-slate-500 break-all">{subtitle}</div> : null}
-      </div>
+    <div className="podi-image-tile podi-image-tile--skeleton">
+      <div className="podi-image-tile__pulse" />
+      <strong>{title}</strong>
+      {subtitle ? <span>{subtitle}</span> : null}
     </div>
   );
 }
@@ -1840,7 +2238,7 @@ export function App() {
 
   const [raterId, setRaterId] = useState<string>('');
   const [workflows, setWorkflows] = useState<EvalWorkflowVersion[]>([]);
-  const [metrics, setMetrics] = useState<Record<string, { ratingCount: number; avgRating: number | null }>>({});
+  const [metrics, setMetrics] = useState<Record<string, WorkflowMetric>>({});
   const [resourceOptionsCache, setResourceOptionsCache] = useState<Record<string, LoraOption[]>>({});
   const [bootstrapLoading, setBootstrapLoading] = useState<boolean>(false);
   const [workflowListStatus, setWorkflowListStatus] = useState<RemoteLoadStatus>('idle');
@@ -1851,6 +2249,7 @@ export function App() {
   const [activeView, setActiveView] = useState<EvalView>(initialQuery.view);
   const [selectedTool, setSelectedTool] = useState<EvalWorkflowVersion | null>(null);
   const [pendingToolId, setPendingToolId] = useState<string>(initialQuery.toolId);
+  const [showIntegrationDoc, setShowIntegrationDoc] = useState(false);
 
   const [formUrl, setFormUrl] = useState('');
   const [formParams, setFormParams] = useState<Record<string, string>>({});
@@ -1887,6 +2286,7 @@ export function App() {
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [filterRating, setFilterRating] = useState<string>('all');
   const [filterUnrated, setFilterUnrated] = useState<boolean>(false);
+  const [historyFocus, setHistoryFocus] = useState<ToolHistoryFocus>('all');
   const [search, setSearch] = useState<string>('');
   const [lightbox, setLightbox] = useState<{ url: string; title?: string } | null>(null);
 
@@ -2006,6 +2406,7 @@ export function App() {
     const matched = displayWorkflows.find((wf) => wf.id === pendingToolId);
     if (!matched) return;
     setSelectedTool(matched);
+    setShowIntegrationDoc(false);
     setActiveCategory(getWorkflowCategory(matched));
     setActiveView('tool');
     setPendingToolId('');
@@ -3123,14 +3524,18 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeView]);
 
-  const openTool = (wf: EvalWorkflowVersion) => {
+  const openTool = (wf: EvalWorkflowVersion, focus: ToolHistoryFocus = 'all') => {
     setSelectedTool(wf);
     setFormUrl('');
     // Prevent showing previous tool's results while the new tool's history is loading.
     setToolRuns([]);
-    setFilterStatus('all');
+    setHistoryFocus(focus);
+    setFilterStatus(
+      focus === 'failed' ? 'failed' : focus === 'running' ? 'running' : focus === 'succeeded' || focus === 'no_output' ? 'succeeded' : 'all',
+    );
     setFilterRating('all');
     setFilterUnrated(false);
+    setShowIntegrationDoc(false);
     setSearch('');
     const defaults: Record<string, string> = {};
     for (const f of getFields(wf)) {
@@ -4233,9 +4638,30 @@ export function App() {
 
   const filteredRuns = useMemo(() => {
     let out = toolRuns.slice();
+    if (historyFocus === 'no_output') {
+      out = out.filter((r) => isSucceededWithoutVisibleOutput(r));
+    } else if (historyFocus === 'failed') {
+      out = out.filter((r) => String(r.status || '').toLowerCase() === 'failed');
+    } else if (historyFocus === 'running') {
+      out = out.filter((r) => ['queued', 'running'].includes(String(r.status || '').toLowerCase()));
+    } else if (historyFocus === 'succeeded') {
+      out = out.filter((r) => ['succeeded', 'success', 'completed'].includes(String(r.status || '').toLowerCase()));
+    }
+    if (filterStatus !== 'all') {
+      out = out.filter((r) => {
+        const status = String(r.status || '').toLowerCase();
+        if (filterStatus === 'succeeded') return ['succeeded', 'success', 'completed'].includes(status);
+        if (filterStatus === 'queued') return status === 'queued';
+        if (filterStatus === 'running') return status === 'running';
+        return status === filterStatus;
+      });
+    }
     if (filterRating !== 'all') {
       const target = Number(filterRating);
       out = out.filter((r) => r.latest_annotation?.rating === target);
+    }
+    if (filterUnrated) {
+      out = out.filter((r) => !r.latest_annotation?.rating);
     }
     const keyword = search.trim().toLowerCase();
     if (keyword) {
@@ -4246,7 +4672,21 @@ export function App() {
       });
     }
     return out;
-  }, [toolRuns, filterRating, search]);
+  }, [toolRuns, historyFocus, filterStatus, filterRating, filterUnrated, search]);
+
+  const historySummary = useMemo(() => {
+    const isSuccess = (run: EvalRun) => ['succeeded', 'success', 'completed'].includes(String(run.status || '').toLowerCase());
+    const isRunning = (run: EvalRun) => ['queued', 'running'].includes(String(run.status || '').toLowerCase());
+    return {
+      total: toolRuns.length,
+      shown: filteredRuns.length,
+      success: toolRuns.filter(isSuccess).length,
+      failed: toolRuns.filter((run) => String(run.status || '').toLowerCase() === 'failed').length,
+      running: toolRuns.filter(isRunning).length,
+      noOutput: toolRuns.filter((run) => isSucceededWithoutVisibleOutput(run)).length,
+      unrated: toolRuns.filter((run) => !run.latest_annotation?.rating).length,
+    };
+  }, [toolRuns, filteredRuns.length]);
 
   const promptAdminToken = useCallback(
     async (opts?: { force?: boolean }) => {
@@ -4536,7 +4976,7 @@ export function App() {
           <Space direction="vertical" size="large" style={{ width: '100%' }}>
             <Alert
               theme="info"
-              message="统一联调准则：taskStatus 只看 queued/running/succeeded/failed；队列限流错误会返回 ERR|Qxxxx|...；成功但暂未回填图片时按“结果回填中”处理，不要直接判失败。"
+              message="统一联调准则：状态只按“排队中、执行中、成功、失败”判断；队列满会给出明确错误码；成功但暂未回填图片时按“结果回填中”处理，不要直接判失败。"
             />
           {docsView === 'structured' && groupedDocs.length > 0 ? (
           <Space direction="vertical" size="large" style={{ width: '100%' }}>
@@ -5486,7 +5926,7 @@ export function App() {
                         <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
                           <Typography.Text strong>{group.fileName || '未命名素材'}</Typography.Text>
                           <Typography.Text theme="secondary">
-                            状态：{group.groupStatus}；完成 {group.completed}/{group.runTotal}；失败 {group.failed}；等待 {group.waiting}
+                            状态：{formatLoraReviewGroupStatusLabel(group.groupStatus)}；完成 {group.completed}/{group.runTotal}；失败 {group.failed}；等待 {group.waiting}
                           </Typography.Text>
                         </Space>
                         <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 6 }}>
@@ -5604,9 +6044,30 @@ export function App() {
 
   if (activeView === 'tool' && selectedTool) {
     const metric = metrics[selectedTool.id];
+    const historyFocusMeta = getHistoryFocusMeta(historyFocus);
+    const toolRuntimeHealth = getWorkflowRuntimeHealth(metric);
+    const selectedToolAccent = getWorkflowAccent(selectedTool);
+    const selectedToolReleaseDate = getWorkflowReleaseDate(selectedTool);
+    const selectedToolInputSummary = getWorkflowInputSummary(selectedTool);
+    const selectedToolOutputSummary = getWorkflowOutputSummary(selectedTool);
+    const selectedToolRouting = getWorkflowRoutingGovernance(selectedTool);
+    const selectedToolGovernance = getWorkflowGovernance(selectedTool);
+    const selectedToolRoleTheme = getWorkflowGovernanceTheme(selectedToolGovernance?.role);
+    const selectedToolRoutingTheme = getWorkflowRoutingGovernanceTheme(selectedToolRouting?.governanceStatus);
+    const selectedToolExecutionLabel = String(selectedToolRouting?.executionLabel || '执行面待确认').trim();
+    const selectedToolTrackingLabel = String(selectedToolRouting?.currentTrackingLabel || '追踪待确认').trim();
+    const selectedToolRoleLabel = String(selectedToolGovernance?.roleLabel || '可测版本').trim();
     const doc = isAiEditor
       ? buildAiEditorDoc(selectedTool, formUrl.trim(), editorPromptPreview, editorRefs)
       : buildCozeDoc(selectedTool, formUrl.trim());
+    const copyIntegrationDoc = async () => {
+      try {
+        await navigator.clipboard.writeText(doc);
+        pushNotice('success', '已复制到剪贴板');
+      } catch {
+        pushNotice('error', '复制失败（浏览器不支持或权限不足）');
+      }
+    };
     return shell(
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
         <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
@@ -5624,9 +6085,13 @@ export function App() {
           </Typography.Text>
         </Space>
 
-        <Card bordered>
-          <Space align="start" style={{ justifyContent: 'space-between', width: '100%' }}>
-            <Space direction="vertical" size={4} style={{ minWidth: 0 }}>
+        <div
+          className="podi-eval-tool-overview"
+          style={{ '--podi-tool-accent': selectedToolAccent } as CSSProperties}
+        >
+          <div className="podi-eval-tool-overview__main">
+            <Typography.Text className="podi-eval-tool-overview__eyebrow">当前功能工作台</Typography.Text>
+            <Space direction="vertical" size={6} style={{ minWidth: 0, width: '100%' }}>
               <Typography.Title level="h4" style={{ margin: 0 }}>
                 {selectedTool.name}
               </Typography.Title>
@@ -5635,6 +6100,15 @@ export function App() {
                 <Tag variant="light">{getWorkflowCategory(selectedTool)}</Tag>
                 <Tag variant="light">{selectedTool.version}</Tag>
                 {getWorkflowOperationLabel(selectedTool) ? <Tag variant="light">{getWorkflowOperationLabel(selectedTool)}</Tag> : null}
+                <Tag theme={selectedToolRoleTheme} variant="light">
+                  {selectedToolRoleLabel}
+                </Tag>
+                <Tag theme={selectedToolRoutingTheme} variant="light">
+                  {selectedToolExecutionLabel}
+                </Tag>
+                <Tag theme={toolRuntimeHealth.theme} variant="light">
+                  {toolRuntimeHealth.label}
+                </Tag>
                 {metric?.avgRating ? (
                   <Tag theme="warning" variant="light">
                     综合评分：{metric.avgRating.toFixed(2)} / 5（{metric.ratingCount}票）
@@ -5643,9 +6117,30 @@ export function App() {
                   <Tag variant="light">综合评分：暂无</Tag>
                 )}
               </Space>
+              <Typography.Text theme="secondary" style={{ fontSize: 13 }}>
+                {toolRuntimeHealth.detail}
+              </Typography.Text>
             </Space>
-          </Space>
-        </Card>
+          </div>
+          <div className="podi-eval-tool-overview__facts" aria-label="功能关键信息">
+            <div>
+              <span>发布时间</span>
+              <strong>{selectedToolReleaseDate}</strong>
+            </div>
+            <div>
+              <span>输入方式</span>
+              <strong>{selectedToolInputSummary}</strong>
+            </div>
+            <div>
+              <span>输出结果</span>
+              <strong>{selectedToolOutputSummary}</strong>
+            </div>
+            <div>
+              <span>任务追踪</span>
+              <strong>{selectedToolTrackingLabel}</strong>
+            </div>
+          </div>
+        </div>
         <StepGuide
           title="单次评测流程"
           hint="保持同一流程可以减少误操作，结果更容易横向对比。"
@@ -5657,10 +6152,19 @@ export function App() {
           ]}
         />
 
-        <Row gutter={[12, 12]}>
+        <Row gutter={[16, 16]} className="podi-eval-workbench">
           {/* TDesign Grid uses a 12-column system; keep spans within 12 to avoid wrapping/empty gaps. */}
           <Col xs={12} xl={5}>
-            <Card bordered title="测试参数">
+            <Card
+              bordered
+              className="podi-eval-panel podi-eval-panel--input"
+              title={
+                <div className="podi-panel-title">
+                  <strong>输入与运行</strong>
+                  <span>先补齐必填参数，再提交一次可复盘的测试。</span>
+                </div>
+              }
+            >
               {isAiEditor ? (
                 <Space direction="vertical" size="large" style={{ width: '100%' }}>
                   <Space direction="vertical" size={4} style={{ width: '100%' }}>
@@ -6042,7 +6546,15 @@ export function App() {
                     </Space>
                   </Card>
 
-                  <Space style={{ justifyContent: 'flex-end', width: '100%' }}>
+                  <div className="podi-run-action-bar">
+                    <div>
+                      <Typography.Text strong>{formUrl.trim() ? '输入已就绪' : '等待主图'}</Typography.Text>
+                      <div>
+                        <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                          {formUrl.trim() ? '可提交运行；建议单次先看结果，再批量放量。' : '请先上传或粘贴主图 URL。'}
+                        </Typography.Text>
+                      </div>
+                    </div>
                     <Button
                       theme="primary"
                       loading={isRunning}
@@ -6051,46 +6563,14 @@ export function App() {
                     >
                       开始生成
                     </Button>
-                  </Space>
+                  </div>
 
-                  <Card
-                    bordered
-                    title={
-                      <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                        <Typography.Text strong>业务接入文档（Coze OpenAPI）</Typography.Text>
-                        <Button
-                          size="small"
-                          variant="outline"
-                          onClick={async () => {
-                            try {
-                              await navigator.clipboard.writeText(doc);
-                              pushNotice('success', '已复制到剪贴板');
-                            } catch {
-                              pushNotice('error', '复制失败（浏览器不支持或权限不足）');
-                            }
-                          }}
-                        >
-                          复制
-                        </Button>
-                      </Space>
-                    }
-                  >
-                    <pre
-                      style={{
-                        maxHeight: 260,
-                        overflow: 'auto',
-                        border: '1px solid var(--td-border-level-1-color)',
-                        background: 'var(--td-bg-color-secondarycontainer)',
-                        borderRadius: 8,
-                        padding: 12,
-                        fontFamily: 'monospace',
-                        fontSize: 12,
-                        whiteSpace: 'pre',
-                      }}
-                    >
-                      {doc}
-                    </pre>
-                  </Card>
+                  <IntegrationDocBlock
+                    doc={doc}
+                    expanded={showIntegrationDoc}
+                    onToggle={() => setShowIntegrationDoc((prev) => !prev)}
+                    onCopy={copyIntegrationDoc}
+                  />
                 </Space>
               ) : (
                 <Space direction="vertical" size="large" style={{ width: '100%' }}>
@@ -6297,7 +6777,15 @@ export function App() {
                       })}
                   </Space>
 
-                  <Space style={{ justifyContent: 'flex-end', width: '100%' }}>
+                  <div className="podi-run-action-bar">
+                    <div>
+                      <Typography.Text strong>{requiresImage && !formUrl.trim() ? '等待主图' : '参数已就绪'}</Typography.Text>
+                      <div>
+                        <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                          {requiresImage && !formUrl.trim() ? '请先上传或粘贴主图 URL。' : '可提交运行；下方文档只用于业务接入核对。'}
+                        </Typography.Text>
+                      </div>
+                    </div>
                     <Button
                       theme="primary"
                       loading={isRunning}
@@ -6306,64 +6794,43 @@ export function App() {
                     >
                       开始生成
                     </Button>
-                  </Space>
+                  </div>
 
-                  <Card
-                    bordered
-                    title={
-                      <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                        <Typography.Text strong>业务接入文档（Coze OpenAPI）</Typography.Text>
-                        <Button
-                          size="small"
-                          variant="outline"
-                          onClick={async () => {
-                            try {
-                              await navigator.clipboard.writeText(doc);
-                              pushNotice('success', '已复制到剪贴板');
-                            } catch {
-                              pushNotice('error', '复制失败（浏览器不支持或权限不足）');
-                            }
-                          }}
-                        >
-                          复制
-                        </Button>
-                      </Space>
-                    }
-                  >
-                    <pre
-                      style={{
-                        maxHeight: 240,
-                        overflow: 'auto',
-                        border: '1px solid var(--td-border-level-1-color)',
-                        background: 'var(--td-bg-color-secondarycontainer)',
-                        borderRadius: 8,
-                        padding: 12,
-                        fontFamily: 'monospace',
-                        fontSize: 12,
-                        whiteSpace: 'pre',
-                      }}
-                    >
-                      {doc}
-                    </pre>
-                  </Card>
+                  <IntegrationDocBlock
+                    doc={doc}
+                    expanded={showIntegrationDoc}
+                    onToggle={() => setShowIntegrationDoc((prev) => !prev)}
+                    onCopy={copyIntegrationDoc}
+                  />
                 </Space>
               )}
             </Card>
           </Col>
 
           <Col xs={12} xl={7}>
-            <Card bordered title="生成结果">
+            <Card
+              bordered
+              className="podi-eval-panel podi-eval-panel--result"
+              title={
+                <div className="podi-panel-title">
+                  <strong>结果与排障</strong>
+                  <span>看当前任务状态、出图数量、调试链接和失败提示。</span>
+                </div>
+              }
+            >
               <Space direction="vertical" size="large" style={{ width: '100%' }}>
-                <Typography.Text theme="secondary">点击图片可放大预览；下方历史可筛选/打标。</Typography.Text>
-                {(() => {
-                  const latest = toolRuns[0] || null;
-                  const status = String(latest?.status || '');
-                  const rawCount = Number((latest?.parameters_json as any)?.count);
-                  const expectedCount =
-                    Number.isFinite(rawCount) && rawCount > 1 ? Math.min(Math.max(rawCount, 2), 12) : latest ? 1 : 0;
-                  const imgs = latest ? filterImageUrls(latest.result_image_urls_json) : [];
-                  const remain = latest ? Math.max(0, expectedCount - imgs.length) : 0;
-                  const outputIp = latest ? extractOutputField((latest as any).result_output_json, 'ip') : '';
+                <Typography.Text theme="secondary">图片可放大预览；视频、文字/VL 和结构化结果会单独展示。下方历史可筛选/打标。</Typography.Text>
+	                {(() => {
+	                  const latest = toolRuns[0] || null;
+	                  const status = String(latest?.status || '');
+	                  const rawCount = Number((latest?.parameters_json as any)?.count);
+	                  const expectedCount =
+	                    Number.isFinite(rawCount) && rawCount > 1 ? Math.min(Math.max(rawCount, 2), 12) : latest ? 1 : 0;
+	                  const latestOutput = latest ? getRunOutputDescriptor(latest) : null;
+	                  const imgs = latestOutput?.imageUrls || [];
+	                  const videos = latestOutput?.videoUrls || [];
+	                  const remain = latest ? Math.max(0, expectedCount - imgs.length) : 0;
+	                  const outputIp = latest ? extractOutputField((latest as any).result_output_json, 'ip') : '';
 
                   return (
                     <Space direction="vertical" size="large" style={{ width: '100%' }}>
@@ -6407,12 +6874,12 @@ export function App() {
                                 <Typography.Text>{expectedCount || '—'}</Typography.Text>
                               </Space>
                             </Col>
-                            <Col xs={12} md={4}>
-                              <Space direction="vertical" size={2}>
-                                <Typography.Text theme="secondary">已完成</Typography.Text>
-                                <Typography.Text>{imgs.length}</Typography.Text>
-                              </Space>
-                            </Col>
+	                            <Col xs={12} md={4}>
+	                              <Space direction="vertical" size={2}>
+	                                <Typography.Text theme="secondary">已完成</Typography.Text>
+	                                <Typography.Text>{latestOutput?.label || imgs.length}</Typography.Text>
+	                              </Space>
+	                            </Col>
                             <Col xs={12} md={4}>
                               <Space direction="vertical" size={2}>
                                 <Typography.Text theme="secondary">创建时间</Typography.Text>
@@ -6462,7 +6929,7 @@ export function App() {
                         )}
                       </Card>
 
-                      <div className="grid gap-3 lg:grid-cols-3">
+                      <div className="podi-latest-output-grid">
                         {!latest ? (
                           <Card bordered title="输出">
                             <Typography.Text theme="secondary">
@@ -6487,13 +6954,35 @@ export function App() {
                               />
                             ))}
                           </>
-                        ) : status === 'failed' ? (
-                          <Alert theme="error" message={`生成失败（run: ${latest.id}）：${toDisplayErrorMessage(latest.error_message || '—')}`} />
-                        ) : imgs.length === 0 ? (
-                          <Card bordered title="输出">
-                            {(() => {
-                              const jsonPreview = formatJsonPreview((latest as any).result_output_json, 2400);
-                              return jsonPreview ? (
+	                        ) : status === 'failed' ? (
+	                          <Alert theme="error" message={`生成失败（run: ${latest.id}）：${toDisplayErrorMessage(latest.error_message || '—')}`} />
+	                        ) : imgs.length > 0 ? (
+	                          imgs.map((img, idx) => (
+	                            <ImageTile
+	                              key={`latest-${idx}`}
+	                              url={img}
+	                              title={`最新结果 #${idx + 1}`}
+	                              onOpen={() => setLightbox({ url: img, title: `最新结果 #${idx + 1}` })}
+	                            />
+	                          ))
+	                        ) : videos.length > 0 ? (
+	                          videos.map((video, idx) => (
+	                            <Card key={`latest-video-${idx}`} bordered title={`结果视频 #${idx + 1}`}>
+	                              <Space direction="vertical" size="small" style={{ width: '100%' }}>
+	                                <Typography.Text theme="secondary" ellipsis>
+	                                  {video}
+	                                </Typography.Text>
+	                                <Button size="small" variant="outline" onClick={() => window.open(video, '_blank', 'noreferrer')}>
+	                                  打开视频
+	                                </Button>
+	                              </Space>
+	                            </Card>
+	                          ))
+	                        ) : (
+	                          <Card bordered title="输出">
+	                            {(() => {
+	                              const jsonPreview = latestOutput?.preview || '';
+	                              return jsonPreview ? (
                                 <pre
                                   style={{
                                     maxHeight: 420,
@@ -6510,20 +6999,11 @@ export function App() {
                                   {jsonPreview}
                                 </pre>
                               ) : (
-                                <Typography.Text theme="secondary">该次运行无图片输出。</Typography.Text>
-                              );
-                            })()}
-                          </Card>
-                        ) : (
-                          imgs.map((img, idx) => (
-                            <ImageTile
-                              key={`latest-${idx}`}
-                              url={img}
-                              title={`最新结果 #${idx + 1}`}
-                              onOpen={() => setLightbox({ url: img, title: `最新结果 #${idx + 1}` })}
-                            />
-                          ))
-                        )}
+	                                <Typography.Text theme="secondary">该次运行无图片输出。</Typography.Text>
+	                              );
+	                            })()}
+	                          </Card>
+	                        )}
                       </div>
                     </Space>
                   );
@@ -6535,6 +7015,100 @@ export function App() {
 
         <Card bordered title={<Typography.Text strong>历史记录（打标区）</Typography.Text>}>
           <Space direction="vertical" size="large" style={{ width: '100%' }}>
+            {historyFocusMeta ? (
+              <Alert
+                theme={historyFocusMeta.theme}
+                message={`${historyFocusMeta.label}：${historyFocusMeta.message}`}
+                operation={
+                  <Button
+                    size="small"
+                    variant="text"
+                    onClick={() => {
+                      setHistoryFocus('all');
+                      setFilterStatus('all');
+                    }}
+                  >
+                    查看全部记录
+                  </Button>
+                }
+              />
+            ) : null}
+            <div className="podi-history-summary-board" aria-label="历史复盘汇总">
+              <button
+                type="button"
+                className="podi-history-summary-card"
+                onClick={() => {
+                  setHistoryFocus('all');
+                  setFilterStatus('all');
+                  setFilterRating('all');
+                  setFilterUnrated(false);
+                }}
+              >
+                <span>当前显示</span>
+                <strong>{historySummary.shown} / {historySummary.total}</strong>
+                <em>全部记录</em>
+              </button>
+              <button
+                type="button"
+                className="podi-history-summary-card podi-history-summary-card--success"
+                onClick={() => {
+                  setHistoryFocus('succeeded');
+                  setFilterStatus('all');
+                }}
+              >
+                <span>成功</span>
+                <strong>{historySummary.success}</strong>
+                <em>可用于质量对照</em>
+              </button>
+              <button
+                type="button"
+                className="podi-history-summary-card podi-history-summary-card--warning"
+                onClick={() => {
+                  setHistoryFocus('no_output');
+                  setFilterStatus('all');
+                }}
+              >
+                <span>成功无回填</span>
+                <strong>{historySummary.noOutput}</strong>
+                <em>优先查回调链路</em>
+              </button>
+              <button
+                type="button"
+                className="podi-history-summary-card podi-history-summary-card--danger"
+                onClick={() => {
+                  setHistoryFocus('failed');
+                  setFilterStatus('all');
+                }}
+              >
+                <span>失败</span>
+                <strong>{historySummary.failed}</strong>
+                <em>优先看错误码</em>
+              </button>
+              <button
+                type="button"
+                className="podi-history-summary-card podi-history-summary-card--primary"
+                onClick={() => {
+                  setHistoryFocus('running');
+                  setFilterStatus('all');
+                }}
+              >
+                <span>排队/运行</span>
+                <strong>{historySummary.running}</strong>
+                <em>观察是否卡住</em>
+              </button>
+              <button
+                type="button"
+                className="podi-history-summary-card"
+                onClick={() => {
+                  setHistoryFocus('all');
+                  setFilterUnrated(true);
+                }}
+              >
+                <span>未打分</span>
+                <strong>{historySummary.unrated}</strong>
+                <em>待人工复盘</em>
+              </button>
+            </div>
             <FilterBar
               title="筛选器"
               description="每条记录包含原图 + 结果图；支持筛选、评分与备注。"
@@ -6542,14 +7116,17 @@ export function App() {
                 <>
                   <Select
                     value={filterStatus}
-                    onChange={(v) => setFilterStatus(String(v))}
+                    onChange={(v) => {
+                      setHistoryFocus('all');
+                      setFilterStatus(String(v));
+                    }}
                     style={{ width: 140 }}
                     options={[
                       { label: '全部状态', value: 'all' },
-                      { label: 'queued', value: 'queued' },
-                      { label: 'running', value: 'running' },
-                      { label: 'succeeded', value: 'succeeded' },
-                      { label: 'failed', value: 'failed' },
+                      { label: '排队中', value: 'queued' },
+                      { label: '执行中', value: 'running' },
+                      { label: '成功', value: 'succeeded' },
+                      { label: '失败', value: 'failed' },
                     ]}
                   />
                   <Select
@@ -6629,12 +7206,80 @@ export function App() {
   );
   const comfyuiQueuePressure =
     comfyuiQueueCapacity > 0 ? Math.round((Number(comfyuiQueueSummary?.totalCount || 0) / comfyuiQueueCapacity) * 100) : 0;
+  const categorySummaries = orderedCategories.map((category) => {
+    const items = grouped[category] || [];
+    let recentRunCount = 0;
+    let recentSuccessCount = 0;
+    let recentFailureCount = 0;
+    let recentRunningCount = 0;
+    let recentNoOutputCount = 0;
+    for (const wf of items) {
+      const metric = metrics[wf.id];
+      recentRunCount += Number(metric?.recentRunCount || 0);
+      recentSuccessCount += Number(metric?.recentSuccessCount || 0);
+      recentFailureCount += Number(metric?.recentFailureCount || 0);
+      recentRunningCount += Number(metric?.recentRunningCount || 0);
+      recentNoOutputCount += Number(metric?.recentNoOutputCount || 0);
+    }
+    let theme: 'default' | 'success' | 'warning' | 'danger' | 'primary' = 'default';
+    let label = recentRunCount > 0 ? '有评测记录' : '暂无近期记录';
+    if (recentNoOutputCount > 0) {
+      theme = 'warning';
+      label = '有未回填';
+    } else if (recentFailureCount > 0 && recentSuccessCount <= 0) {
+      theme = 'danger';
+      label = '最近失败';
+    } else if (recentFailureCount > 0) {
+      theme = 'warning';
+      label = '有失败样本';
+    } else if (recentRunningCount > 0 && recentSuccessCount <= 0) {
+      theme = 'primary';
+      label = '运行中';
+    } else if (recentSuccessCount > 0) {
+      theme = 'success';
+      label = '最近可用';
+    }
+    return {
+      category,
+      count: items.length,
+      visual: getCategoryVisual(category),
+      recentRunCount,
+      recentSuccessCount,
+      recentFailureCount,
+      recentNoOutputCount,
+      theme,
+      label,
+    };
+  });
   return shell(
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
       {bootstrapLoading || workflowListStatus === 'loading' ? <Alert theme="info" message="正在加载功能清单和评分数据…" /> : null}
       {workflowListStatus === 'error' ? (
         <WorkflowListErrorState scope="public" error={workflowListError} onRetry={() => void loadWorkflowList()} />
       ) : null}
+      <div className="podi-eval-category-board" aria-label="业务分类总览">
+        {categorySummaries.map((item) => (
+          <button
+            key={item.category}
+            type="button"
+            className={`podi-eval-category-tile${item.category === activeCategory ? ' podi-eval-category-tile--active' : ''}`}
+            style={{ '--podi-category-accent': item.visual.accent } as CSSProperties}
+            onClick={() => setActiveCategory(item.category)}
+          >
+            <span className="podi-eval-category-tile__icon">{item.visual.icon}</span>
+            <span className="podi-eval-category-tile__body">
+              <span className="podi-eval-category-tile__name">{item.category}</span>
+              <span className="podi-eval-category-tile__summary">{item.visual.summary}</span>
+              <span className="podi-eval-category-tile__meta">
+                {item.count} 个功能 · 近 72 小时成功 {item.recentSuccessCount} 次
+              </span>
+            </span>
+            <Tag theme={item.theme} variant="light">
+              {item.label}
+            </Tag>
+          </button>
+        ))}
+      </div>
       <div className="podi-eval-hero">
         <div className="podi-eval-hero__headline">
           <span className="podi-eval-hero__headline-icon" style={{ color: activeCategoryVisual.accent }}>
@@ -6894,7 +7539,14 @@ export function App() {
       ) : null}
       <div className="podi-tool-grid">
         {toolList.map((wf) => (
-          <ToolCard key={wf.id} wf={wf} active={false} metric={metrics[wf.id]} onClick={() => openTool(wf)} />
+          <ToolCard
+            key={wf.id}
+            wf={wf}
+            active={false}
+            metric={metrics[wf.id]}
+            onClick={() => openTool(wf)}
+            onOpenRecent={(focus) => openTool(wf, focus)}
+          />
         ))}
       </div>
     </Space>
@@ -6911,7 +7563,8 @@ function HistoryRow({
   onOpenImage: (url: string, title?: string) => void;
 }) {
   const inputUrl = (run.input_oss_urls_json || [])[0] || '';
-  const outputs = filterImageUrls(run.result_image_urls_json);
+  const output = getRunOutputDescriptor(run);
+  const outputs = output.imageUrls;
   const [rating, setRating] = useState<number>(run.latest_annotation?.rating || 0);
   const [savedComment, setSavedComment] = useState<string>(String(run.latest_annotation?.comment || ''));
   const [commentDraft, setCommentDraft] = useState<string>(String(run.latest_annotation?.comment || ''));
@@ -6921,10 +7574,37 @@ function HistoryRow({
   const [rowError, setRowError] = useState<string>('');
 
   const commentDirty = commentDraft !== savedComment;
-  const jsonPreview = formatJsonPreview((run as any).result_output_json, 1200);
+  const jsonPreview = output.preview;
   const displayParams = filterDisplayParams(run.parameters_json as Record<string, unknown> | null);
   const paramsPreview = formatJsonPreview(displayParams, 1000);
   const outputIp = extractOutputField((run as any).result_output_json, 'ip');
+  const submitStage = run.submit_status || (run.coze_execute_id || run.podi_task_id ? 'submitted' : '');
+  const callbackStage =
+    run.callback_status ||
+    (outputs.length > 0 || jsonPreview
+      ? 'success'
+      : run.status === 'failed'
+        ? 'failed'
+        : run.status === 'running' || run.status === 'queued'
+          ? 'waiting'
+          : '');
+  const finalStage = run.final_status || run.status;
+  const outputLabel =
+    outputs.length > 0
+      ? output.label
+      : output.hasOutput
+        ? output.label
+        : isSucceededWithoutVisibleOutput(run)
+          ? '成功无回填'
+          : run.status === 'running' || run.status === 'queued'
+            ? '等待结果'
+            : '无结果';
+  const stageItems = [
+    { label: '提交', value: formatEvalStageStatus('submit', submitStage), tone: getEvalStageTone(submitStage) },
+    { label: '回填', value: formatEvalStageStatus('callback', callbackStage), tone: getEvalStageTone(callbackStage) },
+    { label: '最终', value: formatEvalStageStatus('final', finalStage), tone: getEvalStageTone(finalStage) },
+    { label: '输出', value: outputLabel, tone: getOutputTone(outputLabel) },
+  ];
 
   // Sync state when the latest annotation changes due to refresh/polling.
   // Do not clobber an in-progress comment draft.
@@ -6954,6 +7634,7 @@ function HistoryRow({
                   中台：{run.podi_task_id}
                 </Typography.Text>
               ) : null}
+              <Typography.Text theme="secondary">成本：{formatEvalRunCost(run)}</Typography.Text>
               {outputIp ? (
                 <Typography.Text theme="secondary" style={{ fontFamily: 'monospace' }} ellipsis>
                   节点：{outputIp}
@@ -6968,6 +7649,14 @@ function HistoryRow({
                   调试链接
                 </Button>
               ) : null}
+            </div>
+            <div className="podi-history-stage-strip" aria-label="任务阶段状态">
+              {stageItems.map((item) => (
+                <div key={`${run.id}-${item.label}`} className={`podi-history-stage podi-history-stage--${item.tone}`}>
+                  <span>{item.label}</span>
+                  <strong title={item.value}>{item.value}</strong>
+                </div>
+              ))}
             </div>
             {run.error_message ? <Alert theme="error" message={toDisplayErrorMessage(run.error_message)} /> : null}
           </div>
@@ -7080,6 +7769,22 @@ function HistoryRow({
                       style={{ padding: 6, height: 'auto' }}
                     >
                       <img src={u} alt="output" loading="lazy" style={{ height: 128, width: '100%', objectFit: 'contain' }} />
+                    </Button>
+                  ))
+                ) : output.videoUrls.length > 0 ? (
+                  output.videoUrls.map((u, idx) => (
+                    <Button
+                      key={`${run.id}-video-${idx}`}
+                      variant="outline"
+                      onClick={() => window.open(u, '_blank', 'noreferrer')}
+                      style={{ padding: 12, height: 'auto', minHeight: 96 }}
+                    >
+                      <Space direction="vertical" size={2}>
+                        <Typography.Text strong>结果视频 #{idx + 1}</Typography.Text>
+                        <Typography.Text theme="secondary" ellipsis style={{ maxWidth: 260 }}>
+                          {u}
+                        </Typography.Text>
+                      </Space>
                     </Button>
                   ))
                 ) : run.status !== 'running' && run.status !== 'queued' ? (

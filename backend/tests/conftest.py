@@ -17,6 +17,7 @@ os.environ.setdefault(
 )
 os.environ.setdefault("SERVICE_API_TOKEN", "podi-test-service-token")
 os.environ.setdefault("COZE_TRUSTED_IPS", "testclient")
+os.environ.setdefault("EVAL_ADMIN_TOKEN", "podi-test-eval-admin-token")
 
 
 def pytest_sessionstart(session):  # noqa: ANN001

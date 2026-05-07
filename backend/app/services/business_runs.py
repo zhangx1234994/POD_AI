@@ -6,9 +6,10 @@ from functools import lru_cache
 import hashlib
 import json
 import logging
+import math
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 from uuid import uuid4
@@ -17,11 +18,13 @@ import httpx
 from fastapi import HTTPException
 from sqlalchemy import and_, func, or_, select, update
 
+from app.core.config import get_settings
 from app.core.db import get_session
 from app.models.integration import (
     Ability,
     AbilityInvocationLog,
     AbilityTask,
+    ApiKey,
     BusinessCapability,
     BusinessClient,
     BusinessDefaultApproval,
@@ -31,8 +34,10 @@ from app.models.integration import (
     VendorModelCatalog,
 )
 from app.models.user import User
+from app.models.wallet import PackageBalance, PackageLedger
 from app.schemas.abilities import AbilityInvokeRequest
 from app.schemas.business import (
+    BusinessAcceptanceRecordRequest,
     BusinessCapabilityCreateRequest,
     BusinessCapabilityPromoteRequest,
     BusinessCapabilityRollbackRequest,
@@ -43,15 +48,18 @@ from app.schemas.business import (
     BusinessDefaultApprovalDecisionRequest,
     BusinessRunCreateRequest,
 )
+from app.services.api_key_selector import is_usable
 from app.services.ability_seed import ensure_default_abilities
 from app.services.ability_task_service import get_ability_task_service
 from app.services.business_seed import ensure_default_business_capabilities
 from app.services.task_id_codec import encode_task_id
+from app.services.wallet import wallet_service
 
 
 logger = logging.getLogger(__name__)
 FINALIZE_INTERVAL_SECONDS = 6
 FINALIZE_BATCH_SIZE = 30
+VENDOR_KEY_CHECK_STALE_DAYS = 7
 RECIPE_EXECUTABLE_STEP_TYPES = {"ability_task", "comfyui_workflow", "vendor_api", "vl_analyze", "vl_analyze_image"}
 RECIPE_PASSIVE_STEP_TYPES = {"input_mapping", "output_mapping", "prompt_template", "note"}
 
@@ -217,12 +225,19 @@ class BusinessRunService:
                 extra_metadata=payload.metadata,
             )
             if row.is_default:
+                session.add(row)
+                session.flush()
+                self._ensure_default_release_ready(row, session)
                 session.execute(
                     update(BusinessCapability)
-                    .where(BusinessCapability.business_key == row.business_key)
+                    .where(
+                        BusinessCapability.business_key == row.business_key,
+                        BusinessCapability.id != row.id,
+                    )
                     .values(is_default=False)
                 )
-            session.add(row)
+            else:
+                session.add(row)
             session.commit()
             session.refresh(row)
             return self._capability_to_dict(row, session=session)
@@ -232,6 +247,7 @@ class BusinessRunService:
             row = session.get(BusinessCapability, capability_id)
             if not row:
                 raise HTTPException(status_code=404, detail="BUSINESS_CAPABILITY_NOT_FOUND")
+            was_default = bool(row.is_default)
             next_business_key = self._required_text(payload.businessKey, "BUSINESS_KEY_REQUIRED") if payload.businessKey is not None else row.business_key
             next_version = self._required_text(payload.version, "BUSINESS_VERSION_REQUIRED") if payload.version is not None else row.version
             duplicate = (
@@ -273,6 +289,17 @@ class BusinessRunService:
             if "metadata" in payload.model_fields_set or "extra_metadata" in payload.model_fields_set:
                 row.extra_metadata = payload.metadata
             if row.is_default:
+                session.add(row)
+                session.flush()
+                default_gate_required = (
+                    not was_default
+                    or payload.isDefault is not None
+                    or payload.status is not None
+                    or payload.recipe is not None
+                    or payload.primaryAbilityId is not None
+                )
+                if default_gate_required:
+                    self._ensure_default_release_ready(row, session)
                 session.execute(
                     update(BusinessCapability)
                     .where(
@@ -282,6 +309,60 @@ class BusinessRunService:
                     .values(is_default=False)
                 )
             session.add(row)
+            session.commit()
+            session.refresh(row)
+            return self._capability_to_dict(row, session=session)
+
+    def record_acceptance(
+        self,
+        capability_id: str,
+        payload: BusinessAcceptanceRecordRequest | None = None,
+        *,
+        actor: User | None = None,
+    ) -> dict[str, Any]:
+        request = payload or BusinessAcceptanceRecordRequest()
+        status = self._normalize_acceptance_status(request.status)
+        note = self._clean_optional_text(request.note)
+        evidence_run_id = self._clean_optional_text(request.evidenceRunId)
+        evidence_url = self._clean_optional_text(request.evidenceUrl)
+        with get_session() as session:
+            row = session.get(BusinessCapability, capability_id)
+            if not row:
+                raise HTTPException(status_code=404, detail="BUSINESS_CAPABILITY_NOT_FOUND")
+            before = self._capability_to_dict(row, session=session)
+            metadata = dict(row.extra_metadata or {})
+            existing_records = metadata.get("acceptanceRecords")
+            records = existing_records if isinstance(existing_records, list) else []
+            record = {
+                "id": f"bizacc_{uuid4().hex[:12]}",
+                "status": status,
+                "note": note,
+                "evidenceRunId": evidence_run_id,
+                "evidenceUrl": evidence_url,
+                "checklist": request.checklist if isinstance(request.checklist, dict) else {},
+                "metadata": request.metadata if isinstance(request.metadata, dict) else {},
+                "actorUserId": self._safe_user_id(actor),
+                "actorUsername": self._actor_username(actor),
+                "actorRole": (str(getattr(actor, "role", "") or "").strip() or None) if actor else None,
+                "createdAt": datetime.utcnow().isoformat(),
+            }
+            metadata["latestAcceptance"] = record
+            metadata["acceptanceRecords"] = [record, *records][:20]
+            row.extra_metadata = metadata
+            session.add(row)
+            self._record_business_operation(
+                session=session,
+                action="record_acceptance",
+                target_type="business_capability",
+                target_id=row.id,
+                business_key=row.business_key,
+                actor=actor,
+                note=note,
+                before_payload={
+                    "latestAcceptance": before.get("latest_acceptance") or before.get("latestAcceptance"),
+                },
+                after_payload={"latestAcceptance": record},
+            )
             session.commit()
             session.refresh(row)
             return self._capability_to_dict(row, session=session)
@@ -302,6 +383,9 @@ class BusinessRunService:
                 if not request.activate:
                     raise HTTPException(status_code=400, detail="BUSINESS_DEFAULT_VERSION_MUST_BE_ACTIVE")
                 row.status = "active"
+            session.add(row)
+            session.flush()
+            self._ensure_default_release_ready(row, session)
             current_default = (
                 session.execute(
                     select(BusinessCapability).where(
@@ -403,6 +487,7 @@ class BusinessRunService:
                 raise HTTPException(status_code=404, detail="BUSINESS_CAPABILITY_NOT_FOUND")
             if target.status != "active":
                 raise HTTPException(status_code=400, detail="BUSINESS_DEFAULT_VERSION_MUST_BE_ACTIVE")
+            self._ensure_default_release_ready(target, session)
             if target.is_default:
                 raise HTTPException(status_code=409, detail="BUSINESS_DEFAULT_ALREADY_ACTIVE")
             current_default = (
@@ -523,6 +608,7 @@ class BusinessRunService:
                 return self._default_approval_to_dict(row, session=session)
             if target.status != "active":
                 raise HTTPException(status_code=400, detail="BUSINESS_DEFAULT_VERSION_MUST_BE_ACTIVE")
+            self._ensure_default_release_ready(target, session)
             current_default = (
                 session.execute(
                     select(BusinessCapability)
@@ -677,6 +763,7 @@ class BusinessRunService:
         status: str | None = None,
         billing_status: str | None = None,
         callback_status: str | None = None,
+        issue_category: str | None = None,
         version: str | None = None,
         source: str | None = None,
         tenant_id: str | None = None,
@@ -687,6 +774,7 @@ class BusinessRunService:
             stmt = select(BusinessRun)
             count_stmt = select(func.count(BusinessRun.id))
             filters = []
+            normalized_issue_category = self._normalize_issue_category(issue_category)
             if business_key:
                 filters.append(BusinessRun.business_key == business_key)
             if status:
@@ -711,9 +799,17 @@ class BusinessRunService:
                 if status_filter is not None:
                     stmt = stmt.where(status_filter)
                     count_stmt = count_stmt.where(status_filter)
+            if normalized_issue_category:
+                rows = session.execute(stmt.order_by(BusinessRun.created_at.desc())).scalars().all()
+                items = [
+                    self._run_to_dict(row, session=session)
+                    for row in rows
+                    if self._build_run_issue_summary(row, session=session)["category"] == normalized_issue_category
+                ]
+                return len(items), items[: max(1, min(limit, 1000))]
             total = int(session.scalar(count_stmt) or 0)
             rows = (
-                session.execute(stmt.order_by(BusinessRun.created_at.desc()).limit(max(1, min(limit, 200))))
+                session.execute(stmt.order_by(BusinessRun.created_at.desc()).limit(max(1, min(limit, 1000))))
                 .scalars()
                 .all()
             )
@@ -725,6 +821,7 @@ class BusinessRunService:
         window_hours: int = 24,
         business_key: str | None = None,
         status: str | None = None,
+        issue_category: str | None = None,
         version: str | None = None,
         source: str | None = None,
         tenant_id: str | None = None,
@@ -733,6 +830,10 @@ class BusinessRunService:
     ) -> dict[str, Any]:
         normalized_window_hours = max(1, min(int(window_hours or 24), 24 * 90))
         since = datetime.utcnow() - timedelta(hours=normalized_window_hours)
+        issue_summaries: dict[str, dict[str, Any]] = {}
+        unresolved_issues: list[dict[str, Any]] = []
+        recent_unresolved_issues: list[dict[str, Any]] = []
+        normalized_issue_category = self._normalize_issue_category(issue_category)
         with get_session() as session:
             stmt = select(BusinessRun).where(BusinessRun.created_at >= since)
             filters = []
@@ -753,6 +854,26 @@ class BusinessRunService:
             if filters:
                 stmt = stmt.where(*filters)
             rows = session.execute(stmt.order_by(BusinessRun.created_at.desc())).scalars().all()
+            issue_summaries = {
+                row.id: self._build_run_issue_summary(row, session=session)
+                for row in rows
+            }
+            if normalized_issue_category:
+                rows = [
+                    row
+                    for row in rows
+                    if issue_summaries.get(row.id, {}).get("category") == normalized_issue_category
+                ]
+            unresolved_issues = self._usage_unresolved_issue_buckets(
+                rows,
+                issue_summaries,
+                session=session,
+            )
+            recent_unresolved_issues = self._recent_unresolved_issue_items(
+                rows,
+                issue_summaries,
+                session=session,
+            )
 
         summary = self._summarize_usage_bucket("all", "全部业务", rows)
         recent_failures = [
@@ -777,6 +898,7 @@ class BusinessRunService:
             "filters": {
                 "business_key": business_key,
                 "status": status,
+                "issue_category": issue_category,
                 "version": version,
                 "source": source,
                 "tenant_id": tenant_id,
@@ -793,6 +915,9 @@ class BusinessRunService:
                 lambda row: f"{row.business_key or 'unknown'}:{row.version or '未标记版本'}",
                 label_func=lambda key: key.replace(":", " · ", 1),
             ),
+            "by_issue": self._usage_issue_buckets(rows, issue_summaries),
+            "unresolved_issues": unresolved_issues,
+            "recent_unresolved_issues": recent_unresolved_issues,
             "recent_failures": recent_failures,
         }
 
@@ -814,6 +939,111 @@ class BusinessRunService:
             key=lambda item: (int(item.get("total") or 0), item.get("latest_at") or datetime.min),
             reverse=True,
         )[:50]
+
+    def _usage_issue_buckets(
+        self,
+        rows: list[BusinessRun],
+        issue_summaries: dict[str, dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        groups: dict[str, list[BusinessRun]] = {}
+        for row in rows:
+            summary = issue_summaries.get(row.id) or self._build_run_issue_summary(row)
+            key = str(summary.get("category") or "none")
+            groups.setdefault(key, []).append(row)
+        buckets: list[dict[str, Any]] = []
+        for key, group in groups.items():
+            issue = self._issue_category_meta(key)
+            bucket = self._summarize_usage_bucket(key, issue["label"], group)
+            bucket.update(
+                {
+                    "severity": issue["severity"],
+                    "action": issue["action"],
+                }
+            )
+            buckets.append(bucket)
+        return sorted(
+            buckets,
+            key=lambda item: (0 if item.get("key") == "none" else 1, int(item.get("total") or 0)),
+            reverse=True,
+        )
+
+    def _usage_unresolved_issue_buckets(
+        self,
+        rows: list[BusinessRun],
+        issue_summaries: dict[str, dict[str, Any]],
+        *,
+        session,
+    ) -> list[dict[str, Any]]:
+        groups: dict[str, list[BusinessRun]] = {}
+        retest_by_run: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            summary = issue_summaries.get(row.id) or self._build_run_issue_summary(row, session=session)
+            category = str(summary.get("category") or "none")
+            if category == "none" or self._extract_retest_source_run_id(row):
+                continue
+            retest_summary = self._build_retest_summary(row, session=session)
+            if retest_summary.get("recovered"):
+                continue
+            groups.setdefault(category, []).append(row)
+            retest_by_run[row.id] = retest_summary
+
+        buckets: list[dict[str, Any]] = []
+        for key, group in groups.items():
+            issue = self._issue_category_meta(key)
+            bucket = self._summarize_usage_bucket(key, issue["label"], group)
+            retested = sum(1 for row in group if int((retest_by_run.get(row.id) or {}).get("attempts") or 0) > 0)
+            retest_attempts = sum(int((retest_by_run.get(row.id) or {}).get("attempts") or 0) for row in group)
+            bucket.update(
+                {
+                    "severity": issue["severity"],
+                    "action": issue["action"],
+                    "retested": retested,
+                    "retest_attempts": retest_attempts,
+                }
+            )
+            buckets.append(bucket)
+        return sorted(
+            buckets,
+            key=lambda item: (int(item.get("total") or 0), int(item.get("retest_attempts") or 0)),
+            reverse=True,
+        )
+
+    def _recent_unresolved_issue_items(
+        self,
+        rows: list[BusinessRun],
+        issue_summaries: dict[str, dict[str, Any]],
+        *,
+        session,
+    ) -> list[dict[str, Any]]:
+        items: list[dict[str, Any]] = []
+        for row in rows:
+            summary = issue_summaries.get(row.id) or self._build_run_issue_summary(row, session=session)
+            category = str(summary.get("category") or "none")
+            if category == "none" or self._extract_retest_source_run_id(row):
+                continue
+            retest_summary = self._build_retest_summary(row, session=session)
+            if retest_summary.get("recovered"):
+                continue
+            items.append(
+                {
+                    "id": row.id,
+                    "business_key": row.business_key,
+                    "version": row.version,
+                    "status": row.status,
+                    "source": row.source,
+                    "tenant_id": row.tenant_id,
+                    "client_id": row.client_id,
+                    "trace_id": row.trace_id,
+                    "issue_category": category,
+                    "issue_label": str(summary.get("label") or self._issue_category_meta(category)["label"]),
+                    "issue_action": summary.get("action"),
+                    "retest_attempts": int(retest_summary.get("attempts") or 0),
+                    "retest_latest_run_id": retest_summary.get("latestRunId"),
+                    "retest_latest_status": retest_summary.get("latestStatus"),
+                    "created_at": row.created_at,
+                }
+            )
+        return sorted(items, key=lambda item: item["created_at"], reverse=True)[:10]
 
     def _summarize_usage_bucket(self, key: str, label: str, rows: list[BusinessRun]) -> dict[str, Any]:
         statuses = {
@@ -958,8 +1188,8 @@ class BusinessRunService:
                 request_id=trace_context["requestId"],
                 tenant_id=trace_context.get("tenantId"),
                 client_id=trace_context.get("clientId"),
-                user_id=self._safe_user_id(user),
-                user_name=getattr(user, "username", None) if user else None,
+                user_id=self._resolve_business_user_id(user=user, payload=payload, trace_context=trace_context),
+                user_name=self._resolve_business_user_name(user=user, payload=payload),
                 ability_id=ability.id,
                 request_payload=request_payload,
                 callback_url=payload.callbackUrl,
@@ -1360,10 +1590,8 @@ class BusinessRunService:
             row = session.get(BusinessRun, run_id)
             if not row:
                 raise HTTPException(status_code=404, detail="BUSINESS_RUN_NOT_FOUND")
-            if user and getattr(user, "role", "") != "admin":
-                uid = self._safe_user_id(user)
-                if row.user_id and uid and row.user_id != uid:
-                    raise HTTPException(status_code=403, detail="BUSINESS_RUN_FORBIDDEN")
+            if user and not self._can_user_access_run(row, user):
+                raise HTTPException(status_code=403, detail="BUSINESS_RUN_FORBIDDEN")
             return self._run_to_dict(row, session=session)
 
     def finalize_run(self, run_id: str) -> None:
@@ -1387,6 +1615,7 @@ class BusinessRunService:
                 run_status = run.status if run else run_status
                 terminal_after_sync = bool(run and run.status in {"succeeded", "failed", "cancelled"})
         if terminal_after_sync:
+            self._auto_settle_run_if_needed(run_id)
             self._deliver_callback(run_id)
 
     def _start_finalize_thread(self) -> None:
@@ -1432,7 +1661,29 @@ class BusinessRunService:
         for run_id in waiting_primary_ids:
             self._submit_primary_after_vl_if_ready(run_id=run_id, user=None)
         for run_id in terminal_ids:
+            self._auto_settle_run_if_needed(run_id)
             self._deliver_callback(run_id)
+
+    def _auto_settle_run_if_needed(self, run_id: str) -> None:
+        if not bool(getattr(get_settings(), "wallet_auto_expense_enabled", True)):
+            return
+        try:
+            with get_session() as session:
+                run = session.get(BusinessRun, run_id)
+                if not run:
+                    return
+                if self._business_billing_status(run) != "billable":
+                    return
+                existing = self._billing_settlement_from_run(run)
+                if existing and str(existing.get("status") or "").lower() in {"settled", "refunded"}:
+                    return
+            self.retry_billing(run_id)
+        except HTTPException as exc:
+            if exc.detail in {"BUSINESS_RUN_UNPRICED", "BUSINESS_RUN_USER_REQUIRED", "BUSINESS_RUN_NOT_BILLABLE"}:
+                return
+            logger.warning("business run auto billing failed: run_id=%s detail=%s", run_id, exc.detail)
+        except Exception as exc:  # pragma: no cover - background best effort
+            logger.warning("business run auto billing failed: run_id=%s error=%s", run_id, exc)
 
     def _finalize_pending_steps(self) -> None:
         with get_session() as session:
@@ -1514,24 +1765,861 @@ class BusinessRunService:
             session.add(step)
         session.add(run)
 
-    def _deliver_callback(self, run_id: str) -> None:
+    def retry_callback(self, run_id: str, *, actor: User | None = None) -> dict[str, Any]:
+        normalized_run_id = str(run_id or "").strip()
+        if not normalized_run_id:
+            raise HTTPException(status_code=400, detail="BUSINESS_RUN_ID_REQUIRED")
+        with get_session() as session:
+            run = session.get(BusinessRun, normalized_run_id)
+            if not run:
+                raise HTTPException(status_code=404, detail="BUSINESS_RUN_NOT_FOUND")
+            if not run.callback_url:
+                raise HTTPException(status_code=409, detail="BUSINESS_CALLBACK_NOT_CONFIGURED")
+            if str(run.status or "").lower() in {"queued", "running"}:
+                raise HTTPException(status_code=409, detail="BUSINESS_RUN_NOT_FINISHED")
+            before = {
+                "callbackStatus": run.callback_status,
+                "callbackHttpStatus": run.callback_http_status,
+                "callbackError": run.callback_error,
+            }
+            run.callback_status = None
+            run.callback_http_status = None
+            run.callback_error = None
+            run.callback_response = None
+            self._record_business_operation(
+                session=session,
+                action="retry_callback",
+                target_type="business_run",
+                target_id=run.id,
+                business_key=run.business_key,
+                tenant_id=run.tenant_id,
+                client_id=run.client_id,
+                actor=actor,
+                before_payload=before,
+            )
+            session.add(run)
+            session.commit()
+
+        self._deliver_callback(normalized_run_id, force=True)
+        return self.get_run(run_id=normalized_run_id, user=None)
+
+    @staticmethod
+    def _package_remaining(row: PackageBalance) -> int:
+        return max(0, int(row.total_units or 0) - int(row.used_units or 0) - int(row.frozen_units or 0))
+
+    def _record_package_consumption(
+        self,
+        *,
+        user_id: str,
+        business_key: str,
+        units: int,
+        run_id: str,
+        trace_id: str,
+    ) -> dict[str, Any] | None:
+        now = datetime.utcnow()
+        with get_session() as session:
+            existing = (
+                session.execute(
+                    select(PackageLedger).where(
+                        PackageLedger.user_id == user_id,
+                        PackageLedger.trace_id == trace_id,
+                    )
+                )
+                .scalars()
+                .first()
+            )
+            if existing:
+                balance = session.get(PackageBalance, existing.package_balance_id)
+                return {
+                    "status": "settled",
+                    "method": "package",
+                    "traceId": trace_id,
+                    "packageBalanceId": str(existing.package_balance_id),
+                    "packageKey": existing.package_key,
+                    "businessKey": existing.business_key,
+                    "units": int(existing.units or 0),
+                    "remainingUnits": int(existing.balance_after or 0),
+                    "ledgerId": f"pkg_txn_{existing.id}",
+                    "idempotent": True,
+                    "settledAt": existing.created_at.isoformat() if existing.created_at else now.isoformat(),
+                    "packageName": balance.package_name if balance else None,
+                }
+            rows = (
+                session.execute(
+                    select(PackageBalance).where(
+                        PackageBalance.user_id == user_id,
+                        PackageBalance.status == "active",
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            candidates: list[PackageBalance] = []
+            for row in rows:
+                if row.business_key not in {None, business_key}:
+                    continue
+                if row.expires_at and row.expires_at < now:
+                    continue
+                if self._package_remaining(row) < units:
+                    continue
+                candidates.append(row)
+            if not candidates:
+                return None
+            candidates.sort(
+                key=lambda row: (
+                    0 if row.business_key == business_key else 1,
+                    row.expires_at or datetime.max,
+                    row.created_at or now,
+                )
+            )
+            balance = candidates[0]
+            balance.used_units = int(balance.used_units or 0) + units
+            balance.updated_at = now
+            remaining = self._package_remaining(balance)
+            ledger = PackageLedger(
+                package_balance_id=int(balance.id),
+                user_id=user_id,
+                package_key=balance.package_key,
+                business_key=balance.business_key,
+                direction="out",
+                units=units,
+                balance_after=remaining,
+                related_task_id=run_id,
+                trace_id=trace_id,
+                source="business-run",
+                remark=f"business run consume:{run_id}",
+                created_at=now,
+            )
+            session.add(balance)
+            session.add(ledger)
+            session.commit()
+            return {
+                "status": "settled",
+                "method": "package",
+                "traceId": trace_id,
+                "packageBalanceId": str(balance.id),
+                "packageKey": balance.package_key,
+                "packageName": balance.package_name,
+                "businessKey": balance.business_key,
+                "units": units,
+                "remainingUnits": remaining,
+                "ledgerId": f"pkg_txn_{ledger.id}",
+                "idempotent": False,
+                "settledAt": now.isoformat(),
+            }
+
+    def _refund_package_consumption(
+        self,
+        *,
+        user_id: str,
+        settlement: dict[str, Any],
+        run_id: str,
+        trace_id: str,
+    ) -> dict[str, Any]:
+        units = self._first_int(settlement.get("units"), settlement.get("deducted"))
+        balance_id = self._first_int(settlement.get("packageBalanceId"), settlement.get("package_balance_id"))
+        if units is None or units <= 0 or balance_id is None:
+            raise HTTPException(status_code=409, detail="BUSINESS_PACKAGE_SETTLEMENT_INVALID")
+        now = datetime.utcnow()
+        with get_session() as session:
+            existing = (
+                session.execute(
+                    select(PackageLedger).where(
+                        PackageLedger.user_id == user_id,
+                        PackageLedger.trace_id == trace_id,
+                    )
+                )
+                .scalars()
+                .first()
+            )
+            if existing:
+                return {
+                    "refundTraceId": trace_id,
+                    "refundLedgerId": f"pkg_txn_{existing.id}",
+                    "refundIdempotent": True,
+                    "refundRemainingUnits": int(existing.balance_after or 0),
+                    "refundedAt": existing.created_at.isoformat() if existing.created_at else now.isoformat(),
+                }
+            balance = session.get(PackageBalance, balance_id)
+            if not balance or balance.user_id != user_id:
+                raise HTTPException(status_code=409, detail="BUSINESS_PACKAGE_SETTLEMENT_NOT_FOUND")
+            balance.used_units = max(0, int(balance.used_units or 0) - units)
+            balance.updated_at = now
+            remaining = self._package_remaining(balance)
+            ledger = PackageLedger(
+                package_balance_id=int(balance.id),
+                user_id=user_id,
+                package_key=balance.package_key,
+                business_key=balance.business_key,
+                direction="in",
+                units=units,
+                balance_after=remaining,
+                related_task_id=run_id,
+                trace_id=trace_id,
+                source="business-run-refund",
+                remark=f"business run package refund:{run_id}",
+                created_at=now,
+            )
+            session.add(balance)
+            session.add(ledger)
+            session.commit()
+            return {
+                "refundTraceId": trace_id,
+                "refundLedgerId": f"pkg_txn_{ledger.id}",
+                "refundIdempotent": False,
+                "refundRemainingUnits": remaining,
+                "refundedAt": now.isoformat(),
+            }
+
+    def retry_billing(self, run_id: str, *, actor: User | None = None) -> dict[str, Any]:
+        normalized_run_id = str(run_id or "").strip()
+        if not normalized_run_id:
+            raise HTTPException(status_code=400, detail="BUSINESS_RUN_ID_REQUIRED")
+        with get_session() as session:
+            run = session.get(BusinessRun, normalized_run_id)
+            if not run:
+                raise HTTPException(status_code=404, detail="BUSINESS_RUN_NOT_FOUND")
+            if str(run.status or "").lower() in {"queued", "running", "pending", "planned"}:
+                raise HTTPException(status_code=409, detail="BUSINESS_RUN_NOT_FINISHED")
+            billing_status = self._business_billing_status(run)
+            if billing_status == "no_charge":
+                raise HTTPException(status_code=409, detail="BUSINESS_RUN_NOT_BILLABLE")
+            if billing_status == "unpriced":
+                raise HTTPException(status_code=409, detail="BUSINESS_RUN_UNPRICED")
+            if billing_status != "billable":
+                raise HTTPException(status_code=409, detail="BUSINESS_RUN_NOT_BILLABLE")
+            user_id = str(run.user_id or "").strip()
+            if not user_id:
+                raise HTTPException(status_code=400, detail="BUSINESS_RUN_USER_REQUIRED")
+            points = self._business_wallet_points(run)
+            quota_units = self._business_quota_units(run)
+            before_settlement = self._billing_settlement_from_run(run)
+            billing_attempt = self._next_billing_attempt(before_settlement)
+            trace_id = self._business_billing_trace("business_run", run.id, billing_attempt)
+            package_trace_id = self._business_billing_trace("business_run_package", run.id, billing_attempt)
+            provider = run.business_key
+            model_key = self._first_string(run.version, run.business_version_id, run.ability_task_id)
+
+        existing_method = str((before_settlement or {}).get("method") or "").strip().lower()
+        existing_status = str((before_settlement or {}).get("status") or "").strip().lower()
+        existing_is_wallet = existing_method == "wallet" or bool((before_settlement or {}).get("transactionId"))
+        allow_package = not (existing_is_wallet and existing_status in {"settled", "refunded"})
+        settlement = (
+            self._record_package_consumption(
+                user_id=user_id,
+                business_key=provider,
+                units=quota_units,
+                run_id=normalized_run_id,
+                trace_id=package_trace_id,
+            )
+            if allow_package
+            else None
+        )
+        settlement_kind = "package" if settlement else "wallet"
+        if settlement is None:
+            try:
+                wallet_result = wallet_service.record_expense(
+                    user_id=user_id,
+                    points=points,
+                    task_id=normalized_run_id,
+                    trace_id=trace_id,
+                    provider=provider,
+                    model_key=model_key,
+                    description=f"business run settle:{normalized_run_id}",
+                )
+                settlement = {
+                    "status": "settled",
+                    "method": "wallet",
+                    "traceId": trace_id,
+                    "points": points,
+                    "balance": wallet_result.get("balance"),
+                    "transactionId": wallet_result.get("transactionId"),
+                    "idempotent": bool(wallet_result.get("idempotent")),
+                    "billingAttempt": billing_attempt,
+                    "settledAt": datetime.utcnow().isoformat(),
+                }
+            except HTTPException as exc:
+                settlement = {
+                    "status": "failed",
+                    "method": "wallet",
+                    "traceId": trace_id,
+                    "points": points,
+                    "billingAttempt": billing_attempt,
+                    "error": str(exc.detail),
+                    "failedAt": datetime.utcnow().isoformat(),
+                }
+        if isinstance(settlement, dict):
+            settlement["billingAttempt"] = billing_attempt
+
+        with get_session() as session:
+            run = session.get(BusinessRun, normalized_run_id)
+            if not run:
+                raise HTTPException(status_code=404, detail="BUSINESS_RUN_NOT_FOUND")
+            cost_breakdown = dict(run.cost_breakdown or {})
+            cost_breakdown["billingSettlement"] = settlement
+            if settlement_kind == "package":
+                cost_breakdown["packageSettlement"] = settlement
+            else:
+                cost_breakdown["walletSettlement"] = settlement
+            run.cost_breakdown = self._json_safe_payload(cost_breakdown)
+            run.updated_at = datetime.utcnow()
+            self._record_business_operation(
+                session=session,
+                action="retry_billing",
+                target_type="business_run",
+                target_id=run.id,
+                business_key=run.business_key,
+                tenant_id=run.tenant_id,
+                client_id=run.client_id,
+                actor=actor,
+                before_payload=before_settlement if isinstance(before_settlement, dict) else None,
+                after_payload=settlement,
+            )
+            session.add(run)
+            session.commit()
+        return self.get_run(run_id=normalized_run_id, user=None)
+
+    def refund_billing(self, run_id: str, *, actor: User | None = None) -> dict[str, Any]:
+        normalized_run_id = str(run_id or "").strip()
+        if not normalized_run_id:
+            raise HTTPException(status_code=400, detail="BUSINESS_RUN_ID_REQUIRED")
+        with get_session() as session:
+            run = session.get(BusinessRun, normalized_run_id)
+            if not run:
+                raise HTTPException(status_code=404, detail="BUSINESS_RUN_NOT_FOUND")
+            if str(run.status or "").lower() in {"queued", "running", "pending", "planned"}:
+                raise HTTPException(status_code=409, detail="BUSINESS_RUN_NOT_FINISHED")
+            user_id = str(run.user_id or "").strip()
+            if not user_id:
+                raise HTTPException(status_code=400, detail="BUSINESS_RUN_USER_REQUIRED")
+            package_settlement = self._package_settlement_from_run(run)
+            before_settlement = package_settlement or self._wallet_settlement_from_run(run)
+            if not before_settlement:
+                raise HTTPException(status_code=409, detail="BUSINESS_WALLET_SETTLEMENT_NOT_FOUND")
+            if package_settlement:
+                billing_attempt = self._settlement_billing_attempt(package_settlement)
+                trace_id = str(
+                    package_settlement.get("refundTraceId")
+                    or self._business_billing_trace("business_run_package_refund", run.id, billing_attempt)
+                )[:64]
+                refund_result = self._refund_package_consumption(
+                    user_id=user_id,
+                    settlement=package_settlement,
+                    run_id=normalized_run_id,
+                    trace_id=trace_id,
+                )
+                settlement = {
+                    **package_settlement,
+                    "status": "refunded",
+                    **refund_result,
+                }
+                with get_session() as session:
+                    run = session.get(BusinessRun, normalized_run_id)
+                    if not run:
+                        raise HTTPException(status_code=404, detail="BUSINESS_RUN_NOT_FOUND")
+                    cost_breakdown = dict(run.cost_breakdown or {})
+                    cost_breakdown["packageSettlement"] = settlement
+                    cost_breakdown["billingSettlement"] = settlement
+                    run.cost_breakdown = self._json_safe_payload(cost_breakdown)
+                    run.updated_at = datetime.utcnow()
+                    self._record_business_operation(
+                        session=session,
+                        action="refund_billing",
+                        target_type="business_run",
+                        target_id=run.id,
+                        business_key=run.business_key,
+                        tenant_id=run.tenant_id,
+                        client_id=run.client_id,
+                        actor=actor,
+                        before_payload=before_settlement,
+                        after_payload=settlement,
+                    )
+                    session.add(run)
+                    session.commit()
+                return self.get_run(run_id=normalized_run_id, user=None)
+            points = self._first_int(before_settlement.get("points"), before_settlement.get("deducted"))
+            if points is None or points <= 0:
+                raise HTTPException(status_code=409, detail="BUSINESS_WALLET_SETTLEMENT_NOT_FOUND")
+            billing_attempt = self._settlement_billing_attempt(before_settlement)
+            trace_id = str(
+                before_settlement.get("refundTraceId")
+                or self._business_billing_trace("business_run_refund", run.id, billing_attempt)
+            )[:64]
+            provider = run.business_key
+            model_key = self._first_string(run.version, run.business_version_id, run.ability_task_id)
+
+        wallet_result = wallet_service.record_adjustment(
+            user_id=user_id,
+            direction="increase",
+            points=points,
+            task_id=normalized_run_id,
+            trace_id=trace_id,
+            provider=provider,
+            model_key=model_key,
+            description=f"business run refund:{normalized_run_id}",
+        )
+        settlement = {
+            **before_settlement,
+            "status": "refunded",
+            "refundTraceId": trace_id,
+            "refundTransactionId": wallet_result.get("transactionId"),
+            "refundBalance": wallet_result.get("balance"),
+            "refundIdempotent": bool(wallet_result.get("idempotent")),
+            "refundedAt": datetime.utcnow().isoformat(),
+        }
+
+        with get_session() as session:
+            run = session.get(BusinessRun, normalized_run_id)
+            if not run:
+                raise HTTPException(status_code=404, detail="BUSINESS_RUN_NOT_FOUND")
+            cost_breakdown = dict(run.cost_breakdown or {})
+            cost_breakdown["walletSettlement"] = settlement
+            cost_breakdown["billingSettlement"] = settlement
+            run.cost_breakdown = self._json_safe_payload(cost_breakdown)
+            run.updated_at = datetime.utcnow()
+            self._record_business_operation(
+                session=session,
+                action="refund_billing",
+                target_type="business_run",
+                target_id=run.id,
+                business_key=run.business_key,
+                tenant_id=run.tenant_id,
+                client_id=run.client_id,
+                actor=actor,
+                before_payload=before_settlement,
+                after_payload=settlement,
+            )
+            session.add(run)
+            session.commit()
+        return self.get_run(run_id=normalized_run_id, user=None)
+
+    def retest_run(self, run_id: str, *, actor: User | None = None) -> dict[str, Any]:
+        normalized_run_id = str(run_id or "").strip()
+        if not normalized_run_id:
+            raise HTTPException(status_code=400, detail="BUSINESS_RUN_ID_REQUIRED")
+        with get_session() as session:
+            run = session.get(BusinessRun, normalized_run_id)
+            if not run:
+                raise HTTPException(status_code=404, detail="BUSINESS_RUN_NOT_FOUND")
+            if str(run.status or "").lower() in {"queued", "running"}:
+                raise HTTPException(status_code=409, detail="BUSINESS_RUN_NOT_FINISHED")
+            business_key = run.business_key
+            payload_data = self._build_retest_payload(run, actor=actor)
+            before = {
+                "runId": run.id,
+                "status": run.status,
+                "issue": self._build_run_issue_summary(run, session=session),
+            }
+
+        try:
+            payload = BusinessRunCreateRequest.model_validate(payload_data)
+        except Exception as exc:
+            raise HTTPException(status_code=409, detail="BUSINESS_RUN_RETEST_PAYLOAD_INVALID") from exc
+
+        created = self.create_run(
+            business_key=business_key,
+            payload=payload,
+            user=actor,
+            source="admin-retest",
+        )
+        with get_session() as session:
+            self._record_business_operation(
+                session=session,
+                action="retest_run",
+                target_type="business_run",
+                target_id=normalized_run_id,
+                business_key=business_key,
+                tenant_id=created.get("tenant_id"),
+                client_id=created.get("client_id"),
+                actor=actor,
+                before_payload=before,
+                after_payload={
+                    "newRunId": created.get("id"),
+                    "newStatus": created.get("status"),
+                    "newTaskId": created.get("ability_task_id"),
+                },
+            )
+            session.commit()
+        return created
+
+    def bulk_retest_runs(
+        self,
+        run_ids: list[str],
+        *,
+        actor: User | None = None,
+        only_failed: bool = True,
+    ) -> dict[str, Any]:
+        unique_run_ids = self._normalize_bulk_run_ids(run_ids)
+        items: list[dict[str, Any]] = []
+        for run_id in unique_run_ids:
+            try:
+                if only_failed:
+                    with get_session() as session:
+                        run = session.get(BusinessRun, run_id)
+                        if not run:
+                            raise HTTPException(status_code=404, detail="BUSINESS_RUN_NOT_FOUND")
+                        issue = self._build_run_issue_summary(run, session=session)
+                        has_problem = str(run.status or "").lower() in {"failed", "cancelled"} or issue["category"] != "none"
+                        if not has_problem:
+                            items.append(
+                                {
+                                    "run_id": run_id,
+                                    "ok": False,
+                                    "status": "skipped",
+                                    "message": "当前记录没有明显链路问题，已跳过。",
+                                }
+                            )
+                            continue
+                        retest_summary = self._build_retest_summary(run, session=session)
+                        if retest_summary.get("recovered"):
+                            items.append(
+                                {
+                                    "run_id": run_id,
+                                    "ok": False,
+                                    "status": "skipped",
+                                    "message": "当前问题已有复测成功记录，已跳过。",
+                                }
+                            )
+                            continue
+                next_run = self.retest_run(run_id, actor=actor)
+                items.append(
+                    {
+                        "run_id": run_id,
+                        "new_run_id": next_run.get("id"),
+                        "ok": True,
+                        "status": str(next_run.get("status") or "queued"),
+                        "message": "已创建新的复测任务。",
+                    }
+                )
+            except HTTPException as exc:
+                items.append(
+                    {
+                        "run_id": run_id,
+                        "ok": False,
+                        "status": "failed",
+                        "message": str(exc.detail),
+                    }
+                )
+            except Exception as exc:  # pragma: no cover - defensive
+                items.append(
+                    {
+                        "run_id": run_id,
+                        "ok": False,
+                        "status": "failed",
+                        "message": str(exc)[:500],
+                    }
+                )
+        return self._bulk_action_response(action="retest", items=items)
+
+    def bulk_retry_callbacks(
+        self,
+        run_ids: list[str],
+        *,
+        actor: User | None = None,
+        only_failed: bool = True,
+    ) -> dict[str, Any]:
+        unique_run_ids = self._normalize_bulk_run_ids(run_ids)
+        items: list[dict[str, Any]] = []
+        for run_id in unique_run_ids:
+            try:
+                if only_failed:
+                    with get_session() as session:
+                        run = session.get(BusinessRun, run_id)
+                        if not run:
+                            raise HTTPException(status_code=404, detail="BUSINESS_RUN_NOT_FOUND")
+                        callback_failed = str(run.callback_status or "").lower() == "failed" or bool(run.callback_error)
+                        if not callback_failed:
+                            items.append(
+                                {
+                                    "run_id": run_id,
+                                    "ok": False,
+                                    "status": "skipped",
+                                    "message": "当前不是回调失败状态，已跳过。",
+                                }
+                            )
+                            continue
+                next_run = self.retry_callback(run_id, actor=actor)
+                items.append(
+                    {
+                        "run_id": run_id,
+                        "ok": True,
+                        "status": str(next_run.get("callback_status") or next_run.get("status") or "submitted"),
+                        "message": next_run.get("callback_error"),
+                    }
+                )
+            except HTTPException as exc:
+                items.append(
+                    {
+                        "run_id": run_id,
+                        "ok": False,
+                        "status": "failed",
+                        "message": str(exc.detail),
+                    }
+                )
+            except Exception as exc:  # pragma: no cover - defensive
+                items.append(
+                    {
+                        "run_id": run_id,
+                        "ok": False,
+                        "status": "failed",
+                        "message": str(exc)[:500],
+                    }
+                )
+        return self._bulk_action_response(action="callback_retry", items=items)
+
+    def mark_issues_ignored(
+        self,
+        run_ids: list[str],
+        *,
+        note: str | None = None,
+        actor: User | None = None,
+    ) -> dict[str, Any]:
+        unique_run_ids = self._normalize_bulk_run_ids(run_ids)
+        now = datetime.utcnow()
+        items: list[dict[str, Any]] = []
+        with get_session() as session:
+            for run_id in unique_run_ids:
+                run = session.get(BusinessRun, run_id)
+                if not run:
+                    items.append(
+                        {
+                            "run_id": run_id,
+                            "ok": False,
+                            "status": "failed",
+                            "message": "BUSINESS_RUN_NOT_FOUND",
+                        }
+                    )
+                    continue
+                payload = run.result_payload if isinstance(run.result_payload, dict) else {}
+                before = payload.get("_adminIssueResolution") or payload.get("_admin_issue_resolution")
+                resolution = {
+                    "status": "ignored",
+                    "note": self._clean_optional_text(note),
+                    "actor": self._actor_username(actor),
+                    "at": now.isoformat(),
+                }
+                payload = dict(payload)
+                payload["_adminIssueResolution"] = resolution
+                run.result_payload = payload
+                run.updated_at = now
+                self._record_business_operation(
+                    session=session,
+                    action="mark_issue_ignored",
+                    target_type="business_run",
+                    target_id=run.id,
+                    business_key=run.business_key,
+                    tenant_id=run.tenant_id,
+                    client_id=run.client_id,
+                    actor=actor,
+                    note=note,
+                    before_payload=before if isinstance(before, dict) else None,
+                    after_payload=resolution,
+                )
+                session.add(run)
+                items.append(
+                    {
+                        "run_id": run_id,
+                        "ok": True,
+                        "status": "ignored",
+                        "message": resolution["note"],
+                    }
+                )
+            session.commit()
+        return self._bulk_action_response(action="mark_issue_ignored", items=items)
+
+    def generate_issue_checklist(
+        self,
+        run_ids: list[str],
+        *,
+        only_failed: bool = True,
+        actor: User | None = None,
+    ) -> dict[str, Any]:
+        unique_run_ids = self._normalize_bulk_run_ids(run_ids)
+        generated_at = datetime.utcnow().isoformat()
+        items: list[dict[str, Any]] = []
+        skipped_count = 0
+        with get_session() as session:
+            for run_id in unique_run_ids:
+                row = session.get(BusinessRun, run_id)
+                if not row:
+                    skipped_count += 1
+                    continue
+                issue = self._build_run_issue_summary(row, session=session)
+                status = str(row.status or "").strip().lower()
+                has_issue = issue["category"] != "none" or status in {"failed", "cancelled"}
+                if only_failed and not has_issue:
+                    skipped_count += 1
+                    continue
+                items.append(self._build_issue_checklist_item(row, issue=issue, session=session))
+            markdown = self._issue_checklist_markdown(items, generated_at=generated_at, skipped_count=skipped_count)
+            self._record_business_operation(
+                session=session,
+                action="generate_issue_checklist",
+                target_type="business_run",
+                actor=actor,
+                note=f"生成业务排障清单：{len(items)} 条，跳过 {skipped_count} 条。",
+                after_payload={
+                    "runIds": unique_run_ids,
+                    "issueCount": len(items),
+                    "skippedCount": skipped_count,
+                    "byCategory": self._count_by(items, "issue_category"),
+                    "bySeverity": self._count_by(items, "issue_severity"),
+                },
+            )
+            session.commit()
+        return {
+            "generated_at": generated_at,
+            "total": len(unique_run_ids),
+            "issue_count": len(items),
+            "skipped_count": skipped_count,
+            "by_category": self._count_by(items, "issue_category"),
+            "by_severity": self._count_by(items, "issue_severity"),
+            "markdown": markdown,
+            "items": items,
+        }
+
+    def _build_retest_payload(self, run: BusinessRun, *, actor: User | None = None) -> dict[str, Any]:
+        request_payload = dict(run.request_payload) if isinstance(run.request_payload, dict) else {}
+        clean_payload = {key: value for key, value in request_payload.items() if not str(key).startswith("_")}
+        clean_payload.pop("callbackUrl", None)
+        clean_payload.pop("callbackHeaders", None)
+        clean_payload.pop("callback_url", None)
+        clean_payload.pop("callback_headers", None)
+        clean_payload.setdefault("version", run.version)
+        if run.tenant_id:
+            clean_payload.setdefault("tenantId", run.tenant_id)
+        if run.client_id:
+            clean_payload.setdefault("clientId", run.client_id)
+
+        metadata = dict(clean_payload.get("metadata") or {})
+        metadata["adminRetest"] = {
+            "sourceRunId": run.id,
+            "sourceStatus": run.status,
+            "sourceTraceId": run.trace_id,
+            "sourceRequestId": run.request_id,
+            "actor": self._actor_username(actor),
+            "at": datetime.utcnow().isoformat(),
+        }
+        clean_payload["metadata"] = metadata
+        clean_payload["source"] = "admin-retest"
+        clean_payload["channel"] = "manual-retest"
+        clean_payload["traceId"] = f"retest_{run.id[:12]}_{uuid4().hex[:8]}"[:64]
+        clean_payload["requestId"] = f"retest_{uuid4().hex[:16]}"[:64]
+        return clean_payload
+
+    def _build_retest_summary(self, run: BusinessRun, *, session=None) -> dict[str, Any]:
+        source_run_id = self._extract_retest_source_run_id(run)
+        summary: dict[str, Any] = {
+            "sourceRunId": source_run_id,
+            "attempts": 0,
+            "latestRunId": None,
+            "latestStatus": None,
+            "latestIssueCategory": None,
+            "latestIssueLabel": None,
+            "recovered": False,
+            "history": [],
+        }
+        if session is None:
+            return summary
+
+        if source_run_id:
+            source = session.get(BusinessRun, source_run_id)
+            if source:
+                source_issue = self._build_run_issue_summary(source, session=session)
+                summary.update(
+                    {
+                        "sourceStatus": source.status,
+                        "sourceIssueCategory": source_issue.get("category"),
+                        "sourceIssueLabel": source_issue.get("label"),
+                    }
+                )
+            return summary
+
+        logs = (
+            session.execute(
+                select(BusinessOperationLog)
+                .where(
+                    BusinessOperationLog.action == "retest_run",
+                    BusinessOperationLog.target_type == "business_run",
+                    BusinessOperationLog.target_id == run.id,
+                )
+                .order_by(BusinessOperationLog.created_at.desc())
+            )
+            .scalars()
+            .all()
+        )
+        history: list[dict[str, Any]] = []
+        recovered = False
+        for log in logs:
+            after_payload = log.after_payload if isinstance(log.after_payload, dict) else {}
+            new_run_id = str(after_payload.get("newRunId") or after_payload.get("new_run_id") or "").strip()
+            if not new_run_id:
+                continue
+            retest_run = session.get(BusinessRun, new_run_id)
+            issue = self._build_run_issue_summary(retest_run, session=session) if retest_run else {}
+            has_business_output = bool(
+                retest_run and ((retest_run.image_urls or []) or (retest_run.video_urls or []) or (retest_run.texts or []))
+            )
+            is_recovered = bool(retest_run and retest_run.status == "succeeded" and has_business_output)
+            recovered = recovered or is_recovered
+            history.append(
+                {
+                    "runId": new_run_id,
+                    "status": retest_run.status if retest_run else str(after_payload.get("newStatus") or ""),
+                    "issueCategory": "none" if is_recovered else issue.get("category"),
+                    "issueLabel": "暂无明显问题" if is_recovered else issue.get("label"),
+                    "recovered": is_recovered,
+                    "createdAt": log.created_at.isoformat() if log.created_at else None,
+                }
+            )
+
+        latest = history[0] if history else {}
+        summary.update(
+            {
+                "attempts": len(history),
+                "latestRunId": latest.get("runId"),
+                "latestStatus": latest.get("status"),
+                "latestIssueCategory": latest.get("issueCategory"),
+                "latestIssueLabel": latest.get("issueLabel"),
+                "recovered": recovered,
+                "history": history[:10],
+            }
+        )
+        return summary
+
+    @staticmethod
+    def _extract_retest_source_run_id(run: BusinessRun) -> str | None:
+        request_payload = run.request_payload if isinstance(run.request_payload, dict) else {}
+        metadata = request_payload.get("metadata") if isinstance(request_payload.get("metadata"), dict) else {}
+        retest = metadata.get("adminRetest") or metadata.get("admin_retest")
+        if not isinstance(retest, dict):
+            return None
+        source_run_id = str(retest.get("sourceRunId") or retest.get("source_run_id") or "").strip()
+        return source_run_id or None
+
+    def _deliver_callback(self, run_id: str, *, force: bool = False) -> None:
         with get_session() as session:
             run = session.get(BusinessRun, run_id)
             if not run or not run.callback_url:
                 return
-            if run.callback_status in {"success", "failed"}:
+            if not force and run.callback_status in {"success", "failed"}:
                 return
             payload = self._callback_payload(run)
+            callback_url = str(run.callback_url)
+            callback_headers = dict(run.callback_headers or {})
             run.callback_status = "running"
+            run.callback_error = None
+            run.callback_http_status = None
+            run.callback_response = None
             run.callback_payload = payload
             session.add(run)
             session.commit()
 
         try:
             response = httpx.post(
-                str(run.callback_url),
+                callback_url,
                 json=payload,
-                headers=run.callback_headers or {},
+                headers=callback_headers,
                 timeout=15,
             )
             body: dict[str, Any] = {}
@@ -1745,6 +2833,38 @@ class BusinessRunService:
             ),
             64,
         )
+        explicit_tenant_id = self._short_text(
+            self._first_string(
+                payload.tenantId,
+                metadata.get("tenantId"),
+                metadata.get("tenant_id"),
+                metadata.get("grayKey"),
+                metadata.get("gray_key"),
+                inputs.get("tenantId"),
+                inputs.get("tenant_id"),
+            ),
+            64,
+        )
+        explicit_client_id = self._short_text(
+            self._first_string(
+                payload.clientId,
+                metadata.get("clientId"),
+                metadata.get("client_id"),
+                inputs.get("clientId"),
+                inputs.get("client_id"),
+                payload.profile_id,
+            ),
+            64,
+        )
+        user_tenant_id = self._short_text(getattr(user, "tenant_id", None), 64)
+        user_client_id = self._short_text(getattr(user, "client_id", None), 64)
+        if user is not None and not self._is_privileged_business_user(user):
+            if getattr(user, "role", "") == "client" and not user_tenant_id:
+                raise HTTPException(status_code=403, detail="BUSINESS_USER_SCOPE_REQUIRED")
+            if explicit_tenant_id and user_tenant_id and explicit_tenant_id != user_tenant_id:
+                raise HTTPException(status_code=403, detail="BUSINESS_USER_SCOPE_FORBIDDEN")
+            if explicit_client_id and user_client_id and explicit_client_id != user_client_id:
+                raise HTTPException(status_code=403, detail="BUSINESS_USER_SCOPE_FORBIDDEN")
         trace_id = self._short_text(
             self._first_string(
                 payload.traceId,
@@ -1769,25 +2889,16 @@ class BusinessRunService:
         )
         tenant_id = self._short_text(
             self._first_string(
-                payload.tenantId,
-                metadata.get("tenantId"),
-                metadata.get("tenant_id"),
-                metadata.get("grayKey"),
-                metadata.get("gray_key"),
-                inputs.get("tenantId"),
-                inputs.get("tenant_id"),
+                user_tenant_id if user is not None and not self._is_privileged_business_user(user) else None,
+                explicit_tenant_id,
                 getattr(user, "tenant_id", None),
             ),
             64,
         )
         client_id = self._short_text(
             self._first_string(
-                payload.clientId,
-                metadata.get("clientId"),
-                metadata.get("client_id"),
-                inputs.get("clientId"),
-                inputs.get("client_id"),
-                payload.profile_id,
+                user_client_id if user is not None and not self._is_privileged_business_user(user) else None,
+                explicit_client_id,
                 getattr(user, "client_id", None),
             ),
             64,
@@ -1801,6 +2912,50 @@ class BusinessRunService:
             "tenantId": tenant_id,
             "clientId": client_id,
         }
+
+    def _resolve_business_user_id(
+        self,
+        *,
+        user: User | None,
+        payload: BusinessRunCreateRequest,
+        trace_context: dict[str, Any],
+    ) -> str | None:
+        metadata = payload.metadata if isinstance(payload.metadata, dict) else {}
+        inputs = payload.inputs if isinstance(payload.inputs, dict) else {}
+        explicit = self._first_string(
+            getattr(payload, "userId", None),
+            metadata.get("userId"),
+            metadata.get("user_id"),
+            metadata.get("accountId"),
+            metadata.get("account_id"),
+            inputs.get("userId"),
+            inputs.get("user_id"),
+            inputs.get("accountId"),
+            inputs.get("account_id"),
+        )
+        if explicit:
+            return self._short_text(explicit, 64)
+        user_id = self._safe_user_id(user)
+        if user_id:
+            return self._short_text(user_id, 64)
+        # Coze/业务方调用通常没有平台用户，先按 client/tenant 建立计费归属。
+        client_id = self._short_text(trace_context.get("clientId"), 64)
+        tenant_id = self._short_text(trace_context.get("tenantId"), 64)
+        return client_id or tenant_id
+
+    def _resolve_business_user_name(self, *, user: User | None, payload: BusinessRunCreateRequest) -> str | None:
+        metadata = payload.metadata if isinstance(payload.metadata, dict) else {}
+        inputs = payload.inputs if isinstance(payload.inputs, dict) else {}
+        explicit = self._first_string(
+            getattr(payload, "userName", None),
+            metadata.get("userName"),
+            metadata.get("user_name"),
+            inputs.get("userName"),
+            inputs.get("user_name"),
+        )
+        if explicit:
+            return self._short_text(explicit, 128)
+        return getattr(user, "username", None) if user else None
 
     @staticmethod
     def _short_text(value: Any, max_length: int) -> str | None:
@@ -1823,16 +2978,27 @@ class BusinessRunService:
         log = session.get(AbilityInvocationLog, int(task.log_id)) if task.log_id else None
         cost_payload = payload.get("cost") if isinstance(payload.get("cost"), dict) else {}
         usage_payload = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
+        cost_policy, cost_policy_source = self._resolve_task_cost_policy(session=session, task=task)
         billing_unit = self._first_string(
             getattr(log, "billing_unit", None),
             cost_payload.get("billingUnit"),
             cost_payload.get("billing_unit"),
             usage_payload.get("unit"),
+            cost_policy.get("billingUnit"),
+            cost_policy.get("billing_unit"),
+            cost_policy.get("unit"),
         )
         unit_price = self._first_number(
             getattr(log, "unit_price", None),
             cost_payload.get("unitPrice"),
             cost_payload.get("unit_price"),
+            cost_policy.get("unitPrice"),
+            cost_policy.get("unit_price"),
+            cost_policy.get("discountPrice"),
+            cost_policy.get("discount_price"),
+            cost_policy.get("listPrice"),
+            cost_policy.get("list_price"),
+            cost_policy.get("price"),
         )
         cost_amount = self._first_number(
             getattr(log, "cost_amount", None),
@@ -1841,10 +3007,14 @@ class BusinessRunService:
             cost_payload.get("total"),
             cost_payload.get("amount"),
         )
+        cost_quantity = self._cost_policy_quantity(policy=cost_policy, billing_unit=billing_unit, payload=payload, usage=usage_payload)
+        if cost_amount is None and unit_price is not None and cost_policy:
+            cost_amount = round(float(unit_price) * max(1, cost_quantity), 4)
         currency = self._first_string(
             getattr(log, "currency", None),
             cost_payload.get("currency"),
             usage_payload.get("currency"),
+            cost_policy.get("currency"),
         )
         quota_units = self._first_int(
             cost_payload.get("quotaUnits"),
@@ -1852,7 +3022,13 @@ class BusinessRunService:
             usage_payload.get("total_tokens"),
             usage_payload.get("totalTokens"),
             usage_payload.get("output_count"),
+            cost_policy.get("quotaUnits"),
+            cost_policy.get("quota_units"),
+            cost_policy.get("quotaPerRun"),
+            cost_policy.get("quota_per_run"),
         )
+        if quota_units is None and cost_policy:
+            quota_units = 1
         target.billing_unit = billing_unit
         target.unit_price = unit_price
         target.cost_amount = cost_amount
@@ -1866,8 +3042,58 @@ class BusinessRunService:
                 "capabilityKey": task.capability_key,
                 "cost": cost_payload or None,
                 "usage": usage_payload or None,
+                "costPolicy": cost_policy or None,
+                "costPolicySource": cost_policy_source,
+                "costPolicyQuantity": cost_quantity if cost_policy else None,
+                "pricingVersion": cost_policy.get("pricingVersion") or cost_policy.get("pricing_version") if cost_policy else None,
             }
         )
+
+    def _resolve_task_cost_policy(self, *, session, task: AbilityTask) -> tuple[dict[str, Any], str | None]:
+        ability = session.get(Ability, task.ability_id) if task.ability_id else None
+        policy: dict[str, Any] = {}
+        sources: list[str] = []
+        if ability and ability.vendor_model_id:
+            vendor_model = session.get(VendorModelCatalog, ability.vendor_model_id)
+            if vendor_model and isinstance(vendor_model.cost_policy, dict) and vendor_model.cost_policy:
+                policy.update(vendor_model.cost_policy)
+                sources.append("vendor_model")
+        ability_metadata = ability.extra_metadata if ability and isinstance(ability.extra_metadata, dict) else {}
+        for key in ("costPolicy", "cost_policy", "pricing"):
+            raw = ability_metadata.get(key)
+            if isinstance(raw, dict) and raw:
+                policy.update(raw)
+                sources.append(f"ability_metadata.{key}")
+        return policy, "+".join(sources) if sources else None
+
+    def _cost_policy_quantity(
+        self,
+        *,
+        policy: dict[str, Any],
+        billing_unit: str | None,
+        payload: dict[str, Any],
+        usage: dict[str, Any],
+    ) -> int:
+        explicit = self._first_int(
+            policy.get("quantity"),
+            policy.get("billableUnits"),
+            policy.get("billable_units"),
+            policy.get("unitsPerRun"),
+            policy.get("units_per_run"),
+        )
+        if explicit is not None and explicit > 0:
+            return explicit
+        unit = str(billing_unit or policy.get("unit") or "").strip().lower()
+        if unit in {"image", "images", "output_image", "output_images"}:
+            images = payload.get("images") if isinstance(payload.get("images"), list) else []
+            return max(1, len(images))
+        if unit in {"video", "videos", "output_video", "output_videos"}:
+            videos = payload.get("videos") if isinstance(payload.get("videos"), list) else []
+            return max(1, len(videos))
+        if unit in {"token", "tokens"}:
+            tokens = self._first_int(usage.get("total_tokens"), usage.get("totalTokens"))
+            return max(1, int(tokens or 1))
+        return 1
 
     @staticmethod
     def _business_billing_status(row: BusinessRun) -> str:
@@ -1901,6 +3127,80 @@ class BusinessRunService:
         if billing_status == "unpriced":
             return "任务成功但缺少定价，待确认计费口径"
         return None
+
+    @staticmethod
+    def _wallet_settlement_from_run(row: BusinessRun) -> dict[str, Any] | None:
+        cost_breakdown = row.cost_breakdown if isinstance(row.cost_breakdown, dict) else {}
+        value = cost_breakdown.get("walletSettlement") or cost_breakdown.get("wallet_settlement")
+        return dict(value) if isinstance(value, dict) else None
+
+    @staticmethod
+    def _package_settlement_from_run(row: BusinessRun) -> dict[str, Any] | None:
+        cost_breakdown = row.cost_breakdown if isinstance(row.cost_breakdown, dict) else {}
+        value = cost_breakdown.get("packageSettlement") or cost_breakdown.get("package_settlement")
+        return dict(value) if isinstance(value, dict) else None
+
+    @staticmethod
+    def _billing_settlement_from_run(row: BusinessRun) -> dict[str, Any] | None:
+        cost_breakdown = row.cost_breakdown if isinstance(row.cost_breakdown, dict) else {}
+        value = (
+            cost_breakdown.get("billingSettlement")
+            or cost_breakdown.get("billing_settlement")
+            or cost_breakdown.get("packageSettlement")
+            or cost_breakdown.get("package_settlement")
+            or cost_breakdown.get("walletSettlement")
+            or cost_breakdown.get("wallet_settlement")
+        )
+        return dict(value) if isinstance(value, dict) else None
+
+    @staticmethod
+    def _business_quota_units(row: BusinessRun) -> int:
+        quota_units = BusinessRunService._first_int(row.quota_units)
+        if quota_units is not None and quota_units > 0:
+            return max(1, int(quota_units))
+        return 1
+
+    @staticmethod
+    def _settlement_billing_attempt(settlement: dict[str, Any] | None) -> int:
+        attempt = BusinessRunService._first_int(
+            (settlement or {}).get("billingAttempt"),
+            (settlement or {}).get("billing_attempt"),
+            (settlement or {}).get("attempt"),
+        )
+        return max(1, int(attempt or 1))
+
+    @staticmethod
+    def _next_billing_attempt(settlement: dict[str, Any] | None) -> int:
+        current = BusinessRunService._settlement_billing_attempt(settlement)
+        status = str((settlement or {}).get("status") or "").strip().lower()
+        return current + 1 if status == "refunded" else current
+
+    @staticmethod
+    def _business_billing_trace(prefix: str, run_id: str, attempt: int) -> str:
+        base = f"{prefix}:{run_id}"
+        if attempt <= 1:
+            return base[:64]
+        raw = f"{base}:a{attempt}"
+        if len(raw) <= 64:
+            return raw
+        digest = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:12]
+        suffix = f":a{attempt}:{digest}"
+        head_len = max(8, 64 - len(prefix) - 1 - len(suffix))
+        return f"{prefix}:{str(run_id)[:head_len]}{suffix}"[:64]
+
+    @staticmethod
+    def _business_wallet_points(row: BusinessRun) -> int:
+        cost_amount = BusinessRunService._first_number(row.cost_amount)
+        currency = str(row.currency or "").strip().upper()
+        if cost_amount is not None and cost_amount > 0:
+            if currency == "USD":
+                rate = max(1, int(getattr(get_settings(), "wallet_points_per_usd", 100) or 100))
+                return max(1, int(math.ceil(cost_amount * rate)))
+            return max(1, int(math.ceil(cost_amount)))
+        quota_units = BusinessRunService._first_int(row.quota_units)
+        if quota_units is not None and quota_units > 0:
+            return max(1, int(quota_units))
+        raise HTTPException(status_code=409, detail="BUSINESS_RUN_UNPRICED")
 
     @staticmethod
     def _billing_status_filter(billing_status: str):
@@ -2351,6 +3651,14 @@ class BusinessRunService:
             raise HTTPException(status_code=400, detail="BUSINESS_DEFAULT_VERSION_MUST_BE_ACTIVE")
 
     @staticmethod
+    def _normalize_acceptance_status(value: str | None) -> str:
+        normalized = str(value or "passed").strip().lower()
+        allowed = {"passed", "failed", "warning", "waived"}
+        if normalized not in allowed:
+            raise HTTPException(status_code=400, detail="BUSINESS_ACCEPTANCE_STATUS_INVALID")
+        return normalized
+
+    @staticmethod
     def _required_text(value: str | None, error_code: str) -> str:
         text = str(value or "").strip()
         if not text:
@@ -2669,6 +3977,34 @@ class BusinessRunService:
         return out
 
     @staticmethod
+    def _classify_output_url(url: str) -> str:
+        value = str(url or "").split("?", 1)[0].split("#", 1)[0].lower()
+        if value.endswith((".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".svg")):
+            return "image"
+        if value.endswith((".mp4", ".mov", ".webm", ".m4v", ".avi", ".mkv")):
+            return "video"
+        return "resource"
+
+    @classmethod
+    def _count_resource_outputs(cls, payload: dict[str, Any] | None) -> int:
+        if not isinstance(payload, dict):
+            return 0
+        urls: list[str] = []
+        urls.extend(cls._extract_urls(payload, keys=("resourceUrls", "resource_urls", "resources", "files", "attachments")))
+        assets = payload.get("assets")
+        if isinstance(assets, list):
+            for asset in assets:
+                if not isinstance(asset, dict):
+                    continue
+                asset_type = str(asset.get("type") or asset.get("kind") or asset.get("mediaType") or asset.get("media_type") or "").lower()
+                asset_url = cls._extract_urls({"asset": asset}, keys=("asset",))
+                if asset_type and asset_type not in {"image", "video"}:
+                    urls.extend(asset_url)
+                elif asset_url and cls._classify_output_url(asset_url[0]) == "resource":
+                    urls.extend(asset_url)
+        return len(set(urls))
+
+    @staticmethod
     def _normalized_recipe_steps(recipe: dict[str, Any]) -> list[dict[str, Any]]:
         raw_steps = recipe.get("steps")
         normalized: list[dict[str, Any]] = []
@@ -2774,6 +4110,30 @@ class BusinessRunService:
         return None if user_id == "service" else user_id or None
 
     @staticmethod
+    def _is_privileged_business_user(user: User | None) -> bool:
+        if not user:
+            return False
+        if str(getattr(user, "id", "") or "").strip() == "service":
+            return True
+        return str(getattr(user, "role", "") or "").strip() == "admin"
+
+    def _can_user_access_run(self, row: BusinessRun, user: User | None) -> bool:
+        if user is None or self._is_privileged_business_user(user):
+            return True
+        uid = self._safe_user_id(user)
+        if row.user_id and uid and row.user_id == uid:
+            return True
+        user_tenant_id = self._short_text(getattr(user, "tenant_id", None), 64)
+        user_client_id = self._short_text(getattr(user, "client_id", None), 64)
+        if user_tenant_id and row.tenant_id == user_tenant_id:
+            if user_client_id and row.client_id and row.client_id != user_client_id:
+                return False
+            return True
+        if row.user_id and uid and row.user_id != uid:
+            return False
+        return not row.user_id and not row.tenant_id
+
+    @staticmethod
     def _actor_username(user: User | None) -> str | None:
         if not user:
             return None
@@ -2784,6 +4144,42 @@ class BusinessRunService:
     def _clean_optional_text(value: str | None) -> str | None:
         text = str(value or "").strip()
         return text or None
+
+    @staticmethod
+    def _normalize_bulk_run_ids(run_ids: list[str]) -> list[str]:
+        seen: set[str] = set()
+        normalized: list[str] = []
+        for item in run_ids or []:
+            text = str(item or "").strip()
+            if not text or text in seen:
+                continue
+            seen.add(text)
+            normalized.append(text)
+        if not normalized:
+            raise HTTPException(status_code=400, detail="BUSINESS_RUN_IDS_REQUIRED")
+        if len(normalized) > 100:
+            raise HTTPException(status_code=400, detail="BUSINESS_RUN_BULK_LIMIT_EXCEEDED")
+        return normalized
+
+    @staticmethod
+    def _bulk_action_response(*, action: str, items: list[dict[str, Any]]) -> dict[str, Any]:
+        succeeded = sum(1 for item in items if item.get("ok"))
+        failed = len(items) - succeeded
+        return {
+            "action": action,
+            "total": len(items),
+            "succeeded": succeeded,
+            "failed": failed,
+            "items": items,
+        }
+
+    @staticmethod
+    def _count_by(items: list[dict[str, Any]], key: str) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for item in items:
+            value = str(item.get(key) or "-").strip() or "-"
+            counts[value] = counts.get(value, 0) + 1
+        return counts
 
     @staticmethod
     def _json_safe_payload(value: Any) -> Any:
@@ -2900,6 +4296,7 @@ class BusinessRunService:
         vendor_model_provider: str | None = None
         latest_run = self._latest_run_summary(row, session=session)
         run_metrics = self._run_metrics_summary(row, session=session)
+        acceptance = self._acceptance_summary(row.extra_metadata)
         try:
             primary_ability_id = self._extract_primary_ability_id(recipe)
         except HTTPException:
@@ -2921,6 +4318,22 @@ class BusinessRunService:
         if vendor_model:
             vendor_model_name = vendor_model.display_name
             vendor_model_provider = vendor_model.provider
+        governance = self._business_capability_governance(
+            row,
+            recipe=recipe,
+            ability=ability,
+            vendor_model=vendor_model,
+            vendor_model_id=vendor_model_id,
+            session=session,
+        )
+        release_gate = self._business_capability_release_gate(
+            row,
+            governance=governance,
+            acceptance=acceptance["latest"],
+            latest_run=latest_run,
+            run_metrics=run_metrics,
+            primary_ability_id=primary_ability_id,
+        )
         return {
             "id": row.id,
             "business_key": row.business_key,
@@ -2941,11 +4354,278 @@ class BusinessRunService:
             "vendor_model_name": vendor_model_name,
             "vendor_model_provider": vendor_model_provider,
             "recipe_steps": self._recipe_steps_to_dict(recipe, session=session),
+            "governance_status": governance["status"],
+            "governance_issues": governance["issues"],
+            "governance_suggestions": governance["suggestions"],
+            "runtime_key_configured": governance["runtime_key_configured"],
+            "model_cost_configured": governance["model_cost_configured"],
+            "egress_verified": governance["egress_verified"],
+            "latest_acceptance": acceptance["latest"],
+            "acceptance_records": acceptance["records"],
+            "release_gate": release_gate,
             "latest_run": latest_run,
             "run_metrics": run_metrics,
             "created_at": row.created_at,
             "updated_at": row.updated_at,
         }
+
+    @staticmethod
+    def _acceptance_summary(metadata: dict[str, Any] | None) -> dict[str, Any]:
+        if not isinstance(metadata, dict):
+            return {"latest": None, "records": []}
+        raw_records = metadata.get("acceptanceRecords")
+        records = [item for item in raw_records if isinstance(item, dict)] if isinstance(raw_records, list) else []
+        latest = metadata.get("latestAcceptance")
+        if not isinstance(latest, dict):
+            latest = records[0] if records else None
+        return {"latest": latest, "records": records[:5]}
+
+    @staticmethod
+    def _acceptance_passed(acceptance: dict[str, Any] | None) -> bool:
+        return isinstance(acceptance, dict) and str(acceptance.get("status") or "").strip().lower() == "passed"
+
+    def _ensure_release_acceptance(self, row: BusinessCapability) -> None:
+        acceptance = self._acceptance_summary(row.extra_metadata)["latest"]
+        if not self._acceptance_passed(acceptance):
+            raise HTTPException(status_code=409, detail="BUSINESS_ACCEPTANCE_REQUIRED")
+
+    def _ensure_default_release_ready(self, row: BusinessCapability, session) -> None:
+        self._ensure_release_acceptance(row)
+        release_payload = self._capability_to_dict(row, session=session)
+        release_gate = release_payload.get("release_gate") if isinstance(release_payload, dict) else None
+        if not isinstance(release_gate, dict) or not release_gate.get("canRelease"):
+            raise HTTPException(status_code=409, detail="BUSINESS_RELEASE_GATE_BLOCKED")
+
+    def _business_capability_release_gate(
+        self,
+        row: BusinessCapability,
+        *,
+        governance: dict[str, Any],
+        acceptance: dict[str, Any] | None,
+        latest_run: dict[str, Any] | None,
+        run_metrics: dict[str, Any] | None,
+        primary_ability_id: str | None,
+    ) -> dict[str, Any]:
+        blockers: list[str] = []
+        warnings: list[str] = []
+        suggestions: list[str] = []
+        governance_status = str(governance.get("status") or "").strip().lower()
+
+        if row.status != "active":
+            blockers.append("BUSINESS_RELEASE_VERSION_INACTIVE")
+            suggestions.append("先启用该业务版本，或切换到已启用版本。")
+        if not primary_ability_id:
+            blockers.append("BUSINESS_RELEASE_PRIMARY_ABILITY_REQUIRED")
+            suggestions.append("先绑定真实主能力，避免业务入口只剩配置壳。")
+        if governance_status == "blocker":
+            blockers.append("BUSINESS_RELEASE_GOVERNANCE_BLOCKED")
+            suggestions.append("先补齐底层能力、模型、执行节点或第三方密钥。")
+        elif governance_status == "warning":
+            warnings.append("BUSINESS_RELEASE_GOVERNANCE_WARNING")
+            suggestions.append("上线前补齐成本、模型治理或其他非阻塞信息。")
+
+        acceptance_ok = self._acceptance_passed(acceptance)
+        if not acceptance_ok:
+            blockers.append("BUSINESS_RELEASE_ACCEPTANCE_REQUIRED")
+            suggestions.append("先跑测评端或业务真实链路，并记录人工验收通过。")
+
+        if latest_run and latest_run.get("error"):
+            warnings.append("BUSINESS_RELEASE_LATEST_RUN_FAILED")
+            suggestions.append("最近一次运行失败，先排查失败原因再放量。")
+        if run_metrics and (self._first_int(run_metrics.get("failed")) or 0) > 0:
+            warnings.append("BUSINESS_RELEASE_RECENT_FAILURES")
+            suggestions.append("近窗口有失败样本，先筛选业务调用记录定位问题。")
+
+        status = "ready"
+        label = "可上线"
+        if blockers:
+            status = "blocked"
+            label = "暂不能上线"
+        elif warnings:
+            status = "warning"
+            label = "可小流量，需复核"
+        return {
+            "status": status,
+            "label": label,
+            "canRelease": status == "ready",
+            "canRequestDefault": not blockers and acceptance_ok,
+            "acceptancePassed": acceptance_ok,
+            "blockers": blockers,
+            "warnings": warnings,
+            "suggestions": suggestions,
+        }
+
+    def _business_capability_governance(
+        self,
+        row: BusinessCapability,
+        *,
+        recipe: dict[str, Any],
+        ability: Ability | None,
+        vendor_model: VendorModelCatalog | None,
+        vendor_model_id: int | None,
+        session=None,
+    ) -> dict[str, Any]:
+        issues: list[str] = []
+        suggestions: list[str] = []
+        status_scope = "blocker" if row.status == "active" or row.is_default else "warning"
+        runtime_key_configured: bool | None = None
+        model_cost_configured: bool | None = None
+        egress_verified: bool | None = None
+
+        try:
+            primary_ability_id = self._extract_primary_ability_id(recipe)
+        except HTTPException:
+            primary_ability_id = None
+
+        if not primary_ability_id:
+            issues.append("BUSINESS_GOVERNANCE_PRIMARY_ABILITY_MISSING")
+            suggestions.append("编辑业务版本，绑定真实主能力后再发布或设为默认。")
+        elif not ability:
+            issues.append("BUSINESS_GOVERNANCE_PRIMARY_ABILITY_NOT_FOUND")
+            suggestions.append("主能力编号在能力目录中不存在，先修正配方或恢复能力。")
+        elif ability.status != "active":
+            issues.append("BUSINESS_GOVERNANCE_PRIMARY_ABILITY_INACTIVE")
+            suggestions.append("主能力未启用，先在能力管理中启用或切换到可用能力。")
+
+        executable_steps = [
+            step
+            for step in self._normalized_recipe_steps(recipe)
+            if step.get("enabled") is not False and str(step.get("type") or "").strip() in RECIPE_EXECUTABLE_STEP_TYPES
+        ]
+        if not executable_steps:
+            issues.append("BUSINESS_GOVERNANCE_EXECUTABLE_STEP_MISSING")
+            suggestions.append("业务配方没有可执行步骤，当前只是配置壳，不能作为线上入口。")
+
+        provider = str(
+            (vendor_model.provider if vendor_model else None)
+            or (ability.provider if ability else None)
+            or ""
+        ).strip().lower()
+
+        if vendor_model_id and not vendor_model:
+            issues.append("BUSINESS_GOVERNANCE_VENDOR_MODEL_NOT_FOUND")
+            suggestions.append("业务版本引用的模型目录不存在，先修正模型绑定。")
+        if vendor_model:
+            model_cost_configured = self._has_vendor_model_cost_policy(vendor_model.cost_policy)
+            vendor_acceptance = self._acceptance_summary(vendor_model.extra_metadata)["latest"]
+            if vendor_model.status != "active":
+                issues.append("BUSINESS_GOVERNANCE_VENDOR_MODEL_INACTIVE")
+                suggestions.append("绑定的第三方模型未启用，先启用模型或切到其他模型。")
+            if self._is_vendor_provider(provider) and not self._acceptance_passed(vendor_acceptance):
+                issues.append("BUSINESS_GOVERNANCE_VENDOR_MODEL_ACCEPTANCE_REQUIRED")
+                suggestions.append("第三方模型缺少验收通过记录，先在模型弹药库跑通并记录验收。")
+            if self._is_vendor_provider(provider) and not model_cost_configured:
+                issues.append("BUSINESS_GOVERNANCE_VENDOR_MODEL_COST_MISSING")
+                suggestions.append("第三方模型缺少计价策略，正式收费前必须补成本口径。")
+
+        if session is not None and self._is_vendor_provider(provider):
+            runtime_key_configured = self._provider_runtime_key_configured(session, provider)
+            if not runtime_key_configured:
+                issues.append("BUSINESS_GOVERNANCE_VENDOR_KEY_MISSING")
+                suggestions.append("该业务版本依赖第三方模型，但没有可用密钥；先到模型弹药库配置并验证 Key。")
+            if vendor_model and self._vendor_model_requires_verified_egress(vendor_model):
+                egress_verified = self._provider_recent_successful_key_check(session, provider)
+                if not egress_verified:
+                    issues.append("BUSINESS_GOVERNANCE_VENDOR_EGRESS_NOT_VERIFIED")
+                    suggestions.append("该模型需要出网能力，先在模型弹药库做一次带密钥出网检查。")
+
+        blocker_codes = {
+            "BUSINESS_GOVERNANCE_PRIMARY_ABILITY_MISSING",
+            "BUSINESS_GOVERNANCE_PRIMARY_ABILITY_NOT_FOUND",
+            "BUSINESS_GOVERNANCE_PRIMARY_ABILITY_INACTIVE",
+            "BUSINESS_GOVERNANCE_EXECUTABLE_STEP_MISSING",
+            "BUSINESS_GOVERNANCE_VENDOR_MODEL_NOT_FOUND",
+            "BUSINESS_GOVERNANCE_VENDOR_MODEL_INACTIVE",
+            "BUSINESS_GOVERNANCE_VENDOR_MODEL_ACCEPTANCE_REQUIRED",
+            "BUSINESS_GOVERNANCE_VENDOR_MODEL_COST_MISSING",
+            "BUSINESS_GOVERNANCE_VENDOR_KEY_MISSING",
+            "BUSINESS_GOVERNANCE_VENDOR_EGRESS_NOT_VERIFIED",
+        }
+        if not issues:
+            governance_status = "ready"
+        elif any(issue in blocker_codes for issue in issues):
+            governance_status = status_scope
+        else:
+            governance_status = "warning"
+
+        return {
+            "status": governance_status,
+            "issues": issues,
+            "suggestions": suggestions,
+            "runtime_key_configured": runtime_key_configured,
+            "model_cost_configured": model_cost_configured,
+            "egress_verified": egress_verified,
+        }
+
+    @staticmethod
+    def _is_vendor_provider(provider: str | None) -> bool:
+        return str(provider or "").strip().lower() in {"openai", "openai_compatible", "volcengine", "baidu", "kie"}
+
+    @staticmethod
+    def _has_vendor_model_cost_policy(value: Any) -> bool:
+        if not isinstance(value, dict):
+            return False
+        for key in ("unitPrice", "unit_price", "discountPrice", "discount_price", "listPrice", "list_price", "price"):
+            raw = value.get(key)
+            if raw in (None, ""):
+                continue
+            try:
+                if float(raw) > 0:
+                    return True
+            except (TypeError, ValueError):
+                return False
+        return False
+
+    def _provider_runtime_key_configured(self, session, provider: str) -> bool:
+        normalized = str(provider or "").strip().lower()
+        if self._provider_env_key_configured(normalized):
+            return True
+        rows = session.execute(select(ApiKey).where(ApiKey.provider == normalized)).scalars().all()
+        return any(is_usable(row) for row in rows)
+
+    def _provider_recent_successful_key_check(self, session, provider: str) -> bool:
+        normalized = str(provider or "").strip().lower()
+        rows = session.execute(select(ApiKey).where(ApiKey.provider == normalized)).scalars().all()
+        return any(is_usable(row) and self._key_recent_successful_check(row) for row in rows)
+
+    @staticmethod
+    def _key_recent_successful_check(api_key: ApiKey) -> bool:
+        metadata = api_key.extra_metadata if isinstance(api_key.extra_metadata, dict) else {}
+        last_check = metadata.get("lastCheck") if isinstance(metadata, dict) else None
+        if not isinstance(last_check, dict) or last_check.get("success") is not True:
+            return False
+        checked_at = BusinessRunService._parse_key_checked_at(last_check.get("checkedAt"))
+        if not checked_at:
+            return False
+        return checked_at >= datetime.utcnow() - timedelta(days=VENDOR_KEY_CHECK_STALE_DAYS)
+
+    @staticmethod
+    def _parse_key_checked_at(value: Any) -> datetime | None:
+        if isinstance(value, datetime):
+            parsed = value
+        elif isinstance(value, str) and value.strip():
+            try:
+                parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+            except ValueError:
+                return None
+        else:
+            return None
+        if parsed.tzinfo is not None:
+            parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+        return parsed
+
+    @staticmethod
+    def _vendor_model_requires_verified_egress(vendor_model: VendorModelCatalog) -> bool:
+        return bool(getattr(vendor_model, "requires_global_egress", False))
+
+    @staticmethod
+    def _provider_env_key_configured(provider: str) -> bool:
+        settings = get_settings()
+        if provider == "baidu":
+            return bool(settings.baidu_api_key and settings.baidu_secret_key)
+        if provider == "volcengine":
+            return bool(settings.volcengine_api_key)
+        return False
 
     @staticmethod
     def _latest_run_summary(row: BusinessCapability, *, session=None) -> dict[str, Any] | None:
@@ -3028,6 +4708,8 @@ class BusinessRunService:
         route_info = (row.request_payload or {}).get("_route") if isinstance(row.request_payload, dict) else None
         steps = self._run_steps_to_dict(row, session=session)
         billing_status = self._business_billing_status(row)
+        issue_summary = self._build_run_issue_summary(row, session=session, steps=steps)
+        retest_summary = self._build_retest_summary(row, session=session)
         return {
             "id": row.id,
             "business_key": row.business_key,
@@ -3075,6 +4757,17 @@ class BusinessRunService:
             "callback_error": row.callback_error,
             "debug_url": row.debug_url,
             "route_info": route_info,
+            "issue_category": issue_summary["category"],
+            "issue_label": issue_summary["label"],
+            "issue_severity": issue_summary["severity"],
+            "issue_action": issue_summary["action"],
+            "issue_evidence": issue_summary["evidence"],
+            "retest_source_run_id": retest_summary.get("sourceRunId"),
+            "retest_latest_run_id": retest_summary.get("latestRunId"),
+            "retest_latest_status": retest_summary.get("latestStatus"),
+            "retest_attempts": int(retest_summary.get("attempts") or 0),
+            "retest_recovered": bool(retest_summary.get("recovered")),
+            "retest_summary": retest_summary,
             "flow_summary": self._build_run_flow_summary(row, steps=steps, route_info=route_info, session=session),
             "steps": steps,
             "created_at": row.created_at,
@@ -3175,6 +4868,303 @@ class BusinessRunService:
             "durationMs": log.duration_ms,
         }
 
+    @staticmethod
+    def _normalize_issue_category(value: str | None) -> str | None:
+        text = str(value or "").strip().lower()
+        if not text or text == "all":
+            return None
+        aliases = {
+            "ok": "none",
+            "normal": "none",
+            "no_issue": "none",
+            "route": "version",
+            "routing": "version",
+            "ability": "executor",
+            "execution": "executor",
+            "comfyui": "executor",
+            "oss": "output",
+            "result": "output",
+        }
+        text = aliases.get(text, text)
+        return text if text in {"none", "version", "parameter", "executor", "output", "callback", "billing"} else None
+
+    @staticmethod
+    def _issue_category_meta(category: str | None) -> dict[str, str]:
+        key = BusinessRunService._normalize_issue_category(category) or "none"
+        mapping = {
+            "version": {
+                "label": "版本/路由问题",
+                "severity": "warning",
+                "action": "检查默认版本、灰度命中和 route-preview。",
+            },
+            "parameter": {
+                "label": "参数问题",
+                "severity": "warning",
+                "action": "核对业务入参、图片地址、尺寸和必填字段。",
+            },
+            "executor": {
+                "label": "执行节点问题",
+                "severity": "danger",
+                "action": "检查执行节点连通性、队列、模型依赖和能力日志。",
+            },
+            "output": {
+                "label": "结果回填问题",
+                "severity": "danger",
+                "action": "检查输出解析、OSS 落盘和结果字段映射。",
+            },
+            "callback": {
+                "label": "业务回调问题",
+                "severity": "warning",
+                "action": "重试回调；仍失败时确认业务方地址、鉴权和签名。",
+            },
+            "billing": {
+                "label": "计费扣减问题",
+                "severity": "warning",
+                "action": "检查价格规则、套餐/钱包扣减和结算流水。",
+            },
+            "none": {
+                "label": "暂无明显问题",
+                "severity": "success",
+                "action": "继续观察，可作为稳定样本。",
+            },
+        }
+        return mapping[key]
+
+    @staticmethod
+    def _issue_recommended_actions(category: str, *, run: BusinessRun) -> list[str]:
+        key = BusinessRunService._normalize_issue_category(category) or "none"
+        if key == "version":
+            return [
+                "先运行 route-preview，确认当前业务方会命中哪个版本。",
+                "检查默认版本、灰度名单、版本启停状态是否符合预期。",
+                "如果刚切版本，先回滚到上一稳定版本再复测。",
+            ]
+        if key == "parameter":
+            return [
+                "核对原图 URL 是否可访问，尺寸、必填字段、提示词格式是否正确。",
+                "用同一请求参数在管理端复测一条，不要先改业务方代码。",
+                "如果是字段变更，补接口文档和错误码说明后再通知业务方。",
+            ]
+        if key == "executor":
+            return [
+                "检查执行节点健康、队列长度、模型文件和工作流依赖。",
+                "如果某台 ComfyUI 不通，先标记离线或修复依赖，不要让任务继续打过去。",
+                "节点恢复后对这条记录发起复测，确认结果能回填。",
+            ]
+        if key == "output":
+            return [
+                "检查能力日志中的原始输出、storedUrl 和 resultAssets。",
+                "确认 OSS 下载、上传、结果字段映射是否正常。",
+                "同一任务不要只看 ComfyUI 成功，要以业务 run 的 imageUrls/videoUrls/texts 为准。",
+            ]
+        if key == "callback":
+            return [
+                "先使用“重试回调”，观察 HTTP 状态和业务方响应。",
+                "确认业务方回调地址、鉴权头、签名和白名单是否仍有效。",
+                "如果业务方已收到结果但中台显示失败，需要补回调幂等或状态同步说明。",
+            ]
+        if key == "billing":
+            return [
+                "先确认业务或模型是否已经配置价格规则。",
+                "如果已定价但没有扣减流水，检查套餐、钱包余额和结算日志。",
+                "计费修复后使用业务详情里的计费重试能力补齐扣减证据。",
+            ]
+        return ["当前没有明显链路问题，可作为稳定样本保留。"]
+
+    def _build_issue_checklist_item(
+        self,
+        row: BusinessRun,
+        *,
+        issue: dict[str, Any],
+        session,
+    ) -> dict[str, Any]:
+        steps = self._run_steps_to_dict(row, session=session)
+        route_info = (row.request_payload or {}).get("_route") if isinstance(row.request_payload, dict) else {}
+        route_info = route_info if isinstance(route_info, dict) else {}
+        flow = self._build_run_flow_summary(row, steps=steps, route_info=route_info, session=session)
+        ability = flow.get("ability") if isinstance(flow.get("ability"), dict) else {}
+        executor = flow.get("executor") if isinstance(flow.get("executor"), dict) else {}
+        output = flow.get("output") if isinstance(flow.get("output"), dict) else {}
+        callback = flow.get("callback") if isinstance(flow.get("callback"), dict) else {}
+        diagnostics = [
+            f"任务状态：{row.status}",
+            f"业务版本：{row.version or '-'}",
+            f"原子能力：{ability.get('name') or ability.get('id') or row.ability_id or '-'}",
+            f"执行节点：{executor.get('name') or executor.get('id') or '-'}",
+            (
+                "输出回填："
+                f"图片 {output.get('imageCount') or len(row.image_urls or [])}，"
+                f"视频 {output.get('videoCount') or len(row.video_urls or [])}，"
+                f"文字 {output.get('textCount') or len(row.texts or [])}"
+            ),
+            f"回调状态：{callback.get('status') or row.callback_status or '-'}",
+        ]
+        if issue.get("evidence"):
+            diagnostics.append(f"问题证据：{issue.get('evidence')}")
+        retest_summary = self._build_retest_summary(row, session=session)
+        return {
+            "run_id": row.id,
+            "business_key": row.business_key,
+            "version": row.version,
+            "status": row.status,
+            "issue_category": issue.get("category") or "none",
+            "issue_label": issue.get("label") or self._issue_category_meta(issue.get("category"))["label"],
+            "issue_severity": issue.get("severity") or self._issue_category_meta(issue.get("category"))["severity"],
+            "issue_action": issue.get("action"),
+            "issue_evidence": issue.get("evidence"),
+            "recommended_actions": self._issue_recommended_actions(str(issue.get("category") or "none"), run=row),
+            "diagnostics": diagnostics,
+            "ability_id": ability.get("id") or row.ability_id,
+            "ability_name": ability.get("name"),
+            "executor_id": executor.get("id"),
+            "executor_name": executor.get("name"),
+            "callback_status": callback.get("status") or row.callback_status,
+            "retest_latest_run_id": retest_summary.get("latestRunId"),
+            "retest_latest_status": retest_summary.get("latestStatus"),
+            "created_at": row.created_at,
+        }
+
+    @staticmethod
+    def _issue_checklist_markdown(
+        items: list[dict[str, Any]],
+        *,
+        generated_at: str,
+        skipped_count: int,
+    ) -> str:
+        lines = [
+            "# 业务运行排障清单",
+            "",
+            f"- 生成时间：{generated_at}",
+            f"- 待处理记录：{len(items)} 条",
+            f"- 已跳过记录：{skipped_count} 条",
+            "",
+        ]
+        if not items:
+            lines.append("当前选择范围内没有需要处理的问题记录。")
+            return "\n".join(lines)
+        for index, item in enumerate(items, start=1):
+            lines.extend(
+                [
+                    f"## {index}. {item.get('business_key') or '-'} / {item.get('run_id')}",
+                    "",
+                    f"- 问题类型：{item.get('issue_label') or '-'}",
+                    f"- 当前状态：{item.get('status') or '-'}",
+                    f"- 业务版本：{item.get('version') or '-'}",
+                    f"- 原子能力：{item.get('ability_name') or item.get('ability_id') or '-'}",
+                    f"- 执行节点：{item.get('executor_name') or item.get('executor_id') or '-'}",
+                    f"- 证据：{item.get('issue_evidence') or '-'}",
+                    "",
+                    "处理动作：",
+                ]
+            )
+            for action in item.get("recommended_actions") or []:
+                lines.append(f"- {action}")
+            lines.extend(["", "诊断信息："])
+            for diagnostic in item.get("diagnostics") or []:
+                lines.append(f"- {diagnostic}")
+            lines.append("")
+        return "\n".join(lines).strip() + "\n"
+
+    def _build_run_issue_summary(
+        self,
+        row: BusinessRun,
+        *,
+        session=None,
+        steps: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        if steps is None and session is not None:
+            steps = self._run_steps_to_dict(row, session=session)
+        steps = steps or []
+        result_payload = row.result_payload if isinstance(row.result_payload, dict) else {}
+        resolution = result_payload.get("_adminIssueResolution") or result_payload.get("_admin_issue_resolution")
+        if isinstance(resolution, dict) and resolution.get("status") == "ignored":
+            note = self._clean_optional_text(str(resolution.get("note") or ""))
+            return {
+                "category": "none",
+                "label": "已标记无需处理",
+                "severity": "success",
+                "action": note or "运营已确认这条记录暂不需要继续处理。",
+                "evidence": note,
+            }
+        status = str(row.status or "").strip().lower()
+        image_count = len(row.image_urls or [])
+        video_count = len(row.video_urls or [])
+        text_count = len(row.texts or [])
+        structured_count = self._count_structured_outputs(result_payload)
+        resource_count = self._count_resource_outputs(result_payload)
+        has_output = bool(image_count or video_count or text_count or structured_count or resource_count)
+        callback_failed = status == "succeeded" and (
+            str(row.callback_status or "").strip().lower() == "failed" or bool(row.callback_error)
+        )
+        billing_status = self._business_billing_status(row)
+        wallet_settlement = self._billing_settlement_from_run(row)
+        package_settlement = self._package_settlement_from_run(row)
+        settlement = wallet_settlement or package_settlement
+        settlement_status = str((settlement or {}).get("status") or "").strip().lower()
+        billing_evidence: str | None = None
+        billing_issue = False
+        if status == "succeeded" and billing_status == "unpriced":
+            billing_issue = True
+            billing_evidence = self._business_no_charge_reason(row) or "任务成功但缺少定价，待确认计费口径"
+        elif status == "succeeded" and settlement_status == "failed":
+            billing_issue = True
+            billing_evidence = str((settlement or {}).get("error") or "计费扣减失败")
+        elif status == "succeeded" and billing_status == "billable" and row.user_id and not settlement:
+            billing_issue = True
+            billing_evidence = "任务应计费但未发现套餐或钱包扣减流水"
+        route_missing = not row.business_version_id or not row.version
+        error_text = " ".join(
+            str(item or "")
+            for item in [
+                row.error_message,
+                row.callback_error,
+                *(step.get("error_message") for step in steps if isinstance(step, dict)),
+            ]
+        ).lower()
+        parameter_markers = (
+            "missing",
+            "invalid",
+            "required",
+            "schema",
+            "validation",
+            "参数",
+            "缺少",
+            "必填",
+            "格式",
+            "无效",
+        )
+        failed_step = next((step for step in steps if str(step.get("status") or "").lower() == "failed"), None)
+        active_step = next(
+            (step for step in steps if str(step.get("status") or "").lower() in {"queued", "running"}),
+            None,
+        )
+
+        if callback_failed:
+            category = "callback"
+        elif status == "succeeded" and not has_output:
+            category = "output"
+        elif billing_issue:
+            category = "billing"
+        elif route_missing:
+            category = "version"
+        elif status == "failed" and any(marker in error_text for marker in parameter_markers):
+            category = "parameter"
+        elif status in {"failed", "queued", "running"} or failed_step or active_step:
+            category = "executor"
+        else:
+            category = "none"
+
+        meta = self._issue_category_meta(category)
+        evidence_step = failed_step or active_step or (steps[-1] if steps else None)
+        evidence = billing_evidence if category == "billing" else row.error_message or (evidence_step or {}).get("error_message") or row.callback_error
+        return {
+            "category": category,
+            "label": meta["label"],
+            "severity": meta["severity"],
+            "action": meta["action"],
+            "evidence": str(evidence) if evidence else None,
+        }
+
     def _build_run_flow_summary(
         self,
         row: BusinessRun,
@@ -3221,7 +5211,9 @@ class BusinessRunService:
         image_count = len(row.image_urls or [])
         video_count = len(row.video_urls or [])
         text_count = len(row.texts or [])
-        has_output = bool(image_count or video_count or text_count)
+        structured_count = self._count_structured_outputs(row.result_payload if isinstance(row.result_payload, dict) else {})
+        resource_count = self._count_resource_outputs(row.result_payload if isinstance(row.result_payload, dict) else {})
+        has_output = bool(image_count or video_count or text_count or structured_count or resource_count)
         failed = counts["failed"] > 0 or row.status == "failed"
         if failed:
             message = "业务链路执行失败"
@@ -3239,9 +5231,15 @@ class BusinessRunService:
             message = f"业务链路状态：{row.status}"
             next_action = None
 
+        issue_summary = self._build_run_issue_summary(row, session=session, steps=steps)
         return {
             **counts,
             "progressPercent": progress,
+            "issueCategory": issue_summary["category"],
+            "issueLabel": issue_summary["label"],
+            "issueSeverity": issue_summary["severity"],
+            "issueAction": issue_summary["action"],
+            "issueEvidence": issue_summary["evidence"],
             "currentStepOrder": (active_step or {}).get("step_order"),
             "currentStepLabel": (active_step or {}).get("display_name")
             or (active_step or {}).get("ability_name")
@@ -3270,6 +5268,8 @@ class BusinessRunService:
                 "imageCount": image_count,
                 "videoCount": video_count,
                 "textCount": text_count,
+                "structuredCount": structured_count,
+                "resourceCount": resource_count,
                 "firstImageUrl": (row.image_urls or [None])[0],
                 "firstVideoUrl": (row.video_urls or [None])[0],
                 "hasOssOutput": bool((row.image_urls or []) or (run_log and (run_log.stored_url or run_log.result_assets))),
@@ -3297,6 +5297,19 @@ class BusinessRunService:
             "assetCount": len(log.result_assets) if log and isinstance(log.result_assets, list) else evidence.get("assetCount"),
         }
 
+    @staticmethod
+    def _count_structured_outputs(payload: dict[str, Any] | None) -> int:
+        if not isinstance(payload, dict):
+            return 0
+        count = 0
+        for key in ("jsonOutput", "json_output", "structured", "structuredOutput", "structured_output", "json"):
+            value = payload.get(key)
+            if isinstance(value, dict) and value:
+                count += 1
+            elif isinstance(value, list) and value:
+                count += len(value)
+        return count
+
     def _build_step_result_summary(self, step: BusinessRunStep) -> dict[str, Any] | None:
         payload = step.result_payload if isinstance(step.result_payload, dict) else {}
         if not payload:
@@ -3304,12 +5317,16 @@ class BusinessRunService:
         summary: dict[str, Any] = {}
         image_urls = self._extract_urls(payload, keys=("images", "assets", "resultUrls", "imageUrls"))
         video_urls = self._extract_urls(payload, keys=("videos", "videoUrls"))
+        resource_urls = self._extract_urls(payload, keys=("resourceUrls", "resource_urls", "resources", "files", "attachments"))
         if image_urls:
             summary["imageCount"] = len(image_urls)
             summary["firstImageUrl"] = image_urls[0]
         if video_urls:
             summary["videoCount"] = len(video_urls)
             summary["firstVideoUrl"] = video_urls[0]
+        if resource_urls:
+            summary["resourceCount"] = len(resource_urls)
+            summary["firstResourceUrl"] = resource_urls[0]
 
         texts = payload.get("texts")
         first_text = None

@@ -21,12 +21,13 @@ import type {
   VendorKey,
   VendorKeyFormState,
   VendorModel,
+  VendorModelBulkActionType,
   VendorModelFormState,
   VendorProvider,
   VendorUsageSummaryItem,
 } from '../../../types/admin';
 import { toDisplayErrorMessage } from '../../../utils/errorMessageMap';
-import { StatusBadge } from '../shared/ui';
+import { GuidanceQueueCard, StatusBadge, type GuidanceQueueItem } from '../shared/ui';
 import { apiKeyStatusOptions } from './formOptions';
 import { formatDateTime, formatDurationMs } from './formatters';
 import { getVendorIssueLabel, getVendorProviderState } from './vendor';
@@ -52,9 +53,30 @@ const formatJsonPanelValue = (value: unknown): string => {
   }
 };
 
+const parseJsonObjectText = (value?: string | null): Record<string, unknown> => {
+  const raw = String(value || '').trim();
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+};
+
+const compactJsonObject = (value: Record<string, unknown>) => {
+  const out: Record<string, unknown> = {};
+  Object.entries(value).forEach(([key, item]) => {
+    if (item === undefined || item === null || item === '') return;
+    out[key] = item;
+  });
+  return out;
+};
+
 const isVendorUsageFailed = (item: VendorUsageSummaryItem): boolean => {
   const status = String(item.status || '').toLowerCase();
-  return Boolean(item.errorCode) || !['success', 'succeeded', 'ok', 'completed'].includes(status);
+  if (Boolean(item.errorCode)) return true;
+  return ['failed', 'failure', 'error', 'timeout', 'canceled', 'cancelled'].includes(status);
 };
 
 const apiTypeLabels: Record<string, string> = {
@@ -106,6 +128,34 @@ const getVendorSourceLabel = (source?: string | null) => {
   if (value === 'volcengine-sync') return '火山同步';
   if (value === 'seed') return '系统预置';
   return value.replace(/_/g, ' ');
+};
+
+const releaseGateTheme = (status?: string): VendorModelProfileTheme => {
+  if (status === 'ready') return 'success';
+  if (status === 'warning') return 'warning';
+  if (status === 'blocked') return 'danger';
+  return 'default';
+};
+
+const releaseGateText = (model: VendorModel): string => {
+  const gate = model.releaseGate;
+  if (!gate) return '未检查';
+  if (gate.label) return gate.label;
+  if (gate.status === 'ready') return '可上线';
+  if (gate.status === 'warning') return '需复核';
+  if (gate.status === 'blocked') return '暂不能上线';
+  return '未检查';
+};
+
+const getAcceptanceText = (model: VendorModel): string => {
+  const latest = model.latestAcceptance;
+  if (!latest || typeof latest !== 'object' || Array.isArray(latest)) return '未验收';
+  const status = String((latest as Record<string, unknown>).status || '');
+  if (status === 'passed') return '已验收';
+  if (status === 'failed') return '验收失败';
+  if (status === 'warning') return '带风险';
+  if (status === 'waived') return '已豁免';
+  return status || '未验收';
 };
 
 type VendorModelProfileTheme = 'default' | 'primary' | 'success' | 'warning' | 'danger';
@@ -197,6 +247,17 @@ const resolveVendorKeyRisk = (item: VendorKey): { theme: 'success' | 'warning' |
   if (item.cooldownUntil) {
     return { theme: 'warning', label: '冷却中', suggestion: `等待到 ${formatDateTime(item.cooldownUntil)}，或切备用密钥。` };
   }
+  const lastCheck = item.metadata?.lastCheck;
+  if (!lastCheck || typeof lastCheck !== 'object' || Array.isArray(lastCheck)) {
+    return { theme: 'warning', label: '未验证', suggestion: '上线前先做一次单条密钥验证。' };
+  }
+  if ((lastCheck as Record<string, unknown>).success === false) {
+    return { theme: 'danger', label: '验证失败', suggestion: '先替换密钥或检查上游账号状态，不要直接放量。' };
+  }
+  const checkedAt = Date.parse(String((lastCheck as Record<string, unknown>).checkedAt || ''));
+  if (!Number.isFinite(checkedAt) || Date.now() - checkedAt > 7 * 24 * 60 * 60 * 1000) {
+    return { theme: 'warning', label: '验证过期', suggestion: '最近验证超过 7 天，发布前重新做带密钥检查。' };
+  }
   if (item.lastError) {
     return { theme: 'warning', label: '最近报错', suggestion: toDisplayErrorMessage(item.lastError) };
   }
@@ -207,6 +268,12 @@ const resolveVendorKeyRisk = (item: VendorKey): { theme: 'success' | 'warning' |
     return { theme: 'warning', label: '接近日配额', suggestion: '建议准备备用密钥，避免业务高峰时失败。' };
   }
   return { theme: 'success', label: '可用', suggestion: '暂无明显风险。' };
+};
+
+const getVendorKeyLastCheck = (item: VendorKey): Record<string, unknown> | null => {
+  const value = item.metadata?.lastCheck;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
 };
 
 const vendorAcceptanceTargets = [
@@ -247,6 +314,103 @@ const buildVendorAcceptanceItem = (
     return { ...target, status: 'passed', theme: 'success' as const, labelText: '已跑通', suggestion: '可继续接入业务能力，但发布前仍需测评端抽测。', modelCount: modelRows.length, activeKeyCount: activeKeys.length, totalCount, failedCount };
   }
   return { ...target, status: 'not_tested', theme: 'default' as const, labelText: '待测试', suggestion: '先在能力测试跑一次真实调用，确认回填和计费。', modelCount: modelRows.length, activeKeyCount: activeKeys.length, totalCount, failedCount };
+};
+
+const getModelGateIssues = (model: VendorModel): string[] => [
+  ...(model.releaseGate?.blockers || []),
+  ...(model.releaseGate?.warnings || []),
+];
+
+const resolveModelPrimaryAction = (
+  model: VendorModel,
+): { theme: 'success' | 'warning' | 'danger' | 'default'; label: string; action: string; issue?: string } => {
+  const gate = model.releaseGate;
+  if (gate?.primaryAction || gate?.primaryActionLabel || gate?.primaryIssue) {
+    const severity = String(gate.primarySeverity || '').trim();
+    const fallbackTheme = releaseGateTheme(gate.status);
+    const theme =
+      severity === 'danger' || severity === 'warning' || severity === 'success' || severity === 'default'
+        ? severity
+        : fallbackTheme === 'primary'
+          ? 'default'
+          : fallbackTheme;
+    return {
+      theme,
+      label: String(gate.primaryActionLabel || releaseGateText(model) || '待检查'),
+      action: String(gate.primaryAction || gate.suggestions?.[0] || '刷新弹药库后查看模型门禁结果。'),
+      issue: gate.primaryIssue || undefined,
+    };
+  }
+  const issues = getModelGateIssues(model);
+  const has = (code: string) => issues.some((item) => item.startsWith(code));
+  if (has('VENDOR_MODEL_INACTIVE')) {
+    return {
+      theme: 'danger',
+      label: '未启用',
+      issue: 'VENDOR_MODEL_INACTIVE',
+      action: '启用模型，或把业务能力切到其他已启用模型。',
+    };
+  }
+  if (has('VENDOR_MODEL_RUNTIME_KEY_MISSING')) {
+    return {
+      theme: 'danger',
+      label: '补密钥',
+      issue: 'VENDOR_MODEL_RUNTIME_KEY_MISSING',
+      action: '先配置该厂商可用密钥，再做带密钥检查。',
+    };
+  }
+  if (has('VENDOR_MODEL_KEY_CHECK_FAILED') || has('VENDOR_MODEL_KEY_CHECK_PARTIAL_FAILED')) {
+    return {
+      theme: 'danger',
+      label: '查密钥',
+      issue: 'VENDOR_MODEL_KEY_CHECK_FAILED',
+      action: '最近密钥验证失败，先替换密钥或确认厂商账号状态。',
+    };
+  }
+  if (has('VENDOR_MODEL_KEY_NEVER_CHECKED') || has('VENDOR_MODEL_KEY_CHECK_STALE')) {
+    return {
+      theme: 'warning',
+      label: '重验密钥',
+      issue: 'VENDOR_MODEL_KEY_CHECK_STALE',
+      action: '上线前重新做一次单条密钥验证。',
+    };
+  }
+  if (has('VENDOR_MODEL_API_TYPES_MISSING') || has('VENDOR_MODEL_EXECUTION_MODE_MISSING')) {
+    return {
+      theme: 'warning',
+      label: '补边界',
+      issue: 'VENDOR_MODEL_API_TYPES_MISSING',
+      action: '补齐模型能做什么、如何返回结果，避免业务同学选错。',
+    };
+  }
+  if (has('VENDOR_MODEL_GLOBAL_EGRESS_REQUIRED')) {
+    return {
+      theme: 'warning',
+      label: '查出网',
+      issue: 'VENDOR_MODEL_GLOBAL_EGRESS_REQUIRED',
+      action: '确认该模型实际走有国际出口的能力服务节点，并做带密钥出网验证。',
+    };
+  }
+  if (has('VENDOR_MODEL_ACCEPTANCE_REQUIRED')) {
+    return {
+      theme: 'danger',
+      label: '先验收',
+      issue: 'VENDOR_MODEL_ACCEPTANCE_REQUIRED',
+      action: '先用能力测试或测评端跑一条真实任务，确认结果回填正常后，点击“记验收”。',
+    };
+  }
+  if (has('VENDOR_MODEL_COST_POLICY_MISSING')) {
+    return {
+      theme: 'warning',
+      label: '补计价',
+      issue: 'VENDOR_MODEL_COST_POLICY_MISSING',
+      action: '补齐计费单位、币种、单价和定价版本，避免上线后账单不准。',
+    };
+  }
+  if (model.releaseGate?.status === 'ready') {
+    return { theme: 'success', label: '可上线', action: '基础门禁通过，可进入业务绑定和小流量验证。' };
+  }
+  return { theme: 'default', label: '待检查', action: '刷新弹药库后查看模型门禁结果。' };
 };
 
 function MetricCard({ label, value, sub }: { label: string; value: number | string; sub?: string }) {
@@ -336,9 +500,12 @@ type VendorModelsPanelProps = {
   onEgressCheck: (provider: string, includeAuth?: boolean) => void;
   onModelFormChange: (next: VendorModelFormState) => void;
   onModelEdit: (model: VendorModel) => void;
+  onModelBulkAction: (action: VendorModelBulkActionType, models: VendorModel[]) => void;
+  onModelAccept: (model: VendorModel) => void;
   onModelReset: () => void;
   onModelSubmit: () => void;
   onKeyFormChange: (next: VendorKeyFormState) => void;
+  onKeyCheck: (keyId: string) => void;
   onKeySubmit: () => void;
   onKeyReset: () => void;
 };
@@ -367,15 +534,88 @@ export function VendorModelsPanel({
   onEgressCheck,
   onModelFormChange,
   onModelEdit,
+  onModelBulkAction,
+  onModelAccept,
   onModelReset,
   onModelSubmit,
   onKeyFormChange,
+  onKeyCheck,
   onKeySubmit,
   onKeyReset,
 }: VendorModelsPanelProps) {
-  const [selectedModelDetail, setSelectedModelDetail] = useState<VendorModel | null>(null);
+  const [selectedModelSeed, setSelectedModelDetail] = useState<VendorModel | null>(null);
+  const [modelGateFilter, setModelGateFilter] = useState<string>('needs_action');
   const activeKeyCount = keys.filter((item) => item.status === 'active').length;
   const egressProviderCount = providers.filter((item) => item.requiresGlobalEgress).length;
+  const readyModels = models.filter((item) => item.releaseGate?.status === 'ready');
+  const blockedModels = models.filter((item) => item.releaseGate?.status === 'blocked');
+  const warningModels = models.filter((item) => item.releaseGate?.status === 'warning');
+  const modelProfiles = models.map((model) => ({ model, profile: resolveVendorModelProfile(model) }));
+  const modelTypeSummary = [
+    {
+      key: 'image',
+      title: '图片模型',
+      count: modelProfiles.filter((item) => item.profile.label === '图片模型').length,
+      detail: '文生图、图生图、图片编辑、蒙版和多图能力。',
+      action: '优先绑定图裂变、扩图、花纹处理类业务。',
+      theme: 'success' as const,
+    },
+    {
+      key: 'video',
+      title: '视频模型',
+      count: modelProfiles.filter((item) => item.profile.label === '视频模型').length,
+      detail: '文生视频、图生视频或视频处理，通常耗时和成本更高。',
+      action: '后续独立做并发、成本和超时策略。',
+      theme: 'warning' as const,
+    },
+    {
+      key: 'text',
+      title: '文字/多模态',
+      count: modelProfiles.filter((item) => item.profile.label === '文字/多模态').length,
+      detail: '文本生成、改写、对话和多模态推理。',
+      action: '用于提示词、标题、描述和业务文案能力。',
+      theme: 'primary' as const,
+    },
+    {
+      key: 'vl',
+      title: '图像理解',
+      count: modelProfiles.filter((item) => item.profile.label === '图像理解').length,
+      detail: '看图分析、图片描述、质检和提示词辅助。',
+      action: '作为 VL 弹药库，给裂变、扩图和审核流程复用。',
+      theme: 'primary' as const,
+    },
+    {
+      key: 'general',
+      title: '待确认',
+      count: modelProfiles.filter((item) => item.profile.label === '通用模型').length,
+      detail: '能力范围还不够明确，接业务前需要补充模型能力说明。',
+      action: '先补能力类型、输入输出和计价口径。',
+      theme: 'default' as const,
+    },
+  ];
+  const unacceptedModels = models.filter((item) => item.releaseGate?.acceptancePassed !== true);
+  const missingKeyModels = models.filter((item) => getModelGateIssues(item).some((issue) => issue.startsWith('VENDOR_MODEL_RUNTIME_KEY_MISSING')));
+  const unpricedModels = models.filter((item) => getModelGateIssues(item).some((issue) => issue.startsWith('VENDOR_MODEL_COST_POLICY_MISSING')));
+  const inactiveModels = models.filter((item) => String(item.status || '').toLowerCase() !== 'active');
+  const visibleModels = models.filter((item) => {
+    if (modelGateFilter === 'all') return true;
+    if (modelGateFilter === 'ready') return item.releaseGate?.status === 'ready';
+    if (modelGateFilter === 'blocked') return item.releaseGate?.status === 'blocked';
+    if (modelGateFilter === 'warning') return item.releaseGate?.status === 'warning';
+    if (modelGateFilter === 'unaccepted') return item.releaseGate?.acceptancePassed !== true;
+    return item.releaseGate?.status !== 'ready';
+  });
+  const modelActionItems = models
+    .map((item) => ({ model: item, action: resolveModelPrimaryAction(item) }))
+    .filter((item) => item.action.theme !== 'success')
+    .sort((a, b) => {
+      const rank = { danger: 0, warning: 1, default: 2, success: 3 };
+      return rank[a.action.theme] - rank[b.action.theme];
+    })
+    .slice(0, 8);
+  const selectedModelDetail = selectedModelSeed?.id
+    ? models.find((item) => item.id === selectedModelSeed.id) || selectedModelSeed
+    : selectedModelSeed;
   const failedUsageItems = usageItems.filter(isVendorUsageFailed).slice(0, 8);
   const riskyKeys = keys
     .map((item) => ({ key: item, risk: resolveVendorKeyRisk(item) }))
@@ -384,6 +624,79 @@ export function VendorModelsPanel({
   const acceptanceItems = vendorAcceptanceTargets.map((target) =>
     buildVendorAcceptanceItem(target, providers, models, keys, usageItems),
   );
+  const costPolicyDraft = parseJsonObjectText(modelForm.costPolicyText);
+  const updateCostPolicy = (patch: Record<string, unknown>) => {
+    const next = compactJsonObject({ ...costPolicyDraft, ...patch });
+    onModelFormChange({ ...modelForm, costPolicyText: JSON.stringify(next, null, 2) });
+  };
+  const guidanceItems: GuidanceQueueItem[] = [];
+  if (activeKeyCount === 0) {
+    guidanceItems.push({
+      key: 'no-active-key',
+      theme: 'danger',
+      title: '先配置可用密钥',
+      detail: '没有 active 密钥时，商业模型无法真实调用，业务默认版本也无法稳定上线。',
+      action: '到密钥池新增或启用密钥',
+    });
+  }
+  if (missingKeyModels.length > 0) {
+    guidanceItems.push({
+      key: 'missing-key-models',
+      theme: 'danger',
+      title: '模型缺可用密钥',
+      detail: `${missingKeyModels.length} 个模型没有可用运行密钥，真实调用和验收都会失败。`,
+      action: '查看需处理模型',
+      onClick: () => setModelGateFilter('needs_action'),
+    });
+  }
+  if (blockedModels.length > 0) {
+    guidanceItems.push({
+      key: 'blocked-models',
+      theme: 'danger',
+      title: '模型暂不能上线',
+      detail: `${blockedModels.length} 个模型存在阻塞项，先不要绑定到业务默认版本。`,
+      action: '查看阻塞模型',
+      onClick: () => setModelGateFilter('blocked'),
+    });
+  }
+  if (unacceptedModels.length > 0) {
+    guidanceItems.push({
+      key: 'unaccepted-models',
+      theme: 'warning',
+      title: '补模型验收记录',
+      detail: `${unacceptedModels.length} 个模型还没有验收通过记录，发布门禁会拦住业务默认版本。`,
+      action: '查看未验收模型',
+      onClick: () => setModelGateFilter('unaccepted'),
+    });
+  }
+  if (unpricedModels.length > 0) {
+    guidanceItems.push({
+      key: 'unpriced-models',
+      theme: 'warning',
+      title: '补计价策略',
+      detail: `${unpricedModels.length} 个模型缺计价，成功任务会进入未定价风险。`,
+      action: '查看需处理模型',
+      onClick: () => setModelGateFilter('needs_action'),
+    });
+  }
+  if (usageFailed > 0) {
+    guidanceItems.push({
+      key: 'usage-failed',
+      theme: 'warning',
+      title: '先看失败样本',
+      detail: `近 ${usageWindowHours} 小时有 ${usageFailed} 次第三方调用失败，切业务默认版本前要先确认原因。`,
+      action: '查看失败样本',
+    });
+  }
+  if (guidanceItems.length === 0) {
+    guidanceItems.push({
+      key: 'vendor-ready',
+      theme: 'success',
+      title: '模型治理当前可推进',
+      detail: '密钥、模型上线判断、验收和计价没有明显阻塞，可继续接入新模型或做小流量测试。',
+      action: '继续绑定业务能力并做测评',
+    });
+  }
 
   return (
     <>
@@ -420,6 +733,12 @@ export function VendorModelsPanel({
         </Col>
         <Col xs={12} lg={4}>
           <MetricCard label="特殊出网" value={egressProviderCount} sub="需要代理或海外通道" />
+        </Col>
+        <Col xs={12} lg={4}>
+          <MetricCard label="模型可上线" value={readyModels.length} sub={`阻塞 ${blockedModels.length} / 复核 ${warningModels.length}`} />
+        </Col>
+        <Col xs={12} lg={4}>
+          <MetricCard label="未验收模型" value={unacceptedModels.length} sub="业务默认版本会被门禁拦住" />
         </Col>
         <Col xs={12} lg={4}>
           <MetricCard label="近24小时调用" value={usageTotal} sub={`窗口 ${usageWindowHours} 小时`} />
@@ -463,41 +782,166 @@ export function VendorModelsPanel({
         </Row>
       </Card>
 
-      <Card bordered style={{ marginTop: 12 }}>
+      <Card bordered title="模型类型总览" style={{ marginTop: 12 }}>
+        <Typography.Text theme="secondary">
+          不再把所有第三方模型都当成生图模型；后续图片、视频、文字、图像理解会走不同的业务能力和测试标准。
+        </Typography.Text>
+        <Row gutter={[12, 12]} style={{ marginTop: 12 }}>
+          {modelTypeSummary.map((item) => (
+            <Col key={item.key} xs={12} md={4} xl={2}>
+              <Card bordered size="small" style={{ height: '100%' }}>
+                <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                  <Space align="center" style={{ justifyContent: 'space-between', width: '100%', gap: 8 }}>
+                    <Typography.Text strong>{item.title}</Typography.Text>
+                    <Tag theme={item.theme} variant="light">
+                      {item.count}
+                    </Tag>
+                  </Space>
+                  <Typography.Text theme="secondary">{item.detail}</Typography.Text>
+                  <Typography.Text theme="secondary">建议：{item.action}</Typography.Text>
+                </Space>
+              </Card>
+            </Col>
+          ))}
+        </Row>
+      </Card>
+
+      <GuidanceQueueCard items={guidanceItems} style={{ marginTop: 12 }} />
+
+      <Card bordered title="模型上线处理队列" style={{ marginTop: 16 }}>
         <Space direction="vertical" size="small" style={{ width: '100%' }}>
-          <Typography.Text strong>下一步建议</Typography.Text>
+          <Typography.Text theme="secondary">
+            只看模型级门禁，不看底层技术字段。这里有红色项时，先不要把模型绑定到业务默认版本。
+          </Typography.Text>
+          <Space size="small" style={{ flexWrap: 'wrap' }}>
+            <Button
+              size="small"
+              variant="outline"
+              disabled={!unacceptedModels.length}
+              onClick={() => onModelBulkAction('record_acceptance', unacceptedModels)}
+            >
+              批量记验收 {unacceptedModels.length}
+            </Button>
+            <Button
+              size="small"
+              variant="outline"
+              disabled={!inactiveModels.length}
+              onClick={() => onModelBulkAction('enable', inactiveModels)}
+            >
+              批量启用 {inactiveModels.length}
+            </Button>
+            <Button
+              size="small"
+              variant="outline"
+              disabled={!blockedModels.length}
+              onClick={() => onModelBulkAction('disable', blockedModels)}
+            >
+              批量停用阻塞 {blockedModels.length}
+            </Button>
+            <Button
+              size="small"
+              variant="outline"
+              disabled={!unpricedModels.length || !hasJsonContent(costPolicyDraft)}
+              onClick={() => onModelBulkAction('apply_cost_policy', unpricedModels)}
+            >
+              用表单计价批量补齐 {unpricedModels.length}
+            </Button>
+            <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+              批量操作会写入模型审计记录；计价批量应用使用下方表单里的“计价策略”。
+            </Typography.Text>
+          </Space>
           <Row gutter={[12, 12]}>
-            <Col xs={12} md={4}>
+            <Col xs={12} md={3}>
               <Alert
-                theme={activeKeyCount > 0 ? 'success' : 'warning'}
-                message={
-                  activeKeyCount > 0
-                    ? '密钥已配置：可以继续查看模型是否绑定到业务能力。'
-                    : '先配置第三方密钥，否则模型能力无法真实调用。'
-                }
+                theme={blockedModels.length ? 'warning' : 'success'}
+                message={blockedModels.length ? `有 ${blockedModels.length} 个模型暂不能上线。` : '没有模型级阻塞。'}
               />
             </Col>
-            <Col xs={12} md={4}>
+            <Col xs={12} md={3}>
               <Alert
-                theme={governanceIssueCount > 0 ? 'warning' : 'success'}
-                message={
-                  governanceIssueCount > 0
-                    ? `有 ${governanceIssueCount} 个厂商或模型需要处理，优先看下方“问题”列。`
-                    : '厂商状态正常，可以继续接入或测试新模型。'
-                }
+                theme={unacceptedModels.length ? 'warning' : 'success'}
+                message={unacceptedModels.length ? `有 ${unacceptedModels.length} 个模型缺少验收记录。` : '模型验收记录已补齐。'}
               />
             </Col>
-            <Col xs={12} md={4}>
+            <Col xs={12} md={3}>
               <Alert
-                theme={usageFailed > 0 ? 'warning' : 'info'}
-                message={
-                  usageFailed > 0
-                    ? `近 ${usageWindowHours} 小时有 ${usageFailed} 次失败，先看失败原因再切业务默认版本。`
-                    : '最近没有第三方调用失败，可按业务需要做小流量测试。'
-                }
+                theme={missingKeyModels.length ? 'warning' : 'success'}
+                message={missingKeyModels.length ? `有 ${missingKeyModels.length} 个模型缺少可用密钥。` : '模型密钥基础可用。'}
+              />
+            </Col>
+            <Col xs={12} md={3}>
+              <Alert
+                theme={unpricedModels.length ? 'warning' : 'success'}
+                message={unpricedModels.length ? `有 ${unpricedModels.length} 个模型缺少计价。` : '模型计价基础完整。'}
               />
             </Col>
           </Row>
+          <Table
+            size="small"
+            rowKey="modelActionKey"
+            data={modelActionItems.map(({ model, action }) => ({
+              modelActionKey: `${model.provider}-${model.model}-${action.label}`,
+              model,
+              action,
+            }))}
+            columns={[
+              {
+                colKey: 'model',
+                title: '模型',
+                minWidth: 220,
+                cell: ({ row }) => (
+                  <Space direction="vertical" size={2}>
+                    <Typography.Text strong>{row.model.displayName}</Typography.Text>
+                    <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                      {row.model.provider} / {row.model.model}
+                    </Typography.Text>
+                  </Space>
+                ),
+              },
+              {
+                colKey: 'action',
+                title: '当前要做',
+                width: 140,
+                cell: ({ row }) => (
+                  <Tag theme={row.action.theme} variant="light">
+                    {row.action.label}
+                  </Tag>
+                ),
+              },
+              {
+                colKey: 'reason',
+                title: '原因',
+                minWidth: 180,
+                cell: ({ row }) => (
+                  <Typography.Text theme="secondary">
+                    {row.action.issue ? getVendorIssueLabel(row.action.issue) : releaseGateText(row.model)}
+                  </Typography.Text>
+                ),
+              },
+              {
+                colKey: 'next',
+                title: '处理动作',
+                minWidth: 300,
+                cell: ({ row }) => <Typography.Text>{row.action.action}</Typography.Text>,
+              },
+              {
+                colKey: 'ops',
+                title: '操作',
+                width: 160,
+                cell: ({ row }) => (
+                  <Space size={4}>
+                    <Button size="small" variant="text" onClick={() => setSelectedModelDetail(row.model)}>
+                      看详情
+                    </Button>
+                    <Button size="small" variant="text" onClick={() => onModelEdit(row.model)}>
+                      编辑
+                    </Button>
+                  </Space>
+                ),
+              },
+            ]}
+            empty={<Alert theme="success" message="当前没有模型级待处理项。仍建议在切业务默认版本前跑一条真实任务。" />}
+          />
         </Space>
       </Card>
 
@@ -598,7 +1042,7 @@ export function VendorModelsPanel({
 
       <Card bordered title="第三方能力验收标记" style={{ marginTop: 16 }}>
         <Typography.Text theme="secondary">
-          这里先做自动判断：厂商是否接入、密钥是否可用、模型目录是否存在、最近是否跑通过。后续再补人工确认记录。
+          这里是厂商级粗看：厂商是否接入、密钥是否可用、模型目录是否存在、最近是否跑通过。具体模型能否上线以上方“模型上线处理队列”和下方“模型目录”为准。
         </Typography.Text>
         <div style={{ marginTop: 12 }}>
           <Table
@@ -762,6 +1206,21 @@ export function VendorModelsPanel({
                           密钥报错 {row.errorKeyCount}
                         </Tag>
                       ) : null}
+                      {row.uncheckedKeyCount > 0 ? (
+                        <Tag theme="warning" variant="light">
+                          未验证 {row.uncheckedKeyCount}
+                        </Tag>
+                      ) : null}
+                      {row.staleKeyCheckCount > 0 ? (
+                        <Tag theme="warning" variant="light">
+                          验证过期 {row.staleKeyCheckCount}
+                        </Tag>
+                      ) : null}
+                      {row.failedKeyCheckCount > 0 ? (
+                        <Tag theme="danger" variant="light">
+                          验证失败 {row.failedKeyCheckCount}
+                        </Tag>
+                      ) : null}
                     </Space>
                   ),
                 },
@@ -780,6 +1239,8 @@ export function VendorModelsPanel({
                     <Space direction="vertical" size={2}>
                       <Typography.Text>
                         成功 {safeNumber(row.succeededCalls)}，失败 {safeNumber(row.failedCalls)}
+                        {safeNumber(row.queuedCalls) > 0 ? `，排队 ${safeNumber(row.queuedCalls)}` : ''}
+                        {safeNumber(row.runningCalls) > 0 ? `，运行 ${safeNumber(row.runningCalls)}` : ''}
                       </Typography.Text>
                       <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
                         耗时 {row.avgLatencyMs ? formatDurationMs(row.avgLatencyMs) : '—'}
@@ -907,11 +1368,30 @@ export function VendorModelsPanel({
         </Col>
 
         <Col xs={12} lg={6}>
-          <Card bordered title="模型目录">
+          <Card bordered title="模型目录与上线判断">
+            <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap', marginBottom: 12 }}>
+              <Typography.Text theme="secondary">
+                默认只看待处理模型；需要全量维护时再切到“全部模型”。
+              </Typography.Text>
+              <Select
+                size="small"
+                value={modelGateFilter}
+                style={{ width: 180 }}
+                onChange={(value) => setModelGateFilter(String(value))}
+                options={[
+                  { label: `待处理 ${models.length - readyModels.length}`, value: 'needs_action' },
+                  { label: `暂不能上线 ${blockedModels.length}`, value: 'blocked' },
+                  { label: `需复核 ${warningModels.length}`, value: 'warning' },
+                  { label: `未验收 ${unacceptedModels.length}`, value: 'unaccepted' },
+                  { label: `可上线 ${readyModels.length}`, value: 'ready' },
+                  { label: `全部模型 ${models.length}`, value: 'all' },
+                ]}
+              />
+            </Space>
             <Table
               size="small"
               rowKey="model"
-              data={models}
+              data={visibleModels}
               columns={[
                 {
                   colKey: 'model',
@@ -975,9 +1455,36 @@ export function VendorModelsPanel({
                   ),
                 },
                 {
+                  colKey: 'releaseGate',
+                  title: '上线判断',
+                  minWidth: 180,
+                  cell: ({ row }) => (
+                    <Space direction="vertical" size={2}>
+                      <Space size={4}>
+                        <Tag theme={releaseGateTheme(row.releaseGate?.status)} variant="light">
+                          {releaseGateText(row)}
+                        </Tag>
+                        <Tag theme={row.releaseGate?.acceptancePassed ? 'success' : 'warning'} variant="light">
+                          {getAcceptanceText(row)}
+                        </Tag>
+                        {row.requiresGlobalEgress ? (
+                          <Tag theme={row.releaseGate?.egressVerified ? 'success' : 'warning'} variant="light">
+                            {row.releaseGate?.egressVerified ? '出网已验' : '需验出网'}
+                          </Tag>
+                        ) : null}
+                      </Space>
+                      {row.releaseGate?.suggestions?.[0] ? (
+                        <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                          {row.releaseGate.suggestions[0]}
+                        </Typography.Text>
+                      ) : null}
+                    </Space>
+                  ),
+                },
+                {
                   colKey: 'actions',
                   title: '操作',
-                  width: 140,
+                  width: 220,
                   cell: ({ row }) => (
                     <Space size={4}>
                       <Button size="small" variant="text" onClick={() => setSelectedModelDetail(row)}>
@@ -985,6 +1492,9 @@ export function VendorModelsPanel({
                       </Button>
                       <Button size="small" variant="text" onClick={() => onModelEdit(row)}>
                         编辑
+                      </Button>
+                      <Button size="small" variant="text" onClick={() => onModelAccept(row)}>
+                        记验收
                       </Button>
                     </Space>
                   ),
@@ -1022,6 +1532,87 @@ export function VendorModelsPanel({
                     </Space>
                   </Space>
                   <VendorModelProfileSummary model={selectedModelDetail} />
+                  <div
+                    style={{
+                      border: '1px solid var(--td-border-level-1-color)',
+                      borderRadius: 10,
+                      padding: 12,
+                      background: 'var(--td-bg-color-secondarycontainer)',
+                    }}
+                  >
+                    <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                      <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+                        <Space size={6}>
+                          <Tag theme={releaseGateTheme(selectedModelDetail.releaseGate?.status)} variant="light">
+                            {releaseGateText(selectedModelDetail)}
+                          </Tag>
+                          <Tag theme={selectedModelDetail.releaseGate?.acceptancePassed ? 'success' : 'warning'} variant="light">
+                            {getAcceptanceText(selectedModelDetail)}
+                          </Tag>
+                          {selectedModelDetail.requiresGlobalEgress ? (
+                            <Tag theme={selectedModelDetail.releaseGate?.egressVerified ? 'success' : 'warning'} variant="light">
+                              {selectedModelDetail.releaseGate?.egressVerified ? '出网已验' : '需验出网'}
+                            </Tag>
+                          ) : null}
+                        </Space>
+                        <Button size="small" variant="outline" onClick={() => onModelAccept(selectedModelDetail)}>
+                          记录验收通过
+                        </Button>
+                      </Space>
+                      {selectedModelDetail.latestAcceptance &&
+                      typeof selectedModelDetail.latestAcceptance === 'object' &&
+                      !Array.isArray(selectedModelDetail.latestAcceptance) ? (
+                        <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                          最近验收：{String((selectedModelDetail.latestAcceptance as Record<string, unknown>).note || '未填写说明')}
+                          {(selectedModelDetail.latestAcceptance as Record<string, unknown>).createdAt
+                            ? ` · ${formatDateTime(String((selectedModelDetail.latestAcceptance as Record<string, unknown>).createdAt))}`
+                            : ''}
+                        </Typography.Text>
+                      ) : (
+                        <Typography.Text theme="warning" style={{ fontSize: 12 }}>
+                          还没有人工验收通过记录，业务能力引用时会被上线门禁拦住。
+                        </Typography.Text>
+                      )}
+                      {[...(selectedModelDetail.releaseGate?.blockers || []), ...(selectedModelDetail.releaseGate?.warnings || [])]
+                        .slice(0, 6)
+                        .map((item) => (
+                          <Typography.Text key={`model-gate-${selectedModelDetail.id}-${item}`} theme="warning" style={{ fontSize: 12 }}>
+                            {getVendorIssueLabel(item)}
+                          </Typography.Text>
+                        ))}
+                      {(selectedModelDetail.releaseGate?.suggestions || []).slice(0, 3).map((item) => (
+                        <Typography.Text key={`model-suggestion-${selectedModelDetail.id}-${item}`} theme="secondary" style={{ fontSize: 12 }}>
+                          {item}
+                        </Typography.Text>
+                      ))}
+                      {selectedModelDetail.auditRecords?.length ? (
+                        <div
+                          style={{
+                            borderTop: '1px solid var(--td-border-level-1-color)',
+                            paddingTop: 8,
+                            marginTop: 4,
+                          }}
+                        >
+                          <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                            <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                              最近处理记录
+                            </Typography.Text>
+                            {selectedModelDetail.auditRecords.slice(0, 3).map((record, index) => (
+                              <Typography.Text
+                                key={`model-audit-${selectedModelDetail.id}-${String(record.id || index)}`}
+                                theme="secondary"
+                                style={{ fontSize: 12 }}
+                              >
+                                {String(record.action || '处理')}
+                                {record.note ? `：${String(record.note)}` : ''}
+                                {record.createdAt ? ` · ${formatDateTime(String(record.createdAt))}` : ''}
+                              </Typography.Text>
+                            ))}
+                          </Space>
+                        </div>
+                      ) : null}
+                    </Space>
+                  </div>
                   <Space size={4} style={{ flexWrap: 'wrap' }}>
                     {(selectedModelDetail.apiTypes || []).map((item) => (
                       <Tag key={`detail-api-${item}`} variant="light">
@@ -1184,6 +1775,71 @@ export function VendorModelsPanel({
                   <summary style={{ cursor: 'pointer', fontWeight: 600 }}>高级配置：计价和元信息</summary>
                   <Space direction="vertical" size="small" style={{ width: '100%', marginTop: 12 }}>
                     <Alert theme="info" message="普通接入只需要填厂商、模型编号、显示名称和能力范围。计价策略和元信息仅在做成本核算或特殊路由时调整。" />
+                    <Row gutter={[12, 12]}>
+                      <Col xs={12} sm={4} lg={2}>
+                        <Typography.Text theme="secondary">计费单位</Typography.Text>
+                        <Select
+                          value={String(costPolicyDraft.billingUnit || '')}
+                          options={[
+                            { label: '按任务', value: 'run' },
+                            { label: '按图片', value: 'image' },
+                            { label: '按视频', value: 'video' },
+                            { label: '按秒', value: 'second' },
+                            { label: '按令牌', value: 'token' },
+                            { label: '按字符', value: 'character' },
+                            { label: '按请求', value: 'request' },
+                          ]}
+                          onChange={(v) => updateCostPolicy({ billingUnit: String(v || '') })}
+                        />
+                      </Col>
+                      <Col xs={12} sm={4} lg={2}>
+                        <Typography.Text theme="secondary">币种</Typography.Text>
+                        <Select
+                          value={String(costPolicyDraft.currency || 'CNY')}
+                          options={[
+                            { label: '人民币', value: 'CNY' },
+                            { label: '美元', value: 'USD' },
+                          ]}
+                          onChange={(v) => updateCostPolicy({ currency: String(v || 'CNY') })}
+                        />
+                      </Col>
+                      <Col xs={12} sm={4} lg={2}>
+                        <Typography.Text theme="secondary">单价</Typography.Text>
+                        <Input
+                          value={costPolicyDraft.unitPrice === undefined ? '' : String(costPolicyDraft.unitPrice)}
+                          placeholder="例如 0.3"
+                          onChange={(v) => updateCostPolicy({ unitPrice: String(v || '').trim() ? Number(v) : undefined })}
+                        />
+                      </Col>
+                      <Col xs={12} sm={4} lg={2}>
+                        <Typography.Text theme="secondary">套餐消耗</Typography.Text>
+                        <Input
+                          value={costPolicyDraft.quotaUnits === undefined ? '' : String(costPolicyDraft.quotaUnits)}
+                          placeholder="例如 1"
+                          onChange={(v) => updateCostPolicy({ quotaUnits: String(v || '').trim() ? Number(v) : undefined })}
+                        />
+                      </Col>
+                      <Col xs={12} sm={4} lg={2}>
+                        <Typography.Text theme="secondary">数量字段</Typography.Text>
+                        <Input
+                          value={String(costPolicyDraft.quantityField || '')}
+                          placeholder="可空，例如 output_count"
+                          onChange={(v) => updateCostPolicy({ quantityField: String(v || '').trim() || undefined })}
+                        />
+                      </Col>
+                      <Col xs={12} sm={4} lg={2}>
+                        <Typography.Text theme="secondary">定价版本</Typography.Text>
+                        <Input
+                          value={String(costPolicyDraft.pricingVersion || '')}
+                          placeholder="v1"
+                          onChange={(v) => updateCostPolicy({ pricingVersion: String(v || '').trim() || undefined })}
+                        />
+                      </Col>
+                    </Row>
+                    <Alert
+                      theme="warning"
+                      message="上线前必须补计价：否则成功任务会进入“未定价”，无法自动扣套餐或钱包。下面的原始 JSON 会跟随上方表单自动更新，也可手工微调。"
+                    />
                     <div>
                       <Typography.Text theme="secondary">计价策略</Typography.Text>
                       <Textarea
@@ -1329,20 +1985,45 @@ export function VendorModelsPanel({
                 },
                 {
                   colKey: 'last',
-                  title: '最近使用',
-                  width: 160,
-                  cell: ({ row }) => (
-                    <Typography.Text theme="secondary">{row.lastUsedAt ? formatDateTime(row.lastUsedAt) : '—'}</Typography.Text>
-                  ),
+                  title: '最近验证 / 使用',
+                  minWidth: 220,
+                  cell: ({ row }) => {
+                    const lastCheck = getVendorKeyLastCheck(row);
+                    const checkSuccess = lastCheck ? Boolean(lastCheck.success) : null;
+                    return (
+                      <Space direction="vertical" size={2}>
+                        {lastCheck ? (
+                          <Space size={4} style={{ flexWrap: 'wrap' }}>
+                            <Tag theme={checkSuccess ? 'success' : 'warning'} variant="light">
+                              {checkSuccess ? '验证通过' : '验证未通过'}
+                            </Tag>
+                            <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                              {lastCheck.checkedAt ? formatDateTime(String(lastCheck.checkedAt)) : '未记录时间'}
+                            </Typography.Text>
+                          </Space>
+                        ) : (
+                          <Typography.Text theme="secondary">未验证</Typography.Text>
+                        )}
+                        <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                          最近使用：{row.lastUsedAt ? formatDateTime(row.lastUsedAt) : '—'}
+                        </Typography.Text>
+                      </Space>
+                    );
+                  },
                 },
                 {
                   colKey: 'actions',
                   title: '操作',
-                  width: 110,
+                  width: 160,
                   cell: ({ row }) => (
-                    <Button size="small" variant="text" onClick={() => onKeyFormChange({ ...row })}>
-                      编辑
-                    </Button>
+                    <Space size={4}>
+                      <Button size="small" variant="text" disabled={loading} onClick={() => onKeyCheck(row.id)}>
+                        验证
+                      </Button>
+                      <Button size="small" variant="text" onClick={() => onKeyFormChange({ ...row })}>
+                        编辑
+                      </Button>
+                    </Space>
                   ),
                 },
               ]}
@@ -1354,7 +2035,7 @@ export function VendorModelsPanel({
         <Col xs={12} lg={5}>
           <Card bordered title={keyForm.id ? '编辑第三方密钥' : '新增第三方密钥'}>
             <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-              <Alert theme="info" message="这里写入第三方能力服务；保存后只展示隐藏后的预览，Coze 和前端不会接触明文。" />
+              <Alert theme="info" message="这里写入中台密钥池；保存后只展示隐藏后的预览，Coze、前端和能力服务都不会长期持有明文。" />
               <Row gutter={[12, 12]}>
                 <Col span={6}>
                   <Typography.Text theme="secondary">厂商</Typography.Text>
@@ -1448,7 +2129,7 @@ export function VendorModelsPanel({
               </Row>
               <Space style={{ width: '100%' }}>
                 <Button theme="primary" style={{ flex: 1 }} onClick={onKeySubmit}>
-                  保存到能力服务
+                  保存到中台密钥池
                 </Button>
                 {keyForm.id ? (
                   <Button variant="outline" onClick={onKeyReset}>

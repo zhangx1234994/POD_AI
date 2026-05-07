@@ -75,6 +75,8 @@
 - **不兼容不兜底**：如果一个 workflow 只兼容某一台机器，而这台机器不可用，系统会返回 `COMFYUI_EXECUTOR_UNAVAILABLE / Q1002`，不会为了可用性把任务发到缺模型、缺插件或缺自定义节点的机器。
 - **队列利用率要可见**：`/api/admin/comfyui/queue-summary` 会同时返回目标容量、已用、空闲槽位、使用率和诊断文案。若业务仍在排队但 ComfyUI 总使用率偏低，优先检查中台下发节奏、路由筛选、上游限流和任务回填阻塞，而不是先加机器。
 - **下发节奏要可见**：同一接口会把中台任务表里的 `queued/running` 按执行节点汇总到 ComfyUI 队列旁边。如果中台有待下发任务，但 ComfyUI 队列还有空位或为空，说明问题优先在中台 worker、路由筛选或任务卡死，而不是 GPU 机器数量。
+- **真实命中要可追溯**：同一接口会返回近 24 小时真实任务命中证据，包括总命中数、已覆盖服务器数、未命中服务器清单以及每台机器的成功/失败/运行中数量。没有真实任务命中时，不能把“双机路由”判定为已验收。
+- **依赖检查只阻断真实资源缺失**：工作流兼容性检查只把模型、LoRA、UNet、CLIP、VAE、IPAdapter、ControlNet、SAM、放大模型等资源字段作为缺失项；运行时输入图、方法选择和占位参数不应被误判为缺模型。
 - **ComfyUI 不做硬超时失败**：排队等待属于正常状态，轮询超时只代表“同步等待上限”，会返回 `running` 继续由后续轮询收敛。  
 - **第三方能力仍有硬超时**：KIE/Volcengine 等不可控能力保持硬超时策略。  
 
@@ -86,6 +88,7 @@
 
 - LoRA 可能适用于多个基座模型：已新增 `base_models` 多选字段，旧 `base_model` 仅用于兼容。
 - “服务器”页已支持基准服务器（baseline）对比：缺失模型/插件时提示差异列表（插件以 `/object_info` 返回的节点名对比）。
+- 2026-05-04：已补 active 工作流兼容性检查接口和管理端展示，能发现缺节点、缺模型、路由绑定不一致；一键修复仍留在后续轻 Agent/集成包阶段。
 - TODO：提供一键同步/修复能力（模型/插件/配置），并补充更细粒度的插件版本校验规则。
 - TODO：持续补齐资源清单中的下载地址/来源/版本信息，便于对齐与运维追踪。
 
@@ -436,7 +439,8 @@ python3 scripts/comfyui_cold_start_seed.py --executor-id executor_comfyui_xxx --
 | `DELETE /api/admin/comfyui/version-catalog/{id}` | 删除版本条目。 |
 | `POST /api/admin/comfyui/version-catalog/sync` | 在线同步 ComfyUI 版本（默认 GitHub tag）。 |
 | `GET /api/admin/comfyui/queue-status?executorId=...` | 由 admin API 代理 `/queue/status`，统一展示 `runningCount/pendingCount/queueMaxSize`。测试面板提供手动刷新，方便排查串行 worker 是否被拖慢。 |
-| `GET /api/admin/comfyui/queue-summary?executorIds=...` | 汇总多台 ComfyUI 节点的队列状态和中台下发节奏，返回 `totalRunning/totalPending/totalCapacity/backendQueuedTotal/backendRunningTotal/feedGapServers/diagnostics/servers[]`，用于“调度监控/执行节点”看板判断 GPU 是否被持续喂满。 |
+| `GET /api/admin/comfyui/queue-summary?executorIds=...` | 汇总多台 ComfyUI 节点的队列状态、中台下发节奏和近 24 小时真实命中证据，返回 `totalRunning/totalPending/totalCapacity/backendQueuedTotal/backendRunningTotal/feedGapServers/routeEvidenceTotal/recentRouteMissingServers/diagnostics/servers[]`，用于“调度监控/执行节点”看板判断 GPU 是否被持续喂满，以及 158 / 233 是否都被真实任务命中。 |
+| `GET /api/admin/comfyui/workflow-compatibility?executorIds=...` | 检查 active ComfyUI 能力在路由机器上是否缺自定义节点、缺模型文件或路由绑定不一致；管理端“任务衔接诊断”可直接看到可运行、需关注和不可运行数量。 |
 | `GET /api/admin/comfyui/system-stats?executorId=...` | 代理 `/system_stats`，返回 ComfyUI 版本与设备信息（用于服务器对齐）。 |
 | `POST /api/admin/comfyui/server-diff` | 保存服务器对齐快照（基准节点 + 差异清单）。 |
 | `GET /api/admin/comfyui/server-diff` | 读取最近对齐记录（默认 10 条）。 |

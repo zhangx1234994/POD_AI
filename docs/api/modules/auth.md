@@ -13,7 +13,7 @@
 - `POST /api/auth/login`、`POST /api/auth/refresh`、`POST /api/auth/register` 不需要 Bearer。
 - `POST /api/auth/logout`、`GET /api/auth/sessions` 需要当前用户 Bearer。
 - `GET /api/auth/sessions/all`、`POST /api/auth/sessions/{sessionId}/revoke` 仅管理员可用。
-- `POST /api/auth/invite-codes`、`GET /api/auth/invite-codes`、`POST /api/auth/invite-codes/{inviteId}/disable`、`GET /api/auth/users` 仅管理员可用。
+- `POST /api/auth/invite-codes`、`GET /api/auth/invite-codes`、`POST /api/auth/invite-codes/{inviteId}/disable`、`GET /api/auth/users`、`PATCH /api/auth/users/{userId}`、`GET /api/auth/scope-summary` 仅管理员可用。
 
 ---
 
@@ -391,12 +391,208 @@
       "displayName": "管理员",
       "tenantId": null,
       "clientId": null,
+      "adminAudit": [],
       "createdAt": "2026-04-25T10:00:00",
       "lastLoginAt": "2026-04-25T10:20:00"
     }
   ]
 }
 ```
+
+**错误**
+
+- `ADMIN_ONLY`
+- `INVALID_TOKEN` / `INVALID_TOKEN_PAYLOAD`
+
+---
+
+## 12) 管理员调整用户
+
+### PATCH /api/auth/users/{userId}
+
+**用途**：调整用户显示名称、角色、状态、业务方和客户端归属。用于第一阶段账号权限页，不引入复杂多角色表。
+
+**请求体**
+
+```json
+{
+  "displayName": "业务方账号",
+  "role": "client",
+  "status": "active",
+  "tenantId": "tenant-a",
+  "clientId": "client-web",
+  "note": "绑定业务方范围"
+}
+```
+
+兼容旧字段：`display_name`、`tenant_id`、`client_id`。
+
+**响应体**
+
+与“管理员查询用户”中的单条用户一致，并会带最近调整记录：
+
+```json
+{
+  "id": "user_xxx",
+  "username": "client-a",
+  "email": "client@example.com",
+  "role": "client",
+  "status": "active",
+  "displayName": "业务方账号",
+  "tenantId": "tenant-a",
+  "clientId": "client-web",
+  "adminAudit": [
+    {
+      "action": "update_auth_user",
+      "actorUsername": "admin",
+      "note": "绑定业务方范围",
+      "changedFields": ["displayName", "tenantId", "clientId"],
+      "createdAt": "2026-05-04T10:00:00"
+    }
+  ],
+  "createdAt": "2026-04-25T10:00:00",
+  "lastLoginAt": "2026-05-04T09:50:00"
+}
+```
+
+**行为约束**
+
+- 管理员不能把自己降权或停用，避免锁死管理端。
+- 用户状态改为 `inactive` 或 `disabled` 时，该用户现有 active 会话会被立即踢出。
+
+**错误**
+
+- `ADMIN_ONLY`
+- `USER_ID_REQUIRED`：用户 ID 为空。
+- `USER_NOT_FOUND`：用户不存在。
+- `ROLE_INVALID`：角色不在 `admin/user/client` 范围内。
+- `USER_STATUS_INVALID`：状态不在 `active/inactive/disabled` 范围内。
+- `AUTH_SELF_LOCKOUT_FORBIDDEN`：管理员不能停用或降权自己。
+
+---
+
+## 13) 管理员查询账号范围摘要
+
+### GET /api/auth/scope-summary
+
+**用途**：给管理端账号权限页提供“当前先处理什么”摘要，直接暴露账号、角色、业务方范围、会话和邀请码风险。
+
+**响应体**
+
+```json
+{
+  "generatedAt": "2026-05-04T10:00:00",
+  "releaseReady": false,
+  "blockingRiskCount": 0,
+  "warningRiskCount": 2,
+  "totals": {
+    "users": 12,
+    "activeUsers": 10,
+    "adminUsers": 2,
+    "clientUsers": 4,
+    "unscopedClientUsers": 1,
+    "activeSessions": 5,
+    "activeInvites": 3,
+    "unscopedActiveInvites": 1,
+    "expiredActiveInvites": 0
+  },
+  "roles": [
+    { "role": "admin", "count": 2, "activeCount": 2 },
+    { "role": "client", "count": 4, "activeCount": 3 }
+  ],
+  "tenants": [
+    {
+      "tenantId": "tenant-a",
+      "clientId": "client-web",
+      "userCount": 2,
+      "activeUserCount": 2,
+      "clientUserCount": 2,
+      "activeSessionCount": 1
+    }
+  ],
+  "risks": [
+    {
+      "key": "unscoped_client_users",
+      "title": "业务方账号未绑定",
+      "severity": "warning",
+      "count": 1,
+      "detail": "业务方账号应绑定业务方标识，便于后续隔离、限额和账单统计。"
+    }
+  ],
+  "checklist": [
+    {
+      "key": "client_users_scoped",
+      "title": "业务方账号已绑定范围",
+      "passed": false,
+      "detail": "业务方账号需要绑定业务方标识，后续才能做隔离、额度和账单统计。",
+      "action": "到账号权限页给业务方账号补 tenantId/clientId。"
+    }
+  ],
+  "businessApiPolicy": [
+    {
+      "key": "client_user_bound_scope",
+      "title": "业务方账号只能使用绑定范围",
+      "detail": "业务方账号调用业务 API 时，系统会忽略外部伪造的业务方标识，强制使用账号绑定的 tenantId/clientId。",
+      "enforced": true
+    },
+    {
+      "key": "unscoped_client_user_blocked",
+      "title": "未绑定业务方的账号不能调用业务 API",
+      "detail": "role=client 且缺少 tenantId 的账号会被拒绝，避免调用记录、额度和账单归属不清。",
+      "enforced": true
+    },
+    {
+      "key": "admin_service_can_act_as_tenant",
+      "title": "管理员和服务 Token 可代业务方发起任务",
+      "detail": "Coze、巡检和后台任务仍可显式传入 tenantId/clientId，用于灰度、回归和代业务方排障。",
+      "enforced": true
+    }
+  ],
+  "roleBoundary": [
+    {
+      "key": "admin_user",
+      "title": "管理员账号",
+      "principal": "管理端管理员",
+      "allowed": "维护用户、会话、邀请码、业务版本、发布门禁，并可在巡检或排障时显式代业务方发起任务。",
+      "blocked": "不能把自己降权或停用；不应作为业务方长期接入凭证。",
+      "enforced": true
+    },
+    {
+      "key": "client_user",
+      "title": "业务方账号",
+      "principal": "业务接入方",
+      "allowed": "只能在账号绑定的 tenantId/clientId 范围内提交业务 API 任务和查询结果。",
+      "blocked": "不能伪造或越权传入其他业务方范围；未绑定 tenantId 时不能调用业务 API。",
+      "enforced": true
+    },
+    {
+      "key": "service_token",
+      "title": "服务 Token",
+      "principal": "Coze、巡检脚本、后台任务",
+      "allowed": "用于系统级调用、发布前巡检和代业务方排障，可显式携带 tenantId/clientId。",
+      "blocked": "不能发给业务方当登录账号使用；不能绕过业务运行日志、结算和结果回填链路。",
+      "enforced": true
+    },
+    {
+      "key": "coze_toolbox",
+      "title": "Coze 工具箱",
+      "principal": "Coze 工作流",
+      "allowed": "只调用中台 toolbox 和业务 API，由中台统一路由、调度、回填和查询任务。",
+      "blocked": "不能直连 ComfyUI、vendor-api-ops 或历史测试地址。",
+      "enforced": true
+    }
+  ]
+}
+```
+
+上线检查口径：
+
+- `releaseReady=true` 表示没有阻塞和提醒项，账号权限可进入上线验收。
+- `blockingRiskCount` 统计必须先处理的问题，例如没有 active 管理员。
+- `warningRiskCount` 统计上线前建议处理的问题，例如业务方账号未绑定、邀请码未绑定或已过期。
+- `checklist` 是给管理端展示的逐项验收清单，业务人员只需要看“已通过 / 需处理”和动作建议。
+- `businessApiPolicy` 是业务 API 权限边界说明，发布 smoke 会校验关键规则存在且已生效。
+- `roleBoundary` 是上线角色边界说明，发布 smoke 会校验管理员、业务方账号、服务 Token、Coze 工具箱四类调用方均有明确允许/禁止范围且已生效。
 
 **错误**
 

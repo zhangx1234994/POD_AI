@@ -129,6 +129,25 @@ class WalletService:
         return normalized
 
     @staticmethod
+    def _normalize_idempotency_key(trace_id: str | None, task_id: str | None = None) -> str:
+        normalized_trace_id = str(trace_id or "").strip()
+        if normalized_trace_id:
+            return normalized_trace_id[:64]
+        normalized_task_id = str(task_id or "").strip()
+        if normalized_task_id:
+            return f"task:{normalized_task_id}"[:64]
+        raise HTTPException(status_code=400, detail="WALLET_TRACE_ID_REQUIRED")
+
+    @staticmethod
+    def _normalize_adjustment_direction(direction: str) -> str:
+        normalized = str(direction or "").strip().lower()
+        if normalized in {"increase", "in", "credit", "refund"}:
+            return "increase"
+        if normalized in {"decrease", "out", "debit", "deduct"}:
+            return "decrease"
+        raise HTTPException(status_code=400, detail="WALLET_ADJUSTMENT_DIRECTION_INVALID")
+
+    @staticmethod
     def _serialize_ledger_row(row: WalletLedger) -> dict:
         signed_points = int(row.points) if row.direction == "in" else -int(row.points)
         after_balance = int(row.balance_after)
@@ -597,33 +616,32 @@ class WalletService:
         with get_session() as session:
             account = self._ensure_wallet_account_db(session, user_id)
             existing_row = None
-            normalized_trace_id = str(trace_id or "").strip() or None
-            if normalized_trace_id:
-                existing_row = (
-                    session.execute(
-                        select(WalletLedger).where(
-                            WalletLedger.user_id == user_id,
-                            WalletLedger.biz_type == "consume",
-                            WalletLedger.direction == "out",
-                            WalletLedger.trace_id == normalized_trace_id,
-                        )
+            normalized_trace_id = self._normalize_idempotency_key(trace_id, task_id)
+            existing_row = (
+                session.execute(
+                    select(WalletLedger).where(
+                        WalletLedger.user_id == user_id,
+                        WalletLedger.biz_type == "consume",
+                        WalletLedger.direction == "out",
+                        WalletLedger.trace_id == normalized_trace_id,
                     )
-                    .scalars()
-                    .first()
                 )
-                if existing_row:
-                    session.commit()
-                    return {
-                        "transactionId": f"txn_{existing_row.id}",
-                        "userId": user_id,
-                        "deducted": int(existing_row.points),
-                        "balance": int(account.balance),
-                        "idempotent": True,
-                        "taskId": existing_row.related_task_id,
-                        "traceId": existing_row.trace_id,
-                        "provider": existing_row.provider,
-                        "modelKey": existing_row.model_key,
-                    }
+                .scalars()
+                .first()
+            )
+            if existing_row:
+                session.commit()
+                return {
+                    "transactionId": f"txn_{existing_row.id}",
+                    "userId": user_id,
+                    "deducted": int(existing_row.points),
+                    "balance": int(account.balance),
+                    "idempotent": True,
+                    "taskId": existing_row.related_task_id,
+                    "traceId": existing_row.trace_id,
+                    "provider": existing_row.provider,
+                    "modelKey": existing_row.model_key,
+                }
 
             if points > int(account.balance):
                 raise HTTPException(status_code=402, detail="WALLET_INSUFFICIENT")
@@ -648,6 +666,81 @@ class WalletService:
                 "transactionId": f"txn_{row.id}",
                 "userId": user_id,
                 "deducted": points,
+                "balance": int(account.balance),
+                "idempotent": False,
+                "taskId": task_id,
+                "traceId": normalized_trace_id,
+                "provider": provider,
+                "modelKey": model_key,
+            }
+
+    def _record_adjustment_db(
+        self,
+        *,
+        user_id: str,
+        direction: str,
+        points: int,
+        task_id: str | None = None,
+        trace_id: str | None = None,
+        provider: str | None = None,
+        model_key: str | None = None,
+        description: str | None = None,
+    ) -> dict:
+        normalized_direction = self._normalize_adjustment_direction(direction)
+        normalized_trace_id = self._normalize_idempotency_key(trace_id, task_id)
+        with get_session() as session:
+            account = self._ensure_wallet_account_db(session, user_id)
+            existing_row = (
+                session.execute(
+                    select(WalletLedger).where(
+                        WalletLedger.user_id == user_id,
+                        WalletLedger.biz_type == "adjustment",
+                        WalletLedger.trace_id == normalized_trace_id,
+                    )
+                )
+                .scalars()
+                .first()
+            )
+            if existing_row:
+                session.commit()
+                return {
+                    "transactionId": f"txn_{existing_row.id}",
+                    "userId": user_id,
+                    "direction": "increase" if existing_row.direction == "in" else "decrease",
+                    "adjusted": int(existing_row.points),
+                    "balance": int(account.balance),
+                    "idempotent": True,
+                    "taskId": existing_row.related_task_id,
+                    "traceId": existing_row.trace_id,
+                    "provider": existing_row.provider,
+                    "modelKey": existing_row.model_key,
+                }
+
+            points_delta = points if normalized_direction == "increase" else -points
+            if points_delta < 0 and points > int(account.balance):
+                raise HTTPException(status_code=402, detail="WALLET_INSUFFICIENT")
+
+            account.balance = int(account.balance) + points_delta
+            row = self._append_ledger_db(
+                session=session,
+                account=account,
+                user_id=user_id,
+                points_delta=points_delta,
+                after_balance=int(account.balance),
+                biz_type="adjustment",
+                task_id=task_id,
+                trace_id=normalized_trace_id,
+                provider=provider,
+                model_key=model_key,
+                remark=description or "manual adjustment",
+            )
+            session.add(account)
+            session.commit()
+            return {
+                "transactionId": f"txn_{row.id}",
+                "userId": user_id,
+                "direction": normalized_direction,
+                "adjusted": points,
                 "balance": int(account.balance),
                 "idempotent": False,
                 "taskId": task_id,
@@ -1042,25 +1135,24 @@ class WalletService:
         description: str | None = None,
     ) -> dict:
         self._ensure_user_memory(user_id)
-        normalized_trace_id = str(trace_id or "").strip() or None
-        if normalized_trace_id:
-            for row in self._memory_ledger:
-                if (
-                    row.get("userId") == user_id
-                    and row.get("changeType") == "DECREASE"
-                    and row.get("traceId") == normalized_trace_id
-                ):
-                    return {
-                        "transactionId": str(row.get("id")),
-                        "userId": user_id,
-                        "deducted": abs(int(row.get("points") or 0)),
-                        "balance": int(self._memory_balance.get(user_id) or 0),
-                        "idempotent": True,
-                        "taskId": row.get("taskId"),
-                        "traceId": row.get("traceId"),
-                        "provider": row.get("provider"),
-                        "modelKey": row.get("modelKey"),
-                    }
+        normalized_trace_id = self._normalize_idempotency_key(trace_id, task_id)
+        for row in self._memory_ledger:
+            if (
+                row.get("userId") == user_id
+                and row.get("changeType") == "DECREASE"
+                and row.get("traceId") == normalized_trace_id
+            ):
+                return {
+                    "transactionId": str(row.get("id")),
+                    "userId": user_id,
+                    "deducted": abs(int(row.get("points") or 0)),
+                    "balance": int(self._memory_balance.get(user_id) or 0),
+                    "idempotent": True,
+                    "taskId": row.get("taskId"),
+                    "traceId": row.get("traceId"),
+                    "provider": row.get("provider"),
+                    "modelKey": row.get("modelKey"),
+                }
 
         if points > int(self._memory_balance.get(user_id) or 0):
             raise HTTPException(status_code=402, detail="WALLET_INSUFFICIENT")
@@ -1083,6 +1175,72 @@ class WalletService:
             "transactionId": str(row.get("id")),
             "userId": user_id,
             "deducted": points,
+            "balance": int(self._memory_balance[user_id]),
+            "idempotent": False,
+            "taskId": task_id,
+            "traceId": normalized_trace_id,
+            "provider": provider,
+            "modelKey": model_key,
+        }
+
+    def _record_adjustment_memory(
+        self,
+        *,
+        user_id: str,
+        direction: str,
+        points: int,
+        task_id: str | None = None,
+        trace_id: str | None = None,
+        provider: str | None = None,
+        model_key: str | None = None,
+        description: str | None = None,
+    ) -> dict:
+        self._ensure_user_memory(user_id)
+        normalized_direction = self._normalize_adjustment_direction(direction)
+        normalized_trace_id = self._normalize_idempotency_key(trace_id, task_id)
+        for row in self._memory_ledger:
+            if (
+                row.get("userId") == user_id
+                and row.get("traceId") == normalized_trace_id
+                and str(row.get("description") or "").startswith("adjustment:")
+            ):
+                raw_points = int(row.get("points") or 0)
+                return {
+                    "transactionId": str(row.get("id")),
+                    "userId": user_id,
+                    "direction": "increase" if raw_points >= 0 else "decrease",
+                    "adjusted": abs(raw_points),
+                    "balance": int(self._memory_balance.get(user_id) or 0),
+                    "idempotent": True,
+                    "taskId": row.get("taskId"),
+                    "traceId": row.get("traceId"),
+                    "provider": row.get("provider"),
+                    "modelKey": row.get("modelKey"),
+                }
+
+        points_delta = points if normalized_direction == "increase" else -points
+        if points_delta < 0 and points > int(self._memory_balance.get(user_id) or 0):
+            raise HTTPException(status_code=402, detail="WALLET_INSUFFICIENT")
+
+        before = int(self._memory_balance[user_id])
+        self._memory_balance[user_id] = before + points_delta
+        row = self._record_ledger_memory(
+            user_id=user_id,
+            change_type="INCREASE" if points_delta >= 0 else "DECREASE",
+            points=points_delta,
+            before_balance=before,
+            after_balance=self._memory_balance[user_id],
+            task_id=task_id,
+            trace_id=normalized_trace_id,
+            description=f"adjustment:{description or 'manual adjustment'}",
+            provider=provider,
+            model_key=model_key,
+        )
+        return {
+            "transactionId": str(row.get("id")),
+            "userId": user_id,
+            "direction": normalized_direction,
+            "adjusted": points,
             "balance": int(self._memory_balance[user_id]),
             "idempotent": False,
             "taskId": task_id,
@@ -1243,6 +1401,43 @@ class WalletService:
                 self._db_ready_cache = False
         return self._record_expense_memory(
             user_id=user_id,
+            points=points,
+            task_id=task_id,
+            trace_id=trace_id,
+            provider=provider,
+            model_key=model_key,
+            description=description,
+        )
+
+    def record_adjustment(
+        self,
+        *,
+        user_id: str,
+        direction: str,
+        points: int,
+        task_id: str | None = None,
+        trace_id: str | None = None,
+        provider: str | None = None,
+        model_key: str | None = None,
+        description: str | None = None,
+    ) -> dict:
+        if self._db_ready():
+            try:
+                return self._record_adjustment_db(
+                    user_id=user_id,
+                    direction=direction,
+                    points=points,
+                    task_id=task_id,
+                    trace_id=trace_id,
+                    provider=provider,
+                    model_key=model_key,
+                    description=description,
+                )
+            except SQLAlchemyError:
+                self._db_ready_cache = False
+        return self._record_adjustment_memory(
+            user_id=user_id,
+            direction=direction,
             points=points,
             task_id=task_id,
             trace_id=trace_id,

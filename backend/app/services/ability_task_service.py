@@ -904,6 +904,15 @@ class AbilityTaskService:
             val = payload.get(key)
             if isinstance(val, list):
                 count += len(val)
+        texts = payload.get("texts")
+        if isinstance(texts, list):
+            count += len([item for item in texts if str(item or "").strip()])
+        for key in ("jsonOutput", "json_output", "structured", "structuredOutput", "structured_output", "json"):
+            val = payload.get(key)
+            if isinstance(val, dict) and val:
+                count += 1
+            elif isinstance(val, list):
+                count += len(val)
         return count
 
     def _settle_success_wallet(self, *, task_id: str, db_task: AbilityTask) -> None:

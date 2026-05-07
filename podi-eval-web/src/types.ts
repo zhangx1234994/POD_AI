@@ -99,6 +99,10 @@ export type EvalRun = {
   result_output_json?: unknown | null;
   error_message?: string | null;
   duration_ms?: number | null;
+  billing_unit?: string | null;
+  unit_price?: number | null;
+  currency?: string | null;
+  cost_amount?: number | null;
   submit_status?: string | null;
   callback_status?: string | null;
   final_status?: string | null;

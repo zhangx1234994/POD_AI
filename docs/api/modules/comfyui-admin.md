@@ -162,6 +162,54 @@
 
 - 代理 ComfyUI `/queue/status`
 
+### GET /api/admin/comfyui/workflow-compatibility
+
+**用途**：检查 active 的 ComfyUI 能力在当前路由机器上是否真的可运行，重点发现缺自定义节点、缺模型文件、能力允许节点与 workflow 绑定节点不一致等问题。
+
+请求参数：
+
+- `executorIds`：可重复传入，限制只检查指定执行节点；不传时检查所有 active 的 ComfyUI 节点。
+
+响应示例：
+
+```json
+{
+  "checkedAt": "2026-05-04T12:30:00Z",
+  "totalWorkflows": 14,
+  "okCount": 14,
+  "warningCount": 0,
+  "failedCount": 0,
+  "servers": [
+    {
+      "executorId": "executor_comfyui_pattern_extract_158",
+      "executorName": "ComfyUI 5090 · 158",
+      "baseUrl": "http://117.50.80.158:8079",
+      "reachable": true,
+      "nodeCount": 612
+    }
+  ],
+  "workflows": [
+    {
+      "abilityId": "comfyui_flux_strong_hq_softstyle_fission",
+      "displayName": "ComfyUI · 多元素花纹裂变",
+      "workflowKey": "flux_strong_hq_softstyle_fission",
+      "expectedExecutorIds": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
+      "compatibleExecutorIds": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
+      "incompatibleExecutorIds": [],
+      "status": "ok"
+    }
+  ]
+}
+```
+
+错误与降级：
+
+- 单台 ComfyUI 不可达时不让整个接口失败；对应 server `reachable=false`，相关 workflow 在该 executor 下标记 incompatible。
+- 如果所有路由节点都不可运行，workflow `status=failed`，管理端应视为上线阻断。
+- 工作流图缺失或没有可检查执行节点时，workflow `status=failed`，发版前必须补齐配置。
+- 兼容性检查只把模型、LoRA、UNet、CLIP、VAE、IPAdapter、ControlNet、SAM、放大模型等资源字段作为缺失项；运行时输入图、方法选择和占位参数不作为模型缺失阻断。
+- 可能涉及错误码：`COMFYUI_BASE_URL_MISSING`、`COMFYUI_OBJECT_INFO_ERROR`、`COMFYUI_OBJECT_INFO_INVALID`、`COMFYUI_WORKFLOW_GRAPH_MISSING`、`COMFYUI_NO_ROUTED_EXECUTOR`、`COMFYUI_ROUTING_BINDING_MISMATCH`。
+
 ### POST /api/admin/comfyui/server-diff
 ### GET /api/admin/comfyui/server-diff
 

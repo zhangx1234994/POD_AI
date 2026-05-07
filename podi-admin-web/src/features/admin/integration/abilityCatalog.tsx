@@ -10,6 +10,7 @@ import type {
   Workflow,
 } from '../../../types/admin';
 import { mapStatusToBadge } from '../shared/status';
+import { GuidanceQueueCard, type GuidanceQueueItem } from '../shared/ui';
 import { getAbilityLogStatusTag, resolveLogDurationMs } from './abilityLogs';
 import { resolveAbilityOutputProfile } from './abilityOutputProfile';
 import { AbilityHealthPanel, type AbilityHealthFilter } from './abilityHealth';
@@ -64,6 +65,7 @@ const buildAbilityActionItems = ({
     const pricing = pricingByAbility[item.id] || pricingByAbility[`${item.provider}:${item.capability_key}`] || null;
     return describePricing(pricing) === '—';
   }).length;
+  const unclearOutputCount = abilities.filter((item) => resolveAbilityOutputProfile(item).kind === 'asset').length;
   const items: Array<{
     theme: 'success' | 'warning' | 'danger' | 'default';
     title: string;
@@ -114,6 +116,13 @@ const buildAbilityActionItems = ({
       theme: 'warning',
       title: '成本未设置',
       detail: `${missingPricingCount} 个能力缺少成本口径，后续收费和利润统计会不准。`,
+    });
+  }
+  if (unclearOutputCount > 0) {
+    items.push({
+      theme: 'warning',
+      title: '输出类型待确认',
+      detail: `${unclearOutputCount} 个能力还没有明确是图片、视频、文字还是图像理解，后续接入业务前要补齐。`,
     });
   }
   if (items.length === 0) {
@@ -207,6 +216,14 @@ export function AbilityCatalogPanel({
     getAbilitySchemaIssues,
     describePricing,
   });
+  const guidanceItems: GuidanceQueueItem[] = actionItems.map((item) => ({
+    key: `${item.title}-${item.detail}`,
+    theme: item.theme,
+    title: item.title,
+    detail: item.detail,
+    action: item.filter ? '查看对应清单' : undefined,
+    onClick: item.filter ? () => onHealthFilterChange(item.filter as AbilityHealthFilter) : undefined,
+  }));
   const vendorModelById = new Map(vendorModels.map((item) => [Number(item.id), item]));
   const vendorGovernanceByProvider = new Map(
     (vendorGovernanceSummary?.providers || []).map((item) => [item.provider, item]),
@@ -297,9 +314,10 @@ export function AbilityCatalogPanel({
             ['图片能力', outputSummaryCounts.image || 0, '生成、编辑、处理图片结果'],
             ['视频能力', outputSummaryCounts.video || 0, '生视频或视频处理结果'],
             ['文字能力', outputSummaryCounts.text || 0, '文字增强、文案生成等'],
-            ['图像理解', outputSummaryCounts.structured || 0, 'VL 分析、标签、JSON 判断'],
+            ['图像理解', outputSummaryCounts.structured || 0, '看图分析、标签、结构化判断'],
+            ['资源能力', outputSummaryCounts.asset || 0, '文件、链接或待确认输出'],
           ].map(([label, value, detail]) => (
-            <Col key={String(label)} xs={12} md={3}>
+            <Col key={String(label)} xs={12} md={4} lg={2}>
               <div
                 style={{
                   border: '1px solid var(--td-border-level-1-color)',
@@ -328,34 +346,7 @@ export function AbilityCatalogPanel({
         />
       </Card>
 
-      <Card bordered style={{ marginBottom: 12 }} title="当前先处理什么">
-        <Row gutter={[12, 12]}>
-          {actionItems.map((item) => (
-            <Col key={`${item.title}-${item.detail}`} xs={12} lg={actionItems.length === 1 ? 12 : 4}>
-              <div
-                style={{
-                  border: '1px solid var(--td-border-level-1-color)',
-                  borderRadius: 12,
-                  padding: 12,
-                  height: '100%',
-                }}
-              >
-                <Space direction="vertical" size={4}>
-                  <Tag theme={item.theme} variant="light">
-                    {item.title}
-                  </Tag>
-                  <Typography.Text theme="secondary">{item.detail}</Typography.Text>
-                  {item.filter ? (
-                    <Button size="small" variant="text" onClick={() => onHealthFilterChange(item.filter as AbilityHealthFilter)}>
-                      查看对应清单
-                    </Button>
-                  ) : null}
-                </Space>
-              </div>
-            </Col>
-          ))}
-        </Row>
-      </Card>
+      <GuidanceQueueCard items={guidanceItems} maxItems={6} style={{ marginBottom: 12 }} />
 
       {healthError ? (
         <div style={{ marginBottom: 12 }}>
@@ -437,6 +428,7 @@ export function AbilityCatalogPanel({
                   <Space direction="vertical" size={2}>
                     <Typography.Text strong>{row.display_name}</Typography.Text>
                     <Typography.Text theme="secondary">{row.description || '—'}</Typography.Text>
+                    <Typography.Text theme="secondary">{outputProfile.detail}</Typography.Text>
                     <Space size="small" breakLine>
                       <Tag theme={outputProfile.theme} variant="light" size="small">
                         {outputProfile.label}
@@ -467,34 +459,30 @@ export function AbilityCatalogPanel({
             },
             {
               colKey: 'provider',
-              title: '来源/分类',
+              title: '业务分类',
               width: 260,
-              cell: ({ row }) => (
-                <Space direction="vertical" size={2}>
-                  <Typography.Text>{getProviderLabel(row.provider)}</Typography.Text>
-                  <Typography.Text theme="secondary">
-                    {getCategoryLabel(row.category)} · {getAbilityTypeLabel(row.ability_type)}
-                  </Typography.Text>
-                  <Typography.Text theme="secondary">
-                    能力标识：{row.capability_key}
-                    {row.workflow_id ? ` · ${workflowsById[row.workflow_id]?.name || row.workflow_id}` : ''}
-                  </Typography.Text>
-                  {row.vendor_model_id ? (
-                    <Space size={6} style={{ flexWrap: 'wrap' }}>
-                      <Typography.Text theme="secondary">
-                        模型：{resolveVendorModelForAbility(row)?.displayName || row.vendor_model_id}
-                      </Typography.Text>
-                      <Tag theme={resolveVendorRiskForAbility(row).theme} variant="light" size="small">
-                        {resolveVendorRiskForAbility(row).text}
+              cell: ({ row }) => {
+                const vendorRisk = resolveVendorRiskForAbility(row);
+                return (
+                  <Space direction="vertical" size={2}>
+                    <Typography.Text>{getCategoryLabel(row.category)}</Typography.Text>
+                    <Typography.Text theme="secondary">{getAbilityTypeLabel(row.ability_type)}</Typography.Text>
+                    <Space size={6} breakLine>
+                      <Tag variant="light" size="small">
+                        {getProviderLabel(row.provider)}
                       </Tag>
+                      <Tag theme={vendorRisk.theme} variant="light" size="small">
+                        {vendorRisk.text}
+                      </Tag>
+                      {row.version ? (
+                        <Tag variant="light" size="small">
+                          {row.version}
+                        </Tag>
+                      ) : null}
                     </Space>
-                  ) : null}
-                  {!row.vendor_model_id && row.provider !== 'comfyui' ? (
-                    <Typography.Text theme="secondary">模型：未绑定商业模型</Typography.Text>
-                  ) : null}
-                  {row.version ? <Typography.Text theme="secondary">版本 {row.version}</Typography.Text> : null}
-                </Space>
-              ),
+                  </Space>
+                );
+              },
             },
             { colKey: 'status', title: '状态', width: 120, cell: ({ row }) => renderStatusTag(row.status) },
             {
@@ -509,14 +497,30 @@ export function AbilityCatalogPanel({
             },
             {
               colKey: 'executor',
-              title: '运行方式',
+              title: '底层信息',
               width: 220,
               cell: ({ row }) => {
                 const bound = row.executor_id ? executors.find((executor) => executor.id === row.executor_id) : null;
+                const model = resolveVendorModelForAbility(row);
+                const workflow = row.workflow_id ? workflowsById[row.workflow_id] : null;
                 return (
-                  <Typography.Text theme="secondary">
-                    {bound ? `${bound.name} · ${bound.type}` : '自动选择可用线路'}
-                  </Typography.Text>
+                  <details className="podi-ability-technical-details">
+                    <summary>查看底层</summary>
+                    <div className="podi-ability-technical-details__body">
+                      <Typography.Text theme="secondary">能力标识：{row.capability_key}</Typography.Text>
+                      <Typography.Text theme="secondary">
+                        运行线路：{bound ? `${bound.name} · ${bound.type}` : '自动选择可用线路'}
+                      </Typography.Text>
+                      {workflow ? (
+                        <Typography.Text theme="secondary">工作流：{workflow.name || row.workflow_id}</Typography.Text>
+                      ) : row.workflow_id ? (
+                        <Typography.Text theme="secondary">工作流：{row.workflow_id}</Typography.Text>
+                      ) : null}
+                      {row.vendor_model_id ? (
+                        <Typography.Text theme="secondary">模型：{model?.displayName || row.vendor_model_id}</Typography.Text>
+                      ) : null}
+                    </div>
+                  </details>
                 );
               },
             },

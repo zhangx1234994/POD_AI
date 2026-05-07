@@ -34,6 +34,8 @@
 
 - `ABILITY_TEST_LEDGER.md`
   - 能力测试台账与上线闸门；所有能力发版前先看这里
+- `API_EXPOSURE_SMOKE_CHECKLIST.md`
+  - 管理端“API 开放”页对应的业务 API、原子能力 API、Coze 工具箱冒烟清单；默认不消耗生图额度。
 - `backend/scripts/patrol_business_api.py`
   - 花纹提取 / 图裂变 / 扩图三条业务 API 巡检；默认只做路由预览，真实出图需显式 `--mode live --image-url <url>`。
   - 真实出图前脚本会先检查图片 URL 是否可访问，避免样例图失效误报为能力失败。
@@ -44,6 +46,8 @@
   - 2026-04-30 文档治理与发布前完整回归记录
 - `RELEASE_REGRESSION_REPORT_2026-05-03.md`
   - 2026-05-03 事故整改后核心链路、业务计费口径与管理端构建回归记录
+- `RELEASE_REGRESSION_REPORT_2026-05-06.md`
+  - 2026-05-06 管理端易用性、ComfyUI 兼容性降级、能力调用排障、账号/账单/业务门禁回归记录
 - `COZE_WORKFLOW_TEST_PLAN.md`
 - `COMFYUI_TASK_STATE_REGRESSION_PLAN.md`
 - `AUTH_BILLING_TEST_PLAN.md`
@@ -53,6 +57,7 @@
 
 1. 平时能力上线优先看：
    - `ABILITY_TEST_LEDGER.md`
+   - `API_EXPOSURE_SMOKE_CHECKLIST.md`
    - `backend/scripts/patrol_business_api.py`
    - `COZE_WORKFLOW_TEST_PLAN.md`
 2. 迁移当天优先看：

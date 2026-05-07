@@ -3,15 +3,27 @@ from __future__ import annotations
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 
+import pytest
 from fastapi import HTTPException
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 import app.services.business_runs as business_runs_module
 from app.core.db import Base
-from app.models.integration import Ability, AbilityInvocationLog, AbilityTask, BusinessCapability, BusinessRun, VendorModelCatalog
+from app.models.integration import (
+    Ability,
+    AbilityInvocationLog,
+    AbilityTask,
+    ApiKey,
+    BusinessCapability,
+    BusinessRun,
+    BusinessRunStep,
+    VendorModelCatalog,
+)
+from app.models.user import User
 from app.schemas.business import (
+    BusinessAcceptanceRecordRequest,
     BusinessCapabilityCreateRequest,
     BusinessCapabilityPromoteRequest,
     BusinessCapabilityRollbackRequest,
@@ -22,9 +34,27 @@ from app.schemas.business import (
     BusinessUsageSummaryResponse,
 )
 from app.services.business_runs import BusinessRunService
+from app.services.wallet import wallet_service
+from app.models.wallet import PackageBalance, PackageLedger
 
 
-def install_business_db(monkeypatch):
+def passed_acceptance_metadata(note: str = "测试环境业务验收通过") -> dict:
+    record = {
+        "id": "bizacc_test",
+        "status": "passed",
+        "note": note,
+        "createdAt": datetime.utcnow().isoformat(),
+    }
+    return {"latestAcceptance": record, "acceptanceRecords": [record]}
+
+
+def install_business_db(
+    monkeypatch,
+    *,
+    with_vendor_cost: bool = False,
+    with_vendor_key: bool = False,
+    with_vendor_acceptance: bool = False,
+):
     engine = create_engine(
         "sqlite+pysqlite:///:memory:",
         future=True,
@@ -56,10 +86,45 @@ def install_business_db(monkeypatch):
             supports_multiple_images=True,
             supports_text=True,
             requires_global_egress=True,
+            cost_policy={"unitPrice": 0.12, "unit": "image"} if with_vendor_cost else None,
+            extra_metadata={
+                "latestAcceptance": {
+                    "id": "vmodacc_test",
+                    "status": "passed",
+                    "note": "测试环境验收通过",
+                    "createdAt": datetime.utcnow().isoformat(),
+                },
+                "acceptanceRecords": [
+                    {
+                        "id": "vmodacc_test",
+                        "status": "passed",
+                        "note": "测试环境验收通过",
+                        "createdAt": datetime.utcnow().isoformat(),
+                    }
+                ],
+            }
+            if with_vendor_acceptance
+            else {},
             source="backend-test",
         )
         session.add(model)
         session.flush()
+        if with_vendor_key:
+            session.add(
+                ApiKey(
+                    id="key_openai_test",
+                    provider="openai",
+                    name="OpenAI 测试 Key",
+                    key="sk-test",
+                    status="active",
+                    extra_metadata={
+                        "lastCheck": {
+                            "success": True,
+                            "checkedAt": datetime.utcnow().isoformat(),
+                        }
+                    },
+                )
+            )
         session.add(
             Ability(
                 id="ability_openai_fission",
@@ -105,7 +170,12 @@ def install_business_db(monkeypatch):
 
 
 def test_business_capability_create_sets_default_and_resolves_model(monkeypatch) -> None:
-    vendor_model_id = install_business_db(monkeypatch)
+    vendor_model_id = install_business_db(
+        monkeypatch,
+        with_vendor_cost=True,
+        with_vendor_key=True,
+        with_vendor_acceptance=True,
+    )
     service = BusinessRunService()
 
     created = service.create_capability(
@@ -116,7 +186,7 @@ def test_business_capability_create_sets_default_and_resolves_model(monkeypatch)
             status="active",
             isDefault=True,
             primaryAbilityId="ability_openai_fission",
-            metadata={"release_note": "test"},
+            metadata={**passed_acceptance_metadata(), "release_note": "test"},
         )
     )
 
@@ -127,9 +197,183 @@ def test_business_capability_create_sets_default_and_resolves_model(monkeypatch)
     assert created["primary_ability_name"] == "GPT Image 2 图裂变"
     assert created["vendor_model_id"] == vendor_model_id
     assert created["vendor_model_name"] == "GPT Image 2"
+    assert created["governance_status"] == "ready"
+    assert created["runtime_key_configured"] is True
+    assert created["model_cost_configured"] is True
+    assert created["egress_verified"] is True
 
     listed = {item["id"]: item for item in service.list_capabilities()}
     assert listed["biz_fission_old"]["is_default"] is False
+
+
+def test_business_capability_create_default_requires_release_gate(monkeypatch) -> None:
+    install_business_db(monkeypatch)
+    service = BusinessRunService()
+
+    with pytest.raises(HTTPException) as exc_info:
+        service.create_capability(
+            BusinessCapabilityCreateRequest(
+                businessKey="fission",
+                version="unsafe-default",
+                displayName="未就绪默认图裂变",
+                status="active",
+                isDefault=True,
+                primaryAbilityId="ability_openai_fission",
+                metadata=passed_acceptance_metadata(),
+            )
+        )
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == "BUSINESS_RELEASE_GATE_BLOCKED"
+
+
+def test_business_capability_governance_ready_when_vendor_runtime_is_configured(monkeypatch) -> None:
+    install_business_db(monkeypatch, with_vendor_cost=True, with_vendor_key=True, with_vendor_acceptance=True)
+    service = BusinessRunService()
+
+    created = service.create_capability(
+        BusinessCapabilityCreateRequest(
+            businessKey="fission",
+            version="governance-ready",
+            displayName="治理就绪图裂变",
+            status="active",
+            isDefault=False,
+            primaryAbilityId="ability_openai_fission",
+        )
+    )
+
+    assert created["governance_status"] == "ready"
+    assert created["governance_issues"] == []
+    assert created["runtime_key_configured"] is True
+    assert created["model_cost_configured"] is True
+
+
+def test_business_capability_governance_blocks_unaccepted_vendor_model(monkeypatch) -> None:
+    install_business_db(monkeypatch, with_vendor_cost=True, with_vendor_key=True)
+    service = BusinessRunService()
+
+    created = service.create_capability(
+        BusinessCapabilityCreateRequest(
+            businessKey="fission",
+            version="vendor-unaccepted",
+            displayName="未验收模型图裂变",
+            status="active",
+            isDefault=False,
+            primaryAbilityId="ability_openai_fission",
+        )
+    )
+
+    assert created["governance_status"] == "blocker"
+    assert "BUSINESS_GOVERNANCE_VENDOR_MODEL_ACCEPTANCE_REQUIRED" in created["governance_issues"]
+    assert created["runtime_key_configured"] is True
+    assert created["model_cost_configured"] is True
+
+
+def test_business_capability_governance_blocks_unverified_global_egress(monkeypatch) -> None:
+    install_business_db(monkeypatch, with_vendor_cost=True, with_vendor_acceptance=True)
+    with business_runs_module.get_session() as session:
+        session.add(
+            ApiKey(
+                id="key_openai_unchecked",
+                provider="openai",
+                name="OpenAI 未验 Key",
+                key="sk-test-unchecked",
+                status="active",
+                extra_metadata={},
+            )
+        )
+        session.commit()
+    service = BusinessRunService()
+
+    created = service.create_capability(
+        BusinessCapabilityCreateRequest(
+            businessKey="fission",
+            version="egress-unchecked",
+            displayName="出网未验图裂变",
+            status="active",
+            isDefault=False,
+            primaryAbilityId="ability_openai_fission",
+        )
+    )
+
+    assert created["governance_status"] == "blocker"
+    assert created["runtime_key_configured"] is True
+    assert created["egress_verified"] is False
+    assert "BUSINESS_GOVERNANCE_VENDOR_EGRESS_NOT_VERIFIED" in created["governance_issues"]
+
+
+def test_business_capability_default_blocks_missing_vendor_key(monkeypatch) -> None:
+    install_business_db(monkeypatch, with_vendor_cost=True, with_vendor_acceptance=True)
+    service = BusinessRunService()
+
+    with pytest.raises(HTTPException) as exc_info:
+        service.create_capability(
+            BusinessCapabilityCreateRequest(
+                businessKey="fission",
+                version="missing-key-default",
+                displayName="缺密钥默认图裂变",
+                status="active",
+                isDefault=True,
+                primaryAbilityId="ability_openai_fission",
+                metadata=passed_acceptance_metadata(),
+            )
+        )
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == "BUSINESS_RELEASE_GATE_BLOCKED"
+
+    created = service.create_capability(
+        BusinessCapabilityCreateRequest(
+            businessKey="fission",
+            version="missing-key-inspect",
+            displayName="缺密钥检查图裂变",
+            status="active",
+            isDefault=False,
+            primaryAbilityId="ability_openai_fission",
+            metadata=passed_acceptance_metadata(),
+        )
+    )
+
+    assert created["runtime_key_configured"] is False
+    assert "BUSINESS_GOVERNANCE_VENDOR_KEY_MISSING" in created["governance_issues"]
+    assert created["release_gate"]["canRelease"] is False
+
+
+def test_business_capability_default_blocks_missing_vendor_cost_policy(monkeypatch) -> None:
+    install_business_db(monkeypatch, with_vendor_key=True, with_vendor_acceptance=True)
+    service = BusinessRunService()
+
+    with pytest.raises(HTTPException) as exc_info:
+        service.create_capability(
+            BusinessCapabilityCreateRequest(
+                businessKey="fission",
+                version="missing-cost-default",
+                displayName="缺计价默认图裂变",
+                status="active",
+                isDefault=True,
+                primaryAbilityId="ability_openai_fission",
+                metadata=passed_acceptance_metadata(),
+            )
+        )
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == "BUSINESS_RELEASE_GATE_BLOCKED"
+
+    created = service.create_capability(
+        BusinessCapabilityCreateRequest(
+            businessKey="fission",
+            version="missing-cost-inspect",
+            displayName="缺计价检查图裂变",
+            status="active",
+            isDefault=False,
+            primaryAbilityId="ability_openai_fission",
+            metadata=passed_acceptance_metadata(),
+        )
+    )
+
+    assert created["model_cost_configured"] is False
+    assert "BUSINESS_GOVERNANCE_VENDOR_MODEL_COST_MISSING" in created["governance_issues"]
+    assert created["release_gate"]["canRelease"] is False
 
 
 def test_business_capability_create_rejects_inactive_default(monkeypatch) -> None:
@@ -169,7 +413,7 @@ def test_business_capability_update_rejects_stopping_default(monkeypatch) -> Non
 
 
 def test_business_capability_update_switches_default(monkeypatch) -> None:
-    install_business_db(monkeypatch)
+    install_business_db(monkeypatch, with_vendor_cost=True, with_vendor_key=True, with_vendor_acceptance=True)
     service = BusinessRunService()
 
     created = service.create_capability(
@@ -180,6 +424,10 @@ def test_business_capability_update_switches_default(monkeypatch) -> None:
             status="active",
             primaryAbilityId="ability_openai_fission",
         )
+    )
+    service.record_acceptance(
+        created["id"],
+        BusinessAcceptanceRecordRequest(status="passed", note="切默认前验收通过"),
     )
     updated = service.update_capability(
         created["id"],
@@ -193,7 +441,7 @@ def test_business_capability_update_switches_default(monkeypatch) -> None:
 
 
 def test_business_capability_promote_sets_default_and_records_event(monkeypatch) -> None:
-    install_business_db(monkeypatch)
+    install_business_db(monkeypatch, with_vendor_cost=True, with_vendor_key=True, with_vendor_acceptance=True)
     service = BusinessRunService()
 
     created = service.create_capability(
@@ -204,6 +452,10 @@ def test_business_capability_promote_sets_default_and_records_event(monkeypatch)
             status="inactive",
             primaryAbilityId="ability_openai_fission",
         )
+    )
+    service.record_acceptance(
+        created["id"],
+        BusinessAcceptanceRecordRequest(status="passed", note="测评通过"),
     )
 
     promoted = service.promote_capability(
@@ -221,8 +473,93 @@ def test_business_capability_promote_sets_default_and_records_event(monkeypatch)
     assert events[-1]["previousDefaultCapabilityId"] == "biz_fission_old"
 
 
-def test_business_default_approval_approves_default_and_records_operation_log(monkeypatch) -> None:
+def test_business_capability_records_manual_acceptance(monkeypatch) -> None:
     install_business_db(monkeypatch)
+    service = BusinessRunService()
+    actor = User(
+        id="admin_user_1",
+        email="admin@example.com",
+        username="admin",
+        password_hash="x",
+        role="admin",
+        status="active",
+    )
+
+    accepted = service.record_acceptance(
+        "biz_fission_old",
+        BusinessAcceptanceRecordRequest(
+            status="passed",
+            note="测评端真实链路通过",
+            evidenceRunId="run_acceptance_1",
+            evidenceUrl="https://example.com/acceptance",
+            checklist={"coze": True, "callback": True, "oss": True},
+        ),
+        actor=actor,
+    )
+
+    assert accepted["latest_acceptance"]["status"] == "passed"
+    assert accepted["latest_acceptance"]["note"] == "测评端真实链路通过"
+    assert accepted["latest_acceptance"]["evidenceRunId"] == "run_acceptance_1"
+    assert accepted["latest_acceptance"]["actorUsername"] == "admin"
+    assert accepted["acceptance_records"][0]["checklist"]["callback"] is True
+    assert accepted["extra_metadata"]["latestAcceptance"]["status"] == "passed"
+    assert accepted["release_gate"]["acceptancePassed"] is True
+
+    listed = {item["id"]: item for item in service.list_capabilities()}
+    assert listed["biz_fission_old"]["latest_acceptance"]["status"] == "passed"
+    assert listed["biz_fission_old"]["release_gate"]["acceptancePassed"] is True
+    actions = [item["action"] for item in service.list_operation_logs(business_key="fission")]
+    assert "record_acceptance" in actions
+
+
+def test_business_default_switch_requires_manual_acceptance(monkeypatch) -> None:
+    install_business_db(monkeypatch)
+    service = BusinessRunService()
+
+    created = service.create_capability(
+        BusinessCapabilityCreateRequest(
+            businessKey="fission",
+            version="needs-acceptance",
+            displayName="待验收图裂变",
+            status="active",
+            isDefault=False,
+            primaryAbilityId="ability_openai_fission",
+        )
+    )
+
+    with pytest.raises(HTTPException) as approval_exc:
+        service.create_default_approval(
+            created["id"],
+            BusinessDefaultApprovalCreateRequest(note="未验收，不能申请切默认"),
+        )
+    assert approval_exc.value.status_code == 409
+    assert approval_exc.value.detail == "BUSINESS_ACCEPTANCE_REQUIRED"
+
+    with pytest.raises(HTTPException) as promote_exc:
+        service.promote_capability(
+            created["id"],
+            BusinessCapabilityPromoteRequest(note="未验收，不能直接设默认"),
+        )
+    assert promote_exc.value.status_code == 409
+    assert promote_exc.value.detail == "BUSINESS_ACCEPTANCE_REQUIRED"
+
+
+def test_business_capability_rejects_invalid_acceptance_status(monkeypatch) -> None:
+    install_business_db(monkeypatch)
+    service = BusinessRunService()
+
+    with pytest.raises(HTTPException) as exc_info:
+        service.record_acceptance(
+            "biz_fission_old",
+            BusinessAcceptanceRecordRequest(status="unknown"),
+        )
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail == "BUSINESS_ACCEPTANCE_STATUS_INVALID"
+
+
+def test_business_default_approval_approves_default_and_records_operation_log(monkeypatch) -> None:
+    install_business_db(monkeypatch, with_vendor_cost=True, with_vendor_key=True, with_vendor_acceptance=True)
     service = BusinessRunService()
 
     created = service.create_capability(
@@ -234,6 +571,10 @@ def test_business_default_approval_approves_default_and_records_operation_log(mo
             isDefault=False,
             primaryAbilityId="ability_openai_fission",
         )
+    )
+    service.record_acceptance(
+        created["id"],
+        BusinessAcceptanceRecordRequest(status="passed", note="真实链路验收通过"),
     )
 
     approval = service.create_default_approval(
@@ -264,7 +605,7 @@ def test_business_default_approval_approves_default_and_records_operation_log(mo
 
 
 def test_business_capability_rollback_restores_previous_default(monkeypatch) -> None:
-    install_business_db(monkeypatch)
+    install_business_db(monkeypatch, with_vendor_cost=True, with_vendor_key=True, with_vendor_acceptance=True)
     service = BusinessRunService()
 
     created = service.create_capability(
@@ -275,6 +616,10 @@ def test_business_capability_rollback_restores_previous_default(monkeypatch) -> 
             status="active",
             primaryAbilityId="ability_openai_fission",
         )
+    )
+    service.record_acceptance(
+        created["id"],
+        BusinessAcceptanceRecordRequest(status="passed", note="灰度验证通过"),
     )
     promoted = service.promote_capability(
         created["id"],
@@ -298,7 +643,7 @@ def test_business_capability_rollback_restores_previous_default(monkeypatch) -> 
 
 
 def test_business_capability_rollback_can_use_explicit_target(monkeypatch) -> None:
-    install_business_db(monkeypatch)
+    install_business_db(monkeypatch, with_vendor_cost=True, with_vendor_key=True, with_vendor_acceptance=True)
     service = BusinessRunService()
 
     created = service.create_capability(
@@ -309,6 +654,10 @@ def test_business_capability_rollback_can_use_explicit_target(monkeypatch) -> No
             status="active",
             primaryAbilityId="ability_openai_fission",
         )
+    )
+    service.record_acceptance(
+        created["id"],
+        BusinessAcceptanceRecordRequest(status="passed", note="指定回滚前验收通过"),
     )
     service.update_capability(
         created["id"],
@@ -589,6 +938,72 @@ def test_business_run_records_trace_and_cost_from_ability_log(monkeypatch) -> No
     assert primary_step["quota_units"] == 12
 
 
+def test_business_run_derives_cost_from_vendor_model_policy(monkeypatch) -> None:
+    vendor_model_id = install_business_db(monkeypatch)
+
+    class FakeAbilityTaskService:
+        def enqueue(self, *, ability_id, payload, user):
+            assert ability_id == "ability_openai_fission"
+            return {"id": "task_policy_cost", "status": "queued"}
+
+    monkeypatch.setattr(business_runs_module, "get_ability_task_service", lambda: FakeAbilityTaskService())
+    service = BusinessRunService()
+
+    with business_runs_module.get_session() as session:
+        model = session.get(VendorModelCatalog, vendor_model_id)
+        model.cost_policy = {
+            "billingUnit": "image",
+            "unitPrice": 0.11,
+            "currency": "USD",
+            "quotaUnits": 3,
+            "pricingVersion": "model-v1",
+        }
+        session.add(model)
+        session.commit()
+
+    run = service.create_run(
+        business_key="fission",
+        payload=BusinessRunCreateRequest(
+            imageUrl="https://example.com/a.png",
+            version="old",
+            userId="user_policy_cost",
+        ),
+        user=None,
+    )
+
+    with business_runs_module.get_session() as session:
+        session.add(
+            AbilityTask(
+                id="task_policy_cost",
+                ability_id="ability_openai_fission",
+                ability_name="GPT Image 2 图裂变",
+                ability_provider="openai",
+                capability_key="gpt_image_2_fission",
+                status="succeeded",
+                duration_ms=2000,
+                result_payload={
+                    "images": [
+                        {"url": "https://example.com/result-a.png"},
+                        {"url": "https://example.com/result-b.png"},
+                    ],
+                },
+            )
+        )
+        session.commit()
+
+    fetched = service.get_run(run_id=run["id"], user=None)
+
+    assert fetched["billing_unit"] == "image"
+    assert fetched["unit_price"] == 0.11
+    assert fetched["cost_amount"] == 0.22
+    assert fetched["currency"] == "USD"
+    assert fetched["quota_units"] == 3
+    assert fetched["billing_status"] == "billable"
+    assert fetched["cost_breakdown"]["costPolicySource"] == "vendor_model"
+    assert fetched["cost_breakdown"]["costPolicyQuantity"] == 2
+    assert fetched["cost_breakdown"]["pricingVersion"] == "model-v1"
+
+
 def test_business_run_list_filters_by_business_status_and_version(monkeypatch) -> None:
     install_business_db(monkeypatch)
     service = BusinessRunService()
@@ -615,6 +1030,7 @@ def test_business_run_list_filters_by_business_status_and_version(monkeypatch) -
                 BusinessRun(
                     id="run_fission_v2_fail",
                     business_key="fission",
+                    business_version_id="biz_fission_old",
                     version="v2",
                     status="failed",
                     ability_id="ability_openai_fission",
@@ -623,6 +1039,66 @@ def test_business_run_list_filters_by_business_status_and_version(monkeypatch) -
                     quota_units=1,
                     callback_status="failed",
                     error_message="TASK_FAILED",
+                ),
+                BusinessRun(
+                    id="run_fission_output_missing",
+                    business_key="fission",
+                    business_version_id="biz_fission_old",
+                    version="old",
+                    status="succeeded",
+                    source="coze",
+                    ability_id="ability_openai_fission",
+                ),
+                BusinessRun(
+                    id="run_fission_callback_fail",
+                    business_key="fission",
+                    business_version_id="biz_fission_old",
+                    version="old",
+                    status="succeeded",
+                    source="coze",
+                    ability_id="ability_openai_fission",
+                    image_urls=["https://example.com/callback.png"],
+                    callback_status="failed",
+                    callback_error="HTTP 500",
+                ),
+                BusinessRun(
+                    id="run_fission_billing_unpriced",
+                    business_key="fission",
+                    business_version_id="biz_fission_old",
+                    version="billing",
+                    status="succeeded",
+                    source="billing-test",
+                    ability_id="ability_openai_fission",
+                    image_urls=["https://example.com/billing.png"],
+                ),
+                BusinessRun(
+                    id="run_fission_structured_ok",
+                    business_key="fission",
+                    business_version_id="biz_fission_old",
+                    version="structured",
+                    status="succeeded",
+                    source="business-api",
+                    ability_id="ability_openai_fission",
+                    result_payload={"jsonOutput": {"tags": ["蓝色", "植物"]}},
+                    cost_amount=0.1,
+                    currency="USD",
+                    quota_units=1,
+                ),
+                BusinessRun(
+                    id="run_fission_resource_ok",
+                    business_key="fission",
+                    business_version_id="biz_fission_old",
+                    version="resource",
+                    status="succeeded",
+                    source="business-api",
+                    ability_id="ability_openai_fission",
+                    result_payload={
+                        "resources": ["https://example.com/export.zip"],
+                        "assets": [{"type": "file", "ossUrl": "https://example.com/export.zip"}],
+                    },
+                    cost_amount=0.1,
+                    currency="USD",
+                    quota_units=1,
                 ),
                 BusinessRun(
                     id="run_outpaint_v1_ok",
@@ -664,6 +1140,530 @@ def test_business_run_list_filters_by_business_status_and_version(monkeypatch) -
     assert items[0]["chargeable"] is False
     assert items[0]["no_charge_reason"] == "任务失败，不向业务方计费"
 
+    total, items = service.list_runs(business_key="fission", issue_category="output", limit=20)
+    assert total == 1
+    assert items[0]["id"] == "run_fission_output_missing"
+    assert items[0]["issue_category"] == "output"
+    assert items[0]["flow_summary"]["issueLabel"] == "结果回填问题"
+
+    total, items = service.list_runs(business_key="fission", issue_category="callback", limit=20)
+    assert total == 1
+    assert items[0]["id"] == "run_fission_callback_fail"
+    assert items[0]["issue_label"] == "业务回调问题"
+
+    total, items = service.list_runs(business_key="fission", issue_category="billing", limit=20)
+    assert total == 1
+    assert items[0]["id"] == "run_fission_billing_unpriced"
+    assert items[0]["issue_label"] == "计费扣减问题"
+    assert items[0]["issue_evidence"] == "任务成功但缺少定价，待确认计费口径"
+
+    total, items = service.list_runs(business_key="fission", version="structured", limit=20)
+    assert total == 1
+    assert items[0]["id"] == "run_fission_structured_ok"
+    assert items[0]["issue_category"] == "none"
+    assert items[0]["flow_summary"]["output"]["hasOutput"] is True
+    assert items[0]["flow_summary"]["output"]["structuredCount"] == 1
+
+    total, items = service.list_runs(business_key="fission", version="resource", limit=20)
+    assert total == 1
+    assert items[0]["id"] == "run_fission_resource_ok"
+    assert items[0]["issue_category"] == "none"
+    assert items[0]["flow_summary"]["output"]["hasOutput"] is True
+    assert items[0]["flow_summary"]["output"]["resourceCount"] == 1
+
+    total, items = service.list_runs(business_key="fission", issue_category="executor", limit=20)
+    assert total == 1
+    assert items[0]["id"] == "run_fission_v2_fail"
+
+
+def test_business_run_list_marks_billable_user_without_settlement_as_billing_issue(monkeypatch) -> None:
+    install_business_db(monkeypatch)
+    service = BusinessRunService()
+
+    with business_runs_module.get_session() as session:
+        session.add(
+            BusinessRun(
+                id="run_billable_user_without_settlement",
+                business_key="fission",
+                business_version_id="biz_fission_old",
+                version="v1",
+                status="succeeded",
+                source="business-api",
+                ability_id="ability_openai_fission",
+                user_id="tenant-a",
+                image_urls=["https://example.com/result.png"],
+                cost_amount=0.35,
+                currency="CNY",
+                quota_units=1,
+            )
+        )
+        session.commit()
+
+    total, items = service.list_runs(business_key="fission", issue_category="billing", limit=20)
+
+    assert total == 1
+    assert items[0]["id"] == "run_billable_user_without_settlement"
+    assert items[0]["issue_label"] == "计费扣减问题"
+    assert items[0]["issue_evidence"] == "任务应计费但未发现套餐或钱包扣减流水"
+
+
+def test_business_run_callback_retry_and_bulk_ignore(monkeypatch) -> None:
+    install_business_db(monkeypatch)
+    service = BusinessRunService()
+
+    class FakeResponse:
+        status_code = 200
+        text = '{"ok": true}'
+
+        def json(self):
+            return {"ok": True}
+
+    posted: list[dict] = []
+
+    def fake_post(url, *, json, headers, timeout):
+        posted.append({"url": url, "json": json, "headers": headers, "timeout": timeout})
+        return FakeResponse()
+
+    monkeypatch.setattr(business_runs_module.httpx, "post", fake_post)
+
+    with business_runs_module.get_session() as session:
+        session.add_all(
+            [
+                BusinessRun(
+                    id="run_callback_failed",
+                    business_key="fission",
+                    business_version_id="biz_fission_old",
+                    version="old",
+                    status="succeeded",
+                    source="coze",
+                    ability_id="ability_openai_fission",
+                    image_urls=["https://example.com/result.png"],
+                    callback_url="https://callback.example.com/podi",
+                    callback_headers={"x-token": "demo"},
+                    callback_status="failed",
+                    callback_error="HTTP_500",
+                ),
+                BusinessRun(
+                    id="run_output_missing_for_ignore",
+                    business_key="fission",
+                    business_version_id="biz_fission_old",
+                    version="old",
+                    status="succeeded",
+                    source="coze",
+                    ability_id="ability_openai_fission",
+                ),
+            ]
+        )
+        session.commit()
+
+    retried = service.retry_callback("run_callback_failed")
+    assert retried["callback_status"] == "success"
+    assert retried["callback_error"] is None
+    assert posted[0]["url"] == "https://callback.example.com/podi"
+    assert posted[0]["json"]["runId"] == "run_callback_failed"
+
+    bulk = service.bulk_retry_callbacks(["run_callback_failed"], only_failed=True)
+    assert bulk["failed"] == 1
+    assert bulk["items"][0]["status"] == "skipped"
+
+    total, items = service.list_runs(business_key="fission", issue_category="output", limit=20)
+    assert total == 1
+    assert items[0]["id"] == "run_output_missing_for_ignore"
+
+    ignored = service.mark_issues_ignored(["run_output_missing_for_ignore"], note="测试确认无需继续处理")
+    assert ignored["succeeded"] == 1
+    total, items = service.list_runs(business_key="fission", issue_category="none", limit=20)
+    ignored_row = next(item for item in items if item["id"] == "run_output_missing_for_ignore")
+    assert ignored_row["issue_label"] == "已标记无需处理"
+    assert ignored_row["issue_action"] == "测试确认无需继续处理"
+
+
+def test_business_run_issue_checklist_generates_markdown(monkeypatch) -> None:
+    install_business_db(monkeypatch)
+    service = BusinessRunService()
+
+    with business_runs_module.get_session() as session:
+        session.add_all(
+            [
+                BusinessRun(
+                    id="run_executor_failed",
+                    business_key="fission",
+                    business_version_id="biz_fission_old",
+                    version="old",
+                    status="failed",
+                    source="coze",
+                    ability_id="ability_openai_fission",
+                    error_message="COMFYUI_EXECUTOR_UNREACHABLE",
+                ),
+                BusinessRun(
+                    id="run_ok",
+                    business_key="fission",
+                    business_version_id="biz_fission_old",
+                    version="old",
+                    status="succeeded",
+                    source="coze",
+                    ability_id="ability_openai_fission",
+                    image_urls=["https://example.com/result.png"],
+                    cost_amount=0.2,
+                    currency="USD",
+                    quota_units=1,
+                ),
+            ]
+        )
+        session.commit()
+
+    report = service.generate_issue_checklist(["run_executor_failed", "run_ok"], only_failed=True)
+
+    assert report["total"] == 2
+    assert report["issue_count"] == 1
+    assert report["skipped_count"] == 1
+    assert report["by_category"] == {"executor": 1}
+    assert report["by_severity"] == {"danger": 1}
+    assert report["items"][0]["run_id"] == "run_executor_failed"
+    assert report["items"][0]["issue_label"] == "执行节点问题"
+    assert "COMFYUI_EXECUTOR_UNREACHABLE" in report["markdown"]
+    assert "检查执行节点健康" in report["markdown"]
+
+
+def test_business_run_billing_retry_and_refund_are_idempotent(monkeypatch) -> None:
+    install_business_db(monkeypatch)
+    wallet_service.reset()
+    service = BusinessRunService()
+
+    with business_runs_module.get_session() as session:
+        session.add(
+            BusinessRun(
+                id="run_billing_retry",
+                business_key="fission",
+                business_version_id="biz_fission_old",
+                version="old",
+                status="succeeded",
+                source="coze",
+                tenant_id="tenant-a",
+                client_id="client-web",
+                user_id="user_billing_retry",
+                ability_id="ability_openai_fission",
+                image_urls=["https://example.com/result.png"],
+                cost_amount=0.24,
+                currency="USD",
+            )
+        )
+        session.commit()
+
+    settled = service.retry_billing("run_billing_retry")
+    settlement = settled["cost_breakdown"]["walletSettlement"]
+    assert settlement["status"] == "settled"
+    assert settlement["points"] == 24
+    assert settlement["idempotent"] is False
+
+    repeated = service.retry_billing("run_billing_retry")
+    repeated_settlement = repeated["cost_breakdown"]["walletSettlement"]
+    assert repeated_settlement["status"] == "settled"
+    assert repeated_settlement["idempotent"] is True
+
+    ledger = wallet_service.ledger("user_billing_retry", page=1, page_size=10)
+    assert ledger["total"] == 1
+    assert ledger["items"][0]["points"] == -24
+    assert ledger["items"][0]["traceId"] == "business_run:run_billing_retry"
+
+    refunded = service.refund_billing("run_billing_retry")
+    refund_settlement = refunded["cost_breakdown"]["walletSettlement"]
+    assert refund_settlement["status"] == "refunded"
+    assert refund_settlement["refundIdempotent"] is False
+
+    repeated_refund = service.refund_billing("run_billing_retry")
+    repeated_refund_settlement = repeated_refund["cost_breakdown"]["walletSettlement"]
+    assert repeated_refund_settlement["status"] == "refunded"
+    assert repeated_refund_settlement["refundIdempotent"] is True
+
+    ledger_after_refund = wallet_service.ledger("user_billing_retry", page=1, page_size=10)
+    assert ledger_after_refund["total"] == 2
+    assert sum(item["points"] for item in ledger_after_refund["items"]) == 0
+
+    rebilled = service.retry_billing("run_billing_retry")
+    rebilled_settlement = rebilled["cost_breakdown"]["walletSettlement"]
+    assert rebilled_settlement["status"] == "settled"
+    assert rebilled_settlement["billingAttempt"] == 2
+    assert rebilled_settlement["idempotent"] is False
+
+    ledger_after_rebill = wallet_service.ledger("user_billing_retry", page=1, page_size=10)
+    assert ledger_after_rebill["total"] == 3
+    assert sum(item["points"] for item in ledger_after_rebill["items"]) == -24
+
+    refunded_again = service.refund_billing("run_billing_retry")
+    assert refunded_again["cost_breakdown"]["walletSettlement"]["refundIdempotent"] is False
+    ledger_after_second_refund = wallet_service.ledger("user_billing_retry", page=1, page_size=10)
+    assert ledger_after_second_refund["total"] == 4
+    assert sum(item["points"] for item in ledger_after_second_refund["items"]) == 0
+
+    logs = service.list_operation_logs(target_type="business_run", business_key="fission", limit=10)
+    actions = [item["action"] for item in logs]
+    assert "retry_billing" in actions
+    assert "refund_billing" in actions
+
+
+def test_business_run_billing_prefers_package_before_wallet(monkeypatch) -> None:
+    install_business_db(monkeypatch)
+    wallet_service.reset()
+    service = BusinessRunService()
+
+    with business_runs_module.get_session() as session:
+        now = datetime.utcnow()
+        session.add(
+            PackageBalance(
+                user_id="user_package_bill",
+                package_key="fission-basic",
+                package_name="图裂变基础包",
+                business_key="fission",
+                total_units=5,
+                used_units=0,
+                frozen_units=0,
+                unit_name="次",
+                status="active",
+                source="manual",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.add(
+            BusinessRun(
+                id="run_package_billing",
+                business_key="fission",
+                business_version_id="biz_fission_old",
+                version="old",
+                status="succeeded",
+                source="coze",
+                tenant_id="tenant-a",
+                client_id="client-web",
+                user_id="user_package_bill",
+                ability_id="ability_openai_fission",
+                image_urls=["https://example.com/result.png"],
+                quota_units=2,
+                cost_amount=0.24,
+                currency="USD",
+            )
+        )
+        session.commit()
+
+    settled = service.retry_billing("run_package_billing")
+    package_settlement = settled["cost_breakdown"]["packageSettlement"]
+    assert package_settlement["status"] == "settled"
+    assert package_settlement["method"] == "package"
+    assert package_settlement["units"] == 2
+    assert settled["cost_breakdown"]["billingSettlement"]["method"] == "package"
+    assert wallet_service.ledger("user_package_bill", page=1, page_size=10)["total"] == 0
+
+    repeated = service.retry_billing("run_package_billing")
+    assert repeated["cost_breakdown"]["packageSettlement"]["idempotent"] is True
+
+    with business_runs_module.get_session() as session:
+        balance = session.execute(
+            select(PackageBalance).where(PackageBalance.user_id == "user_package_bill")
+        ).scalars().first()
+        assert balance.used_units == 2
+        ledger_count = session.execute(
+            select(func.count(PackageLedger.id)).where(PackageLedger.user_id == "user_package_bill")
+        ).scalar_one()
+        assert ledger_count == 1
+
+    refunded = service.refund_billing("run_package_billing")
+    refund_settlement = refunded["cost_breakdown"]["packageSettlement"]
+    assert refund_settlement["status"] == "refunded"
+    assert refund_settlement["refundIdempotent"] is False
+    assert refunded["cost_breakdown"]["billingSettlement"]["status"] == "refunded"
+
+    repeated_refund = service.refund_billing("run_package_billing")
+    assert repeated_refund["cost_breakdown"]["packageSettlement"]["refundIdempotent"] is True
+
+    with business_runs_module.get_session() as session:
+        balance = session.execute(
+            select(PackageBalance).where(PackageBalance.user_id == "user_package_bill")
+        ).scalars().first()
+        assert balance.used_units == 0
+        ledger_count = session.execute(
+            select(func.count(PackageLedger.id)).where(PackageLedger.user_id == "user_package_bill")
+        ).scalar_one()
+        assert ledger_count == 2
+
+    rebilled = service.retry_billing("run_package_billing")
+    rebilled_settlement = rebilled["cost_breakdown"]["packageSettlement"]
+    assert rebilled_settlement["status"] == "settled"
+    assert rebilled_settlement["billingAttempt"] == 2
+    assert rebilled_settlement["idempotent"] is False
+
+    with business_runs_module.get_session() as session:
+        balance = session.execute(
+            select(PackageBalance).where(PackageBalance.user_id == "user_package_bill")
+        ).scalars().first()
+        assert balance.used_units == 2
+        ledger_count = session.execute(
+            select(func.count(PackageLedger.id)).where(PackageLedger.user_id == "user_package_bill")
+        ).scalar_one()
+        assert ledger_count == 3
+
+    refunded_again = service.refund_billing("run_package_billing")
+    assert refunded_again["cost_breakdown"]["packageSettlement"]["refundIdempotent"] is False
+
+    with business_runs_module.get_session() as session:
+        balance = session.execute(
+            select(PackageBalance).where(PackageBalance.user_id == "user_package_bill")
+        ).scalars().first()
+        assert balance.used_units == 0
+        ledger_count = session.execute(
+            select(func.count(PackageLedger.id)).where(PackageLedger.user_id == "user_package_bill")
+        ).scalar_one()
+        assert ledger_count == 4
+
+
+def test_business_run_billing_errors(monkeypatch) -> None:
+    install_business_db(monkeypatch)
+    service = BusinessRunService()
+
+    with business_runs_module.get_session() as session:
+        session.add_all(
+            [
+                BusinessRun(
+                    id="run_billing_unpriced",
+                    business_key="fission",
+                    version="old",
+                    status="succeeded",
+                    user_id="user_billing_unpriced",
+                ),
+                BusinessRun(
+                    id="run_billing_failed",
+                    business_key="fission",
+                    version="old",
+                    status="failed",
+                    user_id="user_billing_failed",
+                    cost_amount=0.2,
+                    currency="USD",
+                ),
+                BusinessRun(
+                    id="run_billing_no_user",
+                    business_key="fission",
+                    version="old",
+                    status="succeeded",
+                    cost_amount=0.2,
+                    currency="USD",
+                ),
+            ]
+        )
+        session.commit()
+
+    with pytest.raises(HTTPException) as unpriced_exc:
+        service.retry_billing("run_billing_unpriced")
+    assert unpriced_exc.value.status_code == 409
+    assert unpriced_exc.value.detail == "BUSINESS_RUN_UNPRICED"
+
+    with pytest.raises(HTTPException) as failed_exc:
+        service.retry_billing("run_billing_failed")
+    assert failed_exc.value.status_code == 409
+    assert failed_exc.value.detail == "BUSINESS_RUN_NOT_BILLABLE"
+
+    with pytest.raises(HTTPException) as no_user_exc:
+        service.retry_billing("run_billing_no_user")
+    assert no_user_exc.value.status_code == 400
+    assert no_user_exc.value.detail == "BUSINESS_RUN_USER_REQUIRED"
+
+    with pytest.raises(HTTPException) as refund_missing_exc:
+        service.refund_billing("run_billing_failed")
+    assert refund_missing_exc.value.status_code == 409
+    assert refund_missing_exc.value.detail == "BUSINESS_WALLET_SETTLEMENT_NOT_FOUND"
+
+
+def test_business_run_retest_creates_new_run_without_business_callback(monkeypatch) -> None:
+    install_business_db(monkeypatch)
+    captured_payloads = []
+
+    class FakeAbilityTaskService:
+        def enqueue(self, *, ability_id, payload, user):
+            assert ability_id == "ability_openai_fission"
+            captured_payloads.append(payload)
+            return {"id": f"task_retest_{len(captured_payloads)}", "status": "queued"}
+
+    monkeypatch.setattr(business_runs_module, "get_ability_task_service", lambda: FakeAbilityTaskService())
+    service = BusinessRunService()
+
+    with business_runs_module.get_session() as session:
+        session.add(
+            BusinessRun(
+                id="run_need_retest",
+                business_key="fission",
+                business_version_id="biz_fission_old",
+                version="old",
+                status="failed",
+                source="coze",
+                channel="coze-workflow",
+                trace_id="trace-old",
+                request_id="request-old",
+                tenant_id="tenant-a",
+                client_id="client-a",
+                ability_id="ability_openai_fission",
+                request_payload={
+                    "imageUrl": "https://example.com/input.png",
+                    "version": "old",
+                    "prompt": "复测这个图裂变",
+                    "bili": 60,
+                    "source": "coze",
+                    "channel": "coze-workflow",
+                    "tenantId": "tenant-a",
+                    "clientId": "client-a",
+                    "callbackUrl": "https://callback.example.com/old",
+                    "callbackHeaders": {"x-token": "old"},
+                    "metadata": {"scene": "workflow"},
+                    "_trace": {"traceId": "trace-old"},
+                },
+                error_message="executor timeout",
+            )
+        )
+        session.commit()
+
+    retested = service.retest_run("run_need_retest")
+
+    assert retested["id"] != "run_need_retest"
+    assert retested["status"] == "queued"
+    assert retested["source"] == "admin-retest"
+    assert retested["channel"] == "manual-retest"
+    assert retested["tenant_id"] == "tenant-a"
+    assert retested["client_id"] == "client-a"
+    assert retested["callback_status"] is None
+    assert "callbackUrl" not in retested["request_payload"]
+    assert "callbackHeaders" not in retested["request_payload"]
+    assert retested["request_payload"]["metadata"]["adminRetest"]["sourceRunId"] == "run_need_retest"
+    assert captured_payloads[0].imageUrl == "https://example.com/input.png"
+    assert captured_payloads[0].inputs["bili"] == 60
+    assert captured_payloads[0].metadata["source"] == "admin-retest"
+
+    source_after_retest = service.get_run(run_id="run_need_retest")
+    assert source_after_retest["retest_attempts"] == 1
+    assert source_after_retest["retest_latest_run_id"] == retested["id"]
+    assert source_after_retest["retest_latest_status"] == "queued"
+    assert source_after_retest["retest_recovered"] is False
+    assert retested["retest_source_run_id"] == "run_need_retest"
+
+    summary = service.usage_summary(window_hours=24)
+    assert summary["unresolved_issues"][0]["key"] == "executor"
+    assert summary["unresolved_issues"][0]["retested"] == 1
+    assert summary["recent_unresolved_issues"][0]["id"] == "run_need_retest"
+    assert summary["recent_unresolved_issues"][0]["retest_latest_run_id"] == retested["id"]
+
+    with business_runs_module.get_session() as session:
+        row = session.get(BusinessRun, retested["id"])
+        row.status = "succeeded"
+        row.image_urls = ["https://example.com/retest-result.png"]
+        row.finished_at = datetime.utcnow()
+        session.add(row)
+        session.commit()
+
+    recovered_source = service.get_run(run_id="run_need_retest")
+    assert recovered_source["retest_recovered"] is True
+    summary_after_recovered = service.usage_summary(window_hours=24)
+    assert all(item["id"] != "run_need_retest" for item in summary_after_recovered["recent_unresolved_issues"])
+
+    bulk = service.bulk_retest_runs(["run_need_retest"], only_failed=True)
+    assert bulk["failed"] == 1
+    assert bulk["items"][0]["status"] == "skipped"
+
 
 def test_business_usage_summary_groups_source_tenant_and_cost(monkeypatch) -> None:
     install_business_db(monkeypatch)
@@ -676,6 +1676,7 @@ def test_business_usage_summary_groups_source_tenant_and_cost(monkeypatch) -> No
                 BusinessRun(
                     id="run_usage_ok",
                     business_key="fission",
+                    business_version_id="biz_fission_old",
                     version="old",
                     status="succeeded",
                     source="coze",
@@ -684,6 +1685,7 @@ def test_business_usage_summary_groups_source_tenant_and_cost(monkeypatch) -> No
                     client_id="client-web",
                     trace_id="trace-usage-1",
                     ability_id="ability_openai_fission",
+                    image_urls=["https://example.com/usage-ok.png"],
                     duration_ms=2000,
                     cost_amount=0.2,
                     currency="USD",
@@ -694,6 +1696,7 @@ def test_business_usage_summary_groups_source_tenant_and_cost(monkeypatch) -> No
                 BusinessRun(
                     id="run_usage_fail",
                     business_key="fission",
+                    business_version_id="biz_fission_old",
                     version="v2",
                     status="failed",
                     source="coze",
@@ -748,8 +1751,10 @@ def test_business_usage_summary_groups_source_tenant_and_cost(monkeypatch) -> No
     assert summary["by_source"][0]["key"] == "coze"
     assert summary["by_tenant"][0]["key"] == "tenant-a"
     assert summary["by_client"][0]["key"] == "client-web"
+    assert {item["key"]: item["total"] for item in summary["by_issue"]} == {"executor": 1, "none": 1}
     assert summary["recent_failures"][0]["id"] == "run_usage_fail"
     validated = BusinessUsageSummaryResponse.model_validate(summary).model_dump(by_alias=False)
+    assert validated["byIssue"][0]["label"] == "执行节点问题"
     assert validated["recentFailures"][0]["runId"] == "run_usage_fail"
 
     trace_summary = service.usage_summary(window_hours=24, trace_id="trace-usage-2")
@@ -758,6 +1763,10 @@ def test_business_usage_summary_groups_source_tenant_and_cost(monkeypatch) -> No
     assert trace_summary["actual_cost_by_currency"] == {"USD": 0.1}
     assert trace_summary["no_charge"] == 1
     assert trace_summary["recent_failures"][0]["trace_id"] == "trace-usage-2"
+
+    issue_summary = service.usage_summary(window_hours=24, issue_category="executor")
+    assert issue_summary["total"] == 1
+    assert issue_summary["recent_failures"][0]["id"] == "run_usage_fail"
 
 
 def test_business_capability_list_includes_latest_run_summary(monkeypatch) -> None:
@@ -1309,6 +2318,104 @@ def test_business_rollout_uses_top_level_tenant_id(monkeypatch) -> None:
 
     assert selected.version == "v2"
     assert route["selectedBy"] == "rollout_allowlist"
+
+
+def test_business_client_user_cannot_override_bound_tenant(monkeypatch) -> None:
+    install_business_db(monkeypatch)
+    service = BusinessRunService()
+    user = User(
+        id="client_user_1",
+        email="client@example.com",
+        username="client",
+        password_hash="x",
+        role="client",
+        status="active",
+        tenant_id="tenant-a",
+        client_id="client-a",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        service._resolve_trace_context(
+            run_id="run_1",
+            business_key="fission",
+            payload=BusinessRunCreateRequest(
+                imageUrl="https://example.com/a.png",
+                tenantId="tenant-b",
+                clientId="client-a",
+            ),
+            source="business-api",
+            user=user,
+        )
+
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.detail == "BUSINESS_USER_SCOPE_FORBIDDEN"
+
+
+def test_business_client_user_scope_overrides_payload_when_matching(monkeypatch) -> None:
+    install_business_db(monkeypatch)
+    service = BusinessRunService()
+    user = User(
+        id="client_user_1",
+        email="client@example.com",
+        username="client",
+        password_hash="x",
+        role="client",
+        status="active",
+        tenant_id="tenant-a",
+        client_id="client-a",
+    )
+
+    trace = service._resolve_trace_context(
+        run_id="run_1",
+        business_key="fission",
+        payload=BusinessRunCreateRequest(
+            imageUrl="https://example.com/a.png",
+            tenantId="tenant-a",
+            clientId="client-a",
+            metadata={"tenantId": "tenant-a", "clientId": "client-a"},
+        ),
+        source="business-api",
+        user=user,
+    )
+
+    assert trace["tenantId"] == "tenant-a"
+    assert trace["clientId"] == "client-a"
+
+
+def test_business_client_user_can_read_service_run_in_own_scope(monkeypatch) -> None:
+    install_business_db(monkeypatch)
+    service = BusinessRunService()
+    user = User(
+        id="client_user_1",
+        email="client@example.com",
+        username="client",
+        password_hash="x",
+        role="client",
+        status="active",
+        tenant_id="tenant-a",
+        client_id="client-a",
+    )
+    with business_runs_module.get_session() as session:
+        session.add(
+            BusinessRun(
+                id="run_service_scope",
+                business_key="fission",
+                status="succeeded",
+                source="coze",
+                trace_id="trace_1",
+                request_id="req_1",
+                tenant_id="tenant-a",
+                client_id="client-a",
+                user_id="client-a",
+                image_urls=["https://example.com/result.png"],
+            )
+        )
+        session.commit()
+
+    run = service.get_run(run_id="run_service_scope", user=user)
+
+    assert run["id"] == "run_service_scope"
+    assert run["tenant_id"] == "tenant-a"
 
 
 def test_business_route_preview_does_not_submit_task(monkeypatch) -> None:

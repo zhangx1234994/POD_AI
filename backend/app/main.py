@@ -18,6 +18,7 @@ from app.routers import (
     wallet,
     points,
     admin_integrations,
+    admin_billing,
     admin_dashboard,
     admin_abilities,
     admin_vendor,
@@ -64,6 +65,7 @@ def create_app() -> FastAPI:
     app.include_router(abilities.router, tags=["abilities"])
     app.include_router(ability_tasks.router)
     app.include_router(admin_integrations.router, prefix="/api", tags=["admin"])
+    app.include_router(admin_billing.router, prefix="/api", tags=["admin-billing"])
     app.include_router(admin_abilities.router, prefix="/api", tags=["admin-abilities"])
     app.include_router(admin_vendor.router, prefix="/api", tags=["admin-vendor-api"])
     app.include_router(admin_dashboard.router, prefix="/api", tags=["admin-dashboard"])

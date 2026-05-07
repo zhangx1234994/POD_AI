@@ -5,6 +5,7 @@ import type {
   BusinessCapability,
   BusinessUsageSummaryResponse,
   DashboardMetrics,
+  DashboardStrategyIndicator,
   HealthWatchStatusResponse,
   HealthWatchUnitStatus,
   ReleaseDecisionRecordResponse,
@@ -21,7 +22,10 @@ import {
   businessKeyLabel,
   coreBusinessKeys,
 } from './businessLabels';
+import { buildCoreBusinessReleaseEvidenceRows } from './businessReleaseEvidence';
 import { formatCurrencyTotals, formatDateTime, formatRatePercent } from './formatters';
+import { moduleGuides } from './moduleGuides';
+import { integrationNavItems, type IntegrationNavId } from './navigation';
 
 function MetricCard({ label, value, sub }: { label: string; value: number | string; sub?: string }) {
   return (
@@ -197,6 +201,58 @@ function releasePreflightCheckByName(
   return snapshot?.checks?.find((check) => check.name === name) || null;
 }
 
+function strategyIndicatorStatusLabel(status?: string): string {
+  if (status === 'healthy') return '达标';
+  if (status === 'warning') return '需关注';
+  if (status === 'critical') return '阻塞';
+  return status || '待判断';
+}
+
+function strategyIndicatorTheme(status?: string): 'success' | 'warning' | 'danger' | 'default' {
+  if (status === 'healthy') return 'success';
+  if (status === 'warning') return 'warning';
+  if (status === 'critical') return 'danger';
+  return 'default';
+}
+
+function strategyIndicatorAlertTheme(status?: string): 'success' | 'warning' | 'error' | 'info' {
+  if (status === 'healthy') return 'success';
+  if (status === 'warning') return 'warning';
+  if (status === 'critical') return 'error';
+  return 'info';
+}
+
+function businessReleaseGateStatusLabel(status?: string | null): string {
+  if (status === 'ready') return '可上线';
+  if (status === 'warning') return '需复核';
+  if (status === 'blocked') return '暂不能上线';
+  return '未判断';
+}
+
+function businessAcceptanceLabel(status?: string | null): string {
+  if (status === 'passed') return '验收通过';
+  if (status === 'failed') return '验收失败';
+  if (status === 'warning') return '有风险';
+  if (status === 'waived') return '暂不验收';
+  return '未验收';
+}
+
+function businessAcceptanceTheme(status?: string | null): 'success' | 'warning' | 'danger' | 'default' {
+  if (status === 'passed') return 'success';
+  if (status === 'failed') return 'danger';
+  if (status === 'warning') return 'warning';
+  return 'default';
+}
+
+function readinessIssueTarget(title: string): OverviewNavTarget {
+  if (title.includes('主业务') || title.includes('业务')) return 'business';
+  if (title.includes('模型')) return 'vendor-models';
+  if (title.includes('能力')) return 'abilities';
+  if (title.includes('账单') || title.includes('计费') || title.includes('成本')) return 'billing';
+  if (title.includes('巡检') || title.includes('评测')) return 'ability-evals';
+  return 'overview';
+}
+
 type OverviewSummary = {
   executors: number;
   activeExecutors: number;
@@ -206,7 +262,7 @@ type OverviewSummary = {
   abilities: number;
 };
 
-type OverviewNavTarget = 'business' | 'vendor-models' | 'abilities' | 'ability-evals';
+type OverviewNavTarget = IntegrationNavId;
 
 type OverviewPanelProps = {
   dashboardMetrics?: DashboardMetrics | null;
@@ -313,6 +369,8 @@ export function OverviewPanel({
   const [releasePatrolReportPath, setReleasePatrolReportPath] = useState('');
   const [releaseDecisionNote, setReleaseDecisionNote] = useState('');
   const strategySummary = dashboardMetrics?.strategy_summary;
+  const strategyNorthStar = strategySummary?.north_star || null;
+  const strategyIndicators: DashboardStrategyIndicator[] = strategySummary?.indicators || [];
   const latestWeeklyReport = weeklyReports[0] || null;
   const fullPatrolCommand =
     'python3 backend/scripts/patrol_eval_workflows.py --base-url http://127.0.0.1:8099 --timeout 1800 --report reports/eval_patrol_$(date +%Y%m%d_%H%M%S).json';
@@ -343,8 +401,20 @@ export function OverviewPanel({
     releasePreflightCheckByName(preflightLatest, 'weekly_report_cron'),
     releasePreflightCheckByName(preflightLatest, 'billing_collection_cron'),
   ].filter((check): check is ReleasePreflightCheck => Boolean(check));
+  const releaseCoreChecks = [
+    releasePreflightCheckByName(preflightLatest, 'business_capability_governance'),
+    releasePreflightCheckByName(preflightLatest, 'auth_scope_summary'),
+    releasePreflightCheckByName(preflightLatest, 'internal_tasks_get'),
+    releasePreflightCheckByName(preflightLatest, 'comfyui_queue_summary'),
+  ].filter((check): check is ReleasePreflightCheck => Boolean(check));
   const releaseCronRiskMessages = releaseCronChecks
     .filter((check) => check.status !== 'pass')
+    .map((check) => `${check.title}：${check.detail || '需要处理'}`);
+  const releaseCoreFailedMessages = releaseCoreChecks
+    .filter((check) => check.status === 'fail')
+    .map((check) => `${check.title}：${check.detail || '需要处理'}`);
+  const releaseCoreWarningMessages = releaseCoreChecks
+    .filter((check) => check.status === 'warn')
     .map((check) => `${check.title}：${check.detail || '需要处理'}`);
   const preflightTheme = !preflightLatest
     ? 'default'
@@ -369,6 +439,12 @@ export function OverviewPanel({
       .filter((item) => item.isDefault && item.status === 'active')
       .map((item) => item.businessKey),
   );
+  const coreBusinessReleaseRows = buildCoreBusinessReleaseEvidenceRows({
+    capabilities: coreBusinessOverviewItems,
+    summary: businessUsageSummary,
+  });
+  const coreBusinessReleaseBlockedRows = coreBusinessReleaseRows.filter((row) => row.theme === 'danger');
+  const coreBusinessReleaseWarningRows = coreBusinessReleaseRows.filter((row) => row.theme === 'warning');
   const missingCoreBusinessLabels = coreBusinessKeys
     .filter((key) => !activeDefaultBusinessKeys.has(key))
     .map((key) => businessKeyLabel(key));
@@ -456,6 +532,36 @@ export function OverviewPanel({
     detail: string;
     theme: 'success' | 'warning' | 'danger' | 'default';
   }> = [
+    {
+      title: '主业务上线证据',
+      status: businessPathLoading
+        ? '加载中'
+        : coreBusinessReleaseBlockedRows.length > 0
+          ? `阻塞 ${coreBusinessReleaseBlockedRows.length}`
+          : coreBusinessReleaseWarningRows.length > 0
+            ? `需确认 ${coreBusinessReleaseWarningRows.length}`
+            : '通过',
+      detail: businessPathLoading
+        ? '正在加载三条主业务的默认版本、验收和最近样本。'
+        : coreBusinessReleaseBlockedRows.length > 0
+          ? coreBusinessReleaseBlockedRows
+              .slice(0, 3)
+              .map((row) => `${businessKeyLabel(row.businessKey)}：${row.reason}`)
+              .join('；')
+          : coreBusinessReleaseWarningRows.length > 0
+            ? coreBusinessReleaseWarningRows
+                .slice(0, 3)
+                .map((row) => `${businessKeyLabel(row.businessKey)}：${row.reason}`)
+                .join('；')
+            : '三条主业务默认版本均具备上线证据。',
+      theme: businessPathLoading
+        ? 'default'
+        : coreBusinessReleaseBlockedRows.length > 0
+          ? 'danger'
+          : coreBusinessReleaseWarningRows.length > 0
+            ? 'warning'
+            : 'success',
+    },
     {
       title: '业务入口',
       status: businessPathLoading
@@ -554,6 +660,381 @@ export function OverviewPanel({
       : releaseReadinessWarnings.length > 0
         ? `还需要确认 ${releaseReadinessWarnings.length} 个事项：${releaseReadinessWarnings.map((item) => item.title).join('、')}。确认后再安排线上闭环。`
         : '业务入口、轻量门禁、完整巡检和能力状态都已满足上线前检查要求。';
+  const businessTotal = Number(strategySummary?.business_total || businessUsageSummary?.total || 0);
+  const strategyRiskCount = Number(strategySummary?.risk_count || 0);
+  const billingPendingCount = Number(strategySummary?.billing_pending || strategySummary?.unpriced || 0);
+  const walletRiskCount = Number(strategySummary?.wallet_failed || 0);
+  const callbackRiskCount = Number(strategySummary?.callback_failed || callbackFailedCount || 0);
+  const queueRiskCount = Number(pendingQueueTotal || 0);
+  const executivePillars: Array<{
+    key: string;
+    title: string;
+    status: string;
+    detail: string;
+    action: string;
+    target: OverviewNavTarget;
+    theme: 'success' | 'warning' | 'danger' | 'default';
+  }> = [
+    {
+      key: 'release',
+      title: '上线',
+      status: releaseReadinessTitle,
+      detail: releaseReadinessMessage,
+      action: '查看上线结论',
+      target: 'ability-evals',
+      theme: releaseReadinessTheme,
+    },
+    {
+      key: 'business',
+      title: '业务',
+      status: missingCoreBusinessLabels.length > 0 ? `缺 ${missingCoreBusinessLabels.length} 个入口` : `主业务 ${activeDefaultBusinessKeys.size}/3`,
+      detail:
+        missingCoreBusinessLabels.length > 0
+          ? `先补齐 ${missingCoreBusinessLabels.join('、')} 的默认版本。`
+          : businessFailedCount > 0
+            ? `近 ${businessUsageSummary?.windowHours || 24} 小时失败 ${businessFailedCount} 次，需要看失败样本。`
+            : businessTotal > 0
+              ? `近 ${strategySummary?.window_hours || businessUsageSummary?.windowHours || 24} 小时已有 ${businessTotal} 次业务调用。`
+              : '当前窗口暂无业务调用，发版前仍需跑真实巡检。',
+      action: '看业务能力',
+      target: 'business',
+      theme: missingCoreBusinessLabels.length > 0 || businessFailedCount > 0 ? 'danger' : businessTotal > 0 ? 'success' : 'warning',
+    },
+    {
+      key: 'ability',
+      title: '能力',
+      status: abilityRiskCount > 0 ? `需处理 ${abilityRiskCount}` : `能力 ${summary.abilities || 0}`,
+      detail:
+        abilityRiskCount > 0
+          ? '能力健康存在异常、降级或需要复测，先处理后再绑定到主业务。'
+          : vendorGovernanceIssueCount > 0
+            ? `模型弹药库还有 ${vendorGovernanceIssueCount} 个治理问题。`
+            : '原子能力和模型治理当前没有明显阻塞。',
+      action: abilityRiskCount > 0 ? '看能力目录' : '看模型弹药',
+      target: abilityRiskCount > 0 ? 'abilities' : 'vendor-models',
+      theme: abilityRiskCount > 0 || vendorGovernanceIssueCount > 0 ? 'warning' : 'success',
+    },
+    {
+      key: 'cost',
+      title: '成本',
+      status: billingPendingCount > 0 || walletRiskCount > 0 ? '需核对' : '框架正常',
+      detail:
+        billingPendingCount > 0
+          ? `还有 ${billingPendingCount} 条业务结果未完成定价或计费确认。`
+          : walletRiskCount > 0
+            ? `扣费流水失败 ${walletRiskCount} 条，需要核对账单。`
+            : `本窗口成本 ${formatCurrencyTotals(strategySummary?.cost_by_currency)}，额度 ${strategySummary?.quota_units || 0}。`,
+      action: '看账单框架',
+      target: 'billing',
+      theme: billingPendingCount > 0 || walletRiskCount > 0 ? 'warning' : 'success',
+    },
+    {
+      key: 'risk',
+      title: '风险',
+      status: strategyRiskCount > 0 || callbackRiskCount > 0 ? `风险 ${strategyRiskCount || callbackRiskCount}` : queueRiskCount > 0 ? `排队 ${queueRiskCount}` : '无明显风险',
+      detail:
+        strategyRiskCount > 0
+          ? '业务失败、回调失败、未定价或扣费问题会集中计入风险。'
+          : callbackRiskCount > 0
+            ? `回调失败 ${callbackRiskCount} 次，需要确认业务方能否收到结果。`
+            : queueRiskCount > 0
+              ? '当前还有任务排队，观察是否能被两台 ComfyUI 能力机及时消化。'
+              : '当前没有明显风险信号，继续保持自检和巡检节奏。',
+      action: '看能力调用',
+      target: 'ability-logs',
+      theme: strategyRiskCount > 0 || callbackRiskCount > 0 ? 'danger' : queueRiskCount > 0 ? 'warning' : 'success',
+    },
+  ];
+  const featureExposureItems: Array<{
+    key: string;
+    title: string;
+    group: string;
+    status: string;
+    detail: string;
+    target: OverviewNavTarget;
+    theme: 'success' | 'warning' | 'danger' | 'default';
+    stage: '核心入口' | '治理入口' | '运维入口' | '雏形入口';
+  }> = [
+    {
+      key: 'business',
+      title: '业务能力与版本',
+      group: '业务',
+      status: missingCoreBusinessLabels.length > 0 ? `缺 ${missingCoreBusinessLabels.length}` : '已暴露',
+      detail: '花纹提取、图裂变、扩图的默认版本、灰度、回滚和验收入口。',
+      target: 'business',
+      theme: missingCoreBusinessLabels.length > 0 ? 'danger' : 'success',
+      stage: '核心入口',
+    },
+    {
+      key: 'business-runs',
+      title: '业务运行闭环',
+      group: '业务',
+      status: businessTotal > 0 ? `${businessTotal} 次调用` : '待巡检',
+      detail: '查看业务调用、版本命中、执行节点、结果回填、回调和计费证据。',
+      target: 'business',
+      theme: businessTotal > 0 ? 'success' : 'warning',
+      stage: '核心入口',
+    },
+    {
+      key: 'api-exposure',
+      title: 'API 开放',
+      group: '业务',
+      status: '已暴露',
+      detail: '中台自有业务 API、原子能力 API、Coze 工具箱导入地址分开查看。',
+      target: 'api-exposure',
+      theme: 'success',
+      stage: '核心入口',
+    },
+    {
+      key: 'evals',
+      title: '能力评测',
+      group: '业务',
+      status: latestPatrolRecord?.status === 'passed' ? '最近通过' : latestPatrolRecord?.status === 'failed' ? '最近失败' : '待巡检',
+      detail: '测评工作流、样例提交、结果回填和人工评分入口。',
+      target: 'ability-evals',
+      theme: latestPatrolRecord?.status === 'failed' ? 'danger' : latestPatrolRecord?.status === 'passed' ? 'success' : 'warning',
+      stage: '核心入口',
+    },
+    {
+      key: 'models',
+      title: '模型弹药库',
+      group: '能力',
+      status: vendorGovernanceIssueCount > 0 ? `风险 ${vendorGovernanceIssueCount}` : `模型 ${vendorModelCount}`,
+      detail: '第三方模型、密钥、出网、计价、验收和模型类型总览。',
+      target: 'vendor-models',
+      theme: vendorGovernanceIssueCount > 0 ? 'warning' : 'success',
+      stage: '治理入口',
+    },
+    {
+      key: 'abilities',
+      title: '原子能力目录',
+      group: '能力',
+      status: abilityRiskCount > 0 ? `需处理 ${abilityRiskCount}` : `能力 ${summary.abilities || 0}`,
+      detail: '图片、视频、文字、图像理解等原子能力的表单、健康、模板和成本。',
+      target: 'abilities',
+      theme: abilityRiskCount > 0 ? 'warning' : 'success',
+      stage: '治理入口',
+    },
+    {
+      key: 'ability-logs',
+      title: '能力调用排障',
+      group: '能力',
+      status: Number(dashboardMetrics?.today.failed || 0) > 0 ? `今日失败 ${dashboardMetrics?.today.failed || 0}` : '已暴露',
+      detail: '全局能力调用历史、失败样本、输出回填和问题标记。',
+      target: 'ability-logs',
+      theme: Number(dashboardMetrics?.today.failed || 0) > 0 ? 'warning' : 'success',
+      stage: '治理入口',
+    },
+    {
+      key: 'comfyui',
+      title: 'ComfyUI 纳管',
+      group: '运行',
+      status: summary.activeExecutors < summary.executors ? `${summary.activeExecutors}/${summary.executors} 可用` : '已暴露',
+      detail: '服务器、队列、任务、模型/LoRA、轻 Agent、资源差异和修复任务。',
+      target: 'comfyui-management',
+      theme: summary.activeExecutors < summary.executors ? 'warning' : 'success',
+      stage: '运维入口',
+    },
+    {
+      key: 'executors',
+      title: '运行线路',
+      group: '运行',
+      status: pendingQueueTotal > 0 ? `排队 ${pendingQueueTotal}` : '已暴露',
+      detail: '执行节点、并发、权重、健康状态和线路配置。',
+      target: 'executors',
+      theme: pendingQueueTotal > 0 ? 'warning' : 'success',
+      stage: '运维入口',
+    },
+    {
+      key: 'billing',
+      title: '账单与套餐',
+      group: '商业',
+      status: billingPendingCount > 0 || walletRiskCount > 0 ? '需核对' : '雏形已露出',
+      detail: '成本核对、套餐、月结、催收、发票和用户账务雏形；正式收费后继续加强。',
+      target: 'billing',
+      theme: billingPendingCount > 0 || walletRiskCount > 0 ? 'warning' : 'default',
+      stage: '雏形入口',
+    },
+    {
+      key: 'auth',
+      title: '账号权限',
+      group: '系统',
+      status: '已暴露',
+      detail: '管理员、业务方只读、服务 Token、邀请码和角色边界。',
+      target: 'auth',
+      theme: 'success',
+      stage: '治理入口',
+    },
+    {
+      key: 'release',
+      title: '发版自检',
+      group: '系统',
+      status: releaseReadinessTitle,
+      detail: '轻量门禁、完整巡检、上线结论登记、周报和事故防复发守护。',
+      target: 'overview',
+      theme: releaseReadinessTheme,
+      stage: '核心入口',
+    },
+    {
+      key: 'workflow-builder',
+      title: '高级编排观察',
+      group: '高级',
+      status: '高级入口',
+      detail: 'Coze 编排观察和底层工作流调试入口；普通用户默认不从这里开始。',
+      target: 'workflow-builder',
+      theme: 'default',
+      stage: '运维入口',
+    },
+  ];
+  const featureLedgerStatus: Record<IntegrationNavId, { status: string; theme: 'success' | 'warning' | 'danger' | 'default' }> = {
+    overview: { status: releaseReadinessTitle, theme: releaseReadinessTheme },
+    business: {
+      status: missingCoreBusinessLabels.length > 0 ? `缺 ${missingCoreBusinessLabels.length}` : '主业务已露出',
+      theme: missingCoreBusinessLabels.length > 0 ? 'danger' : 'success',
+    },
+    'api-exposure': { status: '文档已对齐', theme: 'success' },
+    'ability-evals': {
+      status:
+        latestPatrolRecord?.status === 'passed' ? '最近通过' : latestPatrolRecord?.status === 'failed' ? '最近失败' : '待巡检',
+      theme: latestPatrolRecord?.status === 'failed' ? 'danger' : latestPatrolRecord?.status === 'passed' ? 'success' : 'warning',
+    },
+    'vendor-models': {
+      status: vendorGovernanceIssueCount > 0 ? `风险 ${vendorGovernanceIssueCount}` : `模型 ${vendorModelCount}`,
+      theme: vendorGovernanceIssueCount > 0 ? 'warning' : 'success',
+    },
+    apikeys: {
+      status: vendorKeyCount > 0 ? `${vendorKeyCount} 个密钥` : '兼容入口',
+      theme: vendorKeyCount > 0 ? 'success' : 'default',
+    },
+    abilities: {
+      status: abilityRiskCount > 0 ? `需处理 ${abilityRiskCount}` : `能力 ${summary.abilities || 0}`,
+      theme: abilityRiskCount > 0 ? 'warning' : 'success',
+    },
+    executors: {
+      status: summary.executors > 0 ? `${summary.activeExecutors}/${summary.executors} 可用` : '待配置',
+      theme: summary.executors > 0 && summary.activeExecutors < summary.executors ? 'warning' : summary.executors > 0 ? 'success' : 'default',
+    },
+    'comfyui-management': {
+      status: summary.activeExecutors < summary.executors ? '需关注' : '已纳管',
+      theme: summary.activeExecutors < summary.executors ? 'warning' : 'success',
+    },
+    bindings: { status: '高级入口', theme: 'default' },
+    'workflow-builder': { status: '高级入口', theme: 'default' },
+    'ability-logs': {
+      status: Number(dashboardMetrics?.today.failed || 0) > 0 ? `今日失败 ${dashboardMetrics?.today.failed || 0}` : '可追踪',
+      theme: Number(dashboardMetrics?.today.failed || 0) > 0 ? 'warning' : 'success',
+    },
+    billing: {
+      status: billingPendingCount > 0 || walletRiskCount > 0 ? '需核对' : '雏形已露出',
+      theme: billingPendingCount > 0 || walletRiskCount > 0 ? 'warning' : 'default',
+    },
+    monitor: {
+      status: pendingQueueTotal > 0 ? `排队 ${pendingQueueTotal}` : '队列正常',
+      theme: pendingQueueTotal > 0 ? 'warning' : 'success',
+    },
+    logs: { status: '排障入口', theme: 'default' },
+    auth: { status: '边界已露出', theme: 'success' },
+    system: { status: '配置快照', theme: 'default' },
+  };
+  const featureLedgerItems = integrationNavItems.map((item) => ({
+    id: item.id,
+    label: item.label,
+    group: item.group || 'other',
+    groupLabel: item.groupLabel || '其他',
+    description: item.description || '',
+    advanced: 'advanced' in item ? Boolean(item.advanced) : false,
+    guide: moduleGuides[item.id],
+    status: featureLedgerStatus[item.id].status,
+    theme: featureLedgerStatus[item.id].theme,
+  }));
+  const featureLedgerGroups = featureLedgerItems.reduce<
+    Array<{ key: string; label: string; items: typeof featureLedgerItems }>
+  >((groups, item) => {
+    const group = groups.find((candidate) => candidate.key === item.group);
+    if (group) {
+      group.items.push(item);
+    } else {
+      groups.push({ key: item.group, label: item.groupLabel, items: [item] });
+    }
+    return groups;
+  }, []);
+  const operatorFocusItems: Array<{
+    key: string;
+    priority: string;
+    title: string;
+    detail: string;
+    action: string;
+    target: OverviewNavTarget;
+    theme: 'success' | 'warning' | 'danger' | 'default';
+  }> = [];
+  releaseReadinessBlockers.slice(0, 3).forEach((item, index) => {
+    operatorFocusItems.push({
+      key: `release-blocker-${index}`,
+      priority: '必须先处理',
+      title: item.title,
+      detail: item.detail,
+      action: '去处理',
+      target: readinessIssueTarget(item.title),
+      theme: 'danger',
+    });
+  });
+  if (operatorFocusItems.length < 5) {
+    releaseReadinessWarnings.slice(0, 5 - operatorFocusItems.length).forEach((item, index) => {
+      operatorFocusItems.push({
+        key: `release-warning-${index}`,
+        priority: '上线前确认',
+        title: item.title,
+        detail: item.detail,
+        action: '去确认',
+        target: readinessIssueTarget(item.title),
+        theme: 'warning',
+      });
+    });
+  }
+  if (operatorFocusItems.length < 5 && businessFailedCount > 0) {
+    operatorFocusItems.push({
+      key: 'business-failed',
+      priority: '上线前确认',
+      title: '业务失败样本',
+      detail: `近 ${businessUsageSummary?.windowHours || strategySummary?.window_hours || 24} 小时业务失败 ${businessFailedCount} 次，先看失败样本和回填状态。`,
+      action: '看业务运行',
+      target: 'business',
+      theme: 'warning',
+    });
+  }
+  if (operatorFocusItems.length < 5 && callbackRiskCount > 0) {
+    operatorFocusItems.push({
+      key: 'callback-risk',
+      priority: '上线前确认',
+      title: '回调失败',
+      detail: `回调失败 ${callbackRiskCount} 次，业务方可能收不到结果，需要先重试或确认回调地址。`,
+      action: '看能力调用',
+      target: 'ability-logs',
+      theme: 'warning',
+    });
+  }
+  if (operatorFocusItems.length < 5 && queueRiskCount > 0) {
+    operatorFocusItems.push({
+      key: 'queue-risk',
+      priority: '观察中',
+      title: '任务排队',
+      detail: `当前排队 ${queueRiskCount} 个任务，确认两台 ComfyUI 能力机是否都在消化队列。`,
+      action: '看运行线路',
+      target: 'executors',
+      theme: 'warning',
+    });
+  }
+  if (operatorFocusItems.length === 0) {
+    operatorFocusItems.push({
+      key: 'all-clear',
+      priority: '可继续推进',
+      title: '当前没有明确阻塞',
+      detail: '继续保持发版前门禁、三条主业务真实巡检和 Coze 工具箱抽测，不要只看页面存活。',
+      action: '看上线结论',
+      target: 'overview',
+      theme: 'success',
+    });
+  }
   const submitReleaseDecision = (status: 'approved' | 'deferred' | 'blocked') => {
     const note = releaseDecisionNote.trim();
     const title =
@@ -591,6 +1072,186 @@ export function OverviewPanel({
         />
       ) : null}
 
+      <Card bordered className="podi-executive-overview-card">
+        <Space direction="vertical" size="small" style={{ width: '100%' }}>
+          <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+            <div>
+              <Typography.Text strong>运营驾驶舱</Typography.Text>
+              <div>
+                <Typography.Text theme="secondary">
+                  先看上线、业务、能力、成本、风险五个结论；需要处理时再进入下面的详细模块。
+                </Typography.Text>
+              </div>
+            </div>
+            <Button size="small" variant="outline" loading={loading} onClick={onRefresh}>
+              刷新总览
+            </Button>
+          </Space>
+          <div className="podi-executive-pillar-grid">
+            {executivePillars.map((item) => (
+              <Card key={item.key} bordered size="small" className={`podi-executive-pillar podi-executive-pillar--${item.theme}`}>
+                <Space direction="vertical" size={6} style={{ width: '100%', height: '100%', justifyContent: 'space-between' }}>
+                  <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                    <Space align="center" style={{ justifyContent: 'space-between', width: '100%', gap: 8 }}>
+                      <Typography.Text strong>{item.title}</Typography.Text>
+                      <Tag theme={item.theme} variant="light">
+                        {item.status}
+                      </Tag>
+                    </Space>
+                    <Typography.Text theme="secondary">{item.detail}</Typography.Text>
+                  </Space>
+                  <Button size="small" variant="outline" onClick={() => onNavigate?.(item.target)}>
+                    {item.action}
+                  </Button>
+                </Space>
+              </Card>
+            ))}
+          </div>
+        </Space>
+      </Card>
+
+      <Card bordered className="podi-operator-focus-card">
+        <Space direction="vertical" size="small" style={{ width: '100%' }}>
+          <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+            <div>
+              <Typography.Text strong>今日处理顺序</Typography.Text>
+              <div>
+                <Typography.Text theme="secondary">
+                  按阻塞优先级自动整理；先处理这里，再进入下面的功能入口地图。
+                </Typography.Text>
+              </div>
+            </div>
+            <Tag theme={operatorFocusItems.some((item) => item.theme === 'danger') ? 'danger' : operatorFocusItems.some((item) => item.theme === 'warning') ? 'warning' : 'success'} variant="light">
+              {operatorFocusItems.length} 项
+            </Tag>
+          </Space>
+          <div className="podi-operator-focus-list">
+            {operatorFocusItems.map((item, index) => (
+              <button
+                key={item.key}
+                type="button"
+                className={`podi-operator-focus-item podi-operator-focus-item--${item.theme}`}
+                onClick={() => onNavigate?.(item.target)}
+              >
+                <span className="podi-operator-focus-item__index">{index + 1}</span>
+                <span className="podi-operator-focus-item__body">
+                  <span className="podi-operator-focus-item__topline">
+                    <Tag theme={item.theme} variant="light" size="small">
+                      {item.priority}
+                    </Tag>
+                    <span>{item.action}</span>
+                  </span>
+                  <span className="podi-operator-focus-item__title">{item.title}</span>
+                  <span className="podi-operator-focus-item__detail">{item.detail}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </Space>
+      </Card>
+
+      <Card bordered className="podi-feature-map-card">
+        <Space direction="vertical" size="small" style={{ width: '100%' }}>
+          <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+            <div>
+              <Typography.Text strong>平台功能入口地图</Typography.Text>
+              <div>
+                <Typography.Text theme="secondary">
+                  已开发能力统一在这里暴露入口；不要求用户先理解导航分组或高级模块开关。
+                </Typography.Text>
+              </div>
+            </div>
+            <Tag theme="primary" variant="light">
+              {featureExposureItems.length} 个入口
+            </Tag>
+          </Space>
+          <div className="podi-feature-map-grid">
+            {featureExposureItems.map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                className={`podi-feature-map-item podi-feature-map-item--${item.theme}`}
+                onClick={() => onNavigate?.(item.target)}
+              >
+                <span className="podi-feature-map-item__topline">
+                  <span>{item.group}</span>
+                  <Tag theme={item.theme} variant="light" size="small">
+                    {item.status}
+                  </Tag>
+                </span>
+                <span className="podi-feature-map-item__title">{item.title}</span>
+                <span className="podi-feature-map-item__detail">{item.detail}</span>
+                <span className="podi-feature-map-item__footer">{item.stage} · 点击进入</span>
+              </button>
+            ))}
+          </div>
+        </Space>
+      </Card>
+
+      <details className="podi-feature-ledger-collapse">
+        <summary>
+          <span>
+            功能暴露台账
+            <small>侧栏 {featureLedgerItems.length} 个一级入口的使用对象、先看什么和下一步动作</small>
+          </span>
+          <Tag theme="primary" variant="light">
+            点击展开
+          </Tag>
+        </summary>
+        <Card bordered className="podi-feature-ledger-card">
+          <Space direction="vertical" size="small" style={{ width: '100%' }}>
+            <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+              <div>
+                <Typography.Text strong>功能暴露台账</Typography.Text>
+                <div>
+                  <Typography.Text theme="secondary">
+                    侧栏每个一级入口都必须说明“谁使用、先看什么、下一步做什么”。后续新增功能先补这里，再做深层页面。
+                  </Typography.Text>
+                </div>
+              </div>
+              <Tag theme="primary" variant="light">
+                {featureLedgerItems.length} 个页面
+              </Tag>
+            </Space>
+            <div className="podi-feature-ledger-groups">
+              {featureLedgerGroups.map((group) => (
+                <section key={group.key} className="podi-feature-ledger-group">
+                  <div className="podi-feature-ledger-group__header">
+                    <Typography.Text strong>{group.label}</Typography.Text>
+                    <Tag variant="light">{group.items.length} 项</Tag>
+                  </div>
+                  <div className="podi-feature-ledger-list">
+                    {group.items.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        className={`podi-feature-ledger-item podi-feature-ledger-item--${item.theme}`}
+                        onClick={() => onNavigate?.(item.id)}
+                      >
+                        <span className="podi-feature-ledger-item__topline">
+                          <span>
+                            {item.label}
+                            {item.advanced ? <small>高级</small> : null}
+                          </span>
+                          <Tag theme={item.theme} variant="light" size="small">
+                            {item.status}
+                          </Tag>
+                        </span>
+                        <span className="podi-feature-ledger-item__desc">{item.description}</span>
+                        <span className="podi-feature-ledger-item__meta">使用对象：{item.guide.audience}</span>
+                        <span className="podi-feature-ledger-item__meta">先看：{item.guide.firstLook}</span>
+                        <span className="podi-feature-ledger-item__meta">下一步：{item.guide.nextAction}</span>
+                        {item.guide.riskHint ? <span className="podi-feature-ledger-item__risk">风险：{item.guide.riskHint}</span> : null}
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
+          </Space>
+        </Card>
+      </details>
+
       <Card bordered style={{ marginBottom: 16 }}>
         <Space direction="vertical" size="small" style={{ width: '100%' }}>
           <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
@@ -616,6 +1277,61 @@ export function OverviewPanel({
             }
             message={releaseReadinessMessage}
           />
+          <Card bordered size="small" className="podi-release-evidence-card">
+            <Space direction="vertical" size="small" style={{ width: '100%' }}>
+              <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+                <div>
+                  <Typography.Text strong>三条主业务上线证据</Typography.Text>
+                  <div>
+                    <Typography.Text theme="secondary">
+                      默认版本、验收记录、最近真实样本和门禁原因集中在这里；不用再跳到业务页逐个拼判断。
+                    </Typography.Text>
+                  </div>
+                </div>
+                <Button size="small" variant="outline" onClick={() => onNavigate?.('business')}>
+                  打开业务版本
+                </Button>
+              </Space>
+              <div className="podi-release-evidence-grid">
+                {coreBusinessReleaseRows.map((row) => (
+                  <Card key={row.businessKey} bordered size="small" className={`podi-release-evidence-item podi-release-evidence-item--${row.theme}`}>
+                    <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                      <Space align="center" style={{ justifyContent: 'space-between', width: '100%', gap: 8 }}>
+                        <Typography.Text strong>{businessKeyLabel(row.businessKey)}</Typography.Text>
+                        <Tag theme={row.theme} variant="light">
+                          {row.defaultItem?.releaseGate?.label || row.status || businessReleaseGateStatusLabel(row.defaultItem?.releaseGate?.status)}
+                        </Tag>
+                      </Space>
+                      <Typography.Text>
+                        {row.defaultItem ? `${row.defaultItem.version} · ${row.defaultItem.displayName}` : '未设置默认版本'}
+                      </Typography.Text>
+                      <Space size={6} breakLine>
+                        <Tag theme={businessAcceptanceTheme(row.defaultItem?.latestAcceptance?.status)} variant="light" size="small">
+                          {businessAcceptanceLabel(row.defaultItem?.latestAcceptance?.status)}
+                        </Tag>
+                        {row.defaultItem?.latestRun ? <StatusBadge status={row.defaultItem.latestRun.status} /> : <Tag variant="light" size="small">暂无样本</Tag>}
+                        {row.outputCount > 0 ? (
+                          <Tag theme="success" variant="light" size="small">
+                            输出 {row.outputCount}
+                          </Tag>
+                        ) : null}
+                      </Space>
+                      <Typography.Text theme={row.theme === 'danger' ? 'error' : row.theme === 'warning' ? 'warning' : 'secondary'}>
+                        {row.reason}
+                      </Typography.Text>
+                      <Typography.Text theme="secondary">
+                        {row.defaultItem?.latestAcceptance?.createdAt
+                          ? `验收时间：${formatDateTime(row.defaultItem.latestAcceptance.createdAt)}`
+                          : row.defaultItem?.latestRun?.createdAt || row.defaultItem?.latestRun?.created_at
+                            ? `最近样本：${formatDateTime(row.defaultItem.latestRun.createdAt || row.defaultItem.latestRun.created_at)}`
+                            : '还没有验收或真实样本时间'}
+                      </Typography.Text>
+                    </Space>
+                  </Card>
+                ))}
+              </div>
+            </Space>
+          </Card>
           <Row gutter={[12, 12]}>
             {releaseReadinessItems.map((item) => (
               <Col key={item.title} xs={12} sm={6} lg={3}>
@@ -880,6 +1596,35 @@ export function OverviewPanel({
                 </Space>
               </Space>
               {strategySnapshotError ? <Alert theme="error" message={strategySnapshotError} /> : null}
+              <Card bordered size="small" className="podi-strategy-north-star">
+                <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                  <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+                    <div>
+                      <Typography.Text strong>{strategyNorthStar?.title || '北极星：成功业务交付'}</Typography.Text>
+                      <div>
+                        <Typography.Text theme="secondary">
+                          这个指标只看业务最终是否成功交付，不看底层任务是否“表面成功”。
+                        </Typography.Text>
+                      </div>
+                    </div>
+                    <Space>
+                      <Typography.Title level="h3" style={{ margin: 0 }}>
+                        {strategyNorthStar?.value || '暂无数据'}
+                      </Typography.Title>
+                      <Tag theme={strategyIndicatorTheme(strategyNorthStar?.status)} variant="light">
+                        {strategyIndicatorStatusLabel(strategyNorthStar?.status)}
+                      </Tag>
+                    </Space>
+                  </Space>
+                  <Alert
+                    theme={strategyIndicatorAlertTheme(strategyNorthStar?.status)}
+                    message={strategyNorthStar?.detail || '尚未生成战略指标，请先保存一次快照。'}
+                  />
+                  <Typography.Text theme="secondary">
+                    下一步：{strategyNorthStar?.action || '先跑三大主业务真实巡检，确认有成功样本。'}
+                  </Typography.Text>
+                </Space>
+              </Card>
               <Row gutter={[12, 12]}>
                 <Col xs={12} sm={4}>
                   <MetricCard
@@ -912,6 +1657,28 @@ export function OverviewPanel({
                   <MetricCard label="业务失败" value={strategySummary?.business_failed || 0} sub={`不计费 ${strategySummary?.no_charge || 0}`} />
                 </Col>
               </Row>
+              {strategyIndicators.length > 0 ? (
+                <div className="podi-strategy-kpi-grid">
+                  {strategyIndicators.map((item) => (
+                    <Card key={item.key} bordered size="small" className="podi-strategy-kpi-card">
+                      <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                        <Space align="center" style={{ justifyContent: 'space-between', width: '100%', gap: 8 }}>
+                          <Typography.Text strong>{item.title}</Typography.Text>
+                          <Tag theme={strategyIndicatorTheme(item.status)} variant="light">
+                            {strategyIndicatorStatusLabel(item.status)}
+                          </Tag>
+                        </Space>
+                        <Typography.Title level="h4" style={{ margin: 0 }}>
+                          {item.value}
+                        </Typography.Title>
+                        <Typography.Text theme="secondary">目标：{item.target}</Typography.Text>
+                        <Typography.Text theme="secondary">{item.detail}</Typography.Text>
+                        <Typography.Text>下一步：{item.action}</Typography.Text>
+                      </Space>
+                    </Card>
+                  ))}
+                </div>
+              ) : null}
               {strategySnapshots.length > 0 ? (
                 <div className="max-h-[220px] overflow-auto rounded-2xl border border-slate-200/70 dark:border-slate-800">
                   <table className="w-full text-xs">
@@ -1093,6 +1860,57 @@ export function OverviewPanel({
               />
             </Col>
           </Row>
+          {preflightLatest ? (
+            releaseCoreChecks.length > 0 ? (
+              <Card bordered size="small">
+                <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                  <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+                    <div>
+                      <Typography.Text strong>核心上线门禁</Typography.Text>
+                      <div>
+                        <Typography.Text theme="secondary">
+                          优先看业务默认版本、账号权限、Coze 查询入口和 ComfyUI 队列；这些失败就不要更新服务。
+                        </Typography.Text>
+                      </div>
+                    </div>
+                    <Tag
+                      theme={releaseCoreFailedMessages.length > 0 ? 'danger' : releaseCoreWarningMessages.length > 0 ? 'warning' : 'success'}
+                      variant="light"
+                    >
+                      {releaseCoreFailedMessages.length > 0
+                        ? `阻塞 ${releaseCoreFailedMessages.length}`
+                        : releaseCoreWarningMessages.length > 0
+                          ? `提醒 ${releaseCoreWarningMessages.length}`
+                          : '关键链路正常'}
+                    </Tag>
+                  </Space>
+                  <Row gutter={[12, 12]}>
+                    {releaseCoreChecks.map((check) => (
+                      <Col xs={12} sm={6} key={`${preflightLatest.id}-${check.name}-core`}>
+                        <Card bordered size="small">
+                          <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                            <Space align="center" style={{ justifyContent: 'space-between', width: '100%', gap: 8 }}>
+                              <Typography.Text strong>{check.title}</Typography.Text>
+                              <Tag theme={releasePreflightCheckTheme(check.status)} variant="light">
+                                {releasePreflightCheckLabel(check.status)}
+                              </Tag>
+                            </Space>
+                            <Typography.Text theme="secondary">{check.detail || '暂无运行详情'}</Typography.Text>
+                            {check.suggestion ? <Typography.Text theme="secondary">处理建议：{check.suggestion}</Typography.Text> : null}
+                          </Space>
+                        </Card>
+                      </Col>
+                    ))}
+                  </Row>
+                </Space>
+              </Card>
+            ) : (
+              <Alert
+                theme="warning"
+                message="本次轻量门禁没有返回业务能力和账号权限检查，请确认后端已经更新到包含核心上线门禁的版本。"
+              />
+            )
+          ) : null}
           {preflightLatest ? (
             releaseCronChecks.length > 0 ? (
               <Card bordered size="small">

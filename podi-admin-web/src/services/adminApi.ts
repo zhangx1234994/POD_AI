@@ -26,6 +26,7 @@ import type {
   BillingInvoiceRequestListResponse,
   BillingInvoiceRequestUpdatePayload,
   BillingInvoiceRequest,
+  BillingCommercialReportResponse,
   BillingOverviewResponse,
   BillingUserDetailResponse,
   Binding,
@@ -35,6 +36,8 @@ import type {
   BusinessDefaultApprovalListResponse,
   BusinessOperationLogListResponse,
   BusinessRunListResponse,
+  BusinessRunBulkActionResponse,
+  BusinessRunIssueChecklistResponse,
   BusinessUsageSummaryResponse,
   DashboardMetrics,
   DispatchLogResponse,
@@ -51,6 +54,7 @@ import type {
   ComfyuiVersionCatalogSyncResponse,
   ComfyuiQueueStatus,
   ComfyuiQueueSummary,
+  ComfyuiWorkflowCompatibility,
   ComfyuiServerDiffLog,
   ComfyuiAgent,
   ComfyuiAgentAlert,
@@ -76,6 +80,9 @@ import type {
   PackageAlertNotificationListResponse,
   PackageAlertNotificationPayload,
   PackageAlertNotificationResponse,
+  PackageCatalogItem,
+  PackageCatalogListResponse,
+  PackageCatalogPayload,
   PackagePurchaseOrderCreatePayload,
   PackagePurchaseOrderListResponse,
   PackagePurchaseOrderUpdatePayload,
@@ -103,6 +110,8 @@ import type {
   WeeklyReportListResponse,
   WeeklyReportResponse,
   VendorModel,
+  VendorModelBulkActionRequest,
+  VendorModelBulkActionResponse,
   VendorModelListResponse,
   VendorModelSyncResponse,
   VendorProviderListResponse,
@@ -140,6 +149,7 @@ type BusinessRunQueryOptions = {
   status?: string;
   billingStatus?: string;
   callbackStatus?: string;
+  issueCategory?: string;
   version?: string;
   source?: string;
   tenantId?: string;
@@ -335,6 +345,9 @@ function buildBusinessRunQuery(options?: BusinessRunQueryOptions) {
   if (options?.callbackStatus && options.callbackStatus !== 'all') {
     params.set('callback_status', options.callbackStatus);
   }
+  if (options?.issueCategory && options.issueCategory !== 'all') {
+    params.set('issue_category', options.issueCategory);
+  }
   if (options?.version && options.version !== 'all') params.set('version', options.version);
   if (options?.source?.trim()) params.set('source', options.source.trim());
   if (options?.tenantId?.trim()) params.set('tenant_id', options.tenantId.trim());
@@ -514,6 +527,11 @@ export const adminApi = {
       method: 'PATCH',
       body: JSON.stringify(payload),
     }),
+  checkVendorKey: (id: string, payload?: { check?: string; includeAuth?: boolean }) =>
+    request<VendorEgressCheckResponse>(`/api/admin/vendor-api/keys/${encodeURIComponent(id)}/check`, {
+      method: 'POST',
+      body: JSON.stringify(payload || { check: 'models', includeAuth: true }),
+    }),
   listVendorModels: () => request<VendorModelListResponse>('/api/admin/vendor-api/models'),
   syncVolcengineModels: () =>
     request<VendorModelSyncResponse>('/api/admin/vendor-api/models/sync/volcengine', { method: 'POST' }),
@@ -522,6 +540,19 @@ export const adminApi = {
   updateVendorModel: (id: number, payload: Partial<VendorModel>) =>
     request<VendorModel>(`/api/admin/vendor-api/models/${id}`, {
       method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+  recordVendorModelAcceptance: (
+    id: number,
+    payload: { status?: string; note?: string; evidenceRunId?: string; evidenceUrl?: string; metadata?: JsonRecord },
+  ) =>
+    request<VendorModel>(`/api/admin/vendor-api/models/${id}/acceptance-records`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  bulkActionVendorModels: (payload: VendorModelBulkActionRequest) =>
+    request<VendorModelBulkActionResponse>('/api/admin/vendor-api/models/bulk-action', {
+      method: 'POST',
       body: JSON.stringify(payload),
     }),
 
@@ -762,6 +793,14 @@ export const adminApi = {
     });
     const suffix = params.toString() ? `?${params.toString()}` : '';
     return request<ComfyuiQueueSummary>(`/api/admin/comfyui/queue-summary${suffix}`);
+  },
+  getComfyuiWorkflowCompatibility: (executorIds?: string[]) => {
+    const params = new URLSearchParams();
+    (executorIds || []).forEach((id) => {
+      if (id) params.append('executorIds', id);
+    });
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    return request<ComfyuiWorkflowCompatibility>(`/api/admin/comfyui/workflow-compatibility${suffix}`);
   },
   saveComfyuiServerDiff: (payload: { baseline_executor_id: string; payload: JsonRecord }) =>
     request<ComfyuiServerDiffLog>('/api/admin/comfyui/server-diff', {
@@ -1071,6 +1110,21 @@ export const adminApi = {
       method: 'PATCH',
       body: JSON.stringify(payload),
     }),
+  recordBusinessCapabilityAcceptance: (
+    id: string,
+    payload: {
+      status?: string;
+      note?: string | null;
+      evidenceRunId?: string | null;
+      evidenceUrl?: string | null;
+      checklist?: Record<string, unknown>;
+      metadata?: Record<string, unknown>;
+    },
+  ) =>
+    request<BusinessCapability>(`/api/admin/business/capabilities/${encodeURIComponent(id)}/acceptance-records`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
   compareBusinessCapabilities: (id: string, targetId: string) =>
     request<BusinessCapabilityCompareResponse>(
       `/api/admin/business/capabilities/${encodeURIComponent(id)}/compare?target_id=${encodeURIComponent(targetId)}`,
@@ -1128,6 +1182,42 @@ export const adminApi = {
       `/api/admin/business/runs/${encodeURIComponent(runId)}/callback/retry`,
       { method: 'POST' },
     ),
+  retestBusinessRun: (runId: string) =>
+    request<BusinessRunListResponse['items'][number]>(`/api/admin/business/runs/${encodeURIComponent(runId)}/retest`, {
+      method: 'POST',
+    }),
+  bulkRetestBusinessRuns: (payload: { runIds: string[]; onlyFailed?: boolean }) =>
+    request<BusinessRunBulkActionResponse>('/api/admin/business/runs/bulk/retest', {
+      method: 'POST',
+      body: JSON.stringify({
+        runIds: payload.runIds,
+        onlyFailed: payload.onlyFailed ?? true,
+      }),
+    }),
+  bulkRetryBusinessRunCallbacks: (payload: { runIds: string[]; onlyFailed?: boolean }) =>
+    request<BusinessRunBulkActionResponse>('/api/admin/business/runs/bulk/callback-retry', {
+      method: 'POST',
+      body: JSON.stringify({
+        runIds: payload.runIds,
+        onlyFailed: payload.onlyFailed ?? true,
+      }),
+    }),
+  bulkMarkBusinessRunsIgnored: (payload: { runIds: string[]; note?: string }) =>
+    request<BusinessRunBulkActionResponse>('/api/admin/business/runs/bulk/mark-ignored', {
+      method: 'POST',
+      body: JSON.stringify({
+        runIds: payload.runIds,
+        note: payload.note,
+      }),
+    }),
+  generateBusinessRunIssueChecklist: (payload: { runIds: string[]; onlyFailed?: boolean }) =>
+    request<BusinessRunIssueChecklistResponse>('/api/admin/business/runs/issue-checklist', {
+      method: 'POST',
+      body: JSON.stringify({
+        runIds: payload.runIds,
+        onlyFailed: payload.onlyFailed ?? true,
+      }),
+    }),
   retryBusinessRunBilling: (runId: string) =>
     request<BusinessRunListResponse['items'][number]>(
       `/api/admin/business/runs/${encodeURIComponent(runId)}/billing/retry`,
@@ -1152,6 +1242,23 @@ export const adminApi = {
   getBillingOverview: (options?: BillingQueryOptions) => {
     const params = buildBillingQuery({ ...options, limit: options?.limit ?? 100 });
     return request<BillingOverviewResponse>(`/api/admin/billing/overview?${params.toString()}`);
+  },
+  getBillingCommercialReport: (options?: BillingQueryOptions) => {
+    const params = buildBillingQuery({ ...options, limit: options?.limit ?? 1000 });
+    params.delete('issue_limit');
+    params.delete('package_alert_limit');
+    params.delete('window_days');
+    return request<BillingCommercialReportResponse>(`/api/admin/billing/commercial-report?${params.toString()}`);
+  },
+  exportBillingCommercialReport: (options?: BillingQueryOptions) => {
+    const params = buildBillingQuery({ ...options, limit: options?.limit ?? 1000 });
+    params.delete('issue_limit');
+    params.delete('package_alert_limit');
+    params.delete('window_days');
+    return requestBlob(`/api/admin/billing/commercial-report/export?${params.toString()}`, {
+      method: 'GET',
+      headers: { Accept: 'text/csv' },
+    });
   },
   getBillingMonthlySettlement: (options?: BillingQueryOptions) => {
     const params = buildBillingQuery({ ...options, limit: options?.limit ?? 200 });
@@ -1188,6 +1295,23 @@ export const adminApi = {
   getBillingNotificationConfig: () => request<BillingNotificationConfigResponse>('/api/admin/billing/notification-config'),
   updateBillingNotificationConfig: (payload: BillingNotificationConfigPayload) =>
     request<BillingNotificationConfigResponse>('/api/admin/billing/notification-config', {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+  listPackageCatalog: (options?: Pick<BillingQueryOptions, 'businessKey'> & { status?: string; limit?: number }) => {
+    const params = new URLSearchParams();
+    if (options?.businessKey?.trim() && options.businessKey !== 'all') params.set('business_key', options.businessKey.trim());
+    if (options?.status?.trim() && options.status !== 'all') params.set('status', options.status.trim());
+    params.set('limit', String(options?.limit ?? 100));
+    return request<PackageCatalogListResponse>(`/api/admin/billing/package-catalog?${params.toString()}`);
+  },
+  upsertPackageCatalog: (payload: PackageCatalogPayload) =>
+    request<PackageCatalogItem>('/api/admin/billing/package-catalog', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  updatePackageCatalog: (packageKey: string, payload: PackageCatalogPayload) =>
+    request<PackageCatalogItem>(`/api/admin/billing/package-catalog/${encodeURIComponent(packageKey)}`, {
       method: 'PATCH',
       body: JSON.stringify(payload),
     }),

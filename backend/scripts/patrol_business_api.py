@@ -6,6 +6,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+from pathlib import Path
+import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -162,6 +164,183 @@ def _extract_executor_evidence(run: dict[str, Any]) -> str:
     return ""
 
 
+def _extract_selected_capability_id(run: dict[str, Any]) -> str:
+    route_info = run.get("routeInfo") or run.get("route_info")
+    if isinstance(route_info, dict):
+        for key in ("selectedCapabilityId", "selected_capability_id", "businessVersionId", "business_version_id"):
+            value = route_info.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    flow = run.get("flowSummary") or run.get("flow_summary")
+    if isinstance(flow, dict):
+        route = flow.get("route")
+        if isinstance(route, dict):
+            for key in ("selectedCapabilityId", "selected_capability_id", "businessVersionId", "business_version_id"):
+                value = route.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+    for key in ("businessVersionId", "business_version_id", "capabilityId", "capability_id"):
+        value = run.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _extract_output_counts(run: dict[str, Any]) -> dict[str, int]:
+    image_urls = run.get("imageUrls") or run.get("image_urls") or []
+    video_urls = run.get("videoUrls") or run.get("video_urls") or []
+    texts = run.get("texts") or []
+    return {
+        "imageCount": len(image_urls) if isinstance(image_urls, list) else 0,
+        "videoCount": len(video_urls) if isinstance(video_urls, list) else 0,
+        "textCount": len(texts) if isinstance(texts, list) else 0,
+    }
+
+
+def _record_acceptance_for_result(
+    client: httpx.Client,
+    item: dict[str, Any],
+    *,
+    note: str,
+    evidence_url: str,
+    require_executor_evidence: bool,
+) -> dict[str, Any]:
+    run = item.get("response") if isinstance(item.get("response"), dict) else {}
+    run = run if isinstance(run, dict) else {}
+    capability_id = _extract_selected_capability_id(run)
+    if not capability_id:
+        return {
+            "businessKey": item.get("businessKey"),
+            "label": item.get("label"),
+            "ok": False,
+            "detail": "missing selected business capability id",
+            "capabilityId": None,
+        }
+    run_id = str(item.get("runId") or run.get("runId") or run.get("id") or "").strip()
+    executor = _extract_executor_evidence(run)
+    output_counts = _extract_output_counts(run)
+    flow = run.get("flowSummary") or run.get("flow_summary")
+    callback = flow.get("callback") if isinstance(flow, dict) and isinstance(flow.get("callback"), dict) else {}
+    has_callback = bool(callback.get("status") or run.get("callbackStatus") or run.get("callback_status"))
+    payload = {
+        "status": "passed",
+        "note": note
+        or (
+            f"业务巡检通过：{item.get('label') or item.get('businessKey')}，"
+            f"{item.get('detail') or '真实链路已成功'}"
+        ),
+        "evidenceRunId": run_id,
+        "evidenceUrl": evidence_url or "",
+        "checklist": {
+            "businessFlow": True,
+            "resultAssets": _has_output(run),
+            "callbackObserved": has_callback,
+            "executorEvidence": bool(executor) if require_executor_evidence else None,
+        },
+        "metadata": {
+            "source": "patrol_business_api",
+            "mode": item.get("mode"),
+            "businessKey": item.get("businessKey"),
+            "businessLabel": item.get("label"),
+            "detail": item.get("detail"),
+            "runId": run_id,
+            "executor": executor,
+            "output": output_counts,
+            "requireExecutorEvidence": require_executor_evidence,
+            "recordedBy": "business-api-patrol",
+        },
+    }
+    response = client.post(f"/api/admin/business/capabilities/{capability_id}/acceptance-records", json=payload)
+    data = _json_or_text(response)
+    return {
+        "businessKey": item.get("businessKey"),
+        "label": item.get("label"),
+        "ok": response.status_code < 400,
+        "detail": f"status={response.status_code} capability={capability_id}",
+        "capabilityId": capability_id,
+        "response": data,
+    }
+
+
+def _build_summary(
+    *,
+    ok: bool,
+    mode: str,
+    base_url: str,
+    specs: list[BusinessSpec],
+    results: list[dict[str, Any]],
+    acceptance_results: list[dict[str, Any]],
+    tag: str,
+) -> dict[str, Any]:
+    failed_items = [item for item in results if not item.get("ok")]
+    return {
+        "ok": ok,
+        "mode": mode,
+        "baseUrl": str(base_url).rstrip("/"),
+        "generatedAt": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "tag": tag,
+        "businessKeys": [spec.key for spec in specs],
+        "total": len(results),
+        "passed": len(results) - len(failed_items),
+        "failed": len(failed_items),
+        "failedOrUnfinished": len(failed_items),
+        "results": results,
+        "failedItems": failed_items,
+        "acceptanceResults": acceptance_results,
+    }
+
+
+def _write_report(summary: dict[str, Any], report_path: str) -> str:
+    path = Path(report_path).expanduser()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(summary, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+    return str(path)
+
+
+def _record_release_patrol(
+    client: httpx.Client,
+    *,
+    summary: dict[str, Any],
+    status: str,
+    report_path: str,
+    command: str,
+    note: str,
+) -> dict[str, Any]:
+    payload = {
+        "status": status,
+        "command": command,
+        "reportPath": report_path or None,
+        "note": note or None,
+        "summary": summary,
+    }
+    response = client.post("/api/admin/dashboard/release-patrol/records", json=payload)
+    data = _json_or_text(response)
+    return {
+        "ok": response.status_code < 400,
+        "detail": f"status={response.status_code}",
+        "response": data,
+    }
+
+
+def _redacted_command(argv: list[str]) -> str:
+    parts: list[str] = []
+    redact_next = False
+    for item in argv:
+        if redact_next:
+            parts.append("***")
+            redact_next = False
+            continue
+        if item == "--token":
+            parts.append(item)
+            redact_next = True
+            continue
+        if item.startswith("--token="):
+            parts.append("--token=***")
+            continue
+        parts.append(item)
+    return " ".join(parts)
+
+
 def _validate_terminal_run(run: dict[str, Any], *, require_executor_evidence: bool = False) -> tuple[bool, str]:
     status = str(run.get("status") or "").strip().lower()
     if status != "succeeded":
@@ -275,6 +454,7 @@ def _run_live(
         "mode": "live",
         "ok": ok,
         "detail": f"runId={run_id} {detail}",
+        "runId": run_id,
         "response": final,
     }
 
@@ -298,10 +478,46 @@ def main() -> int:
         action="store_true",
         help="In live mode, require flowSummary/steps to expose the actual executor.",
     )
+    parser.add_argument(
+        "--record-acceptance",
+        action="store_true",
+        help="After all live patrols pass, write passed acceptance records for the selected business versions.",
+    )
+    parser.add_argument(
+        "--acceptance-note",
+        default="",
+        help="Optional note for acceptance records. Defaults to a patrol-generated note.",
+    )
+    parser.add_argument(
+        "--acceptance-evidence-url",
+        default="",
+        help="Optional report/screenshot URL attached to acceptance records.",
+    )
+    parser.add_argument(
+        "--report",
+        default="",
+        help="Optional JSON report path. When set, writes the patrol summary for later import or review.",
+    )
+    parser.add_argument(
+        "--record-release-patrol",
+        action="store_true",
+        help="After the patrol finishes, write the summary into admin dashboard release patrol records.",
+    )
+    parser.add_argument(
+        "--release-patrol-note",
+        default="",
+        help="Optional note for the release patrol record.",
+    )
     parser.add_argument("--skip-image-check", action="store_true", help="Skip live-mode image URL HEAD/Range check.")
     parser.add_argument("--json", action="store_true", help="Print machine-readable summary.")
     args = parser.parse_args()
 
+    if args.record_acceptance and args.mode != "live":
+        print("--record-acceptance requires --mode live.", flush=True)
+        return 2
+    if args.record_release_patrol and args.mode != "live":
+        print("--record-release-patrol requires --mode live.", flush=True)
+        return 2
     if args.mode == "live" and not str(args.image_url or "").strip():
         print(
             "live mode requires --image-url or PODI_PATROL_IMAGE_URL. "
@@ -326,6 +542,7 @@ def main() -> int:
     tag = _now_tag()
     timeout = httpx.Timeout(30.0, connect=10.0)
     results: list[dict[str, Any]] = []
+    acceptance_results: list[dict[str, Any]] = []
     with httpx.Client(
         base_url=str(args.base_url).rstrip("/"),
         headers=_headers(args.token),
@@ -358,15 +575,68 @@ def main() -> int:
             results.append(item)
             if not args.json:
                 _print_result(item)
+        if args.record_acceptance:
+            if all(item.get("ok") for item in results):
+                for item in results:
+                    acceptance_item = _record_acceptance_for_result(
+                        client,
+                        item,
+                        note=str(args.acceptance_note or "").strip(),
+                        evidence_url=str(args.acceptance_evidence_url or "").strip(),
+                        require_executor_evidence=bool(args.require_executor_evidence),
+                    )
+                    acceptance_results.append(acceptance_item)
+                    if not args.json:
+                        _print_result({**acceptance_item, "label": f"{acceptance_item.get('label')}验收"})
+            else:
+                acceptance_results.append(
+                    {
+                        "ok": False,
+                        "detail": "skip acceptance recording because at least one live patrol failed",
+                    }
+                )
+                if not args.json:
+                    print("[FAIL] 验收记录: live patrol failed, skip acceptance recording", flush=True)
 
     ok = all(item.get("ok") for item in results)
-    summary = {
-        "ok": ok,
-        "mode": args.mode,
-        "baseUrl": str(args.base_url).rstrip("/"),
-        "businessKeys": [spec.key for spec in specs],
-        "results": results,
-    }
+    if args.record_acceptance:
+        ok = ok and all(item.get("ok") for item in acceptance_results)
+    summary = _build_summary(
+        ok=ok,
+        mode=args.mode,
+        base_url=str(args.base_url).rstrip("/"),
+        specs=specs,
+        results=results,
+        acceptance_results=acceptance_results,
+        tag=tag,
+    )
+    report_path = ""
+    if args.report:
+        report_path = _write_report(summary, str(args.report))
+        if not args.json:
+            print(f"[PASS] 巡检报告: {report_path}", flush=True)
+    if args.record_release_patrol:
+        command = _redacted_command(sys.argv)
+        status = "passed" if ok else "failed"
+        with httpx.Client(
+            base_url=str(args.base_url).rstrip("/"),
+            headers=_headers(args.token),
+            timeout=timeout,
+            trust_env=False,
+        ) as client:
+            patrol_record = _record_release_patrol(
+                client,
+                summary=summary,
+                status=status,
+                report_path=report_path,
+                command=command,
+                note=str(args.release_patrol_note or "").strip()
+                or f"业务真实巡检{'通过' if ok else '失败'}：{','.join(summary['businessKeys'])}",
+            )
+        summary["releasePatrolRecord"] = patrol_record
+        if not args.json:
+            _print_result({**patrol_record, "label": "发版巡检记录", "businessKey": "dashboard"})
+        ok = ok and bool(patrol_record.get("ok"))
     if args.json:
         print(json.dumps(summary, ensure_ascii=False, indent=2))
     return 0 if ok else 1

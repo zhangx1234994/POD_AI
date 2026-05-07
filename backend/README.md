@@ -69,9 +69,9 @@
 
 ## 数据库（任务模型）
 - 在 `.env` 中配置 `DATABASE_URL`（本地/线上均需显式提供；不再内置 SQLite 默认值）。
-- 当前环境统一使用阿里云 RDS（`rm-bp1r74bu12nt8ibs50o.mysql.rds.aliyuncs.com`），账号 `kanban`，密码 `Chrd5@0987`，库名 `ai_zhongtai`。示例：
+- 生产环境数据库地址、账号和密码只允许通过服务器环境变量或本地忽略文件维护，不允许写入仓库。示例：
   ```bash
-  export DATABASE_URL='mysql+pymysql://kanban:Chrd5%400987@rm-bp1r74bu12nt8ibs50o.mysql.rds.aliyuncs.com/ai_zhongtai'
+  export DATABASE_URL='mysql+pymysql://<user>:<password>@<mysql-host>:3306/<database>'
   ```
 - 运行 `python scripts/create_schema.py` 会根据 `app/models/task.py` 中的 SQLAlchemy 定义创建以下核心表：
   - `task_batches`：批量任务元数据。

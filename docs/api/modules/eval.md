@@ -8,7 +8,7 @@
 ## 鉴权
 
 - **公开评测**：`EVAL_PUBLIC_TOKEN`（`X-Eval-Token` 或 `?token=`）
-- **评测管理**：`EVAL_ADMIN_TOKEN`（`X-Eval-Admin-Token` 或 `?admin_token=`）
+- **评测管理**：`EVAL_ADMIN_TOKEN`（`X-Eval-Admin-Token` 或 `?admin_token=`），服务器必须显式配置该环境变量，代码不提供默认口令。
 - **管理端评测**：管理员 Bearer Token（`/api/admin/evals/*`）
 
 ---
@@ -154,6 +154,29 @@ python3 backend/scripts/check_eval_operations_health.py
     - 评测 API 可正常创建 run，OSS 图片 URL 能正确进入执行链路。
     - 当前主要待优化点在上游 prompt 生成质量，而非评测执行接口本身。
 
+### GET /api/evals/metrics/workflows
+
+返回每个评测工作流的评分汇总和近期运行概况，测评端首页卡片用它判断“最近可用 / 最近失败 / 生成未回填 / 暂无运行”。
+
+常用查询参数：
+
+- `recent_hours`：近期运行统计窗口，默认 `72`，范围 `1~720` 小时。
+
+响应核心字段：
+
+- `metrics.{workflowVersionId}.ratingCount`：评分票数。
+- `metrics.{workflowVersionId}.avgRating`：平均评分，无评分时为 `null`。
+- `metrics.{workflowVersionId}.runCount`：该工作流累计评测运行数。
+- `metrics.{workflowVersionId}.recentRunCount`：近期评测运行数。
+- `metrics.{workflowVersionId}.recentSuccessCount`：近期成功并有结果的运行数。
+- `metrics.{workflowVersionId}.recentFailureCount`：近期失败运行数。
+- `metrics.{workflowVersionId}.recentRunningCount`：近期仍未收口的运行数。
+- `metrics.{workflowVersionId}.recentNoOutputCount`：近期状态成功但无图片、视频、文字或结构化结果的运行数。
+- `metrics.{workflowVersionId}.recentOutputKindCounts`：近期结果类型分布，固定包含 `image/video/text/structured/none`，用于测评端区分生图、生视频、VL/文字和结构化能力。
+- `metrics.{workflowVersionId}.lastRunStatus`：最近一次运行的统一终态，常见为 `success / running / failed`。
+- `metrics.{workflowVersionId}.lastRunOutputKind`：最近一次运行的结果类型，取值同上。
+- `metrics.{workflowVersionId}.lastErrorCode`：最近一次失败的错误码，不返回敏感内部信息。
+
 ### POST /api/evals/runs
 
 创建评测 run。
@@ -188,6 +211,12 @@ python3 backend/scripts/check_eval_operations_health.py
 - `callback_status`：`waiting/running/success/failed/not_configured`
 - `final_status`：`pending/running/success/failed/canceled`
 - `error_code`：标准错误码（可为空）
+
+只读成本字段：
+
+- `cost_amount` / `currency`：如果该评测 run 关联了中台能力任务，并且能力调用日志已记录成本，则返回本次估算成本。
+- `billing_unit` / `unit_price`：返回成本计价单位和单位成本，用于评测端任务追踪页展示，方便判断批量评测大概消耗。
+- 成本字段仅用于内部评测复核，不代表对业务方正式收费；字段缺失时前端显示“成本未记录”。
 
 ### POST /api/evals/batches
 
@@ -338,6 +367,8 @@ python3 backend/scripts/check_eval_operations_health.py
 ### GET /api/evals/runs/{run_id}
 
 查询单个 run。
+
+响应同列表项，包含统一状态字段和只读成本字段。
 
 ### POST /api/evals/runs/{run_id}/annotations
 

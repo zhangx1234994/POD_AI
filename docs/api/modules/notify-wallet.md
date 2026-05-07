@@ -99,14 +99,64 @@
 
 **规则**
 
-- `traceId` 可选；传入时按 `userId + traceId` 幂等。
+- `traceId` 或 `taskId` 必须至少传一个，作为扣费幂等键。
+- 优先按 `traceId` 幂等；未传 `traceId` 但传入 `taskId` 时，后端会使用 `task:{taskId}` 作为幂等键。
 - 幂等命中时不重复扣费，返回 `idempotent=true`。
 - 任务自动结算可通过 `WALLET_AUTO_EXPENSE_ENABLED` 开关控制（默认开启）。
 - 成本到积分换算默认使用 `WALLET_POINTS_PER_USD=100`（可配置）。
 
 **错误码**
 
+- `WALLET_TRACE_ID_REQUIRED`（400，缺少 `traceId/taskId`，无法安全防重）
 - `WALLET_INSUFFICIENT`（402）
+
+### POST /api/wallet/v1/adjustments
+
+**用途**：人工调账、退款或补扣。该接口必须带幂等键，避免重复点击或重复回调造成多退/多扣。
+
+**请求体**
+
+```json
+{
+  "userId": "u_123",
+  "direction": "refund",
+  "points": 50,
+  "taskId": "run_001",
+  "traceId": "business_run_refund:run_001",
+  "provider": "fission",
+  "modelKey": "v2",
+  "description": "业务任务误扣退回"
+}
+```
+
+**响应体**
+
+```json
+{
+  "transactionId": "txn_456",
+  "userId": "u_123",
+  "direction": "increase",
+  "adjusted": 50,
+  "balance": 500,
+  "idempotent": false,
+  "taskId": "run_001",
+  "traceId": "business_run_refund:run_001",
+  "provider": "fission",
+  "modelKey": "v2"
+}
+```
+
+**规则**
+
+- `direction` 支持 `increase/credit/refund`（加余额）和 `decrease/debit/deduct`（扣余额）。
+- `traceId` 或 `taskId` 必须至少传一个；重复请求命中同一幂等键时不重复调账。
+- 所有调账都会写入钱包流水，`description` 会保留人工原因，方便后续对账。
+
+**错误码**
+
+- `WALLET_TRACE_ID_REQUIRED`（400）
+- `WALLET_ADJUSTMENT_DIRECTION_INVALID`（400）
+- `WALLET_INSUFFICIENT`（402，补扣时余额不足）
 
 ### POST /api/wallet/v1/confirm
 

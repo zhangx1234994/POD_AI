@@ -21,6 +21,7 @@ export interface BusinessRunFilters {
   status: string;
   billingStatus: string;
   callbackStatus: string;
+  issueCategory: string;
   version: string;
   source: string;
   tenantId: string;
@@ -32,6 +33,7 @@ export interface BusinessRunFilters {
 
 interface BusinessDashboardActionsParams {
   businessForm: BusinessCapabilityFormState;
+  businessRuns: BusinessRun[];
   businessRunFilters: BusinessRunFilters;
   defaultBusinessCapabilityForm: BusinessCapabilityFormState;
   effectiveBusinessCompareLeftId: string;
@@ -57,6 +59,7 @@ interface BusinessDashboardActionsParams {
 
 export const useBusinessDashboardActions = ({
   businessForm,
+  businessRuns,
   businessRunFilters,
   defaultBusinessCapabilityForm,
   effectiveBusinessCompareLeftId,
@@ -98,6 +101,11 @@ export const useBusinessDashboardActions = ({
   const handleBusinessSetDefault = useCallback(
     async (item: BusinessCapability) => {
       setBusinessActionError(null);
+      if (item.releaseGate?.canRequestDefault === false) {
+        const suggestion = item.releaseGate.suggestions?.[0] || '先完成业务真实链路验收，并记录“验收通过”。';
+        setBusinessActionError(`暂不能申请默认版本切换：${suggestion}`);
+        return;
+      }
       if (
         !window.confirm(
           `确认申请把 ${businessKeyLabel(item.businessKey)} 的默认版本切到 ${item.version}？审批通过后，业务入口会优先使用这个版本。请确认已完成测评端真实链路测试。`,
@@ -169,6 +177,39 @@ export const useBusinessDashboardActions = ({
       } catch (error: any) {
         console.error('toggle business capability status failed', error);
         setBusinessActionError(error?.message || '更新业务版本状态失败，请检查服务日志。');
+      } finally {
+        setBusinessActionLoadingId(null);
+      }
+    },
+    [load, setBusinessActionError, setBusinessActionLoadingId],
+  );
+
+  const handleBusinessRecordAcceptance = useCallback(
+    async (item: BusinessCapability) => {
+      setBusinessActionError(null);
+      const note = window.prompt(
+        `记录 ${businessKeyLabel(item.businessKey)} ${item.version} 的人工验收结论。请填写验收说明：`,
+        '测评端真实链路通过，回调和结果回填正常。',
+      );
+      if (note === null) return;
+      setBusinessActionLoadingId(`acceptance:${item.id}`);
+      try {
+        await adminApi.recordBusinessCapabilityAcceptance(item.id, {
+          status: 'passed',
+          note,
+          checklist: {
+            businessFlow: true,
+            callback: true,
+            resultAssets: true,
+          },
+          metadata: {
+            source: 'admin-web',
+          },
+        });
+        await load();
+      } catch (error: any) {
+        console.error('record business acceptance failed', error);
+        setBusinessActionError(error?.message || '记录业务版本验收失败，请检查服务日志。');
       } finally {
         setBusinessActionLoadingId(null);
       }
@@ -314,6 +355,123 @@ export const useBusinessDashboardActions = ({
     ],
   );
 
+  const handleBusinessBulkCallbackRetry = useCallback(async () => {
+    const runIds = businessRuns
+      .filter((row) => row.callbackStatus === 'failed' || Boolean(row.callbackError))
+      .map((row) => row.runId || row.id);
+    if (runIds.length === 0) {
+      setBusinessActionError('当前已加载记录里没有回调失败任务。先筛选“业务回调问题”或刷新列表。');
+      return;
+    }
+    if (!window.confirm(`确认重试当前已加载的 ${runIds.length} 条回调失败任务？`)) return;
+    setBusinessActionError(null);
+    setBusinessActionLoadingId('bulk:callback');
+    try {
+      const res = await adminApi.bulkRetryBusinessRunCallbacks({ runIds, onlyFailed: true });
+      if (res.failed > 0) {
+        setBusinessActionError(`批量回调重试完成：成功 ${res.succeeded} 条，失败或跳过 ${res.failed} 条。`);
+      }
+      await refreshBusinessRuns();
+    } catch (error: any) {
+      console.error('bulk retry business callbacks failed', error);
+      setBusinessActionError(error?.message || '批量回调重试失败，请检查服务日志。');
+    } finally {
+      setBusinessActionLoadingId(null);
+    }
+  }, [businessRuns, refreshBusinessRuns, setBusinessActionError, setBusinessActionLoadingId]);
+
+  const handleBusinessBulkRetest = useCallback(async () => {
+    const runIds = businessRuns
+      .filter((row) => {
+        const status = String(row.status || '').toLowerCase();
+        const hasIssue = Boolean(row.issueCategory && row.issueCategory !== 'none');
+        return hasIssue || status === 'failed' || status === 'cancelled';
+      })
+      .map((row) => row.runId || row.id);
+    if (runIds.length === 0) {
+      setBusinessActionError('当前已加载记录里没有需要复测的问题任务。先按问题类型筛选或刷新列表。');
+      return;
+    }
+    if (
+      !window.confirm(
+        `确认按原始入参复测当前已加载的 ${runIds.length} 条问题任务？复测会创建新任务，但不会沿用旧任务的业务回调地址。`,
+      )
+    ) {
+      return;
+    }
+    setBusinessActionError(null);
+    setBusinessActionLoadingId('bulk:retest');
+    try {
+      const res = await adminApi.bulkRetestBusinessRuns({ runIds, onlyFailed: true });
+      const summary = `批量复测已提交：新建 ${res.succeeded} 条，失败或跳过 ${res.failed} 条。`;
+      setBusinessActionError(summary);
+      await refreshBusinessRuns();
+    } catch (error: any) {
+      console.error('bulk retest business runs failed', error);
+      setBusinessActionError(error?.message || '批量复测失败，请检查服务日志。');
+    } finally {
+      setBusinessActionLoadingId(null);
+    }
+  }, [businessRuns, refreshBusinessRuns, setBusinessActionError, setBusinessActionLoadingId]);
+
+  const handleBusinessBulkIgnoreIssues = useCallback(async () => {
+    const runIds = businessRuns
+      .filter((row) => row.issueCategory && row.issueCategory !== 'none')
+      .map((row) => row.runId || row.id);
+    if (runIds.length === 0) {
+      setBusinessActionError('当前已加载记录里没有待处理链路问题。先按问题类型筛选或刷新列表。');
+      return;
+    }
+    const note = window.prompt(
+      `确认把当前已加载的 ${runIds.length} 条问题记录标记为“无需处理”？请填写原因，方便后续复盘。`,
+      '已人工确认，本轮暂不继续处理。',
+    );
+    if (note === null) return;
+    setBusinessActionError(null);
+    setBusinessActionLoadingId('bulk:ignore');
+    try {
+      const res = await adminApi.bulkMarkBusinessRunsIgnored({ runIds, note });
+      if (res.failed > 0) {
+        setBusinessActionError(`批量标记完成：成功 ${res.succeeded} 条，失败 ${res.failed} 条。`);
+      }
+      await refreshBusinessRuns();
+    } catch (error: any) {
+      console.error('bulk ignore business issues failed', error);
+      setBusinessActionError(error?.message || '批量标记无需处理失败，请检查服务日志。');
+    } finally {
+      setBusinessActionLoadingId(null);
+    }
+  }, [businessRuns, refreshBusinessRuns, setBusinessActionError, setBusinessActionLoadingId]);
+
+  const handleBusinessGenerateIssueChecklist = useCallback(async () => {
+    const runIds = businessRuns
+      .filter((row) => row.issueCategory && row.issueCategory !== 'none')
+      .map((row) => row.runId || row.id);
+    if (runIds.length === 0) {
+      setBusinessActionError('当前已加载记录里没有待处理链路问题。先按问题类型筛选或刷新列表。');
+      return;
+    }
+    setBusinessActionError(null);
+    setBusinessActionLoadingId('bulk:checklist');
+    try {
+      const res = await adminApi.generateBusinessRunIssueChecklist({ runIds, onlyFailed: true });
+      const markdown = String(res.markdown || '').trim();
+      if (markdown && navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(markdown);
+        setBusinessActionError(`已生成 ${res.issueCount} 条排障清单，并复制到剪贴板；跳过 ${res.skippedCount} 条。`);
+      } else {
+        const blob = new Blob([markdown || '当前没有需要处理的问题记录。'], { type: 'text/markdown;charset=utf-8' });
+        downloadBlob(blob, `business-issue-checklist-${Date.now()}.md`);
+        setBusinessActionError(`已生成 ${res.issueCount} 条排障清单并下载；跳过 ${res.skippedCount} 条。`);
+      }
+    } catch (error: any) {
+      console.error('generate business issue checklist failed', error);
+      setBusinessActionError(error?.message || '生成排障清单失败，请检查服务日志。');
+    } finally {
+      setBusinessActionLoadingId(null);
+    }
+  }, [businessRuns, downloadBlob, setBusinessActionError, setBusinessActionLoadingId]);
+
   const handleBusinessSubmit = useCallback(async () => {
     const nextPayload = createBusinessCapabilityPayload(businessForm);
     if (!nextPayload.ok) {
@@ -342,11 +500,16 @@ export const useBusinessDashboardActions = ({
     handleBusinessSetDefault,
     handleBusinessDefaultApprovalDecision,
     handleBusinessToggleActive,
+    handleBusinessRecordAcceptance,
     handleBusinessCompare,
     handleBusinessRollback,
     refreshBusinessRuns,
     exportBusinessRuns,
     handleBusinessCallbackRetry,
+    handleBusinessBulkCallbackRetry,
+    handleBusinessBulkRetest,
+    handleBusinessBulkIgnoreIssues,
+    handleBusinessGenerateIssueChecklist,
     handleBusinessSubmit,
   };
 };

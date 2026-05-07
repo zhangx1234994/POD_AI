@@ -60,8 +60,20 @@ class ExecutorHealth(BaseModel):
     last_heartbeat_at: datetime | None = None
 
 
+class DashboardStrategyIndicator(BaseModel):
+    key: str
+    title: str
+    value: str
+    target: str
+    status: str
+    detail: str
+    action: str
+
+
 class DashboardStrategySummary(BaseModel):
     window_hours: int
+    north_star: DashboardStrategyIndicator
+    indicators: list[DashboardStrategyIndicator]
     business_total: int
     business_succeeded: int
     business_failed: int

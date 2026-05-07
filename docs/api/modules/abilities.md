@@ -12,6 +12,36 @@
 
 ---
 
+## 0) 与管理端 API 开放页对齐
+
+管理端“API 开放”页展示的原子能力接口必须和本文档保持一致：
+
+| 页面名称 | 接口 | 文档位置 | 使用对象 | 冒烟口径 |
+| --- | --- | --- | --- | --- |
+| 能力清单 | `GET /api/abilities` | 1) 能力清单 | 开发接入、测评端、上层编排 | 返回 200，且 `items` 中包含已激活能力、输入 schema 和输出能力描述。 |
+| 能力详情 | `GET /api/abilities/{abilityId}` | 1) 能力清单 | 开发接入、排障 | 已存在能力返回详情；不存在能力应返回 `ABILITY_NOT_FOUND`。 |
+| 调用能力 | `POST /api/abilities/{abilityId}/invoke` | 2) 能力调用 | 内部编排、测评、高级开发 | 成功返回统一 envelope；缺图、能力停用、节点不可用必须返回明确错误码。 |
+| 表单选项 | `GET /api/abilities/options` | 3) 能力选项（公共） | 管理端、测评端、工具开发 | 返回 200，前端不得继续硬编码 provider/category/status 选项。 |
+
+维护规则：
+
+- 新增原子能力时，必须同步能力 schema、错误码、管理端动态表单和能力测试入口。
+- 新增或修改能力前，必须先按 `docs/testing/ABILITY_TEST_LEDGER.md` 的“新能力接入要求”执行：能力归类、路由配置、页面露出、API 契约、错误口径、自动检查和实跑记录必须同批完成。
+- 能力接口面向内部和高级开发；普通业务方优先使用 `docs/api/modules/business.md` 的业务 API。
+- 图片、视频、文字、结构化结果和普通资源必须在返回结构中分开展示，不允许继续按“生图”单一口径处理。
+
+## 0.1) 能力 API 错误处理口径
+
+| 场景 | 常见错误码 | 调用方动作 | 平台动作 |
+| --- | --- | --- | --- |
+| 能力不存在或已停用 | `ABILITY_NOT_FOUND`、`ABILITY_INACTIVE` | 检查 `abilityId` 是否来自最新能力清单。 | 管理端能力目录必须显示启停状态和最近测试状态。 |
+| 缺少必填图片或参数 | `IMAGE_REQUIRED`、`COMFYUI_IMAGE_REQUIRED`、`VL_IMAGE_REQUIRED` | 修正请求体后重新提交，不建议自动重试。 | 前端动态表单必须根据 `inputSchema` 提前拦截。 |
+| 执行节点不可用 | `ABILITY_EXECUTOR_NOT_CONFIGURED`、`EXECUTOR_NOT_FOUND`、`EXECUTOR_TYPE_NOT_*` | 暂停直接调用该能力，保留 `requestId/logId` 排查。 | 检查执行节点标签、能力绑定、节点健康和路由策略。 |
+| 队列、超时或上游失败 | `COMFYUI_TIMEOUT`、`KIE_TIMEOUT`、`ABILITY_TASK_FAILED`、`VENDOR_API_EXECUTION_FAILED` | 可稍后重试一次；连续失败时转平台排查。 | 管理端能力调用页必须能看到执行节点、耗时、错误和输出回填状态。 |
+| 异步任务查询不到 | `TASK_NOT_FOUND` | 确认传入的是能力任务 ID，不是业务 `runId` 或 Coze `taskId`。 | 保证任务 ID 语义在业务 API、能力 API、Coze 工具箱中不混用。 |
+
+---
+
 ## 1) 能力清单
 
 ### GET /api/abilities

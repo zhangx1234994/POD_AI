@@ -28,9 +28,23 @@ from app.core.config import get_settings
 from app.core.db import get_session
 from app.deps.auth import require_admin
 from app.models.eval import EvalRun, EvalWorkflowVersion
-from app.models.integration import AbilityInvocationLog, AbilityTask, BusinessRun, Executor
+from app.models.integration import (
+    Ability,
+    AbilityInvocationLog,
+    AbilityTask,
+    ApiKey,
+    BusinessCapability,
+    BusinessRun,
+    Executor,
+    VendorModelCatalog,
+)
 from app.models.task import Task, TaskBatch, TaskEvent
+from app.models.user import InviteCode, User, UserSession
 from app.schemas import admin_dashboard as schemas
+from app.services.ability_seed import ensure_default_abilities
+from app.services.api_key_selector import is_usable
+from app.services.business_runs import BusinessRunService, RECIPE_EXECUTABLE_STEP_TYPES
+from app.services.business_seed import ensure_default_business_capabilities
 from app.services.eval_operations_health import build_eval_operations_health
 from app.services.integration_test import integration_test_service
 
@@ -77,6 +91,13 @@ HEALTH_WATCH_UNITS = (
         "description": "最近一次评测运行健康检查结果。",
     },
 )
+CORE_BUSINESS_KEYS = ("pattern_extract", "fission", "outpaint")
+CORE_BUSINESS_LABELS = {
+    "pattern_extract": "花纹提取",
+    "fission": "图裂变",
+    "outpaint": "扩图",
+}
+VENDOR_PROVIDERS = {"openai", "openai_compatible", "volcengine", "baidu", "kie"}
 
 
 def _now_utc() -> datetime:
@@ -380,12 +401,180 @@ def _normalize_release_patrol_summary(summary: dict[str, Any]) -> dict[str, Any]
     return normalized
 
 
+def _strategy_indicator(
+    *,
+    key: str,
+    title: str,
+    value: str,
+    target: str,
+    status: str,
+    detail: str,
+    action: str,
+) -> schemas.DashboardStrategyIndicator:
+    return schemas.DashboardStrategyIndicator(
+        key=key,
+        title=title,
+        value=value,
+        target=target,
+        status=status,
+        detail=detail,
+        action=action,
+    )
+
+
+def _format_strategy_rate(value: float | None) -> str:
+    if value is None:
+        return "暂无数据"
+    return f"{round(value * 100)}%"
+
+
+def _build_strategy_indicators(
+    *,
+    business_total: int,
+    business_succeeded: int,
+    business_failed: int,
+    success_rate: float | None,
+    billable: int,
+    unpriced: int,
+    callback_failed: int,
+    callback_missing: int,
+    wallet_settled: int,
+    wallet_failed: int,
+    risk_count: int,
+) -> tuple[schemas.DashboardStrategyIndicator, list[schemas.DashboardStrategyIndicator]]:
+    north_star_status = "healthy"
+    north_star_detail = "业务成功交付正常，继续关注增长和质量。"
+    north_star_action = "保持三大主业务巡检，持续提高稳定成功调用。"
+    if business_total <= 0:
+        north_star_status = "warning"
+        north_star_detail = "统计窗口内没有业务调用，无法判断真实业务活跃度。"
+        north_star_action = "先跑三大主业务真实巡检，确认业务链路有成功样本。"
+    elif business_succeeded <= 0:
+        north_star_status = "critical"
+        north_star_detail = "统计窗口内没有成功业务交付。"
+        north_star_action = "优先排查业务 API、Coze 工具箱和 ComfyUI 回填链路。"
+    elif risk_count > 0:
+        north_star_status = "warning"
+        north_star_detail = f"有 {business_succeeded} 次成功交付，但仍存在 {risk_count} 个风险信号。"
+        north_star_action = "先处理失败、回调和计费风险，再扩大发版或接入流量。"
+
+    north_star = _strategy_indicator(
+        key="north_star",
+        title="北极星：成功业务交付",
+        value=f"{business_succeeded} 次",
+        target="持续增长，且不能靠失败或无回填堆量",
+        status=north_star_status,
+        detail=north_star_detail,
+        action=north_star_action,
+    )
+
+    success_status = "healthy"
+    if success_rate is None:
+        success_status = "warning"
+    elif success_rate < 0.8:
+        success_status = "critical"
+    elif success_rate < 0.9:
+        success_status = "warning"
+
+    billing_total = billable + unpriced
+    billing_rate = (billable / billing_total) if billing_total > 0 else None
+    billing_status = "healthy"
+    if billing_total <= 0:
+        billing_status = "warning"
+    elif unpriced > 0:
+        billing_status = "critical"
+
+    callback_status = "healthy"
+    if callback_failed > 0:
+        callback_status = "critical"
+    elif callback_missing > 0:
+        callback_status = "warning"
+
+    wallet_status = "healthy"
+    if wallet_failed > 0:
+        wallet_status = "critical"
+    elif billable > 0 and wallet_settled < billable:
+        wallet_status = "warning"
+    elif billable <= 0:
+        wallet_status = "warning"
+
+    risk_status = "healthy"
+    if risk_count > 0 and (business_failed > 0 or callback_failed > 0):
+        risk_status = "critical"
+    elif risk_count > 0:
+        risk_status = "warning"
+
+    indicators = [
+        _strategy_indicator(
+            key="business_success_rate",
+            title="业务成功率",
+            value=_format_strategy_rate(success_rate),
+            target=">= 90%",
+            status=success_status,
+            detail=f"统计窗口内业务调用 {business_total} 次，失败 {business_failed} 次。",
+            action="成功率低于目标时，先看业务调用详情里的五段链路判定。",
+        ),
+        _strategy_indicator(
+            key="billing_coverage",
+            title="计费完整度",
+            value=_format_strategy_rate(billing_rate),
+            target="100% 可计费成功任务已定价",
+            status=billing_status,
+            detail=f"可计费 {billable} 次，待定价 {unpriced} 次。",
+            action="待定价不为 0 时，先补模型或业务版本的计价规则。",
+        ),
+        _strategy_indicator(
+            key="callback_health",
+            title="回调健康",
+            value=f"{callback_failed} 失败 / {callback_missing} 未配置",
+            target="失败 0，核心业务必须有回调口径",
+            status=callback_status,
+            detail="回调决定业务方能否拿到最终结果，不能只看中台任务成功。",
+            action="出现回调失败时，先查业务运行详情和回调响应，再联系业务方确认接口。",
+        ),
+        _strategy_indicator(
+            key="wallet_settlement",
+            title="扣费闭环",
+            value=f"{wallet_settled} 已结算 / {wallet_failed} 失败",
+            target="可计费任务应完成扣费或明确不扣费",
+            status=wallet_status,
+            detail=f"当前可计费任务 {billable} 次，钱包结算 {wallet_settled} 次。",
+            action="扣费失败或结算不足时，先进入账单页查看修复动作。",
+        ),
+        _strategy_indicator(
+            key="risk_closure",
+            title="风险闭环",
+            value=f"{risk_count} 个风险",
+            target="发版前风险为 0，或人工登记暂缓/豁免原因",
+            status=risk_status,
+            detail=f"风险由失败 {business_failed}、回调失败 {callback_failed}、待定价 {unpriced} 共同构成。",
+            action="风险不为 0 时，不要直接发版；先处理或登记上线结论。",
+        ),
+    ]
+    return north_star, indicators
+
+
 def _strategy_summary(window_hours: int = 24) -> schemas.DashboardStrategySummary:
     window_hours = max(1, min(int(window_hours or 24), 2160))
     since = datetime.utcnow() - timedelta(hours=window_hours)
+    zero_north_star, zero_indicators = _build_strategy_indicators(
+        business_total=0,
+        business_succeeded=0,
+        business_failed=0,
+        success_rate=None,
+        billable=0,
+        unpriced=0,
+        callback_failed=0,
+        callback_missing=0,
+        wallet_settled=0,
+        wallet_failed=0,
+        risk_count=0,
+    )
 
     zero = schemas.DashboardStrategySummary(
         window_hours=window_hours,
+        north_star=zero_north_star,
+        indicators=zero_indicators,
         business_total=0,
         business_succeeded=0,
         business_failed=0,
@@ -444,8 +633,23 @@ def _strategy_summary(window_hours: int = 24) -> schemas.DashboardStrategySummar
     billing_pending = unpriced
     no_charge = failed
     risk_count = failed + callback_failed + billing_pending
+    north_star, indicators = _build_strategy_indicators(
+        business_total=total,
+        business_succeeded=succeeded,
+        business_failed=failed,
+        success_rate=round(succeeded / total, 4) if total else None,
+        billable=billable,
+        unpriced=unpriced,
+        callback_failed=callback_failed,
+        callback_missing=callback_missing,
+        wallet_settled=0,
+        wallet_failed=0,
+        risk_count=risk_count,
+    )
     return schemas.DashboardStrategySummary(
         window_hours=window_hours,
+        north_star=north_star,
+        indicators=indicators,
         business_total=total,
         business_succeeded=succeeded,
         business_failed=failed,
@@ -875,6 +1079,254 @@ def _timed_http_check(
     return response.status_code, body, duration_ms
 
 
+def _business_label(key: str) -> str:
+    return CORE_BUSINESS_LABELS.get(key, key)
+
+
+def _vendor_model_has_cost_policy(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    for key in ("unitPrice", "unit_price", "discountPrice", "discount_price", "listPrice", "list_price", "price"):
+        raw = value.get(key)
+        if raw in (None, ""):
+            continue
+        try:
+            if float(raw) > 0:
+                return True
+        except (TypeError, ValueError):
+            return False
+    return False
+
+
+def _provider_runtime_key_configured(session, provider: str) -> bool:
+    normalized = str(provider or "").strip().lower()
+    if normalized == "baidu":
+        settings = get_settings()
+        if settings.baidu_api_key and settings.baidu_secret_key:
+            return True
+    if normalized == "volcengine" and get_settings().volcengine_api_key:
+        return True
+    rows = session.execute(select(ApiKey).where(ApiKey.provider == normalized)).scalars().all()
+    return any(is_usable(row) for row in rows)
+
+
+def _business_governance_for_preflight(session, row: BusinessCapability) -> dict[str, Any]:
+    recipe = row.recipe if isinstance(row.recipe, dict) else {}
+    issues: list[str] = []
+    warnings: list[str] = []
+    primary_ability_id: str | None = None
+    ability: Ability | None = None
+    vendor_model_id: int | None = None
+    vendor_model: VendorModelCatalog | None = None
+
+    try:
+        primary_ability_id = BusinessRunService._extract_primary_ability_id(recipe)
+    except Exception:
+        primary_ability_id = None
+    if not primary_ability_id:
+        issues.append("未绑定主能力")
+    else:
+        ability = session.get(Ability, primary_ability_id)
+        if not ability:
+            issues.append("主能力不存在")
+        elif ability.status != "active":
+            issues.append("主能力未启用")
+
+    try:
+        steps = BusinessRunService._normalized_recipe_steps(recipe)
+    except Exception:
+        steps = []
+    executable_steps = [
+        step
+        for step in steps
+        if step.get("enabled") is not False and str(step.get("type") or "").strip() in RECIPE_EXECUTABLE_STEP_TYPES
+    ]
+    if not executable_steps:
+        issues.append("配方没有可执行步骤")
+
+    try:
+        vendor_model_id = BusinessRunService._extract_recipe_vendor_model_id(recipe)
+    except Exception:
+        vendor_model_id = None
+    if vendor_model_id is None and ability is not None:
+        vendor_model_id = ability.vendor_model_id
+    if vendor_model_id is not None:
+        vendor_model = session.get(VendorModelCatalog, vendor_model_id)
+        if not vendor_model:
+            issues.append("绑定的模型不存在")
+        elif vendor_model.status != "active":
+            issues.append("绑定的模型未启用")
+
+    provider = str(
+        (vendor_model.provider if vendor_model else None)
+        or (ability.provider if ability else None)
+        or ""
+    ).strip().lower()
+    if provider in VENDOR_PROVIDERS:
+        if vendor_model and not _vendor_model_has_cost_policy(vendor_model.cost_policy):
+            warnings.append("第三方模型未配置成本口径")
+        if not _provider_runtime_key_configured(session, provider):
+            issues.append("第三方模型没有可用密钥")
+
+    if issues:
+        status = "blocker" if row.status == "active" or row.is_default else "warning"
+    elif warnings:
+        status = "warning"
+    else:
+        status = "ready"
+    return {
+        "status": status,
+        "issues": issues,
+        "warnings": warnings,
+        "primaryAbilityId": primary_ability_id,
+    }
+
+
+def _run_business_capability_governance_preflight() -> schemas.ReleasePreflightCheck:
+    started = perf_counter()
+    try:
+        with get_session() as session:
+            ensure_default_abilities(session)
+            ensure_default_business_capabilities(session)
+            rows = (
+                session.execute(
+                    select(BusinessCapability)
+                    .where(BusinessCapability.business_key.in_(CORE_BUSINESS_KEYS))
+                    .order_by(
+                        BusinessCapability.business_key.asc(),
+                        BusinessCapability.is_default.desc(),
+                        BusinessCapability.release_time.desc(),
+                        BusinessCapability.created_at.desc(),
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            default_by_key: dict[str, BusinessCapability] = {}
+            for row in rows:
+                if row.is_default and row.business_key in CORE_BUSINESS_KEYS:
+                    default_by_key[row.business_key] = row
+
+            blockers: list[str] = []
+            warnings: list[str] = []
+            missing = [key for key in CORE_BUSINESS_KEYS if key not in default_by_key]
+            for key in missing:
+                blockers.append(f"{_business_label(key)}缺少默认版本")
+            for key in CORE_BUSINESS_KEYS:
+                row = default_by_key.get(key)
+                if not row:
+                    continue
+                governance = _business_governance_for_preflight(session, row)
+                label = f"{_business_label(key)} {row.version}"
+                if row.status != "active":
+                    blockers.append(f"{label}未启用")
+                if not governance.get("primaryAbilityId"):
+                    blockers.append(f"{label}未绑定主能力")
+                if governance["status"] == "blocker":
+                    blockers.append(f"{label}：{'、'.join(governance['issues'][:3]) or '底层阻塞'}")
+                elif governance["status"] == "warning":
+                    warnings.append(f"{label}：{'、'.join((governance['warnings'] or governance['issues'])[:3]) or '需要补齐'}")
+
+        duration_ms = int((perf_counter() - started) * 1000)
+        if blockers:
+            return _make_release_check(
+                name="business_capability_governance",
+                title="业务能力底层治理",
+                status="fail",
+                detail=f"阻塞={len(blockers)}；{'; '.join(blockers[:5])}",
+                suggestion="先到业务能力页修复默认版本、主能力、模型密钥或可执行步骤，再进入线上闭环。",
+                duration_ms=duration_ms,
+            )
+        if warnings:
+            return _make_release_check(
+                name="business_capability_governance",
+                title="业务能力底层治理",
+                status="warn",
+                blocking=False,
+                detail=f"提醒={len(warnings)}；{'; '.join(warnings[:5])}",
+                suggestion="非阻塞提醒需要登记原因；正式收费前必须补齐成本口径。",
+                duration_ms=duration_ms,
+            )
+        return _make_release_check(
+            name="business_capability_governance",
+            title="业务能力底层治理",
+            status="pass",
+            detail="花纹提取、图裂变、扩图均存在 active 默认版本，且底层主能力可用。",
+            suggestion="后续版本切换前继续先跑本检查。",
+            duration_ms=duration_ms,
+        )
+    except Exception as exc:
+        logger.exception("business capability governance preflight failed")
+        return _make_release_check(
+            name="business_capability_governance",
+            title="业务能力底层治理",
+            status="fail",
+            detail=str(exc),
+            suggestion="检查失败时按阻塞处理，先确认数据库迁移、能力种子和业务版本数据。",
+        )
+
+
+def _run_auth_scope_preflight() -> schemas.ReleasePreflightCheck:
+    started = perf_counter()
+    try:
+        now = datetime.utcnow()
+        with get_session() as session:
+            users = list(session.execute(select(User)).scalars().all())
+            sessions = list(session.execute(select(UserSession)).scalars().all())
+            invites = list(session.execute(select(InviteCode)).scalars().all())
+        active_admin_count = len([user for user in users if user.role == "admin" and user.status == "active"])
+        unscoped_client_count = len([user for user in users if user.role == "client" and user.status == "active" and not user.tenant_id])
+        active_invites = [row for row in invites if row.status == "active"]
+        unscoped_invite_count = len([row for row in active_invites if not row.tenant_id])
+        expired_invite_count = len([row for row in active_invites if row.expires_at and row.expires_at <= now])
+        active_session_count = len([row for row in sessions if row.status == "active" and row.expires_at > now])
+
+        warnings: list[str] = []
+        if unscoped_client_count:
+            warnings.append(f"业务方账号未绑定范围 {unscoped_client_count} 个")
+        if unscoped_invite_count:
+            warnings.append(f"可用邀请码未绑定业务方 {unscoped_invite_count} 个")
+        if expired_invite_count:
+            warnings.append(f"过期邀请码仍激活 {expired_invite_count} 个")
+        duration_ms = int((perf_counter() - started) * 1000)
+
+        if active_admin_count <= 0:
+            return _make_release_check(
+                name="auth_scope_summary",
+                title="账号权限上线检查",
+                status="fail",
+                detail="没有 active 管理员账号。",
+                suggestion="先恢复或创建管理员账号，否则管理端上线后无法维护。",
+                duration_ms=duration_ms,
+            )
+        if warnings:
+            return _make_release_check(
+                name="auth_scope_summary",
+                title="账号权限上线检查",
+                status="fail",
+                detail="；".join(warnings),
+                suggestion="先到账号权限页补齐业务方范围或失效过期邀请码；账号范围不清晰会影响后续限额、账单和隔离。",
+                duration_ms=duration_ms,
+            )
+        return _make_release_check(
+            name="auth_scope_summary",
+            title="账号权限上线检查",
+            status="pass",
+            detail=f"active 管理员 {active_admin_count} 个，活跃会话 {active_session_count} 个，业务方账号和邀请码范围清晰。",
+            suggestion="上线后继续保留至少一个可登录管理员。",
+            duration_ms=duration_ms,
+        )
+    except Exception as exc:
+        logger.exception("auth scope preflight failed")
+        return _make_release_check(
+            name="auth_scope_summary",
+            title="账号权限上线检查",
+            status="fail",
+            detail=str(exc),
+            suggestion="检查失败时按阻塞处理，先确认账号表、会话表和邀请码表迁移完整。",
+        )
+
+
 def _run_release_preflight_checks(
     *,
     base_url: str,
@@ -1059,6 +1511,8 @@ def _run_release_preflight_checks(
             )
         )
 
+    checks.append(_run_business_capability_governance_preflight())
+    checks.append(_run_auth_scope_preflight())
     checks.append(
         _make_release_check(
             name="weekly_report_cron",
@@ -1165,6 +1619,14 @@ def run_weekly_report(payload: schemas.WeeklyReportRunRequest | None = None) -> 
                 f"- 风险数：{summary.risk_count}",
                 f"- 成本：{summary.cost_by_currency}",
                 f"- 额度：{summary.quota_units}",
+                "",
+                "## 北极星与 KPI",
+                "",
+                f"- {summary.north_star.title}：{summary.north_star.value}，状态={summary.north_star.status}，动作={summary.north_star.action}",
+                *[
+                    f"- {item.title}：{item.value}，目标={item.target}，状态={item.status}，动作={item.action}"
+                    for item in summary.indicators
+                ],
                 "",
                 "说明：当前为管理端轻量周报，后续可接入正式定时任务和外部通知。",
             ]

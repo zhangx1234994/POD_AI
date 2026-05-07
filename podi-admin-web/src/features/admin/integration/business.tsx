@@ -12,10 +12,11 @@ import type {
   BusinessUsageSummaryResponse,
   JsonRecord,
 } from '../../../types/admin';
-import { StatusBadge } from '../shared/ui';
+import { GuidanceQueueCard, StatusBadge, type GuidanceQueueItem } from '../shared/ui';
 import {
   businessRunBillingStatusOptions,
   businessRunCallbackStatusOptions,
+  businessRunIssueCategoryOptions,
   businessRunStatusOptions,
   businessUsageWindowOptions,
   statusOptions,
@@ -36,6 +37,11 @@ import {
   businessRunStepStatusLabel,
   coreBusinessKeys,
 } from './businessLabels';
+import {
+  buildCoreBusinessReleaseEvidenceRows,
+  businessCapabilityHasRollbackEvidence,
+  businessCapabilityRollbackEvidenceLabel,
+} from './businessReleaseEvidence';
 export {
   businessBillingStatusLabel,
   businessBillingStatusTheme,
@@ -65,6 +71,76 @@ const businessSourceLabel = (value?: string | null) => {
   return text;
 };
 
+const businessGovernanceIssueLabel = (value?: string | null) => {
+  const labels: Record<string, string> = {
+    BUSINESS_GOVERNANCE_PRIMARY_ABILITY_MISSING: '未绑定主能力',
+    BUSINESS_GOVERNANCE_PRIMARY_ABILITY_NOT_FOUND: '主能力不存在',
+    BUSINESS_GOVERNANCE_PRIMARY_ABILITY_INACTIVE: '主能力未启用',
+    BUSINESS_GOVERNANCE_EXECUTABLE_STEP_MISSING: '配方没有可执行步骤',
+    BUSINESS_GOVERNANCE_VENDOR_MODEL_NOT_FOUND: '模型目录不存在',
+    BUSINESS_GOVERNANCE_VENDOR_MODEL_INACTIVE: '模型未启用',
+    BUSINESS_GOVERNANCE_VENDOR_MODEL_ACCEPTANCE_REQUIRED: '模型未验收',
+    BUSINESS_GOVERNANCE_VENDOR_MODEL_COST_MISSING: '模型成本未配置',
+    BUSINESS_GOVERNANCE_VENDOR_KEY_MISSING: '第三方密钥不可用',
+    BUSINESS_GOVERNANCE_VENDOR_EGRESS_NOT_VERIFIED: '出网未验证',
+  };
+  return labels[value || ''] || value || '暂无风险';
+};
+
+const businessGovernanceStatusLabel = (value?: string | null) => {
+  if (value === 'ready') return '底层就绪';
+  if (value === 'blocker') return '底层阻塞';
+  if (value === 'warning') return '需要补齐';
+  return '未检查';
+};
+
+const businessGovernanceStatusTheme = (value?: string | null): 'success' | 'warning' | 'danger' | 'default' => {
+  if (value === 'ready') return 'success';
+  if (value === 'blocker') return 'danger';
+  if (value === 'warning') return 'warning';
+  return 'default';
+};
+
+const businessAcceptanceStatusLabel = (value?: string | null) => {
+  if (value === 'passed') return '验收通过';
+  if (value === 'failed') return '验收失败';
+  if (value === 'warning') return '有风险';
+  if (value === 'waived') return '暂不验收';
+  return '未验收';
+};
+
+const businessAcceptanceStatusTheme = (value?: string | null): 'success' | 'warning' | 'danger' | 'default' => {
+  if (value === 'passed') return 'success';
+  if (value === 'failed') return 'danger';
+  if (value === 'warning') return 'warning';
+  return 'default';
+};
+
+const businessReleaseGateStatusTheme = (value?: string | null): 'success' | 'warning' | 'danger' | 'default' => {
+  if (value === 'ready') return 'success';
+  if (value === 'warning') return 'warning';
+  if (value === 'blocked') return 'danger';
+  return 'default';
+};
+
+const businessReleaseGateLabel = (value?: string | null) => {
+  if (value === 'ready') return '可上线';
+  if (value === 'warning') return '需复核';
+  if (value === 'blocked') return '暂不能上线';
+  return '未判断';
+};
+
+type BusinessActionTheme = 'success' | 'warning' | 'danger' | 'default';
+type BusinessActionPriority = '必须先处理' | '上线前处理' | '建议处理' | '可继续推进';
+
+interface BusinessActionItem {
+  theme: BusinessActionTheme;
+  priority: BusinessActionPriority;
+  title: string;
+  detail: string;
+  action: string;
+}
+
 const buildBusinessActionItems = ({
   capabilities,
   pendingApprovals,
@@ -74,6 +150,7 @@ const buildBusinessActionItems = ({
   pendingApprovals: BusinessDefaultApproval[];
   summary?: BusinessUsageSummaryResponse | null;
 }) => {
+  const windowHours = Number(summary?.windowHours || 24);
   const defaultActiveByKey = new Set(
     capabilities
       .filter((item) => item.isDefault && item.status === 'active')
@@ -83,62 +160,140 @@ const buildBusinessActionItems = ({
   const inactiveDefaults = capabilities.filter((item) => item.isDefault && item.status !== 'active');
   const failedDefaults = capabilities.filter((item) => item.isDefault && Number(item.runMetrics?.failed || 0) > 0);
   const missingPrimary = capabilities.filter((item) => item.isDefault && !item.primaryAbilityId && !item.primaryAbilityName);
-  const items: Array<{ theme: 'success' | 'warning' | 'danger' | 'default'; title: string; detail: string }> = [];
+  const governanceBlockedDefaults = capabilities.filter((item) => item.isDefault && item.governanceStatus === 'blocker');
+  const governanceWarningDefaults = capabilities.filter((item) => item.isDefault && item.governanceStatus === 'warning');
+  const acceptanceMissingDefaults = capabilities.filter(
+    (item) => item.isDefault && item.status === 'active' && item.releaseGate?.acceptancePassed === false,
+  );
+  const rollbackWeakKeys = coreBusinessKeys.filter((businessKey) => {
+    const versions = capabilities.filter((item) => item.businessKey === businessKey);
+    return versions.some((item) => item.isDefault && item.status === 'active') &&
+      versions.filter((item) => item.status === 'active' && !item.isDefault).length === 0;
+  });
+  const totalRuns = Number(summary?.total || 0);
+  const items: BusinessActionItem[] = [];
 
   if (missingDefaults.length > 0) {
     items.push({
       theme: 'danger',
+      priority: '必须先处理',
       title: '主业务缺默认版本',
       detail: `先补齐 ${missingDefaults.map((key) => businessKeyLabel(key)).join('、')} 的可用默认版本。`,
+      action: '新增或启用业务版本，并设为默认入口。',
     });
   }
   if (inactiveDefaults.length > 0) {
     items.push({
       theme: 'danger',
+      priority: '必须先处理',
       title: '默认版本未启用',
       detail: `${inactiveDefaults.map((item) => `${businessKeyLabel(item.businessKey)} ${item.version}`).join('、')} 需要先启用或切换默认。`,
+      action: '启用当前默认版本，或切换到已验证的启用版本。',
+    });
+  }
+  if (governanceBlockedDefaults.length > 0) {
+    items.push({
+      theme: 'danger',
+      priority: '必须先处理',
+      title: '默认版本底层不可用',
+      detail: governanceBlockedDefaults
+        .map((item) => `${businessKeyLabel(item.businessKey)}：${businessGovernanceIssueLabel(item.governanceIssues?.[0])}`)
+        .join('；'),
+      action: '先补主能力、模型或第三方密钥，再做真实链路测试。',
+    });
+  }
+  if (governanceWarningDefaults.length > 0) {
+    items.push({
+      theme: 'warning',
+      priority: '上线前处理',
+      title: '默认版本配置需补齐',
+      detail: governanceWarningDefaults
+        .map((item) => `${businessKeyLabel(item.businessKey)}：${businessGovernanceIssueLabel(item.governanceIssues?.[0])}`)
+        .join('；'),
+      action: '补齐成本、模型治理信息，再进入收费或对外 API 验收。',
+    });
+  }
+  if (acceptanceMissingDefaults.length > 0) {
+    items.push({
+      theme: 'danger',
+      priority: '必须先处理',
+      title: '默认版本未验收',
+      detail: acceptanceMissingDefaults
+        .map((item) => `${businessKeyLabel(item.businessKey)} ${item.version}`)
+        .join('、'),
+      action: '先跑真实链路测试，并在业务版本卡片记录“验收通过”。',
     });
   }
   if (pendingApprovals.length > 0) {
     items.push({
       theme: 'warning',
+      priority: '上线前处理',
       title: '有默认版本审批',
       detail: `${pendingApprovals.length} 个切换申请待处理，先审批再对外说明版本。`,
+      action: '进入默认版本审批，确认测评通过后再审批。',
     });
   }
   if (Number(summary?.failed || 0) > 0 || failedDefaults.length > 0) {
     items.push({
       theme: 'warning',
+      priority: '上线前处理',
       title: '最近存在失败',
-      detail: `近 ${summary?.windowHours || 24} 小时失败 ${summary?.failed || 0} 次，先看最近失败和业务流程卡点。`,
+      detail: `近 ${windowHours} 小时失败 ${summary?.failed || 0} 次，先看最近失败和业务流程卡点。`,
+      action: '筛选失败运行记录，按“版本、执行节点、回填、回调”定位。',
     });
   }
   if (Number(summary?.callbackFailed || 0) > 0) {
     items.push({
       theme: 'warning',
+      priority: '上线前处理',
       title: '回调失败需处理',
       detail: `${summary?.callbackFailed || 0} 个业务回调失败，优先重试或确认业务方回调地址。`,
+      action: '先重试回调；仍失败时让业务方确认回调地址和鉴权。',
     });
   }
   if (Number(summary?.unpriced || 0) > 0) {
     items.push({
       theme: 'warning',
+      priority: '建议处理',
       title: '存在待定价调用',
       detail: `${summary?.unpriced || 0} 次成功调用未定价，先登记成本口径；正式收费前再补完整计费策略。`,
+      action: '补模型成本或业务定价，避免后续账单无法解释。',
     });
   }
   if (missingPrimary.length > 0) {
     items.push({
       theme: 'warning',
+      priority: '必须先处理',
       title: '默认版本缺主能力',
       detail: `${missingPrimary.map((item) => businessKeyLabel(item.businessKey)).join('、')} 需要绑定主执行能力，避免只剩配置壳。`,
+      action: '编辑默认版本，绑定真实执行能力后再测试。',
+    });
+  }
+  if (rollbackWeakKeys.length > 0) {
+    items.push({
+      theme: 'warning',
+      priority: '建议处理',
+      title: '回滚安全垫不足',
+      detail: `${rollbackWeakKeys.map((key) => businessKeyLabel(key)).join('、')} 只有默认入口，出问题时不能快速回退。`,
+      action: '保留一个启用的非默认版本，作为灰度或回滚目标。',
+    });
+  }
+  if (items.length === 0 && totalRuns <= 0) {
+    items.push({
+      theme: 'warning',
+      priority: '上线前处理',
+      title: '近期没有调用样本',
+      detail: `近 ${windowHours} 小时没有业务调用，不能只看配置判断稳定。`,
+      action: '先跑 route-preview，再跑一次真实链路巡检。',
     });
   }
   if (items.length === 0) {
     items.push({
       theme: 'success',
+      priority: '可继续推进',
       title: '主业务当前可继续推进',
       detail: '默认版本、最近失败和回调没有明显阻塞，可继续做小流量测试或接入新版本。',
+      action: '进入测评端或小流量业务验证，保留回滚目标。',
     });
   }
   return items.slice(0, 5);
@@ -154,30 +309,16 @@ export const BusinessActionPanel = ({
   summary?: BusinessUsageSummaryResponse | null;
 }) => {
   const actionItems = buildBusinessActionItems({ capabilities, pendingApprovals, summary });
+  const guidanceItems: GuidanceQueueItem[] = actionItems.map((item) => ({
+    key: `${item.priority}-${item.title}-${item.detail}`,
+    theme: item.theme,
+    priority: item.priority,
+    title: item.title,
+    detail: item.detail,
+    action: item.action,
+  }));
   return (
-    <Card bordered title="当前先处理什么">
-      <Row gutter={[12, 12]}>
-        {actionItems.map((item) => (
-          <Col key={`${item.title}-${item.detail}`} xs={12} lg={actionItems.length === 1 ? 12 : 4}>
-            <div
-              style={{
-                border: '1px solid var(--td-border-level-1-color)',
-                borderRadius: 12,
-                padding: 12,
-                height: '100%',
-              }}
-            >
-              <Space direction="vertical" size={4}>
-                <Tag theme={item.theme} variant="light">
-                  {item.title}
-                </Tag>
-                <Typography.Text theme="secondary">{item.detail}</Typography.Text>
-              </Space>
-            </div>
-          </Col>
-        ))}
-      </Row>
-    </Card>
+    <GuidanceQueueCard items={guidanceItems} maxItems={5} />
   );
 };
 
@@ -194,35 +335,57 @@ export const BusinessReleaseGuardPanel = ({
     const versions = capabilities.filter((item) => item.businessKey === businessKey);
     const defaultVersion = versions.find((item) => item.isDefault);
     const rollbackVersions = versions.filter((item) => item.status === 'active' && !item.isDefault);
+    const rollbackReadyVersions = rollbackVersions.filter(businessCapabilityHasRollbackEvidence);
     const hasPendingApproval = pendingApprovals.some((item) => item.businessKey === businessKey && item.status === 'pending');
     const failedCount = versions
       .filter((item) => item.isDefault)
       .reduce((total, item) => total + Number(item.runMetrics?.failed || 0), 0);
     const latestDefaultError = defaultVersion?.latestRun?.error || '';
-    const defaultReady = Boolean(defaultVersion && defaultVersion.status === 'active' && (defaultVersion.primaryAbilityId || defaultVersion.primaryAbilityName));
-    const rollbackReady = rollbackVersions.length > 0;
+    const governanceStatus = defaultVersion?.governanceStatus || 'unknown';
+    const firstGovernanceIssue = defaultVersion?.governanceIssues?.[0] || '';
+    const governanceBlocked = governanceStatus === 'blocker';
+    const releaseGate = defaultVersion?.releaseGate || null;
+    const acceptancePassed = defaultVersion ? releaseGate?.acceptancePassed === true : false;
+    const defaultReady = Boolean(
+      defaultVersion &&
+      defaultVersion.status === 'active' &&
+      (defaultVersion.primaryAbilityId || defaultVersion.primaryAbilityName) &&
+      !governanceBlocked &&
+      acceptancePassed &&
+      releaseGate?.status !== 'blocked',
+    );
+    const rollbackReady = rollbackReadyVersions.length > 0;
     const blockedReason = !defaultVersion
       ? '缺少默认版本'
       : defaultVersion.status !== 'active'
         ? '默认版本未启用'
         : !(defaultVersion.primaryAbilityId || defaultVersion.primaryAbilityName)
           ? '默认版本缺主能力'
-          : hasPendingApproval
-            ? '有切换审批待处理'
-            : failedCount > 0 || latestDefaultError
-              ? '默认版本最近失败'
-              : '';
+            : governanceBlocked
+              ? businessGovernanceIssueLabel(firstGovernanceIssue) || '底层配置阻塞'
+              : !acceptancePassed
+                ? '默认版本未验收'
+                : hasPendingApproval
+                  ? '有切换审批待处理'
+                  : failedCount > 0 || latestDefaultError
+                    ? '默认版本最近失败'
+                    : '';
     return {
       businessKey,
       name: businessKeyLabel(businessKey),
       defaultVersion,
       rollbackVersions,
+      rollbackReadyVersions,
       hasPendingApproval,
       failedCount,
       latestDefaultError,
       defaultReady,
       rollbackReady,
       blockedReason,
+      governanceStatus,
+      firstGovernanceIssue,
+      releaseGate,
+      acceptancePassed,
     };
   });
   const blockedCount = rows.filter((row) => row.blockedReason).length;
@@ -287,21 +450,48 @@ export const BusinessReleaseGuardPanel = ({
                   <Typography.Text theme="secondary">
                     {row.defaultVersion?.primaryAbilityName || row.defaultVersion?.primaryAbilityId || '未绑定主能力'}
                   </Typography.Text>
+                  {row.defaultVersion ? (
+                    <Space size={6} breakLine>
+                      <Tag theme={businessReleaseGateStatusTheme(row.releaseGate?.status)} variant="light">
+                        {row.releaseGate?.label || businessReleaseGateLabel(row.releaseGate?.status)}
+                      </Tag>
+                      <Tag theme={businessGovernanceStatusTheme(row.governanceStatus)} variant="light">
+                        {businessGovernanceStatusLabel(row.governanceStatus)}
+                      </Tag>
+                      <Tag theme={businessAcceptanceStatusTheme(row.defaultVersion.latestAcceptance?.status)} variant="light">
+                        {businessAcceptanceStatusLabel(row.defaultVersion.latestAcceptance?.status)}
+                      </Tag>
+                      {row.firstGovernanceIssue ? (
+                        <Typography.Text theme={row.governanceStatus === 'blocker' ? 'error' : 'warning'}>
+                          {businessGovernanceIssueLabel(row.firstGovernanceIssue)}
+                        </Typography.Text>
+                      ) : null}
+                    </Space>
+                  ) : null}
                 </Space>
               ),
             },
             {
               colKey: 'rollback',
               title: '回滚安全垫',
-              width: 180,
+              minWidth: 260,
               cell: ({ row }) => (
                 <Space direction="vertical" size={2}>
                   <Tag theme={row.rollbackReady ? 'success' : 'warning'} variant="light">
-                    {row.rollbackReady ? `${row.rollbackVersions.length} 个备选` : '缺备选'}
+                    {row.rollbackReady
+                      ? `${row.rollbackReadyVersions.length} 个可回滚`
+                      : row.rollbackVersions.length > 0
+                        ? `${row.rollbackVersions.length} 个备选待验收`
+                        : '缺备选'}
                   </Tag>
                   <Typography.Text theme="secondary">
-                    {row.rollbackReady ? row.rollbackVersions.map((item: BusinessCapability) => item.version).join('、') : '建议保留一个启用的非默认版本'}
+                    {row.rollbackVersions.length > 0
+                      ? row.rollbackVersions.slice(0, 2).map((item: BusinessCapability) => businessCapabilityRollbackEvidenceLabel(item)).join('；')
+                      : '建议保留一个启用的非默认版本'}
                   </Typography.Text>
+                  {row.rollbackVersions.length > 2 ? (
+                    <Typography.Text theme="secondary">还有 {row.rollbackVersions.length - 2} 个备选版本，进入版本卡片查看。</Typography.Text>
+                  ) : null}
                 </Space>
               ),
             },
@@ -315,7 +505,13 @@ export const BusinessReleaseGuardPanel = ({
                     {row.blockedReason || '暂无阻塞'}
                   </Tag>
                   <Typography.Text theme={row.latestDefaultError ? 'error' : 'secondary'}>
-                    {row.latestDefaultError || (row.failedCount > 0 ? `近24小时失败 ${row.failedCount} 次` : '默认版本最近无失败样本')}
+                    {row.latestDefaultError ||
+                      row.releaseGate?.suggestions?.[0] ||
+                      (row.firstGovernanceIssue
+                        ? businessGovernanceIssueLabel(row.firstGovernanceIssue)
+                        : row.failedCount > 0
+                          ? `近24小时失败 ${row.failedCount} 次`
+                          : '默认版本最近无失败样本')}
                   </Typography.Text>
                   {row.hasPendingApproval ? <Typography.Text theme="warning">存在默认版本切换审批，请先处理。</Typography.Text> : null}
                 </Space>
@@ -327,10 +523,14 @@ export const BusinessReleaseGuardPanel = ({
               minWidth: 260,
               cell: ({ row }) => {
                 const suggestion = row.blockedReason
-                  ? '先处理风险，再做版本切换。'
+                  ? row.firstGovernanceIssue
+                    ? '先补齐底层能力、模型、密钥或成本配置，再跑真实链路。'
+                    : '先处理风险，再做版本切换。'
                   : row.rollbackReady
                     ? '可进入测评端做真实链路验证。'
-                    : '先补一个启用的备选版本，避免切换后无法快速回滚。';
+                    : row.rollbackVersions.length > 0
+                      ? '先给备选版本补验收通过和成功输出证据，再做默认切换。'
+                      : '先补一个启用的备选版本，避免切换后无法快速回滚。';
                 return <Typography.Text theme="secondary">{suggestion}</Typography.Text>;
               },
             },
@@ -359,6 +559,7 @@ export const businessOperationActionLabel = (action?: string | null) => {
   if (action === 'business_capability_default_approval_create') return '申请切默认';
   if (action === 'business_capability_default_approval_apply') return '审批通过';
   if (action === 'business_capability_default_approval_reject') return '审批驳回';
+  if (action === 'record_acceptance') return '记录验收';
   return action || '操作';
 };
 
@@ -514,8 +715,15 @@ export const BusinessUsageSummaryPanel = ({
         />
       </Col>
     </Row>
+    {Number((summary?.unresolvedIssues || []).reduce((total, bucket) => total + Number(bucket.total || 0), 0)) > 0 ? (
+      <Alert
+        theme="warning"
+        style={{ marginTop: 12 }}
+        message={`仍有 ${Number((summary?.unresolvedIssues || []).reduce((total, bucket) => total + Number(bucket.total || 0), 0))} 条问题未确认恢复。优先筛选问题类型，批量复测后再看是否恢复。`}
+      />
+    ) : null}
     <Row gutter={[12, 12]} style={{ marginTop: 12 }}>
-      <Col xs={12} lg={4}>
+      <Col xs={12} lg={3}>
         <Card bordered>
           <Space direction="vertical" size="small" style={{ width: '100%' }}>
             <Typography.Text strong>业务分布</Typography.Text>
@@ -533,7 +741,7 @@ export const BusinessUsageSummaryPanel = ({
           </Space>
         </Card>
       </Col>
-      <Col xs={12} lg={4}>
+      <Col xs={12} lg={3}>
         <Card bordered>
           <Space direction="vertical" size="small" style={{ width: '100%' }}>
             <Typography.Text strong>来源 / 业务方</Typography.Text>
@@ -559,7 +767,39 @@ export const BusinessUsageSummaryPanel = ({
           </Space>
         </Card>
       </Col>
-      <Col xs={12} lg={4}>
+      <Col xs={12} lg={3}>
+        <Card bordered>
+          <Space direction="vertical" size="small" style={{ width: '100%' }}>
+            <Typography.Text strong>链路问题</Typography.Text>
+            {(summary?.byIssue || []).slice(0, 5).map((bucket) => (
+              <Space key={bucket.key} align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                <Space size={6}>
+                  <Tag theme={businessIssueTheme(bucket.severity)} variant="light">
+                    {businessIssueLabel(bucket.key, bucket.label)}
+                  </Tag>
+                </Space>
+                <Typography.Text theme={bucket.failed > 0 ? 'warning' : 'secondary'}>
+                  {formatBucketDigest(bucket)}
+                </Typography.Text>
+              </Space>
+            ))}
+            {(summary?.byIssue || []).length === 0 ? (
+              <Typography.Text theme="secondary">当前筛选下暂无链路问题分类。</Typography.Text>
+            ) : null}
+            {(summary?.unresolvedIssues || []).slice(0, 4).map((bucket) => (
+              <Space key={`unresolved:${bucket.key}`} align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                <Typography.Text theme="warning">
+                  未恢复：{businessIssueLabel(bucket.key, bucket.label)}
+                </Typography.Text>
+                <Typography.Text theme="warning">
+                  {bucket.total} 条 · 已复测 {bucket.retested || 0}
+                </Typography.Text>
+              </Space>
+            ))}
+          </Space>
+        </Card>
+      </Col>
+      <Col xs={12} lg={3}>
         <Card bordered>
           <Space direction="vertical" size="small" style={{ width: '100%' }}>
             <Typography.Text strong>最近失败</Typography.Text>
@@ -575,6 +815,19 @@ export const BusinessUsageSummaryPanel = ({
             {(summary?.recentFailures || []).length === 0 ? (
               <Typography.Text theme="secondary">当前筛选下暂无失败记录。</Typography.Text>
             ) : null}
+            {(summary?.recentUnresolvedIssues || []).slice(0, 3).map((item) => (
+              <Space key={`unresolved:${item.id}`} direction="vertical" size={2} style={{ width: '100%' }}>
+                <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                  <Typography.Text theme="warning">
+                    未恢复：{businessKeyLabel(item.businessKey)} · {businessIssueLabel(item.issueCategory, item.issueLabel)}
+                  </Typography.Text>
+                  <Typography.Text theme="secondary">{formatDateTime(item.createdAt)}</Typography.Text>
+                </Space>
+                <Typography.Text theme="secondary">
+                  复测 {item.retestAttempts || 0} 次 · {businessRetestStatusLabel(item.retestLatestStatus)}
+                </Typography.Text>
+              </Space>
+            ))}
           </Space>
         </Card>
       </Col>
@@ -589,6 +842,7 @@ type BusinessRunFilters = {
   status: string;
   billingStatus: string;
   callbackStatus: string;
+  issueCategory: string;
   source: string;
   tenantId: string;
   clientId: string;
@@ -628,9 +882,47 @@ const businessBillingReasonLabel = (row?: BusinessRun | null) => {
   if (row.billingStatus === 'unpriced') return '成功但未配置价格';
   if (row.billingStatus === 'billing_pending') return '任务未结束，暂不计费';
   if (row.billingStatus === 'billable' && !getBusinessWalletSettlement(row) && row.userId) {
-    return '待确认钱包扣费';
+    return '待确认套餐或钱包扣减';
   }
   return '';
+};
+
+const businessIssueTheme = (severity?: string | null): 'success' | 'warning' | 'danger' | 'default' => {
+  if (severity === 'danger') return 'danger';
+  if (severity === 'warning') return 'warning';
+  if (severity === 'success') return 'success';
+  return 'default';
+};
+
+const businessIssueLabel = (category?: string | null, fallback?: string | null) => {
+  if (fallback) return fallback;
+  if (category === 'executor') return '执行节点问题';
+  if (category === 'output') return '结果回填问题';
+  if (category === 'callback') return '业务回调问题';
+  if (category === 'billing') return '计费扣减问题';
+  if (category === 'parameter') return '参数问题';
+  if (category === 'version') return '版本/路由问题';
+  if (category === 'none') return '暂无明显问题';
+  return '未分类';
+};
+
+const businessRetestStatusLabel = (status?: string | null) => {
+  const value = String(status || '').toLowerCase();
+  if (value === 'succeeded') return '复测成功';
+  if (value === 'failed') return '复测失败';
+  if (value === 'running') return '复测执行中';
+  if (value === 'queued') return '复测排队中';
+  if (value === 'cancelled') return '复测已取消';
+  return '暂未复测';
+};
+
+const businessRetestTheme = (row?: BusinessRun | null): 'success' | 'warning' | 'danger' | 'default' => {
+  if (!row) return 'default';
+  if (row.retestRecovered) return 'success';
+  const status = String(row.retestLatestStatus || '').toLowerCase();
+  if (status === 'failed' || status === 'cancelled') return 'danger';
+  if (status === 'queued' || status === 'running') return 'warning';
+  return Number(row.retestAttempts || 0) > 0 ? 'warning' : 'default';
 };
 
 const businessRunRouteLabel = (routeInfo?: JsonRecord | null) => {
@@ -712,7 +1004,9 @@ const buildBusinessRunFlowStages = (detail: BusinessRun): BusinessRunFlowStage[]
   const imageCount = recordNumber(output, 'imageCount', detail.imageUrls?.length || 0);
   const videoCount = recordNumber(output, 'videoCount', detail.videoUrls?.length || 0);
   const textCount = recordNumber(output, 'textCount', detail.texts?.length || 0);
-  const hasOutput = Boolean(output.hasOutput) || imageCount > 0 || videoCount > 0 || textCount > 0;
+  const structuredCount = recordNumber(output, 'structuredCount', 0);
+  const resourceCount = recordNumber(output, 'resourceCount', 0);
+  const hasOutput = Boolean(output.hasOutput) || imageCount > 0 || videoCount > 0 || textCount > 0 || structuredCount > 0 || resourceCount > 0;
   const hasOssOutput = Boolean(output.hasOssOutput);
 
   const callbackStatus = recordText(callback, 'status', detail.callbackStatus || '');
@@ -724,6 +1018,14 @@ const buildBusinessRunFlowStages = (detail: BusinessRun): BusinessRunFlowStage[]
     callbackStatus === 'failed' ||
     callbackError !== '' ||
     (hasBusinessEvidenceValue(callbackHttpStatus) && Number(callbackHttpStatus) >= 400);
+  const settlement = getBusinessWalletSettlement(detail);
+  const settlementStatus = String(settlement?.status || '').toLowerCase();
+  const billingStatus = String(detail.billingStatus || '').toLowerCase();
+  const billingSettled = settlementStatus === 'settled';
+  const billingFailed = settlementStatus === 'failed';
+  const billingPending = billingStatus === 'billing_pending' || (billingStatus === 'billable' && !settlement);
+  const billingNoCharge = billingStatus === 'no_charge';
+  const billingUnpriced = billingStatus === 'unpriced';
 
   return [
     {
@@ -750,7 +1052,7 @@ const buildBusinessRunFlowStages = (detail: BusinessRun): BusinessRunFlowStage[]
     {
       title: '输出回填',
       result: hasOutput ? (hasOssOutput ? '结果已回填' : '有结果，未确认自有链接') : finished ? '完成但无结果' : '等待结果',
-      detail: `图 ${imageCount} · 视频 ${videoCount} · 文字 ${textCount}`,
+      detail: `图 ${imageCount} · 视频 ${videoCount} · 文字 ${textCount} · 结构化 ${structuredCount} · 资源 ${resourceCount}`,
       hint: hasOutput
         ? hasOssOutput
           ? '业务侧可直接取结果。'
@@ -767,8 +1069,83 @@ const buildBusinessRunFlowStages = (detail: BusinessRun): BusinessRunFlowStage[]
       hint: callbackFailed ? '先重试回调；若仍失败，检查业务方地址和签名。' : '回调不影响已回填结果，但会影响业务方自动接收。',
       theme: callbackFailed ? 'danger' : callbackStatus === 'success' ? 'success' : callbackStatus === 'running' ? 'warning' : 'default',
     },
+    {
+      title: '计费扣减',
+      result: billingSettled
+        ? businessWalletStatusLabel(settlement)
+        : billingFailed
+          ? '扣减失败'
+          : billingUnpriced
+            ? '成功但未定价'
+            : billingNoCharge
+              ? '本次不计费'
+              : billingPending
+                ? '等待计费确认'
+                : businessBillingStatusLabel(detail.billingStatus),
+      detail: businessWalletSummary(settlement),
+      hint: billingFailed
+        ? settlement?.error || '先修复套餐或钱包扣减，再重试计费。'
+        : billingUnpriced
+          ? '先补模型成本或业务价格规则，否则无法进入收费闭环。'
+          : billingPending
+            ? '任务完成后会继续确认计费；如长期停留，检查业务结算日志。'
+            : billingNoCharge
+              ? businessBillingReasonLabel(detail) || '该业务按规则不收费。'
+              : settlement?.traceId
+                ? `流水：${formatShortBusinessId(settlement.traceId)}`
+                : '未产生套餐或钱包流水。',
+      theme: billingSettled
+        ? 'success'
+        : billingFailed
+          ? 'danger'
+          : billingUnpriced || billingPending
+            ? 'warning'
+            : 'default',
+    },
   ];
 };
+
+const businessRunPriorityStage = (detail: BusinessRun) => {
+  const stages = buildBusinessRunFlowStages(detail);
+  return (
+    stages.find((stage) => stage.theme === 'danger') ||
+    stages.find((stage) => stage.theme === 'warning') ||
+    stages.find((stage) => stage.theme === 'primary') ||
+    stages[0]
+  );
+};
+
+const businessRunPriorityStageMessage = (detail: BusinessRun) => {
+  if (detail.issueCategory && detail.issueCategory !== 'none') {
+    const theme =
+      detail.issueSeverity === 'danger' ? 'error' : detail.issueSeverity === 'warning' ? 'warning' : 'info';
+    return {
+      theme: theme as 'error' | 'warning' | 'info',
+      title: businessIssueLabel(detail.issueCategory, detail.issueLabel),
+      message: [detail.issueEvidence, detail.issueAction].filter(Boolean).join('。') || '查看链路判断和步骤证据。',
+    };
+  }
+  const stage = businessRunPriorityStage(detail);
+  if (!stage) {
+    return {
+      theme: 'info' as const,
+      title: '暂无链路证据',
+      message: '这条业务调用还没有记录到足够的链路证据，先刷新运行记录或查看原始排障数据。',
+    };
+  }
+  const theme: 'error' | 'warning' | 'success' =
+    stage.theme === 'danger' ? 'error' : stage.theme === 'warning' ? 'warning' : 'success';
+  return {
+    theme,
+    title: stage.theme === 'danger' ? `优先处理：${stage.title}` : stage.theme === 'warning' ? `需要确认：${stage.title}` : `链路正常：${stage.title}`,
+    message: [stage.result, stage.detail, stage.hint].filter(Boolean).join('。'),
+  };
+};
+
+function BusinessRunNextActionAlert({ detail }: { detail: BusinessRun }) {
+  const item = businessRunPriorityStageMessage(detail);
+  return <Alert theme={item.theme} message={`${item.title}：${item.message}`} />;
+}
 
 function BusinessRunFlowEvidenceBar({ detail }: { detail: BusinessRun }) {
   const stages = buildBusinessRunFlowStages(detail);
@@ -820,6 +1197,233 @@ function BusinessRunFlowEvidenceBar({ detail }: { detail: BusinessRun }) {
   );
 }
 
+const businessRunStepTheme = (status?: string | null): BusinessRunFlowStageTheme => {
+  const value = String(status || '').toLowerCase();
+  if (value === 'succeeded' || value === 'success' || value === 'completed') return 'success';
+  if (value === 'failed' || value === 'error' || value === 'timeout' || value === 'cancelled') return 'danger';
+  if (value === 'running' || value === 'queued' || value === 'pending' || value === 'planned') return 'warning';
+  if (value === 'skipped') return 'default';
+  return 'default';
+};
+
+function BusinessRunStepEvidenceCards({ steps }: { steps?: BusinessRunStep[] | null }) {
+  const visibleSteps = steps || [];
+  if (visibleSteps.length === 0) {
+    return <Typography.Text theme="secondary">暂无步骤记录。若任务已经执行，请刷新业务运行记录或查看能力调用日志。</Typography.Text>;
+  }
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
+        gap: 12,
+        width: '100%',
+      }}
+    >
+      {visibleSteps.map((step) => {
+        const isPassiveStep = step.componentKind !== 'execution' && !step.abilityId;
+        const isPassivePlanned = isPassiveStep && step.status === 'planned';
+        const theme = isPassivePlanned ? 'default' : businessRunStepTheme(step.status);
+        const label = step.componentLabel || businessRecipeStepLabel(step.stepType, step.role);
+        const result =
+          businessRunStepSummaryLabel(step.resultSummary) ||
+          step.error ||
+          (isPassiveStep ? '说明节点，无单独执行输出' : '暂无输出摘要');
+        const executor = [step.executorName || step.executorId, step.executorType].filter(Boolean).join(' · ');
+        const ability = step.abilityName || step.abilityId || '未绑定具体能力';
+        return (
+          <div
+            key={step.id || `${step.order}-${step.stepId || step.abilityTaskId || step.stepType}`}
+            style={{
+              border: '1px solid var(--td-border-level-1-color)',
+              borderTop: `3px solid ${businessFlowStageColor(theme)}`,
+              borderRadius: 12,
+              padding: 12,
+              background: 'var(--td-bg-color-container)',
+              minHeight: 184,
+            }}
+          >
+            <Space direction="vertical" size={6} style={{ width: '100%' }}>
+              <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                <Tag variant="light" theme={theme as any}>
+                  {step.order}. {isPassivePlanned ? '流程说明' : businessRunStepStatusLabel(step.status)}
+                </Tag>
+                <Typography.Text theme="secondary">{label}</Typography.Text>
+              </Space>
+              <Typography.Text strong>{step.displayName || ability}</Typography.Text>
+              <Typography.Text theme="secondary">
+                {step.componentDescription || `执行能力：${ability}`}
+              </Typography.Text>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '80px 1fr',
+                  gap: '4px 8px',
+                }}
+              >
+                <Typography.Text theme="secondary">结果</Typography.Text>
+                <Typography.Text theme={step.error ? 'error' : 'secondary'}>{result}</Typography.Text>
+                <Typography.Text theme="secondary">节点</Typography.Text>
+                <Typography.Text theme="secondary">{executor || '未记录执行节点'}</Typography.Text>
+                <Typography.Text theme="secondary">耗时成本</Typography.Text>
+                <Typography.Text theme="secondary">
+                  {formatDurationMs(step.durationMs)} · {formatPriceValue(step.costAmount ?? undefined, step.currency ?? undefined)}
+                  {typeof step.quotaUnits === 'number' ? ` · ${step.quotaUnits} 额度` : ''}
+                </Typography.Text>
+                <Typography.Text theme="secondary">排障</Typography.Text>
+                <Typography.Text code>{formatShortBusinessId(step.abilityTaskId || step.id)}</Typography.Text>
+              </div>
+            </Space>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+const businessRunNeedsRetest = (row: BusinessRun) => {
+  const status = String(row.status || '').toLowerCase();
+  return Boolean(row.issueCategory && row.issueCategory !== 'none') || status === 'failed' || status === 'cancelled';
+};
+
+const businessRunCallbackFailed = (row: BusinessRun) =>
+  row.callbackStatus === 'failed' || Boolean(row.callbackError);
+
+function BusinessRunRetestControlPanel({
+  runs,
+  isReadOnly,
+  actionLoadingId,
+  onBulkRetest,
+  onBulkCallbackRetry,
+  onBulkIgnoreIssues,
+  onGenerateIssueChecklist,
+}: {
+  runs: BusinessRun[];
+  isReadOnly: boolean;
+  actionLoadingId?: string | null;
+  onBulkRetest: () => void;
+  onBulkCallbackRetry: () => void;
+  onBulkIgnoreIssues: () => void;
+  onGenerateIssueChecklist: () => void;
+}) {
+  const issueRuns = runs.filter((row) => row.issueCategory && row.issueCategory !== 'none');
+  const failedRuns = runs.filter((row) => String(row.status || '').toLowerCase() === 'failed');
+  const retestableRuns = runs.filter(businessRunNeedsRetest);
+  const callbackFailedRuns = runs.filter(businessRunCallbackFailed);
+  const recoveredRuns = runs.filter((row) => row.retestRecovered);
+  const issueLabels = Array.from(new Set(issueRuns.map((row) => businessIssueLabel(row.issueCategory, row.issueLabel)))).slice(0, 4);
+  const canGenerateChecklist = issueRuns.length > 0;
+  const canRetest = retestableRuns.length > 0;
+  const canRetryCallback = callbackFailedRuns.length > 0;
+  const canIgnore = issueRuns.length > 0;
+
+  return (
+    <Card
+      bordered
+      style={{ marginBottom: 12 }}
+      title={
+        <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+          <div>
+            <Typography.Text strong>业务复测闭环</Typography.Text>
+            <div>
+              <Typography.Text theme="secondary">
+                先筛选三条主业务，再对当前已加载记录生成排障清单、批量复测或重试回调。
+              </Typography.Text>
+            </div>
+          </div>
+          <Tag theme={retestableRuns.length > 0 ? 'warning' : 'success'} variant="light">
+            {retestableRuns.length > 0 ? `待复测 ${retestableRuns.length}` : '当前页暂无待复测'}
+          </Tag>
+        </Space>
+      }
+    >
+      <Row gutter={[12, 12]}>
+        <Col xs={12} lg={4}>
+          <Card bordered>
+            <Space direction="vertical" size="small">
+              <Typography.Text strong>当前已加载问题</Typography.Text>
+              <Typography.Title level="h2" style={{ margin: 0 }}>
+                {issueRuns.length}
+              </Typography.Title>
+              <Typography.Text theme="secondary">
+                失败 {failedRuns.length} · 回调失败 {callbackFailedRuns.length} · 已恢复 {recoveredRuns.length}
+              </Typography.Text>
+              <Space size={6} breakLine>
+                {issueLabels.length > 0 ? (
+                  issueLabels.map((label) => (
+                    <Tag key={label} theme="warning" variant="light" size="small">
+                      {label}
+                    </Tag>
+                  ))
+                ) : (
+                  <Tag theme="success" variant="light" size="small">
+                    暂无明显问题
+                  </Tag>
+                )}
+              </Space>
+            </Space>
+          </Card>
+        </Col>
+        <Col xs={12} lg={4}>
+          <Card bordered>
+            <Space direction="vertical" size="small" style={{ width: '100%' }}>
+              <Typography.Text strong>本页可执行动作</Typography.Text>
+              <Typography.Text theme="secondary">
+                批量动作只作用于当前已加载记录。需要覆盖更多历史时，先放大“最近条数”或调整筛选。
+              </Typography.Text>
+              <Space size="small" breakLine>
+                <Button
+                  variant="outline"
+                  loading={actionLoadingId === 'bulk:checklist'}
+                  disabled={isReadOnly || !canGenerateChecklist}
+                  onClick={onGenerateIssueChecklist}
+                >
+                  生成排障清单
+                </Button>
+                <Button
+                  theme="primary"
+                  variant="outline"
+                  loading={actionLoadingId === 'bulk:retest'}
+                  disabled={isReadOnly || !canRetest}
+                  onClick={onBulkRetest}
+                >
+                  复测问题记录
+                </Button>
+                <Button
+                  variant="outline"
+                  loading={actionLoadingId === 'bulk:callback'}
+                  disabled={isReadOnly || !canRetryCallback}
+                  onClick={onBulkCallbackRetry}
+                >
+                  重试回调失败
+                </Button>
+                <Button
+                  variant="outline"
+                  loading={actionLoadingId === 'bulk:ignore'}
+                  disabled={isReadOnly || !canIgnore}
+                  onClick={onBulkIgnoreIssues}
+                >
+                  标记无需处理
+                </Button>
+              </Space>
+            </Space>
+          </Card>
+        </Col>
+        <Col xs={12} lg={4}>
+          <Alert
+            theme={retestableRuns.length > 0 ? 'warning' : 'info'}
+            message={
+              retestableRuns.length > 0
+                ? '建议先生成排障清单留证，再批量复测。复测成功后回到版本卡片记录验收通过，形成上线证据。'
+                : '当前页没有待复测问题。上线前仍需按花纹提取、图裂变、扩图分别跑一次真实链路。'
+            }
+          />
+        </Col>
+      </Row>
+    </Card>
+  );
+}
+
 export const BusinessRunHistoryPanel = ({
   runs,
   total,
@@ -835,6 +1439,10 @@ export const BusinessRunHistoryPanel = ({
   onFiltersChange,
   onRefresh,
   onExport,
+  onBulkCallbackRetry,
+  onBulkRetest,
+  onBulkIgnoreIssues,
+  onGenerateIssueChecklist,
   onOpenDetail,
   onCloseDetail,
   onCallbackRetry,
@@ -854,6 +1462,10 @@ export const BusinessRunHistoryPanel = ({
   onFiltersChange: (updater: (prev: BusinessRunFilters) => BusinessRunFilters) => void;
   onRefresh: () => void;
   onExport: () => void;
+  onBulkCallbackRetry: () => void;
+  onBulkRetest: () => void;
+  onBulkIgnoreIssues: () => void;
+  onGenerateIssueChecklist: () => void;
   onOpenDetail: (row: BusinessRun) => void;
   onCloseDetail: () => void;
   onCallbackRetry: (row: BusinessRun) => void;
@@ -876,6 +1488,16 @@ export const BusinessRunHistoryPanel = ({
         </Space>
       }
     >
+      <BusinessRunRetestControlPanel
+        runs={runs}
+        isReadOnly={isReadOnly}
+        actionLoadingId={actionLoadingId}
+        onBulkRetest={onBulkRetest}
+        onBulkCallbackRetry={onBulkCallbackRetry}
+        onBulkIgnoreIssues={onBulkIgnoreIssues}
+        onGenerateIssueChecklist={onGenerateIssueChecklist}
+      />
+
       <Space align="center" size="small" style={{ marginBottom: 12, width: '100%', flexWrap: 'wrap' }}>
         <Select
           style={{ width: 130 }}
@@ -941,6 +1563,17 @@ export const BusinessRunHistoryPanel = ({
             onFiltersChange((prev) => ({
               ...prev,
               callbackStatus: String(value),
+            }))
+          }
+        />
+        <Select
+          style={{ width: 150 }}
+          value={filters.issueCategory}
+          options={businessRunIssueCategoryOptions}
+          onChange={(value) =>
+            onFiltersChange((prev) => ({
+              ...prev,
+              issueCategory: String(value),
             }))
           }
         />
@@ -1062,17 +1695,39 @@ export const BusinessRunHistoryPanel = ({
           },
           {
             colKey: 'steps',
-            title: '步骤',
-            minWidth: 220,
+            title: '链路判断',
+            minWidth: 300,
             cell: ({ row }) => {
               const steps = row.steps || [];
-              if (steps.length === 0) {
-                return <Typography.Text theme="secondary">未记录</Typography.Text>;
-              }
+              const stage = businessRunPriorityStage(row);
+              const summaryTheme =
+                stage?.theme === 'danger' ? 'error' : stage?.theme === 'warning' ? 'warning' : 'secondary';
               return (
                 <Space direction="vertical" size={4}>
-                  <Typography.Text theme={row.flowSummary?.failed ? 'warning' : 'secondary'}>
-                    {businessRunFlowSummaryLabel(row)}
+                  <Space size={6} breakLine>
+                    <Tag variant="light" theme={businessIssueTheme(row.issueSeverity)}>
+                      {businessIssueLabel(row.issueCategory, row.issueLabel)}
+                    </Tag>
+                    {stage ? (
+                      <Tag variant="light" theme={stage.theme as any}>
+                        {stage.title}
+                      </Tag>
+                    ) : null}
+                    {row.retestSourceRunId ? (
+                      <Tag variant="light">复测来源 {formatShortBusinessId(row.retestSourceRunId)}</Tag>
+                    ) : Number(row.retestAttempts || 0) > 0 ? (
+                      <Tag variant="light" theme={businessRetestTheme(row)}>
+                        {row.retestRecovered
+                          ? '复测已恢复'
+                          : `${businessRetestStatusLabel(row.retestLatestStatus)} · ${row.retestAttempts || 0} 次`}
+                      </Tag>
+                    ) : null}
+                    <Typography.Text theme={summaryTheme}>
+                      {stage ? stage.result : businessRunFlowSummaryLabel(row)}
+                    </Typography.Text>
+                  </Space>
+                  <Typography.Text theme="secondary">
+                    {row.issueAction || stage?.hint || businessRunFlowSummaryLabel(row)}
                   </Typography.Text>
                   <Space breakLine size={4}>
                     {steps.slice(0, 3).map((step) => {
@@ -1088,6 +1743,7 @@ export const BusinessRunHistoryPanel = ({
                         </Tag>
                       );
                     })}
+                    {steps.length === 0 ? <Tag variant="light">未记录步骤</Tag> : null}
                     {steps.length > 3 ? <Tag variant="light">+{steps.length - 3} 步</Tag> : null}
                   </Space>
                 </Space>
@@ -1216,6 +1872,7 @@ export const BusinessRunHistoryPanel = ({
     >
       {detail ? (
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+          <BusinessRunNextActionAlert detail={detail} />
           <Row gutter={[12, 12]}>
             <Col span={6}>
               <Typography.Text theme="secondary">业务任务</Typography.Text>
@@ -1313,6 +1970,65 @@ export const BusinessRunHistoryPanel = ({
             </Col>
           </Row>
           <BusinessRunFlowEvidenceBar detail={detail} />
+          {detail.retestSummary ? (
+            <Card bordered title="复测追踪">
+              {(() => {
+                const retest = asJsonRecord(detail.retestSummary);
+                const history = Array.isArray(retest.history) ? retest.history : [];
+                return (
+                  <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                    <Space breakLine>
+                      {detail.retestSourceRunId ? (
+                        <Tag variant="light">这是复测任务，来源 {formatShortBusinessId(detail.retestSourceRunId)}</Tag>
+                      ) : (
+                        <Tag variant="light" theme={businessRetestTheme(detail)}>
+                          {detail.retestRecovered ? '复测已确认恢复' : `复测次数 ${detail.retestAttempts || 0}`}
+                        </Tag>
+                      )}
+                      {detail.retestLatestRunId ? (
+                        <Tag variant="light" theme={businessRetestTheme(detail)}>
+                          最新复测 {formatShortBusinessId(detail.retestLatestRunId)} · {businessRetestStatusLabel(detail.retestLatestStatus)}
+                        </Tag>
+                      ) : null}
+                      {recordText(retest, 'sourceIssueLabel') !== '—' ? (
+                        <Tag variant="light" theme="warning">
+                          原问题：{recordText(retest, 'sourceIssueLabel')}
+                        </Tag>
+                      ) : null}
+                    </Space>
+                    {history.length > 0 ? (
+                      <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                        {history.slice(0, 5).map((item, index) => {
+                          const record = asJsonRecord(item);
+                          return (
+                            <Space
+                              key={`${recordText(record, 'runId')}-${index}`}
+                              align="center"
+                              style={{ justifyContent: 'space-between', width: '100%' }}
+                            >
+                              <Typography.Text code>{formatShortBusinessId(recordText(record, 'runId'))}</Typography.Text>
+                              <Space size={6}>
+                                <Tag variant="light" theme={record.recovered ? 'success' : record.status === 'failed' ? 'danger' : 'warning'}>
+                                  {record.recovered ? '已恢复' : businessRetestStatusLabel(String(record.status || ''))}
+                                </Tag>
+                                <Typography.Text theme="secondary">
+                                  {recordText(record, 'issueLabel', '暂无明显问题')}
+                                </Typography.Text>
+                              </Space>
+                            </Space>
+                          );
+                        })}
+                      </Space>
+                    ) : (
+                      <Typography.Text theme="secondary">
+                        暂无复测记录。可以在列表中筛选问题后使用“复测问题记录”。
+                      </Typography.Text>
+                    )}
+                  </Space>
+                );
+              })()}
+            </Card>
+          ) : null}
           {detail.flowSummary ? (
             <Card bordered title="链路证据">
               {(() => {
@@ -1323,6 +2039,8 @@ export const BusinessRunHistoryPanel = ({
                 const callback = asJsonRecord(detail.flowSummary?.callback);
                 const hasOutput = Boolean(output.hasOutput);
                 const hasOssOutput = Boolean(output.hasOssOutput);
+                const structuredCount = recordText(output, 'structuredCount', '0');
+                const resourceCount = recordText(output, 'resourceCount', '0');
                 return (
                   <Row gutter={[12, 12]}>
                     <Col span={6}>
@@ -1363,7 +2081,7 @@ export const BusinessRunHistoryPanel = ({
                         </Space>
                         <Typography.Text theme="secondary">
                           图 {recordText(output, 'imageCount', '0')} · 视频 {recordText(output, 'videoCount', '0')} · 文字{' '}
-                          {recordText(output, 'textCount', '0')}
+                          {recordText(output, 'textCount', '0')} · 结构化 {structuredCount} · 资源 {resourceCount}
                         </Typography.Text>
                       </Space>
                     </Col>
@@ -1386,7 +2104,7 @@ export const BusinessRunHistoryPanel = ({
               })()}
             </Card>
           ) : null}
-          <Card bordered title="业务流程执行记录">
+          <Card bordered title="业务闭环步骤">
             <Space direction="vertical" size="small" style={{ width: '100%' }}>
               {detail.flowSummary ? (
                 <Alert
@@ -1397,82 +2115,95 @@ export const BusinessRunHistoryPanel = ({
                   ].filter(Boolean).join('。')}
                 />
               ) : null}
-              <BusinessRecipeFlow steps={detail.steps || []} showRuntime />
+              <Typography.Text theme="secondary">
+                按执行顺序展示每一步做了什么、当前结果、命中的节点和排障编号；底层原始字段放在下方高级区。
+              </Typography.Text>
+              <BusinessRunStepEvidenceCards steps={detail.steps || []} />
             </Space>
           </Card>
-          <Table
-            size="small"
-            rowKey="id"
-            data={detail.steps || []}
-            empty={<Typography.Text theme="secondary">暂无步骤记录。</Typography.Text>}
-            columns={[
-              {
-                colKey: 'step',
-                title: '步骤',
-                minWidth: 180,
-                cell: ({ row }) => (
-                  <Space direction="vertical" size={2}>
-                    <Typography.Text>
-                      {row.order}. {row.componentLabel || businessRecipeStepLabel(row.stepType, row.role)}
-                    </Typography.Text>
+          <details
+            style={{
+              border: '1px solid var(--td-border-level-1-color)',
+              borderRadius: 12,
+              padding: 12,
+            }}
+          >
+            <summary style={{ cursor: 'pointer', fontWeight: 600 }}>步骤明细表</summary>
+            <Table
+              size="small"
+              rowKey="id"
+              data={detail.steps || []}
+              empty={<Typography.Text theme="secondary">暂无步骤记录。</Typography.Text>}
+              style={{ marginTop: 12 }}
+              columns={[
+                {
+                  colKey: 'step',
+                  title: '步骤',
+                  minWidth: 180,
+                  cell: ({ row }) => (
+                    <Space direction="vertical" size={2}>
+                      <Typography.Text>
+                        {row.order}. {row.componentLabel || businessRecipeStepLabel(row.stepType, row.role)}
+                      </Typography.Text>
+                      <Typography.Text theme="secondary">
+                        {row.displayName || row.abilityName || row.abilityId || row.componentDescription || '未绑定能力'}
+                      </Typography.Text>
+                    </Space>
+                  ),
+                },
+                {
+                  colKey: 'status',
+                  title: '状态',
+                  width: 120,
+                  cell: ({ row }) => <StatusBadge status={row.status} />,
+                },
+                {
+                  colKey: 'stepCost',
+                  title: '耗时/成本',
+                  width: 150,
+                  cell: ({ row }) => (
+                    <Space direction="vertical" size={2}>
+                      <Typography.Text>{formatDurationMs(row.durationMs)}</Typography.Text>
+                      <Typography.Text theme="secondary">
+                        {formatPriceValue(row.costAmount ?? undefined, row.currency ?? undefined)}
+                        {typeof row.quotaUnits === 'number' ? ` · ${row.quotaUnits} 额度` : ''}
+                      </Typography.Text>
+                    </Space>
+                  ),
+                },
+                {
+                  colKey: 'summary',
+                  title: '结果摘要',
+                  minWidth: 220,
+                  cell: ({ row }) => (
                     <Typography.Text theme="secondary">
-                      {row.displayName || row.abilityName || row.abilityId || row.componentDescription || '未绑定能力'}
+                      {businessRunStepSummaryLabel(row.resultSummary) || row.error || '—'}
                     </Typography.Text>
-                  </Space>
-                ),
-              },
-              {
-                colKey: 'status',
-                title: '状态',
-                width: 120,
-                cell: ({ row }) => <StatusBadge status={row.status} />,
-              },
-              {
-                colKey: 'stepCost',
-                title: '耗时/成本',
-                width: 150,
-                cell: ({ row }) => (
-                  <Space direction="vertical" size={2}>
-                    <Typography.Text>{formatDurationMs(row.durationMs)}</Typography.Text>
-                    <Typography.Text theme="secondary">
-                      {formatPriceValue(row.costAmount ?? undefined, row.currency ?? undefined)}
-                      {typeof row.quotaUnits === 'number' ? ` · ${row.quotaUnits} 额度` : ''}
-                    </Typography.Text>
-                  </Space>
-                ),
-              },
-              {
-                colKey: 'summary',
-                title: '结果摘要',
-                minWidth: 220,
-                cell: ({ row }) => (
-                  <Typography.Text theme="secondary">
-                    {businessRunStepSummaryLabel(row.resultSummary) || row.error || '—'}
-                  </Typography.Text>
-                ),
-              },
-              {
-                colKey: 'executor',
-                title: '执行节点',
-                minWidth: 220,
-                cell: ({ row }) => (
-                  <Space direction="vertical" size={2}>
-                    <Typography.Text>{row.executorName || row.executorId || '未记录'}</Typography.Text>
-                    <Typography.Text theme="secondary">
-                      {row.executorId || '—'} · {row.executorType || '—'}
-                    </Typography.Text>
-                  </Space>
-                ),
-              },
-              {
-                colKey: 'task',
-                title: '步骤排障编号',
-                minWidth: 220,
-                ellipsis: true,
-                cell: ({ row }) => <Typography.Text theme="secondary">{formatShortBusinessId(row.abilityTaskId)}</Typography.Text>,
-              },
-            ]}
-          />
+                  ),
+                },
+                {
+                  colKey: 'executor',
+                  title: '执行节点',
+                  minWidth: 220,
+                  cell: ({ row }) => (
+                    <Space direction="vertical" size={2}>
+                      <Typography.Text>{row.executorName || row.executorId || '未记录'}</Typography.Text>
+                      <Typography.Text theme="secondary">
+                        {row.executorId || '—'} · {row.executorType || '—'}
+                      </Typography.Text>
+                    </Space>
+                  ),
+                },
+                {
+                  colKey: 'task',
+                  title: '步骤排障编号',
+                  minWidth: 220,
+                  ellipsis: true,
+                  cell: ({ row }) => <Typography.Text theme="secondary">{formatShortBusinessId(row.abilityTaskId)}</Typography.Text>,
+                },
+              ]}
+            />
+          </details>
           <details
             style={{
               border: '1px solid var(--td-border-level-1-color)',
@@ -1796,6 +2527,12 @@ export const BusinessGovernancePanel = ({
         {selectedTarget && selectedTarget.status !== 'active' ? (
           <Alert theme="warning" message="目标版本未启用，不能回滚为默认版本。请先启用后再操作。" />
         ) : null}
+        {selectedTarget ? (
+          <Alert
+            theme={businessCapabilityHasRollbackEvidence(selectedTarget) ? 'success' : 'warning'}
+            message={`目标版本证据：${businessCapabilityRollbackEvidenceLabel(selectedTarget)}`}
+          />
+        ) : null}
         {compareResult ? (
           <Space direction="vertical" size="small" style={{ width: '100%' }}>
             <Space align="center" size={8} style={{ flexWrap: 'wrap' }}>
@@ -2034,41 +2771,61 @@ export const BusinessOperationLogPanel = ({
 
 export type BusinessWalletSettlement = {
   status?: string;
+  method?: string;
   traceId?: string;
+  refundTraceId?: string;
   points?: number;
   balance?: number;
+  units?: number;
+  remainingUnits?: number;
+  packageKey?: string;
+  packageName?: string;
   transactionId?: string;
+  ledgerId?: string;
+  refundTransactionId?: string;
+  refundLedgerId?: string;
   idempotent?: boolean;
+  refundIdempotent?: boolean;
   error?: string;
 };
 
 export const getBusinessWalletSettlement = (row?: BusinessRun | null): BusinessWalletSettlement | null => {
   const costBreakdown = row?.costBreakdown;
   if (!costBreakdown || typeof costBreakdown !== 'object') return null;
-  const raw = (costBreakdown as Record<string, unknown>).walletSettlement;
+  const record = costBreakdown as Record<string, unknown>;
+  const raw = record.billingSettlement || record.packageSettlement || record.walletSettlement;
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   return raw as BusinessWalletSettlement;
 };
 
 export const businessWalletStatusLabel = (settlement?: BusinessWalletSettlement | null) => {
   if (!settlement) return '未扣费';
-  if (settlement.status === 'settled') return '已扣费';
-  if (settlement.status === 'failed') return '扣费失败';
+  const methodLabel = settlement.method === 'package' ? '套餐' : '钱包';
+  if (settlement.status === 'settled') return `${methodLabel}已扣`;
+  if (settlement.status === 'failed') return `${methodLabel}扣减失败`;
+  if (settlement.status === 'refunded') return '已退回';
   return settlement.status || '未扣费';
 };
 
 export const businessWalletStatusTheme = (settlement?: BusinessWalletSettlement | null) => {
   if (settlement?.status === 'settled') return 'success';
   if (settlement?.status === 'failed') return 'danger';
+  if (settlement?.status === 'refunded') return 'warning';
   return 'default';
 };
 
 export const businessWalletSummary = (settlement?: BusinessWalletSettlement | null) => {
-  if (!settlement) return '未产生钱包流水';
+  if (!settlement) return '未产生套餐或钱包流水';
   const parts = [
+    settlement.method === 'package' ? '套餐扣减' : '',
+    settlement.method === 'wallet' ? '钱包扣费' : '',
+    settlement.packageName || settlement.packageKey || '',
+    settlement.units !== undefined ? `${settlement.units} 次` : '',
+    settlement.remainingUnits !== undefined ? `剩余 ${settlement.remainingUnits}` : '',
     settlement.points !== undefined ? `${settlement.points} 点` : '',
     settlement.balance !== undefined ? `余额 ${settlement.balance}` : '',
     settlement.idempotent ? '重复查询已去重' : '',
+    settlement.refundIdempotent ? '重复退回已去重' : '',
   ].filter(Boolean);
   return parts.join(' · ') || businessWalletStatusLabel(settlement);
 };
@@ -2097,17 +2854,26 @@ export const businessRunStepSummaryLabel = (summary?: JsonRecord | null) => {
   }
   const imageCount = Number(summary.imageCount || 0);
   const videoCount = Number(summary.videoCount || 0);
+  const structuredCount = Number(summary.structuredCount || 0);
+  const resourceCount = Number(summary.resourceCount || 0);
   if (imageCount > 0) return `${imageCount} 张图`;
   if (videoCount > 0) return `${videoCount} 个视频`;
+  if (structuredCount > 0) return `${structuredCount} 个结构化结果`;
+  if (resourceCount > 0) return `${resourceCount} 个资源`;
   return '';
 };
 
 export const businessRunOutputLabel = (row?: BusinessRun | null) => {
   if (!row) return '—';
+  const output = asJsonRecord(row.flowSummary?.output);
+  const structuredCount = recordNumber(output, 'structuredCount', 0);
+  const resourceCount = recordNumber(output, 'resourceCount', 0);
   const parts = [
     (row.imageUrls || []).length > 0 ? `${(row.imageUrls || []).length} 张图` : '',
     (row.videoUrls || []).length > 0 ? `${(row.videoUrls || []).length} 个视频` : '',
     (row.texts || []).length > 0 ? `${(row.texts || []).length} 段文字` : '',
+    structuredCount > 0 ? `${structuredCount} 个结构化结果` : '',
+    resourceCount > 0 ? `${resourceCount} 个资源` : '',
   ].filter(Boolean);
   return parts.join(' · ') || '无输出';
 };
@@ -2117,6 +2883,11 @@ export const businessRunFlowSummaryLabel = (row?: BusinessRun | null) => {
   if (!summary) return '未记录业务链路';
   const total = Number(summary.total || 0);
   if (total <= 0) return summary.message || '未记录业务链路';
+  if (businessRunIsFinished(row?.status)) {
+    return [summary.message || '业务链路执行完成', `输出：${businessRunOutputLabel(row)}`]
+      .filter(Boolean)
+      .join(' · ');
+  }
   const progress = typeof summary.progressPercent === 'number' ? `${summary.progressPercent}%` : '—';
   const current = summary.currentStepLabel ? `当前：${summary.currentStepLabel}` : '';
   return [summary.message || `${total} 个步骤`, `进度 ${progress}`, current].filter(Boolean).join(' · ');
@@ -2282,8 +3053,18 @@ const businessCapabilityRiskTag = (item: BusinessCapability) => {
   if (!item.primaryAbilityId && !item.primaryAbilityName) {
     return { theme: 'danger', text: '缺底层能力', detail: '需要先绑定实际执行能力。' };
   }
+  if (item.releaseGate?.status === 'blocked') {
+    return {
+      theme: 'danger',
+      text: '未满足上线',
+      detail: item.releaseGate.suggestions?.[0] || '需要先完成真实链路验收。',
+    };
+  }
   if (item.latestRun?.error || Number(item.runMetrics?.failed || 0) > 0) {
     return { theme: 'warning', text: '最近有失败', detail: businessCapabilityLatestRunLabel(item) };
+  }
+  if (item.releaseGate?.status === 'warning') {
+    return { theme: 'warning', text: '上线需复核', detail: item.releaseGate.suggestions?.[0] || '上线前仍有风险项需要确认。' };
   }
   if (item.isDefault) {
     return { theme: 'success', text: '生产默认', detail: '当前业务入口默认使用这个版本。' };
@@ -2303,10 +3084,101 @@ const businessCoreEntrySuggestion = ({
   if (!defaultItem) return '先补一个启用版本并设为默认，否则业务方没有稳定入口。';
   if (defaultItem.status !== 'active') return '默认版本未启用，先启用或切换到可用版本。';
   if (!defaultItem.primaryAbilityId && !defaultItem.primaryAbilityName) return '默认版本缺少底层能力，先绑定真实执行能力。';
+  if (defaultItem.governanceStatus === 'blocker') {
+    return defaultItem.governanceSuggestions?.[0] || '默认版本底层治理未通过，先补能力、模型、密钥或执行线路。';
+  }
+  if (defaultItem.releaseGate?.status === 'blocked') {
+    return defaultItem.releaseGate.suggestions?.[0] || '默认版本未满足上线门禁，先跑真实链路并记录验收通过。';
+  }
+  if (defaultItem.releaseGate?.acceptancePassed === false || defaultItem.latestAcceptance?.status !== 'passed') {
+    return '默认版本还没有验收通过记录，先跑真实链路测试并记录验收证据。';
+  }
   if (defaultItem.latestRun?.error || Number(defaultItem.runMetrics?.failed || 0) > 0) return '最近有失败样本，先打开运行记录确认卡点。';
   if (hasPendingApproval) return '存在默认版本切换审批，先处理审批再对外说明。';
+  if (defaultItem.releaseGate?.status === 'warning') return defaultItem.releaseGate.suggestions?.[0] || '上线前仍有风险项，先完成复核再小流量验证。';
   if (activeCount < 2) return '建议保留一个可用备选版本，便于灰度和快速回滚。';
   return '入口稳定，可进入测评端或小流量业务验证。';
+};
+
+export const BusinessCoreClosurePanel = ({
+  capabilities,
+  pendingApprovals,
+  summary,
+  formatDateTime,
+}: {
+  capabilities: BusinessCapability[];
+  pendingApprovals: BusinessDefaultApproval[];
+  summary?: BusinessUsageSummaryResponse | null;
+  formatDateTime: (value?: string | null) => string;
+}) => {
+  const rows = buildCoreBusinessReleaseEvidenceRows({ capabilities, pendingApprovals, summary });
+
+  return (
+    <Card
+      bordered
+      className="podi-business-closure-card"
+      title={
+        <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+          <div>
+            <Typography.Text strong>三主业务闭环总表</Typography.Text>
+            <div>
+              <Typography.Text theme="secondary">
+                一张表核对默认版本、验收、真实样本、回调、计费和回滚；先看这里，再进入版本卡片或运行记录。
+              </Typography.Text>
+            </div>
+          </div>
+          <Tag theme={rows.every((row) => row.theme === 'success') ? 'success' : rows.some((row) => row.theme === 'danger') ? 'danger' : 'warning'} variant="light">
+            {rows.filter((row) => row.theme === 'success').length}/{rows.length} 闭环正常
+          </Tag>
+        </Space>
+      }
+    >
+      <div className="podi-business-closure-grid">
+        {rows.map((row) => (
+          <section key={row.businessKey} className={`podi-business-closure-item podi-business-closure-item--${row.theme}`}>
+            <div className="podi-business-closure-item__header">
+              <div>
+                <Typography.Text strong>{businessKeyLabel(row.businessKey)}</Typography.Text>
+                <div>
+                  <Typography.Text theme="secondary">{businessCapabilityGroupHint(row.businessKey)}</Typography.Text>
+                </div>
+              </div>
+              <Tag theme={row.theme} variant="light">
+                {row.status}
+              </Tag>
+            </div>
+            <div className="podi-business-closure-item__version">
+              <Typography.Text theme="secondary">当前默认</Typography.Text>
+              <Typography.Text>
+                {row.defaultItem ? `${row.defaultItem.version} · ${row.defaultItem.displayName}` : '未设置默认版本'}
+              </Typography.Text>
+              <Typography.Text theme="secondary">
+                发布时间：{row.defaultItem ? formatDateTime(row.defaultItem.releaseTime || row.defaultItem.createdAt) : '—'}
+              </Typography.Text>
+            </div>
+            <div className="podi-business-closure-checks">
+              {row.checks.map((check) => (
+                <Tag key={check.key} theme={check.theme} variant="light" size="small">
+                  {check.label}
+                </Tag>
+              ))}
+            </div>
+            <div className="podi-business-closure-metrics">
+              <span>近 {summary?.windowHours || 24} 小时</span>
+              <strong>{row.bucket?.total || 0}</strong>
+              <span>成功 {row.bucket?.succeeded || 0} / 失败 {row.bucket?.failed || 0} / 运行 {Number(row.bucket?.running || 0) + Number(row.bucket?.queued || 0)}</span>
+              <span>成功率 {formatRatePercent(row.bucket?.successRate)}</span>
+            </div>
+            <div className="podi-business-closure-item__footer">
+              <Typography.Text theme={row.theme === 'danger' ? 'error' : row.theme === 'warning' ? 'warning' : 'secondary'}>
+                {row.suggestion}
+              </Typography.Text>
+            </div>
+          </section>
+        ))}
+      </div>
+    </Card>
+  );
 };
 
 export const BusinessCoreEntryPanel = ({
@@ -2394,10 +3266,277 @@ export const BusinessCoreEntryPanel = ({
   );
 };
 
+export const BusinessOrchestrationMapPanel = ({
+  capabilities,
+  pendingApprovals,
+  formatDateTime,
+}: {
+  capabilities: BusinessCapability[];
+  pendingApprovals: BusinessDefaultApproval[];
+  formatDateTime: (value?: string | null) => string;
+}) => {
+  const rows = coreBusinessKeys.map((businessKey) => {
+    const items = capabilities.filter((item) => item.businessKey === businessKey);
+    const defaultItem = items.find((item) => item.isDefault);
+    const activeAlternatives = items.filter((item) => item.status === 'active' && !item.isDefault);
+    const rollbackReadyAlternatives = activeAlternatives.filter(businessCapabilityHasRollbackEvidence);
+    const hasPendingApproval = pendingApprovals.some((item) => item.businessKey === businessKey && item.status === 'pending');
+    const rollout = readCapabilityRollout(defaultItem?.metadata);
+    const risk = defaultItem ? businessCapabilityRiskTag(defaultItem) : { theme: 'danger', text: '缺默认入口', detail: '业务方无法稳定调用。' };
+    return {
+      businessKey,
+      defaultItem,
+      activeAlternatives,
+      rollbackReadyAlternatives,
+      hasPendingApproval,
+      rollout,
+      risk,
+      suggestion: businessCoreEntrySuggestion({
+        defaultItem,
+        activeCount: items.filter((item) => item.status === 'active').length,
+        hasPendingApproval,
+      }),
+    };
+  });
+
+  return (
+    <Card
+      bordered
+      title={
+        <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+          <div>
+            <Typography.Text strong>主业务编排地图</Typography.Text>
+            <div>
+              <Typography.Text theme="secondary">
+                按业务方看到的入口来审阅：生产版本、灰度/回滚、底层步骤和当前建议放在同一张图里。
+              </Typography.Text>
+            </div>
+          </div>
+          <Tag theme="primary" variant="light">
+            类似 Coze 工作流视角
+          </Tag>
+        </Space>
+      }
+    >
+      <Row gutter={[12, 12]}>
+        {rows.map((row) => (
+          <Col key={row.businessKey} xs={12} xl={4}>
+            <Card bordered size="small" style={{ height: '100%' }}>
+              <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                <Space align="center" style={{ justifyContent: 'space-between', width: '100%', gap: 8 }}>
+                  <div>
+                    <Typography.Text strong>{businessKeyLabel(row.businessKey)}</Typography.Text>
+                    <div>
+                      <Typography.Text theme="secondary">{businessCapabilityGroupHint(row.businessKey)}</Typography.Text>
+                    </div>
+                  </div>
+                  <Tag theme={row.risk.theme as any} variant="light">
+                    {row.risk.text}
+                  </Tag>
+                </Space>
+                <Card bordered size="small" className="podi-business-orchestration-entry">
+                  <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                    <Typography.Text theme="secondary">生产入口</Typography.Text>
+                    <Typography.Text strong>
+                      {row.defaultItem ? `${row.defaultItem.version} · ${row.defaultItem.displayName}` : '未设置默认版本'}
+                    </Typography.Text>
+                    <Typography.Text theme="secondary">
+                      发布时间：{row.defaultItem ? formatDateTime(row.defaultItem.releaseTime || row.defaultItem.createdAt) : '—'}
+                    </Typography.Text>
+                    <Space size={6} breakLine>
+                      <Tag theme={row.defaultItem?.status === 'active' ? 'success' : 'warning'} variant="light">
+                        {row.defaultItem?.status === 'active' ? '已启用' : '未启用'}
+                      </Tag>
+                      <Tag theme={row.rollout.enabled ? 'warning' : 'default'} variant="light">
+                        灰度 {row.rollout.enabled ? `${row.rollout.percent}%` : '关闭'}
+                      </Tag>
+                      <Tag theme={row.rollbackReadyAlternatives.length > 0 ? 'success' : 'warning'} variant="light">
+                        {row.rollbackReadyAlternatives.length > 0
+                          ? `可回滚 ${row.rollbackReadyAlternatives.length}`
+                          : `备选 ${row.activeAlternatives.length}`}
+                      </Tag>
+                      {row.hasPendingApproval ? <Tag theme="warning" variant="light">切换审批中</Tag> : null}
+                    </Space>
+                  </Space>
+                </Card>
+                <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                  <Typography.Text theme="secondary">底层编排</Typography.Text>
+                  <BusinessRecipeFlow steps={row.defaultItem?.recipeSteps || []} compact />
+                </Space>
+                <Alert
+                  theme={row.risk.theme === 'danger' ? 'error' : row.risk.theme === 'warning' ? 'warning' : 'info'}
+                  message={`当前建议：${row.suggestion}`}
+                />
+              </Space>
+            </Card>
+          </Col>
+        ))}
+      </Row>
+    </Card>
+  );
+};
+
 const businessCapabilityGroupSortValue = (businessKey?: string | null) => {
   const index = coreBusinessKeys.indexOf((businessKey || '') as (typeof coreBusinessKeys)[number]);
   return index >= 0 ? index : coreBusinessKeys.length;
 };
+
+const businessReleaseGateIssueLabel = (value?: string | null) => {
+  const labels: Record<string, string> = {
+    BUSINESS_RELEASE_VERSION_INACTIVE: '业务版本未启用',
+    BUSINESS_RELEASE_PRIMARY_ABILITY_REQUIRED: '未绑定真实主能力',
+    BUSINESS_RELEASE_GOVERNANCE_BLOCKED: '底层能力或模型治理未通过',
+    BUSINESS_RELEASE_GOVERNANCE_WARNING: '底层治理信息需要补齐',
+    BUSINESS_RELEASE_ACCEPTANCE_REQUIRED: '缺少真实链路验收记录',
+    BUSINESS_RELEASE_LATEST_RUN_FAILED: '最近一次运行失败',
+    BUSINESS_RELEASE_RECENT_FAILURES: '近期存在失败样本',
+  };
+  return labels[value || ''] || value || '';
+};
+
+function BusinessCapabilityReleaseEvidence({
+  item,
+  formatDateTime,
+}: {
+  item: BusinessCapability;
+  formatDateTime: (value?: string | null) => string;
+}) {
+  const latestAcceptance = item.latestAcceptance;
+  const releaseGate = item.releaseGate || null;
+  const blockers = (releaseGate?.blockers || []).map((item) => businessReleaseGateIssueLabel(item)).filter(Boolean);
+  const warnings = (releaseGate?.warnings || []).map((item) => businessReleaseGateIssueLabel(item)).filter(Boolean);
+  const suggestions = releaseGate?.suggestions || [];
+  const latestRun = item.latestRun;
+  const outputCount = Number(latestRun?.imageCount || latestRun?.image_count || 0) + Number(latestRun?.videoCount || latestRun?.video_count || 0);
+  const governanceTags = [
+    {
+      key: 'governance',
+      label: businessGovernanceStatusLabel(item.governanceStatus),
+      theme: businessGovernanceStatusTheme(item.governanceStatus),
+    },
+    {
+      key: 'key',
+      label: item.runtimeKeyConfigured === false ? '密钥缺失' : item.runtimeKeyConfigured === true ? '密钥可用' : '密钥未确认',
+      theme: item.runtimeKeyConfigured === false ? 'danger' : item.runtimeKeyConfigured === true ? 'success' : 'default',
+    },
+    {
+      key: 'cost',
+      label: item.modelCostConfigured === false ? '成本缺失' : item.modelCostConfigured === true ? '成本已配' : '成本未确认',
+      theme: item.modelCostConfigured === false ? 'warning' : item.modelCostConfigured === true ? 'success' : 'default',
+    },
+    item.egressVerified !== null && item.egressVerified !== undefined
+      ? {
+          key: 'egress',
+          label: item.egressVerified ? '出网已验' : '出网未验',
+          theme: item.egressVerified ? 'success' : 'warning',
+        }
+      : null,
+  ].filter(Boolean) as Array<{ key: string; label: string; theme: 'success' | 'warning' | 'danger' | 'default' }>;
+
+  return (
+    <Card bordered size="small">
+      <Space direction="vertical" size={6} style={{ width: '100%' }}>
+        <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+          <Typography.Text strong>上线证据</Typography.Text>
+          <Tag theme={businessReleaseGateStatusTheme(releaseGate?.status)} variant="light">
+            {releaseGate?.label || businessReleaseGateLabel(releaseGate?.status)}
+          </Tag>
+        </Space>
+        <Space size={6} breakLine>
+          <Tag theme={businessAcceptanceStatusTheme(latestAcceptance?.status)} variant="light">
+            {businessAcceptanceStatusLabel(latestAcceptance?.status)}
+          </Tag>
+          {latestAcceptance?.createdAt ? (
+            <Typography.Text theme="secondary">{formatDateTime(latestAcceptance.createdAt)}</Typography.Text>
+          ) : null}
+          {latestAcceptance?.evidenceRunId ? (
+            <Typography.Text theme="secondary">证据：{formatShortBusinessId(latestAcceptance.evidenceRunId)}</Typography.Text>
+          ) : null}
+          {latestAcceptance?.evidenceUrl ? (
+            <Button size="small" variant="text" onClick={() => window.open(latestAcceptance.evidenceUrl || '', '_blank', 'noreferrer')}>
+              打开证据
+            </Button>
+          ) : null}
+        </Space>
+        {latestAcceptance?.note ? <Typography.Text theme="secondary">{latestAcceptance.note}</Typography.Text> : null}
+        <Space size={6} breakLine>
+          {latestRun ? <StatusBadge status={latestRun.status} /> : <Tag variant="light">暂无真实样本</Tag>}
+          <Typography.Text theme={latestRun?.error ? 'error' : 'secondary'}>
+            {latestRun ? `最近样本：${businessCapabilityLatestRunLabel(item)}${outputCount > 0 ? ` · 输出 ${outputCount} 个` : ''}` : '还没有运行记录'}
+          </Typography.Text>
+        </Space>
+        <Space size={6} breakLine>
+          {governanceTags.map((tag) => (
+            <Tag key={tag.key} theme={tag.theme} variant="light" size="small">
+              {tag.label}
+            </Tag>
+          ))}
+        </Space>
+        {(blockers.length > 0 || warnings.length > 0 || suggestions.length > 0) ? (
+          <Typography.Text theme={blockers.length > 0 ? 'error' : warnings.length > 0 ? 'warning' : 'secondary'}>
+            {[...blockers, ...warnings, ...suggestions].slice(0, 2).join('；')}
+          </Typography.Text>
+        ) : (
+          <Typography.Text theme="secondary">暂无门禁阻塞；上线前仍需保留一次真实链路验收记录。</Typography.Text>
+        )}
+      </Space>
+    </Card>
+  );
+}
+
+function BusinessCapabilityTechnicalDetails({ item }: { item: BusinessCapability }) {
+  const primaryAbility = item.primaryAbilityName || item.primaryAbilityId || String(item.recipe?.primaryAbilityId || '未配置');
+  const vendorModel = item.vendorModelName || item.vendorModelProvider || '未绑定';
+  const governanceIssues = item.governanceIssues || [];
+  const governanceSuggestions = item.governanceSuggestions || [];
+
+  return (
+    <details className="podi-business-technical-details">
+      <summary>底层信息：能力、模型、配方</summary>
+      <div className="podi-business-technical-details__body">
+        <div>
+          <Typography.Text theme="secondary">主执行能力</Typography.Text>
+          <Typography.Text>{primaryAbility}</Typography.Text>
+        </div>
+        <div>
+          <Typography.Text theme="secondary">模型来源</Typography.Text>
+          <Typography.Text>{vendorModel}</Typography.Text>
+        </div>
+        <div>
+          <Typography.Text theme="secondary">底层治理</Typography.Text>
+          <Space size={6} breakLine>
+            <Tag theme={businessGovernanceStatusTheme(item.governanceStatus)} variant="light" size="small">
+              {businessGovernanceStatusLabel(item.governanceStatus)}
+            </Tag>
+            {item.primaryAbilityProvider ? (
+              <Tag variant="light" size="small">
+                {item.primaryAbilityProvider}
+              </Tag>
+            ) : null}
+            {item.vendorModelProvider ? (
+              <Tag variant="light" size="small">
+                {item.vendorModelProvider}
+              </Tag>
+            ) : null}
+          </Space>
+        </div>
+        {governanceIssues.length > 0 || governanceSuggestions.length > 0 ? (
+          <Typography.Text theme={item.governanceStatus === 'blocker' ? 'error' : 'warning'}>
+            {[...governanceIssues.map((value) => businessGovernanceIssueLabel(value)), ...governanceSuggestions].slice(0, 3).join('；')}
+          </Typography.Text>
+        ) : null}
+        {item.recipeSteps && item.recipeSteps.length > 0 ? (
+          <div>
+            <Typography.Text theme="secondary">业务流程</Typography.Text>
+            <div style={{ marginTop: 8 }}>
+              <BusinessRecipeFlow steps={item.recipeSteps} compact />
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </details>
+  );
+}
 
 export const BusinessCapabilityGrid = ({
   capabilities,
@@ -2407,6 +3546,7 @@ export const BusinessCapabilityGrid = ({
   onEdit,
   onSetDefault,
   onToggleActive,
+  onRecordAcceptance,
   formatDateTime,
 }: {
   capabilities: BusinessCapability[];
@@ -2416,6 +3556,7 @@ export const BusinessCapabilityGrid = ({
   onEdit: (item: BusinessCapability) => void;
   onSetDefault: (item: BusinessCapability) => void;
   onToggleActive: (item: BusinessCapability) => void;
+  onRecordAcceptance: (item: BusinessCapability) => void;
   formatDateTime: (value?: string | null) => string;
 }) => {
   const grouped = capabilities.reduce<Record<string, BusinessCapability[]>>((map, item) => {
@@ -2474,9 +3615,11 @@ export const BusinessCapabilityGrid = ({
                 const risk = businessCapabilityRiskTag(item);
                 const defaultActionId = `default:${item.id}`;
                 const statusActionId = `status:${item.id}`;
+                const acceptanceActionId = `acceptance:${item.id}`;
                 const isActive = item.status === 'active';
                 const lockDefaultStop = isActive && item.isDefault;
                 const actionBusy = Boolean(actionLoadingId);
+                const defaultSwitchBlocked = item.releaseGate?.canRequestDefault === false;
                 const pendingApproval = pendingApprovals.find(
                   (approval) => approval.targetCapabilityId === item.id && approval.status === 'pending',
                 );
@@ -2518,43 +3661,33 @@ export const BusinessCapabilityGrid = ({
                             </div>
                           </Col>
                           <Col span={6}>
-                            <Typography.Text theme="secondary">底层能力</Typography.Text>
+                            <Typography.Text theme="secondary">上线门禁</Typography.Text>
                             <div>
-                              <Typography.Text>{item.primaryAbilityName || String(item.recipe?.primaryAbilityId || '未配置')}</Typography.Text>
+                              <Tag theme={businessReleaseGateStatusTheme(item.releaseGate?.status)} variant="light" size="small">
+                                {item.releaseGate?.label || businessReleaseGateLabel(item.releaseGate?.status)}
+                              </Tag>
                             </div>
                           </Col>
                           <Col span={6}>
-                            <Typography.Text theme="secondary">模型来源</Typography.Text>
+                            <Typography.Text theme="secondary">验收状态</Typography.Text>
                             <div>
-                              <Typography.Text>{item.vendorModelName || item.vendorModelProvider || '未绑定'}</Typography.Text>
+                              <Tag theme={businessAcceptanceStatusTheme(item.latestAcceptance?.status)} variant="light" size="small">
+                                {businessAcceptanceStatusLabel(item.latestAcceptance?.status)}
+                              </Tag>
                             </div>
                           </Col>
                         </Row>
                         <Typography.Text theme={Number(item.runMetrics?.failed || 0) > 0 ? 'warning' : 'secondary'}>
                           {businessCapabilityRunMetricsLabel(item)}
                         </Typography.Text>
+                        <BusinessCapabilityReleaseEvidence item={item} formatDateTime={formatDateTime} />
                         {rollout.enabled || rollout.percent > 0 || rollout.allowlistText ? (
                           <Typography.Text theme="secondary">
                             灰度：{rollout.enabled ? `${rollout.percent}%` : '未启用'}
                             {rollout.allowlistText ? ' · 含白名单' : ''}
                           </Typography.Text>
                         ) : null}
-                        {item.recipeSteps && item.recipeSteps.length > 0 ? (
-                          <details
-                            style={{
-                              border: '1px solid var(--td-border-level-1-color)',
-                              borderRadius: 10,
-                              padding: 10,
-                            }}
-                          >
-                            <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
-                              查看业务流程（{item.recipeSteps.length} 步）
-                            </summary>
-                            <div style={{ marginTop: 10 }}>
-                              <BusinessRecipeFlow steps={item.recipeSteps} compact />
-                            </div>
-                          </details>
-                        ) : null}
+                        <BusinessCapabilityTechnicalDetails item={item} />
                         {isReadOnly ? (
                           <Tag theme="default" variant="light">
                             只读查看
@@ -2564,16 +3697,30 @@ export const BusinessCapabilityGrid = ({
                             <Button size="small" variant="outline" onClick={() => onEdit(item)}>
                               编辑
                             </Button>
+                            <Button
+                              size="small"
+                              theme="success"
+                              variant="outline"
+                              loading={actionLoadingId === acceptanceActionId}
+                              disabled={actionBusy && actionLoadingId !== acceptanceActionId}
+                              onClick={() => onRecordAcceptance(item)}
+                            >
+                              记录验收通过
+                            </Button>
                             {!item.isDefault ? (
                               <Button
                                 size="small"
                                 theme="primary"
                                 variant="outline"
                                 loading={actionLoadingId === defaultActionId}
-                                disabled={Boolean(pendingApproval) || (actionBusy && actionLoadingId !== defaultActionId)}
+                                disabled={
+                                  defaultSwitchBlocked ||
+                                  Boolean(pendingApproval) ||
+                                  (actionBusy && actionLoadingId !== defaultActionId)
+                                }
                                 onClick={() => onSetDefault(item)}
                               >
-                                {pendingApproval ? '默认审批中' : '申请设为默认'}
+                                {defaultSwitchBlocked ? '先验收' : pendingApproval ? '默认审批中' : '申请设为默认'}
                               </Button>
                             ) : null}
                             <Button

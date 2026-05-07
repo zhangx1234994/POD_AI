@@ -2,6 +2,7 @@ import { Alert, Button, Col, Input, Popup, Row, Select, Space, Switch, Table, Ta
 import type { AbilityInvocationLog } from '../../../types/admin';
 import { toDisplayErrorMessage } from '../../../utils/errorMessageMap';
 import {
+  resolveAbilityLogAction,
   getAbilityLogCallbackStageTag,
   getAbilityLogStatusTag,
   getAbilityLogSubmitTag,
@@ -62,6 +63,36 @@ type AbilityPricing = {
   listPrice?: number;
   discountPrice?: number;
 };
+
+type LogOutputKind = 'image' | 'video' | 'text' | 'structured' | 'asset' | 'none';
+
+const outputKindMeta: Record<LogOutputKind, { label: string; detail: string; theme: 'success' | 'warning' | 'primary' | 'default' }> = {
+  image: { label: '图片输出', detail: '生图、修图、抠图、扩图等图片结果', theme: 'success' },
+  video: { label: '视频输出', detail: '生视频或视频处理结果', theme: 'warning' },
+  text: { label: '文字输出', detail: '文字增强、提示词、文案等文本结果', theme: 'primary' },
+  structured: { label: '结构化结果', detail: 'VL 分析、质检、标签、JSON 判断', theme: 'success' },
+  asset: { label: '资源输出', detail: '文件、链接或暂未归类资源', theme: 'default' },
+  none: { label: '未回填', detail: '执行中、失败或暂未解析到输出', theme: 'default' },
+};
+
+const resolveLogOutputKind = (row: AbilityInvocationLog): LogOutputKind => {
+  const output = resolveLogOutputSummary(row);
+  if (!output.hasOutput) return 'none';
+  if (output.imageCount > 0 || output.primaryKind === 'image') return 'image';
+  if (output.videoCount > 0 || output.primaryKind === 'video') return 'video';
+  if (output.textCount > 0 || output.primaryKind === 'text') return 'text';
+  if (output.structuredCount > 0 || output.primaryKind === 'structured') return 'structured';
+  return 'asset';
+};
+
+const buildOutputKindStats = (rows: AbilityInvocationLog[]) =>
+  rows.reduce(
+    (acc, row) => {
+      acc[resolveLogOutputKind(row)] += 1;
+      return acc;
+    },
+    { image: 0, video: 0, text: 0, structured: 0, asset: 0, none: 0 } as Record<LogOutputKind, number>,
+  );
 
 export function AbilityLogListPanel({
   logs,
@@ -144,6 +175,7 @@ export function AbilityLogListPanel({
   const pageEnd = totalCount === 0 ? 0 : Math.min(currentPage * safePageSize, totalCount);
   const canGoPrev = currentPage > 1;
   const canGoNext = currentPage < totalPages;
+  const outputStats = buildOutputKindStats(filteredLogs);
 
   return (
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
@@ -239,6 +271,42 @@ export function AbilityLogListPanel({
         </Col>
       </Row>
 
+      <div className="podi-output-summary-card">
+        <Space direction="vertical" size={8} style={{ width: '100%' }}>
+          <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+            <div>
+              <Typography.Text strong>输出类型概览</Typography.Text>
+              <div>
+                <Typography.Text theme="secondary">
+                  当前筛选结果按输出类型分布。图片、视频、文字/VL 分开看，避免把所有能力都当成生图处理。
+                </Typography.Text>
+              </div>
+            </div>
+            <Tag theme="default" variant="light">
+              当前页 {filteredLogs.length} 条
+            </Tag>
+          </Space>
+          <div className="podi-output-summary-grid">
+            {(Object.keys(outputKindMeta) as LogOutputKind[]).map((kind) => {
+              const meta = outputKindMeta[kind];
+              return (
+                <div key={kind} className="podi-output-summary-item">
+                  <Space direction="vertical" size={2}>
+                    <Tag theme={meta.theme} variant="light" size="small">
+                      {meta.label}
+                    </Tag>
+                    <Typography.Title level="h3" style={{ margin: 0 }}>
+                      {outputStats[kind]}
+                    </Typography.Title>
+                    <Typography.Text theme="secondary">{meta.detail}</Typography.Text>
+                  </Space>
+                </div>
+              );
+            })}
+          </div>
+        </Space>
+      </div>
+
       <Table
         size="small"
         rowKey="id"
@@ -332,6 +400,24 @@ export function AbilityLogListPanel({
             },
           },
           {
+            colKey: 'action',
+            title: '当前要做',
+            width: 220,
+            cell: ({ row }) => {
+              const action = resolveAbilityLogAction(row);
+              return (
+                <Space direction="vertical" size={2}>
+                  <Tag theme={action.theme} variant="light">
+                    {action.title}
+                  </Tag>
+                  <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                    {action.detail}
+                  </Typography.Text>
+                </Space>
+              );
+            },
+          },
+          {
             colKey: 'error_summary',
             title: '错误摘要',
             width: 220,
@@ -416,8 +502,13 @@ export function AbilityLogListPanel({
             minWidth: 220,
             cell: ({ row }) => {
               const output = resolveLogOutputSummary(row);
+              const outputKind = resolveLogOutputKind(row);
+              const outputMeta = outputKindMeta[outputKind];
               return (
                 <Space size="small">
+                  <Tag theme={outputMeta.theme} variant="light" size="small">
+                    {outputMeta.label}
+                  </Tag>
                   {output.primaryUrl ? (
                     output.primaryKind === 'image' ? (
                       <Popup

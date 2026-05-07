@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import csv
+import io
+import json
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.core.config import get_settings
@@ -18,6 +22,73 @@ from app.services.business_runs import get_business_run_service
 
 router = APIRouter(prefix="/api/business", tags=["business"])
 bearer_scheme = HTTPBearer(auto_error=False)
+
+
+def _business_export_cell(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False)
+    return str(value)
+
+
+def _business_runs_to_csv(items: list[dict[str, Any]]) -> str:
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(
+        [
+            "run_id",
+            "业务",
+            "版本",
+            "状态",
+            "链路问题",
+            "处理建议",
+            "入口",
+            "业务方",
+            "客户端",
+            "排障编号",
+            "能力",
+            "执行任务",
+            "图片数",
+            "视频数",
+            "文本数",
+            "计费状态",
+            "成本",
+            "额度",
+            "回调状态",
+            "错误",
+            "创建时间",
+            "完成时间",
+        ]
+    )
+    for item in items:
+        writer.writerow(
+            [
+                item.get("id") or "",
+                item.get("business_key") or "",
+                item.get("version") or "",
+                item.get("status") or "",
+                item.get("issue_label") or item.get("issue_category") or "",
+                item.get("issue_action") or "",
+                item.get("source") or "",
+                item.get("tenant_id") or "",
+                item.get("client_id") or "",
+                item.get("trace_id") or "",
+                item.get("ability_name") or item.get("ability_id") or "",
+                item.get("ability_task_id") or "",
+                len(item.get("image_urls") or []),
+                len(item.get("video_urls") or []),
+                len(item.get("texts") or []),
+                item.get("billing_status") or "",
+                _business_export_cell(item.get("cost_amount")),
+                _business_export_cell(item.get("quota_units")),
+                item.get("callback_status") or "",
+                item.get("error_message") or item.get("issue_evidence") or "",
+                _business_export_cell(item.get("created_at")),
+                _business_export_cell(item.get("finished_at")),
+            ]
+        )
+    return output.getvalue()
 
 
 def _is_internal_request(request: Request) -> bool:
@@ -357,7 +428,12 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
         "403": ["BUSINESS_RUN_FORBIDDEN"],
         "404": ["BUSINESS_RUN_NOT_FOUND"],
     }
-    submit_errors["403"] = ["BUSINESS_CLIENT_DISABLED", "BUSINESS_CLIENT_BUSINESS_NOT_ALLOWED"]
+    submit_errors["403"] = [
+        "BUSINESS_CLIENT_DISABLED",
+        "BUSINESS_CLIENT_BUSINESS_NOT_ALLOWED",
+        "BUSINESS_USER_SCOPE_REQUIRED",
+        "BUSINESS_USER_SCOPE_FORBIDDEN",
+    ]
     submit_errors["429"] = [
         "BUSINESS_CLIENT_CONCURRENCY_LIMITED",
         "BUSINESS_CLIENT_DAILY_RUN_LIMITED",
@@ -522,6 +598,21 @@ def admin_update_business_capability(
     return get_business_run_service().update_capability(capability_id, payload)
 
 
+@admin_router.post(
+    "/capabilities/{capability_id}/acceptance-records",
+    response_model=schemas.BusinessCapabilityRead,
+    response_model_by_alias=False,
+)
+def admin_record_business_capability_acceptance(
+    capability_id: str,
+    payload: schemas.BusinessAcceptanceRecordRequest | None = None,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessCapabilityRead:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    return get_business_run_service().record_acceptance(capability_id, payload, actor=user)
+
+
 @admin_router.post("/capabilities/{capability_id}/promote", response_model=schemas.BusinessCapabilityRead, response_model_by_alias=False)
 def admin_promote_business_capability(
     capability_id: str,
@@ -628,6 +719,7 @@ def admin_list_business_runs(
     status: str | None = Query(default=None),
     billing_status: str | None = Query(default=None),
     callback_status: str | None = Query(default=None),
+    issue_category: str | None = Query(default=None),
     version: str | None = Query(default=None),
     source: str | None = Query(default=None),
     tenant_id: str | None = Query(default=None),
@@ -644,6 +736,7 @@ def admin_list_business_runs(
         status=status,
         billing_status=billing_status,
         callback_status=callback_status,
+        issue_category=issue_category,
         version=version,
         source=source,
         tenant_id=tenant_id,
@@ -651,6 +744,151 @@ def admin_list_business_runs(
         trace_id=trace_id,
     )
     return schemas.BusinessRunListResponse(items=items, total=total)
+
+
+@admin_router.get("/runs/export")
+def admin_export_business_runs(
+    business_key: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    billing_status: str | None = Query(default=None),
+    callback_status: str | None = Query(default=None),
+    issue_category: str | None = Query(default=None),
+    version: str | None = Query(default=None),
+    source: str | None = Query(default=None),
+    tenant_id: str | None = Query(default=None),
+    client_id: str | None = Query(default=None),
+    trace_id: str | None = Query(default=None),
+    limit: int = Query(default=1000, ge=1, le=1000),
+    user: User = Depends(_resolve_business_user),
+) -> Response:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    _, items = get_business_run_service().list_runs(
+        limit=limit,
+        business_key=business_key,
+        status=status,
+        billing_status=billing_status,
+        callback_status=callback_status,
+        issue_category=issue_category,
+        version=version,
+        source=source,
+        tenant_id=tenant_id,
+        client_id=client_id,
+        trace_id=trace_id,
+    )
+    return Response(
+        content="\ufeff" + _business_runs_to_csv(items),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="business-runs.csv"'},
+    )
+
+
+@admin_router.post("/runs/{run_id}/callback/retry", response_model=schemas.BusinessRunRead, response_model_by_alias=False)
+def admin_retry_business_run_callback(
+    run_id: str,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessRunRead:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    return get_business_run_service().retry_callback(run_id, actor=user)
+
+
+@admin_router.post("/runs/{run_id}/billing/retry", response_model=schemas.BusinessRunRead, response_model_by_alias=False)
+def admin_retry_business_run_billing(
+    run_id: str,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessRunRead:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    return get_business_run_service().retry_billing(run_id, actor=user)
+
+
+@admin_router.post("/runs/{run_id}/billing/refund", response_model=schemas.BusinessRunRead, response_model_by_alias=False)
+def admin_refund_business_run_billing(
+    run_id: str,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessRunRead:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    return get_business_run_service().refund_billing(run_id, actor=user)
+
+
+@admin_router.post(
+    "/runs/bulk/callback-retry",
+    response_model=schemas.BusinessRunBulkActionResponse,
+    response_model_by_alias=False,
+)
+def admin_bulk_retry_business_run_callbacks(
+    payload: schemas.BusinessRunBulkActionRequest,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessRunBulkActionResponse:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    return get_business_run_service().bulk_retry_callbacks(
+        payload.runIds,
+        actor=user,
+        only_failed=payload.onlyFailed,
+    )
+
+
+@admin_router.post("/runs/{run_id}/retest", response_model=schemas.BusinessRunRead, response_model_by_alias=False)
+def admin_retest_business_run(
+    run_id: str,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessRunRead:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    return get_business_run_service().retest_run(run_id, actor=user)
+
+
+@admin_router.post(
+    "/runs/bulk/retest",
+    response_model=schemas.BusinessRunBulkActionResponse,
+    response_model_by_alias=False,
+)
+def admin_bulk_retest_business_runs(
+    payload: schemas.BusinessRunBulkActionRequest,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessRunBulkActionResponse:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    return get_business_run_service().bulk_retest_runs(
+        payload.runIds,
+        actor=user,
+        only_failed=payload.onlyFailed,
+    )
+
+
+@admin_router.post(
+    "/runs/bulk/mark-ignored",
+    response_model=schemas.BusinessRunBulkActionResponse,
+    response_model_by_alias=False,
+)
+def admin_mark_business_runs_ignored(
+    payload: schemas.BusinessRunBulkActionRequest,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessRunBulkActionResponse:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    return get_business_run_service().mark_issues_ignored(payload.runIds, note=payload.note, actor=user)
+
+
+@admin_router.post(
+    "/runs/issue-checklist",
+    response_model=schemas.BusinessRunIssueChecklistResponse,
+    response_model_by_alias=False,
+)
+def admin_generate_business_run_issue_checklist(
+    payload: schemas.BusinessRunIssueChecklistRequest,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessRunIssueChecklistResponse:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    return get_business_run_service().generate_issue_checklist(
+        payload.runIds,
+        only_failed=payload.onlyFailed,
+        actor=user,
+    )
 
 
 @admin_router.get(
@@ -688,6 +926,7 @@ def admin_business_usage_summary(
     window_hours: int = Query(default=24, ge=1, le=2160),
     business_key: str | None = Query(default=None),
     status: str | None = Query(default=None),
+    issue_category: str | None = Query(default=None),
     version: str | None = Query(default=None),
     source: str | None = Query(default=None),
     tenant_id: str | None = Query(default=None),
@@ -701,6 +940,7 @@ def admin_business_usage_summary(
         window_hours=window_hours,
         business_key=business_key,
         status=status,
+        issue_category=issue_category,
         version=version,
         source=source,
         tenant_id=tenant_id,

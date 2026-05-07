@@ -85,20 +85,73 @@ const resolveTestResultOutput = (result?: AbilityTestResultView | null, previewS
   const resourceUrls = urls.filter((url) => classifyOutputUrl(url) === 'resource');
   const base64Preview = result?.imageBase64 ? previewSrc || '' : '';
   const structuredOutput = resolveStructuredOutput(result);
+  const textCount = String(result?.text || '').trim() ? 1 : 0;
   return {
     base64Preview,
     imageUrls,
     videoUrls,
     resourceUrls,
+    textCount,
     structuredOutput,
     hasOutput:
       Boolean(base64Preview) ||
       imageUrls.length > 0 ||
       videoUrls.length > 0 ||
       resourceUrls.length > 0 ||
-      Boolean(result?.text) ||
+      textCount > 0 ||
       hasStructuredValue(structuredOutput),
   };
+};
+
+const formatTestResultState = (state?: string | null) => {
+  const normalized = (state || '').trim().toLowerCase();
+  if (['success', 'succeeded', 'completed', 'done', 'ok'].includes(normalized)) return '成功';
+  if (['failed', 'error', 'timeout', 'rejected'].includes(normalized)) return '失败';
+  if (['running', 'processing', 'in_progress'].includes(normalized)) return '执行中';
+  if (['queued', 'pending', 'created'].includes(normalized)) return '排队中';
+  if (['cancelled', 'canceled', 'stopped', 'aborted'].includes(normalized)) return '已取消';
+  return state || '未知';
+};
+
+const resolveTestResultAction = (result: AbilityTestResultView, output: ReturnType<typeof resolveTestResultOutput>) => {
+  const normalized = (result.state || '').trim().toLowerCase();
+  if (['failed', 'error', 'timeout', 'rejected'].includes(normalized)) {
+    return {
+      theme: 'danger' as const,
+      title: '先排查测试失败',
+      detail: '看原始响应、密钥、节点和参数；修复后再重新运行测试。',
+    };
+  }
+  if (['running', 'processing', 'in_progress', 'queued', 'pending', 'created'].includes(normalized)) {
+    return {
+      theme: 'warning' as const,
+      title: '等待任务完成',
+      detail: '当前只是提交或排队状态，先等待轮询完成；长时间不变再检查节点队列。',
+    };
+  }
+  if (output.hasOutput) {
+    return {
+      theme: 'success' as const,
+      title: '测试通过，可留作验收样本',
+      detail: '结果已回填到页面，后续可进入业务版本验收或小流量验证。',
+    };
+  }
+  return {
+    theme: 'warning' as const,
+    title: '确认结果回填',
+    detail: '接口有响应但页面没有识别到图片、视频、文字或结构化结果，先展开原始响应确认字段。',
+  };
+};
+
+const summarizeTestOutput = (output: ReturnType<typeof resolveTestResultOutput>) => {
+  const parts = [
+    output.base64Preview || output.imageUrls.length > 0 ? `${output.imageUrls.length + (output.base64Preview ? 1 : 0)} 张图` : '',
+    output.videoUrls.length > 0 ? `${output.videoUrls.length} 个视频` : '',
+    output.textCount > 0 ? `${output.textCount} 段文字` : '',
+    output.resourceUrls.length > 0 ? `${output.resourceUrls.length} 个资源` : '',
+    hasStructuredValue(output.structuredOutput) ? '1 个结构化结果' : '',
+  ].filter(Boolean);
+  return parts.join(' · ') || '未识别到输出';
 };
 
 const stringifyJSON = (value?: string | JsonRecord | null) => {
@@ -408,6 +461,20 @@ export function AbilityTestingTab({
         <h3 className="text-lg font-semibold text-white mb-3">测试结果</h3>
         {testResult ? (
           <>
+            {(() => {
+              const action = resolveTestResultAction(testResult, output);
+              return (
+                <div className="mb-3 rounded-2xl border border-slate-800 bg-slate-950/50 p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Tag theme={action.theme} variant="light">
+                      {action.title}
+                    </Tag>
+                    <span className="text-xs text-slate-400">输出：{summarizeTestOutput(output)}</span>
+                  </div>
+                  <div className="mt-2 text-xs text-slate-400">{action.detail}</div>
+                </div>
+              );
+            })()}
             {output.base64Preview ? (
               <img src={output.base64Preview} alt="test-result" className="w-full max-h-[360px] rounded object-contain" />
             ) : null}
@@ -428,7 +495,7 @@ export function AbilityTestingTab({
             <div className="mt-3 space-y-1 text-xs text-slate-400">
               {testResult.provider ? <div>厂商：{getProviderLabel(testResult.provider)}</div> : null}
               {testResult.model ? <div>模型：{testResult.model}</div> : null}
-              {testResult.state ? <div>状态：{testResult.state}</div> : null}
+              {testResult.state ? <div>状态：{formatTestResultState(testResult.state)}</div> : null}
               {testResult.taskId ? (
                 <div className="break-all">
                   任务编号：<span className="font-mono text-slate-200">{testResult.taskId}</span>

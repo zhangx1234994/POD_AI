@@ -65,6 +65,26 @@ def test_pick_comfyui_executor_by_queue_counts_internal_queued_tasks(monkeypatch
     assert picked == "executor_b"
 
 
+def test_pick_comfyui_executor_by_queue_returns_none_when_all_nodes_full(monkeypatch):
+    service = AbilityInvocationService()
+
+    monkeypatch.setattr(
+        ability_invocation_module,
+        "get_settings",
+        lambda: SimpleNamespace(comfyui_queue_batch_size=10),
+    )
+
+    def _fake_status(*, executor_id: str):
+        return {"runningCount": 2, "pendingCount": 8, "supported": True}
+
+    monkeypatch.setattr(integration_test_service, "get_comfyui_queue_status", _fake_status)
+    monkeypatch.setattr(service, "_count_internal_comfyui_queued", lambda executor_id: 0)
+
+    picked = service._pick_comfyui_executor_by_queue(["executor_a", "executor_b"])
+
+    assert picked is None
+
+
 def test_queue_auto_selection_skips_unreachable_executor(monkeypatch):
     service = AbilityInvocationService()
 

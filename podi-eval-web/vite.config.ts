@@ -19,5 +19,31 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (!id.includes('/node_modules/')) return undefined;
+            if (id.includes('/react/') || id.includes('/react-dom/') || id.includes('/scheduler/')) return 'react-vendor';
+            if (id.includes('/tdesign-icons-react/')) return 'tdesign-icons-vendor';
+            if (
+              id.includes('/lodash-es/') ||
+              id.includes('/dayjs/') ||
+              id.includes('/@popperjs/') ||
+              id.includes('/sortablejs/') ||
+              id.includes('/validator/') ||
+              id.includes('/react-transition-group/')
+            ) {
+              return 'tdesign-runtime-vendor';
+            }
+            if (id.includes('/tdesign-react/')) return 'tdesign-vendor';
+            if (id.includes('/react-markdown/') || id.includes('/remark-gfm/') || id.includes('/unified/') || id.includes('/micromark/')) {
+              return 'markdown-vendor';
+            }
+            return undefined;
+          },
+        },
+      },
+    },
   };
 });

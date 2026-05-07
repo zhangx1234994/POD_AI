@@ -45,7 +45,7 @@ def install_auth_db(monkeypatch):
                 email="admin@podi.local",
                 username="admin",
                 display_name="管理员",
-                password_hash=auth_service.hash_password("Admin12345"),
+                password_hash=auth_service.hash_password("admin123"),
                 role="admin",
                 status="active",
             )
@@ -64,7 +64,7 @@ def test_login_creates_session_and_refresh_rotates(monkeypatch) -> None:
     get_session = install_auth_db(monkeypatch)
     client = make_auth_client()
 
-    login_resp = client.post("/api/auth/login", json={"username": "admin", "password": "Admin12345"})
+    login_resp = client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
     assert login_resp.status_code == 200
     login_data = login_resp.json()
     assert login_data["role"] == "admin"
@@ -99,7 +99,7 @@ def test_login_creates_session_and_refresh_rotates(monkeypatch) -> None:
 def test_invite_register_inherits_tenant_and_admin_can_list_users(monkeypatch) -> None:
     install_auth_db(monkeypatch)
     client = make_auth_client()
-    admin_login = client.post("/api/auth/login", json={"username": "admin", "password": "Admin12345"}).json()
+    admin_login = client.post("/api/auth/login", json={"username": "admin", "password": "admin123"}).json()
     admin_headers = {"Authorization": f"Bearer {admin_login['accessToken']}"}
 
     invite_resp = client.post(
@@ -162,7 +162,7 @@ def test_auth_failure_paths_are_explicit(monkeypatch) -> None:
 
     client = make_auth_client()
 
-    missing_identifier = client.post("/api/auth/login", json={"password": "Admin12345"})
+    missing_identifier = client.post("/api/auth/login", json={"password": "admin123"})
     assert missing_identifier.status_code == 400
     assert missing_identifier.json()["detail"] == "LOGIN_IDENTIFIER_REQUIRED"
 
@@ -220,7 +220,7 @@ def test_login_failure_rate_limit_is_explicit(monkeypatch) -> None:
 
     blocked = client.post(
         "/api/auth/login",
-        json={"username": "admin", "password": "Admin12345"},
+        json={"username": "admin", "password": "admin123"},
         headers=headers,
     )
     assert blocked.status_code == 429
@@ -243,7 +243,7 @@ def test_admin_can_revoke_session_and_disable_invite(monkeypatch) -> None:
         session.commit()
 
     client = make_auth_client()
-    admin_login = client.post("/api/auth/login", json={"username": "admin", "password": "Admin12345"}).json()
+    admin_login = client.post("/api/auth/login", json={"username": "admin", "password": "admin123"}).json()
     admin_headers = {"Authorization": f"Bearer {admin_login['accessToken']}"}
     normal_login = client.post("/api/auth/login", json={"username": "normal", "password": "Normal12345"}).json()
 
@@ -284,3 +284,126 @@ def test_admin_can_revoke_session_and_disable_invite(monkeypatch) -> None:
     )
     assert register_resp.status_code == 409
     assert register_resp.json()["detail"] == "INVITE_CODE_INACTIVE"
+
+
+def test_admin_can_update_user_scope_and_scope_summary_reports_risks(monkeypatch) -> None:
+    get_session = install_auth_db(monkeypatch)
+    with get_session() as session:
+        session.add(
+            User(
+                id="client-user",
+                email="client@example.com",
+                username="client",
+                password_hash=auth_service.hash_password("Client12345"),
+                role="client",
+                status="active",
+            )
+        )
+        session.commit()
+
+    client = make_auth_client()
+    admin_login = client.post("/api/auth/login", json={"username": "admin", "password": "admin123"}).json()
+    admin_headers = {"Authorization": f"Bearer {admin_login['accessToken']}"}
+
+    summary_before = client.get("/api/auth/scope-summary", headers=admin_headers)
+    assert summary_before.status_code == 200
+    assert summary_before.json()["totals"]["unscopedClientUsers"] == 1
+    assert summary_before.json()["releaseReady"] is False
+    assert summary_before.json()["warningRiskCount"] >= 1
+    assert any(item["key"] == "unscoped_client_users" and item["count"] == 1 for item in summary_before.json()["risks"])
+    assert any(item["key"] == "client_users_scoped" and item["passed"] is False for item in summary_before.json()["checklist"])
+    assert any(
+        item["key"] == "unscoped_client_user_blocked" and item["enforced"] is True
+        for item in summary_before.json()["businessApiPolicy"]
+    )
+    assert {item["key"] for item in summary_before.json()["roleBoundary"]} >= {
+        "admin_user",
+        "client_user",
+        "service_token",
+        "coze_toolbox",
+    }
+    assert all(item["enforced"] for item in summary_before.json()["roleBoundary"])
+
+    update_resp = client.patch(
+        "/api/auth/users/client-user",
+        json={
+            "displayName": "业务方账号",
+            "tenantId": "tenant-a",
+            "clientId": "client-web",
+            "note": "绑定业务方范围",
+        },
+        headers=admin_headers,
+    )
+    assert update_resp.status_code == 200
+    updated = update_resp.json()
+    assert updated["displayName"] == "业务方账号"
+    assert updated["tenantId"] == "tenant-a"
+    assert updated["clientId"] == "client-web"
+    assert updated["adminAudit"][0]["changedFields"] == ["displayName", "tenantId", "clientId"]
+    assert updated["adminAudit"][0]["note"] == "绑定业务方范围"
+
+    users_resp = client.get("/api/auth/users", headers=admin_headers)
+    assert users_resp.status_code == 200
+    client_user = next(item for item in users_resp.json()["items"] if item["id"] == "client-user")
+    assert client_user["adminAudit"][0]["actorUsername"] == "admin"
+
+    summary_after = client.get("/api/auth/scope-summary", headers=admin_headers)
+    assert summary_after.status_code == 200
+    assert summary_after.json()["totals"]["unscopedClientUsers"] == 0
+    assert summary_after.json()["releaseReady"] is True
+    assert summary_after.json()["blockingRiskCount"] == 0
+    assert summary_after.json()["warningRiskCount"] == 0
+    assert any(item["tenantId"] == "tenant-a" and item["clientId"] == "client-web" for item in summary_after.json()["tenants"])
+    assert all(item["passed"] for item in summary_after.json()["checklist"])
+    assert all(item["enforced"] for item in summary_after.json()["businessApiPolicy"])
+    assert all(item["enforced"] for item in summary_after.json()["roleBoundary"])
+
+
+def test_admin_user_update_protects_self_lockout_and_revokes_disabled_user_sessions(monkeypatch) -> None:
+    get_session = install_auth_db(monkeypatch)
+    with get_session() as session:
+        session.add(
+            User(
+                id="normal-user",
+                email="normal@example.com",
+                username="normal",
+                password_hash=auth_service.hash_password("Normal12345"),
+                role="user",
+                status="active",
+            )
+        )
+        session.commit()
+
+    client = make_auth_client()
+    admin_login = client.post("/api/auth/login", json={"username": "admin", "password": "admin123"}).json()
+    admin_headers = {"Authorization": f"Bearer {admin_login['accessToken']}"}
+    normal_login = client.post("/api/auth/login", json={"username": "normal", "password": "Normal12345"}).json()
+
+    self_demote = client.patch(
+        "/api/auth/users/admin-user",
+        json={"role": "user", "note": "误操作"},
+        headers=admin_headers,
+    )
+    assert self_demote.status_code == 409
+    assert self_demote.json()["detail"] == "AUTH_SELF_LOCKOUT_FORBIDDEN"
+
+    disabled = client.patch(
+        "/api/auth/users/normal-user",
+        json={"status": "inactive", "note": "离职停用"},
+        headers=admin_headers,
+    )
+    assert disabled.status_code == 200
+    assert disabled.json()["status"] == "inactive"
+    assert "sessions" in disabled.json()["adminAudit"][0]["changedFields"]
+
+    rejected_refresh = client.post("/api/auth/refresh", json={"refreshToken": normal_login["refreshToken"]})
+    assert rejected_refresh.status_code == 401
+    assert rejected_refresh.json()["detail"] == "SESSION_REVOKED"
+
+    invalid_status = client.patch(
+        "/api/auth/users/normal-user",
+        json={"status": "sleeping"},
+        headers=admin_headers,
+    )
+    assert invalid_status.status_code == 400
+    assert invalid_status.json()["detail"] == "USER_STATUS_INVALID"

@@ -1,4 +1,3 @@
-import OSS from 'ali-oss';
 import type {
   ComfyuiQueueSummary,
   EvalResourceOptionsResponse,
@@ -10,12 +9,10 @@ import type {
 } from './types';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
-const MEDIA_BASE = import.meta.env.VITE_MEDIA_BASE_URL ?? '/api/media';
 const DEFAULT_TIMEOUT_MS = 15000;
 const BATCH_DETAIL_TIMEOUT_MS = 45000;
 const AUTH_INVALID_MESSAGE = '认证已失效，请重新登录';
 const GATEWAY_ERROR_MESSAGE = '服务不可达或网关异常，请稍后再试';
-const OSS_META_TIMEOUT_MS = 15000;
 
 export class ApiRequestError extends Error {
   status?: number;
@@ -39,28 +36,6 @@ export class ApiRequestError extends Error {
   }
 }
 
-type UploadKeyResponse = {
-  uploadKey: string;
-  expiresAt: string;
-};
-
-type OssCredentials = {
-  accessKeyId: string;
-  accessKeySecret: string;
-  securityToken?: string | null;
-  endpoint: string;
-  publicDomain: string;
-  bucket: string;
-  region: string;
-};
-
-type OssCredentialResponse = {
-  ossCredentials: OssCredentials;
-  objectKey: string;
-  host: string;
-};
-
-let cachedUploadKey: { token: string; expiresAt: number; userId: string } | null = null;
 let cachedRaterId: string | null = null;
 
 function extractErrorMessage(statusText: string, bodyText: string): string {
@@ -162,31 +137,6 @@ async function request<T>(path: string, options: RequestInit = {}, timeoutMs: nu
   return JSON.parse(text) as T;
 }
 
-async function mediaRequest<T>(path: string, payload: unknown): Promise<T> {
-  return request<T>(
-    `${MEDIA_BASE}${path}`,
-    {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    },
-    OSS_META_TIMEOUT_MS,
-  );
-}
-
-function buildRandomId(): string {
-  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-    return crypto.randomUUID();
-  }
-  return `eval-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
-}
-
-function encodeObjectKey(key: string): string {
-  return String(key || '')
-    .split('/')
-    .map((segment) => encodeURIComponent(segment))
-    .join('/');
-}
-
 async function ensureEvalRaterId(): Promise<string> {
   if (cachedRaterId) return cachedRaterId;
   const me = await request<{ raterId: string }>('/api/evals/me');
@@ -195,68 +145,48 @@ async function ensureEvalRaterId(): Promise<string> {
   return rid;
 }
 
-async function ensureUploadKey(userId: string): Promise<string> {
-  const now = Date.now();
-  if (
-    cachedUploadKey &&
-    cachedUploadKey.userId === userId &&
-    cachedUploadKey.expiresAt - now > 60 * 1000
-  ) {
-    return cachedUploadKey.token;
-  }
-  const response = await mediaRequest<UploadKeyResponse>('/v1/upload-key', { userId });
-  const expiresAt = Date.parse(String(response.expiresAt || ''));
-  cachedUploadKey = {
-    token: String(response.uploadKey || ''),
-    expiresAt: Number.isFinite(expiresAt) ? expiresAt : now + 10 * 60 * 1000,
-    userId,
-  };
-  return cachedUploadKey.token;
-}
-
-function createOssClient(credentials: OssCredentials, timeoutMs: number): any {
-  const config: Record<string, any> = {
-    region: credentials.region,
-    accessKeyId: credentials.accessKeyId,
-    accessKeySecret: credentials.accessKeySecret,
-    bucket: credentials.bucket,
-    timeout: timeoutMs,
-  };
-  const endpoint = String(credentials.endpoint || '').trim();
-  if (endpoint) {
-    const normalized = endpoint.startsWith('http') ? endpoint : `https://${endpoint}`;
-    config.endpoint = normalized;
-    if (normalized.startsWith('https://')) {
-      config.secure = true;
-    }
-  } else {
-    config.secure = true;
-  }
-  if (credentials.securityToken) {
-    config.stsToken = credentials.securityToken;
-  }
-  return new OSS(config);
-}
-
-function resolveUploadError(err: unknown): string {
-  const message = String((err as any)?.message || err || '').trim();
-  const lower = message.toLowerCase();
-  if (!message) return '上传失败：网络异常或服务不可达';
-  if (
-    lower.includes('timeout') ||
-    lower.includes('request timeout') ||
-    lower.includes('connection timeout')
-  ) {
-    return '上传超时，请稍后重试';
-  }
-  if (
-    lower.includes('failed to fetch') ||
-    lower.includes('network error') ||
-    lower.includes('load failed')
-  ) {
-    return '上传失败：网络异常或服务不可达';
-  }
-  return message;
+function uploadImageViaBackend(
+  file: File,
+  opts?: { onProgress?: (loaded: number, total: number) => void; timeoutMs?: number },
+): Promise<{ url: string; objectKey: string }> {
+  const totalBytes = Math.max(1, Number(file.size || 0));
+  return new Promise((resolve, reject) => {
+    const form = new FormData();
+    form.append('file', file);
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${API_BASE}/api/evals/uploads`, true);
+    xhr.withCredentials = true;
+    xhr.timeout = Number(opts?.timeoutMs || 30000);
+    xhr.upload.onprogress = (event) => {
+      if (!opts?.onProgress) return;
+      const loaded = event.lengthComputable ? event.loaded : 0;
+      const total = event.lengthComputable ? event.total : totalBytes;
+      opts.onProgress(Math.max(0, loaded), Math.max(1, total));
+    };
+    xhr.onload = () => {
+      const bodyText = String(xhr.responseText || '');
+      if (xhr.status < 200 || xhr.status >= 300) {
+        reject(new Error(resolveHttpError(xhr.status, xhr.statusText, bodyText)));
+        return;
+      }
+      try {
+        const payload = JSON.parse(bodyText) as { url?: string | null; objectKey?: string | null };
+        const url = String(payload.url || '').trim();
+        if (!url) {
+          reject(new Error('上传成功但未返回图片 URL'));
+          return;
+        }
+        opts?.onProgress?.(totalBytes, totalBytes);
+        resolve({ url, objectKey: String(payload.objectKey || '') });
+      } catch {
+        reject(new Error('上传成功但响应不是 JSON'));
+      }
+    };
+    xhr.onerror = () => reject(new Error('上传失败：网络异常或服务不可达'));
+    xhr.ontimeout = () => reject(new Error('上传超时，请稍后重试'));
+    xhr.onabort = () => reject(new Error('上传已取消'));
+    xhr.send(form);
+  });
 }
 
 export const evalApi = {
@@ -548,7 +478,31 @@ export const evalApi = {
   createAnnotation: (runId: string, payload: { rating: number; comment?: string }) =>
     request(`/api/evals/runs/${runId}/annotations`, { method: 'POST', body: JSON.stringify(payload) }),
   listAnnotations: (runId: string) => request(`/api/evals/runs/${runId}/annotations`),
-  workflowMetrics: () => request<{ metrics: Record<string, { ratingCount: number; avgRating: number | null }> }>(`/api/evals/metrics/workflows`),
+  workflowMetrics: () =>
+    request<{
+      metrics: Record<
+        string,
+        {
+          ratingCount: number;
+          avgRating: number | null;
+          runCount?: number;
+          recentRunCount?: number;
+          recentSuccessCount?: number;
+          recentFailureCount?: number;
+          recentRunningCount?: number;
+          recentNoOutputCount?: number;
+          recentOutputKindCounts?: Record<string, number>;
+          recentHours?: number;
+          lastRunStatus?: string | null;
+          lastRunAt?: string | null;
+          lastRunHasOutput?: boolean | null;
+          lastRunOutputKind?: string | null;
+          lastErrorCode?: string | null;
+          lastErrorMessage?: string | null;
+        }
+      >;
+      recentHours?: number;
+    }>(`/api/evals/metrics/workflows`),
   listRunsWithLatestAnnotation: (params: { workflow_version_id?: string; status?: string; unrated?: boolean; limit?: number; offset?: number }) => {
     const qs = new URLSearchParams();
     if (params.workflow_version_id) qs.set('workflow_version_id', params.workflow_version_id);
@@ -559,61 +513,17 @@ export const evalApi = {
     return request<{ total: number; items: any[] }>(`/api/evals/runs/with-latest-annotation?${qs.toString()}`);
   },
   uploadImage: async (file: File, opts?: { onProgress?: (loaded: number, total: number) => void; timeoutMs?: number }) => {
-    const timeoutMs = Number(opts?.timeoutMs || 30000);
-    let userId = '';
     try {
-      userId = await ensureEvalRaterId();
+      // Keep a lightweight identity preflight so uploads remain attached to the same rater cookie.
+      await ensureEvalRaterId();
     } catch (err) {
       throw new Error(`上传准备失败（身份）: ${String((err as any)?.message || err || '未知错误')}`);
     }
-    let uploadKey = '';
     try {
-      uploadKey = await ensureUploadKey(userId);
+      return await uploadImageViaBackend(file, opts);
     } catch (err) {
-      throw new Error(`上传凭证失败（upload-key）: ${String((err as any)?.message || err || '未知错误')}`);
+      throw new Error(`上传失败: ${String((err as any)?.message || err || '未知错误')}`);
     }
-    let credentialPayload: OssCredentialResponse;
-    try {
-      credentialPayload = await mediaRequest<OssCredentialResponse>('/v1/sts', {
-        uploadKey,
-        taskId: buildRandomId(),
-        action: 'eval-public-upload',
-        fileName: file.name,
-        mimeType: file.type || 'application/octet-stream',
-        fileSize: file.size,
-        channel: 'eval-web',
-      });
-    } catch (err) {
-      throw new Error(`上传凭证失败（sts）: ${String((err as any)?.message || err || '未知错误')}`);
-    }
-
-    const totalBytes = Math.max(1, Number(file.size || 0));
-    const client = createOssClient(credentialPayload.ossCredentials, timeoutMs);
-    try {
-      await client.multipartUpload(credentialPayload.objectKey, file, {
-        parallel: 2,
-        progress: async (percent: number) => {
-          if (!opts?.onProgress) return;
-          const p = Number.isFinite(percent) ? Math.max(0, Math.min(1, percent)) : 0;
-          opts.onProgress(Math.round(totalBytes * p), totalBytes);
-        },
-      });
-    } catch (err) {
-      throw new Error(`直传OSS失败: ${resolveUploadError(err)}`);
-    }
-
-    if (opts?.onProgress) {
-      opts.onProgress(totalBytes, totalBytes);
-    }
-    const domain = String(credentialPayload.ossCredentials.publicDomain || credentialPayload.host || '').trim();
-    if (!domain) {
-      throw new Error('上传成功但未返回可访问域名');
-    }
-    const url = `${domain.replace(/\/$/, '')}/${encodeObjectKey(credentialPayload.objectKey)}`;
-    return {
-      url,
-      objectKey: String(credentialPayload.objectKey || ''),
-    };
   },
   adminListWorkflowVersions: async (adminToken: string) =>
     request<EvalWorkflowVersion[]>(`/api/evals/admin/workflow-versions`, { headers: { 'X-Eval-Admin-Token': adminToken } }),

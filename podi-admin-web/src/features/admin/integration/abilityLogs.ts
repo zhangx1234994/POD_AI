@@ -135,6 +135,11 @@ export const resolveLogOutputSummary = (row: AbilityInvocationLog) => {
     primaryUrl,
     primaryKind,
     textPreview,
+    imageCount,
+    videoCount,
+    textCount,
+    structuredCount,
+    assetCount,
     label: labelParts.join(' · ') || '无输出',
     hasOutput,
   };
@@ -161,6 +166,78 @@ export const isAbilityLogSuccessful = (status?: string | null): boolean => {
 export const isAbilityLogFailed = (status?: string | null): boolean => {
   const normalized = (status || '').trim().toLowerCase();
   return ['failed', 'error', 'timeout', 'rejected'].includes(normalized);
+};
+
+const isAbilityLogActive = (status?: string | null): boolean => {
+  const normalized = (status || '').trim().toLowerCase();
+  return ['running', 'processing', 'in_progress', 'queued', 'pending', 'created'].includes(normalized);
+};
+
+const hasComfyuiPromptMarker = (row: AbilityInvocationLog): boolean => {
+  const payload = getJsonRecord(row.response_payload);
+  return Boolean(payload?.promptId || payload?.prompt_id || payload?.taskId || payload?.task_id);
+};
+
+export const resolveAbilityLogAction = (row: AbilityInvocationLog) => {
+  const output = resolveLogOutputSummary(row);
+  const callbackStatus = (row.callback_status || '').trim().toLowerCase();
+  const callbackFailed =
+    isAbilityLogFailed(callbackStatus) ||
+    Boolean(row.callback_error) ||
+    (typeof row.callback_http_status === 'number' && row.callback_http_status >= 400);
+
+  if (isAbilityLogFailed(row.status) || row.error_message) {
+    return {
+      theme: 'danger' as const,
+      title: '先排查执行失败',
+      detail: '看错误摘要和请求内容，必要时切换节点或按原参数复测。',
+    };
+  }
+
+  if (callbackFailed) {
+    return {
+      theme: 'danger' as const,
+      title: '先处理回调失败',
+      detail: '复制回调编号，确认业务回调地址和鉴权，再执行回调重试。',
+    };
+  }
+
+  if (isAbilityLogSuccessful(row.status) && !output.hasOutput) {
+    if ((row.ability_provider || '').toLowerCase() === 'comfyui' && hasComfyuiPromptMarker(row)) {
+      return {
+        theme: 'warning' as const,
+        title: '先拉取回调结果',
+        detail: 'ComfyUI 已提交但没有解析到输出，进入详情拉取回调结果。',
+      };
+    }
+    return {
+      theme: 'warning' as const,
+      title: '确认结果回填',
+      detail: '执行成功但没有图片、视频或文字，先看响应内容再决定是否复测。',
+    };
+  }
+
+  if (isAbilityLogActive(row.status)) {
+    return {
+      theme: 'warning' as const,
+      title: '等待或切节点',
+      detail: '任务仍在排队或执行；若长期不变，先看节点队列和执行器健康。',
+    };
+  }
+
+  if (output.hasOutput) {
+    return {
+      theme: 'success' as const,
+      title: '可作为样本',
+      detail: '结果已回填，可用于验收、对比或排障留证。',
+    };
+  }
+
+  return {
+    theme: 'default' as const,
+    title: '继续观察',
+    detail: '当前记录证据不足，先刷新调用记录或打开详情查看上下文。',
+  };
 };
 
 export const getAbilityLogSubmitTag = (row: AbilityInvocationLog) => {

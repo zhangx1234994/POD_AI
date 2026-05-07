@@ -155,6 +155,23 @@ def _short_error(value: Any, limit: int = 300) -> str:
     return " ".join(text.split())[:limit]
 
 
+def _count_string_or_url_items(value: Any) -> int:
+    if not isinstance(value, list):
+        return 0
+    count = 0
+    for item in value:
+        if isinstance(item, str) and item.strip():
+            count += 1
+            continue
+        if isinstance(item, dict):
+            for key in ("url", "storedUrl", "stored_url", "outputUrl", "output_url", "imageUrl", "videoUrl"):
+                nested = item.get(key)
+                if isinstance(nested, str) and nested.strip():
+                    count += 1
+                    break
+    return count
+
+
 def _result_image_count(run: dict[str, Any]) -> int:
     images = run.get("result_image_urls_json")
     if not isinstance(images, list):
@@ -167,7 +184,7 @@ def _result_image_count(run: dict[str, Any]) -> int:
         output = run.get("result_output_json") or run.get("resultOutputJson") or run.get("outputJson") or run.get("jsonOutput")
         if isinstance(output, dict):
             images = output.get("imageUrls") or output.get("image_urls") or output.get("images")
-    return len([item for item in images or [] if isinstance(item, str) and item.strip()])
+    return _count_string_or_url_items(images)
 
 
 def _result_video_count(run: dict[str, Any]) -> int:
@@ -182,7 +199,7 @@ def _result_video_count(run: dict[str, Any]) -> int:
         output = run.get("result_output_json") or run.get("resultOutputJson") or run.get("outputJson") or run.get("jsonOutput")
         if isinstance(output, dict):
             videos = output.get("videoUrls") or output.get("video_urls") or output.get("videos")
-    return len([item for item in videos or [] if isinstance(item, str) and item.strip()])
+    return _count_string_or_url_items(videos)
 
 
 def _result_text_count(run: dict[str, Any]) -> int:
@@ -304,6 +321,10 @@ def _failed_items(items: list[dict[str, Any]], *, allow_empty_output: bool = Fal
         if not allow_empty_output and not item.get("hasOutput"):
             failed.append(item)
     return failed
+
+
+def _output_kind_summary(items: list[dict[str, Any]]) -> dict[str, int]:
+    return dict(Counter(str(item.get("outputKind") or "none") for item in items))
 
 
 def _get_json(client: httpx.Client, path: str) -> Any:
@@ -451,10 +472,12 @@ def main() -> int:
         }
         issue_counts = Counter(str(item.get("issueCode") or "OK") for item in report["items"])
         report["issueSummary"] = dict(issue_counts)
+        report["outputKindSummary"] = _output_kind_summary(report["items"])
         report_path = Path(args.report) if args.report else Path("reports") / f"eval_patrol_{tag}.json"
         report_path.parent.mkdir(parents=True, exist_ok=True)
         report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
         print(f"report: {report_path}")
+        print(f"output kinds: {report['outputKindSummary']}")
 
         failed = _failed_items(report["items"], allow_empty_output=args.allow_empty_output)
         if failed:

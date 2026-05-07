@@ -35,6 +35,7 @@ import type {
   AuthSession,
   AuthUser,
   AuthUserFormState,
+  BillingCommercialReportResponse,
   BillingMonthlySettlementListResponse,
   BillingMonthlySettlementResponse,
   BillingNotificationConfigResponse,
@@ -61,6 +62,7 @@ import type {
   InviteCodeCreatePayload,
   MonthlySettlementCollectionNotificationListResponse,
   PackageAlertNotificationListResponse,
+  PackageCatalogListResponse,
   PackagePurchaseOrderListResponse,
   PublicAbility,
   ReleaseDecisionRecordResponse,
@@ -87,6 +89,7 @@ import type {
   ComfyuiLoraCatalogResponse,
   ComfyuiQueueStatus,
   ComfyuiQueueSummary,
+  ComfyuiWorkflowCompatibility,
   SystemConfig,
   StoredAsset,
   VendorEgressCheckResponse,
@@ -227,12 +230,15 @@ import {
   BusinessActionPanel,
   BusinessCapabilityEditorDialog,
   BusinessCapabilityGrid,
+  BusinessCoreClosurePanel,
   BusinessCoreEntryPanel,
   BusinessGovernancePanel,
+  BusinessOrchestrationMapPanel,
   BusinessOperationLogPanel,
   BusinessReleaseGuardPanel,
   BusinessRunHistoryPanel,
   BusinessUsageSummaryPanel,
+  ApiExposurePanel,
   ComfyuiAgentsPanel,
   ComfyuiAlertsPanel,
   ComfyuiAssetsPanel,
@@ -1400,7 +1406,10 @@ export function IntegrationDashboard({
   const [loadErrors, setLoadErrors] = useState<string[]>([]);
   const [activeNav, setActiveNav] = useState<NavId>(() => readNavFromHash() ?? navItems[0].id);
   const [focusedEvalRunId, setFocusedEvalRunId] = useState<string>(() => readEvalRunIdFromHash());
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(() => {
+    const navFromHash = readNavFromHash();
+    return navFromHash ? isAdvancedNav(navFromHash) : false;
+  });
   const contentRef = useRef<HTMLDivElement | null>(null);
   const [dashboardMetrics, setDashboardMetrics] = useState<DashboardMetrics | null>(null);
   const [dispatchLogs, setDispatchLogs] = useState<DispatchLogEntry[]>([]);
@@ -1437,6 +1446,7 @@ export function IntegrationDashboard({
     status: 'all',
     billingStatus: 'all',
     callbackStatus: 'all',
+    issueCategory: 'all',
     version: 'all',
     source: '',
     tenantId: '',
@@ -1477,6 +1487,8 @@ export function IntegrationDashboard({
   const [billingMonthlyCollectionNotifications, setBillingMonthlyCollectionNotifications] =
     useState<MonthlySettlementCollectionNotificationListResponse | null>(null);
   const [billingNotificationConfig, setBillingNotificationConfig] = useState<BillingNotificationConfigResponse | null>(null);
+  const [billingCommercialReport, setBillingCommercialReport] = useState<BillingCommercialReportResponse | null>(null);
+  const [billingPackageCatalog, setBillingPackageCatalog] = useState<PackageCatalogListResponse | null>(null);
   const [billingPackagePurchaseOrders, setBillingPackagePurchaseOrders] = useState<PackagePurchaseOrderListResponse | null>(null);
   const [billingInvoiceRequests, setBillingInvoiceRequests] = useState<BillingInvoiceRequestListResponse | null>(null);
   const [billingDetail, setBillingDetail] = useState<BillingUserDetailResponse | null>(null);
@@ -1563,6 +1575,10 @@ export function IntegrationDashboard({
   const [comfyQueueSummaryLoading, setComfyQueueSummaryLoading] = useState(false);
   const [comfyQueueSummaryError, setComfyQueueSummaryError] = useState<string | null>(null);
   const [comfyQueueSummaryUpdatedAt, setComfyQueueSummaryUpdatedAt] = useState<string | null>(null);
+  const [comfyWorkflowCompatibility, setComfyWorkflowCompatibility] = useState<ComfyuiWorkflowCompatibility | null>(null);
+  const [comfyWorkflowCompatibilityLoading, setComfyWorkflowCompatibilityLoading] = useState(false);
+  const [comfyWorkflowCompatibilityError, setComfyWorkflowCompatibilityError] = useState<string | null>(null);
+  const [comfyWorkflowCompatibilityUpdatedAt, setComfyWorkflowCompatibilityUpdatedAt] = useState<string | null>(null);
   const [comfyLoraSelectCache, setComfyLoraSelectCache] = useState<Record<string, ComfyuiLora[]>>({});
   const [comfyShowTestNodes, setComfyShowTestNodes] = useState(false);
   const [comfyuiManageTab, setComfyuiManageTab] = useState<ComfyuiManageTab>(() => readComfyuiTabFromHash() ?? 'lora');
@@ -3021,6 +3037,7 @@ export function IntegrationDashboard({
   const {
     createBillingInvoiceRequest,
     createPackagePurchaseOrder,
+    exportBillingCommercialReport,
     exportBillingUserLedger,
     grantBillingPackage,
     issueBillingMonthlySettlement,
@@ -3034,6 +3051,7 @@ export function IntegrationDashboard({
     runBillingMonthlyCollectionNotification,
     runBillingPackageAlertNotification,
     saveBillingNotificationConfig,
+    savePackageCatalog,
   } = useBillingActions({
     billingBusinessKey,
     billingClientId,
@@ -3045,6 +3063,7 @@ export function IntegrationDashboard({
     downloadBlob: (blob, filename) => downloadBlob(blob, filename),
     extractErrorMessage: (error) => extractErrorMessage(error),
     setBillingDetail,
+    setBillingCommercialReport,
     setBillingError,
     setBillingExporting,
     setBillingInvoiceRequests,
@@ -3055,6 +3074,7 @@ export function IntegrationDashboard({
     setBillingNotificationConfig,
     setBillingOverview,
     setBillingPackageAlertNotifications,
+    setBillingPackageCatalog,
     setBillingPackagePurchaseOrders,
     setBillingSelectedUserId,
   });
@@ -3680,7 +3700,6 @@ export function IntegrationDashboard({
       })
       .catch((error) => {
         if (cancelled) return;
-        console.error('Failed to load ComfyUI models:', error);
         setComfyModelError(error.message || '获取模型列表失败');
       })
       .finally(() => {
@@ -3813,7 +3832,6 @@ export function IntegrationDashboard({
           [resp.executorId]: { ...(prev[resp.executorId] || {}), ...nextModels, unet: nextUnet.length ? Array.from(new Set([...(prev[resp.executorId]?.unet || []), ...nextUnet])) : prev[resp.executorId]?.unet || [] },
         }));
       } catch (error: any) {
-        console.error('Failed to load ComfyUI models:', error);
         setComfyModelErrorByExecutor((prev) => ({
           ...prev,
           [executorId]: error?.message || '获取模型列表失败',
@@ -3993,6 +4011,7 @@ export function IntegrationDashboard({
     refreshComfyAgentTasks,
     refreshComfyMonitoringSummary,
     refreshComfyQueueSummary,
+    refreshComfyWorkflowCompatibility,
   } = useComfyuiTaskActions({
     comfyAgentTaskAgentFilter,
     comfyAgentTaskForm,
@@ -4019,6 +4038,10 @@ export function IntegrationDashboard({
     setComfyQueueSummaryError,
     setComfyQueueSummaryLoading,
     setComfyQueueSummaryUpdatedAt,
+    setComfyWorkflowCompatibility,
+    setComfyWorkflowCompatibilityError,
+    setComfyWorkflowCompatibilityLoading,
+    setComfyWorkflowCompatibilityUpdatedAt,
   });
 
   const {
@@ -4329,7 +4352,8 @@ export function IntegrationDashboard({
   useEffect(() => {
     if (activeNav !== 'comfyui-management' || comfyuiManageTab !== 'tasks') return;
     refreshComfyQueueSummary({ silent: true });
-  }, [activeNav, comfyuiManageTab, refreshComfyQueueSummary]);
+    refreshComfyWorkflowCompatibility({ silent: true });
+  }, [activeNav, comfyuiManageTab, refreshComfyQueueSummary, refreshComfyWorkflowCompatibility]);
 
   useEffect(() => {
     if (selectedAbility?.provider !== 'comfyui' || !activeComfyExecutorId) {
@@ -4378,7 +4402,7 @@ export function IntegrationDashboard({
       setAbilityLogsUpdatedAt(new Date().toISOString());
       setAbilityLogsError(null);
     } catch (error) {
-      console.error('load ability logs failed', error);
+      console.debug('load ability logs failed', error);
       setAbilityLogsError(error instanceof Error ? error.message : '加载能力调用记录失败');
     } finally {
       if (!silent) {
@@ -4422,7 +4446,7 @@ export function IntegrationDashboard({
       setGlobalAbilityLogsUpdatedAt(new Date().toISOString());
       setGlobalAbilityLogsError(null);
     } catch (error) {
-      console.error('load global ability logs failed', error);
+      console.debug('load global ability logs failed', error);
       setGlobalAbilityLogsError(error instanceof Error ? error.message : '加载能力调用清单失败');
     } finally {
       if (!silent) {
@@ -4956,14 +4980,20 @@ export function IntegrationDashboard({
     handleBusinessSetDefault,
     handleBusinessDefaultApprovalDecision,
     handleBusinessToggleActive,
+    handleBusinessRecordAcceptance,
     handleBusinessCompare,
     handleBusinessRollback,
     refreshBusinessRuns,
     exportBusinessRuns,
     handleBusinessCallbackRetry,
+    handleBusinessBulkCallbackRetry,
+    handleBusinessBulkRetest,
+    handleBusinessBulkIgnoreIssues,
+    handleBusinessGenerateIssueChecklist,
     handleBusinessSubmit,
   } = useBusinessDashboardActions({
     businessForm,
+    businessRuns,
     businessRunFilters,
     defaultBusinessCapabilityForm,
     effectiveBusinessCompareLeftId,
@@ -5713,7 +5743,10 @@ const extractErrorMessage = (error: unknown): string => {
   const {
     handleSyncVolcengineModels,
     handleVendorEgressCheck,
+    handleVendorKeyCheck,
     handleVendorKeySubmit,
+    handleVendorModelBulkAction,
+    handleVendorModelAcceptance,
     handleVendorModelSubmit,
     loadVendorCatalog,
     resetVendorModelForm,
@@ -6004,6 +6037,9 @@ const extractErrorMessage = (error: unknown): string => {
   );
 
   const selectSection = (id: NavId) => {
+    if (isAdvancedNav(id)) {
+      setShowAdvanced(true);
+    }
     setActiveNav(id);
     if (id !== 'ability-evals') {
       setFocusedEvalRunId('');
@@ -6066,9 +6102,7 @@ const extractErrorMessage = (error: unknown): string => {
         return;
       }
       if (!showAdvanced && isAdvancedNav(navFromHash)) {
-        setActiveNav('overview');
-        setFocusedEvalRunId('');
-        return;
+        setShowAdvanced(true);
       }
       setActiveNav(navFromHash);
       setFocusedEvalRunId(navFromHash === 'ability-evals' ? readEvalRunIdFromHash() : '');
@@ -6327,7 +6361,18 @@ const extractErrorMessage = (error: unknown): string => {
                   pendingApprovals={businessDefaultApprovals}
                   summary={businessUsageSummary}
                 />
+                <BusinessCoreClosurePanel
+                  capabilities={businessCapabilities}
+                  pendingApprovals={businessDefaultApprovals}
+                  summary={businessUsageSummary}
+                  formatDateTime={formatDateTime}
+                />
                 <BusinessCoreEntryPanel
+                  capabilities={businessCapabilities}
+                  pendingApprovals={businessDefaultApprovals}
+                  formatDateTime={formatDateTime}
+                />
+                <BusinessOrchestrationMapPanel
                   capabilities={businessCapabilities}
                   pendingApprovals={businessDefaultApprovals}
                   formatDateTime={formatDateTime}
@@ -6372,6 +6417,7 @@ const extractErrorMessage = (error: unknown): string => {
                   onEdit={handleBusinessEdit}
                   onSetDefault={handleBusinessSetDefault}
                   onToggleActive={handleBusinessToggleActive}
+                  onRecordAcceptance={handleBusinessRecordAcceptance}
                   formatDateTime={formatDateTime}
                 />
                 <BusinessUsageSummaryPanel
@@ -6401,6 +6447,10 @@ const extractErrorMessage = (error: unknown): string => {
                   onFiltersChange={setBusinessRunFilters}
                   onRefresh={refreshBusinessRuns}
                   onExport={exportBusinessRuns}
+                  onBulkCallbackRetry={handleBusinessBulkCallbackRetry}
+                  onBulkRetest={handleBusinessBulkRetest}
+                  onBulkIgnoreIssues={handleBusinessBulkIgnoreIssues}
+                  onGenerateIssueChecklist={handleBusinessGenerateIssueChecklist}
                   onOpenDetail={(row) => {
                     setBusinessRunDetail(row);
                     setBusinessRunDetailOpen(true);
@@ -6424,9 +6474,29 @@ const extractErrorMessage = (error: unknown): string => {
             </Section>
           )}
 
+          {activeNav === 'api-exposure' && (
+            <Section
+              id="api-exposure"
+              title="API 开放"
+              description="把中台自有业务 API、原子能力 API 和 Coze 工具箱分开展示，避免接入方混用入口。"
+            >
+              <Suspense fallback={panelFallback('API 开放')}>
+                <ApiExposurePanel
+                  publicAbilities={publicAbilities}
+                  publicAbilitiesLoading={publicAbilitiesLoading}
+                  cozeAbilityStats={cozeAbilityStats}
+                  onRefreshPublicAbilities={refreshPublicAbilities}
+                  onCopy={copyTextToClipboard}
+                  getProviderLabel={getProviderLabel}
+                  getCategoryLabel={getCategoryLabel}
+                />
+              </Suspense>
+            </Section>
+          )}
+
           {activeNav === 'billing' && (
-            <Section id="billing" title="账单框架" description="当前只做成本核对、流水和对账雏形；充值、支付、正式发票放到后一阶段。">
-              <Suspense fallback={panelFallback('账单框架')}>
+            <Section id="billing" title="账单与套餐" description="先看业务是否正常收费、套餐是否够用、收入和成本是否能对上；支付和正式开票后续再接。">
+              <Suspense fallback={panelFallback('账单与套餐')}>
                 <BillingPanel
                   month={billingMonth}
                   windowDays={billingWindowDays}
@@ -6439,6 +6509,8 @@ const extractErrorMessage = (error: unknown): string => {
                   packageAlertNotifications={billingPackageAlertNotifications}
                   monthlyCollectionNotifications={billingMonthlyCollectionNotifications}
                   notificationConfig={billingNotificationConfig}
+                  commercialReport={billingCommercialReport}
+                  packageCatalog={billingPackageCatalog}
                   packagePurchaseOrders={billingPackagePurchaseOrders}
                   invoiceRequests={billingInvoiceRequests}
                   detail={billingDetail}
@@ -6452,6 +6524,7 @@ const extractErrorMessage = (error: unknown): string => {
                   onClientIdChange={setBillingClientId}
                   onBusinessKeyChange={setBillingBusinessKey}
                   onRefresh={refreshBillingOverview}
+                  onExportCommercialReport={exportBillingCommercialReport}
                   onExport={exportBillingUserLedger}
                   onSelectUser={refreshBillingUserDetail}
                   onRetryIssue={retryBillingIssue}
@@ -6462,6 +6535,7 @@ const extractErrorMessage = (error: unknown): string => {
                   onRunPackageAlertNotification={runBillingPackageAlertNotification}
                   onRunMonthlyCollectionNotification={runBillingMonthlyCollectionNotification}
                   onSaveNotificationConfig={saveBillingNotificationConfig}
+                  onSavePackageCatalog={savePackageCatalog}
                   onCreatePackagePurchaseOrder={createPackagePurchaseOrder}
                   onMarkPackagePurchaseOrderPaid={markPackagePurchaseOrderPaid}
                   onCreateInvoiceRequest={createBillingInvoiceRequest}
@@ -7264,6 +7338,10 @@ const extractErrorMessage = (error: unknown): string => {
             queueSummaryLoading={comfyQueueSummaryLoading}
             queueSummaryError={comfyQueueSummaryError}
             queueSummaryUpdatedAt={comfyQueueSummaryUpdatedAt}
+            workflowCompatibility={comfyWorkflowCompatibility}
+            workflowCompatibilityLoading={comfyWorkflowCompatibilityLoading}
+            workflowCompatibilityError={comfyWorkflowCompatibilityError}
+            workflowCompatibilityUpdatedAt={comfyWorkflowCompatibilityUpdatedAt}
             taskAgentFilter={comfyAgentTaskAgentFilter}
             taskStatusFilter={comfyAgentTaskStatusFilter}
             tasks={visibleComfyAgentTasks}
@@ -7284,6 +7362,7 @@ const extractErrorMessage = (error: unknown): string => {
             onMonitoringWindowChange={setComfyMonitoringWindowHours}
             onRefreshMonitoring={() => refreshComfyMonitoringSummary()}
             onRefreshQueueSummary={() => refreshComfyQueueSummary()}
+            onRefreshWorkflowCompatibility={() => refreshComfyWorkflowCompatibility()}
             onTaskAgentFilterChange={setComfyAgentTaskAgentFilter}
             onTaskStatusFilterChange={setComfyAgentTaskStatusFilter}
             onRefreshTasks={() => refreshComfyAgentTasks()}
@@ -7461,9 +7540,12 @@ const extractErrorMessage = (error: unknown): string => {
                   onEgressCheck={handleVendorEgressCheck}
                   onModelFormChange={setVendorModelForm}
                   onModelEdit={resetVendorModelForm}
+                  onModelBulkAction={handleVendorModelBulkAction}
+                  onModelAccept={handleVendorModelAcceptance}
                   onModelReset={() => resetVendorModelForm()}
                   onModelSubmit={handleVendorModelSubmit}
                   onKeyFormChange={setVendorKeyForm}
+                  onKeyCheck={handleVendorKeyCheck}
                   onKeySubmit={handleVendorKeySubmit}
                   onKeyReset={() => setVendorKeyForm(defaultVendorKeyForm)}
                 />

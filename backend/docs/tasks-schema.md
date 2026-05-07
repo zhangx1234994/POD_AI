@@ -62,7 +62,7 @@
 ```bash
 cd backend
 source .venv/bin/activate
-export DATABASE_URL='mysql+pymysql://kanban:Chrd5%400987@rm-bp1r74bu12nt8ibs50o.mysql.rds.aliyuncs.com/ai_zhongtai'
+export DATABASE_URL='mysql+pymysql://<user>:<password>@<mysql-host>:3306/<database>'
 python scripts/create_schema.py
 ```
 

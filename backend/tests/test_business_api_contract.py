@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -99,6 +101,7 @@ def test_business_openapi_exposes_flat_business_tools() -> None:
     assert "400" in submit_responses
     assert "500" in submit_responses
     assert "BUSINESS_IMAGE_URL_REQUIRED" in submit_responses["400"]["x-podi-errors"]
+    assert "BUSINESS_USER_SCOPE_FORBIDDEN" in submit_responses["403"]["x-podi-errors"]
     assert "COMFYUI_TIMEOUT" in submit_responses["500"]["x-podi-errors"]
     get_responses = paths["/api/business/runs/get"]["post"]["responses"]
     assert "BUSINESS_RUN_ID_REQUIRED" in get_responses["400"]["x-podi-errors"]
@@ -161,3 +164,100 @@ def test_business_run_get_requires_run_id() -> None:
 
     assert resp.status_code == 400
     assert resp.json()["detail"] == "BUSINESS_RUN_ID_REQUIRED"
+
+
+def test_business_api_submit_and_query_do_not_require_coze_workflow(monkeypatch) -> None:
+    created: dict[str, object] = {}
+
+    def _run_payload(*, business_key: str, payload) -> dict:
+        now = datetime.now(timezone.utc)
+        return {
+            "id": f"run_direct_{business_key}",
+            "business_key": business_key,
+            "business_version_id": f"biz_{business_key}_v1",
+            "version": "v1",
+            "status": "queued",
+            "source": payload.source or "business-api",
+            "channel": payload.channel,
+            "trace_id": payload.traceId,
+            "request_id": payload.requestId,
+            "tenant_id": payload.tenantId,
+            "client_id": payload.clientId,
+            "ability_id": f"ability_{business_key}",
+            "ability_name": f"{business_key} ability",
+            "ability_task_id": f"task_direct_{business_key}",
+            "image_urls": [],
+            "video_urls": [],
+            "texts": [],
+            "debug_url": f"/api/business/runs/run_direct_{business_key}",
+            "route_info": {"entry": "business-api", "selectedBy": "default"},
+            "steps": [],
+            "created_at": now,
+            "updated_at": now,
+        }
+
+    class FakeBusinessRunService:
+        def create_run(self, *, business_key, payload, user):
+            assert user is not None
+            assert payload.imageUrl == "https://example.com/input.png"
+            assert not (payload.inputs or {}).get("coze_workflow_id")
+            created["business_key"] = business_key
+            created["payload_source"] = payload.source
+            return _run_payload(business_key=business_key, payload=payload)
+
+        def get_run(self, *, run_id, user):
+            assert user is not None
+            assert run_id == "run_direct_fission"
+            return _run_payload(
+                business_key="fission",
+                payload=type(
+                    "Payload",
+                    (),
+                    {
+                        "source": "partner-api",
+                        "channel": "open-api",
+                        "traceId": "trace-direct-001",
+                        "requestId": "req-direct-001",
+                        "tenantId": "tenant-direct",
+                        "clientId": "client-direct",
+                    },
+                )(),
+            )
+
+    monkeypatch.setattr("app.routers.business.get_business_run_service", lambda: FakeBusinessRunService())
+
+    submit = client.post(
+        "/api/business/fission/runs",
+        json={
+            "imageUrl": "https://example.com/input.png",
+            "prompt": "直接业务 API 提交",
+            "source": "partner-api",
+            "channel": "open-api",
+            "traceId": "trace-direct-001",
+            "requestId": "req-direct-001",
+            "tenantId": "tenant-direct",
+            "clientId": "client-direct",
+        },
+        headers={"x-real-ip": "127.0.0.1"},
+    )
+
+    assert submit.status_code == 200
+    submit_body = submit.json()
+    assert created == {"business_key": "fission", "payload_source": "partner-api"}
+    assert submit_body["runId"] == "run_direct_fission"
+    assert submit_body["taskId"] == "task_direct_fission"
+    assert submit_body["source"] == "partner-api"
+    assert submit_body["channel"] == "open-api"
+    assert submit_body["routeInfo"]["entry"] == "business-api"
+    assert "cozeWorkflowId" not in submit_body
+
+    query = client.post(
+        "/api/business/runs/get",
+        json={"runId": "run_direct_fission"},
+        headers={"x-real-ip": "127.0.0.1"},
+    )
+
+    assert query.status_code == 200
+    query_body = query.json()
+    assert query_body["runId"] == "run_direct_fission"
+    assert query_body["taskId"] == "task_direct_fission"

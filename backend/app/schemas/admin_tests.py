@@ -148,6 +148,19 @@ class ComfyuiModelCatalogResponse(BaseModel):
     nodeCount: int | None = None
 
 
+class ComfyuiRouteEvidence(BaseModel):
+    recentTotal: int | None = None
+    recentQueued: int | None = None
+    recentRunning: int | None = None
+    recentSucceeded: int | None = None
+    recentFailed: int | None = None
+    recentCancelled: int | None = None
+    recentOther: int | None = None
+    latestTaskId: str | None = None
+    latestStatus: str | None = None
+    latestTaskAt: str | None = None
+
+
 class ComfyuiQueueStatusResponse(BaseModel):
     executorId: str
     baseUrl: str
@@ -173,6 +186,9 @@ class ComfyuiQueueStatusResponse(BaseModel):
     feedCode: str | None = None
     feedDiagnosisLevel: str | None = None
     feedDiagnosis: str | None = None
+    routeEvidence: ComfyuiRouteEvidence | None = None
+    routeDiagnosisLevel: str | None = None
+    routeDiagnosis: str | None = None
     supported: bool = True
     message: str | None = None
     raw: dict[str, Any] | None = None
@@ -200,9 +216,79 @@ class ComfyuiQueueSummaryResponse(BaseModel):
     idleServers: int | None = None
     feedGapServers: int | None = None
     backendBlockedServers: int | None = None
+    routeEvidenceWindowHours: int | None = None
+    routeEvidenceTotal: int | None = None
+    routeEvidenceCoveredServers: int | None = None
+    recentRouteMissingServers: int | None = None
     diagnostics: list[ComfyuiQueueDiagnostic] | None = None
     timestamp: str | None = None
     servers: list[ComfyuiQueueStatusResponse]
+
+
+class ComfyuiWorkflowCompatibilityDiagnostic(BaseModel):
+    level: str
+    code: str
+    message: str
+
+
+class ComfyuiWorkflowMissingNode(BaseModel):
+    nodeId: str
+    classType: str
+
+
+class ComfyuiWorkflowMissingModel(BaseModel):
+    nodeId: str
+    classType: str
+    inputName: str
+    value: str
+
+
+class ComfyuiWorkflowCompatibilityServer(BaseModel):
+    executorId: str
+    compatible: bool
+    reachable: bool
+    missingNodes: list[ComfyuiWorkflowMissingNode] = Field(default_factory=list)
+    missingModels: list[ComfyuiWorkflowMissingModel] = Field(default_factory=list)
+    message: str | None = None
+
+
+class ComfyuiWorkflowCompatibilityItem(BaseModel):
+    abilityId: str
+    displayName: str
+    capabilityKey: str
+    workflowKey: str
+    workflowId: str | None = None
+    action: str | None = None
+    allowedExecutorIds: list[str] = Field(default_factory=list)
+    bindingExecutorIds: list[str] = Field(default_factory=list)
+    expectedExecutorIds: list[str] = Field(default_factory=list)
+    compatibleExecutorIds: list[str] = Field(default_factory=list)
+    incompatibleExecutorIds: list[str] = Field(default_factory=list)
+    requiredNodeKeys: list[str] = Field(default_factory=list)
+    requiredNodeCount: int = 0
+    status: str
+    diagnostics: list[ComfyuiWorkflowCompatibilityDiagnostic] = Field(default_factory=list)
+    servers: list[ComfyuiWorkflowCompatibilityServer] = Field(default_factory=list)
+
+
+class ComfyuiWorkflowCompatibilityExecutor(BaseModel):
+    executorId: str
+    executorName: str | None = None
+    baseUrl: str | None = None
+    status: str | None = None
+    reachable: bool
+    nodeCount: int | None = None
+    message: str | None = None
+
+
+class ComfyuiWorkflowCompatibilityResponse(BaseModel):
+    checkedAt: str
+    totalWorkflows: int
+    okCount: int
+    warningCount: int
+    failedCount: int
+    servers: list[ComfyuiWorkflowCompatibilityExecutor]
+    workflows: list[ComfyuiWorkflowCompatibilityItem]
 
 
 class ComfyuiSystemStatsResponse(BaseModel):

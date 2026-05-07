@@ -37,6 +37,7 @@ class UserRead(BaseModel):
     clientId: str | None = None
     createdAt: datetime | None = None
     lastLoginAt: datetime | None = None
+    adminAudit: list["AuthUserAuditItem"] = Field(default_factory=list)
 
     @model_validator(mode="before")
     @classmethod
@@ -50,8 +51,11 @@ class UserRead(BaseModel):
                     "client_id": "clientId",
                     "created_at": "createdAt",
                     "last_login_at": "lastLoginAt",
+                    "admin_audit": "adminAudit",
                 },
             )
+        metadata = _attr_or_key(data, "extra_metadata") or {}
+        admin_audit = metadata.get("admin_audit", []) if isinstance(metadata, dict) else []
         return {
             "id": _attr_or_key(data, "id"),
             "username": _attr_or_key(data, "username"),
@@ -63,7 +67,55 @@ class UserRead(BaseModel):
             "clientId": _attr_or_key(data, "client_id"),
             "createdAt": _attr_or_key(data, "created_at"),
             "lastLoginAt": _attr_or_key(data, "last_login_at"),
+            "adminAudit": admin_audit if isinstance(admin_audit, list) else [],
         }
+
+
+class AuthUserAuditItem(BaseModel):
+    action: str | None = None
+    actorUserId: str | None = None
+    actorUsername: str | None = None
+    actorRole: str | None = None
+    note: str | None = None
+    changedFields: list[str] = Field(default_factory=list)
+    before: dict[str, Any] | None = None
+    after: dict[str, Any] | None = None
+    createdAt: datetime | str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_source(cls, data: Any) -> Any:
+        return _normalize_aliases(
+            data,
+            {
+                "actor_user_id": "actorUserId",
+                "actor_username": "actorUsername",
+                "actor_role": "actorRole",
+                "changed_fields": "changedFields",
+                "created_at": "createdAt",
+            },
+        )
+
+
+class UserUpdateRequest(BaseModel):
+    displayName: str | None = None
+    role: str | None = None
+    status: str | None = None
+    tenantId: str | None = None
+    clientId: str | None = None
+    note: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_source(cls, data: Any) -> Any:
+        return _normalize_aliases(
+            data,
+            {
+                "display_name": "displayName",
+                "tenant_id": "tenantId",
+                "client_id": "clientId",
+            },
+        )
 
 
 class TokenResponse(BaseModel):
@@ -239,3 +291,76 @@ class InviteCodeListResponse(BaseModel):
 
 class UserListResponse(BaseModel):
     items: list[UserRead]
+
+
+class AuthScopeTotals(BaseModel):
+    users: int
+    activeUsers: int
+    adminUsers: int
+    clientUsers: int
+    unscopedClientUsers: int
+    activeSessions: int
+    activeInvites: int
+    unscopedActiveInvites: int
+    expiredActiveInvites: int
+
+
+class AuthScopeRoleItem(BaseModel):
+    role: str
+    count: int
+    activeCount: int
+
+
+class AuthScopeTenantItem(BaseModel):
+    tenantId: str | None = None
+    clientId: str | None = None
+    userCount: int
+    activeUserCount: int
+    clientUserCount: int
+    activeSessionCount: int
+
+
+class AuthScopeRiskItem(BaseModel):
+    key: str
+    title: str
+    severity: str
+    count: int
+    detail: str
+
+
+class AuthScopeChecklistItem(BaseModel):
+    key: str
+    title: str
+    passed: bool
+    detail: str
+    action: str
+
+
+class AuthScopeBusinessApiPolicyItem(BaseModel):
+    key: str
+    title: str
+    detail: str
+    enforced: bool
+
+
+class AuthScopeRoleBoundaryItem(BaseModel):
+    key: str
+    title: str
+    principal: str
+    allowed: str
+    blocked: str
+    enforced: bool
+
+
+class AuthScopeSummaryResponse(BaseModel):
+    generatedAt: datetime
+    releaseReady: bool = False
+    blockingRiskCount: int = 0
+    warningRiskCount: int = 0
+    totals: AuthScopeTotals
+    roles: list[AuthScopeRoleItem]
+    tenants: list[AuthScopeTenantItem]
+    risks: list[AuthScopeRiskItem]
+    checklist: list[AuthScopeChecklistItem] = Field(default_factory=list)
+    businessApiPolicy: list[AuthScopeBusinessApiPolicyItem] = Field(default_factory=list)
+    roleBoundary: list[AuthScopeRoleBoundaryItem] = Field(default_factory=list)

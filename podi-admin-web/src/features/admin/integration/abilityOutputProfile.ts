@@ -15,6 +15,30 @@ export type AbilityOutputProfile = {
 
 const normalize = (value?: unknown) => String(value || '').trim().toLowerCase();
 
+const apiTypeLabels: Record<string, string> = {
+  chat_completions: '文字或多模态对话',
+  image_edit: '图片编辑',
+  image_generation: '文生图或生图',
+  market_image_to_image: '商业模型图生图',
+  market_text_to_video: '商业模型文生视频',
+  video_generation: '生视频',
+  vision: '图像理解',
+  vl: '图像理解',
+};
+
+const outputKindDefaults: Record<AbilityOutputKind, string> = {
+  image: '生成、编辑或处理图片结果',
+  video: '生成或处理视频结果',
+  text: '生成、增强或改写文字内容',
+  structured: '返回图片描述、标签、质检或结构化判断',
+  asset: '返回文件、链接或其他资源',
+};
+
+const getApiTypeLabel = (apiType: string, kind: AbilityOutputKind): string => {
+  if (!apiType) return outputKindDefaults[kind];
+  return apiTypeLabels[apiType] || outputKindDefaults[kind];
+};
+
 const getMetadata = (ability?: Ability | null): JsonRecord => {
   const metadata = ability?.metadata;
   return metadata && typeof metadata === 'object' && !Array.isArray(metadata) ? metadata : {};
@@ -100,7 +124,7 @@ export const resolveAbilityOutputProfile = (ability: Ability): AbilityOutputProf
     return {
       kind,
       label: '视频能力',
-      detail: apiType ? `接口类型：${apiType}` : '生成或处理视频结果',
+      detail: getApiTypeLabel(apiType, kind),
       theme: 'warning',
       inputTags,
       outputTags,
@@ -110,7 +134,7 @@ export const resolveAbilityOutputProfile = (ability: Ability): AbilityOutputProf
     return {
       kind,
       label: '文字能力',
-      detail: apiType ? `接口类型：${apiType}` : '生成或增强文字内容',
+      detail: getApiTypeLabel(apiType, kind),
       theme: 'primary',
       inputTags,
       outputTags,
@@ -120,7 +144,7 @@ export const resolveAbilityOutputProfile = (ability: Ability): AbilityOutputProf
     return {
       kind,
       label: '图像理解',
-      detail: apiType ? `接口类型：${apiType}` : '返回图片描述、标签或结构化判断',
+      detail: getApiTypeLabel(apiType, kind),
       theme: 'success',
       inputTags,
       outputTags,
@@ -130,7 +154,7 @@ export const resolveAbilityOutputProfile = (ability: Ability): AbilityOutputProf
     return {
       kind,
       label: '图片能力',
-      detail: apiType ? `接口类型：${apiType}` : '生成、编辑或处理图片结果',
+      detail: getApiTypeLabel(apiType, kind),
       theme: 'success',
       inputTags,
       outputTags,
@@ -139,7 +163,7 @@ export const resolveAbilityOutputProfile = (ability: Ability): AbilityOutputProf
   return {
     kind,
     label: '资源能力',
-    detail: apiType ? `接口类型：${apiType}` : '返回文件、链接或其他资源',
+    detail: getApiTypeLabel(apiType, kind),
     theme: 'default',
     inputTags,
     outputTags,

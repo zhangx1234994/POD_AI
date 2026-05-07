@@ -1368,6 +1368,14 @@ def get_comfyui_queue_summary(executor_ids: list[str] | None = Query(None, alias
     return admin_tests.ComfyuiQueueSummaryResponse(**result)
 
 
+@router.get("/comfyui/workflow-compatibility", response_model=admin_tests.ComfyuiWorkflowCompatibilityResponse)
+def get_comfyui_workflow_compatibility(
+    executor_ids: list[str] | None = Query(None, alias="executorIds"),
+):
+    result = integration_test_service.get_comfyui_workflow_compatibility(executor_ids=executor_ids)
+    return admin_tests.ComfyuiWorkflowCompatibilityResponse(**result)
+
+
 @router.get("/comfyui/system-stats", response_model=admin_tests.ComfyuiSystemStatsResponse)
 def get_comfyui_system_stats(executor_id: str = Query(..., alias="executorId")):
     result = integration_test_service.get_comfyui_system_stats(executor_id=executor_id)

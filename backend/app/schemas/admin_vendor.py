@@ -118,6 +118,8 @@ class VendorGovernanceProviderItem(BaseModel):
     providerStatus: str = "unknown"
     requiresGlobalEgress: bool = False
     envKeyConfigured: bool = False
+    supportedApiTypes: list[str] = Field(default_factory=list)
+    executionModes: list[str] = Field(default_factory=list)
     runtimeKeyConfigured: bool = False
     keyCount: int = 0
     activeStoredKeyCount: int = 0
@@ -125,12 +127,17 @@ class VendorGovernanceProviderItem(BaseModel):
     cooldownKeyCount: int = 0
     exhaustedKeyCount: int = 0
     errorKeyCount: int = 0
+    uncheckedKeyCount: int = 0
+    staleKeyCheckCount: int = 0
+    failedKeyCheckCount: int = 0
     modelCount: int = 0
     activeModelCount: int = 0
     abilityCount: int = 0
     activeAbilityCount: int = 0
     succeededCalls: int = 0
     failedCalls: int = 0
+    queuedCalls: int = 0
+    runningCalls: int = 0
     avgLatencyMs: int | None = None
     lastSeenAt: datetime | None = None
     issues: list[str] = Field(default_factory=list)
@@ -190,8 +197,45 @@ class VendorModelUpdateRequest(BaseModel):
     metadata: dict[str, Any] | None = None
 
 
+class VendorModelAcceptanceRecordRequest(BaseModel):
+    status: str = "passed"
+    note: str | None = None
+    evidenceRunId: str | None = None
+    evidenceUrl: str | None = None
+    checklist: dict[str, Any] | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class VendorModelBulkActionRequest(BaseModel):
+    modelIds: list[int] = Field(default_factory=list)
+    action: str
+    note: str | None = None
+    acceptance: VendorModelAcceptanceRecordRequest | None = None
+    costPolicy: dict[str, Any] | None = None
+    status: str | None = None
+
+
+class VendorModelBulkActionItem(BaseModel):
+    modelId: int
+    success: bool
+    error: str | None = None
+    model: dict[str, Any] | None = None
+
+
+class VendorModelBulkActionResponse(BaseModel):
+    action: str
+    total: int
+    updated: int
+    failed: int
+    items: list[VendorModelBulkActionItem] = Field(default_factory=list)
+
+
 class VendorModelRead(VendorModelBase):
     id: int | None = None
+    latestAcceptance: dict[str, Any] | None = None
+    acceptanceRecords: list[dict[str, Any]] = Field(default_factory=list)
+    auditRecords: list[dict[str, Any]] = Field(default_factory=list)
+    releaseGate: dict[str, Any] = Field(default_factory=dict)
     createdAt: datetime | None = None
     updatedAt: datetime | None = None
 

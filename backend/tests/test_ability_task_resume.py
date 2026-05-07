@@ -60,3 +60,15 @@ def test_is_vendor_api_submitted_only_false_without_vendor_task_id():
     )
 
     assert AbilityTaskService._is_vendor_api_submitted_only(task) is False
+
+
+def test_count_outputs_includes_text_and_structured_payloads():
+    from app.services.ability_task_service import AbilityTaskService
+
+    assert AbilityTaskService._count_outputs(
+        {
+            "texts": ["图片主体是蓝白植物纹样"],
+            "jsonOutput": {"tags": ["植物", "蓝色"]},
+            "structured": [{"score": 0.9}],
+        }
+    ) == 3

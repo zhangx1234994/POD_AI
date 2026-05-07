@@ -36,12 +36,15 @@
 | SESSION_NOT_FOUND | 登录会话不存在 | 404 |
 | SESSION_REVOKED | 登录会话已注销或被轮换 | 401 |
 | SESSION_EXPIRED | 登录会话已过期 | 401 |
+| USER_ID_REQUIRED | 管理员调整用户时缺少用户 ID | 400 |
 | USER_NOT_FOUND | 用户不存在 | 404 |
 | USER_INACTIVE | 用户被禁用 | 403 |
+| USER_STATUS_INVALID | 用户状态不在允许范围内 | 400 |
 | USERNAME_REQUIRED | 注册缺少用户名 | 400 |
 | PASSWORD_TOO_SHORT | 注册密码长度不足 | 400 |
 | USER_ALREADY_EXISTS | 用户名或邮箱已存在 | 409 |
 | ROLE_INVALID | 角色不在允许范围内 | 400 |
+| AUTH_SELF_LOCKOUT_FORBIDDEN | 管理员不能停用或降权自己 | 409 |
 | INVITE_CODE_INVALID | 邀请码不存在或为空 | 400 |
 | INVITE_CODE_NOT_FOUND | 邀请码记录不存在 | 404 |
 | INVITE_CODE_INACTIVE | 邀请码未启用 | 409 |
@@ -88,6 +91,9 @@
 | BUSINESS_CAPABILITY_NOT_FOUND | 业务能力版本不存在或未启用 | 404 |
 | BUSINESS_ROLLBACK_TARGET_NOT_FOUND | 没有可回滚的上一业务版本 | 409 |
 | BUSINESS_STATUS_INVALID | 业务版本状态非法 | 400 |
+| BUSINESS_ACCEPTANCE_STATUS_INVALID | 业务版本验收状态非法 | 400，允许 `passed` / `failed` / `warning` / `waived` |
+| BUSINESS_ACCEPTANCE_REQUIRED | 业务版本缺少最近一次“验收通过”记录 | 409，默认版本切换申请或直接设默认前必须先记录验收 |
+| BUSINESS_RELEASE_GATE_BLOCKED | 业务版本完整上线门禁未通过 | 409，默认版本切换、审批申请或直接设默认前必须补齐治理阻断项 |
 | HEALTH_WATCH_SYSTEMD_UNAVAILABLE | 当前环境无法读取 systemd | `/api/admin/dashboard/health-watch/status` 响应内状态，不作为 HTTP 错误抛出 |
 | HEALTH_WATCH_UNIT_UNAVAILABLE | 自检守护单元未安装或不可加载 | `/api/admin/dashboard/health-watch/status` 响应内状态，不作为 HTTP 错误抛出 |
 | HEALTH_WATCH_UNIT_DISABLED | 自检守护定时器未启用 | `/api/admin/dashboard/health-watch/status` 响应内状态，不作为 HTTP 错误抛出 |
@@ -99,6 +105,16 @@
 | BUSINESS_DEFAULT_APPROVAL_ALREADY_DECIDED | 默认版本审批记录已处理，不能重复审批/驳回 | 409 |
 | BUSINESS_RECIPE_INVALID | 业务能力配方非法 | 400，缺少 primaryAbilityId/steps、步骤类型非法或步骤结构非法 |
 | BUSINESS_RECIPE_ABILITY_NOT_AVAILABLE | 业务配方指向的原子能力不可用 | 400，主能力/步骤能力/VL 辅助能力不存在 |
+| BUSINESS_GOVERNANCE_PRIMARY_ABILITY_MISSING | 业务治理提示：业务版本未绑定主能力 | `/api/admin/business/capabilities` 响应内提示，不作为 HTTP 错误抛出 |
+| BUSINESS_GOVERNANCE_PRIMARY_ABILITY_NOT_FOUND | 业务治理提示：主能力编号不存在 | `/api/admin/business/capabilities` 响应内提示，不作为 HTTP 错误抛出 |
+| BUSINESS_GOVERNANCE_PRIMARY_ABILITY_INACTIVE | 业务治理提示：主能力未启用 | `/api/admin/business/capabilities` 响应内提示，不作为 HTTP 错误抛出 |
+| BUSINESS_GOVERNANCE_EXECUTABLE_STEP_MISSING | 业务治理提示：配方没有可执行步骤 | `/api/admin/business/capabilities` 响应内提示，不作为 HTTP 错误抛出 |
+| BUSINESS_GOVERNANCE_VENDOR_MODEL_NOT_FOUND | 业务治理提示：绑定的第三方模型不存在 | `/api/admin/business/capabilities` 响应内提示，不作为 HTTP 错误抛出 |
+| BUSINESS_GOVERNANCE_VENDOR_MODEL_INACTIVE | 业务治理提示：绑定的第三方模型未启用 | `/api/admin/business/capabilities` 响应内提示，不作为 HTTP 错误抛出 |
+| BUSINESS_GOVERNANCE_VENDOR_MODEL_ACCEPTANCE_REQUIRED | 业务治理提示：第三方模型缺少验收通过记录 | `/api/admin/business/capabilities` 响应内提示，不作为 HTTP 错误抛出 |
+| BUSINESS_GOVERNANCE_VENDOR_MODEL_COST_MISSING | 业务治理提示：第三方模型缺少成本策略 | `/api/admin/business/capabilities` 响应内提示，不作为 HTTP 错误抛出 |
+| BUSINESS_GOVERNANCE_VENDOR_KEY_MISSING | 业务治理提示：第三方模型没有可用密钥 | `/api/admin/business/capabilities` 响应内提示，不作为 HTTP 错误抛出 |
+| BUSINESS_GOVERNANCE_VENDOR_EGRESS_NOT_VERIFIED | 业务治理提示：第三方出网模型缺少最近一次带密钥出网验证成功记录 | `/api/admin/business/capabilities` 响应内提示，不作为 HTTP 错误抛出 |
 | BUSINESS_CLIENT_ID_REQUIRED | 业务方配置自定义 ID 为空 | 400 |
 | BUSINESS_CLIENT_TENANT_REQUIRED | 业务方配置缺少 tenantId | 400 |
 | BUSINESS_CLIENT_DISPLAY_NAME_REQUIRED | 业务方配置缺少展示名称 | 400 |
@@ -107,6 +123,8 @@
 | BUSINESS_CLIENT_NOT_FOUND | 业务方配置不存在 | 404 |
 | BUSINESS_CLIENT_DISABLED | 业务方已停用，不允许提交任务 | 403 |
 | BUSINESS_CLIENT_BUSINESS_NOT_ALLOWED | 业务方未开通当前业务能力 | 403 |
+| BUSINESS_USER_SCOPE_REQUIRED | 业务方账号缺少 tenantId，不能直接调用业务 API | 403 |
+| BUSINESS_USER_SCOPE_FORBIDDEN | 业务方账号传入的 tenantId/clientId 超出自身绑定范围 | 403 |
 | BUSINESS_CLIENT_CONCURRENCY_LIMITED | 业务方并发任务达到上限 | 429 |
 | BUSINESS_CLIENT_DAILY_RUN_LIMITED | 业务方当日调用次数达到上限 | 429 |
 | BUSINESS_CLIENT_DAILY_QUOTA_LIMITED | 业务方当日额度达到上限 | 429 |
@@ -115,6 +133,17 @@
 | BUSINESS_RUN_ID_REQUIRED | 查询业务任务缺少 runId | 400 |
 | BUSINESS_RUN_NOT_FOUND | 业务任务不存在 | 404 |
 | BUSINESS_RUN_FORBIDDEN | 业务任务无访问权限 | 403 |
+| BUSINESS_RUN_IDS_REQUIRED | 批量业务任务操作缺少 runId 列表 | 400 |
+| BUSINESS_RUN_BULK_LIMIT_EXCEEDED | 批量业务任务操作超过单次 100 条限制 | 400 |
+| BUSINESS_RUN_RETEST_PAYLOAD_INVALID | 业务复测无法从原任务还原有效入参 | 409 |
+| BUSINESS_CALLBACK_NOT_CONFIGURED | 业务任务没有配置回调地址，无法重试回调 | 409 |
+| BUSINESS_RUN_NOT_FINISHED | 业务任务仍在排队或执行中，不能重试终态回调 | 409 |
+| BUSINESS_RUN_NOT_BILLABLE | 业务任务当前状态不允许扣费 | 409，失败/取消/超时任务不向业务方计费 |
+| BUSINESS_RUN_UNPRICED | 业务任务成功但缺少成本或额度，不能自动扣费 | 409 |
+| BUSINESS_RUN_USER_REQUIRED | 业务任务缺少 userId，无法归属钱包账户 | 400 |
+| BUSINESS_WALLET_SETTLEMENT_NOT_FOUND | 业务任务没有可退回的钱包扣费记录 | 409 |
+| BUSINESS_PACKAGE_SETTLEMENT_NOT_FOUND | 业务任务套餐扣减记录不存在，无法退回套餐 | 409 |
+| BUSINESS_PACKAGE_SETTLEMENT_INVALID | 业务任务套餐扣减记录缺少套餐 ID 或扣减次数 | 409 |
 | PROMPT_REQUIRED | 缺少提示词 | 400，人工测试/模型调用缺少必填 prompt |
 | INVALID_WORKFLOW_OR_EXECUTOR | workflow 或 executor 无效 | 400 |
 | BATCH_NOT_FOUND | 批测批次不存在 | 404 |
@@ -136,6 +165,8 @@
 | BATCH_REVIEW_PAGE_INVALID | 标注分页页码非法（越界/completed_page > current_page） | 400 |
 | WALLET_INSUFFICIENT | 钱包可用余额不足 | 402 |
 | WALLET_HOLD_NOT_FOUND | 冻结记录不存在或已处理 | 404 |
+| WALLET_TRACE_ID_REQUIRED | 钱包扣费/调账缺少 traceId 或 taskId，无法安全防重 | 400 |
+| WALLET_ADJUSTMENT_DIRECTION_INVALID | 钱包调账方向非法 | 400，仅支持 increase/decrease/refund/deduct 等同义值 |
 | RECHARGE_AMOUNT_INVALID | 充值金额非法（<=0） | 400 |
 | RECHARGE_ORDER_NOT_FOUND | 充值订单不存在 | 404 |
 | RECHARGE_STATUS_INVALID | 充值订单状态非法（仅支持 pending/paid/failed/canceled） | 400 |
@@ -144,6 +175,23 @@
 | RECHARGE_CALLBACK_SIGNATURE_INVALID | 充值回调签名非法（缺失/错误） | 401 |
 | RECHARGE_CALLBACK_SIGNATURE_EXPIRED | 充值回调签名过期（时间戳超窗） | 401 |
 | BILL_MONTH_INVALID | 账单月份格式非法（需 YYYY-MM） | 400 |
+| BILLING_DATETIME_INVALID | 账单/套餐时间格式非法 | 400 |
+| BILLING_USER_ID_REQUIRED | 套餐订单缺少用户 ID | 400 |
+| PACKAGE_KEY_REQUIRED | 套餐发放或套餐订单缺少套餐标识 | 400 |
+| PACKAGE_UNITS_INVALID | 套餐额度非法（<=0） | 400 |
+| PACKAGE_AMOUNT_INVALID | 套餐金额非法（<0） | 400 |
+| PACKAGE_VALIDITY_DAYS_INVALID | 套餐有效期天数非法（<=0） | 400 |
+| PACKAGE_CATALOG_NAME_REQUIRED | 套餐目录缺少套餐名称 | 400 |
+| PACKAGE_CATALOG_STATUS_INVALID | 套餐目录状态非法 | 400，仅支持 active/inactive |
+| PACKAGE_CATALOG_NOT_FOUND | 套餐目录不存在 | 404 |
+| PACKAGE_PURCHASE_ORDER_NOT_FOUND | 套餐购买订单不存在 | 404 |
+| PACKAGE_PURCHASE_ORDER_STATUS_INVALID | 套餐购买订单状态非法 | 400，仅支持 pending/paid/cancelled/failed |
+| MONTHLY_SETTLEMENT_NOT_FOUND | 月结记录不存在 | 404 |
+| MONTHLY_SETTLEMENT_STATUS_INVALID | 月结记录状态非法 | 400，仅支持 issued/paid/cancelled |
+| BILLING_INVOICE_TITLE_REQUIRED | 发票申请缺少发票抬头 | 400 |
+| BILLING_INVOICE_REQUEST_NOT_FOUND | 发票申请不存在 | 404 |
+| BILLING_INVOICE_STATUS_INVALID | 发票申请状态非法 | 400，仅支持 requested/issued/cancelled |
+| BILLING_NOTIFICATION_CONFIG_INVALID | 账单通知配置格式非法 | 400 |
 | RELEASE_DECISION_STATUS_INVALID | 上线结论登记状态非法 | 400，仅允许 approved/deferred/blocked |
 
 ---
@@ -256,6 +304,9 @@
 | COMFYUI_EXECUTOR_UNREACHABLE | 部分 ComfyUI 执行节点不可用 | 评测健康检查发现 active 节点队列不可读 |
 | COMFYUI_NO_AVAILABLE_EXECUTOR | 没有可用 ComfyUI 执行节点 | 所有 active ComfyUI 节点队列不可读 |
 | COMFYUI_FEED_GAP | 中台有待下发任务但 ComfyUI 仍有空闲容量 | 管理端队列诊断项，不是对外接口错误 |
+| COMFYUI_WORKFLOW_GRAPH_MISSING | ComfyUI 能力没有可检查的工作流图 | 管理端能力对齐检查诊断项 |
+| COMFYUI_NO_ROUTED_EXECUTOR | ComfyUI 能力没有可检查的路由执行节点 | 管理端能力对齐检查诊断项 |
+| COMFYUI_ROUTING_BINDING_MISMATCH | 能力允许节点与 workflow 绑定节点不一致 | 管理端能力对齐检查诊断项 |
 | COMFYUI_BACKEND_RUNNING_NOT_VISIBLE | 中台显示执行中但 ComfyUI 队列不可见 | 管理端队列诊断项，优先排查下发和结果回填 |
 | COMFYUI_EXECUTOR_EMPTY | 没有配置 active ComfyUI 执行节点 | 管理端队列诊断项 |
 | COMFYUI_ADAPTER_MISSING | adapter 未注册 | |
@@ -332,8 +383,34 @@
 | VENDOR_USAGE_SUMMARY_UNAVAILABLE | 第三方调用统计不可读 | 管理端治理摘要降级提示 |
 | VENDOR_GOVERNANCE_DB_UNAVAILABLE | 第三方治理摘要读取数据库失败 | 管理端治理摘要降级提示 |
 | VENDOR_API_RECENT_FAILURES | 第三方 API 最近调用全失败 | 治理摘要风险提示，需检查密钥/余额/网络出口 |
+| VENDOR_API_KEY_QUOTA_EXHAUSTED | 第三方 API Key 配额已用完 | 治理摘要风险提示，需补额度或切换备用 Key |
+| VENDOR_API_KEY_QUOTA_NEAR_LIMIT | 第三方 API Key 配额接近上限 | 治理摘要风险提示，需准备备用 Key 或降流量 |
+| VENDOR_API_KEY_RECENT_ERROR | 第三方 API Key 最近验证或调用报错 | 治理摘要风险提示，需做单条 Key 验证 |
+| VENDOR_MODEL_COST_POLICY_MISSING | 第三方模型缺少计价策略 | 治理摘要风险提示，成功调用前后都可能出现 |
+| VENDOR_API_UNCOSTED_SUCCESS_CALLS | 第三方 API 已有成功调用但未计价 | 治理摘要风险提示，收费上线前必须补计价 |
+| VENDOR_API_TASKS_QUEUED | 第三方 API 任务排队中 | 治理摘要风险提示，检查厂商并发、Key 并发和重试节奏 |
+| VENDOR_API_TASKS_RUNNING_LONG | 第三方 API 任务长时间运行 | 治理摘要风险提示，检查厂商轮询和终态回填 |
+| VENDOR_API_TASK_FAILURES | 第三方 API 异步任务失败 | 治理摘要风险提示，查看失败样本和上游错误 |
 | VENDOR_MODEL_DUPLICATED | 第三方模型目录项重复 | provider + model 必须唯一 |
 | VENDOR_MODEL_NOT_FOUND | 第三方模型目录项不存在 | 管理端编辑模型配置时使用 |
+| VENDOR_MODEL_BULK_ACTION_INVALID | 第三方模型批量操作类型非法 | 仅允许启用、停用、记录验收、应用计价 |
+| VENDOR_MODEL_BULK_MODEL_IDS_REQUIRED | 第三方模型批量操作缺少模型 ID | 管理端批量处理模型目录 |
+| VENDOR_MODEL_INACTIVE | 第三方模型目录项未启用 | 模型弹药库上线门禁风险提示 |
+| VENDOR_MODEL_COST_POLICY_INVALID | 第三方模型计价规则非法 | 单价/额度不能小于 0，数字字段必须是数字 |
+| VENDOR_MODEL_ACCEPTANCE_STATUS_INVALID | 第三方模型验收状态非法 | 仅允许 `passed/failed/warning/waived` |
+| VENDOR_MODEL_ACCEPTANCE_REQUIRED | 第三方模型缺少验收通过记录 | 模型弹药库上线门禁风险提示 |
+| VENDOR_MODEL_ACCEPTANCE_MISSING | 第三方模型缺少验收通过记录 | 发版静态审计风险提示 |
+| VENDOR_ABILITY_MODEL_UNBOUND | 第三方能力未绑定模型目录 | 发版静态审计风险提示 |
+| VENDOR_ABILITY_MODEL_NOT_FOUND | 第三方能力绑定的模型目录不存在 | 发版静态审计风险提示 |
+| VENDOR_ABILITY_MODEL_INACTIVE | 第三方能力绑定了未启用模型 | 发版静态审计风险提示 |
+| VENDOR_MODEL_RUNTIME_KEY_MISSING | 第三方模型缺少可用运行密钥 | 模型弹药库上线门禁风险提示 |
+| VENDOR_MODEL_KEY_CHECK_FAILED | 第三方模型所有可用密钥最近验证失败 | 模型弹药库上线门禁风险提示 |
+| VENDOR_MODEL_KEY_CHECK_PARTIAL_FAILED | 第三方模型部分密钥最近验证失败 | 模型弹药库上线门禁风险提示 |
+| VENDOR_MODEL_KEY_NEVER_CHECKED | 第三方模型存在未验证密钥 | 模型弹药库上线门禁风险提示 |
+| VENDOR_MODEL_KEY_CHECK_STALE | 第三方模型密钥验证过期 | 模型弹药库上线门禁风险提示 |
+| VENDOR_MODEL_API_TYPES_MISSING | 第三方模型缺少能力类型描述 | 模型弹药库上线门禁风险提示 |
+| VENDOR_MODEL_EXECUTION_MODE_MISSING | 第三方模型缺少返回方式描述 | 模型弹药库上线门禁风险提示 |
+| VENDOR_MODEL_GLOBAL_EGRESS_REQUIRED | 第三方模型需要出网节点 | 模型弹药库上线门禁风险提示 |
 | VL_IMAGE_REQUIRED | VL 图像理解缺少图片 | `vl_analyze_image` |
 | VL_PROVIDER_ABILITY_NOT_FOUND | VL provider 依赖的原子能力不存在 | 如火山 VL 映射能力缺失 |
 | VL_COZE_WORKFLOW_NOT_CONFIGURED | Coze VL 未配置 workflow id | 使用 `coze_vl` provider 时 |

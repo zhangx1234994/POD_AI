@@ -162,12 +162,42 @@ export interface AuthScopeRiskItem {
   detail: string;
 }
 
+export interface AuthScopeChecklistItem {
+  key: string;
+  title: string;
+  passed: boolean;
+  detail: string;
+  action: string;
+}
+
+export interface AuthScopeBusinessApiPolicyItem {
+  key: string;
+  title: string;
+  detail: string;
+  enforced: boolean;
+}
+
+export interface AuthScopeRoleBoundaryItem {
+  key: string;
+  title: string;
+  principal: string;
+  allowed: string;
+  blocked: string;
+  enforced: boolean;
+}
+
 export interface AuthScopeSummaryResponse {
   generatedAt: string;
+  releaseReady?: boolean;
+  blockingRiskCount?: number;
+  warningRiskCount?: number;
   totals: AuthScopeTotals;
   roles: AuthScopeRoleItem[];
   tenants: AuthScopeTenantItem[];
   risks: AuthScopeRiskItem[];
+  checklist?: AuthScopeChecklistItem[];
+  businessApiPolicy?: AuthScopeBusinessApiPolicyItem[];
+  roleBoundary?: AuthScopeRoleBoundaryItem[];
 }
 
 export interface BillingUserRead {
@@ -421,6 +451,54 @@ export interface BillingOverviewResponse {
   items: BillingUserOverview[];
 }
 
+export interface BillingCurrencyAmount {
+  currency: string;
+  amount?: number;
+  amountCents?: number;
+}
+
+export interface BillingCommercialReportBusinessRow {
+  businessKey: string;
+  runCount: number;
+  succeededRunCount: number;
+  billableRunCount: number;
+  chargedRunCount: number;
+  unpricedRunCount: number;
+  billingIssueCount: number;
+  quotaUnits: number;
+  costByCurrency: BillingCurrencyAmount[];
+}
+
+export interface BillingCommercialReportResponse {
+  month: string;
+  tenantId?: string | null;
+  clientId?: string | null;
+  businessKey?: string | null;
+  generatedAt: string;
+  status: string;
+  statusLabel: string;
+  nextAction: string;
+  runCount: number;
+  succeededRunCount: number;
+  failedRunCount: number;
+  billableRunCount: number;
+  chargedRunCount: number;
+  packageChargedRunCount: number;
+  walletChargedRunCount: number;
+  unpricedRunCount: number;
+  billingIssueCount: number;
+  quotaUnits: number;
+  costByCurrency: BillingCurrencyAmount[];
+  paidPackageOrderCount: number;
+  pendingPackageOrderCount: number;
+  packageSoldUnits: number;
+  packageOrderRevenueByCurrency: BillingCurrencyAmount[];
+  pendingPackageRevenueByCurrency: BillingCurrencyAmount[];
+  activePackageCatalogCount: number;
+  businessRows: BillingCommercialReportBusinessRow[];
+  riskItems: BillingIssue[];
+}
+
 export interface BillingMonthlySettlementItem {
   id: string;
   tenantId?: string | null;
@@ -664,6 +742,43 @@ export interface PackagePurchaseOrder {
   updatedAt?: string | null;
 }
 
+export interface PackageCatalogItem {
+  packageKey: string;
+  packageName: string;
+  businessKey?: string | null;
+  description?: string | null;
+  units: number;
+  unitName: string;
+  amountCents: number;
+  currency: string;
+  validityDays?: number | null;
+  status: string;
+  sortOrder: number;
+  metadata?: JsonRecord | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface PackageCatalogListResponse {
+  total: number;
+  items: PackageCatalogItem[];
+}
+
+export interface PackageCatalogPayload {
+  packageKey: string;
+  packageName: string;
+  businessKey?: string | null;
+  description?: string | null;
+  units: number;
+  unitName?: string | null;
+  amountCents?: number | null;
+  currency?: string | null;
+  validityDays?: number | null;
+  status?: string | null;
+  sortOrder?: number | null;
+  metadata?: JsonRecord | null;
+}
+
 export interface PackagePurchaseOrderListResponse {
   total: number;
   items: PackagePurchaseOrder[];
@@ -881,12 +996,17 @@ export interface VendorGovernanceProviderItem {
   cooldownKeyCount: number;
   exhaustedKeyCount: number;
   errorKeyCount: number;
+  uncheckedKeyCount: number;
+  staleKeyCheckCount: number;
+  failedKeyCheckCount: number;
   modelCount: number;
   activeModelCount: number;
   abilityCount: number;
   activeAbilityCount: number;
   succeededCalls: number;
   failedCalls: number;
+  queuedCalls: number;
+  runningCalls: number;
   avgLatencyMs?: number | null;
   lastSeenAt?: string | null;
   requiresGlobalEgress: boolean;
@@ -924,6 +1044,24 @@ export interface VendorModel {
   inputSchema?: JsonRecord | null;
   costPolicy?: JsonRecord | null;
   metadata?: JsonRecord;
+  latestAcceptance?: JsonRecord | null;
+  acceptanceRecords?: JsonRecord[];
+  auditRecords?: JsonRecord[];
+  releaseGate?: {
+    status?: string;
+    label?: string;
+    canRelease?: boolean;
+    acceptancePassed?: boolean;
+    runtimeKeyConfigured?: boolean;
+    egressVerified?: boolean;
+    blockers?: string[];
+    warnings?: string[];
+    suggestions?: string[];
+    primaryIssue?: string | null;
+    primaryActionLabel?: string | null;
+    primaryAction?: string | null;
+    primarySeverity?: string | null;
+  } | null;
   createdAt?: string | null;
   updatedAt?: string | null;
 }
@@ -940,6 +1078,39 @@ export interface VendorModelSyncResponse {
   created: number;
   updated: number;
   skipped: number;
+}
+
+export type VendorModelBulkActionType = 'enable' | 'disable' | 'record_acceptance' | 'apply_cost_policy';
+
+export interface VendorModelBulkActionRequest {
+  modelIds: number[];
+  action: VendorModelBulkActionType;
+  note?: string | null;
+  acceptance?: {
+    status?: string;
+    note?: string | null;
+    evidenceRunId?: string | null;
+    evidenceUrl?: string | null;
+    checklist?: JsonRecord | null;
+    metadata?: JsonRecord;
+  };
+  costPolicy?: JsonRecord | null;
+  status?: string | null;
+}
+
+export interface VendorModelBulkActionItem {
+  modelId: number;
+  success: boolean;
+  error?: string | null;
+  model?: VendorModel | null;
+}
+
+export interface VendorModelBulkActionResponse {
+  action: VendorModelBulkActionType;
+  total: number;
+  updated: number;
+  failed: number;
+  items: VendorModelBulkActionItem[];
 }
 
 export type VendorModelFormState = Partial<VendorModel> & {
@@ -1059,11 +1230,45 @@ export interface BusinessCapability {
   vendorModelId?: number | null;
   vendorModelName?: string | null;
   vendorModelProvider?: string | null;
+  governanceStatus?: string | null;
+  governanceIssues?: string[];
+  governanceSuggestions?: string[];
+  runtimeKeyConfigured?: boolean | null;
+  modelCostConfigured?: boolean | null;
+  egressVerified?: boolean | null;
   recipeSteps?: BusinessRecipeStep[];
+  latestAcceptance?: BusinessAcceptanceRecord | null;
+  acceptanceRecords?: BusinessAcceptanceRecord[];
+  releaseGate?: BusinessReleaseGate | null;
   latestRun?: BusinessCapabilityLatestRun | null;
   runMetrics?: BusinessCapabilityRunMetrics | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface BusinessReleaseGate {
+  status?: string | null;
+  label?: string | null;
+  canRelease?: boolean | null;
+  canRequestDefault?: boolean | null;
+  acceptancePassed?: boolean | null;
+  blockers?: string[];
+  warnings?: string[];
+  suggestions?: string[];
+}
+
+export interface BusinessAcceptanceRecord {
+  id?: string | null;
+  status?: string | null;
+  note?: string | null;
+  evidenceRunId?: string | null;
+  evidenceUrl?: string | null;
+  checklist?: JsonRecord | null;
+  metadata?: JsonRecord | null;
+  actorUserId?: string | null;
+  actorUsername?: string | null;
+  actorRole?: string | null;
+  createdAt?: string | null;
 }
 
 export interface BusinessCapabilityLatestRun {
@@ -1236,6 +1441,17 @@ export interface BusinessRun {
   callbackError?: string | null;
   debugUrl?: string | null;
   routeInfo?: JsonRecord | null;
+  issueCategory?: string | null;
+  issueLabel?: string | null;
+  issueSeverity?: string | null;
+  issueAction?: string | null;
+  issueEvidence?: string | null;
+  retestSourceRunId?: string | null;
+  retestLatestRunId?: string | null;
+  retestLatestStatus?: string | null;
+  retestAttempts?: number | null;
+  retestRecovered?: boolean | null;
+  retestSummary?: JsonRecord | null;
   flowSummary?: BusinessRunFlowSummary | null;
   steps?: BusinessRunStep[];
   createdAt: string;
@@ -1257,6 +1473,11 @@ export interface BusinessRunFlowSummary {
   currentStepLabel?: string | null;
   currentStepStatus?: string | null;
   currentStepError?: string | null;
+  issueCategory?: string | null;
+  issueLabel?: string | null;
+  issueSeverity?: string | null;
+  issueAction?: string | null;
+  issueEvidence?: string | null;
   message?: string | null;
   nextAction?: string | null;
   route?: JsonRecord | null;
@@ -1311,6 +1532,55 @@ export interface BusinessRunListResponse {
   items: BusinessRun[];
 }
 
+export interface BusinessRunBulkActionItem {
+  runId: string;
+  newRunId?: string | null;
+  ok: boolean;
+  status: string;
+  message?: string | null;
+}
+
+export interface BusinessRunBulkActionResponse {
+  action: string;
+  total: number;
+  succeeded: number;
+  failed: number;
+  items: BusinessRunBulkActionItem[];
+}
+
+export interface BusinessRunIssueChecklistItem {
+  runId: string;
+  businessKey?: string | null;
+  version?: string | null;
+  status: string;
+  issueCategory: string;
+  issueLabel: string;
+  issueSeverity: string;
+  issueAction?: string | null;
+  issueEvidence?: string | null;
+  recommendedActions: string[];
+  diagnostics: string[];
+  abilityId?: string | null;
+  abilityName?: string | null;
+  executorId?: string | null;
+  executorName?: string | null;
+  callbackStatus?: string | null;
+  retestLatestRunId?: string | null;
+  retestLatestStatus?: string | null;
+  createdAt?: string | null;
+}
+
+export interface BusinessRunIssueChecklistResponse {
+  generatedAt: string;
+  total: number;
+  issueCount: number;
+  skippedCount: number;
+  byCategory: Record<string, number>;
+  bySeverity: Record<string, number>;
+  markdown: string;
+  items: BusinessRunIssueChecklistItem[];
+}
+
 export interface BusinessOperationLog {
   id: string;
   action: string;
@@ -1358,6 +1628,35 @@ export interface BusinessUsageBucket {
   latestAt?: string | null;
 }
 
+export interface BusinessIssueBucket extends BusinessUsageBucket {
+  severity?: string | null;
+  action?: string | null;
+}
+
+export interface BusinessUnresolvedIssueBucket extends BusinessIssueBucket {
+  retested?: number;
+  retestAttempts?: number;
+}
+
+export interface BusinessUnresolvedIssue {
+  id: string;
+  runId: string;
+  businessKey: string;
+  version?: string | null;
+  status: string;
+  source: string;
+  tenantId?: string | null;
+  clientId?: string | null;
+  traceId?: string | null;
+  issueCategory: string;
+  issueLabel: string;
+  issueAction?: string | null;
+  retestAttempts?: number;
+  retestLatestRunId?: string | null;
+  retestLatestStatus?: string | null;
+  createdAt: string;
+}
+
 export interface BusinessUsageFailure {
   id: string;
   runId: string;
@@ -1401,6 +1700,9 @@ export interface BusinessUsageSummaryResponse {
   byTenant: BusinessUsageBucket[];
   byClient: BusinessUsageBucket[];
   byVersion: BusinessUsageBucket[];
+  byIssue: BusinessIssueBucket[];
+  unresolvedIssues?: BusinessUnresolvedIssueBucket[];
+  recentUnresolvedIssues?: BusinessUnresolvedIssue[];
   recentFailures: BusinessUsageFailure[];
 }
 
@@ -1498,6 +1800,20 @@ export interface ComfyuiQueueStatus {
   feedCode?: string | null;
   feedDiagnosisLevel?: string | null;
   feedDiagnosis?: string | null;
+  routeEvidence?: {
+    recentTotal?: number | null;
+    recentQueued?: number | null;
+    recentRunning?: number | null;
+    recentSucceeded?: number | null;
+    recentFailed?: number | null;
+    recentCancelled?: number | null;
+    recentOther?: number | null;
+    latestTaskId?: string | null;
+    latestStatus?: string | null;
+    latestTaskAt?: string | null;
+  } | null;
+  routeDiagnosisLevel?: string | null;
+  routeDiagnosis?: string | null;
   supported?: boolean;
   message?: string | null;
   raw?: JsonRecord | null;
@@ -1529,9 +1845,79 @@ export interface ComfyuiQueueSummary {
   underUsedServers?: number | null;
   feedGapServers?: number | null;
   backendBlockedServers?: number | null;
+  routeEvidenceWindowHours?: number | null;
+  routeEvidenceTotal?: number | null;
+  routeEvidenceCoveredServers?: number | null;
+  recentRouteMissingServers?: number | null;
   diagnostics?: Array<{ level: string; code: string; message: string }>;
   timestamp?: string | null;
   servers: ComfyuiQueueStatus[];
+}
+
+export interface ComfyuiWorkflowCompatibilityDiagnostic {
+  level: string;
+  code: string;
+  message: string;
+}
+
+export interface ComfyuiWorkflowMissingNode {
+  nodeId: string;
+  classType: string;
+}
+
+export interface ComfyuiWorkflowMissingModel {
+  nodeId: string;
+  classType: string;
+  inputName: string;
+  value: string;
+}
+
+export interface ComfyuiWorkflowCompatibilityServer {
+  executorId: string;
+  compatible: boolean;
+  reachable: boolean;
+  missingNodes: ComfyuiWorkflowMissingNode[];
+  missingModels: ComfyuiWorkflowMissingModel[];
+  message?: string | null;
+}
+
+export interface ComfyuiWorkflowCompatibilityItem {
+  abilityId: string;
+  displayName: string;
+  capabilityKey: string;
+  workflowKey: string;
+  workflowId?: string | null;
+  action?: string | null;
+  allowedExecutorIds: string[];
+  bindingExecutorIds: string[];
+  expectedExecutorIds: string[];
+  compatibleExecutorIds: string[];
+  incompatibleExecutorIds: string[];
+  requiredNodeKeys: string[];
+  requiredNodeCount: number;
+  status: 'ok' | 'warning' | 'failed' | string;
+  diagnostics: ComfyuiWorkflowCompatibilityDiagnostic[];
+  servers: ComfyuiWorkflowCompatibilityServer[];
+}
+
+export interface ComfyuiWorkflowCompatibilityExecutor {
+  executorId: string;
+  executorName?: string | null;
+  baseUrl?: string | null;
+  status?: string | null;
+  reachable: boolean;
+  nodeCount?: number | null;
+  message?: string | null;
+}
+
+export interface ComfyuiWorkflowCompatibility {
+  checkedAt: string;
+  totalWorkflows: number;
+  okCount: number;
+  warningCount: number;
+  failedCount: number;
+  servers: ComfyuiWorkflowCompatibilityExecutor[];
+  workflows: ComfyuiWorkflowCompatibilityItem[];
 }
 
 export interface ComfyuiLora {
@@ -1952,6 +2338,8 @@ export interface ExecutorHealth {
 
 export interface DashboardStrategySummary {
   window_hours: number;
+  north_star: DashboardStrategyIndicator;
+  indicators: DashboardStrategyIndicator[];
   business_total: number;
   business_succeeded: number;
   business_failed: number;
@@ -1967,6 +2355,16 @@ export interface DashboardStrategySummary {
   cost_by_currency: Record<string, number>;
   quota_units: number;
   risk_count: number;
+}
+
+export interface DashboardStrategyIndicator {
+  key: string;
+  title: string;
+  value: string;
+  target: string;
+  status: 'healthy' | 'warning' | 'critical' | string;
+  detail: string;
+  action: string;
 }
 
 export interface StrategySnapshotResponse {

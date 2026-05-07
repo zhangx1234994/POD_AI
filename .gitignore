@@ -20,6 +20,10 @@ podi-admin-web/node_modules/
 podi-admin-web/dist/
 podi-eval-web/node_modules/
 podi-eval-web/dist/
+
+# Historical local client copies; current repo no longer develops these paths.
+podi-client-v2/
+podi-client-web/
 tmp/
 .trae/
 docs/CREDENTIALS.local.md
@@ -28,6 +32,12 @@ docs/CREDENTIALS.local.md
 reports/
 backend/reports/
 backend/runtime/
+.playwright-cli/
+.playwright-mcp/
+.tmp-*/
+admin-*.png
+eval-*.png
+stitch-api-key-section.txt
 
 # Local test reports / one-off scripts
 backend/coze_workflow_*.json

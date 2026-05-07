@@ -345,10 +345,105 @@ def test_record_expense_and_idempotent_by_trace_id() -> None:
     assert ledger["items"][0]["traceId"] == "trace_exp_001"
 
 
+def test_record_expense_requires_trace_or_task_and_uses_task_as_fallback_idempotency() -> None:
+    missing_key_resp = client.post(
+        "/api/wallet/v1/expenses",
+        json={"userId": "u_expense_no_key", "points": 20},
+    )
+    assert missing_key_resp.status_code == 400
+    assert missing_key_resp.json().get("detail") == "WALLET_TRACE_ID_REQUIRED"
+
+    first_resp = client.post(
+        "/api/wallet/v1/expenses",
+        json={"userId": "u_expense_task_key", "points": 20, "taskId": "task_exp_fallback"},
+    )
+    assert first_resp.status_code == 200
+    first = first_resp.json()
+    assert first["traceId"] == "task:task_exp_fallback"
+    assert first["idempotent"] is False
+
+    retry_resp = client.post(
+        "/api/wallet/v1/expenses",
+        json={"userId": "u_expense_task_key", "points": 20, "taskId": "task_exp_fallback"},
+    )
+    assert retry_resp.status_code == 200
+    retry = retry_resp.json()
+    assert retry["idempotent"] is True
+    assert retry["balance"] == first["balance"]
+
+
+def test_wallet_adjustment_records_audited_idempotent_refund() -> None:
+    decrease_resp = client.post(
+        "/api/wallet/v1/adjustments",
+        json={
+            "userId": "u_adjust",
+            "direction": "decrease",
+            "points": 30,
+            "traceId": "adjust_decrease_001",
+            "description": "manual correction",
+        },
+    )
+    assert decrease_resp.status_code == 200
+    assert decrease_resp.json()["balance"] == 470
+
+    refund_resp = client.post(
+        "/api/wallet/v1/adjustments",
+        json={
+            "userId": "u_adjust",
+            "direction": "refund",
+            "points": 30,
+            "taskId": "task_adjust_001",
+            "traceId": "adjust_refund_001",
+            "provider": "business",
+            "modelKey": "fission-v1",
+            "description": "refund duplicate business charge",
+        },
+    )
+    assert refund_resp.status_code == 200
+    refund = refund_resp.json()
+    assert refund["direction"] == "increase"
+    assert refund["balance"] == 500
+    assert refund["idempotent"] is False
+
+    duplicate_refund_resp = client.post(
+        "/api/wallet/v1/adjustments",
+        json={
+            "userId": "u_adjust",
+            "direction": "refund",
+            "points": 30,
+            "traceId": "adjust_refund_001",
+        },
+    )
+    assert duplicate_refund_resp.status_code == 200
+    duplicate_refund = duplicate_refund_resp.json()
+    assert duplicate_refund["idempotent"] is True
+    assert duplicate_refund["balance"] == 500
+
+    ledger_resp = client.get("/api/wallet/v1/ledger", params={"userId": "u_adjust"})
+    assert ledger_resp.status_code == 200
+    assert ledger_resp.json()["total"] == 2
+
+
+def test_wallet_adjustment_errors() -> None:
+    invalid_direction = client.post(
+        "/api/wallet/v1/adjustments",
+        json={"userId": "u_adjust_error", "direction": "noop", "points": 10, "traceId": "adjust_error_001"},
+    )
+    assert invalid_direction.status_code == 400
+    assert invalid_direction.json().get("detail") == "WALLET_ADJUSTMENT_DIRECTION_INVALID"
+
+    missing_key = client.post(
+        "/api/wallet/v1/adjustments",
+        json={"userId": "u_adjust_error", "direction": "refund", "points": 10},
+    )
+    assert missing_key.status_code == 400
+    assert missing_key.json().get("detail") == "WALLET_TRACE_ID_REQUIRED"
+
+
 def test_record_expense_insufficient() -> None:
     resp = client.post(
         "/api/wallet/v1/expenses",
-        json={"userId": "u_expense_insufficient", "points": 9999},
+        json={"userId": "u_expense_insufficient", "points": 9999, "traceId": "trace_insufficient_001"},
     )
     assert resp.status_code == 402
     assert resp.json().get("detail") == "WALLET_INSUFFICIENT"

@@ -8,6 +8,7 @@ import type {
   VendorKey,
   VendorKeyFormState,
   VendorModel,
+  VendorModelBulkActionType,
   VendorModelFormState,
   VendorProvider,
   VendorUsageSummaryItem,
@@ -309,7 +310,7 @@ export const useVendorModelActions = ({
       setVendorKeyForm(defaultVendorKeyForm);
       await loadVendorCatalog();
     } catch (error) {
-      setVendorError(extractErrorMessage(error) || '保存 vendor key 失败');
+      setVendorError(extractErrorMessage(error) || '保存第三方密钥失败');
     }
   }, [
     extractErrorMessage,
@@ -319,7 +320,138 @@ export const useVendorModelActions = ({
     vendorKeyForm,
   ]);
 
+  const handleVendorKeyCheck = useCallback(
+    async (keyId: string) => {
+      if (!keyId) return;
+      setVendorError('');
+      setVendorNotice('');
+      setVendorLoading(true);
+      try {
+        const result = await adminApi.checkVendorKey(keyId, { check: 'models', includeAuth: true });
+        await loadVendorCatalog();
+        if (result.success) {
+          setVendorNotice(`密钥验证通过：${result.provider} 可访问，耗时 ${result.latencyMs ?? '—'}ms。`);
+        } else {
+          setVendorError(result.message || result.errorCode || '密钥验证未通过，请检查密钥、余额或网络出口。');
+        }
+      } catch (error) {
+        setVendorError(extractErrorMessage(error) || '密钥验证失败，请检查密钥、余额或网络出口。');
+      } finally {
+        setVendorLoading(false);
+      }
+    },
+    [extractErrorMessage, loadVendorCatalog, setVendorError, setVendorLoading, setVendorNotice],
+  );
+
+  const handleVendorModelAcceptance = useCallback(
+    async (model: VendorModel) => {
+      if (!model.id) return;
+      const note =
+        window.prompt(
+          `记录“${model.displayName || model.model}”验收通过。可填写测试说明、样例任务或回填结果：`,
+          '能力测试已跑通，结果回填正常，可进入业务小流量。',
+        ) || '';
+      setVendorError('');
+      setVendorNotice('');
+      setVendorLoading(true);
+      try {
+        await adminApi.recordVendorModelAcceptance(Number(model.id), {
+          status: 'passed',
+          note: note.trim() || '能力测试已跑通，结果回填正常。',
+          metadata: { source: 'admin-model-catalog' },
+        });
+        await loadVendorCatalog();
+        setVendorNotice(`已记录模型验收通过：${model.displayName || model.model}`);
+      } catch (error) {
+        setVendorError(extractErrorMessage(error) || '记录模型验收失败');
+      } finally {
+        setVendorLoading(false);
+      }
+    },
+    [extractErrorMessage, loadVendorCatalog, setVendorError, setVendorLoading, setVendorNotice],
+  );
+
+  const handleVendorModelBulkAction = useCallback(
+    async (action: VendorModelBulkActionType, targetModels: VendorModel[]) => {
+      const modelIds = Array.from(
+        new Set(
+          targetModels
+            .map((item) => Number(item.id || 0))
+            .filter((item) => Number.isFinite(item) && item > 0),
+        ),
+      );
+      if (!modelIds.length) {
+        setVendorError('没有可批量处理的模型');
+        return;
+      }
+      const actionLabels: Record<VendorModelBulkActionType, string> = {
+        enable: '批量启用',
+        disable: '批量停用',
+        record_acceptance: '批量记录验收',
+        apply_cost_policy: '批量应用计价',
+      };
+      let note = `${actionLabels[action]}：${modelIds.length} 个模型`;
+      let costPolicy: JsonRecord | undefined;
+      if (action === 'record_acceptance') {
+        const raw = window.prompt(
+          `准备为 ${modelIds.length} 个模型记录“验收通过”。请填写说明：`,
+          '能力测试已跑通，结果回填正常，可进入业务小流量。',
+        );
+        if (raw === null) return;
+        note = raw.trim() || note;
+      } else if (action === 'apply_cost_policy') {
+        const parsed = safeParseJSON(vendorModelForm.costPolicyText);
+        if (!parsed.ok || Object.keys(parsed.value).length === 0) {
+          setVendorModelFormError('请先在模型表单的“计价策略”里填写可复用的计价 JSON');
+          return;
+        }
+        costPolicy = parsed.value;
+        if (!window.confirm(`确认把当前表单里的计价策略应用到 ${modelIds.length} 个模型？`)) return;
+      } else if (!window.confirm(`确认${actionLabels[action]} ${modelIds.length} 个模型？`)) {
+        return;
+      }
+      setVendorError('');
+      setVendorNotice('');
+      setVendorLoading(true);
+      try {
+        const result = await adminApi.bulkActionVendorModels({
+          modelIds,
+          action,
+          note,
+          costPolicy,
+          acceptance:
+            action === 'record_acceptance'
+              ? {
+                  status: 'passed',
+                  note,
+                  metadata: { source: 'admin-model-catalog-bulk' },
+                }
+              : undefined,
+        });
+        await loadVendorCatalog();
+        const failedText = result.failed ? `，失败 ${result.failed} 个` : '';
+        setVendorNotice(`${actionLabels[action]}完成：成功 ${result.updated} 个${failedText}`);
+      } catch (error) {
+        setVendorError(extractErrorMessage(error) || `${actionLabels[action]}失败`);
+      } finally {
+        setVendorLoading(false);
+      }
+    },
+    [
+      extractErrorMessage,
+      loadVendorCatalog,
+      setVendorError,
+      setVendorLoading,
+      setVendorModelFormError,
+      setVendorNotice,
+      vendorModelForm.costPolicyText,
+    ],
+  );
+
   return {
+    handleVendorKeyCheck,
+    handleVendorModelBulkAction,
+    handleVendorModelAcceptance,
     handleSyncVolcengineModels,
     handleVendorEgressCheck,
     handleVendorKeySubmit,

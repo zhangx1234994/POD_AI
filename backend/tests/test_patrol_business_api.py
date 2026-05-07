@@ -124,7 +124,148 @@ def test_live_poll_signature_stays_compatible() -> None:
 
     assert item["ok"] is True
     assert item["businessKey"] == "fission"
+    assert item["runId"] == "run-1"
     assert called["run_id"] == "run-1"
+
+
+def test_extract_selected_capability_id_from_run_evidence() -> None:
+    module = _load_module()
+
+    assert (
+        module._extract_selected_capability_id(
+            {"routeInfo": {"selectedCapabilityId": "biz_fission_v2"}}
+        )
+        == "biz_fission_v2"
+    )
+    assert (
+        module._extract_selected_capability_id(
+            {"flowSummary": {"route": {"selectedCapabilityId": "biz_outpaint_v1"}}}
+        )
+        == "biz_outpaint_v1"
+    )
+    assert module._extract_selected_capability_id({"status": "succeeded"}) == ""
+
+
+def test_record_acceptance_for_result_uses_admin_endpoint() -> None:
+    module = _load_module()
+    called: dict[str, object] = {}
+
+    class FakeResponse:
+        status_code = 200
+        text = "{}"
+
+        def json(self):
+            return {"id": "biz_fission_v2", "latestAcceptance": {"status": "passed"}}
+
+    class FakeClient:
+        def post(self, path: str, json: dict[str, object]):
+            called["path"] = path
+            called["payload"] = json
+            return FakeResponse()
+
+    result = module._record_acceptance_for_result(
+        FakeClient(),
+        {
+            "businessKey": "fission",
+            "label": "图裂变",
+            "mode": "live",
+            "ok": True,
+            "detail": "runId=run-1 status=succeeded outputs=1 executor=4090",
+            "runId": "run-1",
+            "response": {
+                "status": "succeeded",
+                "imageUrls": ["https://example.com/out.png"],
+                "flowSummary": {
+                    "route": {"selectedCapabilityId": "biz_fission_v2"},
+                    "executor": {"name": "4090"},
+                    "callback": {"status": "skipped"},
+                },
+            },
+        },
+        note="巡检通过",
+        evidence_url="https://example.com/report",
+        require_executor_evidence=True,
+    )
+
+    assert result["ok"] is True
+    assert result["capabilityId"] == "biz_fission_v2"
+    assert called["path"] == "/api/admin/business/capabilities/biz_fission_v2/acceptance-records"
+    payload = called["payload"]
+    assert payload["status"] == "passed"
+    assert payload["note"] == "巡检通过"
+    assert payload["evidenceRunId"] == "run-1"
+    assert payload["evidenceUrl"] == "https://example.com/report"
+    assert payload["checklist"]["businessFlow"] is True
+    assert payload["checklist"]["executorEvidence"] is True
+    assert payload["metadata"]["source"] == "patrol_business_api"
+
+
+def test_build_summary_and_record_release_patrol() -> None:
+    module = _load_module()
+    called: dict[str, object] = {}
+    specs = module._select_specs("fission")
+    summary = module._build_summary(
+        ok=True,
+        mode="live",
+        base_url="http://127.0.0.1:8099",
+        specs=specs,
+        results=[
+            {
+                "businessKey": "fission",
+                "label": "图裂变",
+                "mode": "live",
+                "ok": True,
+                "detail": "runId=run-1 status=succeeded outputs=1",
+                "runId": "run-1",
+            }
+        ],
+        acceptance_results=[],
+        tag="t1",
+    )
+
+    class FakeResponse:
+        status_code = 200
+        text = "{}"
+
+        def json(self):
+            return {"id": "patrol_1", "status": "passed"}
+
+    class FakeClient:
+        def post(self, path: str, json: dict[str, object]):
+            called["path"] = path
+            called["payload"] = json
+            return FakeResponse()
+
+    result = module._record_release_patrol(
+        FakeClient(),
+        summary=summary,
+        status="passed",
+        report_path="reports/business_patrol.json",
+        command=module._redacted_command(["patrol_business_api.py", "--token", "secret-token", "--mode", "live"]),
+        note="巡检通过",
+    )
+
+    assert summary["total"] == 1
+    assert summary["failedOrUnfinished"] == 0
+    assert result["ok"] is True
+    assert called["path"] == "/api/admin/dashboard/release-patrol/records"
+    payload = called["payload"]
+    assert payload["status"] == "passed"
+    assert payload["reportPath"] == "reports/business_patrol.json"
+    assert payload["summary"]["businessKeys"] == ["fission"]
+    assert "secret-token" not in payload["command"]
+    assert "--token ***" in payload["command"]
+
+
+def test_write_patrol_report(tmp_path: Path) -> None:
+    module = _load_module()
+    report_path = tmp_path / "reports" / "business_patrol.json"
+
+    written = module._write_report({"ok": True, "results": []}, str(report_path))
+
+    assert written == str(report_path)
+    assert report_path.exists()
+    assert '"ok": true' in report_path.read_text(encoding="utf-8")
 
 
 def test_image_url_precheck_rejects_http_errors(monkeypatch) -> None:

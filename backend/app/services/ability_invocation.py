@@ -41,6 +41,12 @@ from app.services.vendor_media import persist_vendor_media_payload
 from app.services.workflow_seed import ensure_default_bindings, ensure_default_workflows
 
 VENDOR_API_PROVIDERS = {"baidu", "volcengine", "kie", "openai", "openai_compatible"}
+ERR_CODE_COMFYUI_QUEUE_FULL = "Q1001"
+
+
+def _format_invocation_error(code: str, message: str) -> str:
+    safe_message = str(message or "").replace("|", "/").strip() or "UNKNOWN_ERROR"
+    return f"ERR|{code}|{safe_message}"
 
 
 @dataclass
@@ -174,6 +180,18 @@ class AbilityInvocationService:
             )
             if not executor_id and not fallback_to_default:
                 raise HTTPException(status_code=400, detail="COMFYUI_EXECUTOR_NOT_MATCHED")
+        if not executor_id and provider_key == "comfyui":
+            active_comfyui_ids = self._list_active_comfyui_executor_ids()
+            if not active_comfyui_ids:
+                raise HTTPException(status_code=400, detail="ABILITY_EXECUTOR_NOT_CONFIGURED")
+            queue_limit = max(1, int(get_settings().comfyui_queue_batch_size or 10))
+            raise HTTPException(
+                status_code=429,
+                detail=_format_invocation_error(
+                    ERR_CODE_COMFYUI_QUEUE_FULL,
+                    f"COMFYUI_QUEUE_FULL(limit={queue_limit}); 请稍后重试",
+                ),
+            )
         if not executor_id and provider_key not in {"coze", "podi", "vl"}:
             if provider_key == "comfyui" and not fallback_to_default:
                 raise HTTPException(status_code=400, detail="COMFYUI_EXECUTOR_NOT_MATCHED")
@@ -741,7 +759,10 @@ class AbilityInvocationService:
                 self._rr_cursors[rr_key] = idx
                 return alive_without_queue[idx]
         preferred = [item for item in stats if item[0] < target]
-        pool = preferred or stats
+        if not preferred:
+            self._logger.info("All ComfyUI executors reached queue target=%s: %s", target, stats)
+            return None
+        pool = preferred
         min_key = min((item[0], item[1], item[2]) for item in pool)
         tied_ids = sorted(
             item[3]

@@ -58,6 +58,17 @@ export const businessRunCallbackStatusOptions = [
   { value: 'none', label: '未配置回调' },
 ];
 
+export const businessRunIssueCategoryOptions = [
+  { value: 'all', label: '全部问题' },
+  { value: 'executor', label: '执行节点问题' },
+  { value: 'output', label: '结果回填问题' },
+  { value: 'callback', label: '业务回调问题' },
+  { value: 'billing', label: '计费扣减问题' },
+  { value: 'parameter', label: '参数问题' },
+  { value: 'version', label: '版本/路由问题' },
+  { value: 'none', label: '暂无明显问题' },
+];
+
 export const businessUsageWindowOptions = [
   { value: 1, label: '近 1 小时' },
   { value: 24, label: '近 24 小时' },
