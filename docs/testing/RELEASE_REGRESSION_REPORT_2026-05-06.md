@@ -15,7 +15,6 @@
 未覆盖范围：
 
 - 线上 Coze 工作流真实提交。
-- 线上三大业务真实出图。
 - 线上 ComfyUI 双机容量压测。
 - KIE 余额恢复后的真实商业模型回归。
 - 管理端整体视觉重设计。
@@ -120,6 +119,11 @@
 | 阶段性候选版本测评端构建（2026-05-07） | `cd podi-eval-web && npm run build` | 通过，生产构建无 Vite 大包体警告 |
 | 阶段性候选版本管理端核心页面走查（2026-05-07） | 本地浏览器逐页打开总览、业务能力、API 开放、模型弹药库、能力目录、能力调用、ComfyUI 服务器、ComfyUI 任务、账号权限、账单 | 通过，关键主判断模块均可见；分页面复查控制台 warning/error 为 0 |
 | 阶段性候选版本测评端核心页面走查（2026-05-07） | 本地浏览器打开测评端图裂变首页，并进入高质量新版工作台 | 通过，功能卡片、发布时间、输入/输出、结果与排障、历史复盘汇总均可见；控制台 warning/error 为 0 |
+| 114 更新与基础 smoke（2026-05-07） | 发布 `55799885` 到 114；`curl` 检查 `8099/8199/8200` | 通过，`/health`、管理端、测评端均返回 200，两个前端均为 build 产物，无 `@vite/client` 或 `/src/main` |
+| 114 三主业务真实巡检（2026-05-07） | `scripts/patrol_business_api.py --mode live --business all --require-executor-evidence --record-acceptance --record-release-patrol` | 通过，花纹提取、图裂变、扩图均成功并有输出；已写入三主业务验收记录和发版巡检记录 |
+| 114 发布 smoke（2026-05-07） | `scripts/podi_release_smoke.py --base-url http://127.0.0.1:8099 --max-billing-issues 100 --json` | 通过，核心业务路由、ComfyUI 队列、14 个 ComfyUI 工作流兼容、业务默认版本门禁、评测目录、账号边界均通过；账单历史 `billingIssues=37` 暂按后阶段账单框架风险放行 |
+| 114 Coze 容器到中台 smoke（2026-05-07） | `bash scripts/smoke_coze_container_backend.sh` | 通过，脚本自动使用 Docker 网关 `http://172.19.0.1:8099`，Coze 容器可读取 OpenAPI，`tasks/get` 返回 `404 TASK_NOT_FOUND` |
+| 业务 API 外部身份外键修复专项（2026-05-07） | `backend/.venv/bin/python -m pytest backend/tests/test_business_capability_admin.py backend/tests/test_business_api_contract.py backend/tests/test_podi_release_smoke.py -q` | 通过：85 passed，修复服务令牌/Coze 调用把外部 `clientId/userId` 写入平台用户外键导致业务提交 500 的问题 |
 | 临时产物复查（2026-05-07） | `find . -maxdepth 3 (...)` | 已清理管理端 `dist`、pytest 缓存、Python `__pycache__` 和 Playwright 临时日志；复查无输出 |
 | 格式空白检查复跑（2026-05-07 晚些时候） | `git diff --check` | 通过 |
 | 文档入口口径清理（2026-05-07） | 检查并更新 `docs/plans/README.md` | 通过，旧客户端方案不再标为“现行骨架”，当前有效计划与历史方案已分开 |
