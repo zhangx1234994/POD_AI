@@ -2920,28 +2920,12 @@ class BusinessRunService:
         payload: BusinessRunCreateRequest,
         trace_context: dict[str, Any],
     ) -> str | None:
-        metadata = payload.metadata if isinstance(payload.metadata, dict) else {}
-        inputs = payload.inputs if isinstance(payload.inputs, dict) else {}
-        explicit = self._first_string(
-            getattr(payload, "userId", None),
-            metadata.get("userId"),
-            metadata.get("user_id"),
-            metadata.get("accountId"),
-            metadata.get("account_id"),
-            inputs.get("userId"),
-            inputs.get("user_id"),
-            inputs.get("accountId"),
-            inputs.get("account_id"),
-        )
-        if explicit:
-            return self._short_text(explicit, 64)
         user_id = self._safe_user_id(user)
         if user_id:
             return self._short_text(user_id, 64)
-        # Coze/业务方调用通常没有平台用户，先按 client/tenant 建立计费归属。
-        client_id = self._short_text(trace_context.get("clientId"), 64)
-        tenant_id = self._short_text(trace_context.get("tenantId"), 64)
-        return client_id or tenant_id
+        # business_runs.user_id is a foreign key to platform users. External
+        # business identifiers stay in tenant_id/client_id/metadata instead.
+        return None
 
     def _resolve_business_user_name(self, *, user: User | None, payload: BusinessRunCreateRequest) -> str | None:
         metadata = payload.metadata if isinstance(payload.metadata, dict) else {}

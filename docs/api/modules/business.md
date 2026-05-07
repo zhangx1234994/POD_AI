@@ -47,6 +47,7 @@
 - `traceId`：跨系统排查 ID，建议业务方生成并传入。
 - `requestId`：业务方请求 ID，后续用于幂等和日志关联。
 - `tenantId/clientId`：租户和客户端标识，用于灰度、配额、统计和隔离。
+- `userId`：业务方自己的用户标识，只作为外部上下文和排查字段保留；不会直接写入平台用户外键，也不会替代平台登录用户。
 - `callbackUrl`：可选。配置后任务终态会回调业务方；即使回调失败，业务方仍可用 `runId` 查询结果。
 
 状态约定：
@@ -1285,7 +1286,7 @@ OpenAPI 内每个工具都会枚举错误响应：
 处理规则：
 
 - 仅允许已终态且 `billingStatus=billable` 的任务扣费。
-- 缺少 `userId` 时拒绝扣费，避免无法归属到账户。
+- 缺少平台用户 `userId` 时拒绝扣费，避免无法归属到账户；业务方外部 `userId` 不等同于平台钱包账户。
 - 有可用套餐时优先按 `quotaUnits` 扣套餐，幂等键为 `business_run_package:{runId}`。
 - 无可用套餐时再按 `costAmount + currency` 换算钱包点数；`USD` 按 `WALLET_POINTS_PER_USD` 换算；缺少成本时可退到 `quotaUnits`，幂等键为 `business_run:{runId}`。
 - 结果写回 `costBreakdown.billingSettlement`；套餐路径同时写 `packageSettlement`，钱包路径同时写 `walletSettlement`。

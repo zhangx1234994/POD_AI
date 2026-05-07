@@ -938,6 +938,59 @@ def test_business_run_records_trace_and_cost_from_ability_log(monkeypatch) -> No
     assert primary_step["quota_units"] == 12
 
 
+def test_external_business_identity_does_not_write_platform_user_fk() -> None:
+    service = BusinessRunService()
+    payload = BusinessRunCreateRequest(
+        imageUrl="https://example.com/input.png",
+        tenantId="tenant-a",
+        clientId="client-a",
+        userId="external-user-1",
+        metadata={"user_id": "external-user-2"},
+        inputs={"account_id": "external-user-3"},
+    )
+    service_user = User(
+        id="service",
+        email="service@podi.internal",
+        username="service",
+        password_hash="",
+        role="admin",
+        status="active",
+    )
+    platform_user = User(
+        id="platform-user-1",
+        email="client@example.com",
+        username="client",
+        password_hash="",
+        role="client",
+        status="active",
+    )
+
+    assert (
+        service._resolve_business_user_id(
+            user=service_user,
+            payload=payload,
+            trace_context={"tenantId": "tenant-a", "clientId": "client-a"},
+        )
+        is None
+    )
+    assert (
+        service._resolve_business_user_id(
+            user=None,
+            payload=payload,
+            trace_context={"tenantId": "tenant-a", "clientId": "client-a"},
+        )
+        is None
+    )
+    assert (
+        service._resolve_business_user_id(
+            user=platform_user,
+            payload=payload,
+            trace_context={"tenantId": "tenant-a", "clientId": "client-a"},
+        )
+        == "platform-user-1"
+    )
+
+
 def test_business_run_derives_cost_from_vendor_model_policy(monkeypatch) -> None:
     vendor_model_id = install_business_db(monkeypatch)
 

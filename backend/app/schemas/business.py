@@ -268,7 +268,7 @@ class BusinessRunCreateRequest(BaseModel):
     requestId: str | None = Field(default=None, description="业务方请求 ID，用于幂等和日志关联")
     tenantId: str | None = Field(default=None, description="租户/业务方 ID")
     clientId: str | None = Field(default=None, description="客户端/应用 ID")
-    userId: str | None = Field(default=None, description="业务用户 ID / 计费归属 ID；为空时按登录用户、clientId、tenantId 依次兜底")
+    userId: str | None = Field(default=None, description="业务方用户 ID；仅作为外部上下文保留，不直接写入平台用户外键")
     userName: str | None = Field(default=None, description="业务用户展示名，用于管理端排查")
     callbackUrl: str | None = Field(default=None, description="业务任务终态回调地址")
     callbackHeaders: dict[str, str] | None = Field(default=None, description="业务任务回调请求头")
