@@ -6,7 +6,6 @@ set -euo pipefail
 # coze-server container -> PODI backend toolbox -> task polling endpoint.
 
 COZE_CONTAINER="${COZE_CONTAINER:-coze-server}"
-BACKEND_URL="${BACKEND_URL:-http://114.55.0.56:8099}"
 TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-8}"
 EXPECT_EXTERNAL_BLOCKED="${EXPECT_EXTERNAL_BLOCKED:-0}"
 
@@ -24,6 +23,18 @@ pass() {
 
 command -v docker >/dev/null 2>&1 || fail "docker is not installed on this host"
 docker inspect "$COZE_CONTAINER" >/dev/null 2>&1 || fail "container not found: $COZE_CONTAINER"
+
+if [[ -z "${BACKEND_URL:-}" ]]; then
+  gateway="$(
+    docker inspect -f '{{range .NetworkSettings.Networks}}{{if .Gateway}}{{.Gateway}}{{end}}{{end}}' "$COZE_CONTAINER" \
+      | awk '{print $1}'
+  )"
+  if [[ -n "$gateway" ]]; then
+    BACKEND_URL="http://${gateway}:8099"
+  else
+    BACKEND_URL="${PODI_INTERNAL_BASE_URL:-http://127.0.0.1:8099}"
+  fi
+fi
 
 openapi_status="$(
   docker exec "$COZE_CONTAINER" curl -sS --max-time "$TIMEOUT_SECONDS" \
