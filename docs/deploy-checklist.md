@@ -43,13 +43,40 @@ bash scripts/deploy_preflight.sh
 - 管理端 `/api/admin/workflows` 不是 502（允许 401）
 - 评测 `/api/evals/workflow-versions` 返回 200 或 404
 
-## 4) 常见失败定位
+## 4) 手工补丁包打包
+
+如果需要从本地临时打补丁到 114，不再直接使用系统 `tar`。统一使用下面脚本，避免 macOS 扩展属性、`.DS_Store` 和服务器时间差造成的解包警告：
+
+```bash
+python3 scripts/package_release_archive.py \
+  --output /tmp/pod_patch_<commit>.tgz \
+  backend/app/services/example.py \
+  docs/strategy/todo-master-2026q2.md
+```
+
+前端静态产物需要只打包 `dist` 目录内容时：
+
+```bash
+npm run build
+python3 ../scripts/package_release_archive.py \
+  --root dist \
+  --output /tmp/podi_eval_dist_<commit>.tgz \
+  .
+```
+
+服务器解包仍使用：
+
+```bash
+tar --no-same-owner -xzf /tmp/pod_patch_<commit>.tgz -C /srv/pod
+```
+
+## 5) 常见失败定位
 
 - 502：**管理端反代未指向后端**（Nginx 配置错误）
 - 401：token 失效（登录即可）
 - 404：评测端公开接口未开启（`EVAL_PUBLIC_ENABLED` 关闭）
 
-## 5) 最终确认
+## 6) 最终确认
 
 - [ ] 管理端能登录
 - [ ] 能力列表可加载
