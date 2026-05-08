@@ -171,8 +171,8 @@ if [[ "$CHECK_ALEMBIC" == "1" ]]; then
     fi
 
     alembic_cmd=()
-    if [[ -x backend/.venv/bin/alembic ]]; then
-      alembic_cmd=(backend/.venv/bin/alembic)
+    if [[ -x "$ROOT/backend/.venv/bin/alembic" ]]; then
+      alembic_cmd=("$ROOT/backend/.venv/bin/alembic")
     else
       alembic_cmd=("$python_bin" -m alembic)
     fi
