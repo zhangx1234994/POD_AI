@@ -18,6 +18,10 @@ BUSINESS_LIVE_INTERVAL="${BUSINESS_LIVE_INTERVAL:-10}"
 EVAL_ROLE="${EVAL_ROLE:-production}"
 EVAL_MAX_IN_FLIGHT="${EVAL_MAX_IN_FLIGHT:-1}"
 EVAL_TIMEOUT="${EVAL_TIMEOUT:-1800}"
+REPORT_DIR="${REPORT_DIR:-$TARGET_ROOT/reports/health-watch}"
+RUN_TAG="${RUN_TAG:-$(date -u +%Y%m%dT%H%M%SZ)}"
+RECORD_LIVE_PATROL="${RECORD_LIVE_PATROL:-1}"
+RECORD_LIVE_ACCEPTANCE="${RECORD_LIVE_ACCEPTANCE:-0}"
 
 if [[ ! -d "$TARGET_ROOT" ]]; then
   echo "TARGET_ROOT does not exist: $TARGET_ROOT" >&2
@@ -38,6 +42,8 @@ if [[ -f "$TARGET_ROOT/backend/.env" ]]; then
   set +a
 fi
 
+mkdir -p "$REPORT_DIR"
+
 run_step() {
   local label="$1"
   shift
@@ -45,11 +51,19 @@ run_step() {
   "$@"
 }
 
+make_report_path() {
+  local name="$1"
+  echo "$REPORT_DIR/${name}_${RUN_TAG}.json"
+}
+
 run_release_smoke() {
+  local report
+  report="$(make_report_path release_smoke)"
   local args=(
     "$PYTHON_BIN" backend/scripts/podi_release_smoke.py
     --base-url "$BACKEND_URL"
     --max-production-per-category "$MAX_PRODUCTION_PER_CATEGORY"
+    --report "$report"
   )
   if [[ -n "$EXPECT_SERVER_URL" ]]; then
     args+=(--expect-server-url "$EXPECT_SERVER_URL")
@@ -62,7 +76,8 @@ run_business_route() {
     "$PYTHON_BIN" backend/scripts/patrol_business_api.py \
       --base-url "$BACKEND_URL" \
       --mode route \
-      --business "$BUSINESS_KEYS"
+      --business "$BUSINESS_KEYS" \
+      --report "$(make_report_path business_route)"
 }
 
 run_queue_visibility() {
@@ -78,7 +93,8 @@ run_eval_health_recent() {
   "$PYTHON_BIN" backend/scripts/check_eval_operations_health.py \
     --recent-hours "$RECENT_HOURS" \
     --stale-minutes "$STALE_MINUTES" \
-    --submit-grace-minutes "$SUBMIT_GRACE_MINUTES"
+    --submit-grace-minutes "$SUBMIT_GRACE_MINUTES" \
+    --report "$(make_report_path eval_health)"
   local status=$?
   set -e
   if [[ "$status" == "2" ]]; then
@@ -90,7 +106,9 @@ run_eval_health_recent() {
 }
 
 run_business_live() {
-  run_step "business API live patrol" \
+  local report
+  report="$(make_report_path business_live)"
+  local args=(
     "$PYTHON_BIN" backend/scripts/patrol_business_api.py \
       --base-url "$BACKEND_URL" \
       --mode live \
@@ -98,7 +116,16 @@ run_business_live() {
       --image-url "$PATROL_IMAGE_URL" \
       --timeout "$BUSINESS_LIVE_TIMEOUT" \
       --interval "$BUSINESS_LIVE_INTERVAL" \
-      --require-executor-evidence
+      --require-executor-evidence \
+      --report "$report"
+  )
+  if [[ "$RECORD_LIVE_PATROL" == "1" ]]; then
+    args+=(--record-release-patrol --release-patrol-note "定时真实巡检：三主业务链路")
+  fi
+  if [[ "$RECORD_LIVE_ACCEPTANCE" == "1" ]]; then
+    args+=(--record-acceptance)
+  fi
+  run_step "business API live patrol" "${args[@]}"
 }
 
 run_eval_production_patrol() {
@@ -107,7 +134,8 @@ run_eval_production_patrol() {
       --base-url "$BACKEND_URL" \
       --role "$EVAL_ROLE" \
       --max-in-flight "$EVAL_MAX_IN_FLIGHT" \
-      --timeout "$EVAL_TIMEOUT"
+      --timeout "$EVAL_TIMEOUT" \
+      --report "$(make_report_path eval_production)"
 }
 
 case "$MODE" in
@@ -127,4 +155,4 @@ case "$MODE" in
     ;;
 esac
 
-echo "PODI health watch completed: mode=$MODE"
+echo "PODI health watch completed: mode=$MODE reports=$REPORT_DIR tag=$RUN_TAG"

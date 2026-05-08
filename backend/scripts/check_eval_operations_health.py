@@ -61,6 +61,13 @@ def _print_text(report: dict) -> None:
         print(f"近期失败错误分布：{report['errorCounts']}")
 
 
+def _write_report(report: dict, report_path: str) -> str:
+    path = Path(report_path).expanduser()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(report, ensure_ascii=False, default=str, indent=2), encoding="utf-8")
+    return str(path)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Check eval operational health.")
     parser.add_argument("--stale-minutes", type=int, default=30, help="queued/running over this age is stale.")
@@ -68,6 +75,7 @@ def main() -> int:
     parser.add_argument("--recent-hours", type=int, default=24, help="recent failure/output window.")
     parser.add_argument("--limit", type=int, default=20, help="max rows per issue group.")
     parser.add_argument("--json", action="store_true", help="print JSON.")
+    parser.add_argument("--report", default="", help="Optional JSON report path.")
     args = parser.parse_args()
 
     try:
@@ -84,6 +92,11 @@ def main() -> int:
             limit=args.limit,
             comfyui_queue_summary=comfyui_queue_summary,
         )
+
+    if args.report:
+        report_path = _write_report(report, args.report)
+        if not args.json:
+            print(f"report: {report_path}")
 
     if args.json:
         print(json.dumps(report, ensure_ascii=False, default=str, indent=2))

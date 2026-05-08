@@ -32,6 +32,22 @@ type AbilityTemplateSummary = {
   latestLabel: string | null;
 };
 
+type AbilityVendorRisk = {
+  theme: 'success' | 'warning' | 'danger' | 'default';
+  text: string;
+  detail: string;
+};
+
+type AbilityReadinessItem = {
+  ability: Ability;
+  action: string;
+  issues: string[];
+  outputLabel: string;
+  readiness: 'ready' | 'blocked' | 'attention';
+  readinessText: string;
+  theme: 'success' | 'warning' | 'danger';
+};
+
 const renderStatusTag = (status?: string | null) => {
   const meta = mapStatusToBadge(status);
   return (
@@ -133,6 +149,92 @@ const buildAbilityActionItems = ({
     });
   }
   return items.slice(0, 6);
+};
+
+const buildAbilityReadiness = ({
+  abilities,
+  healthItems,
+  templateSummaryByAbility,
+  pricingByAbility,
+  getAbilitySchemaIssues,
+  describePricing,
+  resolveVendorRiskForAbility,
+}: {
+  abilities: Ability[];
+  healthItems: AbilityHealthSummaryItem[];
+  templateSummaryByAbility: Record<string, AbilityTemplateSummary>;
+  pricingByAbility: Record<string, AbilityPricing>;
+  getAbilitySchemaIssues: (ability: Ability | null) => string[];
+  describePricing: (pricing: AbilityPricing | null) => string;
+  resolveVendorRiskForAbility: (ability: Ability) => AbilityVendorRisk;
+}) => {
+  const healthByAbility = new Map(healthItems.map((item) => [item.abilityId, item]));
+
+  const items: AbilityReadinessItem[] = abilities.map((ability) => {
+    const issues: string[] = [];
+    const health = healthByAbility.get(ability.id);
+    const templateSummary = templateSummaryByAbility[ability.id];
+    const pricing = pricingByAbility[ability.id] || pricingByAbility[`${ability.provider}:${ability.capability_key}`] || null;
+    const schemaIssues = getAbilitySchemaIssues(ability);
+    const outputProfile = resolveAbilityOutputProfile(ability);
+    const vendorRisk = resolveVendorRiskForAbility(ability);
+
+    if (ability.status !== 'active') issues.push('未启用');
+    if (health?.healthStatus === 'failed') issues.push('最近测试失败');
+    if (health?.healthStatus === 'degraded') issues.push('成功率下降');
+    if (health?.needsTest) issues.push('需要复测');
+    if (health?.stale) issues.push('测试过期');
+    if (schemaIssues.length > 0) issues.push('表单说明不完整');
+    if (!templateSummary?.currentId) issues.push('模板未发布');
+    if (describePricing(pricing) === '—') issues.push('缺成本口径');
+    if (vendorRisk.theme === 'warning' || vendorRisk.theme === 'danger') issues.push(vendorRisk.text);
+
+    let action = '可进入业务版本配置';
+    if (issues.includes('最近测试失败')) action = '先复测或修运行线路';
+    else if (issues.includes('成功率下降') || issues.includes('需要复测') || issues.includes('测试过期')) action = '先补一次能力复测';
+    else if (issues.includes('表单说明不完整')) action = '先补字段说明和默认值';
+    else if (issues.includes('模板未发布')) action = '先发布能力模板';
+    else if (issues.includes('缺成本口径')) action = '先补成本和计价口径';
+    else if (vendorRisk.theme === 'warning' || vendorRisk.theme === 'danger') action = '先到模型弹药库处理';
+    else if (issues.includes('未启用')) action = '确认是否启用或归档';
+
+    const readiness = issues.length === 0 ? 'ready' : issues.some((issue) => ['最近测试失败', '未启用'].includes(issue)) ? 'blocked' : 'attention';
+    return {
+      ability,
+      action,
+      issues,
+      outputLabel: outputProfile.label,
+      readiness,
+      readinessText: readiness === 'ready' ? '可接业务' : readiness === 'blocked' ? '暂不能接' : '需处理',
+      theme: readiness === 'ready' ? 'success' : readiness === 'blocked' ? 'danger' : 'warning',
+    };
+  });
+
+  const readyCount = items.filter((item) => item.readiness === 'ready').length;
+  const blockedCount = items.filter((item) => item.readiness === 'blocked').length;
+  const attentionCount = items.filter((item) => item.readiness === 'attention').length;
+  const noEvidenceCount = items.filter((item) => item.issues.includes('需要复测') || item.issues.includes('测试过期')).length;
+  const contractIssueCount = items.filter(
+    (item) => item.issues.includes('表单说明不完整') || item.issues.includes('模板未发布') || item.issues.includes('缺成本口径'),
+  ).length;
+
+  return {
+    items,
+    priorityItems: items
+      .filter((item) => item.readiness !== 'ready')
+      .sort((a, b) => {
+        const weight = { blocked: 0, attention: 1, ready: 2 };
+        return weight[a.readiness] - weight[b.readiness] || b.issues.length - a.issues.length;
+      })
+      .slice(0, 8),
+    summary: {
+      readyCount,
+      blockedCount,
+      attentionCount,
+      noEvidenceCount,
+      contractIssueCount,
+    },
+  };
 };
 
 export function AbilityCatalogPanel({
@@ -247,6 +349,15 @@ export function AbilityCatalogPanel({
     }
     return { theme: 'success' as const, text: '模型可用', detail: '模型目录和厂商状态当前没有明显阻塞。' };
   };
+  const readiness = buildAbilityReadiness({
+    abilities,
+    healthItems,
+    templateSummaryByAbility,
+    pricingByAbility,
+    getAbilitySchemaIssues,
+    describePricing,
+    resolveVendorRiskForAbility,
+  });
   const outputSummaryCounts = abilities.reduce(
     (acc, ability) => {
       const profile = resolveAbilityOutputProfile(ability);
@@ -337,6 +448,99 @@ export function AbilityCatalogPanel({
             </Col>
           ))}
         </Row>
+      </Card>
+
+      <Card bordered style={{ marginBottom: 12 }} title="能力上线总览">
+        <Typography.Text theme="secondary">
+          这里先回答“哪些能力可以接业务，哪些能力必须先处理”。底层执行器、工作流、模型编号只作为详情排障信息。
+        </Typography.Text>
+        <Row gutter={[12, 12]} style={{ marginTop: 12 }}>
+          {[
+            ['可接业务', readiness.summary.readyCount, '健康、模板、表单、成本和模型状态都没有明显阻塞', 'success'],
+            ['暂不能接', readiness.summary.blockedCount, '能力未启用或最近测试失败，不能绑定到主业务默认版本', 'danger'],
+            ['需处理', readiness.summary.attentionCount, '复测、成本、模板、表单或模型状态仍需补齐', 'warning'],
+            ['缺证据', readiness.summary.noEvidenceCount, '最近复测缺失或过期，上线前需要重新跑样例', 'warning'],
+            ['契约缺口', readiness.summary.contractIssueCount, '表单、模板、成本不完整，会影响业务方或 Coze 使用', 'warning'],
+          ].map(([label, value, detail, theme]) => (
+            <Col key={String(label)} xs={12} md={4} lg={2}>
+              <div
+                style={{
+                  border: '1px solid var(--td-border-level-1-color)',
+                  borderRadius: 12,
+                  padding: 12,
+                  height: '100%',
+                }}
+              >
+                <Space direction="vertical" size={4}>
+                  <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                    <Typography.Text theme="secondary">{label}</Typography.Text>
+                    <Tag theme={theme as 'success' | 'warning' | 'danger'} variant="light">
+                      {value}
+                    </Tag>
+                  </Space>
+                  <Typography.Text theme="secondary">{detail}</Typography.Text>
+                </Space>
+              </div>
+            </Col>
+          ))}
+        </Row>
+
+        <div style={{ marginTop: 12 }}>
+          <Table
+            size="small"
+            rowKey="id"
+            data={readiness.priorityItems.map((item) => ({ ...item, id: item.ability.id }))}
+            columns={[
+              {
+                colKey: 'ability',
+                title: '优先处理能力',
+                minWidth: 240,
+                cell: ({ row }) => (
+                  <Space direction="vertical" size={2}>
+                    <Typography.Text strong>{row.ability.display_name}</Typography.Text>
+                    <Typography.Text theme="secondary">{row.outputLabel}</Typography.Text>
+                  </Space>
+                ),
+              },
+              {
+                colKey: 'readiness',
+                title: '判断',
+                width: 120,
+                cell: ({ row }) => (
+                  <Tag theme={row.theme} variant="light">
+                    {row.readinessText}
+                  </Tag>
+                ),
+              },
+              {
+                colKey: 'issues',
+                title: '原因',
+                minWidth: 260,
+                cell: ({ row }) => (
+                  <Space size="small" breakLine>
+                    {row.issues.slice(0, 4).map((issue: string) => (
+                      <Tag key={`${row.id}-${issue}`} theme={row.theme} variant="light" size="small">
+                        {issue}
+                      </Tag>
+                    ))}
+                    {row.issues.length > 4 ? (
+                      <Tag theme="default" variant="light" size="small">
+                        +{row.issues.length - 4}
+                      </Tag>
+                    ) : null}
+                  </Space>
+                ),
+              },
+              {
+                colKey: 'action',
+                title: '下一步',
+                minWidth: 220,
+                cell: ({ row }) => <Typography.Text>{row.action}</Typography.Text>,
+              },
+            ]}
+            empty={<Typography.Text theme="secondary">当前没有需要优先处理的能力。</Typography.Text>}
+          />
+        </div>
       </Card>
 
       <Card bordered style={{ marginBottom: 12 }} title="能力和模型怎么对应">

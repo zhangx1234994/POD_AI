@@ -2,6 +2,7 @@ import { Alert, Button, Col, Input, Popup, Row, Select, Space, Switch, Table, Ta
 import type { AbilityInvocationLog } from '../../../types/admin';
 import { toDisplayErrorMessage } from '../../../utils/errorMessageMap';
 import {
+  buildAbilityLogTroubleSummary,
   resolveAbilityLogAction,
   getAbilityLogCallbackStageTag,
   getAbilityLogStatusTag,
@@ -176,6 +177,31 @@ export function AbilityLogListPanel({
   const canGoPrev = currentPage > 1;
   const canGoNext = currentPage < totalPages;
   const outputStats = buildOutputKindStats(filteredLogs);
+  const troubleSummary = buildAbilityLogTroubleSummary(filteredLogs);
+  const troubleCount = troubleSummary
+    .filter((item) => !['healthy', 'needs_evidence'].includes(item.key))
+    .reduce((sum, item) => sum + item.count, 0);
+  const primaryTrouble = troubleSummary.find((item) => item.count > 0 && item.key !== 'healthy') ?? troubleSummary.find((item) => item.key === 'healthy');
+
+  const handleTroubleFilter = (key: string) => {
+    if (key === 'execution_failed') {
+      onStatusChange('failed');
+      return;
+    }
+    if (key === 'callback_failed') {
+      onOnlyCallbackFailedChange(true);
+      return;
+    }
+    if (key === 'active') {
+      const activeStatus = ['queued', 'pending', 'running', 'processing', 'in_progress', 'created'].find((item) => statuses.includes(item));
+      if (activeStatus) onStatusChange(activeStatus);
+      return;
+    }
+    if (key === 'healthy') {
+      const successStatus = ['success', 'succeeded', 'completed', 'done', 'ok'].find((item) => statuses.includes(item));
+      if (successStatus) onStatusChange(successStatus);
+    }
+  };
 
   return (
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
@@ -270,6 +296,63 @@ export function AbilityLogListPanel({
           />
         </Col>
       </Row>
+
+      <div className="podi-trouble-summary-card">
+        <Space direction="vertical" size={10} style={{ width: '100%' }}>
+          <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+            <div>
+              <Typography.Text strong>能力调用排障总览</Typography.Text>
+              <div>
+                <Typography.Text theme="secondary">
+                  当前页先按问题优先级聚类，线上回归时先处理红色，再看黄色；详情用于复制追踪编号和原始响应。
+                </Typography.Text>
+              </div>
+            </div>
+            <Space>
+              <Tag theme={troubleCount > 0 ? 'warning' : 'success'} variant="light">
+                待处理 {troubleCount} 条
+              </Tag>
+              {primaryTrouble ? (
+                <Tag theme={primaryTrouble.theme} variant="light">
+                  当前重点：{primaryTrouble.title}
+                </Tag>
+              ) : null}
+            </Space>
+          </Space>
+          <div className="podi-trouble-summary-grid">
+            {troubleSummary.map((item) => {
+              const canFilter = ['execution_failed', 'callback_failed', 'active', 'healthy'].includes(item.key);
+              return (
+                <div key={item.key} className={`podi-trouble-summary-item podi-trouble-summary-item--${item.theme}`}>
+                  <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                    <Space align="center" style={{ justifyContent: 'space-between', width: '100%', gap: 8 }}>
+                      <Tag theme={item.theme} variant="light" size="small">
+                        {item.title}
+                      </Tag>
+                      <Typography.Title level="h3" style={{ margin: 0 }}>
+                        {item.count}
+                      </Typography.Title>
+                    </Space>
+                    <Typography.Text theme="secondary">{item.detail}</Typography.Text>
+                    <Typography.Text style={{ fontSize: 12 }}>{item.action}</Typography.Text>
+                    {canFilter && item.count > 0 ? (
+                      <Button size="small" variant="text" onClick={() => handleTroubleFilter(item.key)}>
+                        {item.key === 'execution_failed'
+                          ? '只看失败'
+                          : item.key === 'callback_failed'
+                            ? '只看回调异常'
+                            : item.key === 'active'
+                              ? '只看排队/执行'
+                              : '只看已回填'}
+                      </Button>
+                    ) : null}
+                  </Space>
+                </div>
+              );
+            })}
+          </div>
+        </Space>
+      </div>
 
       <div className="podi-output-summary-card">
         <Space direction="vertical" size={8} style={{ width: '100%' }}>

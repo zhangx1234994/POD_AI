@@ -289,7 +289,50 @@ def test_admin_billing_commercial_report_summarizes_orders_cost_and_risks(monkey
     csv_text = commercial_report_to_csv(report)
     assert "商业化报表" in csv_text
     assert "已确认收入,CNY 199.00" in csv_text
-    assert "fission,2,2,1,0,1,2,0,USD 0.1200" in csv_text
+    assert "fission,2,2,1,0,0,1,2,0,USD 0.1200" in csv_text
+
+
+def test_admin_billing_commercial_report_excludes_internal_patrol_from_billing_risk(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    testing_session = install_admin_billing_db(monkeypatch)
+    service = AdminBillingService()
+    with testing_session() as session:
+        now = datetime.utcnow()
+        session.add(
+            BusinessRun(
+                id="run_bill_internal_patrol",
+                business_key="fission",
+                version="v1",
+                status="succeeded",
+                source="business-api-patrol",
+                channel="release-smoke",
+                tenant_id="podi-internal-patrol",
+                client_id="business-api-patrol",
+                cost_amount=0.12,
+                currency="USD",
+                quota_units=1,
+                request_payload={
+                    "metadata": {"patrol": True},
+                    "_trace": {
+                        "source": "business-api-patrol",
+                        "tenantId": "podi-internal-patrol",
+                        "clientId": "business-api-patrol",
+                    },
+                },
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.commit()
+
+    report = service.commercial_report(month=datetime.utcnow().strftime("%Y-%m"), business_key="fission")
+
+    assert report["runCount"] == 2
+    assert report["billableRunCount"] == 1
+    assert report["noChargeRunCount"] == 1
+    assert report["billingIssueCount"] == 1
+    assert [item["runId"] for item in report["riskItems"]] == ["run_bill_unsettled"]
 
 
 def test_admin_billing_read_endpoints_degrade_when_tables_are_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:

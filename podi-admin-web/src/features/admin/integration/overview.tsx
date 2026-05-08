@@ -1087,6 +1087,18 @@ export function OverviewPanel({
               刷新总览
             </Button>
           </Space>
+          <Alert
+            theme={
+              releaseReadinessTheme === 'danger'
+                ? 'error'
+                : releaseReadinessTheme === 'warning'
+                  ? 'warning'
+                  : releaseReadinessTheme === 'success'
+                    ? 'success'
+                    : 'info'
+            }
+            message={`当前结论：${releaseReadinessTitle}。${releaseReadinessMessage}`}
+          />
           <div className="podi-executive-pillar-grid">
             {executivePillars.map((item) => (
               <Card key={item.key} bordered size="small" className={`podi-executive-pillar podi-executive-pillar--${item.theme}`}>

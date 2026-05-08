@@ -429,7 +429,7 @@ class AdminBillingService:
             elif billing_status == "billable" and settlement_status == "failed":
                 issue_type, issue_label = "billing_failed", "计费扣减失败"
             elif billing_status == "no_charge" and settlement_status == "settled":
-                issue_type, issue_label = "failed_run_charged", "失败任务已计费"
+                issue_type, issue_label = "no_charge_run_charged", "免计费任务已计费"
             elif billing_status == "unpriced":
                 issue_type, issue_label = "unpriced", "成功任务缺少定价"
             if not issue_type:
@@ -677,6 +677,7 @@ class AdminBillingService:
             "chargedRunCount": 0,
             "packageChargedRunCount": 0,
             "walletChargedRunCount": 0,
+            "noChargeRunCount": 0,
             "unpricedRunCount": 0,
             "billingIssueCount": 0,
             "quotaUnits": 0,
@@ -760,6 +761,7 @@ class AdminBillingService:
             "chargedRunCount": 0,
             "packageChargedRunCount": 0,
             "walletChargedRunCount": 0,
+            "noChargeRunCount": 0,
             "unpricedRunCount": 0,
             "billingIssueCount": 0,
             "quotaUnits": 0,
@@ -775,6 +777,7 @@ class AdminBillingService:
                     "succeededRunCount": 0,
                     "billableRunCount": 0,
                     "chargedRunCount": 0,
+                    "noChargeRunCount": 0,
                     "unpricedRunCount": 0,
                     "billingIssueCount": 0,
                     "quotaUnits": 0,
@@ -791,6 +794,7 @@ class AdminBillingService:
             method = str((settlement or {}).get("method") or "")
             is_success = run.status == "succeeded"
             is_billable = billing_status == "billable"
+            is_no_charge = billing_status == "no_charge"
             has_issue = (
                 billing_status == "unpriced"
                 or (is_billable and not settlement)
@@ -806,6 +810,7 @@ class AdminBillingService:
                 target["succeededRunCount"] += 1 if is_success else 0
                 target["billableRunCount"] += 1 if is_billable else 0
                 target["chargedRunCount"] += 1 if settlement_status == "settled" else 0
+                target["noChargeRunCount"] += 1 if is_no_charge else 0
                 target["unpricedRunCount"] += 1 if billing_status == "unpriced" else 0
                 target["billingIssueCount"] += 1 if has_issue else 0
                 target["quotaUnits"] += quota_units if is_billable else 0
@@ -880,6 +885,7 @@ class AdminBillingService:
             "chargedRunCount": totals["chargedRunCount"],
             "packageChargedRunCount": totals["packageChargedRunCount"],
             "walletChargedRunCount": totals["walletChargedRunCount"],
+            "noChargeRunCount": totals["noChargeRunCount"],
             "unpricedRunCount": totals["unpricedRunCount"],
             "billingIssueCount": totals["billingIssueCount"],
             "quotaUnits": totals["quotaUnits"],

@@ -12,6 +12,7 @@ import argparse
 import json
 import os
 from collections import Counter
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -94,6 +95,13 @@ def _result(name: str, ok: bool, detail: str) -> dict[str, Any]:
     marker = "PASS" if ok else "FAIL"
     print(f"[{marker}] {name}: {detail}")
     return {"name": name, "ok": ok, "detail": detail}
+
+
+def _write_report(summary: dict[str, Any], report_path: str) -> str:
+    path = Path(report_path).expanduser()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(summary, ensure_ascii=False, default=str, indent=2), encoding="utf-8")
+    return str(path)
 
 
 def _get_json(client: httpx.Client, path: str) -> tuple[int, Any]:
@@ -867,6 +875,7 @@ def main() -> int:
         help="Maximum succeeded but unpriced business runs allowed in the commercial report.",
     )
     parser.add_argument("--json", action="store_true", help="Print machine-readable summary at the end.")
+    parser.add_argument("--report", default="", help="Optional JSON report path.")
     args = parser.parse_args()
 
     base_url = args.base_url.rstrip("/")
@@ -971,6 +980,10 @@ def main() -> int:
 
     ok = all(item.get("ok") for item in checks)
     summary = {"baseUrl": base_url, "ok": ok, "checks": checks}
+    if args.report:
+        report_path = _write_report(summary, args.report)
+        if not args.json:
+            print(f"report: {report_path}")
     if args.json:
         print(json.dumps(summary, ensure_ascii=False, indent=2))
     return 0 if ok else 2

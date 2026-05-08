@@ -75,6 +75,7 @@
   "runCount": 20,
   "billableRunCount": 18,
   "chargedRunCount": 16,
+  "noChargeRunCount": 1,
   "unpricedRunCount": 1,
   "billingIssueCount": 2,
   "costByCurrency": [{ "currency": "USD", "amount": 1.24 }],
@@ -85,12 +86,19 @@
       "businessKey": "fission",
       "runCount": 12,
       "chargedRunCount": 10,
+      "noChargeRunCount": 1,
       "billingIssueCount": 1
     }
   ],
   "riskItems": []
 }
 ```
+
+计费口径：
+
+- `billableRunCount` 只统计真实应收费任务；成功但标记为内部巡检、免计费或测试来源的任务进入 `noChargeRunCount`。
+- `billingIssueCount` 只统计需要运营处理的问题：成功任务未扣费、扣费失败、免计费任务被误扣费、成功任务缺少定价。
+- 内部巡检的典型标识为 `source=business-api-patrol`、`tenantId=podi-internal-patrol`、`metadata.patrol=true`，这些任务可记录成本和输出，但不阻断收费门禁。
 
 错误：
 

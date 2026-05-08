@@ -24,6 +24,12 @@ export const BusinessCapabilityEditorDialog = lazy(() =>
 export const BusinessActionPanel = lazy(() =>
   import('./business').then((mod) => ({ default: mod.BusinessActionPanel })),
 );
+export const BusinessWorkPathPanel = lazy(() =>
+  import('./business').then((mod) => ({ default: mod.BusinessWorkPathPanel })),
+);
+export const BusinessCoreDecisionPanel = lazy(() =>
+  import('./business').then((mod) => ({ default: mod.BusinessCoreDecisionPanel })),
+);
 export const BusinessReleaseGuardPanel = lazy(() =>
   import('./business').then((mod) => ({ default: mod.BusinessReleaseGuardPanel })),
 );

@@ -991,6 +991,56 @@ def test_external_business_identity_does_not_write_platform_user_fk() -> None:
     )
 
 
+def test_internal_patrol_run_is_no_charge_even_when_costed(monkeypatch) -> None:
+    install_business_db(monkeypatch)
+    service = BusinessRunService()
+    now = datetime.utcnow()
+
+    with business_runs_module.get_session() as session:
+        session.add(
+            BusinessRun(
+                id="run_internal_patrol_costed",
+                business_key="fission",
+                business_version_id="biz_fission_old",
+                version="old",
+                status="succeeded",
+                source="business-api-patrol",
+                channel="release-smoke",
+                tenant_id="podi-internal-patrol",
+                client_id="business-api-patrol",
+                ability_id="ability_openai_fission",
+                image_urls=["https://example.com/patrol.png"],
+                cost_amount=0.12,
+                currency="USD",
+                quota_units=1,
+                request_payload={
+                    "metadata": {"patrol": True},
+                    "_trace": {
+                        "source": "business-api-patrol",
+                        "tenantId": "podi-internal-patrol",
+                        "clientId": "business-api-patrol",
+                    },
+                },
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.commit()
+
+    fetched = service.get_run(run_id="run_internal_patrol_costed", user=None)
+    assert fetched["billing_status"] == "no_charge"
+    assert fetched["chargeable"] is False
+    assert fetched["no_charge_reason"] == "内部巡检任务，不进入业务收费账单"
+
+    total, items = service.list_runs(business_key="fission", billing_status="no_charge", limit=20)
+    assert total == 1
+    assert items[0]["id"] == "run_internal_patrol_costed"
+
+    total, items = service.list_runs(business_key="fission", billing_status="billable", limit=20)
+    assert total == 0
+    assert items == []
+
+
 def test_business_run_derives_cost_from_vendor_model_policy(monkeypatch) -> None:
     vendor_model_id = install_business_db(monkeypatch)
 

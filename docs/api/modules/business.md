@@ -1195,6 +1195,7 @@ OpenAPI 内每个工具都会枚举错误响应：
 - `costByCurrency/quotaUnits` 只统计 `billable` 的成功任务，用于后续正式账单。
 - `actualCostByCurrency/actualQuotaUnits` 统计底层实际返回的所有成本和用量，用于内部排查和供应商成本复盘。
 - 失败、取消、超时任务即使底层返回了成本，也会进入 `noCharge`，不进入业务方正式账单。
+- 内部巡检、免计费或测试来源的成功任务也会进入 `noCharge`。典型巡检标识为 `source=business-api-patrol`、`tenantId=podi-internal-patrol`、`metadata.patrol=true`；这类任务仍保留成本用于内部复盘，但不进入业务收费账单。
 - `unresolvedIssues/recentUnresolvedIssues` 会排除已经复测成功且有业务结果回填的原问题任务；复测任务本身不会重复计入原问题清单。
 
 常见错误：

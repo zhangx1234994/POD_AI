@@ -173,18 +173,115 @@ const isAbilityLogActive = (status?: string | null): boolean => {
   return ['running', 'processing', 'in_progress', 'queued', 'pending', 'created'].includes(normalized);
 };
 
+export const isAbilityLogCallbackFailed = (row: AbilityInvocationLog): boolean => {
+  const callbackStatus = (row.callback_status || '').trim().toLowerCase();
+  return (
+    isAbilityLogFailed(callbackStatus) ||
+    Boolean(row.callback_error) ||
+    (typeof row.callback_http_status === 'number' && row.callback_http_status >= 400)
+  );
+};
+
 const hasComfyuiPromptMarker = (row: AbilityInvocationLog): boolean => {
   const payload = getJsonRecord(row.response_payload);
   return Boolean(payload?.promptId || payload?.prompt_id || payload?.taskId || payload?.task_id);
 };
 
+export type AbilityLogTroubleKind =
+  | 'execution_failed'
+  | 'callback_failed'
+  | 'success_without_output'
+  | 'active'
+  | 'healthy'
+  | 'needs_evidence';
+
+export type AbilityLogTroubleSummaryItem = {
+  key: AbilityLogTroubleKind;
+  title: string;
+  count: number;
+  theme: 'success' | 'warning' | 'danger' | 'default';
+  detail: string;
+  action: string;
+};
+
+const abilityLogTroubleMeta: Record<
+  AbilityLogTroubleKind,
+  Omit<AbilityLogTroubleSummaryItem, 'key' | 'count'>
+> = {
+  execution_failed: {
+    title: '执行失败',
+    theme: 'danger',
+    detail: '提交、厂商、节点或参数已经失败。',
+    action: '先看错误摘要，再按原参数复测或切换节点。',
+  },
+  callback_failed: {
+    title: '回调失败',
+    theme: 'danger',
+    detail: '结果已产生或进入回调阶段，但业务侧没有接住。',
+    action: '复制回调编号，确认回调地址、鉴权和重试结果。',
+  },
+  success_without_output: {
+    title: '成功无回填',
+    theme: 'warning',
+    detail: '任务状态成功，但没有解析到图片、视频、文字或结构化结果。',
+    action: '打开详情拉取结果，确认上游输出字段和 OSS 沉淀。',
+  },
+  active: {
+    title: '排队或执行中',
+    theme: 'warning',
+    detail: '任务还没进入终态，可能在队列、执行器或回调链路中。',
+    action: '超过预期时先看 ComfyUI 队列和执行节点健康。',
+  },
+  healthy: {
+    title: '已回填',
+    theme: 'success',
+    detail: '调用成功且已有可用输出。',
+    action: '可作为验收样本或线上回归证据。',
+  },
+  needs_evidence: {
+    title: '证据不足',
+    theme: 'default',
+    detail: '状态和输出证据都不完整。',
+    action: '刷新记录或打开详情查看原始请求、响应和追踪编号。',
+  },
+};
+
+export const resolveAbilityLogTroubleKind = (row: AbilityInvocationLog): AbilityLogTroubleKind => {
+  const output = resolveLogOutputSummary(row);
+  if (isAbilityLogFailed(row.status) || row.error_message) return 'execution_failed';
+  if (isAbilityLogCallbackFailed(row)) return 'callback_failed';
+  if (isAbilityLogSuccessful(row.status) && !output.hasOutput) return 'success_without_output';
+  if (isAbilityLogActive(row.status)) return 'active';
+  if (output.hasOutput) return 'healthy';
+  return 'needs_evidence';
+};
+
+export const buildAbilityLogTroubleSummary = (rows: AbilityInvocationLog[]): AbilityLogTroubleSummaryItem[] => {
+  const counts = rows.reduce(
+    (acc, row) => {
+      const kind = resolveAbilityLogTroubleKind(row);
+      acc[kind] += 1;
+      return acc;
+    },
+    {
+      execution_failed: 0,
+      callback_failed: 0,
+      success_without_output: 0,
+      active: 0,
+      healthy: 0,
+      needs_evidence: 0,
+    } as Record<AbilityLogTroubleKind, number>,
+  );
+  return (Object.keys(abilityLogTroubleMeta) as AbilityLogTroubleKind[]).map((key) => ({
+    key,
+    count: counts[key],
+    ...abilityLogTroubleMeta[key],
+  }));
+};
+
 export const resolveAbilityLogAction = (row: AbilityInvocationLog) => {
   const output = resolveLogOutputSummary(row);
-  const callbackStatus = (row.callback_status || '').trim().toLowerCase();
-  const callbackFailed =
-    isAbilityLogFailed(callbackStatus) ||
-    Boolean(row.callback_error) ||
-    (typeof row.callback_http_status === 'number' && row.callback_http_status >= 400);
+  const callbackFailed = isAbilityLogCallbackFailed(row);
 
   if (isAbilityLogFailed(row.status) || row.error_message) {
     return {
@@ -260,10 +357,7 @@ export const getAbilityLogSubmitTag = (row: AbilityInvocationLog) => {
 export const getAbilityLogCallbackStageTag = (row: AbilityInvocationLog) => {
   const callbackConfigured = getAbilityLogCallbackConfigured(row);
   const callbackStatus = (row.callback_status || '').trim().toLowerCase();
-  const callbackFailed =
-    isAbilityLogFailed(callbackStatus) ||
-    Boolean(row.callback_error) ||
-    (typeof row.callback_http_status === 'number' && row.callback_http_status >= 400);
+  const callbackFailed = isAbilityLogCallbackFailed(row);
   const callbackFinished = Boolean(row.callback_finished_at);
   if (callbackFailed) return { theme: 'danger' as const, text: '回调失败' };
   if (isAbilityLogSuccessful(callbackStatus)) return { theme: 'success' as const, text: '回调成功' };

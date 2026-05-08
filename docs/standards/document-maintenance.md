@@ -108,7 +108,7 @@
 
 如果某个历史路径重新启用，必须先更新 `docs/README.md`、对应模块入口和 `AGENTS.md`，再把它移出历史引用白名单。
 
-入口文档的本地路径引用由 `scripts/check_doc_entry_references.py` 检查，并已接入 `scripts/release_source_preflight.sh`。新增入口文档或新增历史白名单时，必须同步更新脚本。
+入口文档的本地路径引用由 `scripts/check_doc_entry_references.py` 检查，并已接入 `scripts/release_source_preflight.sh`。检查范围覆盖总索引、平台边界、架构、业务模型、API、管理端、评测端、Coze、ComfyUI、测试、周报和历史客户端入口。新增入口文档或新增历史白名单时，必须同步更新脚本。
 
 ## 6. 命名建议
 

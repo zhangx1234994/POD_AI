@@ -963,3 +963,14 @@ def test_auth_scope_summary_check_blocks_missing_role_boundary() -> None:
 
     assert ok is False
     assert "roleBoundary missing required boundaries" in detail
+
+
+def test_release_smoke_write_report_creates_parent_directory(tmp_path) -> None:
+    module = _load_smoke_module()
+    report_path = tmp_path / "nested" / "release_smoke.json"
+
+    written = module._write_report({"ok": True, "checks": [{"name": "health", "ok": True}]}, str(report_path))
+
+    assert written == str(report_path)
+    assert report_path.exists()
+    assert '"ok": true' in report_path.read_text(encoding="utf-8")

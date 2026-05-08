@@ -322,6 +322,175 @@ export const BusinessActionPanel = ({
   );
 };
 
+export function BusinessWorkPathPanel() {
+  const paths = [
+    {
+      title: '上一个新版本',
+      tag: '发布路径',
+      theme: 'primary' as const,
+      steps: ['新增业务版本', '确认底层能力和模型已就绪', '跑真实链路并记录验收通过', '小流量灰度或申请切默认'],
+      result: '业务方仍调用同一个业务 API，中台内部切版本。',
+    },
+    {
+      title: '处理一次失败',
+      tag: '排障路径',
+      theme: 'warning' as const,
+      steps: ['先看业务复测闭环', '打开失败运行详情', '确认卡在版本、能力、执行节点、回填、回调还是计费', '复测或重试回调后再标记结论'],
+      result: '不要只看“任务失败”，要定位到闭环里的具体步骤。',
+    },
+    {
+      title: '给业务方接入',
+      tag: '接入口径',
+      theme: 'success' as const,
+      steps: ['优先给业务 API', '让对方保存 runId', '统一轮询结果或接收回调', '不要让业务方理解 Coze 工作流或 ComfyUI 节点'],
+      result: '业务方只关心传参、runId、结果和错误提示。',
+    },
+    {
+      title: '做灰度或回滚',
+      tag: '风险控制',
+      theme: 'default' as const,
+      steps: ['先看目标版本证据', '确认验收通过和最近成功样本', '确认有可回滚备选', '再执行灰度、切默认或回滚'],
+      result: '切换前必须有证据，不再靠口头确认。',
+    },
+  ];
+
+  return (
+    <Card bordered title="业务能力怎么用">
+      <Space direction="vertical" size="small" style={{ width: '100%' }}>
+        <Typography.Text theme="secondary">
+          这页不是底层配置表。先按实际工作选择路径，再进入版本、运行记录或验收操作。
+        </Typography.Text>
+        <Row gutter={[12, 12]}>
+          {paths.map((path) => (
+            <Col key={path.title} xs={12} md={6} xl={3}>
+              <Card bordered size="small" style={{ height: '100%' }}>
+                <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                  <Space align="center" style={{ justifyContent: 'space-between', width: '100%', gap: 8 }}>
+                    <Typography.Text strong>{path.title}</Typography.Text>
+                    <Tag theme={path.theme} variant="light">
+                      {path.tag}
+                    </Tag>
+                  </Space>
+                  <ol className="podi-business-workpath-list">
+                    {path.steps.map((step) => (
+                      <li key={step}>{step}</li>
+                    ))}
+                  </ol>
+                  <Typography.Text theme="secondary">{path.result}</Typography.Text>
+                </Space>
+              </Card>
+            </Col>
+          ))}
+        </Row>
+      </Space>
+    </Card>
+  );
+}
+
+export const BusinessCoreDecisionPanel = ({
+  capabilities,
+  pendingApprovals,
+  summary,
+  formatDateTime,
+}: {
+  capabilities: BusinessCapability[];
+  pendingApprovals: BusinessDefaultApproval[];
+  summary?: BusinessUsageSummaryResponse | null;
+  formatDateTime: (value?: string | null) => string;
+}) => {
+  const rows = buildCoreBusinessReleaseEvidenceRows({ capabilities, pendingApprovals, summary });
+  const dangerCount = rows.filter((row) => row.theme === 'danger').length;
+  const warningCount = rows.filter((row) => row.theme === 'warning').length;
+  const successCount = rows.filter((row) => row.theme === 'success').length;
+  const summaryTheme = dangerCount > 0 ? 'danger' : warningCount > 0 ? 'warning' : 'success';
+  const summaryText =
+    dangerCount > 0
+      ? `先处理 ${dangerCount} 条阻塞，再谈上线或放量。`
+      : warningCount > 0
+        ? `${warningCount} 条主业务还需要补证据或复核。`
+        : '三条主业务当前都具备基础闭环，可继续小流量验证。';
+
+  return (
+    <Card
+      bordered
+      className="podi-business-decision-card"
+      title={
+        <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+          <div>
+            <Typography.Text strong>三主业务当前结论</Typography.Text>
+            <div>
+              <Typography.Text theme="secondary">
+                先看这里：每条主业务只保留状态、卡点、下一步和关键证据，详细配置再往下看。
+              </Typography.Text>
+            </div>
+          </div>
+          <Tag theme={summaryTheme} variant="light">
+            {successCount}/3 可推进
+          </Tag>
+        </Space>
+      }
+    >
+      <Alert theme={summaryTheme === 'danger' ? 'error' : summaryTheme === 'warning' ? 'warning' : 'success'} message={summaryText} />
+      <div className="podi-business-decision-grid">
+        {rows.map((row) => {
+          const defaultItem = row.defaultItem;
+          const nextAction =
+            row.theme === 'danger'
+              ? row.suggestion
+              : row.theme === 'warning'
+                ? row.suggestion
+                : '保持日常巡检；上新版本前先跑真实链路并保留回滚版本。';
+          return (
+            <section key={row.businessKey} className={`podi-business-decision-item podi-business-decision-item--${row.theme}`}>
+              <div className="podi-business-decision-item__header">
+                <div>
+                  <Typography.Text strong>{businessKeyLabel(row.businessKey)}</Typography.Text>
+                  <div>
+                    <Typography.Text theme="secondary">{businessCapabilityGroupHint(row.businessKey)}</Typography.Text>
+                  </div>
+                </div>
+                <Tag theme={row.theme} variant="light">
+                  {row.status}
+                </Tag>
+              </div>
+              <div className="podi-business-decision-main">
+                <Typography.Text theme="secondary">当前默认</Typography.Text>
+                <Typography.Text>
+                  {defaultItem ? `${defaultItem.version} · ${defaultItem.displayName}` : '未设置默认版本'}
+                </Typography.Text>
+                <Typography.Text theme="secondary">
+                  发布时间：{defaultItem ? formatDateTime(defaultItem.releaseTime || defaultItem.createdAt) : '—'}
+                </Typography.Text>
+              </div>
+              <div className="podi-business-decision-problem">
+                <Typography.Text theme="secondary">当前卡点</Typography.Text>
+                <Typography.Text theme={row.theme === 'danger' ? 'error' : row.theme === 'warning' ? 'warning' : 'success'}>
+                  {row.reason}
+                </Typography.Text>
+              </div>
+              <div className="podi-business-decision-evidence">
+                <Tag theme={row.acceptancePassed ? 'success' : 'warning'} variant="light" size="small">
+                  {row.acceptancePassed ? '验收通过' : '待验收'}
+                </Tag>
+                <Tag theme={row.outputCount > 0 ? 'success' : 'warning'} variant="light" size="small">
+                  {row.outputCount > 0 ? `样本 ${row.outputCount}` : '缺样本'}
+                </Tag>
+                <Tag theme={row.rollbackReadyAlternatives.length > 0 ? 'success' : 'warning'} variant="light" size="small">
+                  {row.rollbackReadyAlternatives.length > 0 ? `可回滚 ${row.rollbackReadyAlternatives.length}` : '回滚待补'}
+                </Tag>
+                <Tag theme={Number(row.bucket?.failed || 0) > 0 ? 'warning' : 'success'} variant="light" size="small">
+                  近 {summary?.windowHours || 24}h 失败 {row.bucket?.failed || 0}
+                </Tag>
+              </div>
+              <Alert theme={row.theme === 'danger' ? 'error' : row.theme === 'warning' ? 'warning' : 'info'} message={`下一步：${nextAction}`} />
+            </section>
+          );
+        })}
+      </div>
+    </Card>
+  );
+};
+
 export const BusinessReleaseGuardPanel = ({
   capabilities,
   pendingApprovals,
@@ -3128,7 +3297,7 @@ export const BusinessCoreClosurePanel = ({
             </div>
           </div>
           <Tag theme={rows.every((row) => row.theme === 'success') ? 'success' : rows.some((row) => row.theme === 'danger') ? 'danger' : 'warning'} variant="light">
-            {rows.filter((row) => row.theme === 'success').length}/{rows.length} 闭环正常
+            {rows.filter((row) => row.theme === 'success').length}/{rows.length} 可推进
           </Tag>
         </Space>
       }

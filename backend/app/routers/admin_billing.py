@@ -52,6 +52,7 @@ def commercial_report_to_csv(report: dict[str, Any]) -> str:
     writer.writerow(["已扣费任务", report.get("chargedRunCount") or 0])
     writer.writerow(["套餐扣费任务", report.get("packageChargedRunCount") or 0])
     writer.writerow(["钱包扣费任务", report.get("walletChargedRunCount") or 0])
+    writer.writerow(["免计费任务", report.get("noChargeRunCount") or 0])
     writer.writerow(["未定价任务", report.get("unpricedRunCount") or 0])
     writer.writerow(["计费异常", report.get("billingIssueCount") or 0])
     writer.writerow(["套餐消耗", report.get("quotaUnits") or 0])
@@ -62,7 +63,7 @@ def commercial_report_to_csv(report: dict[str, Any]) -> str:
     writer.writerow(["待确认金额", _format_report_amounts(report.get("pendingPackageRevenueByCurrency"), cents=True)])
     writer.writerow(["任务成本", _format_report_amounts(report.get("costByCurrency"))])
     writer.writerow([])
-    writer.writerow(["业务", "任务数", "成功数", "可计费数", "已扣费数", "未定价数", "计费异常数", "套餐消耗", "成本"])
+    writer.writerow(["业务", "任务数", "成功数", "可计费数", "已扣费数", "免计费数", "未定价数", "计费异常数", "套餐消耗", "成本"])
     for row in report.get("businessRows") or []:
         writer.writerow(
             [
@@ -71,6 +72,7 @@ def commercial_report_to_csv(report: dict[str, Any]) -> str:
                 row.get("succeededRunCount") or 0,
                 row.get("billableRunCount") or 0,
                 row.get("chargedRunCount") or 0,
+                row.get("noChargeRunCount") or 0,
                 row.get("unpricedRunCount") or 0,
                 row.get("billingIssueCount") or 0,
                 row.get("quotaUnits") or 0,

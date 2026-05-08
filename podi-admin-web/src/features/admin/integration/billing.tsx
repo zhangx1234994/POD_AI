@@ -611,7 +611,7 @@ const CommercialReportCard = ({
             <BillingMetricCard
               label="已收费任务"
               value={report?.chargedRunCount || 0}
-              sub={`套餐 ${report?.packageChargedRunCount || 0} / 钱包 ${report?.walletChargedRunCount || 0}`}
+              sub={`免计费 ${report?.noChargeRunCount || 0}`}
             />
           </Col>
           <Col xs={12} sm={6} lg={2}>
@@ -643,7 +643,8 @@ const CommercialReportCard = ({
               colKey: 'runs',
               title: '任务 / 收费',
               width: 160,
-              cell: ({ row }) => `${row.runCount} 个任务，${row.chargedRunCount} 个已收费`,
+              cell: ({ row }) =>
+                `${row.runCount} 个任务，${row.chargedRunCount} 个已收费，${row.noChargeRunCount || 0} 个免计费`,
             },
             {
               colKey: 'cost',

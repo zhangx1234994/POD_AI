@@ -11,14 +11,24 @@ from pathlib import Path
 ENTRY_DOCS = [
     Path("AGENTS.md"),
     Path("docs/README.md"),
-    Path("docs/strategy/README.md"),
+    Path("docs/PLATFORM_SURFACES.md"),
+    Path("docs/BUSINESS_MODEL.md"),
+    Path("docs/architecture.md"),
+    Path("docs/admin/integration-dashboard.md"),
+    Path("docs/api/INDEX.md"),
     Path("docs/client/README.md"),
     Path("docs/client/DOC_STATUS.md"),
     Path("docs/client/plans/README.md"),
     Path("docs/client/tech-review-2026-04-16/README.md"),
+    Path("docs/comfyui/README.md"),
+    Path("docs/coze/toolbox-inventory.md"),
+    Path("docs/eval/eval-platform.md"),
     Path("docs/handover/README.md"),
-    Path("docs/api/INDEX.md"),
+    Path("docs/release-preflight.md"),
     Path("docs/standards/document-maintenance.md"),
+    Path("docs/strategy/README.md"),
+    Path("docs/testing/README.md"),
+    Path("docs/weekly/README.md"),
 ]
 
 HISTORICAL_MISSING = {

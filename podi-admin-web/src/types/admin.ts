@@ -463,6 +463,7 @@ export interface BillingCommercialReportBusinessRow {
   succeededRunCount: number;
   billableRunCount: number;
   chargedRunCount: number;
+  noChargeRunCount?: number;
   unpricedRunCount: number;
   billingIssueCount: number;
   quotaUnits: number;
@@ -485,6 +486,7 @@ export interface BillingCommercialReportResponse {
   chargedRunCount: number;
   packageChargedRunCount: number;
   walletChargedRunCount: number;
+  noChargeRunCount?: number;
   unpricedRunCount: number;
   billingIssueCount: number;
   quotaUnits: number;

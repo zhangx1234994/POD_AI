@@ -204,6 +204,8 @@ export const buildCoreBusinessReleaseEvidenceRows = ({
               ? '待样本'
               : callbackRisk > 0 || billingRisk > 0
                 ? '需复核'
+                : missingRollback
+                  ? activeAlternatives.length > 0 ? '备选待验收' : '缺回滚'
                 : '闭环正常';
     const reason = firstBusinessReleaseReason({
       defaultItem,

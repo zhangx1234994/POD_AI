@@ -231,6 +231,7 @@ import {
   BusinessCapabilityEditorDialog,
   BusinessCapabilityGrid,
   BusinessCoreClosurePanel,
+  BusinessCoreDecisionPanel,
   BusinessCoreEntryPanel,
   BusinessGovernancePanel,
   BusinessOrchestrationMapPanel,
@@ -238,6 +239,7 @@ import {
   BusinessReleaseGuardPanel,
   BusinessRunHistoryPanel,
   BusinessUsageSummaryPanel,
+  BusinessWorkPathPanel,
   ApiExposurePanel,
   ComfyuiAgentsPanel,
   ComfyuiAlertsPanel,
@@ -6360,6 +6362,13 @@ const extractErrorMessage = (error: unknown): string => {
                   capabilities={businessCapabilities}
                   pendingApprovals={businessDefaultApprovals}
                   summary={businessUsageSummary}
+                />
+                <BusinessWorkPathPanel />
+                <BusinessCoreDecisionPanel
+                  capabilities={businessCapabilities}
+                  pendingApprovals={businessDefaultApprovals}
+                  summary={businessUsageSummary}
+                  formatDateTime={formatDateTime}
                 />
                 <BusinessCoreClosurePanel
                   capabilities={businessCapabilities}

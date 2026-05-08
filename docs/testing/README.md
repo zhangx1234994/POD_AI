@@ -42,6 +42,7 @@
   - 发布验收时必须加 `--require-executor-evidence`，确认任务成功之外还能看到实际执行节点，避免只看终态漏掉路由问题。
 - `scripts/run_podi_health_watch.sh` / `scripts/install_business_health_watch.sh`
   - 114 业务链路定时自检入口。轻量检查每 15 分钟跑一次，不消耗生图；真实巡检每天单并发跑一次，覆盖三大业务和 production 测评工作流。
+  - 每次执行会把 JSON 报告写入 `reports/health-watch/`；真实巡检默认同步写入管理端“发版巡检记录”，便于上线证据追溯。
 - `RELEASE_REGRESSION_REPORT_2026-04-30.md`
   - 2026-04-30 文档治理与发布前完整回归记录
 - `RELEASE_REGRESSION_REPORT_2026-05-03.md`

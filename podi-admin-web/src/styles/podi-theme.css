@@ -624,6 +624,83 @@ html.t-theme-dark {
   gap: 4px;
 }
 
+.podi-business-workpath-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--td-text-color-secondary);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.podi-business-workpath-list li::marker {
+  color: var(--podi-accent);
+  font-weight: 700;
+}
+
+.podi-business-decision-card {
+  border-color: color-mix(in srgb, var(--podi-accent) 20%, var(--td-border-level-1-color));
+  background:
+    radial-gradient(circle at 95% 8%, color-mix(in srgb, var(--podi-accent-soft) 42%, transparent), transparent 30%),
+    var(--td-bg-color-container);
+}
+
+.podi-business-decision-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--podi-space-3);
+  margin-top: var(--podi-space-3);
+}
+
+.podi-business-decision-item {
+  display: flex;
+  min-height: 330px;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--td-border-level-1-color);
+  border-radius: var(--podi-radius-lg);
+  background: color-mix(in srgb, var(--td-bg-color-container) 94%, var(--podi-accent-soft));
+}
+
+.podi-business-decision-item--success {
+  border-color: color-mix(in srgb, var(--td-success-color) 28%, var(--td-border-level-1-color));
+}
+
+.podi-business-decision-item--warning,
+.podi-business-decision-item--default {
+  border-color: color-mix(in srgb, var(--td-warning-color) 34%, var(--td-border-level-1-color));
+}
+
+.podi-business-decision-item--danger {
+  border-color: color-mix(in srgb, var(--td-error-color) 38%, var(--td-border-level-1-color));
+}
+
+.podi-business-decision-item__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.podi-business-decision-main,
+.podi-business-decision-problem {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px;
+  border-radius: var(--podi-radius-md);
+  background: color-mix(in srgb, var(--td-bg-color-secondarycontainer) 72%, transparent);
+}
+
+.podi-business-decision-evidence {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .podi-ability-technical-details {
   border: 1px dashed var(--td-border-level-1-color);
   border-radius: var(--podi-radius-sm);
@@ -987,6 +1064,21 @@ html.t-theme-dark {
     var(--td-bg-color-container);
 }
 
+.podi-api-quickstart-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--podi-space-3);
+}
+
+.podi-api-quickstart-card {
+  min-height: 150px;
+  padding: 14px;
+  border: 1px solid var(--td-border-level-1-color);
+  border-radius: var(--podi-radius-lg);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--td-bg-color-container) 92%, var(--podi-accent-soft)), var(--td-bg-color-container));
+}
+
 .podi-api-guard-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1096,6 +1188,41 @@ html.t-theme-dark {
   padding: 12px;
 }
 
+.podi-trouble-summary-card {
+  border: 1px solid color-mix(in srgb, var(--td-warning-color) 22%, var(--td-border-level-1-color));
+  border-radius: var(--podi-radius-lg);
+  background:
+    radial-gradient(circle at 92% 10%, color-mix(in srgb, var(--td-warning-color) 12%, transparent), transparent 28%),
+    linear-gradient(135deg, color-mix(in srgb, var(--td-warning-color) 7%, var(--td-bg-color-container)), var(--td-bg-color-container));
+  padding: 14px;
+}
+
+.podi-trouble-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: var(--podi-space-2);
+}
+
+.podi-trouble-summary-item {
+  min-height: 138px;
+  border: 1px solid var(--td-border-level-1-color);
+  border-radius: var(--podi-radius-md);
+  background: var(--td-bg-color-container);
+  padding: 12px;
+}
+
+.podi-trouble-summary-item--success {
+  border-color: color-mix(in srgb, var(--td-success-color) 28%, var(--td-border-level-1-color));
+}
+
+.podi-trouble-summary-item--warning {
+  border-color: color-mix(in srgb, var(--td-warning-color) 32%, var(--td-border-level-1-color));
+}
+
+.podi-trouble-summary-item--danger {
+  border-color: color-mix(in srgb, var(--td-error-color) 34%, var(--td-border-level-1-color));
+}
+
 .podi-release-evidence-card {
   border-color: color-mix(in srgb, var(--podi-accent) 20%, var(--td-border-level-1-color));
   background: color-mix(in srgb, var(--podi-accent-soft) 9%, var(--td-bg-color-container));
@@ -1144,6 +1271,7 @@ html.t-theme-dark {
 
 @media (max-width: 1279px) {
   .podi-release-evidence-grid,
+  .podi-trouble-summary-grid,
   .podi-output-summary-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -1151,6 +1279,7 @@ html.t-theme-dark {
 
 @media (max-width: 767px) {
   .podi-release-evidence-grid,
+  .podi-trouble-summary-grid,
   .podi-output-summary-grid {
     grid-template-columns: repeat(1, minmax(0, 1fr));
   }
@@ -1563,7 +1692,9 @@ html.t-theme-dark {
 
   .podi-api-exposure-hero,
   .podi-api-mode-grid,
+  .podi-business-decision-grid,
   .podi-business-closure-grid,
+  .podi-api-quickstart-grid,
   .podi-api-guard-grid {
     grid-template-columns: 1fr;
   }
@@ -1606,6 +1737,10 @@ html.t-theme-dark {
   }
 
   .podi-business-closure-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .podi-business-decision-grid {
     grid-template-columns: 1fr;
   }
 

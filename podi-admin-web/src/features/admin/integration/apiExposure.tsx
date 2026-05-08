@@ -378,6 +378,43 @@ export function ApiExposurePanel({
         </div>
       </div>
 
+      <Card bordered>
+        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+          <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+            <div>
+              <Typography.Text strong>业务方最短接入路径</Typography.Text>
+              <div>
+                <Typography.Text theme="secondary">
+                  给业务方只讲这一条路径即可：提交业务任务，保存 runId，用统一查询或回调拿结果。
+                </Typography.Text>
+              </div>
+            </div>
+            <Tag theme="success" variant="light">
+              推荐默认路径
+            </Tag>
+          </Space>
+          <div className="podi-api-quickstart-grid">
+            {[
+              ['1', '选业务接口', '花纹提取、图裂变、扩图优先走 `/api/business/*/runs`，不要让业务方选模型或工作流。'],
+              ['2', '提交任务', '业务方只传图片、参数、traceId、callbackUrl；中台负责版本、路由、排队和回填。'],
+              ['3', '保存 runId', '提交成功后必须保存 runId。页面、回调失败兜底、客服排障都靠它追踪。'],
+              ['4', '查询或接回调', '统一调用 `/api/business/runs/get` 查询；有回调时也保留轮询作为兜底。'],
+              ['5', '按错误码处理', '队列满、缺参、依赖失败、超时都按错误码提示重试或联系平台，不要让业务方猜原因。'],
+            ].map(([index, title, detail]) => (
+              <div key={index} className="podi-api-quickstart-card">
+                <Space direction="vertical" size={6}>
+                  <Tag theme="primary" variant="light">
+                    {index}
+                  </Tag>
+                  <Typography.Text strong>{title}</Typography.Text>
+                  <Typography.Text theme="secondary">{detail}</Typography.Text>
+                </Space>
+              </div>
+            ))}
+          </div>
+        </Space>
+      </Card>
+
       <Card bordered className="podi-api-delivery-card">
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
           <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>

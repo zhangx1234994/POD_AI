@@ -16,7 +16,7 @@ from uuid import uuid4
 
 import httpx
 from fastapi import HTTPException
-from sqlalchemy import and_, func, or_, select, update
+from sqlalchemy import and_, func, not_, or_, select, update
 
 from app.core.config import get_settings
 from app.core.db import get_session
@@ -62,6 +62,10 @@ FINALIZE_BATCH_SIZE = 30
 VENDOR_KEY_CHECK_STALE_DAYS = 7
 RECIPE_EXECUTABLE_STEP_TYPES = {"ability_task", "comfyui_workflow", "vendor_api", "vl_analyze", "vl_analyze_image"}
 RECIPE_PASSIVE_STEP_TYPES = {"input_mapping", "output_mapping", "prompt_template", "note"}
+INTERNAL_NO_CHARGE_SOURCES = {"business-api-patrol"}
+INTERNAL_NO_CHARGE_TENANTS = {"podi-internal-patrol"}
+INTERNAL_NO_CHARGE_CLIENTS = {"business-api-patrol"}
+NO_CHARGE_BILLING_MODES = {"no_charge", "no-charge", "free", "internal", "internal_patrol", "patrol", "test"}
 
 
 class BusinessRunService:
@@ -3087,12 +3091,55 @@ class BusinessRunService:
         if status in {"failed", "cancelled", "timeout"}:
             return "no_charge"
         if status == "succeeded":
+            if BusinessRunService._business_no_charge_policy_reason(row):
+                return "no_charge"
             cost_amount = BusinessRunService._first_number(row.cost_amount)
             quota_units = BusinessRunService._first_int(row.quota_units)
             if (cost_amount is not None and cost_amount > 0) or (quota_units is not None and quota_units > 0):
                 return "billable"
             return "unpriced"
         return "billing_pending"
+
+    @staticmethod
+    def _truthy_policy_flag(value: Any) -> bool:
+        if isinstance(value, bool):
+            return value
+        text = str(value or "").strip().lower()
+        return text in {"1", "true", "yes", "y", "on"}
+
+    @staticmethod
+    def _business_no_charge_policy_reason(row: BusinessRun) -> str | None:
+        request_payload = row.request_payload if isinstance(row.request_payload, dict) else {}
+        metadata = request_payload.get("metadata") if isinstance(request_payload.get("metadata"), dict) else {}
+        inputs = request_payload.get("inputs") if isinstance(request_payload.get("inputs"), dict) else {}
+        trace = request_payload.get("_trace") if isinstance(request_payload.get("_trace"), dict) else {}
+        client = request_payload.get("_businessClient") if isinstance(request_payload.get("_businessClient"), dict) else {}
+        cost_breakdown = row.cost_breakdown if isinstance(row.cost_breakdown, dict) else {}
+
+        billing_mode = BusinessRunService._first_string(
+            metadata.get("billingMode"),
+            metadata.get("billing_mode"),
+            inputs.get("billingMode"),
+            inputs.get("billing_mode"),
+            client.get("billingMode"),
+            client.get("billing_mode"),
+            cost_breakdown.get("billingMode"),
+            cost_breakdown.get("billing_mode"),
+        )
+        if str(billing_mode or "").strip().lower() in NO_CHARGE_BILLING_MODES:
+            return "调用已标记为免计费，不进入业务收费账单"
+
+        source = str(row.source or trace.get("source") or metadata.get("source") or "").strip()
+        tenant_id = str(row.tenant_id or trace.get("tenantId") or metadata.get("tenantId") or "").strip()
+        client_id = str(row.client_id or trace.get("clientId") or metadata.get("clientId") or "").strip()
+        if (
+            source in INTERNAL_NO_CHARGE_SOURCES
+            or tenant_id in INTERNAL_NO_CHARGE_TENANTS
+            or client_id in INTERNAL_NO_CHARGE_CLIENTS
+            or BusinessRunService._truthy_policy_flag(metadata.get("patrol"))
+        ):
+            return "内部巡检任务，不进入业务收费账单"
+        return None
 
     @staticmethod
     def _business_no_charge_reason(row: BusinessRun) -> str | None:
@@ -3105,6 +3152,9 @@ class BusinessRunService:
                 return "任务已取消，不向业务方计费"
             if status == "timeout":
                 return "任务超时，不向业务方计费"
+            policy_reason = BusinessRunService._business_no_charge_policy_reason(row)
+            if policy_reason:
+                return policy_reason
             return "非成功任务，不向业务方计费"
         if billing_status == "billing_pending":
             return "任务未终态，暂不计费"
@@ -3187,8 +3237,26 @@ class BusinessRunService:
         raise HTTPException(status_code=409, detail="BUSINESS_RUN_UNPRICED")
 
     @staticmethod
+    def _billing_no_charge_policy_filter():
+        return or_(
+            BusinessRun.source.in_(sorted(INTERNAL_NO_CHARGE_SOURCES)),
+            BusinessRun.tenant_id.in_(sorted(INTERNAL_NO_CHARGE_TENANTS)),
+            BusinessRun.client_id.in_(sorted(INTERNAL_NO_CHARGE_CLIENTS)),
+        )
+
+    @staticmethod
+    def _billing_not_no_charge_policy_filter():
+        return and_(
+            or_(BusinessRun.source.is_(None), not_(BusinessRun.source.in_(sorted(INTERNAL_NO_CHARGE_SOURCES)))),
+            or_(BusinessRun.tenant_id.is_(None), not_(BusinessRun.tenant_id.in_(sorted(INTERNAL_NO_CHARGE_TENANTS)))),
+            or_(BusinessRun.client_id.is_(None), not_(BusinessRun.client_id.in_(sorted(INTERNAL_NO_CHARGE_CLIENTS)))),
+        )
+
+    @staticmethod
     def _billing_status_filter(billing_status: str):
         normalized = str(billing_status or "").strip()
+        policy_filter = BusinessRunService._billing_no_charge_policy_filter()
+        not_policy_filter = BusinessRunService._billing_not_no_charge_policy_filter()
         if normalized == "billable":
             return and_(
                 BusinessRun.status == "succeeded",
@@ -3196,6 +3264,7 @@ class BusinessRunService:
                     BusinessRun.cost_amount > 0,
                     BusinessRun.quota_units > 0,
                 ),
+                not_policy_filter,
             )
         if normalized == "unpriced":
             return and_(
@@ -3208,9 +3277,13 @@ class BusinessRunService:
                     BusinessRun.quota_units.is_(None),
                     BusinessRun.quota_units <= 0,
                 ),
+                not_policy_filter,
             )
         if normalized == "no_charge":
-            return BusinessRun.status.in_(["failed", "cancelled", "timeout"])
+            return or_(
+                BusinessRun.status.in_(["failed", "cancelled", "timeout"]),
+                and_(BusinessRun.status == "succeeded", policy_filter),
+            )
         if normalized == "billing_pending":
             return BusinessRun.status.in_(["queued", "running", "pending", "planned"])
         return None
