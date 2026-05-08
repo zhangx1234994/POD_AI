@@ -1377,24 +1377,87 @@ html.t-theme-dark {
   color: var(--td-text-color-primary);
 }
 
-.podi-eval-workbench__summary-steps {
+.podi-eval-workbench__gate {
   margin-top: 10px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--td-success-color) 32%, var(--td-border-level-1-color));
+  background: color-mix(in srgb, var(--td-success-color) 10%, var(--td-bg-color-container));
+  color: var(--td-text-color-primary);
+  font-size: 12px;
+  line-height: 1.7;
+  padding: 8px 10px;
+}
+
+.podi-eval-workbench__gate.is-running {
+  border-color: color-mix(in srgb, var(--td-brand-color) 32%, var(--td-border-level-1-color));
+  background: color-mix(in srgb, var(--td-brand-color) 10%, var(--td-bg-color-container));
+}
+
+.podi-eval-workbench__gate.is-warning {
+  border-color: color-mix(in srgb, var(--td-warning-color) 40%, var(--td-border-level-1-color));
+  background: color-mix(in srgb, var(--td-warning-color) 13%, var(--td-bg-color-container));
+}
+
+.podi-eval-workbench__steps-heading {
+  margin-top: 10px;
+  color: var(--td-text-color-primary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.podi-eval-workbench__summary-steps {
+  margin-top: 6px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
   font-size: 12px;
   color: var(--td-text-color-secondary);
 }
 
 .podi-eval-workbench__summary-steps > div {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: flex-start;
+  gap: 7px;
+  padding: 8px;
+  border-radius: 12px;
+  border: 1px solid var(--td-border-level-1-color);
+  background: color-mix(in srgb, var(--podi-accent-soft) 14%, var(--td-bg-color-container));
+}
+
+.podi-eval-workbench__step-index {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
-  border-radius: 999px;
-  border: 1px solid var(--td-border-level-1-color);
-  background: color-mix(in srgb, var(--podi-accent-soft) 18%, var(--td-bg-color-container));
+  justify-content: center;
+  background: var(--podi-accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.podi-eval-workbench__step-icon {
+  color: var(--podi-accent);
+  display: inline-flex;
+  padding-top: 2px;
+}
+
+.podi-eval-workbench__step-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.podi-eval-workbench__step-copy strong {
+  color: var(--td-text-color-primary);
+  font-size: 12px;
+}
+
+.podi-eval-workbench__step-copy span {
+  line-height: 1.45;
 }
 
 .podi-action-bar > .t-space {
@@ -1682,6 +1745,10 @@ html.t-theme-dark {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .podi-eval-workbench__summary-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .podi-overview-stat-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1788,6 +1855,10 @@ html.t-theme-dark {
   }
 
   .podi-eval-workbench__summary-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .podi-eval-workbench__summary-steps {
     grid-template-columns: 1fr;
   }
 }

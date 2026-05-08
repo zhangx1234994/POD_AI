@@ -11,6 +11,33 @@ type AbilityEvaluationPageProps = {
   focusRunId?: string;
 };
 
+const evaluationAcceptanceSteps = [
+  {
+    key: 'workflow',
+    icon: <TaskIcon size="14px" />,
+    title: '工作流清楚',
+    detail: '先确认业务名称、发布时间、输出类型，避免把辅助工具当主入口。',
+  },
+  {
+    key: 'input',
+    icon: <ImageEditIcon size="14px" />,
+    title: '样图和参数完整',
+    detail: '使用 OSS 样例或公网图，必填参数补齐后再运行。',
+  },
+  {
+    key: 'result',
+    icon: <ChartBubbleIcon size="14px" />,
+    title: '结果有回填',
+    detail: '必须看到图片、视频、文字或结构化输出；否则按失败处理。',
+  },
+  {
+    key: 'score',
+    icon: <ChartBubbleIcon size="14px" />,
+    title: '评分可追溯',
+    detail: '记录评分和备注，作为上线、回滚、问题归因依据。',
+  },
+];
+
 function NoticeBar({ notice, onClose }: { notice: Notice | null; onClose: () => void }) {
   if (!notice) return null;
   return (
@@ -111,6 +138,12 @@ export function AbilityEvaluationPage({ focusRunId = '' }: AbilityEvaluationPage
   );
   const succeededCount = useMemo(() => evaluationResults.filter((r) => r.status === 'succeeded').length, [evaluationResults]);
   const failedCount = useMemo(() => evaluationResults.filter((r) => r.status === 'failed').length, [evaluationResults]);
+  const evaluationGateSummary =
+    failedCount > 0
+      ? `当前选中工作流有 ${failedCount} 条失败记录，先看错误和回填证据，再决定是否继续发布。`
+      : runningCount > 0
+        ? `当前有 ${runningCount} 条任务运行中，等任务终态和回填完成后再评分。`
+        : '当前没有运行中的阻塞任务，可以继续按样例做验收。';
 
   const refreshRuns = async (workflowId?: string) => {
     const wfId = workflowId ?? selectedWorkflow?.id;
@@ -505,10 +538,21 @@ export function AbilityEvaluationPage({ focusRunId = '' }: AbilityEvaluationPage
               </div>
             </div>
           </div>
-          <div className="podi-eval-workbench__summary-steps">
-            <div><TaskIcon size="14px" /> 选工作流</div>
-            <div><ImageEditIcon size="14px" /> 配参数+样图</div>
-            <div><ChartBubbleIcon size="14px" /> 跑结果并打分</div>
+          <div className={`podi-eval-workbench__gate ${failedCount > 0 ? 'is-warning' : runningCount > 0 ? 'is-running' : ''}`}>
+            {evaluationGateSummary}
+          </div>
+          <div className="podi-eval-workbench__steps-heading">评测验收闭环</div>
+          <div className="podi-eval-workbench__summary-steps" aria-label="评测验收闭环">
+            {evaluationAcceptanceSteps.map((step, index) => (
+              <div key={step.key}>
+                <span className="podi-eval-workbench__step-index">{index + 1}</span>
+                <span className="podi-eval-workbench__step-icon">{step.icon}</span>
+                <span className="podi-eval-workbench__step-copy">
+                  <strong>{step.title}</strong>
+                  <span>{step.detail}</span>
+                </span>
+              </div>
+            ))}
           </div>
         </div>
         <EvaluationInputPanel

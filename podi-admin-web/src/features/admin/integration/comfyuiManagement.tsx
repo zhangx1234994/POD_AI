@@ -1,4 +1,5 @@
 import { Alert, Button, Select, Space, Switch, Tag, Typography } from 'tdesign-react';
+import { OperationFlowCard } from '../shared/ui';
 
 type ComfyuiTabMeta = {
   label: string;
@@ -61,25 +62,6 @@ type ComfyuiManagementHeaderProps = {
   onShowTestNodesChange: (value: boolean) => void;
 };
 
-const governanceFocusItems = [
-  {
-    title: '服务器纳管',
-    body: '登记节点地址、用途标签、启停状态和并发上限，先保证调度目标清楚。',
-  },
-  {
-    title: '能力部署',
-    body: '检查 workflow、模型、LoRA、插件版本是否一致，不在这里替代 ComfyUI 编排后台。',
-  },
-  {
-    title: '运行健康',
-    body: '关注在线状态、队列、连续失败、回填失败，轻 agent 后续只增强观测和受控同步。',
-  },
-  {
-    title: '调度效果',
-    body: '看任务是否均匀分发、GPU 是否空转、任务之间是否断档。',
-  },
-];
-
 export function ComfyuiManagementHeader({
   activeTab,
   activeTabMeta,
@@ -120,17 +102,45 @@ export function ComfyuiManagementHeader({
       <div className="rounded-2xl border border-slate-200/70 bg-slate-50/70 px-3 py-2 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-300">
         当前纳管视图：<strong>{activeTabMeta.label}</strong>（{activeTabMeta.group}）
       </div>
-      <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-        {governanceFocusItems.map((item) => (
-          <div
-            key={item.title}
-            className="rounded-2xl border border-slate-200/70 bg-white px-3 py-3 dark:border-slate-800 dark:bg-slate-950/40"
-          >
-            <div className="text-xs font-semibold text-slate-900 dark:text-white">{item.title}</div>
-            <div className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-300">{item.body}</div>
-          </div>
-        ))}
-      </div>
+      <OperationFlowCard
+        title="ComfyUI 纳管闭环"
+        description="只纳管服务器、资源和任务证据，不把中台变成 ComfyUI 编排后台。"
+        summary={`先让节点可接任务，再确认模型、LoRA、插件一致，最后看任务分发和回填证据${hiddenDataMessage || '。'}`}
+        summaryTheme={hiddenExecutorCount > 0 || hiddenAgentCount > 0 ? 'warning' : 'primary'}
+        steps={[
+          {
+            key: 'servers',
+            title: '服务器纳管',
+            detail: '登记节点地址、用途标签、启停状态和并发上限，先保证调度目标清楚。',
+            action: '确认 158 / 233 这类节点可访问，并给出清晰标签。',
+            done: '节点可接',
+            checks: ['在线状态明确', '用途标签清楚', '并发上限可见'],
+          },
+          {
+            key: 'resources',
+            title: '能力部署',
+            detail: '检查 workflow、模型、LoRA、插件版本是否一致，缺依赖优先修资源。',
+            action: '发现缺模型或插件时修服务器，不通过复杂兼容兜底。',
+            done: '依赖一致',
+            checks: ['模型一致', 'LoRA 一致', '插件一致'],
+          },
+          {
+            key: 'health',
+            title: '运行健康',
+            detail: '关注在线状态、队列、连续失败、回填失败，异常先止损再放量。',
+            action: '队列堆积、任务失败或回填缺失时先定位原因。',
+            done: '健康可见',
+            theme: 'warning',
+          },
+          {
+            key: 'routing',
+            title: '调度效果',
+            detail: '看任务是否均匀分发、GPU 是否空转、任务之间是否断档。',
+            action: '用真实命中节点和最终回填结果判断路由是否有效。',
+            done: '分流有证据',
+          },
+        ]}
+      />
       <div className="rounded-2xl border border-slate-200/70 bg-white px-3 py-3 dark:border-slate-800 dark:bg-slate-950/40">
         <div className="podi-comfy-level-label">纳管分区</div>
         <div className="podi-comfy-group-grid">
