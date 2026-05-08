@@ -8,7 +8,7 @@ import type {
   InviteCode,
   InviteCodeCreatePayload,
 } from '../../../types/admin';
-import { StatusBadge } from '../shared/ui';
+import { OperationFlowCard, StatusBadge } from '../shared/ui';
 
 export const AuthPanel = ({
   users,
@@ -51,6 +51,48 @@ export const AuthPanel = ({
     <Alert
       theme="info"
       message="第一阶段闭环：管理员生成或失效邀请码，用户用邀请码注册，登录会话可追踪并可踢出。角色暂时仍使用用户表里的 role 字段。"
+    />
+    <OperationFlowCard
+      title="账号权限闭环"
+      description="先确认能否上线，再处理业务方范围、邀请码和异常会话。"
+      summary={
+        scopeSummary
+          ? scopeSummary.releaseReady
+            ? '当前账号权限满足上线检查，继续保持业务方范围、邀请码和会话可追踪。'
+            : `账号权限仍有 ${scopeSummary.blockingRiskCount || 0} 个阻塞、${scopeSummary.warningRiskCount || 0} 个提醒，先处理阻塞项再上线。`
+          : '后端暂未返回账号权限检查，先刷新数据；仍为空时检查认证接口和数据库。'
+      }
+      summaryTheme={scopeSummary?.releaseReady ? 'success' : 'warning'}
+      steps={[
+        {
+          key: 'release-check',
+          title: '看上线检查',
+          detail: '先看管理员、业务方范围、邀请码和会话追踪是否通过，不先改账号明细。',
+          action: '有阻塞时先处理“当前先处理什么”里的风险项。',
+          done: '可上线',
+        },
+        {
+          key: 'client-scope',
+          title: '绑定业务方范围',
+          detail: '业务方账号必须明确 tenantId 和 clientId，避免越权调用其他业务。',
+          action: '对未绑定业务方的业务账号补范围或停用。',
+          done: '范围清楚',
+        },
+        {
+          key: 'invite',
+          title: '发放邀请码',
+          detail: '只给明确用途和有效期的邀请码，过期或误发的邀请码要及时失效。',
+          action: '生成前写清备注，生成后检查可用次数和过期时间。',
+          done: '入口受控',
+        },
+        {
+          key: 'sessions',
+          title: '清理异常会话',
+          detail: '账号停用、权限变化或异常登录后，需要踢出旧会话并保留审计记录。',
+          action: '处理离职、临时提权、异常登录账号的会话。',
+          done: '可追溯',
+        },
+      ]}
     />
     {error ? <Alert theme="error" message={error} /> : null}
     <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>

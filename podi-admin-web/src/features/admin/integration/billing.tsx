@@ -18,7 +18,7 @@ import type {
   PackagePurchaseOrderCreatePayload,
   PackagePurchaseOrderListResponse,
 } from '../../../types/admin';
-import { StatusBadge } from '../shared/ui';
+import { OperationFlowCard, StatusBadge } from '../shared/ui';
 import {
   businessBillingStatusLabel,
   businessBillingStatusTheme,
@@ -1284,6 +1284,59 @@ export const BillingPanel = ({
     <Alert
       theme="info"
       message="当前页面用于内部核对：先确认业务是否正常收费、套餐是否够用、收入和成本是否能对上。线上支付、正式开票和客户自助充值放到后续阶段。"
+    />
+    <OperationFlowCard
+      title="账单运营闭环"
+      description="当前只做内部运营骨架，先保证收费问题、套餐余量、收入成本和催收动作可核对。"
+      summary={
+        overview
+          ? Number(overview.issueCount || 0) > 0
+            ? `当前有 ${overview.issueCount || 0} 条收费问题，先处理应收未收、收费失败和失败误收费。`
+            : Number(overview.packageExpiringSoonCount || 0) > 0 || Number(overview.packageLowBalanceCount || 0) > 0
+              ? '当前收费问题较少，下一步看套餐到期和余量预警。'
+              : '当前没有明显收费阻塞，可以继续核对收入、成本和月结记录。'
+          : '后端暂未返回账单总览，先刷新数据；仍为空时检查账单表和统计接口。'
+      }
+      summaryTheme={
+        Number(overview?.issueCount || 0) > 0
+          ? 'danger'
+          : Number(overview?.packageExpiringSoonCount || 0) > 0 || Number(overview?.packageLowBalanceCount || 0) > 0
+            ? 'warning'
+            : overview
+              ? 'success'
+              : 'warning'
+      }
+      steps={[
+        {
+          key: 'issues',
+          title: '先处理收费问题',
+          detail: '优先看应收未收、收费失败、失败任务误收费，不先看收入汇总。',
+          action: '进入问题记录，按建议补收费、重试或退款。',
+          done: '问题清零',
+          theme: Number(overview?.issueCount || 0) > 0 ? 'danger' : 'success',
+        },
+        {
+          key: 'package',
+          title: '核对套餐余量',
+          detail: '套餐到期、余量不足会影响业务持续调用，必须在真实支付前先能人工处理。',
+          action: '对到期或低余量客户做续期、补量或改走钱包确认。',
+          done: '余量可用',
+        },
+        {
+          key: 'report',
+          title: '对齐收入成本',
+          detail: '商业化报表要能解释收入、成本、套餐消耗和未定价风险。',
+          action: '导出报表前先补齐未定价和异常扣费记录。',
+          done: '可对账',
+        },
+        {
+          key: 'collection',
+          title: '保留运营动作',
+          detail: '月结、催收、发票和通知当前是内部运营动作，不对业务方开放自助入口。',
+          action: '月结后记录付款、催收和开票状态，方便后续商业化升级。',
+          done: '有留痕',
+        },
+      ]}
     />
     {error ? <Alert theme="error" message={error} /> : null}
     <BillingActionPanel overview={overview} detail={detail} formatDateTime={formatDateTime} />
