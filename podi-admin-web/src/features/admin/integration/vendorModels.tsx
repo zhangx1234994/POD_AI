@@ -27,7 +27,7 @@ import type {
   VendorUsageSummaryItem,
 } from '../../../types/admin';
 import { toDisplayErrorMessage } from '../../../utils/errorMessageMap';
-import { GuidanceQueueCard, StatusBadge, type GuidanceQueueItem } from '../shared/ui';
+import { GuidanceQueueCard, OperationFlowCard, StatusBadge, type GuidanceQueueItem } from '../shared/ui';
 import { apiKeyStatusOptions } from './formOptions';
 import { formatDateTime, formatDurationMs } from './formatters';
 import { getVendorIssueLabel, getVendorProviderState } from './vendor';
@@ -752,35 +752,47 @@ export function VendorModelsPanel({
         </Col>
       </Row>
 
-      <Card bordered title="这个页面怎么用" style={{ marginTop: 12 }}>
-        <Row gutter={[12, 12]}>
-          {[
-            ['1', '先看风险', '密钥、出网、失败样本有问题时，先处理这里，不急着接业务。'],
-            ['2', '再看模型', '确认模型目录、能力范围、输出类型和计价口径是否完整。'],
-            ['3', '再绑能力', '模型稳定后再绑定到原子能力或业务版本，避免业务默认版本踩坑。'],
-            ['4', '最后小流量', '用能力测试和测评端跑通，再逐步放量。'],
-          ].map(([index, title, body]) => (
-            <Col key={index} xs={12} md={3}>
-              <div
-                style={{
-                  border: '1px solid var(--td-border-level-1-color)',
-                  borderRadius: 12,
-                  padding: 12,
-                  height: '100%',
-                }}
-              >
-                <Space direction="vertical" size={4}>
-                  <Tag theme="primary" variant="light">
-                    {index}
-                  </Tag>
-                  <Typography.Text strong>{title}</Typography.Text>
-                  <Typography.Text theme="secondary">{body}</Typography.Text>
-                </Space>
-              </div>
-            </Col>
-          ))}
-        </Row>
-      </Card>
+      <OperationFlowCard
+        title="模型接入闭环"
+        description="商业模型先确认风险，再补模型信息、绑定能力，最后用小流量验证。"
+        summary="密钥、出网、计价或验收有缺口时，不要直接把模型绑定到主业务默认版本。"
+        summaryTheme={blockedModels.length || missingKeyModels.length || unacceptedModels.length ? 'warning' : 'success'}
+        style={{ marginTop: 12 }}
+        steps={[
+          {
+            key: 'vendor-risk',
+            title: '先看风险',
+            detail: '密钥、出网、余额、失败样本是商业模型能否使用的前置条件。',
+            action: '有红色或黄色风险时，先处理密钥、出网和失败样本。',
+            done: '风险清楚',
+            theme: blockedModels.length || missingKeyModels.length ? 'warning' : 'success',
+          },
+          {
+            key: 'vendor-model-contract',
+            title: '补齐模型口径',
+            detail: '确认模型目录、能力范围、输出类型、执行方式和计价口径。',
+            action: '图片、视频、文字、图像理解要分开记录，不要都按生图理解。',
+            done: '模型可读',
+            theme: 'primary',
+          },
+          {
+            key: 'vendor-bind-ability',
+            title: '再绑能力',
+            detail: '模型稳定后再绑定到原子能力或业务版本。',
+            action: '让业务能力引用模型，不让业务方直接理解厂商接口。',
+            done: '能力承接',
+            theme: 'primary',
+          },
+          {
+            key: 'vendor-small-traffic',
+            title: '最后小流量',
+            detail: '用能力测试和测评端跑通，再逐步放量。',
+            action: '记录验收通过、成功样本和失败归因，再考虑切默认版本。',
+            done: '可灰度',
+            theme: unacceptedModels.length ? 'warning' : 'success',
+          },
+        ]}
+      />
 
       <Card bordered title="模型类型总览" style={{ marginTop: 12 }}>
         <Typography.Text theme="secondary">

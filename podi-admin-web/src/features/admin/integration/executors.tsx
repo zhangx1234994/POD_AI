@@ -1,7 +1,7 @@
 import type { Dispatch, SetStateAction } from 'react';
 import { Alert, Button, Card, Col, Input, InputNumber, Row, Select, Space, Textarea, Tooltip, Typography } from 'tdesign-react';
 import type { ComfyuiQueueStatus, ComfyuiQueueSummary, Executor, ExecutorFormState, JsonRecord } from '../../../types/admin';
-import { ActionBar, StatusBadge } from '../shared/ui';
+import { ActionBar, OperationFlowCard, StatusBadge } from '../shared/ui';
 
 type ExecutorsView = 'list' | 'channels';
 
@@ -205,6 +205,52 @@ export function ExecutorsPanel({
             </Space>
           </Space>
         </ActionBar>
+
+        <OperationFlowCard
+          title="运行线路变更闭环"
+          description="新增或调整执行线路时，先确认业务用途，再配置标签和并发，最后用健康与真实命中证据验收。"
+          summary={
+            summary.activeExecutors === summary.executors && summary.executors > 0
+              ? '当前运行线路基础可用。变更线路前仍要先确认标签、并发和最近调用证据。'
+              : '存在不可用线路或尚未配置线路。先处理可用性，再绑定能力或放量。'
+          }
+          summaryTheme={summary.activeExecutors === summary.executors && summary.executors > 0 ? 'success' : 'warning'}
+          style={{ marginBottom: 16 }}
+          steps={[
+            {
+              key: 'executor-purpose',
+              title: '先定用途',
+              detail: '确认这条线路服务 ComfyUI、第三方模型、自研工具还是控制面能力。',
+              action: '按业务用途命名，不要只写 IP 或临时编号。',
+              done: '用途清楚',
+              theme: 'primary',
+            },
+            {
+              key: 'executor-routing',
+              title: '配置标签和并发',
+              detail: '标签决定哪些能力能命中线路，并发决定队列上限。',
+              action: '高内存、普通生图、第三方出网线路要分开，不要静默兜底。',
+              done: '路由明确',
+              theme: 'warning',
+            },
+            {
+              key: 'executor-health',
+              title: '验证健康',
+              detail: '刷新队列、系统状态和近 24 小时调用指标。',
+              action: '失败集中或队列持续堆积时，先排障再绑定业务默认版本。',
+              done: '健康可见',
+              theme: executorTrafficTotals.failedCalls > 0 ? 'warning' : 'success',
+            },
+            {
+              key: 'executor-evidence',
+              title: '沉淀命中证据',
+              detail: '确认真实任务能命中这条线路，并且输出能回填。',
+              action: '把真实命中和回填结果作为上线或扩容依据。',
+              done: '证据完整',
+              theme: 'success',
+            },
+          ]}
+        />
 
         <Card bordered style={{ marginBottom: 16 }}>
           <Space direction="vertical" size="middle" style={{ width: '100%' }}>
