@@ -208,7 +208,7 @@ def test_internal_eval_workflow_catalog_requires_auxiliary_tools() -> None:
                 "workflow_id": workflow_id,
                 "category": "通用类",
                 "governance": {"role": "auxiliary"},
-                "presentation": {"visible": True, "categoryLabel": "通用类"},
+                "presentation": {"visible": False, "categoryLabel": "通用类"},
             }
         )
 
@@ -216,6 +216,28 @@ def test_internal_eval_workflow_catalog_requires_auxiliary_tools() -> None:
 
     assert ok is True
     assert "auxiliary" in detail
+
+
+def test_internal_eval_workflow_catalog_blocks_hidden_public_workflows() -> None:
+    module = _load_smoke_module()
+
+    rows = [
+        {"workflow_id": "wf_prod", "category": "图裂变", "governance": {"role": "production"}, "presentation": {"visible": False}},
+    ]
+    for workflow_id in module.REQUIRED_INTERNAL_EVAL_AUXILIARY_WORKFLOW_IDS:
+        rows.append(
+            {
+                "workflow_id": workflow_id,
+                "category": "通用类",
+                "governance": {"role": "auxiliary"},
+                "presentation": {"visible": False},
+            }
+        )
+
+    ok, detail = module._validate_internal_eval_workflow_catalog(rows)
+
+    assert ok is False
+    assert "hidden public workflows" in detail
 
 
 def test_internal_eval_workflow_catalog_blocks_missing_auxiliary_tool() -> None:

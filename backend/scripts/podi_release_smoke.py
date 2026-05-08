@@ -315,7 +315,7 @@ def _validate_internal_eval_workflow_catalog(data: Any) -> tuple[bool, str]:
     role_counts: Counter[str] = Counter()
     workflow_ids: set[str] = set()
     leaked: list[str] = []
-    hidden: list[str] = []
+    hidden_public: list[str] = []
     general_count = 0
     for item in items:
         if not isinstance(item, dict):
@@ -339,14 +339,14 @@ def _validate_internal_eval_workflow_catalog(data: Any) -> tuple[bool, str]:
         if role not in INTERNAL_EVAL_WORKFLOW_ROLES:
             leaked.append(f"{workflow_id or '-'}:{role or 'missing'}")
         raw_visible = presentation.get("visible")
-        if raw_visible is False:
-            hidden.append(workflow_id or "-")
+        if raw_visible is False and role in PUBLIC_EVAL_WORKFLOW_ROLES:
+            hidden_public.append(workflow_id or "-")
 
     missing_required = sorted(REQUIRED_INTERNAL_EVAL_AUXILIARY_WORKFLOW_IDS - workflow_ids)
     if leaked:
         return False, f"unexpected roles in internal eval catalog={leaked[:5]} roles={dict(role_counts)}"
-    if hidden:
-        return False, f"internal eval catalog contains visible=false workflows={hidden[:5]}"
+    if hidden_public:
+        return False, f"internal eval catalog contains hidden public workflows={hidden_public[:5]}"
     if missing_required:
         return False, f"missing required auxiliary workflows={missing_required[:5]} roles={dict(role_counts)}"
     if role_counts.get("auxiliary", 0) <= 0:

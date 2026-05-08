@@ -607,7 +607,7 @@
 - 进展（2026-05-08）：业务能力页主业务结论专项后已复跑管理端 `lint/build` 和浏览器走查；后续收尾已清理本地 dev server、后端临时服务、管理端 `dist`、浏览器临时日志和缓存，并复跑 `git diff --check` 通过。
 - 进展（2026-05-08）：能力调用页排障总览专项已复跑管理端 `lint/build` 和浏览器走查；已清理本地 dev server、管理端 `dist`、浏览器临时日志和缓存，并复跑 `git diff --check` 通过。
 - 进展（2026-05-08）：下个版本候选回归已完成：后端全量测试 `456 passed, 24 warnings`，管理端 `lint/build` 通过，测评端 `lint/build` 通过且无 Vite 大包体警告；已清理管理端/测评端 `dist`、pytest 缓存、Python 缓存和浏览器临时日志，并复跑 `git diff --check` 通过。
-- 进展（2026-05-08）：测评端通用类辅助工具专项已复跑 `test_eval_workflow_presentation.py`、`test_eval_workflow_response_metadata.py`、`test_podi_release_smoke.py`，合计 51 passed；测评端 `lint/build` 通过且无 Vite 大包体警告；已清理测评端 `dist`、pytest 缓存、Python 缓存和浏览器临时日志，并复跑 `git diff --check` 通过。
+- 进展（2026-05-08）：测评端通用类辅助工具专项已复跑 `test_eval_workflow_presentation.py`、`test_eval_workflow_response_metadata.py`、`test_podi_release_smoke.py`，合计 52 passed；测评端 `lint/build` 通过且无 Vite 大包体警告；已清理测评端 `dist`、pytest 缓存、Python 缓存和浏览器临时日志，并复跑 `git diff --check` 通过。
 - 验收：提交前不夹带构建产物和缓存。
 
 29. `done` G4 完成项必须标记
