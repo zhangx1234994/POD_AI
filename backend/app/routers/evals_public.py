@@ -76,7 +76,7 @@ from app.services.eval_operations_health import build_eval_operations_health
 from app.services.eval_workflow_response import (
     EVAL_WORKFLOW_METADATA_UPDATE_KEYS,
     build_eval_workflow_response_metadata,
-    is_eval_workflow_publicly_visible,
+    is_eval_workflow_visible_for_eval_catalog,
     merge_eval_workflow_metadata_update,
 )
 from app.services.eval_workflow_routing_governance import resolve_eval_workflow_routing_governance
@@ -936,6 +936,7 @@ def list_workflow_versions(
     response: Response,
     category: str | None = Query(None),
     status: str | None = Query("active"),
+    include_auxiliary: bool = Query(False, alias="includeAuxiliary"),
     db: Session = Depends(get_db),
 ) -> list[EvalWorkflowVersionResponse]:
     _require_public_enabled(request)
@@ -947,7 +948,11 @@ def list_workflow_versions(
     if status:
         stmt = stmt.where(EvalWorkflowVersion.status == status)
     rows = db.execute(stmt.order_by(EvalWorkflowVersion.category.asc(), EvalWorkflowVersion.created_at.desc())).scalars().all()
-    rows = [row for row in rows if is_eval_workflow_publicly_visible(row)]
+    rows = [
+        row
+        for row in rows
+        if is_eval_workflow_visible_for_eval_catalog(row, include_auxiliary=include_auxiliary)
+    ]
     rows = _dedupe_workflow_versions(rows)
     return [_serialize_workflow_version(row) for row in rows]
 

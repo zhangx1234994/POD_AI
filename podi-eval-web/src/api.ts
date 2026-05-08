@@ -191,7 +191,7 @@ function uploadImageViaBackend(
 
 export const evalApi = {
   me: () => request<{ raterId: string }>('/api/evals/me'),
-  listWorkflowVersions: () => request<EvalWorkflowVersion[]>('/api/evals/workflow-versions?status=active'),
+  listWorkflowVersions: () => request<EvalWorkflowVersion[]>('/api/evals/workflow-versions?status=active&includeAuxiliary=true'),
   listResourceOptions: (params: { type: string; status?: string; q?: string }) => {
     const qs = new URLSearchParams();
     qs.set('type', params.type);

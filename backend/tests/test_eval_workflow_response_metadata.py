@@ -5,6 +5,7 @@ from datetime import datetime
 from app.models.eval import EvalWorkflowVersion
 from app.services.eval_workflow_response import (
     build_eval_workflow_response_metadata,
+    is_eval_workflow_visible_for_eval_catalog,
     is_eval_workflow_publicly_visible,
     merge_eval_workflow_metadata_update,
 )
@@ -167,6 +168,30 @@ def test_eval_workflow_auxiliary_governance_hides_public_entry() -> None:
     assert payload["governance"]["role"] == "auxiliary"
     assert payload["presentation"]["visible"] is False
     assert is_eval_workflow_publicly_visible(row) is False
+
+
+def test_eval_workflow_auxiliary_can_appear_in_internal_eval_catalog() -> None:
+    row = _workflow(
+        category="通用类",
+        name="8K 高清放大",
+        workflow_id="7597760543788630016",
+        extra_metadata={"governance": {"role": "auxiliary"}},
+    )
+
+    assert is_eval_workflow_publicly_visible(row) is False
+    assert is_eval_workflow_visible_for_eval_catalog(row) is False
+    assert is_eval_workflow_visible_for_eval_catalog(row, include_auxiliary=True) is True
+
+
+def test_eval_workflow_legacy_stays_hidden_from_internal_eval_catalog() -> None:
+    row = _workflow(
+        category="图延伸类",
+        name="ComfyUI 扩图 · comfyuo_tukuozhan",
+        workflow_id="7598587935331450880",
+    )
+
+    assert is_eval_workflow_publicly_visible(row) is False
+    assert is_eval_workflow_visible_for_eval_catalog(row, include_auxiliary=True) is False
 
 
 def test_eval_workflow_candidate_governance_remains_public() -> None:

@@ -18,6 +18,7 @@ from app.services.eval_workflow_usage import enrich_metadata_with_eval_workflow_
 
 EVAL_WORKFLOW_METADATA_UPDATE_KEYS = frozenset({"metadata", "presentation", "usage", "deprecation", "governance"})
 EVAL_WORKFLOW_PUBLIC_ROLES = frozenset({"production", "candidate"})
+EVAL_WORKFLOW_EVAL_CATALOG_EXTRA_ROLES = frozenset({"auxiliary"})
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -167,3 +168,40 @@ def is_eval_workflow_publicly_visible(row: EvalWorkflowVersion) -> bool:
         output_schema=row.output_schema,
         metadata=metadata if isinstance(metadata, dict) else None,
     )
+
+
+def is_eval_workflow_visible_for_eval_catalog(
+    row: EvalWorkflowVersion,
+    *,
+    include_auxiliary: bool = False,
+) -> bool:
+    """Return whether a workflow should appear in the internal eval toolbox.
+
+    The default behavior stays identical to the public catalog. The eval UI can
+    opt into auxiliary tools such as DPI, upscale, tagging, and queue probes
+    without leaking legacy or disabled workflows.
+    """
+
+    if is_eval_workflow_publicly_visible(row):
+        return True
+    if not include_auxiliary:
+        return False
+
+    response = build_eval_workflow_response_metadata(row)
+    metadata = response.get("metadata")
+    governance = metadata.get("governance") if isinstance(metadata, dict) else None
+    role = str(governance.get("role") or "").strip().lower() if isinstance(governance, dict) else ""
+    if role not in EVAL_WORKFLOW_EVAL_CATALOG_EXTRA_ROLES:
+        return False
+    if str(row.status or "").strip().lower() != "active":
+        return False
+
+    deprecation = metadata.get("deprecation") if isinstance(metadata, dict) else None
+    if isinstance(deprecation, dict) and deprecation.get("is_deprecated"):
+        return False
+
+    raw_metadata = row.extra_metadata if isinstance(row.extra_metadata, dict) else {}
+    raw_presentation = raw_metadata.get("presentation") if isinstance(raw_metadata.get("presentation"), dict) else {}
+    if raw_presentation.get("visible") is False:
+        return False
+    return True
