@@ -1,6 +1,6 @@
 import { Card, Col, Row, Space, Tag, Typography } from 'tdesign-react';
 import type { SystemConfig } from '../../../types/admin';
-import { ActionBar } from '../shared/ui';
+import { ActionBar, OperationFlowCard } from '../shared/ui';
 
 function InfoCard({ title, items }: { title: string; items: { label: string; value: string }[] }) {
   return (
@@ -22,6 +22,14 @@ function InfoCard({ title, items }: { title: string; items: { label: string; val
 }
 
 export function SystemConfigPanel({ systemConfig }: { systemConfig: SystemConfig }) {
+  const todoCount = systemConfig.todo_items.length;
+  const cozeMissingToken = Boolean(systemConfig.coze && !systemConfig.coze.token_present);
+  const configSummary = cozeMissingToken
+    ? 'Coze 调用凭证未配置，涉及 Coze 工具箱或工作流调用前必须先补齐。'
+    : todoCount > 0
+      ? `当前系统配置仍有 ${todoCount} 个待办，先处理高优先级项再发版。`
+      : '当前配置快照没有明显待办，可以作为发版前环境核对依据。';
+
   return (
     <>
       <ActionBar>
@@ -41,6 +49,44 @@ export function SystemConfigPanel({ systemConfig }: { systemConfig: SystemConfig
           </Space>
         </Space>
       </ActionBar>
+
+      <OperationFlowCard
+        title="环境核对闭环"
+        description="本页不直接改配置，只用于发版前确认数据库、OSS、安全参数和 Coze 集成是否符合预期。"
+        summary={configSummary}
+        summaryTheme={cozeMissingToken || todoCount > 0 ? 'warning' : 'success'}
+        steps={[
+          {
+            key: 'database',
+            title: '核对数据库',
+            detail: '确认当前连接的数据库类型、主机和连接串，不要把测试库当生产库。',
+            action: '发现库不对时先停发版，回到服务器环境变量修正。',
+            done: '库正确',
+          },
+          {
+            key: 'oss',
+            title: '核对素材存储',
+            detail: '确认 OSS bucket、endpoint、对外域名和根目录前缀，避免结果回填到错误位置。',
+            action: '内外网地址切换前先确认对外返回仍是公网稳定地址。',
+            done: '回填稳定',
+          },
+          {
+            key: 'security',
+            title: '核对安全参数',
+            detail: '登录、刷新和上传凭证有效期会影响管理端和测评端体验。',
+            action: '凭证过短或过长时按安全策略调整后再上线。',
+            done: '凭证可控',
+          },
+          {
+            key: 'coze',
+            title: '核对 Coze 集成',
+            detail: 'Coze 工作台地址、工作流地址和调用凭证决定工具箱链路是否可用。',
+            action: '凭证缺失或地址异常时先修 Coze 集成，再跑工具箱 smoke。',
+            done: cozeMissingToken ? '待补凭证' : '工具箱可测',
+            theme: cozeMissingToken ? 'warning' : 'primary',
+          },
+        ]}
+      />
 
       <div className={`grid gap-6 ${systemConfig.coze ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`}>
         <InfoCard

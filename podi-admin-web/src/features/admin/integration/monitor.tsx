@@ -1,6 +1,6 @@
 import { Button, Card, Col, Row, Space, Table, Typography } from 'tdesign-react';
 import type { ComfyuiQueueSummary, DashboardMetrics, Executor } from '../../../types/admin';
-import { StatusBadge } from '../shared/ui';
+import { OperationFlowCard, StatusBadge } from '../shared/ui';
 import { formatDateTime } from './formatters';
 
 function MetricCard({ label, value, sub }: { label: string; value: number | string; sub?: string }) {
@@ -60,8 +60,55 @@ export function MonitorPanel({
   executors,
   onRefreshComfyQueue,
 }: MonitorPanelProps) {
+  const totalQueued = pendingQueueTotal + pendingBatchValue + Number(comfyQueueSummary?.totalPending || 0);
+  const hasComfyNodes = comfyExecutors.length > 0;
+  const monitorSummary =
+    dashboardMetrics.totals.failed_tasks > 0
+      ? `当前累计失败 ${dashboardMetrics.totals.failed_tasks} 条，先看最近失败任务和队列是否堵住。`
+      : totalQueued > 0
+        ? `当前仍有 ${totalQueued} 个排队或待处理对象，先确认是否集中在 ComfyUI 或批次任务。`
+        : '当前没有明显队列堆积，可以继续用最近任务和节点状态做例行巡检。';
+
   return (
     <>
+      <OperationFlowCard
+        title="运行监控闭环"
+        description="先判断队列是否堵住，再看 ComfyUI、最近任务和执行节点证据。"
+        summary={monitorSummary}
+        summaryTheme={dashboardMetrics.totals.failed_tasks > 0 ? 'warning' : totalQueued > 0 ? 'primary' : 'success'}
+        steps={[
+          {
+            key: 'queue',
+            title: '看队列是否堵住',
+            detail: '先看排队中、执行中和批次待处理，不直接翻最近任务表。',
+            action: '排队持续升高时先确认是哪类任务堆积。',
+            done: '队列清楚',
+          },
+          {
+            key: 'comfyui',
+            title: '看 ComfyUI 队列',
+            detail: hasComfyNodes ? '跨节点读取 ComfyUI 自身队列，判断 GPU 是否空转或等待过长。' : '当前没有配置 ComfyUI 节点，先回到执行节点补配置。',
+            action: hasComfyNodes ? '刷新队列，核对每台机器执行中、等待中和队列上限。' : '先新增可用 ComfyUI 执行节点。',
+            done: hasComfyNodes ? 'GPU 可见' : '缺节点',
+            theme: hasComfyNodes ? 'primary' : 'warning',
+          },
+          {
+            key: 'recent-tasks',
+            title: '看最近失败',
+            detail: '最近任务用于定位失败原因、任务编号和完成时间，不能只看累计失败数字。',
+            action: '失败任务先复制任务 ID，再回到能力调用或业务详情排查。',
+            done: '失败可查',
+            theme: dashboardMetrics.totals.failed_tasks > 0 ? 'warning' : 'success',
+          },
+          {
+            key: 'executors',
+            title: '核对执行节点',
+            detail: '节点状态决定任务能否继续分发，离线或队列满要先处理。',
+            action: '节点异常时先处理执行节点，再放量业务任务。',
+            done: '节点健康',
+          },
+        ]}
+      />
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard label="累计任务" value={dashboardMetrics.totals.total_tasks} sub="历史累计" />
         <MetricCard label="排队中" value={pendingQueueTotal} sub={pendingQueueSub} />
