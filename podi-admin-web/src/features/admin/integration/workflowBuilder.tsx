@@ -1,7 +1,7 @@
 import { Button, Space } from 'tdesign-react';
 import type { Ability, AbilityInvocationLog, StoredAsset } from '../../../types/admin';
 import { toDisplayErrorMessage } from '../../../utils/errorMessageMap';
-import { StatusBadge } from '../shared/ui';
+import { OperationFlowCard, StatusBadge } from '../shared/ui';
 import { formatDateTime } from './formatters';
 
 function StatusPill({ status }: { status: string }) {
@@ -52,8 +52,54 @@ export function WorkflowBuilderPanel({
     );
   }
 
+  const unmappedCount = Math.max(0, cozeAbilityStats.total - cozeAbilityStats.mapped);
+  const builderSummary = !cozeBaseUrl
+    ? 'Coze 编排画布未配置，先补工作台地址；否则这里只能看历史绑定。'
+    : unmappedCount > 0
+      ? `还有 ${unmappedCount} 个 Coze 能力未填写流程 ID，先补绑定再做运行观察。`
+      : 'Coze 能力流程 ID 已补齐；正式业务仍应优先沉淀到“业务能力”做版本、灰度和回滚。';
+
   return (
     <div className="space-y-6">
+      <OperationFlowCard
+        title="Coze 编排观察闭环"
+        description="Coze 只作为快速实验和接入入口；稳定业务要回收到中台业务能力。"
+        summary={builderSummary}
+        summaryTheme={!cozeBaseUrl || unmappedCount > 0 ? 'warning' : 'primary'}
+        steps={[
+          {
+            key: 'studio',
+            title: '准备编排画布',
+            detail: '先确认 Coze 工作台地址和调用凭证可用，不在页面上直接手搓流程。',
+            action: '画布未配置时回到系统配置或服务器环境变量补齐。',
+            done: cozeBaseUrl ? '画布可开' : '待配置',
+            theme: cozeBaseUrl ? 'primary' : 'warning',
+          },
+          {
+            key: 'binding',
+            title: '绑定流程 ID',
+            detail: '只有厂商=Coze 的能力需要维护流程 ID，缺绑定时平台无法触发对应流程。',
+            action: '进入能力目录，给未绑定能力填写 workflowId。',
+            done: unmappedCount > 0 ? '待补绑定' : '绑定完整',
+            theme: unmappedCount > 0 ? 'warning' : 'success',
+          },
+          {
+            key: 'observe',
+            title: '观察运行记录',
+            detail: '最近运行只用于确认 Coze 编排是否能打通，不替代业务能力验收。',
+            action: '失败时先看能力调用记录，再回到 Coze 运行观察定位节点。',
+            done: cozeRecentLogs.length > 0 ? '有记录' : '待运行',
+          },
+          {
+            key: 'productize',
+            title: '沉淀正式业务',
+            detail: '稳定流程不要长期依赖手工 Coze 编排，要转成中台业务版本。',
+            action: '需要灰度、回滚、计费或对外 API 时，迁入“业务能力”。',
+            done: '收归中台',
+          },
+        ]}
+      />
+
       <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-6">
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div>
