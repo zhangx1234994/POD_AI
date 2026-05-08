@@ -1048,6 +1048,39 @@ html.t-theme-dark {
     var(--td-bg-color-container);
 }
 
+.podi-api-onboarding-card {
+  border-color: color-mix(in srgb, var(--td-warning-color) 22%, var(--td-border-level-1-color));
+  background:
+    radial-gradient(circle at 2% 8%, color-mix(in srgb, var(--td-success-color) 16%, transparent), transparent 28%),
+    linear-gradient(135deg, color-mix(in srgb, var(--td-warning-color) 8%, var(--td-bg-color-container)), var(--td-bg-color-container));
+}
+
+.podi-api-onboarding-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--podi-space-3);
+}
+
+.podi-api-onboarding-item {
+  min-height: 186px;
+  padding: 14px;
+  border: 1px solid var(--td-border-level-1-color);
+  border-radius: var(--podi-radius-lg);
+  background: color-mix(in srgb, var(--td-bg-color-container) 90%, var(--td-bg-color-secondarycontainer));
+}
+
+.podi-api-onboarding-item--success {
+  border-color: color-mix(in srgb, var(--td-success-color) 30%, var(--td-border-level-1-color));
+}
+
+.podi-api-onboarding-item--primary {
+  border-color: color-mix(in srgb, var(--podi-accent) 28%, var(--td-border-level-1-color));
+}
+
+.podi-api-onboarding-item--warning {
+  border-color: color-mix(in srgb, var(--td-warning-color) 36%, var(--td-border-level-1-color));
+}
+
 .podi-operation-flow-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -1777,6 +1810,7 @@ html.t-theme-dark {
   .podi-api-mode-grid,
   .podi-business-decision-grid,
   .podi-business-closure-grid,
+  .podi-api-onboarding-grid,
   .podi-api-guard-grid {
     grid-template-columns: 1fr;
   }
@@ -1839,6 +1873,10 @@ html.t-theme-dark {
   }
 
   .podi-api-guard-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .podi-api-onboarding-grid {
     grid-template-columns: 1fr;
   }
 

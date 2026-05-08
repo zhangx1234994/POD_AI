@@ -30,6 +30,15 @@ type DeliveryGuard = {
   action: string;
 };
 
+type OnboardingCheck = {
+  key: string;
+  title: string;
+  detail: string;
+  action: string;
+  tag: string;
+  theme: 'success' | 'primary' | 'warning';
+};
+
 type ApiExposurePanelProps = {
   publicAbilities: PublicAbility[];
   publicAbilitiesLoading: boolean;
@@ -239,6 +248,49 @@ const API_DELIVERY_GUARDS: DeliveryGuard[] = [
   },
 ];
 
+const BUSINESS_ONBOARDING_CHECKS: OnboardingCheck[] = [
+  {
+    key: 'identity-scope',
+    title: '先开通业务方身份',
+    detail: '业务方账号或服务 Token 必须绑定 tenantId/clientId，不能把管理员账号当长期业务凭证。',
+    action: '到账号权限页确认业务方范围；服务 Token 只用于系统级调用和巡检。',
+    tag: '身份边界',
+    theme: 'success',
+  },
+  {
+    key: 'business-policy',
+    title: '确认可调用业务',
+    detail: '业务方只应该看到被授权的业务，例如花纹提取、图裂变、扩图。',
+    action: '在业务能力页或业务方策略里确认 allowedBusinesses、并发和日额度。',
+    tag: '权限与额度',
+    theme: 'primary',
+  },
+  {
+    key: 'route-preview',
+    title: '先跑路由预览',
+    detail: 'route-preview 不下发真实任务，适合确认默认版本、灰度和回滚命中。',
+    action: '上线前先跑三主业务 route-preview，再跑一次真实样图巡检。',
+    tag: '不消耗额度',
+    theme: 'primary',
+  },
+  {
+    key: 'callback-polling',
+    title: '回调和轮询都保留',
+    detail: 'callbackUrl 能减少业务方轮询，但回调失败时仍要用 runId 查询兜底。',
+    action: '业务方保存 runId、traceId 和 requestId；客服排障也用这些编号。',
+    tag: '结果兜底',
+    theme: 'success',
+  },
+  {
+    key: 'error-handling',
+    title: '提前接好错误处理',
+    detail: '队列满、依赖失败、超时、配额不足都属于可解释错误，不应该让业务方猜。',
+    action: '按错误码给出“稍后重试 / 联系平台 / 补参数 / 补额度”的固定提示。',
+    tag: '上线必查',
+    theme: 'warning',
+  },
+];
+
 function methodTheme(method: string): 'success' | 'primary' | 'default' {
   if (method === 'POST') return 'primary';
   if (method === 'GET') return 'success';
@@ -432,6 +484,41 @@ export function ApiExposurePanel({
           },
         ]}
       />
+
+      <Card bordered className="podi-api-onboarding-card">
+        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+          <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+            <div>
+              <Typography.Text strong>业务方开通前检查</Typography.Text>
+              <div>
+                <Typography.Text theme="secondary">
+                  业务接入不是只给一个接口地址；开通范围、版本命中、回调兜底和错误提示必须先确认。
+                </Typography.Text>
+              </div>
+            </div>
+            <Tag theme="warning" variant="light">
+              上线前必须逐项确认
+            </Tag>
+          </Space>
+          <div className="podi-api-onboarding-grid">
+            {BUSINESS_ONBOARDING_CHECKS.map((item) => (
+              <section key={item.key} className={`podi-api-onboarding-item podi-api-onboarding-item--${item.theme}`}>
+                <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                  <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                    <Tag theme={item.theme} variant="light">
+                      {item.tag}
+                    </Tag>
+                    <Typography.Text theme="secondary">业务接入</Typography.Text>
+                  </Space>
+                  <Typography.Text strong>{item.title}</Typography.Text>
+                  <Typography.Text theme="secondary">{item.detail}</Typography.Text>
+                  <Typography.Text theme={item.theme === 'warning' ? 'warning' : 'secondary'}>下一步：{item.action}</Typography.Text>
+                </Space>
+              </section>
+            ))}
+          </div>
+        </Space>
+      </Card>
 
       <Card bordered className="podi-api-delivery-card">
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
