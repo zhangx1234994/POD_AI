@@ -1,6 +1,6 @@
 import { Alert, Button, Card, Col, Input, InputNumber, Row, Select, Space, Table, Tag, Typography } from 'tdesign-react';
 import type { ApiKey, ApiKeyFormState } from '../../../types/admin';
-import { ActionBar, StatusBadge } from '../shared/ui';
+import { ActionBar, OperationFlowCard, StatusBadge } from '../shared/ui';
 import { apiKeyStatusOptions, providerOptions } from './formOptions';
 import { formatDateTime } from './formatters';
 
@@ -34,6 +34,12 @@ export function LegacyApiKeysPanel({
 }: LegacyApiKeysPanelProps) {
   const activeCount = apiKeys.filter((item) => item.status === 'active').length;
   const disabledCount = apiKeys.filter((item) => item.status === 'disabled').length;
+  const legacyKeySummary =
+    activeCount > 0
+      ? `旧凭证池仍有 ${activeCount} 个可用密钥；新接入能力不要继续放这里，优先迁到模型弹药库。`
+      : apiKeys.length > 0
+        ? '旧凭证池目前没有可用密钥，保留停用记录用于兼容和追溯。'
+        : '旧凭证池为空；新能力密钥请直接在模型弹药库维护。';
 
   return (
     <>
@@ -56,6 +62,44 @@ export function LegacyApiKeysPanel({
           </Space>
         </Space>
       </ActionBar>
+
+      <OperationFlowCard
+        title="历史密钥兼容闭环"
+        description="这里只处理旧服务兼容密钥，新模型和第三方 API Key 应迁到模型弹药库。"
+        summary={legacyKeySummary}
+        summaryTheme={activeCount > 0 ? 'warning' : 'success'}
+        steps={[
+          {
+            key: 'identify',
+            title: '先判断是否历史兼容',
+            detail: '只有旧版服务仍依赖的密钥才放在这里，新能力不要新增到旧池。',
+            action: '新增前先确认模型弹药库是否已经能承载该厂商密钥。',
+            done: '边界清楚',
+          },
+          {
+            key: 'migrate',
+            title: '迁到模型弹药库',
+            detail: 'OpenAI、KIE、火山、中转站等第三方模型密钥统一去模型弹药库维护。',
+            action: '能迁移的密钥先在模型弹药库建 Key，再回到这里停用旧记录。',
+            done: '主入口正确',
+          },
+          {
+            key: 'quota',
+            title: '核对配额和过期',
+            detail: '仍保留的旧密钥必须有状态、日配额、当前用量和过期时间。',
+            action: '缺配额或已过期的密钥先停用，不参与新任务。',
+            done: '风险可见',
+            theme: activeCount > 0 ? 'warning' : 'primary',
+          },
+          {
+            key: 'delete',
+            title: '删除前留证',
+            detail: '删除旧密钥会影响历史兼容链路，不能只因为看起来不用就直接删。',
+            action: '确认没有执行节点或旧工作流引用后，再删除。',
+            done: '可回溯',
+          },
+        ]}
+      />
 
       <Row gutter={[16, 16]}>
         <Col xs={12} lg={7}>

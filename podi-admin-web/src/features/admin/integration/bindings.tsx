@@ -1,6 +1,6 @@
 import { Alert, Button, Card, Col, Input, InputNumber, Row, Space, Switch, Table, Typography } from 'tdesign-react';
 import type { Binding, BindingFormState } from '../../../types/admin';
-import { StatusBadge } from '../shared/ui';
+import { OperationFlowCard, StatusBadge } from '../shared/ui';
 
 function StatusPill({ status }: { status: string }) {
   return <StatusBadge status={status} />;
@@ -23,8 +23,55 @@ export function BindingRoutesPanel({
   onDelete,
   onReset,
 }: BindingRoutesPanelProps) {
+  const enabledCount = bindings.filter((item) => item.enabled).length;
+  const disabledCount = Math.max(0, bindings.length - enabledCount);
+  const bindingSummary =
+    bindings.length === 0
+      ? '当前没有路由策略；业务入口需要先绑定模板和运行线路，才能稳定调度。'
+      : disabledCount > 0
+        ? `当前共有 ${bindings.length} 条策略，其中 ${disabledCount} 条已停用；上线前确认停用是否符合预期。`
+        : `当前 ${enabledCount} 条路由策略均已启用，继续核对优先级和真实命中证据。`;
+
   return (
     <>
+      <OperationFlowCard
+        title="路由策略闭环"
+        description="把业务入口、工作流模板和运行线路连起来；这里改错会直接影响任务分发。"
+        summary={bindingSummary}
+        summaryTheme={bindings.length === 0 || disabledCount > 0 ? 'warning' : 'success'}
+        steps={[
+          {
+            key: 'action',
+            title: '确认业务入口',
+            detail: '业务入口必须能对应真实功能，例如花纹提取、图裂变、扩图或内部动作。',
+            action: '入口名称不清楚时先回到业务能力或能力目录确认。',
+            done: '入口明确',
+          },
+          {
+            key: 'workflow',
+            title: '绑定工作流模板',
+            detail: '模板决定实际执行流程版本，不能把测试模板误绑到生产入口。',
+            action: '模板变更后先跑能力测试，再放到业务默认版本。',
+            done: '模板正确',
+          },
+          {
+            key: 'executor',
+            title: '绑定运行线路',
+            detail: '运行线路决定任务去哪个服务器或第三方 API，必须可用且标签匹配。',
+            action: '线路异常时先修执行节点，不要只调高优先级。',
+            done: '线路可用',
+          },
+          {
+            key: 'priority',
+            title: '核对优先级和启停',
+            detail: '优先级越大越先尝试；停用策略不会参与分发。',
+            action: '上线前确认主线路、备用线路和停用策略都符合预期。',
+            done: '分发可控',
+            theme: disabledCount > 0 ? 'warning' : 'primary',
+          },
+        ]}
+      />
+
       <div style={{ margin: '0 0 12px' }}>
         <Typography.Text theme="secondary">
           例如：花纹提取可以优先走云端 ComfyUI 线路；如果排队或失败，再切到备用线路。百度、火山等第三方能力也可以用多条线路做额度切换。
