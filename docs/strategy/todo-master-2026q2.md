@@ -447,6 +447,7 @@
 - 进展（2026-05-08）：API 开放页复查“业务方最短接入路径 / 保存 runId / 按错误码处理”均可见，控制台 warning/error 为 0。
 - 进展（2026-05-08）：业务能力页复查“三主业务当前结论 / 当前卡点 / 下一步”均可见，回滚证据不足显示“备选待验收”，控制台 warning/error 为 0。
 - 进展（2026-05-08）：能力调用页复查“能力调用排障总览 / 执行失败 / 回调失败 / 成功无回填 / 输出类型概览”均可见；点击“只看已回填”后分页和结果集正常更新，控制台 error/warning 为 0。
+- 进展（2026-05-08）：抽出管理端通用“操作闭环”卡片并接入 API 开放、能力目录、业务能力、能力调用四个页面；复查四页均能看到“入口/优先级/下一步/完成标志”，控制台 error/warning 为 0。
 - 验收：无新增控制台 error/warning；走查页面和结果写入回归报告。
 
 ### C. 三主业务闭环
@@ -609,6 +610,7 @@
 - 进展（2026-05-08）：下个版本候选回归已完成：后端全量测试 `456 passed, 24 warnings`，管理端 `lint/build` 通过，测评端 `lint/build` 通过且无 Vite 大包体警告；已清理管理端/测评端 `dist`、pytest 缓存、Python 缓存和浏览器临时日志，并复跑 `git diff --check` 通过。
 - 进展（2026-05-08）：测评端通用类辅助工具专项已复跑 `test_eval_workflow_presentation.py`、`test_eval_workflow_response_metadata.py`、`test_podi_release_smoke.py`，合计 52 passed；测评端 `lint/build` 通过且无 Vite 大包体警告；已清理测评端 `dist`、pytest 缓存、Python 缓存和浏览器临时日志，并复跑 `git diff --check` 通过。
 - 进展（2026-05-08）：新增 `scripts/package_release_archive.py` 作为手工补丁/静态产物固定打包入口，归档时去除 macOS 扩展属性和 AppleDouble 文件，并统一文件时间；已在 114 上试解包确认不再出现扩展属性或未来时间警告。
+- 进展（2026-05-08）：管理端“操作闭环”组件专项已复跑 `npm run lint` 和 `npm run build`；本地后端和管理端联动走查 API 开放、能力目录、业务能力、能力调用四页，控制台 error/warning 为 0；收尾清理临时日志、构建产物和浏览器临时文件后复跑 `git diff --check`。
 - 验收：提交前不夹带构建产物和缓存。
 
 29. `done` G4 完成项必须标记

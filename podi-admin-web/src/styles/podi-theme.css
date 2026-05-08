@@ -624,22 +624,6 @@ html.t-theme-dark {
   gap: 4px;
 }
 
-.podi-business-workpath-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin: 0;
-  padding-left: 18px;
-  color: var(--td-text-color-secondary);
-  font-size: 13px;
-  line-height: 1.55;
-}
-
-.podi-business-workpath-list li::marker {
-  color: var(--podi-accent);
-  font-weight: 700;
-}
-
 .podi-business-decision-card {
   border-color: color-mix(in srgb, var(--podi-accent) 20%, var(--td-border-level-1-color));
   background:
@@ -1064,19 +1048,51 @@ html.t-theme-dark {
     var(--td-bg-color-container);
 }
 
-.podi-api-quickstart-grid {
+.podi-operation-flow-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: var(--podi-space-3);
 }
 
-.podi-api-quickstart-card {
-  min-height: 150px;
-  padding: 14px;
+.podi-operation-flow-item {
+  min-height: 178px;
   border: 1px solid var(--td-border-level-1-color);
   border-radius: var(--podi-radius-lg);
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--td-bg-color-container) 92%, var(--podi-accent-soft)), var(--td-bg-color-container));
+  padding: 14px;
+}
+
+.podi-operation-flow-item--success {
+  border-color: color-mix(in srgb, var(--td-success-color) 28%, var(--td-border-level-1-color));
+}
+
+.podi-operation-flow-item--warning {
+  border-color: color-mix(in srgb, var(--td-warning-color) 32%, var(--td-border-level-1-color));
+}
+
+.podi-operation-flow-item--danger {
+  border-color: color-mix(in srgb, var(--td-error-color) 34%, var(--td-border-level-1-color));
+}
+
+.podi-operation-flow-item--primary {
+  border-color: color-mix(in srgb, var(--podi-accent) 28%, var(--td-border-level-1-color));
+}
+
+.podi-operation-flow-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--td-text-color-secondary);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.podi-operation-flow-checks li::marker {
+  color: var(--podi-accent);
+  font-weight: 700;
 }
 
 .podi-api-guard-grid {
@@ -1694,7 +1710,6 @@ html.t-theme-dark {
   .podi-api-mode-grid,
   .podi-business-decision-grid,
   .podi-business-closure-grid,
-  .podi-api-quickstart-grid,
   .podi-api-guard-grid {
     grid-template-columns: 1fr;
   }

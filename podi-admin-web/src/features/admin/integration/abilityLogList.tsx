@@ -12,7 +12,7 @@ import {
   resolveLogOutputSummary,
 } from './abilityLogs';
 import { formatDateTime, formatPriceValue, formatUnitLabel } from './formatters';
-import { ActionBar } from '../shared/ui';
+import { ActionBar, OperationFlowCard } from '../shared/ui';
 
 const abilitySourceLabels: Record<string, string> = {
   'admin-test': '控制台测试',
@@ -236,6 +236,47 @@ export function AbilityLogListPanel({
       </ActionBar>
 
       {error ? <Alert theme="error" message={error} /> : null}
+
+      <OperationFlowCard
+        title="能力调用排查路径"
+        description="先缩小范围，再看排障总览，最后打开详情确认任务、回填、回调和成本证据。"
+        summary={troubleCount > 0 ? `当前筛选下有 ${troubleCount} 条需处理记录，先处理失败和回调异常。` : '当前筛选下没有明显阻塞，可继续看分页记录或导出归档。'}
+        summaryTheme={troubleCount > 0 ? 'warning' : 'success'}
+        steps={[
+          {
+            key: 'narrow-scope',
+            title: '先缩小范围',
+            detail: '按来源、厂商、能力、状态或回调异常筛选。',
+            action: '先找到同一批问题，不要在全量列表里逐条猜。',
+            done: '范围明确',
+            theme: 'primary',
+          },
+          {
+            key: 'read-trouble-summary',
+            title: '看排障总览',
+            detail: '优先看执行失败、回调失败、成功无回填、排队或执行中。',
+            action: '红色先处理，黄色上线前处理，绿色只做证据留存。',
+            done: '优先级明确',
+            theme: troubleCount > 0 ? 'warning' : 'success',
+          },
+          {
+            key: 'open-detail',
+            title: '打开详情',
+            detail: '复制追踪编号、任务编号、回调编号和原始响应摘要。',
+            action: '确认问题卡在提交、执行、OSS 回填、回调还是计费。',
+            done: '卡点明确',
+            theme: 'primary',
+          },
+          {
+            key: 'close-loop',
+            title: '复测并记录结论',
+            detail: '修复后重新跑能力或业务链路，确认结果已回填。',
+            action: '把处理结论写入回归记录，避免同类问题反复出现。',
+            done: '闭环完成',
+            theme: 'success',
+          },
+        ]}
+      />
 
       <Space align="center" size="large">
         <Space align="center" size="small">

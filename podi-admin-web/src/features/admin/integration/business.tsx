@@ -12,7 +12,7 @@ import type {
   BusinessUsageSummaryResponse,
   JsonRecord,
 } from '../../../types/admin';
-import { GuidanceQueueCard, StatusBadge, type GuidanceQueueItem } from '../shared/ui';
+import { GuidanceQueueCard, OperationFlowCard, StatusBadge, type GuidanceQueueItem } from '../shared/ui';
 import {
   businessRunBillingStatusOptions,
   businessRunCallbackStatusOptions,
@@ -325,65 +325,59 @@ export const BusinessActionPanel = ({
 export function BusinessWorkPathPanel() {
   const paths = [
     {
+      key: 'release-new-version',
       title: '上一个新版本',
       tag: '发布路径',
       theme: 'primary' as const,
       steps: ['新增业务版本', '确认底层能力和模型已就绪', '跑真实链路并记录验收通过', '小流量灰度或申请切默认'],
       result: '业务方仍调用同一个业务 API，中台内部切版本。',
+      action: '新增版本后先跑真实链路，验收通过再申请切默认。',
     },
     {
+      key: 'diagnose-failure',
       title: '处理一次失败',
       tag: '排障路径',
       theme: 'warning' as const,
       steps: ['先看业务复测闭环', '打开失败运行详情', '确认卡在版本、能力、执行节点、回填、回调还是计费', '复测或重试回调后再标记结论'],
       result: '不要只看“任务失败”，要定位到闭环里的具体步骤。',
+      action: '先打开失败运行详情，把卡点定位到具体阶段。',
     },
     {
+      key: 'connect-business',
       title: '给业务方接入',
       tag: '接入口径',
       theme: 'success' as const,
       steps: ['优先给业务 API', '让对方保存 runId', '统一轮询结果或接收回调', '不要让业务方理解 Coze 工作流或 ComfyUI 节点'],
       result: '业务方只关心传参、runId、结果和错误提示。',
+      action: '给业务方业务 API、查询接口和错误码处理口径。',
     },
     {
+      key: 'gray-or-rollback',
       title: '做灰度或回滚',
       tag: '风险控制',
       theme: 'default' as const,
       steps: ['先看目标版本证据', '确认验收通过和最近成功样本', '确认有可回滚备选', '再执行灰度、切默认或回滚'],
       result: '切换前必须有证据，不再靠口头确认。',
+      action: '先确认验收、样本和回滚版本，再执行切换动作。',
     },
   ];
 
   return (
-    <Card bordered title="业务能力怎么用">
-      <Space direction="vertical" size="small" style={{ width: '100%' }}>
-        <Typography.Text theme="secondary">
-          这页不是底层配置表。先按实际工作选择路径，再进入版本、运行记录或验收操作。
-        </Typography.Text>
-        <Row gutter={[12, 12]}>
-          {paths.map((path) => (
-            <Col key={path.title} xs={12} md={6} xl={3}>
-              <Card bordered size="small" style={{ height: '100%' }}>
-                <Space direction="vertical" size={8} style={{ width: '100%' }}>
-                  <Space align="center" style={{ justifyContent: 'space-between', width: '100%', gap: 8 }}>
-                    <Typography.Text strong>{path.title}</Typography.Text>
-                    <Tag theme={path.theme} variant="light">
-                      {path.tag}
-                    </Tag>
-                  </Space>
-                  <ol className="podi-business-workpath-list">
-                    {path.steps.map((step) => (
-                      <li key={step}>{step}</li>
-                    ))}
-                  </ol>
-                  <Typography.Text theme="secondary">{path.result}</Typography.Text>
-                </Space>
-              </Card>
-            </Col>
-          ))}
-        </Row>
-      </Space>
-    </Card>
+    <OperationFlowCard
+      title="业务能力怎么用"
+      description="这页不是底层配置表。先按实际工作选择路径，再进入版本、运行记录或验收操作。"
+      summary="主业务要固定成可上线、可灰度、可回滚、可排障的闭环，不再靠口头确认。"
+      summaryTheme="primary"
+      steps={paths.map((path) => ({
+        key: path.key,
+        title: path.title,
+        detail: path.result,
+        action: path.action,
+        done: path.tag,
+        theme: path.theme,
+        checks: path.steps,
+      }))}
+    />
   );
 }
 

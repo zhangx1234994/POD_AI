@@ -10,7 +10,7 @@ import type {
   Workflow,
 } from '../../../types/admin';
 import { mapStatusToBadge } from '../shared/status';
-import { GuidanceQueueCard, type GuidanceQueueItem } from '../shared/ui';
+import { GuidanceQueueCard, OperationFlowCard, type GuidanceQueueItem } from '../shared/ui';
 import { getAbilityLogStatusTag, resolveLogDurationMs } from './abilityLogs';
 import { resolveAbilityOutputProfile } from './abilityOutputProfile';
 import { AbilityHealthPanel, type AbilityHealthFilter } from './abilityHealth';
@@ -389,35 +389,47 @@ export function AbilityCatalogPanel({
         </Space>
       }
     >
-      <Card bordered style={{ marginBottom: 12 }} title="能力接入顺序">
-        <Row gutter={[12, 12]}>
-          {[
-            ['1', '先确认能力类型', '区分图片、视频、文字、图像理解，避免所有能力都塞进“生图”。'],
-            ['2', '补齐业务表单', '字段名称、中文说明、默认值和错误提示要让非技术同学看得懂。'],
-            ['3', '绑定模型或线路', '商业模型走模型弹药库，ComfyUI 能力走运行线路，不要让业务方理解底层节点。'],
-            ['4', '测试后再发布', '能力测试通过、模板发布、成本口径确认后，再绑定到业务版本。'],
-          ].map(([index, title, body]) => (
-            <Col key={index} xs={12} md={3}>
-              <div
-                style={{
-                  border: '1px solid var(--td-border-level-1-color)',
-                  borderRadius: 12,
-                  padding: 12,
-                  height: '100%',
-                }}
-              >
-                <Space direction="vertical" size={4}>
-                  <Tag theme="primary" variant="light">
-                    {index}
-                  </Tag>
-                  <Typography.Text strong>{title}</Typography.Text>
-                  <Typography.Text theme="secondary">{body}</Typography.Text>
-                </Space>
-              </div>
-            </Col>
-          ))}
-        </Row>
-      </Card>
+      <OperationFlowCard
+        title="能力接入闭环"
+        description="先确认能力面向什么业务，再补表单、绑定线路、跑测试，最后才允许进入业务版本。"
+        summary="能力目录不是底层配置仓库。每个能力都必须能回答：谁用、怎么填、走哪条线路、测试证据在哪里。"
+        summaryTheme="primary"
+        style={{ marginBottom: 12 }}
+        steps={[
+          {
+            key: 'classify-output',
+            title: '先确认能力类型',
+            detail: '区分图片、视频、文字、图像理解和资源输出。',
+            action: '避免所有能力都塞进“生图”，后续日志、测评和计费都按类型处理。',
+            done: '类型清楚',
+            theme: 'primary',
+          },
+          {
+            key: 'complete-form',
+            title: '补齐业务表单',
+            detail: '字段名称、中文说明、默认值和错误提示要让非技术同学看得懂。',
+            action: '先补 schema 和模板，再让 Coze、测评端或业务 API 使用。',
+            done: '表单可用',
+            theme: 'warning',
+          },
+          {
+            key: 'bind-route',
+            title: '绑定模型或线路',
+            detail: '商业模型走模型弹药库，ComfyUI 能力走运行线路。',
+            action: '不要把执行器、模型编号、节点名暴露成普通用户主动作。',
+            done: '线路明确',
+            theme: 'primary',
+          },
+          {
+            key: 'test-and-release',
+            title: '测试后再发布',
+            detail: '能力测试通过、模板发布、成本口径确认后，再绑定到业务版本。',
+            action: '把测试证据沉淀到调用日志和业务上线证据里。',
+            done: '证据完整',
+            theme: 'success',
+          },
+        ]}
+      />
 
       <Card bordered style={{ marginBottom: 12 }} title="能力输出分布">
         <Row gutter={[12, 12]}>
