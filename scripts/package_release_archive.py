@@ -7,13 +7,12 @@ remote hosts with slightly slower clocks do not emit "time stamp is in the
 future" warnings during extraction.
 """
 
-from __future__ import annotations
-
 import argparse
 import os
 import tarfile
 import time
 from pathlib import Path
+from typing import List, Optional, Set, Tuple
 
 IGNORED_NAMES = {".DS_Store", "__MACOSX"}
 IGNORED_PREFIXES = ("._",)
@@ -31,8 +30,8 @@ def _safe_relative_path(root: Path, path: Path) -> Path:
         raise ValueError(f"path is outside archive root: {path}") from exc
 
 
-def _iter_archive_entries(root: Path, requested_paths: list[Path]) -> list[tuple[Path, str]]:
-    entries: list[tuple[Path, str]] = []
+def _iter_archive_entries(root: Path, requested_paths: List[Path]) -> List[Tuple[Path, str]]:
+    entries = []  # type: List[Tuple[Path, str]]
     for requested in requested_paths:
         source = (root / requested).resolve()
         _safe_relative_path(root, source)
@@ -77,18 +76,18 @@ def build_archive(
     *,
     root: Path,
     output: Path,
-    paths: list[Path],
-    mtime: int | None = None,
-) -> list[str]:
+    paths: List[Path],
+    mtime: Optional[int] = None,
+) -> List[str]:
     root = root.resolve()
     output = output.resolve()
     archive_mtime = int(mtime if mtime is not None else time.time() - 300)
     entries = _iter_archive_entries(root, paths)
     output.parent.mkdir(parents=True, exist_ok=True)
 
-    added: list[str] = []
+    added = []  # type: List[str]
     with tarfile.open(output, "w:gz", format=tarfile.PAX_FORMAT) as archive:
-        seen: set[str] = set()
+        seen = set()  # type: Set[str]
         for source, arcname in entries:
             if arcname in seen:
                 continue
