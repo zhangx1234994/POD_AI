@@ -23,6 +23,18 @@ _CATEGORY_OPERATION_LABELS = {
     "通用类": "通用处理",
 }
 
+_IMAGE_TAGGING_WORKFLOW_IDS = {
+    "7597767702970630144": "小参数标签版",
+    "7598080013539213312": "大参数标签版",
+    "7600254097513512960": "Lits 标签版",
+    "7600254796297142272": "色号标签版",
+}
+
+_IMAGE_URL_AUXILIARY_WORKFLOW_IDS = {
+    "7597760543788630016": "8K 高清放大",
+    "7598589746561941504": "DPI 增分",
+}
+
 
 def _normalize_bool(value: Any, *, default: bool) -> bool:
     if isinstance(value, bool):
@@ -160,6 +172,29 @@ def _guess_variant_label(*, workflow_id: str, name: str) -> str:
     return parts[-1] if len(parts) > 1 else ""
 
 
+def _forced_presentation_values(*, workflow_id: str, name: str) -> dict[str, str]:
+    lowered = f"{workflow_id} {name}".lower()
+    if workflow_id in _IMAGE_TAGGING_WORKFLOW_IDS or "biaoqian_tiqu" in lowered:
+        return {
+            "operation_label": "图片打标签",
+            "variant_label": _IMAGE_TAGGING_WORKFLOW_IDS.get(workflow_id) or _guess_variant_label(
+                workflow_id=workflow_id,
+                name=name,
+            ),
+            "result_mode": "structured_json",
+        }
+    if workflow_id in _IMAGE_URL_AUXILIARY_WORKFLOW_IDS or "高清放大" in name or "dpi" in lowered or "增分" in name:
+        return {
+            "operation_label": "图像原子处理",
+            "variant_label": _IMAGE_URL_AUXILIARY_WORKFLOW_IDS.get(workflow_id) or _guess_variant_label(
+                workflow_id=workflow_id,
+                name=name,
+            ),
+            "result_mode": "image_url",
+        }
+    return {}
+
+
 def _guess_usage_hint(
     *,
     category: str,
@@ -212,11 +247,12 @@ def resolve_eval_workflow_presentation(
     category_text = str(category or "").strip() or "通用类"
     workflow_id_text = str(workflow_id or "").strip()
     name_text = str(name or "").strip()
+    forced_values = _forced_presentation_values(workflow_id=workflow_id_text, name=name_text)
     entry_mode = str(
         presentation.get("entry_mode") or _guess_entry_mode(parameters_schema)
     ).strip() or "parameter_form"
     result_mode = str(
-        presentation.get("result_mode") or _guess_result_mode(output_schema)
+        forced_values.get("result_mode") or presentation.get("result_mode") or _guess_result_mode(output_schema)
     ).strip() or "unknown"
     supports_batch = _normalize_bool(
         presentation.get("supports_batch"),
@@ -244,7 +280,8 @@ def resolve_eval_workflow_presentation(
             )
         ).strip(),
         "operation_label": str(
-            presentation.get("operation_label")
+            forced_values.get("operation_label")
+            or presentation.get("operation_label")
             or _guess_operation_label(
                 category=category_text,
                 workflow_id=workflow_id_text,
@@ -252,7 +289,8 @@ def resolve_eval_workflow_presentation(
             )
         ).strip(),
         "variant_label": str(
-            presentation.get("variant_label")
+            forced_values.get("variant_label")
+            or presentation.get("variant_label")
             or _guess_variant_label(workflow_id=workflow_id_text, name=name_text)
         ).strip(),
         "entry_mode": entry_mode,

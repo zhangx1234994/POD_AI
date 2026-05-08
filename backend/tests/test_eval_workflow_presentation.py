@@ -107,6 +107,50 @@ def test_eval_workflow_presentation_detects_image_url_outputs() -> None:
     assert presentation["result_mode"] == "image_url"
 
 
+def test_eval_workflow_presentation_normalizes_stale_auxiliary_metadata() -> None:
+    presentation = resolve_eval_workflow_presentation(
+        status="active",
+        category="通用类",
+        workflow_id="7600254097513512960",
+        name="图片打标签 · Biaoqian_tiqu_3",
+        parameters_schema={"fields": [{"name": "url", "label": "图片 URL"}]},
+        output_schema={"fields": [{"name": "output", "type": "text", "description": "标签文本"}]},
+        metadata={
+            "presentation": {
+                "operation_label": "花纹提取",
+                "variant_label": "旧标签",
+                "result_mode": "text",
+            }
+        },
+    )
+
+    assert presentation["operation_label"] == "图片打标签"
+    assert presentation["variant_label"] == "Lits 标签版"
+    assert presentation["result_mode"] == "structured_json"
+
+
+def test_eval_workflow_presentation_normalizes_stale_image_url_metadata() -> None:
+    presentation = resolve_eval_workflow_presentation(
+        status="active",
+        category="通用类",
+        workflow_id="7598589746561941504",
+        name="DPI 增分",
+        parameters_schema={"fields": [{"name": "url", "label": "图片 URL"}]},
+        output_schema={"fields": [{"name": "output", "type": "text", "description": "图片 URL"}]},
+        metadata={
+            "presentation": {
+                "operation_label": "通用处理",
+                "variant_label": "旧标签",
+                "result_mode": "text",
+            }
+        },
+    )
+
+    assert presentation["operation_label"] == "图像原子处理"
+    assert presentation["variant_label"] == "DPI 增分"
+    assert presentation["result_mode"] == "image_url"
+
+
 def test_eval_workflow_visibility_and_sort_follow_presentation() -> None:
     metadata = enrich_metadata_with_eval_workflow_presentation(
         {},
