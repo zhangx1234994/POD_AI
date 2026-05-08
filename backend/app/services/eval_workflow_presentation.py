@@ -84,8 +84,12 @@ def _guess_result_mode(output_schema: dict[str, Any] | None) -> str:
     names = set(_field_names(output_schema))
     if {"items", "lora_names"} & names:
         return "structured_json"
+    if "json" in output_desc or "结构化" in output_desc or "标签" in output_desc:
+        return "structured_json"
     if "task id" in output_desc or "回调" in output_desc or "callback" in output_desc:
         return "callback_image"
+    if "url" in output_desc and ("图片" in output_desc or "image" in output_desc):
+        return "image_url"
     if "output" in names and "ip" in names:
         return "image"
     if "output" in names:
@@ -95,6 +99,10 @@ def _guess_result_mode(output_schema: dict[str, Any] | None) -> str:
 
 def _guess_operation_label(*, category: str, workflow_id: str, name: str) -> str:
     lowered = f"{workflow_id} {name}".lower()
+    if any(token in lowered for token in ("biaoqian", "打标签", "tag", "label")):
+        return "图片打标签"
+    if any(token in lowered for token in ("高清放大", "upscale", "dpi", "增分")):
+        return "图像原子处理"
     if any(token in lowered for token in ("outpaint", "kuotu", "kuozhan", "延伸")):
         return "图像延伸"
     if any(token in lowered for token in ("koutu", "kouxiang", "抠图", "抠像")):
@@ -132,6 +140,18 @@ def _guess_variant_label(*, workflow_id: str, name: str) -> str:
         return "背景抠图"
     if "头部抠像" in name or "toubu_kouxiang" in lowered:
         return "头部抠像"
+    if "biaoqian_tiqu_3_1" in lowered:
+        return "色号标签版"
+    if "biaoqian_tiqu_3" in lowered:
+        return "Lits 标签版"
+    if "biaoqian_tiqu_1" in lowered:
+        return "大参数标签版"
+    if "biaoqian_tiqu" in lowered or "图片打标签" in name:
+        return "小参数标签版"
+    if "8k" in lowered or "高清放大" in name:
+        return "8K 高清放大"
+    if "dpi" in lowered or "增分" in name:
+        return "DPI 增分"
     parts = [
         item.strip()
         for item in name.replace("｜", "·").replace("|", "·").replace("/", "·").split("·")

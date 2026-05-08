@@ -390,6 +390,18 @@ html.t-theme-dark {
   border-color: color-mix(in srgb, var(--podi-tool-accent, var(--td-brand-color)) 24%, var(--td-border-level-1-color));
 }
 
+.podi-eval-tool-card--auxiliary .podi-eval-tool-card__panel {
+  border-style: dashed;
+  border-color: color-mix(in srgb, #64748b 42%, var(--td-border-level-1-color));
+  background:
+    linear-gradient(180deg, rgba(100, 116, 139, 0.05), rgba(255, 255, 255, 0)),
+    var(--td-bg-color-container);
+}
+
+.podi-eval-tool-card--auxiliary .podi-eval-tool-card__topline {
+  background: linear-gradient(90deg, #64748b, #94a3b8);
+}
+
 .podi-eval-tool-card__topline {
   position: absolute;
   top: 0;
@@ -422,6 +434,16 @@ html.t-theme-dark {
 .podi-eval-tool-card__cover-text {
   font-size: 12px;
   color: var(--td-text-color-secondary);
+}
+
+.podi-eval-tool-card__auxiliary-note {
+  margin: -2px 0 10px;
+  border-radius: 9px;
+  background: rgba(100, 116, 139, 0.09);
+  color: #475569;
+  font-size: 12px;
+  line-height: 18px;
+  padding: 6px 8px;
 }
 
 .podi-eval-tool-card__identity {

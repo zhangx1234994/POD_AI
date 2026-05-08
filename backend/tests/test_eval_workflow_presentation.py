@@ -75,6 +75,38 @@ def test_enrich_eval_workflow_presentation_preserves_parameter_defaults() -> Non
     }
 
 
+def test_eval_workflow_presentation_labels_tagging_as_image_analysis() -> None:
+    presentation = resolve_eval_workflow_presentation(
+        status="active",
+        category="通用类",
+        workflow_id="7597767702970630144",
+        name="图片打标签 · Biaoqian_tiqu",
+        parameters_schema={"fields": [{"name": "url", "label": "图片 URL"}]},
+        output_schema={"fields": [{"name": "output", "type": "json", "description": "JSON 标签"}]},
+        metadata={},
+    )
+
+    assert presentation["operation_label"] == "图片打标签"
+    assert presentation["variant_label"] == "小参数标签版"
+    assert presentation["result_mode"] == "structured_json"
+
+
+def test_eval_workflow_presentation_detects_image_url_outputs() -> None:
+    presentation = resolve_eval_workflow_presentation(
+        status="active",
+        category="通用类",
+        workflow_id="7597760543788630016",
+        name="8K 高清放大",
+        parameters_schema={"fields": [{"name": "url", "label": "图片 URL"}]},
+        output_schema={"fields": [{"name": "output", "type": "text", "description": "图片 URL"}]},
+        metadata={},
+    )
+
+    assert presentation["operation_label"] == "图像原子处理"
+    assert presentation["variant_label"] == "8K 高清放大"
+    assert presentation["result_mode"] == "image_url"
+
+
 def test_eval_workflow_visibility_and_sort_follow_presentation() -> None:
     metadata = enrich_metadata_with_eval_workflow_presentation(
         {},

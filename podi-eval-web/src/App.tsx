@@ -644,6 +644,18 @@ const getWorkflowStatusLabel = (status: string | undefined | null): string => {
   return value || '未知';
 };
 
+const getWorkflowResultModeLabel = (mode: string): string => {
+  const value = String(mode || '').trim().toLowerCase();
+  if (value === 'callback_image') return '图片回填';
+  if (value === 'image_url') return '图片 URL';
+  if (value === 'image') return '图片';
+  if (value === 'video') return '视频';
+  if (value === 'structured_json') return '结构化结果';
+  if (value === 'text') return '文字';
+  if (value === 'unknown') return '';
+  return mode;
+};
+
 const getWorkflowInputSummary = (wf: EvalWorkflowVersion): string => {
   const text = getSchemaFields(wf.parameters_schema)
     .map((field) => `${field.name} ${field.label || ''} ${field.description || ''}`)
@@ -662,7 +674,8 @@ const getWorkflowInputSummary = (wf: EvalWorkflowVersion): string => {
 
 const getWorkflowOutputSummary = (wf: EvalWorkflowVersion): string => {
   const resultMode = String(getWorkflowPresentation(wf)?.resultMode || '').trim();
-  if (resultMode) return resultMode;
+  const resultModeLabel = getWorkflowResultModeLabel(resultMode);
+  if (resultModeLabel) return resultModeLabel;
   const text = getSchemaFields(wf.output_schema)
     .map((field) => `${field.name} ${field.label || ''} ${field.description || ''}`)
     .join(' ')
@@ -1721,6 +1734,8 @@ function ToolCard({
   const roleLabel = String(governance?.roleLabel || '可测版本').trim();
   const roleReason = String(governance?.roleReason || '').trim();
   const roleTheme = getWorkflowGovernanceTheme(governance?.role);
+  const role = String(governance?.role || '').trim().toLowerCase();
+  const isAuxiliary = role === 'auxiliary';
   const routingTheme = getWorkflowRoutingGovernanceTheme(routingGovernance?.governanceStatus);
   const executionLabel = String(routingGovernance?.executionLabel || '执行面待确认').trim();
   const trackingLabel = String(routingGovernance?.currentTrackingLabel || '追踪待确认').trim();
@@ -1738,7 +1753,7 @@ function ToolCard({
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') onClick();
       }}
-      className="podi-eval-tool-card"
+      className={`podi-eval-tool-card${isAuxiliary ? ' podi-eval-tool-card--auxiliary' : ''}`}
     >
       <Card bordered className="podi-eval-tool-card__panel" style={panelStyle}>
         <div className="podi-eval-tool-card__topline" />
@@ -1748,6 +1763,11 @@ function ToolCard({
           </span>
           <span className="podi-eval-tool-card__cover-text">{categoryName}</span>
         </div>
+        {isAuxiliary ? (
+          <div className="podi-eval-tool-card__auxiliary-note">
+            辅助验证工具，不作为业务主入口；用于自检、排障或结果补充处理。
+          </div>
+        ) : null}
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
           <div className="podi-eval-tool-card__identity">
             <div style={{ minWidth: 0 }}>

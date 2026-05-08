@@ -19,6 +19,16 @@ import httpx
 
 
 PUBLIC_EVAL_WORKFLOW_ROLES = {"production", "candidate"}
+INTERNAL_EVAL_WORKFLOW_ROLES = PUBLIC_EVAL_WORKFLOW_ROLES | {"auxiliary"}
+REQUIRED_INTERNAL_EVAL_AUXILIARY_WORKFLOW_IDS = {
+    "7597760543788630016",  # 8K 高清放大
+    "7598589746561941504",  # DPI 增分
+    "7597767702970630144",  # 图片打标签
+    "7598080013539213312",  # 图片打标签
+    "7600254097513512960",  # 图片打标签
+    "7600254796297142272",  # 图片打标签
+    "7612002440056930304",  # LoRA 查询
+}
 DEFAULT_MAX_PRODUCTION_PER_CATEGORY = 2
 CORE_BUSINESS_PATROL_IMAGE_URL = (
     "https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/"
@@ -293,6 +303,55 @@ def _validate_eval_workflow_catalog(
         )
     production_counts = {category: len(workflow_ids) for category, workflow_ids in production_by_category.items()}
     return True, f"count={len(items)} roles={dict(role_counts)} productionByCategory={production_counts}"
+
+
+def _validate_internal_eval_workflow_catalog(data: Any) -> tuple[bool, str]:
+    items = data.get("items") if isinstance(data, dict) else data
+    if not isinstance(items, list):
+        return False, "workflow list is not a list"
+    if not items:
+        return False, "workflow list is empty"
+
+    role_counts: Counter[str] = Counter()
+    workflow_ids: set[str] = set()
+    leaked: list[str] = []
+    hidden: list[str] = []
+    general_count = 0
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        workflow_id = str(item.get("workflow_id") or item.get("workflowId") or item.get("id") or "").strip()
+        if workflow_id:
+            workflow_ids.add(workflow_id)
+        presentation = item.get("presentation") if isinstance(item.get("presentation"), dict) else {}
+        category = str(
+            presentation.get("categoryLabel")
+            or presentation.get("category_label")
+            or item.get("category")
+            or "未归类"
+        ).strip()
+        if category == "通用类":
+            general_count += 1
+        governance = item.get("governance") if isinstance(item.get("governance"), dict) else {}
+        role = str(governance.get("role") or "").strip().lower()
+        if role:
+            role_counts[role] += 1
+        if role not in INTERNAL_EVAL_WORKFLOW_ROLES:
+            leaked.append(f"{workflow_id or '-'}:{role or 'missing'}")
+        raw_visible = presentation.get("visible")
+        if raw_visible is False:
+            hidden.append(workflow_id or "-")
+
+    missing_required = sorted(REQUIRED_INTERNAL_EVAL_AUXILIARY_WORKFLOW_IDS - workflow_ids)
+    if leaked:
+        return False, f"unexpected roles in internal eval catalog={leaked[:5]} roles={dict(role_counts)}"
+    if hidden:
+        return False, f"internal eval catalog contains visible=false workflows={hidden[:5]}"
+    if missing_required:
+        return False, f"missing required auxiliary workflows={missing_required[:5]} roles={dict(role_counts)}"
+    if role_counts.get("auxiliary", 0) <= 0:
+        return False, f"no auxiliary workflows returned roles={dict(role_counts)}"
+    return True, f"count={len(items)} general={general_count} roles={dict(role_counts)}"
 
 
 def _validate_business_usage_summary(
@@ -929,6 +988,13 @@ def main() -> int:
             checks.append(_result("eval_workflow_catalog", status == 200 and ok, f"status={status} {catalog_detail}"))
         except Exception as exc:
             checks.append(_result("eval_workflow_catalog", False, repr(exc)))
+
+        try:
+            status, data = _get_json(client, "/api/evals/workflow-versions?includeAuxiliary=true")
+            ok, catalog_detail = _validate_internal_eval_workflow_catalog(data)
+            checks.append(_result("eval_workflow_internal_catalog", status == 200 and ok, f"status={status} {catalog_detail}"))
+        except Exception as exc:
+            checks.append(_result("eval_workflow_internal_catalog", False, repr(exc)))
 
     if not args.skip_business_route:
         checks.extend(_run_business_route_checks(base_url=base_url, token=args.service_token))
