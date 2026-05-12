@@ -343,3 +343,33 @@ def test_coze_task_get_accepts_business_run_id_for_polling_compatibility(monkeyp
     assert body["imageUrl"] == "https://example.com/out.png"
     assert body["imageUrls"] == ["https://example.com/out.png"]
     assert body["requestId"] == "req-direct-001"
+
+
+def test_coze_task_get_keeps_task_not_found_for_unknown_ids(monkeypatch) -> None:
+    class FakeSession:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, model, row_id):
+            return None
+
+    class FakeBusinessRunService:
+        def get_run(self, *, run_id, user):
+            from fastapi import HTTPException
+
+            raise HTTPException(status_code=404, detail="BUSINESS_RUN_NOT_FOUND")
+
+    monkeypatch.setattr("app.routers.coze_podi_plugin.get_session", lambda: FakeSession())
+    monkeypatch.setattr("app.routers.coze_podi_plugin.get_business_run_service", lambda: FakeBusinessRunService())
+
+    resp = client.post(
+        "/api/coze/podi/tasks/get",
+        json={"taskId": "missing-id"},
+        headers={"x-real-ip": "127.0.0.1"},
+    )
+
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "TASK_NOT_FOUND"

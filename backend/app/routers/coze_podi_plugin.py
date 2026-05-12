@@ -1673,8 +1673,6 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
     raw_task_id = body.get("taskId")
     task_id = decode_task_id(raw_task_id)
     if not isinstance(task_id, str) or not task_id.strip():
-        from fastapi import HTTPException
-
         raise HTTPException(status_code=400, detail="TASK_ID_REQUIRED")
 
     # Keep backward compatibility:
