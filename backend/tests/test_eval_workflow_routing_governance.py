@@ -50,9 +50,9 @@ def test_internal_callback_workflow_does_not_require_business_tracking() -> None
 
 def test_vl_workflow_routing_governance_uses_vendor_log_not_image_task() -> None:
     governance = resolve_eval_workflow_routing_governance(
-        workflow_id="7597767702970630144",
-        name="图片打标签 · Biaoqian_tiqu",
-        category="通用类",
+        workflow_id="7625930748914040832",
+        name="图片打标签 · 结构化打标版",
+        category="图像理解",
         output_schema={"fields": [{"name": "output", "type": "json", "description": "JSON 标签"}]},
     )
 

@@ -138,6 +138,7 @@ FORCE_SYNC_EVAL_WORKFLOW_IDS: set[str] = {
     "business_fission_comfyui_vl_control_v1",
     "ability_fission_generated_image_evaluate_v1",
     "7631838631375667200",
+    "7625930748914040832",
 }
 
 
@@ -880,6 +881,39 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         "notes": "lits 版本图片打标签（主色为色号）。输出 output 为 JSON（图片标签）。",
         "parameters_schema": {"fields": [{"name": "url", "label": "图片 URL", "type": "text", "required": True}]},
         "output_schema": {"fields": [{"name": "output", "type": "json", "description": "JSON 标签"}]},
+    },
+    # 图像理解 / 图片打标签（结构化打标版）
+    {
+        "category": "图像理解",
+        "name": "图片打标签 · 结构化打标版",
+        "version": "v1",
+        "workflow_id": "7625930748914040832",
+        "status": "active",
+        "notes": "图片结构化打标工作流。输入图片 URL，输出 output 为 JSON 标签，可用于裂变前后质量判断和素材归档。",
+        "parameters_schema": {"fields": [{"name": "url", "label": "图片 URL", "type": "image", "required": True}]},
+        "output_schema": {"fields": [{"name": "output", "type": "json", "description": "JSON 标签"}]},
+        "metadata": {
+            "presentation": {
+                "operation_label": "图片打标签",
+                "variant_label": "结构化打标版",
+                "result_mode": "structured_json",
+                "usage_hint": "适合检查图片主题、风格、颜色、图案和可用标签，辅助裂变结果筛选。",
+                "badges": ["打标"],
+            },
+            "usage": {
+                "single_run_enabled": True,
+                "batch_enabled": False,
+                "docs_enabled": True,
+                "recommended_entry": "single",
+                "supports_annotation": True,
+            },
+            "governance": {
+                "role": "candidate",
+                "role_label": "待验证打标入口",
+                "role_reason": "新补齐到测评端，先作为可测版本观察。",
+                "rank": 30,
+            },
+        },
     },
     # 通用类 / ComfyUI 队列监控
     {

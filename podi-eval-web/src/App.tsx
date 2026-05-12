@@ -504,6 +504,18 @@ const getWorkflowRoutingGovernance = (wf: EvalWorkflowVersion | null | undefined
     ? wf.routingGovernance
     : null) as EvalWorkflowVersion['routingGovernance'];
 
+const getWorkflowEvalExecution = (wf: EvalWorkflowVersion | null | undefined): Record<string, unknown> | null => {
+  const metadata = wf?.metadata;
+  const execution = metadata && typeof metadata === 'object' ? (metadata as any).eval_execution : null;
+  return execution && typeof execution === 'object' ? execution : null;
+};
+
+const isBusinessApiWorkflow = (wf: EvalWorkflowVersion | null | undefined): boolean => {
+  const routing = getWorkflowRoutingGovernance(wf);
+  const execution = getWorkflowEvalExecution(wf);
+  return routing?.entryMode === 'business_api' || execution?.mode === 'business_run';
+};
+
 const inferWorkflowCategory = (
   wf: Pick<EvalWorkflowVersion, 'category' | 'presentation' | 'name' | 'workflow_id' | 'notes'> | null | undefined,
 ): string => {
@@ -1661,6 +1673,55 @@ const buildCozeDoc = (wf: EvalWorkflowVersion, urlExample: string) => {
   ].join('\n');
 };
 
+const buildBusinessApiDoc = (wf: EvalWorkflowVersion, urlExample: string) => {
+  const execution = getWorkflowEvalExecution(wf);
+  const businessKey = String(execution?.business_key || 'fission').trim() || 'fission';
+  const businessVersion = String(execution?.version || wf.version || '').trim();
+  const paramsExample: Record<string, unknown> = {};
+  const fields = getFields(wf).filter((f) => {
+    if (!isFissionWorkflow(wf)) return true;
+    return !INTERNAL_EVAL_DOC_KEYS.has(String(f.name || '').toLowerCase());
+  });
+
+  for (const f of fields) {
+    if (f.name === 'url' || f.name === 'imageUrl') {
+      paramsExample.imageUrl = urlExample || 'https://...';
+      continue;
+    }
+    const options = normalizeFieldOptions(f);
+    if (options.length > 0) {
+      paramsExample[f.name] = String(options[0].value);
+      continue;
+    }
+    if (typeof f.defaultValue === 'string') {
+      paramsExample[f.name] = f.defaultValue;
+      continue;
+    }
+    paramsExample[f.name] = '';
+  }
+
+  if (!paramsExample.imageUrl) paramsExample.imageUrl = urlExample || 'https://...';
+  if (businessVersion) paramsExample.version = businessVersion;
+  paramsExample.source = 'partner-api';
+  paramsExample.channel = 'open-api';
+  paramsExample.requestId = 'biz-request-001';
+
+  const endpointKey = businessKey.replaceAll('_', '-');
+  return [
+    '【提交任务】',
+    `curl -X POST "$PODI_BASE_URL/api/business/${endpointKey}/runs" \\`,
+    '  -H "Authorization: Bearer $PODI_API_TOKEN" \\',
+    '  -H "Content-Type: application/json" \\',
+    `  -d '${JSON.stringify(paramsExample, null, 2)}'`,
+    '',
+    '【查询结果】',
+    'curl -X GET "$PODI_BASE_URL/api/business/runs/<runId>" \\',
+    '  -H "Authorization: Bearer $PODI_API_TOKEN"',
+    '',
+    '返回中的 runId 是中台业务任务 ID；taskId 是底层能力任务 ID，业务方一般只需要保存 runId。',
+  ].join('\n');
+};
+
 const buildAiEditorDoc = (
   wf: EvalWorkflowVersion,
   urlExample: string,
@@ -2168,11 +2229,15 @@ function StepGuide({
 
 function IntegrationDocBlock({
   doc,
+  title = '业务接入文档（Coze OpenAPI）',
+  description = '低频资料默认收起；需要给业务方核对参数时再展开。',
   expanded,
   onToggle,
   onCopy,
 }: {
   doc: string;
+  title?: string;
+  description?: string;
   expanded: boolean;
   onToggle: () => void;
   onCopy: () => void;
@@ -2181,8 +2246,8 @@ function IntegrationDocBlock({
     <div className="podi-integration-doc">
       <div className="podi-integration-doc__head">
         <div>
-          <strong>业务接入文档（Coze OpenAPI）</strong>
-          <span>低频资料默认收起；需要给业务方核对参数时再展开。</span>
+          <strong>{title}</strong>
+          <span>{description}</span>
         </div>
         <Space>
           <Button size="small" variant="outline" onClick={onCopy}>
@@ -6281,9 +6346,18 @@ export function App() {
     const selectedToolExecutionLabel = String(selectedToolRouting?.executionLabel || '执行面待确认').trim();
     const selectedToolTrackingLabel = String(selectedToolRouting?.currentTrackingLabel || '追踪待确认').trim();
     const selectedToolRoleLabel = String(selectedToolGovernance?.roleLabel || '可测版本').trim();
+    const selectedToolUsesBusinessApi = isBusinessApiWorkflow(selectedTool);
     const doc = isAiEditor
       ? buildAiEditorDoc(selectedTool, formUrl.trim(), editorPromptPreview, editorRefs)
-      : buildCozeDoc(selectedTool, formUrl.trim());
+      : selectedToolUsesBusinessApi
+        ? buildBusinessApiDoc(selectedTool, formUrl.trim())
+        : buildCozeDoc(selectedTool, formUrl.trim());
+    const integrationDocTitle = selectedToolUsesBusinessApi
+      ? '业务接入文档（中台业务 API）'
+      : '业务接入文档（Coze OpenAPI）';
+    const integrationDocDescription = selectedToolUsesBusinessApi
+      ? '此功能不走 Coze 工作流，业务方应直接提交中台业务任务并用 runId 查询结果。'
+      : '低频资料默认收起；需要给业务方核对参数时再展开。';
     const copyIntegrationDoc = async () => {
       try {
         await navigator.clipboard.writeText(doc);
@@ -6796,6 +6870,8 @@ export function App() {
 
                   <IntegrationDocBlock
                     doc={doc}
+                    title={integrationDocTitle}
+                    description={integrationDocDescription}
                     expanded={showIntegrationDoc}
                     onToggle={() => setShowIntegrationDoc((prev) => !prev)}
                     onCopy={copyIntegrationDoc}
@@ -7027,6 +7103,8 @@ export function App() {
 
                   <IntegrationDocBlock
                     doc={doc}
+                    title={integrationDocTitle}
+                    description={integrationDocDescription}
                     expanded={showIntegrationDoc}
                     onToggle={() => setShowIntegrationDoc((prev) => !prev)}
                     onCopy={copyIntegrationDoc}

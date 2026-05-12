@@ -226,3 +226,28 @@ def test_gpt_image2_vl_eval_exposes_size_presets():
         "3840x2160",
         "2160x3840",
     } <= values
+
+
+def test_20260512_image_tagging_workflow_is_visible_image_analysis_entry():
+    workflow = DEFAULT_EVAL_WORKFLOW_BY_ID["7625930748914040832"]
+
+    assert workflow["category"] == "图像理解"
+    assert workflow["name"] == "图片打标签 · 结构化打标版"
+    assert workflow["status"] == "active"
+
+    params = ((workflow.get("parameters_schema") or {}).get("fields") or [])
+    assert [field.get("name") for field in params if isinstance(field, dict)] == ["url"]
+    assert _field_by_name(workflow, "url").get("type") == "image"
+
+    presentation = resolve_eval_workflow_presentation(
+        status=workflow["status"],
+        category=workflow["category"],
+        workflow_id=workflow["workflow_id"],
+        name=workflow["name"],
+        parameters_schema=workflow["parameters_schema"],
+        output_schema=workflow["output_schema"],
+        metadata=workflow["metadata"],
+    )
+    assert presentation["operation_label"] == "图片打标签"
+    assert presentation["variant_label"] == "结构化打标版"
+    assert presentation["result_mode"] == "structured_json"

@@ -2828,15 +2828,7 @@ def workflow_metrics(
             "recentHours": recent_hours,
         }
     recent_since = datetime.utcnow() - timedelta(hours=recent_hours)
-    run_rows = (
-        db.execute(
-            select(EvalRun)
-            .where(EvalRun.created_at >= recent_since)
-            .order_by(EvalRun.workflow_version_id.asc(), EvalRun.updated_at.desc())
-        )
-        .scalars()
-        .all()
-    )
+    run_rows = db.execute(select(EvalRun).where(EvalRun.created_at >= recent_since)).scalars().all()
     for run in run_rows:
         workflow_version_id = str(run.workflow_version_id or "").strip()
         if not workflow_version_id:
@@ -2879,7 +2871,9 @@ def workflow_metrics(
         )
         if isinstance(kind_counts, dict):
             kind_counts[output_kind] = int(kind_counts.get(output_kind) or 0) + 1
-        if "lastRunAt" not in bucket:
+        run_sort_at = run.updated_at or run.created_at
+        last_sort_at = bucket.get("_lastRunSortAt")
+        if last_sort_at is None or (run_sort_at is not None and run_sort_at > last_sort_at):
             bucket.update(
                 {
                     "lastRunStatus": final_status,
@@ -2888,6 +2882,10 @@ def workflow_metrics(
                     "lastRunOutputKind": output_kind,
                     "lastErrorCode": stage.error_code,
                     "lastErrorMessage": run.error_message,
+                    "_lastRunSortAt": run_sort_at,
                 }
             )
+    for bucket in metrics.values():
+        if isinstance(bucket, dict):
+            bucket.pop("_lastRunSortAt", None)
     return {"metrics": metrics, "recentHours": recent_hours}
