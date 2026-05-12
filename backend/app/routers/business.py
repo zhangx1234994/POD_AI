@@ -5,15 +5,21 @@ from __future__ import annotations
 import csv
 import io
 import json
+import time
+from datetime import datetime
 from typing import Any
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import select
 
 from app.core.config import get_settings
+from app.core.db import get_session
 from app.deps.auth import get_current_user
 from app.deps.internal import is_internal_request
+from app.models.integration import ApiKey, BusinessApiKeyUsageLog
 from app.models.user import User
 from app.schemas import business as schemas
 from app.services.auth_service import auth_service
@@ -22,6 +28,7 @@ from app.services.business_runs import get_business_run_service
 
 router = APIRouter(prefix="/api/business", tags=["business"])
 bearer_scheme = HTTPBearer(auto_error=False)
+BUSINESS_API_KEY_PROVIDERS = {"business_api", "podi_business_api"}
 
 
 def _business_export_cell(value: Any) -> str:
@@ -103,6 +110,9 @@ def _resolve_business_user(
     token = credentials.credentials if credentials and credentials.scheme.lower() == "bearer" else None
     if token and settings.service_api_token and token == settings.service_api_token:
         return auth_service.build_service_user()
+    api_key_user = _resolve_business_api_key_user(request, token)
+    if api_key_user is not None:
+        return api_key_user
     if token:
         return get_current_user(request=request, credentials=credentials)  # type: ignore[arg-type]
     if _is_internal_request(request):
@@ -120,6 +130,211 @@ def _server_from_request(request: Request) -> str:
     return str(request.base_url).rstrip("/")
 
 
+def _preview_secret(value: str | None) -> str:
+    raw = str(value or "")
+    if len(raw) <= 8:
+        return "***" if raw else ""
+    return f"{raw[:4]}...{raw[-4:]}"
+
+
+def _client_ip(request: Request) -> str | None:
+    for header in ("x-forwarded-for", "x-real-ip"):
+        value = request.headers.get(header)
+        if value:
+            return value.split(",", 1)[0].strip()[:64]
+    return request.client.host[:64] if request.client and request.client.host else None
+
+
+def _string_meta(metadata: dict[str, Any], *keys: str) -> str | None:
+    for key in keys:
+        value = metadata.get(key)
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return text[:64]
+    return None
+
+
+def _resolve_business_api_key_user(request: Request, token: str | None) -> User | None:
+    normalized = str(token or request.headers.get("x-podi-api-key") or request.headers.get("x-api-key") or "").strip()
+    if not normalized:
+        return None
+    now = datetime.utcnow()
+    with get_session() as session:
+        api_key = (
+            session.execute(
+                select(ApiKey).where(ApiKey.provider.in_(BUSINESS_API_KEY_PROVIDERS), ApiKey.key == normalized)
+            )
+            .scalars()
+            .first()
+        )
+        if not api_key:
+            return None
+        if api_key.status != "active":
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="BUSINESS_API_KEY_INACTIVE")
+        if api_key.expire_at and api_key.expire_at <= now:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="BUSINESS_API_KEY_EXPIRED")
+        metadata = api_key.extra_metadata if isinstance(api_key.extra_metadata, dict) else {}
+        api_key.usage_count = int(api_key.usage_count or 0) + 1
+        api_key.extra_metadata = {
+            **metadata,
+            "lastUsedAt": now.isoformat(),
+            "lastUsedIp": _client_ip(request),
+        }
+        session.add(api_key)
+        session.commit()
+        request.state.business_api_key_context = {
+            "apiKeyId": api_key.id,
+            "apiKeyName": api_key.name,
+            "apiKeyPreview": _preview_secret(api_key.key),
+            "tenantId": _string_meta(metadata, "tenantId", "tenant_id"),
+            "clientId": _string_meta(metadata, "clientId", "client_id"),
+            "allowedBusinessKeys": metadata.get("allowedBusinessKeys") or metadata.get("allowed_business_keys") or [],
+            "startedAt": time.perf_counter(),
+        }
+        return User(
+            id=f"business-api-key:{api_key.id}",
+            email=f"{api_key.id}@business-api.podi.internal",
+            username=api_key.name or api_key.id,
+            password_hash="",
+            role="client",
+            status="active",
+            tenant_id=request.state.business_api_key_context["tenantId"],
+            client_id=request.state.business_api_key_context["clientId"],
+            extra_metadata={"apiKeyId": api_key.id},
+        )
+
+
+def _record_business_api_key_usage(
+    request: Request,
+    *,
+    status_code: int,
+    business_key: str | None = None,
+    run: Any | None = None,
+    run_id: str | None = None,
+    error_code: str | None = None,
+) -> None:
+    context = getattr(request.state, "business_api_key_context", None)
+    if not isinstance(context, dict):
+        return
+    payload = run if isinstance(run, dict) else {}
+    resolved_run_id = run_id or str(payload.get("id") or payload.get("runId") or "").strip() or None
+    duration_ms = None
+    started_at = context.get("startedAt")
+    if isinstance(started_at, (int, float)):
+        duration_ms = max(0, int((time.perf_counter() - started_at) * 1000))
+    with get_session() as session:
+        session.add(
+            BusinessApiKeyUsageLog(
+                api_key_id=str(context.get("apiKeyId") or "") or None,
+                api_key_name=str(context.get("apiKeyName") or "") or None,
+                api_key_preview=str(context.get("apiKeyPreview") or "") or None,
+                method=request.method[:16],
+                path=request.url.path[:256],
+                status_code=status_code,
+                business_key=business_key or str(payload.get("business_key") or payload.get("businessKey") or "") or None,
+                run_id=resolved_run_id,
+                request_id=str(payload.get("request_id") or payload.get("requestId") or "") or None,
+                trace_id=str(payload.get("trace_id") or payload.get("traceId") or "") or None,
+                tenant_id=str(payload.get("tenant_id") or payload.get("tenantId") or context.get("tenantId") or "") or None,
+                client_id=str(payload.get("client_id") or payload.get("clientId") or context.get("clientId") or "") or None,
+                error_code=str(error_code or "") or None,
+                duration_ms=duration_ms,
+                ip_address=_client_ip(request),
+                user_agent=(request.headers.get("user-agent") or "")[:255] or None,
+                created_at=datetime.utcnow(),
+            )
+        )
+        session.commit()
+
+
+def _business_key_allowed_for_api_key(request: Request, business_key: str) -> None:
+    context = getattr(request.state, "business_api_key_context", None)
+    if not isinstance(context, dict):
+        return
+    allowed = context.get("allowedBusinessKeys")
+    if not allowed:
+        return
+    raw_allowed = allowed.split(",") if isinstance(allowed, str) else allowed
+    allowed_set = {str(item).strip() for item in raw_allowed if str(item).strip()}
+    if allowed_set and business_key not in allowed_set:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="BUSINESS_API_KEY_BUSINESS_NOT_ALLOWED")
+
+
+def _business_api_key_metadata(
+    *,
+    tenant_id: str | None,
+    client_id: str | None,
+    allowed_business_keys: list[str] | None,
+    metadata: dict[str, Any] | None,
+) -> dict[str, Any]:
+    base = dict(metadata or {})
+    if tenant_id is not None:
+        base["tenantId"] = tenant_id
+    if client_id is not None:
+        base["clientId"] = client_id
+    if allowed_business_keys is not None:
+        base["allowedBusinessKeys"] = [str(item).strip() for item in allowed_business_keys if str(item).strip()]
+    return base
+
+
+def _business_api_key_to_read(api_key: ApiKey) -> schemas.BusinessApiKeyRead:
+    metadata = api_key.extra_metadata if isinstance(api_key.extra_metadata, dict) else {}
+    raw_allowed = metadata.get("allowedBusinessKeys") or metadata.get("allowed_business_keys") or []
+    if isinstance(raw_allowed, str):
+        allowed_business_keys = [item.strip() for item in raw_allowed.split(",") if item.strip()]
+    elif isinstance(raw_allowed, list):
+        allowed_business_keys = [str(item).strip() for item in raw_allowed if str(item).strip()]
+    else:
+        allowed_business_keys = []
+    payload = {
+        "id": api_key.id,
+        "name": api_key.name,
+        "status": api_key.status,
+        "key_preview": _preview_secret(api_key.key),
+        "tenant_id": _string_meta(metadata, "tenantId", "tenant_id"),
+        "client_id": _string_meta(metadata, "clientId", "client_id"),
+        "allowed_business_keys": allowed_business_keys,
+        "usage_count": api_key.usage_count or 0,
+        "expire_at": api_key.expire_at,
+        "metadata": metadata,
+        "created_at": api_key.created_at,
+        "updated_at": api_key.updated_at,
+    }
+    return schemas.BusinessApiKeyRead.model_validate(payload)
+
+
+def _create_business_run_with_usage(
+    *,
+    request: Request,
+    business_key: str,
+    payload: schemas.BusinessRunCreateRequest,
+    user: User,
+) -> schemas.BusinessRunRead:
+    try:
+        _business_key_allowed_for_api_key(request, business_key)
+        result = get_business_run_service().create_run(business_key=business_key, payload=payload, user=user)
+    except HTTPException as exc:
+        _record_business_api_key_usage(
+            request,
+            status_code=exc.status_code,
+            business_key=business_key,
+            error_code=str(exc.detail or ""),
+        )
+        raise
+    except Exception:
+        _record_business_api_key_usage(
+            request,
+            status_code=500,
+            business_key=business_key,
+            error_code="BUSINESS_RUN_CREATE_FAILED",
+        )
+        raise
+    _record_business_api_key_usage(request, status_code=200, business_key=business_key, run=result)
+    return result
+
+
 @router.get("/capabilities", response_model=schemas.BusinessCapabilityListResponse, response_model_by_alias=False)
 def list_business_capabilities(
     user: User = Depends(_resolve_business_user),
@@ -132,25 +347,28 @@ def list_business_capabilities(
 @router.post("/fission/runs", response_model=schemas.BusinessRunRead, response_model_by_alias=False)
 def create_fission_run(
     payload: schemas.BusinessRunCreateRequest,
+    request: Request,
     user: User = Depends(_resolve_business_user),
 ) -> schemas.BusinessRunRead:
-    return get_business_run_service().create_run(business_key="fission", payload=payload, user=user)
+    return _create_business_run_with_usage(request=request, business_key="fission", payload=payload, user=user)
 
 
 @router.post("/outpaint/runs", response_model=schemas.BusinessRunRead, response_model_by_alias=False)
 def create_outpaint_run(
     payload: schemas.BusinessRunCreateRequest,
+    request: Request,
     user: User = Depends(_resolve_business_user),
 ) -> schemas.BusinessRunRead:
-    return get_business_run_service().create_run(business_key="outpaint", payload=payload, user=user)
+    return _create_business_run_with_usage(request=request, business_key="outpaint", payload=payload, user=user)
 
 
 @router.post("/pattern-extract/runs", response_model=schemas.BusinessRunRead, response_model_by_alias=False)
 def create_pattern_extract_run(
     payload: schemas.BusinessRunCreateRequest,
+    request: Request,
     user: User = Depends(_resolve_business_user),
 ) -> schemas.BusinessRunRead:
-    return get_business_run_service().create_run(business_key="pattern_extract", payload=payload, user=user)
+    return _create_business_run_with_usage(request=request, business_key="pattern_extract", payload=payload, user=user)
 
 
 @router.post("/fission/route-preview", response_model=schemas.BusinessRoutePreviewResponse, response_model_by_alias=False)
@@ -180,20 +398,46 @@ def preview_pattern_extract_route(
 @router.get("/runs/{run_id}", response_model=schemas.BusinessRunRead, response_model_by_alias=False)
 def get_business_run(
     run_id: str,
+    request: Request,
     user: User = Depends(_resolve_business_user),
 ) -> schemas.BusinessRunRead:
-    return get_business_run_service().get_run(run_id=run_id, user=user)
+    try:
+        result = get_business_run_service().get_run(run_id=run_id, user=user)
+    except HTTPException as exc:
+        _record_business_api_key_usage(
+            request,
+            status_code=exc.status_code,
+            run_id=run_id,
+            error_code=str(exc.detail or ""),
+        )
+        raise
+    except Exception:
+        _record_business_api_key_usage(
+            request,
+            status_code=500,
+            run_id=run_id,
+            error_code="BUSINESS_RUN_GET_FAILED",
+        )
+        raise
+    _record_business_api_key_usage(request, status_code=200, run=result, run_id=run_id)
+    return result
 
 
 @router.post("/runs/get", response_model=schemas.BusinessRunRead, response_model_by_alias=False)
 def get_business_run_post(
     body: dict[str, Any],
+    request: Request,
     user: User = Depends(_resolve_business_user),
 ) -> schemas.BusinessRunRead:
     run_id = str(body.get("runId") or body.get("run_id") or "").strip()
     if not run_id:
+        _record_business_api_key_usage(
+            request,
+            status_code=400,
+            error_code="BUSINESS_RUN_ID_REQUIRED",
+        )
         raise HTTPException(status_code=400, detail="BUSINESS_RUN_ID_REQUIRED")
-    return get_business_run(run_id=run_id, user=user)
+    return get_business_run(run_id=run_id, request=request, user=user)
 
 
 @router.get("/openapi.json")
@@ -306,7 +550,7 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "bili": {
                 "oneOf": [{"type": "number"}, {"type": "string"}],
                 "nullable": True,
-                "description": "裂变幅度；旧版本可传数字，新 ComfyUI VL 控制卡版本可传 `50%` 这类百分比。",
+                "description": "旧裂变/保底裂变为相似度 0-100，值越大越接近原图；ComfyUI VL 控制卡版沿用接口包口径，为裂变幅度百分比，可传 `50%`。",
             },
             "width": {"type": "integer", "nullable": True, "description": "输出宽度。"},
             "height": {"type": "integer", "nullable": True, "description": "输出高度。"},
@@ -396,6 +640,47 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
         **outpaint_submit_schema,
         "required": [],
     }
+    business_api_key_security = [{"BusinessApiKey": []}, {"BearerAuth": []}]
+    submit_examples = {
+        "fission_gpt_image2_vl": {
+            "summary": "图裂变 · GPT Image 2 + VL 控制版",
+            "value": {
+                "imageUrl": "https://example.com/input.png",
+                "version": "gpt-image2-vl-v1",
+                "prompt": "保持原图主体关系，做商业可用的花纹变化",
+                "variation_strength": "high",
+                "quality": "preview",
+                "count": 1,
+                "size": "auto",
+                "maskUrl": "https://example.com/mask.png",
+                "source": "partner-api",
+                "channel": "open-api",
+                "requestId": "biz-request-001",
+                "traceId": "biz-trace-001",
+                "callbackUrl": "https://your-service.example.com/podi/callback",
+            },
+        },
+        "fission_comfyui_vl": {
+            "summary": "图裂变 · ComfyUI VL 控制卡版",
+            "value": {
+                "imageUrl": "https://example.com/input.png",
+                "version": "comfyui-vl-control-v1",
+                "bili": "50%",
+                "width": 2000,
+                "height": 2000,
+                "profile": "pattern_default_v1",
+                "source": "partner-api",
+                "channel": "open-api",
+                "requestId": "biz-request-002",
+            },
+        },
+    }
+    run_get_examples = {
+        "poll_by_run_id": {
+            "summary": "按提交接口返回的 runId 查询",
+            "value": {"runId": "f5393c42a2b24c5d90852cce09f40b06"},
+        }
+    }
     error_schema = {
         "type": "object",
         "properties": {
@@ -418,9 +703,12 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                 "x-podi-errors": errors_by_status.get("400", []),
             },
             "401": {
-                "description": "未认证或服务 Token 无效",
+                "description": "未认证、服务 Token 无效或业务 API Key 不可用",
                 "content": {"application/json": {"schema": error_schema}},
-                "x-podi-errors": ["AUTHORIZATION_REQUIRED"],
+                "x-podi-errors": errors_by_status.get(
+                    "401",
+                    ["AUTHORIZATION_REQUIRED", "BUSINESS_API_KEY_INACTIVE", "BUSINESS_API_KEY_EXPIRED"],
+                ),
             },
             "403": {
                 "description": "无权访问该业务任务",
@@ -470,12 +758,13 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
     }
     get_errors = {
         "400": ["BUSINESS_RUN_ID_REQUIRED"],
-        "403": ["BUSINESS_RUN_FORBIDDEN"],
+        "403": ["BUSINESS_RUN_FORBIDDEN", "BUSINESS_API_KEY_BUSINESS_NOT_ALLOWED"],
         "404": ["BUSINESS_RUN_NOT_FOUND"],
     }
     submit_errors["403"] = [
         "BUSINESS_CLIENT_DISABLED",
         "BUSINESS_CLIENT_BUSINESS_NOT_ALLOWED",
+        "BUSINESS_API_KEY_BUSINESS_NOT_ALLOWED",
         "BUSINESS_USER_SCOPE_REQUIRED",
         "BUSINESS_USER_SCOPE_FORBIDDEN",
     ]
@@ -493,12 +782,29 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "description": "业务层稳定入口：花纹提取、图裂变、扩图、任务查询。Coze 只需要调用这些扁平 API。",
         },
         "servers": [{"url": server}],
+        "components": {
+            "securitySchemes": {
+                "BusinessApiKey": {
+                    "type": "apiKey",
+                    "in": "header",
+                    "name": "X-PODI-API-Key",
+                    "description": "业务方 API Key。当前先用于身份识别和调用审计，暂不强制限流。",
+                },
+                "BearerAuth": {
+                    "type": "http",
+                    "scheme": "bearer",
+                    "description": "也可使用 Authorization: Bearer <业务方 API Key 或平台 JWT>。",
+                },
+            }
+        },
+        "security": business_api_key_security,
         "paths": {
             "/api/business/pattern-extract/runs": {
                 "post": {
                     "operationId": "podi_business_pattern_extract_run",
                     "summary": "PODI · 花纹提取",
                     "description": "提交花纹提取业务任务。业务方只需要传原图和可选提取要求，底层版本由中台路由。",
+                    "security": business_api_key_security,
                     "requestBody": {"required": True, "content": {"application/json": {"schema": pattern_extract_submit_schema}}},
                     "responses": _business_responses(success_description="Business run", errors_by_status=submit_errors),
                 }
@@ -508,7 +814,18 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                     "operationId": "podi_business_fission_run",
                     "summary": "PODI · 图裂变",
                     "description": "提交图裂变业务任务。业务方只需要传原图、提示词和可选参数，返回 runId 后轮询结果。",
-                    "requestBody": {"required": True, "content": {"application/json": {"schema": fission_submit_schema}}},
+                    "security": business_api_key_security,
+                    "requestBody": {
+                        "required": True,
+                        "content": {"application/json": {"schema": fission_submit_schema, "examples": submit_examples}},
+                    },
+                    "x-codeSamples": [
+                        {
+                            "lang": "curl",
+                            "label": "提交 GPT Image 2 + VL 控制版",
+                            "source": "curl -X POST \"$PODI_BASE_URL/api/business/fission/runs\" \\\n  -H \"X-PODI-API-Key: $PODI_API_KEY\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"imageUrl\":\"https://example.com/input.png\",\"version\":\"gpt-image2-vl-v1\",\"variation_strength\":\"high\",\"quality\":\"preview\",\"size\":\"auto\",\"source\":\"partner-api\",\"channel\":\"open-api\",\"requestId\":\"biz-request-001\"}'",
+                        }
+                    ],
                     "responses": _business_responses(success_description="Business run", errors_by_status=submit_errors),
                 }
             },
@@ -517,6 +834,7 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                     "operationId": "podi_business_outpaint_run",
                     "summary": "PODI · 扩图",
                     "description": "提交扩图业务任务。宽高、上下左右扩展量从 inputs 传入，底层版本由中台路由。",
+                    "security": business_api_key_security,
                     "requestBody": {"required": True, "content": {"application/json": {"schema": outpaint_submit_schema}}},
                     "responses": _business_responses(success_description="Business run", errors_by_status=submit_errors),
                 }
@@ -526,6 +844,7 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                     "operationId": "podi_business_pattern_extract_route_preview",
                     "summary": "PODI · 花纹提取路由预览",
                     "description": "不提交真实任务，只预览当前 tenantId/clientId/grayKey 会命中哪个花纹提取版本，用于灰度验证。",
+                    "security": business_api_key_security,
                     "requestBody": {"required": True, "content": {"application/json": {"schema": pattern_extract_route_preview_schema}}},
                     "responses": _route_preview_responses(errors_by_status=submit_errors),
                 }
@@ -535,7 +854,11 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                     "operationId": "podi_business_fission_route_preview",
                     "summary": "PODI · 图裂变路由预览",
                     "description": "不提交真实任务，只预览当前 tenantId/clientId/grayKey 会命中哪个业务版本，用于灰度验证。",
-                    "requestBody": {"required": True, "content": {"application/json": {"schema": fission_route_preview_schema}}},
+                    "security": business_api_key_security,
+                    "requestBody": {
+                        "required": True,
+                        "content": {"application/json": {"schema": fission_route_preview_schema, "examples": submit_examples}},
+                    },
                     "responses": _route_preview_responses(errors_by_status=submit_errors),
                 }
             },
@@ -544,6 +867,7 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                     "operationId": "podi_business_outpaint_route_preview",
                     "summary": "PODI · 扩图路由预览",
                     "description": "不提交真实任务，只预览当前 tenantId/clientId/grayKey 会命中哪个业务版本，用于灰度验证。",
+                    "security": business_api_key_security,
                     "requestBody": {"required": True, "content": {"application/json": {"schema": outpaint_route_preview_schema}}},
                     "responses": _route_preview_responses(errors_by_status=submit_errors),
                 }
@@ -552,6 +876,7 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                 "post": {
                     "operationId": "podi_business_run_get",
                     "summary": "PODI · 查询业务任务",
+                    "security": business_api_key_security,
                     "requestBody": {
                         "required": True,
                         "content": {
@@ -560,7 +885,8 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                                     "type": "object",
                                     "required": ["runId"],
                                     "properties": {"runId": {"type": "string", "description": "业务任务 ID"}},
-                                }
+                                },
+                                "examples": run_get_examples,
                             }
                         },
                     },
@@ -620,6 +946,127 @@ def admin_update_business_client(
     if user.role != "admin":
         raise HTTPException(status_code=403, detail="ADMIN_ONLY")
     return get_business_run_service().update_client(client_config_id, payload)
+
+
+@admin_router.get("/api-keys", response_model=schemas.BusinessApiKeyListResponse, response_model_by_alias=False)
+def admin_list_business_api_keys(
+    status: str | None = Query(default=None),
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessApiKeyListResponse:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    with get_session() as session:
+        stmt = select(ApiKey).where(ApiKey.provider == "business_api").order_by(ApiKey.created_at.desc())
+        if status:
+            stmt = stmt.where(ApiKey.status == status)
+        rows = session.execute(stmt).scalars().all()
+        return schemas.BusinessApiKeyListResponse(items=[_business_api_key_to_read(row) for row in rows])
+
+
+@admin_router.post("/api-keys", response_model=schemas.BusinessApiKeyRead, response_model_by_alias=False)
+def admin_create_business_api_key(
+    payload: schemas.BusinessApiKeyCreateRequest,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessApiKeyRead:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    with get_session() as session:
+        existing = (
+            session.execute(
+                select(ApiKey).where(
+                    ApiKey.provider == "business_api",
+                    ApiKey.key == payload.key,
+                )
+            )
+            .scalars()
+            .first()
+        )
+        if existing:
+            raise HTTPException(status_code=409, detail="BUSINESS_API_KEY_DUPLICATED")
+        api_key = ApiKey(
+            id=(payload.id or uuid4().hex),
+            provider="business_api",
+            name=payload.name,
+            key=payload.key,
+            status=payload.status,
+            expire_at=payload.expireAt,
+            extra_metadata=_business_api_key_metadata(
+                tenant_id=payload.tenantId,
+                client_id=payload.clientId,
+                allowed_business_keys=payload.allowedBusinessKeys,
+                metadata=payload.metadata,
+            ),
+        )
+        session.add(api_key)
+        session.commit()
+        session.refresh(api_key)
+        return _business_api_key_to_read(api_key)
+
+
+@admin_router.patch("/api-keys/{key_id}", response_model=schemas.BusinessApiKeyRead, response_model_by_alias=False)
+def admin_update_business_api_key(
+    key_id: str,
+    payload: schemas.BusinessApiKeyUpdateRequest,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessApiKeyRead:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    with get_session() as session:
+        api_key = session.get(ApiKey, key_id)
+        if not api_key or api_key.provider != "business_api":
+            raise HTTPException(status_code=404, detail="BUSINESS_API_KEY_NOT_FOUND")
+        data = payload.model_dump(exclude_unset=True)
+        if "name" in data and payload.name is not None:
+            api_key.name = payload.name
+        if "key" in data and payload.key is not None:
+            api_key.key = payload.key
+        if "status" in data and payload.status is not None:
+            api_key.status = payload.status
+        if "expireAt" in data or "expire_at" in data:
+            api_key.expire_at = payload.expireAt
+        if any(key in data for key in ("tenantId", "tenant_id", "clientId", "client_id", "allowedBusinessKeys", "allowed_business_keys", "metadata")):
+            api_key.extra_metadata = _business_api_key_metadata(
+                tenant_id=payload.tenantId,
+                client_id=payload.clientId,
+                allowed_business_keys=payload.allowedBusinessKeys,
+                metadata=payload.metadata if payload.metadata is not None else api_key.extra_metadata,
+            )
+        session.add(api_key)
+        session.commit()
+        session.refresh(api_key)
+        return _business_api_key_to_read(api_key)
+
+
+@admin_router.get(
+    "/api-key-usage",
+    response_model=schemas.BusinessApiKeyUsageLogListResponse,
+    response_model_by_alias=False,
+)
+def admin_list_business_api_key_usage(
+    api_key_id: str | None = Query(default=None),
+    business_key: str | None = Query(default=None),
+    tenant_id: str | None = Query(default=None),
+    client_id: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessApiKeyUsageLogListResponse:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    with get_session() as session:
+        stmt = select(BusinessApiKeyUsageLog)
+        filters = []
+        if api_key_id:
+            filters.append(BusinessApiKeyUsageLog.api_key_id == api_key_id)
+        if business_key:
+            filters.append(BusinessApiKeyUsageLog.business_key == business_key)
+        if tenant_id:
+            filters.append(BusinessApiKeyUsageLog.tenant_id == tenant_id)
+        if client_id:
+            filters.append(BusinessApiKeyUsageLog.client_id == client_id)
+        if filters:
+            stmt = stmt.where(*filters)
+        rows = session.execute(stmt.order_by(BusinessApiKeyUsageLog.created_at.desc()).limit(limit)).scalars().all()
+        return schemas.BusinessApiKeyUsageLogListResponse(items=rows, total=len(rows))
 
 
 @admin_router.post("/capabilities", response_model=schemas.BusinessCapabilityRead, response_model_by_alias=False)

@@ -58,6 +58,8 @@ def test_business_openapi_exposes_flat_business_tools() -> None:
         "size",
         "maskUrl",
     }.issubset(submit_schema["properties"])
+    assert "相似度" in submit_schema["properties"]["bili"]["description"]
+    assert "裂变幅度百分比" in submit_schema["properties"]["bili"]["description"]
     assert submit_schema["properties"]["size"]["enum"] == [
         "auto",
         "1024x1024",
@@ -119,8 +121,13 @@ def test_business_openapi_exposes_flat_business_tools() -> None:
     assert "400" in submit_responses
     assert "500" in submit_responses
     assert "BUSINESS_IMAGE_URL_REQUIRED" in submit_responses["400"]["x-podi-errors"]
+    assert "BUSINESS_API_KEY_INACTIVE" in submit_responses["401"]["x-podi-errors"]
+    assert "BUSINESS_API_KEY_EXPIRED" in submit_responses["401"]["x-podi-errors"]
     assert "BUSINESS_USER_SCOPE_FORBIDDEN" in submit_responses["403"]["x-podi-errors"]
+    assert "BUSINESS_API_KEY_BUSINESS_NOT_ALLOWED" in submit_responses["403"]["x-podi-errors"]
     assert "COMFYUI_TIMEOUT" in submit_responses["500"]["x-podi-errors"]
+    assert data["components"]["securitySchemes"]["BusinessApiKey"]["name"] == "X-PODI-API-Key"
+    assert {"BusinessApiKey": []} in data["security"]
     get_responses = paths["/api/business/runs/get"]["post"]["responses"]
     assert "BUSINESS_RUN_ID_REQUIRED" in get_responses["400"]["x-podi-errors"]
 

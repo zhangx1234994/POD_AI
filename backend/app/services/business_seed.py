@@ -225,7 +225,13 @@ DEFAULT_BUSINESS_CAPABILITY_SEEDS: list[BusinessCapabilitySeed] = [
             "fields": [
                 _field("imageUrl", "原图 URL Image URL", required=True, description="业务侧只需要传入可访问图片地址。"),
                 _field("prompt", "裂变提示词 Prompt", field_type="textarea", required=False),
-                _field("bili", "裂变幅度 Denoise/Bili", field_type="number", default=90),
+                _field(
+                    "bili",
+                    "相似度 Similarity",
+                    field_type="number",
+                    default=90,
+                    description="0-100；值越大越接近原图。中台会反向换算为 ComfyUI denoise，不要求业务方理解噪点。",
+                ),
                 _field("width", "输出宽度 Width", field_type="number", default=1024),
                 _field("height", "输出高度 Height", field_type="number", default=1024),
                 _field("batch_size", "生成张数 Batch Size", field_type="number", default=1),
@@ -237,7 +243,7 @@ DEFAULT_BUSINESS_CAPABILITY_SEEDS: list[BusinessCapabilitySeed] = [
             "category": "image_fission",
             "entry": "business-api",
             "coze_strategy": "Coze 只调用该业务入口，不再手搓底层节点。",
-            "seed_version": 1,
+            "seed_version": 2,
         },
     ),
     BusinessCapabilitySeed(
@@ -444,7 +450,13 @@ DEFAULT_BUSINESS_CAPABILITY_SEEDS: list[BusinessCapabilitySeed] = [
             "fields": [
                 _field("imageUrl", "原图 URL Image URL", required=True, description="业务侧只需要传入可访问图片地址。"),
                 _field("prompt", "裂变提示词 Prompt", field_type="textarea", required=False),
-                _field("bili", "裂变幅度 Denoise/Bili", field_type="number", default=90),
+                _field(
+                    "bili",
+                    "相似度 Similarity",
+                    field_type="number",
+                    default=90,
+                    description="0-100；值越大越接近原图。中台会反向换算为 ComfyUI denoise，不要求业务方理解噪点。",
+                ),
                 _field("width", "输出宽度 Width", field_type="number", required=False),
                 _field("height", "输出高度 Height", field_type="number", required=False),
                 _field("batch_size", "生成张数 Batch Size", field_type="number", default=1),
@@ -460,7 +472,7 @@ DEFAULT_BUSINESS_CAPABILITY_SEEDS: list[BusinessCapabilitySeed] = [
             "rollbackSafety": True,
             "rollbackReason": "默认高质量裂变版本异常时，保留可直接切回的旧稳定执行链路。",
             "coze_strategy": "Coze 仍调用同一个业务入口，回滚只在中台切默认版本。",
-            "seed_version": 1,
+            "seed_version": 2,
         },
     ),
     BusinessCapabilitySeed(

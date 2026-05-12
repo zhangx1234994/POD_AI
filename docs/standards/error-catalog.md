@@ -130,6 +130,11 @@
 | BUSINESS_CLIENT_CONCURRENCY_LIMITED | 业务方并发任务达到上限 | 429 |
 | BUSINESS_CLIENT_DAILY_RUN_LIMITED | 业务方当日调用次数达到上限 | 429 |
 | BUSINESS_CLIENT_DAILY_QUOTA_LIMITED | 业务方当日额度达到上限 | 429 |
+| BUSINESS_API_KEY_INACTIVE | 业务 API Key 未启用或已停用 | 401 |
+| BUSINESS_API_KEY_EXPIRED | 业务 API Key 已过期 | 401 |
+| BUSINESS_API_KEY_BUSINESS_NOT_ALLOWED | 业务 API Key 未授权调用当前业务 | 403 |
+| BUSINESS_API_KEY_DUPLICATED | 业务 API Key 重复 | 409 |
+| BUSINESS_API_KEY_NOT_FOUND | 业务 API Key 不存在 | 404 |
 | BUSINESS_REQUEST_PAYLOAD_INVALID | 业务任务保存的请求载荷不可恢复 | 500，阻塞式 VL 前置完成后无法重建主任务入参 |
 | BUSINESS_VL_PREPROCESS_FAILED | VL 前置分析失败，主任务未提交 | 500，`vlAssist.waitForResult=true` 或 `mode=vl_then_primary` |
 | BUSINESS_RUN_ID_REQUIRED | 查询业务任务缺少 runId | 400 |

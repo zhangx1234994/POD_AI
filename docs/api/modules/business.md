@@ -14,11 +14,13 @@
 
 ## 鉴权
 
-- 推荐使用 `Authorization: Bearer <SERVICE_API_TOKEN>`。
+- 业务方推荐使用 `X-PODI-API-Key: <业务 API Key>`。中台会记录 Key、业务、runId、状态码和耗时，作为后续计费、配额和排障基础。
+- 兼容 `Authorization: Bearer <业务 API Key>`；系统巡检和 Coze 内部调用仍可使用 `Authorization: Bearer <SERVICE_API_TOKEN>`。
 - Coze 同机/可信内网调用可通过 `COZE_TRUSTED_IPS` 或内网地址放行。
 - 管理端业务能力接口仍要求管理员权限。
 - 业务方登录账号调用时，只能使用账号绑定的 `tenantId/clientId`。如果传入其他业务方范围，会返回 `BUSINESS_USER_SCOPE_FORBIDDEN`；如果业务方账号没有绑定 `tenantId`，会返回 `BUSINESS_USER_SCOPE_REQUIRED`。
 - 管理员和服务 Token 可显式指定 `tenantId/clientId`，用于 Coze 工具箱、巡检脚本和后台代业务方提交。
+- 当前 API Key 先做身份识别和审计，不强制限流；业务方并发、日次数和额度限制仍优先走业务方配置。
 
 ---
 
@@ -37,7 +39,7 @@
 | 业务 | 提交接口 | 必填字段 | 常用可调字段 | 终态输出 | 业务说明 |
 | --- | --- | --- | --- | --- | --- |
 | 花纹提取 | `POST /api/business/pattern-extract/runs` | `imageUrl` | `prompt`、`negative_prompt`、`width`、`height`、`batch`、`lora` | `imageUrls` | 从原图中提取可复用花纹资产，通常是后续裂变和扩图的上游。 |
-| 图裂变 | `POST /api/business/fission/runs` | `imageUrl` | ComfyUI 旧版：`prompt`、`bili`、`width`、`height`、`image_desc`、`batch_size`；ComfyUI VL 控制卡版：`bili`、`width`、`height`、`profile`；GPT Image 2 版：`variation_strength`、`quality`、`count`、`preserve_layout`、`maskUrl` | `imageUrls` | 基于原图生成变化图；版本可在中台切换，业务方仍调用同一个入口。 |
+| 图裂变 | `POST /api/business/fission/runs` | `imageUrl` | ComfyUI 旧版：`prompt`、`bili`、`width`、`height`、`image_desc`、`batch_size`；ComfyUI VL 控制卡版：`bili`、`width`、`height`、`profile`；GPT Image 2 版：`variation_strength`、`quality`、`count`、`preserve_layout`、`maskUrl` | `imageUrls` | 基于原图生成变化图；版本可在中台切换，业务方仍调用同一个入口。旧裂变里的 `bili` 是相似度，越高越接近原图；ComfyUI VL 控制卡版沿用接口包，`bili` 是裂变幅度百分比。 |
 | 扩图 | `POST /api/business/outpaint/runs` | `imageUrl` | `prompt`、`expand_left`、`expand_right`、`expand_top`、`expand_bottom`、`width`、`height` | `imageUrls` | 在原图四周扩展画面，适合补构图、补背景和素材延展。 |
 
 通用追踪字段：
@@ -307,6 +309,12 @@
 }
 ```
 
+`bili` 口径：
+
+- 旧裂变和保底裂变沿用历史逻辑：`bili` 是相似度，0-100，值越大越接近原图；后端会反向换算到 ComfyUI `denoise`。
+- ComfyUI VL 控制卡版沿用 AI 团队接口包：`bili` 是裂变幅度百分比，例如 `50%`；值越大变化越明显。
+- GPT Image 2 + VL 版不使用 `bili`，使用 `variation_strength` 控制变化幅度。
+
 GPT Image 2 + VL 新版请求示例：
 
 ```json
@@ -328,6 +336,22 @@ GPT Image 2 + VL 新版请求示例：
 ```
 
 说明：该版本会先调用 `vl_analyze_image` 生成图案结构卡，再调用 `openai_gpt_image_2_edit`。`quality=preview/production/premium` 会分别映射为 OpenAI 的 `low/medium/high`，`count` 当前限制为 1-3。
+
+ComfyUI VL 控制卡版请求示例：
+
+```json
+{
+  "imageUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/demo/input.png",
+  "version": "comfyui-vl-control-v1",
+  "bili": "50%",
+  "width": 2000,
+  "height": 2000,
+  "profile": "pattern_default_v1",
+  "source": "partner-api",
+  "channel": "open-api",
+  "traceId": "trace-comfyui-vl-001"
+}
+```
 
 响应体：
 
@@ -371,12 +395,15 @@ GPT Image 2 + VL 新版请求示例：
 - `BUSINESS_CLIENT_CONCURRENCY_LIMITED`
 - `BUSINESS_CLIENT_DAILY_RUN_LIMITED`
 - `BUSINESS_CLIENT_DAILY_QUOTA_LIMITED`
+- `BUSINESS_API_KEY_INACTIVE`
+- `BUSINESS_API_KEY_EXPIRED`
+- `BUSINESS_API_KEY_BUSINESS_NOT_ALLOWED`
 - `ABILITY_TASK_FAILED`
 - `COMFYUI_TIMEOUT`
 
 说明：
 
-- 新接入建议把 `bili/width/height/image_desc/batch_size/steps/cfg` 直接作为顶层字段传入，业务方不用理解 `inputs`。
+- 新接入建议把 `bili/width/height/image_desc/batch_size/steps/cfg` 直接作为顶层字段传入，业务方不用理解 `inputs`；但 `bili` 的业务含义必须按所选版本文档执行，不能混用相似度和裂变幅度。
 - 旧调用仍兼容 `inputs.bili`、`inputs.width` 等格式；顶层字段不会破坏现有 Coze 工作流。
 - `traceId/requestId/tenantId/clientId/channel/source` 会进入业务运行记录，并继续透传到底层能力任务，后续用于排查、灰度、成本和配额统计。
 
@@ -814,6 +841,62 @@ OpenAPI 内每个工具都会枚举错误响应：
 - `BUSINESS_CLIENT_NOT_FOUND`
 - `BUSINESS_CLIENT_STATUS_INVALID`
 - `BUSINESS_CLIENT_DUPLICATED`
+
+### GET /api/admin/business/api-keys
+
+用途：查看业务 API Key。这里管理的是业务方调用 `/api/business/*` 时使用的 Key，不是第三方模型 Key。
+
+响应字段：
+
+- `keyPreview`：脱敏后的 Key。
+- `tenantId/clientId`：Key 绑定的业务方范围。
+- `allowedBusinessKeys`：允许调用的业务；为空表示允许全部业务。
+- `usageCount`：累计鉴权通过次数。
+- `expireAt`：过期时间，可为空。
+
+### POST /api/admin/business/api-keys
+
+用途：创建业务 API Key。当前先用于身份识别和调用审计，暂不强制限流。
+
+请求体：
+
+```json
+{
+  "name": "业务方 A · 开放接口",
+  "key": "podi_live_xxx",
+  "status": "active",
+  "tenantId": "tenant-a",
+  "clientId": "open-api",
+  "allowedBusinessKeys": ["fission", "outpaint"],
+  "expireAt": "2026-12-31T23:59:59"
+}
+```
+
+常见错误：
+
+- `BUSINESS_API_KEY_DUPLICATED`
+
+### PATCH /api/admin/business/api-keys/{keyId}
+
+用途：更新业务 API Key，例如停用、延期、调整可调用业务。
+
+常见错误：
+
+- `BUSINESS_API_KEY_NOT_FOUND`
+
+### GET /api/admin/business/api-key-usage
+
+用途：查看业务 API Key 最近调用记录。每次 Key 调用业务提交、路由预览或任务查询都会写入。
+
+可选查询参数：
+
+- `api_key_id`
+- `business_key`
+- `tenant_id`
+- `client_id`
+- `limit`，默认 50，最大 200。
+
+记录字段包括：Key 名称、接口路径、状态码、业务标识、runId、requestId、traceId、tenantId/clientId、错误码和耗时。
 
 ### GET /api/admin/business/capabilities
 

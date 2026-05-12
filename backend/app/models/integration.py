@@ -476,6 +476,29 @@ class BusinessClient(Base):
     )
 
 
+class BusinessApiKeyUsageLog(Base):
+    __tablename__ = "business_api_key_usage_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    api_key_id: Mapped[str | None] = mapped_column(String(64), ForeignKey("api_keys.id", ondelete="SET NULL"), index=True)
+    api_key_name: Mapped[str | None] = mapped_column(String(128))
+    api_key_preview: Mapped[str | None] = mapped_column(String(32))
+    method: Mapped[str] = mapped_column(String(16), nullable=False)
+    path: Mapped[str] = mapped_column(String(256), nullable=False)
+    status_code: Mapped[int | None] = mapped_column(Integer)
+    business_key: Mapped[str | None] = mapped_column(String(64), index=True)
+    run_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    request_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    trace_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    client_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    error_code: Mapped[str | None] = mapped_column(String(128))
+    duration_ms: Mapped[int | None] = mapped_column(Integer)
+    ip_address: Mapped[str | None] = mapped_column(String(64))
+    user_agent: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+
 class BusinessRun(Base):
     __tablename__ = "business_runs"
 

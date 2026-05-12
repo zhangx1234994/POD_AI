@@ -1,5 +1,7 @@
+import { useCallback, useEffect, useState } from 'react';
 import { Alert, Button, Card, Space, Table, Tag, Typography } from 'tdesign-react';
-import type { PublicAbility } from '../../../types/admin';
+import { adminApi } from '../../../services/adminApi';
+import type { BusinessApiKey, BusinessApiKeyUsageLog, PublicAbility } from '../../../types/admin';
 
 type ApiEndpoint = {
   key: string;
@@ -418,6 +420,29 @@ function deliveryGuardTheme(status: DeliveryGuardStatus): 'success' | 'warning' 
   return 'default';
 }
 
+function apiKeyStatusTheme(status: string): 'success' | 'warning' | 'danger' | 'default' {
+  if (status === 'active') return 'success';
+  if (status === 'cooldown' || status === 'error') return 'warning';
+  if (status === 'disabled' || status === 'exhausted') return 'danger';
+  return 'default';
+}
+
+function apiKeyStatusLabel(status: string): string {
+  if (status === 'active') return '启用';
+  if (status === 'disabled') return '停用';
+  if (status === 'cooldown') return '冷却';
+  if (status === 'exhausted') return '额度用尽';
+  if (status === 'error') return '异常';
+  return status || '未知';
+}
+
+function formatDateTime(value?: string | null): string {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString('zh-CN', { hour12: false });
+}
+
 function buildAbilityInvokeExample(abilityId: string): string {
   return `curl -X POST <backend-host>/api/abilities/${abilityId}/invoke \\
   -H "Authorization: Bearer <accessToken 或 SERVICE_API_TOKEN>" \\
@@ -432,7 +457,7 @@ function buildAbilityInvokeExample(abilityId: string): string {
 
 function buildBusinessRunExample(): string {
   return `curl -X POST <backend-host>/api/business/fission/runs \\
-  -H "Authorization: Bearer <业务方 accessToken 或 SERVICE_API_TOKEN>" \\
+  -H "X-PODI-API-Key: <业务 API Key>" \\
   -H "Content-Type: application/json" \\
   -d '{
     "imageUrl": "https://example.com/input.png",
@@ -446,7 +471,7 @@ function buildBusinessRunExample(): string {
 
 function buildBusinessQueryExample(): string {
   return `curl -X POST <backend-host>/api/business/runs/get \\
-  -H "Authorization: Bearer <业务方 accessToken 或 SERVICE_API_TOKEN>" \\
+  -H "X-PODI-API-Key: <业务 API Key>" \\
   -H "Content-Type: application/json" \\
   -d '{
     "runId": "<提交接口返回的 runId>"
@@ -479,6 +504,31 @@ export function ApiExposurePanel({
   getProviderLabel,
   getCategoryLabel,
 }: ApiExposurePanelProps) {
+  const [businessApiKeys, setBusinessApiKeys] = useState<BusinessApiKey[]>([]);
+  const [businessApiKeyUsage, setBusinessApiKeyUsage] = useState<BusinessApiKeyUsageLog[]>([]);
+  const [businessApiKeyLoading, setBusinessApiKeyLoading] = useState(false);
+  const [businessApiKeyError, setBusinessApiKeyError] = useState('');
+  const loadBusinessApiKeyAudit = useCallback(async () => {
+    setBusinessApiKeyLoading(true);
+    setBusinessApiKeyError('');
+    try {
+      const [keysRes, usageRes] = await Promise.all([
+        adminApi.listBusinessApiKeys(),
+        adminApi.listBusinessApiKeyUsage({ limit: 50 }),
+      ]);
+      setBusinessApiKeys(keysRes.items || []);
+      setBusinessApiKeyUsage(usageRes.items || []);
+    } catch (err) {
+      setBusinessApiKeyError(String((err as Error)?.message || err));
+    } finally {
+      setBusinessApiKeyLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadBusinessApiKeyAudit();
+  }, [loadBusinessApiKeyAudit]);
+
   const activeAbilities = publicAbilities.filter((item) => item.status === 'active');
   const imageAbilities = publicAbilities.filter((item) => {
     const text = `${item.category} ${item.abilityType} ${item.displayName}`.toLowerCase();
@@ -654,6 +704,156 @@ export function ApiExposurePanel({
           </Space>
         </Card>
       </div>
+
+      <Card bordered>
+        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+          <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+            <div>
+              <Typography.Text strong>业务 API Key 与调用记录</Typography.Text>
+              <div>
+                <Typography.Text theme="secondary">
+                  当前先做身份识别和审计，暂不强制限流；后续计费、套餐和业务方排障都会复用这份记录。
+                </Typography.Text>
+              </div>
+            </div>
+            <Button size="small" variant="outline" loading={businessApiKeyLoading} onClick={loadBusinessApiKeyAudit}>
+              刷新 Key 记录
+            </Button>
+          </Space>
+          {businessApiKeyError ? <Alert theme="error" message={businessApiKeyError} /> : null}
+          <Table
+            rowKey="id"
+            size="small"
+            data={businessApiKeys}
+            loading={businessApiKeyLoading}
+            maxHeight={260}
+            columns={[
+              {
+                colKey: 'name',
+                title: 'Key',
+                cell: ({ row }) => (
+                  <Space direction="vertical" size={2}>
+                    <Typography.Text>{row.name}</Typography.Text>
+                    <Typography.Text theme="secondary">{row.keyPreview || '-'}</Typography.Text>
+                  </Space>
+                ),
+              },
+              {
+                colKey: 'status',
+                title: '状态',
+                width: 100,
+                cell: ({ row }) => (
+                  <Tag theme={apiKeyStatusTheme(row.status)} variant="light">
+                    {apiKeyStatusLabel(row.status)}
+                  </Tag>
+                ),
+              },
+              {
+                colKey: 'scope',
+                title: '业务方范围',
+                ellipsis: true,
+                cell: ({ row }) => (
+                  <Space direction="vertical" size={2}>
+                    <Typography.Text>{row.tenantId || '未绑定租户'}</Typography.Text>
+                    <Typography.Text theme="secondary">{row.clientId || '未绑定客户端'}</Typography.Text>
+                  </Space>
+                ),
+              },
+              {
+                colKey: 'allowedBusinessKeys',
+                title: '可调用业务',
+                width: 180,
+                cell: ({ row }) =>
+                  row.allowedBusinessKeys?.length ? (
+                    <Space size={4} breakLine>
+                      {row.allowedBusinessKeys.map((item) => (
+                        <Tag key={item} size="small">
+                          {item}
+                        </Tag>
+                      ))}
+                    </Space>
+                  ) : (
+                    <Typography.Text theme="secondary">全部业务</Typography.Text>
+                  ),
+              },
+              {
+                colKey: 'usageCount',
+                title: '累计调用',
+                width: 100,
+                cell: ({ row }) => <Typography.Text>{row.usageCount || 0}</Typography.Text>,
+              },
+              {
+                colKey: 'expireAt',
+                title: '过期时间',
+                width: 180,
+                cell: ({ row }) => <Typography.Text theme="secondary">{formatDateTime(row.expireAt)}</Typography.Text>,
+              },
+            ]}
+            empty={<Typography.Text theme="secondary">暂无业务 API Key。后续业务接入前先在这里开 Key。</Typography.Text>}
+          />
+          <Table
+            rowKey="id"
+            size="small"
+            data={businessApiKeyUsage}
+            loading={businessApiKeyLoading}
+            maxHeight={320}
+            columns={[
+              {
+                colKey: 'createdAt',
+                title: '时间',
+                width: 170,
+                cell: ({ row }) => <Typography.Text theme="secondary">{formatDateTime(row.createdAt)}</Typography.Text>,
+              },
+              {
+                colKey: 'apiKeyName',
+                title: '调用方',
+                width: 180,
+                cell: ({ row }) => (
+                  <Space direction="vertical" size={2}>
+                    <Typography.Text>{row.apiKeyName || '未知 Key'}</Typography.Text>
+                    <Typography.Text theme="secondary">{row.apiKeyPreview || '-'}</Typography.Text>
+                  </Space>
+                ),
+              },
+              {
+                colKey: 'path',
+                title: '接口',
+                ellipsis: true,
+                cell: ({ row }) => (
+                  <Space direction="vertical" size={2}>
+                    <Typography.Text>
+                      {row.method} {row.path}
+                    </Typography.Text>
+                    <Typography.Text theme="secondary">
+                      {row.businessKey || '-'} · {row.runId || row.requestId || row.traceId || '-'}
+                    </Typography.Text>
+                  </Space>
+                ),
+              },
+              {
+                colKey: 'statusCode',
+                title: '结果',
+                width: 120,
+                cell: ({ row }) => (
+                  <Space direction="vertical" size={2}>
+                    <Tag theme={row.statusCode && row.statusCode >= 400 ? 'danger' : 'success'} variant="light">
+                      {row.statusCode || '-'}
+                    </Tag>
+                    {row.errorCode ? <Typography.Text theme="error">{row.errorCode}</Typography.Text> : null}
+                  </Space>
+                ),
+              },
+              {
+                colKey: 'durationMs',
+                title: '耗时',
+                width: 90,
+                cell: ({ row }) => <Typography.Text>{row.durationMs == null ? '-' : `${row.durationMs}ms`}</Typography.Text>,
+              },
+            ]}
+            empty={<Typography.Text theme="secondary">暂无调用记录。业务 API Key 调用业务接口后会自动写入。</Typography.Text>}
+          />
+        </Space>
+      </Card>
 
       <Card bordered>
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>

@@ -30,6 +30,8 @@ import type {
   BillingOverviewResponse,
   BillingUserDetailResponse,
   Binding,
+  BusinessApiKeyListResponse,
+  BusinessApiKeyUsageLogListResponse,
   BusinessCapability,
   BusinessCapabilityCompareResponse,
   BusinessCapabilityListResponse,
@@ -172,6 +174,14 @@ type BusinessOperationLogQueryOptions = {
 type BusinessDefaultApprovalQueryOptions = {
   status?: string;
   businessKey?: string;
+  limit?: number;
+};
+
+type BusinessApiKeyUsageQueryOptions = {
+  apiKeyId?: string;
+  businessKey?: string;
+  tenantId?: string;
+  clientId?: string;
   limit?: number;
 };
 
@@ -374,6 +384,16 @@ function buildBusinessDefaultApprovalQuery(options?: BusinessDefaultApprovalQuer
   const params = new URLSearchParams();
   if (options?.status && options.status !== 'all') params.set('approval_status', options.status);
   if (options?.businessKey && options.businessKey !== 'all') params.set('business_key', options.businessKey);
+  if (options?.limit) params.set('limit', String(options.limit));
+  return params;
+}
+
+function buildBusinessApiKeyUsageQuery(options?: BusinessApiKeyUsageQueryOptions) {
+  const params = new URLSearchParams();
+  if (options?.apiKeyId?.trim()) params.set('api_key_id', options.apiKeyId.trim());
+  if (options?.businessKey?.trim() && options.businessKey !== 'all') params.set('business_key', options.businessKey.trim());
+  if (options?.tenantId?.trim()) params.set('tenant_id', options.tenantId.trim());
+  if (options?.clientId?.trim()) params.set('client_id', options.clientId.trim());
   if (options?.limit) params.set('limit', String(options.limit));
   return params;
 }
@@ -1163,6 +1183,12 @@ export const adminApi = {
         body: JSON.stringify(payload),
       },
     ),
+  listBusinessApiKeys: () => request<BusinessApiKeyListResponse>('/api/admin/business/api-keys'),
+  listBusinessApiKeyUsage: (options?: BusinessApiKeyUsageQueryOptions) => {
+    const params = buildBusinessApiKeyUsageQuery({ ...options, limit: options?.limit ?? 50 });
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    return request<BusinessApiKeyUsageLogListResponse>(`/api/admin/business/api-key-usage${suffix}`);
+  },
   listBusinessRuns: (options?: BusinessRunQueryOptions) => {
     const params = buildBusinessRunQuery(options);
     params.delete('window_hours');

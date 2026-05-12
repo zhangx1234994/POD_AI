@@ -55,6 +55,51 @@ export interface ApiKey {
   key?: string;
 }
 
+export interface BusinessApiKey {
+  id: string;
+  name: string;
+  status: string;
+  keyPreview: string;
+  tenantId?: string | null;
+  clientId?: string | null;
+  allowedBusinessKeys: string[];
+  usageCount: number;
+  expireAt?: string | null;
+  metadata?: JsonRecord | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BusinessApiKeyListResponse {
+  items: BusinessApiKey[];
+}
+
+export interface BusinessApiKeyUsageLog {
+  id: number;
+  apiKeyId?: string | null;
+  apiKeyName?: string | null;
+  apiKeyPreview?: string | null;
+  method: string;
+  path: string;
+  statusCode?: number | null;
+  businessKey?: string | null;
+  runId?: string | null;
+  requestId?: string | null;
+  traceId?: string | null;
+  tenantId?: string | null;
+  clientId?: string | null;
+  errorCode?: string | null;
+  durationMs?: number | null;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+  createdAt: string;
+}
+
+export interface BusinessApiKeyUsageLogListResponse {
+  items: BusinessApiKeyUsageLog[];
+  total: number;
+}
+
 export interface AuthUser {
   id: string;
   username: string;

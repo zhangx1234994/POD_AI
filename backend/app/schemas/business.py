@@ -169,6 +169,82 @@ class BusinessClientUpdateRequest(BaseModel):
     metadata: dict[str, Any] | None = Field(default=None, alias="extra_metadata")
 
 
+class BusinessApiKeyCreateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str | None = None
+    name: str
+    key: str
+    status: str = "active"
+    tenantId: str | None = Field(default=None, alias="tenant_id")
+    clientId: str | None = Field(default=None, alias="client_id")
+    allowedBusinessKeys: list[str] = Field(default_factory=list, alias="allowed_business_keys")
+    expireAt: datetime | None = Field(default=None, alias="expire_at")
+    metadata: dict[str, Any] | None = None
+
+
+class BusinessApiKeyUpdateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    name: str | None = None
+    key: str | None = None
+    status: str | None = None
+    tenantId: str | None = Field(default=None, alias="tenant_id")
+    clientId: str | None = Field(default=None, alias="client_id")
+    allowedBusinessKeys: list[str] | None = Field(default=None, alias="allowed_business_keys")
+    expireAt: datetime | None = Field(default=None, alias="expire_at")
+    metadata: dict[str, Any] | None = None
+
+
+class BusinessApiKeyRead(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str
+    name: str
+    status: str
+    keyPreview: str = Field(alias="key_preview")
+    tenantId: str | None = Field(default=None, alias="tenant_id")
+    clientId: str | None = Field(default=None, alias="client_id")
+    allowedBusinessKeys: list[str] = Field(default_factory=list, alias="allowed_business_keys")
+    usageCount: int = Field(alias="usage_count")
+    expireAt: datetime | None = Field(default=None, alias="expire_at")
+    metadata: dict[str, Any] | None = None
+    createdAt: datetime = Field(alias="created_at")
+    updatedAt: datetime = Field(alias="updated_at")
+
+
+class BusinessApiKeyListResponse(BaseModel):
+    items: list[BusinessApiKeyRead]
+
+
+class BusinessApiKeyUsageLogRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    id: int
+    apiKeyId: str | None = Field(default=None, alias="api_key_id")
+    apiKeyName: str | None = Field(default=None, alias="api_key_name")
+    apiKeyPreview: str | None = Field(default=None, alias="api_key_preview")
+    method: str
+    path: str
+    statusCode: int | None = Field(default=None, alias="status_code")
+    businessKey: str | None = Field(default=None, alias="business_key")
+    runId: str | None = Field(default=None, alias="run_id")
+    requestId: str | None = Field(default=None, alias="request_id")
+    traceId: str | None = Field(default=None, alias="trace_id")
+    tenantId: str | None = Field(default=None, alias="tenant_id")
+    clientId: str | None = Field(default=None, alias="client_id")
+    errorCode: str | None = Field(default=None, alias="error_code")
+    durationMs: int | None = Field(default=None, alias="duration_ms")
+    ipAddress: str | None = Field(default=None, alias="ip_address")
+    userAgent: str | None = Field(default=None, alias="user_agent")
+    createdAt: datetime = Field(alias="created_at")
+
+
+class BusinessApiKeyUsageLogListResponse(BaseModel):
+    items: list[BusinessApiKeyUsageLogRead]
+    total: int
+
+
 class BusinessCapabilityCreateRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -242,7 +318,7 @@ class BusinessRunCreateRequest(BaseModel):
     url: str | None = Field(default=None, description="主图 URL 兼容字段")
     prompt: str | None = Field(default=None, description="业务提示词")
     inputs: dict[str, Any] | None = Field(default=None, description="业务参数；不同业务能力字段不同")
-    bili: float | str | None = Field(default=None, description="图裂变幅度/噪声强度；兼容 50% 这类百分比口径")
+    bili: float | str | None = Field(default=None, description="图裂变相似度，0-100；值越大越接近原图。底层 ComfyUI denoise 由后端反向换算，兼容 50% 这类百分比口径")
     width: int | None = Field(default=None, description="输出宽度")
     height: int | None = Field(default=None, description="输出高度")
     batch_size: int | None = Field(default=None, description="输出张数")
