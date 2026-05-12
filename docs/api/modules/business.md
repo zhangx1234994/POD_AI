@@ -42,6 +42,56 @@
 | 图裂变 | `POST /api/business/fission/runs` | `imageUrl` | ComfyUI 旧版：`prompt`、`bili`、`width`、`height`、`image_desc`、`batch_size`；ComfyUI VL 控制卡版：`bili`、`width`、`height`、`profile`；GPT Image 2 版：`variation_strength`、`quality`、`count`、`preserve_layout`、`maskUrl` | `imageUrls` | 基于原图生成变化图；版本可在中台切换，业务方仍调用同一个入口。`bili` 是重绘幅度/裂变幅度，越高变化越明显。 |
 | 扩图 | `POST /api/business/outpaint/runs` | `imageUrl` | `prompt`、`expand_left`、`expand_right`、`expand_top`、`expand_bottom`、`width`、`height` | `imageUrls` | 在原图四周扩展画面，适合补构图、补背景和素材延展。 |
 
+### 0.1) 最小调用示例
+
+业务方拿到 `X-PODI-API-Key` 后，可以直接按下面两步接入。示例中的 Key 是占位符，不要把真实 Key 写入仓库或公开文档。
+
+提交图裂变：
+
+```bash
+curl -X POST "$PODI_BACKEND/api/business/fission/runs" \
+  -H "X-PODI-API-Key: $PODI_BUSINESS_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "imageUrl": "https://example.com/input.png",
+    "prompt": "保持主体结构，生成同系列变化图",
+    "source": "partner-api",
+    "channel": "open-api",
+    "traceId": "biz_trace_001",
+    "callbackUrl": "https://your-service.example.com/podi/callback"
+  }'
+```
+
+查询结果：
+
+```bash
+curl -X POST "$PODI_BACKEND/api/business/runs/get" \
+  -H "X-PODI-API-Key: $PODI_BUSINESS_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "runId": "提交接口返回的 runId"
+  }'
+```
+
+管理员开通业务 Key：
+
+```bash
+curl -X POST "$PODI_BACKEND/api/admin/business/api-keys" \
+  -H "Authorization: Bearer $PODI_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "业务方 A · 开放接口",
+    "key": "podi_live_xxx",
+    "status": "active",
+    "tenantId": "tenant-a",
+    "clientId": "open-api",
+    "allowedBusinessKeys": ["fission", "outpaint", "pattern_extract"],
+    "expireAt": "2026-12-31T23:59:59+08:00"
+  }'
+```
+
+管理端“API 开放”页也可以直接生成、创建、停用业务 Key，并查看每个 Key 的调用记录。
+
 通用追踪字段：
 
 - `source`：调用来源，例如 `coze`、`client`、`partner-api`。
@@ -58,7 +108,7 @@
 - `succeeded`：任务成功，读取 `imageUrls/videoUrls/texts`；结构化和普通资源查看 `resultPayload` 与 `flowSummary.output`。
 - `failed/cancelled/timeout`：任务不可继续，读取 `error/errorMessage` 并按错误码处理。
 
-### 0.1) 与管理端 API 开放页对齐
+### 0.2) 与管理端 API 开放页对齐
 
 管理端“API 开放”页展示的业务接口必须和本文档保持一致：
 
@@ -76,7 +126,7 @@
 - 本文档新增业务接口时，管理端“API 开放”页必须同步露出或说明暂不露出的原因。
 - 业务方默认只需要使用提交接口和查询接口；路由预览属于上线、灰度和排障工具。
 
-### 0.2) 业务 API 错误处理口径
+### 0.3) 业务 API 错误处理口径
 
 | 场景 | 常见错误码 | 业务方动作 | 平台动作 |
 | --- | --- | --- | --- |

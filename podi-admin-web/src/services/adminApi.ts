@@ -31,6 +31,8 @@ import type {
   BillingUserDetailResponse,
   Binding,
   BusinessApiKeyListResponse,
+  BusinessApiKeyCreatePayload,
+  BusinessApiKeyUpdatePayload,
   BusinessApiKeyUsageLogListResponse,
   BusinessCapability,
   BusinessCapabilityCompareResponse,
@@ -1184,6 +1186,16 @@ export const adminApi = {
       },
     ),
   listBusinessApiKeys: () => request<BusinessApiKeyListResponse>('/api/admin/business/api-keys'),
+  createBusinessApiKey: (payload: BusinessApiKeyCreatePayload) =>
+    request<BusinessApiKeyListResponse['items'][number]>('/api/admin/business/api-keys', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  updateBusinessApiKey: (id: string, payload: BusinessApiKeyUpdatePayload) =>
+    request<BusinessApiKeyListResponse['items'][number]>(`/api/admin/business/api-keys/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
   listBusinessApiKeyUsage: (options?: BusinessApiKeyUsageQueryOptions) => {
     const params = buildBusinessApiKeyUsageQuery({ ...options, limit: options?.limit ?? 50 });
     const suffix = params.toString() ? `?${params.toString()}` : '';

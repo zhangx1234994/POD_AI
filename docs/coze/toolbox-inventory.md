@@ -43,7 +43,7 @@
 | 头部抠像 | `/api/coze/podi/comfyui/execute/toubu-kouxiang/openapi.json` | `url` | 最终输出节点 `140`；业务统一先走 OSS URL |
 | FLUX2-Klein 扩图 | `/api/coze/podi/comfyui/execute/flux2-klein-9b-outpaint/openapi.json` | `url`、`expand_left`、`expand_right`、`expand_top`、`expand_bottom` | 后端先上传图片到 ComfyUI input 目录，再写入节点 `76`；扩图 prompt 固定内置、seed 每次自动随机；最终输出节点 `9` |
 | 多图融合 | `/api/coze/podi/comfyui/execute/duotu-ronghe/openapi.json` | `url`、`image_url_2`、`image_url_3`、`width`、`height`、`prompt`、`negative_prompt`、`seed` | 无 `lora`；`width/height` 不传则沿用 workflow 默认 `1024x1024` |
-| E7裂变重绘 | `/api/coze/podi/comfyui/execute/e7-flux2-liebian/openapi.json` | `url`、`prompt`、`bili`、`steps`、`cfg`、`seed`、`batch_size`、`width`、`height` | `bili` 为业务口径，后端兼容旧字段 `similarity` |
+| E7裂变重绘 | `/api/coze/podi/comfyui/execute/e7-flux2-liebian/openapi.json` | `url`、`prompt`、`bili`、`steps`、`cfg`、`seed`、`batch_size`、`width`、`height` | `bili` 为重绘幅度业务口径，后端兼容旧字段 `similarity` |
 | 多元素花纹裂变 | `/api/coze/podi/comfyui/execute/flux-strong-hq-softstyle-fission/openapi.json` | `url`、`prompt`、`image_desc`、`bili`、`width`、`height` | 基于 `05_flux_strong_hq_softstyle_api.json`；固定 profile 参数，保留旧图裂变 `bili -> denoise` 口径，最终输出节点 `31` |
 | FLUX2裂变+四方 | `/api/coze/podi/comfyui/execute/flux2-9b-liebian-sifang/openapi.json` | `url`、`prompt` | 仅覆写 `141.url` 与 `132.inStr`；节点 `104` 等内部默认参数保持不变；最终输出节点 `111` |
 | 裂变文字强化 | `/api/coze/podi/comfyui/execute/qwen2512-print-shape-text-enhance/openapi.json` | `url`、`prompt`、`bili` | `prompt` 写入节点 `13.text1`，`bili` 映射到节点 `27.denoise`，最终输出节点 `29` |
@@ -112,8 +112,8 @@
 ## 当前重点说明（Coze 接线时优先看这一节）
 
 - 多图融合当前正式口径为：`url`、`image_url_2`、`image_url_3`、`width`、`height`、`prompt`、`negative_prompt`、`seed`；旧 `image_urls` 只保留后端兼容解析，不再作为推荐入参。
-- E7 裂变当前业务口径为 `bili`；后端执行仍兼容旧字段 `similarity`。当前映射：`0→0.95`、`50→0.75`、`100→0.55`，最低钳制 `0.55`。
-- 多元素花纹裂变沿用图裂变的 `bili` 口径，默认 `90 ≈ denoise 0.59`；`image_desc` 预留给上游 VL / Coze，不建议普通业务手填；`width/height` 为空时默认跟随原图尺寸。
+- E7 裂变当前业务口径为 `bili`，含义是重绘幅度；后端执行仍兼容旧字段 `similarity`。当前映射：`0→0.45`、`50→0.625`、`100→0.80`，数值越大变化越大。
+- 多元素花纹裂变沿用图裂变的 `bili` 口径，默认 `90 ≈ denoise 0.765`；`image_desc` 预留给上游 VL / Coze，不建议普通业务手填；`width/height` 为空时默认跟随原图尺寸。
 - `FLUX2裂变+四方` 与 `裂变文字强化` 都依赖上游 Coze 节点生成 `prompt`；中台和评测链路已验证可执行，当前主要待优化点是上游提示词质量，不是工具箱契约本身。
 - `背景抠图` 存在中间过程图，正式回填只认最终输出节点 `4`。
 - `头部抠像` 的 `Florence2Run` 与 `SegmentAnythingUltra V2` 保持 workflow 内部默认值，不在工具箱侧暴露附加文本参数。

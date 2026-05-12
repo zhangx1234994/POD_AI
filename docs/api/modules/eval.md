@@ -143,7 +143,7 @@ python3 backend/scripts/check_eval_operations_health.py
     - 分类：`图裂变`
     - 入参：`url`、`prompt`、`bili`、`count`
     - 说明：
-      - `bili`：相似度百分比，默认 `50%`
+      - `bili`：重绘幅度百分比，默认 `50%`，数值越大变化越大
       - `count`：fan-out 子任务数，默认 `4`
     - 出参：`output`、`prompt`、`ip`
   - `7629026792103215104`（四方连续裂变 · flux2_9b_liebian_sifang）

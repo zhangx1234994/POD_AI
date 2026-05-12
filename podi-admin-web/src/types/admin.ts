@@ -74,6 +74,28 @@ export interface BusinessApiKeyListResponse {
   items: BusinessApiKey[];
 }
 
+export interface BusinessApiKeyCreatePayload {
+  name: string;
+  key: string;
+  status?: string;
+  tenantId?: string | null;
+  clientId?: string | null;
+  allowedBusinessKeys?: string[];
+  expireAt?: string | null;
+  metadata?: JsonRecord | null;
+}
+
+export interface BusinessApiKeyUpdatePayload {
+  name?: string;
+  key?: string;
+  status?: string;
+  tenantId?: string | null;
+  clientId?: string | null;
+  allowedBusinessKeys?: string[];
+  expireAt?: string | null;
+  metadata?: JsonRecord | null;
+}
+
 export interface BusinessApiKeyUsageLog {
   id: number;
   apiKeyId?: string | null;

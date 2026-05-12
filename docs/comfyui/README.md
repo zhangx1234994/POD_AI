@@ -32,7 +32,7 @@
 - 多图融合评测端在 `width/height` 留空时会先读取主图尺寸再提交；直接绕过前端调用工具箱时，不传尺寸仍沿用 workflow 默认 `1024x1024`。
 - `背景抠图` 存在过程图，正式回填只认最终输出节点 `4`；`头部抠像` 正式回填只认 `140`；`FLUX2裂变+四方` 正式回填只认 `111`；`裂变文字强化` 正式回填只认 `29`。
 - `FLUX2-Klein 扩图` 的源图节点是 `76 · LoadImage.image`，后端会先把 OSS URL 上传到 ComfyUI input 目录，再回填文件名；不要直接把外部 URL 填进 workflow JSON。
-- `多元素花纹裂变` 的源图节点是 `10 · LoadImage.image`，后端会先把 OSS URL 上传到 ComfyUI input 目录，再回填文件名；`bili` 沿用旧图裂变口径映射到节点 `24.denoise`，默认 `90 ≈ 0.59`。2026-05-04 已确认 233 机器补齐 CLIPVision/IPAdapter 后可完整出图并完成 OSS 回填，当前允许 158 / 233 双节点按队列路由。
+- `多元素花纹裂变` 的源图节点是 `10 · LoadImage.image`，后端会先把 OSS URL 上传到 ComfyUI input 目录，再回填文件名；`bili` 为重绘幅度，映射到节点 `24.denoise`，默认 `90 ≈ 0.765`。2026-05-04 已确认 233 机器补齐 CLIPVision/IPAdapter 后可完整出图并完成 OSS 回填，当前允许 158 / 233 双节点按队列路由。
 - 233 承接 `flux_strong_hq_softstyle_fission` 依赖：
   - `ComfyUI/models/clip_vision/CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors`
   - `ComfyUI/models/ipadapter/ip-adapter-plus_sdxl_vit-h.safetensors`
@@ -311,14 +311,14 @@
 | --- | --- |
 | 141 · LoadImagesFromURL.url | 输入图片 URL |
 | 13 · CR Text Concatenate.text1 | 外部 `prompt` 写入节点 |
-| 27 · 基础采样节点 | `bili` / `similarity` 映射到 `denoise` |
+| 27 · 基础采样节点 | `bili` / `similarity` 作为重绘幅度映射到 `denoise` |
 | 29 · SaveImage | 最终输出节点，仅回填该节点结果 |
 
 **默认参数**
 
 - `url`：必填
 - `prompt`：必填，来自上游 Coze/VL 生成链路
-- `bili`：业务侧相似度口径，当前映射 `0→0.95`、`50→0.75`、`100→0.55`，最低钳制 `0.55`
+- `bili`：业务侧重绘幅度口径，当前映射 `0→0.45`、`50→0.625`、`100→0.80`，数值越大变化越大
 - `steps` / `cfg` / `seed`：暂由中台默认值兜底
 
 **调试备注**

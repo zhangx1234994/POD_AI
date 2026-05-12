@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Button, Card, Space, Table, Tag, Typography } from 'tdesign-react';
+import { Alert, Button, Card, Input, Space, Table, Tag, Typography } from 'tdesign-react';
 import { adminApi } from '../../../services/adminApi';
 import type { BusinessApiKey, BusinessApiKeyUsageLog, PublicAbility } from '../../../types/admin';
 
@@ -48,6 +48,15 @@ type OnboardingCheck = {
   action: string;
   tag: string;
   theme: 'success' | 'primary' | 'warning';
+};
+
+type BusinessApiKeyFormState = {
+  name: string;
+  key: string;
+  tenantId: string;
+  clientId: string;
+  allowedBusinessKeys: string;
+  expireAt: string;
 };
 
 type ApiExposurePanelProps = {
@@ -374,6 +383,15 @@ const BUSINESS_ONBOARDING_CHECKS: OnboardingCheck[] = [
   },
 ];
 
+const DEFAULT_BUSINESS_API_KEY_FORM: BusinessApiKeyFormState = {
+  name: '',
+  key: '',
+  tenantId: '',
+  clientId: '',
+  allowedBusinessKeys: 'fission,outpaint,pattern_extract',
+  expireAt: '',
+};
+
 function businessStatusLabel(status: BusinessInterfaceGroup['nativeStatus']): string {
   if (status === 'ready') return '原生 API 已具备';
   if (status === 'planning') return '待补原生 API';
@@ -443,6 +461,34 @@ function formatDateTime(value?: string | null): string {
   return date.toLocaleString('zh-CN', { hour12: false });
 }
 
+function generateBusinessApiKeyValue(): string {
+  const bytes = new Uint8Array(24);
+  if (typeof window !== 'undefined' && window.crypto?.getRandomValues) {
+    window.crypto.getRandomValues(bytes);
+  } else {
+    for (let i = 0; i < bytes.length; i += 1) {
+      bytes[i] = Math.floor(Math.random() * 256);
+    }
+  }
+  const token = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+  return `podi_live_${token}`;
+}
+
+function parseAllowedBusinessKeys(value: string): string[] {
+  return value
+    .split(/[\s,，]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function normalizeDatetimeLocal(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const date = new Date(trimmed);
+  if (Number.isNaN(date.getTime())) return trimmed;
+  return date.toISOString();
+}
+
 function buildAbilityInvokeExample(abilityId: string): string {
   return `curl -X POST <backend-host>/api/abilities/${abilityId}/invoke \\
   -H "Authorization: Bearer <accessToken 或 SERVICE_API_TOKEN>" \\
@@ -507,7 +553,10 @@ export function ApiExposurePanel({
   const [businessApiKeys, setBusinessApiKeys] = useState<BusinessApiKey[]>([]);
   const [businessApiKeyUsage, setBusinessApiKeyUsage] = useState<BusinessApiKeyUsageLog[]>([]);
   const [businessApiKeyLoading, setBusinessApiKeyLoading] = useState(false);
+  const [businessApiKeySaving, setBusinessApiKeySaving] = useState(false);
   const [businessApiKeyError, setBusinessApiKeyError] = useState('');
+  const [businessApiKeyNotice, setBusinessApiKeyNotice] = useState('');
+  const [businessApiKeyForm, setBusinessApiKeyForm] = useState<BusinessApiKeyFormState>(DEFAULT_BUSINESS_API_KEY_FORM);
   const loadBusinessApiKeyAudit = useCallback(async () => {
     setBusinessApiKeyLoading(true);
     setBusinessApiKeyError('');
@@ -528,6 +577,60 @@ export function ApiExposurePanel({
   useEffect(() => {
     void loadBusinessApiKeyAudit();
   }, [loadBusinessApiKeyAudit]);
+
+  const updateBusinessApiKeyForm = (field: keyof BusinessApiKeyFormState, value: string) => {
+    setBusinessApiKeyForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleGenerateBusinessApiKey = () => {
+    updateBusinessApiKeyForm('key', generateBusinessApiKeyValue());
+  };
+
+  const handleCreateBusinessApiKey = async () => {
+    const name = businessApiKeyForm.name.trim();
+    const key = businessApiKeyForm.key.trim();
+    if (!name || !key) {
+      setBusinessApiKeyError('请先填写 Key 名称和 Key 值。');
+      return;
+    }
+    setBusinessApiKeySaving(true);
+    setBusinessApiKeyError('');
+    setBusinessApiKeyNotice('');
+    try {
+      await adminApi.createBusinessApiKey({
+        name,
+        key,
+        status: 'active',
+        tenantId: businessApiKeyForm.tenantId.trim() || null,
+        clientId: businessApiKeyForm.clientId.trim() || null,
+        allowedBusinessKeys: parseAllowedBusinessKeys(businessApiKeyForm.allowedBusinessKeys),
+        expireAt: normalizeDatetimeLocal(businessApiKeyForm.expireAt),
+      });
+      setBusinessApiKeyForm(DEFAULT_BUSINESS_API_KEY_FORM);
+      setBusinessApiKeyNotice('业务 API Key 已创建。创建后只展示脱敏值，请把完整 Key 交给对应业务方保存。');
+      await loadBusinessApiKeyAudit();
+    } catch (err) {
+      setBusinessApiKeyError(String((err as Error)?.message || err));
+    } finally {
+      setBusinessApiKeySaving(false);
+    }
+  };
+
+  const handleToggleBusinessApiKeyStatus = async (row: BusinessApiKey) => {
+    const nextStatus = row.status === 'active' ? 'disabled' : 'active';
+    setBusinessApiKeySaving(true);
+    setBusinessApiKeyError('');
+    setBusinessApiKeyNotice('');
+    try {
+      await adminApi.updateBusinessApiKey(row.id, { status: nextStatus });
+      setBusinessApiKeyNotice(`${row.name} 已${nextStatus === 'active' ? '启用' : '停用'}。`);
+      await loadBusinessApiKeyAudit();
+    } catch (err) {
+      setBusinessApiKeyError(String((err as Error)?.message || err));
+    } finally {
+      setBusinessApiKeySaving(false);
+    }
+  };
 
   const activeAbilities = publicAbilities.filter((item) => item.status === 'active');
   const imageAbilities = publicAbilities.filter((item) => {
@@ -720,6 +823,69 @@ export function ApiExposurePanel({
               刷新 Key 记录
             </Button>
           </Space>
+          <div className="podi-business-api-key-form">
+            <div className="podi-business-api-key-form__field">
+              <label>Key 名称</label>
+              <Input
+                value={businessApiKeyForm.name}
+                placeholder="例如：业务方 A · 图裂变接入"
+                onChange={(value) => updateBusinessApiKeyForm('name', String(value))}
+              />
+            </div>
+            <div className="podi-business-api-key-form__field podi-business-api-key-form__field--wide">
+              <label>Key 值</label>
+              <Space>
+                <Input
+                  value={businessApiKeyForm.key}
+                  placeholder="点击生成，或粘贴已有 Key"
+                  onChange={(value) => updateBusinessApiKeyForm('key', String(value))}
+                />
+                <Button variant="outline" onClick={handleGenerateBusinessApiKey}>
+                  生成
+                </Button>
+              </Space>
+            </div>
+            <div className="podi-business-api-key-form__field">
+              <label>租户 ID</label>
+              <Input
+                value={businessApiKeyForm.tenantId}
+                placeholder="可选，例如 tenant-a"
+                onChange={(value) => updateBusinessApiKeyForm('tenantId', String(value))}
+              />
+            </div>
+            <div className="podi-business-api-key-form__field">
+              <label>客户端 ID</label>
+              <Input
+                value={businessApiKeyForm.clientId}
+                placeholder="可选，例如 open-api"
+                onChange={(value) => updateBusinessApiKeyForm('clientId', String(value))}
+              />
+            </div>
+            <div className="podi-business-api-key-form__field podi-business-api-key-form__field--wide">
+              <label>可调用业务</label>
+              <Input
+                value={businessApiKeyForm.allowedBusinessKeys}
+                placeholder="留空表示全部；多个用逗号分隔"
+                onChange={(value) => updateBusinessApiKeyForm('allowedBusinessKeys', String(value))}
+              />
+              <small>常用：fission、outpaint、pattern_extract。</small>
+            </div>
+            <div className="podi-business-api-key-form__field">
+              <label>过期时间</label>
+              <input
+                type="datetime-local"
+                value={businessApiKeyForm.expireAt}
+                onChange={(event) => updateBusinessApiKeyForm('expireAt', event.currentTarget.value)}
+              />
+            </div>
+            <div className="podi-business-api-key-form__actions">
+              <Button theme="primary" loading={businessApiKeySaving} onClick={handleCreateBusinessApiKey}>
+                创建业务 Key
+              </Button>
+              <Typography.Text theme="secondary">完整 Key 只在创建时可见；列表只展示脱敏值和调用记录。</Typography.Text>
+            </div>
+          </div>
+          {businessApiKeyNotice ? <Alert theme="success" message={businessApiKeyNotice} /> : null}
           {businessApiKeyError ? <Alert theme="error" message={businessApiKeyError} /> : null}
           <Table
             rowKey="id"
@@ -787,6 +953,22 @@ export function ApiExposurePanel({
                 title: '过期时间',
                 width: 180,
                 cell: ({ row }) => <Typography.Text theme="secondary">{formatDateTime(row.expireAt)}</Typography.Text>,
+              },
+              {
+                colKey: 'operation',
+                title: '操作',
+                width: 110,
+                cell: ({ row }) => (
+                  <Button
+                    size="small"
+                    variant="outline"
+                    theme={row.status === 'active' ? 'danger' : 'primary'}
+                    loading={businessApiKeySaving}
+                    onClick={() => void handleToggleBusinessApiKeyStatus(row)}
+                  >
+                    {row.status === 'active' ? '停用' : '启用'}
+                  </Button>
+                ),
               },
             ]}
             empty={<Typography.Text theme="secondary">暂无业务 API Key。后续业务接入前先在这里开 Key。</Typography.Text>}

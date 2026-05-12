@@ -4799,16 +4799,20 @@ class BusinessRunService:
     def _latest_run_summary(row: BusinessCapability, *, session=None) -> dict[str, Any] | None:
         if session is None:
             return None
-        latest = (
-            session.execute(
-                select(BusinessRun)
-                .where(BusinessRun.business_version_id == row.id)
-                .order_by(BusinessRun.created_at.desc())
-                .limit(1)
+        latest = session.execute(
+            select(
+                BusinessRun.id,
+                BusinessRun.status,
+                BusinessRun.created_at,
+                BusinessRun.finished_at,
+                BusinessRun.image_urls,
+                BusinessRun.video_urls,
+                BusinessRun.error_message,
             )
-            .scalars()
-            .first()
-        )
+            .where(BusinessRun.business_version_id == row.id)
+            .order_by(BusinessRun.created_at.desc())
+            .limit(1)
+        ).first()
         if not latest:
             return None
         return {
@@ -4947,15 +4951,13 @@ class BusinessRunService:
     def _run_steps_to_dict(self, row: BusinessRun, *, session=None) -> list[dict[str, Any]]:
         if session is None:
             return []
+        # Avoid MySQL sorting wide rows that contain JSON payload columns; sort the few run steps in Python instead.
         steps = (
-            session.execute(
-                select(BusinessRunStep)
-                .where(BusinessRunStep.run_id == row.id)
-                .order_by(BusinessRunStep.step_order.asc(), BusinessRunStep.created_at.asc())
-            )
+            session.execute(select(BusinessRunStep).where(BusinessRunStep.run_id == row.id))
             .scalars()
             .all()
         )
+        steps.sort(key=lambda step: (step.step_order, step.created_at or datetime.min))
         log_map = self._load_ability_log_map(
             session,
             [int(step.ability_log_id) for step in steps if step.ability_log_id],

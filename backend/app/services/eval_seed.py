@@ -79,6 +79,14 @@ FISSION_WORKFLOW_IDS: set[str] = {
     "7631838631375667200",  # high quality softstyle fission
 }
 
+# 图裂变里的 bili 本质映射 ComfyUI denoise，不是“相似度”。
+# 文字增强仍保留原相似度口径，避免误改不同业务语义。
+REPAINT_STRENGTH_WORKFLOW_IDS: set[str] = FISSION_WORKFLOW_IDS - {
+    "7629024620879806464",  # qwen2512_print_shape_text_enhance
+}
+REPAINT_STRENGTH_LABEL = "重绘幅度(%)"
+REPAINT_STRENGTH_DESCRIPTION = "控制裂变重绘变化程度，0%=更保守，100%=变化更大；后端按约定比例换算为 denoise。"
+
 # 同时属于"图裂变"和"四方/两方连续图类"的工作流。
 DUAL_CATEGORY_FISSION_WORKFLOW_IDS: set[str] = {
     "7629026792103215104",  # flux2_9b_liebian_sifang
@@ -949,11 +957,11 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                 {"name": "width", "label": "宽度", "type": "text", "required": False, "defaultValue": "", "description": "可选。不填默认原图宽度。"},
                 {
                     "name": "bili",
-                    "label": "相似度(%)",
+                    "label": REPAINT_STRENGTH_LABEL,
                     "type": "text",
                     "required": True,
                     "defaultValue": "50%",
-                    "description": "与原图保持相似的百分比（越高越接近原图）。",
+                    "description": REPAINT_STRENGTH_DESCRIPTION,
                 },
                 {"name": "count", "label": "裂变数量", "type": "text", "required": False, "defaultValue": "4", "description": "一次评测会触发 count 个子任务并聚合结果"},
             ]
@@ -980,11 +988,11 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                 {"name": "width", "label": "宽度", "type": "text", "required": False, "defaultValue": "", "description": "可选。不填默认原图宽度。"},
                 {
                     "name": "bili",
-                    "label": "相似度(%)",
+                    "label": REPAINT_STRENGTH_LABEL,
                     "type": "text",
                     "required": True,
                     "defaultValue": "50%",
-                    "description": "与原图保持相似的百分比（越高越接近原图）。",
+                    "description": REPAINT_STRENGTH_DESCRIPTION,
                 },
                 {"name": "prompt", "label": "提示词", "type": "textarea", "required": False, "defaultValue": ""},
                 {"name": "count", "label": "裂变数量", "type": "text", "required": False, "defaultValue": "4", "description": "一次评测会触发 count 个子任务并聚合结果"},
@@ -1012,11 +1020,11 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                 {"name": "width", "label": "宽度", "type": "text", "required": False, "defaultValue": "", "description": "可选。不填默认原图宽度。"},
                 {
                     "name": "bili",
-                    "label": "相似度(%)",
+                    "label": REPAINT_STRENGTH_LABEL,
                     "type": "text",
                     "required": True,
                     "defaultValue": "50%",
-                    "description": "与原图保持相似的百分比（越高越接近原图）。",
+                    "description": REPAINT_STRENGTH_DESCRIPTION,
                 },
                 {"name": "count", "label": "裂变数量", "type": "text", "required": False, "defaultValue": "4", "description": "一次评测会触发 count 个子任务并聚合结果"},
             ]
@@ -1043,11 +1051,11 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                 {"name": "width", "label": "宽度", "type": "text", "required": False, "defaultValue": "", "description": "可选。不填默认原图宽度。"},
                 {
                     "name": "bili",
-                    "label": "相似度(%)",
+                    "label": REPAINT_STRENGTH_LABEL,
                     "type": "text",
                     "required": True,
                     "defaultValue": "50%",
-                    "description": "与原图保持相似的百分比（越高越接近原图）。",
+                    "description": REPAINT_STRENGTH_DESCRIPTION,
                 },
                 {"name": "prompt", "label": "提示词", "type": "textarea", "required": False, "defaultValue": ""},
                 {"name": "count", "label": "裂变数量", "type": "text", "required": False, "defaultValue": "4", "description": "一次评测会触发 count 个子任务并聚合结果"},
@@ -1096,11 +1104,11 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                 },
                 {
                     "name": "bili",
-                    "label": "相似度(%)",
+                    "label": REPAINT_STRENGTH_LABEL,
                     "type": "text",
                     "required": True,
                     "defaultValue": "50%",
-                    "description": "与原图保持相似的百分比（越高越接近原图）。",
+                    "description": REPAINT_STRENGTH_DESCRIPTION,
                 },
                 {
                     "name": "moxing",
@@ -1160,11 +1168,11 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                 },
                 {
                     "name": "bili",
-                    "label": "相似度(%)",
+                    "label": REPAINT_STRENGTH_LABEL,
                     "type": "text",
                     "required": True,
                     "defaultValue": "50%",
-                    "description": "与原图保持相似的百分比（越高越接近原图）。",
+                    "description": REPAINT_STRENGTH_DESCRIPTION,
                 },
                 {
                     "name": "moxing",
@@ -1483,7 +1491,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         "parameters_schema": {
             "fields": [
                 {"name": "url", "label": "图片 URL", "type": "image", "required": True},
-                {"name": "bili", "label": "相似度(%)", "type": "text", "required": True, "defaultValue": "50%", "description": "与原图保持相似的百分比（越高越接近原图）。"},
+                {"name": "bili", "label": REPAINT_STRENGTH_LABEL, "type": "text", "required": True, "defaultValue": "50%", "description": REPAINT_STRENGTH_DESCRIPTION},
                 {"name": "width", "label": "宽度", "type": "text", "required": False, "defaultValue": "", "description": "像素数值（纯数字，不要带 px）"},
                 {"name": "height", "label": "高度", "type": "text", "required": False, "defaultValue": "", "description": "像素数值（纯数字，不要带 px）"},
                 {"name": "prompt", "label": "提示词", "type": "textarea", "required": False, "defaultValue": ""},
@@ -1602,7 +1610,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         "parameters_schema": {
             "fields": [
                 {"name": "url", "label": "原图 URL", "type": "image", "required": True, "description": "裂变前的参考原图；测评端上传后会自动写入。"},
-                {"name": "bili", "label": "裂变幅度", "type": "text", "required": False, "defaultValue": "50%", "description": "0%=更保守，100%=变化更大；默认 50%。"},
+                {"name": "bili", "label": REPAINT_STRENGTH_LABEL, "type": "text", "required": False, "defaultValue": "50%", "description": REPAINT_STRENGTH_DESCRIPTION},
                 {"name": "width", "label": "输出宽度", "type": "text", "required": False, "defaultValue": "2000", "description": "像素数值（纯数字，不要带 px）"},
                 {"name": "height", "label": "输出高度", "type": "text", "required": False, "defaultValue": "2000", "description": "像素数值（纯数字，不要带 px）"},
                 {"name": "profile", "label": "裂变配置", "type": "text", "required": False, "defaultValue": "pattern_default_v1"},
@@ -2059,8 +2067,8 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
                     schema["fields"] = filtered
                     row.output_schema = schema
                     dirty = True
-        if row.workflow_id in FISSION_WORKFLOW_IDS:
-            # Normalize similarity labels to avoid "重绘比例" ambiguity.
+        if row.workflow_id in REPAINT_STRENGTH_WORKFLOW_IDS:
+            # Normalize bili/similarity display: this parameter controls denoise, not similarity.
             schema = json.loads(json.dumps(row.parameters_schema or {}, ensure_ascii=False))
             fields = schema.get("fields") if isinstance(schema, dict) else None
             if isinstance(fields, list):
@@ -2069,18 +2077,18 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
                     if not isinstance(f, dict):
                         continue
                     if f.get("name") == "similarity":
-                        if f.get("label") != "相似度(%)":
-                            f["label"] = "相似度(%)"
+                        if f.get("label") != REPAINT_STRENGTH_LABEL:
+                            f["label"] = REPAINT_STRENGTH_LABEL
                             changed = True
-                        if "相似的百分比" not in str(f.get("description") or ""):
-                            f["description"] = "与原图保持相似的百分比（越高越接近原图）。兼容字段：bili。"
+                        if f.get("description") != f"{REPAINT_STRENGTH_DESCRIPTION} 兼容字段：bili。":
+                            f["description"] = f"{REPAINT_STRENGTH_DESCRIPTION} 兼容字段：bili。"
                             changed = True
                     if f.get("name") == "bili":
-                        if f.get("label") != "相似度(%)":
-                            f["label"] = "相似度(%)"
+                        if f.get("label") != REPAINT_STRENGTH_LABEL:
+                            f["label"] = REPAINT_STRENGTH_LABEL
                             changed = True
-                        if "相似的百分比" not in str(f.get("description") or ""):
-                            f["description"] = "与原图保持相似的百分比（越高越接近原图）。"
+                        if f.get("description") != REPAINT_STRENGTH_DESCRIPTION:
+                            f["description"] = REPAINT_STRENGTH_DESCRIPTION
                             changed = True
                 if changed:
                     schema["fields"] = fields

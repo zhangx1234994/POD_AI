@@ -63,6 +63,8 @@ def test_new_fission_workflows_exist_under_fission_category():
 
     assert with_names == ["url", "height", "width", "bili", "prompt", "count"]
     assert without_names == ["url", "height", "width", "bili", "count"]
+    assert _field_by_name(with_prompt, "bili").get("label") == "重绘幅度(%)"
+    assert "denoise" in str(_field_by_name(with_prompt, "bili").get("description") or "")
     for field in with_prompt_fields + without_prompt_fields:
         if not isinstance(field, dict):
             continue

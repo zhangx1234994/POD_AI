@@ -66,6 +66,8 @@ type PromptHint = {
 
 type LoraOption = { label: string; value: string };
 
+type CompareMode = 'slider' | 'side-by-side' | 'overlay' | 'diff';
+
 type WorkflowMetric = {
   ratingCount: number;
   avgRating: number | null;
@@ -2485,6 +2487,137 @@ function SkeletonTile({ title, subtitle }: { title: string; subtitle?: string })
   );
 }
 
+function ImageComparePanel({
+  inputUrl,
+  outputUrls,
+  title,
+  compact,
+  onOpenImage,
+}: {
+  inputUrl: string;
+  outputUrls: string[];
+  title: string;
+  compact?: boolean;
+  onOpenImage: (url: string, title?: string) => void;
+}) {
+  const [mode, setMode] = useState<CompareMode>('slider');
+  const [index, setIndex] = useState(0);
+  const [slider, setSlider] = useState(50);
+  const [opacity, setOpacity] = useState(70);
+  const safeOutputs = outputUrls.filter((item) => String(item || '').trim());
+  const outputUrl = safeOutputs[index] || safeOutputs[0] || '';
+
+  useEffect(() => {
+    if (index < safeOutputs.length) return;
+    setIndex(0);
+  }, [index, safeOutputs.length]);
+
+  const style = {
+    '--podi-compare-position': `${slider}%`,
+    '--podi-compare-opacity': `${opacity / 100}`,
+  } as CSSProperties;
+
+  const renderPane = (url: string, label: string, tone: 'input' | 'output') => (
+    <button
+      type="button"
+      className={`podi-compare-pane podi-compare-pane--${tone}`}
+      onClick={() => onOpenImage(url, label)}
+      disabled={!url}
+    >
+      {url ? <img src={url} alt={label} loading="lazy" draggable={false} /> : <span>暂无图片</span>}
+      <span className="podi-compare-pane__label">{label}</span>
+    </button>
+  );
+
+  if (!inputUrl || safeOutputs.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className={`podi-compare-panel ${compact ? 'podi-compare-panel--compact' : ''}`}>
+      <div className="podi-compare-panel__toolbar">
+        <Space size="small" breakLine>
+          <Typography.Text strong>{title}</Typography.Text>
+          <Tag variant="light">结果 {Math.min(index + 1, safeOutputs.length)} / {safeOutputs.length}</Tag>
+        </Space>
+        <Space size="small" breakLine>
+          {[
+            { value: 'slider' as const, label: '滑块对比' },
+            { value: 'side-by-side' as const, label: '并排' },
+            { value: 'overlay' as const, label: '叠加' },
+            { value: 'diff' as const, label: '差异' },
+          ].map((item) => (
+            <Button
+              key={item.value}
+              size="small"
+              variant={mode === item.value ? 'base' : 'outline'}
+              theme={mode === item.value ? 'primary' : 'default'}
+              onClick={() => setMode(item.value)}
+            >
+              {item.label}
+            </Button>
+          ))}
+        </Space>
+      </div>
+
+      <div className={`podi-compare-stage podi-compare-stage--${mode}`} style={style}>
+        {mode === 'side-by-side' ? (
+          <>
+            {renderPane(inputUrl, '原图', 'input')}
+            {renderPane(outputUrl, `结果图 #${index + 1}`, 'output')}
+          </>
+        ) : (
+          <button
+            type="button"
+            className="podi-compare-layer"
+            onClick={() => onOpenImage(outputUrl, `结果图 #${index + 1}`)}
+          >
+            <img className="podi-compare-layer__base" src={inputUrl} alt="原图" loading="lazy" draggable={false} />
+            <span className="podi-compare-layer__tag podi-compare-layer__tag--input">原图</span>
+            <div className="podi-compare-layer__result">
+              <img src={outputUrl} alt={`结果图 #${index + 1}`} loading="lazy" draggable={false} />
+            </div>
+            <span className="podi-compare-layer__tag podi-compare-layer__tag--output">
+              {mode === 'diff' ? '差异亮处=变化大' : '结果图'}
+            </span>
+            {mode === 'slider' ? <span className="podi-compare-layer__handle" /> : null}
+          </button>
+        )}
+      </div>
+
+      <div className="podi-compare-panel__controls">
+        {mode === 'slider' ? (
+          <label>
+            <span>滑块位置</span>
+            <input type="range" min="0" max="100" value={slider} onChange={(e) => setSlider(Number(e.target.value))} />
+          </label>
+        ) : null}
+        {mode === 'overlay' ? (
+          <label>
+            <span>结果透明度</span>
+            <input type="range" min="0" max="100" value={opacity} onChange={(e) => setOpacity(Number(e.target.value))} />
+          </label>
+        ) : null}
+        {safeOutputs.length > 1 ? (
+          <div className="podi-compare-thumbs" aria-label="结果图切换">
+            {safeOutputs.map((url, idx) => (
+              <button
+                key={`${url}-${idx}`}
+                type="button"
+                className={idx === index ? 'is-active' : ''}
+                onClick={() => setIndex(idx)}
+              >
+                <img src={url} alt={`结果缩略图 #${idx + 1}`} loading="lazy" />
+                <span>#{idx + 1}</span>
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function readTheme(): ThemeMode {
   const stored = window.localStorage.getItem('podi.eval.theme');
   return stored === 'dark' ? 'dark' : 'light';
@@ -2547,6 +2680,7 @@ export function App() {
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const extraImagesInputRef = useRef<HTMLInputElement | null>(null);
   const [extraImageFieldTarget, setExtraImageFieldTarget] = useState<string | null>(null);
+  const autoFilledFissionSizeRef = useRef<{ width: string; height: string } | null>(null);
 
   const [editorTool, setEditorTool] = useState<EditorTool>('rect');
   const [editorPrompt, setEditorPrompt] = useState('');
@@ -2958,6 +3092,13 @@ export function App() {
   const requiresImage = useMemo(
     () => toolFields.some((f) => f.name === 'url' || f.name === 'Url'),
     [toolFields],
+  );
+  const shouldAutoFillFissionSize = useMemo(
+    () =>
+      Boolean(selectedTool && isFissionWorkflow(selectedTool)) &&
+      toolFields.some((f) => f.name === 'width') &&
+      toolFields.some((f) => f.name === 'height'),
+    [selectedTool, toolFields],
   );
   const isAiEditor = selectedTool?.workflow_id === AI_EDITOR_WORKFLOW_ID;
   const isShengtuWorkflow = selectedTool?.workflow_id === SHENGTU_WORKFLOW_ID;
@@ -3817,6 +3958,7 @@ export function App() {
   const openTool = (wf: EvalWorkflowVersion, focus: ToolHistoryFocus = 'all') => {
     setSelectedTool(wf);
     setFormUrl('');
+    autoFilledFissionSizeRef.current = null;
     // Prevent showing previous tool's results while the new tool's history is loading.
     setToolRuns([]);
     setHistoryFocus(focus);
@@ -3890,6 +4032,36 @@ export function App() {
   const setSingleImageField = useCallback((fieldName: string, value: string) => {
     setFormParams((prev) => ({ ...prev, [fieldName]: value }));
   }, []);
+
+  const applyFissionOriginalSizeDefaults = useCallback(
+    async (imageUrl: string, sizeHint?: { width: number; height: number } | null) => {
+      if (!shouldAutoFillFissionSize) return null;
+      const size = sizeHint || await loadImageSizeFromUrl(imageUrl);
+      if (!size?.width || !size?.height) return null;
+      setFormParams((prev) => {
+        const next = { ...prev };
+        let changed = false;
+        const previousAuto = autoFilledFissionSizeRef.current;
+        for (const name of ['width', 'height']) {
+          const field = toolFields.find((item) => item.name === name);
+          if (!field) continue;
+          const current = String((prev as any)[name] ?? '').trim();
+          const schemaDefault = String((field as any).defaultValue ?? '').trim();
+          const currentIsPreviousAuto = Boolean(previousAuto && current === (previousAuto as any)[name]);
+          if (current && !currentIsPreviousAuto && (!schemaDefault || current !== schemaDefault)) continue;
+          next[name] = String(name === 'width' ? size.width : size.height);
+          changed = true;
+        }
+        if (changed) {
+          autoFilledFissionSizeRef.current = { width: String(size.width), height: String(size.height) };
+        }
+        return changed ? next : prev;
+      });
+      return size;
+    },
+    [shouldAutoFillFissionSize, toolFields],
+  );
+
   const syncEditorImageMeta = useCallback(() => {
     const img = editorImageRef.current;
     if (!img) return;
@@ -4159,14 +4331,18 @@ export function App() {
           parameters[k] = v;
         }
       }
-      if (isDuotuRongheWorkflow) {
+      if (isDuotuRongheWorkflow || shouldAutoFillFissionSize) {
         const widthRaw = String(parameters.width ?? '').trim();
         const heightRaw = String(parameters.height ?? '').trim();
-        if ((!widthRaw || !heightRaw) && url) {
+        const widthDefault = String((toolFields.find((field) => field.name === 'width') as any)?.defaultValue ?? '').trim();
+        const heightDefault = String((toolFields.find((field) => field.name === 'height') as any)?.defaultValue ?? '').trim();
+        const widthNeedsOriginal = !widthRaw || (shouldAutoFillFissionSize && widthDefault && widthRaw === normalizeNumericParam('width', widthDefault));
+        const heightNeedsOriginal = !heightRaw || (shouldAutoFillFissionSize && heightDefault && heightRaw === normalizeNumericParam('height', heightDefault));
+        if ((widthNeedsOriginal || heightNeedsOriginal) && url) {
           const size = await loadImageSizeFromUrl(url);
           if (size) {
-            if (!widthRaw) parameters.width = String(size.width);
-            if (!heightRaw) parameters.height = String(size.height);
+            if (widthNeedsOriginal) parameters.width = String(size.width);
+            if (heightNeedsOriginal) parameters.height = String(size.height);
           }
         }
       }
@@ -6480,6 +6656,7 @@ export function App() {
                         <Input
                           value={formUrl}
                           onChange={(v) => setFormUrl(String(v))}
+                          onBlur={() => void applyFissionOriginalSizeDefaults(formUrl.trim())}
                           placeholder="支持粘贴 URL 或上传本地图片"
                           clearable
                         />
@@ -6498,8 +6675,10 @@ export function App() {
                           if (!file) return;
                           setUploading(true);
                           try {
+                            const size = await loadImageSizeFromFile(file);
                             const res = await evalApi.uploadImage(file);
                             setFormUrl(res.url);
+                            void applyFissionOriginalSizeDefaults(res.url, size);
                           } catch (err) {
                             console.error(err);
                             pushNotice('error', String((err as any)?.message || err));
@@ -6891,6 +7070,7 @@ export function App() {
                             <Input
                               value={formUrl}
                               onChange={(v) => setFormUrl(String(v))}
+                              onBlur={() => void applyFissionOriginalSizeDefaults(formUrl.trim())}
                               placeholder="支持粘贴 URL 或上传本地图片"
                               clearable
                             />
@@ -6909,8 +7089,10 @@ export function App() {
                               if (!file) return;
                               setUploading(true);
                               try {
+                                const size = await loadImageSizeFromFile(file);
                                 const res = await evalApi.uploadImage(file);
                                 setFormUrl(res.url);
+                                void applyFissionOriginalSizeDefaults(res.url, size);
                               } catch (err) {
                                 console.error(err);
                                 pushNotice('error', String((err as any)?.message || err));
@@ -7128,17 +7310,18 @@ export function App() {
             >
               <Space direction="vertical" size="large" style={{ width: '100%' }}>
                 <Typography.Text theme="secondary">图片可放大预览；视频、文字/VL 和结构化结果会单独展示。下方历史可筛选/打标。</Typography.Text>
-	                {(() => {
-	                  const latest = toolRuns[0] || null;
-	                  const status = String(latest?.status || '');
-	                  const rawCount = Number((latest?.parameters_json as any)?.count);
-	                  const expectedCount =
-	                    Number.isFinite(rawCount) && rawCount > 1 ? Math.min(Math.max(rawCount, 2), 12) : latest ? 1 : 0;
-	                  const latestOutput = latest ? getRunOutputDescriptor(latest) : null;
-	                  const imgs = latestOutput?.imageUrls || [];
-	                  const videos = latestOutput?.videoUrls || [];
-	                  const remain = latest ? Math.max(0, expectedCount - imgs.length) : 0;
-	                  const outputIp = latest ? extractOutputField((latest as any).result_output_json, 'ip') : '';
+                  {(() => {
+                    const latest = toolRuns[0] || null;
+                    const status = String(latest?.status || '');
+                    const rawCount = Number((latest?.parameters_json as any)?.count);
+                    const expectedCount =
+                      Number.isFinite(rawCount) && rawCount > 1 ? Math.min(Math.max(rawCount, 2), 12) : latest ? 1 : 0;
+                    const latestOutput = latest ? getRunOutputDescriptor(latest) : null;
+                    const imgs = latestOutput?.imageUrls || [];
+                    const videos = latestOutput?.videoUrls || [];
+                    const remain = latest ? Math.max(0, expectedCount - imgs.length) : 0;
+                    const outputIp = latest ? extractOutputField((latest as any).result_output_json, 'ip') : '';
+                    const latestInputUrl = latest ? (latest.input_oss_urls_json || [])[0] || formUrl.trim() : formUrl.trim();
 
                   return (
                     <Space direction="vertical" size="large" style={{ width: '100%' }}>
@@ -7182,12 +7365,12 @@ export function App() {
                                 <Typography.Text>{expectedCount || '—'}</Typography.Text>
                               </Space>
                             </Col>
-	                            <Col xs={12} md={4}>
-	                              <Space direction="vertical" size={2}>
-	                                <Typography.Text theme="secondary">已完成</Typography.Text>
-	                                <Typography.Text>{latestOutput?.label || imgs.length}</Typography.Text>
-	                              </Space>
-	                            </Col>
+                              <Col xs={12} md={4}>
+                                <Space direction="vertical" size={2}>
+                                  <Typography.Text theme="secondary">已完成</Typography.Text>
+                                  <Typography.Text>{latestOutput?.label || imgs.length}</Typography.Text>
+                                </Space>
+                              </Col>
                             <Col xs={12} md={4}>
                               <Space direction="vertical" size={2}>
                                 <Typography.Text theme="secondary">创建时间</Typography.Text>
@@ -7262,35 +7445,44 @@ export function App() {
                               />
                             ))}
                           </>
-	                        ) : status === 'failed' ? (
-	                          <Alert theme="error" message={`生成失败（run: ${latest.id}）：${toDisplayErrorMessage(latest.error_message || '—')}`} />
-	                        ) : imgs.length > 0 ? (
-	                          imgs.map((img, idx) => (
-	                            <ImageTile
-	                              key={`latest-${idx}`}
-	                              url={img}
-	                              title={`最新结果 #${idx + 1}`}
-	                              onOpen={() => setLightbox({ url: img, title: `最新结果 #${idx + 1}` })}
-	                            />
-	                          ))
-	                        ) : videos.length > 0 ? (
-	                          videos.map((video, idx) => (
-	                            <Card key={`latest-video-${idx}`} bordered title={`结果视频 #${idx + 1}`}>
-	                              <Space direction="vertical" size="small" style={{ width: '100%' }}>
-	                                <Typography.Text theme="secondary" ellipsis>
-	                                  {video}
-	                                </Typography.Text>
-	                                <Button size="small" variant="outline" onClick={() => window.open(video, '_blank', 'noreferrer')}>
-	                                  打开视频
-	                                </Button>
-	                              </Space>
-	                            </Card>
-	                          ))
-	                        ) : (
-	                          <Card bordered title="输出">
-	                            {(() => {
-	                              const jsonPreview = latestOutput?.preview || '';
-	                              return jsonPreview ? (
+                            ) : status === 'failed' ? (
+                              <Alert theme="error" message={`生成失败（run: ${latest.id}）：${toDisplayErrorMessage(latest.error_message || '—')}`} />
+                            ) : imgs.length > 0 ? (
+                              latestInputUrl ? (
+                                <ImageComparePanel
+                                  inputUrl={latestInputUrl}
+                                  outputUrls={imgs}
+                                  title="最新结果对比"
+                                  onOpenImage={(u, title) => setLightbox({ url: u, title })}
+                                />
+                              ) : (
+                                imgs.map((img, idx) => (
+                                  <ImageTile
+                                    key={`latest-${idx}`}
+                                    url={img}
+                                    title={`最新结果 #${idx + 1}`}
+                                    onOpen={() => setLightbox({ url: img, title: `最新结果 #${idx + 1}` })}
+                                  />
+                                ))
+                              )
+                            ) : videos.length > 0 ? (
+                            videos.map((video, idx) => (
+                              <Card key={`latest-video-${idx}`} bordered title={`结果视频 #${idx + 1}`}>
+                                <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                                  <Typography.Text theme="secondary" ellipsis>
+                                    {video}
+                                  </Typography.Text>
+                                  <Button size="small" variant="outline" onClick={() => window.open(video, '_blank', 'noreferrer')}>
+                                    打开视频
+                                  </Button>
+                                </Space>
+                              </Card>
+                            ))
+                          ) : (
+                            <Card bordered title="输出">
+                              {(() => {
+                                const jsonPreview = latestOutput?.preview || '';
+                                return jsonPreview ? (
                                 <pre
                                   style={{
                                     maxHeight: 420,
@@ -7307,11 +7499,11 @@ export function App() {
                                   {jsonPreview}
                                 </pre>
                               ) : (
-	                                <Typography.Text theme="secondary">该次运行无图片输出。</Typography.Text>
-	                              );
-	                            })()}
-	                          </Card>
-	                        )}
+                                  <Typography.Text theme="secondary">该次运行无图片输出。</Typography.Text>
+                                );
+                              })()}
+                            </Card>
+                          )}
                       </div>
                     </Space>
                   );
@@ -7777,73 +7969,83 @@ function HistoryRow({
               </Space>
             </Card>
           </Col>
-          <Col xs={24} lg={16} className="podi-history-row-col">
-            <Card bordered title="原图 / 结果">
-              <div className="podi-image-grid">
-                {inputUrl ? (
-                  <Button
-                    variant="outline"
-                    onClick={() => onOpenImage(inputUrl, '原图')}
-                    style={{ padding: 6, height: 'auto' }}
-                  >
-                    <img src={inputUrl} alt="input" style={{ height: 128, width: '100%', objectFit: 'contain' }} />
-                  </Button>
-                ) : null}
-
-                {outputs.length > 0 ? (
-                  outputs.map((u, idx) => (
-                    <Button
-                      key={`${run.id}-out-${idx}`}
-                      variant="outline"
-                      onClick={() => onOpenImage(u, `结果图 #${idx + 1}`)}
-                      style={{ padding: 6, height: 'auto' }}
-                    >
-                      <img src={u} alt="output" loading="lazy" style={{ height: 128, width: '100%', objectFit: 'contain' }} />
-                    </Button>
-                  ))
-                ) : output.videoUrls.length > 0 ? (
-                  output.videoUrls.map((u, idx) => (
-                    <Button
-                      key={`${run.id}-video-${idx}`}
-                      variant="outline"
-                      onClick={() => window.open(u, '_blank', 'noreferrer')}
-                      style={{ padding: 12, height: 'auto', minHeight: 96 }}
-                    >
-                      <Space direction="vertical" size={2}>
-                        <Typography.Text strong>结果视频 #{idx + 1}</Typography.Text>
-                        <Typography.Text theme="secondary" ellipsis style={{ maxWidth: 260 }}>
-                          {u}
-                        </Typography.Text>
-                      </Space>
-                    </Button>
-                  ))
-                ) : run.status !== 'running' && run.status !== 'queued' ? (
-                  jsonPreview ? (
-                    <pre
-                      className="podi-image-grid__full"
-                      style={{
-                        maxHeight: 280,
-                        overflow: 'auto',
-                        border: '1px solid var(--td-border-level-1-color)',
-                        background: 'var(--td-bg-color-secondarycontainer)',
-                        borderRadius: 8,
-                        padding: 12,
-                        fontFamily: 'monospace',
-                        fontSize: 12,
-                        whiteSpace: 'pre-wrap',
-                      }}
-                    >
-                      {jsonPreview}
-                    </pre>
-                  ) : (
-                    <Typography.Text theme="secondary">暂无输出</Typography.Text>
-                  )
+            <Col xs={24} lg={16} className="podi-history-row-col">
+              <Card bordered title="原图 / 结果">
+                {inputUrl && outputs.length > 0 ? (
+                  <ImageComparePanel
+                    inputUrl={inputUrl}
+                    outputUrls={outputs}
+                    title="历史结果对比"
+                    compact
+                    onOpenImage={onOpenImage}
+                  />
                 ) : (
-                  <Typography.Text theme="secondary">生成中…</Typography.Text>
+                  <div className="podi-image-grid">
+                    {inputUrl ? (
+                      <Button
+                        variant="outline"
+                        onClick={() => onOpenImage(inputUrl, '原图')}
+                        style={{ padding: 6, height: 'auto' }}
+                      >
+                        <img src={inputUrl} alt="input" style={{ height: 128, width: '100%', objectFit: 'contain' }} />
+                      </Button>
+                    ) : null}
+
+                    {outputs.length > 0 ? (
+                      outputs.map((u, idx) => (
+                        <Button
+                          key={`${run.id}-out-${idx}`}
+                          variant="outline"
+                          onClick={() => onOpenImage(u, `结果图 #${idx + 1}`)}
+                          style={{ padding: 6, height: 'auto' }}
+                        >
+                          <img src={u} alt="output" loading="lazy" style={{ height: 128, width: '100%', objectFit: 'contain' }} />
+                        </Button>
+                      ))
+                    ) : output.videoUrls.length > 0 ? (
+                      output.videoUrls.map((u, idx) => (
+                        <Button
+                          key={`${run.id}-video-${idx}`}
+                          variant="outline"
+                          onClick={() => window.open(u, '_blank', 'noreferrer')}
+                          style={{ padding: 12, height: 'auto', minHeight: 96 }}
+                        >
+                          <Space direction="vertical" size={2}>
+                            <Typography.Text strong>结果视频 #{idx + 1}</Typography.Text>
+                            <Typography.Text theme="secondary" ellipsis style={{ maxWidth: 260 }}>
+                              {u}
+                            </Typography.Text>
+                          </Space>
+                        </Button>
+                      ))
+                    ) : run.status !== 'running' && run.status !== 'queued' ? (
+                      jsonPreview ? (
+                        <pre
+                          className="podi-image-grid__full"
+                          style={{
+                            maxHeight: 280,
+                            overflow: 'auto',
+                            border: '1px solid var(--td-border-level-1-color)',
+                            background: 'var(--td-bg-color-secondarycontainer)',
+                            borderRadius: 8,
+                            padding: 12,
+                            fontFamily: 'monospace',
+                            fontSize: 12,
+                            whiteSpace: 'pre-wrap',
+                          }}
+                        >
+                          {jsonPreview}
+                        </pre>
+                      ) : (
+                        <Typography.Text theme="secondary">暂无输出</Typography.Text>
+                      )
+                    ) : (
+                      <Typography.Text theme="secondary">生成中…</Typography.Text>
+                    )}
+                  </div>
                 )}
-              </div>
-            </Card>
-          </Col>
+              </Card>
+            </Col>
         </Row>
       </Space>
     </Card>
