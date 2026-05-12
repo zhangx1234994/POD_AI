@@ -327,7 +327,7 @@ DEFAULT_BUSINESS_CAPABILITY_SEEDS: list[BusinessCapabilitySeed] = [
             "prompt_template_id": "pattern_fission_prompt_template_v21",
             "quality_map": {"preview": "low", "production": "medium", "premium": "high"},
             "coze_strategy": "Coze 只调用图裂变业务入口；中台内部完成 VL 分析、提示词编译和 GPT Image 2 调用。",
-            "seed_version": 1,
+            "seed_version": 2,
         },
     ),
     BusinessCapabilitySeed(
@@ -395,7 +395,7 @@ DEFAULT_BUSINESS_CAPABILITY_SEEDS: list[BusinessCapabilitySeed] = [
             "vl_component_ability_id": "vl_fission_control_card",
             "eval_component_ability_id": "vl_fission_generated_image_evaluate",
             "coze_strategy": "Coze 仍调用图裂变业务入口；中台内部完成 VL 控制卡生成和 ComfyUI 裂变调用，生成图评估由业务方按需单独调用。",
-            "seed_version": 1,
+            "seed_version": 2,
         },
     ),
     BusinessCapabilitySeed(
