@@ -685,9 +685,14 @@ class EvalService:
                 )
                 return
             if status in {"failed", "cancelled"}:
+                message = str(last_payload.get("error_message") or last_payload.get("error") or f"BUSINESS_RUN_{status.upper()}")
+                if status == "failed" and self._is_transient_business_poll_error(message, started=started):
+                    time.sleep(interval)
+                    interval = min(interval * 1.25, 10.0)
+                    continue
                 self._mark_failed(
                     run_id,
-                    message=str(last_payload.get("error_message") or last_payload.get("error") or f"BUSINESS_RUN_{status.upper()}"),
+                    message=message,
                     started=started,
                 )
                 return
@@ -719,6 +724,15 @@ class EvalService:
             "steps",
         )
         return EvalService._json_safe_payload({key: payload.get(key) for key in keys if key in payload})
+
+    @staticmethod
+    def _is_transient_business_poll_error(message: str, *, started: float) -> bool:
+        normalized = str(message or "").strip().upper()
+        if normalized not in {"TASK_NOT_FOUND"}:
+            return False
+        # Business runs may create the primary task after a VL step; during that
+        # short window, run finalization can briefly observe an unresolved task.
+        return time.monotonic() - started < 180
 
     @staticmethod
     def _json_safe_payload(value: Any) -> Any:

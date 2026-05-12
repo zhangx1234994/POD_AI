@@ -1,4 +1,5 @@
 import json
+import time
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
@@ -171,6 +172,15 @@ def test_business_eval_output_summary_is_json_safe():
     assert summary["route_info"]["selectedAt"] == "2026-05-12T12:00:00"
     assert summary["steps"][0]["startedAt"] == "2026-05-12T12:00:00"
     assert "created_at" not in summary
+
+
+def test_business_poll_task_not_found_is_transient_only_briefly():
+    from app.services.eval_service import EvalService
+
+    now = time.monotonic()
+    assert EvalService._is_transient_business_poll_error("TASK_NOT_FOUND", started=now) is True
+    assert EvalService._is_transient_business_poll_error("TASK_NOT_FOUND", started=now - 240) is False
+    assert EvalService._is_transient_business_poll_error("OPENAI_FAILED", started=now) is False
 
 
 def test_extract_image_urls_from_task_payload_accepts_stored_url():
