@@ -1759,9 +1759,10 @@ class AbilityInvocationService:
         provider_choice = str(provider_choice).strip().lower()
         prompt = self._pop_first_string(merged_inputs, ["prompt", "instruction", "query"]) or self._default_vl_prompt()
         if provider_choice in {"volcengine", "volcengine_vl", "doubao"}:
+            provider_ability_id = self._resolve_vl_provider_ability_id(metadata, provider_choice)
             with get_session() as session:
                 ensure_default_abilities(session)
-                provider_ability = session.get(Ability, "volcengine_doubao_seed_1_8")
+                provider_ability = session.get(Ability, provider_ability_id)
             if not provider_ability:
                 raise HTTPException(status_code=400, detail="VL_PROVIDER_ABILITY_NOT_FOUND")
             response = self.invoke(
@@ -1807,6 +1808,23 @@ class AbilityInvocationService:
                 "raw": {"structured": structured, "provider": provider_choice, "response": response},
             }
         raise HTTPException(status_code=400, detail="VL_PROVIDER_UNSUPPORTED")
+
+    @staticmethod
+    def _resolve_vl_provider_ability_id(metadata: dict[str, Any], provider_choice: str) -> str:
+        provider_map = metadata.get("provider_ability_map")
+        if not isinstance(provider_map, dict):
+            provider_map = {}
+        candidates = [
+            provider_choice,
+            "volcengine_vl",
+            "volcengine",
+            "doubao",
+        ]
+        for candidate in candidates:
+            mapped = provider_map.get(candidate)
+            if isinstance(mapped, str) and mapped.strip() and mapped != "coze_workflow":
+                return mapped.strip()
+        return "volcengine_doubao_seed_2_0_lite"
 
     @staticmethod
     def _default_vl_prompt() -> str:

@@ -294,12 +294,13 @@
 | `vl_fission_control_card` | 图裂变控制卡 | `image_url` 或 `imageUrl` | `provider`、`prompt`、`coze_workflow_id` | `fissionControlCard`，含 `prompt_main/prompt_control/control_cards` |
 | `vl_fission_generated_image_evaluate` | 裂变生成图评估 | `original_image`、`generated_image` | `context`、`provider`、`coze_workflow_id` | `decision/score/scores/problem_tags/reason/next_action` |
 
-> VL 组件是中台的集中入口。后续如果更换 VL 模型，优先改 `vl_fission_control_card` 的默认 provider 或 workflow，依赖它的图裂变版本不需要逐个改配方。生成图评估只负责给出结果判断，不自动二次裂变。
+> VL 组件是中台的集中入口。当前 `volcengine_vl` 默认映射到 `volcengine_doubao_seed_2_0_lite`（Doubao-Seed-2.0-lite）；后续如果更换 VL 模型，优先改 VL 组件的 `provider_ability_map`，依赖它的图裂变版本不需要逐个改配方。生成图评估只负责给出结果判断，不自动二次裂变。
 
 #### 火山引擎（provider=`volcengine`）
 
 | Ability ID | 功能 | 必填字段 | 其他输入 | 输出 |
 | --- | --- | --- | --- | --- |
+| `volcengine_doubao_seed_2_0_lite` | Doubao-Seed-2.0-lite VL（当前默认） | `prompt` | 可选 `imageUrl`/`inputs.image_url` 进行图文对话 | `texts[0]` |
 | `volcengine_doubao_seed_1_8` | Doubao Seed 1.8 多模态对话 | `prompt` | 可选 `imageUrl`/`inputs.image_url` 进行图文对话 | `texts[0]` |
 | `volcengine_doubao_seed_1_6_lite` | 轻量版多模态对话 | `prompt` | `imageUrl`、`reasoning_effort`、`max_completion_tokens` | `texts[0]` |
 | `volcengine_doubao_seedream_4_5` | Seedream 4.5 文生图（支持参考图） | `prompt` | `image_urls`/`image_url`（参考图，可选）、`negative_prompt`、`size`、`width`、`height`、`response_format` | 图片数组 `images[]`（按 provider 实际返回） |

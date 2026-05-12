@@ -111,7 +111,7 @@ Coze 不应直接调用 ComfyUI、image-ops 或 vendor-api-ops。
 | --- | --- | --- | --- |
 | `openai` | `gpt_image_2_edit` | vendor-api-ops global-egress | 新接入能力，不应走 backend legacy |
 | `baidu` | `colourize` / `contrast_enhance` / `dehaze` / `denoise` / `quality_upgrade` / `remove_moire` / `stretch_restore` | vendor-api-ops domestic preferred | 仍有 legacy fallback executor |
-| `volcengine` | `doubao_seedance_1_5_pro` / `doubao_seedream_4_0` / `doubao_seedream_4_5` / `doubao_seed_1_6_lite` / `doubao_seed_1_8` | vendor-api-ops domestic preferred | 仍有 legacy fallback executor |
+| `volcengine` | `doubao_seedance_1_5_pro` / `doubao_seedream_4_0` / `doubao_seedream_4_5` / `doubao_seed_2_0_lite` / `doubao_seed_1_6_lite` / `doubao_seed_1_8` | vendor-api-ops domestic preferred | 当前 VL 统一走 Doubao-Seed-2.0-lite，1.8 仅保留历史兼容 |
 | `kie` | `flux2_pro_image_to_image` / `nano_banana_2_image_to_image` / `nano_banana_pro_image_to_image` / `sora2_pro_text_to_video` | vendor-api-ops domestic preferred | 仍有 legacy fallback executor |
 
 ## 工具箱 OpenAPI 公网可导入状态

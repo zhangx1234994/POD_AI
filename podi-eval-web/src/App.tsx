@@ -703,15 +703,31 @@ const cleanWorkflowDisplayText = (value: string): string =>
     .replace(/[·|｜:：/-]\s*$/g, '')
     .trim();
 
+const hasWorkflowNewVersionFlag = (wf: EvalWorkflowVersion | null | undefined): boolean => {
+  const metadata = wf?.metadata && typeof wf.metadata === 'object' ? wf.metadata : {};
+  const presentation = getWorkflowPresentation(wf);
+  const badges = Array.isArray(presentation?.badges) ? presentation.badges : [];
+  return Boolean(
+    (metadata as any).isNewVersion ||
+      (metadata as any).is_new_version ||
+      badges.includes('新版') ||
+      (metadata as any).badge === '新版',
+  );
+};
+
 const getWorkflowBadges = (wf: EvalWorkflowVersion): string[] => {
   const presentation = getWorkflowPresentation(wf);
   const metadata = wf.metadata && typeof wf.metadata === 'object' ? wf.metadata : {};
+  const role = String(getWorkflowGovernance(wf)?.role || '').trim().toLowerCase();
   const rawBadges = [
     ...(Array.isArray(presentation?.badges) ? presentation.badges : []),
     ...((metadata as any).badge ? [(metadata as any).badge] : []),
     ...(Array.isArray((metadata as any).badges) ? (metadata as any).badges : []),
   ];
-  if (((metadata as any).isNewVersion || (metadata as any).is_new_version) && !rawBadges.includes('新版')) {
+  if (role === 'candidate' && hasWorkflowNewVersionFlag(wf) && !rawBadges.includes('待内测')) {
+    rawBadges.unshift('待内测');
+  }
+  if (hasWorkflowNewVersionFlag(wf) && !rawBadges.includes('新版')) {
     rawBadges.unshift('新版');
   }
   const seen = new Set<string>();
@@ -723,6 +739,41 @@ const getWorkflowBadges = (wf: EvalWorkflowVersion): string[] => {
       return true;
     })
     .slice(0, 4);
+};
+
+const getWorkflowBadgeTheme = (badge: string): 'default' | 'primary' | 'success' | 'warning' | 'danger' => {
+  if (badge === '新版') return 'success';
+  if (badge === '待内测' || badge === '灰度验证') return 'warning';
+  if (badge === '原生业务接口') return 'primary';
+  if (badge === '原子组件') return 'default';
+  return 'primary';
+};
+
+const isWorkflowNewVersion = (wf: EvalWorkflowVersion | null | undefined): boolean => {
+  return hasWorkflowNewVersionFlag(wf);
+};
+
+const isWorkflowInternalTesting = (wf: EvalWorkflowVersion | null | undefined): boolean => {
+  const role = String(getWorkflowGovernance(wf)?.role || '').trim().toLowerCase();
+  return role === 'candidate' && isWorkflowNewVersion(wf);
+};
+
+const getWorkflowCornerBadge = (wf: EvalWorkflowVersion | null | undefined): string => {
+  if (isWorkflowInternalTesting(wf)) return '待内测';
+  if (isWorkflowNewVersion(wf)) return '新版';
+  return '';
+};
+
+const getWorkflowTestingSortRank = (wf: EvalWorkflowVersion | null | undefined): number => {
+  const role = String(getWorkflowGovernance(wf)?.role || '').trim().toLowerCase();
+  if (isWorkflowInternalTesting(wf)) return 0;
+  if (isWorkflowNewVersion(wf)) return 5;
+  if (role === 'production') return 20;
+  if (role === 'candidate') return 30;
+  if (role === 'auxiliary') return 70;
+  if (role === 'legacy') return 90;
+  if (role === 'disabled') return 100;
+  return 50;
 };
 
 const getSchemaFields = (schema: Record<string, unknown> | null | undefined): SchemaField[] => {
@@ -1861,10 +1912,12 @@ function ToolCard({
   const roleTheme = getWorkflowGovernanceTheme(governance?.role);
   const role = String(governance?.role || '').trim().toLowerCase();
   const isAuxiliary = role === 'auxiliary';
+  const isInternalTesting = isWorkflowInternalTesting(wf);
   const routingTheme = getWorkflowRoutingGovernanceTheme(routingGovernance?.governanceStatus);
   const executionLabel = String(routingGovernance?.executionLabel || '执行面待确认').trim();
   const trackingLabel = String(routingGovernance?.currentTrackingLabel || '追踪待确认').trim();
   const badges = getWorkflowBadges(wf);
+  const cornerBadge = getWorkflowCornerBadge(wf);
   const panelStyle = {
     height: '100%',
     borderColor: active ? accent : undefined,
@@ -1879,10 +1932,11 @@ function ToolCard({
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') onClick();
       }}
-      className={`podi-eval-tool-card${isAuxiliary ? ' podi-eval-tool-card--auxiliary' : ''}`}
+      className={`podi-eval-tool-card${isAuxiliary ? ' podi-eval-tool-card--auxiliary' : ''}${isInternalTesting ? ' podi-eval-tool-card--candidate' : ''}`}
     >
       <Card bordered className="podi-eval-tool-card__panel" style={panelStyle}>
         <div className="podi-eval-tool-card__topline" />
+        {cornerBadge ? <div className="podi-eval-tool-card__corner-badge">{cornerBadge}</div> : null}
         <div className="podi-eval-tool-card__cover">
           <span className="podi-eval-tool-card__cover-icon" style={{ color: accent }}>
             {visual.icon}
@@ -1902,7 +1956,7 @@ function ToolCard({
               {badges.length ? (
                 <div className="podi-eval-tool-card__badges" aria-label="功能标记">
                   {badges.map((badge) => (
-                    <Tag key={badge} size="small" theme={badge === '新版' ? 'success' : 'primary'} variant="light">
+                    <Tag key={badge} size="small" theme={getWorkflowBadgeTheme(badge)} variant="light">
                       {badge}
                     </Tag>
                   ))}
@@ -2548,10 +2602,12 @@ export function App() {
 
   const toolList = useMemo(() => {
     const list = (grouped[activeCategory] || []).slice().sort((a, b) => {
-      const roleOrder = getWorkflowGovernanceRank(a) - getWorkflowGovernanceRank(b);
-      if (roleOrder !== 0) return roleOrder;
+      const testingOrder = getWorkflowTestingSortRank(a) - getWorkflowTestingSortRank(b);
+      if (testingOrder !== 0) return testingOrder;
       const order = getWorkflowSortOrder(a) - getWorkflowSortOrder(b);
       if (order !== 0) return order;
+      const roleOrder = getWorkflowGovernanceRank(a) - getWorkflowGovernanceRank(b);
+      if (roleOrder !== 0) return roleOrder;
       return a.name.localeCompare(b.name);
     });
     return list;
@@ -6255,7 +6311,7 @@ export function App() {
               <Typography.Text theme="secondary">{getWorkflowUsageHint(selectedTool) || '—'}</Typography.Text>
               <Space breakLine>
                 {getWorkflowBadges(selectedTool).map((badge) => (
-                  <Tag key={badge} theme={badge === '新版' ? 'success' : 'primary'} variant="light">
+                  <Tag key={badge} theme={getWorkflowBadgeTheme(badge)} variant="light">
                     {badge}
                   </Tag>
                 ))}

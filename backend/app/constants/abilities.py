@@ -155,6 +155,11 @@ def _volcengine_llm_schema() -> dict[str, Any]:
     }
 
 
+DEFAULT_VOLCENGINE_VL_ABILITY_ID = "volcengine_doubao_seed_2_0_lite"
+DEFAULT_VOLCENGINE_VL_MODEL_ID = "doubao-seed-2-0-lite-260428"
+DEFAULT_VOLCENGINE_VL_DISPLAY_NAME = "火山 Doubao-Seed-2.0-lite VL"
+
+
 def _vl_analyze_image_schema() -> dict[str, Any]:
     return {
         "fields": [
@@ -183,7 +188,7 @@ def _vl_analyze_image_schema() -> dict[str, Any]:
                 "label": _compose_bilingual_label("VL 来源", "VL Provider"),
                 "default": "volcengine_vl",
                 "options": [
-                    {"label": "火山 Doubao VL", "value": "volcengine_vl"},
+                    {"label": DEFAULT_VOLCENGINE_VL_DISPLAY_NAME, "value": "volcengine_vl"},
                     {"label": "Coze 已接入 VL", "value": "coze_vl"},
                 ],
                 "description": _compose_bilingual_label(
@@ -250,7 +255,7 @@ def _vl_fission_control_card_schema() -> dict[str, Any]:
                 "label": _compose_bilingual_label("VL 来源", "VL Provider"),
                 "default": "volcengine_vl",
                 "options": [
-                    {"label": "火山 Doubao VL", "value": "volcengine_vl"},
+                    {"label": DEFAULT_VOLCENGINE_VL_DISPLAY_NAME, "value": "volcengine_vl"},
                     {"label": "Coze 已接入 VL", "value": "coze_vl"},
                 ],
                 "description": _compose_bilingual_label(
@@ -334,12 +339,13 @@ def _vl_metadata(*, seed_version: int) -> dict[str, Any]:
         "api_type": "vl_analyze_image",
         "default_provider": "volcengine_vl",
         "provider_ability_map": {
-            "volcengine_vl": "volcengine_doubao_seed_1_8",
+            "volcengine_vl": DEFAULT_VOLCENGINE_VL_ABILITY_ID,
             "coze_vl": "coze_workflow",
         },
         "requires_image_input": True,
         "supports_vision": True,
         "structured_output": True,
+        "default_provider_label": DEFAULT_VOLCENGINE_VL_DISPLAY_NAME,
         "seed_version": seed_version,
         "presentation": _presentation(
             name="VL 图像理解",
@@ -363,13 +369,14 @@ def _vl_fission_control_card_metadata(*, seed_version: int) -> dict[str, Any]:
         "component_key": "fission_control_card",
         "default_provider": "volcengine_vl",
         "provider_ability_map": {
-            "volcengine_vl": "volcengine_doubao_seed_1_8",
+            "volcengine_vl": DEFAULT_VOLCENGINE_VL_ABILITY_ID,
             "coze_vl": "coze_workflow",
         },
         "requires_image_input": True,
         "supports_vision": True,
         "structured_output": True,
         "output_schema": "fission_control_card_v1",
+        "default_provider_label": DEFAULT_VOLCENGINE_VL_DISPLAY_NAME,
         "seed_version": seed_version,
         "presentation": _presentation(
             name="图裂变 VL 控制卡",
@@ -2061,7 +2068,7 @@ VL_ABILITIES: dict[str, AbilityDefinition] = {
         "description": "统一图像理解原子能力，输出商品/图案分析 JSON，可服务裂变、扩图、MCP、技能和业务 API。",
         "category": "vision_language",
         "input_schema": _vl_analyze_image_schema(),
-        "metadata": _vl_metadata(seed_version=1),
+        "metadata": _vl_metadata(seed_version=2),
     },
     "fission_control_card": {
         "defaults": {
@@ -2072,7 +2079,7 @@ VL_ABILITIES: dict[str, AbilityDefinition] = {
         "description": "统一的图裂变前置 VL 组件，输出 prompt_main、prompt_control 和控制卡，供 ComfyUI/商业模型裂变复用。",
         "category": "vision_language",
         "input_schema": _vl_fission_control_card_schema(),
-        "metadata": _vl_fission_control_card_metadata(seed_version=1),
+        "metadata": _vl_fission_control_card_metadata(seed_version=2),
     },
     "fission_generated_image_evaluate": {
         "defaults": {
@@ -2181,6 +2188,34 @@ BAIDU_IMAGE_ABILITIES: dict[str, AbilityDefinition] = {
 
 
 VOLCENGINE_LLM_ABILITIES: dict[str, AbilityDefinition] = {
+    "doubao_seed_2_0_lite": {
+        "endpoint": "/api/v3/chat/completions",
+        "defaults": {
+            "model": DEFAULT_VOLCENGINE_VL_MODEL_ID,
+            "stream": False,
+        },
+        "display_name": "火山 · Doubao-Seed-2.0-lite VL",
+        "description": "当前统一 VL 底层模型，服务图像结构化分析、图裂变控制卡和后续业务编排。",
+        "category": "vision_language",
+        "input_schema": _volcengine_llm_schema(),
+        "metadata": _volcengine_metadata(
+            endpoint="/api/v3/chat/completions",
+            model_id=DEFAULT_VOLCENGINE_VL_MODEL_ID,
+            api_type="chat_completions",
+            supports_vision=True,
+            reference="https://ark.cn-beijing.volces.com/api/v3/models",
+            seed_version=1,
+        )
+        | {
+            "presentation": _presentation(
+                name="Doubao-Seed-2.0-lite VL",
+                summary="中台默认图像理解底层模型，所有依赖 VL 组件的业务优先走这里。",
+                form_intro="上传图片并填写分析要求，返回可给裂变、扩图、审核继续使用的结构化文本。",
+                expected_output="返回一段结构化 JSON 文本。",
+                surfaces={"client": False, "coze": True, "admin": True, "eval": False},
+            )
+        },
+    },
     "doubao_seed_1_8": {
         "endpoint": "/api/v3/chat/completions",
         "defaults": {

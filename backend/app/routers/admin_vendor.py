@@ -1335,7 +1335,7 @@ def _volcengine_model_to_catalog_payload(item: Any, *, synced_at: str) -> dict[s
     if "seedance" in model_lower or "video" in model_lower:
         api_types = ["video_generation"]
         supports_video = True
-    if "vision" in model_lower or "vl" in model_lower or "seed-1-8" in model_lower:
+    if "vision" in model_lower or "vl" in model_lower or "seed-1-8" in model_lower or "seed-2-0" in model_lower:
         supports_multiple_images = True
     display_name = str(item.get("name") or item.get("display_name") or model_id).strip()
     metadata = {

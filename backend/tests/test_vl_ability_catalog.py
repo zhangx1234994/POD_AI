@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from app.constants.abilities import VL_ABILITIES
+from app.constants.abilities import DEFAULT_VOLCENGINE_VL_ABILITY_ID, DEFAULT_VOLCENGINE_VL_MODEL_ID, VL_ABILITIES
+from app.services.ability_invocation import AbilityInvocationService
 from app.services.ability_seed import DEFAULT_ABILITY_SEEDS
 
 
@@ -12,6 +13,7 @@ def test_vl_analyze_image_ability_is_seeded_as_atomic_capability() -> None:
 
     assert ability["metadata"]["api_type"] == "vl_analyze_image"
     assert ability["metadata"]["structured_output"] is True
+    assert ability["metadata"]["provider_ability_map"]["volcengine_vl"] == DEFAULT_VOLCENGINE_VL_ABILITY_ID
     assert provider_options == {"volcengine_vl", "coze_vl"}
     assert fields["image_url"]["required"] is True
     assert seed.provider == "vl"
@@ -27,6 +29,7 @@ def test_vl_fission_components_are_seeded_as_atomic_capabilities() -> None:
     assert control_card["defaults"]["provider"] == "volcengine_vl"
     assert control_card["metadata"]["component_key"] == "fission_control_card"
     assert control_card["metadata"]["output_schema"] == "fission_control_card_v1"
+    assert control_card["metadata"]["provider_ability_map"]["volcengine_vl"] == DEFAULT_VOLCENGINE_VL_ABILITY_ID
     assert "prompt_main" in control_card["defaults"]["prompt"]
     assert seeds["vl_fission_control_card"].provider == "vl"
 
@@ -36,3 +39,25 @@ def test_vl_fission_components_are_seeded_as_atomic_capabilities() -> None:
     assert eval_fields["original_image"]["required"] is True
     assert eval_fields["generated_image"]["required"] is True
     assert seeds["vl_fission_generated_image_evaluate"].category == "image_quality_evaluation"
+
+
+def test_default_volcengine_vl_ability_uses_seed_2_lite_model() -> None:
+    seed = next(item for item in DEFAULT_ABILITY_SEEDS if item.id == DEFAULT_VOLCENGINE_VL_ABILITY_ID)
+
+    assert seed.display_name == "火山 · Doubao-Seed-2.0-lite VL"
+    assert seed.default_params["model"] == DEFAULT_VOLCENGINE_VL_MODEL_ID
+    assert seed.metadata["model_id"] == DEFAULT_VOLCENGINE_VL_MODEL_ID
+    assert seed.metadata["supports_vision"] is True
+
+
+def test_vl_provider_ability_resolution_is_metadata_driven() -> None:
+    service = AbilityInvocationService()
+
+    assert (
+        service._resolve_vl_provider_ability_id(
+            {"provider_ability_map": {"volcengine_vl": "volcengine_custom_vl"}},
+            "volcengine_vl",
+        )
+        == "volcengine_custom_vl"
+    )
+    assert service._resolve_vl_provider_ability_id({}, "volcengine_vl") == DEFAULT_VOLCENGINE_VL_ABILITY_ID

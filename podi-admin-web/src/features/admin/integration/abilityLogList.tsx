@@ -26,11 +26,13 @@ const abilitySourceLabels: Record<string, string> = {
 
 const formatAbilitySource = (value?: string | null) => {
   if (!value) return '未知来源';
+  if (value.includes(':vl')) return 'VL组件调用';
   return abilitySourceLabels[value] ?? value;
 };
 
 const getAbilitySourceTagTheme = (value?: string | null) => {
   const v = value || '';
+  if (v.includes(':vl')) return 'success' as const;
   if (v === 'admin-test') return 'primary' as const;
   if (v === 'ability-api' || v === 'ability_api') return 'warning' as const;
   if (v === 'ability-task' || v === 'ability_task') return 'default' as const;
@@ -51,6 +53,27 @@ const truncateText = (value?: string | null, max = 60) => {
   const trimmed = value.trim();
   if (trimmed.length <= max) return trimmed;
   return `${trimmed.slice(0, max)}…`;
+};
+
+const getAbilityLogRole = (row: AbilityInvocationLog) => {
+  const provider = (row.ability_provider || '').trim().toLowerCase();
+  const source = (row.source || '').trim().toLowerCase();
+  const abilityId = (row.ability_id || '').trim().toLowerCase();
+  if (provider === 'vl' || abilityId.startsWith('vl_')) {
+    return {
+      label: 'VL组件',
+      theme: 'primary' as const,
+      detail: '中台统一图像理解入口，负责输出结构化分析卡。',
+    };
+  }
+  if (source.includes(':vl')) {
+    return {
+      label: '底层VL模型',
+      theme: 'success' as const,
+      detail: '由 VL 组件触发，不是额外的一套业务流程。',
+    };
+  }
+  return null;
 };
 
 type SelectOption = {
@@ -448,26 +471,39 @@ export function AbilityLogListPanel({
             colKey: 'ability',
             title: '能力',
             minWidth: 240,
-            cell: ({ row }) => (
-              <Space direction="vertical" size={2}>
-                <Typography.Text strong>{row.ability_name || row.capability_key || '—'}</Typography.Text>
-                <Typography.Text theme="secondary">{row.ability_provider || '—'}</Typography.Text>
-                {row.trace_id || row.workflow_run_id ? (
-                  <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
-                    {row.trace_id ? (
-                      <span style={{ marginRight: 12 }}>
-                        追踪：<span style={{ fontFamily: 'monospace' }}>{formatTaskMarker(row.trace_id)}</span>
-                      </span>
-                    ) : null}
-                    {row.workflow_run_id ? (
-                      <span>
-                        流程：<span style={{ fontFamily: 'monospace' }}>{formatTaskMarker(row.workflow_run_id)}</span>
-                      </span>
-                    ) : null}
-                  </Typography.Text>
-                ) : null}
-              </Space>
-            ),
+            cell: ({ row }) => {
+              const role = getAbilityLogRole(row);
+              return (
+                <Space direction="vertical" size={2}>
+                  <Typography.Text strong>{row.ability_name || row.capability_key || '—'}</Typography.Text>
+                  <Typography.Text theme="secondary">{row.ability_provider || '—'}</Typography.Text>
+                  {role ? (
+                    <Space size={4} breakLine>
+                      <Tag theme={role.theme} variant="light">
+                        {role.label}
+                      </Tag>
+                      <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                        {role.detail}
+                      </Typography.Text>
+                    </Space>
+                  ) : null}
+                  {row.trace_id || row.workflow_run_id ? (
+                    <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                      {row.trace_id ? (
+                        <span style={{ marginRight: 12 }}>
+                          追踪：<span style={{ fontFamily: 'monospace' }}>{formatTaskMarker(row.trace_id)}</span>
+                        </span>
+                      ) : null}
+                      {row.workflow_run_id ? (
+                        <span>
+                          流程：<span style={{ fontFamily: 'monospace' }}>{formatTaskMarker(row.workflow_run_id)}</span>
+                        </span>
+                      ) : null}
+                    </Typography.Text>
+                  ) : null}
+                </Space>
+              );
+            },
           },
           {
             colKey: 'source',

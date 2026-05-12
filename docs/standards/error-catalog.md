@@ -77,11 +77,13 @@
 | ABILITY_NOT_FOUND | 能力不存在 | 404 |
 | ABILITY_NOT_FOUND_OR_INACTIVE | 能力不存在或未激活 | 404 |
 | ABILITY_INACTIVE | 能力未激活 | 403 |
+| ABILITY_ID_MISSING | 评测或能力调用缺少能力 ID | 评测端触发能力任务前校验 |
 | ABILITY_TEMPLATE_INVALID | 能力模板校验失败 | 400 |
 | ABILITY_TEMPLATE_NOT_FOUND | 能力模板快照不存在 | 404 |
 | ABILITY_EXECUTOR_NOT_CONFIGURED | 能力未配置执行节点 | 400 |
 | ABILITY_LOG_NOT_FOUND | 能力日志不存在 | 404 |
 | ABILITY_LOG_NOT_COMFYUI | 日志非 ComfyUI | 400 |
+| ABILITY_TASK_ID_MISSING | 能力任务提交后未返回任务 ID | 评测端无法进入轮询时使用 |
 | BUSINESS_IMAGE_URL_REQUIRED | 业务任务缺少主图 URL | 400，花纹提取/图裂变/扩图提交 |
 | BUSINESS_KEY_REQUIRED | 业务版本缺少业务标识 | 400 |
 | BUSINESS_VERSION_REQUIRED | 业务版本缺少版本号 | 400 |
