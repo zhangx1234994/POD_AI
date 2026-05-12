@@ -55,8 +55,19 @@ def test_business_openapi_exposes_flat_business_tools() -> None:
         "variation_strength",
         "quality",
         "count",
+        "size",
         "maskUrl",
     }.issubset(submit_schema["properties"])
+    assert submit_schema["properties"]["size"]["enum"] == [
+        "auto",
+        "1024x1024",
+        "1536x1024",
+        "1024x1536",
+        "2048x2048",
+        "2048x1152",
+        "3840x2160",
+        "2160x3840",
+    ]
     outpaint_schema = paths["/api/business/outpaint/runs"]["post"]["requestBody"]["content"]["application/json"][
         "schema"
     ]

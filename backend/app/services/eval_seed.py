@@ -27,6 +27,17 @@ if not LORA_OPTIONS:
     # Fallback (should not happen unless presets are removed).
     LORA_OPTIONS = ["杯子1124.safetensors"]
 
+GPT_IMAGE2_SIZE_OPTIONS = [
+    {"label": "自动匹配 auto", "value": "auto"},
+    {"label": "1:1 方图 1024x1024", "value": "1024x1024"},
+    {"label": "3:2 横图 1536x1024", "value": "1536x1024"},
+    {"label": "2:3 竖图 1024x1536", "value": "1024x1536"},
+    {"label": "1:1 方图 2048x2048（实验）", "value": "2048x2048"},
+    {"label": "16:9 横图 2048x1152（实验）", "value": "2048x1152"},
+    {"label": "16:9 横图 3840x2160（高成本）", "value": "3840x2160"},
+    {"label": "9:16 竖图 2160x3840（高成本）", "value": "2160x3840"},
+]
+
 # Workflows that should not show up in the evaluation UI anymore.
 # Note: seed inserts are append-only, so we also apply a small normalization pass
 # to mark these as inactive if they already exist in DB.
@@ -1505,7 +1516,15 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                 },
                 {"name": "count", "label": "生成张数", "type": "text", "required": False, "defaultValue": "1", "description": "建议 1-3；数量越多成本越高。"},
                 {"name": "maskUrl", "label": "蒙版 URL", "type": "text", "required": False, "defaultValue": "", "description": "可选；需要局部编辑时传入。"},
-                {"name": "size", "label": "输出尺寸", "type": "text", "required": False, "defaultValue": "auto"},
+                {
+                    "name": "size",
+                    "label": "比例尺寸",
+                    "type": "select",
+                    "required": False,
+                    "defaultValue": "auto",
+                    "description": "GPT Image 2 输出尺寸预设；高分辨率档位成本和耗时更高。",
+                    "options": GPT_IMAGE2_SIZE_OPTIONS,
+                },
             ]
         },
         "output_schema": {

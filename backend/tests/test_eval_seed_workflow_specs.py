@@ -206,3 +206,23 @@ def test_eval_presentation_keeps_new_as_badge_not_name():
     assert presentation["variant_label"] == "GPT Image 2 + VL 控制版"
     assert "新版" not in presentation["variant_label"]
     assert "新版" in presentation["badges"]
+
+
+def test_gpt_image2_vl_eval_exposes_size_presets():
+    workflow = DEFAULT_EVAL_WORKFLOW_BY_ID["business_fission_gpt_image2_vl_v1"]
+    size = _field_by_name(workflow, "size")
+
+    assert size.get("type") == "select"
+    assert size.get("label") == "比例尺寸"
+    assert size.get("defaultValue") == "auto"
+    values = {str(item.get("value")) for item in (size.get("options") or []) if isinstance(item, dict)}
+    assert {
+        "auto",
+        "1024x1024",
+        "1536x1024",
+        "1024x1536",
+        "2048x2048",
+        "2048x1152",
+        "3840x2160",
+        "2160x3840",
+    } <= values

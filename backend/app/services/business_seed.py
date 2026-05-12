@@ -43,6 +43,18 @@ def _image_generation_output_schema() -> dict[str, Any]:
     }
 
 
+GPT_IMAGE2_SIZE_OPTIONS: list[dict[str, str]] = [
+    {"label": "自动匹配 auto", "value": "auto"},
+    {"label": "1:1 方图 1024x1024", "value": "1024x1024"},
+    {"label": "3:2 横图 1536x1024", "value": "1536x1024"},
+    {"label": "2:3 竖图 1024x1536", "value": "1024x1536"},
+    {"label": "1:1 方图 2048x2048（实验）", "value": "2048x2048"},
+    {"label": "16:9 横图 2048x1152（实验）", "value": "2048x1152"},
+    {"label": "16:9 横图 3840x2160（高成本）", "value": "3840x2160"},
+    {"label": "9:16 竖图 2160x3840（高成本）", "value": "2160x3840"},
+]
+
+
 GPT_IMAGE2_PATTERN_FISSION_VL_PROMPT = """你是一个专业的装饰图案、印花纹样、装饰插画与主视觉结构分析助手。
 
 你会看到一张用户上传的原图。你的任务不是生成图片，也不是给审美评价，而是把图片解析成后续图片裂变模型可执行的结构化视觉卡。最终必须只输出一个 JSON 对象，不要输出 markdown、代码块、解释、前言或结尾。
@@ -309,7 +321,14 @@ DEFAULT_BUSINESS_CAPABILITY_SEEDS: list[BusinessCapabilitySeed] = [
                 _field("preserve_border", "边框策略 Preserve Border", field_type="text", default="auto", description="auto / true / false。"),
                 _field("preserve_count_density", "保留数量和密度 Preserve Count Density", field_type="switch", default=True),
                 _field("style_shift", "风格迁移 Style Shift", field_type="text", default="standard", description="standard / conservative / creative。"),
-                _field("size", "输出尺寸 Size", field_type="text", default="auto", description="GPT Image 2 默认 auto。"),
+                _field(
+                    "size",
+                    "比例尺寸 Size",
+                    field_type="select",
+                    default="auto",
+                    description="GPT Image 2 输出尺寸预设；高分辨率档位成本和耗时更高。",
+                    options=GPT_IMAGE2_SIZE_OPTIONS,
+                ),
                 _field("output_format", "输出格式 Output Format", field_type="text", default="png"),
                 _field("maskUrl", "蒙版 URL Mask URL", field_type="text", required=False, description="可选；需要指定局部编辑时传入。"),
             ]
@@ -327,7 +346,7 @@ DEFAULT_BUSINESS_CAPABILITY_SEEDS: list[BusinessCapabilitySeed] = [
             "prompt_template_id": "pattern_fission_prompt_template_v21",
             "quality_map": {"preview": "low", "production": "medium", "premium": "high"},
             "coze_strategy": "Coze 只调用图裂变业务入口；中台内部完成 VL 分析、提示词编译和 GPT Image 2 调用。",
-            "seed_version": 2,
+            "seed_version": 3,
         },
     ),
     BusinessCapabilitySeed(
