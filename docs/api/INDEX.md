@@ -18,6 +18,7 @@
 | 认证与用户 | `docs/api/modules/auth.md` |
 | 媒资与上传 | `docs/api/modules/media.md` |
 | 业务能力接口 | `docs/api/modules/business.md` |
+| 图裂变业务接入 Demo | `docs/api/examples/business-fission-quickstart.md` |
 | 统一能力调用 | `docs/api/modules/abilities.md` |
 | Coze 插件 | `docs/api/modules/coze.md` |
 | ComfyUI 管理 | `docs/api/modules/comfyui-admin.md` |

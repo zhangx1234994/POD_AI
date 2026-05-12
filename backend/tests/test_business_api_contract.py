@@ -293,3 +293,53 @@ def test_business_api_submit_and_query_do_not_require_coze_workflow(monkeypatch)
     query_body = query.json()
     assert query_body["runId"] == "run_direct_fission"
     assert query_body["taskId"] == "task_direct_fission"
+
+
+def test_coze_task_get_accepts_business_run_id_for_polling_compatibility(monkeypatch) -> None:
+    now = datetime.now(timezone.utc)
+
+    class FakeSession:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, model, row_id):
+            return None
+
+    class FakeBusinessRunService:
+        def get_run(self, *, run_id, user):
+            assert user is None
+            assert run_id == "run_direct_fission"
+            return {
+                "id": "run_direct_fission",
+                "business_key": "fission",
+                "version": "gpt-image2-vl-v1",
+                "status": "succeeded",
+                "source": "business-api",
+                "request_id": "req-direct-001",
+                "ability_log_id": 123,
+                "image_urls": ["https://example.com/out.png"],
+                "video_urls": [],
+                "texts": [],
+                "created_at": now,
+                "updated_at": now,
+            }
+
+    monkeypatch.setattr("app.routers.coze_podi_plugin.get_session", lambda: FakeSession())
+    monkeypatch.setattr("app.routers.coze_podi_plugin.get_business_run_service", lambda: FakeBusinessRunService())
+
+    resp = client.post(
+        "/api/coze/podi/tasks/get",
+        json={"taskId": "run_direct_fission"},
+        headers={"x-real-ip": "127.0.0.1"},
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["taskId"] == "run_direct_fission"
+    assert body["taskStatus"] == "succeeded"
+    assert body["imageUrl"] == "https://example.com/out.png"
+    assert body["imageUrls"] == ["https://example.com/out.png"]
+    assert body["requestId"] == "req-direct-001"

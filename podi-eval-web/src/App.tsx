@@ -269,6 +269,18 @@ const formatErrorCodeLabel = (code?: string | null): string => {
   return mapped ? mapped.replace(`（${raw}）`, '') : raw;
 };
 
+const formatCompactErrorMessage = (message?: string | null): string => {
+  const raw = String(message || '').trim();
+  if (!raw) return '生成失败，请查看任务记录。';
+  const mapped = toDisplayErrorMessage(raw);
+  const readable = (mapped || raw)
+    .split(/\s+\[SQL:|\s+stack=|\s+Traceback|\s+Background on this error:/i)[0]
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!readable) return '生成失败，请查看任务记录。';
+  return readable.length > 140 ? `${readable.slice(0, 140)}…` : readable;
+};
+
 const formatEvalStageStatus = (
   stage: 'submit' | 'callback' | 'final',
   status?: string | null,
@@ -6543,6 +6555,16 @@ export function App() {
         pushNotice('error', '复制失败（浏览器不支持或权限不足）');
       }
     };
+    const copyRunError = async (message?: string | null) => {
+      const raw = String(message || '').trim();
+      if (!raw) return;
+      try {
+        await navigator.clipboard.writeText(raw);
+        pushNotice('success', '完整错误已复制');
+      } catch {
+        pushNotice('error', formatCompactErrorMessage(raw));
+      }
+    };
     return shell(
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
         <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
@@ -6634,7 +6656,7 @@ export function App() {
 
         <Row gutter={[16, 16]} className="podi-eval-workbench">
           {/* TDesign Grid uses a 12-column system; keep spans within 12 to avoid wrapping/empty gaps. */}
-          <Col xs={12} xl={5}>
+          <Col xs={12} xl={4}>
             <Card
               bordered
               className="podi-eval-panel podi-eval-panel--input"
@@ -7297,7 +7319,7 @@ export function App() {
             </Card>
           </Col>
 
-          <Col xs={12} xl={7}>
+          <Col xs={12} xl={8}>
             <Card
               bordered
               className="podi-eval-panel podi-eval-panel--result"
@@ -7403,9 +7425,9 @@ export function App() {
                                       size="small"
                                       variant="outline"
                                       theme="danger"
-                                      onClick={() => pushNotice('error', latest.error_message || '生成失败')}
+                                      onClick={() => void copyRunError(latest.error_message)}
                                     >
-                                      查看错误
+                                      复制错误
                                     </Button>
                                   ) : null}
                                 </Space>
@@ -7413,14 +7435,14 @@ export function App() {
                             </Col>
                             {latest.error_message ? (
                               <Col span={12}>
-                                <Alert theme="error" message={toDisplayErrorMessage(latest.error_message)} />
+                                <Alert theme="error" message={formatCompactErrorMessage(latest.error_message)} />
                               </Col>
                             ) : null}
                           </Row>
                         )}
                       </Card>
 
-                      <div className="podi-latest-output-grid">
+                      <div className="podi-latest-output-grid podi-latest-output-grid--focus">
                         {!latest ? (
                           <Card bordered title="输出">
                             <Typography.Text theme="secondary">
@@ -7446,7 +7468,7 @@ export function App() {
                             ))}
                           </>
                             ) : status === 'failed' ? (
-                              <Alert theme="error" message={`生成失败（run: ${latest.id}）：${toDisplayErrorMessage(latest.error_message || '—')}`} />
+                              <Alert theme="error" message={`生成失败（run: ${latest.id}）：${formatCompactErrorMessage(latest.error_message)}`} />
                             ) : imgs.length > 0 ? (
                               latestInputUrl ? (
                                 <ImageComparePanel
@@ -7880,7 +7902,7 @@ function HistoryRow({
                 </div>
               ))}
             </div>
-            {run.error_message ? <Alert theme="error" message={toDisplayErrorMessage(run.error_message)} /> : null}
+            {run.error_message ? <Alert theme="error" message={formatCompactErrorMessage(run.error_message)} /> : null}
           </div>
 
           <div className="podi-history-row-head__rate">
@@ -7913,7 +7935,7 @@ function HistoryRow({
         </div>
 
         <Row gutter={[12, 12]} className="podi-history-row-grid">
-          <Col xs={24} lg={8} className="podi-history-row-col">
+          <Col xs={12} lg={3} className="podi-history-row-col">
             <Card
               bordered
               title={
@@ -7969,7 +7991,7 @@ function HistoryRow({
               </Space>
             </Card>
           </Col>
-            <Col xs={24} lg={16} className="podi-history-row-col">
+            <Col xs={12} lg={9} className="podi-history-row-col podi-history-row-col--result">
               <Card bordered title="原图 / 结果">
                 {inputUrl && outputs.length > 0 ? (
                   <ImageComparePanel

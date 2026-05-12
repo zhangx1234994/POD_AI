@@ -30,7 +30,8 @@
 
 1. 提交任务后保存 `runId`。
 2. 用 `runId` 轮询 `/api/business/runs/get`。
-3. 终态优先看 `status/imageUrls/videoUrls/texts/error`；结构化和普通资源可从 `resultPayload` 与 `flowSummary.output` 查看，后续公开字段按同一口径扩展。
+3. Coze/内网工具箱兼容场景下，也可以把 `runId` 填到旧轮询接口 `/api/coze/podi/tasks/get` 的 `taskId` 字段。
+4. 终态优先看 `status/imageUrls/videoUrls/texts/error`；结构化和普通资源可从 `resultPayload` 与 `flowSummary.output` 查看，后续公开字段按同一口径扩展。
 
 这条链路不要求业务方传 Coze 工作流 ID。Coze 可以继续作为接入入口，但业务 API 本身已经能完成“提交任务 -> 查询结果”的闭环；灰度或默认版本命中可先用 `route-preview` 验证。
 
@@ -592,6 +593,16 @@ ComfyUI VL 控制卡版请求示例：
   "runId": "d7f2f7f37d1d47ad8dd2a9d7d3cb3d39"
 }
 ```
+
+Coze 旧工具箱兼容查询：
+
+```json
+{
+  "taskId": "d7f2f7f37d1d47ad8dd2a9d7d3cb3d39"
+}
+```
+
+调用 `/api/coze/podi/tasks/get` 后返回 `taskStatus/imageUrls/debugResponse`。该入口主要给 Coze 或同机内网工具箱使用；外部业务默认使用 `/api/business/runs/get`。
 
 终态响应示例：
 

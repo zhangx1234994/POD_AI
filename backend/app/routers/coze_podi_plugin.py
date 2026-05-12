@@ -33,9 +33,11 @@ from app.services.ability_task_service import get_ability_task_service
 from app.services.task_id_codec import decode_task_id, encode_task_id
 from app.services.executor_seed import ensure_default_executors
 from app.services.auth_service import auth_service
+from app.services.business_runs import get_business_run_service
 from app.services.comfyui_lora_catalog_service import collect_functional_lora_names
 from app.services.executors.registry import registry
 from app.services.integration_test import integration_test_service
+from app.services.task_status_contract import extract_error_code
 from app.services.vendor_api_client import vendor_api_client
 from app.services.ability_presentation import (
     get_public_display_name,
@@ -144,6 +146,58 @@ def _positive_int(value: Any) -> int:
         return max(0, int(value or 0))
     except Exception:
         return 0
+
+
+def _coze_url_list(value: Any) -> list[str]:
+    out: list[str] = []
+    if isinstance(value, list):
+        for item in value:
+            if isinstance(item, str) and item.strip():
+                out.append(item.strip())
+                continue
+            if isinstance(item, dict):
+                for key in ("ossUrl", "sourceUrl", "url", "storedUrl"):
+                    url = item.get(key)
+                    if isinstance(url, str) and url.strip():
+                        out.append(url.strip())
+                        break
+    elif isinstance(value, str) and value.strip():
+        out.append(value.strip())
+    seen: set[str] = set()
+    dedup: list[str] = []
+    for url in out:
+        if url in seen:
+            continue
+        seen.add(url)
+        dedup.append(url)
+    return dedup
+
+
+def _coze_business_run_task_response(run: dict[str, Any], *, task_id: str) -> dict[str, Any]:
+    status = _normalize_coze_task_status(run.get("status"))
+    image_urls = _coze_url_list(run.get("image_urls") or run.get("imageUrls"))
+    video_urls = _coze_url_list(run.get("video_urls") or run.get("videoUrls"))
+    texts = run.get("texts") if isinstance(run.get("texts"), list) else []
+    error_message = str(run.get("error_message") or run.get("error") or run.get("callback_error") or "").strip()
+    result = {
+        "text": texts[0] if texts else ("failed" if status == "failed" else status),
+        "texts": texts if texts else (["failed"] if status == "failed" else []),
+        "imageUrl": image_urls[0] if image_urls else None,
+        "imageUrls": image_urls,
+        "videoUrl": video_urls[0] if video_urls else None,
+        "videoUrls": video_urls,
+        # Compatibility: native business runId can be passed as taskId to the old Coze polling tool.
+        "taskId": task_id,
+        "taskStatus": status,
+        "expectedImageCount": None,
+        "logId": run.get("ability_log_id") or run.get("abilityLogId"),
+        "requestId": run.get("request_id") or run.get("requestId"),
+        "errorCode": extract_error_code(error_message),
+        "retryAfterSeconds": 10 if status in {"queued", "running"} else None,
+        "debugRequest": None,
+        "debugResponse": error_message or None,
+    }
+    return {key: value for key, value in result.items() if value is not None}
 
 
 def _field_to_schema(field: dict[str, Any]) -> dict[str, Any]:
@@ -479,14 +533,14 @@ def _build_openapi(*, podi_server: str | None = None) -> dict[str, Any]:
         "post": {
             "operationId": "podi_task_get",
             "summary": "PODI · 查询任务状态/结果",
-            "description": "输入 taskId 查询任务状态，若已完成返回结果（imageUrl/imageUrls/text 等）。",
+            "description": "输入 taskId 查询任务状态，若已完成返回结果（imageUrl/imageUrls/text 等）。兼容新业务接口返回的 runId，可直接把 runId 填入 taskId。",
             "requestBody": {
                 "required": True,
                 "content": {
                     "application/json": {
                         "schema": {
                             "type": "object",
-                            "properties": {"taskId": {"type": "string", "description": "Ability task id"}},
+                            "properties": {"taskId": {"type": "string", "description": "Ability task id or business runId"}},
                             "required": ["taskId"],
                         }
                     }
@@ -1632,8 +1686,14 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
     with get_session() as session:
         task_row = session.get(AbilityTask, task_id.strip())
         if not task_row:
-            from fastapi import HTTPException
-
+            try:
+                run = get_business_run_service().get_run(run_id=task_id.strip(), user=None)
+            except HTTPException as exc:
+                if exc.status_code == 404:
+                    raise HTTPException(status_code=404, detail="TASK_NOT_FOUND") from exc
+                raise
+            if isinstance(run, dict):
+                return _coze_business_run_task_response(run, task_id=task_id.strip())
             raise HTTPException(status_code=404, detail="TASK_NOT_FOUND")
         task = get_ability_task_service().to_dict(task_row)
     capability_key = task.get("capability_key")
@@ -1693,6 +1753,8 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
         "expectedImageCount",
         "logId",
         "requestId",
+        "errorCode",
+        "retryAfterSeconds",
         "debugRequest",
         "debugResponse",
     }

@@ -143,8 +143,20 @@
 
 .podi-latest-output-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
   gap: 12px;
+}
+
+.podi-latest-output-grid--focus {
+  gap: 14px;
+}
+
+.podi-latest-output-grid--focus .podi-compare-panel {
+  padding: 14px;
+}
+
+.podi-latest-output-grid--focus .podi-compare-stage {
+  min-height: clamp(460px, 58vh, 720px);
 }
 
 .podi-image-tile {
@@ -315,6 +327,10 @@
 
 .podi-compare-panel--compact .podi-compare-stage {
   min-height: 300px;
+}
+
+.podi-history-row-col--result .podi-compare-panel--compact .podi-compare-stage {
+  min-height: clamp(380px, 42vw, 620px);
 }
 
 .podi-compare-stage--side-by-side {
