@@ -126,7 +126,7 @@ class AbilityTaskService:
             return None, None
         user_id = str(getattr(user, "id", "") or "").strip()
         user_name = getattr(user, "username", None)
-        if user_id == "service":
+        if user_id == "service" or user_id.startswith("business-api-key:"):
             return None, user_name
         return user_id or None, user_name
 
