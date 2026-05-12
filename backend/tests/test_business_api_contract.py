@@ -3,6 +3,8 @@ from datetime import datetime, timezone
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.models.user import User
+from app.services.business_runs import BusinessRunService
 
 
 client = TestClient(app)
@@ -196,6 +198,21 @@ def test_business_admin_api_keys_require_admin_token() -> None:
 
     assert resp.status_code == 401
     assert resp.json()["detail"] == "AUTHORIZATION_REQUIRED"
+
+
+def test_business_api_key_actor_does_not_write_fake_user_id() -> None:
+    user = User(
+        id="business-api-key:biz_key_fission_partner_20260512",
+        email="biz_key_fission_partner_20260512@business-api.podi.internal",
+        username="业务方图裂变测试 Key",
+        password_hash="",
+        role="client",
+        status="active",
+        tenant_id="partner",
+        client_id="fission-api",
+    )
+
+    assert BusinessRunService._safe_user_id(user) is None
 
 
 def test_business_api_submit_and_query_do_not_require_coze_workflow(monkeypatch) -> None:

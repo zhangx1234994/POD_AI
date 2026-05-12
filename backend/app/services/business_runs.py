@@ -4275,6 +4275,8 @@ class BusinessRunService:
         if not user:
             return None
         user_id = str(getattr(user, "id", "") or "").strip()
+        if user_id.startswith("business-api-key:"):
+            return None
         return None if user_id == "service" else user_id or None
 
     @staticmethod
