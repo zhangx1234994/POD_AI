@@ -183,6 +183,16 @@ def test_business_poll_task_not_found_is_transient_only_briefly():
     assert EvalService._is_transient_business_poll_error("OPENAI_FAILED", started=now) is False
 
 
+def test_business_eval_decodes_external_task_id_for_internal_polling():
+    from app.services.eval_service import EvalService
+
+    task_id = "a5a4d7adf41f48658a4e41f0fb091e32"
+
+    assert EvalService._decode_business_task_id(f"t1.fission.auto.{task_id}") == task_id
+    assert EvalService._decode_business_task_id(task_id) == task_id
+    assert EvalService._decode_business_task_id(None) == ""
+
+
 def test_extract_image_urls_from_task_payload_accepts_stored_url():
     from app.services.eval_service import EvalService
 

@@ -632,7 +632,7 @@ class EvalService:
             return
 
         business_run_id = str(business_run.get("id") or business_run.get("runId") or "").strip()
-        task_id = str(business_run.get("ability_task_id") or business_run.get("taskId") or "").strip()
+        task_id = self._decode_business_task_id(business_run.get("ability_task_id") or business_run.get("taskId"))
         with get_session() as session:
             run = session.get(EvalRun, run_id)
             if run:
@@ -667,7 +667,7 @@ class EvalService:
                 return
             last_payload = payload if isinstance(payload, dict) else {}
             status = str(last_payload.get("status") or "").strip().lower()
-            task_id = str(last_payload.get("ability_task_id") or last_payload.get("taskId") or "").strip()
+            task_id = self._decode_business_task_id(last_payload.get("ability_task_id") or last_payload.get("taskId"))
             with get_session() as session:
                 run = session.get(EvalRun, run_id)
                 if run:
@@ -724,6 +724,10 @@ class EvalService:
             "steps",
         )
         return EvalService._json_safe_payload({key: payload.get(key) for key in keys if key in payload})
+
+    @staticmethod
+    def _decode_business_task_id(value: Any) -> str:
+        return str(decode_task_id(value) or "").strip()
 
     @staticmethod
     def _is_transient_business_poll_error(message: str, *, started: float) -> bool:
