@@ -820,6 +820,17 @@ const getWorkflowStatusLabel = (status: string | undefined | null): string => {
   return value || '未知';
 };
 
+const getWorkflowVersionLabel = (wf: EvalWorkflowVersion | null | undefined): string => {
+  const version = String(wf?.version || '').trim();
+  const workflowId = String(wf?.workflow_id || '').trim();
+  const text = `${workflowId} ${version}`.toLowerCase();
+  if (workflowId === 'business_fission_gpt_image2_vl_v1' || text.includes('gpt-image2-vl')) return '商业模型 VL 控制版';
+  if (workflowId === 'business_fission_comfyui_vl_control_v1' || text.includes('comfyui-vl-control')) return 'ComfyUI VL 控制版';
+  if (workflowId === 'ability_fission_generated_image_evaluate_v1' || text.includes('generated-image-eval')) return '裂变质量评估';
+  if (version === '2026-04-23') return '2026/4/23';
+  return cleanWorkflowDisplayText(version || 'v1') || 'v1';
+};
+
 const getWorkflowResultModeLabel = (mode: string): string => {
   const value = String(mode || '').trim().toLowerCase();
   if (value === 'callback_image') return '图片回填';
@@ -1973,7 +1984,7 @@ function ToolCard({
           </div>
 
           <div className="podi-eval-tool-card__signature">
-            <span>{wf.version || 'v1'}</span>
+            <span>{getWorkflowVersionLabel(wf)}</span>
             <span>发布 {releaseDate}</span>
           </div>
           <div className="podi-eval-tool-card__runtime">
@@ -6316,7 +6327,7 @@ export function App() {
                   </Tag>
                 ))}
                 <Tag variant="light">{getWorkflowCategory(selectedTool)}</Tag>
-                <Tag variant="light">{selectedTool.version}</Tag>
+                <Tag variant="light">{getWorkflowVersionLabel(selectedTool)}</Tag>
                 {getWorkflowOperationLabel(selectedTool) ? <Tag variant="light">{getWorkflowOperationLabel(selectedTool)}</Tag> : null}
                 <Tag theme={selectedToolRoleTheme} variant="light">
                   {selectedToolRoleLabel}
@@ -7386,44 +7397,6 @@ export function App() {
   }
 
   // Home (toolbox) view
-  const activeCategoryVisual = getCategoryVisual(activeCategory);
-  const healthLevel = String(operationsHealth?.status || 'unknown');
-  const healthMeta =
-    healthLevel === 'healthy'
-      ? { tag: '正常', theme: 'success' as const, title: '评测链路正常', tone: 'success' as const }
-      : healthLevel === 'critical'
-        ? { tag: '事故', theme: 'danger' as const, title: '评测链路需要先处理', tone: 'error' as const }
-        : healthLevel === 'warning'
-          ? { tag: '警告', theme: 'warning' as const, title: '评测链路有风险项', tone: 'warning' as const }
-          : { tag: '未检查', theme: 'default' as const, title: '链路健康未检查', tone: 'info' as const };
-  const getHealthIssueCount = (code: string, fallback: number) =>
-    operationsHealth?.issues.find((issue) => issue.code === code)?.count ?? fallback;
-  const healthRecentFailed = getHealthIssueCount('EVAL_RECENT_FAILURES', operationsHealth?.recentFailures?.length || 0);
-  const healthStaleCount = getHealthIssueCount('EVAL_RUN_STALE', operationsHealth?.staleRunning?.length || 0);
-  const healthSubmitStalledCount = getHealthIssueCount('EVAL_SUBMIT_STALLED', operationsHealth?.submitStalled?.length || 0);
-  const healthSucceededWithoutOutputCount = getHealthIssueCount(
-    'EVAL_SUCCESS_WITHOUT_OUTPUT',
-    operationsHealth?.succeededWithoutOutput?.length || 0,
-  );
-  const healthErrorSummary = Object.entries(operationsHealth?.errorCounts || {})
-    .sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0))
-    .map(([code, count]) => `${formatErrorCodeLabel(code)} ${count} 条`)
-    .join('、');
-  const healthFailureActions = buildFailureActionItems(operationsHealth?.recentFailures || []);
-  const healthConcurrency = operationsHealth?.concurrency || null;
-  const healthRecentRunTotal = Number(operationsHealth?.recentRunTotal || 0);
-  const healthRecentSuccessCount = Number(operationsHealth?.recentSuccessCount || 0);
-  const healthRecentFailureCount = Number(operationsHealth?.recentFailureCount || 0);
-  const evalFanoutWorkers = Number(healthConcurrency?.evalFanoutMaxWorkers || 0);
-  const queueCapacityFromHealth = Number(healthConcurrency?.comfyuiQueueCapacity || 0);
-  const queueTotalFromHealth = Number(healthConcurrency?.comfyuiQueueTotal || 0);
-  const fanoutModeLabel = evalFanoutWorkers <= 1 ? '稳定串行' : `并行 ${evalFanoutWorkers}`;
-  const comfyuiQueueCapacity = (comfyuiQueueSummary?.servers || []).reduce(
-    (sum, server) => sum + Math.max(0, Number(server.queueMaxSize || 0)),
-    0,
-  );
-  const comfyuiQueuePressure =
-    comfyuiQueueCapacity > 0 ? Math.round((Number(comfyuiQueueSummary?.totalCount || 0) / comfyuiQueueCapacity) * 100) : 0;
   const categorySummaries = orderedCategories.map((category) => {
     const items = grouped[category] || [];
     let recentRunCount = 0;
@@ -7498,219 +7471,9 @@ export function App() {
           </button>
         ))}
       </div>
-      <div className="podi-eval-hero">
-        <div className="podi-eval-hero__headline">
-          <span className="podi-eval-hero__headline-icon" style={{ color: activeCategoryVisual.accent }}>
-            {activeCategoryVisual.icon}
-          </span>
-          <div>
-            <Typography.Title level="h4" style={{ margin: 0 }}>
-              {normalizeCategory(activeCategory)} · 评测工具箱
-            </Typography.Title>
-            <Typography.Text theme="secondary">
-              {activeCategoryVisual.summary}
-            </Typography.Text>
-          </div>
-        </div>
-        <div className="podi-eval-hero__stats">
-          <div className="podi-eval-hero__stat">
-            <Typography.Text theme="secondary">当前分类工具</Typography.Text>
-            <Typography.Title level="h4" style={{ margin: '4px 0 0' }}>
-              {toolList.length}
-            </Typography.Title>
-          </div>
-          <div className="podi-eval-hero__stat">
-            <Typography.Text theme="secondary">全量工具</Typography.Text>
-            <Typography.Title level="h4" style={{ margin: '4px 0 0' }}>
-              {totalToolCount}
-            </Typography.Title>
-          </div>
-          <div className="podi-eval-hero__stat">
-            <Typography.Text theme="secondary">建议流程</Typography.Text>
-            <Typography.Title level="h4" style={{ margin: '4px 0 0' }}>
-              上传 → 生成 → 打标
-            </Typography.Title>
-          </div>
-        </div>
-      </div>
-      <Card bordered>
-        <Space direction="vertical" size="small" style={{ width: '100%' }}>
-          <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
-            <Space align="center">
-              <Typography.Text strong>{healthMeta.title}</Typography.Text>
-              <Tag theme={healthMeta.theme}>{healthMeta.tag}</Tag>
-              {operationsHealth?.generatedAt ? (
-                <Typography.Text theme="secondary">检查时间：{fmtTime(operationsHealth.generatedAt)}</Typography.Text>
-              ) : null}
-            </Space>
-            <Space>
-              <Button
-                variant="outline"
-                loading={operationsHealthStatus === 'loading' || comfyuiQueueStatus === 'loading'}
-                onClick={() => {
-                  if (adminToken) {
-                    void Promise.all([loadOperationsHealth(adminToken), loadComfyuiQueueSummary(adminToken)])
-                      .then(() => pushNotice('success', '已刷新链路健康'))
-                      .catch((err) => pushNotice('error', String((err as any)?.message || err)));
-                  } else {
-                    void promptOperationsHealthToken();
-                  }
-                }}
-              >
-                {adminToken ? '刷新健康检查' : '输入 Token 查看'}
-              </Button>
-              <Button variant="outline" onClick={() => setActiveView('tasks')}>
-                查看任务追踪
-              </Button>
-            </Space>
-          </Space>
-          {!adminToken ? (
-            <Alert theme="info" message="输入管理员 Token 后，这里会显示最近失败、长期运行、成功未回填等事故信号。" />
-          ) : null}
-          {operationsHealthStatus === 'error' ? (
-            <Alert
-              theme="error"
-              message={`链路健康检查失败：${operationsHealthError?.message || '接口没有正常返回，请检查管理员 Token 或后端服务。'}`}
-            />
-          ) : null}
-          {operationsHealth ? (
-            <>
-              <Space size="large" style={{ flexWrap: 'wrap' }}>
-                <Typography.Text theme="secondary">
-                  可用工作流：{operationsHealth.activeWorkflowCount}/{operationsHealth.totalWorkflowCount}
-                </Typography.Text>
-                <Typography.Text theme={healthRecentFailed ? 'warning' : 'secondary'}>
-                  近 {operationsHealth.recentHours} 小时失败：{healthRecentFailed}
-                </Typography.Text>
-                <Typography.Text theme={healthRecentRunTotal && !healthRecentSuccessCount ? 'error' : 'secondary'}>
-                  近 {operationsHealth.recentHours} 小时成功：{healthRecentSuccessCount}/{healthRecentRunTotal}
-                </Typography.Text>
-                <Typography.Text theme={healthRecentFailureCount ? 'warning' : 'secondary'}>
-                  有效失败：{healthRecentFailureCount}
-                </Typography.Text>
-                <Typography.Text theme={healthStaleCount ? 'error' : 'secondary'}>
-                  长时间未收口：{healthStaleCount}
-                </Typography.Text>
-                <Typography.Text theme={healthSubmitStalledCount ? 'error' : 'secondary'}>
-                  提交后无执行标识：{healthSubmitStalledCount}
-                </Typography.Text>
-                <Typography.Text theme={healthSucceededWithoutOutputCount ? 'warning' : 'secondary'}>
-                  成功但无结果：{healthSucceededWithoutOutputCount}
-                </Typography.Text>
-              </Space>
-              {operationsHealth.issues.length > 0 ? (
-                <Alert
-                  theme={healthMeta.tone}
-                  message={operationsHealth.issues.map((issue) => issue.message).join('；')}
-                />
-              ) : (
-                <Alert theme="success" message="最近没有发现长期运行、提交卡住、成功无结果等关键问题。" />
-              )}
-              {healthErrorSummary ? (
-                <Alert theme="warning" message={`失败原因汇总：${healthErrorSummary}`} />
-              ) : null}
-              {healthConcurrency ? (
-                <div className="podi-health-action-grid">
-                  <div className="podi-health-action-card">
-                    <Typography.Text strong>评测入口并发</Typography.Text>
-                    <Typography.Text theme="secondary">
-                      总并发 {healthConcurrency.evalRunMaxWorkers || '-'}；ComfyUI 并发 {healthConcurrency.evalComfyuiRunMaxWorkers || '-'}；
-                      商业模型并发 {healthConcurrency.evalCommercialRunMaxWorkers || '-'}
-                    </Typography.Text>
-                  </div>
-                  <div className="podi-health-action-card">
-                    <Typography.Text strong>单任务裂变模式</Typography.Text>
-                    <Typography.Text theme={evalFanoutWorkers <= 1 ? 'warning' : 'secondary'}>
-                      {fanoutModeLabel}。如果只跑一个裂变任务，不会主动把 20 个 ComfyUI 队列打满。
-                    </Typography.Text>
-                  </div>
-                  <div className="podi-health-action-card">
-                    <Typography.Text strong>ComfyUI 队列容量</Typography.Text>
-                    <Typography.Text theme="secondary">
-                      可用节点 {healthConcurrency.comfyuiAvailableExecutors || 0} 台；容量 {queueCapacityFromHealth || '-'}；当前队列 {queueTotalFromHealth}
-                    </Typography.Text>
-                  </div>
-                </div>
-              ) : null}
-              {healthFailureActions.length ? (
-                <div className="podi-health-action-grid">
-                  {healthFailureActions.map((item) => (
-                    <div key={item.code} className="podi-health-action-card">
-                      <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                        <Space align="center">
-                          <Tag theme={item.theme} variant="light">{item.label}</Tag>
-                          <Typography.Text strong>{item.count} 条</Typography.Text>
-                        </Space>
-                        <Typography.Text theme="secondary">{formatErrorCodeLabel(item.code)}</Typography.Text>
-                      </Space>
-                      <Typography.Text theme="secondary">{item.suggestion}</Typography.Text>
-                      <Typography.Text theme="secondary">样例：{item.sampleName}</Typography.Text>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-              {operationsHealth.recentFailures?.length ? (
-                <Space direction="vertical" size="small" style={{ width: '100%' }}>
-                  <Typography.Text strong>最近失败样本</Typography.Text>
-                  {operationsHealth.recentFailures.slice(0, 3).map((run) => (
-                    <div key={run.runId} className="podi-health-failure-row">
-                      <Tag theme={run.errorCode === 'INTERNAL_ONLY' ? 'danger' : 'warning'} variant="light">
-                        {formatErrorCodeLabel(run.errorCode)}
-                      </Tag>
-                      <Typography.Text>
-                        {run.workflowName || run.workflowId || run.runId}
-                      </Typography.Text>
-                      <Typography.Text theme="secondary">
-                        {toDisplayErrorMessage(run.errorMessage || run.errorCode || '') || '暂无错误详情'}
-                      </Typography.Text>
-                    </div>
-                  ))}
-                </Space>
-              ) : null}
-            </>
-          ) : null}
-          {comfyuiQueueStatus === 'error' ? (
-            <Alert
-              theme="error"
-              message={`ComfyUI 队列读取失败：${comfyuiQueueError?.message || '接口没有正常返回，请检查执行节点。'}`}
-            />
-          ) : null}
-          {comfyuiQueueSummary ? (
-            <Card bordered size="small">
-              <Space direction="vertical" size="small" style={{ width: '100%' }}>
-                <Space size="large" style={{ flexWrap: 'wrap' }}>
-                  <Typography.Text strong>ComfyUI 队列</Typography.Text>
-                  <Typography.Text theme="secondary">运行中：{comfyuiQueueSummary.totalRunning}</Typography.Text>
-                  <Typography.Text theme="secondary">排队中：{comfyuiQueueSummary.totalPending}</Typography.Text>
-                  <Typography.Text theme={comfyuiQueuePressure >= 80 ? 'warning' : 'secondary'}>
-                    估算占用：{comfyuiQueueCapacity ? `${comfyuiQueuePressure}%` : '未返回上限'}
-                  </Typography.Text>
-                </Space>
-                <Space size="small" style={{ flexWrap: 'wrap' }}>
-                  {(comfyuiQueueSummary.servers || []).map((server) => {
-                    const current = Number(server.runningCount || 0) + Number(server.pendingCount || 0);
-                    const max = server.queueMaxSize == null ? '未知' : String(server.queueMaxSize);
-                    const nodeLabel = formatComfyuiExecutorLabel(server.executorId);
-                    const queueMessage = server.message ? `，${formatErrorCodeLabel(server.message)}` : '';
-                    return (
-                      <Tag
-                        key={server.executorId}
-                        variant="light"
-                        theme={server.supported === false ? 'danger' : current > 0 ? 'primary' : 'default'}
-                      >
-                        {nodeLabel}：运行 {server.runningCount} / 排队 {server.pendingCount} / 上限 {max}{queueMessage}
-                      </Tag>
-                    );
-                  })}
-                </Space>
-              </Space>
-            </Card>
-          ) : null}
-        </Space>
-      </Card>
       <ActionBar
         title={`功能卡片 · ${toolList.length} 个`}
-        description="保留高频入口，弱化“快速上手”占屏，直接进入操作。"
+        description="直接选择要评测的功能；链路健康和队列问题统一到任务追踪中查看。"
         actions={
           <Space>
             <Button variant="outline" onClick={() => void refreshMetrics()}>
