@@ -16,15 +16,26 @@ export const abilityTypeOptions = [
 ];
 
 export const categoryOptions = [
-  { value: 'image_generation', label: '图片生成' },
-  { value: 'image_process', label: '图像处理' },
-  { value: 'vision_language', label: '图像理解' },
-  { value: 'text_generation', label: '文字生成' },
-  { value: 'video_generation', label: '视频生成' },
-  { value: 'video', label: '视频处理' },
-  { value: 'speech', label: '语音/音频' },
-  { value: 'utilities', label: '平台工具' },
-  { value: 'other', label: '其他' },
+  { value: 'pattern_extract', label: '花纹提取' },
+  { value: 'image_fission', label: '图裂变' },
+  { value: 'fission', label: '图裂变（兼容旧 key）' },
+  { value: 'outpaint', label: '扩图' },
+  { value: 'seamless_pattern', label: '连续图' },
+  { value: 'cutout', label: '抠图' },
+  { value: 'image_composition', label: '图像融合' },
+  { value: 'image_enhancement', label: '图像增强' },
+  { value: 'vision_analysis', label: '图像理解' },
+  { value: 'text_prompt', label: '文本与提示词' },
+  { value: 'video_generation', label: '生视频' },
+  { value: 'platform_tools', label: '平台工具' },
+  { value: 'image_generation', label: '图片生成（旧分类）' },
+  { value: 'image_process', label: '图像处理（旧分类）' },
+  { value: 'vision_language', label: '图像理解（旧分类）' },
+  { value: 'text_generation', label: '文字生成（旧分类）' },
+  { value: 'video', label: '视频处理（旧分类）' },
+  { value: 'speech', label: '语音/音频（旧分类）' },
+  { value: 'utilities', label: '平台工具（旧分类）' },
+  { value: 'other', label: '其他（待归类）' },
 ];
 
 export const statusOptions = [

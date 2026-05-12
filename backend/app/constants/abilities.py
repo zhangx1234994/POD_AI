@@ -201,6 +201,133 @@ def _vl_analyze_image_schema() -> dict[str, Any]:
     }
 
 
+FISSION_CONTROL_CARD_VL_PROMPT = dedent(
+    """
+    你是一个专业的装饰图案、印花纹样、装饰插画与主视觉结构分析助手。
+
+    请分析输入图片，并只输出 JSON，不要输出 Markdown、解释、代码块或前后缀。
+    这个 JSON 会直接传给图裂变工作流，目标是让后续模型稳定理解原图的结构、风格、材质、疏密和可变化范围。
+
+    输出字段必须严格包含：
+    {
+      "route_mode": "fission_general",
+      "pattern_type": "",
+      "profile_hint": "pattern_default_v1",
+      "prompt_main": "",
+      "prompt_control": "",
+      "control_cards": {
+        "shape_card": {},
+        "material_card": {},
+        "scale_card": {},
+        "noise_card": {}
+      }
+    }
+
+    关键要求：
+    - prompt_main 是给生成模型的主提示词，重点描述要保留的系列感、主要元素、构图、风格和允许变化的方向。
+    - prompt_control 是给工作流的补充控制描述，重点描述疏密、层级、边框、颜色比例、材质、禁止漂移方向。
+    - 不要把图案误判成真实场景，不要把裂变理解成只换颜色。
+    - 如果原图是花纹/印花/装饰插画，必须明确它是平面图案或主视觉，不是摄影场景。
+    """
+).strip()
+
+
+def _vl_fission_control_card_schema() -> dict[str, Any]:
+    return {
+        "fields": [
+            {
+                "name": "image_url",
+                "type": "image",
+                "label": _compose_bilingual_label("原图 URL", "Image URL"),
+                "required": True,
+                "description": _compose_bilingual_label(
+                    "用于生成图裂变控制卡的原图。", "Source image used to build the fission control card."
+                ),
+            },
+            {
+                "name": "provider",
+                "type": "select",
+                "label": _compose_bilingual_label("VL 来源", "VL Provider"),
+                "default": "volcengine_vl",
+                "options": [
+                    {"label": "火山 Doubao VL", "value": "volcengine_vl"},
+                    {"label": "Coze 已接入 VL", "value": "coze_vl"},
+                ],
+                "description": _compose_bilingual_label(
+                    "后续切换 VL 模型时优先改这里的默认来源，依赖方不需要改配方。",
+                    "Change this default provider first when replacing the central VL model.",
+                ),
+            },
+            {
+                "name": "prompt",
+                "type": "textarea",
+                "label": _compose_bilingual_label("控制卡提示词（高级）", "Control Prompt (Advanced)"),
+                "required": False,
+                "description": _compose_bilingual_label(
+                    "默认使用平台图裂变控制卡模板；只有调试新模型时才需要覆盖。",
+                    "Defaults to PODI's fission control-card template; override only for model debugging.",
+                ),
+            },
+            {
+                "name": "coze_workflow_id",
+                "type": "text",
+                "label": _compose_bilingual_label("Coze VL 工作流 ID", "Coze VL Workflow ID"),
+                "required": False,
+            },
+        ]
+    }
+
+
+def _vl_generated_image_evaluation_schema() -> dict[str, Any]:
+    return {
+        "fields": [
+            {
+                "name": "original_image",
+                "type": "image",
+                "label": _compose_bilingual_label("原图 URL", "Original Image URL"),
+                "required": True,
+                "description": _compose_bilingual_label("裂变前的参考原图。", "Reference image before fission."),
+            },
+            {
+                "name": "generated_image",
+                "type": "image",
+                "label": _compose_bilingual_label("生成图 URL", "Generated Image URL"),
+                "required": True,
+                "description": _compose_bilingual_label("裂变后需要评估的生成图。", "Generated image to evaluate."),
+            },
+            {
+                "name": "context",
+                "type": "textarea",
+                "label": _compose_bilingual_label("评估上下文 JSON", "Evaluation Context JSON"),
+                "required": False,
+                "description": _compose_bilingual_label(
+                    "可传 task_id、profile、pattern_type 等信息；为空也可评估。",
+                    "Optional task_id, profile, pattern_type, and other evaluation context.",
+                ),
+            },
+            {
+                "name": "provider",
+                "type": "select",
+                "label": _compose_bilingual_label("评估来源", "Evaluation Provider"),
+                "default": "coze_eval",
+                "options": [
+                    {"label": "Coze 生成图评估工作流", "value": "coze_eval"},
+                ],
+                "description": _compose_bilingual_label(
+                    "当前先复用 AI 团队已验证的 Coze 评估工作流，后续可切换为中台直连 VL。",
+                    "Uses the verified Coze evaluation workflow first; can later switch to a backend VL provider.",
+                ),
+            },
+            {
+                "name": "coze_workflow_id",
+                "type": "text",
+                "label": _compose_bilingual_label("Coze 评估工作流 ID", "Coze Evaluation Workflow ID"),
+                "required": False,
+            },
+        ]
+    }
+
+
 def _vl_metadata(*, seed_version: int) -> dict[str, Any]:
     return {
         "executor_type": "vl",
@@ -224,6 +351,63 @@ def _vl_metadata(*, seed_version: int) -> dict[str, Any]:
                 "image_url": _presentation_field(label="待分析图片"),
                 "prompt": _presentation_field(label="分析要求", advanced=True),
                 "provider": _presentation_field(label="VL 来源", advanced=True),
+            },
+        ),
+    }
+
+
+def _vl_fission_control_card_metadata(*, seed_version: int) -> dict[str, Any]:
+    return {
+        "executor_type": "vl",
+        "api_type": "vl_analyze_image",
+        "component_key": "fission_control_card",
+        "default_provider": "volcengine_vl",
+        "provider_ability_map": {
+            "volcengine_vl": "volcengine_doubao_seed_1_8",
+            "coze_vl": "coze_workflow",
+        },
+        "requires_image_input": True,
+        "supports_vision": True,
+        "structured_output": True,
+        "output_schema": "fission_control_card_v1",
+        "seed_version": seed_version,
+        "presentation": _presentation(
+            name="图裂变 VL 控制卡",
+            summary="把原图分析成裂变工作流可直接使用的控制卡，集中承载 VL 模型选择。",
+            form_intro="上传原图后生成 prompt_main、prompt_control 和控制卡；图裂变配方统一依赖该组件。",
+            expected_output="返回 fissionControlCard JSON，可直接传给 ComfyUI 或商业模型裂变能力。",
+            surfaces={"client": False, "coze": True, "admin": True, "eval": True},
+            fields={
+                "image_url": _presentation_field(label="原图"),
+                "provider": _presentation_field(label="VL 来源", advanced=True),
+                "prompt": _presentation_field(label="控制卡提示词", advanced=True),
+            },
+        ),
+    }
+
+
+def _vl_generated_image_evaluation_metadata(*, seed_version: int) -> dict[str, Any]:
+    return {
+        "executor_type": "vl",
+        "api_type": "generated_image_evaluation",
+        "component_key": "fission_generated_image_evaluate",
+        "default_provider": "coze_eval",
+        "coze_workflow_id": "7632187670952673280",
+        "requires_image_input": True,
+        "supports_vision": True,
+        "structured_output": True,
+        "output_schema": "generated_image_evaluation_v1",
+        "seed_version": seed_version,
+        "presentation": _presentation(
+            name="裂变生成图评估",
+            summary="评估裂变生成图是否保持原图逻辑、质量和系列感，输出 pass / needs_refission / reject。",
+            form_intro="传入原图和生成图，系统返回结构化评分、问题标签和建议动作。",
+            expected_output="返回 decision、score、scores、problem_tags、reason、next_action。",
+            surfaces={"client": False, "coze": True, "admin": True, "eval": True},
+            fields={
+                "original_image": _presentation_field(label="原图"),
+                "generated_image": _presentation_field(label="生成图"),
+                "context": _presentation_field(label="评估上下文", advanced=True),
             },
         ),
     }
@@ -1275,6 +1459,78 @@ def _comfyui_flux_strong_hq_softstyle_fission_schema() -> dict[str, Any]:
     }
 
 
+def _comfyui_flux_strong_hq_softstyle_fission_control_schema() -> dict[str, Any]:
+    return {
+        "fields": [
+            {
+                "name": "image_url",
+                "type": "image",
+                "label": _compose_bilingual_label("输入图片 URL", "Input Image URL"),
+                "required": True,
+                "description": _compose_bilingual_label(
+                    "裂变原图；后端会上传到 ComfyUI input 目录后执行。",
+                    "Source image; backend stages it into ComfyUI input before execution.",
+                ),
+            },
+            {
+                "name": "vl_result",
+                "type": "textarea",
+                "label": _compose_bilingual_label("VL 控制卡 JSON", "VL Control Card JSON"),
+                "required": True,
+                "description": _compose_bilingual_label(
+                    "来自 vl_fission_control_card 的结果，至少包含 prompt_main 和 prompt_control。",
+                    "Result from vl_fission_control_card; should contain prompt_main and prompt_control.",
+                ),
+            },
+            {
+                "name": "width",
+                "type": "number",
+                "label": _compose_bilingual_label("输出宽度(px)", "Output Width(px)"),
+                "default": 2000,
+                "required": False,
+            },
+            {
+                "name": "height",
+                "type": "number",
+                "label": _compose_bilingual_label("输出高度(px)", "Output Height(px)"),
+                "default": 2000,
+                "required": False,
+            },
+            {
+                "name": "bili",
+                "type": "text",
+                "label": _compose_bilingual_label("裂变幅度百分比", "Variation Percent"),
+                "default": "50%",
+                "description": _compose_bilingual_label(
+                    "沿用 AI 团队接口包口径：0%=更保守，100%=变化更大；默认 50%。",
+                    "AI handoff contract: 0%=conservative, 100%=stronger variation; default 50%.",
+                ),
+                "required": False,
+            },
+            {
+                "name": "profile",
+                "type": "text",
+                "label": _compose_bilingual_label("裂变配置", "Profile"),
+                "default": "pattern_default_v1",
+                "required": False,
+            },
+            {
+                "name": "mode",
+                "type": "text",
+                "label": _compose_bilingual_label("执行模式", "Mode"),
+                "default": "fission",
+                "required": False,
+            },
+            {
+                "name": "seed",
+                "type": "number",
+                "label": _compose_bilingual_label("随机种子（可选）", "Seed (optional)"),
+                "required": False,
+            },
+        ]
+    }
+
+
 def _comfyui_multi_image_fusion_schema() -> dict[str, Any]:
     return {
         "fields": [
@@ -1806,6 +2062,28 @@ VL_ABILITIES: dict[str, AbilityDefinition] = {
         "category": "vision_language",
         "input_schema": _vl_analyze_image_schema(),
         "metadata": _vl_metadata(seed_version=1),
+    },
+    "fission_control_card": {
+        "defaults": {
+            "provider": "volcengine_vl",
+            "prompt": FISSION_CONTROL_CARD_VL_PROMPT,
+        },
+        "display_name": "VL · 图裂变控制卡",
+        "description": "统一的图裂变前置 VL 组件，输出 prompt_main、prompt_control 和控制卡，供 ComfyUI/商业模型裂变复用。",
+        "category": "vision_language",
+        "input_schema": _vl_fission_control_card_schema(),
+        "metadata": _vl_fission_control_card_metadata(seed_version=1),
+    },
+    "fission_generated_image_evaluate": {
+        "defaults": {
+            "provider": "coze_eval",
+            "coze_workflow_id": "7632187670952673280",
+        },
+        "display_name": "VL · 裂变生成图评估",
+        "description": "单独评估裂变生成图质量和逻辑合理性，输出 pass / needs_refission / reject，业务侧自行决定是否二次裂变。",
+        "category": "image_quality_evaluation",
+        "input_schema": _vl_generated_image_evaluation_schema(),
+        "metadata": _vl_generated_image_evaluation_metadata(seed_version=1),
     },
 }
 
@@ -2830,6 +3108,64 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
                         description="建议由上游 VL 自动生成，例如元素层级、疏密、filler 预算。",
                         advanced=True,
                     ),
+                    "bili": _presentation_field(label="裂变幅度"),
+                    "width": _presentation_field(label="输出宽度"),
+                    "height": _presentation_field(label="输出高度"),
+                },
+            ),
+        },
+    },
+    "flux_strong_hq_softstyle_fission_control_v1": {
+        "defaults": {
+            "workflow_key": "flux_strong_hq_softstyle_fission",
+            "timeout": 420,
+            "profile": "pattern_default_v1",
+            "profile_id": "pattern_default_v1",
+            "mode": "fission",
+            "bili": "50%",
+            "bili_mapping": "variation_percent_045_080",
+            "width": 2000,
+            "height": 2000,
+            "steps": 8,
+            "cfg": 1.0,
+            "batch_size": 1,
+            "ipadapter_weight": 0.25,
+            "colormatch_method": "mkl",
+            "colormatch_strength": 0.20,
+        },
+        "display_name": "ComfyUI · VL 控制卡裂变",
+        "description": "AI 团队 2026-05-12 交付的 ComfyUI 裂变接口版本：输入原图、宽高、裂变幅度和 VL 控制卡，输出 05 FLUX Strong HQ SoftStyle 裂变图。",
+        "category": "image_generation",
+        "input_schema": _comfyui_flux_strong_hq_softstyle_fission_control_schema(),
+        "metadata": {
+            "executor_type": "comfyui",
+            "executor_tag": "comfyui",
+            "api_type": "comfyui_workflow",
+            "workflow_key": "flux_strong_hq_softstyle_fission",
+            "action": "image_fission",
+            "interface_pack": "11_2026-05-12_comfyui_fission_interface_pack_v1",
+            "vl_component_ability_id": "vl_fission_control_card",
+            "requires_image_input": True,
+            "supports_vision": True,
+            "output_node_ids": ["31"],
+            "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
+            "routing_policy": "queue",
+            "seed_version": 1,
+            "pricing": {
+                "currency": "CNY",
+                "unit": "per_image",
+                "list_price": 0.6,
+                "discount_price": 0.35,
+            },
+            "presentation": _presentation(
+                name="VL 控制卡裂变",
+                summary="先由统一 VL 组件生成控制卡，再调用 05 FLUX Strong HQ SoftStyle 裂变。",
+                form_intro="业务可直接传 VL 控制卡；也可通过业务版本让中台自动先跑 VL。",
+                expected_output="产出 1 张高质量裂变图；生成后可单独调用“裂变生成图评估”。",
+                surfaces={"client": False, "coze": True, "admin": True, "eval": True},
+                fields={
+                    "image_url": _presentation_field(label="原图"),
+                    "vl_result": _presentation_field(label="VL 控制卡"),
                     "bili": _presentation_field(label="裂变幅度"),
                     "width": _presentation_field(label="输出宽度"),
                     "height": _presentation_field(label="输出高度"),

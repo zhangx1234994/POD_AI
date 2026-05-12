@@ -1,6 +1,5 @@
 import { Alert, Button, Card, Space, Table, Tag, Typography } from 'tdesign-react';
 import type { PublicAbility } from '../../../types/admin';
-import { OperationFlowCard } from '../shared/ui';
 
 type ApiEndpoint = {
   key: string;
@@ -9,6 +8,7 @@ type ApiEndpoint = {
   path: string;
   purpose: string;
   audience: string;
+  businessKey: string;
 };
 
 type ToolboxEndpoint = {
@@ -17,6 +17,15 @@ type ToolboxEndpoint = {
   path: string;
   purpose: string;
   status: '主入口' | '专项工具箱' | '查询工具箱';
+  businessKey: string;
+};
+
+type BusinessInterfaceGroup = {
+  key: string;
+  name: string;
+  summary: string;
+  nativeStatus: 'ready' | 'planning' | 'internal';
+  accent: 'success' | 'primary' | 'warning' | 'default';
 };
 
 type DeliveryGuardStatus = 'done' | 'doing' | 'todo';
@@ -52,6 +61,58 @@ type ApiExposurePanelProps = {
   getCategoryLabel: (value: string) => string;
 };
 
+const BUSINESS_INTERFACE_GROUPS: BusinessInterfaceGroup[] = [
+  {
+    key: 'pattern_extract',
+    name: '花纹提取',
+    summary: '从商品或素材图提取可复用花纹资产。',
+    nativeStatus: 'ready',
+    accent: 'success',
+  },
+  {
+    key: 'image_fission',
+    name: '图裂变',
+    summary: '基于原图生成变化图、风格变体或高质量裂变图。',
+    nativeStatus: 'ready',
+    accent: 'success',
+  },
+  {
+    key: 'outpaint',
+    name: '扩图',
+    summary: '向上下左右扩展画面，补背景和构图。',
+    nativeStatus: 'ready',
+    accent: 'success',
+  },
+  {
+    key: 'seamless_pattern',
+    name: '连续图',
+    summary: '生成或检查两方、四方连续图。',
+    nativeStatus: 'planning',
+    accent: 'primary',
+  },
+  {
+    key: 'cutout',
+    name: '抠图',
+    summary: '背景抠图、头部抠像和主体提取。',
+    nativeStatus: 'planning',
+    accent: 'primary',
+  },
+  {
+    key: 'image_enhancement',
+    name: '图像增强',
+    summary: '放大、DPI、清晰度和尺寸修复。',
+    nativeStatus: 'internal',
+    accent: 'warning',
+  },
+  {
+    key: 'vision_analysis',
+    name: '图像理解',
+    summary: 'VL 图片分析、标签和提示词建议。',
+    nativeStatus: 'planning',
+    accent: 'primary',
+  },
+];
+
 const BUSINESS_ENDPOINTS: ApiEndpoint[] = [
   {
     key: 'business-openapi',
@@ -60,6 +121,7 @@ const BUSINESS_ENDPOINTS: ApiEndpoint[] = [
     path: '/api/business/openapi.json',
     purpose: '业务方或内部系统导入稳定业务接口。',
     audience: '业务接入 / 开发联调',
+    businessKey: 'platform_tools',
   },
   {
     key: 'pattern-run',
@@ -68,6 +130,7 @@ const BUSINESS_ENDPOINTS: ApiEndpoint[] = [
     path: '/api/business/pattern-extract/runs',
     purpose: '提交花纹提取任务，底层版本由中台决定。',
     audience: '业务主入口',
+    businessKey: 'pattern_extract',
   },
   {
     key: 'fission-run',
@@ -76,6 +139,7 @@ const BUSINESS_ENDPOINTS: ApiEndpoint[] = [
     path: '/api/business/fission/runs',
     purpose: '提交图裂变任务，返回 runId 后查询结果。',
     audience: '业务主入口',
+    businessKey: 'image_fission',
   },
   {
     key: 'outpaint-run',
@@ -84,6 +148,7 @@ const BUSINESS_ENDPOINTS: ApiEndpoint[] = [
     path: '/api/business/outpaint/runs',
     purpose: '提交扩图任务，宽高和四向扩展量由参数控制。',
     audience: '业务主入口',
+    businessKey: 'outpaint',
   },
   {
     key: 'business-get',
@@ -92,6 +157,7 @@ const BUSINESS_ENDPOINTS: ApiEndpoint[] = [
     path: '/api/business/runs/get',
     purpose: '统一按 runId 查询状态、图片、错误和调试信息。',
     audience: '业务接入 / 回调兜底',
+    businessKey: 'platform_tools',
   },
   {
     key: 'pattern-preview',
@@ -100,6 +166,7 @@ const BUSINESS_ENDPOINTS: ApiEndpoint[] = [
     path: '/api/business/pattern-extract/route-preview',
     purpose: '不提交真实任务，只验证当前业务方会命中哪个版本。',
     audience: '灰度 / 上线前验证',
+    businessKey: 'pattern_extract',
   },
   {
     key: 'fission-preview',
@@ -108,6 +175,7 @@ const BUSINESS_ENDPOINTS: ApiEndpoint[] = [
     path: '/api/business/fission/route-preview',
     purpose: '不提交真实任务，只验证图裂变默认、灰度或指定版本命中。',
     audience: '灰度 / 上线前验证',
+    businessKey: 'image_fission',
   },
   {
     key: 'outpaint-preview',
@@ -116,6 +184,7 @@ const BUSINESS_ENDPOINTS: ApiEndpoint[] = [
     path: '/api/business/outpaint/route-preview',
     purpose: '不提交真实任务，只验证扩图默认、灰度或指定版本命中。',
     audience: '灰度 / 上线前验证',
+    businessKey: 'outpaint',
   },
 ];
 
@@ -127,6 +196,7 @@ const ABILITY_ENDPOINTS: ApiEndpoint[] = [
     path: '/api/abilities',
     purpose: '读取已开放原子能力、字段说明、健康状态和能力编号。',
     audience: '开发接入 / 上层编排',
+    businessKey: 'platform_tools',
   },
   {
     key: 'ability-detail',
@@ -135,6 +205,7 @@ const ABILITY_ENDPOINTS: ApiEndpoint[] = [
     path: '/api/abilities/{abilityId}',
     purpose: '查看单个能力的输入字段、默认参数和运行要求。',
     audience: '开发接入 / 排障',
+    businessKey: 'platform_tools',
   },
   {
     key: 'ability-invoke',
@@ -143,6 +214,7 @@ const ABILITY_ENDPOINTS: ApiEndpoint[] = [
     path: '/api/abilities/{abilityId}/invoke',
     purpose: '直接触发原子能力，适合内部编排、测评和高级开发。',
     audience: '开发接入 / 测评',
+    businessKey: 'platform_tools',
   },
   {
     key: 'ability-options',
@@ -151,6 +223,7 @@ const ABILITY_ENDPOINTS: ApiEndpoint[] = [
     path: '/api/abilities/options',
     purpose: '读取能力表单需要的候选值，减少前端硬编码。',
     audience: '前端 / 工具开发',
+    businessKey: 'platform_tools',
   },
 ];
 
@@ -161,6 +234,7 @@ const COZE_TOOLBOX_ENDPOINTS: ToolboxEndpoint[] = [
     path: '/api/coze/podi/openapi.json',
     purpose: 'Coze 导入全部可用能力工具和任务查询。',
     status: '主入口',
+    businessKey: 'platform_tools',
   },
   {
     key: 'coze-comfyui',
@@ -168,6 +242,7 @@ const COZE_TOOLBOX_ENDPOINTS: ToolboxEndpoint[] = [
     path: '/api/coze/podi/comfyui/openapi.json',
     purpose: 'Coze 导入 ComfyUI 类能力。',
     status: '专项工具箱',
+    businessKey: 'platform_tools',
   },
   {
     key: 'coze-fission',
@@ -175,6 +250,7 @@ const COZE_TOOLBOX_ENDPOINTS: ToolboxEndpoint[] = [
     path: '/api/coze/podi/comfyui/execute/flux-strong-hq-softstyle-fission/openapi.json',
     purpose: '新高质量裂变工作流专项导入口。',
     status: '专项工具箱',
+    businessKey: 'image_fission',
   },
   {
     key: 'coze-outpaint',
@@ -182,6 +258,7 @@ const COZE_TOOLBOX_ENDPOINTS: ToolboxEndpoint[] = [
     path: '/api/coze/podi/comfyui/execute/flux2-klein-9b-outpaint/openapi.json',
     purpose: '扩图主线工作流专项导入口。',
     status: '专项工具箱',
+    businessKey: 'outpaint',
   },
   {
     key: 'coze-bg-remove',
@@ -189,6 +266,7 @@ const COZE_TOOLBOX_ENDPOINTS: ToolboxEndpoint[] = [
     path: '/api/coze/podi/comfyui/execute/beijing-koutu/openapi.json',
     purpose: '背景抠图专项导入口。',
     status: '专项工具箱',
+    businessKey: 'cutout',
   },
   {
     key: 'coze-head-cutout',
@@ -196,6 +274,7 @@ const COZE_TOOLBOX_ENDPOINTS: ToolboxEndpoint[] = [
     path: '/api/coze/podi/comfyui/execute/toubu-kouxiang/openapi.json',
     purpose: '头部抠像专项导入口。',
     status: '专项工具箱',
+    businessKey: 'cutout',
   },
   {
     key: 'coze-kie',
@@ -203,6 +282,7 @@ const COZE_TOOLBOX_ENDPOINTS: ToolboxEndpoint[] = [
     path: '/api/coze/podi/kie/openapi.json',
     purpose: 'Coze 导入 KIE 类商业模型工具。',
     status: '专项工具箱',
+    businessKey: 'platform_tools',
   },
   {
     key: 'coze-tasks',
@@ -210,6 +290,7 @@ const COZE_TOOLBOX_ENDPOINTS: ToolboxEndpoint[] = [
     path: '/api/coze/podi/tasks/get',
     purpose: 'Coze 工作流按 taskId 查询最终图片、视频、文字或错误。',
     status: '查询工具箱',
+    businessKey: 'platform_tools',
   },
 ];
 
@@ -291,6 +372,34 @@ const BUSINESS_ONBOARDING_CHECKS: OnboardingCheck[] = [
   },
 ];
 
+function businessStatusLabel(status: BusinessInterfaceGroup['nativeStatus']): string {
+  if (status === 'ready') return '原生 API 已具备';
+  if (status === 'planning') return '待补原生 API';
+  return '内部能力为主';
+}
+
+function businessStatusTheme(status: BusinessInterfaceGroup['nativeStatus']): 'success' | 'primary' | 'warning' | 'default' {
+  if (status === 'ready') return 'success';
+  if (status === 'planning') return 'primary';
+  if (status === 'internal') return 'warning';
+  return 'default';
+}
+
+function inferAbilityBusinessKey(ability: PublicAbility): string {
+  const text = `${ability.id} ${ability.displayName} ${ability.category} ${ability.provider} ${ability.abilityType}`.toLowerCase();
+  if (/花纹|印花|pattern|yinhua/.test(text)) return 'pattern_extract';
+  if (/裂变|fission|variation|softstyle|e7/.test(text)) return 'image_fission';
+  if (/扩图|延伸|outpaint|extend|klein/.test(text)) return 'outpaint';
+  if (/连续|四方|两方|seamless|lianxu/.test(text)) return 'seamless_pattern';
+  if (/抠图|抠像|去背|background|cutout|matting|koutu|kouxiang/.test(text)) return 'cutout';
+  if (/融合|合成|多图|fusion|compose|merge/.test(text)) return 'image_composition';
+  if (/放大|高清|dpi|增强|upscale|enhance|resize/.test(text)) return 'image_enhancement';
+  if (/vl|视觉|理解|识别|描述|标签|vision|describe/.test(text)) return 'vision_analysis';
+  if (/文字|文本|提示词|prompt|text/.test(text)) return 'text_prompt';
+  if (/视频|video|seedance|sora/.test(text)) return 'video_generation';
+  return 'platform_tools';
+}
+
 function methodTheme(method: string): 'success' | 'primary' | 'default' {
   if (method === 'POST') return 'primary';
   if (method === 'GET') return 'success';
@@ -307,12 +416,6 @@ function deliveryGuardTheme(status: DeliveryGuardStatus): 'success' | 'warning' 
   if (status === 'done') return 'success';
   if (status === 'doing') return 'warning';
   return 'default';
-}
-
-function deliveryGuardLabel(status: DeliveryGuardStatus): string {
-  if (status === 'done') return '已完成';
-  if (status === 'doing') return '进行中';
-  return '待处理';
 }
 
 function buildAbilityInvokeExample(abilityId: string): string {
@@ -390,6 +493,17 @@ export function ApiExposurePanel({
     return text.includes('text') || text.includes('文字') || text.includes('vl') || text.includes('图像理解');
   });
   const firstAbilityId = activeAbilities[0]?.id || '{abilityId}';
+  const businessInterfaceRows = BUSINESS_INTERFACE_GROUPS.map((group) => {
+    const nativeEndpoints = BUSINESS_ENDPOINTS.filter((item) => item.businessKey === group.key);
+    const cozeToolboxes = COZE_TOOLBOX_ENDPOINTS.filter((item) => item.businessKey === group.key);
+    const atomicCount = publicAbilities.filter((item) => inferAbilityBusinessKey(item) === group.key).length;
+    return {
+      ...group,
+      nativeEndpoints,
+      cozeToolboxes,
+      atomicCount,
+    };
+  });
 
   return (
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
@@ -431,125 +545,58 @@ export function ApiExposurePanel({
         </div>
       </div>
 
-      <OperationFlowCard
-        title="业务方最短接入路径"
-        description="给业务方只讲这一条路径即可：提交业务任务，保存 runId，用统一查询或回调拿结果。"
-        summary="推荐默认路径：业务方不选模型、不选工作流，只按固定参数提交业务任务。"
-        summaryTheme="success"
-        extra={
-          <Tag theme="success" variant="light">
-            推荐默认路径
-          </Tag>
-        }
-        steps={[
-          {
-            key: 'select-business-api',
-            title: '选业务接口',
-            detail: '花纹提取、图裂变、扩图优先走 /api/business/*/runs。',
-            action: '不要让业务方选择模型、工作流或执行节点。',
-            done: '入口清楚',
-            theme: 'success',
-          },
-          {
-            key: 'submit-run',
-            title: '提交任务',
-            detail: '业务方只传图片、参数、traceId、callbackUrl。',
-            action: '由中台负责版本、路由、排队和结果回填。',
-            done: '参数稳定',
-            theme: 'primary',
-          },
-          {
-            key: 'save-run-id',
-            title: '保存 runId',
-            detail: '提交成功后必须保存 runId。',
-            action: '页面、回调兜底、客服排障都用 runId 追踪。',
-            done: '可追踪',
-            theme: 'primary',
-          },
-          {
-            key: 'query-or-callback',
-            title: '查询或接回调',
-            detail: '统一调用 /api/business/runs/get 查询状态和结果。',
-            action: '有回调时也保留轮询，作为业务方兜底方式。',
-            done: '拿到结果',
-            theme: 'primary',
-          },
-          {
-            key: 'handle-error-code',
-            title: '按错误码处理',
-            detail: '队列满、缺参、依赖失败、超时都要给明确错误。',
-            action: '提示稍后重试或联系平台，不让业务方猜原因。',
-            done: '错误可处理',
-            theme: 'warning',
-          },
-        ]}
-      />
-
-      <Card bordered className="podi-api-onboarding-card">
+      <Card bordered className="podi-api-business-map-card">
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-          <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+          <div>
+            <Typography.Text strong>按业务找接口</Typography.Text>
             <div>
-              <Typography.Text strong>业务方开通前检查</Typography.Text>
-              <div>
-                <Typography.Text theme="secondary">
-                  业务接入不是只给一个接口地址；开通范围、版本命中、回调兜底和错误提示必须先确认。
-                </Typography.Text>
-              </div>
+              <Typography.Text theme="secondary">
+                同一个业务下同时展示原生 API、Coze 工具箱和原子能力数量。业务方优先看原生 API，排障和实验再看后两类。
+              </Typography.Text>
             </div>
-            <Tag theme="warning" variant="light">
-              上线前必须逐项确认
-            </Tag>
-          </Space>
-          <div className="podi-api-onboarding-grid">
-            {BUSINESS_ONBOARDING_CHECKS.map((item) => (
-              <section key={item.key} className={`podi-api-onboarding-item podi-api-onboarding-item--${item.theme}`}>
+          </div>
+          <div className="podi-api-business-map">
+            {businessInterfaceRows.map((group) => (
+              <section key={group.key} className={`podi-api-business-card podi-api-business-card--${group.accent}`}>
                 <Space direction="vertical" size={8} style={{ width: '100%' }}>
                   <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                    <Tag theme={item.theme} variant="light">
-                      {item.tag}
+                    <Typography.Text strong>{group.name}</Typography.Text>
+                    <Tag theme={businessStatusTheme(group.nativeStatus)} variant="light">
+                      {businessStatusLabel(group.nativeStatus)}
                     </Tag>
-                    <Typography.Text theme="secondary">业务接入</Typography.Text>
                   </Space>
-                  <Typography.Text strong>{item.title}</Typography.Text>
-                  <Typography.Text theme="secondary">{item.detail}</Typography.Text>
-                  <Typography.Text theme={item.theme === 'warning' ? 'warning' : 'secondary'}>下一步：{item.action}</Typography.Text>
+                  <Typography.Text theme="secondary">{group.summary}</Typography.Text>
+                  <div className="podi-api-business-card__metrics">
+                    <span>原生 {group.nativeEndpoints.length}</span>
+                    <span>Coze {group.cozeToolboxes.length}</span>
+                    <span>原子 {group.atomicCount}</span>
+                  </div>
+                  <div className="podi-api-business-card__paths">
+                    {group.nativeEndpoints.slice(0, 2).map((endpoint) => (
+                      <button key={endpoint.key} type="button" onClick={() => onCopy(endpoint.path)}>
+                        {endpoint.name}
+                      </button>
+                    ))}
+                    {group.cozeToolboxes.slice(0, 1).map((toolbox) => (
+                      <button key={toolbox.key} type="button" onClick={() => onCopy(toolbox.path)}>
+                        {toolbox.name}
+                      </button>
+                    ))}
+                  </div>
                 </Space>
               </section>
             ))}
           </div>
-        </Space>
-      </Card>
-
-      <Card bordered className="podi-api-delivery-card">
-        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-          <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
-            <div>
-              <Typography.Text strong>同步交付门禁</Typography.Text>
-              <div>
-                <Typography.Text theme="secondary">
-                  后续不再等全部功能做完才改前端；接口、页面、文档、错误和冒烟检查必须同批推进。
-                </Typography.Text>
-              </div>
-            </div>
-            <Tag theme="primary" variant="light">
-              A2 / A3 / A4 已补齐
-            </Tag>
-          </Space>
-          <div className="podi-api-guard-grid">
+          <div className="podi-api-check-strip">
+            {BUSINESS_ONBOARDING_CHECKS.map((item) => (
+              <Tag key={item.key} theme={item.theme} variant="light">
+                {item.title}
+              </Tag>
+            ))}
             {API_DELIVERY_GUARDS.map((item) => (
-              <div key={item.key} className={`podi-api-guard-card podi-api-guard-card--${item.status}`}>
-                <Space direction="vertical" size={8} style={{ width: '100%' }}>
-                  <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                    <Tag theme={deliveryGuardTheme(item.status)} variant="light">
-                      {deliveryGuardLabel(item.status)}
-                    </Tag>
-                    <Typography.Text theme="secondary">{item.owner}</Typography.Text>
-                  </Space>
-                  <Typography.Text strong>{item.title}</Typography.Text>
-                  <Typography.Text theme="secondary">{item.detail}</Typography.Text>
-                  <Typography.Text theme={item.status === 'todo' ? 'warning' : 'secondary'}>下一步：{item.action}</Typography.Text>
-                </Space>
-              </div>
+              <Tag key={item.key} theme={deliveryGuardTheme(item.status)} variant="light">
+                {item.title}
+              </Tag>
             ))}
           </div>
         </Space>

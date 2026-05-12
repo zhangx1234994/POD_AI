@@ -141,6 +141,24 @@ export function ComfyuiManagementHeader({
           },
         ]}
       />
+      <Alert
+        theme="success"
+        message={
+          <Space direction="vertical" size={4} style={{ width: '100%' }}>
+            <Typography.Text strong>重启后检查：先确认节点可接任务，再放真实业务。</Typography.Text>
+            <Typography.Text theme="secondary">
+              158 / 233 重启后，先运行无成本自检。它会检查 ComfyUI 版本、GPU、队列、关键节点清单，以及中台是否已经把节点纳入路由。
+            </Typography.Text>
+            <code className="block whitespace-normal break-all rounded-lg bg-slate-900 px-3 py-2 text-[11px] leading-5 text-white">
+              python3 backend/scripts/check_comfyui_node_health.py --backend-url http://127.0.0.1:8099 --report
+              &quot;reports/comfyui-node-health_$(date +%Y%m%d_%H%M%S).json&quot;
+            </code>
+            <Typography.Text theme="secondary">
+              通过只代表节点可读、队列可读、依赖清单可读、路由可见；发版和业务恢复仍要跑真实工作流确认出图与回填。
+            </Typography.Text>
+          </Space>
+        }
+      />
       <div className="rounded-2xl border border-slate-200/70 bg-white px-3 py-3 dark:border-slate-800 dark:bg-slate-950/40">
         <div className="podi-comfy-level-label">纳管分区</div>
         <div className="podi-comfy-group-grid">

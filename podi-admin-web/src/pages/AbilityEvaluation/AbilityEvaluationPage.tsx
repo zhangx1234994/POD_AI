@@ -5,6 +5,7 @@ import type { EvalDatasetItem, EvalRun, EvalWorkflowVersion } from '../../types/
 import { EvaluationInputPanel } from './components/EvaluationInputPanel';
 import { EvaluationResultPanel } from './components/EvaluationResultPanel';
 import { EvaluationSidebar } from './components/EvaluationSidebar';
+import { evalBusinessCategoryOrder, normalizeEvalBusinessCategory } from './evalBusinessCategories';
 
 type Notice = { type: 'error' | 'success' | 'info'; message: string };
 type AbilityEvaluationPageProps = {
@@ -99,7 +100,7 @@ export function AbilityEvaluationPage({ focusRunId = '' }: AbilityEvaluationPage
     notes: string;
   }>({
     name: '',
-    category: '通用类',
+    category: '图裂变',
     version: 'v1',
     workflow_id: '',
     outputKind: 'image',
@@ -129,7 +130,10 @@ export function AbilityEvaluationPage({ focusRunId = '' }: AbilityEvaluationPage
 
   const activeCategory = selectedWorkflow?.category || '';
   const filteredDatasetItems = useMemo(
-    () => (activeCategory ? datasetItems.filter((item) => item.category === activeCategory) : datasetItems),
+    () =>
+      activeCategory
+        ? datasetItems.filter((item) => normalizeEvalBusinessCategory(item.category) === activeCategory)
+        : datasetItems,
     [datasetItems, activeCategory],
   );
   const runningCount = useMemo(
@@ -186,7 +190,7 @@ export function AbilityEvaluationPage({ focusRunId = '' }: AbilityEvaluationPage
     const workflow = workflows.find((item) => item.id === focusedRun.workflow_version_id);
     if (!workflow) return;
     setSelectedWorkflow((prev) =>
-      prev?.id === workflow.id ? prev : { ...workflow, category: normalizeCategory(workflow.category) },
+      prev?.id === workflow.id ? prev : { ...workflow, category: normalizeEvalBusinessCategory(workflow.category) },
     );
     (async () => {
       try {
@@ -207,10 +211,10 @@ export function AbilityEvaluationPage({ focusRunId = '' }: AbilityEvaluationPage
   const refreshWorkflows = async () => {
     try {
       const wfs = await adminApi.listEvalWorkflowVersions({ status: 'active' });
-      const normalized = (wfs || []).map((w) => ({ ...w, category: normalizeCategory(w.category) }));
+      const normalized = (wfs || []).map((w) => ({ ...w, category: normalizeEvalBusinessCategory(w.category) }));
       setWorkflows(normalized);
       if ((!selectedWorkflow || !wfs?.some((w) => w.id === selectedWorkflow.id)) && wfs && wfs.length > 0) {
-        setSelectedWorkflow({ ...wfs[0], category: normalizeCategory(wfs[0].category) });
+        setSelectedWorkflow({ ...wfs[0], category: normalizeEvalBusinessCategory(wfs[0].category) });
       }
     } catch (err) {
       console.error(err);
@@ -250,7 +254,7 @@ export function AbilityEvaluationPage({ focusRunId = '' }: AbilityEvaluationPage
   }, [selectedWorkflow?.id, evaluationResults.length]);
 
   const handleWorkflowSelect = (workflow: EvalWorkflowVersion) => {
-    setSelectedWorkflow({ ...workflow, category: normalizeCategory(workflow.category) });
+    setSelectedWorkflow({ ...workflow, category: normalizeEvalBusinessCategory(workflow.category) });
     setParameters({});
     setInputImages([]);
     setSelectedDatasetItem(null);
@@ -374,7 +378,7 @@ export function AbilityEvaluationPage({ focusRunId = '' }: AbilityEvaluationPage
 
   const resetCreateForm = () => {
     setCreateError('');
-    setCreateDraft({ name: '', category: '通用类', version: 'v1', workflow_id: '', outputKind: 'image', notes: '' });
+    setCreateDraft({ name: '', category: '图裂变', version: 'v1', workflow_id: '', outputKind: 'image', notes: '' });
     setCreateFields([
       {
         name: 'url',
@@ -414,7 +418,7 @@ export function AbilityEvaluationPage({ focusRunId = '' }: AbilityEvaluationPage
     setCreateError('');
     const wfId = (createDraft.workflow_id || '').trim();
     const name = (createDraft.name || '').trim();
-    const category = normalizeCategory(createDraft.category);
+    const category = normalizeEvalBusinessCategory(createDraft.category);
     if (!wfId) return setCreateError('workflow_id 不能为空');
     if (!name) return setCreateError('名称不能为空');
     if (workflows.some((w) => w.workflow_id === wfId)) return setCreateError(`已存在同 workflow_id：${wfId}`);
@@ -622,11 +626,11 @@ export function AbilityEvaluationPage({ focusRunId = '' }: AbilityEvaluationPage
                   onChange={(e) => setCreateDraft((p) => ({ ...p, category: e.target.value }))}
                   className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100"
                 >
-                  <option value="花纹提取类">花纹提取类</option>
-                  <option value="图延伸类">图延伸类</option>
-                  <option value="四方/两方连续图类">四方/两方连续图类</option>
-                  <option value="图裂变">图裂变</option>
-                  <option value="通用类">通用类</option>
+                  {evalBusinessCategoryOrder.map((category) => (
+                    <option key={category} value={category}>
+                      {category}
+                    </option>
+                  ))}
                 </select>
               </label>
               <label className="block">
@@ -783,13 +787,3 @@ export function AbilityEvaluationPage({ focusRunId = '' }: AbilityEvaluationPage
     </div>
   );
 }
-  const normalizeCategory = (category: string | undefined | null): string => {
-    const c = String(category || '').trim();
-    if (c === '花纹提取类' || c === '图延伸类' || c === '四方/两方连续图类' || c === '图裂变' || c === '通用类') return c;
-    if (c === 'pattern_extract' || c === 'pattern') return '花纹提取类';
-    if (c === 'image_extend' || c === '图扩展' || c === '图延伸') return '图延伸类';
-    if (c === 'continuous') return '四方/两方连续图类';
-    if (c === '图裂变' || c === 'variation' || c === 'image_variation' || c === 'liebain' || c === 'liebiam') return '图裂变';
-    if (c === 'general' || c === 'common') return '通用类';
-    return '通用类';
-  };

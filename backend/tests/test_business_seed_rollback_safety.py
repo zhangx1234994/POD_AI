@@ -81,6 +81,30 @@ def test_business_seed_keeps_rollback_safety_versions_available() -> None:
         assert fission_fallback.version == "rollback-e7-v1"
         assert fission_fallback.is_default is False
 
+        gpt_image2_fission = session.get(BusinessCapability, "biz_fission_v2_openai_gpt_image2_vl")
+        assert gpt_image2_fission is not None
+        assert gpt_image2_fission.status == "active"
+        assert gpt_image2_fission.is_default is False
+        assert gpt_image2_fission.recipe["mode"] == "vl_then_primary"
+        assert gpt_image2_fission.recipe["primaryAbilityId"] == "openai_gpt_image_2_edit"
+        assert gpt_image2_fission.recipe["vlAssist"]["applyToPrimary"]["compiler"] == "pattern_fission_prompt_template_v21"
+        assert session.get(Ability, "openai_gpt_image_2_edit") is not None
+        assert session.get(Ability, "vl_analyze_image") is not None
+        field_names = {field["name"] for field in gpt_image2_fission.input_schema["fields"]}
+        assert {"variation_strength", "quality", "count", "maskUrl"}.issubset(field_names)
+
+        comfyui_vl_fission = session.get(BusinessCapability, "biz_fission_v3_comfyui_vl_control_card")
+        assert comfyui_vl_fission is not None
+        assert comfyui_vl_fission.status == "active"
+        assert comfyui_vl_fission.is_default is False
+        assert comfyui_vl_fission.recipe["mode"] == "vl_then_primary"
+        assert comfyui_vl_fission.recipe["primaryAbilityId"] == "comfyui_flux_strong_hq_softstyle_fission_control_v1"
+        assert comfyui_vl_fission.recipe["vlAssist"]["abilityId"] == "vl_fission_control_card"
+        assert comfyui_vl_fission.recipe["vlAssist"]["applyToPrimary"]["compiler"] == "comfyui_fission_control_card_v1"
+        assert session.get(Ability, "comfyui_flux_strong_hq_softstyle_fission_control_v1") is not None
+        assert session.get(Ability, "vl_fission_control_card") is not None
+        assert session.get(Ability, "vl_fission_generated_image_evaluate") is not None
+
         assert outpaint_fallback is not None
         assert outpaint_fallback.recipe["primaryAbilityId"] == "comfyui_huawen_kuotu"
         assert outpaint_fallback.version == "rollback-huawen-v1"

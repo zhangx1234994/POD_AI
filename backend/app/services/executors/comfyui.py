@@ -1350,6 +1350,17 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         denoise = 0.95 - similarity * 0.004
         return round(max(0.55, denoise), 2)
 
+    @staticmethod
+    def _map_variation_percent_to_denoise(value: Any) -> float | None:
+        if isinstance(value, str):
+            value = value.strip().replace("%", "")
+        try:
+            percent = float(value)
+        except (TypeError, ValueError):
+            return None
+        percent = max(0.0, min(100.0, percent))
+        return round(0.45 + percent * 0.0035, 3)
+
     def _build_e7_flux2_liebian_inputs(
         self, params: dict[str, Any], context: ExecutionContext, workflow_definition: dict[str, Any]
     ) -> tuple[dict[str, Any] | None, str | None]:
@@ -1478,7 +1489,10 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             similarity_value = params.get("similarity")
         if similarity_value in (None, ""):
             similarity_value = 90
-        denoise = self._map_similarity_to_denoise(similarity_value)
+        if params.get("bili_mapping") == "variation_percent_045_080":
+            denoise = self._map_variation_percent_to_denoise(similarity_value)
+        else:
+            denoise = self._map_similarity_to_denoise(similarity_value)
         if denoise is None:
             denoise = 0.60
 

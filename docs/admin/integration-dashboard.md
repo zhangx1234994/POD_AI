@@ -167,6 +167,7 @@
 - 伴随模式：主出图任务立即提交，VL 只做记录和观测。
 - 串联模式：先跑 VL，成功后再提交主出图任务；VL 失败时主任务不提交。
 - “用 VL 结果补主任务提示词”开启后，业务层会把 `promptCard.imageDesc` 回填到图裂变 `image_desc`，把 `promptCard.positivePrompt` 回填到图裂变/扩图 `prompt`。
+- GPT Image 2 图裂变新版使用专用编译器，页面上应显示“VL 图案结构卡 -> 提示词编译 -> GPT Image 2 图片编辑”，避免用户误以为需要手工填写英文提示词或 OpenAI 参数。
 
 ### 后端接口
 - `GET /api/admin/business/capabilities`

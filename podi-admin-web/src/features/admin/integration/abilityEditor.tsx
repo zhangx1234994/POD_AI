@@ -1,4 +1,4 @@
-import { Col, Dialog, Input, Row, Select, Space, Switch, Textarea, Tooltip, Typography } from 'tdesign-react';
+import { Alert, Col, Dialog, Input, Row, Select, Space, Switch, Textarea, Tooltip, Typography } from 'tdesign-react';
 import type { AbilityFormState, Executor, VendorModel, Workflow } from '../../../types/admin';
 import { abilityTypeOptions, categoryOptions, providerOptions, statusOptions } from './formOptions';
 
@@ -84,6 +84,10 @@ export function AbilityEditorDialog({
       }}
     >
       <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+        <Alert
+          theme="info"
+          message="新增或编辑能力时先选业务分类。分类按用户要解决的问题归口，不再按厂商、模型或 ComfyUI 工作流归口。旧分类只用于兼容历史数据，后续应逐步迁到明确业务分类。"
+        />
         <Row gutter={[12, 12]}>
           <Col span={6}>
             <Typography.Text theme="secondary">厂商</Typography.Text>

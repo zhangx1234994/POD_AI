@@ -366,6 +366,29 @@ export function AbilityCatalogPanel({
     },
     {} as Record<string, number>,
   );
+  const categorySummary = Array.from(
+    readiness.items
+      .reduce((map, item) => {
+        const key = item.ability.category || 'other';
+        const current = map.get(key) || {
+          key,
+          label: getCategoryLabel(key),
+          total: 0,
+          ready: 0,
+          blocked: 0,
+          attention: 0,
+          sampleNames: [] as string[],
+        };
+        current.total += 1;
+        if (item.readiness === 'ready') current.ready += 1;
+        if (item.readiness === 'blocked') current.blocked += 1;
+        if (item.readiness === 'attention') current.attention += 1;
+        if (current.sampleNames.length < 3) current.sampleNames.push(item.ability.display_name);
+        map.set(key, current);
+        return map;
+      }, new Map<string, { key: string; label: string; total: number; ready: number; blocked: number; attention: number; sampleNames: string[] }>())
+      .values(),
+  ).sort((a, b) => b.total - a.total || a.label.localeCompare(b.label, 'zh-Hans-CN'));
 
   return (
     <Card
@@ -459,6 +482,44 @@ export function AbilityCatalogPanel({
               </div>
             </Col>
           ))}
+        </Row>
+      </Card>
+
+      <Card bordered style={{ marginBottom: 12 }} title="按业务分类看能力">
+        <Typography.Text theme="secondary">
+          这里用于确认能力是否已经按业务意图归口。带“旧分类”或“待归类”的能力，后续要迁到花纹提取、图裂变、扩图等明确分类。
+        </Typography.Text>
+        <Row gutter={[12, 12]} style={{ marginTop: 12 }}>
+          {categorySummary.map((item) => {
+            const theme = item.blocked > 0 ? 'danger' : item.attention > 0 ? 'warning' : 'success';
+            return (
+              <Col key={item.key} xs={12} md={4} lg={3}>
+                <div
+                  style={{
+                    border: '1px solid var(--td-border-level-1-color)',
+                    borderRadius: 12,
+                    padding: 12,
+                    height: '100%',
+                  }}
+                >
+                  <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                    <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                      <Typography.Text strong>{item.label}</Typography.Text>
+                      <Tag theme={theme} variant="light">
+                        {item.total}
+                      </Tag>
+                    </Space>
+                    <Typography.Text theme="secondary">
+                      可接 {item.ready} · 需处理 {item.attention} · 暂不能接 {item.blocked}
+                    </Typography.Text>
+                    <Typography.Text theme="secondary">
+                      {item.sampleNames.length > 0 ? item.sampleNames.join('、') : '暂无能力'}
+                    </Typography.Text>
+                  </Space>
+                </div>
+              </Col>
+            );
+          })}
         </Row>
       </Card>
 

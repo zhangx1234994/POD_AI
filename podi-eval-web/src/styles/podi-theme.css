@@ -125,8 +125,8 @@ html.t-theme-dark {
 
 .podi-eval-category-board {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 8px;
 }
 
 .podi-eval-category-tile {
@@ -135,17 +135,15 @@ html.t-theme-dark {
   grid-template-columns: auto minmax(0, 1fr);
   align-items: flex-start;
   gap: 10px;
-  min-height: 138px;
-  padding: 14px;
-  border: 1px solid var(--td-border-level-1-color);
-  border-radius: 18px;
-  background:
-    radial-gradient(circle at 20% 0%, color-mix(in srgb, var(--podi-category-accent, var(--td-brand-color)) 14%, transparent), transparent 42%),
-    var(--td-bg-color-container);
+  min-height: 104px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--podi-category-accent, var(--td-brand-color)) 16%, var(--td-border-level-1-color));
+  border-radius: 14px;
+  background: var(--td-bg-color-container);
   color: inherit;
   text-align: left;
   cursor: pointer;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
+  box-shadow: none;
   transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
 }
 
@@ -153,7 +151,7 @@ html.t-theme-dark {
 .podi-eval-category-tile--active {
   transform: translateY(-2px);
   border-color: color-mix(in srgb, var(--podi-category-accent, var(--td-brand-color)) 42%, var(--td-border-level-1-color));
-  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.10);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
 }
 
 .podi-eval-category-tile--active::before {
@@ -200,7 +198,7 @@ html.t-theme-dark {
 .podi-eval-category-tile .t-tag {
   position: absolute;
   right: 12px;
-  bottom: 12px;
+  top: 12px;
 }
 
 .podi-eval-hero {
@@ -581,6 +579,41 @@ html.t-theme-dark {
   margin-top: 8px;
   font-size: 12px;
   line-height: 18px;
+}
+
+.podi-eval-tool-card__details {
+  margin-top: 10px;
+  border-top: 1px dashed var(--td-border-level-1-color);
+  padding-top: 8px;
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+}
+
+.podi-eval-tool-card__details summary {
+  cursor: pointer;
+  list-style: none;
+  color: var(--td-text-color-secondary);
+}
+
+.podi-eval-tool-card__details summary::-webkit-details-marker {
+  display: none;
+}
+
+.podi-eval-tool-card__details > div {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.podi-eval-tool-card__details span {
+  border-radius: 999px;
+  background: var(--td-bg-color-secondarycontainer);
+  padding: 2px 8px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .podi-eval-tool-card__footer {

@@ -4,8 +4,16 @@ export const coreBusinessKeys = ['pattern_extract', 'fission', 'outpaint'] as co
 
 export const businessKeyLabel = (key?: string | null) => {
   if (key === 'pattern_extract') return '花纹提取';
-  if (key === 'fission') return '图裂变';
+  if (key === 'fission' || key === 'image_fission') return '图裂变';
   if (key === 'outpaint') return '扩图';
+  if (key === 'seamless_pattern') return '连续图';
+  if (key === 'cutout') return '抠图';
+  if (key === 'image_composition') return '图像融合';
+  if (key === 'image_enhancement') return '图像增强';
+  if (key === 'vision_analysis') return '图像理解';
+  if (key === 'text_prompt') return '文本与提示词';
+  if (key === 'video_generation') return '生视频';
+  if (key === 'platform_tools') return '平台工具';
   return key || '未命名业务';
 };
 

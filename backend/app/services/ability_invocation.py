@@ -31,6 +31,7 @@ from app.services.ability_presentation import get_public_field_schema, get_publi
 from app.services.task_id_codec import encode_task_id
 from app.services.ability_seed import ensure_default_abilities
 from app.services.executor_seed import ensure_default_executors
+from app.services.fission_image_evaluation import normalize_generated_image_eval_result
 from app.services.integration_test import integration_test_service
 from app.services.api_key_selector import build_vendor_credentials, bump_usage, pick_vendor_api_key
 from app.services.coze_client import coze_client
@@ -1358,6 +1359,89 @@ class AbilityInvocationService:
             )
         raise HTTPException(status_code=400, detail="VOLCENGINE_API_TYPE_UNSUPPORTED")
 
+    def _apply_comfyui_fission_control_card(self, workflow_params: dict[str, Any]) -> None:
+        """Map the AI-team VL control card into the existing ComfyUI 05 workflow fields."""
+
+        raw_vl_result = (
+            workflow_params.get("vl_result")
+            or workflow_params.get("vlResult")
+            or workflow_params.get("fissionControlCard")
+        )
+        if raw_vl_result in (None, "", []):
+            return
+        parsed = self._parse_jsonish_payload(raw_vl_result)
+        if not isinstance(parsed, dict):
+            return
+        card = parsed.get("fissionControlCard") if isinstance(parsed.get("fissionControlCard"), dict) else None
+        if not card and isinstance(parsed.get("vl_result"), dict):
+            card = parsed.get("vl_result")
+        if not card and isinstance(parsed.get("vlResult"), dict):
+            card = parsed.get("vlResult")
+        if not card and ("prompt_main" in parsed or "prompt_control" in parsed):
+            card = parsed
+        if not isinstance(card, dict):
+            return
+
+        prompt_main = self._first_nonempty_text(
+            card.get("prompt_main"),
+            card.get("promptMain"),
+            card.get("prompt"),
+            parsed.get("promptMain"),
+            parsed.get("positivePrompt"),
+        )
+        prompt_control = self._first_nonempty_text(
+            card.get("prompt_control"),
+            card.get("promptControl"),
+            card.get("image_desc"),
+            card.get("imageDesc"),
+            parsed.get("promptControl"),
+            parsed.get("imageDesc"),
+        )
+        if prompt_main and not workflow_params.get("prompt"):
+            workflow_params["prompt"] = prompt_main
+        if prompt_control and not workflow_params.get("image_desc"):
+            workflow_params["image_desc"] = prompt_control
+        profile = self._first_nonempty_text(
+            card.get("profile_hint"),
+            card.get("profileHint"),
+            parsed.get("profileHint"),
+            workflow_params.get("profile"),
+        )
+        if profile:
+            workflow_params.setdefault("profile", profile)
+            workflow_params.setdefault("profile_id", profile)
+        pattern_type = self._first_nonempty_text(
+            card.get("pattern_type"),
+            card.get("patternType"),
+            parsed.get("patternType"),
+        )
+        if pattern_type:
+            workflow_params.setdefault("pattern_type", pattern_type)
+
+    @staticmethod
+    def _first_nonempty_text(*values: Any) -> str | None:
+        for value in values:
+            if isinstance(value, (str, int, float)) and str(value).strip():
+                return str(value).strip()
+        return None
+
+    @staticmethod
+    def _parse_jsonish_payload(value: Any) -> Any:
+        if isinstance(value, (dict, list)):
+            return value
+        if not isinstance(value, str):
+            return value
+        text = value.strip()
+        if not text:
+            return None
+        if text.startswith("```"):
+            text = re.sub(r"^```(?:json)?", "", text, flags=re.IGNORECASE).strip()
+            text = re.sub(r"```$", "", text).strip()
+        try:
+            return json.loads(text)
+        except (json.JSONDecodeError, ValueError):
+            return None
+
     def _invoke_comfyui(
         self,
         ability: Ability,
@@ -1374,6 +1458,8 @@ class AbilityInvocationService:
         if not workflow_key:
             raise HTTPException(status_code=400, detail="COMFYUI_WORKFLOW_KEY_MISSING")
         workflow_params = dict(merged_inputs)
+        if workflow_key == "flux_strong_hq_softstyle_fission":
+            self._apply_comfyui_fission_control_card(workflow_params)
         self._apply_comfyui_lora_policy(ability, workflow_params)
         if images.image_url and "imageUrl" not in workflow_params:
             workflow_params["imageUrl"] = images.image_url
@@ -1653,6 +1739,15 @@ class AbilityInvocationService:
         context: _InvocationContext,
     ) -> dict[str, Any]:
         metadata = ability.extra_metadata if isinstance(ability.extra_metadata, dict) else {}
+        api_type = str(metadata.get("api_type") or "").strip().lower()
+        if api_type == "generated_image_evaluation":
+            return self._invoke_generated_image_evaluation(
+                ability=ability,
+                merged_inputs=merged_inputs,
+                images=images,
+                context=context,
+                metadata=metadata,
+            )
         image_url = images.image_url or self._pop_first_string(merged_inputs, ["image_url", "imageUrl", "url"])
         if not image_url:
             raise HTTPException(status_code=400, detail="VL_IMAGE_REQUIRED")
@@ -1736,10 +1831,47 @@ class AbilityInvocationService:
             except Exception:
                 parsed = None
         if isinstance(parsed, dict):
+            vl_card = parsed.get("vlCard") if isinstance(parsed.get("vlCard"), dict) else None
+            if not vl_card:
+                card_markers = {
+                    "image_type",
+                    "composition",
+                    "motifs",
+                    "preserve_locks",
+                    "change_targets",
+                    "fission_brief",
+                }
+                if len(card_markers.intersection(parsed)) >= 3:
+                    vl_card = parsed
+            fission_control_card = (
+                parsed.get("fissionControlCard") if isinstance(parsed.get("fissionControlCard"), dict) else None
+            )
+            if not fission_control_card:
+                control_markers = {"route_mode", "pattern_type", "profile_hint", "prompt_main", "prompt_control"}
+                if len(control_markers.intersection(parsed)) >= 3:
+                    fission_control_card = parsed
             prompt_card = parsed.get("promptCard")
             if not isinstance(prompt_card, dict):
-                parsed["promptCard"] = self._empty_vl_prompt_card(raw_text=value)
-            return {
+                if isinstance(fission_control_card, dict):
+                    parsed["promptCard"] = {
+                        "positivePrompt": self._first_nonempty_text(
+                            fission_control_card.get("prompt_main"),
+                            fission_control_card.get("promptMain"),
+                        )
+                        or "",
+                        "negativePrompt": "",
+                        "imageDesc": self._first_nonempty_text(
+                            fission_control_card.get("prompt_control"),
+                            fission_control_card.get("promptControl"),
+                        )
+                        or "",
+                        "fissionHints": [],
+                        "outpaintHints": [],
+                        "rawText": self._stringify_value(value)[:2000],
+                    }
+                else:
+                    parsed["promptCard"] = self._empty_vl_prompt_card(raw_text=value)
+            structured = {
                 "summary": parsed.get("summary") or "",
                 "subjects": parsed.get("subjects") if isinstance(parsed.get("subjects"), list) else [],
                 "style": parsed.get("style") or "",
@@ -1751,6 +1883,28 @@ class AbilityInvocationService:
                 "provider": provider,
                 "imageUrl": image_url,
             }
+            if isinstance(vl_card, dict):
+                structured["vlCard"] = vl_card
+                structured["patternType"] = vl_card.get("pattern_type") or vl_card.get("image_type") or ""
+                structured["fissionBrief"] = vl_card.get("fission_brief") or ""
+            if isinstance(fission_control_card, dict):
+                structured["fissionControlCard"] = fission_control_card
+                structured["patternType"] = (
+                    fission_control_card.get("pattern_type")
+                    or fission_control_card.get("patternType")
+                    or structured.get("patternType")
+                    or ""
+                )
+                structured["profileHint"] = (
+                    fission_control_card.get("profile_hint") or fission_control_card.get("profileHint") or ""
+                )
+                structured["promptMain"] = (
+                    fission_control_card.get("prompt_main") or fission_control_card.get("promptMain") or ""
+                )
+                structured["promptControl"] = (
+                    fission_control_card.get("prompt_control") or fission_control_card.get("promptControl") or ""
+                )
+            return structured
         raw_text = value if isinstance(value, str) else self._stringify_value(value)
         return {
             "summary": raw_text[:500] if raw_text else "",
@@ -1763,6 +1917,83 @@ class AbilityInvocationService:
             "promptCard": self._empty_vl_prompt_card(raw_text=raw_text),
             "provider": provider,
             "imageUrl": image_url,
+        }
+
+    def _invoke_generated_image_evaluation(
+        self,
+        *,
+        ability: Ability,
+        merged_inputs: dict[str, Any],
+        images: _ImageBundle,
+        context: _InvocationContext,
+        metadata: dict[str, Any],
+    ) -> dict[str, Any]:
+        urls = self._urls_from_image_bundle(images)
+        original_image = self._pop_first_string(
+            merged_inputs,
+            ["original_image", "originalImage", "source_image", "sourceImage", "reference_image", "referenceImage"],
+        )
+        generated_image = self._pop_first_string(
+            merged_inputs,
+            ["generated_image", "generatedImage", "result_image", "resultImage", "output_image", "outputImage"],
+        )
+        if not original_image and urls:
+            original_image = urls[0]
+        if not generated_image and len(urls) > 1:
+            generated_image = urls[1]
+        if not original_image or not generated_image:
+            raise HTTPException(status_code=400, detail="VL_EVAL_IMAGE_REQUIRED")
+
+        provider_choice = (
+            self._pop_first_string(merged_inputs, ["provider", "vl_provider", "vlProvider"])
+            or metadata.get("default_provider")
+            or "coze_eval"
+        )
+        provider_choice = str(provider_choice).strip().lower()
+        if provider_choice not in {"coze", "coze_eval", "coze_vl"}:
+            raise HTTPException(status_code=400, detail="VL_PROVIDER_UNSUPPORTED")
+        workflow_id = (
+            self._pop_first_string(merged_inputs, ["coze_workflow_id", "cozeWorkflowId"])
+            or metadata.get("coze_workflow_id")
+            or ability.coze_workflow_id
+        )
+        if not workflow_id:
+            raise HTTPException(status_code=400, detail="VL_COZE_WORKFLOW_NOT_CONFIGURED")
+
+        context_value = merged_inputs.pop("context", None)
+        eval_context = self._parse_jsonish_payload(context_value)
+        if not isinstance(eval_context, dict):
+            eval_context = {}
+        parameters = {
+            "original_image": original_image,
+            "generated_image": generated_image,
+            "context": eval_context,
+            **self._clean_params(merged_inputs),
+        }
+        response = coze_client.run_workflow(
+            workflow_id=str(workflow_id),
+            parameters=parameters,
+            ext={"request_id": context.request_id, "ability_id": ability.id, "provider": "coze_eval"},
+            request_id=context.request_id,
+        )
+        parsed = self._parse_coze_payload(response.get("data"))
+        raw_text = self._extract_coze_text(parsed)
+        normalized = normalize_generated_image_eval_result(raw_text if raw_text else parsed)
+        return {
+            "provider": "vl",
+            "texts": [json.dumps(normalized, ensure_ascii=False)],
+            "metadata": {
+                "vlProvider": provider_choice,
+                "cozeWorkflowId": workflow_id,
+                "decision": normalized.get("decision"),
+                "score": normalized.get("score"),
+            },
+            "raw": {
+                "normalized": normalized,
+                "provider": provider_choice,
+                "response": response,
+                "parsedData": parsed,
+            },
         }
 
     @staticmethod

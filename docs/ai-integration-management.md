@@ -88,6 +88,7 @@
 - **已暴露能力**：
   - `openai_gpt_image_2_generate`：文生图，底层调用 `/v1/images/generations`。
   - `openai_gpt_image_2_edit`：图片编辑/蒙版/多参考图，底层调用 `/v1/images/edits`。
+- **业务编排**：图裂变新增 `biz_fission_v2_openai_gpt_image2_vl` 灰度候选版本，业务版本号 `gpt-image2-vl-v1`。该版本不让业务方直接拼 OpenAI 参数，而是先跑 `vl_analyze_image` 生成图案结构卡，再由中台提示词编译器生成 GPT Image 2 图片编辑提示词。
 - **参数边界**：GPT Image 2 当前表单支持 `prompt`、`size`、`quality`、`background=auto|opaque`、`output_format`、`output_compression`、`n`；编辑能力额外支持 `image_url`、`mask_url`、`image_urls`。不向用户暴露透明背景和 `input_fidelity`，避免官方不支持参数导致失败。
 - **错误处理**：Key 缺失返回 `VENDOR_API_KEY_MISSING`，Key 禁用/无效返回 `VENDOR_API_KEY_DISABLED`，OpenAI 限流返回 `VENDOR_API_RATE_LIMITED`，网络或代理超时返回 `VENDOR_API_TIMEOUT`。
 

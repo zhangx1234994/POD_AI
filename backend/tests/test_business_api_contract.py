@@ -42,6 +42,9 @@ def test_business_openapi_exposes_flat_business_tools() -> None:
         "bili",
         "width",
         "height",
+        "profile",
+        "mode",
+        "vl_result",
         "image_desc",
         "traceId",
         "requestId",
@@ -49,6 +52,10 @@ def test_business_openapi_exposes_flat_business_tools() -> None:
         "clientId",
         "channel",
         "source",
+        "variation_strength",
+        "quality",
+        "count",
+        "maskUrl",
     }.issubset(submit_schema["properties"])
     outpaint_schema = paths["/api/business/outpaint/runs"]["post"]["requestBody"]["content"]["application/json"][
         "schema"

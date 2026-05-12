@@ -52,6 +52,8 @@ from app.services.api_key_selector import is_usable
 from app.services.ability_seed import ensure_default_abilities
 from app.services.ability_task_service import get_ability_task_service
 from app.services.business_seed import ensure_default_business_capabilities
+from app.services.pattern_fission_prompt import TEMPLATE_ID as PATTERN_FISSION_TEMPLATE_ID
+from app.services.pattern_fission_prompt import compile_pattern_fission_prompt
 from app.services.task_id_codec import encode_task_id
 from app.services.wallet import wallet_service
 
@@ -3817,6 +3819,70 @@ class BusinessRunService:
                 inputs[field] = value
 
         if capability_key == "fission":
+            compiler = self._first_string(
+                apply_config.get("compiler"),
+                apply_config.get("promptCompiler"),
+                (recipe.get("promptCompiler") or {}).get("id") if isinstance(recipe.get("promptCompiler"), dict) else None,
+            )
+            if compiler in {PATTERN_FISSION_TEMPLATE_ID, "pattern_fission_v21", "gpt_image2_pattern_fission_v21"}:
+                compiled = compile_pattern_fission_prompt(vl_summary=vl_summary, user_inputs=inputs)
+                compiled_inputs = {
+                    "prompt": compiled.compiled_prompt,
+                    "model": compiled.openai_params.get("model"),
+                    "quality": compiled.openai_params.get("quality"),
+                    "size": compiled.openai_params.get("size"),
+                    "output_format": compiled.openai_params.get("output_format"),
+                    "n": compiled.openai_params.get("n"),
+                    "background": compiled.openai_params.get("background"),
+                    "prompt_template_id": compiled.template_id,
+                    "route_id": compiled.route_id,
+                    "pattern_type": compiled.pattern_type,
+                    "vl_card": compiled.vl_card,
+                    "pattern_fission_user_params": compiled.user_params,
+                }
+                for field, value in compiled_inputs.items():
+                    if field in pass_keys and value not in (None, "", []):
+                        if overwrite or not inputs.get(field):
+                            inputs[field] = value
+                return
+            if compiler == "comfyui_fission_control_card_v1":
+                card = vl_summary.get("fissionControlCard") if isinstance(vl_summary.get("fissionControlCard"), dict) else None
+                if not card and isinstance(vl_summary.get("vlCard"), dict):
+                    card = vl_summary.get("vlCard")
+                if not isinstance(card, dict):
+                    card = {}
+                prompt_main = self._first_string(
+                    card.get("prompt_main"),
+                    card.get("promptMain"),
+                    vl_summary.get("promptMain"),
+                    vl_summary.get("positivePrompt"),
+                )
+                prompt_control = self._first_string(
+                    card.get("prompt_control"),
+                    card.get("promptControl"),
+                    vl_summary.get("promptControl"),
+                    vl_summary.get("imageDesc"),
+                )
+                profile_hint = self._first_string(
+                    card.get("profile_hint"),
+                    card.get("profileHint"),
+                    vl_summary.get("profileHint"),
+                    inputs.get("profile"),
+                    inputs.get("profile_id"),
+                )
+                compiled_inputs = {
+                    "prompt": prompt_main,
+                    "image_desc": prompt_control,
+                    "vl_result": card or vl_summary,
+                    "profile": profile_hint or "pattern_default_v1",
+                    "profile_id": profile_hint or "pattern_default_v1",
+                    "bili_mapping": "variation_percent_045_080",
+                }
+                for field, value in compiled_inputs.items():
+                    if field in pass_keys and value not in (None, "", []):
+                        if overwrite or not inputs.get(field):
+                            inputs[field] = value
+                return
             assign("image_desc", first_text("imageDesc", "summary", "textPreview"))
             assign("prompt", first_text("positivePrompt"))
         elif capability_key == "outpaint":
@@ -3843,13 +3909,46 @@ class BusinessRunService:
                 "width",
                 "height",
                 "batch_size",
+                "seed",
                 "steps",
                 "cfg",
                 "profile_id",
+                "profile",
+                "mode",
                 "ipadapter_weight",
                 "colormatch_method",
                 "colormatch_strength",
                 "image_desc",
+                "vl_result",
+                "bili_mapping",
+                "prompt_main",
+                "prompt_control",
+                "variation_strength",
+                "quality",
+                "count",
+                "preserve_layout",
+                "preserve_border",
+                "preserve_count_density",
+                "style_shift",
+                "size",
+                "output_format",
+                "output_compression",
+                "input_fidelity",
+                "background",
+                "n",
+                "model",
+                "mask_url",
+                "maskUrl",
+                "image_url",
+                "imageUrl",
+                "image_urls",
+                "imageUrls",
+                "input_urls",
+                "prompt_template_id",
+                "route_id",
+                "pattern_type",
+                "vl_card",
+                "pattern_fission_user_params",
             }
         elif capability_key == "pattern_extract":
             pass_keys = {
@@ -3984,6 +4083,12 @@ class BusinessRunService:
     @staticmethod
     def _extract_step_inputs(step_config: dict[str, Any]) -> dict[str, Any]:
         inputs: dict[str, Any] = {}
+        nested_config = step_config.get("config")
+        if isinstance(nested_config, dict):
+            for key in ("defaultInputs", "default_inputs", "inputs", "params"):
+                value = nested_config.get(key)
+                if isinstance(value, dict):
+                    inputs.update(value)
         for key in ("defaultInputs", "default_inputs", "inputs", "params"):
             value = step_config.get(key)
             if isinstance(value, dict):
@@ -4084,6 +4189,12 @@ class BusinessRunService:
                     step["displayName"] = name
                 if ability_id:
                     step["abilityId"] = ability_id
+                for config_key in ("config", "defaultInputs", "default_inputs", "inputs", "params", "useBusinessPrompt"):
+                    config_value = raw_step.get(config_key)
+                    if isinstance(config_value, dict):
+                        step[config_key] = dict(config_value)
+                    elif config_value is not None and config_key == "useBusinessPrompt":
+                        step[config_key] = config_value
                 normalized.append(step)
 
         vl_assist = recipe.get("vlAssist") or recipe.get("vl_assist")
@@ -5395,6 +5506,53 @@ class BusinessRunService:
         if first_text:
             parsed = self._try_parse_json(first_text)
             if isinstance(parsed, dict):
+                control_card = (
+                    parsed.get("fissionControlCard") if isinstance(parsed.get("fissionControlCard"), dict) else None
+                )
+                if not control_card:
+                    control_markers = {"route_mode", "pattern_type", "profile_hint", "prompt_main", "prompt_control"}
+                    if len(control_markers.intersection(parsed)) >= 3:
+                        control_card = parsed
+                if isinstance(control_card, dict):
+                    summary["fissionControlCard"] = control_card
+                    for source_key, target_key in (
+                        ("pattern_type", "patternType"),
+                        ("profile_hint", "profileHint"),
+                        ("prompt_main", "promptMain"),
+                        ("prompt_control", "promptControl"),
+                    ):
+                        value = control_card.get(source_key)
+                        if isinstance(value, (str, int, float)) and str(value).strip():
+                            summary[target_key] = str(value).strip()[:1200]
+                    if isinstance(control_card.get("prompt_main"), (str, int, float)):
+                        summary.setdefault("positivePrompt", str(control_card.get("prompt_main")).strip()[:1200])
+                    if isinstance(control_card.get("prompt_control"), (str, int, float)):
+                        summary.setdefault("imageDesc", str(control_card.get("prompt_control")).strip()[:1200])
+                vl_card = parsed.get("vlCard") if isinstance(parsed.get("vlCard"), dict) else None
+                if not vl_card:
+                    card_markers = {
+                        "image_type",
+                        "composition",
+                        "motifs",
+                        "preserve_locks",
+                        "change_targets",
+                        "fission_brief",
+                    }
+                    if len(card_markers.intersection(parsed)) >= 3:
+                        vl_card = parsed
+                if isinstance(vl_card, dict):
+                    summary["vlCard"] = vl_card
+                    for source_key, target_key in (
+                        ("pattern_type", "patternType"),
+                        ("image_type", "imageType"),
+                        ("style_family", "styleFamily"),
+                        ("fission_brief", "fissionBrief"),
+                    ):
+                        value = vl_card.get(source_key)
+                        if isinstance(value, (str, int, float)) and str(value).strip():
+                            summary[target_key] = str(value).strip()[:800]
+                    if isinstance(vl_card.get("fission_brief"), (str, int, float)):
+                        summary.setdefault("imageDesc", str(vl_card.get("fission_brief")).strip()[:800])
                 if isinstance(parsed.get("summary"), (str, int, float)):
                     summary["summary"] = str(parsed.get("summary"))[:500]
                 if isinstance(parsed.get("style"), (str, int, float)):

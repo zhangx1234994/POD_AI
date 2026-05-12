@@ -149,6 +149,13 @@ Expected:
 - `check_eval_operations_health.py` prints the real concurrency snapshot; if ComfyUI queue capacity is 20 but `evalFanoutMaxWorkers=1`, a single fission run is intentionally sequential and must not be treated as a GPU capacity issue without running `comfyui_capacity_probe.py`.
 - `COMFYUI_EXECUTOR_UNREACHABLE` is not ignored: either restore the executor service or explicitly mark the executor offline before release.
 - `patrol_business_api.py --mode live` must show all three core businesses succeeded with output and executor evidence. If executor evidence is missing, the backend is not surfacing enough routing proof for release acceptance.
+- After a ComfyUI machine restart, run the no-cost node health check before sending real jobs:
+  ```bash
+  python3 backend/scripts/check_comfyui_node_health.py \
+    --backend-url http://127.0.0.1:8099 \
+    --report "reports/comfyui-node-health_$(date +%Y%m%d_%H%M%S).json"
+  ```
+  This checks each executor's `/system_stats`, `/queue`, `/object_info`, and the backend `queue-summary`. It must pass before treating the node as available for production traffic.
 
 The management console button **总览 -> 发布前门禁 -> 运行轻量门禁** calls `/api/admin/dashboard/release-preflight/run` and must surface the same core blockers:
 

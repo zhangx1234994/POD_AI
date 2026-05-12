@@ -1,4 +1,5 @@
 import type { EvalWorkflowVersion } from '../../../types/eval';
+import { evalBusinessCategoryOrder, normalizeEvalBusinessCategory } from '../evalBusinessCategories';
 
 type Props = {
   workflows: EvalWorkflowVersion[];
@@ -9,33 +10,22 @@ type Props = {
 };
 
 export function EvaluationSidebar({ workflows, selectedWorkflow, onWorkflowSelect, onCreateWorkflow, onRefreshWorkflows }: Props) {
-  const normalizeCategory = (category: string | undefined | null): string => {
-    const c = String(category || '').trim();
-    if (c === '花纹提取类' || c === '图延伸类' || c === '四方/两方连续图类' || c === '图裂变' || c === '通用类') return c;
-    if (c === 'pattern_extract' || c === 'pattern') return '花纹提取类';
-    if (c === 'image_extend' || c === '图扩展' || c === '图延伸') return '图延伸类';
-    if (c === 'continuous') return '四方/两方连续图类';
-    if (c === '图裂变' || c === 'variation' || c === 'image_variation' || c === 'liebain' || c === 'liebiam') return '图裂变';
-    if (c === 'general' || c === 'common') return '通用类';
-    return '通用类';
-  };
-
   const grouped = workflows.reduce<Record<string, EvalWorkflowVersion[]>>((acc, wf) => {
-    const key = normalizeCategory(wf.category);
+    const key = normalizeEvalBusinessCategory(wf.category);
     acc[key] = acc[key] || [];
     acc[key].push(wf);
     return acc;
   }, {});
 
-  const categories = ['花纹提取类', '图延伸类', '四方/两方连续图类', '图裂变', '通用类'].filter((c) => (grouped[c] || []).length > 0);
+  const categories = evalBusinessCategoryOrder.filter((c) => (grouped[c] || []).length > 0);
 
   return (
     <aside className="w-72 overflow-y-auto border-r border-slate-200 bg-white/70 p-4 dark:border-slate-800 dark:bg-slate-950/40">
       <div className="mb-3">
         <div className="flex items-center justify-between gap-2">
           <div>
-            <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">能力分组</div>
-            <div className="text-xs text-slate-700 dark:text-slate-400">选择一个工作流版本进行评测</div>
+            <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">业务分组</div>
+            <div className="text-xs text-slate-700 dark:text-slate-400">先选业务，再进入评测版本</div>
           </div>
           <div className="flex items-center gap-2">
             {typeof onRefreshWorkflows === 'function' ? (
@@ -62,7 +52,7 @@ export function EvaluationSidebar({ workflows, selectedWorkflow, onWorkflowSelec
       <div className="space-y-4">
         {categories.map((cat) => (
           <div key={cat}>
-            <div className="mb-2 text-xs uppercase tracking-widest text-slate-600 dark:text-slate-500">{cat}</div>
+            <div className="mb-2 text-xs font-semibold tracking-wide text-slate-600 dark:text-slate-500">{cat}</div>
             <div className="space-y-2">
               {grouped[cat]
                 .slice()
@@ -85,7 +75,10 @@ export function EvaluationSidebar({ workflows, selectedWorkflow, onWorkflowSelec
                         <div className="text-[11px] text-slate-700 dark:text-slate-400">{wf.version}</div>
                       </div>
                       {wf.notes ? <div className="mt-1 text-xs text-slate-700 line-clamp-2 dark:text-slate-500">{wf.notes}</div> : null}
-                      <div className="mt-1 text-xs text-slate-700 break-all dark:text-slate-400">{wf.workflow_id}</div>
+                      <details className="mt-1 text-xs text-slate-700 dark:text-slate-400" onClick={(event) => event.stopPropagation()}>
+                        <summary className="cursor-pointer list-none">查看工作流 ID</summary>
+                        <div className="mt-1 break-all">{wf.workflow_id}</div>
+                      </details>
                     </button>
                   );
                 })}

@@ -286,6 +286,16 @@
 
 > 以上能力均通过 `/rest/2.0/image-process` 系列接口实现，输出固定为 1 张图，`images[0].base64`/`assets[0].ossUrl` 可直接展示。
 
+#### VL 组件（provider=`vl`）
+
+| Ability ID | 功能 | 必填字段 | 可选字段 | 输出 |
+| --- | --- | --- | --- | --- |
+| `vl_analyze_image` | 通用图像结构化分析 | `image_url` 或 `imageUrl` | `prompt`、`provider`、`coze_workflow_id` | `texts[0]` 为结构化 JSON |
+| `vl_fission_control_card` | 图裂变控制卡 | `image_url` 或 `imageUrl` | `provider`、`prompt`、`coze_workflow_id` | `fissionControlCard`，含 `prompt_main/prompt_control/control_cards` |
+| `vl_fission_generated_image_evaluate` | 裂变生成图评估 | `original_image`、`generated_image` | `context`、`provider`、`coze_workflow_id` | `decision/score/scores/problem_tags/reason/next_action` |
+
+> VL 组件是中台的集中入口。后续如果更换 VL 模型，优先改 `vl_fission_control_card` 的默认 provider 或 workflow，依赖它的图裂变版本不需要逐个改配方。生成图评估只负责给出结果判断，不自动二次裂变。
+
 #### 火山引擎（provider=`volcengine`）
 
 | Ability ID | 功能 | 必填字段 | 其他输入 | 输出 |
@@ -324,6 +334,7 @@
 | --- | --- | --- | --- | --- |
 | `comfyui_sifang_lianxu` | 四方连续纹理生成 | `image_url`（或上传图片）、`workflow_key` | `prompt`、`patternType`(`seamless/twoway`)、`resolution`、`width/height` 等 | 1 张 seamless 纹理 |
 | `comfyui_yinhua_tiqu` | 印花提取 | `image_url` + `workflow_key` | `prompt`、`negative_prompt`、`output_width/height`、`lora_name`（支持从 UI 下拉选择） | 1800×1800 设计稿 |
+| `comfyui_flux_strong_hq_softstyle_fission_control_v1` | VL 控制卡裂变 | `image_url`、`vl_result` | `width`、`height`、`bili`(`50%`)、`profile`、`seed` | 1 张裂变图 |
 
 > ComfyUI 能力会自动把上传的 OSS 地址写入 workflow `imageList`，并把厂商输出文件落盘到 OSS；`metadata.taskId` 为 prompt ID。未来若 ComfyUI 服务暴露更多模型/LoRA，前端会根据 `/api/admin/comfyui/models` 下拉选择。
 

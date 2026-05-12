@@ -447,6 +447,25 @@ python3 scripts/comfyui_cold_start_seed.py --executor-id executor_comfyui_xxx --
 
 > 注意：ComfyUI 默认单线程顺序执行，`pendingCount`>0 时说明上一张仍在处理，新的请求会等待。必要时请切换到另一台 executor 或扩大 worker 数量后再在 config/executors.yaml 中声明。
 
+### 重启后节点自检
+
+158 或 233 重启后，先跑无成本自检，再放真实业务：
+
+```bash
+python3 backend/scripts/check_comfyui_node_health.py \
+  --backend-url http://127.0.0.1:8099 \
+  --report "reports/comfyui-node-health_$(date +%Y%m%d_%H%M%S).json"
+```
+
+检查范围：
+
+- 直接访问每台 ComfyUI 的 `/system_stats`，确认版本、内存和 GPU 设备可读。
+- 直接访问 `/queue`，确认队列接口可读且不会卡住。
+- 直接访问 `/object_info`，确认关键节点如 `KSampler`、`SaveImage`、`LoadImage` 存在。
+- 访问中台 `/api/coze/podi/comfyui/queue-summary`，确认节点已被中台纳入路由、没有 `unsupportedServers` 或 `backendBlockedServers`。
+
+该脚本不提交生图任务，不消耗第三方额度；它只能证明“节点可读、队列可读、依赖清单可读、路由可见”。正式发版或模型变更后，仍需要跑真实业务巡检确认回填闭环。
+
 ### 能力级 LoRA 绑定规则（metadata）
 
 为避免 LoRA 误用，ComfyUI 能力可在 metadata 中配置以下字段（管理端已提供表单）：

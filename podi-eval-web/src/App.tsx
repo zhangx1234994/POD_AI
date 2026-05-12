@@ -204,20 +204,34 @@ type RemoteLoadError = {
   rawBody?: string;
 };
 
-// Keep the evaluation UI sidebar fixed to these 5 business-facing groups.
-const CATEGORY_ORDER = ['花纹提取类', '图延伸类', '四方/两方连续图类', '图裂变', '通用类'];
+// Evaluation categories follow the business taxonomy, not vendor or workflow names.
+const CATEGORY_ORDER = [
+  '花纹提取',
+  '图裂变',
+  '扩图',
+  '连续图',
+  '抠图',
+  '图像融合',
+  '图像增强',
+  '图像理解',
+  '文本与提示词',
+  '生视频',
+  '平台工具',
+];
+const DEFAULT_CATEGORY = '图裂变';
+const PINNED_CATEGORY_SET = new Set(['花纹提取', '图裂变', '扩图', '连续图']);
 type EvalView = 'home' | 'tool' | 'tasks' | 'admin' | 'docs' | 'loraBatch';
 const EVAL_VIEW_SET = new Set<EvalView>(['home', 'tool', 'tasks', 'admin', 'docs', 'loraBatch']);
 
 const readEvalQuery = () => {
   if (typeof window === 'undefined') {
-    return { view: 'home' as EvalView, category: CATEGORY_ORDER[4], toolId: '' };
+    return { view: 'home' as EvalView, category: DEFAULT_CATEGORY, toolId: '' };
   }
   const params = new URLSearchParams(window.location.search);
   const viewRaw = String(params.get('view') || '').trim();
   const view = EVAL_VIEW_SET.has(viewRaw as EvalView) ? (viewRaw as EvalView) : ('home' as EvalView);
   const categoryRaw = String(params.get('category') || '').trim();
-  const category = CATEGORY_ORDER.includes(categoryRaw) ? categoryRaw : CATEGORY_ORDER[4];
+  const category = CATEGORY_ORDER.includes(categoryRaw) ? categoryRaw : DEFAULT_CATEGORY;
   const toolId = String(params.get('tool') || '').trim();
   return { view, category, toolId };
 };
@@ -454,15 +468,26 @@ const loadImageSizeFromUrl = async (url: string): Promise<{ width: number; heigh
 
 const normalizeCategory = (category: string | undefined | null): string => {
   const c = String(category || '').trim();
-  if (!c) return '通用类';
+  if (!c) return '平台工具';
   if (CATEGORY_ORDER.includes(c)) return c;
   // Legacy/internal keys -> business labels
-  if (c === 'pattern_extract' || c === 'pattern' || c === 'pattern-extract') return '花纹提取类';
-  if (c === 'image_extend' || c === 'image_extension' || c === '图扩展' || c === '图延伸') return '图延伸类';
-  if (c === 'continuous_pattern' || c === 'continuous' || c === 'lianxu') return '四方/两方连续图类';
-  if (c === '图裂变' || c === 'variation' || c === 'image_variation' || c === 'liebain' || c === 'liebiam') return '图裂变';
-  if (c === 'general' || c === 'common') return '通用类';
-  return '通用类';
+  if (c === '花纹提取类' || c === 'pattern_extract' || c === 'pattern' || c === 'pattern-extract') return '花纹提取';
+  if (c === '图延伸类' || c === 'image_extend' || c === 'image_extension' || c === '图扩展' || c === '图延伸') return '扩图';
+  if (c === '四方/两方连续图类' || c === 'continuous_pattern' || c === 'continuous' || c === 'lianxu') return '连续图';
+  if (c === 'image_fission' || c === 'fission' || c === 'variation' || c === 'image_variation' || c === 'liebain' || c === 'liebiam') return '图裂变';
+  if (c === 'cutout' || c === 'background_remove' || c === 'matting') return '抠图';
+  if (c === 'image_composition' || c === 'composition' || c === 'fusion') return '图像融合';
+  if (c === 'image_enhancement' || c === 'enhancement' || c === 'upscale') return '图像增强';
+  if (c === 'vision_analysis' || c === 'vision' || c === 'vl') return '图像理解';
+  if (c === 'text_prompt' || c === 'text_generation' || c === 'prompt') return '文本与提示词';
+  if (c === 'video_generation' || c === 'video') return '生视频';
+  if (c === 'general' || c === 'common' || c === '通用类') return '平台工具';
+  return '平台工具';
+};
+
+const isGenericCategory = (category: string | undefined | null): boolean => {
+  const c = String(category || '').trim().toLowerCase();
+  return !c || c === '通用类' || c === '通用' || c === 'general' || c === 'common' || c === 'platform_tools';
 };
 
 const getWorkflowPresentation = (wf: EvalWorkflowVersion | null | undefined) =>
@@ -479,9 +504,42 @@ const getWorkflowRoutingGovernance = (wf: EvalWorkflowVersion | null | undefined
     ? wf.routingGovernance
     : null) as EvalWorkflowVersion['routingGovernance'];
 
-const getWorkflowCategory = (wf: Pick<EvalWorkflowVersion, 'category' | 'presentation'> | null | undefined): string => {
-  const label = String(getWorkflowPresentation(wf as EvalWorkflowVersion)?.categoryLabel || '').trim();
-  return normalizeCategory(label || wf?.category);
+const inferWorkflowCategory = (
+  wf: Pick<EvalWorkflowVersion, 'category' | 'presentation' | 'name' | 'workflow_id' | 'notes'> | null | undefined,
+): string => {
+  const presentation = getWorkflowPresentation(wf as EvalWorkflowVersion);
+  const rawCategory = String(presentation?.categoryLabel || wf?.category || '').trim();
+  const normalized = normalizeCategory(rawCategory);
+  if (!isGenericCategory(rawCategory) && normalized !== '平台工具') return normalized;
+
+  const text = [
+    rawCategory,
+    wf?.name,
+    wf?.workflow_id,
+    wf?.notes,
+    presentation?.operationLabel,
+    presentation?.variantLabel,
+    presentation?.usageHint,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+  if (/花纹|印花|pattern|yinhua/.test(text)) return '花纹提取';
+  if (/裂变|fission|variation|softstyle|e7|flux-strong/.test(text)) return '图裂变';
+  if (/扩图|延伸|outpaint|extend|extension|klein/.test(text)) return '扩图';
+  if (/连续|四方|两方|seamless|lianxu/.test(text)) return '连续图';
+  if (/抠图|抠像|去背|背景移除|background|cutout|matting|remove-bg|kouxiang|koutu/.test(text)) return '抠图';
+  if (/融合|合成|多图|fusion|compose|composition|merge/.test(text)) return '图像融合';
+  if (/放大|高清|dpi|清晰|增强|upscale|enhance|resize|denoise/.test(text)) return '图像增强';
+  if (/vl|视觉|理解|识别|描述|标签|describe|vision|analy/.test(text)) return '图像理解';
+  if (/文字|文本|提示词|prompt|text/.test(text)) return '文本与提示词';
+  if (/视频|video|seedance|sora/.test(text)) return '生视频';
+  return normalized;
+};
+
+const getWorkflowCategory = (wf: Pick<EvalWorkflowVersion, 'category' | 'presentation' | 'name' | 'workflow_id' | 'notes'> | null | undefined): string => {
+  return inferWorkflowCategory(wf);
 };
 
 const getWorkflowSortOrder = (wf: EvalWorkflowVersion | null | undefined): number => {
@@ -548,23 +606,11 @@ const isWorkflowBatchEnabled = (wf: EvalWorkflowVersion | null | undefined): boo
 };
 
 const categoryVisualMeta: Record<string, { icon: ReactNode; accent: string; summary: string; cover: string }> = {
-  花纹提取类: {
+  花纹提取: {
     icon: <ScanIcon size="18px" />,
     accent: '#0ea5e9',
     summary: '偏向纹理细节保留，重点验证边缘与纹路还原。',
     cover: 'linear-gradient(120deg, rgba(14,165,233,0.18), rgba(2,132,199,0.08))',
-  },
-  图延伸类: {
-    icon: <ImageEditIcon size="18px" />,
-    accent: '#3b82f6',
-    summary: '关注主体连续性、边界自然过渡与风格一致性。',
-    cover: 'linear-gradient(120deg, rgba(59,130,246,0.18), rgba(30,64,175,0.08))',
-  },
-  '四方/两方连续图类': {
-    icon: <LayersIcon size="18px" />,
-    accent: '#6366f1',
-    summary: '重点看拼接缝是否消失、图案周期是否稳定。',
-    cover: 'linear-gradient(120deg, rgba(99,102,241,0.18), rgba(79,70,229,0.08))',
   },
   图裂变: {
     icon: <ChartBubbleIcon size="18px" />,
@@ -572,11 +618,59 @@ const categoryVisualMeta: Record<string, { icon: ReactNode; accent: string; summ
     summary: '强调多样性与可控变体，避免主体语义漂移。',
     cover: 'linear-gradient(120deg, rgba(245,158,11,0.18), rgba(217,119,6,0.08))',
   },
-  通用类: {
+  扩图: {
+    icon: <ImageEditIcon size="18px" />,
+    accent: '#3b82f6',
+    summary: '关注主体连续性、边界自然过渡与风格一致性。',
+    cover: 'linear-gradient(120deg, rgba(59,130,246,0.18), rgba(30,64,175,0.08))',
+  },
+  连续图: {
+    icon: <LayersIcon size="18px" />,
+    accent: '#6366f1',
+    summary: '重点看拼接缝是否消失、图案周期是否稳定。',
+    cover: 'linear-gradient(120deg, rgba(99,102,241,0.18), rgba(79,70,229,0.08))',
+  },
+  抠图: {
+    icon: <ScanIcon size="18px" />,
+    accent: '#0f766e',
+    summary: '验证背景去除、边缘干净度和主体保留。',
+    cover: 'linear-gradient(120deg, rgba(15,118,110,0.18), rgba(20,184,166,0.08))',
+  },
+  图像融合: {
+    icon: <LayersIcon size="18px" />,
+    accent: '#7c3aed',
+    summary: '关注多图主体关系、材质融合和构图稳定性。',
+    cover: 'linear-gradient(120deg, rgba(124,58,237,0.18), rgba(109,40,217,0.08))',
+  },
+  图像增强: {
     icon: <AiImageIcon size="18px" />,
     accent: '#10b981',
-    summary: '通用编辑链路，用于跨模型参数联调与稳定性验证。',
+    summary: '检查放大、DPI、清晰度和尺寸修复是否稳定。',
     cover: 'linear-gradient(120deg, rgba(16,185,129,0.18), rgba(5,150,105,0.08))',
+  },
+  图像理解: {
+    icon: <ScanIcon size="18px" />,
+    accent: '#0891b2',
+    summary: '验证 VL 模型对主体、风格、文字和风险的分析结果。',
+    cover: 'linear-gradient(120deg, rgba(8,145,178,0.18), rgba(14,116,144,0.08))',
+  },
+  文本与提示词: {
+    icon: <ChartBubbleIcon size="18px" />,
+    accent: '#c2410c',
+    summary: '验证文字增强、提示词优化和描述生成质量。',
+    cover: 'linear-gradient(120deg, rgba(194,65,12,0.18), rgba(154,52,18,0.08))',
+  },
+  生视频: {
+    icon: <AiImageIcon size="18px" />,
+    accent: '#be123c',
+    summary: '验证图生视频、文生视频和短视频结果链路。',
+    cover: 'linear-gradient(120deg, rgba(190,18,60,0.18), rgba(159,18,57,0.08))',
+  },
+  平台工具: {
+    icon: <TaskIcon size="18px" />,
+    accent: '#64748b',
+    summary: '内部自检、任务追踪、队列、模型和 LoRA 管理入口。',
+    cover: 'linear-gradient(120deg, rgba(100,116,139,0.18), rgba(71,85,105,0.08))',
   },
 };
 
@@ -597,7 +691,7 @@ const getWorkflowAccent = (wf: EvalWorkflowVersion): string => {
 
 const getCategoryVisual = (category: string | undefined | null) => {
   const normalized = normalizeCategory(category);
-  return categoryVisualMeta[normalized] || categoryVisualMeta['通用类'];
+  return categoryVisualMeta[normalized] || categoryVisualMeta['平台工具'];
 };
 
 const getCategoryNavIcon = (category: string): ReactNode => getCategoryVisual(category).icon;
@@ -618,7 +712,7 @@ const getWorkflowCardTitle = (wf: EvalWorkflowVersion): string => {
     .split(/[·|｜:：/-]/)
     .map((item) => item.trim())
     .filter(Boolean);
-  const noisy = new Set([category, operationLabel, '图裂变', '裂变', '图延伸', '扩图', 'ComfyUI', '商业模型']);
+  const noisy = new Set([category, operationLabel, '图裂变', '裂变', '图延伸', '扩图', '连续图', '抠图', '图像增强', 'ComfyUI', '商业模型']);
   const distinctPart = parts.find((item) => !noisy.has(item));
   if (distinctPart) return distinctPart;
   if (operationLabel && rawName !== operationLabel) return rawName.replace(operationLabel, '').replace(/[·|｜:：/-]/g, ' ').trim() || operationLabel;
@@ -1786,7 +1880,6 @@ function ToolCard({
           <div className="podi-eval-tool-card__signature">
             <span>{wf.version || 'v1'}</span>
             <span>发布 {releaseDate}</span>
-            <span title={wf.workflow_id}>ID {shortId}</span>
           </div>
           <div className="podi-eval-tool-card__runtime">
             <Tag variant="light" theme={runtimeHealth.theme}>
@@ -1816,23 +1909,11 @@ function ToolCard({
               <span>输出</span>
               <strong>{outputSummary}</strong>
             </div>
-            <div>
-              <span>执行面</span>
-              <strong>{executionLabel}</strong>
-            </div>
-            <div>
-              <span>追踪</span>
-              <strong>{trackingLabel}</strong>
-            </div>
           </div>
 
           <div style={{ marginTop: 12 }}>
             <Space breakLine>
               <Tag variant="light" theme={roleTheme}>{roleLabel}</Tag>
-              <Tag variant="light" theme={routingTheme}>
-                {routingGovernance?.governanceLabel || '链路治理待确认'}
-              </Tag>
-              <Tag variant="light">工作流 {shortId}</Tag>
               <Tag variant="light">{getWorkflowStatusLabel(wf.status)}</Tag>
               {recentOutputLabel ? <Tag variant="light">{recentOutputLabel}</Tag> : null}
               {isWorkflowBatchEnabled(wf) ? <Tag variant="light">支持批量</Tag> : null}
@@ -1843,6 +1924,21 @@ function ToolCard({
               {roleReason}
             </Typography.Text>
           ) : null}
+          <details
+            className="podi-eval-tool-card__details"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <summary>查看底层链路</summary>
+            <div>
+              <span>工作流 {shortId}</span>
+              <span>{routingGovernance?.governanceLabel || '链路待确认'}</span>
+              <span>{executionLabel}</span>
+              <span>{trackingLabel}</span>
+              <Tag size="small" variant="light" theme={routingTheme}>
+                排障信息
+              </Tag>
+            </div>
+          </details>
           <div className="podi-eval-tool-card__footer">
             <Typography.Text>进入功能工作台</Typography.Text>
             <Typography.Text theme="secondary">→</Typography.Text>
@@ -2405,8 +2501,8 @@ export function App() {
   }, [displayWorkflows]);
 
   const orderedCategories = useMemo(() => {
-    // Always show the fixed business categories in sidebar.
-    return CATEGORY_ORDER.slice();
+    const visible = CATEGORY_ORDER.filter((category) => PINNED_CATEGORY_SET.has(category) || (grouped[category] || []).length > 0);
+    return visible.length > 0 ? visible : CATEGORY_ORDER.slice(0, 4);
   }, [grouped]);
 
   const toolList = useMemo(() => {
@@ -2836,7 +2932,7 @@ export function App() {
         setActiveCategory((prev) => {
           const current = CATEGORY_ORDER.includes(prev) ? prev : normalizeCategory(prev);
           if ((counts[current] || 0) > 0) return current;
-          return firstNonEmpty || '通用类';
+          return firstNonEmpty || DEFAULT_CATEGORY;
         });
       }
     } catch (err) {
@@ -4760,7 +4856,7 @@ export function App() {
         showSidebar={showCategorySidebar}
         sidebarTitle="功能分类"
         sidebarSubtitle="仅在“功能评测”模块使用，用于筛选能力卡片。"
-        navItems={CATEGORY_ORDER.map((cat) => ({
+        navItems={orderedCategories.map((cat) => ({
           id: cat,
           label: cat,
           shortLabel: String(cat || "评测").slice(0, 2),
@@ -7333,36 +7429,6 @@ export function App() {
               上传 → 生成 → 打标
             </Typography.Title>
           </div>
-        </div>
-      </div>
-      <div className="podi-eval-step-grid">
-        <div className="podi-eval-step-card">
-          <div className="podi-eval-step-card__title">
-            <span><ImageEditIcon size="16px" /></span>
-            <span>1. 选择能力</span>
-          </div>
-          <Typography.Text theme="secondary">按业务分类选工作流，确认支持的参数枚举。</Typography.Text>
-        </div>
-        <div className="podi-eval-step-card">
-          <div className="podi-eval-step-card__title">
-            <span><AiImageIcon size="16px" /></span>
-            <span>2. 执行生成</span>
-          </div>
-          <Typography.Text theme="secondary">上传样图并提交任务，观察提交状态与回填状态。</Typography.Text>
-        </div>
-        <div className="podi-eval-step-card">
-          <div className="podi-eval-step-card__title">
-            <span><TaskIcon size="16px" /></span>
-            <span>3. 批量回归</span>
-          </div>
-          <Typography.Text theme="secondary">大样本复测时优先用批量回归，减少随机性干扰。</Typography.Text>
-        </div>
-        <div className="podi-eval-step-card">
-          <div className="podi-eval-step-card__title">
-            <span><ChartBubbleIcon size="16px" /></span>
-            <span>4. 标注沉淀</span>
-          </div>
-          <Typography.Text theme="secondary">重点记录不满意样本，沉淀后反推训练素材缺口。</Typography.Text>
         </div>
       </div>
       <Card bordered>

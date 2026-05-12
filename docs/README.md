@@ -69,6 +69,7 @@
 - `docs/standards/error-catalog.md`
 - `docs/standards/error-contract.md`
 - `docs/standards/interface-consistency.md`
+- `docs/standards/business-interface-taxonomy.md`
 - `docs/standards/ability-presentation-layer.md`
 - `docs/standards/eval-workflow-presentation-layer.md`
 - `docs/standards/eval-workflow-usage-layer.md`
@@ -82,6 +83,7 @@
 | 战略规划 | `docs/strategy/README.md` | 平台愿景、路线、待办、治理 |
 | 核心业务链路 | `docs/strategy/core-business-chain-review-2026-05-03.md` | 花纹提取 / 图裂变 / 扩图的入口、路由、回填、测试和后续优先级 |
 | API | `docs/api/INDEX.md` | 全量接口模块入口 |
+| 业务接口分类 | `docs/standards/business-interface-taxonomy.md` | 业务分类、Coze/原生/原子能力/测评入口的统一归属 |
 | 历史客户端资料 | `docs/client/README.md` | 当前仓库已无客户端代码，仅保留历史方案和测试包 |
 | 管理端 | `docs/admin/integration-dashboard.md` | 执行节点、能力、第三方模型 Key、测试与日志 |
 | 评测端 | `docs/eval/eval-platform.md` | 评测平台功能与约束 |

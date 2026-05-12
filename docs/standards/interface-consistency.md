@@ -2,6 +2,7 @@
 
 > 目标：避免“前后端状态词不一致、错误处理风格不一致、文档口径不一致”。
 > 适用范围：`/api/*`（管理端、评测端、Coze 工具、Agent 协议）与所有对外文档。
+> 业务分类和接口形态归属必须同时遵循：`docs/standards/business-interface-taxonomy.md`。
 
 ---
 
@@ -150,6 +151,7 @@
 2. 错误码总表（`docs/standards/error-catalog.md`）
 3. 测评端开发文档（`/api/evals/docs/workflows` 对应内容）
 4. 若涉及状态/错误口径，必须更新本文档
+5. 若涉及业务入口、Coze 工具箱、原生业务 API、原子能力 API 或测评分类，必须更新 `docs/standards/business-interface-taxonomy.md`
 
 ---
 
