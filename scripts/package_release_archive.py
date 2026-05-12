@@ -14,12 +14,26 @@ import time
 from pathlib import Path
 from typing import List, Optional, Set, Tuple
 
-IGNORED_NAMES = {".DS_Store", "__MACOSX"}
+IGNORED_NAMES = {
+    ".DS_Store",
+    "__MACOSX",
+    ".env",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".venv",
+    "__pycache__",
+    "node_modules",
+}
 IGNORED_PREFIXES = ("._",)
+IGNORED_SUFFIXES = (".pyc", ".pyo")
 
 
 def _is_ignored(path: Path) -> bool:
-    return path.name in IGNORED_NAMES or any(path.name.startswith(prefix) for prefix in IGNORED_PREFIXES)
+    return (
+        path.name in IGNORED_NAMES
+        or any(path.name.startswith(prefix) for prefix in IGNORED_PREFIXES)
+        or any(path.name.endswith(suffix) for suffix in IGNORED_SUFFIXES)
+    )
 
 
 def _safe_relative_path(root: Path, path: Path) -> Path:

@@ -27,6 +27,17 @@ def test_package_release_archive_normalizes_metadata(tmp_path: Path) -> None:
     macosx_dir = root / "backend" / "__MACOSX"
     macosx_dir.mkdir()
     (macosx_dir / "payload").write_text("ignore", encoding="utf-8")
+    env_file = root / "backend" / ".env"
+    env_file.write_text("SECRET=ignore\n", encoding="utf-8")
+    venv_file = root / "backend" / ".venv" / "pyvenv.cfg"
+    venv_file.parent.mkdir()
+    venv_file.write_text("ignore\n", encoding="utf-8")
+    pycache_file = root / "backend" / "__pycache__" / "app.cpython-311.pyc"
+    pycache_file.parent.mkdir()
+    pycache_file.write_bytes(b"ignore")
+    node_module_file = root / "backend" / "node_modules" / "package" / "index.js"
+    node_module_file.parent.mkdir(parents=True)
+    node_module_file.write_text("ignore\n", encoding="utf-8")
     os.utime(target, (4_000_000_000, 4_000_000_000))
 
     output = tmp_path / "release.tgz"
@@ -37,6 +48,13 @@ def test_package_release_archive_normalizes_metadata(tmp_path: Path) -> None:
     assert "backend/._app.py" not in added
     assert "backend/__MACOSX" not in added
     assert "backend/__MACOSX/payload" not in added
+    assert "backend/.env" not in added
+    assert "backend/.venv" not in added
+    assert "backend/.venv/pyvenv.cfg" not in added
+    assert "backend/__pycache__" not in added
+    assert "backend/__pycache__/app.cpython-311.pyc" not in added
+    assert "backend/node_modules" not in added
+    assert "backend/node_modules/package/index.js" not in added
 
     with tarfile.open(output, "r:gz") as archive:
         members = {member.name: member for member in archive.getmembers()}
@@ -46,6 +64,13 @@ def test_package_release_archive_normalizes_metadata(tmp_path: Path) -> None:
     assert "backend/._app.py" not in members
     assert "backend/__MACOSX" not in members
     assert "backend/__MACOSX/payload" not in members
+    assert "backend/.env" not in members
+    assert "backend/.venv" not in members
+    assert "backend/.venv/pyvenv.cfg" not in members
+    assert "backend/__pycache__" not in members
+    assert "backend/__pycache__/app.cpython-311.pyc" not in members
+    assert "backend/node_modules" not in members
+    assert "backend/node_modules/package/index.js" not in members
     app_member = members["backend/app.py"]
     assert app_member.uid == 0
     assert app_member.gid == 0

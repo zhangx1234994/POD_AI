@@ -15,6 +15,20 @@
 
 ---
 
+## 2026-05-12
+
+0) **114 控制面发布流程过度依赖手工尝试**
+- 范围：发布流程 / 114 控制面
+- 现象：多次上线需要反复手工执行构建、tar 打包、scp/ssh、重启、健康检查和补充验证；GitHub 网络抖动时 push/fetch 没有统一超时与决策口径。
+- 影响：上线耗时不可控，容易出现“本地已提交、线上已更新、远端 main 未确认”或“页面更新了但 smoke 未跑完”的不清晰状态。
+- 根因：已有 `release-preflight`、`deploy-checklist`、打包脚本和巡检脚本，但缺少唯一发布 SOP 和一键编排入口。
+- 改进：
+  - 新增 `docs/standards/release-sop.md` 作为 114 控制面唯一发布入口；
+  - 新增 `scripts/release_114_control_plane.sh`，固定 source gate、测试、前端 build、干净打包、远端部署、服务重启、版本标记和 smoke；
+  - `scripts/package_release_archive.py` 默认排除 `.env`、`.venv`、`node_modules`、`__pycache__`、`._*` 等非发布内容；
+  - `docs/README.md`、`docs/deploy-checklist.md`、`docs/standards/self-check-sop.md` 已改为指向统一发布 SOP。
+- 状态：已完成（后续每次发布如有卡点继续反哺 SOP）
+
 ## 2026-04-29
 
 0) **生产数据库 Alembic 版本不在 main 迁移链中**

@@ -3,6 +3,20 @@
 > 版本：2026-02-03  
 > 目标：避免“部署后才发现 502/登录失败”的问题。
 
+> 现行 114 控制面发布优先使用 `docs/standards/release-sop.md` 和 `scripts/release_114_control_plane.sh`。本文作为底层检查清单和手工排障参考。
+
+## 0) 推荐一键发布
+
+```bash
+bash scripts/release_114_control_plane.sh
+```
+
+如本机没有 SSH key，可临时使用：
+
+```bash
+SSHPASS='<SSH 密码>' bash scripts/release_114_control_plane.sh
+```
+
 ## 1) 部署前确认
 
 - [ ] 发版源已通过检查：`bash scripts/release_source_preflight.sh`

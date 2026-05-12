@@ -713,6 +713,14 @@
 - 进展（2026-05-12）：AI 团队 GPT Image 2 + VL 图裂变交付包已接入为 `biz_fission_v2_openai_gpt_image2_vl` 灰度候选版本；业务版本号 `gpt-image2-vl-v1`，流程为 VL 图案结构卡 -> 中台提示词编译 -> `openai_gpt_image_2_edit`，当前不自动替换默认图裂变。
 - 验证（2026-05-12）：`podi-admin-web npm run lint` / `npm run build` 通过；`git diff --check` 通过。
 
+41. `done` I8 114 控制面发布 SOP 固化
+- 背景：近期每次上线都在构建、打包、上传、重启、确认版本、线上 smoke 之间反复尝试，发布流程缺少唯一入口和自动编排。
+- 已完成（2026-05-12）：新增 `docs/standards/release-sop.md`，明确 114 控制面发布原则、标准命令、门禁、线上验证、117/233/vendor-api-ops 更新边界、失败处理、回滚和发布记录模板。
+- 已完成（2026-05-12）：新增 `scripts/release_114_control_plane.sh`，把源检查、关键测试、前端 lint/build、干净打包、上传 114、保留线上 `.env/.venv`、迁移、服务重启、版本标记、远端健康检查和 smoke 固化为一个入口。
+- 已完成（2026-05-12）：`scripts/package_release_archive.py` 默认排除 `.env`、`.venv`、`node_modules`、`__pycache__`、`.pytest_cache`、`.ruff_cache`、`.pyc/.pyo` 等非发布内容，降低手工打包污染风险。
+- 已完成（2026-05-12）：`README.md`、`docs/README.md`、`docs/deploy-checklist.md`、`docs/standards/self-check-sop.md`、`docs/standards/issue-improvement-log.md` 均已指向统一发布 SOP。
+- 验证（2026-05-12）：`bash -n scripts/release_114_control_plane.sh`、`python3 -m py_compile scripts/package_release_archive.py`、`python3 scripts/check_doc_entry_references.py`、`python3 -m pytest backend/tests/test_release_archive_packaging.py -q` 均通过。
+
 下一步：补齐测评端业务 API 版图裂变入口和批量上传体验，再统一走本地/线上回归。
 
 *最后更新: 2026-05-12*
