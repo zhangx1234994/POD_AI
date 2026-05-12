@@ -529,7 +529,11 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
     }
     base_submit_properties = {
         "imageUrl": {"type": "string", "description": "原图 URL Image URL"},
-        "prompt": {"type": "string", "nullable": True, "description": "业务提示词 Prompt"},
+        "prompt": {
+            "type": "string",
+            "nullable": True,
+            "description": "业务提示词 Prompt；可选。不传时中台会使用 VL 图像理解结果和当前版本默认系统提示词。",
+        },
         "version": {"type": "string", "nullable": True, "description": "指定业务版本；为空使用默认版本"},
         "inputs": {"type": "object", "description": "兼容旧格式；新接入优先使用顶层业务参数。"},
         "source": {"type": "string", "nullable": True, "description": "调用来源，例如 coze、client、partner-api。"},
