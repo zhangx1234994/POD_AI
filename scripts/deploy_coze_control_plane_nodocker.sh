@@ -41,6 +41,24 @@ copy_tree() {
   fi
 }
 
+build_or_use_prebuilt_web() {
+  local app_dir="$1"
+  local app_name="$2"
+  cd "$app_dir"
+  if command -v npm >/dev/null 2>&1; then
+    npm install
+    npm run build
+    return 0
+  fi
+  if [[ -f "$app_dir/dist/index.html" ]]; then
+    echo "[coze-control-plane] npm not found; using prebuilt dist for $app_name"
+    return 0
+  fi
+  echo "[coze-control-plane] ERROR: npm not found and $app_name dist/index.html is missing" >&2
+  echo "[coze-control-plane] Build web locally and include dist, or install npm on the target host." >&2
+  exit 2
+}
+
 echo "[coze-control-plane] syncing backend/image-ops/scripts/deploy..."
 copy_tree "$ROOT_DIR/backend" "$TARGET_ROOT/backend"
 copy_tree "$ROOT_DIR/image-ops-service" "$TARGET_ROOT/image-ops-service"
@@ -87,14 +105,10 @@ cp "$TARGET_ROOT/image-ops-service/deploy/image-ops.service" /etc/systemd/system
 
 if [[ "$ENABLE_WEBS" == "1" ]]; then
   if [[ -d "$TARGET_ROOT/podi-admin-web" ]]; then
-    cd "$TARGET_ROOT/podi-admin-web"
-    npm install
-    npm run build
+    build_or_use_prebuilt_web "$TARGET_ROOT/podi-admin-web" "podi-admin-web"
   fi
   if [[ -d "$TARGET_ROOT/podi-eval-web" ]]; then
-    cd "$TARGET_ROOT/podi-eval-web"
-    npm install
-    npm run build
+    build_or_use_prebuilt_web "$TARGET_ROOT/podi-eval-web" "podi-eval-web"
   fi
   cp "$TARGET_ROOT/deploy/systemd/podi-admin-web.service" /etc/systemd/system/podi-admin-web.service
   cp "$TARGET_ROOT/deploy/systemd/podi-eval-web.service" /etc/systemd/system/podi-eval-web.service
