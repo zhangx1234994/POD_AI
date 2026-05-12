@@ -191,6 +191,13 @@ def test_business_run_get_requires_run_id() -> None:
     assert resp.json()["detail"] == "BUSINESS_RUN_ID_REQUIRED"
 
 
+def test_business_admin_api_keys_require_admin_token() -> None:
+    resp = client.get("/api/admin/business/api-keys", headers={"x-real-ip": "127.0.0.1"})
+
+    assert resp.status_code == 401
+    assert resp.json()["detail"] == "AUTHORIZATION_REQUIRED"
+
+
 def test_business_api_submit_and_query_do_not_require_coze_workflow(monkeypatch) -> None:
     created: dict[str, object] = {}
 

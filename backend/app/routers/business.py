@@ -17,7 +17,7 @@ from sqlalchemy import select
 
 from app.core.config import get_settings
 from app.core.db import get_session
-from app.deps.auth import get_current_user
+from app.deps.auth import get_current_user, require_admin
 from app.deps.internal import is_internal_request
 from app.models.integration import ApiKey, BusinessApiKeyUsageLog
 from app.models.user import User
@@ -897,7 +897,7 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
     }
 
 
-admin_router = APIRouter(prefix="/admin/business", tags=["admin-business"])
+admin_router = APIRouter(prefix="/admin/business", dependencies=[Depends(require_admin)], tags=["admin-business"])
 
 
 @admin_router.get("/capabilities", response_model=schemas.BusinessCapabilityListResponse, response_model_by_alias=False)
