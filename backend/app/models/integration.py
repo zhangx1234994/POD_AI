@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
@@ -501,6 +501,10 @@ class BusinessApiKeyUsageLog(Base):
 
 class BusinessRun(Base):
     __tablename__ = "business_runs"
+    __table_args__ = (
+        Index("ix_business_runs_version_created", "business_version_id", "created_at"),
+        Index("ix_business_runs_version_status_created", "business_version_id", "status", "created_at"),
+    )
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     business_key: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
