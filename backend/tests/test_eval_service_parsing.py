@@ -154,6 +154,25 @@ def test_extract_workflow_tool_error_detects_nested_failed_tool_without_err_task
     assert EvalService._extract_workflow_tool_error(payload) == "ERR|Q1001|COMFYUI_QUEUE_FULL(limit=10, current=10)"
 
 
+def test_business_eval_output_summary_is_json_safe():
+    from app.services.eval_service import EvalService
+
+    now = datetime(2026, 5, 12, 12, 0, 0)
+    summary = EvalService._business_eval_output_summary(
+        {
+            "id": "run_1",
+            "status": "running",
+            "route_info": {"selectedAt": now},
+            "steps": [{"startedAt": now}],
+            "created_at": now,
+        }
+    )
+
+    assert summary["route_info"]["selectedAt"] == "2026-05-12T12:00:00"
+    assert summary["steps"][0]["startedAt"] == "2026-05-12T12:00:00"
+    assert "created_at" not in summary
+
+
 def test_extract_image_urls_from_task_payload_accepts_stored_url():
     from app.services.eval_service import EvalService
 

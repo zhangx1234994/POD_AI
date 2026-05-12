@@ -718,7 +718,17 @@ class EvalService:
             "routeInfo",
             "steps",
         )
-        return {key: payload.get(key) for key in keys if key in payload}
+        return EvalService._json_safe_payload({key: payload.get(key) for key in keys if key in payload})
+
+    @staticmethod
+    def _json_safe_payload(value: Any) -> Any:
+        if isinstance(value, datetime):
+            return value.isoformat()
+        if isinstance(value, dict):
+            return {str(key): EvalService._json_safe_payload(item) for key, item in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [EvalService._json_safe_payload(item) for item in value]
+        return value
 
     def _execute_ability_task_eval_run(
         self,
