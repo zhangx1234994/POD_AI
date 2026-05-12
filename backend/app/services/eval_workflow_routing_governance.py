@@ -30,6 +30,12 @@ VL_WORKFLOW_IDS: set[str] = {
     "7598080013539213312",  # 图片打标签
     "7600254097513512960",  # 图片打标签
     "7600254796297142272",  # 图片打标签
+    "ability_fission_generated_image_evaluate_v1",  # 裂变生成图评估
+}
+
+BUSINESS_API_WORKFLOW_IDS: set[str] = {
+    "business_fission_gpt_image2_vl_v1",
+    "business_fission_comfyui_vl_control_v1",
 }
 
 INTERNAL_TOOL_WORKFLOW_IDS: set[str] = {
@@ -143,6 +149,23 @@ def resolve_eval_workflow_routing_governance(
             "governanceStatus": "needs_task_model",
             "governanceLabel": "需要统一任务化",
             "notes": ["高清放大、DPI 等能力应由 image-ops 执行，中台负责任务和回填。"],
+        }
+
+    if wid in BUSINESS_API_WORKFLOW_IDS:
+        return {
+            "abilityType": ability_type,
+            "abilityTypeLabel": ability_type_label,
+            "entryMode": "business_api",
+            "entryLabel": "中台业务接口",
+            "executionSurface": "backend_orchestration",
+            "executionLabel": "中台业务编排",
+            "trackingRequired": True,
+            "expectedTracking": "business_run",
+            "currentTracking": "business_run",
+            "currentTrackingLabel": "已进入业务运行记录",
+            "governanceStatus": "aligned",
+            "governanceLabel": "业务接口治理达标",
+            "notes": ["测评端直接调用中台业务层，底层可继续路由到 VL、ComfyUI 或第三方 API。"],
         }
 
     execution_surface = "vendor_api_ops" if wid in VENDOR_API_WORKFLOW_IDS else "comfyui"

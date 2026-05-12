@@ -27,6 +27,7 @@ export type EvalWorkflowVersion = {
     resultMode?: string;
     supportsBatch?: boolean;
     recommendedRepeatCount?: number;
+    badges?: string[];
   } | null;
   usage?: {
     singleRunEnabled?: boolean;

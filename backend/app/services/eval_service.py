@@ -21,7 +21,11 @@ from app.core.config import get_settings
 from app.core.db import get_session
 from app.models.eval import EvalRun, EvalWorkflowVersion
 from app.models.integration import AbilityTask
+from app.schemas.abilities import AbilityImageInput, AbilityInvokeRequest
+from app.schemas.business import BusinessRunCreateRequest
+from app.services.auth_service import auth_service
 from app.services.ability_task_service import get_ability_task_service
+from app.services.business_runs import get_business_run_service
 from app.services.coze_client import coze_client
 from app.services.integration_test import integration_test_service
 from app.services.task_id_codec import decode_task_id
@@ -213,6 +217,28 @@ class EvalService:
                     image_urls.append(value.strip())
                     break
         return image_urls
+
+    @staticmethod
+    def _clean_eval_runtime_params(parameters: dict[str, Any] | None) -> dict[str, Any]:
+        if not isinstance(parameters, dict):
+            return {}
+        return {
+            key: value
+            for key, value in parameters.items()
+            if not str(key).startswith("__") and value is not None
+        }
+
+    @staticmethod
+    def _first_param_string(parameters: dict[str, Any], keys: list[str]) -> str:
+        for key in keys:
+            value = parameters.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+            if value is not None and not isinstance(value, (dict, list)):
+                text = str(value).strip()
+                if text:
+                    return text
+        return ""
 
     @staticmethod
     def _elapsed_ms_since(created_at: datetime | None) -> int:
@@ -530,6 +556,227 @@ class EvalService:
             session.add(run)
             session.commit()
 
+    def _execute_native_eval_run(
+        self,
+        *,
+        run_id: str,
+        execution_config: dict[str, Any],
+        parameters: dict[str, Any],
+        started: float,
+    ) -> bool:
+        mode = str(execution_config.get("mode") or "").strip().lower()
+        if mode == "business_run":
+            self._execute_business_eval_run(
+                run_id=run_id,
+                execution_config=execution_config,
+                parameters=parameters,
+                started=started,
+            )
+            return True
+        if mode == "ability_task":
+            self._execute_ability_task_eval_run(
+                run_id=run_id,
+                execution_config=execution_config,
+                parameters=parameters,
+                started=started,
+            )
+            return True
+        return False
+
+    def _execute_business_eval_run(
+        self,
+        *,
+        run_id: str,
+        execution_config: dict[str, Any],
+        parameters: dict[str, Any],
+        started: float,
+    ) -> None:
+        clean_params = self._clean_eval_runtime_params(parameters)
+        image_url = self._first_param_string(clean_params, ["imageUrl", "image_url", "url", "Url", "URL"])
+        if not image_url:
+            self._mark_failed(run_id, message="BUSINESS_IMAGE_URL_REQUIRED", started=started)
+            return
+        payload_data = {
+            key: value
+            for key, value in clean_params.items()
+            if key not in {"Url", "URL", "image_url"}
+        }
+        payload_data["imageUrl"] = image_url
+        payload_data["url"] = image_url
+        version = str(execution_config.get("version") or "").strip()
+        if version:
+            payload_data["version"] = version
+        payload_data.setdefault("source", "eval")
+        payload_data.setdefault("channel", "eval-web")
+        metadata = payload_data.get("metadata") if isinstance(payload_data.get("metadata"), dict) else {}
+        metadata = {**metadata, "evalRunId": run_id, "evalExecutionMode": "business_run"}
+        payload_data["metadata"] = metadata
+        business_key = str(execution_config.get("business_key") or "").strip()
+        if not business_key:
+            self._mark_failed(run_id, message="BUSINESS_KEY_MISSING", started=started)
+            return
+        try:
+            payload = BusinessRunCreateRequest.model_validate(payload_data)
+            service_user = auth_service.build_service_user()
+            business_run = get_business_run_service().create_run(
+                business_key=business_key,
+                payload=payload,
+                user=service_user,
+                source="eval",
+            )
+        except HTTPException as exc:
+            self._mark_failed(run_id, message=str(exc.detail), started=started)
+            return
+        except Exception as exc:  # pragma: no cover - defensive
+            self._mark_failed(run_id, message=f"BUSINESS_RUN_CREATE_FAILED:{exc}", started=started)
+            return
+
+        business_run_id = str(business_run.get("id") or business_run.get("runId") or "").strip()
+        task_id = str(business_run.get("ability_task_id") or business_run.get("taskId") or "").strip()
+        with get_session() as session:
+            run = session.get(EvalRun, run_id)
+            if run:
+                run.status = "running"
+                run.podi_task_id = task_id or None
+                run.result_output_json = {
+                    "businessRunId": business_run_id,
+                    "businessKey": business_key,
+                    "version": version or business_run.get("version"),
+                    "status": business_run.get("status"),
+                }
+                session.add(run)
+                session.commit()
+        if not business_run_id:
+            self._mark_failed(run_id, message="BUSINESS_RUN_ID_MISSING", started=started)
+            return
+        self._poll_business_run(run_id=run_id, business_run_id=business_run_id, started=started)
+
+    def _poll_business_run(self, *, run_id: str, business_run_id: str, started: float) -> None:
+        deadline = time.monotonic() + 60 * 30
+        interval = 2.0
+        service_user = auth_service.build_service_user()
+        last_payload: dict[str, Any] | None = None
+        while time.monotonic() < deadline:
+            try:
+                payload = get_business_run_service().get_run(run_id=business_run_id, user=service_user)
+            except HTTPException as exc:
+                self._mark_failed(run_id, message=str(exc.detail), started=started)
+                return
+            except Exception as exc:  # pragma: no cover - defensive
+                self._mark_failed(run_id, message=f"BUSINESS_RUN_GET_FAILED:{exc}", started=started)
+                return
+            last_payload = payload if isinstance(payload, dict) else {}
+            status = str(last_payload.get("status") or "").strip().lower()
+            task_id = str(last_payload.get("ability_task_id") or last_payload.get("taskId") or "").strip()
+            with get_session() as session:
+                run = session.get(EvalRun, run_id)
+                if run:
+                    run.status = "running" if status in {"queued", "running", "pending", "planned"} else run.status
+                    run.podi_task_id = task_id or run.podi_task_id
+                    run.result_output_json = self._business_eval_output_summary(last_payload)
+                    session.add(run)
+                    session.commit()
+            if status == "succeeded":
+                self._mark_succeeded(
+                    run_id,
+                    image_urls=[str(x) for x in (last_payload.get("image_urls") or last_payload.get("imageUrls") or []) if str(x).strip()],
+                    output_json=self._business_eval_output_summary(last_payload),
+                    started=started,
+                )
+                return
+            if status in {"failed", "cancelled"}:
+                self._mark_failed(
+                    run_id,
+                    message=str(last_payload.get("error_message") or last_payload.get("error") or f"BUSINESS_RUN_{status.upper()}"),
+                    started=started,
+                )
+                return
+            time.sleep(interval)
+            interval = min(interval * 1.25, 10.0)
+        detail = self._business_eval_output_summary(last_payload or {})
+        self._mark_failed(run_id, message=f"BUSINESS_RUN_TIMEOUT:{detail}", started=started)
+
+    @staticmethod
+    def _business_eval_output_summary(payload: dict[str, Any]) -> dict[str, Any]:
+        keys = (
+            "id",
+            "runId",
+            "business_key",
+            "businessKey",
+            "version",
+            "status",
+            "ability_task_id",
+            "taskId",
+            "ability_name",
+            "abilityName",
+            "image_urls",
+            "imageUrls",
+            "texts",
+            "error_message",
+            "error",
+            "route_info",
+            "routeInfo",
+            "steps",
+        )
+        return {key: payload.get(key) for key in keys if key in payload}
+
+    def _execute_ability_task_eval_run(
+        self,
+        *,
+        run_id: str,
+        execution_config: dict[str, Any],
+        parameters: dict[str, Any],
+        started: float,
+    ) -> None:
+        ability_id = str(execution_config.get("ability_id") or "").strip()
+        if not ability_id:
+            self._mark_failed(run_id, message="ABILITY_ID_MISSING", started=started)
+            return
+        clean_params = self._clean_eval_runtime_params(parameters)
+        image_fields = [
+            str(item).strip()
+            for item in (execution_config.get("image_fields") or [])
+            if str(item).strip()
+        ]
+        images: list[AbilityImageInput] = []
+        for field in image_fields:
+            value = self._first_param_string(clean_params, [field])
+            if value:
+                images.append(AbilityImageInput(name=field, url=value))
+        image_url = self._first_param_string(clean_params, ["imageUrl", "image_url", "url", "Url", "URL"])
+        inputs = {
+            key: value
+            for key, value in clean_params.items()
+            if key not in {"imageUrl", "image_url", "url", "Url", "URL"}
+        }
+        metadata = {
+            "source": "eval",
+            "evalRunId": run_id,
+            "evalExecutionMode": "ability_task",
+        }
+        try:
+            task = get_ability_task_service().enqueue(
+                ability_id=ability_id,
+                payload=AbilityInvokeRequest(
+                    imageUrl=image_url or None,
+                    images=images or None,
+                    inputs=inputs,
+                    metadata=metadata,
+                ),
+                user=auth_service.build_service_user(),
+            )
+        except HTTPException as exc:
+            self._mark_failed(run_id, message=str(exc.detail), started=started)
+            return
+        except Exception as exc:  # pragma: no cover - defensive
+            self._mark_failed(run_id, message=f"ABILITY_TASK_CREATE_FAILED:{exc}", started=started)
+            return
+        task_id = str(task.get("id") or "").strip()
+        if not task_id:
+            self._mark_failed(run_id, message="ABILITY_TASK_ID_MISSING", started=started)
+            return
+        self._poll_ability_task(run_id=run_id, task_id=task_id, started=started)
+
     def _submit_coze_async_run(
         self,
         *,
@@ -710,6 +957,8 @@ class EvalService:
             error_message = task_row.error_message
 
         if status == "succeeded":
+            if output_json is None:
+                output_json = self._extract_output_json(result_payload) or result_payload
             self._mark_succeeded(
                 run_id,
                 image_urls=self._extract_image_urls_from_task_payload(result_payload),
@@ -729,6 +978,7 @@ class EvalService:
         # Avoid using ORM instances outside the session scope (commit expires attrs by default).
         workflow_id: str | None = None
         expects_callback = False
+        native_eval_execution: dict[str, Any] | None = None
         run_parameters: dict[str, Any] = {}
         with get_session() as session:
             run = session.get(EvalRun, run_id)
@@ -745,11 +995,21 @@ class EvalService:
                 return
             workflow_id = str(workflow_version.workflow_id)
             expects_callback = self._workflow_expects_callback(workflow_version.output_schema)
+            metadata = workflow_version.extra_metadata if isinstance(workflow_version.extra_metadata, dict) else {}
+            raw_execution = metadata.get("eval_execution") if isinstance(metadata.get("eval_execution"), dict) else None
+            native_eval_execution = raw_execution.copy() if raw_execution else None
             run.status = "running"
             session.add(run)
             session.commit()
 
         try:
+            if native_eval_execution and self._execute_native_eval_run(
+                run_id=run_id,
+                execution_config=native_eval_execution,
+                parameters=run_parameters,
+                started=started,
+            ):
+                return
             # Execute the workflow (non-streaming). OpenAPI tokens are handled by coze_client.
             if not workflow_id:
                 raise RuntimeError("WORKFLOW_ID_MISSING")
@@ -1590,6 +1850,8 @@ class EvalService:
                                 if isinstance(v, str) and v.strip():
                                     image_urls.append(v.strip())
                                     break
+                if output_json is None and isinstance(result_payload, dict):
+                    output_json = self._extract_output_json(result_payload) or result_payload
                 self._mark_succeeded(run_id, image_urls=image_urls, output_json=output_json, started=started)
                 return
 

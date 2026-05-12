@@ -4,6 +4,7 @@ from app.services.eval_seed import (
     IP_OUTPUT_WORKFLOW_IDS,
     PROMPT_OUTPUT_WORKFLOW_IDS,
 )
+from app.services.eval_workflow_presentation import resolve_eval_workflow_presentation
 
 
 def _field_by_name(workflow: dict, name: str) -> dict:
@@ -158,3 +159,50 @@ def test_flux2_9b_liebian_sifang_is_fission_and_seamless():
     assert "output" in output_names
     assert "prompt" in output_names
     assert "ip" in output_names
+
+
+def test_20260512_native_eval_entries_are_visible_and_badged():
+    gpt = DEFAULT_EVAL_WORKFLOW_BY_ID["business_fission_gpt_image2_vl_v1"]
+    comfy = DEFAULT_EVAL_WORKFLOW_BY_ID["business_fission_comfyui_vl_control_v1"]
+    evaluator = DEFAULT_EVAL_WORKFLOW_BY_ID["ability_fission_generated_image_evaluate_v1"]
+
+    assert gpt["category"] == "图裂变"
+    assert comfy["category"] == "图裂变"
+    assert evaluator["category"] == "图像理解"
+    assert gpt["metadata"]["eval_execution"] == {
+        "mode": "business_run",
+        "business_key": "fission",
+        "version": "gpt-image2-vl-v1",
+    }
+    assert comfy["metadata"]["eval_execution"] == {
+        "mode": "business_run",
+        "business_key": "fission",
+        "version": "comfyui-vl-control-v1",
+    }
+    assert evaluator["metadata"]["eval_execution"]["mode"] == "ability_task"
+    assert evaluator["metadata"]["eval_execution"]["ability_id"] == "vl_fission_generated_image_evaluate"
+    assert "新版" not in gpt["name"]
+    assert "新版" not in comfy["name"]
+    assert "新版" not in evaluator["name"]
+    assert "新版" in gpt["metadata"]["presentation"]["badges"]
+    assert "新版" in comfy["metadata"]["presentation"]["badges"]
+    assert "新版" in evaluator["metadata"]["presentation"]["badges"]
+    assert "business_fission_gpt_image2_vl_v1" in FISSION_WORKFLOW_IDS
+    assert "business_fission_comfyui_vl_control_v1" in FISSION_WORKFLOW_IDS
+
+
+def test_eval_presentation_keeps_new_as_badge_not_name():
+    workflow = DEFAULT_EVAL_WORKFLOW_BY_ID["business_fission_gpt_image2_vl_v1"]
+    presentation = resolve_eval_workflow_presentation(
+        status=workflow["status"],
+        category=workflow["category"],
+        workflow_id=workflow["workflow_id"],
+        name=workflow["name"],
+        parameters_schema=workflow["parameters_schema"],
+        output_schema=workflow["output_schema"],
+        metadata=workflow["metadata"],
+    )
+
+    assert presentation["variant_label"] == "GPT Image 2 + VL 控制版"
+    assert "新版" not in presentation["variant_label"]
+    assert "新版" in presentation["badges"]

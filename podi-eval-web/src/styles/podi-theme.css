@@ -474,6 +474,13 @@ html.t-theme-dark {
   overflow: hidden;
 }
 
+.podi-eval-tool-card__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
 .podi-eval-tool-card__subtitle {
   margin-top: 4px;
   font-size: 12px;

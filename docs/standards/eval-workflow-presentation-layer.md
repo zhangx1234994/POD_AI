@@ -24,7 +24,11 @@
 - `operationLabel`
   - 业务可理解的动作名称，例如“图像裂变”“抠图”“图像延伸”
 - `variantLabel`
-  - 业务可理解的版本/变体名称，例如“高质量新版”“ComfyUI 新版”“商业模型”
+  - 业务可理解的版本/变体名称，例如“高质量 SoftStyle”“ComfyUI 20260328”“商业模型”
+  - 不允许把“新版”写进名称；“新版”只作为短期角标使用
+- `badges`
+  - 展示角标，例如“新版”“原生业务接口”“原子组件”
+  - “新版”只能用于刚接入、待评测的新能力，不能作为功能名称或版本名称
 - `entryMode`
   - 输入模式：`single_image / multi_image / parameter_only / parameter_form`
 - `resultMode`

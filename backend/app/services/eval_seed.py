@@ -49,11 +49,14 @@ ALLOWED_EVAL_CATEGORIES: set[str] = {
     "图延伸类",
     "四方/两方连续图类",
     "图裂变",
+    "图像理解",
     "通用类",
 }
 
 # 图裂变（Fan-out）工作流：需要展示“裂变数量”参数。
 FISSION_WORKFLOW_IDS: set[str] = {
+    "business_fission_gpt_image2_vl_v1",  # 中台原生：GPT Image 2 + VL 图裂变
+    "business_fission_comfyui_vl_control_v1",  # 中台原生：ComfyUI VL 控制卡裂变
     "7598841920114130944",  # Liebian_comfyui_20260124_1
     "7598820684801769472",  # Liebian_comfyui_20260124
     "7622193261276299264",  # Liebian_comfyui_20260328_1
@@ -62,6 +65,7 @@ FISSION_WORKFLOW_IDS: set[str] = {
     "7598848725942796288",  # Liebian_shangye_20260124_1_1_1
     "7629024620879806464",  # qwen2512_print_shape_text_enhance
     "7629026792103215104",  # flux2_9b_liebian_sifang
+    "7631838631375667200",  # high quality softstyle fission
 }
 
 # 同时属于"图裂变"和"四方/两方连续图类"的工作流。
@@ -97,6 +101,7 @@ PROMPT_OUTPUT_WORKFLOW_IDS: set[str] = {
     "7598848725942796288",  # Liebian_shangye_20260124_1_1_1
     "7629024620879806464",  # qwen2512_print_shape_text_enhance
     "7629026792103215104",  # flux2_9b_liebian_sifang
+    "7631838631375667200",  # high quality softstyle fission
 }
 
 IP_OUTPUT_WORKFLOW_IDS: set[str] = {
@@ -114,6 +119,14 @@ IP_OUTPUT_WORKFLOW_IDS: set[str] = {
     "7629023903431524352",  # beijing_koutu
     "7629024620879806464",  # qwen2512_print_shape_text_enhance
     "7629026792103215104",  # flux2_9b_liebian_sifang
+    "7631838631375667200",  # high quality softstyle fission
+}
+
+FORCE_SYNC_EVAL_WORKFLOW_IDS: set[str] = {
+    "business_fission_gpt_image2_vl_v1",
+    "business_fission_comfyui_vl_control_v1",
+    "ability_fission_generated_image_evaluate_v1",
+    "7631838631375667200",
 }
 
 
@@ -132,6 +145,8 @@ def _normalize_eval_category(category: str | None) -> str:
         return "四方/两方连续图类"
     if c in {"图裂变", "liebiam", "liebain", "variation", "image_variation"}:
         return "图裂变"
+    if c in {"图像理解", "vision_analysis", "vision", "vl", "image_quality_evaluation", "quality_evaluation"}:
+        return "图像理解"
     if c in {"general", "common"}:
         return "通用类"
     # Safe fallback to avoid leaking extra categories into the sidebar.
@@ -937,14 +952,14 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
             ]
         },
     },
-    # 图裂变 / 图裂变（ComfyUI，无提示词，输出回调 task id）- 2026-03-28 新版
+    # 图裂变 / 图裂变（ComfyUI，无提示词，输出回调 task id）- 2026-03-28 版本
     {
         "category": "图裂变",
         "name": "图裂变 · Liebian_comfyui_20260328_1",
         "version": "v1",
         "workflow_id": "7622193261276299264",
         "status": "active",
-        "notes": "图裂变（ComfyUI 无提示词，新版）。输出 output 为回调 task id。裂变数量通过 count 控制（业务侧循环，不在工作流中循环）。",
+        "notes": "图裂变（ComfyUI 无提示词，2026-03-28 版本）。输出 output 为回调 task id。裂变数量通过 count 控制（业务侧循环，不在工作流中循环）。",
         "parameters_schema": {
             "fields": [
                 {"name": "url", "label": "图片 URL", "type": "text", "required": True},
@@ -968,14 +983,14 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
             ]
         },
     },
-    # 图裂变 / 图裂变（ComfyUI，有提示词，输出回调 task id）- 2026-03-28 新版
+    # 图裂变 / 图裂变（ComfyUI，有提示词，输出回调 task id）- 2026-03-28 版本
     {
         "category": "图裂变",
         "name": "图裂变 · Liebian_comfyui_20260328",
         "version": "v1",
         "workflow_id": "7622190276932534272",
         "status": "active",
-        "notes": "图裂变（ComfyUI 有提示词，新版）。输出 output 为回调 task id。裂变数量通过 count 控制。",
+        "notes": "图裂变（ComfyUI 有提示词，2026-03-28 版本）。输出 output 为回调 task id。裂变数量通过 count 控制。",
         "parameters_schema": {
             "fields": [
                 {"name": "url", "label": "图片 URL", "type": "text", "required": True},
@@ -1412,6 +1427,209 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
             ]
         },
     },
+    # 图裂变 / AI 团队高质量 SoftStyle Coze 工作流
+    {
+        "category": "图裂变",
+        "name": "图裂变 · 高质量 SoftStyle",
+        "version": "2026-04-23",
+        "workflow_id": "7631838631375667200",
+        "status": "active",
+        "notes": "AI 团队 2026-04-23 交付的高质量 SoftStyle 裂变主线。输入 url + bili + 宽高，输出回调 task id。",
+        "parameters_schema": {
+            "fields": [
+                {"name": "url", "label": "图片 URL", "type": "image", "required": True},
+                {"name": "bili", "label": "相似度(%)", "type": "text", "required": True, "defaultValue": "50%", "description": "与原图保持相似的百分比（越高越接近原图）。"},
+                {"name": "width", "label": "宽度", "type": "text", "required": False, "defaultValue": "", "description": "像素数值（纯数字，不要带 px）"},
+                {"name": "height", "label": "高度", "type": "text", "required": False, "defaultValue": "", "description": "像素数值（纯数字，不要带 px）"},
+                {"name": "prompt", "label": "提示词", "type": "textarea", "required": False, "defaultValue": ""},
+                {"name": "count", "label": "裂变数量", "type": "text", "required": False, "defaultValue": "4", "description": "一次评测会触发 count 个子任务并聚合结果"},
+            ]
+        },
+        "output_schema": {
+            "fields": [
+                {"name": "output", "type": "text", "description": "回调 task id"},
+                {"name": "prompt", "type": "text", "description": "提示词反馈字符串"},
+                {"name": "ip", "type": "text", "description": "ComfyUI 执行节点 IP"},
+            ]
+        },
+        "metadata": {
+            "presentation": {
+                "operation_label": "图像裂变",
+                "variant_label": "高质量 SoftStyle",
+                "result_mode": "callback_image",
+                "supports_batch": True,
+                "usage_hint": "当前推荐的 Coze 图裂变主线，用于对照原生业务接口效果。",
+            },
+            "governance": {
+                "role": "production",
+                "role_label": "生产主入口",
+                "role_reason": "当前业务正在使用的高质量 SoftStyle 裂变主线。",
+            },
+        },
+    },
+    # 图裂变 / 中台原生业务接口：GPT Image 2 + VL 控制版
+    {
+        "category": "图裂变",
+        "name": "图裂变 · GPT Image 2 + VL 控制版",
+        "version": "gpt-image2-vl-v1",
+        "workflow_id": "business_fission_gpt_image2_vl_v1",
+        "status": "active",
+        "notes": "中台原生图裂变业务接口。先由 VL 生成结构卡，再调用 GPT Image 2 图片编辑；适合验证商业模型裂变链路。",
+        "parameters_schema": {
+            "fields": [
+                {"name": "url", "label": "原图 URL", "type": "image", "required": True, "description": "裂变前的参考原图；测评端上传后会自动写入。"},
+                {"name": "prompt", "label": "额外要求", "type": "textarea", "required": False, "defaultValue": "", "description": "可选，会拼入最终提示词。"},
+                {
+                    "name": "variation_strength",
+                    "label": "裂变幅度",
+                    "type": "select",
+                    "required": False,
+                    "defaultValue": "high",
+                    "options": [
+                        {"label": "明显变化", "value": "high"},
+                        {"label": "中等变化", "value": "medium"},
+                        {"label": "保守变化", "value": "low"},
+                    ],
+                },
+                {
+                    "name": "quality",
+                    "label": "质量档位",
+                    "type": "select",
+                    "required": False,
+                    "defaultValue": "preview",
+                    "options": [
+                        {"label": "预览", "value": "preview"},
+                        {"label": "正式", "value": "production"},
+                        {"label": "高质", "value": "premium"},
+                    ],
+                },
+                {"name": "count", "label": "生成张数", "type": "text", "required": False, "defaultValue": "1", "description": "建议 1-3；数量越多成本越高。"},
+                {"name": "maskUrl", "label": "蒙版 URL", "type": "text", "required": False, "defaultValue": "", "description": "可选；需要局部编辑时传入。"},
+                {"name": "size", "label": "输出尺寸", "type": "text", "required": False, "defaultValue": "auto"},
+            ]
+        },
+        "output_schema": {
+            "fields": [
+                {"name": "imageUrls", "type": "array", "description": "中台 OSS 结果图"},
+                {"name": "runId", "type": "text", "description": "业务运行 ID"},
+                {"name": "taskId", "type": "text", "description": "底层能力任务 ID"},
+            ]
+        },
+        "metadata": {
+            "isNewVersion": True,
+            "badge": "新版",
+            "presentation": {
+                "operation_label": "图像裂变",
+                "variant_label": "GPT Image 2 + VL 控制版",
+                "badges": ["新版", "原生业务接口"],
+                "supports_batch": True,
+                "result_mode": "image",
+                "usage_hint": "用于验证 GPT Image 2 商业模型裂变链路，业务方后续可按版本切流。",
+            },
+            "governance": {
+                "role": "candidate",
+                "role_label": "灰度验证版本",
+                "role_reason": "2026-05-12 新接入，先在测评端做效果和稳定性验证。",
+            },
+            "eval_execution": {
+                "mode": "business_run",
+                "business_key": "fission",
+                "version": "gpt-image2-vl-v1",
+            },
+        },
+    },
+    # 图裂变 / 中台原生业务接口：ComfyUI VL 控制卡版
+    {
+        "category": "图裂变",
+        "name": "图裂变 · ComfyUI VL 控制卡版",
+        "version": "comfyui-vl-control-v1",
+        "workflow_id": "business_fission_comfyui_vl_control_v1",
+        "status": "active",
+        "notes": "中台原生图裂变业务接口。先由统一 VL 组件生成控制卡，再调用 ComfyUI 05 FLUX Strong HQ SoftStyle 裂变工作流。",
+        "parameters_schema": {
+            "fields": [
+                {"name": "url", "label": "原图 URL", "type": "image", "required": True, "description": "裂变前的参考原图；测评端上传后会自动写入。"},
+                {"name": "bili", "label": "裂变幅度", "type": "text", "required": False, "defaultValue": "50%", "description": "0%=更保守，100%=变化更大；默认 50%。"},
+                {"name": "width", "label": "输出宽度", "type": "text", "required": False, "defaultValue": "2000", "description": "像素数值（纯数字，不要带 px）"},
+                {"name": "height", "label": "输出高度", "type": "text", "required": False, "defaultValue": "2000", "description": "像素数值（纯数字，不要带 px）"},
+                {"name": "profile", "label": "裂变配置", "type": "text", "required": False, "defaultValue": "pattern_default_v1"},
+                {"name": "prompt", "label": "额外要求", "type": "textarea", "required": False, "defaultValue": ""},
+                {"name": "count", "label": "生成张数", "type": "text", "required": False, "defaultValue": "1", "description": "当前业务接口默认按单次任务执行；批量测评可用测评端批量入口。"},
+            ]
+        },
+        "output_schema": {
+            "fields": [
+                {"name": "imageUrls", "type": "array", "description": "中台 OSS 结果图"},
+                {"name": "runId", "type": "text", "description": "业务运行 ID"},
+                {"name": "taskId", "type": "text", "description": "底层能力任务 ID"},
+            ]
+        },
+        "metadata": {
+            "isNewVersion": True,
+            "badge": "新版",
+            "presentation": {
+                "operation_label": "图像裂变",
+                "variant_label": "ComfyUI VL 控制卡版",
+                "badges": ["新版", "原生业务接口"],
+                "supports_batch": True,
+                "result_mode": "image",
+                "usage_hint": "用于验证 ComfyUI 裂变接口包，重点看 VL 控制卡到出图的闭环是否稳定。",
+            },
+            "governance": {
+                "role": "candidate",
+                "role_label": "灰度验证版本",
+                "role_reason": "2026-05-12 新接入，先在测评端做效果和稳定性验证。",
+            },
+            "eval_execution": {
+                "mode": "business_run",
+                "business_key": "fission",
+                "version": "comfyui-vl-control-v1",
+            },
+        },
+    },
+    # 图像理解 / 裂变生成图质量评估
+    {
+        "category": "图像理解",
+        "name": "生成图评估 · 裂变质量与逻辑评估",
+        "version": "generated-image-eval-v1",
+        "workflow_id": "ability_fission_generated_image_evaluate_v1",
+        "status": "active",
+        "notes": "单独评估裂变生成图质量和逻辑合理性，输出 pass / needs_refission / reject，业务侧自行决定是否二次裂变。",
+        "parameters_schema": {
+            "fields": [
+                {"name": "original_image", "label": "原图 URL", "type": "image", "required": True, "description": "裂变前的参考原图。"},
+                {"name": "generated_image", "label": "生成图 URL", "type": "image", "required": True, "description": "裂变后需要评估的生成图。"},
+                {"name": "context", "label": "评估上下文 JSON", "type": "textarea", "required": False, "defaultValue": "", "description": "可传 task_id、profile、pattern_type 等信息；为空也可评估。"},
+            ]
+        },
+        "output_schema": {
+            "fields": [
+                {"name": "output", "type": "json", "description": "评估结果 JSON：decision、score、problem_tags、reason、next_action"},
+            ]
+        },
+        "metadata": {
+            "isNewVersion": True,
+            "badge": "新版",
+            "presentation": {
+                "operation_label": "图像理解",
+                "variant_label": "裂变质量评估",
+                "badges": ["新版", "原子组件"],
+                "supports_batch": False,
+                "result_mode": "structured_json",
+                "usage_hint": "用于评估裂变结果是否合理，通常接在裂变出图之后单独调用。",
+            },
+            "governance": {
+                "role": "candidate",
+                "role_label": "灰度验证版本",
+                "role_reason": "2026-05-12 新接入，先在测评端验证评估结论稳定性。",
+            },
+            "eval_execution": {
+                "mode": "ability_task",
+                "ability_id": "vl_fission_generated_image_evaluate",
+                "image_fields": ["original_image", "generated_image"],
+            },
+        },
+    },
     # 不建议直接使用：ComfyUI 回调工作流（供后端兜底解析 images）
     {
         "category": "general",
@@ -1463,6 +1681,7 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
             notes=item.get("notes"),
             parameters_schema=item.get("parameters_schema"),
             output_schema=item.get("output_schema"),
+            extra_metadata=item.get("metadata"),
         )
         session.add(row)
         existing.add((workflow_id, desired_category))
@@ -1521,7 +1740,7 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
             if row.notes != "输入 taskid，输出 images 数组（回调工作流）。业务侧可直接调用该 workflow 获取图片。":
                 row.notes = "输入 taskid，输出 images 数组（回调工作流）。业务侧可直接调用该 workflow 获取图片。"
                 dirty = True
-        if row.workflow_id in {"7602916576198656000", "7612002440056930304"}:
+        if row.workflow_id in {"7602916576198656000", "7612002440056930304"} | FORCE_SYNC_EVAL_WORKFLOW_IDS:
             # Force-reset critical workflows to the latest agreed schema.
             desired = DEFAULT_EVAL_WORKFLOW_BY_ID.get(row.workflow_id)
             if desired:
@@ -1543,6 +1762,9 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
                     dirty = True
                 if row.output_schema != desired.get("output_schema"):
                     row.output_schema = desired.get("output_schema")
+                    dirty = True
+                if "metadata" in desired and row.extra_metadata != desired.get("metadata"):
+                    row.extra_metadata = desired.get("metadata")
                     dirty = True
         if row.workflow_id == "7598848725942796288":
             # Force-reset to the latest "裂变（商业有提示词）" spec (field list has changed).

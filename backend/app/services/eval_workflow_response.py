@@ -72,6 +72,7 @@ def _camelize_presentation(payload: dict[str, Any] | None) -> dict[str, Any] | N
         "resultMode": payload.get("result_mode"),
         "supportsBatch": payload.get("supports_batch"),
         "recommendedRepeatCount": payload.get("recommended_repeat_count"),
+        "badges": payload.get("badges") or [],
     }
 
 

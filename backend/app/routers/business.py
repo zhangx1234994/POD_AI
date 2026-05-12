@@ -324,7 +324,7 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "variation_strength": {
                 "type": "string",
                 "nullable": True,
-                "description": "GPT Image 2 新版裂变幅度：low / medium / high。",
+                "description": "GPT Image 2 裂变幅度：low / medium / high。",
                 "enum": ["low", "medium", "high"],
             },
             "quality": {
@@ -333,7 +333,7 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                 "description": "商业模型质量档位：preview / production / premium。",
                 "enum": ["preview", "production", "premium"],
             },
-            "count": {"type": "integer", "nullable": True, "description": "GPT Image 2 新版输出张数，建议 1-3。"},
+            "count": {"type": "integer", "nullable": True, "description": "GPT Image 2 输出张数，建议 1-3。"},
             "preserve_layout": {"type": "boolean", "nullable": True, "description": "是否保留原图版式。"},
             "preserve_border": {"type": "string", "nullable": True, "description": "边框保留策略：auto / true / false。"},
             "preserve_count_density": {"type": "boolean", "nullable": True, "description": "是否保留元素数量感和密度。"},

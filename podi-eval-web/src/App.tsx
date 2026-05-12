@@ -696,6 +696,35 @@ const getCategoryVisual = (category: string | undefined | null) => {
 
 const getCategoryNavIcon = (category: string): ReactNode => getCategoryVisual(category).icon;
 
+const cleanWorkflowDisplayText = (value: string): string =>
+  String(value || '')
+    .replace(/新版/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/[·|｜:：/-]\s*$/g, '')
+    .trim();
+
+const getWorkflowBadges = (wf: EvalWorkflowVersion): string[] => {
+  const presentation = getWorkflowPresentation(wf);
+  const metadata = wf.metadata && typeof wf.metadata === 'object' ? wf.metadata : {};
+  const rawBadges = [
+    ...(Array.isArray(presentation?.badges) ? presentation.badges : []),
+    ...((metadata as any).badge ? [(metadata as any).badge] : []),
+    ...(Array.isArray((metadata as any).badges) ? (metadata as any).badges : []),
+  ];
+  if (((metadata as any).isNewVersion || (metadata as any).is_new_version) && !rawBadges.includes('新版')) {
+    rawBadges.unshift('新版');
+  }
+  const seen = new Set<string>();
+  return rawBadges
+    .map((item) => String(item || '').trim())
+    .filter((item) => {
+      if (!item || seen.has(item)) return false;
+      seen.add(item);
+      return true;
+    })
+    .slice(0, 4);
+};
+
 const getSchemaFields = (schema: Record<string, unknown> | null | undefined): SchemaField[] => {
   const fields = schema?.fields;
   if (!Array.isArray(fields)) return [];
@@ -705,7 +734,7 @@ const getSchemaFields = (schema: Record<string, unknown> | null | undefined): Sc
 const getWorkflowCardTitle = (wf: EvalWorkflowVersion): string => {
   const operationLabel = getWorkflowOperationLabel(wf);
   const variantLabel = getWorkflowVariantLabel(wf);
-  if (variantLabel) return variantLabel;
+  if (variantLabel) return cleanWorkflowDisplayText(variantLabel);
   const category = getWorkflowCategory(wf);
   const rawName = String(wf.name || wf.workflow_id || '未命名功能').trim();
   const parts = rawName
@@ -714,9 +743,11 @@ const getWorkflowCardTitle = (wf: EvalWorkflowVersion): string => {
     .filter(Boolean);
   const noisy = new Set([category, operationLabel, '图裂变', '裂变', '图延伸', '扩图', '连续图', '抠图', '图像增强', 'ComfyUI', '商业模型']);
   const distinctPart = parts.find((item) => !noisy.has(item));
-  if (distinctPart) return distinctPart;
-  if (operationLabel && rawName !== operationLabel) return rawName.replace(operationLabel, '').replace(/[·|｜:：/-]/g, ' ').trim() || operationLabel;
-  return operationLabel || rawName || `工作流 ${getWorkflowShortId(wf)}`;
+  if (distinctPart) return cleanWorkflowDisplayText(distinctPart);
+  if (operationLabel && rawName !== operationLabel) {
+    return cleanWorkflowDisplayText(rawName.replace(operationLabel, '').replace(/[·|｜:：/-]/g, ' ')) || operationLabel;
+  }
+  return cleanWorkflowDisplayText(operationLabel || rawName) || `工作流 ${getWorkflowShortId(wf)}`;
 };
 
 const getWorkflowOperationTitle = (wf: EvalWorkflowVersion): string =>
@@ -1833,6 +1864,7 @@ function ToolCard({
   const routingTheme = getWorkflowRoutingGovernanceTheme(routingGovernance?.governanceStatus);
   const executionLabel = String(routingGovernance?.executionLabel || '执行面待确认').trim();
   const trackingLabel = String(routingGovernance?.currentTrackingLabel || '追踪待确认').trim();
+  const badges = getWorkflowBadges(wf);
   const panelStyle = {
     height: '100%',
     borderColor: active ? accent : undefined,
@@ -1866,7 +1898,16 @@ function ToolCard({
           <div className="podi-eval-tool-card__identity">
             <div style={{ minWidth: 0 }}>
               <div className="podi-eval-tool-card__kicker">{operationTitle}</div>
-              <div className="podi-eval-tool-card__title" title={wf.name || title}>{title}</div>
+              <div className="podi-eval-tool-card__title" title={cleanWorkflowDisplayText(wf.name || title)}>{title}</div>
+              {badges.length ? (
+                <div className="podi-eval-tool-card__badges" aria-label="功能标记">
+                  {badges.map((badge) => (
+                    <Tag key={badge} size="small" theme={badge === '新版' ? 'success' : 'primary'} variant="light">
+                      {badge}
+                    </Tag>
+                  ))}
+                </div>
+              ) : null}
               <div className="podi-eval-tool-card__subtitle podi-clamp-2">{usageHint}</div>
             </div>
             <Space direction="vertical" size={2} style={{ alignItems: 'flex-end' }}>
@@ -6209,10 +6250,15 @@ export function App() {
             <Typography.Text className="podi-eval-tool-overview__eyebrow">当前功能工作台</Typography.Text>
             <Space direction="vertical" size={6} style={{ minWidth: 0, width: '100%' }}>
               <Typography.Title level="h4" style={{ margin: 0 }}>
-                {selectedTool.name}
+                {getWorkflowOperationTitle(selectedTool)} · {getWorkflowCardTitle(selectedTool)}
               </Typography.Title>
               <Typography.Text theme="secondary">{getWorkflowUsageHint(selectedTool) || '—'}</Typography.Text>
               <Space breakLine>
+                {getWorkflowBadges(selectedTool).map((badge) => (
+                  <Tag key={badge} theme={badge === '新版' ? 'success' : 'primary'} variant="light">
+                    {badge}
+                  </Tag>
+                ))}
                 <Tag variant="light">{getWorkflowCategory(selectedTool)}</Tag>
                 <Tag variant="light">{selectedTool.version}</Tag>
                 {getWorkflowOperationLabel(selectedTool) ? <Tag variant="light">{getWorkflowOperationLabel(selectedTool)}</Tag> : null}

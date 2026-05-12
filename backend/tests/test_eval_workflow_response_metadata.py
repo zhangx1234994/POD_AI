@@ -32,7 +32,7 @@ def test_eval_workflow_response_exposes_business_catalog_role() -> None:
     payload = build_eval_workflow_response_metadata(_workflow())
 
     assert payload["presentation"]["operationLabel"] == "图像裂变"
-    assert payload["presentation"]["variantLabel"] == "ComfyUI 新版"
+    assert payload["presentation"]["variantLabel"] == "ComfyUI 20260328"
     assert payload["usage"]["batchEnabled"] is True
     assert payload["governance"] == {
         "role": "candidate",
@@ -88,7 +88,7 @@ def test_eval_workflow_cleanup_override_hides_deprecated_public_entry() -> None:
 def test_eval_workflow_metadata_update_merges_governance_without_losing_blocks() -> None:
     merged = merge_eval_workflow_metadata_update(
         {
-            "presentation": {"variant_label": "高质量新版", "visible": True},
+            "presentation": {"variant_label": "高质量 SoftStyle", "visible": True},
             "usage": {"batch_enabled": True},
         },
         {
@@ -102,7 +102,7 @@ def test_eval_workflow_metadata_update_merges_governance_without_losing_blocks()
     )
 
     assert merged == {
-        "presentation": {"variant_label": "高质量新版", "visible": True},
+        "presentation": {"variant_label": "高质量 SoftStyle", "visible": True},
         "usage": {"batch_enabled": True},
         "governance": {
             "role": "production",

@@ -41,6 +41,7 @@ def test_resolve_eval_workflow_presentation_for_fission_workflow() -> None:
         "result_mode": "callback_image",
         "supports_batch": True,
         "recommended_repeat_count": 4,
+        "badges": [],
     }
 
 
@@ -72,6 +73,7 @@ def test_enrich_eval_workflow_presentation_preserves_parameter_defaults() -> Non
         "result_mode": "image",
         "supports_batch": False,
         "recommended_repeat_count": 1,
+        "badges": [],
     }
 
 

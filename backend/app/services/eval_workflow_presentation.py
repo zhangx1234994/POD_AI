@@ -12,6 +12,7 @@ _CATEGORY_SORT_BUCKETS = {
     "图延伸类": 2000,
     "四方/两方连续图类": 3000,
     "图裂变": 4000,
+    "图像理解": 4500,
     "通用类": 5000,
 }
 
@@ -20,6 +21,7 @@ _CATEGORY_OPERATION_LABELS = {
     "图延伸类": "图像延伸",
     "四方/两方连续图类": "连续图生成",
     "图裂变": "图像裂变",
+    "图像理解": "图像理解",
     "通用类": "通用处理",
 }
 
@@ -129,7 +131,7 @@ def _guess_operation_label(*, category: str, workflow_id: str, name: str) -> str
 def _guess_variant_label(*, workflow_id: str, name: str) -> str:
     lowered = f"{workflow_id} {name}".lower()
     if workflow_id == "7631838631375667200" or "softstyle" in lowered or "高质量" in name:
-        return "高质量新版"
+        return "高质量 SoftStyle"
     if workflow_id == "7631174682116358144" or "flux2_klein" in lowered:
         return "当前扩图主线"
     if "文字增强" in name or "text_enhance" in lowered:
@@ -144,7 +146,7 @@ def _guess_variant_label(*, workflow_id: str, name: str) -> str:
         return "商业模型"
     if "comfyui" in lowered:
         if "20260328" in lowered:
-            return "ComfyUI 新版"
+            return "ComfyUI 20260328"
         if "20260124" in lowered:
             return "ComfyUI 旧版"
         return "ComfyUI"
@@ -170,6 +172,21 @@ def _guess_variant_label(*, workflow_id: str, name: str) -> str:
         if item.strip()
     ]
     return parts[-1] if len(parts) > 1 else ""
+
+
+def _normalize_badges(value: Any) -> list[str]:
+    if value is None:
+        return []
+    raw = value if isinstance(value, list) else [value]
+    badges: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        text = str(item or "").strip()
+        if not text or text in seen:
+            continue
+        badges.append(text)
+        seen.add(text)
+    return badges[:4]
 
 
 def _forced_presentation_values(*, workflow_id: str, name: str) -> dict[str, str]:
@@ -262,6 +279,9 @@ def resolve_eval_workflow_presentation(
         presentation.get("recommended_repeat_count"),
         default=_extract_recommended_repeat_count(parameters_schema),
     )
+    badges = _normalize_badges(presentation.get("badges") or base.get("badges") or base.get("badge"))
+    if _normalize_bool(base.get("is_new_version") or base.get("isNewVersion"), default=False) and "新版" not in badges:
+        badges.insert(0, "新版")
     default_sort = _CATEGORY_SORT_BUCKETS.get(category_text, 9000)
     return {
         "visible": _normalize_bool(
@@ -297,6 +317,7 @@ def resolve_eval_workflow_presentation(
         "result_mode": result_mode,
         "supports_batch": supports_batch,
         "recommended_repeat_count": max(1, recommended_repeat_count),
+        "badges": badges,
     }
 
 
@@ -324,6 +345,7 @@ def enrich_metadata_with_eval_workflow_presentation(
             "result_mode": str(presentation_override.get("result_mode") or "").strip() or None,
             "supports_batch": presentation_override.get("supports_batch"),
             "recommended_repeat_count": presentation_override.get("recommended_repeat_count"),
+            "badges": presentation_override.get("badges"),
         }
         payload = {key: value for key, value in payload.items() if value is not None}
         if payload:
