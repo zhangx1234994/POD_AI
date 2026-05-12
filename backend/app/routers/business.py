@@ -418,7 +418,7 @@ def get_business_run(
             run_id=run_id,
             error_code="BUSINESS_RUN_GET_FAILED",
         )
-        raise
+        raise HTTPException(status_code=503, detail="BUSINESS_RUN_TEMPORARY_UNAVAILABLE")
     _record_business_api_key_usage(request, status_code=200, run=result, run_id=run_id)
     return result
 

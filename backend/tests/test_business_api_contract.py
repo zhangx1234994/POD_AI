@@ -193,6 +193,23 @@ def test_business_run_get_requires_run_id() -> None:
     assert resp.json()["detail"] == "BUSINESS_RUN_ID_REQUIRED"
 
 
+def test_business_run_get_hides_internal_database_errors(monkeypatch) -> None:
+    class FakeBusinessRunService:
+        def get_run(self, *, run_id, user):
+            raise RuntimeError("pymysql.err.OperationalError: SELECT very large sql")
+
+    monkeypatch.setattr("app.routers.business.get_business_run_service", lambda: FakeBusinessRunService())
+
+    resp = client.post(
+        "/api/business/runs/get",
+        json={"runId": "run_sql_failed"},
+        headers={"x-real-ip": "127.0.0.1"},
+    )
+
+    assert resp.status_code == 503
+    assert resp.json()["detail"] == "BUSINESS_RUN_TEMPORARY_UNAVAILABLE"
+
+
 def test_business_admin_api_keys_require_admin_token() -> None:
     resp = client.get("/api/admin/business/api-keys", headers={"x-real-ip": "127.0.0.1"})
 

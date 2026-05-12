@@ -17,6 +17,7 @@ from uuid import uuid4
 import httpx
 from fastapi import HTTPException
 from sqlalchemy import and_, func, not_, or_, select, update
+from sqlalchemy.exc import OperationalError
 
 from app.core.config import get_settings
 from app.core.db import get_session
@@ -1591,14 +1592,20 @@ class BusinessRunService:
         )
 
     def get_run(self, *, run_id: str, user: User | None = None) -> BusinessRun:
-        self.finalize_run(run_id)
-        with get_session() as session:
-            row = session.get(BusinessRun, run_id)
-            if not row:
-                raise HTTPException(status_code=404, detail="BUSINESS_RUN_NOT_FOUND")
-            if user and not self._can_user_access_run(row, user):
-                raise HTTPException(status_code=403, detail="BUSINESS_RUN_FORBIDDEN")
-            return self._run_to_dict(row, session=session)
+        try:
+            self.finalize_run(run_id)
+            with get_session() as session:
+                row = session.get(BusinessRun, run_id)
+                if not row:
+                    raise HTTPException(status_code=404, detail="BUSINESS_RUN_NOT_FOUND")
+                if user and not self._can_user_access_run(row, user):
+                    raise HTTPException(status_code=403, detail="BUSINESS_RUN_FORBIDDEN")
+                return self._run_to_dict(row, session=session)
+        except HTTPException:
+            raise
+        except OperationalError:
+            logger.exception("business run query temporarily unavailable: run_id=%s", run_id)
+            raise HTTPException(status_code=503, detail="BUSINESS_RUN_TEMPORARY_UNAVAILABLE")
 
     def finalize_run(self, run_id: str) -> None:
         with get_session() as session:
@@ -4953,13 +4960,21 @@ class BusinessRunService:
     def _run_steps_to_dict(self, row: BusinessRun, *, session=None) -> list[dict[str, Any]]:
         if session is None:
             return []
-        # Avoid MySQL sorting wide rows that contain JSON payload columns; sort the few run steps in Python instead.
-        steps = (
-            session.execute(select(BusinessRunStep).where(BusinessRunStep.run_id == row.id))
-            .scalars()
+        # Avoid sorting wide JSON payload columns in MySQL. First sort only narrow indexed
+        # columns, then fetch each step by primary key for detail rendering.
+        step_refs = (
+            session.execute(
+                select(BusinessRunStep.id, BusinessRunStep.step_order, BusinessRunStep.created_at)
+                .where(BusinessRunStep.run_id == row.id)
+                .order_by(BusinessRunStep.step_order.asc(), BusinessRunStep.created_at.asc())
+            )
             .all()
         )
-        steps.sort(key=lambda step: (step.step_order, step.created_at or datetime.min))
+        steps: list[BusinessRunStep] = []
+        for step_id, _step_order, _created_at in step_refs:
+            step = session.get(BusinessRunStep, step_id)
+            if step:
+                steps.append(step)
         log_map = self._load_ability_log_map(
             session,
             [int(step.ability_log_id) for step in steps if step.ability_log_id],

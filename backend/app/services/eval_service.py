@@ -663,7 +663,12 @@ class EvalService:
                 self._mark_failed(run_id, message=str(exc.detail), started=started)
                 return
             except Exception as exc:  # pragma: no cover - defensive
-                self._mark_failed(run_id, message=f"BUSINESS_RUN_GET_FAILED:{exc}", started=started)
+                self._logger.exception(
+                    "eval business run polling failed: eval_run_id=%s business_run_id=%s",
+                    run_id,
+                    business_run_id,
+                )
+                self._mark_failed(run_id, message="BUSINESS_RUN_GET_FAILED:业务任务结果查询失败，请稍后重试", started=started)
                 return
             last_payload = payload if isinstance(payload, dict) else {}
             status = str(last_payload.get("status") or "").strip().lower()
