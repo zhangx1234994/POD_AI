@@ -30,6 +30,13 @@ type BusinessInterfaceGroup = {
   accent: 'success' | 'primary' | 'warning' | 'default';
 };
 
+type BusinessApiParamDoc = {
+  key: string;
+  required: boolean;
+  description: string;
+  example: string;
+};
+
 type DeliveryGuardStatus = 'done' | 'doing' | 'todo';
 
 type DeliveryGuard = {
@@ -235,6 +242,87 @@ const ABILITY_ENDPOINTS: ApiEndpoint[] = [
     purpose: '读取能力表单需要的候选值，减少前端硬编码。',
     audience: '前端 / 工具开发',
     businessKey: 'platform_tools',
+  },
+];
+
+const FISSION_API_PARAMS: BusinessApiParamDoc[] = [
+  {
+    key: 'imageUrl',
+    required: true,
+    description: '原图地址。必须是中台、Coze 和能力服务器都能访问的图片 URL。',
+    example: 'https://example.com/input.png',
+  },
+  {
+    key: 'version',
+    required: false,
+    description: '指定图裂变版本。不传时使用中台默认版本；固定 GPT Image 2 + VL 控制版时传 gpt-image2-vl-v1。',
+    example: 'gpt-image2-vl-v1',
+  },
+  {
+    key: 'prompt',
+    required: false,
+    description: '业务提示词。图裂变已有 VL 分析和默认系统提示词，不传也可以运行；传入后作为补充要求。',
+    example: '保持主体关系，生成更适合商品使用的花纹变化',
+  },
+  {
+    key: 'bili',
+    required: false,
+    description: 'ComfyUI 裂变重绘幅度，沿用旧约定。值越大变化越明显，值越小越接近原图。',
+    example: '50%',
+  },
+  {
+    key: 'width / height',
+    required: false,
+    description: '输出宽高。测评端上传图片后默认取原图宽高，业务方也可以手动指定。',
+    example: '2000 / 2000',
+  },
+  {
+    key: 'variation_strength',
+    required: false,
+    description: 'GPT Image 2 版本的裂变幅度：low、medium、high。',
+    example: 'high',
+  },
+  {
+    key: 'quality',
+    required: false,
+    description: 'GPT Image 2 质量档位：preview、production、premium。',
+    example: 'preview',
+  },
+  {
+    key: 'count',
+    required: false,
+    description: 'GPT Image 2 输出张数。建议先用 1 张验证效果。',
+    example: '1',
+  },
+  {
+    key: 'size',
+    required: false,
+    description: 'GPT Image 2 输出尺寸预设，例如 auto、1024x1024、1536x1024、1024x1536。',
+    example: 'auto',
+  },
+  {
+    key: 'maskUrl',
+    required: false,
+    description: '蒙版图片 URL。需要局部编辑时传入；普通裂变可不传。',
+    example: 'https://example.com/mask.png',
+  },
+  {
+    key: 'callbackUrl',
+    required: false,
+    description: '终态回调地址。不传时业务方自行轮询 runId。',
+    example: 'https://your-service.example.com/podi/callback',
+  },
+  {
+    key: 'requestId / traceId',
+    required: false,
+    description: '业务方请求编号和链路编号，用于幂等、日志关联和排障。',
+    example: 'biz-request-001 / biz-trace-001',
+  },
+  {
+    key: 'source / channel',
+    required: false,
+    description: '调用来源和接入渠道，例如 partner-api、open-api、coze-workflow。',
+    example: 'partner-api / open-api',
   },
 ];
 
@@ -507,7 +595,12 @@ function buildBusinessRunExample(): string {
   -H "Content-Type: application/json" \\
   -d '{
     "imageUrl": "https://example.com/input.png",
-    "prompt": "保持主体风格，生成 4 张变化图",
+    "version": "gpt-image2-vl-v1",
+    "prompt": "可选：保持主体风格，生成更适合商品使用的花纹变化",
+    "variation_strength": "high",
+    "quality": "preview",
+    "count": 1,
+    "size": "auto",
     "source": "partner-api",
     "channel": "open-api",
     "callbackUrl": "https://your-service.example.com/callback",
@@ -521,6 +614,15 @@ function buildBusinessQueryExample(): string {
   -H "Content-Type: application/json" \\
   -d '{
     "runId": "<提交接口返回的 runId>"
+  }'`;
+}
+
+function buildCozeCompatibleQueryExample(): string {
+  return `curl -X POST <backend-host>/api/coze/podi/tasks/get \\
+  -H "Authorization: Bearer <SERVICE_API_TOKEN>" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "taskId": "<runId 或 taskId>"
   }'`;
 }
 
@@ -772,6 +874,49 @@ export function ApiExposurePanel({
             </Tag>
             <CodeExample value={buildBusinessRunExample()} onCopy={onCopy} />
             <CodeExample value={buildBusinessQueryExample()} onCopy={onCopy} />
+            <details className="podi-api-param-details" open>
+              <summary>图裂变参数说明</summary>
+              <Table
+                rowKey="key"
+                size="small"
+                data={FISSION_API_PARAMS}
+                columns={[
+                  {
+                    colKey: 'key',
+                    title: '参数',
+                    width: 160,
+                    cell: ({ row }) => <Typography.Text code>{row.key}</Typography.Text>,
+                  },
+                  {
+                    colKey: 'required',
+                    title: '是否必填',
+                    width: 90,
+                    cell: ({ row }) => (
+                      <Tag theme={row.required ? 'danger' : 'default'} variant="light">
+                        {row.required ? '必填' : '可选'}
+                      </Tag>
+                    ),
+                  },
+                  {
+                    colKey: 'description',
+                    title: '说明',
+                    ellipsis: true,
+                  },
+                  {
+                    colKey: 'example',
+                    title: '示例',
+                    ellipsis: true,
+                  },
+                ]}
+              />
+            </details>
+            <details className="podi-api-param-details">
+              <summary>兼容 Coze 旧查询方式</summary>
+              <Typography.Text theme="secondary">
+                业务 API 推荐用 runId 查询；Coze 或内网旧工具箱可以把 runId 当 taskId 调用旧任务查询。
+              </Typography.Text>
+              <CodeExample value={buildCozeCompatibleQueryExample()} onCopy={onCopy} />
+            </details>
           </Space>
         </Card>
         <Card bordered className="podi-api-mode-card">

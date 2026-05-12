@@ -730,6 +730,11 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                 "content": {"application/json": {"schema": error_schema}},
                 "x-podi-errors": errors_by_status.get("429", []),
             },
+            "503": {
+                "description": "任务查询或依赖服务临时不可用，可稍后重试",
+                "content": {"application/json": {"schema": error_schema}},
+                "x-podi-errors": errors_by_status.get("503", ["BUSINESS_RUN_TEMPORARY_UNAVAILABLE"]),
+            },
             "500": {
                 "description": "底层能力或执行节点失败",
                 "content": {"application/json": {"schema": error_schema}},
@@ -760,6 +765,7 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
         "400": ["BUSINESS_RUN_ID_REQUIRED"],
         "403": ["BUSINESS_RUN_FORBIDDEN", "BUSINESS_API_KEY_BUSINESS_NOT_ALLOWED"],
         "404": ["BUSINESS_RUN_NOT_FOUND"],
+        "503": ["BUSINESS_RUN_TEMPORARY_UNAVAILABLE"],
     }
     submit_errors["403"] = [
         "BUSINESS_CLIENT_DISABLED",

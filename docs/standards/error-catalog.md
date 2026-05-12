@@ -140,6 +140,7 @@
 | BUSINESS_RUN_ID_REQUIRED | 查询业务任务缺少 runId | 400 |
 | BUSINESS_RUN_NOT_FOUND | 业务任务不存在 | 404 |
 | BUSINESS_RUN_FORBIDDEN | 业务任务无访问权限 | 403 |
+| BUSINESS_RUN_TEMPORARY_UNAVAILABLE | 业务任务结果查询临时不可用，可稍后重试 | 503 |
 | BUSINESS_RUN_IDS_REQUIRED | 批量业务任务操作缺少 runId 列表 | 400 |
 | BUSINESS_RUN_BULK_LIMIT_EXCEEDED | 批量业务任务操作超过单次 100 条限制 | 400 |
 | BUSINESS_RUN_RETEST_PAYLOAD_INVALID | 业务复测无法从原任务还原有效入参 | 409 |

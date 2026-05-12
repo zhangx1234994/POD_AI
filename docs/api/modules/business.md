@@ -137,6 +137,7 @@ curl -X POST "$PODI_BACKEND/api/admin/business/api-keys" \
 | 业务方额度或并发限制 | `BUSINESS_CLIENT_DISABLED`、`BUSINESS_CLIENT_BUSINESS_NOT_ALLOWED`、`BUSINESS_CLIENT_CONCURRENCY_LIMITED`、`BUSINESS_CLIENT_DAILY_RUN_LIMITED`、`BUSINESS_CLIENT_DAILY_QUOTA_LIMITED` | 不要高频重试；等并发释放或联系平台调整策略。 | 管理端业务方配置页必须能看到限制来源。 |
 | 执行节点、队列或上游失败 | `COMFYUI_IMAGE_REQUIRED`、`COMFYUI_TIMEOUT`、`ABILITY_TASK_FAILED`、`VENDOR_API_EXECUTION_FAILED` | 可按业务策略稍后重试一次；连续失败时保留 `runId/taskId` 排查。 | 检查执行节点健康、队列、模型 Key、出网、OSS 回填和能力调用日志。 |
 | 查询不到任务 | `BUSINESS_RUN_NOT_FOUND`、`BUSINESS_RUN_FORBIDDEN` | 确认 `runId` 是否属于当前业务方，不要把底层 `taskId` 当 `runId` 使用。 | 排查租户隔离、任务写入和历史数据迁移。 |
+| 查询临时不可用 | `BUSINESS_RUN_TEMPORARY_UNAVAILABLE` | 稍后重试查询，不需要重新提交任务；持续出现时把 `runId/traceId` 发给平台。 | 检查数据库、索引、连接池和业务步骤查询链路，禁止把 SQL 原文返回给业务方。 |
 
 ---
 
@@ -823,6 +824,7 @@ OpenAPI 内每个工具都会枚举错误响应：
 - `401`：缺少服务 Token 或不在可信内网，例如 `AUTHORIZATION_REQUIRED`。
 - `403/404`：业务任务不可访问或不存在，例如 `BUSINESS_RUN_FORBIDDEN`、`BUSINESS_RUN_NOT_FOUND`。
 - `429`：队列或并发限制。
+- `503`：查询链路临时不可用，例如 `BUSINESS_RUN_TEMPORARY_UNAVAILABLE`，业务方可稍后重试查询。
 - `403/429`：命中业务方配置限制，例如业务方停用、未开通该业务、日调用或并发达到上限。
 - `500`：底层能力、ComfyUI 或第三方模型执行失败，例如 `COMFYUI_TIMEOUT`、`VENDOR_API_EXECUTION_FAILED`。
 

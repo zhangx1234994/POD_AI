@@ -1262,6 +1262,22 @@ html.t-theme-dark {
   line-height: 1.55;
 }
 
+.podi-api-param-details {
+  border: 1px solid var(--td-border-level-1-color);
+  border-radius: var(--podi-radius-md);
+  padding: 10px 12px;
+  background: var(--td-bg-color-secondarycontainer);
+}
+
+.podi-api-param-details summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.podi-api-param-details .t-table {
+  margin-top: 10px;
+}
+
 .podi-api-toolbox-highlight {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;

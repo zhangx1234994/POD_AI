@@ -272,6 +272,9 @@ const formatErrorCodeLabel = (code?: string | null): string => {
 const formatCompactErrorMessage = (message?: string | null): string => {
   const raw = String(message || '').trim();
   if (!raw) return '生成失败，请查看任务记录。';
+  if (/out of sort memory|pymysql\.err\.OperationalError|business_run_steps|BUSINESS_RUN_TEMPORARY_UNAVAILABLE/i.test(raw)) {
+    return '任务结果查询临时异常，请稍后重试；如果持续出现，请联系中台排查。';
+  }
   const mapped = toDisplayErrorMessage(raw);
   const readable = (mapped || raw)
     .split(/\s+\[SQL:|\s+stack=|\s+Traceback|\s+Background on this error:/i)[0]
@@ -1688,6 +1691,135 @@ const buildCozeDoc = (wf: EvalWorkflowVersion, urlExample: string) => {
   ].join('\n');
 };
 
+type BusinessApiParamDoc = {
+  name: string;
+  required: boolean;
+  description: string;
+  example: string;
+};
+
+const getBusinessApiParamDocs = (wf: EvalWorkflowVersion): BusinessApiParamDoc[] => {
+  const execution = getWorkflowEvalExecution(wf);
+  const version = String(execution?.version || wf.version || '').trim();
+  const docs: BusinessApiParamDoc[] = [
+    {
+      name: 'imageUrl',
+      required: true,
+      description: '原图地址。必须是中台、Coze 和能力服务器都能访问的图片 URL。',
+      example: 'https://example.com/input.png',
+    },
+    {
+      name: 'version',
+      required: false,
+      description: '指定业务版本。不传时使用中台当前默认版本；要固定本功能版本时再传。',
+      example: version || 'gpt-image2-vl-v1',
+    },
+    {
+      name: 'prompt',
+      required: false,
+      description: '业务提示词。图裂变已有 VL 分析和默认系统提示词，不传也可以运行；传入后作为补充要求。',
+      example: '保持主体关系，生成更适合商品使用的花纹变化',
+    },
+    {
+      name: 'requestId',
+      required: false,
+      description: '业务方请求编号，用于幂等、日志关联和排障。',
+      example: 'biz-request-001',
+    },
+    {
+      name: 'traceId',
+      required: false,
+      description: '跨系统追踪编号。业务方已有链路 ID 时建议传入。',
+      example: 'biz-trace-001',
+    },
+    {
+      name: 'source',
+      required: false,
+      description: '调用来源，例如 partner-api、coze、eval。',
+      example: 'partner-api',
+    },
+    {
+      name: 'channel',
+      required: false,
+      description: '接入渠道，例如 open-api、coze-workflow、internal-test。',
+      example: 'open-api',
+    },
+    {
+      name: 'callbackUrl',
+      required: false,
+      description: '任务完成后的回调地址。不传则业务方自行轮询结果。',
+      example: 'https://your-service.example.com/podi/callback',
+    },
+    {
+      name: 'callbackHeaders',
+      required: false,
+      description: '回调时附带的请求头，例如业务方验签 Token。不要把长期密钥写进日志。',
+      example: '{"Authorization":"Bearer callback-token"}',
+    },
+  ];
+  if (isFissionWorkflow(wf)) {
+    docs.push(
+      {
+        name: 'bili',
+        required: false,
+        description: 'ComfyUI 裂变重绘幅度，沿用旧约定。值越大变化越明显，值越小越接近原图。',
+        example: '50%',
+      },
+      {
+        name: 'width',
+        required: false,
+        description: '输出宽度。测评端上传图片后默认回填原图宽度，用户可以手动调整。',
+        example: '2000',
+      },
+      {
+        name: 'height',
+        required: false,
+        description: '输出高度。测评端上传图片后默认回填原图高度，用户可以手动调整。',
+        example: '2000',
+      },
+      {
+        name: 'variation_strength',
+        required: false,
+        description: 'GPT Image 2 版本的裂变幅度：low、medium、high。',
+        example: 'high',
+      },
+      {
+        name: 'quality',
+        required: false,
+        description: 'GPT Image 2 质量档位：preview、production、premium。',
+        example: 'preview',
+      },
+      {
+        name: 'count',
+        required: false,
+        description: 'GPT Image 2 输出张数。建议先用 1 张验证效果。',
+        example: '1',
+      },
+      {
+        name: 'size',
+        required: false,
+        description: 'GPT Image 2 输出尺寸预设，例如 auto、1024x1024、1536x1024、1024x1536。',
+        example: 'auto',
+      },
+      {
+        name: 'maskUrl',
+        required: false,
+        description: '蒙版图片 URL。需要局部编辑时传入；普通裂变可不传。',
+        example: 'https://example.com/mask.png',
+      },
+    );
+  }
+  return docs;
+};
+
+const buildBusinessApiParamDocText = (wf: EvalWorkflowVersion): string =>
+  getBusinessApiParamDocs(wf)
+    .map((item) => {
+      const flag = item.required ? '必填' : '可选';
+      return `- ${item.name}（${flag}）：${item.description} 示例：${item.example}`;
+    })
+    .join('\n');
+
 const buildBusinessApiDoc = (wf: EvalWorkflowVersion, urlExample: string) => {
   const execution = getWorkflowEvalExecution(wf);
   const businessKey = String(execution?.business_key || 'fission').trim() || 'fission';
@@ -1722,18 +1854,32 @@ const buildBusinessApiDoc = (wf: EvalWorkflowVersion, urlExample: string) => {
   paramsExample.requestId = 'biz-request-001';
 
   const endpointKey = businessKey.replaceAll('_', '-');
+  const cozeTaskGetPayload = {
+    taskId: '<runId 或 taskId>',
+  };
   return [
     '【提交任务】',
     `curl -X POST "$PODI_BASE_URL/api/business/${endpointKey}/runs" \\`,
-    '  -H "Authorization: Bearer $PODI_API_TOKEN" \\',
+    '  -H "X-PODI-API-Key: $PODI_API_KEY" \\',
     '  -H "Content-Type: application/json" \\',
     `  -d '${JSON.stringify(paramsExample, null, 2)}'`,
     '',
-    '【查询结果】',
-    'curl -X GET "$PODI_BASE_URL/api/business/runs/<runId>" \\',
-    '  -H "Authorization: Bearer $PODI_API_TOKEN"',
+    '【查询结果（推荐）】',
+    'curl -X POST "$PODI_BASE_URL/api/business/runs/get" \\',
+    '  -H "X-PODI-API-Key: $PODI_API_KEY" \\',
+    '  -H "Content-Type: application/json" \\',
+    `  -d '${JSON.stringify({ runId: '<提交接口返回的 runId>' }, null, 2)}'`,
     '',
-    '返回中的 runId 是中台业务任务 ID；taskId 是底层能力任务 ID，业务方一般只需要保存 runId。',
+    '【查询结果（兼容 Coze 旧查询工具）】',
+    'curl -X POST "$PODI_BASE_URL/api/coze/podi/tasks/get" \\',
+    '  -H "Authorization: Bearer $SERVICE_API_TOKEN" \\',
+    '  -H "Content-Type: application/json" \\',
+    `  -d '${JSON.stringify(cozeTaskGetPayload, null, 2)}'`,
+    '',
+    '【参数说明】',
+    buildBusinessApiParamDocText(wf),
+    '',
+    '返回中的 runId 是中台业务任务 ID；taskId 是底层能力任务 ID。业务方优先保存 runId 并调用业务查询接口；Coze/内网旧链路可以把 runId 作为 taskId 调用旧查询工具。',
   ].join('\n');
 };
 
