@@ -58,8 +58,8 @@ def test_business_openapi_exposes_flat_business_tools() -> None:
         "size",
         "maskUrl",
     }.issubset(submit_schema["properties"])
-    assert "相似度" in submit_schema["properties"]["bili"]["description"]
-    assert "裂变幅度百分比" in submit_schema["properties"]["bili"]["description"]
+    assert "重绘幅度" in submit_schema["properties"]["bili"]["description"]
+    assert "denoise" in submit_schema["properties"]["bili"]["description"]
     assert submit_schema["properties"]["size"]["enum"] == [
         "auto",
         "1024x1024",

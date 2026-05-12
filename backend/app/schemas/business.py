@@ -318,7 +318,7 @@ class BusinessRunCreateRequest(BaseModel):
     url: str | None = Field(default=None, description="主图 URL 兼容字段")
     prompt: str | None = Field(default=None, description="业务提示词")
     inputs: dict[str, Any] | None = Field(default=None, description="业务参数；不同业务能力字段不同")
-    bili: float | str | None = Field(default=None, description="图裂变相似度，0-100；值越大越接近原图。底层 ComfyUI denoise 由后端反向换算，兼容 50% 这类百分比口径")
+    bili: float | str | None = Field(default=None, description="图裂变重绘幅度，0-100；值越大重绘越强、变化越明显。兼容 50% 这类百分比口径")
     width: int | None = Field(default=None, description="输出宽度")
     height: int | None = Field(default=None, description="输出高度")
     batch_size: int | None = Field(default=None, description="输出张数")

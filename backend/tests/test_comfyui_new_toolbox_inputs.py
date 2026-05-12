@@ -184,7 +184,7 @@ def test_flux_strong_hq_softstyle_fission_maps_uploaded_image_profile_and_bili()
     assert overrides["21"] == {"cfg": 1.0}
     assert isinstance(overrides["22"]["noise_seed"], int)
     assert overrides["22"]["noise_seed"] > 0
-    assert overrides["24"] == {"steps": 8, "denoise": 0.59}
+    assert overrides["24"] == {"steps": 8, "denoise": 0.765}
     assert overrides["27"] == {"batch_size": 1}
     assert overrides["30"] == {"method": "mkl", "strength": 0.2}
     assert context.workflow.definition["output_node_ids"] == ["31"]

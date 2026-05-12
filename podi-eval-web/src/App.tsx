@@ -866,8 +866,8 @@ const getWorkflowInputSummary = (wf: EvalWorkflowVersion): string => {
   else if (/image|url|图片|原图/.test(text)) parts.push('原图');
   if (/prompt|desc|text|提示词|描述/.test(text)) parts.push('提示词');
   if (/width|height|size|aspect|ratio|宽|高|尺寸|比例/.test(text)) parts.push('尺寸');
-  if (/similarity|相似度/.test(text)) parts.push('相似度');
-  else if (/bili|denoise|noise|幅度|噪点/.test(text)) parts.push('幅度');
+  if (/重绘|repaint|bili|denoise|noise|幅度|噪点/.test(text)) parts.push('重绘幅度');
+  else if (/similarity|相似度/.test(text)) parts.push('相似度');
   if (/count|batch|数量|批量/.test(text)) parts.push('数量');
   return parts.slice(0, 4).join(' + ') || '按表单参数';
 };

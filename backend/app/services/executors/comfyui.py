@@ -1361,6 +1361,10 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         percent = max(0.0, min(100.0, percent))
         return round(0.45 + percent * 0.0035, 3)
 
+    @staticmethod
+    def _map_repaint_strength_to_denoise(value: Any) -> float | None:
+        return ComfyUIExecutorAdapter._map_variation_percent_to_denoise(value)
+
     def _build_e7_flux2_liebian_inputs(
         self, params: dict[str, Any], context: ExecutionContext, workflow_definition: dict[str, Any]
     ) -> tuple[dict[str, Any] | None, str | None]:
@@ -1407,12 +1411,15 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         if steps is not None:
             overrides.setdefault("21", {})["steps"] = steps
 
-        similarity_value = params.get("bili")
-        if similarity_value in (None, ""):
+        repaint_value = params.get("bili")
+        if repaint_value not in (None, ""):
+            denoise = self._map_repaint_strength_to_denoise(repaint_value)
+        else:
             similarity_value = params.get("similarity")
-        if similarity_value in (None, ""):
-            similarity_value = 25
-        denoise = self._map_similarity_to_denoise(similarity_value)
+            if similarity_value not in (None, ""):
+                denoise = self._map_similarity_to_denoise(similarity_value)
+            else:
+                denoise = self._map_repaint_strength_to_denoise(25)
         if denoise is not None:
             overrides.setdefault("21", {})["denoise"] = denoise
 
@@ -1484,15 +1491,19 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         image_desc = self._as_text(params.get("image_desc") or params.get("imageDesc")) or ""
         overrides["13"] = {"text1": prompt, "text2": image_desc}
 
-        similarity_value = params.get("bili")
-        if similarity_value in (None, ""):
-            similarity_value = params.get("similarity")
-        if similarity_value in (None, ""):
-            similarity_value = 90
+        repaint_value = params.get("bili")
+        if repaint_value in (None, ""):
+            repaint_value = 90
         if params.get("bili_mapping") == "variation_percent_045_080":
-            denoise = self._map_variation_percent_to_denoise(similarity_value)
+            denoise = self._map_variation_percent_to_denoise(repaint_value)
+        elif params.get("bili") not in (None, ""):
+            denoise = self._map_repaint_strength_to_denoise(repaint_value)
         else:
-            denoise = self._map_similarity_to_denoise(similarity_value)
+            similarity_value = params.get("similarity")
+            if similarity_value not in (None, ""):
+                denoise = self._map_similarity_to_denoise(similarity_value)
+            else:
+                denoise = self._map_repaint_strength_to_denoise(repaint_value)
         if denoise is None:
             denoise = 0.60
 

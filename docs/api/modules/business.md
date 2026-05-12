@@ -39,7 +39,7 @@
 | 业务 | 提交接口 | 必填字段 | 常用可调字段 | 终态输出 | 业务说明 |
 | --- | --- | --- | --- | --- | --- |
 | 花纹提取 | `POST /api/business/pattern-extract/runs` | `imageUrl` | `prompt`、`negative_prompt`、`width`、`height`、`batch`、`lora` | `imageUrls` | 从原图中提取可复用花纹资产，通常是后续裂变和扩图的上游。 |
-| 图裂变 | `POST /api/business/fission/runs` | `imageUrl` | ComfyUI 旧版：`prompt`、`bili`、`width`、`height`、`image_desc`、`batch_size`；ComfyUI VL 控制卡版：`bili`、`width`、`height`、`profile`；GPT Image 2 版：`variation_strength`、`quality`、`count`、`preserve_layout`、`maskUrl` | `imageUrls` | 基于原图生成变化图；版本可在中台切换，业务方仍调用同一个入口。旧裂变里的 `bili` 是相似度，越高越接近原图；ComfyUI VL 控制卡版沿用接口包，`bili` 是裂变幅度百分比。 |
+| 图裂变 | `POST /api/business/fission/runs` | `imageUrl` | ComfyUI 旧版：`prompt`、`bili`、`width`、`height`、`image_desc`、`batch_size`；ComfyUI VL 控制卡版：`bili`、`width`、`height`、`profile`；GPT Image 2 版：`variation_strength`、`quality`、`count`、`preserve_layout`、`maskUrl` | `imageUrls` | 基于原图生成变化图；版本可在中台切换，业务方仍调用同一个入口。`bili` 是重绘幅度/裂变幅度，越高变化越明显。 |
 | 扩图 | `POST /api/business/outpaint/runs` | `imageUrl` | `prompt`、`expand_left`、`expand_right`、`expand_top`、`expand_bottom`、`width`、`height` | `imageUrls` | 在原图四周扩展画面，适合补构图、补背景和素材延展。 |
 
 通用追踪字段：
@@ -311,8 +311,8 @@
 
 `bili` 口径：
 
-- 旧裂变和保底裂变沿用历史逻辑：`bili` 是相似度，0-100，值越大越接近原图；后端会反向换算到 ComfyUI `denoise`。
-- ComfyUI VL 控制卡版沿用 AI 团队接口包：`bili` 是裂变幅度百分比，例如 `50%`；值越大变化越明显。
+- 所有图裂变业务入口里的 `bili` 都按“重绘幅度/裂变幅度”理解，0-100，值越大变化越明显。
+- 后端按既定比例换算到 ComfyUI `denoise`：低值更保守，高值重绘更强；例如 `50%` 是中等幅度。
 - GPT Image 2 + VL 版不使用 `bili`，使用 `variation_strength` 控制变化幅度。
 
 GPT Image 2 + VL 新版请求示例：
@@ -403,7 +403,7 @@ ComfyUI VL 控制卡版请求示例：
 
 说明：
 
-- 新接入建议把 `bili/width/height/image_desc/batch_size/steps/cfg` 直接作为顶层字段传入，业务方不用理解 `inputs`；但 `bili` 的业务含义必须按所选版本文档执行，不能混用相似度和裂变幅度。
+- 新接入建议把 `bili/width/height/image_desc/batch_size/steps/cfg` 直接作为顶层字段传入，业务方不用理解 `inputs`；`bili` 统一按重绘幅度理解。
 - 旧调用仍兼容 `inputs.bili`、`inputs.width` 等格式；顶层字段不会破坏现有 Coze 工作流。
 - `traceId/requestId/tenantId/clientId/channel/source` 会进入业务运行记录，并继续透传到底层能力任务，后续用于排查、灰度、成本和配额统计。
 

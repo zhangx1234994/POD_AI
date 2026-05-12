@@ -550,7 +550,7 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "bili": {
                 "oneOf": [{"type": "number"}, {"type": "string"}],
                 "nullable": True,
-                "description": "旧裂变/保底裂变为相似度 0-100，值越大越接近原图；ComfyUI VL 控制卡版沿用接口包口径，为裂变幅度百分比，可传 `50%`。",
+                "description": "图裂变重绘幅度，0-100；值越大重绘越强、变化越明显。可传 `50` 或 `50%`，中台按约定比例换算为 ComfyUI denoise。",
             },
             "width": {"type": "integer", "nullable": True, "description": "输出宽度。"},
             "height": {"type": "integer", "nullable": True, "description": "输出高度。"},

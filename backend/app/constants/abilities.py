@@ -1335,10 +1335,10 @@ def _comfyui_e7_flux2_liebian_schema() -> dict[str, Any]:
             {
                 "name": "bili",
                 "type": "number",
-                "label": _compose_bilingual_label("相似度（0-100）", "Similarity (0-100)"),
+                "label": _compose_bilingual_label("重绘幅度（0-100）", "Repaint Strength (0-100)"),
                 "description": _compose_bilingual_label(
-                    "与旧裂变工作流保持一致的 bili 参数。数值越大越接近原图；后端按 0→0.95、50→0.75、100→0.55 线性换算为 denoise，并设置下限 0.55。输入小数时后端会先取整。",
-                    "Compatibility bili parameter aligned with older fission workflows. Higher means more similar to source; backend linearly maps 0→0.95, 50→0.75, 100→0.55 for denoise with a 0.55 floor. Decimal input is rounded to an integer first.",
+                    "与旧裂变工作流保持一致的 bili 参数。数值越大重绘越强、变化越明显；后端按 0→0.45、50→0.625、100→0.80 换算为 denoise。",
+                    "Compatibility bili parameter aligned with older fission workflows. Higher means stronger repaint and larger variation; backend maps 0→0.45, 50→0.625, 100→0.80 to denoise.",
                 ),
                 "min": 0,
                 "max": 100,
@@ -1432,10 +1432,10 @@ def _comfyui_flux_strong_hq_softstyle_fission_schema() -> dict[str, Any]:
             {
                 "name": "bili",
                 "type": "number",
-                "label": _compose_bilingual_label("相似度（0-100）", "Similarity (0-100)"),
+                "label": _compose_bilingual_label("重绘幅度（0-100）", "Repaint Strength (0-100)"),
                 "description": _compose_bilingual_label(
-                    "沿用旧图裂变的 bili 口径，后端映射到节点 24 · BasicScheduler.denoise。数值越大越接近原图；默认 90 ≈ denoise 0.59。",
-                    "Keeps the previous fission-style bili parameter and maps it to node 24 · BasicScheduler.denoise. Higher values stay closer to the source image; default 90 is about denoise 0.59.",
+                    "沿用旧图裂变的 bili 口径，后端映射到节点 24 · BasicScheduler.denoise。数值越大重绘越强；默认 90 ≈ denoise 0.765。",
+                    "Keeps the previous fission-style bili parameter and maps it to node 24 · BasicScheduler.denoise. Higher values repaint more strongly; default 90 is about denoise 0.765.",
                 ),
                 "default": 90,
                 "min": 0,
@@ -3065,7 +3065,7 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "batch_size": 1,
         },
         "display_name": "ComfyUI · E7裂变重绘",
-        "description": "基于 E7 + FLUX2 的裂变重绘工作流。输入参考图与单文本裂变提示词，支持相似度、输出尺寸与批次。",
+        "description": "基于 E7 + FLUX2 的裂变重绘工作流。输入参考图与单文本裂变提示词，支持重绘幅度、输出尺寸与批次。",
         "category": "image_generation",
         "input_schema": _comfyui_e7_flux2_liebian_schema(),
         "metadata": {
@@ -3125,7 +3125,7 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             },
             "presentation": _presentation(
                 name="多元素花纹裂变",
-                summary="给多元素花纹图做更稳的高质量裂变，保留旧裂变里的相似度调节习惯。",
+                summary="给多元素花纹图做更稳的高质量裂变，保留旧裂变里的重绘幅度调节习惯。",
                 form_intro="上传原图，填写裂变提示词；如上游有 VL 控制卡，可额外传图像补充描述。",
                 expected_output="产出 1 张高质量裂变结果，适合继续接 Coze 工作流或后续精修。",
                 surfaces={"client": False, "coze": True, "admin": True, "eval": False},
