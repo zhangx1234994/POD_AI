@@ -1751,6 +1751,9 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
                 if row.name != desired.get("name"):
                     row.name = desired.get("name")
                     dirty = True
+                if row.version != (desired.get("version") or "v1"):
+                    row.version = desired.get("version") or "v1"
+                    dirty = True
                 if row.notes != desired.get("notes"):
                     row.notes = desired.get("notes")
                     dirty = True
