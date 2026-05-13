@@ -382,19 +382,42 @@ def _build_eval_billing_map(db: Session, runs: list[EvalRun]) -> dict[str, dict[
     if not task_ids:
         return {}
     try:
-        tasks = db.execute(select(AbilityTask).where(AbilityTask.id.in_(task_ids))).scalars().all()
-        log_ids = [int(task.log_id) for task in tasks if task.log_id is not None]
+        task_rows = db.execute(
+            select(AbilityTask.id, AbilityTask.log_id).where(AbilityTask.id.in_(task_ids))
+        ).all()
+        task_log_ids = {
+            str(row.id): int(row.log_id)
+            for row in task_rows
+            if row.log_id is not None
+        }
+        log_ids = list(set(task_log_ids.values()))
         if not log_ids:
             return {}
-        logs = db.execute(select(AbilityInvocationLog).where(AbilityInvocationLog.id.in_(log_ids))).scalars().all()
+        log_rows = db.execute(
+            select(
+                AbilityInvocationLog.id,
+                AbilityInvocationLog.billing_unit,
+                AbilityInvocationLog.unit_price,
+                AbilityInvocationLog.currency,
+                AbilityInvocationLog.cost_amount,
+            ).where(AbilityInvocationLog.id.in_(log_ids))
+        ).all()
     except SQLAlchemyError as exc:
         logger.warning("load eval billing summary failed: %s", exc)
         return {}
-    log_by_id = {int(log.id): log for log in logs}
+    log_by_id = {
+        int(row.id): {
+            "billing_unit": row.billing_unit,
+            "unit_price": _safe_float(row.unit_price),
+            "currency": row.currency,
+            "cost_amount": _safe_float(row.cost_amount),
+        }
+        for row in log_rows
+    }
     return {
-        task.id: _serialize_eval_billing(log_by_id.get(int(task.log_id)))
-        for task in tasks
-        if task.log_id is not None and log_by_id.get(int(task.log_id))
+        task_id: log_by_id[log_id]
+        for task_id, log_id in task_log_ids.items()
+        if log_id in log_by_id
     }
 
 
