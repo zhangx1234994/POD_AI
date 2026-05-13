@@ -250,6 +250,7 @@ smoke 结果：
 - `podi-business-health-watch.service` 用于发现主链路异常，不用于阻断当前阶段尚未完成的账单体系。
 - 当前默认允许少量历史未处理业务问题和账单框架问题；正式收费前，账单问题应显示为治理提醒，不应让健康守护直接失败。
 - 如进入正式商业化阶段，再把 `MAX_BILLING_ISSUES`、`MAX_UNPRICED_BILLING_RUNS`、`MAX_UNRESOLVED_BUSINESS_ISSUES` 收紧。
+- 评测健康脚本的退出码 1 表示 warning；只要 systemd `Result=success`，管理端应展示“提醒”，不能展示“失败”。
 
 推荐沉淀到：
 
@@ -279,3 +280,4 @@ smoke 结果：
 - 浏览器插件不可用时，允许使用独立 Playwright 走查页面，不能因为工具链卡住而跳过页面验收。
 - 业务巡检导入必须区分“业务执行结果”和“验收记录写入结果”；业务 3/3 成功但验收写入 401 时，巡检状态仍应按业务结果通过，验收记录另行补录。
 - 健康守护的阈值要和当前阶段一致：未正式商业化前，账单/扣费问题是治理提醒，不应把服务状态打成失败。
+- 管理端健康守护展示要尊重 systemd `Result=success`；脚本 exit=1 但被 systemd 认定成功时，应作为 warning 呈现。

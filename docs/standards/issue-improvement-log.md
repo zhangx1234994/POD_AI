@@ -719,3 +719,11 @@
 - 根因：健康守护复用了最严格的 smoke 默认阈值，未区分“主链路阻断项”和“账单框架阶段提醒项”。
 - 改进：健康守护默认允许少量历史未处理业务问题和账单框架问题；正式收费阶段再收紧 `MAX_BILLING_ISSUES`、`MAX_UNPRICED_BILLING_RUNS`、`MAX_UNRESOLVED_BUSINESS_ISSUES`。
 - 状态：已完成（待 114 更新后线上复测）
+
+4) **评测健康 warning 被管理端误判为失败**
+- 范围：管理端总览 / systemd 健康守护
+- 现象：`podi-eval-health-watch.service` 的脚本用退出码 1 表示 warning，systemd `Result=success`，但管理端只看 `ExecMainStatus=1`，显示为失败。
+- 影响：页面误报自检守护阻塞，和真实 systemd 状态不一致。
+- 根因：管理端没有识别 systemd `SuccessExitStatus=1` 这类“成功但有提醒”的服务。
+- 改进：当 `Result=success` 且 `ExecMainStatus!=0` 时显示为 `warning`，不列入阻塞问题。
+- 状态：已完成（待 114 更新后线上复测）

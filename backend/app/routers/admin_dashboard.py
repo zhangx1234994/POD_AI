@@ -218,6 +218,8 @@ def _classify_health_watch_unit(kind: str, props: dict[str, str], command_code: 
         return "running", "检查任务正在执行。"
     if result in {None, "success"} and (exec_status is None or exec_status == 0):
         return "healthy", "最近一次执行成功。"
+    if result == "success" and exec_status is not None and exec_status != 0:
+        return "warning", f"最近一次执行完成但有提醒：exit={exec_status}。"
     if result in {"exit-code", "timeout", "signal", "core-dump", "watchdog", "resources"} or (exec_status or 0) != 0:
         return "failed", f"最近一次执行失败：result={result or 'unknown'}，exit={exec_status if exec_status is not None else 'unknown'}。"
     return "unknown", f"当前状态：active={active_state}，result={result or 'unknown'}。"

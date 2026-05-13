@@ -547,3 +547,53 @@ def test_health_watch_status_reads_fixed_systemd_units(monkeypatch) -> None:
     assert body["items"][0]["nextElapse"] == "2026-05-04 08:33:41 CST"
     assert body["items"][1]["status"] == "healthy"
     assert body["items"][1]["recentLogs"][0].endswith("podi health watch completed")
+
+
+def test_health_watch_status_treats_success_exit_one_as_warning(monkeypatch) -> None:
+    def fake_run_system_command(args, *, timeout=3.0):
+        if args[0] == "systemctl":
+            unit = args[2]
+            if unit.endswith(".timer"):
+                return (
+                    0,
+                    "\n".join(
+                        [
+                            "LoadState=loaded",
+                            "ActiveState=active",
+                            "SubState=waiting",
+                            "UnitFileState=enabled",
+                            "Result=success",
+                            "ExecMainStatus=0",
+                        ]
+                    ),
+                    "",
+                )
+            return (
+                0,
+                "\n".join(
+                    [
+                        "LoadState=loaded",
+                        "ActiveState=inactive",
+                        "SubState=dead",
+                        "UnitFileState=static",
+                        "Result=success",
+                        "ExecMainStatus=1",
+                    ]
+                ),
+                "",
+            )
+        if args[0] == "journalctl":
+            return 0, "2026-05-03T08:42:04+08:00 warning only\n", ""
+        raise AssertionError(args)
+
+    monkeypatch.setattr(admin_dashboard_module, "_run_system_command", fake_run_system_command)
+
+    resp = client.get("/api/admin/dashboard/health-watch/status")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["issues"] == []
+    services = [item for item in body["items"] if item["kind"] == "service"]
+    assert services
+    assert {item["status"] for item in services} == {"warning"}
+    assert all("有提醒" in item["summary"] for item in services)
