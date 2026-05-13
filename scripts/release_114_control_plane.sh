@@ -19,6 +19,7 @@ RUN_SMOKE="${RUN_SMOKE:-1}"
 RUN_LIVE_PATROL="${RUN_LIVE_PATROL:-0}"
 INSTALL_DEPS="${INSTALL_DEPS:-auto}"
 SMOKE_ALLOW_COMFYUI_WARNINGS="${SMOKE_ALLOW_COMFYUI_WARNINGS:-0}"
+SERVICE_READY_TIMEOUT_SECONDS="${SERVICE_READY_TIMEOUT_SECONDS:-60}"
 
 BACKEND_URL_LOCAL="${BACKEND_URL_LOCAL:-http://127.0.0.1:8099}"
 ADMIN_URL_LOCAL="${ADMIN_URL_LOCAL:-http://127.0.0.1:8199}"
@@ -68,6 +69,7 @@ echo "run_frontend_build=$RUN_FRONTEND_BUILD"
 echo "run_smoke=$RUN_SMOKE"
 echo "run_live_patrol=$RUN_LIVE_PATROL"
 echo "install_deps=$INSTALL_DEPS"
+echo "service_ready_timeout_seconds=$SERVICE_READY_TIMEOUT_SECONDS"
 
 section "Source gate"
 if [[ "$RUN_SOURCE_PREFLIGHT" == "1" ]]; then
@@ -119,9 +121,28 @@ upload "$CONTROL_ARCHIVE" "$REMOTE_ARCHIVE_DIR/"
 upload "$WEB_ARCHIVE" "$REMOTE_ARCHIVE_DIR/"
 
 section "Remote deploy"
-remote "TARGET_ROOT='$TARGET_ROOT' COMMIT='$COMMIT' INSTALL_DEPS='$INSTALL_DEPS' CONTROL_ARCHIVE='$REMOTE_ARCHIVE_DIR/$(basename "$CONTROL_ARCHIVE")' WEB_ARCHIVE='$REMOTE_ARCHIVE_DIR/$(basename "$WEB_ARCHIVE")' bash -s" <<'REMOTE'
+remote "TARGET_ROOT='$TARGET_ROOT' COMMIT='$COMMIT' INSTALL_DEPS='$INSTALL_DEPS' CONTROL_ARCHIVE='$REMOTE_ARCHIVE_DIR/$(basename "$CONTROL_ARCHIVE")' WEB_ARCHIVE='$REMOTE_ARCHIVE_DIR/$(basename "$WEB_ARCHIVE")' BACKEND_URL_LOCAL='$BACKEND_URL_LOCAL' ADMIN_URL_LOCAL='$ADMIN_URL_LOCAL' EVAL_URL_LOCAL='$EVAL_URL_LOCAL' SERVICE_READY_TIMEOUT_SECONDS='$SERVICE_READY_TIMEOUT_SECONDS' bash -s" <<'REMOTE'
 set -euo pipefail
 cd "$TARGET_ROOT"
+
+wait_for_http() {
+  local name="$1"
+  local url="$2"
+  local timeout_seconds="${3:-60}"
+  local deadline=$((SECONDS + timeout_seconds))
+
+  echo "[release-114] waiting for ${name}: ${url} (timeout=${timeout_seconds}s)"
+  until curl -fsS "$url" >/dev/null 2>&1; do
+    if [[ "$SECONDS" -ge "$deadline" ]]; then
+      echo "[release-114] ERROR: ${name} is not ready after ${timeout_seconds}s: ${url}" >&2
+      systemctl --no-pager --full status podi-backend podi-admin-web podi-eval-web >&2 || true
+      journalctl -u podi-backend -n 80 --no-pager >&2 || true
+      return 1
+    fi
+    sleep 2
+  done
+  echo "[release-114] ${name} ready"
+}
 
 ENV_BACKUP=""
 VENV_BACKUP=""
@@ -166,6 +187,9 @@ printf '%s' "$COMMIT" > "$TARGET_ROOT/DEPLOYED_COMMIT"
 printf '%s' "$COMMIT" > "$TARGET_ROOT/.release_commit"
 date -Is > "$TARGET_ROOT/.release_time"
 systemctl is-active podi-backend podi-admin-web podi-eval-web
+wait_for_http "backend" "${BACKEND_URL_LOCAL:-http://127.0.0.1:8099}/health" "$SERVICE_READY_TIMEOUT_SECONDS"
+wait_for_http "admin" "${ADMIN_URL_LOCAL:-http://127.0.0.1:8199}/" "$SERVICE_READY_TIMEOUT_SECONDS"
+wait_for_http "eval" "${EVAL_URL_LOCAL:-http://127.0.0.1:8200}/" "$SERVICE_READY_TIMEOUT_SECONDS"
 REMOTE
 
 section "Remote verification"

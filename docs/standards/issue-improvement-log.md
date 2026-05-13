@@ -15,6 +15,19 @@
 
 ---
 
+## 2026-05-13
+
+0) **114 发布脚本在 backend 刚重启时误判 health 失败**
+- 范围：发布流程 / 114 控制面
+- 现象：`scripts/release_114_control_plane.sh` 复制代码、迁移、重启服务后，`systemctl is-active` 已显示三项服务 active，但紧接着 `curl http://127.0.0.1:8099/health` 偶发 `connection refused`；等待 5~6 秒后 backend 正常监听且 health 通过。
+- 影响：实际服务正常，但发布脚本以失败退出，需要人工补跑 `deploy_preflight` 和 smoke，增加上线误判与重复操作。
+- 根因：脚本只检查 systemd active，没有等待 uvicorn 完成应用启动和端口监听。
+- 改进：
+  - `scripts/release_114_control_plane.sh` 增加 `SERVICE_READY_TIMEOUT_SECONDS`，默认 60 秒；
+  - 重启后分别等待 backend `/health`、admin 静态入口、eval 静态入口可访问；
+  - 等待超时会输出三项服务 `systemctl status` 和 backend 最近 80 行日志，便于直接定位启动慢、端口占用或应用异常。
+- 状态：已完成（下次发布生效）
+
 ## 2026-05-12
 
 0) **114 控制面发布流程过度依赖手工尝试**

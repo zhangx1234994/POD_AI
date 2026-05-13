@@ -41,7 +41,8 @@ bash scripts/release_114_control_plane.sh
 8. 远端执行 `alembic upgrade head`
 9. 重启 `podi-backend`、`podi-admin-web`、`podi-eval-web`
 10. 写入 `/srv/pod/DEPLOYED_COMMIT`、`.release_commit`、`.release_time`
-11. 执行远端健康检查、`scripts/deploy_preflight.sh` 和 `podi_release_smoke.py`
+11. 等待 backend/admin/eval HTTP 入口就绪，避免刚重启时端口尚未监听导致误报
+12. 执行远端健康检查、`scripts/deploy_preflight.sh` 和 `podi_release_smoke.py`
 
 ## 3. 常用参数
 
@@ -58,6 +59,7 @@ bash scripts/release_114_control_plane.sh
 | `RUN_LIVE_PATROL` | `0` | 是否跑真实业务出图巡检 |
 | `INSTALL_DEPS` | `auto` | 依赖变更时设为 `1` |
 | `SMOKE_ALLOW_COMFYUI_WARNINGS` | `0` | 临时接受 ComfyUI 兼容 warning，必须记录原因 |
+| `SERVICE_READY_TIMEOUT_SECONDS` | `60` | 重启后等待 backend/admin/eval HTTP 入口就绪的最长秒数 |
 
 示例：只做控制面发布，不跑真实出图：
 
@@ -171,6 +173,7 @@ backend/.venv/bin/python backend/scripts/patrol_business_api.py \
 | 前端 build 失败 | 停止发布，不能用 dev server 顶替。 |
 | `alembic upgrade head` 失败 | 不重启服务；先确认迁移链和生产当前 revision。 |
 | 服务重启失败 | 先 `systemctl status` 和 `journalctl` 定位；必要时恢复上一版目录。 |
+| 服务重启后就绪等待超时 | 先看脚本输出的 `systemctl status` 和 backend 最近 80 行日志；确认是启动慢、端口被占用还是应用异常。 |
 | smoke 失败 | 保持服务不扩流；按失败项处理，不能把 health 通过当作上线成功。 |
 | 真实业务巡检失败 | 不交业务验收；确认是样例图、执行节点、OSS、回填还是业务配方问题。 |
 
