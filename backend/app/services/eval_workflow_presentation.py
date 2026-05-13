@@ -319,6 +319,9 @@ def resolve_eval_workflow_presentation(
         "supports_batch": supports_batch,
         "recommended_repeat_count": max(1, recommended_repeat_count),
         "badges": badges,
+        "release_time": str(presentation.get("release_time") or presentation.get("releaseTime") or "").strip(),
+        "update_time": str(presentation.get("update_time") or presentation.get("updateTime") or "").strip(),
+        "update_note": str(presentation.get("update_note") or presentation.get("updateNote") or "").strip(),
     }
 
 
@@ -347,6 +350,9 @@ def enrich_metadata_with_eval_workflow_presentation(
             "supports_batch": presentation_override.get("supports_batch"),
             "recommended_repeat_count": presentation_override.get("recommended_repeat_count"),
             "badges": presentation_override.get("badges"),
+            "release_time": str(presentation_override.get("release_time") or presentation_override.get("releaseTime") or "").strip() or None,
+            "update_time": str(presentation_override.get("update_time") or presentation_override.get("updateTime") or "").strip() or None,
+            "update_note": str(presentation_override.get("update_note") or presentation_override.get("updateNote") or "").strip() or None,
         }
         payload = {key: value for key, value in payload.items() if value is not None}
         if payload:

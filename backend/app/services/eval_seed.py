@@ -1579,12 +1579,15 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
             ]
         },
         "metadata": {
-            "isNewVersion": True,
+            "isNewVersion": False,
             "badge": "已优化",
             "presentation": {
                 "operation_label": "图像裂变",
-                "variant_label": "GPT Image 2 受控版",
+                "variant_label": "GPT Image 2 + VL 控制版",
                 "badges": ["已优化", "原生业务接口"],
+                "release_time": "2026-05-12",
+                "update_time": "2026-05-13",
+                "update_note": "底层升级为 GPT Image 2 受控版：VL 只生成客观识别卡，中台统一编译图案路由、密度、主色和构图约束。",
                 "supports_batch": True,
                 "result_mode": "image",
                 "usage_hint": "用于验证 GPT Image 2 受控裂变接口，重点看图案类别、密度、主色和构图是否稳定。",
@@ -1638,12 +1641,15 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
             ]
         },
         "metadata": {
-            "isNewVersion": True,
+            "isNewVersion": False,
             "badge": "已优化",
             "presentation": {
                 "operation_label": "图像裂变",
-                "variant_label": "ComfyUI 颜色锁定版",
+                "variant_label": "ComfyUI VL 控制卡版",
                 "badges": ["已优化", "原生业务接口"],
+                "release_time": "2026-05-12",
+                "update_time": "2026-05-13",
+                "update_note": "底层升级为颜色锁定版：新增非必填锁色配置，默认开启颜色锁定，原有 URL、重绘幅度、宽高和额外要求参数保持可用。",
                 "supports_batch": True,
                 "result_mode": "image",
                 "usage_hint": "用于验证 ComfyUI 颜色锁定裂变接口，重点看主色、深浅比例和图案结构是否稳定。",

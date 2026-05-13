@@ -189,7 +189,17 @@ def test_20260512_native_eval_entries_are_visible_and_badged():
     assert "新版" not in evaluator["name"]
     assert "已优化" in gpt["metadata"]["presentation"]["badges"]
     assert "已优化" in comfy["metadata"]["presentation"]["badges"]
+    assert "新版" not in gpt["metadata"]["presentation"]["badges"]
+    assert "新版" not in comfy["metadata"]["presentation"]["badges"]
     assert "新版" in evaluator["metadata"]["presentation"]["badges"]
+    assert gpt["metadata"].get("isNewVersion") is False
+    assert comfy["metadata"].get("isNewVersion") is False
+    assert gpt["metadata"]["presentation"]["release_time"] == "2026-05-12"
+    assert gpt["metadata"]["presentation"]["update_time"] == "2026-05-13"
+    assert comfy["metadata"]["presentation"]["release_time"] == "2026-05-12"
+    assert comfy["metadata"]["presentation"]["update_time"] == "2026-05-13"
+    assert "底层升级" in gpt["metadata"]["presentation"]["update_note"]
+    assert "颜色锁定" in comfy["metadata"]["presentation"]["update_note"]
     gpt_fields = [f.get("name") for f in (gpt["parameters_schema"]["fields"] or []) if isinstance(f, dict)]
     comfy_fields = [f.get("name") for f in (comfy["parameters_schema"]["fields"] or []) if isinstance(f, dict)]
     assert "count" not in gpt_fields
@@ -219,9 +229,12 @@ def test_eval_presentation_keeps_new_as_badge_not_name():
         metadata=workflow["metadata"],
     )
 
-    assert presentation["variant_label"] == "GPT Image 2 受控版"
+    assert presentation["variant_label"] == "GPT Image 2 + VL 控制版"
     assert "新版" not in presentation["variant_label"]
+    assert "新版" not in presentation["badges"]
     assert "已优化" in presentation["badges"]
+    assert presentation["release_time"] == "2026-05-12"
+    assert presentation["update_time"] == "2026-05-13"
 
 
 def test_gpt_image2_vl_eval_exposes_size_presets():

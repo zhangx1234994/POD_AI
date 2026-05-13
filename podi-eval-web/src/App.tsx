@@ -930,13 +930,36 @@ const getWorkflowOutputSummary = (wf: EvalWorkflowVersion): string => {
 const getWorkflowReleaseDate = (wf: EvalWorkflowVersion): string => {
   const metadata = wf.metadata && typeof wf.metadata === 'object' ? wf.metadata : {};
   const raw =
-    getWorkflowPresentation(wf)?.['releaseTime' as keyof NonNullable<EvalWorkflowVersion['presentation']>] ||
+    getWorkflowPresentation(wf)?.releaseTime ||
     metadata.releaseTime ||
     metadata.release_time ||
     metadata.publishedAt ||
     metadata.published_at ||
     wf.created_at;
   return fmtTime(String(raw || '')).split(' ')[0] || '-';
+};
+
+const getWorkflowUpdateDate = (wf: EvalWorkflowVersion): string => {
+  const metadata = wf.metadata && typeof wf.metadata === 'object' ? wf.metadata : {};
+  const raw =
+    getWorkflowPresentation(wf)?.updateTime ||
+    metadata.updateTime ||
+    metadata.update_time ||
+    metadata.updatedAt ||
+    metadata.updated_at;
+  return fmtTime(String(raw || '')).split(' ')[0] || '-';
+};
+
+const getWorkflowUpdateNote = (wf: EvalWorkflowVersion): string => {
+  const metadata = wf.metadata && typeof wf.metadata === 'object' ? wf.metadata : {};
+  return String(
+    getWorkflowPresentation(wf)?.updateNote ||
+      metadata.updateNote ||
+      metadata.update_note ||
+      metadata.versionUpdateNote ||
+      metadata.version_update_note ||
+      '',
+  ).trim();
 };
 
 const getWorkflowRuntimeHealth = (
@@ -2159,6 +2182,7 @@ function ToolCard({
   const inputSummary = getWorkflowInputSummary(wf);
   const outputSummary = getWorkflowOutputSummary(wf);
   const releaseDate = getWorkflowReleaseDate(wf);
+  const updateDate = getWorkflowUpdateDate(wf);
   const shortId = getWorkflowShortId(wf);
   const runtimeHealth = getWorkflowRuntimeHealth(metric);
   const recentOutputLabel = getWorkflowRecentOutputLabel(metric);
@@ -2232,6 +2256,7 @@ function ToolCard({
           <div className="podi-eval-tool-card__signature">
             <span>{getWorkflowVersionLabel(wf)}</span>
             <span>发布 {releaseDate}</span>
+            {updateDate && updateDate !== '-' && updateDate !== releaseDate ? <span>更新 {updateDate}</span> : null}
           </div>
           <div className="podi-eval-tool-card__runtime">
             <Tag variant="light" theme={runtimeHealth.theme}>
@@ -6781,6 +6806,8 @@ export function App() {
     const toolRuntimeHealth = getWorkflowRuntimeHealth(metric);
     const selectedToolAccent = getWorkflowAccent(selectedTool);
     const selectedToolReleaseDate = getWorkflowReleaseDate(selectedTool);
+    const selectedToolUpdateDate = getWorkflowUpdateDate(selectedTool);
+    const selectedToolUpdateNote = getWorkflowUpdateNote(selectedTool);
     const selectedToolInputSummary = getWorkflowInputSummary(selectedTool);
     const selectedToolOutputSummary = getWorkflowOutputSummary(selectedTool);
     const selectedToolRouting = getWorkflowRoutingGovernance(selectedTool);
@@ -6885,6 +6912,10 @@ export function App() {
               <strong>{selectedToolReleaseDate}</strong>
             </div>
             <div>
+              <span>更新时间</span>
+              <strong>{selectedToolUpdateDate}</strong>
+            </div>
+            <div>
               <span>输入方式</span>
               <strong>{selectedToolInputSummary}</strong>
             </div>
@@ -6898,6 +6929,9 @@ export function App() {
             </div>
           </div>
         </div>
+        {selectedToolUpdateNote ? (
+          <Alert theme="info" message={`版本更新说明：${selectedToolUpdateNote}`} />
+        ) : null}
         <StepGuide
           title="单次评测流程"
           hint="保持同一流程可以减少误操作，结果更容易横向对比。"
