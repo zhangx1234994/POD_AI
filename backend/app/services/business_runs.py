@@ -3847,6 +3847,16 @@ class BusinessRunService:
                     "vl_card": compiled.vl_card,
                     "pattern_fission_user_params": compiled.user_params,
                 }
+                for internal_field in (
+                    "count",
+                    "n",
+                    "batch_size",
+                    "preserve_layout",
+                    "preserve_border",
+                    "preserve_count_density",
+                    "style_shift",
+                ):
+                    inputs.pop(internal_field, None)
                 for field, value in compiled_inputs.items():
                     if field in pass_keys and value not in (None, "", []):
                         if overwrite or not inputs.get(field):

@@ -98,6 +98,61 @@
   padding: 12px;
 }
 
+.podi-multi-trial-inputs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+  gap: 8px;
+}
+
+.podi-multi-trial-inputs button {
+  position: relative;
+  min-height: 76px;
+  border: 1px solid var(--td-border-level-1-color);
+  border-radius: 12px;
+  background: var(--td-bg-color-container);
+  padding: 4px;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.podi-multi-trial-inputs button.is-active {
+  border-color: var(--td-brand-color);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--td-brand-color) 18%, transparent);
+}
+
+.podi-multi-trial-inputs img {
+  width: 100%;
+  height: 68px;
+  border-radius: 9px;
+  object-fit: cover;
+  display: block;
+}
+
+.podi-multi-trial-inputs span {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.72);
+  color: #fff;
+  padding: 1px 6px;
+  font-size: 11px;
+}
+
+.podi-multi-trial-results {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(520px, 100%), 1fr));
+  gap: 14px;
+}
+
+.podi-multi-trial-result-card .podi-compare-panel {
+  padding: 8px;
+}
+
+.podi-multi-trial-result-card .podi-compare-stage {
+  min-height: clamp(300px, 34vw, 520px);
+}
+
 .podi-integration-doc {
   border: 1px solid var(--td-border-level-1-color);
   border-radius: 14px;

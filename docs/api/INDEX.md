@@ -19,6 +19,7 @@
 | 媒资与上传 | `docs/api/modules/media.md` |
 | 业务能力接口 | `docs/api/modules/business.md` |
 | 图裂变业务接入 Demo | `docs/api/examples/business-fission-quickstart.md` |
+| 图裂变交付契约图 | `docs/api/examples/fission-delivery-contract-2026-05-12.md` |
 | 统一能力调用 | `docs/api/modules/abilities.md` |
 | Coze 插件 | `docs/api/modules/coze.md` |
 | ComfyUI 管理 | `docs/api/modules/comfyui-admin.md` |

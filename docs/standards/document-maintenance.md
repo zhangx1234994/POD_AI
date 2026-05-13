@@ -35,6 +35,7 @@
 - `docs/standards/error-catalog.md`
 - `docs/standards/error-contract.md`
 - `docs/standards/interface-consistency.md`
+- `docs/standards/delivery-methodology.md`
 
 ## 3. 每次开发后的最小同步要求
 

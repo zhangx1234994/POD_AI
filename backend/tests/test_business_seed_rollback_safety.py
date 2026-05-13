@@ -91,7 +91,12 @@ def test_business_seed_keeps_rollback_safety_versions_available() -> None:
         assert session.get(Ability, "openai_gpt_image_2_edit") is not None
         assert session.get(Ability, "vl_analyze_image") is not None
         field_names = {field["name"] for field in gpt_image2_fission.input_schema["fields"]}
-        assert {"variation_strength", "quality", "count", "maskUrl"}.issubset(field_names)
+        assert {"variation_strength", "quality", "size", "maskUrl"}.issubset(field_names)
+        assert "count" not in field_names
+        assert "preserve_layout" not in field_names
+        assert "preserve_border" not in field_names
+        assert "preserve_count_density" not in field_names
+        assert "style_shift" not in field_names
 
         comfyui_vl_fission = session.get(BusinessCapability, "biz_fission_v3_comfyui_vl_control_card")
         assert comfyui_vl_fission is not None

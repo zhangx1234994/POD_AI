@@ -41,7 +41,7 @@ def test_pattern_fission_prompt_compiler_maps_business_params_to_openai_params()
     assert compiled.openai_params["quality"] == "high"
     assert compiled.openai_params["size"] == "auto"
     assert compiled.openai_params["output_format"] == "png"
-    assert compiled.openai_params["n"] == 2
+    assert compiled.openai_params["n"] == 1
     assert "Every bird must have one clean head" in compiled.compiled_prompt
     assert "增加节庆感" in compiled.compiled_prompt
 
@@ -78,7 +78,12 @@ def test_business_fission_payload_uses_pattern_fission_compiler(monkeypatch) -> 
 
     assert ability_payload.inputs["model"] == "gpt-image-2"
     assert ability_payload.inputs["quality"] == "medium"
-    assert ability_payload.inputs["n"] == 3
+    assert ability_payload.inputs["n"] == 1
+    assert "count" not in ability_payload.inputs
+    assert "preserve_layout" not in ability_payload.inputs
+    assert "preserve_border" not in ability_payload.inputs
+    assert "preserve_count_density" not in ability_payload.inputs
+    assert "style_shift" not in ability_payload.inputs
     assert ability_payload.inputs["prompt_template_id"] == TEMPLATE_ID
     assert ability_payload.inputs["route_id"] == "OPENAI_GPT_IMAGE2_PATTERN_V21"
     assert ability_payload.inputs["pattern_type"] == "complex_floral_bird_tapestry"

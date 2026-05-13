@@ -68,6 +68,19 @@ type LoraOption = { label: string; value: string };
 
 type CompareMode = 'slider' | 'side-by-side' | 'overlay' | 'diff';
 
+type MultiImageTrialInput = {
+  key: string;
+  url: string;
+  fileName?: string;
+  width?: number;
+  height?: number;
+};
+
+type MultiImageTrialRun = MultiImageTrialInput & {
+  runId: string;
+  submittedAt: string;
+};
+
 type WorkflowMetric = {
   ratingCount: number;
   avgRating: number | null;
@@ -241,6 +254,7 @@ const readEvalQuery = () => {
 const AI_EDITOR_WORKFLOW_ID = '7604714915110060032';
 const SHENGTU_WORKFLOW_ID = '7602916576198656000';
 const LORA_BATCH_MAX_TASKS = 5000;
+const TOOL_MULTI_IMAGE_MAX = 12;
 const TERMINAL_BATCH_STATUS = new Set(['succeeded', 'failed', 'stopped']);
 const COMFYUI_EXECUTOR_LABELS: Record<string, string> = {
   executor_comfyui_pattern_extract_158: '158 图形能力机',
@@ -2834,6 +2848,8 @@ export function App() {
   const [formParams, setFormParams] = useState<Record<string, string>>({});
   const [isRunning, setIsRunning] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [multiRunInputs, setMultiRunInputs] = useState<MultiImageTrialInput[]>([]);
+  const [latestTrialRuns, setLatestTrialRuns] = useState<MultiImageTrialRun[]>([]);
   const [extraImageUploading, setExtraImageUploading] = useState(false);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const extraImagesInputRef = useRef<HTMLInputElement | null>(null);
@@ -4116,6 +4132,8 @@ export function App() {
   const openTool = (wf: EvalWorkflowVersion, focus: ToolHistoryFocus = 'all') => {
     setSelectedTool(wf);
     setFormUrl('');
+    setMultiRunInputs([]);
+    setLatestTrialRuns([]);
     autoFilledFissionSizeRef.current = null;
     // Prevent showing previous tool's results while the new tool's history is loading.
     setToolRuns([]);
@@ -4218,6 +4236,46 @@ export function App() {
       return size;
     },
     [shouldAutoFillFissionSize, toolFields],
+  );
+
+  const uploadMainImageFiles = useCallback(
+    async (rawFiles: FileList | File[]) => {
+      const files = Array.from(rawFiles || []).filter((file) => file && file.type.startsWith('image/')).slice(0, TOOL_MULTI_IMAGE_MAX);
+      if (files.length === 0) return;
+      setUploading(true);
+      setLatestTrialRuns([]);
+      try {
+        const uploaded: MultiImageTrialInput[] = [];
+        for (const [idx, file] of files.entries()) {
+          const size = await loadImageSizeFromFile(file);
+          const res = await evalApi.uploadImage(file);
+          const url = String(res.url || '').trim();
+          if (!url) throw new Error(`第 ${idx + 1} 张上传成功但没有返回 URL`);
+          uploaded.push({
+            key: `${Date.now()}-${idx}-${file.name || 'image'}`,
+            url,
+            fileName: file.name || `图片${idx + 1}`,
+            width: size?.width,
+            height: size?.height,
+          });
+        }
+        setMultiRunInputs(uploaded);
+        setFormUrl(uploaded[0]?.url || '');
+        const firstSize =
+          uploaded[0]?.width && uploaded[0]?.height ? { width: uploaded[0].width, height: uploaded[0].height } : null;
+        void applyFissionOriginalSizeDefaults(uploaded[0]?.url || '', firstSize);
+        if (rawFiles.length > TOOL_MULTI_IMAGE_MAX) {
+          pushNotice('info', `已按上限取前 ${TOOL_MULTI_IMAGE_MAX} 张图片。`);
+        }
+        pushNotice(uploaded.length > 1 ? 'success' : 'info', uploaded.length > 1 ? `已上传 ${uploaded.length} 张，点击“开始多图试跑”会逐张创建任务。` : '图片已上传。');
+      } catch (err) {
+        console.error(err);
+        pushNotice('error', String((err as any)?.message || err));
+      } finally {
+        setUploading(false);
+      }
+    },
+    [applyFissionOriginalSizeDefaults, pushNotice],
   );
 
   const syncEditorImageMeta = useCallback(() => {
@@ -4454,87 +4512,128 @@ export function App() {
         return normalized;
       };
 
-      const parameters: Record<string, unknown> = {};
-      if (requiresImage && url) {
-        parameters.url = url;
-      }
-      if (isAiEditor) {
-        const prompt = buildEditorPrompt({
-          rawPrompt: editorPrompt,
-          marks: editorMarks,
-          refUrls: editorRefs,
-          mainUrl: url,
-          imageSize: { width: editorImageMeta.naturalW, height: editorImageMeta.naturalH },
-        });
-        parameters.prompt = prompt;
-        if (editorRefs.length > 0) {
-          parameters.image_urls = editorRefs.join(',');
+      const buildParametersForInput = async (input: MultiImageTrialInput): Promise<Record<string, unknown>> => {
+        const currentUrl = input.url.trim();
+        const parameters: Record<string, unknown> = {};
+        if (requiresImage && currentUrl) {
+          parameters.url = currentUrl;
         }
-      }
-      for (const [k, v] of Object.entries(formParams)) {
-        if (isAiEditor && (k === 'prompt' || k === 'image_urls')) continue;
-        if (isShengtuWorkflow) {
-          const field = toolFields.find((f) => f.name === k);
-          if (field) {
-            const modelAware = resolveModelAwareField(field, selectedModelValue);
-            if (modelAware.disabled) continue;
+        if (isAiEditor) {
+          const prompt = buildEditorPrompt({
+            rawPrompt: editorPrompt,
+            marks: editorMarks,
+            refUrls: editorRefs,
+            mainUrl: currentUrl,
+            imageSize: { width: editorImageMeta.naturalW, height: editorImageMeta.naturalH },
+          });
+          parameters.prompt = prompt;
+          if (editorRefs.length > 0) {
+            parameters.image_urls = editorRefs.join(',');
           }
         }
-        if (v === '') continue;
-        if (isAiEditor && k === 'aspect_ratio' && String(v).trim() === 'auto') continue;
-        if (isAiEditor && k === 'resolution' && String(v).trim() === '1K') continue;
-        if (typeof v === 'string') {
-          parameters[k] = normalizeWorkflowParam(k, v);
-        } else {
-          parameters[k] = v;
-        }
-      }
-      if (isDuotuRongheWorkflow || shouldAutoFillFissionSize) {
-        const widthRaw = String(parameters.width ?? '').trim();
-        const heightRaw = String(parameters.height ?? '').trim();
-        const widthDefault = String((toolFields.find((field) => field.name === 'width') as any)?.defaultValue ?? '').trim();
-        const heightDefault = String((toolFields.find((field) => field.name === 'height') as any)?.defaultValue ?? '').trim();
-        const widthNeedsOriginal = !widthRaw || (shouldAutoFillFissionSize && widthDefault && widthRaw === normalizeNumericParam('width', widthDefault));
-        const heightNeedsOriginal = !heightRaw || (shouldAutoFillFissionSize && heightDefault && heightRaw === normalizeNumericParam('height', heightDefault));
-        if ((widthNeedsOriginal || heightNeedsOriginal) && url) {
-          const size = await loadImageSizeFromUrl(url);
-          if (size) {
-            if (widthNeedsOriginal) parameters.width = String(size.width);
-            if (heightNeedsOriginal) parameters.height = String(size.height);
+        for (const [k, v] of Object.entries(formParams)) {
+          if (isAiEditor && (k === 'prompt' || k === 'image_urls')) continue;
+          if (isShengtuWorkflow) {
+            const field = toolFields.find((f) => f.name === k);
+            if (field) {
+              const modelAware = resolveModelAwareField(field, selectedModelValue);
+              if (modelAware.disabled) continue;
+            }
           }
-        }
-      }
-      if (isShengtuWorkflow) {
-        const parseRefs = (raw: string): string[] =>
-          String(raw || '')
-            .split(/[\n,]/g)
-            .map((item) => item.trim())
-            .filter((item) => item.length > 0);
-        const refRaw = String((formParams as any)?.cankaotu ?? (formParams as any)?.image_urls ?? '');
-        const refs = parseRefs(refRaw);
-        if (refs.length > 0) {
-          if (selectedModelValue === '3') {
-            pushNotice('info', 'Seedream 4.5 不支持参考图，已自动忽略 cankaotu。');
-            delete parameters.cankaotu;
-            delete parameters.image_urls;
+          if (v === '') continue;
+          if (isAiEditor && k === 'aspect_ratio' && String(v).trim() === 'auto') continue;
+          if (isAiEditor && k === 'resolution' && String(v).trim() === '1K') continue;
+          if (typeof v === 'string') {
+            parameters[k] = normalizeWorkflowParam(k, v);
           } else {
-            const packed = refs.join(',');
-            parameters.cankaotu = packed;
-            parameters.image_urls = packed;
+            parameters[k] = v;
           }
         }
+        if (isDuotuRongheWorkflow || shouldAutoFillFissionSize) {
+          const widthRaw = String(parameters.width ?? '').trim();
+          const heightRaw = String(parameters.height ?? '').trim();
+          const widthDefault = String((toolFields.find((field) => field.name === 'width') as any)?.defaultValue ?? '').trim();
+          const heightDefault = String((toolFields.find((field) => field.name === 'height') as any)?.defaultValue ?? '').trim();
+          const previousAuto = autoFilledFissionSizeRef.current;
+          const widthIsAutoFilled = Boolean(previousAuto && widthRaw === previousAuto.width);
+          const heightIsAutoFilled = Boolean(previousAuto && heightRaw === previousAuto.height);
+          const widthNeedsOriginal =
+            !widthRaw || widthIsAutoFilled || (shouldAutoFillFissionSize && widthDefault && widthRaw === normalizeNumericParam('width', widthDefault));
+          const heightNeedsOriginal =
+            !heightRaw || heightIsAutoFilled || (shouldAutoFillFissionSize && heightDefault && heightRaw === normalizeNumericParam('height', heightDefault));
+          if ((widthNeedsOriginal || heightNeedsOriginal) && currentUrl) {
+            const size =
+              input.width && input.height
+                ? { width: input.width, height: input.height }
+                : await loadImageSizeFromUrl(currentUrl);
+            if (size) {
+              if (widthNeedsOriginal) parameters.width = String(size.width);
+              if (heightNeedsOriginal) parameters.height = String(size.height);
+            }
+          }
+        }
+        if (isShengtuWorkflow) {
+          const parseRefs = (raw: string): string[] =>
+            String(raw || '')
+              .split(/[\n,]/g)
+              .map((item) => item.trim())
+              .filter((item) => item.length > 0);
+          const refRaw = String((formParams as any)?.cankaotu ?? (formParams as any)?.image_urls ?? '');
+          const refs = parseRefs(refRaw);
+          if (refs.length > 0) {
+            if (selectedModelValue === '3') {
+              pushNotice('info', 'Seedream 4.5 不支持参考图，已自动忽略 cankaotu。');
+              delete parameters.cankaotu;
+              delete parameters.image_urls;
+            } else {
+              const packed = refs.join(',');
+              parameters.cankaotu = packed;
+              parameters.image_urls = packed;
+            }
+          }
+        }
+        return parameters;
+      };
+
+      const trialInputs =
+        !isAiEditor && requiresImage && multiRunInputs.length > 1
+          ? multiRunInputs
+          : [{ key: 'single', url, fileName: '当前图片' } as MultiImageTrialInput];
+      const createdRuns: RunWithLatest[] = [];
+      const createdTrials: MultiImageTrialRun[] = [];
+      const failures: string[] = [];
+      for (const [idx, input] of trialInputs.entries()) {
+        try {
+          const parameters = await buildParametersForInput(input);
+          const createdRun = await evalApi.createRun({
+            workflow_version_id: selectedTool.id,
+            input_oss_urls_json: requiresImage && input.url ? [input.url] : [],
+            parameters_json: parameters,
+          });
+          createdRuns.push(createdRun as RunWithLatest);
+          createdTrials.push({
+            ...input,
+            runId: String((createdRun as any).id || (createdRun as any).runId || ''),
+            submittedAt: new Date().toISOString(),
+          });
+        } catch (err) {
+          failures.push(`#${idx + 1} ${String((err as any)?.message || err || '提交失败')}`);
+        }
       }
-      const createdRun = await evalApi.createRun({
-        workflow_version_id: selectedTool.id,
-        input_oss_urls_json: requiresImage && url ? [url] : [],
-        parameters_json: parameters,
-      });
-      setTaskRuns((prev) => [createdRun as RunWithLatest, ...prev]);
+      if (createdRuns.length === 0) {
+        throw new Error(failures[0] || '提交失败');
+      }
+      setTaskRuns((prev) => [...createdRuns, ...prev]);
+      setLatestTrialRuns(createdTrials.filter((item) => item.runId));
       await loadRunsForTool(selectedTool.id);
       await loadTasks();
       await refreshMetrics();
       bumpTaskRefreshWindow();
-      pushNotice('success', '已提交运行，稍后会自动刷新结果');
+      if (failures.length > 0) {
+        pushNotice('error', `已提交 ${createdRuns.length} 个任务，${failures.length} 个失败：${failures.slice(0, 2).join('；')}`);
+      } else {
+        pushNotice('success', createdRuns.length > 1 ? `已提交 ${createdRuns.length} 个多图试跑任务，稍后自动刷新结果。` : '已提交运行，稍后会自动刷新结果');
+      }
     } catch (err) {
       console.error(err);
       pushNotice('error', String((err as any)?.message || err));
@@ -6823,7 +6922,11 @@ export function App() {
                       <div style={{ flex: 1 }}>
                         <Input
                           value={formUrl}
-                          onChange={(v) => setFormUrl(String(v))}
+                          onChange={(v) => {
+                            setFormUrl(String(v));
+                            setMultiRunInputs([]);
+                            setLatestTrialRuns([]);
+                          }}
                           onBlur={() => void applyFissionOriginalSizeDefaults(formUrl.trim())}
                           placeholder="支持粘贴 URL 或上传本地图片"
                           clearable
@@ -7237,37 +7340,31 @@ export function App() {
                           <div style={{ flex: 1 }}>
                             <Input
                               value={formUrl}
-                              onChange={(v) => setFormUrl(String(v))}
+                              onChange={(v) => {
+                                setFormUrl(String(v));
+                                setMultiRunInputs([]);
+                                setLatestTrialRuns([]);
+                              }}
                               onBlur={() => void applyFissionOriginalSizeDefaults(formUrl.trim())}
                               placeholder="支持粘贴 URL 或上传本地图片"
                               clearable
                             />
                           </div>
                           <Button variant="outline" loading={uploading} onClick={() => uploadInputRef.current?.click()}>
-                            上传
+                            上传 / 多选
                           </Button>
                           <input
                             ref={uploadInputRef}
                             type="file"
                             accept="image/*"
+                            multiple
                             style={{ display: 'none' }}
                             disabled={uploading}
                             onChange={async (e) => {
-                              const file = e.target.files?.[0];
-                              if (!file) return;
-                              setUploading(true);
-                              try {
-                                const size = await loadImageSizeFromFile(file);
-                                const res = await evalApi.uploadImage(file);
-                                setFormUrl(res.url);
-                                void applyFissionOriginalSizeDefaults(res.url, size);
-                              } catch (err) {
-                                console.error(err);
-                                pushNotice('error', String((err as any)?.message || err));
-                              } finally {
-                                setUploading(false);
-                                e.target.value = '';
-                              }
+                              const files = e.target.files;
+                              if (!files?.length) return;
+                              await uploadMainImageFiles(files);
+                              e.target.value = '';
                             }}
                           />
                         </Space>
@@ -7281,6 +7378,50 @@ export function App() {
                             style={{ height: 240, width: '100%', objectFit: 'contain', cursor: 'pointer' }}
                             onClick={() => setLightbox({ url: formUrl.trim(), title: '原图' })}
                           />
+                        </Card>
+                      ) : null}
+
+                      {multiRunInputs.length > 1 ? (
+                        <Card
+                          bordered
+                          title={
+                            <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                              <Typography.Text strong>多图试跑队列</Typography.Text>
+                              <Button
+                                size="small"
+                                variant="text"
+                                onClick={() => {
+                                  setMultiRunInputs([]);
+                                  setLatestTrialRuns([]);
+                                }}
+                              >
+                                改回单图
+                              </Button>
+                            </Space>
+                          }
+                        >
+                          <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                            <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+                              已选择 {multiRunInputs.length} 张主图；点击开始后会逐张提交，每张图独立生成一个 runId。
+                            </Typography.Text>
+                            <div className="podi-multi-trial-inputs">
+                              {multiRunInputs.map((item, idx) => (
+                                <button
+                                  key={item.key}
+                                  type="button"
+                                  className={item.url === formUrl ? 'is-active' : ''}
+                                  onClick={() => {
+                                    setFormUrl(item.url);
+                                    const size = item.width && item.height ? { width: item.width, height: item.height } : null;
+                                    void applyFissionOriginalSizeDefaults(item.url, size);
+                                  }}
+                                >
+                                  <img src={item.url} alt={item.fileName || `图片${idx + 1}`} loading="lazy" />
+                                  <span>#{idx + 1}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </Space>
                         </Card>
                       ) : null}
                     </>
@@ -7435,10 +7576,20 @@ export function App() {
 
                   <div className="podi-run-action-bar">
                     <div>
-                      <Typography.Text strong>{requiresImage && !formUrl.trim() ? '等待主图' : '参数已就绪'}</Typography.Text>
+                      <Typography.Text strong>
+                        {requiresImage && !formUrl.trim()
+                          ? '等待主图'
+                          : multiRunInputs.length > 1
+                            ? `多图已就绪（${multiRunInputs.length} 张）`
+                            : '参数已就绪'}
+                      </Typography.Text>
                       <div>
                         <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
-                          {requiresImage && !formUrl.trim() ? '请先上传或粘贴主图 URL。' : '可提交运行；下方文档只用于业务接入核对。'}
+                          {requiresImage && !formUrl.trim()
+                            ? '请先上传或粘贴主图 URL。'
+                            : multiRunInputs.length > 1
+                              ? '会为每张图创建独立任务，便于逐张对比和打标。'
+                              : '可提交运行；下方文档只用于业务接入核对。'}
                         </Typography.Text>
                       </div>
                     </div>
@@ -7448,7 +7599,7 @@ export function App() {
                       disabled={isRunning || (requiresImage ? !formUrl.trim() : false)}
                       onClick={() => void runTool()}
                     >
-                      开始生成
+                      {multiRunInputs.length > 1 ? '开始多图试跑' : '开始生成'}
                     </Button>
                   </div>
 
@@ -7490,6 +7641,8 @@ export function App() {
                     const remain = latest ? Math.max(0, expectedCount - imgs.length) : 0;
                     const outputIp = latest ? extractOutputField((latest as any).result_output_json, 'ip') : '';
                     const latestInputUrl = latest ? (latest.input_oss_urls_json || [])[0] || formUrl.trim() : formUrl.trim();
+                    const trialRunById = new Map(toolRuns.map((run) => [run.id, run]));
+                    const trialItems = latestTrialRuns.map((item) => ({ input: item, run: trialRunById.get(item.runId) || null }));
 
                   return (
                     <Space direction="vertical" size="large" style={{ width: '100%' }}>
@@ -7587,6 +7740,68 @@ export function App() {
                           </Row>
                         )}
                       </Card>
+
+                      {trialItems.length > 1 ? (
+                        <Card
+                          bordered
+                          title={
+                            <div className="podi-panel-title">
+                              <strong>本次多图试跑</strong>
+                              <span>每张图都是独立任务，结果仍用同一套原图 / 结果对比组件。</span>
+                            </div>
+                          }
+                        >
+                          <div className="podi-multi-trial-results">
+                            {trialItems.map(({ input, run }, idx) => {
+                              const output = run ? getRunOutputDescriptor(run) : null;
+                              const runStatus = String(run?.status || 'queued');
+                              const inputUrl = (run?.input_oss_urls_json || [])[0] || input.url;
+                              const outputImages = output?.imageUrls || [];
+                              return (
+                                <Card
+                                  key={input.runId || input.key}
+                                  bordered
+                                  className="podi-multi-trial-result-card"
+                                  title={
+                                    <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                                      <Space size="small">
+                                        <Tag theme="primary" variant="light">图 {idx + 1}</Tag>
+                                        <Typography.Text ellipsis style={{ maxWidth: 180 }}>
+                                          {input.fileName || input.runId}
+                                        </Typography.Text>
+                                      </Space>
+                                      <StatusBadge status={runStatus} />
+                                    </Space>
+                                  }
+                                >
+                                  <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                                    <Typography.Text theme="secondary" style={{ fontFamily: 'monospace', fontSize: 12 }} ellipsis>
+                                      runId：{input.runId}
+                                    </Typography.Text>
+                                    {!run ? (
+                                      <Alert theme="info" message="任务已提交，等待刷新运行状态。" />
+                                    ) : runStatus === 'failed' ? (
+                                      <Alert theme="error" message={formatCompactErrorMessage(run.error_message)} />
+                                    ) : outputImages.length > 0 ? (
+                                      <ImageComparePanel
+                                        inputUrl={inputUrl}
+                                        outputUrls={outputImages}
+                                        title={`图 ${idx + 1} 对比`}
+                                        compact
+                                        onOpenImage={(u, title) => setLightbox({ url: u, title })}
+                                      />
+                                    ) : runStatus === 'queued' || runStatus === 'running' ? (
+                                      <SkeletonTile title="生成中…" subtitle={`run: ${input.runId}`} />
+                                    ) : (
+                                      <Alert theme="warning" message={output?.label || '任务已结束，但暂未看到图片回填。'} />
+                                    )}
+                                  </Space>
+                                </Card>
+                              );
+                            })}
+                          </div>
+                        </Card>
+                      ) : null}
 
                       <div className="podi-latest-output-grid podi-latest-output-grid--focus">
                         {!latest ? (

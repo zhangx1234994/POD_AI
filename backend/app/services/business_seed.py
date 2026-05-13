@@ -322,11 +322,6 @@ DEFAULT_BUSINESS_CAPABILITY_SEEDS: list[BusinessCapabilitySeed] = [
                         {"label": "高质 premium", "value": "premium"},
                     ],
                 ),
-                _field("count", "生成张数 Count", field_type="number", default=1, description="建议 1-3；数量越多成本越高。"),
-                _field("preserve_layout", "保留版式 Preserve Layout", field_type="switch", default=True),
-                _field("preserve_border", "边框策略 Preserve Border", field_type="text", default="auto", description="auto / true / false。"),
-                _field("preserve_count_density", "保留数量和密度 Preserve Count Density", field_type="switch", default=True),
-                _field("style_shift", "风格迁移 Style Shift", field_type="text", default="standard", description="standard / conservative / creative。"),
                 _field(
                     "size",
                     "比例尺寸 Size",

@@ -62,6 +62,7 @@
 - `docs/architecture.md`
 - `docs/BUSINESS_MODEL.md`
 - `docs/api/INDEX.md`
+- `docs/api/examples/fission-delivery-contract-2026-05-12.md`
 - `docs/admin/integration-dashboard.md`
 - `docs/eval/eval-platform.md`
 - `docs/testing/ABILITY_TEST_LEDGER.md`
@@ -72,6 +73,7 @@
 - `docs/standards/error-contract.md`
 - `docs/standards/interface-consistency.md`
 - `docs/standards/business-interface-taxonomy.md`
+- `docs/standards/delivery-methodology.md`
 - `docs/standards/ability-presentation-layer.md`
 - `docs/standards/eval-workflow-presentation-layer.md`
 - `docs/standards/eval-workflow-usage-layer.md`
@@ -86,6 +88,7 @@
 | 战略规划 | `docs/strategy/README.md` | 平台愿景、路线、待办、治理 |
 | 核心业务链路 | `docs/strategy/core-business-chain-review-2026-05-03.md` | 花纹提取 / 图裂变 / 扩图的入口、路由、回填、测试和后续优先级 |
 | API | `docs/api/INDEX.md` | 全量接口模块入口 |
+| 图裂变交付契约图 | `docs/api/examples/fission-delivery-contract-2026-05-12.md` | 两个裂变接口和裂变评分的排队轮询、类图关系、参数聚合规则 |
 | 业务接口分类 | `docs/standards/business-interface-taxonomy.md` | 业务分类、Coze/原生/原子能力/测评入口的统一归属 |
 | 历史客户端资料 | `docs/client/README.md` | 当前仓库已无客户端代码，仅保留历史方案和测试包 |
 | 管理端 | `docs/admin/integration-dashboard.md` | 执行节点、能力、第三方模型 Key、测试与日志 |
@@ -95,6 +98,7 @@
 | ComfyUI | `docs/comfyui/README.md` | Workflow、节点映射、执行节点说明 |
 | 周报归档 | `docs/weekly/README.md` | 按周汇总过程记录与阶段结论 |
 | 工程规范 | `docs/standards/` | 错误契约、接口一致性、文档维护等规范 |
+| 交付方法论 | `docs/standards/delivery-methodology.md` | 业务理解、接口契约、测评闭环、发布与文档沉淀的统一执行方法 |
 | 测试计划 | `docs/testing/README.md` | 回归计划、线上 smoke 清单、迁移 runbook |
 | 能力测试台账 | `docs/testing/ABILITY_TEST_LEDGER.md` | 每个功能族的必测用例、必查链路和上线闸门 |
 | 复盘记录 | `docs/retrospectives/` | 复盘、风险、后续动作 |

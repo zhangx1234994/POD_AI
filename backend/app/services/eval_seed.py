@@ -1556,7 +1556,6 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                         {"label": "高质", "value": "premium"},
                     ],
                 },
-                {"name": "count", "label": "生成张数", "type": "text", "required": False, "defaultValue": "1", "description": "建议 1-3；数量越多成本越高。"},
                 {"name": "maskUrl", "label": "蒙版 URL", "type": "text", "required": False, "defaultValue": "", "description": "可选；需要局部编辑时传入。"},
                 {
                     "name": "size",

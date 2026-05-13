@@ -218,11 +218,13 @@ def normalize_pattern_fission_user_params(inputs: dict[str, Any]) -> dict[str, A
     return {
         "variation_strength": strength,
         "quality": quality,
-        "count": _bounded_int(inputs.get("count") or inputs.get("n") or inputs.get("batch_size"), default=1, minimum=1, maximum=3),
-        "preserve_layout": _bool(inputs.get("preserve_layout"), default=True),
-        "preserve_border": _choice(inputs.get("preserve_border"), {"auto", "true", "false"}, "auto"),
-        "preserve_count_density": _bool(inputs.get("preserve_count_density"), default=True),
-        "style_shift": _choice(inputs.get("style_shift"), {"standard", "conservative", "creative"}, "standard"),
+        # Business-facing GPT Image 2 fission stays one image per run so callback,
+        # scoring, retry, and secondary fission remain one-to-one.
+        "count": 1,
+        "preserve_layout": True,
+        "preserve_border": "auto",
+        "preserve_count_density": True,
+        "style_shift": "standard",
         "size": _first_text(inputs.get("size"), DEFAULT_SIZE),
         "output_format": _first_text(inputs.get("output_format"), inputs.get("outputFormat"), DEFAULT_OUTPUT_FORMAT),
         "extra_prompt": _first_text(inputs.get("prompt"), inputs.get("extra_prompt"), inputs.get("user_prompt"), ""),
@@ -321,26 +323,6 @@ def _choice(value: Any, allowed: set[str], default: str) -> str:
         else:
             normalized = "high"
     return normalized if normalized in allowed else default
-
-
-def _bounded_int(value: Any, *, default: int, minimum: int, maximum: int) -> int:
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
-        parsed = default
-    return max(minimum, min(maximum, parsed))
-
-
-def _bool(value: Any, *, default: bool) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        normalized = value.strip().lower()
-        if normalized in {"1", "true", "yes", "y", "on"}:
-            return True
-        if normalized in {"0", "false", "no", "n", "off"}:
-            return False
-    return default
 
 
 def _first_text(*values: Any) -> str:

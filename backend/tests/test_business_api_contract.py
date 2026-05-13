@@ -56,10 +56,14 @@ def test_business_openapi_exposes_flat_business_tools() -> None:
         "source",
         "variation_strength",
         "quality",
-        "count",
         "size",
         "maskUrl",
     }.issubset(submit_schema["properties"])
+    assert "count" not in submit_schema["properties"]
+    assert "preserve_layout" not in submit_schema["properties"]
+    assert "preserve_border" not in submit_schema["properties"]
+    assert "preserve_count_density" not in submit_schema["properties"]
+    assert "style_shift" not in submit_schema["properties"]
     assert "重绘幅度" in submit_schema["properties"]["bili"]["description"]
     assert "denoise" in submit_schema["properties"]["bili"]["description"]
     assert submit_schema["properties"]["size"]["enum"] == [

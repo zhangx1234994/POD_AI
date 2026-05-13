@@ -11,6 +11,7 @@
 - `runId` 是业务任务 ID，业务方只需要保存它。
 - `taskId` 是底层能力任务 ID，仅用于排查和链路关联，不要求业务方理解。
 - 业务版本由中台切默认版本；Coze 工具箱和业务方入参尽量保持不变。
+- 图裂变 2026-05-12 交付的两个裂变版本和裂变评分接口，统一参考 `docs/api/examples/fission-delivery-contract-2026-05-12.md`；其中包含类图、队列/轮询兼容关系和参数聚合规则。
 
 ## 鉴权
 
@@ -40,7 +41,7 @@
 | 业务 | 提交接口 | 必填字段 | 常用可调字段 | 终态输出 | 业务说明 |
 | --- | --- | --- | --- | --- | --- |
 | 花纹提取 | `POST /api/business/pattern-extract/runs` | `imageUrl` | `prompt`、`negative_prompt`、`width`、`height`、`batch`、`lora` | `imageUrls` | 从原图中提取可复用花纹资产，通常是后续裂变和扩图的上游。 |
-| 图裂变 | `POST /api/business/fission/runs` | `imageUrl` | ComfyUI 旧版：`prompt`、`bili`、`width`、`height`、`image_desc`、`batch_size`；ComfyUI VL 控制卡版：`bili`、`width`、`height`、`profile`；GPT Image 2 版：`variation_strength`、`quality`、`count`、`preserve_layout`、`maskUrl` | `imageUrls` | 基于原图生成变化图；版本可在中台切换，业务方仍调用同一个入口。`bili` 是重绘幅度/裂变幅度，越高变化越明显。 |
+| 图裂变 | `POST /api/business/fission/runs` | `imageUrl` | ComfyUI 旧版：`prompt`、`bili`、`width`、`height`、`image_desc`、`batch_size`；ComfyUI VL 控制卡版：`bili`、`width`、`height`、`profile`；GPT Image 2 版：`variation_strength`、`quality`、`size`、`maskUrl` | `imageUrls` | 基于原图生成变化图；版本可在中台切换，业务方仍调用同一个入口。`bili` 是重绘幅度/裂变幅度，越高变化越明显。 |
 | 扩图 | `POST /api/business/outpaint/runs` | `imageUrl` | `prompt`、`expand_left`、`expand_right`、`expand_top`、`expand_bottom`、`width`、`height` | `imageUrls` | 在原图四周扩展画面，适合补构图、补背景和素材延展。 |
 
 ### 0.1) 最小调用示例
@@ -203,7 +204,7 @@ curl -X POST "$PODI_BACKEND/api/admin/business/api-keys" \
 - 默认模式下，VL 不阻塞主能力，适合先做观测和结果积累。
 - 如果配方设置 `mode=vl_then_primary`，或设置 `vlAssist.waitForResult=true` / `vlAssist.applyToPrimary=true`，业务层会先提交 VL，等 VL 成功后再提交主能力。
 - 阻塞式 VL 串联默认会把 `promptCard.imageDesc` 回填到图裂变 `image_desc`，把 `promptCard.positivePrompt` 回填到花纹提取/图裂变/扩图 `prompt`；只有原请求未填写这些字段时才自动回填。
-- GPT Image 2 图裂变新版使用专用编译器：VL 输出 `vlCard` 后，中台会编译成英文图片编辑提示词，并映射 `quality/count/size/output_format` 等 OpenAI 参数；业务方不用理解 VL 卡片和模型参数。
+- GPT Image 2 图裂变新版使用专用编译器：VL 输出 `vlCard` 后，中台会编译成英文图片编辑提示词，并映射 `quality/size/output_format/n=1` 等 OpenAI 参数；业务方不用理解 VL 卡片和模型参数。该业务版固定一个请求生成一张图，需要多张时由业务方发起多次请求，分别获得多个 `runId`。
 - ComfyUI VL 控制卡裂变新版使用 `vl_fission_control_card` 作为统一 VL 组件，输出 `fissionControlCard` 后再传给 `comfyui_flux_strong_hq_softstyle_fission_control_v1`；后续更换 VL 模型时优先改这个组件的默认 provider。
 - 裂变生成图评估是单独原子能力 `vl_fission_generated_image_evaluate`。它只输出 `pass / needs_refission / reject` 和问题标签，不在业务层自动二次裂变；业务方可按自己的策略决定是否再次调用图裂变。
 
@@ -375,11 +376,6 @@ GPT Image 2 + VL 新版请求示例：
   "version": "gpt-image2-vl-v1",
   "variation_strength": "high",
   "quality": "preview",
-  "count": 1,
-  "preserve_layout": true,
-  "preserve_border": "auto",
-  "preserve_count_density": true,
-  "style_shift": "standard",
   "prompt": "保留系列感，元素要明显变化",
   "source": "partner-api",
   "channel": "open-api",
@@ -387,7 +383,7 @@ GPT Image 2 + VL 新版请求示例：
 }
 ```
 
-说明：该版本会先调用 `vl_analyze_image` 生成图案结构卡，再调用 `openai_gpt_image_2_edit`。`quality=preview/production/premium` 会分别映射为 OpenAI 的 `low/medium/high`，`count` 当前限制为 1-3。
+说明：该版本会先调用 `vl_analyze_image` 生成图案结构卡，再调用 `openai_gpt_image_2_edit`。`quality=preview/production/premium` 会分别映射为 OpenAI 的 `low/medium/high`。当前业务交付口径固定单次输出 1 张图；如果业务需要 3 张图，请提交 3 次，每次有独立 `runId`、轮询结果和回调。
 
 ComfyUI VL 控制卡版请求示例：
 
