@@ -735,3 +735,11 @@
 - 根因：管理端没有识别 systemd `SuccessExitStatus=1` 这类“成功但有提醒”的服务。
 - 改进：当 `Result=success` 且 `ExecMainStatus!=0` 时显示为 `warning`，不列入阻塞问题。
 - 状态：已完成（待 114 更新后线上复测）
+
+5) **全量测评巡检对双图评估接口误报失败**
+- 范围：测评端巡检 / 裂变评分接口 / 下班前全量自检
+- 现象：26 个测评入口全量巡检中，`生成图评估 · 裂变质量与逻辑评估` 返回 `VL_EVAL_IMAGE_REQUIRED`，但定向补齐 `original_image` 与 `generated_image` 后接口实际成功。
+- 影响：巡检报告会把参数构造问题误判成业务接口不可用，容易触发无效排障。
+- 根因：`patrol_eval_workflows.py` 只识别 `url/image_url/image_urls/cankaotu` 等历史图片字段，没有按 schema 的通用 `image` 类型和 `metadata.eval_execution.image_fields` 自动补样例图。
+- 改进：巡检参数构造统一识别通用图片字段，并补充单测覆盖 `original_image/generated_image/reference_image`。
+- 状态：已完成

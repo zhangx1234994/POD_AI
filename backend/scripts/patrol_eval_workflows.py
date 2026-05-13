@@ -96,14 +96,27 @@ def _set_if_blank(params: dict[str, Any], key: str, value: Any) -> None:
 def _build_params(workflow: dict[str, Any], sample_url: str, tag: str) -> dict[str, Any]:
     params: dict[str, Any] = {}
     field_names: set[str] = set()
+    image_field_names: set[str] = set()
     for field in _workflow_fields(workflow):
         name = str(field.get("name") or "").strip()
         if not name:
             continue
         field_names.add(name)
+        field_type = str(field.get("type") or field.get("fieldType") or "").strip().lower()
+        if field_type in {"image", "image_url", "url"}:
+            image_field_names.add(name)
         default_value = field.get("defaultValue")
         if default_value is not None:
             params[name] = default_value
+
+    metadata = _metadata_dict(workflow)
+    eval_execution = metadata.get("eval_execution") if isinstance(metadata.get("eval_execution"), dict) else {}
+    metadata_image_fields = eval_execution.get("image_fields") if isinstance(eval_execution, dict) else None
+    if isinstance(metadata_image_fields, list):
+        for image_field in metadata_image_fields:
+            name = str(image_field or "").strip()
+            if name:
+                image_field_names.add(name)
 
     if {"url", "Url", "URL", "image_url"} & field_names:
         _set_if_blank(params, "url", sample_url)
@@ -115,6 +128,10 @@ def _build_params(workflow: dict[str, Any], sample_url: str, tag: str) -> dict[s
     if "image_urls" in field_names:
         if _is_blank(params.get("image_urls")):
             params["image_urls"] = [sample_url]
+    for image_field in sorted(image_field_names):
+        if image_field == "image_urls":
+            continue
+        _set_if_blank(params, image_field, sample_url)
     if "prompt" in field_names:
         _set_if_blank(params, "prompt", "日常巡检测试，请保持主体和风格稳定")
     if "bili" in field_names:

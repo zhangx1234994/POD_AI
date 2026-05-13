@@ -171,6 +171,8 @@ backend/.venv/bin/python backend/scripts/patrol_eval_workflows.py \
   --timeout 1800
 ```
 
+全量下班前巡检或事故后巡检可以使用 `--role all` 覆盖 production/candidate/legacy。脚本必须按测评 schema 自动补齐通用图片字段，包括 `original_image`、`generated_image` 这类双图评估字段；如果出现缺图类错误，先检查巡检参数构造，再判断业务接口是否真的异常。
+
 ## 6. 117 / 233 / vendor-api-ops 更新边界
 
 普通 backend、管理端、测评端改动只更新 114。

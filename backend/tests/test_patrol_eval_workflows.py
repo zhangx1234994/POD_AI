@@ -247,3 +247,23 @@ def test_build_params_replaces_blank_schema_defaults_for_patrol() -> None:
     assert params["width"] == 1024
     assert params["height"] == 1024
     assert params["image_urls"] == ["https://oss.example/input.png"]
+
+
+def test_build_params_fills_generic_image_fields_for_patrol() -> None:
+    workflow = {
+        "parameters_schema": {
+            "fields": [
+                {"name": "original_image", "type": "image", "defaultValue": ""},
+                {"name": "generated_image", "type": "image"},
+                {"name": "context", "type": "textarea", "defaultValue": ""},
+            ]
+        },
+        "metadata": {"eval_execution": {"image_fields": ["reference_image"]}},
+    }
+
+    params = patrol._build_params(workflow, "https://oss.example/input.png", "tag_1")
+
+    assert params["original_image"] == "https://oss.example/input.png"
+    assert params["generated_image"] == "https://oss.example/input.png"
+    assert params["reference_image"] == "https://oss.example/input.png"
+    assert params["context"] == ""
