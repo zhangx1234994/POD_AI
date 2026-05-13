@@ -64,6 +64,14 @@
 - 改进：总览页把非 systemd 本地环境标为“本地不可读”，不再作为阻塞；部分模块加载失败改为折叠详情并提示“先重试，再进入对应模块”；模型弹药库区分“中台密钥池 / 环境变量兜底 / 未配置”；能力日志统一使用“结果入库/成功无结果”。
 - 状态：已完成第一轮视觉走查修正；整体信息架构和页面降噪继续归入前端整改阶段。
 
+0.7) **Coze 工具箱 OpenAPI 暴露了 `127.0.0.1:8099`**
+- 范围：114 控制面 / Coze 工具箱 / 发布门禁
+- 现象：上线后走查发现 `/api/coze/podi/openapi.json` 和 standalone toolbox 的 `servers[0].url` 返回 `http://127.0.0.1:8099`；宿主机 health 正常，但 `coze-server` 容器内访问 `127.0.0.1:8099` 不通。
+- 影响：如果重新导入 Coze 工具箱，Coze 可能按错误地址调用 backend，出现工具调用失败；普通宿主机 smoke 不带期望地址时无法发现。
+- 根因：工具箱 OpenAPI 从请求 Host 推导 server URL；发布 smoke 没有强制校验 Coze 容器可访问地址；114 未显式配置 `PODI_INTERNAL_BASE_URL`。
+- 改进：Coze 工具箱 OpenAPI 优先读取显式 `PODI_INTERNAL_BASE_URL`；发布 smoke 从线上 `.env` 读取并校验期望地址；SOP 增加 `coze-server` 容器内可达性检查。
+- 状态：处理中（代码与 SOP 已修正，待重新发布 114 并验证）
+
 0) **114 发布脚本在 backend 刚重启时误判 health 失败**
 - 范围：发布流程 / 114 控制面
 - 现象：`scripts/release_114_control_plane.sh` 复制代码、迁移、重启服务后，`systemctl is-active` 已显示三项服务 active，但紧接着 `curl http://127.0.0.1:8099/health` 偶发 `connection refused`；等待 5~6 秒后 backend 正常监听且 health 通过。

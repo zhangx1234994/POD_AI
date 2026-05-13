@@ -7,6 +7,7 @@ so we keep auth lightweight and rely on network isolation + optional service tok
 
 from __future__ import annotations
 
+import os
 import re
 import time
 from datetime import datetime, timezone
@@ -681,6 +682,9 @@ def _build_openapi(*, podi_server: str | None = None) -> dict[str, Any]:
     }
 
 def _server_from_request(request: Request) -> str:
+    configured = (os.getenv("PODI_INTERNAL_BASE_URL") or "").strip()
+    if configured:
+        return configured.rstrip("/")
     forwarded_proto = (request.headers.get("x-forwarded-proto") or "").strip()
     forwarded_host = (request.headers.get("x-forwarded-host") or "").strip()
     host = forwarded_host or (request.headers.get("host") or "").strip()

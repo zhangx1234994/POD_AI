@@ -26,6 +26,15 @@ def test_comfyui_beijing_koutu_openapi_contains_only_tool_and_tasks_get():
     assert required == ["url"]
 
 
+def test_comfyui_openapi_uses_configured_internal_base_url(monkeypatch):
+    monkeypatch.setenv("PODI_INTERNAL_BASE_URL", "http://172.17.0.1:8099")
+
+    resp = client.get("/api/coze/podi/comfyui/execute/beijing-koutu/openapi.json")
+
+    assert resp.status_code == 200
+    assert resp.json()["servers"] == [{"url": "http://172.17.0.1:8099"}]
+
+
 def test_comfyui_toubu_kouxiang_openapi_contains_only_tool_and_tasks_get():
     resp = client.get("/api/coze/podi/comfyui/execute/toubu-kouxiang/openapi.json")
     assert resp.status_code == 200

@@ -32,7 +32,7 @@ bash scripts/release_114_control_plane.sh
 脚本默认会执行：
 
 1. 发版源检查：`scripts/release_source_preflight.sh`
-2. 后端关键测试：业务 API、任务归属、发布 smoke、打包脚本
+2. 后端关键测试：业务 API、任务归属、发布治理、Coze 工具箱 OpenAPI、发布 smoke、打包脚本
 3. 管理端和测评端 `npm run lint`
 4. 管理端和测评端 `npm run build`
 5. 生成干净发布包，去掉 `.venv`、`.env`、`node_modules`、`._*`、`.DS_Store`
@@ -59,6 +59,7 @@ bash scripts/release_114_control_plane.sh
 | `RUN_LIVE_PATROL` | `0` | 是否跑真实业务出图巡检 |
 | `INSTALL_DEPS` | `auto` | 依赖变更时设为 `1` |
 | `SMOKE_ALLOW_COMFYUI_WARNINGS` | `0` | 临时接受 ComfyUI 兼容 warning，必须记录原因 |
+| `SMOKE_EXPECT_SERVER_URL` | 线上 `backend/.env` 的 `PODI_INTERNAL_BASE_URL` | 校验 Coze 工具箱 OpenAPI 的 `servers[0].url` 是否为 Coze 容器可访问地址 |
 | `SERVICE_READY_TIMEOUT_SECONDS` | `60` | 重启后等待 backend/admin/eval HTTP 入口就绪的最长秒数 |
 
 示例：只做控制面发布，不跑真实出图：
@@ -99,6 +100,7 @@ RUN_LIVE_PATROL=1 bash scripts/release_114_control_plane.sh
 - Alembic 当前库版本不在代码迁移链中。
 - 后端关键测试、前端构建、远端 health 任一失败。
 - `tasks/get` 出现 `401 INTERNAL_ONLY`。
+- Coze 容器不可访问 OpenAPI 暴露的 `servers[0].url`。
 - 核心业务默认版本缺失或无可执行配方。
 - 成功任务没有 OSS 回填或缺执行节点证据。
 
@@ -116,7 +118,35 @@ ADMIN_URL=http://127.0.0.1:8199 \
 EVAL_URL=http://127.0.0.1:8200 \
 bash scripts/deploy_preflight.sh
 backend/.venv/bin/python backend/scripts/podi_release_smoke.py \
-  --base-url http://127.0.0.1:8099
+  --base-url http://127.0.0.1:8099 \
+  --expect-server-url "$(awk -F= '/^PODI_INTERNAL_BASE_URL=/{print $2; exit}' backend/.env)"
+```
+
+Coze 工具箱地址必须从 Coze 容器内验证，不允许只在宿主机用 `127.0.0.1` 判断：
+
+```bash
+docker exec coze-server sh -lc \
+  'for host in 172.17.0.1 114.55.0.56; do echo ===$host===; wget -qO- --timeout=3 http://$host:8099/health || true; done'
+python3 - <<'PY'
+import json, urllib.request
+for path in ["/api/coze/podi/openapi.json", "/api/coze/podi/comfyui/openapi.json"]:
+    doc = json.load(urllib.request.urlopen("http://127.0.0.1:8099" + path, timeout=10))
+    print(path, doc.get("servers"))
+PY
+```
+
+114 当前推荐配置：
+
+```bash
+PODI_INTERNAL_BASE_URL=http://172.17.0.1:8099
+```
+
+线上页面走查最少覆盖：
+
+- 管理端 8199：登录、总体概览、业务能力、API 开放、能力调用、ComfyUI 资源。
+- 测评端 8200：首页目录、图裂变分类、新增/更新功能角标、接口文档、上传与结果区基础交互。
+- 前端静态产物：页面源码不得出现 `@vite/client`、`/src/main.tsx`、`@react-refresh`。
+- 管理端“发布前门禁”需有本次轻量门禁记录；真实巡检如果未跑，必须记录未跑原因。
 ```
 
 业务闭环验证：
@@ -175,6 +205,7 @@ backend/.venv/bin/python backend/scripts/patrol_business_api.py \
 | 服务重启失败 | 先 `systemctl status` 和 `journalctl` 定位；必要时恢复上一版目录。 |
 | 服务重启后就绪等待超时 | 先看脚本输出的 `systemctl status` 和 backend 最近 80 行日志；确认是启动慢、端口被占用还是应用异常。 |
 | smoke 失败 | 保持服务不扩流；按失败项处理，不能把 health 通过当作上线成功。 |
+| OpenAPI `servers[0].url` 是 `127.0.0.1` | 先确认 `PODI_INTERNAL_BASE_URL`，再从 `coze-server` 容器内验证该地址可访问，修复后重新导入或刷新工具箱。 |
 | 真实业务巡检失败 | 不交业务验收；确认是样例图、执行节点、OSS、回填还是业务配方问题。 |
 
 ## 8. 回滚口径
@@ -228,3 +259,10 @@ smoke 结果：
 - 使用 `scripts/release_114_control_plane.sh` 作为 114 发布入口。
 - `scripts/package_release_archive.py` 默认排除本地环境和 macOS 垃圾文件。
 - 发布前后都以 commit 文件和 smoke 结果确认，不再靠“页面看起来变了”判断。
+
+2026-05-13 走查新增固化：
+
+- Coze 工具箱 OpenAPI 不能从请求自动推导为 `127.0.0.1`；必须优先使用显式配置的 `PODI_INTERNAL_BASE_URL`。
+- 发布 smoke 必须校验工具箱 `servers[0].url`，防止“宿主机 health 正常、Coze 容器调用失败”。
+- 管理端总览的“可上线/暂缓”只作为发布记录视图，实际结论必须以脚本门禁、容器可达性、业务巡检记录三者共同判断。
+- 浏览器插件不可用时，允许使用独立 Playwright 走查页面，不能因为工具链卡住而跳过页面验收。

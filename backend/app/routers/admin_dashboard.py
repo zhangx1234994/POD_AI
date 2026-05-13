@@ -1668,9 +1668,9 @@ def run_release_preflight(
     payload: schemas.ReleasePreflightRunRequest | None = None,
 ) -> schemas.ReleasePreflightResponse:
     req = payload or schemas.ReleasePreflightRunRequest()
-    settings = get_settings()
     base_url = (req.base_url or "http://127.0.0.1:8099").rstrip("/")
-    expected = req.expect_server_url or settings.podi_internal_base_url
+    explicit_internal_base_url = (os.getenv("PODI_INTERNAL_BASE_URL") or "").strip()
+    expected = req.expect_server_url or explicit_internal_base_url
     checks = _run_release_preflight_checks(base_url=base_url, expect_server_url=expected)
     response = _release_preflight_response(mode=req.mode or "light", base_url=base_url, checks=checks)
     _append_record("release_preflight_snapshots.json", response.model_dump(by_alias=True, mode="json"), keep=100)

@@ -218,6 +218,31 @@ def test_release_preflight_and_patrol_records(monkeypatch, tmp_path) -> None:
     assert decision_list.status_code == 200
     assert decision_list.json()["items"][0]["id"] == decision["id"]
 
+
+def test_release_preflight_does_not_expect_default_internal_base_url(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(admin_dashboard_module, "DASHBOARD_RUNTIME_DIR", tmp_path / "runtime")
+    monkeypatch.delenv("PODI_INTERNAL_BASE_URL", raising=False)
+    observed: dict[str, str | None] = {}
+
+    def fake_checks(*, base_url: str, expect_server_url: str | None = None):
+        observed["expect_server_url"] = expect_server_url
+        return [
+            admin_dashboard_module.schemas.ReleasePreflightCheck(
+                name="backend_health",
+                title="后端存活",
+                status="pass",
+                blocking=False,
+                detail="ok",
+            )
+        ]
+
+    monkeypatch.setattr(admin_dashboard_module, "_run_release_preflight_checks", fake_checks)
+
+    resp = client.post("/api/admin/dashboard/release-preflight/run", json={"mode": "light"})
+
+    assert resp.status_code == 200
+    assert observed["expect_server_url"] == ""
+
     invalid_decision = client.post(
         "/api/admin/dashboard/release-decisions/records",
         json={"status": "unknown"},

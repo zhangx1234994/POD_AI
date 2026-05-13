@@ -83,6 +83,8 @@ if [[ "$RUN_TESTS" == "1" ]]; then
   python3 -m pytest \
     backend/tests/test_business_api_contract.py \
     backend/tests/test_ability_task_owner.py \
+    backend/tests/test_admin_dashboard_release_governance.py \
+    backend/tests/test_coze_comfyui_new_toolboxes_openapi.py \
     backend/tests/test_podi_release_smoke.py \
     backend/tests/test_release_archive_packaging.py \
     -q
@@ -200,7 +202,18 @@ if [[ "$RUN_SMOKE" == "1" ]]; then
   if [[ "$SMOKE_ALLOW_COMFYUI_WARNINGS" == "1" ]]; then
     smoke_extra_args=" --allow-comfyui-compat-warnings"
   fi
-  remote "cd '$TARGET_ROOT' && backend/.venv/bin/python backend/scripts/podi_release_smoke.py --base-url '$BACKEND_URL_LOCAL'$smoke_extra_args"
+  remote "cd '$TARGET_ROOT' && BACKEND_URL_LOCAL='$BACKEND_URL_LOCAL' SMOKE_EXTRA_ARGS='$smoke_extra_args' SMOKE_EXPECT_SERVER_URL='${SMOKE_EXPECT_SERVER_URL:-}' bash -s" <<'REMOTE'
+set -euo pipefail
+expect_server_url="${SMOKE_EXPECT_SERVER_URL:-}"
+if [[ -z "$expect_server_url" && -f backend/.env ]]; then
+  expect_server_url="$(awk -F= '/^PODI_INTERNAL_BASE_URL=/{print $2; exit}' backend/.env | tr -d '\r' | sed 's/^"//;s/"$//')"
+fi
+expect_arg=()
+if [[ -n "$expect_server_url" ]]; then
+  expect_arg=(--expect-server-url "$expect_server_url")
+fi
+backend/.venv/bin/python backend/scripts/podi_release_smoke.py --base-url "$BACKEND_URL_LOCAL" "${expect_arg[@]}" $SMOKE_EXTRA_ARGS
+REMOTE
 else
   echo "[release-114] WARN: release smoke skipped."
 fi
