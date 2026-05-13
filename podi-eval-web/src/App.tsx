@@ -254,7 +254,7 @@ const readEvalQuery = () => {
 const AI_EDITOR_WORKFLOW_ID = '7604714915110060032';
 const SHENGTU_WORKFLOW_ID = '7602916576198656000';
 const LORA_BATCH_MAX_TASKS = 5000;
-const TOOL_MULTI_IMAGE_MAX = 12;
+const TOOL_MULTI_IMAGE_MAX = 50;
 const TERMINAL_BATCH_STATUS = new Set(['succeeded', 'failed', 'stopped']);
 const COMFYUI_EXECUTOR_LABELS: Record<string, string> = {
   executor_comfyui_pattern_extract_158: '158 图形能力机',
@@ -867,10 +867,18 @@ const getWorkflowVersionLabel = (wf: EvalWorkflowVersion | null | undefined): st
   const version = String(wf?.version || '').trim();
   const workflowId = String(wf?.workflow_id || '').trim();
   const text = `${workflowId} ${version}`.toLowerCase();
+  if (workflowId === 'business_fission_gpt_image2_vl_v1') {
+    if (text.includes('gpt-image2-vl-v2')) return 'GPT Image 2 受控版';
+    return 'GPT Image 2 + VL 控制版';
+  }
   if (workflowId === 'business_fission_gpt_image2_vl_v2' || text.includes('gpt-image2-vl-v2')) return 'GPT Image 2 受控版';
-  if (workflowId === 'business_fission_gpt_image2_vl_v1' || text.includes('gpt-image2-vl')) return '商业模型 VL 控制版';
+  if (text.includes('gpt-image2-vl')) return 'GPT Image 2 + VL 控制版';
+  if (workflowId === 'business_fission_comfyui_vl_control_v1') {
+    if (text.includes('comfyui-vl-control-v2')) return 'ComfyUI 颜色锁定版';
+    return 'ComfyUI VL 控制版';
+  }
   if (workflowId === 'business_fission_comfyui_vl_colorlock_v2' || text.includes('comfyui-vl-control-v2')) return 'ComfyUI 颜色锁定版';
-  if (workflowId === 'business_fission_comfyui_vl_control_v1' || text.includes('comfyui-vl-control')) return 'ComfyUI VL 控制版';
+  if (text.includes('comfyui-vl-control')) return 'ComfyUI VL 控制版';
   if (workflowId === 'ability_fission_generated_image_evaluate_v1' || text.includes('generated-image-eval')) return '裂变质量评估';
   if (version === '2026-04-23') return '2026/4/23';
   return cleanWorkflowDisplayText(version || 'v1') || 'v1';
@@ -7636,7 +7644,7 @@ export function App() {
                     const status = String(latest?.status || '');
                     const rawCount = Number((latest?.parameters_json as any)?.count);
                     const expectedCount =
-                      Number.isFinite(rawCount) && rawCount > 1 ? Math.min(Math.max(rawCount, 2), 12) : latest ? 1 : 0;
+                      Number.isFinite(rawCount) && rawCount > 1 ? Math.min(Math.max(rawCount, 2), TOOL_MULTI_IMAGE_MAX) : latest ? 1 : 0;
                     const latestOutput = latest ? getRunOutputDescriptor(latest) : null;
                     const imgs = latestOutput?.imageUrls || [];
                     const videos = latestOutput?.videoUrls || [];

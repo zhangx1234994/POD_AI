@@ -35,9 +35,7 @@ VL_WORKFLOW_IDS: set[str] = {
 }
 
 BUSINESS_API_WORKFLOW_IDS: set[str] = {
-    "business_fission_gpt_image2_vl_v2",
     "business_fission_gpt_image2_vl_v1",
-    "business_fission_comfyui_vl_colorlock_v2",
     "business_fission_comfyui_vl_control_v1",
 }
 

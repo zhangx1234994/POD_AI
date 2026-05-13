@@ -48,6 +48,9 @@ DEPRECATED_EVAL_WORKFLOW_IDS: set[str] = {
     "7598558185544220672",  # tiqu_duoMoxing_2 (old)
     # 图裂变（旧商业模型版本）
     "7598844004557389824",  # Liebian_shangye_20260124_1_1
+    # 2026-05-13：这两个 v2 是对原生图裂变入口的替换升级，不应作为独立测评卡片展示。
+    "business_fission_gpt_image2_vl_v2",
+    "business_fission_comfyui_vl_colorlock_v2",
     # 下线/作废
     "7598560946579046400",  # tiqu_duoMoxing_2_2 (commercial + comfyui, deprecated)
     "7597659369861283840",  # 多模型生图
@@ -1519,12 +1522,12 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
             },
         },
     },
-    # 图裂变 / 中台原生业务接口：GPT Image 2 受控版
+    # 图裂变 / 中台原生业务接口：GPT Image 2 + VL 控制版
     {
         "category": "图裂变",
-        "name": "图裂变 · GPT Image 2 受控版",
+        "name": "图裂变 · GPT Image 2 + VL 控制版",
         "version": "gpt-image2-vl-v2",
-        "workflow_id": "business_fission_gpt_image2_vl_v2",
+        "workflow_id": "business_fission_gpt_image2_vl_v1",
         "status": "active",
         "notes": "中台原生图裂变业务接口。VL 只生成客观识别卡，中台做图案路由、定量提示词编译，再调用 GPT Image 2 图片编辑。",
         "parameters_schema": {
@@ -1577,11 +1580,11 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         },
         "metadata": {
             "isNewVersion": True,
-            "badge": "新版",
+            "badge": "已优化",
             "presentation": {
                 "operation_label": "图像裂变",
                 "variant_label": "GPT Image 2 受控版",
-                "badges": ["新版", "原生业务接口"],
+                "badges": ["已优化", "原生业务接口"],
                 "supports_batch": True,
                 "result_mode": "image",
                 "usage_hint": "用于验证 GPT Image 2 受控裂变接口，重点看图案类别、密度、主色和构图是否稳定。",
@@ -1589,7 +1592,7 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
             "governance": {
                 "role": "candidate",
                 "role_label": "灰度验证版本",
-                "role_reason": "2026-05-13 新接入，先在测评端做效果和稳定性验证。",
+                "role_reason": "2026-05-13 优化替换，沿用原测评入口做效果和稳定性验证。",
             },
             "eval_execution": {
                 "mode": "business_run",
@@ -1598,90 +1601,12 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
             },
         },
     },
-    # 图裂变 / 中台原生业务接口：GPT Image 2 + VL 控制版
-    {
-        "category": "图裂变",
-        "name": "图裂变 · GPT Image 2 + VL 控制版",
-        "version": "gpt-image2-vl-v1",
-        "workflow_id": "business_fission_gpt_image2_vl_v1",
-        "status": "active",
-        "notes": "中台原生图裂变业务接口。先由 VL 生成结构卡，再调用 GPT Image 2 图片编辑；适合验证商业模型裂变链路。",
-        "parameters_schema": {
-            "fields": [
-                {"name": "url", "label": "原图 URL", "type": "image", "required": True, "description": "裂变前的参考原图；测评端上传后会自动写入。"},
-                {"name": "prompt", "label": "额外要求", "type": "textarea", "required": False, "defaultValue": "", "description": "可选，会拼入最终提示词。"},
-                {
-                    "name": "variation_strength",
-                    "label": "裂变幅度",
-                    "type": "select",
-                    "required": False,
-                    "defaultValue": "high",
-                    "options": [
-                        {"label": "明显变化", "value": "high"},
-                        {"label": "中等变化", "value": "medium"},
-                        {"label": "保守变化", "value": "low"},
-                    ],
-                },
-                {
-                    "name": "quality",
-                    "label": "质量档位",
-                    "type": "select",
-                    "required": False,
-                    "defaultValue": "preview",
-                    "options": [
-                        {"label": "预览", "value": "preview"},
-                        {"label": "正式", "value": "production"},
-                        {"label": "高质", "value": "premium"},
-                    ],
-                },
-                {"name": "maskUrl", "label": "蒙版 URL", "type": "text", "required": False, "defaultValue": "", "description": "可选；需要局部编辑时传入。"},
-                {
-                    "name": "size",
-                    "label": "比例尺寸",
-                    "type": "select",
-                    "required": False,
-                    "defaultValue": "auto",
-                    "description": "GPT Image 2 输出尺寸预设；高分辨率档位成本和耗时更高。",
-                    "options": GPT_IMAGE2_SIZE_OPTIONS,
-                },
-            ]
-        },
-        "output_schema": {
-            "fields": [
-                {"name": "imageUrls", "type": "array", "description": "中台 OSS 结果图"},
-                {"name": "runId", "type": "text", "description": "业务运行 ID"},
-                {"name": "taskId", "type": "text", "description": "底层能力任务 ID"},
-            ]
-        },
-        "metadata": {
-            "isNewVersion": True,
-            "badge": "新版",
-            "presentation": {
-                "operation_label": "图像裂变",
-                "variant_label": "GPT Image 2 + VL 控制版",
-                "badges": ["新版", "原生业务接口"],
-                "supports_batch": True,
-                "result_mode": "image",
-                "usage_hint": "用于验证 GPT Image 2 商业模型裂变链路，业务方后续可按版本切流。",
-            },
-            "governance": {
-                "role": "candidate",
-                "role_label": "灰度验证版本",
-                "role_reason": "2026-05-12 新接入，先在测评端做效果和稳定性验证。",
-            },
-            "eval_execution": {
-                "mode": "business_run",
-                "business_key": "fission",
-                "version": "gpt-image2-vl-v1",
-            },
-        },
-    },
     # 图裂变 / 中台原生业务接口：ComfyUI VL 控制卡版
     {
         "category": "图裂变",
-        "name": "图裂变 · ComfyUI 颜色锁定版",
+        "name": "图裂变 · ComfyUI VL 控制卡版",
         "version": "comfyui-vl-control-v2",
-        "workflow_id": "business_fission_comfyui_vl_colorlock_v2",
+        "workflow_id": "business_fission_comfyui_vl_control_v1",
         "status": "active",
         "notes": "中台原生图裂变业务接口。先由统一 VL 组件生成 palette_card，再调用 ComfyUI 颜色锁定参数，重点降低色偏和深浅比例漂移。",
         "parameters_schema": {
@@ -1714,11 +1639,11 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         },
         "metadata": {
             "isNewVersion": True,
-            "badge": "新版",
+            "badge": "已优化",
             "presentation": {
                 "operation_label": "图像裂变",
                 "variant_label": "ComfyUI 颜色锁定版",
-                "badges": ["新版", "原生业务接口"],
+                "badges": ["已优化", "原生业务接口"],
                 "supports_batch": True,
                 "result_mode": "image",
                 "usage_hint": "用于验证 ComfyUI 颜色锁定裂变接口，重点看主色、深浅比例和图案结构是否稳定。",
@@ -1726,60 +1651,12 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
             "governance": {
                 "role": "candidate",
                 "role_label": "灰度验证版本",
-                "role_reason": "2026-05-13 新接入，先在测评端做效果和稳定性验证。",
+                "role_reason": "2026-05-13 优化替换，沿用原测评入口做效果和稳定性验证。",
             },
             "eval_execution": {
                 "mode": "business_run",
                 "business_key": "fission",
                 "version": "comfyui-vl-control-v2",
-            },
-        },
-    },
-    # 图裂变 / 中台原生业务接口：ComfyUI VL 控制卡版
-    {
-        "category": "图裂变",
-        "name": "图裂变 · ComfyUI VL 控制卡版",
-        "version": "comfyui-vl-control-v1",
-        "workflow_id": "business_fission_comfyui_vl_control_v1",
-        "status": "active",
-        "notes": "中台原生图裂变业务接口。先由统一 VL 组件生成控制卡，再调用 ComfyUI 05 FLUX Strong HQ SoftStyle 裂变工作流。",
-        "parameters_schema": {
-            "fields": [
-                {"name": "url", "label": "原图 URL", "type": "image", "required": True, "description": "裂变前的参考原图；测评端上传后会自动写入。"},
-                {"name": "bili", "label": REPAINT_STRENGTH_LABEL, "type": "text", "required": False, "defaultValue": "50%", "description": REPAINT_STRENGTH_DESCRIPTION},
-                {"name": "width", "label": "输出宽度", "type": "text", "required": False, "defaultValue": "2000", "description": "像素数值（纯数字，不要带 px）"},
-                {"name": "height", "label": "输出高度", "type": "text", "required": False, "defaultValue": "2000", "description": "像素数值（纯数字，不要带 px）"},
-                {"name": "profile", "label": "裂变配置", "type": "text", "required": False, "defaultValue": "pattern_default_v1"},
-                {"name": "prompt", "label": "额外要求", "type": "textarea", "required": False, "defaultValue": ""},
-            ]
-        },
-        "output_schema": {
-            "fields": [
-                {"name": "imageUrls", "type": "array", "description": "中台 OSS 结果图"},
-                {"name": "runId", "type": "text", "description": "业务运行 ID"},
-                {"name": "taskId", "type": "text", "description": "底层能力任务 ID"},
-            ]
-        },
-        "metadata": {
-            "isNewVersion": True,
-            "badge": "新版",
-            "presentation": {
-                "operation_label": "图像裂变",
-                "variant_label": "ComfyUI VL 控制卡版",
-                "badges": ["新版", "原生业务接口"],
-                "supports_batch": True,
-                "result_mode": "image",
-                "usage_hint": "用于验证 ComfyUI 裂变接口包，重点看 VL 控制卡到出图的闭环是否稳定。",
-            },
-            "governance": {
-                "role": "candidate",
-                "role_label": "灰度验证版本",
-                "role_reason": "2026-05-12 新接入，先在测评端做效果和稳定性验证。",
-            },
-            "eval_execution": {
-                "mode": "business_run",
-                "business_key": "fission",
-                "version": "comfyui-vl-control-v1",
             },
         },
     },

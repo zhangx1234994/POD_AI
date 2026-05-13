@@ -1,5 +1,6 @@
 from app.services.eval_seed import (
     DEFAULT_EVAL_WORKFLOW_BY_ID,
+    DEPRECATED_EVAL_WORKFLOW_IDS,
     FISSION_WORKFLOW_IDS,
     IP_OUTPUT_WORKFLOW_IDS,
     PROMPT_OUTPUT_WORKFLOW_IDS,
@@ -164,62 +165,42 @@ def test_flux2_9b_liebian_sifang_is_fission_and_seamless():
 
 
 def test_20260512_native_eval_entries_are_visible_and_badged():
-    gpt_v2 = DEFAULT_EVAL_WORKFLOW_BY_ID["business_fission_gpt_image2_vl_v2"]
     gpt = DEFAULT_EVAL_WORKFLOW_BY_ID["business_fission_gpt_image2_vl_v1"]
     comfy = DEFAULT_EVAL_WORKFLOW_BY_ID["business_fission_comfyui_vl_control_v1"]
-    comfy_colorlock = DEFAULT_EVAL_WORKFLOW_BY_ID["business_fission_comfyui_vl_colorlock_v2"]
     evaluator = DEFAULT_EVAL_WORKFLOW_BY_ID["ability_fission_generated_image_evaluate_v1"]
 
-    assert gpt_v2["category"] == "图裂变"
     assert gpt["category"] == "图裂变"
     assert comfy["category"] == "图裂变"
-    assert comfy_colorlock["category"] == "图裂变"
     assert evaluator["category"] == "图像理解"
-    assert gpt_v2["metadata"]["eval_execution"] == {
+    assert gpt["metadata"]["eval_execution"] == {
         "mode": "business_run",
         "business_key": "fission",
         "version": "gpt-image2-vl-v2",
     }
-    assert gpt["metadata"]["eval_execution"] == {
-        "mode": "business_run",
-        "business_key": "fission",
-        "version": "gpt-image2-vl-v1",
-    }
     assert comfy["metadata"]["eval_execution"] == {
-        "mode": "business_run",
-        "business_key": "fission",
-        "version": "comfyui-vl-control-v1",
-    }
-    assert comfy_colorlock["metadata"]["eval_execution"] == {
         "mode": "business_run",
         "business_key": "fission",
         "version": "comfyui-vl-control-v2",
     }
     assert evaluator["metadata"]["eval_execution"]["mode"] == "ability_task"
     assert evaluator["metadata"]["eval_execution"]["ability_id"] == "vl_fission_generated_image_evaluate"
-    assert "新版" not in gpt_v2["name"]
     assert "新版" not in gpt["name"]
     assert "新版" not in comfy["name"]
-    assert "新版" not in comfy_colorlock["name"]
     assert "新版" not in evaluator["name"]
-    assert "新版" in gpt_v2["metadata"]["presentation"]["badges"]
-    assert "新版" in gpt["metadata"]["presentation"]["badges"]
-    assert "新版" in comfy["metadata"]["presentation"]["badges"]
-    assert "新版" in comfy_colorlock["metadata"]["presentation"]["badges"]
+    assert "已优化" in gpt["metadata"]["presentation"]["badges"]
+    assert "已优化" in comfy["metadata"]["presentation"]["badges"]
     assert "新版" in evaluator["metadata"]["presentation"]["badges"]
-    gpt_v2_fields = [f.get("name") for f in (gpt_v2["parameters_schema"]["fields"] or []) if isinstance(f, dict)]
     gpt_fields = [f.get("name") for f in (gpt["parameters_schema"]["fields"] or []) if isinstance(f, dict)]
     comfy_fields = [f.get("name") for f in (comfy["parameters_schema"]["fields"] or []) if isinstance(f, dict)]
-    comfy_colorlock_fields = [
-        f.get("name") for f in (comfy_colorlock["parameters_schema"]["fields"] or []) if isinstance(f, dict)
-    ]
-    assert "count" not in gpt_v2_fields
     assert "count" not in gpt_fields
     assert "count" not in comfy_fields
-    assert "count" not in comfy_colorlock_fields
-    assert _field_by_name(gpt_v2, "variation_strength").get("defaultValue") == "same_series"
-    assert _field_by_name(comfy_colorlock, "bili").get("defaultValue") == "15%"
-    assert _field_by_name(comfy_colorlock, "profile").get("defaultValue") == "pattern_color_lock_v2"
+    assert _field_by_name(gpt, "variation_strength").get("defaultValue") == "same_series"
+    assert _field_by_name(comfy, "bili").get("defaultValue") == "15%"
+    assert _field_by_name(comfy, "profile").get("defaultValue") == "pattern_color_lock_v2"
+    assert "business_fission_gpt_image2_vl_v2" not in DEFAULT_EVAL_WORKFLOW_BY_ID
+    assert "business_fission_comfyui_vl_colorlock_v2" not in DEFAULT_EVAL_WORKFLOW_BY_ID
+    assert "business_fission_gpt_image2_vl_v2" in DEPRECATED_EVAL_WORKFLOW_IDS
+    assert "business_fission_comfyui_vl_colorlock_v2" in DEPRECATED_EVAL_WORKFLOW_IDS
     assert "business_fission_gpt_image2_vl_v2" not in FISSION_WORKFLOW_IDS
     assert "business_fission_gpt_image2_vl_v1" not in FISSION_WORKFLOW_IDS
     assert "business_fission_comfyui_vl_control_v1" not in FISSION_WORKFLOW_IDS
@@ -227,7 +208,7 @@ def test_20260512_native_eval_entries_are_visible_and_badged():
 
 
 def test_eval_presentation_keeps_new_as_badge_not_name():
-    workflow = DEFAULT_EVAL_WORKFLOW_BY_ID["business_fission_gpt_image2_vl_v2"]
+    workflow = DEFAULT_EVAL_WORKFLOW_BY_ID["business_fission_gpt_image2_vl_v1"]
     presentation = resolve_eval_workflow_presentation(
         status=workflow["status"],
         category=workflow["category"],
@@ -240,11 +221,11 @@ def test_eval_presentation_keeps_new_as_badge_not_name():
 
     assert presentation["variant_label"] == "GPT Image 2 受控版"
     assert "新版" not in presentation["variant_label"]
-    assert "新版" in presentation["badges"]
+    assert "已优化" in presentation["badges"]
 
 
 def test_gpt_image2_vl_eval_exposes_size_presets():
-    workflow = DEFAULT_EVAL_WORKFLOW_BY_ID["business_fission_gpt_image2_vl_v2"]
+    workflow = DEFAULT_EVAL_WORKFLOW_BY_ID["business_fission_gpt_image2_vl_v1"]
     size = _field_by_name(workflow, "size")
 
     assert size.get("type") == "select"
