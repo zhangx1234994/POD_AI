@@ -415,6 +415,84 @@ def test_release_patrol_report_import(monkeypatch, tmp_path) -> None:
     assert body["summary"]["abilityHealthEvidence"][1]["healthStatus"] == "failed"
 
 
+def test_release_patrol_report_import_treats_business_results_as_primary_evidence(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(admin_dashboard_module, "DASHBOARD_RUNTIME_DIR", tmp_path / "runtime")
+    monkeypatch.setattr(admin_dashboard_module, "BACKEND_ROOT", tmp_path)
+    report_dir = tmp_path / "reports"
+    report_dir.mkdir()
+    report_path = report_dir / "business_patrol.json"
+    report_path.write_text(
+        """
+        {
+          "ok": false,
+          "total": 3,
+          "passed": 3,
+          "failed": 0,
+          "failedOrUnfinished": 0,
+          "results": [
+            {
+              "businessKey": "fission",
+              "label": "图裂变",
+              "ok": true,
+              "runId": "run_fission",
+              "detail": "executor=ComfyUI 4090",
+              "response": {
+                "runId": "run_fission",
+                "businessVersionId": "biz_fission_v1",
+                "status": "succeeded",
+                "imageUrls": ["https://oss.example.com/fission.png"]
+              }
+            },
+            {
+              "businessKey": "outpaint",
+              "label": "扩图",
+              "ok": true,
+              "runId": "run_outpaint",
+              "response": {
+                "runId": "run_outpaint",
+                "businessVersionId": "biz_outpaint_v1",
+                "status": "succeeded",
+                "resultPayload": {"storedUrl": "https://oss.example.com/outpaint.png"}
+              }
+            },
+            {
+              "businessKey": "pattern_extract",
+              "label": "花纹提取",
+              "ok": true,
+              "runId": "run_pattern",
+              "response": {
+                "runId": "run_pattern",
+                "businessVersionId": "biz_pattern_v1",
+                "status": "succeeded",
+                "imageUrls": ["https://oss.example.com/pattern.png"]
+              }
+            }
+          ],
+          "acceptanceResults": [
+            {"ok": false, "detail": "status=401"}
+          ]
+        }
+        """,
+        encoding="utf-8",
+    )
+
+    resp = client.post(
+        "/api/admin/dashboard/release-patrol/import-report",
+        json={"reportPath": "reports/business_patrol.json", "command": "patrol"},
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "passed"
+    assert body["summary"]["total"] == 3
+    assert body["summary"]["succeeded"] == 3
+    assert body["summary"]["failedOrUnfinished"] == 0
+    assert body["summary"]["issueSummary"]["OK"] == 3
+    assert body["summary"]["abilityHealthEvidence"][0]["businessKey"] == "fission"
+    assert body["summary"]["abilityHealthEvidence"][0]["workflowId"] == "biz_fission_v1"
+    assert body["summary"]["abilityHealthEvidence"][0]["imageCount"] == 1
+
+
 def test_health_watch_status_reads_fixed_systemd_units(monkeypatch) -> None:
     def fake_run_system_command(args, *, timeout=3.0):
         if args[0] == "systemctl":

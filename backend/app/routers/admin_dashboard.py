@@ -322,51 +322,163 @@ def _patrol_items(summary: dict[str, Any]) -> list[dict[str, Any]]:
     return [dict(item) for item in raw or [] if isinstance(item, dict)]
 
 
+def _patrol_item_response(item: dict[str, Any]) -> dict[str, Any]:
+    response = item.get("response")
+    return response if isinstance(response, dict) else {}
+
+
 def _patrol_item_has_output(item: dict[str, Any]) -> bool:
     explicit = item.get("hasOutput")
     if isinstance(explicit, bool):
         return explicit
-    if _safe_int(item.get("imageCount")) > 0:
-        return True
-    for key in ("imageUrls", "image_urls", "resultImageUrls", "result_image_urls"):
-        value = item.get(key)
-        if isinstance(value, list) and any(_safe_text(url) for url in value):
+    response = _patrol_item_response(item)
+    for source in (item, response):
+        if _safe_int(source.get("imageCount") or source.get("image_count")) > 0:
+            return True
+        for key in ("imageUrls", "image_urls", "resultImageUrls", "result_image_urls"):
+            value = source.get(key)
+            if isinstance(value, list) and any(_safe_text(url) for url in value):
+                return True
+        for key in ("videoUrls", "video_urls", "texts"):
+            value = source.get(key)
+            if isinstance(value, list) and any(bool(item) for item in value):
+                return True
+        result_payload = source.get("resultPayload") or source.get("result_payload")
+        if isinstance(result_payload, dict) and result_payload:
             return True
     return False
 
 
+def _patrol_item_image_count(item: dict[str, Any]) -> int:
+    for source in (item, _patrol_item_response(item)):
+        explicit = _safe_int(source.get("imageCount") or source.get("image_count"), -1)
+        if explicit >= 0:
+            return explicit
+        for key in ("imageUrls", "image_urls", "resultImageUrls", "result_image_urls"):
+            value = source.get(key)
+            if isinstance(value, list):
+                return len([url for url in value if _safe_text(url)])
+    return 0
+
+
+def _patrol_item_status(item: dict[str, Any]) -> str:
+    response = _patrol_item_response(item)
+    return _safe_text(item.get("status") or response.get("status"))
+
+
+def _patrol_item_run_id(item: dict[str, Any]) -> str:
+    response = _patrol_item_response(item)
+    return _safe_text(
+        item.get("runId")
+        or item.get("run_id")
+        or response.get("runId")
+        or response.get("run_id")
+        or response.get("id")
+    )
+
+
+def _patrol_item_name(item: dict[str, Any]) -> str:
+    return _safe_text(
+        item.get("name")
+        or item.get("label")
+        or item.get("businessKey")
+        or item.get("business_key")
+    )
+
+
+def _patrol_item_workflow_id(item: dict[str, Any]) -> str:
+    response = _patrol_item_response(item)
+    for key in ("workflowId", "workflow_id", "businessVersionId", "business_version_id"):
+        value = _safe_text(item.get(key) or response.get(key))
+        if value:
+            return value
+    return ""
+
+
+def _patrol_item_business_key(item: dict[str, Any]) -> str:
+    response = _patrol_item_response(item)
+    return _safe_text(
+        item.get("businessKey")
+        or item.get("business_key")
+        or response.get("businessKey")
+        or response.get("business_key")
+    )
+
+
+def _patrol_item_success_without_output_code(item: dict[str, Any]) -> str:
+    return "BUSINESS_SUCCEEDED_WITHOUT_OUTPUT" if _patrol_item_business_key(item) else "EVAL_SUCCEEDED_WITHOUT_OUTPUT"
+
+
+def _patrol_item_is_business_result(item: dict[str, Any]) -> bool:
+    return isinstance(item.get("ok"), bool) or bool(_patrol_item_business_key(item))
+
+
+def _patrol_item_terminal_success(item: dict[str, Any]) -> bool:
+    status = _patrol_item_status(item).lower()
+    if not status and isinstance(item.get("ok"), bool):
+        return bool(item.get("ok"))
+    return status in {"succeeded", "success", "passed", "pass"}
+
+
+def _patrol_item_error_code(item: dict[str, Any]) -> str:
+    response = _patrol_item_response(item)
+    return _safe_text(
+        item.get("errorCode")
+        or item.get("error_code")
+        or response.get("errorCode")
+        or response.get("error_code")
+        or response.get("error")
+        or response.get("errorMessage")
+        or response.get("error_message")
+    )
+
+
 def _patrol_item_issue_code(item: dict[str, Any]) -> str:
-    issue_code = _safe_text(item.get("issueCode") or item.get("errorCode")).upper()
+    issue_code = _safe_text(item.get("issueCode") or item.get("errorCode") or item.get("error_code")).upper()
     if issue_code and issue_code != "OK":
         return issue_code
-    status = _safe_text(item.get("status")).lower()
+    if _patrol_item_is_business_result(item):
+        if isinstance(item.get("ok"), bool) and not item.get("ok"):
+            return _patrol_item_error_code(item).upper() or "BUSINESS_PATROL_FAILED"
+        if not _patrol_item_terminal_success(item):
+            return "RUN_NOT_SUCCEEDED"
+        if not _patrol_item_has_output(item):
+            return _patrol_item_success_without_output_code(item)
+        return "OK"
+    status = _patrol_item_status(item).lower()
     if status not in {"succeeded", "success", "passed", "pass"}:
         return "RUN_NOT_SUCCEEDED"
     if not _patrol_item_has_output(item):
-        return "EVAL_SUCCEEDED_WITHOUT_OUTPUT"
+        return _patrol_item_success_without_output_code(item)
     return "OK"
 
 
 def _normalize_patrol_item(item: dict[str, Any]) -> dict[str, Any]:
     issue_code = _patrol_item_issue_code(item)
     has_output = _patrol_item_has_output(item)
-    status = _safe_text(item.get("status"))
+    status = _patrol_item_status(item)
     health_status = "healthy" if issue_code == "OK" else "failed"
     return {
-        "name": _safe_text(item.get("name")),
-        "workflowId": _safe_text(item.get("workflowId") or item.get("workflow_id")),
-        "runId": _safe_text(item.get("runId") or item.get("run_id")),
+        "name": _patrol_item_name(item),
+        "businessKey": _patrol_item_business_key(item),
+        "workflowId": _patrol_item_workflow_id(item),
+        "runId": _patrol_item_run_id(item),
         "status": status or "unknown",
         "finalStatus": _safe_text(item.get("finalStatus") or item.get("final_status")),
         "callbackStatus": _safe_text(item.get("callbackStatus") or item.get("callback_status")),
         "cozeExecuteId": _safe_text(item.get("cozeExecuteId") or item.get("coze_execute_id")),
         "podiTaskId": _safe_text(item.get("podiTaskId") or item.get("podi_task_id")),
-        "imageCount": _safe_int(item.get("imageCount") or item.get("image_count")),
+        "imageCount": _patrol_item_image_count(item),
         "hasOutput": has_output,
         "issueCode": issue_code,
         "healthStatus": health_status,
-        "errorCode": _safe_text(item.get("errorCode") or item.get("error_code")),
-        "error": _safe_text(item.get("error") or item.get("errorMessage") or item.get("error_message")),
+        "errorCode": _patrol_item_error_code(item),
+        "error": _safe_text(
+            item.get("error")
+            or item.get("errorMessage")
+            or item.get("error_message")
+            or item.get("detail")
+        ),
     }
 
 
