@@ -33,6 +33,7 @@ reports/
 backend/reports/
 backend/runtime/
 deliverables/
+.release/
 .playwright-cli/
 .playwright-mcp/
 .tmp-*/
