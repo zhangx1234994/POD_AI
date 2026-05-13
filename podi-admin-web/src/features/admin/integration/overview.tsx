@@ -656,27 +656,44 @@ export function OverviewPanel({
   const releaseReadinessHasLoading = releaseReadinessItems.some((item) => item.status === '加载中');
   const releaseReadinessBlockers = releaseReadinessItems.filter((item) => item.theme === 'danger');
   const releaseReadinessWarnings = releaseReadinessItems.filter((item) => item.theme === 'warning');
-  const releaseReadinessTitle = releaseReadinessHasLoading
+  const baseReleaseReadinessTitle = releaseReadinessHasLoading
     ? '正在加载'
     : releaseReadinessBlockers.length > 0
       ? '暂不能上线'
       : releaseReadinessWarnings.length > 0
         ? '待验收确认'
         : '可以上线';
-  const releaseReadinessTheme = releaseReadinessHasLoading
+  const baseReleaseReadinessTheme = releaseReadinessHasLoading
     ? 'default'
     : releaseReadinessBlockers.length > 0
       ? 'danger'
       : releaseReadinessWarnings.length > 0
         ? 'warning'
         : 'success';
-  const releaseReadinessMessage = releaseReadinessHasLoading
+  const baseReleaseReadinessMessage = releaseReadinessHasLoading
     ? '正在加载业务、门禁和巡检数据，加载完成后再判断。'
     : releaseReadinessBlockers.length > 0
       ? `存在 ${releaseReadinessBlockers.length} 个阻塞项：${releaseReadinessBlockers.map((item) => item.title).join('、')}。处理完成前不要发版。`
       : releaseReadinessWarnings.length > 0
         ? `还需要确认 ${releaseReadinessWarnings.length} 个事项：${releaseReadinessWarnings.map((item) => item.title).join('、')}。确认后再安排线上闭环。`
         : '业务入口、轻量门禁、完整巡检和能力状态都已满足上线前检查要求。';
+  const latestReleaseDecisionApproved =
+    !releaseReadinessHasLoading &&
+    releaseReadinessBlockers.length === 0 &&
+    latestReleaseDecision?.status === 'approved';
+  const releaseReadinessTitle = latestReleaseDecisionApproved ? '已确认可上线' : baseReleaseReadinessTitle;
+  const releaseReadinessTheme = latestReleaseDecisionApproved
+    ? releaseReadinessWarnings.length > 0
+      ? 'warning'
+      : 'success'
+    : baseReleaseReadinessTheme;
+  const releaseReadinessMessage = latestReleaseDecisionApproved
+    ? releaseReadinessWarnings.length > 0
+      ? `已登记可上线，仍有 ${releaseReadinessWarnings.length} 个非阻断提醒：${releaseReadinessWarnings
+          .map((item) => item.title)
+          .join('、')}。这些提醒进入后续治理，不阻塞本次发布。`
+      : '已登记可上线，业务入口、轻量门禁、完整巡检和能力状态都已满足上线前检查要求。'
+    : baseReleaseReadinessMessage;
   const businessTotal = Number(strategySummary?.business_total || businessUsageSummary?.total || 0);
   const strategyRiskCount = Number(strategySummary?.risk_count || 0);
   const billingPendingCount = Number(strategySummary?.billing_pending || strategySummary?.unpriced || 0);
