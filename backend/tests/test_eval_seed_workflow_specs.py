@@ -189,8 +189,12 @@ def test_20260512_native_eval_entries_are_visible_and_badged():
     assert "新版" in gpt["metadata"]["presentation"]["badges"]
     assert "新版" in comfy["metadata"]["presentation"]["badges"]
     assert "新版" in evaluator["metadata"]["presentation"]["badges"]
-    assert "business_fission_gpt_image2_vl_v1" in FISSION_WORKFLOW_IDS
-    assert "business_fission_comfyui_vl_control_v1" in FISSION_WORKFLOW_IDS
+    gpt_fields = [f.get("name") for f in (gpt["parameters_schema"]["fields"] or []) if isinstance(f, dict)]
+    comfy_fields = [f.get("name") for f in (comfy["parameters_schema"]["fields"] or []) if isinstance(f, dict)]
+    assert "count" not in gpt_fields
+    assert "count" not in comfy_fields
+    assert "business_fission_gpt_image2_vl_v1" not in FISSION_WORKFLOW_IDS
+    assert "business_fission_comfyui_vl_control_v1" not in FISSION_WORKFLOW_IDS
 
 
 def test_eval_presentation_keeps_new_as_badge_not_name():

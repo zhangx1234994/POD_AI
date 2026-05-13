@@ -65,9 +65,8 @@ ALLOWED_EVAL_CATEGORIES: set[str] = {
 }
 
 # 图裂变（Fan-out）工作流：需要展示“裂变数量”参数。
+# 注意：中台原生业务接口必须保持“一次提交一张图”，不要在测评配置里自动补 count。
 FISSION_WORKFLOW_IDS: set[str] = {
-    "business_fission_gpt_image2_vl_v1",  # 中台原生：GPT Image 2 + VL 图裂变
-    "business_fission_comfyui_vl_control_v1",  # 中台原生：ComfyUI VL 控制卡裂变
     "7598841920114130944",  # Liebian_comfyui_20260124_1
     "7598820684801769472",  # Liebian_comfyui_20260124
     "7622193261276299264",  # Liebian_comfyui_20260328_1
@@ -1614,7 +1613,6 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                 {"name": "height", "label": "输出高度", "type": "text", "required": False, "defaultValue": "2000", "description": "像素数值（纯数字，不要带 px）"},
                 {"name": "profile", "label": "裂变配置", "type": "text", "required": False, "defaultValue": "pattern_default_v1"},
                 {"name": "prompt", "label": "额外要求", "type": "textarea", "required": False, "defaultValue": ""},
-                {"name": "count", "label": "生成张数", "type": "text", "required": False, "defaultValue": "1", "description": "当前业务接口默认按单次任务执行；批量测评可用测评端批量入口。"},
             ]
         },
         "output_schema": {
