@@ -70,7 +70,7 @@
 - 影响：如果重新导入 Coze 工具箱，Coze 可能按错误地址调用 backend，出现工具调用失败；普通宿主机 smoke 不带期望地址时无法发现。
 - 根因：工具箱 OpenAPI 从请求 Host 推导 server URL；发布 smoke 没有强制校验 Coze 容器可访问地址；114 未显式配置 `PODI_INTERNAL_BASE_URL`。
 - 改进：Coze 工具箱 OpenAPI 优先读取显式 `PODI_INTERNAL_BASE_URL`；发布 smoke 从线上 `.env` 读取并校验期望地址；SOP 增加 `coze-server` 容器内可达性检查。
-- 状态：处理中（代码与 SOP 已修正，待重新发布 114 并验证）
+- 状态：已完成（114 已重新发布，smoke 已校验 `servers[0].url=http://172.17.0.1:8099`，Coze 容器内可访问）
 
 0) **114 发布脚本在 backend 刚重启时误判 health 失败**
 - 范围：发布流程 / 114 控制面

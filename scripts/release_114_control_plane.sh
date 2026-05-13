@@ -41,8 +41,8 @@ if [[ -n "${SSHPASS:-}" ]]; then
     echo "[release-114] ERROR: SSHPASS is set but sshpass is not installed." >&2
     exit 2
   fi
-  SSH_BASE=(sshpass -e "${SSH_BASE[@]}")
-  SCP_BASE=(sshpass -e "${SCP_BASE[@]}")
+  SSH_BASE=(sshpass -e "${SSH_BASE[@]}" -o PreferredAuthentications=password -o PubkeyAuthentication=no)
+  SCP_BASE=(sshpass -e "${SCP_BASE[@]}" -o PreferredAuthentications=password -o PubkeyAuthentication=no)
 fi
 
 remote() {
