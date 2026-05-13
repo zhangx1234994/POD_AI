@@ -784,8 +784,28 @@ const getWorkflowBadges = (wf: EvalWorkflowVersion): string[] => {
     .slice(0, 4);
 };
 
+const getWorkflowExplicitBadges = (wf: EvalWorkflowVersion | null | undefined): string[] => {
+  if (!wf) return [];
+  const presentation = getWorkflowPresentation(wf);
+  const metadata = wf.metadata && typeof wf.metadata === 'object' ? wf.metadata : {};
+  const values = [
+    ...((metadata as any).badge ? [(metadata as any).badge] : []),
+    ...(Array.isArray(presentation?.badges) ? presentation.badges : []),
+    ...(Array.isArray((metadata as any).badges) ? (metadata as any).badges : []),
+  ];
+  const seen = new Set<string>();
+  return values
+    .map((item) => String(item || '').trim())
+    .filter((item) => {
+      if (!item || seen.has(item)) return false;
+      seen.add(item);
+      return true;
+    });
+};
+
 const getWorkflowBadgeTheme = (badge: string): 'default' | 'primary' | 'success' | 'warning' | 'danger' => {
   if (badge === '新版') return 'success';
+  if (badge === '已优化') return 'success';
   if (badge === '待内测' || badge === '灰度验证') return 'warning';
   if (badge === '原生业务接口') return 'primary';
   if (badge === '原子组件') return 'default';
@@ -798,11 +818,14 @@ const isWorkflowNewVersion = (wf: EvalWorkflowVersion | null | undefined): boole
 
 const isWorkflowInternalTesting = (wf: EvalWorkflowVersion | null | undefined): boolean => {
   const role = String(getWorkflowGovernance(wf)?.role || '').trim().toLowerCase();
-  return role === 'candidate' && isWorkflowNewVersion(wf);
+  return role === 'candidate' && (isWorkflowNewVersion(wf) || getWorkflowExplicitBadges(wf).length > 0);
 };
 
 const getWorkflowCornerBadge = (wf: EvalWorkflowVersion | null | undefined): string => {
-  if (isWorkflowInternalTesting(wf)) return '待内测';
+  const explicitBadges = getWorkflowExplicitBadges(wf);
+  const preferred = ['新版', '已优化', '待内测', '灰度验证'];
+  const badge = preferred.find((item) => explicitBadges.includes(item)) || explicitBadges[0] || '';
+  if (badge) return badge;
   if (isWorkflowNewVersion(wf)) return '新版';
   return '';
 };
