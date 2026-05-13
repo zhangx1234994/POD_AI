@@ -226,3 +226,57 @@ def test_flux_strong_hq_softstyle_fission_control_card_uses_ai_team_bili_mapping
     assert overrides["12"] == {"width": 2000, "height": 2000}
     assert overrides["24"] == {"steps": 8, "denoise": 0.625}
     assert context.workflow.definition["_max_output_images"] == 1
+
+
+def test_flux_strong_hq_softstyle_fission_colorlock_uses_fixed_color_strengths_but_mapped_denoise():
+    graph = {
+        "10": {"inputs": {"image": "old.png"}},
+        "12": {"inputs": {"width": ["11", 0], "height": ["11", 1]}},
+        "13": {"inputs": {"text1": "__PROMPT__", "text2": "__IMAGE_DESC__"}},
+        "20": {"inputs": {"weight": "__IPADAPTER_WEIGHT__"}},
+        "21": {"inputs": {"cfg": "__CFG__"}},
+        "22": {"inputs": {"noise_seed": "__SEED__"}},
+        "24": {"inputs": {"steps": "__STEPS__", "denoise": "__DENOISE__"}},
+        "27": {"inputs": {"batch_size": "__BATCH_SIZE__"}},
+        "30": {"inputs": {"method": "__COLORMATCH_METHOD__", "strength": "__COLORMATCH_STRENGTH__"}},
+        "31": {"inputs": {"filename_prefix": "05_FluxStrongHQSoftStyle"}},
+    }
+    context = _make_context("flux_strong_hq_softstyle_fission", graph)
+    adapter = ComfyUIExecutorAdapter()
+    adapter._upload_image_for_comfyui_loadimage = lambda **_: "staged-fission.png"  # type: ignore[method-assign]
+
+    overrides, error = adapter._build_flux_strong_hq_softstyle_fission_inputs(
+        {
+            "image_url": "https://example.com/pattern.png",
+            "prompt": "keep palette and redesign motifs",
+            "image_desc": "palette_card included",
+            "bili": "15%",
+            "bili_mapping": "variation_percent_045_080_colorlock_v2",
+            "profile": "pattern_color_lock_v2",
+        },
+        context,
+        context.workflow.definition,
+    )
+
+    assert error is None
+    assert overrides is not None
+    assert overrides["20"] == {"weight": 0.35}
+    assert overrides["21"] == {"cfg": 1.0}
+    assert overrides["24"] == {"steps": 8, "denoise": 0.503}
+    assert overrides["27"] == {"batch_size": 1}
+    assert overrides["30"] == {"method": "mkl", "strength": 0.55}
+
+    overrides_high, error_high = adapter._build_flux_strong_hq_softstyle_fission_inputs(
+        {
+            "image_url": "https://example.com/pattern.png",
+            "prompt": "keep palette and redesign motifs",
+            "bili": "80%",
+            "bili_mapping": "variation_percent_045_080_colorlock_v2",
+            "profile": "pattern_color_lock_v2",
+        },
+        context,
+        context.workflow.definition,
+    )
+    assert error_high is None
+    assert overrides_high is not None
+    assert overrides_high["24"] == {"steps": 8, "denoise": 0.52}

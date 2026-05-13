@@ -164,13 +164,14 @@ def test_business_eval_output_summary_is_json_safe():
             "id": "run_1",
             "status": "running",
             "route_info": {"selectedAt": now},
-            "steps": [{"startedAt": now}],
+            "steps": [{"startedAt": now, "displayName": "VL", "status": "running", "request_payload": {"prompt": "x" * 5000}}],
             "created_at": now,
         }
     )
 
     assert summary["route_info"]["selectedAt"] == "2026-05-12T12:00:00"
-    assert summary["steps"][0]["startedAt"] == "2026-05-12T12:00:00"
+    assert summary["steps"][0] == {"displayName": "VL", "status": "running"}
+    assert summary["stepCount"] == 1
     assert "created_at" not in summary
 
 

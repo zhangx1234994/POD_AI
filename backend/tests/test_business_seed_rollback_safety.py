@@ -98,6 +98,19 @@ def test_business_seed_keeps_rollback_safety_versions_available() -> None:
         assert "preserve_count_density" not in field_names
         assert "style_shift" not in field_names
 
+        gpt_image2_controlled = session.get(BusinessCapability, "biz_fission_v5_openai_gpt_image2_controlled")
+        assert gpt_image2_controlled is not None
+        assert gpt_image2_controlled.status == "active"
+        assert gpt_image2_controlled.is_default is False
+        assert gpt_image2_controlled.version == "gpt-image2-vl-v2"
+        assert gpt_image2_controlled.recipe["mode"] == "vl_then_primary"
+        assert gpt_image2_controlled.recipe["primaryAbilityId"] == "openai_gpt_image_2_edit"
+        assert gpt_image2_controlled.recipe["vlAssist"]["applyToPrimary"]["compiler"] == "pattern_fission_controlled_v2"
+        assert gpt_image2_controlled.recipe["promptCompiler"]["routeId"] == "OPENAI_GPT_IMAGE2_PATTERN_CONTROLLED_V2"
+        controlled_fields = {field["name"] for field in gpt_image2_controlled.input_schema["fields"]}
+        assert {"variation_strength", "quality", "size", "maskUrl"}.issubset(controlled_fields)
+        assert "count" not in controlled_fields
+
         comfyui_vl_fission = session.get(BusinessCapability, "biz_fission_v3_comfyui_vl_control_card")
         assert comfyui_vl_fission is not None
         assert comfyui_vl_fission.status == "active"
@@ -109,6 +122,18 @@ def test_business_seed_keeps_rollback_safety_versions_available() -> None:
         assert session.get(Ability, "comfyui_flux_strong_hq_softstyle_fission_control_v1") is not None
         assert session.get(Ability, "vl_fission_control_card") is not None
         assert session.get(Ability, "vl_fission_generated_image_evaluate") is not None
+
+        comfyui_colorlock = session.get(BusinessCapability, "biz_fission_v4_comfyui_vl_colorlock")
+        assert comfyui_colorlock is not None
+        assert comfyui_colorlock.status == "active"
+        assert comfyui_colorlock.version == "comfyui-vl-control-v2"
+        assert comfyui_colorlock.is_default is False
+        assert comfyui_colorlock.recipe["primaryAbilityId"] == "comfyui_flux_strong_hq_softstyle_fission_colorlock_v2"
+        assert comfyui_colorlock.recipe["vlAssist"]["applyToPrimary"]["compiler"] == "comfyui_fission_control_card_v2"
+        assert session.get(Ability, "comfyui_flux_strong_hq_softstyle_fission_colorlock_v2") is not None
+        fields = {field["name"]: field for field in comfyui_colorlock.input_schema["fields"]}
+        assert fields["bili"]["default"] == "15%"
+        assert "count" not in fields
 
         assert outpaint_fallback is not None
         assert outpaint_fallback.recipe["primaryAbilityId"] == "comfyui_huawen_kuotu"

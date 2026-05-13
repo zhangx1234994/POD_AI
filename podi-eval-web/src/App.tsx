@@ -867,7 +867,9 @@ const getWorkflowVersionLabel = (wf: EvalWorkflowVersion | null | undefined): st
   const version = String(wf?.version || '').trim();
   const workflowId = String(wf?.workflow_id || '').trim();
   const text = `${workflowId} ${version}`.toLowerCase();
+  if (workflowId === 'business_fission_gpt_image2_vl_v2' || text.includes('gpt-image2-vl-v2')) return 'GPT Image 2 受控版';
   if (workflowId === 'business_fission_gpt_image2_vl_v1' || text.includes('gpt-image2-vl')) return '商业模型 VL 控制版';
+  if (workflowId === 'business_fission_comfyui_vl_colorlock_v2' || text.includes('comfyui-vl-control-v2')) return 'ComfyUI 颜色锁定版';
   if (workflowId === 'business_fission_comfyui_vl_control_v1' || text.includes('comfyui-vl-control')) return 'ComfyUI VL 控制版';
   if (workflowId === 'ability_fission_generated_image_evaluate_v1' || text.includes('generated-image-eval')) return '裂变质量评估';
   if (version === '2026-04-23') return '2026/4/23';

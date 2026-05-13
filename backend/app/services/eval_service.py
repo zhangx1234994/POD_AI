@@ -728,7 +728,32 @@ class EvalService:
             "routeInfo",
             "steps",
         )
-        return EvalService._json_safe_payload({key: payload.get(key) for key in keys if key in payload})
+        summary = {key: payload.get(key) for key in keys if key in payload and key != "steps"}
+        steps = payload.get("steps")
+        if isinstance(steps, list):
+            summary["steps"] = [EvalService._business_run_step_list_summary(step) for step in steps[:8] if isinstance(step, dict)]
+            summary["stepCount"] = len(steps)
+        return EvalService._json_safe_payload(summary)
+
+    @staticmethod
+    def _business_run_step_list_summary(step: dict[str, Any]) -> dict[str, Any]:
+        keys = (
+            "id",
+            "stepId",
+            "display_name",
+            "displayName",
+            "role",
+            "status",
+            "ability_id",
+            "abilityId",
+            "ability_name",
+            "abilityName",
+            "duration_ms",
+            "durationMs",
+            "error_message",
+            "error",
+        )
+        return {key: step.get(key) for key in keys if key in step}
 
     @staticmethod
     def _decode_business_task_id(value: Any) -> str:

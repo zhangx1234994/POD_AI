@@ -28,9 +28,10 @@ def test_vl_fission_components_are_seeded_as_atomic_capabilities() -> None:
 
     assert control_card["defaults"]["provider"] == "volcengine_vl"
     assert control_card["metadata"]["component_key"] == "fission_control_card"
-    assert control_card["metadata"]["output_schema"] == "fission_control_card_v1"
+    assert control_card["metadata"]["output_schema"] == "fission_control_card_v2"
     assert control_card["metadata"]["provider_ability_map"]["volcengine_vl"] == DEFAULT_VOLCENGINE_VL_ABILITY_ID
     assert "prompt_main" in control_card["defaults"]["prompt"]
+    assert "palette_card" in control_card["defaults"]["prompt"]
     assert seeds["vl_fission_control_card"].provider == "vl"
 
     eval_fields = {item["name"]: item for item in evaluation["input_schema"]["fields"]}

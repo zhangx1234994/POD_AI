@@ -1397,16 +1397,39 @@ class AbilityInvocationService:
             parsed.get("promptControl"),
             parsed.get("imageDesc"),
         )
-        if prompt_main and not workflow_params.get("prompt"):
-            workflow_params["prompt"] = prompt_main
-        if prompt_control and not workflow_params.get("image_desc"):
-            workflow_params["image_desc"] = prompt_control
+        palette_card = None
+        for candidate in (
+            card.get("palette_card"),
+            card.get("paletteCard"),
+            parsed.get("palette_card"),
+            parsed.get("paletteCard"),
+        ):
+            if isinstance(candidate, dict):
+                palette_card = candidate
+                break
         profile = self._first_nonempty_text(
             card.get("profile_hint"),
             card.get("profileHint"),
             parsed.get("profileHint"),
             workflow_params.get("profile"),
         )
+        if profile in {"pattern_color_lock_v2", "pattern_color_lock_strict_v2"}:
+            color_lock_lines = []
+            if palette_card:
+                color_lock_lines.append(
+                    f"Palette card: {json.dumps(palette_card, ensure_ascii=False, separators=(',', ':'))}"
+                )
+            color_lock_lines.append(
+                "Color control priority: strictly keep the source image main colors, secondary colors, accent colors, saturation level, and light/dark area ratio. Do not introduce a new dominant palette."
+            )
+            color_lock_lines.append(
+                "Negative constraints: no new dominant color palette, no red brown dominance unless present in source, no orange yellow dominance unless present in source, no high saturation, no harsh contrast, no random white holes, no black block dominance, no photorealistic carpet scene, no perspective room render."
+            )
+            prompt_control = "\n".join([part for part in [prompt_control, *color_lock_lines] if part])
+        if prompt_main and not workflow_params.get("prompt"):
+            workflow_params["prompt"] = prompt_main
+        if prompt_control and not workflow_params.get("image_desc"):
+            workflow_params["image_desc"] = prompt_control
         if profile:
             workflow_params.setdefault("profile", profile)
             workflow_params.setdefault("profile_id", profile)

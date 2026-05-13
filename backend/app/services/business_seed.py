@@ -100,6 +100,53 @@ GPT_IMAGE2_PATTERN_FISSION_VL_PROMPT = """你是一个专业的装饰图案、�
 关键要求：preserve_locks 必须描述不能破坏的结构、风格、画风、材质和色彩关系；change_targets 必须覆盖主要元素，不能只写改变颜色；forbidden_drifts 必须包含不要只换色、不要变成写实场景、不要现代矢量化、不要减少元素、不要破坏构图；fission_brief 必须是一段可以直接拼进图像编辑 prompt 的中文裂变任务说明；如果图片是平面图案，必须明确它不是场景图。"""
 
 
+GPT_IMAGE2_PATTERN_FISSION_VL_PROMPT_V2 = """你是一个专业的装饰图案、印花纹样、装饰插画与主视觉结构分析助手。
+
+你会看到一张用户上传的原图。你的任务只做客观识别，不做创意改法，不生成图片，不评价审美。最终必须只输出一个 JSON 对象，不要输出 markdown、代码块、解释、前言或结尾。
+
+输出 JSON schema：
+{
+  "image_type": "flat_pattern",
+  "pattern_type": "",
+  "style_family": "",
+  "composition": {
+    "layout": "",
+    "symmetry": "",
+    "density": "",
+    "border_logic": ""
+  },
+  "motifs": {
+    "primary": [],
+    "secondary": [],
+    "fillers": [],
+    "border": []
+  },
+  "color_palette": {
+    "background": "",
+    "primary_colors": [],
+    "color_relationship": ""
+  },
+  "material_style": {
+    "rendering": "",
+    "linework": "",
+    "texture": ""
+  },
+  "risk_flags": {
+    "has_text_or_logo": false,
+    "has_border": false,
+    "is_seamless_claim_uncertain": true
+  }
+}
+
+关键要求：
+- VL 只负责识别事实，不允许输出 fission_brief、change_targets、creative_plan、replacement_plan、rewrite_prompt。
+- pattern_type 必须尽量具体，例如满版花卉、散点水果、四方连续、复杂边框挂毯、几何抽象连续图案。
+- 如果识别到文字、logo、标签或伪文字，risk_flags.has_text_or_logo 必须为 true。
+- 如果图片是平面图案，必须明确它不是摄影场景、商品图或空间渲染。
+- 不要把颜色词误判为主体类别，例如橘色花卉不能判成橘子水果。
+"""
+
+
 @dataclass(frozen=True)
 class BusinessCapabilitySeed:
     id: str
@@ -351,6 +398,123 @@ DEFAULT_BUSINESS_CAPABILITY_SEEDS: list[BusinessCapabilitySeed] = [
         },
     ),
     BusinessCapabilitySeed(
+        id="biz_fission_v5_openai_gpt_image2_controlled",
+        business_key="fission",
+        version="gpt-image2-vl-v2",
+        display_name="图裂变 · GPT Image 2 受控版",
+        description="AI 团队 2026-05-13 交付的 GPT Image 2 受控裂变方案：VL 只输出客观识别卡，中台负责图案类型路由、定量提示词编译和质量门禁审计。",
+        status="active",
+        is_default=False,
+        release_time=datetime(2026, 5, 13, 0, 0, 0),
+        recipe={
+            "mode": "vl_then_primary",
+            "primaryAbilityId": "openai_gpt_image_2_edit",
+            "steps": [
+                {
+                    "id": "vl_card",
+                    "type": "vl_analyze",
+                    "role": "preprocess",
+                    "displayName": "VL 图案识别卡",
+                    "abilityId": "vl_analyze_image",
+                    "config": {
+                        "defaultInputs": {
+                            "provider": "volcengine_vl",
+                            "prompt": GPT_IMAGE2_PATTERN_FISSION_VL_PROMPT_V2,
+                        }
+                    },
+                },
+                {
+                    "id": "primary",
+                    "type": "ability_task",
+                    "role": "primary",
+                    "displayName": "GPT Image 2 受控裂变",
+                    "abilityId": "openai_gpt_image_2_edit",
+                },
+            ],
+            "vlAssist": {
+                "enabled": True,
+                "abilityId": "vl_analyze_image",
+                "waitForResult": True,
+                "applyToPrimary": {
+                    "compiler": "pattern_fission_controlled_v2",
+                    "overwrite": True,
+                },
+            },
+            "promptCompiler": {
+                "id": "pattern_fission_controlled_v2",
+                "routeId": "OPENAI_GPT_IMAGE2_PATTERN_CONTROLLED_V2",
+            },
+            "qualityGate": {
+                "enabled": True,
+                "passScore": 78,
+                "mode": "audit_metadata_first",
+            },
+        },
+        input_schema={
+            "fields": [
+                _field("imageUrl", "原图 URL Image URL", required=True, description="业务侧传入可访问图片地址；上传图片会先落 OSS。"),
+                _field(
+                    "prompt",
+                    "额外要求 Extra Prompt",
+                    field_type="textarea",
+                    required=False,
+                    description="可选补充要求。不填也会按 VL 识别卡和默认受控提示词运行。",
+                ),
+                _field(
+                    "variation_strength",
+                    "裂变幅度 Variation Strength",
+                    field_type="select",
+                    default="same_series",
+                    description="默认同系列裂变；保守更像原图，强变化只在需要更大差异时使用。",
+                    options=[
+                        {"label": "同系列裂变", "value": "same_series"},
+                        {"label": "保守变化", "value": "conservative"},
+                        {"label": "强变化同系列", "value": "creative_same_series"},
+                    ],
+                ),
+                _field(
+                    "quality",
+                    "质量档位 Quality",
+                    field_type="select",
+                    default="preview",
+                    description="preview=低成本预览，candidate=候选抽样，premium=高质量高成本。",
+                    options=[
+                        {"label": "预览 preview", "value": "preview"},
+                        {"label": "候选 candidate", "value": "candidate"},
+                        {"label": "高质 premium", "value": "premium"},
+                    ],
+                ),
+                _field(
+                    "size",
+                    "比例尺寸 Size",
+                    field_type="select",
+                    default="auto",
+                    description="默认 auto，尽量保持原图比例。",
+                    options=GPT_IMAGE2_SIZE_OPTIONS,
+                ),
+                _field("output_format", "输出格式 Output Format", field_type="text", default="png"),
+                _field("maskUrl", "蒙版 URL Mask URL", field_type="text", required=False, description="可选；需要指定局部编辑时传入。"),
+            ]
+        },
+        output_schema=_image_generation_output_schema(),
+        metadata={
+            "category": "image_fission",
+            "entry": "business-api",
+            "role": "gray_candidate",
+            "badge": "新版",
+            "isNewVersion": True,
+            "provider": "openai",
+            "model": "gpt-image-2",
+            "route_id": "OPENAI_GPT_IMAGE2_PATTERN_CONTROLLED_V2",
+            "route_version": "pattern_fission_controlled_v2.0",
+            "prompt_template_id": "pattern_fission_controlled_v2",
+            "interface_pack": "gpt_image2_vl_pattern_fission_controlled_dev_pack_20260513_v2",
+            "quality_map": {"preview": "low", "candidate": "medium", "premium": "high"},
+            "coze_strategy": "Coze 只调用图裂变业务入口；中台内部完成 VL 识别、图案路由、提示词编译和 GPT Image 2 调用。",
+            "seed_version": 1,
+        },
+    ),
+    BusinessCapabilitySeed(
         id="biz_fission_v3_comfyui_vl_control_card",
         business_key="fission",
         version="comfyui-vl-control-v1",
@@ -416,6 +580,83 @@ DEFAULT_BUSINESS_CAPABILITY_SEEDS: list[BusinessCapabilitySeed] = [
             "eval_component_ability_id": "vl_fission_generated_image_evaluate",
             "coze_strategy": "Coze 仍调用图裂变业务入口；中台内部完成 VL 控制卡生成和 ComfyUI 裂变调用，生成图评估由业务方按需单独调用。",
             "seed_version": 2,
+        },
+    ),
+    BusinessCapabilitySeed(
+        id="biz_fission_v4_comfyui_vl_colorlock",
+        business_key="fission",
+        version="comfyui-vl-control-v2",
+        display_name="图裂变 · ComfyUI 颜色锁定版",
+        description="AI 团队 2026-05-13 交付的 ComfyUI 裂变颜色锁定版本：先用统一 VL 组件生成 palette_card，再调用 05 FLUX Strong HQ SoftStyle 颜色锁定参数。",
+        status="active",
+        is_default=False,
+        release_time=datetime(2026, 5, 13, 0, 0, 0),
+        recipe={
+            "mode": "vl_then_primary",
+            "primaryAbilityId": "comfyui_flux_strong_hq_softstyle_fission_colorlock_v2",
+            "steps": [
+                {
+                    "id": "vl_card",
+                    "type": "vl_analyze",
+                    "role": "preprocess",
+                    "displayName": "VL 图裂变颜色控制卡",
+                    "abilityId": "vl_fission_control_card",
+                    "config": {
+                        "defaultInputs": {
+                            "provider": "volcengine_vl",
+                        }
+                    },
+                },
+                {
+                    "id": "primary",
+                    "type": "ability_task",
+                    "role": "primary",
+                    "displayName": "ComfyUI 颜色锁定裂变",
+                    "abilityId": "comfyui_flux_strong_hq_softstyle_fission_colorlock_v2",
+                },
+            ],
+            "vlAssist": {
+                "enabled": True,
+                "abilityId": "vl_fission_control_card",
+                "waitForResult": True,
+                "applyToPrimary": {
+                    "compiler": "comfyui_fission_control_card_v2",
+                    "overwrite": True,
+                },
+            },
+        },
+        input_schema={
+            "fields": [
+                _field("imageUrl", "原图 URL Image URL", required=True, description="业务侧传入可访问图片地址；上传图片会先落 OSS。"),
+                _field("bili", "重绘幅度 Variation Percent", field_type="text", default="15%", description="0%=更保守，20%=当前颜色锁定版建议上限；后端按约定比例换算为 denoise。"),
+                _field("width", "输出宽度 Width", field_type="number", required=False, description="不填则按原图宽度处理；如手动填写，建议保持原图比例。"),
+                _field("height", "输出高度 Height", field_type="number", required=False, description="不填则按原图高度处理；如手动填写，建议保持原图比例。"),
+                _field(
+                    "profile",
+                    "颜色锁定配置 Color Lock Profile",
+                    field_type="select",
+                    default="pattern_color_lock_v2",
+                    options=[
+                        {"label": "默认颜色锁定", "value": "pattern_color_lock_v2"},
+                        {"label": "严格颜色锁定", "value": "pattern_color_lock_strict_v2"},
+                    ],
+                ),
+                _field("prompt", "额外要求 Extra Prompt", field_type="textarea", required=False, description="可选；不要写放开配色或重新设计色彩的要求。"),
+            ]
+        },
+        output_schema=_image_generation_output_schema(),
+        metadata={
+            "category": "image_fission",
+            "entry": "business-api",
+            "role": "gray_candidate",
+            "badge": "新版",
+            "isNewVersion": True,
+            "provider": "comfyui",
+            "interface_pack": "13_2026-05-13_comfyui_fission_colorlock_interface_pack_v2",
+            "vl_component_ability_id": "vl_fission_control_card",
+            "eval_component_ability_id": "vl_fission_generated_image_evaluate",
+            "coze_strategy": "Coze 仍调用图裂变业务入口；中台内部完成 VL 颜色控制卡生成和 ComfyUI 颜色锁定裂变调用。",
+            "seed_version": 1,
         },
     ),
     BusinessCapabilitySeed(

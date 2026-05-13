@@ -270,6 +270,74 @@ def _output_payload(value: Any) -> Any:
     return value
 
 
+def _compact_eval_output_for_list(value: Any) -> Any:
+    """Keep eval list rows lightweight; detail/result image fields remain intact."""
+
+    output = _output_payload(value)
+    if not isinstance(output, dict):
+        if isinstance(output, str) and len(output) > 1200:
+            return f"{output[:1200]}..."
+        return output
+    keep_keys = (
+        "id",
+        "runId",
+        "businessRunId",
+        "business_key",
+        "businessKey",
+        "version",
+        "status",
+        "ability_task_id",
+        "taskId",
+        "ability_name",
+        "abilityName",
+        "image_urls",
+        "imageUrls",
+        "video_urls",
+        "videoUrls",
+        "texts",
+        "error_message",
+        "error",
+        "route_info",
+        "routeInfo",
+    )
+    compact = {key: _truncate_eval_output_value(output.get(key)) for key in keep_keys if key in output}
+    steps = output.get("steps")
+    if isinstance(steps, list):
+        compact["steps"] = [_compact_eval_step_for_list(step) for step in steps[:8] if isinstance(step, dict)]
+        compact["stepCount"] = len(steps)
+    return compact
+
+
+def _compact_eval_step_for_list(step: dict[str, Any]) -> dict[str, Any]:
+    keys = (
+        "id",
+        "stepId",
+        "display_name",
+        "displayName",
+        "role",
+        "status",
+        "ability_id",
+        "abilityId",
+        "ability_name",
+        "abilityName",
+        "duration_ms",
+        "durationMs",
+        "error_message",
+        "error",
+    )
+    return {key: _truncate_eval_output_value(step.get(key)) for key in keys if key in step}
+
+
+def _truncate_eval_output_value(value: Any) -> Any:
+    if isinstance(value, str):
+        return f"{value[:1200]}..." if len(value) > 1200 else value
+    if isinstance(value, list):
+        return [_truncate_eval_output_value(item) for item in value[:20]]
+    if isinstance(value, dict):
+        return {str(key): _truncate_eval_output_value(item) for key, item in list(value.items())[:30]}
+    return value
+
+
 def _collect_output_list(output: Any, keys: tuple[str, ...]) -> list[Any]:
     if not isinstance(output, dict):
         return []
@@ -330,7 +398,7 @@ def _build_eval_billing_map(db: Session, runs: list[EvalRun]) -> dict[str, dict[
     }
 
 
-def _serialize_eval_run(run: EvalRun, billing: dict[str, Any] | None = None) -> EvalRunResponse:
+def _serialize_eval_run(run: EvalRun, billing: dict[str, Any] | None = None, *, compact_output: bool = False) -> EvalRunResponse:
     _, has_result = _eval_run_output_kind(run)
     stage = derive_eval_run_status(
         status=run.status,
@@ -339,6 +407,8 @@ def _serialize_eval_run(run: EvalRun, billing: dict[str, Any] | None = None) -> 
         has_result=has_result,
     )
     payload = EvalRunResponse.model_validate(run).model_dump()
+    if compact_output:
+        payload["result_output_json"] = _compact_eval_output_for_list(payload.get("result_output_json"))
     payload.update(
         {
             "submit_status": stage.submit_status,
@@ -2723,7 +2793,11 @@ def list_runs_with_latest_annotation(
         items.append(
             EvalRunWithLatestAnnotationResponse.model_validate(
                 {
-                    **_serialize_eval_run(r, billing_map.get(str(r.podi_task_id or ""))).model_dump(),
+                    **_serialize_eval_run(
+                        r,
+                        billing_map.get(str(r.podi_task_id or "")),
+                        compact_output=True,
+                    ).model_dump(),
                     "latest_annotation": EvalAnnotationResponse.model_validate(latest_map.get(r.id)).model_dump()
                     if latest_map.get(r.id)
                     else None,

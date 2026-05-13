@@ -1362,6 +1362,19 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         return round(0.45 + percent * 0.0035, 3)
 
     @staticmethod
+    def _map_colorlock_variation_percent_to_denoise(value: Any) -> float | None:
+        if isinstance(value, str):
+            value = value.strip().replace("%", "")
+        try:
+            percent = float(value)
+        except (TypeError, ValueError):
+            return None
+        # Color-lock v2 keeps the previous bili->denoise formula, but only
+        # allows the safe business range from the AI handoff package.
+        percent = max(0.0, min(20.0, percent))
+        return round(0.45 + percent * 0.0035, 3)
+
+    @staticmethod
     def _map_repaint_strength_to_denoise(value: Any) -> float | None:
         return ComfyUIExecutorAdapter._map_variation_percent_to_denoise(value)
 
@@ -1491,10 +1504,18 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         image_desc = self._as_text(params.get("image_desc") or params.get("imageDesc")) or ""
         overrides["13"] = {"text1": prompt, "text2": image_desc}
 
+        profile = self._as_text(params.get("profile") or params.get("profile_id")) or ""
+        is_colorlock_v2 = (
+            params.get("bili_mapping") == "variation_percent_045_080_colorlock_v2"
+            or profile in {"pattern_color_lock_v2", "pattern_color_lock_strict_v2"}
+        )
+
         repaint_value = params.get("bili")
         if repaint_value in (None, ""):
-            repaint_value = 90
-        if params.get("bili_mapping") == "variation_percent_045_080":
+            repaint_value = "6%" if profile == "pattern_color_lock_strict_v2" else ("15%" if is_colorlock_v2 else 90)
+        if is_colorlock_v2:
+            denoise = self._map_colorlock_variation_percent_to_denoise(repaint_value)
+        elif params.get("bili_mapping") == "variation_percent_045_080":
             denoise = self._map_variation_percent_to_denoise(repaint_value)
         elif params.get("bili") not in (None, ""):
             denoise = self._map_repaint_strength_to_denoise(repaint_value)
@@ -1513,6 +1534,9 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         ipadapter_weight_value = 0.25
         colormatch_strength_value = 0.20
         colormatch_method = "mkl"
+        if is_colorlock_v2:
+            ipadapter_weight_value = 0.45 if profile == "pattern_color_lock_strict_v2" else 0.35
+            colormatch_strength_value = 0.70 if profile == "pattern_color_lock_strict_v2" else 0.55
 
         seed = self._coerce_positive_int(params.get("seed"))
         if seed is None:

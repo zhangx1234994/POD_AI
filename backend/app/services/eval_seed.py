@@ -1519,6 +1519,85 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
             },
         },
     },
+    # 图裂变 / 中台原生业务接口：GPT Image 2 受控版
+    {
+        "category": "图裂变",
+        "name": "图裂变 · GPT Image 2 受控版",
+        "version": "gpt-image2-vl-v2",
+        "workflow_id": "business_fission_gpt_image2_vl_v2",
+        "status": "active",
+        "notes": "中台原生图裂变业务接口。VL 只生成客观识别卡，中台做图案路由、定量提示词编译，再调用 GPT Image 2 图片编辑。",
+        "parameters_schema": {
+            "fields": [
+                {"name": "url", "label": "原图 URL", "type": "image", "required": True, "description": "裂变前的参考原图；测评端上传后会自动写入。"},
+                {"name": "prompt", "label": "额外要求", "type": "textarea", "required": False, "defaultValue": "", "description": "可选；不填也会按 VL 识别卡和默认受控提示词运行。"},
+                {
+                    "name": "variation_strength",
+                    "label": "裂变幅度",
+                    "type": "select",
+                    "required": False,
+                    "defaultValue": "same_series",
+                    "description": "默认同系列裂变；保守更像原图，强变化只在需要更大差异时使用。",
+                    "options": [
+                        {"label": "同系列裂变", "value": "same_series"},
+                        {"label": "保守变化", "value": "conservative"},
+                        {"label": "强变化同系列", "value": "creative_same_series"},
+                    ],
+                },
+                {
+                    "name": "quality",
+                    "label": "质量档位",
+                    "type": "select",
+                    "required": False,
+                    "defaultValue": "preview",
+                    "options": [
+                        {"label": "预览", "value": "preview"},
+                        {"label": "候选抽样", "value": "candidate"},
+                        {"label": "高质", "value": "premium"},
+                    ],
+                },
+                {"name": "maskUrl", "label": "蒙版 URL", "type": "text", "required": False, "defaultValue": "", "description": "可选；需要局部编辑时传入。"},
+                {
+                    "name": "size",
+                    "label": "比例尺寸",
+                    "type": "select",
+                    "required": False,
+                    "defaultValue": "auto",
+                    "description": "默认 auto，尽量保持原图比例。",
+                    "options": GPT_IMAGE2_SIZE_OPTIONS,
+                },
+            ]
+        },
+        "output_schema": {
+            "fields": [
+                {"name": "imageUrls", "type": "array", "description": "中台 OSS 结果图"},
+                {"name": "runId", "type": "text", "description": "业务运行 ID"},
+                {"name": "taskId", "type": "text", "description": "底层能力任务 ID"},
+            ]
+        },
+        "metadata": {
+            "isNewVersion": True,
+            "badge": "新版",
+            "presentation": {
+                "operation_label": "图像裂变",
+                "variant_label": "GPT Image 2 受控版",
+                "badges": ["新版", "原生业务接口"],
+                "supports_batch": True,
+                "result_mode": "image",
+                "usage_hint": "用于验证 GPT Image 2 受控裂变接口，重点看图案类别、密度、主色和构图是否稳定。",
+            },
+            "governance": {
+                "role": "candidate",
+                "role_label": "灰度验证版本",
+                "role_reason": "2026-05-13 新接入，先在测评端做效果和稳定性验证。",
+            },
+            "eval_execution": {
+                "mode": "business_run",
+                "business_key": "fission",
+                "version": "gpt-image2-vl-v2",
+            },
+        },
+    },
     # 图裂变 / 中台原生业务接口：GPT Image 2 + VL 控制版
     {
         "category": "图裂变",
@@ -1594,6 +1673,65 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
                 "mode": "business_run",
                 "business_key": "fission",
                 "version": "gpt-image2-vl-v1",
+            },
+        },
+    },
+    # 图裂变 / 中台原生业务接口：ComfyUI VL 控制卡版
+    {
+        "category": "图裂变",
+        "name": "图裂变 · ComfyUI 颜色锁定版",
+        "version": "comfyui-vl-control-v2",
+        "workflow_id": "business_fission_comfyui_vl_colorlock_v2",
+        "status": "active",
+        "notes": "中台原生图裂变业务接口。先由统一 VL 组件生成 palette_card，再调用 ComfyUI 颜色锁定参数，重点降低色偏和深浅比例漂移。",
+        "parameters_schema": {
+            "fields": [
+                {"name": "url", "label": "原图 URL", "type": "image", "required": True, "description": "裂变前的参考原图；测评端上传后会自动写入。"},
+                {"name": "bili", "label": REPAINT_STRENGTH_LABEL, "type": "text", "required": False, "defaultValue": "15%", "description": "颜色锁定版建议 0%-20%；后端仍按约定比例换算为 denoise。"},
+                {"name": "width", "label": "输出宽度", "type": "text", "required": False, "defaultValue": "", "description": "不填则跟随原图宽度；手动填写时只填数字，不要带 px。"},
+                {"name": "height", "label": "输出高度", "type": "text", "required": False, "defaultValue": "", "description": "不填则跟随原图高度；手动填写时只填数字，不要带 px。"},
+                {
+                    "name": "profile",
+                    "label": "颜色锁定配置",
+                    "type": "select",
+                    "required": False,
+                    "defaultValue": "pattern_color_lock_v2",
+                    "description": "默认颜色锁定适合大多数样本；严格颜色锁定更像原图，但裂变感更弱。",
+                    "options": [
+                        {"label": "默认颜色锁定", "value": "pattern_color_lock_v2"},
+                        {"label": "严格颜色锁定", "value": "pattern_color_lock_strict_v2"},
+                    ],
+                },
+                {"name": "prompt", "label": "额外要求", "type": "textarea", "required": False, "defaultValue": "", "description": "可选；不要写放开配色或重新设计色彩的要求。"},
+            ]
+        },
+        "output_schema": {
+            "fields": [
+                {"name": "imageUrls", "type": "array", "description": "中台 OSS 结果图"},
+                {"name": "runId", "type": "text", "description": "业务运行 ID"},
+                {"name": "taskId", "type": "text", "description": "底层能力任务 ID"},
+            ]
+        },
+        "metadata": {
+            "isNewVersion": True,
+            "badge": "新版",
+            "presentation": {
+                "operation_label": "图像裂变",
+                "variant_label": "ComfyUI 颜色锁定版",
+                "badges": ["新版", "原生业务接口"],
+                "supports_batch": True,
+                "result_mode": "image",
+                "usage_hint": "用于验证 ComfyUI 颜色锁定裂变接口，重点看主色、深浅比例和图案结构是否稳定。",
+            },
+            "governance": {
+                "role": "candidate",
+                "role_label": "灰度验证版本",
+                "role_reason": "2026-05-13 新接入，先在测评端做效果和稳定性验证。",
+            },
+            "eval_execution": {
+                "mode": "business_run",
+                "business_key": "fission",
+                "version": "comfyui-vl-control-v2",
             },
         },
     },

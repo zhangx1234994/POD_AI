@@ -339,6 +339,7 @@
 - 进展（2026-05-07）：管理端总览新增“今日处理顺序”，把上线阻塞、主业务验收、巡检、模型能力风险、回调和排队按优先级整理成可点击处理项；本地浏览器已验证第一项可跳到业务能力页，控制台无新增 warning/error。
 - 进展（2026-05-12）：接入 AI 团队新交付的图裂变能力包：新增 `vl_fission_control_card` 作为统一 VL 控制卡组件、新增 `comfyui_flux_strong_hq_softstyle_fission_control_v1` 作为 ComfyUI VL 控制卡裂变原子能力、新增 `vl_fission_generated_image_evaluate` 作为裂变生成图质量评估能力；业务层新增非默认候选版本 `biz_fission_v3_comfyui_vl_control_card`，不自动二次裂变，业务方按评估结果自行决定是否重试。
 - 进展（2026-05-13）：GPT Image 2 + VL 控制版图裂变固定单次输出 1 张图，避免一个 `runId` 聚合多张图后造成回调、评分、重试和二次裂变歧义；`count`、保构图、保边框、保密度、风格迁移等内部控制项已从业务交付面隐藏，保留中台内部默认策略。
+- 进展（2026-05-13）：接入 ComfyUI 裂变颜色锁定交付包 v2，新增非默认候选版本 `biz_fission_v4_comfyui_vl_colorlock` 和原子能力 `comfyui_flux_strong_hq_softstyle_fission_colorlock_v2`；`bili` 仍按既定公式映射 `denoise`，不写死，ColorMatch/IPAdapter 等颜色锁定强度按交付包固定。
 - 计划：
   - 后续继续把线上真实巡检结果和能力复测结果沉淀到同一张上线证据视图，减少口头确认。
 
@@ -717,6 +718,7 @@
 - 已完成（2026-05-12）：能力编辑弹窗增加分类说明，明确新增能力先按业务意图归口，不按厂商、模型或 ComfyUI 工作流归口。
 - 已完成（2026-05-12）：能力目录新增“按业务分类看能力”，按分类展示总数、可接业务、需处理、暂不能接和样例能力，旧分类会在页面上暴露出来，后续便于逐步清理。
 - 进展（2026-05-12）：AI 团队 GPT Image 2 + VL 图裂变交付包已接入为 `biz_fission_v2_openai_gpt_image2_vl` 灰度候选版本；业务版本号 `gpt-image2-vl-v1`，流程为 VL 图案结构卡 -> 中台提示词编译 -> `openai_gpt_image_2_edit`，当前不自动替换默认图裂变。
+- 进展（2026-05-13）：AI 团队 GPT Image 2 受控裂变 v2 交付包已接入为 `biz_fission_v5_openai_gpt_image2_controlled`，业务版本号 `gpt-image2-vl-v2`；核心变更为 VL 只输出客观识别卡，中台执行图案类型路由、定量提示词编译、固定单图输出和质量门禁审计元数据。测评端新增 `business_fission_gpt_image2_vl_v2`，并压缩业务任务历史列表返回，避免 GPT Image2 功能页打开时因大 JSON/长 prompt 卡顿。
 - 验证（2026-05-12）：`podi-admin-web npm run lint` / `npm run build` 通过；`git diff --check` 通过。
 
 41. `done` I8 114 控制面发布 SOP 固化
@@ -727,6 +729,6 @@
 - 已完成（2026-05-12）：`README.md`、`docs/README.md`、`docs/deploy-checklist.md`、`docs/standards/self-check-sop.md`、`docs/standards/issue-improvement-log.md` 均已指向统一发布 SOP。
 - 验证（2026-05-12）：`bash -n scripts/release_114_control_plane.sh`、`python3 -m py_compile scripts/package_release_archive.py`、`python3 scripts/check_doc_entry_references.py`、`python3 -m pytest backend/tests/test_release_archive_packaging.py -q` 均通过。
 
-下一步：补齐测评端业务 API 版图裂变入口和批量上传体验，再统一走本地/线上回归。
+下一步：对 GPT Image 2 受控版、ComfyUI 颜色锁定版和裂变评分做线上闭环回归，再整理业务交付包。
 
-*最后更新: 2026-05-12*
+*最后更新: 2026-05-13*

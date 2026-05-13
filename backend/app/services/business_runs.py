@@ -53,6 +53,8 @@ from app.services.api_key_selector import is_usable
 from app.services.ability_seed import ensure_default_abilities
 from app.services.ability_task_service import get_ability_task_service
 from app.services.business_seed import ensure_default_business_capabilities
+from app.services.pattern_fission_prompt import LEGACY_TEMPLATE_ALIASES as PATTERN_FISSION_LEGACY_TEMPLATE_ALIASES
+from app.services.pattern_fission_prompt import TEMPLATE_ALIASES as PATTERN_FISSION_TEMPLATE_ALIASES
 from app.services.pattern_fission_prompt import TEMPLATE_ID as PATTERN_FISSION_TEMPLATE_ID
 from app.services.pattern_fission_prompt import compile_pattern_fission_prompt
 from app.services.task_id_codec import encode_task_id
@@ -3831,8 +3833,8 @@ class BusinessRunService:
                 apply_config.get("promptCompiler"),
                 (recipe.get("promptCompiler") or {}).get("id") if isinstance(recipe.get("promptCompiler"), dict) else None,
             )
-            if compiler in {PATTERN_FISSION_TEMPLATE_ID, "pattern_fission_v21", "gpt_image2_pattern_fission_v21"}:
-                compiled = compile_pattern_fission_prompt(vl_summary=vl_summary, user_inputs=inputs)
+            if compiler in PATTERN_FISSION_TEMPLATE_ALIASES.union(PATTERN_FISSION_LEGACY_TEMPLATE_ALIASES):
+                compiled = compile_pattern_fission_prompt(vl_summary=vl_summary, user_inputs=inputs, template_id=compiler)
                 compiled_inputs = {
                     "prompt": compiled.compiled_prompt,
                     "model": compiled.openai_params.get("model"),
@@ -3862,7 +3864,7 @@ class BusinessRunService:
                         if overwrite or not inputs.get(field):
                             inputs[field] = value
                 return
-            if compiler == "comfyui_fission_control_card_v1":
+            if compiler in {"comfyui_fission_control_card_v1", "comfyui_fission_control_card_v2"}:
                 card = vl_summary.get("fissionControlCard") if isinstance(vl_summary.get("fissionControlCard"), dict) else None
                 if not card and isinstance(vl_summary.get("vlCard"), dict):
                     card = vl_summary.get("vlCard")
@@ -3880,6 +3882,16 @@ class BusinessRunService:
                     vl_summary.get("promptControl"),
                     vl_summary.get("imageDesc"),
                 )
+                palette_card = None
+                for candidate in (
+                    card.get("palette_card"),
+                    card.get("paletteCard"),
+                    vl_summary.get("palette_card"),
+                    vl_summary.get("paletteCard"),
+                ):
+                    if isinstance(candidate, dict):
+                        palette_card = candidate
+                        break
                 profile_hint = self._first_string(
                     card.get("profile_hint"),
                     card.get("profileHint"),
@@ -3887,13 +3899,31 @@ class BusinessRunService:
                     inputs.get("profile"),
                     inputs.get("profile_id"),
                 )
+                if compiler == "comfyui_fission_control_card_v2":
+                    profile_hint = profile_hint or "pattern_color_lock_v2"
+                    color_lock_lines = []
+                    if palette_card:
+                        color_lock_lines.append(
+                            f"Palette card: {json.dumps(palette_card, ensure_ascii=False, separators=(',', ':'))}"
+                        )
+                    color_lock_lines.append(
+                        "Color control priority: strictly keep the source image main colors, secondary colors, accent colors, saturation level, and light/dark area ratio. Do not introduce a new dominant palette."
+                    )
+                    color_lock_lines.append(
+                        "Negative constraints: no new dominant color palette, no red brown dominance unless present in source, no orange yellow dominance unless present in source, no high saturation, no harsh contrast, no random white holes, no black block dominance, no photorealistic carpet scene, no perspective room render."
+                    )
+                    prompt_control = "\n".join([part for part in [prompt_control, *color_lock_lines] if part])
                 compiled_inputs = {
                     "prompt": prompt_main,
                     "image_desc": prompt_control,
                     "vl_result": card or vl_summary,
                     "profile": profile_hint or "pattern_default_v1",
                     "profile_id": profile_hint or "pattern_default_v1",
-                    "bili_mapping": "variation_percent_045_080",
+                    "bili_mapping": (
+                        "variation_percent_045_080_colorlock_v2"
+                        if compiler == "comfyui_fission_control_card_v2"
+                        else "variation_percent_045_080"
+                    ),
                 }
                 for field, value in compiled_inputs.items():
                     if field in pass_keys and value not in (None, "", []):
