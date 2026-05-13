@@ -196,11 +196,11 @@ section "Remote verification"
 remote "set -e; cd '$TARGET_ROOT'; echo release=\$(cat DEPLOYED_COMMIT); curl -fsS '$BACKEND_URL_LOCAL/health'; echo; BACKEND_URL='$BACKEND_URL_LOCAL' ADMIN_URL='$ADMIN_URL_LOCAL' EVAL_URL='$EVAL_URL_LOCAL' bash scripts/deploy_preflight.sh"
 
 if [[ "$RUN_SMOKE" == "1" ]]; then
-  smoke_extra=()
+  smoke_extra_args=""
   if [[ "$SMOKE_ALLOW_COMFYUI_WARNINGS" == "1" ]]; then
-    smoke_extra+=(--allow-comfyui-compat-warnings)
+    smoke_extra_args=" --allow-comfyui-compat-warnings"
   fi
-  remote "cd '$TARGET_ROOT' && backend/.venv/bin/python backend/scripts/podi_release_smoke.py --base-url '$BACKEND_URL_LOCAL' ${smoke_extra[*]}"
+  remote "cd '$TARGET_ROOT' && backend/.venv/bin/python backend/scripts/podi_release_smoke.py --base-url '$BACKEND_URL_LOCAL'$smoke_extra_args"
 else
   echo "[release-114] WARN: release smoke skipped."
 fi
