@@ -16,7 +16,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, UploadFile, File
 from sqlalchemy import Integer, case, delete, exists, func, or_, select, update
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 
 from app.core.config import get_settings
 from app.core.db import get_db
@@ -422,6 +422,9 @@ def _build_eval_billing_map(db: Session, runs: list[EvalRun]) -> dict[str, dict[
 
 
 def _serialize_eval_run(run: EvalRun, billing: dict[str, Any] | None = None, *, compact_output: bool = False) -> EvalRunResponse:
+    if compact_output:
+        return _serialize_eval_run_for_list(run, billing)
+
     _, has_result = _eval_run_output_kind(run)
     stage = derive_eval_run_status(
         status=run.status,
@@ -430,8 +433,6 @@ def _serialize_eval_run(run: EvalRun, billing: dict[str, Any] | None = None, *, 
         has_result=has_result,
     )
     payload = EvalRunResponse.model_validate(run).model_dump()
-    if compact_output:
-        payload["result_output_json"] = _compact_eval_output_for_list(payload.get("result_output_json"))
     payload.update(
         {
             "submit_status": stage.submit_status,
@@ -441,6 +442,42 @@ def _serialize_eval_run(run: EvalRun, billing: dict[str, Any] | None = None, *, 
             **(billing or {}),
         }
     )
+    return EvalRunResponse.model_validate(payload)
+
+
+def _serialize_eval_run_for_list(run: EvalRun, billing: dict[str, Any] | None = None) -> EvalRunResponse:
+    image_urls = run.result_image_urls_json if isinstance(run.result_image_urls_json, list) else None
+    has_result = bool(_non_empty_strings(image_urls or [])) or (run.status == "succeeded" and not run.error_message)
+    stage = derive_eval_run_status(
+        status=run.status,
+        podi_task_id=run.podi_task_id,
+        error_message=run.error_message,
+        has_result=has_result,
+    )
+    payload = {
+        "id": run.id,
+        "workflow_version_id": run.workflow_version_id,
+        "dataset_item_id": run.dataset_item_id,
+        "input_oss_urls_json": run.input_oss_urls_json,
+        "parameters_json": run.parameters_json,
+        "status": run.status,
+        "coze_execute_id": run.coze_execute_id,
+        "coze_debug_url": run.coze_debug_url,
+        "podi_task_id": run.podi_task_id,
+        "result_image_urls_json": image_urls,
+        # 列表页不加载大体积结构化结果；详情页 /runs/{id} 再取完整内容。
+        "result_output_json": None,
+        "error_message": run.error_message,
+        "duration_ms": run.duration_ms,
+        "created_by": run.created_by,
+        "created_at": run.created_at,
+        "updated_at": run.updated_at,
+        "submit_status": stage.submit_status,
+        "callback_status": stage.callback_status,
+        "final_status": stage.final_status,
+        "error_code": stage.error_code,
+        **(billing or {}),
+    }
     return EvalRunResponse.model_validate(payload)
 
 
@@ -2792,7 +2829,34 @@ def list_runs_with_latest_annotation(
         count_stmt = count_stmt.where(~exists(subq))
 
     total = int(db.execute(count_stmt).scalar_one())
-    runs = db.execute(stmt.order_by(EvalRun.created_at.desc()).offset(offset).limit(limit)).scalars().all()
+    runs = (
+        db.execute(
+            stmt.options(
+                load_only(
+                    EvalRun.id,
+                    EvalRun.workflow_version_id,
+                    EvalRun.dataset_item_id,
+                    EvalRun.input_oss_urls_json,
+                    EvalRun.parameters_json,
+                    EvalRun.status,
+                    EvalRun.coze_execute_id,
+                    EvalRun.coze_debug_url,
+                    EvalRun.podi_task_id,
+                    EvalRun.result_image_urls_json,
+                    EvalRun.error_message,
+                    EvalRun.duration_ms,
+                    EvalRun.created_by,
+                    EvalRun.created_at,
+                    EvalRun.updated_at,
+                )
+            )
+            .order_by(EvalRun.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        .scalars()
+        .all()
+    )
 
     run_ids = [r.id for r in runs]
     latest_map: dict[str, EvalAnnotation] = {}
