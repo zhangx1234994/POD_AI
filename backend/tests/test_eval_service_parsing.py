@@ -194,6 +194,17 @@ def test_business_eval_decodes_external_task_id_for_internal_polling():
     assert EvalService._decode_business_task_id(None) == ""
 
 
+def test_business_eval_extracts_business_run_id_for_resume():
+    from app.services.eval_service import EvalService
+
+    assert EvalService._extract_business_run_id({"businessRunId": "run_1"}) == "run_1"
+    assert EvalService._extract_business_run_id({"id": "run_2"}) == "run_2"
+    assert EvalService._extract_business_run_id(json.dumps({"runId": "run_3"})) == "run_3"
+    assert EvalService._extract_business_run_id({}) == ""
+    assert EvalService._is_business_eval_metadata({"eval_execution": {"mode": "business_run"}}) is True
+    assert EvalService._is_business_eval_metadata({"eval_execution": {"mode": "ability_task"}}) is False
+
+
 def test_extract_image_urls_from_task_payload_accepts_stored_url():
     from app.services.eval_service import EvalService
 

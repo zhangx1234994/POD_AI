@@ -233,7 +233,7 @@ export function AbilityRecentLogsPanel({
                     </Button>
                     {row.error_message ? <Typography.Text theme="error">{toDisplayErrorMessage(row.error_message)}</Typography.Text> : null}
                     {!output.hasOutput && !row.error_message ? (
-                      <Typography.Text theme="secondary">{isAbilityLogSuccessful(row.status) ? '输出回填中' : '—'}</Typography.Text>
+                      <Typography.Text theme="secondary">{isAbilityLogSuccessful(row.status) ? '等待结果入库' : '—'}</Typography.Text>
                     ) : null}
                   </Space>
                 );

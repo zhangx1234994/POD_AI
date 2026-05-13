@@ -433,20 +433,37 @@ class EvalService:
     def _resume_pending_runs(self) -> None:
         """On process boot, re-queue runs left in queued/running."""
         pending_rows: list[tuple[str, dict[str, Any] | None]] = []
+        business_rows: list[tuple[str, str, dict[str, Any] | None]] = []
         with get_session() as session:
             rows = (
                 session.execute(
-                    select(EvalRun.id, EvalRun.parameters_json, EvalRun.podi_task_id, EvalRun.coze_execute_id)
+                    select(
+                        EvalRun.id,
+                        EvalRun.parameters_json,
+                        EvalRun.podi_task_id,
+                        EvalRun.coze_execute_id,
+                        EvalRun.result_output_json,
+                        EvalWorkflowVersion.extra_metadata,
+                    )
+                    .join(EvalWorkflowVersion, EvalWorkflowVersion.id == EvalRun.workflow_version_id, isouter=True)
                     .where(EvalRun.status.in_(["queued", "running"]))
                 )
                 .all()
             )
-            pending_rows = [
-                (str(row[0]), row[1] if isinstance(row[1], dict) else None)
-                for row in rows
-                if not str(row[2] or "").strip() and not str(row[3] or "").strip()
-            ]
+            for row in rows:
+                run_id = str(row[0])
+                parameters = row[1] if isinstance(row[1], dict) else None
+                podi_task_id = str(row[2] or "").strip()
+                coze_execute_id = str(row[3] or "").strip()
+                business_run_id = ""
+                if self._is_business_eval_metadata(row[5]):
+                    business_run_id = self._extract_business_run_id(row[4])
+                if business_run_id:
+                    business_rows.append((run_id, business_run_id, parameters))
+                elif not podi_task_id and not coze_execute_id:
+                    pending_rows.append((run_id, parameters))
             pending_ids = [run_id for run_id, _ in pending_rows]
+            business_ids = [run_id for run_id, _, _ in business_rows]
             running_ids = [
                 str(row[0])
                 for row in rows
@@ -458,16 +475,24 @@ class EvalService:
                     .where(EvalRun.id.in_(pending_ids))
                     .values(status="queued")
                 )
+            if business_ids:
+                session.execute(
+                    EvalRun.__table__.update()
+                    .where(EvalRun.id.in_(business_ids))
+                    .values(status="running")
+                )
             if running_ids:
                 session.execute(
                     EvalRun.__table__.update()
                     .where(EvalRun.id.in_(running_ids))
                     .values(status="running")
                 )
-            if pending_ids or running_ids:
+            if pending_ids or business_ids or running_ids:
                 session.commit()
         for run_id, parameters in pending_rows:
             self._submit_run(str(run_id), parameters if isinstance(parameters, dict) else None)
+        for run_id, business_run_id, parameters in business_rows:
+            self._submit_business_resume(str(run_id), business_run_id, parameters if isinstance(parameters, dict) else None)
 
     def _start_finalize_thread(self) -> None:
         if self._thread_started:
@@ -488,29 +513,39 @@ class EvalService:
         with get_session() as session:
             rows = (
                 session.execute(
-                    select(EvalRun)
-                    .where(EvalRun.status == "running")
+                    select(EvalRun, EvalWorkflowVersion.extra_metadata)
+                    .join(EvalWorkflowVersion, EvalWorkflowVersion.id == EvalRun.workflow_version_id, isouter=True)
+                    .where(EvalRun.status.in_(["queued", "running"]))
                     .order_by(EvalRun.updated_at.asc())
                     .limit(EVAL_FINALIZE_BATCH_SIZE)
                 )
-                .scalars()
                 .all()
             )
             snapshots = [
                 {
-                    "run_id": row.id,
-                    "workflow_version_id": row.workflow_version_id,
-                    "coze_execute_id": row.coze_execute_id,
-                    "podi_task_id": row.podi_task_id,
-                    "created_at": row.created_at,
+                    "run_id": run.id,
+                    "workflow_version_id": run.workflow_version_id,
+                    "coze_execute_id": run.coze_execute_id,
+                    "podi_task_id": run.podi_task_id,
+                    "business_run_id": self._extract_business_run_id(run.result_output_json)
+                    if self._is_business_eval_metadata(metadata)
+                    else "",
+                    "created_at": run.created_at,
                 }
-                for row in rows
+                for run, metadata in rows
             ]
 
         for item in snapshots:
             run_id = str(item["run_id"])
+            business_run_id = str(item.get("business_run_id") or "").strip()
             podi_task_id = str(item.get("podi_task_id") or "").strip()
             coze_execute_id = str(item.get("coze_execute_id") or "").strip()
+            if business_run_id:
+                self._finalize_business_run_once(
+                    run_id=run_id,
+                    business_run_id=business_run_id,
+                )
+                continue
             if podi_task_id:
                 self._finalize_ability_task_run_once(
                     run_id=run_id,
@@ -706,6 +741,53 @@ class EvalService:
         detail = self._business_eval_output_summary(last_payload or {})
         self._mark_failed(run_id, message=f"BUSINESS_RUN_TIMEOUT:{detail}", started=started)
 
+    def _finalize_business_run_once(self, *, run_id: str, business_run_id: str) -> None:
+        service_user = auth_service.build_service_user()
+        try:
+            payload = get_business_run_service().get_run(run_id=business_run_id, user=service_user)
+        except HTTPException as exc:
+            detail = str(exc.detail)
+            if self._is_retryable_eval_error(detail):
+                return
+            self._mark_failed(run_id, message=detail, started=None)
+            return
+        except Exception as exc:  # pragma: no cover - defensive
+            self._logger.warning(
+                "eval business run finalize failed: eval_run_id=%s business_run_id=%s error=%s",
+                run_id,
+                business_run_id,
+                exc,
+            )
+            return
+
+        payload = payload if isinstance(payload, dict) else {}
+        status = str(payload.get("status") or "").strip().lower()
+        output_summary = self._business_eval_output_summary(payload)
+        task_id = self._decode_business_task_id(payload.get("ability_task_id") or payload.get("taskId"))
+        if status == "succeeded":
+            self._mark_succeeded(
+                run_id,
+                image_urls=[str(x) for x in (payload.get("image_urls") or payload.get("imageUrls") or []) if str(x).strip()],
+                output_json=output_summary,
+                started=None,
+            )
+            return
+        if status in {"failed", "cancelled"}:
+            self._mark_failed(
+                run_id,
+                message=str(payload.get("error_message") or payload.get("error") or f"BUSINESS_RUN_{status.upper()}"),
+                started=None,
+            )
+            return
+        with get_session() as session:
+            run = session.get(EvalRun, run_id)
+            if run:
+                run.status = "running"
+                run.podi_task_id = task_id or run.podi_task_id
+                run.result_output_json = output_summary
+                session.add(run)
+                session.commit()
+
     @staticmethod
     def _business_eval_output_summary(payload: dict[str, Any]) -> dict[str, Any]:
         keys = (
@@ -777,6 +859,44 @@ class EvalService:
         if isinstance(value, (list, tuple)):
             return [EvalService._json_safe_payload(item) for item in value]
         return value
+
+    @staticmethod
+    def _is_business_eval_metadata(metadata: Any) -> bool:
+        if not isinstance(metadata, dict):
+            return False
+        execution = metadata.get("eval_execution")
+        return isinstance(execution, dict) and str(execution.get("mode") or "").strip().lower() == "business_run"
+
+    @staticmethod
+    def _extract_business_run_id(output: Any) -> str:
+        if isinstance(output, str):
+            raw = output.strip()
+            if not raw:
+                return ""
+            try:
+                output = json.loads(raw)
+            except json.JSONDecodeError:
+                return ""
+        if not isinstance(output, dict):
+            return ""
+        for key in ("businessRunId", "business_run_id", "runId", "run_id", "id"):
+            value = str(output.get(key) or "").strip()
+            if value:
+                return value
+        nested = output.get("businessRun") or output.get("business_run")
+        if isinstance(nested, dict):
+            return EvalService._extract_business_run_id(nested)
+        return ""
+
+    def _submit_business_resume(
+        self,
+        run_id: str,
+        business_run_id: str,
+        parameters: dict[str, Any] | None,
+    ) -> None:
+        lane = self._lane_from_parameters(parameters)
+        executor = self._lane_executors.get(lane) or self._lane_executors["default"]
+        executor.submit(self._poll_business_run, run_id=run_id, business_run_id=business_run_id, started=time.monotonic())
 
     def _execute_ability_task_eval_run(
         self,

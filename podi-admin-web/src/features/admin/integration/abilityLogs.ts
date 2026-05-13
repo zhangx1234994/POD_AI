@@ -126,7 +126,7 @@ export const resolveLogOutputSummary = (row: AbilityInvocationLog) => {
     structuredCount > 0 ? `${structuredCount} 个结构化结果` : '',
     assetCount > 0 ? `${assetCount} 个资源` : '',
   ].filter(Boolean);
-  const hasOutput = Boolean(serverSummary?.has_output) || urls.length > 0 || texts.length > 0;
+  const hasOutput = Boolean(serverSummary?.has_output) || urls.length > 0 || texts.length > 0 || structuredCount > 0;
   return {
     urls,
     imageUrls,
@@ -359,6 +359,7 @@ export const getAbilityLogCallbackStageTag = (row: AbilityInvocationLog) => {
   const callbackStatus = (row.callback_status || '').trim().toLowerCase();
   const callbackFailed = isAbilityLogCallbackFailed(row);
   const callbackFinished = Boolean(row.callback_finished_at);
+  const output = resolveLogOutputSummary(row);
   if (callbackFailed) return { theme: 'danger' as const, text: '回调失败' };
   if (isAbilityLogSuccessful(callbackStatus)) return { theme: 'success' as const, text: '回调成功' };
   if (callbackStatus && ['running', 'processing', 'pending', 'queued'].includes(callbackStatus)) {
@@ -370,12 +371,24 @@ export const getAbilityLogCallbackStageTag = (row: AbilityInvocationLog) => {
 
   const hasCallbackId = Boolean(row.callback_id);
   const previewUrl = resolvePrimaryLogPreviewUrl(row);
+  if (isAbilityLogSuccessful(row.status) && output.hasOutput) {
+    if (output.textCount > 0 && output.imageCount === 0 && output.videoCount === 0) {
+      return { theme: 'success' as const, text: '文字已入库' };
+    }
+    if (output.structuredCount > 0 && output.imageCount === 0 && output.videoCount === 0) {
+      return { theme: 'success' as const, text: '结构化已入库' };
+    }
+    if (output.videoCount > 0 && output.imageCount === 0) {
+      return { theme: 'success' as const, text: '视频已回填' };
+    }
+    return { theme: 'success' as const, text: previewUrl ? '输出已回填' : '结果已入库' };
+  }
   if (callbackConfigured === true) {
     return { theme: 'warning' as const, text: '待回调' };
   }
   if (hasCallbackId) {
     if (previewUrl) return { theme: 'success' as const, text: '输出已回填' };
-    if (isAbilityLogSuccessful(row.status)) return { theme: 'warning' as const, text: '输出回填中' };
+    if (isAbilityLogSuccessful(row.status)) return { theme: 'default' as const, text: '等待结果入库' };
     if (isAbilityLogFailed(row.status)) return { theme: 'danger' as const, text: '执行失败' };
     return { theme: 'default' as const, text: '可查询' };
   }
