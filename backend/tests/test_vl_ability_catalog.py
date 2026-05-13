@@ -62,3 +62,20 @@ def test_vl_provider_ability_resolution_is_metadata_driven() -> None:
         == "volcengine_custom_vl"
     )
     assert service._resolve_vl_provider_ability_id({}, "volcengine_vl") == DEFAULT_VOLCENGINE_VL_ABILITY_ID
+
+
+def test_vendor_api_rate_limit_result_is_retryable() -> None:
+    service = AbilityInvocationService()
+    result = {
+        "status": "failed",
+        "metadata": {
+            "vendorError": {
+                "code": "VENDOR_API_RATE_LIMITED",
+                "message": "System protection triggered by request burst. Request id: xxx",
+                "retryable": True,
+            }
+        },
+    }
+
+    assert service._is_retryable_vendor_api_result(result) is True
+    assert service._is_retryable_vendor_api_result({"status": "running"}) is False

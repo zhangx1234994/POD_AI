@@ -984,15 +984,35 @@ class AbilityInvocationService:
             if api_key:
                 selected_key_id = api_key.id
                 credentials = build_vendor_credentials(api_key)
-        result = vendor_api_client.invoke(
-            executor=executor,
-            ability=ability,
-            inputs=payload_inputs,
-            assets=assets,
-            request_id=context.request_id,
-            trace_id=context.request_id,
-            credentials=credentials,
-        )
+        max_attempts = self._vendor_api_retry_attempts(ability)
+        result: dict[str, Any] | None = None
+        for attempt in range(max_attempts):
+            result = vendor_api_client.invoke(
+                executor=executor,
+                ability=ability,
+                inputs=payload_inputs,
+                assets=assets,
+                request_id=context.request_id,
+                trace_id=context.request_id,
+                credentials=credentials,
+            )
+            if attempt >= max_attempts - 1 or not self._is_retryable_vendor_api_result(result):
+                break
+            delay = self._vendor_retry_delay_seconds(attempt)
+            self._logger.warning(
+                "Retrying vendor-api invocation after retryable failure: provider=%s ability=%s executor=%s "
+                "attempt=%s/%s delay=%.2fs reason=%s",
+                ability.provider,
+                ability.capability_key,
+                executor.id,
+                attempt + 1,
+                max_attempts,
+                delay,
+                self._vendor_retry_reason(result),
+            )
+            time.sleep(delay)
+        if result is None:
+            raise HTTPException(status_code=502, detail="VENDOR_API_EMPTY_RESPONSE")
         result = persist_vendor_media_payload(
             result,
             user_id=str(context.user.id if context.user else "system"),
@@ -1010,6 +1030,60 @@ class AbilityInvocationService:
         result["executor"] = executor.id
         result["baseUrl"] = executor.base_url
         return result
+
+    def _vendor_api_retry_attempts(self, ability: Ability) -> int:
+        provider = str(ability.provider or "").lower()
+        capability_key = str(ability.capability_key or "").lower()
+        if provider == "volcengine" and capability_key in {"doubao_seed_2_0_lite", "doubao_seed_1_8_vl"}:
+            return 3
+        if provider in {"openai", "openai_compatible", "kie"}:
+            return 2
+        return 2
+
+    def _is_retryable_vendor_api_result(self, result: dict[str, Any] | None) -> bool:
+        if not isinstance(result, dict):
+            return False
+        status = str(result.get("status") or "").lower()
+        if status not in {"failed", "error", "timeout"}:
+            return False
+        metadata = result.get("metadata") if isinstance(result.get("metadata"), dict) else {}
+        error = result.get("error")
+        vendor_error = metadata.get("vendorError") or metadata.get("vendor_error")
+        if not isinstance(vendor_error, dict):
+            vendor_error = error if isinstance(error, dict) else {}
+        retryable = vendor_error.get("retryable") if isinstance(vendor_error, dict) else None
+        code = str((vendor_error or {}).get("code") or result.get("code") or "").lower()
+        message = str((vendor_error or {}).get("message") or error or result.get("message") or "").lower()
+        if retryable is True:
+            return True
+        retry_markers = (
+            "rate_limit",
+            "too_many_requests",
+            "toomanyrequests",
+            "requestbursttoofast",
+            "request burst",
+            "system protection",
+            "temporarily unavailable",
+            "timeout",
+        )
+        return any(marker in code or marker in message for marker in retry_markers)
+
+    def _vendor_retry_delay_seconds(self, attempt: int) -> float:
+        base = 1.5 * (2 ** max(0, attempt))
+        jitter = random.uniform(0.2, 1.5)
+        return min(15.0, base + jitter)
+
+    def _vendor_retry_reason(self, result: dict[str, Any] | None) -> str:
+        if not isinstance(result, dict):
+            return "empty result"
+        metadata = result.get("metadata") if isinstance(result.get("metadata"), dict) else {}
+        vendor_error = metadata.get("vendorError") or metadata.get("vendor_error") or {}
+        if isinstance(vendor_error, dict):
+            code = vendor_error.get("code")
+            message = vendor_error.get("message")
+            if code or message:
+                return f"{code or 'VENDOR_ERROR'}:{message or ''}"[:256]
+        return str(result.get("error") or result.get("message") or result.get("status") or "unknown")[:256]
 
     def _invoke_podi(
         self,

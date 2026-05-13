@@ -1213,15 +1213,15 @@ const buildBusinessRunFlowStages = (detail: BusinessRun): BusinessRunFlowStage[]
       theme: executorOk ? 'success' : failed && abilityOk ? 'danger' : abilityOk ? 'warning' : 'default',
     },
     {
-      title: '输出回填',
-      result: hasOutput ? (hasOssOutput ? '结果已回填' : '有结果，未确认自有链接') : finished ? '完成但无结果' : '等待结果',
+      title: '结果入库',
+      result: hasOutput ? (hasOssOutput ? '结果已入库' : '有结果，未确认自有链接') : finished ? '完成但无结果' : '等待结果',
       detail: `图 ${imageCount} · 视频 ${videoCount} · 文字 ${textCount} · 结构化 ${structuredCount} · 资源 ${resourceCount}`,
       hint: hasOutput
         ? hasOssOutput
           ? '业务侧可直接取结果。'
-          : '有输出但未确认 OSS 回填，需防止外链过期。'
+          : '有输出但未确认 OSS 入库，需防止外链过期。'
         : finished
-          ? '完成状态没有结果，优先查输出解析和 OSS 回填。'
+          ? '完成状态没有结果，优先查输出解析和 OSS 入库。'
           : '未完成任务先看执行节点和队列状态。',
       theme: hasOutput ? (hasOssOutput ? 'success' : 'warning') : finished ? 'danger' : active ? 'warning' : 'default',
     },
@@ -1229,7 +1229,7 @@ const buildBusinessRunFlowStages = (detail: BusinessRun): BusinessRunFlowStage[]
       title: '业务回调',
       result: callbackConfigured ? businessCallbackStatusLabel(callbackStatus) : '未配置回调',
       detail: callbackHttpStatus ? `HTTP ${callbackHttpStatus}` : callbackError || '无回调地址或无需回调',
-      hint: callbackFailed ? '先重试回调；若仍失败，检查业务方地址和签名。' : '回调不影响已回填结果，但会影响业务方自动接收。',
+      hint: callbackFailed ? '先重试回调；若仍失败，检查业务方地址和签名。' : '回调不影响已入库结果，但会影响业务方自动接收。',
       theme: callbackFailed ? 'danger' : callbackStatus === 'success' ? 'success' : callbackStatus === 'running' ? 'warning' : 'default',
     },
     {

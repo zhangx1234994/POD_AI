@@ -11,7 +11,7 @@ from typing import Any
 from sqlalchemy import String, cast, desc, func, or_, select
 
 from app.core.db import get_session
-from app.models.integration import Ability, AbilityInvocationLog, Executor
+from app.models.integration import Ability, AbilityInvocationLog, AbilityTask, Executor
 
 
 @dataclass
@@ -160,6 +160,7 @@ class AbilityLogService:
         offset: int = 0,
     ) -> list[AbilityInvocationLog]:
         """Return the most recent logs for an ability or provider/key pair."""
+        self.reconcile_stale_pending_logs()
         with get_session() as session:
             stmt = select(AbilityInvocationLog)
             stmt = self._apply_log_filters(
@@ -211,6 +212,112 @@ class AbilityLogService:
             if stmt is None:
                 return 0
             return int(session.execute(stmt).scalar() or 0)
+
+    def reconcile_stale_pending_logs(
+        self,
+        *,
+        max_age_minutes: int = 20,
+        limit: int = 100,
+    ) -> dict[str, int]:
+        """Close old pending logs by comparing them with their ability task.
+
+        Pending records usually mean the worker was interrupted after creating the
+        log but before calling finish_success/finish_failure. Keeping them forever
+        makes the admin console look like it is still writing output.
+        """
+
+        cutoff = datetime.utcnow() - timedelta(minutes=max(5, min(int(max_age_minutes or 20), 24 * 60)))
+        normalized_limit = max(1, min(int(limit or 100), 500))
+        counters = {"checked": 0, "closed": 0, "skipped": 0}
+        touched_ability_ids: set[str] = set()
+        try:
+            with get_session() as session:
+                rows = (
+                    session.execute(
+                        select(AbilityInvocationLog)
+                        .where(
+                            AbilityInvocationLog.status == "pending",
+                            AbilityInvocationLog.created_at < cutoff,
+                        )
+                        .order_by(AbilityInvocationLog.created_at.asc(), AbilityInvocationLog.id.asc())
+                        .limit(normalized_limit)
+                    )
+                    .scalars()
+                    .all()
+                )
+                for log in rows:
+                    counters["checked"] += 1
+                    task = session.get(AbilityTask, log.task_id) if log.task_id else None
+                    task_status = str(task.status or "").lower() if task else ""
+                    task_updated_at = task.updated_at or task.created_at if task else None
+                    if task and task_status in {"queued", "running", "processing", "pending"}:
+                        if task_updated_at and task_updated_at >= cutoff:
+                            counters["skipped"] += 1
+                            continue
+                    if task and task_status in {"success", "succeeded", "completed", "done", "ok"}:
+                        self._apply_log_terminal_state(
+                            log,
+                            status="success",
+                            response_payload=task.result_payload,
+                            duration_ms=task.duration_ms,
+                            error_message=None,
+                        )
+                    elif task and task_status in {"failed", "error", "timeout", "cancelled", "canceled", "rejected"}:
+                        self._apply_log_terminal_state(
+                            log,
+                            status="failed",
+                            response_payload=task.result_payload,
+                            duration_ms=task.duration_ms,
+                            error_message=task.error_message or f"ABILITY_TASK_{task_status.upper()}",
+                        )
+                    else:
+                        self._apply_log_terminal_state(
+                            log,
+                            status="failed",
+                            response_payload=task.result_payload if task else None,
+                            duration_ms=task.duration_ms if task else None,
+                            error_message=(
+                                "ABILITY_LOG_STALE_PENDING:任务长时间没有终态，可能是 worker 中断或服务重启，"
+                                "请按 task_id 查询任务详情。"
+                            ),
+                        )
+                    counters["closed"] += 1
+                    if log.ability_id:
+                        touched_ability_ids.add(str(log.ability_id))
+                    session.add(log)
+                session.flush()
+                for ability_id in touched_ability_ids:
+                    self._refresh_ability_health_summary(session, ability_id=ability_id)
+                session.commit()
+        except Exception as exc:  # pragma: no cover - defensive
+            self._logger.warning("Failed to reconcile stale pending ability logs: %s", exc)
+        return counters
+
+    def _apply_log_terminal_state(
+        self,
+        log: AbilityInvocationLog,
+        *,
+        status: str,
+        response_payload: dict[str, Any] | None,
+        duration_ms: int | None,
+        error_message: str | None,
+    ) -> None:
+        log.status = status
+        if duration_ms is not None:
+            log.duration_ms = duration_ms
+        sanitized_response = self._sanitize_payload(response_payload)
+        if sanitized_response is not None:
+            log.response_payload = sanitized_response
+        stored_url = self._extract_stored_url(response_payload)
+        if stored_url:
+            log.stored_url = stored_url
+        assets = self._extract_assets(response_payload)
+        if assets is not None:
+            log.result_assets = assets
+        if error_message:
+            log.error_message = error_message
+        if status != "success":
+            log.cost_amount = None
 
     def _apply_log_filters(
         self,

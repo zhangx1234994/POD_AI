@@ -132,7 +132,7 @@ function patrolHealthEvidence(record: ReleasePatrolRecordResponse): PatrolHealth
 
 function patrolHealthTag(item: PatrolHealthEvidence): { theme: 'success' | 'danger' | 'warning' | 'default'; text: string } {
   if (item.issueCode === 'OK' || item.healthStatus === 'healthy') return { theme: 'success', text: '通过' };
-  if (item.issueCode === 'EVAL_SUCCEEDED_WITHOUT_OUTPUT') return { theme: 'warning', text: '无回填' };
+  if (item.issueCode === 'EVAL_SUCCEEDED_WITHOUT_OUTPUT') return { theme: 'warning', text: '无结果' };
   return { theme: 'danger', text: '失败' };
 }
 
@@ -376,14 +376,25 @@ export function OverviewPanel({
     'python3 backend/scripts/patrol_eval_workflows.py --base-url http://127.0.0.1:8099 --timeout 1800 --report reports/eval_patrol_$(date +%Y%m%d_%H%M%S).json';
   const preflightLatest = releasePreflightLatest || releasePreflightSnapshots[0] || null;
   const healthWatchItems = healthWatchStatus?.items || [];
-  const healthWatchProblemItems = healthWatchItems.filter((item) =>
-    ['failed', 'disabled', 'unavailable'].includes(item.status),
-  );
+  const healthWatchUnsupported = healthWatchStatus?.supported === false;
+  const healthWatchProblemItems = healthWatchUnsupported
+    ? []
+    : healthWatchItems.filter((item) => ['failed', 'disabled', 'unavailable'].includes(item.status));
   const healthWatchRunningItems = healthWatchItems.filter((item) => item.status === 'running');
   const healthWatchSummaryTheme =
-    healthWatchProblemItems.length > 0 ? 'danger' : healthWatchRunningItems.length > 0 ? 'warning' : healthWatchItems.length > 0 ? 'success' : 'default';
+    healthWatchUnsupported
+      ? 'warning'
+      : healthWatchProblemItems.length > 0
+        ? 'danger'
+        : healthWatchRunningItems.length > 0
+          ? 'warning'
+          : healthWatchItems.length > 0
+            ? 'success'
+            : 'default';
   const healthWatchSummaryText =
-    healthWatchProblemItems.length > 0
+    healthWatchUnsupported
+      ? '本地不可读'
+      : healthWatchProblemItems.length > 0
       ? `异常 ${healthWatchProblemItems.length}`
       : healthWatchRunningItems.length > 0
         ? `运行中 ${healthWatchRunningItems.length}`
@@ -515,7 +526,7 @@ export function OverviewPanel({
     {
       step: '4',
       title: '最后做真实测评',
-      body: '发版前用测评端或巡检脚本跑真实链路，确认 Coze 到中台再到能力服务的回填闭环。',
+      body: '发版前用测评端或巡检脚本跑真实链路，确认 Coze 到中台再到能力服务的结果入库闭环。',
       status: latestPatrolRecord ? (latestPatrolRecord.status === 'passed' ? '最近通过' : '最近失败') : '待巡检',
       theme: latestPatrolRecord?.status === 'failed' ? 'danger' : latestPatrolRecord?.status === 'passed' ? 'success' : 'default',
       action: '进入能力评测',
@@ -596,21 +607,27 @@ export function OverviewPanel({
     },
     {
       title: '自检守护',
-      status: healthWatchProblemItems.length > 0
+      status: healthWatchUnsupported
+        ? '本地不可读'
+        : healthWatchProblemItems.length > 0
         ? '阻塞'
         : healthWatchRunningItems.length > 0
           ? '运行中'
           : healthWatchItems.length > 0
             ? '通过'
             : '待检查',
-      detail: healthWatchProblemItems.length > 0
+      detail: healthWatchUnsupported
+        ? '当前是本地或非 systemd 环境，不作为本地阻塞；上线前仍需在 114 服务器确认定时巡检。'
+        : healthWatchProblemItems.length > 0
         ? healthWatchProblemItems.slice(0, 2).map((item) => `${item.title}：${item.summary}`).join('；')
         : healthWatchRunningItems.length > 0
           ? `当前有 ${healthWatchRunningItems.length} 个自检任务正在执行，稍后刷新确认结果。`
           : healthWatchItems.length > 0
             ? '业务轻量自检、真实巡检和评测健康守护均已纳入页面检查。'
             : '尚未读取到线上自检守护状态，上线前需要确认 114 定时巡检是否运行。',
-      theme: healthWatchProblemItems.length > 0
+      theme: healthWatchUnsupported
+        ? 'warning'
+        : healthWatchProblemItems.length > 0
         ? 'danger'
         : healthWatchRunningItems.length > 0 || healthWatchItems.length === 0
           ? 'warning'
@@ -770,7 +787,7 @@ export function OverviewPanel({
       title: '业务运行闭环',
       group: '业务',
       status: businessTotal > 0 ? `${businessTotal} 次调用` : '待巡检',
-      detail: '查看业务调用、版本命中、执行节点、结果回填、回调和计费证据。',
+      detail: '查看业务调用、版本命中、执行节点、结果入库、回调和计费证据。',
       target: 'business',
       theme: businessTotal > 0 ? 'success' : 'warning',
       stage: '核心入口',
@@ -790,7 +807,7 @@ export function OverviewPanel({
       title: '能力评测',
       group: '业务',
       status: latestPatrolRecord?.status === 'passed' ? '最近通过' : latestPatrolRecord?.status === 'failed' ? '最近失败' : '待巡检',
-      detail: '测评工作流、样例提交、结果回填和人工评分入口。',
+      detail: '测评工作流、样例提交、结果入库和人工评分入口。',
       target: 'ability-evals',
       theme: latestPatrolRecord?.status === 'failed' ? 'danger' : latestPatrolRecord?.status === 'passed' ? 'success' : 'warning',
       stage: '核心入口',
@@ -820,7 +837,7 @@ export function OverviewPanel({
       title: '能力调用排障',
       group: '能力',
       status: Number(dashboardMetrics?.today.failed || 0) > 0 ? `今日失败 ${dashboardMetrics?.today.failed || 0}` : '已暴露',
-      detail: '全局能力调用历史、失败样本、输出回填和问题标记。',
+      detail: '全局能力调用历史、失败样本、结果入库和问题标记。',
       target: 'ability-logs',
       theme: Number(dashboardMetrics?.today.failed || 0) > 0 ? 'warning' : 'success',
       stage: '治理入口',
@@ -996,7 +1013,7 @@ export function OverviewPanel({
       key: 'business-failed',
       priority: '上线前确认',
       title: '业务失败样本',
-      detail: `近 ${businessUsageSummary?.windowHours || strategySummary?.window_hours || 24} 小时业务失败 ${businessFailedCount} 次，先看失败样本和回填状态。`,
+      detail: `近 ${businessUsageSummary?.windowHours || strategySummary?.window_hours || 24} 小时业务失败 ${businessFailedCount} 次，先看失败样本和结果状态。`,
       action: '看业务运行',
       target: 'business',
       theme: 'warning',
@@ -1464,9 +1481,9 @@ export function OverviewPanel({
           </Space>
           {healthWatchError ? <Alert theme="error" message={healthWatchError} /> : null}
           {healthWatchStatus && !healthWatchStatus.supported ? (
-            <Alert theme="warning" message="当前后端运行环境无法读取 systemd 状态。线上 114 应能正常展示；本地开发环境可忽略。" />
+            <Alert theme="warning" message="当前是本地或非 systemd 环境，无法读取线上定时巡检；这不是业务故障。上线前到 114 服务器确认守护状态即可。" />
           ) : null}
-          {healthWatchStatus?.issues?.length ? (
+          {!healthWatchUnsupported && healthWatchStatus?.issues?.length ? (
             <Alert theme="warning" message={`需要处理：${healthWatchStatus.issues.slice(0, 3).join('；')}`} />
           ) : null}
           {healthWatchItems.length > 0 ? (
@@ -1523,7 +1540,7 @@ export function OverviewPanel({
               <Typography.Text strong>业务上线路径</Typography.Text>
               <div>
                 <Typography.Text theme="secondary">
-                  按这个顺序检查：业务入口先稳定，模型和能力再绑定，最后用真实测评确认回填。
+                  按这个顺序检查：业务入口先稳定，模型和能力再绑定，最后用真实测评确认结果入库。
                 </Typography.Text>
               </div>
             </div>
@@ -2040,7 +2057,7 @@ export function OverviewPanel({
                     <Typography.Text strong>最近巡检健康证据</Typography.Text>
                     <div>
                       <Typography.Text theme="secondary">
-                        来自 {formatDateTime(latestPatrolRecord.generatedAt)} 的真实工作流巡检，展示每个能力是否完成、是否有结果回填。
+                        来自 {formatDateTime(latestPatrolRecord.generatedAt)} 的真实工作流巡检，展示每个能力是否完成、是否有结果入库。
                       </Typography.Text>
                     </div>
                   </div>
@@ -2051,7 +2068,7 @@ export function OverviewPanel({
                       失败 {latestPatrolFailedEvidence.length}
                     </Tag>
                     <Tag theme={latestPatrolOutputReady === latestPatrolEvidence.length ? 'success' : 'warning'} variant="light">
-                      已回填 {latestPatrolOutputReady}
+                      已入库 {latestPatrolOutputReady}
                     </Tag>
                   </Space>
                 </Space>
@@ -2061,7 +2078,7 @@ export function OverviewPanel({
                       <tr className="text-left">
                         <th className="px-3 py-2">功能</th>
                         <th className="px-3 py-2">状态</th>
-                        <th className="px-3 py-2">结果回填</th>
+                        <th className="px-3 py-2">结果入库</th>
                         <th className="px-3 py-2">任务编号</th>
                         <th className="px-3 py-2">问题</th>
                       </tr>
@@ -2082,7 +2099,7 @@ export function OverviewPanel({
                             </td>
                             <td className="px-3 py-2">
                               <Tag theme={item.hasOutput ? 'success' : 'warning'} variant="light">
-                                {item.hasOutput ? `${item.imageCount || 1} 个结果` : '未回填'}
+                                {item.hasOutput ? `${item.imageCount || 1} 个结果` : '未入库'}
                               </Tag>
                             </td>
                             <td className="px-3 py-2 text-slate-600 dark:text-slate-400">

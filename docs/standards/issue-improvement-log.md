@@ -17,6 +17,53 @@
 
 ## 2026-05-13
 
+0.1) **业务运行查询触发 MySQL `Out of sort memory`**
+- 范围：业务运行查询 / 测评端业务接口详情 / 数据库索引
+- 现象：测评端打开 GPT Image 2 + VL 控制版时出现 `BUSINESS_RUN_GET_FAILED`；线上直接查询最近图裂变业务记录也能复现 `(1038, 'Out of sort memory')`。
+- 影响：功能本身可能已成功，但页面无法打开或详情加载失败，影响内部验收和业务交付。
+- 根因：`business_runs` 缺少按 `business_key + created_at` 的覆盖索引，查询排序时还选择了 `request_payload/result_payload` 等大 JSON 字段；`business_run_steps` 的按步骤排序也缺少更合适的覆盖索引。
+- 改进：列表、分类和用量汇总改成先查轻字段 ID，再按需加载大 JSON；补 `business_runs(business_key, created_at)`、`business_runs(business_key, status, created_at)`、`business_run_steps(run_id, step_order, id)` 索引。
+- 状态：已完成（待后续上线执行 migration 后线上验证）
+
+0.2) **火山 Doubao-Seed-2.0-lite VL 触发请求突增保护**
+- 范围：第三方 API / vendor-api-ops / VL 前置组件
+- 现象：能力日志 `40146` 返回 `RequestBurstTooFast / TooManyRequests`，提示 `System protection triggered by request burst`。
+- 影响：单次 VL 前置失败会导致依赖该 VL 的业务任务失败；管理端显示英文长报错，非技术用户难判断是参数问题还是上游保护。
+- 根因：上游模型请求突增保护，平台当前缺少 provider/model 级平滑限速、退避重试和限流分类展示。
+- 改进：backend 调用 vendor-api-ops 时识别 `RequestBurstTooFast/TooManyRequests/429/5xx` 等可重试错误；Doubao VL 默认最多 3 次退避重试，OpenAI/KIE 默认最多 2 次，重试间隔带抖动。
+- 状态：已完成（上游更细的全局限速可在后续 vendor-api-ops 调度层继续增强）
+
+0.3) **火山 VL 能力调用日志存在 `pending` 残留**
+- 范围：能力调用日志 / 异步任务收口 / 管理端展示
+- 现象：线上发现 `volcengine_doubao_seed_2_0_lite` 有少量 `pending` 日志残留，例如 `40159`、`40036`、`40034`，无耗时、无结果、无错误。
+- 影响：能力调用列表容易误导用户，以为任务仍在运行或“输出填写中”；成功率统计也可能被污染。
+- 根因（待确认）：日志已创建但任务终态未同步回填，或历史任务缺失关联。
+- 改进：能力日志列表读取前会执行 pending reconciliation；超过阈值仍 pending 的日志会按关联 `ability_task` 终态补齐，无对应任务的历史残留会标记为失败并写入 `ABILITY_LOG_STALE_PENDING`。
+- 状态：已完成
+
+0.4) **非图片能力套用“回填”文案**
+- 范围：管理端能力调用 / 测评端结果展示 / 文案系统
+- 现象：文字类、VL 类、结构化输出能力在回调阶段显示“输出填写中”等图片回填语义。
+- 影响：用户容易误判为异常，尤其在能力调用列表中看不出文字结果已经生成还是仍在等待。
+- 根因：输出状态展示主要按图片回填链路设计，未按图片、视频、文本、结构化结果分型。
+- 改进：管理端和测评端把通用“回填”统一改成“结果入库/结果处理中/成功无结果”等更中性的结果语义，避免文字、VL、结构化结果被误判为图片链路异常。
+- 状态：已完成
+
+0.5) **ComfyUI 质量样本包缺少固定导出流程**
+- 范围：测试交付 / AI 团队协作 / ComfyUI 工作流优化
+- 现象：ComfyUI 团队需要原图、结果图、VL 控制卡、ComfyUI 参数和过程信息时，只能临时查库和手工打包。
+- 影响：每次质量优化都要重复人工整理，且容易漏掉关键过程信息。
+- 根因：没有固定的“按业务版本导出质量样本包”脚本或管理端动作。
+- 建议改进：把本次导出逻辑固化成脚本，支持按业务版本、时间范围、状态、执行节点导出。
+- 状态：处理中；本次样本包已生成 `deliverables/comfyui_fission_quality_pack_20260513.zip`，脚本化待做。
+
+0.6) **管理端视觉走查发现错误提示过度技术化**
+- 范围：管理端总览 / 模型弹药库 / 能力调用列表
+- 现象：本地走查时，管理端把“本地不可读取 systemd 守护”“部分接口加载超时”“Key 来源只看环境变量”等情况显示成异常或缺失，页面上还有大段技术错误，用户不知道下一步怎么处理。
+- 影响：真实业务风险和本地/环境差异混在一起，容易误判为线上事故或 Key 缺失；管理端看起来“很吓人”，但无法指导操作。
+- 改进：总览页把非 systemd 本地环境标为“本地不可读”，不再作为阻塞；部分模块加载失败改为折叠详情并提示“先重试，再进入对应模块”；模型弹药库区分“中台密钥池 / 环境变量兜底 / 未配置”；能力日志统一使用“结果入库/成功无结果”。
+- 状态：已完成第一轮视觉走查修正；整体信息架构和页面降噪继续归入前端整改阶段。
+
 0) **114 发布脚本在 backend 刚重启时误判 health 失败**
 - 范围：发布流程 / 114 控制面
 - 现象：`scripts/release_114_control_plane.sh` 复制代码、迁移、重启服务后，`systemctl is-active` 已显示三项服务 active，但紧接着 `curl http://127.0.0.1:8099/health` 偶发 `connection refused`；等待 5~6 秒后 backend 正常监听且 health 通过。

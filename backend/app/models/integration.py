@@ -502,6 +502,8 @@ class BusinessApiKeyUsageLog(Base):
 class BusinessRun(Base):
     __tablename__ = "business_runs"
     __table_args__ = (
+        Index("ix_business_runs_key_created", "business_key", "created_at"),
+        Index("ix_business_runs_key_status_created", "business_key", "status", "created_at"),
         Index("ix_business_runs_version_created", "business_version_id", "created_at"),
         Index("ix_business_runs_version_status_created", "business_version_id", "status", "created_at"),
     )
@@ -557,6 +559,9 @@ class BusinessRun(Base):
 
 class BusinessRunStep(Base):
     __tablename__ = "business_run_steps"
+    __table_args__ = (
+        Index("ix_business_run_steps_run_order_id", "run_id", "step_order", "id"),
+    )
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     run_id: Mapped[str] = mapped_column(

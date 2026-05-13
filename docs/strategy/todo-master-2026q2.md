@@ -729,6 +729,70 @@
 - 已完成（2026-05-12）：`README.md`、`docs/README.md`、`docs/deploy-checklist.md`、`docs/standards/self-check-sop.md`、`docs/standards/issue-improvement-log.md` 均已指向统一发布 SOP。
 - 验证（2026-05-12）：`bash -n scripts/release_114_control_plane.sh`、`python3 -m py_compile scripts/package_release_archive.py`、`python3 scripts/check_doc_entry_references.py`、`python3 -m pytest backend/tests/test_release_archive_packaging.py -q` 均通过。
 
-下一步：对 GPT Image 2 受控版、ComfyUI 颜色锁定版和裂变评分做线上闭环回归，再整理业务交付包。
+下一步：暂停新增功能，先执行 2026-05-13 中台走查后的稳定性修复清单。
+
+## 当前执行单（2026-05-13 中台走查收口）
+
+说明：本节接管当前开发优先级。详细走查记录见 `docs/strategy/mid-platform-walkthrough-2026-05-13.md`。本轮不做新能力，先修复这两天暴露的中台逻辑、数据库、限流、日志收口和交付材料问题。
+
+42. `done` J1 数据库查询与索引整改
+- 背景：测评端 GPT Image 2 + VL 控制版曾触发 `BUSINESS_RUN_GET_FAILED`；线上直接查询最近图裂变业务记录也能复现 MySQL `Out of sort memory`。
+- 范围：`business_runs`、`business_run_steps`、业务运行列表/详情、测评端业务运行查询。
+- 已完成：
+  - 新增 migration `20260513_add_business_run_query_indexes`，补 `business_runs(business_key, created_at)`、`business_runs(business_key, status, created_at)`、`business_run_steps(run_id, step_order, id)`。
+  - 业务运行列表、分类统计、用量汇总改为先查轻字段 ID，再按需加载大 JSON。
+  - 运行步骤改为按 `step_order, id` 的窄字段顺序加载，避免排序阶段拖入大 JSON。
+- 验收：本地 Alembic 单 head、相关后端回归测试通过；线上需在本版本上线并执行 migration 后复核。
+
+43. `done` J2 火山 VL 限流、退避重试与错误文案
+- 背景：2026-05-13 16:28:48，`火山 · Doubao-Seed-2.0-lite VL` 触发上游 `RequestBurstTooFast / TooManyRequests`，能力日志 `40146`。
+- 结论：这是上游模型请求突增保护，不是图片参数或 Key 错误。
+- 已完成：
+  - backend 调用 vendor-api-ops 时识别 `RequestBurstTooFast/TooManyRequests/429/5xx` 等可重试结果。
+  - Doubao VL 默认最多 3 次带抖动退避重试，OpenAI/KIE 默认最多 2 次。
+  - 测试覆盖 vendor-api 返回限流结果时的重试判定。
+- 说明：更精细的 provider/model 全局平滑限速可放到 vendor-api-ops 调度增强，不阻塞本轮收口。
+
+44. `done` J3 能力日志 pending 残留收口
+- 背景：线上发现 `volcengine_doubao_seed_2_0_lite` 仍有少量 `pending` 日志残留，例如 `40159`、`40036`、`40034`。
+- 影响：管理端能力调用列表容易让用户误以为任务仍在“输出填写中”。
+- 已完成：
+  - 能力日志列表读取前执行 pending reconciliation。
+  - 超过阈值仍 pending 的日志按关联 `ability_task` 终态补齐。
+  - 无对应任务的历史残留标记失败，并写入 `ABILITY_LOG_STALE_PENDING`。
+- 验收：后端单测覆盖“从已完成 ability_task 回填 pending 日志”。
+
+45. `done` J4 文字/VL/结构化结果展示口径修正
+- 背景：文字类、VL 类能力在回调阶段显示“输出填写中”，容易被误解为异常。
+- 已完成：
+  - 管理端能力调用、能力测试、业务运行详情中的“回填”改为“结果入库/成功无结果”等通用结果语义。
+  - 测评端运行阶段把回调文案改为“等待结果/结果处理中/结果已完成/结果失败”。
+- 验收：管理端和测评端 lint 通过。
+
+46. `done` J5 ComfyUI 图裂变质量样本包
+- 背景：需要把本轮 ComfyUI 测试的原图、结果图、VL 内容和过程信息交给 ComfyUI 团队优化工作流质量。
+- 已完成：生成 `deliverables/comfyui_fission_quality_pack_20260513.zip`。
+- 内容：30 条 `comfyui-vl-control-v2` 成功样本、60 张原图/结果图、`summary.csv`、完整过程 JSON、VL 控制卡、ComfyUI 参数。
+- 节点分布：`executor_comfyui_seamless_117` 14 条，`executor_comfyui_pattern_extract_158` 16 条。
+
+47. `todo` J6 样本包导出固定化
+- 背景：本次样本包是临时导出，后续 AI/ComfyUI 团队会反复需要类似材料。
+- 计划：增加脚本化导出能力，支持按业务版本、时间范围、状态、执行节点导出原图、结果图、参数、VL 内容和过程信息。
+- 验收：不再靠临时 SQL 和临时脚本手工打包。
+
+48. `todo` J7 三个业务接口交付材料拆分
+- 背景：业务方需要直接拿走能运行的交付材料；三个接口放在一起容易看不懂。
+- 范围：GPT Image 2 + VL 控制版、ComfyUI VL 控制卡版、裂变质量评估。
+- 计划：每个接口独立目录，包含 `README.md`、`demo.sh`、`demo.py`、请求示例、响应示例、错误码和轮询示例；Key 不进仓库，只进入临时交付包或单独安全通道。
+- 验收：业务开发拿到任一接口目录即可独立运行，不需要读其他接口说明。
+
+49. `done` J8 管理端第一轮视觉走查与误导提示修正
+- 背景：中台页面存在“看起来很恐怖但不知道怎么处理”的错误展示，包括本地 systemd 不可读、接口加载超时、Key 来源判断不清、能力结果状态措辞混乱。
+- 已完成：
+  - 总览页将本地非 systemd 环境标为“本地不可读”，不再误算成线上巡检异常。
+  - 全局模块加载失败改成“部分模块暂时没加载完整”，技术详情折叠展示。
+  - 模型弹药库明确显示 Key 来源：中台密钥池、环境变量兜底或未配置。
+  - 能力调用列表统一为“结果入库/成功无结果”，减少非图片能力误判。
+- 后续：整体信息架构、页面视觉、错误处理建议继续归入前端整改阶段，不在本轮急上线。
 
 *最后更新: 2026-05-13*

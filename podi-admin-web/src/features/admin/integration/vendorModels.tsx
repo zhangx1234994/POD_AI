@@ -1145,7 +1145,7 @@ export function VendorModelsPanel({
                 <MetricCard
                   label="密钥池"
                   value={safeNumber(governanceSummary.totals.activeStoredKeyCount)}
-                  sub={`环境密钥 ${safeNumber(governanceSummary.totals.envKeyProviderCount)}`}
+                  sub={`中台托管 ${safeNumber(governanceSummary.totals.activeStoredKeyCount)} / 环境兜底 ${safeNumber(governanceSummary.totals.envKeyProviderCount)}`}
                 />
               </Col>
               <Col xs={12} lg={3}>
@@ -1192,12 +1192,22 @@ export function VendorModelsPanel({
                   minWidth: 220,
                   cell: ({ row }) => (
                     <Space size={4} style={{ flexWrap: 'wrap' }}>
-                      <Tag theme={row.envKeyConfigured ? 'success' : 'default'} variant="light">
-                        环境密钥 {row.envKeyConfigured ? '已配' : '未配'}
+                      <Tag
+                        theme={row.activeStoredKeyCount > 0 || row.envKeyConfigured ? 'success' : 'danger'}
+                        variant="light"
+                      >
+                        Key 来源：{row.activeStoredKeyCount > 0 ? '中台密钥池' : row.envKeyConfigured ? '环境变量兜底' : '未配置'}
                       </Tag>
-                      <Tag theme={row.activeStoredKeyCount > 0 ? 'success' : 'default'} variant="light">
-                        密钥池 {safeNumber(row.activeStoredKeyCount)}
-                      </Tag>
+                      {row.activeStoredKeyCount > 0 ? (
+                        <Tag theme="success" variant="light">
+                          可用 Key {safeNumber(row.activeStoredKeyCount)}
+                        </Tag>
+                      ) : null}
+                      {row.envKeyConfigured ? (
+                        <Tag theme="default" variant="light">
+                          环境兜底已配
+                        </Tag>
+                      ) : null}
                       {row.disabledKeyCount > 0 ? (
                         <Tag theme="warning" variant="light">
                           停用 {row.disabledKeyCount}

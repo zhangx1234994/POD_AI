@@ -96,7 +96,7 @@ const outputKindMeta: Record<LogOutputKind, { label: string; detail: string; the
   text: { label: '文字输出', detail: '文字增强、提示词、文案等文本结果', theme: 'primary' },
   structured: { label: '结构化结果', detail: 'VL 分析、质检、标签、JSON 判断', theme: 'success' },
   asset: { label: '资源输出', detail: '文件、链接或暂未归类资源', theme: 'default' },
-  none: { label: '未回填', detail: '执行中、失败或暂未解析到输出', theme: 'default' },
+  none: { label: '未入库', detail: '执行中、失败或暂未解析到输出', theme: 'default' },
 };
 
 const resolveLogOutputKind = (row: AbilityInvocationLog): LogOutputKind => {
@@ -262,7 +262,7 @@ export function AbilityLogListPanel({
 
       <OperationFlowCard
         title="能力调用排查路径"
-        description="先缩小范围，再看排障总览，最后打开详情确认任务、回填、回调和成本证据。"
+        description="先缩小范围，再看排障总览，最后打开详情确认任务、结果入库、回调和成本证据。"
         summary={troubleCount > 0 ? `当前筛选下有 ${troubleCount} 条需处理记录，先处理失败和回调异常。` : '当前筛选下没有明显阻塞，可继续看分页记录或导出归档。'}
         summaryTheme={troubleCount > 0 ? 'warning' : 'success'}
         steps={[
@@ -277,7 +277,7 @@ export function AbilityLogListPanel({
           {
             key: 'read-trouble-summary',
             title: '看排障总览',
-            detail: '优先看执行失败、回调失败、成功无回填、排队或执行中。',
+            detail: '优先看执行失败、回调失败、成功无结果、排队或执行中。',
             action: '红色先处理，黄色上线前处理，绿色只做证据留存。',
             done: '优先级明确',
             theme: troubleCount > 0 ? 'warning' : 'success',
@@ -286,14 +286,14 @@ export function AbilityLogListPanel({
             key: 'open-detail',
             title: '打开详情',
             detail: '复制追踪编号、任务编号、回调编号和原始响应摘要。',
-            action: '确认问题卡在提交、执行、OSS 回填、回调还是计费。',
+            action: '确认问题卡在提交、执行、结果入库、回调还是计费。',
             done: '卡点明确',
             theme: 'primary',
           },
           {
             key: 'close-loop',
             title: '复测并记录结论',
-            detail: '修复后重新跑能力或业务链路，确认结果已回填。',
+            detail: '修复后重新跑能力或业务链路，确认结果已入库。',
             action: '把处理结论写入回归记录，避免同类问题反复出现。',
             done: '闭环完成',
             theme: 'success',
@@ -407,7 +407,7 @@ export function AbilityLogListPanel({
                             ? '只看回调异常'
                             : item.key === 'active'
                               ? '只看排队/执行'
-                              : '只看已回填'}
+                              : '只看已入库'}
                       </Button>
                     ) : null}
                   </Space>

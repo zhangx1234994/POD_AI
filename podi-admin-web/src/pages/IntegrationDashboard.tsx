@@ -3004,15 +3004,19 @@ export function IntegrationDashboard({
   );
   const healthWatchIssueCount = useMemo(
     () =>
-      (healthWatchStatus?.items || []).filter((item) =>
-        ['failed', 'disabled', 'unavailable'].includes(item.status),
-      ).length,
+      healthWatchStatus?.supported === false
+        ? 0
+        : (healthWatchStatus?.items || []).filter((item) =>
+            ['failed', 'disabled', 'unavailable'].includes(item.status),
+          ).length,
     [healthWatchStatus],
   );
   const healthWatchHeaderText = healthWatchStatus
-    ? healthWatchIssueCount > 0
-      ? `巡检守护异常 ${healthWatchIssueCount}`
-      : '巡检守护正常'
+    ? healthWatchStatus.supported === false
+      ? '巡检守护本地不可读'
+      : healthWatchIssueCount > 0
+        ? `巡检守护异常 ${healthWatchIssueCount}`
+        : '巡检守护正常'
     : '巡检守护待检查';
 
   const {
@@ -6164,22 +6168,30 @@ const extractErrorMessage = (error: unknown): string => {
     >
       <div className="podi-admin-dashboard">
       {loadErrors.length > 0 ? (
-        <div style={{ marginBottom: 16 }}>
-          <ErrorState title="部分数据加载失败">
-            <div style={{ marginBottom: 8 }}>
-              不影响已加载模块，可点击右上角“刷新”重试；失败明细：
-            </div>
-            <ul style={{ margin: 0, paddingLeft: 18 }}>
-              {loadErrors.slice(0, 6).map((msg) => (
-                <li key={msg}>{msg}</li>
-              ))}
-            </ul>
-            <div style={{ marginTop: 8 }}>
+        <div style={{ marginBottom: 12 }}>
+          <Alert
+            theme="warning"
+            message={
+              <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                <div>
+                  部分后台数据暂时没加载完整，当前页面已加载内容可以继续使用；连续重试失败时再进入对应模块排查。
+                </div>
+                <details>
+                  <summary style={{ cursor: 'pointer' }}>查看未加载模块</summary>
+                  <ul style={{ margin: '8px 0 0', paddingLeft: 18 }}>
+                    {loadErrors.slice(0, 6).map((msg) => (
+                      <li key={msg}>{msg}</li>
+                    ))}
+                  </ul>
+                </details>
+              </Space>
+            }
+            operation={
               <Button size="small" variant="outline" onClick={load}>
-                立即重试
+                重试
               </Button>
-            </div>
-          </ErrorState>
+            }
+          />
         </div>
       ) : null}
       {isBusinessReadOnly ? (

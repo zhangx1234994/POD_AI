@@ -8,7 +8,7 @@ from sqlalchemy.pool import StaticPool
 
 import app.services.ability_logs as ability_logs_module
 from app.core.db import Base
-from app.models.integration import Ability, AbilityInvocationLog
+from app.models.integration import Ability, AbilityInvocationLog, AbilityTask
 from app.schemas.admin_ability_logs import AbilityInvocationLogRead
 from app.services.ability_logs import AbilityLogService
 
@@ -127,6 +127,51 @@ def test_log_read_outputs_summary_for_text_only():
     assert read.output_summary.primary_kind == "text"
     assert read.output_summary.primary_url is None
     assert read.output_summary.text_count == 1
+
+
+def test_reconcile_stale_pending_log_from_finished_task(monkeypatch):
+    testing_session = install_log_db(monkeypatch)
+    old = datetime.utcnow() - timedelta(hours=1)
+    with testing_session() as session:
+        session.add(
+            AbilityTask(
+                id="task_finished_1",
+                ability_id="ability_health_test",
+                ability_name="GPT Image 2",
+                ability_provider="openai",
+                capability_key="gpt_image_2_generate",
+                status="succeeded",
+                result_payload={"imageUrls": ["https://oss.example.com/result.png"]},
+                duration_ms=1234,
+                created_at=old,
+                updated_at=old,
+            )
+        )
+        session.add(
+            AbilityInvocationLog(
+                id=901,
+                ability_id="ability_health_test",
+                ability_provider="openai",
+                capability_key="gpt_image_2_generate",
+                ability_name="GPT Image 2",
+                source="ability-api",
+                task_id="task_finished_1",
+                status="pending",
+                created_at=old,
+            )
+        )
+        session.commit()
+
+    svc = AbilityLogService()
+    result = svc.reconcile_stale_pending_logs(max_age_minutes=20)
+
+    assert result["closed"] == 1
+    with testing_session() as session:
+        log = session.get(AbilityInvocationLog, 901)
+        assert log is not None
+        assert log.status == "success"
+        assert log.duration_ms == 1234
+        assert log.stored_url == "https://oss.example.com/result.png"
 
 
 def test_log_read_outputs_summary_for_structured_only():

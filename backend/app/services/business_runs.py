@@ -780,7 +780,7 @@ class BusinessRunService:
         trace_id: str | None = None,
     ) -> tuple[int, list[BusinessRun]]:
         with get_session() as session:
-            stmt = select(BusinessRun)
+            id_stmt = select(BusinessRun.id)
             count_stmt = select(func.count(BusinessRun.id))
             filters = []
             normalized_issue_category = self._normalize_issue_category(issue_category)
@@ -801,28 +801,46 @@ class BusinessRunService:
             if trace_id:
                 filters.append(BusinessRun.trace_id == trace_id)
             if filters:
-                stmt = stmt.where(*filters)
+                id_stmt = id_stmt.where(*filters)
                 count_stmt = count_stmt.where(*filters)
             if billing_status:
                 status_filter = self._billing_status_filter(billing_status)
                 if status_filter is not None:
-                    stmt = stmt.where(status_filter)
+                    id_stmt = id_stmt.where(status_filter)
                     count_stmt = count_stmt.where(status_filter)
+            normalized_limit = max(1, min(limit, 1000))
             if normalized_issue_category:
-                rows = session.execute(stmt.order_by(BusinessRun.created_at.desc())).scalars().all()
+                # Issue category is derived from payloads, so first scan recent narrow IDs
+                # instead of sorting full JSON rows. This avoids MySQL sort buffer errors.
+                scan_limit = min(max(normalized_limit * 10, 200), 2000)
+                run_ids = (
+                    session.execute(id_stmt.order_by(BusinessRun.created_at.desc()).limit(scan_limit))
+                    .scalars()
+                    .all()
+                )
+                rows = self._load_runs_by_ids(session, run_ids)
                 items = [
                     self._run_to_dict(row, session=session)
                     for row in rows
                     if self._build_run_issue_summary(row, session=session)["category"] == normalized_issue_category
                 ]
-                return len(items), items[: max(1, min(limit, 1000))]
+                return len(items), items[:normalized_limit]
             total = int(session.scalar(count_stmt) or 0)
-            rows = (
-                session.execute(stmt.order_by(BusinessRun.created_at.desc()).limit(max(1, min(limit, 1000))))
+            run_ids = (
+                session.execute(id_stmt.order_by(BusinessRun.created_at.desc()).limit(normalized_limit))
                 .scalars()
                 .all()
             )
+            rows = self._load_runs_by_ids(session, run_ids)
             return total, [self._run_to_dict(row, session=session) for row in rows]
+
+    def _load_runs_by_ids(self, session, run_ids: list[str]) -> list[BusinessRun]:
+        rows: list[BusinessRun] = []
+        for run_id in run_ids:
+            row = session.get(BusinessRun, run_id)
+            if row:
+                rows.append(row)
+        return rows
 
     def usage_summary(
         self,
@@ -844,7 +862,7 @@ class BusinessRunService:
         recent_unresolved_issues: list[dict[str, Any]] = []
         normalized_issue_category = self._normalize_issue_category(issue_category)
         with get_session() as session:
-            stmt = select(BusinessRun).where(BusinessRun.created_at >= since)
+            id_stmt = select(BusinessRun.id).where(BusinessRun.created_at >= since)
             filters = []
             if business_key:
                 filters.append(BusinessRun.business_key == business_key)
@@ -861,8 +879,13 @@ class BusinessRunService:
             if trace_id:
                 filters.append(BusinessRun.trace_id == trace_id)
             if filters:
-                stmt = stmt.where(*filters)
-            rows = session.execute(stmt.order_by(BusinessRun.created_at.desc())).scalars().all()
+                id_stmt = id_stmt.where(*filters)
+            run_ids = (
+                session.execute(id_stmt.order_by(BusinessRun.created_at.desc()).limit(10000))
+                .scalars()
+                .all()
+            )
+            rows = self._load_runs_by_ids(session, run_ids)
             issue_summaries = {
                 row.id: self._build_run_issue_summary(row, session=session)
                 for row in rows
@@ -5004,14 +5027,14 @@ class BusinessRunService:
         # columns, then fetch each step by primary key for detail rendering.
         step_refs = (
             session.execute(
-                select(BusinessRunStep.id, BusinessRunStep.step_order, BusinessRunStep.created_at)
+                select(BusinessRunStep.id, BusinessRunStep.step_order)
                 .where(BusinessRunStep.run_id == row.id)
-                .order_by(BusinessRunStep.step_order.asc(), BusinessRunStep.created_at.asc())
+                .order_by(BusinessRunStep.step_order.asc(), BusinessRunStep.id.asc())
             )
             .all()
         )
         steps: list[BusinessRunStep] = []
-        for step_id, _step_order, _created_at in step_refs:
+        for step_id, _step_order in step_refs:
             step = session.get(BusinessRunStep, step_id)
             if step:
                 steps.append(step)

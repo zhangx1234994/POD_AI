@@ -221,7 +221,7 @@ const abilityLogTroubleMeta: Record<
     action: '复制回调编号，确认回调地址、鉴权和重试结果。',
   },
   success_without_output: {
-    title: '成功无回填',
+    title: '成功无结果',
     theme: 'warning',
     detail: '任务状态成功，但没有解析到图片、视频、文字或结构化结果。',
     action: '打开详情拉取结果，确认上游输出字段和 OSS 沉淀。',
@@ -233,7 +233,7 @@ const abilityLogTroubleMeta: Record<
     action: '超过预期时先看 ComfyUI 队列和执行节点健康。',
   },
   healthy: {
-    title: '已回填',
+    title: '结果已入库',
     theme: 'success',
     detail: '调用成功且已有可用输出。',
     action: '可作为验收样本或线上回归证据。',
@@ -309,7 +309,7 @@ export const resolveAbilityLogAction = (row: AbilityInvocationLog) => {
     }
     return {
       theme: 'warning' as const,
-      title: '确认结果回填',
+      title: '确认结果入库',
       detail: '执行成功但没有图片、视频或文字，先看响应内容再决定是否复测。',
     };
   }
@@ -326,7 +326,7 @@ export const resolveAbilityLogAction = (row: AbilityInvocationLog) => {
     return {
       theme: 'success' as const,
       title: '可作为样本',
-      detail: '结果已回填，可用于验收、对比或排障留证。',
+      detail: '结果已入库，可用于验收、对比或排障留证。',
     };
   }
 
@@ -379,15 +379,15 @@ export const getAbilityLogCallbackStageTag = (row: AbilityInvocationLog) => {
       return { theme: 'success' as const, text: '结构化已入库' };
     }
     if (output.videoCount > 0 && output.imageCount === 0) {
-      return { theme: 'success' as const, text: '视频已回填' };
+      return { theme: 'success' as const, text: '视频已入库' };
     }
-    return { theme: 'success' as const, text: previewUrl ? '输出已回填' : '结果已入库' };
+    return { theme: 'success' as const, text: '结果已入库' };
   }
   if (callbackConfigured === true) {
     return { theme: 'warning' as const, text: '待回调' };
   }
   if (hasCallbackId) {
-    if (previewUrl) return { theme: 'success' as const, text: '输出已回填' };
+    if (previewUrl) return { theme: 'success' as const, text: '结果已入库' };
     if (isAbilityLogSuccessful(row.status)) return { theme: 'default' as const, text: '等待结果入库' };
     if (isAbilityLogFailed(row.status)) return { theme: 'danger' as const, text: '执行失败' };
     return { theme: 'default' as const, text: '可查询' };

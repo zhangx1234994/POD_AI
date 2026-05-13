@@ -133,12 +133,12 @@ const resolveTestResultAction = (result: AbilityTestResultView, output: ReturnTy
     return {
       theme: 'success' as const,
       title: '测试通过，可留作验收样本',
-      detail: '结果已回填到页面，后续可进入业务版本验收或小流量验证。',
+      detail: '结果已入库并可在页面查看，后续可进入业务版本验收或小流量验证。',
     };
   }
   return {
     theme: 'warning' as const,
-    title: '确认结果回填',
+    title: '确认结果入库',
     detail: '接口有响应但页面没有识别到图片、视频、文字或结构化结果，先展开原始响应确认字段。',
   };
 };

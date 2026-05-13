@@ -311,10 +311,10 @@ const formatEvalStageStatus = (
     if (value === 'submitted') return '已提交';
   }
   if (stage === 'callback') {
-    if (value === 'waiting') return '等待回填';
-    if (value === 'running') return '回填中';
-    if (value === 'success') return '回填成功';
-    if (value === 'failed') return '回填失败';
+    if (value === 'waiting') return '等待结果';
+    if (value === 'running') return '结果处理中';
+    if (value === 'success') return '结果已完成';
+    if (value === 'failed') return '结果失败';
     if (value === 'not_configured') return '未配置回调';
   }
   if (stage === 'final') {
@@ -5757,7 +5757,7 @@ export function App() {
           <Space direction="vertical" size="large" style={{ width: '100%' }}>
             <Alert
               theme="info"
-              message="统一联调准则：状态只按“排队中、执行中、成功、失败”判断；队列满会给出明确错误码；成功但暂未回填图片时按“结果回填中”处理，不要直接判失败。"
+              message="统一联调准则：状态只按“排队中、执行中、成功、失败”判断；队列满会给出明确错误码；成功但暂未生成可展示结果时按“结果处理中”处理，不要直接判失败。"
             />
           {docsView === 'structured' && groupedDocs.length > 0 ? (
           <Space direction="vertical" size="large" style={{ width: '100%' }}>
