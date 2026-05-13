@@ -244,6 +244,8 @@ smoke 结果：
 - `patrol_business_api.py` 的业务结果以 `results[].ok`、`response.status`、`response.imageUrls/resultPayload` 为准。
 - `acceptanceResults` 只代表“验收记录是否写入成功”，不能反向污染业务巡检是否通过。
 - 如果巡检脚本因为缺 token 导致验收记录 401，需要用管理员身份补录验收记录和上线决策，不能重新跑 GPU 任务制造重复成本。
+- 发布包会覆盖 `backend/` 目录；如果巡检报告保存在 `/srv/pod/reports/...`，导入管理端前要复制到 `/srv/pod/backend/reports/...`，否则 `/api/admin/dashboard/release-patrol/import-report` 会返回 `REPORT_NOT_FOUND`。
+- GitHub 网络不可用但已经确认 `git push` 成功、本地 `HEAD == origin/main` 时，允许一次性用 `CHECK_GIT_SYNC=0` 继续 114 发布；必须在发布记录里写明这是网络例外，不能把它作为常规绕过门禁。
 
 健康守护阈值口径：
 
@@ -281,3 +283,4 @@ smoke 结果：
 - 业务巡检导入必须区分“业务执行结果”和“验收记录写入结果”；业务 3/3 成功但验收写入 401 时，巡检状态仍应按业务结果通过，验收记录另行补录。
 - 健康守护的阈值要和当前阶段一致：未正式商业化前，账单/扣费问题是治理提醒，不应把服务状态打成失败。
 - 管理端健康守护展示要尊重 systemd `Result=success`；脚本 exit=1 但被 systemd 认定成功时，应作为 warning 呈现。
+- 管理端总览要吸收最新上线决策：没有阻塞项且已经人工登记“可上线”时，顶部显示“已确认可上线”，非阻断提醒继续展示为后续治理项。
