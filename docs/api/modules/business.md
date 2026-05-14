@@ -408,25 +408,18 @@ ComfyUI 颜色锁定版请求示例：
 
 ```json
 {
-  "id": "d7f2f7f37d1d47ad8dd2a9d7d3cb3d39",
   "runId": "d7f2f7f37d1d47ad8dd2a9d7d3cb3d39",
   "businessKey": "fission",
   "version": "v1",
   "status": "queued",
-  "source": "coze",
-  "channel": "coze-workflow",
+  "taskStatus": "queued",
   "traceId": "trace-demo-001",
   "requestId": "req-demo-001",
-  "tenantId": "tenant-a",
-  "clientId": "coze-main-workflow",
   "taskId": "t1.fission.default.xxx",
-  "imageUrls": [],
-  "videoUrls": [],
-  "texts": [],
+  "retryAfterSeconds": 10,
   "error": null,
-  "durationMs": null,
-  "costAmount": null,
-  "currency": null,
+  "errorMessage": null,
+  "errorCode": null,
   "debugUrl": null
 }
 ```
@@ -456,6 +449,7 @@ ComfyUI 颜色锁定版请求示例：
 
 - 新接入建议把 `bili/width/height/profile/prompt` 等业务字段直接作为顶层字段传入，业务方不用理解 `inputs`；`batch_size/steps/cfg` 仅作为旧 ComfyUI 版本兼容字段保留。`bili` 统一按重绘幅度理解。
 - 旧调用仍兼容 `inputs.bili`、`inputs.width` 等格式；顶层字段不会破坏现有 Coze 工作流。
+- 提交接口默认只返回轻量回执，业务方保存 `runId` 后调用 `/api/business/runs/get` 轮询结果；底层路由、步骤、成本、排障证据不在提交阶段返回。
 - `traceId/requestId/tenantId/clientId/channel/source` 会进入业务运行记录，并继续透传到底层能力任务，后续用于排查、灰度、成本和配额统计。
 
 ---

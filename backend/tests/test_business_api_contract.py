@@ -144,6 +144,22 @@ def test_business_openapi_exposes_flat_business_tools() -> None:
     ]
     assert {"runId", "taskId", "detail", "includeDebug"}.issubset(run_get_request_schema["properties"])
     submit_responses = paths["/api/business/fission/runs"]["post"]["responses"]
+    submit_response_schema = submit_responses["200"]["content"]["application/json"]["schema"]
+    assert {
+        "runId",
+        "taskId",
+        "businessKey",
+        "version",
+        "status",
+        "taskStatus",
+        "traceId",
+        "requestId",
+        "debugUrl",
+        "retryAfterSeconds",
+    }.issubset(submit_response_schema["properties"])
+    assert "routeInfo" not in submit_response_schema["properties"]
+    assert "steps" not in submit_response_schema["properties"]
+    assert "requestPayload" not in submit_response_schema["properties"]
     assert "400" in submit_responses
     assert "500" in submit_responses
     assert "BUSINESS_IMAGE_URL_REQUIRED" in submit_responses["400"]["x-podi-errors"]
@@ -405,9 +421,16 @@ def test_business_api_submit_and_query_do_not_require_coze_workflow(monkeypatch)
     assert created == {"business_key": "fission", "payload_source": "partner-api"}
     assert submit_body["runId"] == "run_direct_fission"
     assert submit_body["taskId"] == "task_direct_fission"
-    assert submit_body["source"] == "partner-api"
-    assert submit_body["channel"] == "open-api"
-    assert submit_body["routeInfo"]["entry"] == "business-api"
+    assert submit_body["businessKey"] == "fission"
+    assert submit_body["status"] == "queued"
+    assert submit_body["taskStatus"] == "queued"
+    assert submit_body["traceId"] == "trace-direct-001"
+    assert submit_body["requestId"] == "req-direct-001"
+    assert submit_body["retryAfterSeconds"] == 10
+    assert "source" not in submit_body
+    assert "channel" not in submit_body
+    assert "routeInfo" not in submit_body
+    assert "steps" not in submit_body
     assert "cozeWorkflowId" not in submit_body
 
     query = client.post(

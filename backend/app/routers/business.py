@@ -172,6 +172,29 @@ def _business_run_light_response(run: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _business_run_submit_response(run: dict[str, Any]) -> dict[str, Any]:
+    full = _business_run_full_response(run)
+    status = _normalize_business_task_status(full.get("status"))
+    error_message = str(full.get("errorMessage") or full.get("error") or "").strip() or None
+    return {
+        "runId": full.get("runId") or full.get("id"),
+        "taskId": full.get("taskId"),
+        "businessKey": full.get("businessKey"),
+        "version": full.get("version"),
+        "status": status,
+        "taskStatus": status,
+        "traceId": full.get("traceId"),
+        "requestId": full.get("requestId"),
+        "debugUrl": full.get("debugUrl"),
+        "debugResponse": error_message,
+        "retryAfterSeconds": 10 if status in {"queued", "running"} else None,
+        "error": error_message,
+        "errorMessage": error_message,
+        "errorCode": _business_error_code(error_message),
+        "createdAt": full.get("createdAt"),
+    }
+
+
 def _get_business_run_response(
     *,
     run_id: str,
@@ -473,7 +496,7 @@ def _create_business_run_with_usage(
     business_key: str,
     payload: schemas.BusinessRunCreateRequest,
     user: User,
-) -> schemas.BusinessRunRead:
+) -> dict[str, Any]:
     try:
         _business_key_allowed_for_api_key(request, business_key)
         result = get_business_run_service().create_run(business_key=business_key, payload=payload, user=user)
@@ -494,7 +517,7 @@ def _create_business_run_with_usage(
         )
         raise
     _record_business_api_key_usage(request, status_code=200, business_key=business_key, run=result)
-    return result
+    return _business_run_submit_response(result)
 
 
 @router.get("/capabilities", response_model=schemas.BusinessCapabilityListResponse, response_model_by_alias=False)
@@ -506,40 +529,40 @@ def list_business_capabilities(
     return schemas.BusinessCapabilityListResponse(items=items)
 
 
-@router.post("/fission/runs", response_model=schemas.BusinessRunRead, response_model_by_alias=False)
+@router.post("/fission/runs", response_model=dict[str, Any], response_model_by_alias=False)
 def create_fission_run(
     payload: schemas.BusinessRunCreateRequest,
     request: Request,
     user: User = Depends(_resolve_business_user),
-) -> schemas.BusinessRunRead:
+) -> dict[str, Any]:
     return _create_business_run_with_usage(request=request, business_key="fission", payload=payload, user=user)
 
 
-@router.post("/fission-evaluate/runs", response_model=schemas.BusinessRunRead, response_model_by_alias=False)
-@router.post("/fission/evaluate/runs", response_model=schemas.BusinessRunRead, response_model_by_alias=False)
+@router.post("/fission-evaluate/runs", response_model=dict[str, Any], response_model_by_alias=False)
+@router.post("/fission/evaluate/runs", response_model=dict[str, Any], response_model_by_alias=False)
 def create_fission_evaluate_run(
     payload: schemas.BusinessRunCreateRequest,
     request: Request,
     user: User = Depends(_resolve_business_user),
-) -> schemas.BusinessRunRead:
+) -> dict[str, Any]:
     return _create_business_run_with_usage(request=request, business_key="fission_evaluate", payload=payload, user=user)
 
 
-@router.post("/outpaint/runs", response_model=schemas.BusinessRunRead, response_model_by_alias=False)
+@router.post("/outpaint/runs", response_model=dict[str, Any], response_model_by_alias=False)
 def create_outpaint_run(
     payload: schemas.BusinessRunCreateRequest,
     request: Request,
     user: User = Depends(_resolve_business_user),
-) -> schemas.BusinessRunRead:
+) -> dict[str, Any]:
     return _create_business_run_with_usage(request=request, business_key="outpaint", payload=payload, user=user)
 
 
-@router.post("/pattern-extract/runs", response_model=schemas.BusinessRunRead, response_model_by_alias=False)
+@router.post("/pattern-extract/runs", response_model=dict[str, Any], response_model_by_alias=False)
 def create_pattern_extract_run(
     payload: schemas.BusinessRunCreateRequest,
     request: Request,
     user: User = Depends(_resolve_business_user),
-) -> schemas.BusinessRunRead:
+) -> dict[str, Any]:
     return _create_business_run_with_usage(request=request, business_key="pattern_extract", payload=payload, user=user)
 
 
@@ -676,6 +699,35 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "callbackHttpStatus": {"type": "integer", "nullable": True},
             "callbackError": {"type": "string", "nullable": True},
             "debugUrl": {"type": "string", "nullable": True},
+        },
+    }
+    submit_response_schema = {
+        "type": "object",
+        "description": "提交任务后的轻量回执。业务方保存 runId 后使用 /api/business/runs/get 轮询结果。",
+        "properties": {
+            "runId": {"type": "string", "description": "业务任务 ID；后续轮询必须使用。"},
+            "taskId": {"type": "string", "nullable": True, "description": "底层能力任务 ID，可能为空，仅用于排查。"},
+            "businessKey": {"type": "string", "description": "业务能力类型，例如 fission。"},
+            "version": {"type": "string", "nullable": True, "description": "本次命中的业务版本。"},
+            "status": {
+                "type": "string",
+                "description": "提交后的状态，通常是 queued 或 running。",
+                "enum": ["queued", "running", "succeeded", "failed"],
+            },
+            "taskStatus": {
+                "type": "string",
+                "description": "兼容 Coze 的状态字段，值与 status 一致。",
+                "enum": ["queued", "running", "succeeded", "failed"],
+            },
+            "traceId": {"type": "string", "nullable": True, "description": "链路追踪 ID。"},
+            "requestId": {"type": "string", "nullable": True, "description": "业务方请求 ID。"},
+            "debugUrl": {"type": "string", "nullable": True, "description": "内部排障链接。"},
+            "debugResponse": {"type": "string", "nullable": True, "description": "提交阶段轻量排障提示。"},
+            "retryAfterSeconds": {"type": "integer", "nullable": True, "description": "建议首次轮询等待秒数。"},
+            "error": {"type": "string", "nullable": True},
+            "errorMessage": {"type": "string", "nullable": True},
+            "errorCode": {"type": "string", "nullable": True},
+            "createdAt": {"type": "string", "nullable": True},
         },
     }
     run_query_response_schema = {
@@ -1072,7 +1124,11 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                     "description": "提交花纹提取业务任务。业务方只需要传原图和可选提取要求，底层版本由中台路由。",
                     "security": business_api_key_security,
                     "requestBody": {"required": True, "content": {"application/json": {"schema": pattern_extract_submit_schema}}},
-                    "responses": _business_responses(success_description="Business run", errors_by_status=submit_errors),
+                    "responses": _business_responses(
+                        success_description="Business run accepted",
+                        errors_by_status=submit_errors,
+                        success_schema=submit_response_schema,
+                    ),
                 }
             },
             "/api/business/fission/runs": {
@@ -1092,7 +1148,11 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                             "source": "curl -X POST \"$PODI_BASE_URL/api/business/fission/runs\" \\\n  -H \"X-PODI-API-Key: $PODI_API_KEY\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"imageUrl\":\"https://example.com/input.png\",\"version\":\"gpt-image2-vl-v2\",\"variation_strength\":\"same_series\",\"quality\":\"preview\",\"size\":\"auto\",\"source\":\"partner-api\",\"channel\":\"open-api\",\"requestId\":\"biz-request-001\"}'",
                         }
                     ],
-                    "responses": _business_responses(success_description="Business run", errors_by_status=submit_errors),
+                    "responses": _business_responses(
+                        success_description="Business run accepted",
+                        errors_by_status=submit_errors,
+                        success_schema=submit_response_schema,
+                    ),
                 }
             },
             "/api/business/fission-evaluate/runs": {
@@ -1117,7 +1177,11 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                             "source": "curl -X POST \"$PODI_BASE_URL/api/business/fission-evaluate/runs\" \\\n  -H \"X-PODI-API-Key: $PODI_API_KEY\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"originalImageUrl\":\"https://example.com/original.png\",\"generatedImageUrl\":\"https://example.com/generated.png\",\"context\":{\"business\":\"fission\",\"version\":\"gpt-image2-vl-v2\"},\"source\":\"partner-api\",\"channel\":\"open-api\",\"requestId\":\"biz-request-eval-001\"}'",
                         }
                     ],
-                    "responses": _business_responses(success_description="Business run", errors_by_status=submit_errors),
+                    "responses": _business_responses(
+                        success_description="Business run accepted",
+                        errors_by_status=submit_errors,
+                        success_schema=submit_response_schema,
+                    ),
                 }
             },
             "/api/business/outpaint/runs": {
@@ -1127,7 +1191,11 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                     "description": "提交扩图业务任务。宽高、上下左右扩展量从 inputs 传入，底层版本由中台路由。",
                     "security": business_api_key_security,
                     "requestBody": {"required": True, "content": {"application/json": {"schema": outpaint_submit_schema}}},
-                    "responses": _business_responses(success_description="Business run", errors_by_status=submit_errors),
+                    "responses": _business_responses(
+                        success_description="Business run accepted",
+                        errors_by_status=submit_errors,
+                        success_schema=submit_response_schema,
+                    ),
                 }
             },
             "/api/business/pattern-extract/route-preview": {

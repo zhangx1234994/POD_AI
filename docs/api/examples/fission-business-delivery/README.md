@@ -30,9 +30,13 @@
 | `status` | 当前业务任务状态，常见值为 `queued`、`running`、`succeeded`、`failed`。提交成功时通常是 `queued` 或 `running`。 |
 | `taskStatus` | 兼容 Coze 的状态字段，含义与 `status` 一致。 |
 | `taskId` | 底层能力任务 ID，可能为空或稍后生成。普通业务不需要依赖它。 |
+| `businessKey` / `version` | 本次提交命中的业务能力和版本。 |
 | `debugUrl` | 可选的中台排障链接；没有则为空。 |
 | `requestId` | 本次业务请求 ID。业务方传入则原样关联；未传则由中台生成。 |
 | `traceId` | 链路追踪 ID，用于把业务系统、中台和能力调用串起来排查。 |
+| `retryAfterSeconds` | 建议首次轮询等待秒数。 |
+
+提交接口不会默认返回 `routeInfo`、`steps`、`requestPayload`、`costBreakdown` 等内部排障字段；这些内容只在管理端或查询接口 `detail=full` 时使用。
 
 查询接口默认返回轻量结果：
 
