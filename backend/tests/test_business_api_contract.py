@@ -512,6 +512,62 @@ def test_business_run_light_response_exposes_structured_text_payload(monkeypatch
     }
 
 
+def test_business_run_light_response_prefers_structured_payload_inside_texts(monkeypatch) -> None:
+    now = datetime.now(timezone.utc)
+
+    class FakeBusinessRunService:
+        def get_run(self, *, run_id, user):
+            assert run_id == "run_score_002"
+            score_text = json.dumps(
+                {
+                    "decision": "needs_refission",
+                    "score": 62,
+                    "reason": "主体关系有偏移，建议二次裂变。",
+                    "next_action": {"type": "refission"},
+                },
+                ensure_ascii=False,
+            )
+            return {
+                "id": "run_score_002",
+                "business_key": "fission_evaluate",
+                "version": "v1",
+                "status": "succeeded",
+                "source": "partner-api",
+                "channel": "open-api",
+                "request_id": "req-score-002",
+                "ability_task_id": "task_score_002",
+                "image_urls": [],
+                "video_urls": [],
+                "texts": [score_text],
+                "result_payload": {
+                    "status": "succeeded",
+                    "provider": "vl",
+                    "texts": [score_text],
+                    "durationMs": 12000,
+                },
+                "created_at": now,
+                "updated_at": now,
+                "finished_at": now,
+            }
+
+    monkeypatch.setattr("app.routers.business.get_business_run_service", lambda: FakeBusinessRunService())
+
+    resp = client.post(
+        "/api/business/runs/get",
+        json={"runId": "run_score_002"},
+        headers={"x-real-ip": "127.0.0.1"},
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["resultPayload"] == {
+        "decision": "needs_refission",
+        "score": 62,
+        "reason": "主体关系有偏移，建议二次裂变。",
+        "next_action": {"type": "refission"},
+    }
+
+
 def test_coze_task_get_keeps_task_not_found_for_unknown_ids(monkeypatch) -> None:
     class FakeSession:
         def __enter__(self):

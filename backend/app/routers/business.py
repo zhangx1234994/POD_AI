@@ -111,6 +111,24 @@ def _parse_json_object_text(value: Any) -> dict[str, Any] | None:
     return parsed if isinstance(parsed, dict) else None
 
 
+def _business_structured_result_payload(full: dict[str, Any], texts: list[Any]) -> dict[str, Any] | None:
+    result_payload = full.get("resultPayload")
+    if isinstance(result_payload, dict) and result_payload:
+        if any(key in result_payload for key in ("decision", "score", "problem_tags", "next_action")):
+            return result_payload
+        payload_texts = result_payload.get("texts")
+        if isinstance(payload_texts, list) and payload_texts:
+            parsed = _parse_json_object_text(payload_texts[0])
+            if parsed:
+                return parsed
+        return result_payload
+    if texts:
+        parsed = _parse_json_object_text(texts[0])
+        if parsed:
+            return parsed
+    return None
+
+
 def _business_run_full_response(run: dict[str, Any]) -> dict[str, Any]:
     return schemas.BusinessRunRead.model_validate(run).model_dump(mode="json", by_alias=False)
 
@@ -148,9 +166,7 @@ def _business_run_light_response(run: dict[str, Any]) -> dict[str, Any]:
         "startedAt": full.get("startedAt"),
         "finishedAt": full.get("finishedAt"),
     }
-    result_payload = full.get("resultPayload")
-    if not isinstance(result_payload, dict) or not result_payload:
-        result_payload = _parse_json_object_text(texts[0]) if texts else None
+    result_payload = _business_structured_result_payload(full, texts)
     if isinstance(result_payload, dict) and result_payload:
         result["resultPayload"] = _compact_business_payload(result_payload)
     return result
