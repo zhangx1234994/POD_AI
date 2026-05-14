@@ -1787,6 +1787,8 @@ type BusinessApiParamDoc = {
 const getBusinessApiParamDocs = (wf: EvalWorkflowVersion): BusinessApiParamDoc[] => {
   const execution = getWorkflowEvalExecution(wf);
   const version = String(execution?.version || wf.version || '').trim();
+  const versionText = `${wf.workflow_id || ''} ${version} ${wf.name || ''}`.toLowerCase();
+  const isComfyColorLock = versionText.includes('comfyui-vl-control-v2') || versionText.includes('colorlock');
   const docs: BusinessApiParamDoc[] = [
     {
       name: 'imageUrl',
@@ -1798,7 +1800,7 @@ const getBusinessApiParamDocs = (wf: EvalWorkflowVersion): BusinessApiParamDoc[]
       name: 'version',
       required: false,
       description: '指定业务版本。不传时使用中台当前默认版本；要固定本功能版本时再传。',
-      example: version || 'gpt-image2-vl-v1',
+      example: version || 'gpt-image2-vl-v2',
     },
     {
       name: 'prompt',
@@ -1848,8 +1850,10 @@ const getBusinessApiParamDocs = (wf: EvalWorkflowVersion): BusinessApiParamDoc[]
       {
         name: 'bili',
         required: false,
-        description: 'ComfyUI 裂变重绘幅度，沿用旧约定。值越大变化越明显，值越小越接近原图。',
-        example: '50%',
+        description: isComfyColorLock
+          ? 'ComfyUI 颜色锁定版重绘幅度，默认 15%，建议 0%-20%。值越大变化越明显，值越小越接近原图。'
+          : 'ComfyUI 裂变重绘幅度，沿用旧约定。值越大变化越明显，值越小越接近原图。',
+        example: isComfyColorLock ? '15%' : '50%',
       },
       {
         name: 'width',
@@ -1866,20 +1870,14 @@ const getBusinessApiParamDocs = (wf: EvalWorkflowVersion): BusinessApiParamDoc[]
       {
         name: 'variation_strength',
         required: false,
-        description: 'GPT Image 2 版本的裂变幅度：low、medium、high。',
-        example: 'high',
+        description: 'GPT Image 2 版本的裂变幅度：conservative、same_series、creative_same_series。',
+        example: 'same_series',
       },
       {
         name: 'quality',
         required: false,
-        description: 'GPT Image 2 质量档位：preview、production、premium。',
+        description: 'GPT Image 2 质量档位：preview、candidate、premium。',
         example: 'preview',
-      },
-      {
-        name: 'count',
-        required: false,
-        description: 'GPT Image 2 输出张数。建议先用 1 张验证效果。',
-        example: '1',
       },
       {
         name: 'size',
@@ -2486,7 +2484,10 @@ function ParamField({
   disabled?: boolean;
   description?: string;
 }) {
-  const label = field.label ?? field.name;
+  const rawLabel = String(field.label ?? field.name);
+  const normalizedFieldName = String(field.name || '').trim().toLowerCase();
+  const isRepaintField = normalizedFieldName === 'bili' || normalizedFieldName === 'similarity';
+  const label = isRepaintField ? '重绘幅度(%)' : rawLabel;
   const required = Boolean(field.required);
   const options = Array.isArray(optionsOverride)
     ? optionsOverride
@@ -2496,7 +2497,10 @@ function ParamField({
           value: String((opt as any)?.value ?? opt),
         }))
       : null;
-  const helperText = String(description ?? field.description ?? '').trim();
+  const rawHelperText = String(description ?? field.description ?? '').trim();
+  const helperText = isRepaintField
+    ? '值越大变化越明显，值越小越接近原图；颜色锁定版建议 0%-20%。'
+    : rawHelperText;
   const type = (field.type || '').toLowerCase();
 
   if (options && options.length > 0) {
