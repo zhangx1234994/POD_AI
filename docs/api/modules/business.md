@@ -41,7 +41,7 @@
 | 业务 | 提交接口 | 必填字段 | 常用可调字段 | 终态输出 | 业务说明 |
 | --- | --- | --- | --- | --- | --- |
 | 花纹提取 | `POST /api/business/pattern-extract/runs` | `imageUrl` | `prompt`、`negative_prompt`、`width`、`height`、`batch`、`lora` | `imageUrls` | 从原图中提取可复用花纹资产，通常是后续裂变和扩图的上游。 |
-| 图裂变 | `POST /api/business/fission/runs` | `imageUrl` | ComfyUI 颜色锁定版：`bili`(`15%`，建议 0%-20%)、`width`、`height`、`profile`；GPT Image 2 版：`variation_strength`、`quality`、`size`、`maskUrl`；历史 ComfyUI 版本仍兼容 `prompt/image_desc/batch_size/steps/cfg` | `imageUrls` | 基于原图生成变化图；版本可在中台切换，业务方仍调用同一个入口。`bili` 是重绘幅度/裂变幅度，越高变化越明显。 |
+| 图裂变 | `POST /api/business/fission/runs` | `imageUrl` | ComfyUI 颜色锁定版：`bili`(`80%` 默认)、`width`、`height`、`profile`、`reference_lock`、`color_lock`；GPT Image 2 版：`variation_strength`、`quality`、`size`、`maskUrl`；历史 ComfyUI 版本仍兼容 `prompt/image_desc/batch_size/steps/cfg` | `imageUrls` | 基于原图生成变化图；版本可在中台切换，业务方仍调用同一个入口。`bili` 是重绘幅度/裂变幅度，越高变化越明显。 |
 | 裂变生成图评估 | `POST /api/business/fission-evaluate/runs` | `originalImageUrl`、`generatedImageUrl` | `context` | `texts/resultPayload` | 输入原图和裂变结果图，判断是否通过、是否建议二次裂变；只评分，不自动二次裂变。 |
 | 扩图 | `POST /api/business/outpaint/runs` | `imageUrl` | `prompt`、`expand_left`、`expand_right`、`expand_top`、`expand_bottom`、`width`、`height` | `imageUrls` | 在原图四周扩展画面，适合补构图、补背景和素材延展。 |
 
@@ -394,10 +394,12 @@ ComfyUI 颜色锁定版请求示例：
 {
   "imageUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/demo/input.png",
   "version": "comfyui-vl-control-v2",
-  "bili": "15%",
+  "bili": "80%",
   "width": 2000,
   "height": 2000,
-  "profile": "pattern_color_lock_v2",
+  "profile": "pattern_risk_routed_v4",
+  "reference_lock": 0.42,
+  "color_lock": 0.9,
   "source": "partner-api",
   "channel": "open-api",
   "traceId": "trace-comfyui-vl-001"
@@ -468,7 +470,7 @@ ComfyUI 颜色锁定版请求示例：
     "business": "fission",
     "version": "gpt-image2-vl-v2",
     "prompt": "保持原图系列感，生成同系列变化图",
-    "bili": "15%"
+    "bili": "80%"
   },
   "source": "partner-api",
   "channel": "open-api",

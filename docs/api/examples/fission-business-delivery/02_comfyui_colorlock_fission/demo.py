@@ -55,8 +55,10 @@ def main() -> None:
     submit_payload = {
         "imageUrl": IMAGE_URL,
         "version": "comfyui-vl-control-v2",
-        "bili": "15%",
-        "profile": "pattern_color_lock_v2",
+        "bili": "80%",
+        "profile": "pattern_risk_routed_v4",
+        "reference_lock": 0.42,
+        "color_lock": 0.90,
         "source": "partner-api",
         "channel": "open-api",
         "requestId": f"biz-comfyui-colorlock-{int(time.time())}",

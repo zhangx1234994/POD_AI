@@ -7,7 +7,7 @@
 | 目录 | 接口 | 说明 |
 | --- | --- | --- |
 | `01_gpt_image2_controlled_fission/` | `POST /api/business/fission/runs` | GPT Image 2 受控裂变，一次请求固定生成 1 张图。 |
-| `02_comfyui_colorlock_fission/` | `POST /api/business/fission/runs` | ComfyUI 颜色锁定裂变，默认重绘幅度 15%。 |
+| `02_comfyui_colorlock_fission/` | `POST /api/business/fission/runs` | ComfyUI 颜色锁定裂变，默认重绘幅度 80%，按 VL 图案类型智能路由。 |
 | `03_fission_generated_image_score/` | `POST /api/business/fission-evaluate/runs` | 裂变生成图评分，只评分，不自动二次裂变。 |
 
 ## 统一约定

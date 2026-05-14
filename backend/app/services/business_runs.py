@@ -3920,12 +3920,18 @@ class BusinessRunService:
                 prompt_main = self._first_string(
                     card.get("prompt_main"),
                     card.get("promptMain"),
+                    vl_summary.get("prompt_main"),
                     vl_summary.get("promptMain"),
                     vl_summary.get("positivePrompt"),
                 )
                 prompt_control = self._first_string(
                     card.get("prompt_control"),
                     card.get("promptControl"),
+                    card.get("image_desc"),
+                    card.get("imageDesc"),
+                    vl_summary.get("prompt_control"),
+                    vl_summary.get("promptControl"),
+                    vl_summary.get("image_desc"),
                     vl_summary.get("promptControl"),
                     vl_summary.get("imageDesc"),
                 )
@@ -3947,7 +3953,7 @@ class BusinessRunService:
                     inputs.get("profile_id"),
                 )
                 if compiler == "comfyui_fission_control_card_v2":
-                    profile_hint = profile_hint or "pattern_color_lock_v2"
+                    profile_hint = profile_hint or "pattern_risk_routed_v4"
                     color_lock_lines = []
                     if palette_card:
                         color_lock_lines.append(
@@ -3972,6 +3978,22 @@ class BusinessRunService:
                         else "variation_percent_045_080"
                     ),
                 }
+                if compiler == "comfyui_fission_control_card_v2":
+                    compiled_inputs["bili_mapping"] = "pattern_risk_routed_v4"
+                    for field, *aliases in (
+                        ("pattern_risk_type", "patternRiskType", "pattern_type", "patternType"),
+                        ("density_risk_level", "densityRiskLevel"),
+                        ("max_denoise", "maxDenoise"),
+                        ("recommended_reference_lock", "recommendedReferenceLock"),
+                        ("recommended_color_lock", "recommendedColorLock"),
+                    ):
+                        value = self._first_value(card.get(field), vl_summary.get(field), *[card.get(alias) for alias in aliases], *[vl_summary.get(alias) for alias in aliases])
+                        if value not in (None, "", []):
+                            compiled_inputs[field] = value
+                    if inputs.get("reference_lock") in (None, "") and compiled_inputs.get("recommended_reference_lock") not in (None, ""):
+                        compiled_inputs["reference_lock"] = compiled_inputs["recommended_reference_lock"]
+                    if inputs.get("color_lock") in (None, "") and compiled_inputs.get("recommended_color_lock") not in (None, ""):
+                        compiled_inputs["color_lock"] = compiled_inputs["recommended_color_lock"]
                 for field, value in compiled_inputs.items():
                     if field in pass_keys and value not in (None, "", []):
                         if overwrite or not inputs.get(field):
@@ -4009,12 +4031,20 @@ class BusinessRunService:
                 "profile_id",
                 "profile",
                 "mode",
+                "variation_preset",
+                "reference_lock",
+                "color_lock",
                 "ipadapter_weight",
                 "colormatch_method",
                 "colormatch_strength",
                 "image_desc",
                 "vl_result",
                 "bili_mapping",
+                "pattern_risk_type",
+                "density_risk_level",
+                "max_denoise",
+                "recommended_reference_lock",
+                "recommended_color_lock",
                 "prompt_main",
                 "prompt_control",
                 "variation_strength",
@@ -4383,6 +4413,13 @@ class BusinessRunService:
             }
             rows.append({key: value for key, value in item.items() if value is not None})
         return rows
+
+    @staticmethod
+    def _first_value(*values: Any) -> Any | None:
+        for value in values:
+            if value not in (None, "", []):
+                return value
+        return None
 
     @staticmethod
     def _first_string(*values: Any) -> str | None:

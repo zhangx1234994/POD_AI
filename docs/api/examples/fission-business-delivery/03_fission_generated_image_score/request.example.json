@@ -5,11 +5,10 @@
     "business": "fission",
     "version": "gpt-image2-vl-v2",
     "prompt": "保持系列感，元素要明显变化",
-    "bili": "15%"
+    "bili": "80%"
   },
   "source": "partner-api",
   "channel": "open-api",
   "requestId": "biz-fission-score-001",
   "traceId": "trace-fission-score-001"
 }
-

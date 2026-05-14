@@ -208,9 +208,11 @@ flowchart TD
 | --- | --- | --- | --- |
 | `imageUrl` / `url` | 两个裂变版本 | 原图 URL | 必填。上传后默认取上传图地址。 |
 | `prompt` | 两个裂变版本 | 用户提示词 | 可选；不传时由系统提示词和 VL 结果兜底。 |
-| `bili` | ComfyUI 颜色锁定版 | 裂变幅度 / 重绘幅度 | 不是相似度。建议 0%-20%，默认 15%。 |
+| `bili` | ComfyUI 颜色锁定版 | 裂变幅度 / 重绘幅度 | 不是相似度。建议低 30%、中 60%、高 80%、极高 100%+；默认 80%，只提示区间不做硬限制。 |
 | `width` / `height` | ComfyUI 颜色锁定版 | 输出宽高 | 默认应跟原图尺寸走；用户可以手动改。 |
-| `profile` / `profile_id` | ComfyUI 颜色锁定版 | 裂变配置 | 默认 `pattern_color_lock_v2`。 |
+| `profile` / `profile_id` | ComfyUI 颜色锁定版 | 裂变配置 | 默认 `pattern_risk_routed_v4`。 |
+| `reference_lock` | ComfyUI 颜色锁定版 | 原图结构保留度 | 建议 0.34-0.50，不做硬限制。 |
+| `color_lock` | ComfyUI 颜色锁定版 | 颜色锁定强度 | 建议 0.75-1.00，不做硬限制。 |
 | `variation_strength` | GPT Image 2 + VL 控制版 | 商业模型裂变强度 | 建议值：`conservative/same_series/creative_same_series`。 |
 | `quality` | GPT Image 2 + VL 控制版 | 输出质量 | 走 OpenAI 图片编辑参数。 |
 | `size` | GPT Image 2 + VL 控制版 | 输出尺寸 | 默认 `auto`，最终 OSS 图片按原图尺寸回填；只有明确传固定预设时才改变画布。 |
@@ -221,7 +223,7 @@ flowchart TD
 - `bili` = 裂变幅度 / 重绘幅度。
 - 不是“相似度”。
 - 数值越大，重绘越强，和原图差异越大。
-- ComfyUI 颜色锁定版使用 `variation_percent_045_080_colorlock_v2` 映射，内部大致对应 denoise 0.45 到 0.80；业务侧建议限制在 0%-20%。
+- ComfyUI 颜色锁定版使用 `pattern_risk_type + bili` 做智能风险路由，后端决定实际 denoise；业务侧只看到重绘幅度和两个高级控制参数。
 - 旧裂变工作流继续沿用之前约定，不再反向改成“相似度”。
 
 ---
@@ -264,10 +266,12 @@ flowchart TD
   "imageUrl": "https://example.com/input.png",
   "version": "comfyui-vl-control-v2",
   "inputs": {
-    "bili": "15%",
+    "bili": "80%",
     "width": 2000,
     "height": 2000,
-    "profile": "pattern_color_lock_v2"
+    "profile": "pattern_risk_routed_v4",
+    "reference_lock": 0.42,
+    "color_lock": 0.9
   },
   "traceId": "biz_trace_002",
   "requestId": "biz_req_002"
@@ -278,8 +282,8 @@ flowchart TD
 
 - 这个版本不走 Coze 工作流，走中台业务 API。
 - 宽高默认应由上传原图读取；业务方可以手动覆盖。
-- `bili` 是裂变幅度，不是相似度；颜色锁定版建议 0%-20%，默认 15%。
-- `profile` 默认 `pattern_color_lock_v2`；更严格保色时可用 `pattern_color_lock_strict_v2`。
+- `bili` 是裂变幅度，不是相似度；智能路由版默认 80%，建议低 30%、中 60%、高 80%、极高 100%+。
+- `profile` 默认 `pattern_risk_routed_v4`；旧样本对照可用 `pattern_color_lock_v2`。
 - 底层会路由到可用 ComfyUI 服务器，不能固定打一台机器。
 
 ### 5.3 生成图评估

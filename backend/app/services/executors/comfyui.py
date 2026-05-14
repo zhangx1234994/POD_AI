@@ -29,6 +29,19 @@ from app.services.media_ingest import media_ingest_service
 # fallback will still fail. Keep it consistent with your ops sync policy.
 FALLBACK_LORA_NAME = "杯子1124.safetensors"
 
+FISSION_V4_ROUTE_MAP: dict[str, dict[str, Any]] = {
+    "small_scatter_high_density": {"low": 0.50, "mid": 0.52, "high": 0.52, "experimental": 0.52},
+    "medium_floral_textile": {"low": 0.50, "mid": 0.58, "high": 0.58, "experimental": 0.58},
+    "clean_vector_cartoon_repeat": {"low": 0.50, "mid": 0.58, "high": 0.65, "experimental": 0.65},
+    "separable_cartoon_icon_repeat": {"low": 0.50, "mid": 0.60, "high": 0.68, "experimental": 0.72},
+    "large_single_motif": {"low": 0.50, "mid": 0.58, "high": 0.65, "experimental": 0.65},
+    "unknown_or_uncertain": {"low": 0.50, "mid": 0.52, "high": 0.52, "experimental": 0.52},
+}
+
+FISSION_V4_DEFAULT_PROFILE = "pattern_risk_routed_v4"
+FISSION_V4_DEFAULT_REFERENCE_LOCK = 0.42
+FISSION_V4_DEFAULT_COLOR_LOCK = 0.90
+
 
 def _detect_lora_name_validation_nodes(payload: Any) -> set[str] | None:
     """Return node ids that failed lora_name validation, or None if not applicable."""
@@ -1369,14 +1382,92 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
             percent = float(value)
         except (TypeError, ValueError):
             return None
-        # Color-lock v2 keeps the previous bili->denoise formula, but only
-        # allows the safe business range from the AI handoff package.
-        percent = max(0.0, min(20.0, percent))
+        percent = max(0.0, min(100.0, percent))
         return round(0.45 + percent * 0.0035, 3)
 
     @staticmethod
     def _map_repaint_strength_to_denoise(value: Any) -> float | None:
         return ComfyUIExecutorAdapter._map_variation_percent_to_denoise(value)
+
+    @staticmethod
+    def _parse_fission_percent(value: Any) -> float | None:
+        if isinstance(value, str):
+            value = value.strip().replace("%", "")
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _fission_v4_band(value: Any) -> str:
+        percent = ComfyUIExecutorAdapter._parse_fission_percent(value)
+        if percent is None:
+            return "high"
+        if percent <= 30:
+            return "low"
+        if percent <= 65:
+            return "mid"
+        if percent <= 100:
+            return "high"
+        return "experimental"
+
+    @staticmethod
+    def _parse_jsonish_payload(value: Any) -> Any:
+        if isinstance(value, (dict, list)):
+            return value
+        if not isinstance(value, str):
+            return value
+        text = value.strip()
+        if not text:
+            return None
+        if text.startswith("```"):
+            text = re.sub(r"^```(?:json)?", "", text, flags=re.IGNORECASE).strip()
+            text = re.sub(r"```$", "", text).strip()
+        try:
+            return json.loads(text)
+        except (json.JSONDecodeError, ValueError):
+            return None
+
+    @staticmethod
+    def _extract_fission_card(params: dict[str, Any]) -> dict[str, Any]:
+        raw = (
+            params.get("vl_result")
+            or params.get("vlResult")
+            or params.get("fissionControlCard")
+            or params.get("vl_card")
+            or params.get("vlCard")
+        )
+        parsed = ComfyUIExecutorAdapter._parse_jsonish_payload(raw)
+        if not isinstance(parsed, dict):
+            return {}
+        for key in ("fissionControlCard", "vl_result", "vlResult", "vl_card", "vlCard"):
+            nested = parsed.get(key)
+            if isinstance(nested, dict):
+                return nested
+        return parsed
+
+    @staticmethod
+    def _first_float(*values: Any) -> float | None:
+        for value in values:
+            if value in (None, ""):
+                continue
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                continue
+        return None
+
+    @staticmethod
+    def _normalize_pattern_risk_type(value: Any) -> str:
+        risk_type = str(value or "").strip()
+        return risk_type if risk_type in FISSION_V4_ROUTE_MAP else "unknown_or_uncertain"
+
+    @staticmethod
+    def _map_fission_v4_denoise(value: Any, pattern_risk_type: Any) -> float:
+        risk_type = ComfyUIExecutorAdapter._normalize_pattern_risk_type(pattern_risk_type)
+        band = ComfyUIExecutorAdapter._fission_v4_band(value)
+        route = FISSION_V4_ROUTE_MAP.get(risk_type) or FISSION_V4_ROUTE_MAP["unknown_or_uncertain"]
+        return round(float(route.get(band) or route.get("high") or 0.52), 3)
 
     def _build_e7_flux2_liebian_inputs(
         self, params: dict[str, Any], context: ExecutionContext, workflow_definition: dict[str, Any]
@@ -1504,16 +1595,32 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         image_desc = self._as_text(params.get("image_desc") or params.get("imageDesc")) or ""
         overrides["13"] = {"text1": prompt, "text2": image_desc}
 
+        fission_card = self._extract_fission_card(params)
         profile = self._as_text(params.get("profile") or params.get("profile_id")) or ""
         is_colorlock_v2 = (
             params.get("bili_mapping") == "variation_percent_045_080_colorlock_v2"
-            or profile in {"pattern_color_lock_v2", "pattern_color_lock_strict_v2"}
+            or profile in {FISSION_V4_DEFAULT_PROFILE, "pattern_color_lock_v2", "pattern_color_lock_strict_v2"}
+        )
+        is_v4_routed = (
+            profile == FISSION_V4_DEFAULT_PROFILE
+            or self._as_text(params.get("bili_mapping")) == "pattern_risk_routed_v4"
+            or bool(fission_card.get("pattern_risk_type") or params.get("pattern_risk_type") or params.get("patternRiskType"))
         )
 
         repaint_value = params.get("bili")
         if repaint_value in (None, ""):
-            repaint_value = "6%" if profile == "pattern_color_lock_strict_v2" else ("15%" if is_colorlock_v2 else 90)
-        if is_colorlock_v2:
+            repaint_value = "80%" if is_v4_routed else ("6%" if profile == "pattern_color_lock_strict_v2" else ("15%" if is_colorlock_v2 else 90))
+        if is_v4_routed:
+            pattern_risk_type = (
+                params.get("pattern_risk_type")
+                or params.get("patternRiskType")
+                or fission_card.get("pattern_risk_type")
+                or fission_card.get("patternRiskType")
+                or fission_card.get("pattern_type")
+                or fission_card.get("patternType")
+            )
+            denoise = self._map_fission_v4_denoise(repaint_value, pattern_risk_type)
+        elif is_colorlock_v2:
             denoise = self._map_colorlock_variation_percent_to_denoise(repaint_value)
         elif params.get("bili_mapping") == "variation_percent_045_080":
             denoise = self._map_variation_percent_to_denoise(repaint_value)
@@ -1534,7 +1641,26 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         ipadapter_weight_value = 0.25
         colormatch_strength_value = 0.20
         colormatch_method = "mkl"
-        if is_colorlock_v2:
+        if is_v4_routed:
+            ipadapter_weight_value = self._first_float(
+                params.get("reference_lock"),
+                params.get("referenceLock"),
+                params.get("ipadapter_weight"),
+                params.get("ipadapterWeight"),
+                fission_card.get("recommended_reference_lock"),
+                fission_card.get("recommendedReferenceLock"),
+                FISSION_V4_DEFAULT_REFERENCE_LOCK,
+            ) or FISSION_V4_DEFAULT_REFERENCE_LOCK
+            colormatch_strength_value = self._first_float(
+                params.get("color_lock"),
+                params.get("colorLock"),
+                params.get("colormatch_strength"),
+                params.get("colormatchStrength"),
+                fission_card.get("recommended_color_lock"),
+                fission_card.get("recommendedColorLock"),
+                FISSION_V4_DEFAULT_COLOR_LOCK,
+            ) or FISSION_V4_DEFAULT_COLOR_LOCK
+        elif is_colorlock_v2:
             ipadapter_weight_value = 0.45 if profile == "pattern_color_lock_strict_v2" else 0.35
             colormatch_strength_value = 0.70 if profile == "pattern_color_lock_strict_v2" else 0.55
 

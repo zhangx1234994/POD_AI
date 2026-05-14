@@ -132,7 +132,10 @@ def test_business_seed_keeps_rollback_safety_versions_available() -> None:
         assert comfyui_colorlock.recipe["vlAssist"]["applyToPrimary"]["compiler"] == "comfyui_fission_control_card_v2"
         assert session.get(Ability, "comfyui_flux_strong_hq_softstyle_fission_colorlock_v2") is not None
         fields = {field["name"]: field for field in comfyui_colorlock.input_schema["fields"]}
-        assert fields["bili"]["default"] == "15%"
+        assert fields["bili"]["default"] == "80%"
+        assert fields["profile"]["default"] == "pattern_risk_routed_v4"
+        assert fields["reference_lock"]["default"] == 0.42
+        assert fields["color_lock"]["default"] == 0.90
         assert "count" not in fields
 
         assert outpaint_fallback is not None

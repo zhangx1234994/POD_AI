@@ -1578,7 +1578,7 @@ class AbilityInvocationService:
             parsed.get("profileHint"),
             workflow_params.get("profile"),
         )
-        if profile in {"pattern_color_lock_v2", "pattern_color_lock_strict_v2"}:
+        if profile in {"pattern_risk_routed_v4", "pattern_color_lock_v2", "pattern_color_lock_strict_v2"}:
             color_lock_lines = []
             if palette_card:
                 color_lock_lines.append(
@@ -1599,12 +1599,37 @@ class AbilityInvocationService:
             workflow_params.setdefault("profile", profile)
             workflow_params.setdefault("profile_id", profile)
         pattern_type = self._first_nonempty_text(
+            card.get("pattern_risk_type"),
+            card.get("patternRiskType"),
+            parsed.get("pattern_risk_type"),
+            parsed.get("patternRiskType"),
             card.get("pattern_type"),
             card.get("patternType"),
             parsed.get("patternType"),
         )
         if pattern_type:
+            workflow_params.setdefault("pattern_risk_type", pattern_type)
             workflow_params.setdefault("pattern_type", pattern_type)
+        reference_lock = self._first_nonempty_text(
+            workflow_params.get("reference_lock"),
+            workflow_params.get("referenceLock"),
+            card.get("recommended_reference_lock"),
+            card.get("recommendedReferenceLock"),
+            parsed.get("recommended_reference_lock"),
+            parsed.get("recommendedReferenceLock"),
+        )
+        if reference_lock:
+            workflow_params.setdefault("reference_lock", reference_lock)
+        color_lock = self._first_nonempty_text(
+            workflow_params.get("color_lock"),
+            workflow_params.get("colorLock"),
+            card.get("recommended_color_lock"),
+            card.get("recommendedColorLock"),
+            parsed.get("recommended_color_lock"),
+            parsed.get("recommendedColorLock"),
+        )
+        if color_lock:
+            workflow_params.setdefault("color_lock", color_lock)
 
     @staticmethod
     def _first_nonempty_text(*values: Any) -> str | None:

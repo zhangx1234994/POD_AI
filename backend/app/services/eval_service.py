@@ -50,8 +50,8 @@ class EvalService:
     def __init__(self) -> None:
         self._logger = logging.getLogger(__name__)
         settings = get_settings()
-        total_workers = max(1, int(getattr(settings, "eval_run_max_workers", 6)))
-        comfyui_workers = max(1, int(getattr(settings, "eval_comfyui_run_max_workers", 2)))
+        total_workers = max(1, int(getattr(settings, "eval_run_max_workers", 12)))
+        comfyui_workers = max(1, int(getattr(settings, "eval_comfyui_run_max_workers", 10)))
         commercial_workers = max(1, int(getattr(settings, "eval_commercial_run_max_workers", 4)))
         default_workers = max(1, int(getattr(settings, "eval_default_run_max_workers", 2)))
         # Keep each lane bounded; avoid accidental oversubscription when env is set too large.

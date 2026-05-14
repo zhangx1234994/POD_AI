@@ -215,43 +215,45 @@ FISSION_CONTROL_CARD_VL_PROMPT = dedent(
 
     输出字段必须严格包含：
     {
-      "route_mode": "fission_general",
-      "pattern_type": "",
-      "profile_hint": "pattern_default_v1",
       "prompt_main": "",
-      "prompt_control": "",
+      "image_desc": "",
+      "pattern_risk_type": "small_scatter_high_density | medium_floral_textile | clean_vector_cartoon_repeat | separable_cartoon_icon_repeat | large_single_motif | unknown_or_uncertain",
+      "density_risk_level": "low | medium | high",
+      "motif_scale_band": "tiny | small | medium | large | mixed",
+      "layout_lock_level": "low | medium | high",
+      "object_variation_level": "low | medium | high",
+      "palette_lock_required": true,
+      "max_denoise": 0.68,
+      "recommended_reference_lock": 0.42,
+      "recommended_color_lock": 0.90,
       "palette_card": {
-        "dominant_colors": [
-          {"name": "", "hex_approx": "", "area_percent": 0}
-        ],
-        "background_colors": [
-          {"name": "", "hex_approx": "", "area_percent": 0}
-        ],
-        "accent_colors": [
-          {"name": "", "hex_approx": "", "area_percent": 0}
-        ],
-        "forbidden_color_families": [],
-        "saturation_level": "low|medium-low|medium|high",
-        "light_dark_ratio": {
-          "light_area_percent": 0,
-          "mid_area_percent": 0,
-          "dark_area_percent": 0
-        }
+        "dominant_colors": [],
+        "accent_colors": [],
+        "background_color": "",
+        "forbidden_color_drift": []
       },
-      "control_cards": {
-        "shape_card": {},
-        "material_card": {},
-        "scale_card": {},
-        "noise_card": {}
-      }
+      "density_card": {
+        "motif_count_level": "sparse | medium | dense | very_dense",
+        "spacing_rhythm": "random_scatter | loose_repeat | regular_repeat | packed_repeat",
+        "large_medium_small_ratio": "",
+        "background_to_motif_ratio": ""
+      },
+      "scale_card": {
+        "average_motif_size": "tiny | small | medium | large",
+        "must_not_enlarge": true,
+        "must_not_reduce_count": true
+      },
+      "negative_control": []
     }
 
     关键要求：
-    - prompt_main 是给生成模型的主提示词，重点描述要保留的系列感、主要元素、构图、风格和允许变化的方向。
-    - prompt_control 是给工作流的补充控制描述，重点描述疏密、层级、边框、颜色比例、材质、禁止漂移方向。
-    - palette_card 必须给出主色、底色、点缀色、近似色值、面积占比、饱和度、明暗占比，以及禁止新增的主导色系。
-    - 颜色控制优先级最高：严格保持原图主色、辅色、点缀色和深浅面积比例；不得把冷色图案改成暖色图案；不得新增原图没有的主导色系。
-    - prompt_main 禁止出现“不同配色方案”“适配不同柔和配色”“可调整配色”“重新设计色彩”“更丰富的色彩”“加入暖色点缀”等放权表达。
+    - pattern_risk_type 用于后端路由实际 denoise。分离的卡通、贴纸、图标、儿童、动物、食物、玩具等可识别对象，使用 separable_cartoon_icon_repeat。
+    - prompt_main 是给生成模型的主提示词，重点描述要保留的系列感、主要元素、构图、风格和允许变化的对象级细节。
+    - image_desc 是给工作流的补充控制描述，重点描述疏密、层级、边框、颜色比例、材质、禁止漂移方向。
+    - 对 separable_cartoon_icon_repeat，高裂变幅度要允许对象级变化：姿态、轮廓细节、发型、服饰、表情、配饰、局部小形状等，但必须保持重复布局、元素数量级、平均尺寸、间距节奏、背景占比和原图配色。
+    - palette_card 必须给出主色、底色、点缀色、面积关系以及禁止新增的主导色系。
+    - 颜色控制优先级高：保持原图主色、辅色、点缀色和深浅面积比例，不得新增原图没有的主导色系。
+    - prompt_main 禁止出现“不同配色方案”“可调整配色”“重新设计色彩”“更丰富的色彩”等放权表达。
     - 不要把图案误判成真实场景，不要把裂变理解成只换颜色。
     - 如果原图是花纹/印花/装饰插画，必须明确它是平面图案或主视觉，不是摄影场景。
     """
@@ -1582,8 +1584,8 @@ def _comfyui_flux_strong_hq_softstyle_fission_colorlock_schema() -> dict[str, An
                 "label": _compose_bilingual_label("VL 控制卡 JSON", "VL Control Card JSON"),
                 "required": True,
                 "description": _compose_bilingual_label(
-                    "来自 vl_fission_control_card 的结果，必须包含 prompt_main、prompt_control 和 palette_card。",
-                    "Result from vl_fission_control_card; must include prompt_main, prompt_control, and palette_card.",
+                    "来自 vl_fission_control_card 的结果，包含 prompt_main、image_desc、pattern_risk_type 和 palette_card。",
+                    "Result from vl_fission_control_card; includes prompt_main, image_desc, pattern_risk_type, and palette_card.",
                 ),
             },
             {
@@ -1610,25 +1612,48 @@ def _comfyui_flux_strong_hq_softstyle_fission_colorlock_schema() -> dict[str, An
                 "name": "bili",
                 "type": "text",
                 "label": _compose_bilingual_label("重绘幅度(%)", "Variation Percent"),
-                "default": "15%",
+                "default": "80%",
                 "description": _compose_bilingual_label(
-                    "颜色锁定版默认 15%，允许 0%-20%。后端仍按既定规则换算 denoise：0.45 + 0.35 * 百分比。",
-                    "Color-lock default is 15%, allowed 0%-20%. Backend still maps to denoise using 0.45 + 0.35 * percent.",
+                    "控制图案变化大小；建议低 30%、中 60%、高 80%、极高 100%+。后端会结合 VL 图案类型路由实际 denoise。",
+                    "Controls variation size. Suggested: low 30%, medium 60%, high 80%, experimental 100%+. Backend routes denoise by VL pattern risk type.",
                 ),
                 "required": False,
             },
             {
                 "name": "profile",
                 "type": "select",
-                "label": _compose_bilingual_label("颜色锁定配置", "Color Lock Profile"),
-                "default": "pattern_color_lock_v2",
+                "label": _compose_bilingual_label("裂变路由配置", "Fission Routing Profile"),
+                "default": "pattern_risk_routed_v4",
                 "options": [
-                    {"label": "默认颜色锁定", "value": "pattern_color_lock_v2"},
-                    {"label": "严格颜色锁定", "value": "pattern_color_lock_strict_v2"},
+                    {"label": "智能风险路由（推荐）", "value": "pattern_risk_routed_v4"},
+                    {"label": "默认颜色锁定（兼容）", "value": "pattern_color_lock_v2"},
+                    {"label": "严格颜色锁定（更像原图）", "value": "pattern_color_lock_strict_v2"},
                 ],
                 "description": _compose_bilingual_label(
-                    "普通业务使用默认颜色锁定；严格模式更像原图，但裂变感会更弱。",
-                    "Use balanced color-lock by default. Strict mode is more faithful but less varied.",
+                    "普通业务使用智能风险路由；兼容配置保留给旧样本对照。",
+                    "Use risk-routed profile by default. Compatibility profiles are kept for old sample comparison.",
+                ),
+                "required": False,
+            },
+            {
+                "name": "reference_lock",
+                "type": "number",
+                "label": _compose_bilingual_label("原图结构保留度", "Reference Lock"),
+                "default": 0.42,
+                "description": _compose_bilingual_label(
+                    "控制生成图贴近原图结构的程度；建议 0.34-0.50，不做硬限制。越高越像原图，裂变感更弱。",
+                    "Controls how strongly the result follows the source structure. Suggested 0.34-0.50, not hard-limited. Higher is more faithful but less varied.",
+                ),
+                "required": False,
+            },
+            {
+                "name": "color_lock",
+                "type": "number",
+                "label": _compose_bilingual_label("颜色锁定强度", "Color Lock"),
+                "default": 0.90,
+                "description": _compose_bilingual_label(
+                    "控制是否保持原图配色；建议 0.75-1.00，不做硬限制。越高越不容易偏色。",
+                    "Controls palette preservation. Suggested 0.75-1.00, not hard-limited. Higher reduces color drift.",
                 ),
                 "required": False,
             },
@@ -2187,7 +2212,7 @@ VL_ABILITIES: dict[str, AbilityDefinition] = {
         "description": "统一的图裂变前置 VL 组件，输出 prompt_main、prompt_control 和控制卡，供 ComfyUI/商业模型裂变复用。",
         "category": "vision_language",
         "input_schema": _vl_fission_control_card_schema(),
-        "metadata": _vl_fission_control_card_metadata(seed_version=3),
+        "metadata": _vl_fission_control_card_metadata(seed_version=4),
     },
     "fission_generated_image_evaluate": {
         "defaults": {
@@ -3320,22 +3345,24 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
         "defaults": {
             "workflow_key": "flux_strong_hq_softstyle_fission",
             "timeout": 420,
-            "profile": "pattern_color_lock_v2",
-            "profile_id": "pattern_color_lock_v2",
+            "profile": "pattern_risk_routed_v4",
+            "profile_id": "pattern_risk_routed_v4",
             "mode": "fission",
-            "bili": "15%",
-            "bili_mapping": "variation_percent_045_080_colorlock_v2",
+            "bili": "80%",
+            "bili_mapping": "pattern_risk_routed_v4",
             "width": None,
             "height": None,
             "steps": 8,
             "cfg": 1.0,
             "batch_size": 1,
-            "ipadapter_weight": 0.35,
+            "reference_lock": 0.42,
+            "color_lock": 0.90,
+            "ipadapter_weight": 0.42,
             "colormatch_method": "mkl",
-            "colormatch_strength": 0.55,
+            "colormatch_strength": 0.90,
         },
         "display_name": "ComfyUI · VL 颜色锁定裂变",
-        "description": "AI 团队 2026-05-13 交付的 ComfyUI 颜色锁定裂变接口：默认保持原图主色、深浅比例和色彩关系，降低色偏风险。",
+        "description": "AI 团队 2026-05-14 修补的 ComfyUI 裂变接口：保留颜色/密度风险路由，并针对可分离卡通图标类图案加强对象级变化。",
         "category": "image_generation",
         "input_schema": _comfyui_flux_strong_hq_softstyle_fission_colorlock_schema(),
         "metadata": {
@@ -3344,14 +3371,14 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "api_type": "comfyui_workflow",
             "workflow_key": "flux_strong_hq_softstyle_fission",
             "action": "image_fission",
-            "interface_pack": "13_2026-05-13_comfyui_fission_colorlock_interface_pack_v2",
+            "interface_pack": "15_2026-05-14_comfyui_fission_object_variation_interface_pack_v4",
             "vl_component_ability_id": "vl_fission_control_card",
             "requires_image_input": True,
             "supports_vision": True,
             "output_node_ids": ["31"],
             "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
             "routing_policy": "queue",
-            "seed_version": 1,
+            "seed_version": 2,
             "pricing": {
                 "currency": "CNY",
                 "unit": "per_image",
@@ -3360,8 +3387,8 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             },
             "presentation": _presentation(
                 name="VL 颜色锁定裂变",
-                summary="先由统一 VL 组件生成带 palette_card 的控制卡，再调用 05 FLUX Strong HQ SoftStyle 颜色锁定参数。",
-                form_intro="适合颜色容易漂移的图裂变测试；默认重绘幅度 15%，最高建议 20%。",
+                summary="先由统一 VL 组件识别图案风险类型，再调用 05 FLUX Strong HQ SoftStyle 做智能路由裂变。",
+                form_intro="适合测试对象级变化和颜色稳定性；默认重绘幅度 80%，可用预设快速切换。",
                 expected_output="产出 1 张颜色关系更稳定的裂变图；如仍有色偏，可用生成图评估接口复核。",
                 surfaces={"client": False, "coze": True, "admin": True, "eval": True},
                 fields={
@@ -3370,7 +3397,9 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
                     "bili": _presentation_field(label="重绘幅度"),
                     "width": _presentation_field(label="输出宽度"),
                     "height": _presentation_field(label="输出高度"),
-                    "profile": _presentation_field(label="颜色锁定配置", advanced=True),
+                    "profile": _presentation_field(label="裂变路由配置", advanced=True),
+                    "reference_lock": _presentation_field(label="原图结构保留度", advanced=True),
+                    "color_lock": _presentation_field(label="颜色锁定强度", advanced=True),
                     "prompt": _presentation_field(label="额外要求", advanced=True),
                 },
             ),

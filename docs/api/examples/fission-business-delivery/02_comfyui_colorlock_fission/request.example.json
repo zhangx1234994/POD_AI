@@ -1,13 +1,14 @@
 {
   "imageUrl": "https://example.com/input.png",
   "version": "comfyui-vl-control-v2",
-  "bili": "15%",
+  "bili": "80%",
   "width": 2000,
   "height": 2000,
-  "profile": "pattern_color_lock_v2",
+  "profile": "pattern_risk_routed_v4",
+  "reference_lock": 0.42,
+  "color_lock": 0.9,
   "source": "partner-api",
   "channel": "open-api",
   "requestId": "biz-comfyui-colorlock-001",
   "traceId": "trace-comfyui-colorlock-001"
 }
-

@@ -32,7 +32,7 @@
 - 多图融合评测端在 `width/height` 留空时会先读取主图尺寸再提交；直接绕过前端调用工具箱时，不传尺寸仍沿用 workflow 默认 `1024x1024`。
 - `背景抠图` 存在过程图，正式回填只认最终输出节点 `4`；`头部抠像` 正式回填只认 `140`；`FLUX2裂变+四方` 正式回填只认 `111`；`裂变文字强化` 正式回填只认 `29`。
 - `FLUX2-Klein 扩图` 的源图节点是 `76 · LoadImage.image`，后端会先把 OSS URL 上传到 ComfyUI input 目录，再回填文件名；不要直接把外部 URL 填进 workflow JSON。
-- `多元素花纹裂变` 的源图节点是 `10 · LoadImage.image`，后端会先把 OSS URL 上传到 ComfyUI input 目录，再回填文件名；`bili` 为重绘幅度，映射到节点 `24.denoise`，默认 `90 ≈ 0.765`。2026-05-13 新增 `comfyui-vl-control-v2` 颜色锁定业务版本，默认 `bili=15%`，仍按既定公式换算 `denoise`，但 ColorMatch/IPAdapter 等颜色锁定强度按交付包固定。2026-05-04 已确认 233 机器补齐 CLIPVision/IPAdapter 后可完整出图并完成 OSS 回填，当前允许 158 / 233 双节点按队列路由。
+- `多元素花纹裂变` 的源图节点是 `10 · LoadImage.image`，后端会先把 OSS URL 上传到 ComfyUI input 目录，再回填文件名；`bili` 为重绘幅度，映射到节点 `24.denoise`，默认 `90 ≈ 0.765`。2026-05-14 `comfyui-vl-control-v2` 按对象级裂变修补包升级：默认 `bili=80%`，后端用 `pattern_risk_type + bili` 路由实际 `denoise`；`reference_lock` 映射 IPAdapter 权重，建议 0.34-0.50；`color_lock` 映射 ColorMatch 强度，建议 0.75-1.00。建议区间只做文案提示，不做接口硬拦截。2026-05-04 已确认 233 机器补齐 CLIPVision/IPAdapter 后可完整出图并完成 OSS 回填，当前允许 158 / 233 双节点按队列路由。
 - 233 承接 `flux_strong_hq_softstyle_fission` 依赖：
   - `ComfyUI/models/clip_vision/CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors`
   - `ComfyUI/models/ipadapter/ip-adapter-plus_sdxl_vit-h.safetensors`

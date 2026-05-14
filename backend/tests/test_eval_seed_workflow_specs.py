@@ -197,7 +197,7 @@ def test_20260512_native_eval_entries_are_visible_and_badged():
     assert gpt["metadata"]["presentation"]["release_time"] == "2026-05-12"
     assert gpt["metadata"]["presentation"]["update_time"] == "2026-05-13"
     assert comfy["metadata"]["presentation"]["release_time"] == "2026-05-12"
-    assert comfy["metadata"]["presentation"]["update_time"] == "2026-05-13"
+    assert comfy["metadata"]["presentation"]["update_time"] == "2026-05-14"
     assert "底层升级" in gpt["metadata"]["presentation"]["update_note"]
     assert "颜色锁定" in comfy["metadata"]["presentation"]["update_note"]
     gpt_fields = [f.get("name") for f in (gpt["parameters_schema"]["fields"] or []) if isinstance(f, dict)]
@@ -205,8 +205,10 @@ def test_20260512_native_eval_entries_are_visible_and_badged():
     assert "count" not in gpt_fields
     assert "count" not in comfy_fields
     assert _field_by_name(gpt, "variation_strength").get("defaultValue") == "same_series"
-    assert _field_by_name(comfy, "bili").get("defaultValue") == "15%"
-    assert _field_by_name(comfy, "profile").get("defaultValue") == "pattern_color_lock_v2"
+    assert _field_by_name(comfy, "bili").get("defaultValue") == "80%"
+    assert _field_by_name(comfy, "profile").get("defaultValue") == "pattern_risk_routed_v4"
+    assert _field_by_name(comfy, "reference_lock").get("defaultValue") == "0.42"
+    assert _field_by_name(comfy, "color_lock").get("defaultValue") == "0.90"
     assert "business_fission_gpt_image2_vl_v2" not in DEFAULT_EVAL_WORKFLOW_BY_ID
     assert "business_fission_comfyui_vl_colorlock_v2" not in DEFAULT_EVAL_WORKFLOW_BY_ID
     assert "business_fission_gpt_image2_vl_v2" in DEPRECATED_EVAL_WORKFLOW_IDS

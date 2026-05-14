@@ -6,8 +6,8 @@ Goal: run these checks on the test machine before deploying to the production se
 
 - `EVAL_PUBLIC_ENABLED=true`
 - `EVAL_FANOUT_MAX_WORKERS=1` (stable patrol mode; capacity test uses a separate script)
-- `EVAL_RUN_MAX_WORKERS=6`
-- `EVAL_COMFYUI_RUN_MAX_WORKERS=2` (stable patrol mode; do not use this value to judge GPU capacity)
+- `EVAL_RUN_MAX_WORKERS=12`
+- `EVAL_COMFYUI_RUN_MAX_WORKERS=10` (feed the two-node ComfyUI queue; executor max_concurrency is still the safety gate)
 - `ABILITY_TASK_MAX_WORKERS=24`
 - `COMFYUI_ROUTE_BY_QUEUE=true`
 - `COMFYUI_QUEUE_BATCH_SIZE=10`

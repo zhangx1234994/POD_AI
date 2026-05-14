@@ -232,7 +232,7 @@ python3 backend/scripts/comfyui_capacity_probe.py \
 - 该脚本会提交真实任务，会产生算力成本。
 - 先用 12 条验证分流，再逐步提高到 20。
 - 如果全部落到一台机器，优先检查能力候选池，而不是先怀疑 GPU。
-- 不要用测评端默认并发判断 GPU 利用率；`EVAL_COMFYUI_RUN_MAX_WORKERS=2` 只是稳定巡检值。
+- 不要只用能力调用记录判断 GPU 利用率；测评端批量任务会先进入评测队列，再由 `EVAL_COMFYUI_RUN_MAX_WORKERS` 控制进入能力队列。两台 ComfyUI 标准化后推荐 `EVAL_COMFYUI_RUN_MAX_WORKERS=10`，最终并发仍由每个执行节点的 `max_concurrency` 和远端队列状态保护。
 - 如果 ComfyUI 返回 `status=success` 但 `outputs={}`，应先排查 workflow 缓存、输出节点和输入映射；中台必须把这种情况收敛为失败，不能无限 `running`。
 
 2026-04-27 实测记录：

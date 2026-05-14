@@ -337,11 +337,11 @@
 | `comfyui_sifang_lianxu` | 四方连续纹理生成 | `image_url`（或上传图片）、`workflow_key` | `prompt`、`patternType`(`seamless/twoway`)、`resolution`、`width/height` 等 | 1 张 seamless 纹理 |
 | `comfyui_yinhua_tiqu` | 印花提取 | `image_url` + `workflow_key` | `prompt`、`negative_prompt`、`output_width/height`、`lora_name`（支持从 UI 下拉选择） | 1800×1800 设计稿 |
 | `comfyui_flux_strong_hq_softstyle_fission_control_v1` | VL 控制卡裂变 | `image_url`、`vl_result` | `width`、`height`、`bili`(`50%`)、`profile`、`seed` | 1 张裂变图 |
-| `comfyui_flux_strong_hq_softstyle_fission_colorlock_v2` | VL 颜色锁定裂变 | `image_url`、`vl_result` | `width`、`height`、`bili`(`15%`，建议 0%-20%)、`profile`(`pattern_color_lock_v2`) | 1 张裂变图 |
+| `comfyui_flux_strong_hq_softstyle_fission_colorlock_v2` | VL 颜色锁定裂变 | `image_url`、`vl_result` | `width`、`height`、`bili`(`80%`)、`profile`(`pattern_risk_routed_v4`)、`reference_lock`、`color_lock` | 1 张裂变图 |
 
 > ComfyUI 能力会自动把上传的 OSS 地址写入 workflow `imageList`，并把厂商输出文件落盘到 OSS；`metadata.taskId` 为 prompt ID。未来若 ComfyUI 服务暴露更多模型/LoRA，前端会根据 `/api/admin/comfyui/models` 下拉选择。
 >
-> 颜色锁定裂变 v2 中，`bili` 仍按既定规则映射 `denoise = 0.45 + 0.35 * bili百分比`，不是固定 `denoise`；但业务侧建议限制在 `0%-20%`。`ColorMatch=0.55`、`IPAdapter=0.35`、`batch_size=1` 按交付包固定，避免业务方直接覆盖导致色偏。
+> 颜色锁定裂变 v2 已按 2026-05-14 修补包升级为智能风险路由：`bili` 不再强行限制在 0%-20%，后端根据 `pattern_risk_type + bili` 路由实际 `denoise`。`reference_lock` 映射 IPAdapter 权重，建议 0.34-0.50；`color_lock` 映射 ColorMatch 强度，建议 0.75-1.00。建议区间只用于文案提示，不作为接口硬拦截。
 
 #### 其他能力成本基线（估算）
 

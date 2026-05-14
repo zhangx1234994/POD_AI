@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { CSSProperties, ReactNode, MouseEvent as ReactMouseEvent } from 'react';
+import type { CSSProperties, ReactNode, MouseEvent as ReactMouseEvent, WheelEvent as ReactWheelEvent } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
@@ -8,7 +8,6 @@ import {
   Card,
   Col,
   ConfigProvider,
-  Dialog,
   Input,
   Layout,
   Menu,
@@ -268,6 +267,57 @@ const AI_EDITOR_WORKFLOW_ID = '7604714915110060032';
 const SHENGTU_WORKFLOW_ID = '7602916576198656000';
 const LORA_BATCH_MAX_TASKS = 5000;
 const TOOL_MULTI_IMAGE_MAX = 50;
+const COMFYUI_FISSION_V4_PROFILE = 'pattern_risk_routed_v4';
+const COMFYUI_FISSION_V4_PRESETS = [
+  {
+    key: 'default-high',
+    label: '高幅度默认',
+    desc: '适合对象可分离的卡通、图标、童趣元素，变化更明显。',
+    values: {
+      bili: '80%',
+      reference_lock: '0.42',
+      color_lock: '0.90',
+      profile: COMFYUI_FISSION_V4_PROFILE,
+      profile_id: COMFYUI_FISSION_V4_PROFILE,
+    },
+  },
+  {
+    key: 'safe',
+    label: '保守稳定',
+    desc: '更像原图，适合先看结构稳定性。',
+    values: {
+      bili: '30%',
+      reference_lock: '0.50',
+      color_lock: '1.00',
+      profile: COMFYUI_FISSION_V4_PROFILE,
+      profile_id: COMFYUI_FISSION_V4_PROFILE,
+    },
+  },
+  {
+    key: 'object-strong',
+    label: '对象变化更强',
+    desc: '放开对象细节变化，适合找更明显的裂变方向。',
+    values: {
+      bili: '100%',
+      reference_lock: '0.34',
+      color_lock: '0.90',
+      profile: COMFYUI_FISSION_V4_PROFILE,
+      profile_id: COMFYUI_FISSION_V4_PROFILE,
+    },
+  },
+  {
+    key: 'color-free',
+    label: '配色更自由',
+    desc: '结构仍保留，但允许配色稍微自由。',
+    values: {
+      bili: '80%',
+      reference_lock: '0.42',
+      color_lock: '0.75',
+      profile: COMFYUI_FISSION_V4_PROFILE,
+      profile_id: COMFYUI_FISSION_V4_PROFILE,
+    },
+  },
+] as const;
 const TERMINAL_BATCH_STATUS = new Set(['succeeded', 'failed', 'stopped']);
 const COMFYUI_EXECUTOR_LABELS: Record<string, string> = {
   executor_comfyui_pattern_extract_158: '158 图形能力机',
@@ -1851,9 +1901,9 @@ const getBusinessApiParamDocs = (wf: EvalWorkflowVersion): BusinessApiParamDoc[]
         name: 'bili',
         required: false,
         description: isComfyColorLock
-          ? 'ComfyUI 颜色锁定版重绘幅度，默认 15%，建议 0%-20%。值越大变化越明显，值越小越接近原图。'
+          ? 'ComfyUI 智能路由版重绘幅度，默认 80%。建议低 30%、中 60%、高 80%、极高 100%+；只提示区间，不做硬限制。'
           : 'ComfyUI 裂变重绘幅度，沿用旧约定。值越大变化越明显，值越小越接近原图。',
-        example: isComfyColorLock ? '15%' : '50%',
+        example: isComfyColorLock ? '80%' : '50%',
       },
       {
         name: 'width',
@@ -1892,6 +1942,28 @@ const getBusinessApiParamDocs = (wf: EvalWorkflowVersion): BusinessApiParamDoc[]
         example: 'https://example.com/mask.png',
       },
     );
+    if (isComfyColorLock) {
+      docs.push(
+        {
+          name: 'reference_lock',
+          required: false,
+          description: '原图结构保留度。建议 0.34-0.50，不做硬限制；越高越像原图，裂变感更弱。',
+          example: '0.42',
+        },
+        {
+          name: 'color_lock',
+          required: false,
+          description: '颜色锁定强度。建议 0.75-1.00，不做硬限制；越高越不容易偏色。',
+          example: '0.90',
+        },
+        {
+          name: 'profile',
+          required: false,
+          description: '裂变路由配置。普通测试使用 pattern_risk_routed_v4。',
+          example: 'pattern_risk_routed_v4',
+        },
+      );
+    }
   }
   return docs;
 };
@@ -2142,7 +2214,7 @@ function Lightbox({
   context?: ImageLightboxContext;
   onClose: () => void;
 }) {
-  const [zoomed, setZoomed] = useState(false);
+  const [zoom, setZoom] = useState(1);
   const [mode, setMode] = useState<CompareMode>(context?.mode || 'side-by-side');
   const [index, setIndex] = useState(context?.activeIndex || 0);
   const [slider, setSlider] = useState(50);
@@ -2153,7 +2225,7 @@ function Lightbox({
   const hasCompare = Boolean(context?.inputUrl && safeOutputs.length > 0);
 
   useEffect(() => {
-    setZoomed(false);
+    setZoom(1);
     setMode(context?.mode || 'side-by-side');
     setIndex(context?.activeIndex || 0);
     setSlider(50);
@@ -2168,17 +2240,44 @@ function Lightbox({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
+      if (e.key === 'ArrowLeft') setIndex((prev) => Math.max(0, prev - 1));
+      if (e.key === 'ArrowRight') setIndex((prev) => Math.min(Math.max(0, safeOutputs.length - 1), prev + 1));
+      if (e.key === '+' || e.key === '=') setZoom((prev) => Math.min(4, Number((prev + 0.1).toFixed(2))));
+      if (e.key === '-' || e.key === '_') setZoom((prev) => Math.max(0.4, Number((prev - 0.1).toFixed(2))));
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, [onClose, safeOutputs.length]);
 
   if (!url) return null;
 
+  const modes = [
+    { value: 'side-by-side' as const, label: '并排' },
+    { value: 'slider' as const, label: '滑块' },
+    { value: 'overlay' as const, label: '叠加' },
+    { value: 'diff' as const, label: '差异' },
+  ];
   const style = {
     '--podi-compare-position': `${slider}%`,
     '--podi-compare-opacity': `${opacity / 100}`,
+    '--podi-lightbox-zoom': `${zoom}`,
   } as CSSProperties;
+  const displayTitle = title || (hasCompare ? `结果图 #${index + 1}` : '图片预览');
+  const activeUrl = hasCompare ? outputUrl : url;
+  const openOriginal = () => {
+    const target = hasCompare ? context?.inputUrl : url;
+    if (target) window.open(target, '_blank', 'noreferrer');
+  };
+  const openResult = () => {
+    if (activeUrl) window.open(activeUrl, '_blank', 'noreferrer');
+  };
+  const onWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setZoom((prev) => {
+      const delta = event.deltaY < 0 ? 0.08 : -0.08;
+      return Math.max(0.4, Math.min(4, Number((prev + delta).toFixed(2))));
+    });
+  };
 
   const renderStaticPane = (imageUrl: string, label: string, tone: 'input' | 'output') => (
     <div className={`podi-compare-pane podi-compare-pane--${tone}`}>
@@ -2188,116 +2287,160 @@ function Lightbox({
   );
 
   return (
-    <Dialog
-      visible
-      header={title || '预览'}
-      width="calc(100vw - 40px)"
-      className="podi-lightbox-dialog"
-      onClose={onClose}
-      onCancel={onClose}
-      footer={
-        <div className="podi-lightbox__footer">
-          <Typography.Text theme="secondary" ellipsis>
-            {hasCompare ? outputUrl : url}
-          </Typography.Text>
-          <Space>
-            {!hasCompare ? (
-              <>
-                <Switch value={zoomed} onChange={(v) => setZoomed(Boolean(v))} />
-                <Typography.Text theme="secondary">原始尺寸</Typography.Text>
-              </>
-            ) : null}
-            <Button variant="outline" onClick={() => window.open(hasCompare ? outputUrl : url, '_blank', 'noreferrer')}>
-              新窗口打开
-            </Button>
-          </Space>
+    <div className="podi-immersive-viewer" role="dialog" aria-modal="true" aria-label={displayTitle} onWheel={onWheel}>
+      <header className="podi-immersive-viewer__topbar">
+        <Button size="small" variant="outline" onClick={onClose}>
+          返回
+        </Button>
+        <div className="podi-immersive-viewer__title">
+          <strong>{hasCompare ? '图像对比工作台' : '图片预览'}</strong>
+          <span title={displayTitle}>{displayTitle}</span>
         </div>
-      }
-    >
-      {hasCompare ? (
-        <div className="podi-lightbox">
-          <div className="podi-lightbox__toolbar">
-            <Space size="small" breakLine>
-              <Typography.Text strong>原图 / 结果大图对比</Typography.Text>
-              <Tag variant="light">结果 {Math.min(index + 1, safeOutputs.length)} / {safeOutputs.length}</Tag>
-            </Space>
-            <Space size="small" breakLine>
-              {[
-                { value: 'side-by-side' as const, label: '并排' },
-                { value: 'slider' as const, label: '滑块' },
-                { value: 'overlay' as const, label: '叠加' },
-                { value: 'diff' as const, label: '差异' },
-              ].map((item) => (
-                <Button
-                  key={item.value}
-                  size="small"
-                  variant={mode === item.value ? 'base' : 'outline'}
-                  theme={mode === item.value ? 'primary' : 'default'}
-                  onClick={() => setMode(item.value)}
-                >
-                  {item.label}
-                </Button>
-              ))}
-            </Space>
+        {hasCompare ? (
+          <div className="podi-immersive-viewer__segmented" aria-label="对比模式">
+            {modes.map((item) => (
+              <button
+                key={item.value}
+                type="button"
+                className={mode === item.value ? 'is-active' : ''}
+                onClick={() => setMode(item.value)}
+              >
+                {item.label}
+              </button>
+            ))}
           </div>
+        ) : null}
+        <div className="podi-immersive-viewer__spacer" />
+        <div className="podi-immersive-viewer__zoom">
+          <button type="button" onClick={() => setZoom((prev) => Math.max(0.4, Number((prev - 0.1).toFixed(2))))}>
+            -
+          </button>
+          <button type="button" onClick={() => setZoom(1)}>
+            {Math.round(zoom * 100)}%
+          </button>
+          <button type="button" onClick={() => setZoom((prev) => Math.min(4, Number((prev + 0.1).toFixed(2))))}>
+            +
+          </button>
+        </div>
+        <Button size="small" variant="outline" onClick={openOriginal}>
+          原图
+        </Button>
+        <Button size="small" theme="primary" variant="base" onClick={openResult}>
+          {hasCompare ? '结果图' : '新窗口打开'}
+        </Button>
+        <Button size="small" variant="text" onClick={onClose}>
+          关闭
+        </Button>
+      </header>
 
-          <div className={`podi-compare-stage podi-lightbox__stage podi-compare-stage--${mode}`} style={style}>
-            {mode === 'side-by-side' ? (
-              <>
-                {renderStaticPane(context?.inputUrl || '', '原图', 'input')}
-                {renderStaticPane(outputUrl, `结果图 #${index + 1}`, 'output')}
-              </>
-            ) : (
-              <div className="podi-compare-layer">
-                <img className="podi-compare-layer__base" src={context?.inputUrl || ''} alt="原图" loading="lazy" draggable={false} />
-                <span className="podi-compare-layer__tag podi-compare-layer__tag--input">原图</span>
-                <div className="podi-compare-layer__result">
-                  <img src={outputUrl} alt={`结果图 #${index + 1}`} loading="lazy" draggable={false} />
+      <div className="podi-immersive-viewer__body">
+        {hasCompare ? (
+          <aside className="podi-immersive-viewer__rail">
+            <div className="podi-immersive-viewer__rail-head">
+              <span>结果列表</span>
+              <em>{safeOutputs.length}</em>
+            </div>
+            <button type="button" className="podi-immersive-viewer__thumb is-reference" onClick={openOriginal}>
+              {context?.inputUrl ? <img src={context.inputUrl} alt="原图缩略图" loading="lazy" /> : <span>无原图</span>}
+              <small>原图</small>
+            </button>
+            {safeOutputs.map((item, idx) => (
+              <button
+                key={`${item}-${idx}`}
+                type="button"
+                className={`podi-immersive-viewer__thumb ${idx === index ? 'is-active' : ''}`}
+                onClick={() => setIndex(idx)}
+              >
+                <img src={item} alt={`结果图 #${idx + 1}`} loading="lazy" />
+                <small>结果 #{idx + 1}</small>
+              </button>
+            ))}
+          </aside>
+        ) : null}
+
+        <main className="podi-immersive-viewer__canvas">
+          {hasCompare ? (
+            <div className={`podi-compare-stage podi-immersive-viewer__stage podi-compare-stage--${mode}`} style={style}>
+              {mode === 'side-by-side' ? (
+                <>
+                  {renderStaticPane(context?.inputUrl || '', '原图', 'input')}
+                  {renderStaticPane(outputUrl, `结果图 #${index + 1}`, 'output')}
+                </>
+              ) : (
+                <div className="podi-compare-layer">
+                  <img className="podi-compare-layer__base" src={context?.inputUrl || ''} alt="原图" loading="lazy" draggable={false} />
+                  <span className="podi-compare-layer__tag podi-compare-layer__tag--input">原图</span>
+                  <div className="podi-compare-layer__result">
+                    <img src={outputUrl} alt={`结果图 #${index + 1}`} loading="lazy" draggable={false} />
+                  </div>
+                  <span className="podi-compare-layer__tag podi-compare-layer__tag--output">
+                    {mode === 'diff' ? '差异亮处=变化大' : `结果图 #${index + 1}`}
+                  </span>
+                  {mode === 'slider' ? <span className="podi-compare-layer__handle" /> : null}
                 </div>
-                <span className="podi-compare-layer__tag podi-compare-layer__tag--output">
-                  {mode === 'diff' ? '差异亮处=变化大' : '结果图'}
-                </span>
-                {mode === 'slider' ? <span className="podi-compare-layer__handle" /> : null}
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          ) : (
+            <div className="podi-immersive-viewer__single" style={style}>
+              <img src={url} alt={title || 'preview'} draggable={false} />
+            </div>
+          )}
+        </main>
 
-          <div className="podi-lightbox__controls">
-            {mode === 'slider' ? (
-              <label>
-                <span>滑块位置</span>
-                <input type="range" min="0" max="100" value={slider} onChange={(e) => setSlider(Number(e.target.value))} />
-              </label>
+        <aside className="podi-immersive-viewer__inspector">
+          <section>
+            <div className="podi-immersive-viewer__section-title">当前查看</div>
+            <div className="podi-immersive-viewer__kv">
+              <span>模式</span>
+              <strong>{hasCompare ? modes.find((item) => item.value === mode)?.label : '单图'}</strong>
+            </div>
+            <div className="podi-immersive-viewer__kv">
+              <span>缩放</span>
+              <strong>{Math.round(zoom * 100)}%</strong>
+            </div>
+            {hasCompare ? (
+              <>
+                <div className="podi-immersive-viewer__kv">
+                  <span>结果</span>
+                  <strong>{Math.min(index + 1, safeOutputs.length)} / {safeOutputs.length}</strong>
+                </div>
+                <div className="podi-immersive-viewer__kv">
+                  <span>原图</span>
+                  <strong>{context?.inputUrl ? '已提供' : '无'}</strong>
+                </div>
+              </>
             ) : null}
-            {mode === 'overlay' ? (
-              <label>
-                <span>结果透明度</span>
-                <input type="range" min="0" max="100" value={opacity} onChange={(e) => setOpacity(Number(e.target.value))} />
-              </label>
-            ) : null}
-            {safeOutputs.length > 1 ? (
-              <div className="podi-compare-thumbs" aria-label="结果图切换">
-                {safeOutputs.map((item, idx) => (
-                  <button
-                    key={`${item}-${idx}`}
-                    type="button"
-                    className={idx === index ? 'is-active' : ''}
-                    onClick={() => setIndex(idx)}
-                  >
-                    <img src={item} alt={`结果缩略图 #${idx + 1}`} loading="lazy" />
-                    <span>#{idx + 1}</span>
-                  </button>
-                ))}
-              </div>
-            ) : null}
-          </div>
-        </div>
-      ) : (
-        <div className={`podi-lightbox__single ${zoomed ? 'is-zoomed' : ''}`}>
-          <img src={url} alt="preview" />
-        </div>
-      )}
-    </Dialog>
+          </section>
+          <section>
+            <div className="podi-immersive-viewer__section-title">操作提示</div>
+            <p>滚轮缩放，左右方向键切换结果，Esc 关闭。滑块/叠加/差异用于判断构图、颜色和边缘变化。</p>
+          </section>
+          <section>
+            <div className="podi-immersive-viewer__section-title">链接</div>
+            <div className="podi-immersive-viewer__url" title={activeUrl}>{activeUrl}</div>
+          </section>
+        </aside>
+      </div>
+
+      {hasCompare && (mode === 'slider' || mode === 'overlay') ? (
+        <footer className="podi-immersive-viewer__bottombar">
+          {mode === 'slider' ? (
+            <label>
+              <span>滑块位置</span>
+              <input type="range" min="0" max="100" value={slider} onChange={(e) => setSlider(Number(e.target.value))} />
+              <strong>{slider}%</strong>
+            </label>
+          ) : null}
+          {mode === 'overlay' ? (
+            <label>
+              <span>结果透明度</span>
+              <input type="range" min="0" max="100" value={opacity} onChange={(e) => setOpacity(Number(e.target.value))} />
+              <strong>{opacity}%</strong>
+            </label>
+          ) : null}
+        </footer>
+      ) : null}
+    </div>
   );
 }
 
@@ -2487,9 +2630,10 @@ function ParamField({
   const rawLabel = String(field.label ?? field.name);
   const normalizedFieldName = String(field.name || '').trim().toLowerCase();
   const isRepaintField = normalizedFieldName === 'bili' || normalizedFieldName === 'similarity';
+  const isComfyuiFissionProfileField = normalizedFieldName === 'profile' || normalizedFieldName === 'profile_id';
   const label = isRepaintField ? '重绘幅度(%)' : rawLabel;
   const required = Boolean(field.required);
-  const options = Array.isArray(optionsOverride)
+  const baseOptions = Array.isArray(optionsOverride)
     ? optionsOverride
     : Array.isArray((field as any).options)
       ? ((field as any).options as any[]).map((opt) => ({
@@ -2497,9 +2641,21 @@ function ParamField({
           value: String((opt as any)?.value ?? opt),
         }))
       : null;
+  const options = baseOptions
+    ? [
+        ...baseOptions,
+        ...(isComfyuiFissionProfileField &&
+        value === COMFYUI_FISSION_V4_PROFILE &&
+        !baseOptions.some((opt) => String((opt as any).value) === COMFYUI_FISSION_V4_PROFILE)
+          ? [{ label: '智能风险路由（推荐）', value: COMFYUI_FISSION_V4_PROFILE }]
+          : []),
+      ]
+    : null;
   const rawHelperText = String(description ?? field.description ?? '').trim();
   const helperText = isRepaintField
-    ? '值越大变化越明显，值越小越接近原图；颜色锁定版建议 0%-20%。'
+    ? '值越大变化越明显，值越小越接近原图；建议低 30%、中 60%、高 80%、极高 100%+，这里只提示不做硬限制。'
+    : isComfyuiFissionProfileField && value === COMFYUI_FISSION_V4_PROFILE
+      ? '当前使用智能风险路由：后端会根据图案类型和重绘幅度自动换算实际重绘强度。'
     : rawHelperText;
   const type = (field.type || '').toLowerCase();
 
@@ -2545,6 +2701,51 @@ function ParamField({
       <Input value={value} onChange={(v) => onChange(String(v))} disabled={disabled} />
       {helperText ? <Typography.Text theme="secondary">{helperText}</Typography.Text> : null}
     </Space>
+  );
+}
+
+function ComfyuiFissionPresetPanel({
+  current,
+  onApply,
+}: {
+  current: Record<string, string>;
+  onApply: (key: string, values: Record<string, string>) => void;
+}) {
+  const activeKey =
+    COMFYUI_FISSION_V4_PRESETS.find((preset) =>
+      Object.entries(preset.values).every(([key, value]) => String(current[key] ?? '').trim() === value),
+    )?.key || '';
+
+  return (
+    <div className="podi-fission-presets">
+      <div className="podi-fission-presets__head">
+        <div>
+          <Typography.Text strong>参数预设</Typography.Text>
+          <div>
+            <Typography.Text theme="secondary" style={{ fontSize: 12 }}>
+              预设只帮你快速填参数，不限制手动输入。重绘幅度越高，图案对象变化越明显。
+            </Typography.Text>
+          </div>
+        </div>
+        <Tag theme="primary" variant="light">ComfyUI 修补版</Tag>
+      </div>
+      <div className="podi-fission-presets__grid">
+        {COMFYUI_FISSION_V4_PRESETS.map((preset) => (
+          <button
+            key={preset.key}
+            type="button"
+            className={`podi-fission-presets__item${activeKey === preset.key ? ' is-active' : ''}`}
+            onClick={() => onApply(preset.key, preset.values)}
+          >
+            <span>{preset.label}</span>
+            <small>{preset.desc}</small>
+            <em>
+              {preset.values.bili} · 结构 {preset.values.reference_lock} · 颜色 {preset.values.color_lock}
+            </em>
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -3504,6 +3705,12 @@ export function App() {
       toolFields.some((f) => f.name === 'height'),
     [selectedTool, toolFields],
   );
+  const isComfyuiFissionControlV2 = useMemo(() => {
+    if (!selectedTool || !isFissionWorkflow(selectedTool)) return false;
+    const execution = getWorkflowEvalExecution(selectedTool);
+    const text = `${selectedTool.workflow_id || ''} ${selectedTool.version || ''} ${execution?.version || ''} ${selectedTool.name || ''}`.toLowerCase();
+    return text.includes('comfyui-vl-control-v2');
+  }, [selectedTool]);
   const isAiEditor = selectedTool?.workflow_id === AI_EDITOR_WORKFLOW_ID;
   const isShengtuWorkflow = selectedTool?.workflow_id === SHENGTU_WORKFLOW_ID;
   const selectedModelValue = useMemo(() => {
@@ -7672,6 +7879,15 @@ export function App() {
                   ) : null}
 
                   <Space direction="vertical" size="large" style={{ width: '100%' }}>
+                    {isComfyuiFissionControlV2 ? (
+                      <ComfyuiFissionPresetPanel
+                        current={formParams}
+                        onApply={(key, values) => {
+                          setFormParams((prev) => ({ ...prev, ...values, variation_preset: key }));
+                          pushNotice('info', '已应用预设；你仍可以手动调整每个参数。');
+                        }}
+                      />
+                    ) : null}
                     {toolFields
                       .filter((f) => f.name !== 'url' && f.name !== 'Url')
                       .filter((f) => !(isShengtuWorkflow && f.name === 'image_urls'))
