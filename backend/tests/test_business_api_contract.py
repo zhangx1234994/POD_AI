@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.models.integration import BusinessRun
 from app.models.user import User
 from app.schemas.business import BusinessRunCreateRequest
 from app.services.business_runs import BusinessRunService
@@ -264,6 +265,33 @@ def test_business_api_key_actor_does_not_write_fake_user_id() -> None:
     )
 
     assert BusinessRunService._safe_user_id(user) is None
+
+
+def test_business_callback_payload_uses_public_task_id() -> None:
+    run = BusinessRun(
+        id="run_callback_001",
+        business_key="fission",
+        version="comfyui-vl-control-v2",
+        status="succeeded",
+        trace_id="trace-callback-001",
+        request_id="req-callback-001",
+        tenant_id="tenant-a",
+        client_id="client-a",
+        channel="open-api",
+        ability_task_id="f721a56e53a2471fa22bdcf2a2ae0e94",
+        image_urls=["https://example.com/result.png"],
+        video_urls=[],
+        texts=[],
+        duration_ms=58283,
+        cost_amount=0.35,
+        currency="CNY",
+    )
+
+    payload = BusinessRunService()._callback_payload(run)
+
+    assert payload["runId"] == "run_callback_001"
+    assert payload["taskId"] == "t1.fission.auto.f721a56e53a2471fa22bdcf2a2ae0e94"
+    assert payload["imageUrls"] == ["https://example.com/result.png"]
 
 
 def test_business_fission_evaluate_payload_maps_original_and_generated_images() -> None:

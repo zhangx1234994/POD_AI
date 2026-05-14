@@ -2707,6 +2707,11 @@ class BusinessRunService:
                     session.commit()
 
     def _callback_payload(self, run: BusinessRun) -> dict[str, Any]:
+        public_task_id = (
+            encode_task_id(task_id=run.ability_task_id, provider=run.business_key, executor_id=None)
+            if run.ability_task_id
+            else None
+        )
         return {
             "runId": run.id,
             "businessKey": run.business_key,
@@ -2717,7 +2722,7 @@ class BusinessRunService:
             "tenantId": run.tenant_id,
             "clientId": run.client_id,
             "channel": run.channel,
-            "taskId": run.ability_task_id,
+            "taskId": public_task_id,
             "imageUrls": run.image_urls or [],
             "videoUrls": run.video_urls or [],
             "texts": run.texts or [],
