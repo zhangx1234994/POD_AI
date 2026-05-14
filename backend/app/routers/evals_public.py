@@ -481,16 +481,19 @@ def _serialize_eval_run_for_list(run: EvalRun, billing: dict[str, Any] | None = 
     return EvalRunResponse.model_validate(payload)
 
 
-_RECOVERABLE_BUSINESS_EVAL_ERROR_PREFIXES = (
-    "BUSINESS_RUN_TIMEOUT:",
-    "BUSINESS_RUN_GET_FAILED:",
-    "BUSINESS_RUN_TEMPORARY_UNAVAILABLE:",
+_RECOVERABLE_BUSINESS_EVAL_ERROR_CODES = (
+    "BUSINESS_RUN_TIMEOUT",
+    "BUSINESS_RUN_GET_FAILED",
+    "BUSINESS_RUN_TEMPORARY_UNAVAILABLE",
 )
+_RECOVERABLE_BUSINESS_EVAL_ERROR_PREFIXES = tuple(f"{code}:" for code in _RECOVERABLE_BUSINESS_EVAL_ERROR_CODES)
 
 
 def _is_recoverable_business_eval_row(run: EvalRun) -> bool:
-    return str(run.status or "").lower() == "failed" and str(run.error_message or "").startswith(
-        _RECOVERABLE_BUSINESS_EVAL_ERROR_PREFIXES
+    error = str(run.error_message or "").strip()
+    return str(run.status or "").lower() == "failed" and (
+        error in _RECOVERABLE_BUSINESS_EVAL_ERROR_CODES
+        or error.startswith(_RECOVERABLE_BUSINESS_EVAL_ERROR_PREFIXES)
     )
 
 

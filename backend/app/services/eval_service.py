@@ -36,11 +36,12 @@ _HEX_TASK_ID = re.compile(r"^[0-9a-f]{24,64}$")
 EVAL_FINALIZE_INTERVAL_SECONDS = 3
 EVAL_FINALIZE_BATCH_SIZE = 50
 EVAL_RUN_TIMEOUT_SECONDS = 60 * 30
-RECOVERABLE_BUSINESS_EVAL_ERROR_PREFIXES = (
-    "BUSINESS_RUN_TIMEOUT:",
-    "BUSINESS_RUN_GET_FAILED:",
-    "BUSINESS_RUN_TEMPORARY_UNAVAILABLE:",
+RECOVERABLE_BUSINESS_EVAL_ERROR_CODES = (
+    "BUSINESS_RUN_TIMEOUT",
+    "BUSINESS_RUN_GET_FAILED",
+    "BUSINESS_RUN_TEMPORARY_UNAVAILABLE",
 )
+RECOVERABLE_BUSINESS_EVAL_ERROR_PREFIXES = tuple(f"{code}:" for code in RECOVERABLE_BUSINESS_EVAL_ERROR_CODES)
 
 
 class EvalService:
@@ -575,28 +576,26 @@ class EvalService:
         with get_session() as session:
             rows = (
                 session.execute(
-                    select(EvalRun.id, EvalRun.result_output_json, EvalRun.error_message)
+                    select(EvalRun.id)
                     .where(EvalRun.status == "failed")
                     .where(
                         or_(
                             *[
-                                EvalRun.error_message.like(f"{prefix}%")
-                                for prefix in RECOVERABLE_BUSINESS_EVAL_ERROR_PREFIXES
+                                condition
+                                for code in RECOVERABLE_BUSINESS_EVAL_ERROR_CODES
+                                for condition in (
+                                    EvalRun.error_message == code,
+                                    EvalRun.error_message.like(f"{code}:%"),
+                                )
                             ]
                         )
                     )
-                    .order_by(EvalRun.updated_at.asc())
                     .limit(20)
                 )
                 .all()
             )
         for row in rows:
-            business_run_id = self._extract_business_run_id(row.result_output_json) or self._extract_business_run_id(
-                row.error_message
-            )
-            if not business_run_id:
-                continue
-            self._finalize_business_run_once(run_id=str(row.id), business_run_id=business_run_id)
+            self.reconcile_business_run_for_eval(str(row.id))
 
     def reconcile_business_run_for_eval(self, run_id: str) -> bool:
         """Synchronously recover one stale business eval row before returning it to the UI."""
@@ -609,7 +608,7 @@ class EvalService:
             if not run or str(run.status or "").lower() != "failed":
                 return False
             error = str(run.error_message or "")
-            if not error.startswith(RECOVERABLE_BUSINESS_EVAL_ERROR_PREFIXES):
+            if not self._is_recoverable_business_eval_error(error):
                 return False
             business_run_id = self._extract_business_run_id(run.result_output_json) or self._extract_business_run_id(
                 error
@@ -621,6 +620,11 @@ class EvalService:
 
     def reconcile_business_timeout_run(self, run_id: str) -> bool:
         return self.reconcile_business_run_for_eval(run_id)
+
+    @staticmethod
+    def _is_recoverable_business_eval_error(error: Any) -> bool:
+        raw = str(error or "").strip()
+        return raw in RECOVERABLE_BUSINESS_EVAL_ERROR_CODES or raw.startswith(RECOVERABLE_BUSINESS_EVAL_ERROR_PREFIXES)
 
     @staticmethod
     def _append_run_images(run_id: str, *, image_urls: list[str]) -> None:

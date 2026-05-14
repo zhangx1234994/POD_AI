@@ -113,6 +113,9 @@ def test_eval_list_detects_recoverable_business_get_failed_rows() -> None:
 
     assert _is_recoverable_business_eval_row(run) is True
 
+    run.error_message = "BUSINESS_RUN_TEMPORARY_UNAVAILABLE"
+    assert _is_recoverable_business_eval_row(run) is True
+
     run.error_message = "BUSINESS_RUN_FAILED:真实业务失败"
     assert _is_recoverable_business_eval_row(run) is False
 
