@@ -139,19 +139,23 @@ def _validate_comfyui_queue_summary(data: Any) -> tuple[bool, str]:
     if not isinstance(servers, list) or not servers:
         return False, "no active ComfyUI executor returned"
     unsupported = int(data.get("unsupportedServers") or 0)
+    supported = int(data.get("supportedServers") or 0)
     blocked = int(data.get("backendBlockedServers") or 0)
     feed_gap = int(data.get("feedGapServers") or 0)
     total_capacity = data.get("totalCapacity")
     idle_slots = data.get("totalIdleSlots")
     utilization = data.get("utilization")
     diagnostics = data.get("diagnostics") if isinstance(data.get("diagnostics"), list) else []
-    if unsupported > 0:
-        return False, f"unsupportedServers={unsupported} diagnostics={_short(diagnostics)}"
+    if supported <= 0:
+        return False, f"no supported ComfyUI server diagnostics={_short(diagnostics)}"
     if blocked > 0:
         return False, f"backendBlockedServers={blocked} diagnostics={_short(diagnostics)}"
+    degraded = unsupported > 0
+    prefix = f"degraded unsupportedServers={unsupported} " if degraded else ""
     return (
         True,
-        "servers="
+        prefix
+        + "servers="
         f"{len(servers)} capacity={total_capacity} idle={idle_slots} utilization={utilization} "
         f"feedGapServers={feed_gap} diagnostics={_short(diagnostics) if diagnostics else '-'}",
     )

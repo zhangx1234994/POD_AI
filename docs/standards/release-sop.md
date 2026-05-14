@@ -103,6 +103,11 @@ RUN_LIVE_PATROL=1 bash scripts/release_114_control_plane.sh
 - Coze 容器不可访问 OpenAPI 暴露的 `servers[0].url`。
 - 核心业务默认版本缺失或无可执行配方。
 - 成功任务没有 OSS 回填或缺执行节点证据。
+- ComfyUI 全部节点不可用，或中台已有运行中任务但 ComfyUI 队列不可见。
+
+允许降级但必须记录的情况：
+
+- 多 ComfyUI 节点中有单台不可达，但至少一台节点健康、仍有可用容量，且中台路由会自动避开故障节点。
 
 ## 5. 线上验证
 

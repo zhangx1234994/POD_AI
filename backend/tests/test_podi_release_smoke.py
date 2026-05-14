@@ -277,12 +277,33 @@ def test_internal_eval_workflow_catalog_blocks_legacy_leak() -> None:
     assert "unexpected roles" in detail
 
 
-def test_comfyui_queue_summary_check_blocks_unavailable_executors() -> None:
+def test_comfyui_queue_summary_check_allows_single_node_degraded_route() -> None:
     module = _load_smoke_module()
 
     ok, detail = module._validate_comfyui_queue_summary(
         {
             "servers": [{"executorId": "executor_233"}],
+            "supportedServers": 1,
+            "unsupportedServers": 1,
+            "backendBlockedServers": 0,
+            "totalCapacity": 10,
+            "totalIdleSlots": 9,
+            "utilization": 0.1,
+            "diagnostics": [{"code": "COMFYUI_EXECUTOR_UNAVAILABLE"}],
+        }
+    )
+
+    assert ok is True
+    assert "unsupportedServers=1" in detail
+
+
+def test_comfyui_queue_summary_check_blocks_when_no_supported_executor() -> None:
+    module = _load_smoke_module()
+
+    ok, detail = module._validate_comfyui_queue_summary(
+        {
+            "servers": [{"executorId": "executor_158"}],
+            "supportedServers": 0,
             "unsupportedServers": 1,
             "backendBlockedServers": 0,
             "diagnostics": [{"code": "COMFYUI_EXECUTOR_UNAVAILABLE"}],
@@ -290,7 +311,7 @@ def test_comfyui_queue_summary_check_blocks_unavailable_executors() -> None:
     )
 
     assert ok is False
-    assert "unsupportedServers=1" in detail
+    assert "no supported ComfyUI server" in detail
 
 
 def test_comfyui_queue_summary_check_blocks_backend_running_not_visible() -> None:
@@ -299,6 +320,7 @@ def test_comfyui_queue_summary_check_blocks_backend_running_not_visible() -> Non
     ok, detail = module._validate_comfyui_queue_summary(
         {
             "servers": [{"executorId": "executor_158"}],
+            "supportedServers": 1,
             "unsupportedServers": 0,
             "backendBlockedServers": 1,
             "diagnostics": [{"code": "COMFYUI_BACKEND_RUNNING_NOT_VISIBLE"}],
@@ -315,6 +337,7 @@ def test_comfyui_queue_summary_check_allows_feed_gap_as_warning_detail() -> None
     ok, detail = module._validate_comfyui_queue_summary(
         {
             "servers": [{"executorId": "executor_158"}, {"executorId": "executor_233"}],
+            "supportedServers": 2,
             "unsupportedServers": 0,
             "backendBlockedServers": 0,
             "feedGapServers": 1,
