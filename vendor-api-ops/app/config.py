@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     service_name: str = Field(default="vendor-api-ops", validation_alias="VENDOR_API_OPS_SERVICE_NAME")
     admin_token: str | None = Field(default=None, validation_alias="VENDOR_API_OPS_ADMIN_TOKEN")
     allowed_clients: str = Field(
-        default="127.0.0.1,::1,testclient,114.55.0.56,117.50.80.158,117.50.216.233",
+        default="127.0.0.1,::1,testclient,114.55.0.56,117.50.80.158",
         validation_alias="VENDOR_API_ALLOWED_CLIENTS",
     )
     request_timeout_seconds: float = Field(default=180.0, validation_alias="VENDOR_API_OPS_REQUEST_TIMEOUT_SECONDS")

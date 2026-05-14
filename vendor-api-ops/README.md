@@ -32,8 +32,8 @@ Key 放在请求级 `credentials` 中；`vendor-api-ops` 只负责按白名单�
 `VENDOR_API_KEY_ENCRYPTION_SECRET` 仅保留给旧数据兼容，不建议新能力继续使用。
 
 Sensitive routes are protected by the caller whitelist
-`VENDOR_API_ALLOWED_CLIENTS`（默认包含本机、Coze 主机、117.50.80.158 和
-117.50.216.233 两台能力机）。也可以叠加
+`VENDOR_API_ALLOWED_CLIENTS`（默认包含本机、Coze 主机和 117.50.80.158
+能力机）。也可以叠加
 `VENDOR_API_OPS_ADMIN_TOKEN`；设置后调用方还必须发送
 `Authorization: Bearer <token>`。保护范围包括：
 
