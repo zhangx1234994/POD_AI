@@ -21,9 +21,12 @@ def test_openai_gpt_image_2_edit_ability_keeps_mask_without_unsupported_fidelity
     fields = {item["name"]: item for item in ability["input_schema"]["fields"]}
 
     assert ability["endpoint"] == "/v1/images/edits"
+    assert ability["defaults"]["size"] == "auto"
     assert ability["metadata"]["api_type"] == "image_edit"
+    assert ability["metadata"]["seed_version"] == 3
     assert ability["metadata"]["supports_mask"] is True
     assert "mask_url" in fields
     assert "image_urls" in fields
+    assert fields["size"]["default"] == "auto"
     assert "input_fidelity" not in fields
     assert "transparent" not in {option["value"] for option in fields["background"]["options"]}

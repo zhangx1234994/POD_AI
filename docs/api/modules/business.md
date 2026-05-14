@@ -36,12 +36,13 @@
 
 这条链路不要求业务方传 Coze 工作流 ID。Coze 可以继续作为接入入口，但业务 API 本身已经能完成“提交任务 -> 查询结果”的闭环；灰度或默认版本命中可先用 `route-preview` 验证。
 
-当前三个主业务入口：
+当前对外业务入口：
 
 | 业务 | 提交接口 | 必填字段 | 常用可调字段 | 终态输出 | 业务说明 |
 | --- | --- | --- | --- | --- | --- |
 | 花纹提取 | `POST /api/business/pattern-extract/runs` | `imageUrl` | `prompt`、`negative_prompt`、`width`、`height`、`batch`、`lora` | `imageUrls` | 从原图中提取可复用花纹资产，通常是后续裂变和扩图的上游。 |
 | 图裂变 | `POST /api/business/fission/runs` | `imageUrl` | ComfyUI 旧版：`prompt`、`bili`、`width`、`height`、`image_desc`、`batch_size`；ComfyUI VL 控制卡版：`bili`、`width`、`height`、`profile`；ComfyUI 颜色锁定版：`bili`(`15%`，建议 0%-20%)、`width`、`height`、`profile`；GPT Image 2 版：`variation_strength`、`quality`、`size`、`maskUrl` | `imageUrls` | 基于原图生成变化图；版本可在中台切换，业务方仍调用同一个入口。`bili` 是重绘幅度/裂变幅度，越高变化越明显。 |
+| 裂变生成图评估 | `POST /api/business/fission-evaluate/runs` | `originalImageUrl`、`generatedImageUrl` | `context` | `texts/resultPayload` | 输入原图和裂变结果图，判断是否通过、是否建议二次裂变；只评分，不自动二次裂变。 |
 | 扩图 | `POST /api/business/outpaint/runs` | `imageUrl` | `prompt`、`expand_left`、`expand_right`、`expand_top`、`expand_bottom`、`width`、`height` | `imageUrls` | 在原图四周扩展画面，适合补构图、补背景和素材延展。 |
 
 ### 0.1) 最小调用示例
@@ -116,11 +117,12 @@ curl -X POST "$PODI_BACKEND/api/admin/business/api-keys" \
 
 | 页面名称 | 接口 | 文档位置 | 必填/核心字段 | 冒烟口径 |
 | --- | --- | --- | --- | --- |
-| 业务 OpenAPI | `GET /api/business/openapi.json` | 7) OpenAPI 工具箱 | 无 | 返回 200，且包含三主业务提交、路由预览、任务查询工具。 |
+| 业务 OpenAPI | `GET /api/business/openapi.json` | 8) OpenAPI 工具箱 | 无 | 返回 200，且包含业务提交、路由预览、任务查询工具。 |
 | 花纹提取 | `POST /api/business/pattern-extract/runs` | 2) 提交花纹提取 | `imageUrl` | 可先用 route-preview 验证版本命中；真实出图必须确认 `runId/status/imageUrls`。 |
 | 图裂变 | `POST /api/business/fission/runs` | 3) 提交图裂变 | `imageUrl` | 可先用 route-preview 验证版本命中；真实出图必须确认 `runId/status/imageUrls`。 |
-| 扩图 | `POST /api/business/outpaint/runs` | 4) 提交扩图 | `imageUrl` | 可先用 route-preview 验证版本命中；真实出图必须确认 `runId/status/imageUrls`。 |
-| 查询业务任务 | `POST /api/business/runs/get` | 5) 查询业务任务 | `runId` | 使用不存在的 `runId` 时应返回 `BUSINESS_RUN_NOT_FOUND` 或等价 404，不应返回 500。 |
+| 裂变生成图评估 | `POST /api/business/fission-evaluate/runs` | 4) 提交裂变生成图评估 | `originalImageUrl`、`generatedImageUrl` | 真实提交必须确认 `runId/status/resultPayload/texts`。 |
+| 扩图 | `POST /api/business/outpaint/runs` | 5) 提交扩图 | `imageUrl` | 可先用 route-preview 验证版本命中；真实出图必须确认 `runId/status/imageUrls`。 |
+| 查询业务任务 | `POST /api/business/runs/get` | 6) 查询业务任务 | `runId` | 使用不存在的 `runId` 时应返回 `BUSINESS_RUN_NOT_FOUND` 或等价 404，不应返回 500。 |
 
 维护规则：
 
@@ -207,7 +209,7 @@ curl -X POST "$PODI_BACKEND/api/admin/business/api-keys" \
 - GPT Image 2 图裂变新版使用专用编译器：VL 输出 `vlCard` 后，中台会编译成英文图片编辑提示词，并映射 `quality/size/output_format/n=1` 等 OpenAI 参数；业务方不用理解 VL 卡片和模型参数。该业务版固定一个请求生成一张图，需要多张时由业务方发起多次请求，分别获得多个 `runId`。
 - ComfyUI VL 控制卡裂变新版使用 `vl_fission_control_card` 作为统一 VL 组件，输出 `fissionControlCard` 后再传给 `comfyui_flux_strong_hq_softstyle_fission_control_v1`；后续更换 VL 模型时优先改这个组件的默认 provider。
 - ComfyUI 颜色锁定裂变版使用版本 `comfyui-vl-control-v2`，主能力为 `comfyui_flux_strong_hq_softstyle_fission_colorlock_v2`。VL 输出必须包含 `palette_card`，中台会把颜色卡和硬负向约束拼进 `image_desc`。`denoise` 不写死，继续按 `bili` 约定映射；其他颜色锁定强度按交付包固定。
-- 裂变生成图评估是单独原子能力 `vl_fission_generated_image_evaluate`。它只输出 `pass / needs_refission / reject` 和问题标签，不在业务层自动二次裂变；业务方可按自己的策略决定是否再次调用图裂变。
+- 裂变生成图评估底层仍是原子能力 `vl_fission_generated_image_evaluate`，但已经提供业务包装入口 `/api/business/fission-evaluate/runs`。它只输出 `pass / needs_refission / reject` 和问题标签，不在业务层自动二次裂变；业务方可按自己的策略决定是否再次调用图裂变。
 
 推荐结构：
 
@@ -384,7 +386,7 @@ GPT Image 2 受控版请求示例：
 }
 ```
 
-说明：该版本会先调用 `vl_analyze_image` 生成客观识别卡，再由中台归一化图案类型、编译定量提示词，最后调用 `openai_gpt_image_2_edit`。`quality=preview/candidate/premium` 会分别映射为 OpenAI 的 `low/medium/high`。当前业务交付口径固定单次输出 1 张图；如果业务需要 3 张图，请提交 3 次，每次有独立 `runId`、轮询结果和回调。
+说明：该版本会先调用 `vl_analyze_image` 生成客观识别卡，再由中台归一化图案类型、编译定量提示词，最后调用 `openai_gpt_image_2_edit`。`quality=preview/candidate/premium` 会分别映射为 OpenAI 的 `low/medium/high`。`size` 不传或传 `auto` 时，中台按原图尺寸回填最终 OSS 图片；只有业务方明确传固定尺寸（如 `1024x1024`、`1536x1024`）时才改变输出画布。当前业务交付口径固定单次输出 1 张图；如果业务需要 3 张图，请提交 3 次，每次有独立 `runId`、轮询结果和回调。
 
 ComfyUI VL 控制卡版请求示例：
 
@@ -458,7 +460,93 @@ ComfyUI VL 控制卡版请求示例：
 
 ---
 
-## 4) 提交扩图
+## 4) 提交裂变生成图评估
+
+### POST /api/business/fission-evaluate/runs
+
+请求体：
+
+```json
+{
+  "originalImageUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/demo/original.png",
+  "generatedImageUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/demo/generated.png",
+  "context": {
+    "business": "fission",
+    "version": "gpt-image2-vl-v2",
+    "prompt": "保持原图系列感，生成同系列变化图",
+    "bili": "15%"
+  },
+  "source": "partner-api",
+  "channel": "open-api",
+  "traceId": "trace-fission-eval-001",
+  "requestId": "req-fission-eval-001"
+}
+```
+
+响应体：
+
+```json
+{
+  "id": "a0e199ae4b0d476a8294e1ee91bbebda",
+  "runId": "a0e199ae4b0d476a8294e1ee91bbebda",
+  "businessKey": "fission_evaluate",
+  "version": "v1",
+  "status": "queued",
+  "taskId": "t1.fission_evaluate.default.xxx",
+  "imageUrls": [],
+  "texts": [],
+  "error": null
+}
+```
+
+轮询成功后重点读取 `resultPayload`、`flowSummary.output` 或 `texts` 中的评分结论：
+
+```json
+{
+  "runId": "a0e199ae4b0d476a8294e1ee91bbebda",
+  "businessKey": "fission_evaluate",
+  "status": "succeeded",
+  "resultPayload": {
+    "decision": "pass",
+    "score": 86,
+    "problem_tags": [],
+    "reason": "图案逻辑与原图一致，质量可用",
+    "next_action": "accept"
+  }
+}
+```
+
+参数说明：
+
+| 参数 | 必填 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `originalImageUrl` | 是 | 无 | 裂变前原图 URL，必须能被中台访问。 |
+| `generatedImageUrl` | 是 | 无 | 裂变后生成图 URL，必须能被中台访问。 |
+| `context` | 否 | `{}` | 业务上下文。建议传裂变版本、提示词、重绘幅度、profile 等，帮助评分模型判断是否符合目标。 |
+| `callbackUrl` | 否 | 无 | 终态回调地址；即使回调失败也可继续用 `runId` 轮询。 |
+| `traceId/requestId` | 否 | 自动生成 | 业务链路追踪字段，建议传。 |
+
+常见错误：
+
+- `VL_EVAL_IMAGE_REQUIRED`
+- `BUSINESS_CAPABILITY_NOT_FOUND`
+- `BUSINESS_RECIPE_ABILITY_NOT_AVAILABLE`
+- `BUSINESS_CLIENT_DISABLED`
+- `BUSINESS_CLIENT_BUSINESS_NOT_ALLOWED`
+- `BUSINESS_API_KEY_INACTIVE`
+- `BUSINESS_API_KEY_EXPIRED`
+- `BUSINESS_API_KEY_BUSINESS_NOT_ALLOWED`
+- `ABILITY_TASK_FAILED`
+
+说明：
+
+- 该接口只做评分，不会自动二次裂变。
+- 该接口已经使用业务 API Key 和 `runId` 轮询，不再要求业务方理解评测端 `evalRunId`。
+- 如需继续兼容旧 Coze 轮询，可把 `runId` 填入 `/api/coze/podi/tasks/get` 的 `taskId` 字段查询。
+
+---
+
+## 5) 提交扩图
 
 ### POST /api/business/outpaint/runs
 
@@ -507,7 +595,7 @@ ComfyUI VL 控制卡版请求示例：
 
 ---
 
-## 5) 查询业务任务
+## 6) 查询业务任务
 
 ### POST /api/business/pattern-extract/route-preview
 
@@ -757,7 +845,7 @@ Coze 旧工具箱兼容查询：
 
 ---
 
-## 6) VL 图像理解原子能力
+## 7) VL 图像理解原子能力
 
 VL 进入统一能力弹药库，能力 ID：
 
@@ -800,7 +888,7 @@ VL 进入统一能力弹药库，能力 ID：
 
 ---
 
-## 7) OpenAPI 工具箱
+## 8) OpenAPI 工具箱
 
 ### GET /api/business/openapi.json
 
@@ -833,7 +921,7 @@ OpenAPI 内每个工具都会枚举错误响应：
 
 ---
 
-## 8) 管理端接口
+## 9) 管理端接口
 
 ### GET /api/admin/business/clients
 

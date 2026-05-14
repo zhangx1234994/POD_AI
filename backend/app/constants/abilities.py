@@ -679,12 +679,16 @@ def _openai_image_edit_schema() -> dict[str, Any]:
                 "type": "select",
                 "label": _compose_bilingual_label("输出尺寸", "Output Size"),
                 "options": [
+                    {"label": "auto", "value": "auto"},
                     {"label": "1024x1024", "value": "1024x1024"},
                     {"label": "1024x1536", "value": "1024x1536"},
                     {"label": "1536x1024", "value": "1536x1024"},
-                    {"label": "auto", "value": "auto"},
                 ],
-                "default": "1024x1024",
+                "default": "auto",
+                "description": _compose_bilingual_label(
+                    "默认跟随原图尺寸；只有手动选择固定尺寸时才改变输出画布。",
+                    "Defaults to the source image size; fixed presets change the output canvas.",
+                ),
             },
             {
                 "name": "quality",
@@ -2148,7 +2152,7 @@ OPENAI_IMAGE_ABILITIES: dict[str, AbilityDefinition] = {
         "endpoint": "/v1/images/edits",
         "defaults": {
             "model": "gpt-image-2",
-            "size": "1024x1024",
+            "size": "auto",
             "quality": "auto",
             "background": "auto",
             "output_format": "png",
@@ -2158,7 +2162,7 @@ OPENAI_IMAGE_ABILITIES: dict[str, AbilityDefinition] = {
         "description": "支持原图、蒙版、多参考图的图片编辑能力；经 vendor-api-ops 统一代理和落库。",
         "category": "image_generation",
         "input_schema": _openai_image_edit_schema(),
-        "metadata": _openai_metadata(model_id="gpt-image-2", api_type="image_edit", seed_version=2),
+        "metadata": _openai_metadata(model_id="gpt-image-2", api_type="image_edit", seed_version=3),
     },
 }
 

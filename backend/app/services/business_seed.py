@@ -43,6 +43,21 @@ def _image_generation_output_schema() -> dict[str, Any]:
     }
 
 
+def _fission_evaluate_output_schema() -> dict[str, Any]:
+    return {
+        "fields": [
+            {"name": "runId", "type": "text", "label": "业务任务 ID Business Run ID"},
+            {"name": "status", "type": "text", "label": "任务状态 Status"},
+            {"name": "decision", "type": "text", "label": "评估结论 Decision"},
+            {"name": "score", "type": "number", "label": "质量分 Score"},
+            {"name": "problemTags", "type": "array", "label": "问题标签 Problem Tags"},
+            {"name": "reason", "type": "text", "label": "评估原因 Reason"},
+            {"name": "nextAction", "type": "text", "label": "建议动作 Next Action"},
+            {"name": "error", "type": "text", "label": "错误信息 Error"},
+        ]
+    }
+
+
 GPT_IMAGE2_SIZE_OPTIONS: list[dict[str, str]] = [
     {"label": "自动匹配 auto", "value": "auto"},
     {"label": "1:1 方图 1024x1024", "value": "1024x1024"},
@@ -374,7 +389,7 @@ DEFAULT_BUSINESS_CAPABILITY_SEEDS: list[BusinessCapabilitySeed] = [
                     "比例尺寸 Size",
                     field_type="select",
                     default="auto",
-                    description="GPT Image 2 输出尺寸预设；高分辨率档位成本和耗时更高。",
+                    description="默认 auto，最终结果按原图尺寸回填；选择固定预设才改变画布。",
                     options=GPT_IMAGE2_SIZE_OPTIONS,
                 ),
                 _field("output_format", "输出格式 Output Format", field_type="text", default="png"),
@@ -489,7 +504,7 @@ DEFAULT_BUSINESS_CAPABILITY_SEEDS: list[BusinessCapabilitySeed] = [
                     "比例尺寸 Size",
                     field_type="select",
                     default="auto",
-                    description="默认 auto，尽量保持原图比例。",
+                    description="默认 auto，最终结果按原图尺寸回填；选择固定预设才改变画布。",
                     options=GPT_IMAGE2_SIZE_OPTIONS,
                 ),
                 _field("output_format", "输出格式 Output Format", field_type="text", default="png"),
@@ -709,6 +724,66 @@ DEFAULT_BUSINESS_CAPABILITY_SEEDS: list[BusinessCapabilitySeed] = [
             "rollbackReason": "默认高质量裂变版本异常时，保留可直接切回的旧稳定执行链路。",
             "coze_strategy": "Coze 仍调用同一个业务入口，回滚只在中台切默认版本。",
             "seed_version": 3,
+        },
+    ),
+    BusinessCapabilitySeed(
+        id="biz_fission_evaluate_v1",
+        business_key="fission_evaluate",
+        version="v1",
+        display_name="生成图评估 · 裂变质量与逻辑评估",
+        description="输入裂变前原图和裂变后生成图，判断结果是否可用、是否需要二次裂变。该接口只负责评分，不自动再次裂变。",
+        status="active",
+        is_default=True,
+        release_time=datetime(2026, 5, 12, 0, 0, 0),
+        recipe={
+            "mode": "single_ability_task",
+            "primaryAbilityId": "vl_fission_generated_image_evaluate",
+            "steps": [
+                {
+                    "id": "primary",
+                    "type": "ability_task",
+                    "role": "primary",
+                    "displayName": "裂变生成图评估",
+                    "abilityId": "vl_fission_generated_image_evaluate",
+                }
+            ],
+            "vlAssist": {"enabled": False},
+        },
+        input_schema={
+            "fields": [
+                _field(
+                    "originalImageUrl",
+                    "原图 URL Original Image URL",
+                    required=True,
+                    description="裂变前的参考原图，必须能被中台访问。",
+                ),
+                _field(
+                    "generatedImageUrl",
+                    "生成图 URL Generated Image URL",
+                    required=True,
+                    description="裂变后的结果图，必须能被中台访问。",
+                ),
+                _field(
+                    "context",
+                    "业务上下文 Context",
+                    field_type="textarea",
+                    required=False,
+                    description="可选。建议填写裂变版本、提示词、profile、重绘幅度等，帮助评分模型判断是否符合目标。",
+                ),
+            ]
+        },
+        output_schema=_fission_evaluate_output_schema(),
+        metadata={
+            "category": "image_fission_evaluate",
+            "entry": "business-api",
+            "role": "quality_gate",
+            "badge": "新接入",
+            "isNewVersion": True,
+            "provider": "vl",
+            "ability_id": "vl_fission_generated_image_evaluate",
+            "interface_pack": "12_2026-05-12_generated_image_eval_interface_pack_v1",
+            "coze_strategy": "业务方可在裂变完成后单独调用该业务 API；中台返回 runId 并统一走 /api/business/runs/get 轮询。",
+            "seed_version": 1,
         },
     ),
     BusinessCapabilitySeed(

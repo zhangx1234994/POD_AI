@@ -1167,7 +1167,26 @@ class BusinessRunService:
         user: User | None,
         source: str = "business-api",
     ) -> BusinessRun:
-        image_url = self._first_string(payload.imageUrl, payload.url, (payload.inputs or {}).get("imageUrl"), (payload.inputs or {}).get("url"))
+        payload_inputs = payload.inputs or {}
+        if business_key == "fission_evaluate":
+            image_url = self._first_string(
+                payload.originalImageUrl,
+                payload.imageUrl,
+                payload.url,
+                payload_inputs.get("original_image"),
+                payload_inputs.get("originalImageUrl"),
+                payload_inputs.get("imageUrl"),
+                payload_inputs.get("url"),
+            )
+            generated_image_url = self._first_string(
+                payload.generatedImageUrl,
+                payload_inputs.get("generated_image"),
+                payload_inputs.get("generatedImageUrl"),
+            )
+            if not image_url or not generated_image_url:
+                raise HTTPException(status_code=400, detail="VL_EVAL_IMAGE_REQUIRED")
+        else:
+            image_url = self._first_string(payload.imageUrl, payload.url, payload_inputs.get("imageUrl"), payload_inputs.get("url"))
         if not image_url:
             raise HTTPException(status_code=400, detail="BUSINESS_IMAGE_URL_REQUIRED")
 
@@ -4044,12 +4063,39 @@ class BusinessRunService:
                 "seed",
                 "timeout",
             }
+        elif capability_key == "fission_evaluate":
+            pass_keys = {
+                "original_image",
+                "generated_image",
+                "context",
+                "provider",
+                "coze_workflow_id",
+                "cozeWorkflowId",
+            }
         else:
             pass_keys = set(inputs)
         flat_payload = payload.model_dump(exclude_none=True, by_alias=True)
         for key in pass_keys:
             if key not in inputs and key in flat_payload:
                 inputs[key] = flat_payload[key]
+        if capability_key == "fission_evaluate":
+            original_image = self._first_string(
+                inputs.get("original_image"),
+                inputs.get("originalImageUrl"),
+                payload.originalImageUrl,
+                image_url,
+            )
+            generated_image = self._first_string(
+                inputs.get("generated_image"),
+                inputs.get("generatedImageUrl"),
+                payload.generatedImageUrl,
+            )
+            if original_image:
+                inputs["original_image"] = original_image
+            if generated_image:
+                inputs["generated_image"] = generated_image
+            if payload.context is not None and "context" not in inputs:
+                inputs["context"] = payload.context
         if capability_key == "pattern_extract" and "batch" not in inputs and "batch_size" in inputs:
             inputs["batch"] = inputs.pop("batch_size")
         if payload.prompt and "prompt" not in inputs:

@@ -20,9 +20,12 @@
    - Coze：`docs/coze/toolbox-inventory.md`
    - ComfyUI：`docs/comfyui/README.md`
    - 第三方模型 Key：`docs/admin/integration-dashboard.md`
-8. 发布与上线：`docs/standards/release-sop.md`
-9. 想回看阶段过程，再看：`docs/weekly/README.md`
-10. 需要回看历史客户端资料时，再看：`docs/client/README.md`
+8. 每日早检：`docs/standards/morning-ops-check.md`
+9. 样本包导出：`docs/standards/business-sample-pack-export.md`
+10. 清理治理：`docs/standards/cleanup-governance.md`
+11. 发布与上线：`docs/standards/release-sop.md`
+12. 想回看阶段过程，再看：`docs/weekly/README.md`
+13. 需要回看历史客户端资料时，再看：`docs/client/README.md`
 
 ## 当前运行基线（2026-04-27）
 
@@ -78,6 +81,9 @@
 - `docs/standards/eval-workflow-presentation-layer.md`
 - `docs/standards/eval-workflow-usage-layer.md`
 - `docs/standards/document-maintenance.md`
+- `docs/standards/morning-ops-check.md`
+- `docs/standards/business-sample-pack-export.md`
+- `docs/standards/cleanup-governance.md`
 - `docs/standards/release-sop.md`
 
 ## 模块入口
@@ -103,6 +109,9 @@
 | 能力测试台账 | `docs/testing/ABILITY_TEST_LEDGER.md` | 每个功能族的必测用例、必查链路和上线闸门 |
 | 复盘记录 | `docs/retrospectives/` | 复盘、风险、后续动作 |
 | 事故复盘 | `docs/retrospectives/2026-04-27-coze-toolbox-internal-only-incident.md` | Coze 工具箱不可用事故、巡检与并发整改项 |
+| 每日早检 SOP | `docs/standards/morning-ops-check.md` | 每天开发前先查前一天业务、能力、测评和 API Key 异常，并导出标准数据包 |
+| 业务样本包导出 | `docs/standards/business-sample-pack-export.md` | 按业务版本、时间窗口和执行节点导出原图、结果图、VL 内容和过程信息 |
+| 清理治理 | `docs/standards/cleanup-governance.md` | 项目文件、数据库和 OSS 清理的审计脚本、删除边界和保留策略 |
 | 发布 SOP | `docs/standards/release-sop.md` | 114 控制面唯一发布入口、脚本参数、验证、回滚和记录 |
 | 发布门禁 | `docs/release-preflight.md` | 发版前必须执行的业务链路巡检、ComfyUI 队列验证和构建测试 |
 

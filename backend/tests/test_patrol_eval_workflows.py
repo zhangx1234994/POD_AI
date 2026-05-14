@@ -171,6 +171,29 @@ def test_report_item_classifies_queue_full_and_prompt_required() -> None:
     assert prompt_required["issueCode"] == "PROMPT_REQUIRED"
 
 
+def test_report_item_treats_recovered_business_timeout_as_non_blocking() -> None:
+    item = patrol._make_report_item(
+        {
+            "workflow": {"name": "图裂变", "workflow_id": "wf_business"},
+            "run": {"id": "run_eval"},
+            "latest": {
+                "id": "run_eval",
+                "status": "failed",
+                "error_message": "BUSINESS_RUN_TIMEOUT:{'businessRunId': 'run_business', 'status': 'running'}",
+                "result_output_json": {
+                    "businessRunId": "run_business",
+                    "status": "succeeded",
+                    "imageUrls": ["https://oss.example.com/out.png"],
+                },
+            },
+        }
+    )
+
+    assert item["businessRecovered"] is True
+    assert item["issueCode"] == "BUSINESS_RUN_TIMEOUT_RECOVERED"
+    assert patrol._failed_items([item]) == []
+
+
 def test_allow_empty_output_keeps_legacy_terminal_status_check() -> None:
     item = {
         "status": "succeeded",

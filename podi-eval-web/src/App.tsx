@@ -68,6 +68,19 @@ type LoraOption = { label: string; value: string };
 
 type CompareMode = 'slider' | 'side-by-side' | 'overlay' | 'diff';
 
+type ImageLightboxContext = {
+  inputUrl?: string;
+  outputUrls?: string[];
+  activeIndex?: number;
+  mode?: CompareMode;
+};
+
+type ImageLightboxState = {
+  url: string;
+  title?: string;
+  context?: ImageLightboxContext;
+};
+
 type MultiImageTrialInput = {
   key: string;
   url: string;
@@ -286,6 +299,9 @@ const formatErrorCodeLabel = (code?: string | null): string => {
 const formatCompactErrorMessage = (message?: string | null): string => {
   const raw = String(message || '').trim();
   if (!raw) return '生成失败，请查看任务记录。';
+  if (/^BUSINESS_RUN_TIMEOUT:/i.test(raw)) {
+    return '测评等待超时，但中台业务可能仍在后台执行。请刷新结果；如果中台任务已完成，系统会自动恢复结果。';
+  }
   if (/out of sort memory|pymysql\.err\.OperationalError|business_run_steps|BUSINESS_RUN_TEMPORARY_UNAVAILABLE/i.test(raw)) {
     return '任务结果查询临时异常，请稍后重试；如果持续出现，请联系中台排查。';
   }
@@ -2120,17 +2136,36 @@ const isSucceededWithoutVisibleOutput = (run: Pick<EvalRun, 'status' | 'result_i
 function Lightbox({
   url,
   title,
+  context,
   onClose,
 }: {
   url: string;
   title?: string;
+  context?: ImageLightboxContext;
   onClose: () => void;
 }) {
   const [zoomed, setZoomed] = useState(false);
+  const [mode, setMode] = useState<CompareMode>(context?.mode || 'side-by-side');
+  const [index, setIndex] = useState(context?.activeIndex || 0);
+  const [slider, setSlider] = useState(50);
+  const [opacity, setOpacity] = useState(72);
+  const contextOutputKey = (context?.outputUrls || []).join('|');
+  const safeOutputs = (context?.outputUrls || []).filter((item) => String(item || '').trim());
+  const outputUrl = safeOutputs[index] || safeOutputs[0] || url;
+  const hasCompare = Boolean(context?.inputUrl && safeOutputs.length > 0);
 
   useEffect(() => {
     setZoomed(false);
-  }, [url]);
+    setMode(context?.mode || 'side-by-side');
+    setIndex(context?.activeIndex || 0);
+    setSlider(50);
+    setOpacity(72);
+  }, [url, context?.activeIndex, context?.mode, context?.inputUrl, contextOutputKey]);
+
+  useEffect(() => {
+    if (index < safeOutputs.length) return;
+    setIndex(0);
+  }, [index, safeOutputs.length]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -2142,41 +2177,128 @@ function Lightbox({
 
   if (!url) return null;
 
+  const style = {
+    '--podi-compare-position': `${slider}%`,
+    '--podi-compare-opacity': `${opacity / 100}`,
+  } as CSSProperties;
+
+  const renderStaticPane = (imageUrl: string, label: string, tone: 'input' | 'output') => (
+    <div className={`podi-compare-pane podi-compare-pane--${tone}`}>
+      {imageUrl ? <img src={imageUrl} alt={label} loading="lazy" draggable={false} /> : <span>暂无图片</span>}
+      <span className="podi-compare-pane__label">{label}</span>
+    </div>
+  );
+
   return (
     <Dialog
       visible
       header={title || '预览'}
+      width="calc(100vw - 40px)"
+      className="podi-lightbox-dialog"
       onClose={onClose}
       onCancel={onClose}
       footer={
-        <Space style={{ justifyContent: 'space-between', width: '100%' }}>
-          <Typography.Text theme="secondary" style={{ maxWidth: 560 }} ellipsis>
-            {url}
+        <div className="podi-lightbox__footer">
+          <Typography.Text theme="secondary" ellipsis>
+            {hasCompare ? outputUrl : url}
           </Typography.Text>
           <Space>
-            <Switch value={zoomed} onChange={(v) => setZoomed(Boolean(v))} />
-            <Typography.Text theme="secondary">放大</Typography.Text>
-            <Button variant="outline" onClick={() => window.open(url, '_blank', 'noreferrer')}>
+            {!hasCompare ? (
+              <>
+                <Switch value={zoomed} onChange={(v) => setZoomed(Boolean(v))} />
+                <Typography.Text theme="secondary">原始尺寸</Typography.Text>
+              </>
+            ) : null}
+            <Button variant="outline" onClick={() => window.open(hasCompare ? outputUrl : url, '_blank', 'noreferrer')}>
               新窗口打开
             </Button>
           </Space>
-        </Space>
+        </div>
       }
     >
-      <div style={{ maxHeight: '70vh', overflow: 'auto' }}>
-        <img
-          src={url}
-          alt="preview"
-          style={{
-            display: 'block',
-            margin: '0 auto',
-            maxWidth: zoomed ? 'none' : '100%',
-            width: zoomed ? 'auto' : '100%',
-            maxHeight: zoomed ? 'none' : '70vh',
-            objectFit: 'contain',
-          }}
-        />
-      </div>
+      {hasCompare ? (
+        <div className="podi-lightbox">
+          <div className="podi-lightbox__toolbar">
+            <Space size="small" breakLine>
+              <Typography.Text strong>原图 / 结果大图对比</Typography.Text>
+              <Tag variant="light">结果 {Math.min(index + 1, safeOutputs.length)} / {safeOutputs.length}</Tag>
+            </Space>
+            <Space size="small" breakLine>
+              {[
+                { value: 'side-by-side' as const, label: '并排' },
+                { value: 'slider' as const, label: '滑块' },
+                { value: 'overlay' as const, label: '叠加' },
+                { value: 'diff' as const, label: '差异' },
+              ].map((item) => (
+                <Button
+                  key={item.value}
+                  size="small"
+                  variant={mode === item.value ? 'base' : 'outline'}
+                  theme={mode === item.value ? 'primary' : 'default'}
+                  onClick={() => setMode(item.value)}
+                >
+                  {item.label}
+                </Button>
+              ))}
+            </Space>
+          </div>
+
+          <div className={`podi-compare-stage podi-lightbox__stage podi-compare-stage--${mode}`} style={style}>
+            {mode === 'side-by-side' ? (
+              <>
+                {renderStaticPane(context?.inputUrl || '', '原图', 'input')}
+                {renderStaticPane(outputUrl, `结果图 #${index + 1}`, 'output')}
+              </>
+            ) : (
+              <div className="podi-compare-layer">
+                <img className="podi-compare-layer__base" src={context?.inputUrl || ''} alt="原图" loading="lazy" draggable={false} />
+                <span className="podi-compare-layer__tag podi-compare-layer__tag--input">原图</span>
+                <div className="podi-compare-layer__result">
+                  <img src={outputUrl} alt={`结果图 #${index + 1}`} loading="lazy" draggable={false} />
+                </div>
+                <span className="podi-compare-layer__tag podi-compare-layer__tag--output">
+                  {mode === 'diff' ? '差异亮处=变化大' : '结果图'}
+                </span>
+                {mode === 'slider' ? <span className="podi-compare-layer__handle" /> : null}
+              </div>
+            )}
+          </div>
+
+          <div className="podi-lightbox__controls">
+            {mode === 'slider' ? (
+              <label>
+                <span>滑块位置</span>
+                <input type="range" min="0" max="100" value={slider} onChange={(e) => setSlider(Number(e.target.value))} />
+              </label>
+            ) : null}
+            {mode === 'overlay' ? (
+              <label>
+                <span>结果透明度</span>
+                <input type="range" min="0" max="100" value={opacity} onChange={(e) => setOpacity(Number(e.target.value))} />
+              </label>
+            ) : null}
+            {safeOutputs.length > 1 ? (
+              <div className="podi-compare-thumbs" aria-label="结果图切换">
+                {safeOutputs.map((item, idx) => (
+                  <button
+                    key={`${item}-${idx}`}
+                    type="button"
+                    className={idx === index ? 'is-active' : ''}
+                    onClick={() => setIndex(idx)}
+                  >
+                    <img src={item} alt={`结果缩略图 #${idx + 1}`} loading="lazy" />
+                    <span>#{idx + 1}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : (
+        <div className={`podi-lightbox__single ${zoomed ? 'is-zoomed' : ''}`}>
+          <img src={url} alt="preview" />
+        </div>
+      )}
     </Dialog>
   );
 }
@@ -2728,9 +2850,9 @@ function ImageComparePanel({
   outputUrls: string[];
   title: string;
   compact?: boolean;
-  onOpenImage: (url: string, title?: string) => void;
+  onOpenImage: (url: string, title?: string, context?: ImageLightboxContext) => void;
 }) {
-  const [mode, setMode] = useState<CompareMode>('slider');
+  const [mode, setMode] = useState<CompareMode>('side-by-side');
   const [index, setIndex] = useState(0);
   const [slider, setSlider] = useState(50);
   const [opacity, setOpacity] = useState(70);
@@ -2751,7 +2873,7 @@ function ImageComparePanel({
     <button
       type="button"
       className={`podi-compare-pane podi-compare-pane--${tone}`}
-      onClick={() => onOpenImage(url, label)}
+      onClick={() => onOpenImage(url, label, { inputUrl, outputUrls: safeOutputs, activeIndex: index, mode: 'side-by-side' })}
       disabled={!url}
     >
       {url ? <img src={url} alt={label} loading="lazy" draggable={false} /> : <span>暂无图片</span>}
@@ -2800,7 +2922,7 @@ function ImageComparePanel({
           <button
             type="button"
             className="podi-compare-layer"
-            onClick={() => onOpenImage(outputUrl, `结果图 #${index + 1}`)}
+            onClick={() => onOpenImage(outputUrl, `结果图 #${index + 1}`, { inputUrl, outputUrls: safeOutputs, activeIndex: index, mode })}
           >
             <img className="podi-compare-layer__base" src={inputUrl} alt="原图" loading="lazy" draggable={false} />
             <span className="podi-compare-layer__tag podi-compare-layer__tag--input">原图</span>
@@ -2942,7 +3064,7 @@ export function App() {
   const [filterUnrated, setFilterUnrated] = useState<boolean>(false);
   const [historyFocus, setHistoryFocus] = useState<ToolHistoryFocus>('all');
   const [search, setSearch] = useState<string>('');
-  const [lightbox, setLightbox] = useState<{ url: string; title?: string } | null>(null);
+  const [lightbox, setLightbox] = useState<ImageLightboxState | null>(null);
 
   // Simple "private" admin token stored in localStorage.
   const [adminToken, setAdminToken] = useState<string>(() => localStorage.getItem('podi_eval_admin_token') || '');
@@ -5567,7 +5689,12 @@ export function App() {
       >
         {content}
       </EvalShell>
-      <Lightbox url={lightbox?.url || ''} title={lightbox?.title} onClose={() => setLightbox(null)} />
+      <Lightbox
+        url={lightbox?.url || ''}
+        title={lightbox?.title}
+        context={lightbox?.context}
+        onClose={() => setLightbox(null)}
+      />
     </ConfigProvider>
   );
 
@@ -7855,7 +7982,7 @@ export function App() {
                                         outputUrls={outputImages}
                                         title={`图 ${idx + 1} 对比`}
                                         compact
-                                        onOpenImage={(u, title) => setLightbox({ url: u, title })}
+                                        onOpenImage={(u, title, context) => setLightbox({ url: u, title, context })}
                                       />
                                     ) : runStatus === 'queued' || runStatus === 'running' ? (
                                       <SkeletonTile title="生成中…" subtitle={`run: ${input.runId}`} />
@@ -7903,7 +8030,7 @@ export function App() {
                                   inputUrl={latestInputUrl}
                                   outputUrls={imgs}
                                   title="最新结果对比"
-                                  onOpenImage={(u, title) => setLightbox({ url: u, title })}
+                                  onOpenImage={(u, title, context) => setLightbox({ url: u, title, context })}
                                 />
                               ) : (
                                 imgs.map((img, idx) => (
@@ -8107,7 +8234,7 @@ export function App() {
                 key={run.id}
                 run={run}
                 onAnnotate={annotate}
-                onOpenImage={(url, title) => setLightbox({ url, title })}
+                onOpenImage={(url, title, context) => setLightbox({ url, title, context })}
               />
             ))}
             {filteredRuns.length === 0 ? <Typography.Text theme="secondary">暂无记录。</Typography.Text> : null}
@@ -8232,7 +8359,7 @@ function HistoryRow({
 }: {
   run: RunWithLatest;
   onAnnotate: (runId: string, rating: number, comment: string) => Promise<void>;
-  onOpenImage: (url: string, title?: string) => void;
+  onOpenImage: (url: string, title?: string, context?: ImageLightboxContext) => void;
 }) {
   const inputUrl = (run.input_oss_urls_json || [])[0] || '';
   const output = getRunOutputDescriptor(run);

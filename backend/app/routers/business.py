@@ -353,6 +353,16 @@ def create_fission_run(
     return _create_business_run_with_usage(request=request, business_key="fission", payload=payload, user=user)
 
 
+@router.post("/fission-evaluate/runs", response_model=schemas.BusinessRunRead, response_model_by_alias=False)
+@router.post("/fission/evaluate/runs", response_model=schemas.BusinessRunRead, response_model_by_alias=False)
+def create_fission_evaluate_run(
+    payload: schemas.BusinessRunCreateRequest,
+    request: Request,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessRunRead:
+    return _create_business_run_with_usage(request=request, business_key="fission_evaluate", payload=payload, user=user)
+
+
 @router.post("/outpaint/runs", response_model=schemas.BusinessRunRead, response_model_by_alias=False)
 def create_outpaint_run(
     payload: schemas.BusinessRunCreateRequest,
@@ -600,6 +610,20 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "maskUrl": {"type": "string", "nullable": True, "description": "可选蒙版 URL；用于局部编辑。"},
         },
     }
+    fission_evaluate_submit_schema = {
+        "type": "object",
+        "required": ["originalImageUrl", "generatedImageUrl"],
+        "properties": {
+            **base_submit_properties,
+            "originalImageUrl": {"type": "string", "description": "裂变前原图 URL。"},
+            "generatedImageUrl": {"type": "string", "description": "裂变后生成图 URL。"},
+            "context": {
+                "oneOf": [{"type": "object"}, {"type": "string"}],
+                "nullable": True,
+                "description": "可选业务上下文，例如裂变版本、提示词、profile、重绘幅度，用于辅助评分。",
+            },
+        },
+    }
     pattern_extract_submit_schema = {
         "type": "object",
         "required": ["imageUrl"],
@@ -673,6 +697,24 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             },
         },
     }
+    fission_evaluate_examples = {
+        "fission_generated_image_evaluate": {
+            "summary": "生成图评估 · 裂变质量与逻辑评估",
+            "value": {
+                "originalImageUrl": "https://example.com/original.png",
+                "generatedImageUrl": "https://example.com/generated.png",
+                "context": {
+                    "business": "fission",
+                    "version": "gpt-image2-vl-v2",
+                    "prompt": "保持原图系列感，生成同系列变化图",
+                },
+                "source": "partner-api",
+                "channel": "open-api",
+                "requestId": "biz-request-eval-001",
+                "traceId": "biz-trace-eval-001",
+            },
+        }
+    }
     run_get_examples = {
         "poll_by_run_id": {
             "summary": "按提交接口返回的 runId 查询",
@@ -684,7 +726,7 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
         "properties": {
             "detail": {
                 "type": "string",
-                "description": "平台错误码，例如 BUSINESS_IMAGE_URL_REQUIRED、BUSINESS_RUN_NOT_FOUND。",
+            "description": "平台错误码，例如 BUSINESS_IMAGE_URL_REQUIRED、BUSINESS_RUN_NOT_FOUND。",
             }
         },
     }
@@ -751,6 +793,7 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
     submit_errors = {
         "400": [
             "BUSINESS_IMAGE_URL_REQUIRED",
+            "VL_EVAL_IMAGE_REQUIRED",
             "BUSINESS_RECIPE_INVALID",
             "BUSINESS_RECIPE_ABILITY_NOT_AVAILABLE",
             "COMFYUI_IMAGE_REQUIRED",
@@ -783,7 +826,7 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
         "info": {
             "title": "PODI Business APIs",
             "version": "0.1.0",
-            "description": "业务层稳定入口：花纹提取、图裂变、扩图、任务查询。Coze 只需要调用这些扁平 API。",
+            "description": "业务层稳定入口：花纹提取、图裂变、裂变生成图评估、扩图、任务查询。Coze 只需要调用这些扁平 API。",
         },
         "servers": [{"url": server}],
         "components": {
@@ -828,6 +871,31 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                             "lang": "curl",
                             "label": "提交 GPT Image 2 + VL 控制版",
                             "source": "curl -X POST \"$PODI_BASE_URL/api/business/fission/runs\" \\\n  -H \"X-PODI-API-Key: $PODI_API_KEY\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"imageUrl\":\"https://example.com/input.png\",\"version\":\"gpt-image2-vl-v1\",\"variation_strength\":\"high\",\"quality\":\"preview\",\"size\":\"auto\",\"source\":\"partner-api\",\"channel\":\"open-api\",\"requestId\":\"biz-request-001\"}'",
+                        }
+                    ],
+                    "responses": _business_responses(success_description="Business run", errors_by_status=submit_errors),
+                }
+            },
+            "/api/business/fission-evaluate/runs": {
+                "post": {
+                    "operationId": "podi_business_fission_evaluate_run",
+                    "summary": "PODI · 裂变生成图评估",
+                    "description": "提交裂变生成图评估任务。输入原图和生成图，返回 runId 后轮询评分结论；该接口只评分，不自动二次裂变。",
+                    "security": business_api_key_security,
+                    "requestBody": {
+                        "required": True,
+                        "content": {
+                            "application/json": {
+                                "schema": fission_evaluate_submit_schema,
+                                "examples": fission_evaluate_examples,
+                            }
+                        },
+                    },
+                    "x-codeSamples": [
+                        {
+                            "lang": "curl",
+                            "label": "提交裂变生成图评估",
+                            "source": "curl -X POST \"$PODI_BASE_URL/api/business/fission-evaluate/runs\" \\\n  -H \"X-PODI-API-Key: $PODI_API_KEY\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"originalImageUrl\":\"https://example.com/original.png\",\"generatedImageUrl\":\"https://example.com/generated.png\",\"context\":{\"business\":\"fission\",\"version\":\"gpt-image2-vl-v2\"},\"source\":\"partner-api\",\"channel\":\"open-api\",\"requestId\":\"biz-request-eval-001\"}'",
                         }
                     ],
                     "responses": _business_responses(success_description="Business run", errors_by_status=submit_errors),

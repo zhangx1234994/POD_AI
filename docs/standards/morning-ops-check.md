@@ -1,0 +1,80 @@
+# 每日早检 SOP
+
+## 目标
+
+每天开始开发前，先确认前一天线上业务有没有异常，再进入当天 TODO。早检不是发版动作，只读数据库和日志，不重启服务、不改配置。
+
+## 固定顺序
+
+1. 确认 114 控制面健康和当前部署版本。
+2. 导出前一天运营数据包。
+3. 查看业务运行、能力调用、测评运行、业务 API Key 调用是否有异常。
+4. 对异常逐条归因：真实业务失败、巡检误报、上游限流、历史脏数据收口、排队超时。
+5. 把结论写入早检报告或问题日志。
+6. 再进入当天开发 TODO。
+
+## 标准命令
+
+在 114 控制面执行：
+
+```bash
+cd /srv/pod
+backend/.venv/bin/python backend/scripts/morning_ops_check.py \
+  --date 2026-05-13 \
+  --json
+```
+
+不传 `--date` 时默认检查业务时区的前一天。
+
+输出位置：
+
+```text
+reports/morning-check/YYYYMMDD/
+reports/morning-check/YYYYMMDD.zip
+```
+
+## 导出包结构
+
+```text
+YYYYMMDD/
+  summary.md
+  raw/
+    summary.json
+    business_runs.json
+    business_issues.json
+    ability_summary.json
+    ability_issues.json
+    ability_pending.json
+    eval_summary.json
+    eval_issues.json
+    business_api_key_usage_summary.json
+    business_api_key_usage_issues.json
+  csv/
+    business_runs.csv
+    business_issues.csv
+    ability_issues.csv
+    eval_issues.csv
+    ...
+```
+
+## 判定口径
+
+- 业务运行异常：`business_runs.status != succeeded`、回调失败、成功但没有图片/视频/文本结果。
+- 能力调用异常：`ability_invocation_logs.status` 不是 `success/succeeded`、回调失败、仍有超过 30 分钟的 pending 残留。
+- 测评运行异常：`eval_run.status != succeeded`，或成功但没有图片/文本/结构化结果。
+- API Key 异常：状态码非 2xx、缺状态码或存在错误码。
+
+## 归因规则
+
+- 如果业务最终成功、OSS 已回填，但测评端失败，多数是测评等待窗口或巡检参数问题，不直接判业务失败。
+- 如果是 `RequestBurstTooFast`、`TooManyRequests`、`429`，优先归为上游限流或流量突增保护。
+- 如果是 `ABILITY_LOG_STALE_PENDING`，优先归为历史 pending 收口结果；需要确认同时间段是否有真实业务失败。
+- 如果是缺图、缺参数类错误，先确认巡检脚本是否按接口 schema 构造了必填字段。
+
+## 今日已知样例
+
+2026-05-14 早检发现：
+
+- 2026-05-13 业务运行 188 条，业务失败 0 条。
+- 能力异常 6 条，其中 4 条是历史 pending 残留被收口，1 条是火山 VL 突增保护，1 条是裂变评分巡检缺双图参数。
+- 测评异常 2 条，其中 1 条是裂变评分巡检误报，1 条是测评端 30 分钟超时但底层业务随后成功回图。

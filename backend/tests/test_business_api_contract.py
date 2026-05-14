@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.models.user import User
+from app.schemas.business import BusinessRunCreateRequest
 from app.services.business_runs import BusinessRunService
 
 
@@ -18,6 +19,7 @@ def test_business_openapi_exposes_flat_business_tools() -> None:
 
     assert "/api/business/pattern-extract/runs" in paths
     assert "/api/business/fission/runs" in paths
+    assert "/api/business/fission-evaluate/runs" in paths
     assert "/api/business/outpaint/runs" in paths
     assert "/api/business/pattern-extract/route-preview" in paths
     assert "/api/business/fission/route-preview" in paths
@@ -81,6 +83,13 @@ def test_business_openapi_exposes_flat_business_tools() -> None:
     ]
     assert {"expand_left", "expand_right", "expand_top", "expand_bottom", "width", "height"}.issubset(
         outpaint_schema["properties"]
+    )
+    fission_eval_schema = paths["/api/business/fission-evaluate/runs"]["post"]["requestBody"]["content"][
+        "application/json"
+    ]["schema"]
+    assert fission_eval_schema["required"] == ["originalImageUrl", "generatedImageUrl"]
+    assert {"originalImageUrl", "generatedImageUrl", "context", "callbackUrl", "traceId", "requestId"}.issubset(
+        fission_eval_schema["properties"]
     )
     preview_schema = paths["/api/business/fission/route-preview"]["post"]["requestBody"]["content"]["application/json"][
         "schema"
@@ -179,6 +188,17 @@ def test_business_fission_requires_image_url() -> None:
     assert resp.json()["detail"] == "BUSINESS_IMAGE_URL_REQUIRED"
 
 
+def test_business_fission_evaluate_requires_two_images() -> None:
+    resp = client.post(
+        "/api/business/fission-evaluate/runs",
+        json={"originalImageUrl": "https://example.com/original.png"},
+        headers={"x-real-ip": "127.0.0.1"},
+    )
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "VL_EVAL_IMAGE_REQUIRED"
+
+
 def test_business_pattern_extract_requires_image_url() -> None:
     resp = client.post(
         "/api/business/pattern-extract/runs",
@@ -234,6 +254,37 @@ def test_business_api_key_actor_does_not_write_fake_user_id() -> None:
     )
 
     assert BusinessRunService._safe_user_id(user) is None
+
+
+def test_business_fission_evaluate_payload_maps_original_and_generated_images() -> None:
+    payload = BusinessRunCreateRequest(
+        originalImageUrl="https://example.com/original.png",
+        generatedImageUrl="https://example.com/generated.png",
+        context={"business": "fission", "version": "gpt-image2-vl-v2"},
+        source="partner-api",
+        channel="open-api",
+        traceId="trace-eval-001",
+        requestId="req-eval-001",
+    )
+
+    ability_payload = BusinessRunService()._build_ability_payload(
+        capability_key="fission_evaluate",
+        payload=payload,
+        image_url="https://example.com/original.png",
+        route_info={"version": "v1"},
+        trace_context={
+            "traceId": "trace-eval-001",
+            "requestId": "req-eval-001",
+            "source": "partner-api",
+            "channel": "open-api",
+        },
+    )
+
+    assert ability_payload.imageUrl == "https://example.com/original.png"
+    assert ability_payload.inputs["original_image"] == "https://example.com/original.png"
+    assert ability_payload.inputs["generated_image"] == "https://example.com/generated.png"
+    assert ability_payload.inputs["context"] == {"business": "fission", "version": "gpt-image2-vl-v2"}
+    assert ability_payload.metadata["businessKey"] == "fission_evaluate"
 
 
 def test_business_api_submit_and_query_do_not_require_coze_workflow(monkeypatch) -> None:

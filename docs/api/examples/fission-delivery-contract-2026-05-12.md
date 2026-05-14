@@ -21,7 +21,7 @@
 | 旧 Coze 工具箱 | `taskId` | `POST /api/coze/podi/tasks/get` | `taskStatus` | `imageUrls/videoUrls/texts` | Coze 继续使用的兼容入口。 |
 | 中台业务 API | `runId` | `POST /api/business/runs/get` | `status` | `imageUrls/videoUrls/texts` | 业务方优先使用的新入口。 |
 | 中台业务 API 兼容 Coze 轮询 | `runId` | `POST /api/coze/podi/tasks/get`，把 `runId` 填到 `taskId` | `taskStatus` | `imageUrls/videoUrls/texts` | 用于不想改旧轮询逻辑的业务方或 Coze 工具箱。 |
-| 评测端裂变评分 | `evalRunId` / `id` | `GET /api/evals/runs/{runId}` | `status` | `resultPayload/outputJson` | 当前仍是评测包装入口，不建议直接作为业务方长期主入口。 |
+| 中台业务 API 裂变评分 | `runId` | `POST /api/business/runs/get` | `status` | `resultPayload/texts/flowSummary.output` | 推荐给业务方使用的新入口，统一业务 Key 和轮询方式。 |
 
 状态含义：
 
@@ -104,6 +104,7 @@ classDiagram
     }
 
     class GeneratedImageEval {
+        +runId 业务任务 ID
         +originalImage 原图
         +generatedImage 生成图
         +decision pass/needs_refission/reject
@@ -116,7 +117,7 @@ classDiagram
     BusinessCapabilityVersion --> RecipeStep : 展开配方
     RecipeStep --> VLComponent : 可选前置图像理解
     RecipeStep --> AbilityTask : 主执行
-    GeneratedImageEval --> AbilityTask : 评分能力
+    GeneratedImageEval --> AbilityTask : 业务包装后提交评分能力
 ```
 
 ---
@@ -150,8 +151,10 @@ flowchart TD
 ```mermaid
 flowchart TD
     A["业务方拿到裂变结果"] --> B["提交原图 + 生成图"]
-    B --> C["生成图评估能力"]
-    C --> D["VL 判断质量和逻辑合理性"]
+    B --> C["POST /api/business/fission-evaluate/runs"]
+    C --> C1["创建 BusinessRun，状态 queued"]
+    C1 --> C2["提交 VL 生成图评估能力"]
+    C2 --> D["VL 判断质量和逻辑合理性"]
     D --> E{"评估结论"}
     E --> F["pass：可用"]
     E --> G["needs_refission：建议二次裂变"]
@@ -188,7 +191,7 @@ flowchart TD
 | `profile` / `profile_id` | ComfyUI VL 控制卡版 | 裂变配置 | 默认 `pattern_default_v1`。 |
 | `variation_strength` | GPT Image 2 + VL 控制版 | 商业模型裂变强度 | 建议值：`low/medium/high`。 |
 | `quality` | GPT Image 2 + VL 控制版 | 输出质量 | 走 OpenAI 图片编辑参数。 |
-| `size` | GPT Image 2 + VL 控制版 | 输出尺寸 | 使用预设比例/尺寸，不使用 `width/height` 直传。 |
+| `size` | GPT Image 2 + VL 控制版 | 输出尺寸 | 默认 `auto`，最终 OSS 图片按原图尺寸回填；只有明确传固定预设时才改变画布。 |
 | `maskUrl` / `mask_url` | GPT Image 2 + VL 控制版 | 蒙版图 URL | 可选；有蒙版编辑需求时传。 |
 
 `bili` 口径必须统一：
@@ -215,7 +218,7 @@ flowchart TD
   "inputs": {
     "variation_strength": "medium",
     "quality": "auto",
-    "size": "1024x1024"
+    "size": "auto"
   },
   "traceId": "biz_trace_001",
   "requestId": "biz_req_001"
@@ -266,18 +269,20 @@ flowchart TD
   "generatedImageUrl": "https://example.com/output.png",
   "context": {
     "business": "fission",
-    "version": "gpt-image2-vl-v1",
+    "version": "gpt-image2-vl-v2",
     "prompt": "本次裂变目标"
-  }
+  },
+  "traceId": "biz_trace_score_001",
+  "requestId": "biz_req_score_001"
 }
 ```
 
 关键点：
 
 - 这是单独的能力，不等于裂变接口的一部分。
+- 对外入口是 `POST /api/business/fission-evaluate/runs`，返回 `runId` 后继续用 `POST /api/business/runs/get` 轮询。
 - 输出重点是 `decision`、`score`、`problemTags` 和 `reason`。
 - 业务方根据结论自行决定是否再次调用裂变接口。
-- 如果要对外长期开放，下一步应补一个业务包装入口，使它也返回 `runId` 并走 `/api/business/runs/get`，避免和裂变接口出现两套轮询口径。
 
 ---
 

@@ -200,6 +200,14 @@ def test_business_eval_extracts_business_run_id_for_resume():
     assert EvalService._extract_business_run_id({"businessRunId": "run_1"}) == "run_1"
     assert EvalService._extract_business_run_id({"id": "run_2"}) == "run_2"
     assert EvalService._extract_business_run_id(json.dumps({"runId": "run_3"})) == "run_3"
+    assert (
+        EvalService._extract_business_run_id("BUSINESS_RUN_TIMEOUT:{'businessRunId': 'run_4', 'status': 'running'}")
+        == "run_4"
+    )
+    assert (
+        EvalService._extract_business_run_id("BUSINESS_RUN_GET_FAILED:{'businessRunId': 'run_5', 'status': 'running'}")
+        == "run_5"
+    )
     assert EvalService._extract_business_run_id({}) == ""
     assert EvalService._is_business_eval_metadata({"eval_execution": {"mode": "business_run"}}) is True
     assert EvalService._is_business_eval_metadata({"eval_execution": {"mode": "ability_task"}}) is False

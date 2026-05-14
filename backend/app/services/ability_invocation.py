@@ -8,10 +8,12 @@ import logging
 import random
 import threading
 import time
+import base64
 from collections.abc import Iterable
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from io import BytesIO
 from math import gcd
 from typing import Any
 from uuid import uuid4
@@ -20,6 +22,7 @@ from fastapi import HTTPException, Request
 from sqlalchemy import select
 
 import httpx
+from PIL import Image
 
 from app.core.config import get_settings
 from app.core.db import get_session
@@ -973,6 +976,11 @@ class AbilityInvocationService:
             assets.append({"b64": images.image_base64, "role": "input"})
         if images.image_list:
             assets.extend(images.image_list)
+        desired_image_size = self._desired_vendor_image_size(
+            ability=ability,
+            payload_inputs=payload_inputs,
+            images=images,
+        )
         selected_key_id: str | None = None
         credentials: dict[str, Any] | None = None
         with get_session() as session:
@@ -1017,6 +1025,7 @@ class AbilityInvocationService:
             result,
             user_id=str(context.user.id if context.user else "system"),
             tag_prefix=f"vendor-api-{ability.provider.lower()}",
+            desired_image_size=desired_image_size,
         )
         if selected_key_id:
             with get_session() as session:
@@ -1030,6 +1039,88 @@ class AbilityInvocationService:
         result["executor"] = executor.id
         result["baseUrl"] = executor.base_url
         return result
+
+    def _desired_vendor_image_size(
+        self,
+        *,
+        ability: Ability,
+        payload_inputs: dict[str, Any],
+        images: _ImageBundle,
+    ) -> tuple[int, int] | None:
+        """For image-edit auto size, keep the final asset at the source dimensions.
+
+        OpenAI-compatible image editors may return a model-native canvas even when
+        `size=auto`. Business fission expects "auto" to mean "follow the source
+        image unless the caller chose an explicit size", so we enforce that after
+        vendor media is stored.
+        """
+
+        provider = str(ability.provider or "").strip().lower()
+        if provider not in {"openai", "openai_compatible"}:
+            return None
+        metadata = ability.extra_metadata if isinstance(ability.extra_metadata, dict) else {}
+        if str(metadata.get("api_type") or "").strip().lower() != "image_edit":
+            return None
+        raw_size = str(payload_inputs.get("size") or "").strip().lower()
+        if raw_size not in {"", "auto"}:
+            return None
+        for key in ("width", "height", "output_width", "output_height"):
+            value = payload_inputs.get(key)
+            if value not in (None, "", []):
+                return None
+        url = self._first_nonempty_string(
+            payload_inputs.get("image_url"),
+            payload_inputs.get("imageUrl"),
+            images.image_url,
+        )
+        if url:
+            size = self._read_remote_image_size(url)
+            if size:
+                return size
+        b64_payload = self._first_nonempty_string(
+            payload_inputs.get("image_base64"),
+            payload_inputs.get("imageBase64"),
+            images.image_base64,
+        )
+        if b64_payload:
+            return self._read_base64_image_size(b64_payload)
+        return None
+
+    @staticmethod
+    def _read_remote_image_size(url: str) -> tuple[int, int] | None:
+        try:
+            response = httpx.get(url, timeout=30)
+            response.raise_for_status()
+            image = Image.open(BytesIO(response.content))
+            width, height = image.size
+            if width > 0 and height > 0:
+                return int(width), int(height)
+        except Exception:
+            return None
+        return None
+
+    @staticmethod
+    def _read_base64_image_size(payload: str) -> tuple[int, int] | None:
+        try:
+            data_part = payload.split(",", 1)[1] if payload.startswith("data:") and "," in payload else payload
+            image = Image.open(BytesIO(base64.b64decode(data_part)))
+            width, height = image.size
+            if width > 0 and height > 0:
+                return int(width), int(height)
+        except Exception:
+            return None
+        return None
+
+    @staticmethod
+    def _first_nonempty_string(*values: Any) -> str | None:
+        for value in values:
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+            if isinstance(value, bool):
+                return "true" if value else "false"
+            if isinstance(value, (int, float)):
+                return str(value)
+        return None
 
     def _vendor_api_retry_attempts(self, ability: Ability) -> int:
         provider = str(ability.provider or "").lower()

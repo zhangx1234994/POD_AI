@@ -719,6 +719,7 @@
 - 已完成（2026-05-12）：能力目录新增“按业务分类看能力”，按分类展示总数、可接业务、需处理、暂不能接和样例能力，旧分类会在页面上暴露出来，后续便于逐步清理。
 - 进展（2026-05-12）：AI 团队 GPT Image 2 + VL 图裂变交付包已接入为 `biz_fission_v2_openai_gpt_image2_vl` 灰度候选版本；业务版本号 `gpt-image2-vl-v1`，流程为 VL 图案结构卡 -> 中台提示词编译 -> `openai_gpt_image_2_edit`，当前不自动替换默认图裂变。
 - 进展（2026-05-13）：AI 团队 GPT Image 2 受控裂变 v2 交付包已接入为 `biz_fission_v5_openai_gpt_image2_controlled`，业务版本号 `gpt-image2-vl-v2`；核心变更为 VL 只输出客观识别卡，中台执行图案类型路由、定量提示词编译、固定单图输出和质量门禁审计元数据。测评端新增 `business_fission_gpt_image2_vl_v2`，并压缩业务任务历史列表返回，避免 GPT Image2 功能页打开时因大 JSON/长 prompt 卡顿。
+- 进展（2026-05-14）：修正 GPT Image 2 图片编辑默认尺寸策略，`size` 默认改为 `auto` 并在 `auto/未指定` 时按原图尺寸回填最终 OSS 图片；只有业务方明确传固定尺寸时才改变输出画布。
 - 验证（2026-05-12）：`podi-admin-web npm run lint` / `npm run build` 通过；`git diff --check` 通过。
 
 41. `done` I8 114 控制面发布 SOP 固化
@@ -775,16 +776,26 @@
 - 内容：30 条 `comfyui-vl-control-v2` 成功样本、60 张原图/结果图、`summary.csv`、完整过程 JSON、VL 控制卡、ComfyUI 参数。
 - 节点分布：`executor_comfyui_seamless_117` 14 条，`executor_comfyui_pattern_extract_158` 16 条。
 
-47. `todo` J6 样本包导出固定化
+47. `done` J6 样本包导出固定化
 - 背景：本次样本包是临时导出，后续 AI/ComfyUI 团队会反复需要类似材料。
 - 计划：增加脚本化导出能力，支持按业务版本、时间范围、状态、执行节点导出原图、结果图、参数、VL 内容和过程信息。
+- 已完成：
+  - 新增 `backend/scripts/export_business_sample_pack.py`，支持按业务、版本、时间、状态、来源、执行节点筛选导出。
+  - 导出包固定包含 `summary.csv`、`manifest.json`、单 run 的 `run.json/process.json/vl.json/urls.json`，可选下载原图和结果图。
+  - 新增 `docs/standards/business-sample-pack-export.md`，沉淀使用命令、输出结构和交付规则。
+  - 敏感字段会脱敏，避免把 token/API Key 混入协作交付包。
 - 验收：不再靠临时 SQL 和临时脚本手工打包。
 
-48. `todo` J7 三个业务接口交付材料拆分
+48. `done` J7 三个业务接口交付材料拆分
 - 背景：业务方需要直接拿走能运行的交付材料；三个接口放在一起容易看不懂。
 - 范围：GPT Image 2 + VL 控制版、ComfyUI VL 控制卡版、裂变质量评估。
 - 计划：每个接口独立目录，包含 `README.md`、`demo.sh`、`demo.py`、请求示例、响应示例、错误码和轮询示例；Key 不进仓库，只进入临时交付包或单独安全通道。
-- 验收：业务开发拿到任一接口目录即可独立运行，不需要读其他接口说明。
+- 已完成：
+  - 裂变评分补齐业务包装入口 `POST /api/business/fission-evaluate/runs`，统一业务 Key、`runId` 和 `/api/business/runs/get` 轮询。
+  - 新增交付包 `/Volumes/MAC 1/comfyui_zhuanjia/deliverables/podi_fission_delivery_20260514_v3.zip`。
+  - 三个目录分别包含独立 README、`.env.example`、`demo.py`、请求示例、成功响应、失败响应和参数说明。
+  - 真实 Key 不进仓库；交付包只保留占位符，Key 通过管理端或单独安全通道交付。
+- 验收：业务开发拿到任一接口目录即可独立运行，不需要读其他接口说明；三个接口都采用业务 API Key + `runId` 轮询口径。
 
 49. `done` J8 管理端第一轮视觉走查与误导提示修正
 - 背景：中台页面存在“看起来很恐怖但不知道怎么处理”的错误展示，包括本地 systemd 不可读、接口加载超时、Key 来源判断不清、能力结果状态措辞混乱。
@@ -795,4 +806,79 @@
   - 能力调用列表统一为“结果入库/成功无结果”，减少非图片能力误判。
 - 后续：整体信息架构、页面视觉、错误处理建议继续归入前端整改阶段，不在本轮急上线。
 
-*最后更新: 2026-05-13*
+50. `done` J9 每日早检流程固化
+- 背景：每天开始开发前需要先查前一天业务、能力、测评和 API Key 是否有报错，并把数据按固定格式导出。
+- 已完成：
+  - 新增 `backend/scripts/morning_ops_check.py`，导出 `summary.md`、raw JSON、CSV 和 zip 包。
+  - 新增 `docs/standards/morning-ops-check.md`，明确早检先于当天 TODO，且早检只读，不重启服务、不改配置。
+  - `docs/README.md` 已加入每日早检入口。
+- 2026-05-14 早检结论：
+  - 2026-05-13 业务运行 188 条，业务失败 0 条。
+  - 能力异常 6 条：4 条历史 pending 收口、1 条火山 VL 突增保护、1 条裂变评分巡检缺双图参数。
+  - 测评异常 2 条：1 条裂变评分巡检误报，1 条测评等待超时但底层业务后续成功回图。
+- 验收：早检数据包已生成在 114：`reports/morning-check/20260514.zip`。
+
+51. `done` J10 测评等待超时与业务最终成功的状态归并
+- 背景：`图裂变 · ComfyUI VL 控制卡版` 测评运行 `fa74aaffb62b41a085c5b443481c6675` 超过 30 分钟被标失败，但关联业务运行 `4c28df61ee904297a8c9d04f849bd519` 随后成功并回图。
+- 计划：
+  - 测评端和后端查询运行详情时，如果 `BUSINESS_RUN_TIMEOUT` 关联的业务 run 后续已成功，应归并显示为“后台已完成/测评等待超时后恢复”。
+  - 运行列表保留原始测评超时证据，但不再把底层已成功的任务当成业务失败。
+  - 评测巡检报告增加该类问题分类，避免和真实业务失败混淆。
+- 已完成：
+  - 后端对 `BUSINESS_RUN_TIMEOUT` 测评记录增加自动恢复：后台循环和运行详情查询都会重新核对关联 business run，业务已成功时回写测评成功和结果图。
+  - 测评端列表接口和“带最新评分”的列表接口也会在返回前执行同样的恢复检查，避免首页/功能页继续显示旧失败记录。
+  - 前端把残留 `BUSINESS_RUN_TIMEOUT` 错误压缩成“测评等待超时，可刷新恢复”的中文提示，不再展示内部字典原文。
+  - 测评巡检新增 `BUSINESS_RUN_TIMEOUT_RECOVERED` 分类，该类记录不再阻断巡检结论。
+  - 补充业务 run id 提取、列表恢复和巡检归类单测。
+- 验收：用户在测评端能看到最终业务结果图和“等待超时后恢复”的解释。
+
+52. `done` J11 项目 / 数据库 / OSS 清理审计固化
+- 背景：项目目录、数据库历史状态和 OSS 测试对象会持续堆积，影响发版、排查和业务判断。
+- 已完成：
+  - 新增 `backend/scripts/audit_cleanup_candidates.py`，默认只读审计项目文件、数据库脏状态和 OSS 候选对象。
+  - 新增 `docs/standards/cleanup-governance.md`，明确本地可删、数据库归档、OSS 删除的边界和流程。
+  - 本地低风险产物已清理：构建产物、缓存、Playwright 日志、`.DS_Store` 和本地日志；复扫候选为 0。
+  - 数据库审计未发现长时间未收口业务/能力/测评记录、孤儿业务步骤或过期仍 active Key。
+  - OSS 抽样发现 `test/` 前缀候选对象 880 个，约 516MB；暂不直接删除，后续按小批量清理流程处理。
+- 验收：清理报告已生成在 `reports/cleanup-audit/full-audit-with-oss-sample-v2`，本地复扫报告为 `reports/cleanup-audit/post-local-clean`。
+
+## 当前执行单（2026-05-14 下一轮稳定与产品化）
+
+说明：J 系列稳定性收口完成后，先补“清理可执行闭环、发布验证、页面降噪、测评巡检”四类工程化事项；暂不新增复杂业务能力。
+
+53. `done` K1 OSS 清理复核清单
+- 背景：首轮审计发现 OSS `test/` 前缀存在 880 个候选对象，不能直接删除，但需要形成可人工复核、可小批量执行的清单。
+- 已完成：
+  - `backend/scripts/audit_cleanup_candidates.py` 增加 OSS 候选分组汇总，按对象前缀和月份聚合。
+  - 审计报告新增 `raw/oss_candidate_groups.json`。
+  - 审计报告新增 `oss_delete_review_manifest.csv`，默认 `decision=review_required`、`delete_allowed=no`，只作为人工确认清单。
+  - `docs/standards/cleanup-governance.md` 补充 OSS 复核流程。
+- 验收：脚本仍然只读，不会删除 OSS 对象；首批删除仍必须人工确认且不超过 100 个。
+
+54. `done` K2 候选版本上线前总回归
+- 目标：把 J/K 已完成修复作为一个候选版本执行本地总回归，明确哪些测试已跑、哪些线上项必须等部署后验证。
+- 范围：后端重点测试、测评端 lint/build、管理端必要 lint/build、文档引用检查、`git diff --check`、清理复扫。
+- 已完成：
+  - 后端重点回归通过，54 passed，12 warnings。
+  - 管理端和测评端 `npm run lint`、`npm run build` 均通过。
+  - 文档入口引用检查、Alembic 单 head、`git diff --check` 均通过。
+  - 构建产物和测试缓存已清理，排除依赖目录后本地脏产物复扫为空。
+  - 新增真实回归记录 `docs/testing/RELEASE_CANDIDATE_2026-05-14_STABILITY.md`。
+- 验收：已明确本地通过与线上待验证边界，没有把未部署验证写成已通过。
+
+55. `todo` K3 线上更新后 SOP 复核
+- 目标：部署 114 后按 SOP 复核健康、版本、业务 API、Coze 工具箱、测评端关键功能和后台日志。
+- 范围：114 控制面；117.50.80.158 / 117.50.216.233 只做 ComfyUI 节点健康和路由证据确认。
+- 验收：确认漏检的 `BUSINESS_RUN_TIMEOUT` 页面问题在线上消失；确认业务提交、轮询、结果入库、测评展示闭环正常。
+
+56. `todo` K4 管理端视觉走查第二轮
+- 目标：继续减少“看起来很恐怖但不知道怎么处理”的页面信息。
+- 范围：总览、能力调用、业务能力、API 开放、模型弹药库、ComfyUI 纳管。
+- 验收：每页首屏能回答“当前状态、主要风险、下一步动作”；技术错误默认折叠，不把原始异常作为主文案。
+
+57. `todo` K5 测评端业务回归清单
+- 目标：把测评端可交付给内部测试的功能形成固定清单，避免靠临时点击发现页面错误。
+- 范围：两个图裂变业务接口、裂变评分、主线 Coze 工作流、非图片/VL/文字结果展示。
+- 验收：形成可复跑清单，记录每项输入、预期输出、轮询方式、失败归因和页面截图或报告路径。
+
+*最后更新: 2026-05-14*

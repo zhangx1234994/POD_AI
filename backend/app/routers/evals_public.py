@@ -481,6 +481,57 @@ def _serialize_eval_run_for_list(run: EvalRun, billing: dict[str, Any] | None = 
     return EvalRunResponse.model_validate(payload)
 
 
+_RECOVERABLE_BUSINESS_EVAL_ERROR_PREFIXES = (
+    "BUSINESS_RUN_TIMEOUT:",
+    "BUSINESS_RUN_GET_FAILED:",
+    "BUSINESS_RUN_TEMPORARY_UNAVAILABLE:",
+)
+
+
+def _is_recoverable_business_eval_row(run: EvalRun) -> bool:
+    return str(run.status or "").lower() == "failed" and str(run.error_message or "").startswith(
+        _RECOVERABLE_BUSINESS_EVAL_ERROR_PREFIXES
+    )
+
+
+def _is_recoverable_business_timeout_row(run: EvalRun) -> bool:
+    return _is_recoverable_business_eval_row(run)
+
+
+def _recover_business_timeout_rows_for_display(
+    db: Session,
+    rows: list[EvalRun],
+    *,
+    status_filter: str | None = None,
+) -> tuple[list[EvalRun], bool]:
+    """Recover stale business eval rows before the UI renders a failed card."""
+
+    run_ids = [str(row.id) for row in rows if _is_recoverable_business_eval_row(row)]
+    if not run_ids:
+        return rows, False
+
+    recovered = False
+    service = get_eval_service()
+    for run_id in run_ids:
+        recovered = service.reconcile_business_run_for_eval(run_id) or recovered
+    if not recovered:
+        return rows, False
+
+    try:
+        db.expire_all()
+    except Exception:
+        pass
+
+    refreshed: list[EvalRun] = []
+    normalized_status = str(status_filter or "").strip().lower()
+    for row in rows:
+        latest = db.get(EvalRun, row.id) or row
+        if normalized_status and str(latest.status or "").lower() != normalized_status:
+            continue
+        refreshed.append(latest)
+    return refreshed, True
+
+
 def _is_missing_output_review_table(exc: Exception) -> bool:
     text = str(exc).lower()
     return "eval_batch_output_review" in text and (
@@ -2639,6 +2690,9 @@ def list_runs(
 
     total = int(db.execute(count_stmt).scalar_one())
     rows = db.execute(stmt.order_by(EvalRun.created_at.desc()).offset(offset).limit(limit)).scalars().all()
+    rows, recovered = _recover_business_timeout_rows_for_display(db, rows, status_filter=status)
+    if recovered and status:
+        total = int(db.execute(count_stmt).scalar_one())
     billing_map = _build_eval_billing_map(db, rows)
     items = [_serialize_eval_run(row, billing_map.get(str(row.podi_task_id or ""))) for row in rows]
     return EvalRunListResponse(total=total, items=items)
@@ -2857,6 +2911,9 @@ def list_runs_with_latest_annotation(
         .scalars()
         .all()
     )
+    runs, recovered = _recover_business_timeout_rows_for_display(db, runs, status_filter=status)
+    if recovered and status:
+        total = int(db.execute(count_stmt).scalar_one())
 
     run_ids = [r.id for r in runs]
     latest_map: dict[str, EvalAnnotation] = {}
@@ -2903,6 +2960,7 @@ def get_run(
 ) -> EvalRunResponse:
     _require_public_enabled(request)
     _get_or_set_rater_id(request, response)
+    get_eval_service().reconcile_business_run_for_eval(run_id)
     run = db.get(EvalRun, run_id)
     if not run:
         raise HTTPException(status_code=404, detail="NOT_FOUND")

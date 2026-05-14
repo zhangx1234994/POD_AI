@@ -7,6 +7,7 @@ import logging
 import re
 import threading
 import time
+import ast
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from functools import lru_cache
@@ -14,7 +15,7 @@ from typing import Any
 from uuid import uuid4
 
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -35,6 +36,11 @@ _HEX_TASK_ID = re.compile(r"^[0-9a-f]{24,64}$")
 EVAL_FINALIZE_INTERVAL_SECONDS = 3
 EVAL_FINALIZE_BATCH_SIZE = 50
 EVAL_RUN_TIMEOUT_SECONDS = 60 * 30
+RECOVERABLE_BUSINESS_EVAL_ERROR_PREFIXES = (
+    "BUSINESS_RUN_TIMEOUT:",
+    "BUSINESS_RUN_GET_FAILED:",
+    "BUSINESS_RUN_TEMPORARY_UNAVAILABLE:",
+)
 
 
 class EvalService:
@@ -561,6 +567,60 @@ class EvalService:
                     execute_id=coze_execute_id,
                     created_at=item.get("created_at"),
                 )
+        self._finalize_recoverable_business_eval_runs()
+
+    def _finalize_recoverable_business_eval_runs(self) -> None:
+        """Recover eval rows whose display status lagged behind the business run."""
+
+        with get_session() as session:
+            rows = (
+                session.execute(
+                    select(EvalRun.id, EvalRun.result_output_json, EvalRun.error_message)
+                    .where(EvalRun.status == "failed")
+                    .where(
+                        or_(
+                            *[
+                                EvalRun.error_message.like(f"{prefix}%")
+                                for prefix in RECOVERABLE_BUSINESS_EVAL_ERROR_PREFIXES
+                            ]
+                        )
+                    )
+                    .order_by(EvalRun.updated_at.asc())
+                    .limit(20)
+                )
+                .all()
+            )
+        for row in rows:
+            business_run_id = self._extract_business_run_id(row.result_output_json) or self._extract_business_run_id(
+                row.error_message
+            )
+            if not business_run_id:
+                continue
+            self._finalize_business_run_once(run_id=str(row.id), business_run_id=business_run_id)
+
+    def reconcile_business_run_for_eval(self, run_id: str) -> bool:
+        """Synchronously recover one stale business eval row before returning it to the UI."""
+
+        normalized_run_id = str(run_id or "").strip()
+        if not normalized_run_id:
+            return False
+        with get_session() as session:
+            run = session.get(EvalRun, normalized_run_id)
+            if not run or str(run.status or "").lower() != "failed":
+                return False
+            error = str(run.error_message or "")
+            if not error.startswith(RECOVERABLE_BUSINESS_EVAL_ERROR_PREFIXES):
+                return False
+            business_run_id = self._extract_business_run_id(run.result_output_json) or self._extract_business_run_id(
+                error
+            )
+        if not business_run_id:
+            return False
+        self._finalize_business_run_once(run_id=normalized_run_id, business_run_id=business_run_id)
+        return True
+
+    def reconcile_business_timeout_run(self, run_id: str) -> bool:
+        return self.reconcile_business_run_for_eval(run_id)
 
     @staticmethod
     def _append_run_images(run_id: str, *, image_urls: list[str]) -> None:
@@ -873,10 +933,20 @@ class EvalService:
             raw = output.strip()
             if not raw:
                 return ""
+            if raw.startswith(RECOVERABLE_BUSINESS_EVAL_ERROR_PREFIXES):
+                raw = raw.split(":", 1)[1].strip()
             try:
                 output = json.loads(raw)
             except json.JSONDecodeError:
-                return ""
+                try:
+                    parsed = ast.literal_eval(raw)
+                    output = parsed if isinstance(parsed, dict) else raw
+                except (SyntaxError, ValueError):
+                    for key in ("businessRunId", "business_run_id", "runId", "run_id", "id"):
+                        match = re.search(rf"['\"]{key}['\"]\s*:\s*['\"]([^'\"]+)['\"]", raw)
+                        if match:
+                            return match.group(1).strip()
+                    return ""
         if not isinstance(output, dict):
             return ""
         for key in ("businessRunId", "business_run_id", "runId", "run_id", "id"):

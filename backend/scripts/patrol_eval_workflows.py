@@ -264,9 +264,28 @@ def _has_output(run: dict[str, Any]) -> bool:
     return _has_structured_output(run)
 
 
+def _business_output_status(run: dict[str, Any]) -> str:
+    output = run.get("result_output_json") or run.get("resultOutputJson") or run.get("outputJson") or run.get("jsonOutput")
+    if isinstance(output, str):
+        raw = output.strip()
+        if raw.startswith("BUSINESS_RUN_TIMEOUT:"):
+            raw = raw.split(":", 1)[1].strip()
+        if raw.startswith("{") and raw.endswith("}"):
+            try:
+                output = json.loads(raw)
+            except json.JSONDecodeError:
+                return ""
+    if not isinstance(output, dict):
+        return ""
+    status = output.get("status") or output.get("businessStatus")
+    return str(status or "").strip().lower()
+
+
 def _classify_issue(item: dict[str, Any]) -> str:
     status = str(item.get("status") or "").strip()
     error_text = f"{item.get('error') or ''} {item.get('errorCode') or ''}".upper()
+    if item.get("businessRecovered"):
+        return "BUSINESS_RUN_TIMEOUT_RECOVERED"
     if "INTERNAL_ONLY" in error_text:
         return "INTERNAL_ONLY"
     if "COMFYUI_QUEUE_FULL" in error_text:
@@ -319,6 +338,12 @@ def _make_report_item(row: dict[str, Any]) -> dict[str, Any]:
         "errorCode": latest.get("error_code") or run.get("error_code"),
         "error": _short_error(latest.get("error_message") or run.get("error_message")),
     }
+    item["businessRecovered"] = (
+        str(item.get("status") or "") != "succeeded"
+        and "BUSINESS_RUN_TIMEOUT" in f"{item.get('error') or ''} {item.get('errorCode') or ''}".upper()
+        and _business_output_status(latest) == "succeeded"
+        and has_output
+    )
     item["issueCode"] = _classify_issue(item)
     return item
 
@@ -331,6 +356,8 @@ def _is_terminal(row: dict[str, Any]) -> bool:
 def _failed_items(items: list[dict[str, Any]], *, allow_empty_output: bool = False) -> list[dict[str, Any]]:
     failed: list[dict[str, Any]] = []
     for item in items:
+        if item.get("issueCode") == "BUSINESS_RUN_TIMEOUT_RECOVERED":
+            continue
         status = str(item.get("status") or "")
         if status != "succeeded":
             failed.append(item)

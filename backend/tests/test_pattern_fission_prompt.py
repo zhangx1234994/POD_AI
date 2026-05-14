@@ -81,6 +81,7 @@ def test_business_fission_payload_uses_pattern_fission_compiler(monkeypatch) -> 
 
     assert ability_payload.inputs["model"] == "gpt-image-2"
     assert ability_payload.inputs["quality"] == "medium"
+    assert ability_payload.inputs["size"] == "auto"
     assert ability_payload.inputs["n"] == 1
     assert "count" not in ability_payload.inputs
     assert "preserve_layout" not in ability_payload.inputs
