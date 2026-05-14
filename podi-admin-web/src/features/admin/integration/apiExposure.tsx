@@ -160,6 +160,15 @@ const BUSINESS_ENDPOINTS: ApiEndpoint[] = [
     businessKey: 'image_fission',
   },
   {
+    key: 'fission-evaluate-run',
+    name: '裂变生成图评估',
+    method: 'POST',
+    path: '/api/business/fission-evaluate/runs',
+    purpose: '输入原图和裂变结果图，判断质量和逻辑是否通过。',
+    audience: '业务主入口 / 质检',
+    businessKey: 'image_fission',
+  },
+  {
     key: 'outpaint-run',
     name: '扩图',
     method: 'POST',
@@ -255,8 +264,8 @@ const FISSION_API_PARAMS: BusinessApiParamDoc[] = [
   {
     key: 'version',
     required: false,
-    description: '指定图裂变版本。不传时使用中台默认版本；固定 GPT Image 2 + VL 控制版时传 gpt-image2-vl-v1。',
-    example: 'gpt-image2-vl-v1',
+    description: '指定图裂变版本。不传时使用中台默认版本；当前 GPT Image 2 受控版传 gpt-image2-vl-v2，ComfyUI 颜色锁定版传 comfyui-vl-control-v2。',
+    example: 'gpt-image2-vl-v2',
   },
   {
     key: 'prompt',
@@ -279,20 +288,14 @@ const FISSION_API_PARAMS: BusinessApiParamDoc[] = [
   {
     key: 'variation_strength',
     required: false,
-    description: 'GPT Image 2 版本的裂变幅度：low、medium、high。',
-    example: 'high',
+    description: 'GPT Image 2 版本的裂变幅度：conservative、same_series、creative_same_series。默认 same_series。',
+    example: 'same_series',
   },
   {
     key: 'quality',
     required: false,
-    description: 'GPT Image 2 质量档位：preview、production、premium。',
+    description: 'GPT Image 2 质量档位：preview、candidate、premium。',
     example: 'preview',
-  },
-  {
-    key: 'count',
-    required: false,
-    description: 'GPT Image 2 输出张数。建议先用 1 张验证效果。',
-    example: '1',
   },
   {
     key: 'size',
@@ -323,6 +326,39 @@ const FISSION_API_PARAMS: BusinessApiParamDoc[] = [
     required: false,
     description: '调用来源和接入渠道，例如 partner-api、open-api、coze-workflow。',
     example: 'partner-api / open-api',
+  },
+];
+
+const FISSION_EVALUATE_API_PARAMS: BusinessApiParamDoc[] = [
+  {
+    key: 'originalImageUrl',
+    required: true,
+    description: '裂变前原图 URL，用于判断生成图是否保留原始主体、边界和业务逻辑。',
+    example: 'https://example.com/original.png',
+  },
+  {
+    key: 'generatedImageUrl',
+    required: true,
+    description: '裂变后的结果图 URL。评分只判断这张图，不会自动二次裂变。',
+    example: 'https://example.com/generated.png',
+  },
+  {
+    key: 'context',
+    required: false,
+    description: '业务上下文，例如裂变版本、提示词、重绘幅度、配置名。传得越完整，评分解释越准确。',
+    example: '{"business":"fission","version":"gpt-image2-vl-v2"}',
+  },
+  {
+    key: 'callbackUrl',
+    required: false,
+    description: '终态回调地址。不传时业务方自行轮询 runId。',
+    example: 'https://your-service.example.com/podi/callback',
+  },
+  {
+    key: 'requestId / traceId',
+    required: false,
+    description: '业务方请求编号和链路编号，用于和裂变任务、评分任务关联。',
+    example: 'biz-eval-001 / trace-eval-001',
   },
 ];
 
@@ -476,7 +512,7 @@ const DEFAULT_BUSINESS_API_KEY_FORM: BusinessApiKeyFormState = {
   key: '',
   tenantId: '',
   clientId: '',
-  allowedBusinessKeys: 'fission,outpaint,pattern_extract',
+  allowedBusinessKeys: 'fission,fission_evaluate,outpaint,pattern_extract',
   expireAt: '',
 };
 
@@ -595,16 +631,35 @@ function buildBusinessRunExample(): string {
   -H "Content-Type: application/json" \\
   -d '{
     "imageUrl": "https://example.com/input.png",
-    "version": "gpt-image2-vl-v1",
+    "version": "gpt-image2-vl-v2",
     "prompt": "可选：保持主体风格，生成更适合商品使用的花纹变化",
-    "variation_strength": "high",
+    "variation_strength": "same_series",
     "quality": "preview",
-    "count": 1,
     "size": "auto",
     "source": "partner-api",
     "channel": "open-api",
     "callbackUrl": "https://your-service.example.com/callback",
+    "requestId": "biz_req_001",
     "traceId": "biz_trace_001"
+  }'`;
+}
+
+function buildFissionEvaluateExample(): string {
+  return `curl -X POST <backend-host>/api/business/fission-evaluate/runs \\
+  -H "X-PODI-API-Key: <业务 API Key>" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "originalImageUrl": "https://example.com/original.png",
+    "generatedImageUrl": "https://example.com/generated.png",
+    "context": {
+      "business": "fission",
+      "version": "gpt-image2-vl-v2",
+      "prompt": "保持系列感，元素要明显变化"
+    },
+    "source": "partner-api",
+    "channel": "open-api",
+    "requestId": "biz_eval_req_001",
+    "traceId": "biz_eval_trace_001"
   }'`;
 }
 
@@ -759,6 +814,10 @@ export function ApiExposurePanel({
       atomicCount,
     };
   });
+  const activeBusinessApiKeyCount = businessApiKeys.filter((item) => item.status === 'active').length;
+  const failedBusinessApiUsageCount = businessApiKeyUsage.filter((item) => Number(item.statusCode || 0) >= 400 || item.errorCode).length;
+  const recentBusinessApiUsage = businessApiKeyUsage[0];
+  const businessApiUsageCount = businessApiKeyUsage.length;
 
   return (
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
@@ -867,7 +926,7 @@ export function ApiExposurePanel({
               </Tag>
             </Space>
             <Typography.Text theme="secondary">
-              给业务方一个固定入口，传图、参数、回调地址；中台内部切默认版本、灰度、路由和回滚，不需要 Coze 工作流 ID。
+              给业务方一个固定入口，传图、参数、回调地址；中台内部切默认版本、灰度、路由和回滚，不需要 Coze 工作流 ID。当前 GPT Image 2 受控裂变固定一次返回 1 张图，多张图请提交多次。
             </Typography.Text>
             <Tag theme="success" variant="light">
               提交后保存 runId，再轮询结果
@@ -885,6 +944,46 @@ export function ApiExposurePanel({
                     colKey: 'key',
                     title: '参数',
                     width: 160,
+                    cell: ({ row }) => <Typography.Text code>{row.key}</Typography.Text>,
+                  },
+                  {
+                    colKey: 'required',
+                    title: '是否必填',
+                    width: 90,
+                    cell: ({ row }) => (
+                      <Tag theme={row.required ? 'danger' : 'default'} variant="light">
+                        {row.required ? '必填' : '可选'}
+                      </Tag>
+                    ),
+                  },
+                  {
+                    colKey: 'description',
+                    title: '说明',
+                    ellipsis: true,
+                  },
+                  {
+                    colKey: 'example',
+                    title: '示例',
+                    ellipsis: true,
+                  },
+                ]}
+              />
+            </details>
+            <details className="podi-api-param-details">
+              <summary>裂变生成图评估接口</summary>
+              <Typography.Text theme="secondary">
+                评分接口是独立业务接口：输入原图和结果图，返回 runId 后继续用业务查询接口轮询；它只评分，不自动二次裂变。
+              </Typography.Text>
+              <CodeExample value={buildFissionEvaluateExample()} onCopy={onCopy} />
+              <Table
+                rowKey="key"
+                size="small"
+                data={FISSION_EVALUATE_API_PARAMS}
+                columns={[
+                  {
+                    colKey: 'key',
+                    title: '参数',
+                    width: 180,
                     cell: ({ row }) => <Typography.Text code>{row.key}</Typography.Text>,
                   },
                   {
@@ -968,6 +1067,28 @@ export function ApiExposurePanel({
               刷新 Key 记录
             </Button>
           </Space>
+          <div className="podi-business-api-key-summary">
+            <div>
+              <span>业务 Key</span>
+              <strong>{businessApiKeys.length}</strong>
+              <small>启用 {activeBusinessApiKeyCount}</small>
+            </div>
+            <div>
+              <span>最近记录</span>
+              <strong>{businessApiUsageCount}</strong>
+              <small>当前加载数量</small>
+            </div>
+            <div>
+              <span>需关注</span>
+              <strong>{failedBusinessApiUsageCount}</strong>
+              <small>状态码异常或有错误码</small>
+            </div>
+            <div>
+              <span>最近调用</span>
+              <strong>{recentBusinessApiUsage ? formatDateTime(recentBusinessApiUsage.createdAt) : '-'}</strong>
+              <small>{recentBusinessApiUsage?.apiKeyName || '暂无调用记录'}</small>
+            </div>
+          </div>
           <div className="podi-business-api-key-form">
             <div className="podi-business-api-key-form__field">
               <label>Key 名称</label>
@@ -1013,7 +1134,7 @@ export function ApiExposurePanel({
                 placeholder="留空表示全部；多个用逗号分隔"
                 onChange={(value) => updateBusinessApiKeyForm('allowedBusinessKeys', String(value))}
               />
-              <small>常用：fission、outpaint、pattern_extract。</small>
+              <small>常用：fission、fission_evaluate、outpaint、pattern_extract。</small>
             </div>
             <div className="podi-business-api-key-form__field">
               <label>过期时间</label>

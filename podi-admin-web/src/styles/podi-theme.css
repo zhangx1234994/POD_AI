@@ -1308,6 +1308,40 @@ html.t-theme-dark {
   background: color-mix(in srgb, var(--td-bg-color-secondarycontainer) 72%, var(--td-bg-color-container));
 }
 
+.podi-business-api-key-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--podi-space-2);
+}
+
+.podi-business-api-key-summary > div {
+  min-width: 0;
+  border: 1px solid var(--td-border-level-1-color);
+  border-radius: var(--podi-radius-lg);
+  background: var(--td-bg-color-container);
+  padding: 12px;
+}
+
+.podi-business-api-key-summary span,
+.podi-business-api-key-summary small {
+  display: block;
+  overflow: hidden;
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.podi-business-api-key-summary strong {
+  display: block;
+  overflow: hidden;
+  margin: 4px 0;
+  color: var(--td-text-color-primary);
+  font-size: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .podi-business-api-key-form__field {
   display: flex;
   min-width: 0;
@@ -2020,6 +2054,10 @@ html.t-theme-dark {
   }
 
   .podi-business-api-key-form {
+    grid-template-columns: 1fr;
+  }
+
+  .podi-business-api-key-summary {
     grid-template-columns: 1fr;
   }
 

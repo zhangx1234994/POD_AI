@@ -13,7 +13,8 @@ python scripts/create_business_api_key.py \
   --name "业务方图裂变测试 Key" \
   --tenant-id partner \
   --client-id fission-api \
-  --allowed-business-key fission
+  --allowed-business-key fission \
+  --allowed-business-key fission_evaluate
 ```
 
 脚本会把 Key 写入中台 `api_keys` 表，并在终端输出一次完整 Key。业务方请求时放在请求头：
@@ -21,6 +22,8 @@ python scripts/create_business_api_key.py \
 ```http
 X-PODI-API-Key: <脚本输出的 key>
 ```
+
+如果只交付两个裂变生成接口，Key 只需要授权 `fission`。如果同时交付“裂变生成图评分”接口，需要额外授权 `fission_evaluate`。
 
 ## 2. 提交 GPT Image 2 受控版裂变
 

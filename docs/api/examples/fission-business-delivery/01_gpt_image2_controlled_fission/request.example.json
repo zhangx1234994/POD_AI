@@ -1,0 +1,13 @@
+{
+  "imageUrl": "https://example.com/input.png",
+  "version": "gpt-image2-vl-v2",
+  "prompt": "保留系列感，元素要明显变化",
+  "variation_strength": "same_series",
+  "quality": "preview",
+  "size": "auto",
+  "source": "partner-api",
+  "channel": "open-api",
+  "requestId": "biz-gpt-image2-fission-001",
+  "traceId": "trace-gpt-image2-fission-001"
+}
+

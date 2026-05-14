@@ -3,7 +3,7 @@
 本文档沉淀 2026-05-12 交付给业务方的三个接口：
 
 - 图裂变 · GPT Image 2 + VL 控制版
-- 图裂变 · ComfyUI VL 控制卡版
+- 图裂变 · ComfyUI 颜色锁定版
 - 生成图评估 · 裂变质量与逻辑评估
 
 目标是避免后续再重复确认“哪个 ID 用来轮询、哪些参数被统一聚合、`bili` 到底表示什么”。
@@ -73,8 +73,8 @@ classDiagram
 
     class BusinessCapabilityVersion {
         +businessKey fission
-        +version gpt-image2-vl-v1
-        +version comfyui-vl-control-v1
+        +version gpt-image2-vl-v2
+        +version comfyui-vl-control-v2
         +isDefault 是否默认
         +releaseTime 发布时间
         +recipe 业务配方
@@ -132,7 +132,7 @@ flowchart TD
     B --> C["创建 BusinessRun，状态 queued"]
     C --> D{"选择业务版本"}
     D --> E["GPT Image 2 + VL 控制版"]
-    D --> F["ComfyUI VL 控制卡版"]
+    D --> F["ComfyUI 颜色锁定版"]
     E --> G["先跑 VL 控制卡"]
     F --> G
     G --> H["聚合参数：原图、提示词、尺寸、裂变幅度、控制卡"]
@@ -186,10 +186,10 @@ flowchart TD
 | --- | --- | --- | --- |
 | `imageUrl` / `url` | 两个裂变版本 | 原图 URL | 必填。上传后默认取上传图地址。 |
 | `prompt` | 两个裂变版本 | 用户提示词 | 可选；不传时由系统提示词和 VL 结果兜底。 |
-| `bili` | ComfyUI VL 控制卡版 | 裂变幅度 / 重绘幅度 | 不是相似度。数值越高，变化越明显。 |
-| `width` / `height` | ComfyUI VL 控制卡版 | 输出宽高 | 默认应跟原图尺寸走；用户可以手动改。 |
-| `profile` / `profile_id` | ComfyUI VL 控制卡版 | 裂变配置 | 默认 `pattern_default_v1`。 |
-| `variation_strength` | GPT Image 2 + VL 控制版 | 商业模型裂变强度 | 建议值：`low/medium/high`。 |
+| `bili` | ComfyUI 颜色锁定版 | 裂变幅度 / 重绘幅度 | 不是相似度。建议 0%-20%，默认 15%。 |
+| `width` / `height` | ComfyUI 颜色锁定版 | 输出宽高 | 默认应跟原图尺寸走；用户可以手动改。 |
+| `profile` / `profile_id` | ComfyUI 颜色锁定版 | 裂变配置 | 默认 `pattern_color_lock_v2`。 |
+| `variation_strength` | GPT Image 2 + VL 控制版 | 商业模型裂变强度 | 建议值：`conservative/same_series/creative_same_series`。 |
 | `quality` | GPT Image 2 + VL 控制版 | 输出质量 | 走 OpenAI 图片编辑参数。 |
 | `size` | GPT Image 2 + VL 控制版 | 输出尺寸 | 默认 `auto`，最终 OSS 图片按原图尺寸回填；只有明确传固定预设时才改变画布。 |
 | `maskUrl` / `mask_url` | GPT Image 2 + VL 控制版 | 蒙版图 URL | 可选；有蒙版编辑需求时传。 |
@@ -199,7 +199,7 @@ flowchart TD
 - `bili` = 裂变幅度 / 重绘幅度。
 - 不是“相似度”。
 - 数值越大，重绘越强，和原图差异越大。
-- ComfyUI 控制卡版使用 `variation_percent_045_080` 映射，内部大致对应 denoise 0.45 到 0.80。
+- ComfyUI 颜色锁定版使用 `variation_percent_045_080_colorlock_v2` 映射，内部大致对应 denoise 0.45 到 0.80；业务侧建议限制在 0%-20%。
 - 旧裂变工作流继续沿用之前约定，不再反向改成“相似度”。
 
 ---
@@ -213,11 +213,11 @@ flowchart TD
 ```json
 {
   "imageUrl": "https://example.com/input.png",
-  "version": "gpt-image2-vl-v1",
+  "version": "gpt-image2-vl-v2",
   "prompt": "可选：希望保留主体结构，生成同系列花纹裂变",
   "inputs": {
-    "variation_strength": "medium",
-    "quality": "auto",
+    "variation_strength": "same_series",
+    "quality": "preview",
     "size": "auto"
   },
   "traceId": "biz_trace_001",
@@ -233,19 +233,19 @@ flowchart TD
 - 有蒙版时传 `maskUrl`。
 - 固定单次输出 1 张图；如需 3 张，提交 3 次，每次获得独立 `runId`、轮询结果和回调。
 
-### 5.2 ComfyUI VL 控制卡版
+### 5.2 ComfyUI 颜色锁定版
 
 推荐提交：
 
 ```json
 {
   "imageUrl": "https://example.com/input.png",
-  "version": "comfyui-vl-control-v1",
+  "version": "comfyui-vl-control-v2",
   "inputs": {
-    "bili": "50%",
+    "bili": "15%",
     "width": 2000,
     "height": 2000,
-    "profile": "pattern_default_v1"
+    "profile": "pattern_color_lock_v2"
   },
   "traceId": "biz_trace_002",
   "requestId": "biz_req_002"
@@ -256,7 +256,8 @@ flowchart TD
 
 - 这个版本不走 Coze 工作流，走中台业务 API。
 - 宽高默认应由上传原图读取；业务方可以手动覆盖。
-- `bili` 是裂变幅度，不是相似度。
+- `bili` 是裂变幅度，不是相似度；颜色锁定版建议 0%-20%，默认 15%。
+- `profile` 默认 `pattern_color_lock_v2`；更严格保色时可用 `pattern_color_lock_strict_v2`。
 - 底层会路由到可用 ComfyUI 服务器，不能固定打一台机器。
 
 ### 5.3 生成图评估
