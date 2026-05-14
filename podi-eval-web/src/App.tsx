@@ -2298,30 +2298,35 @@ function Lightbox({
   const [slider, setSlider] = useState(50);
   const [opacity, setOpacity] = useState(72);
   const contextOutputKey = (context?.outputUrls || []).join('|');
-  const contextGroupKey = (context?.groups || [])
-    .map((item) => `${item.id}:${(item.outputUrls || []).join(',')}`)
-    .join('|');
-  const groups = (context?.groups || []).filter((item) => item && (item.inputUrl || (item.outputUrls || []).length > 0));
+  const groups = useMemo(
+    () => (context?.groups || []).filter((item) => item && (item.inputUrl || (item.outputUrls || []).length > 0)),
+    [context?.groups],
+  );
   const initialGroupIndex = Math.max(
     0,
     groups.findIndex((item) => item.id === context?.activeGroupId),
   );
-  const [groupIndex, setGroupIndex] = useState(initialGroupIndex);
+  const initialGroupId = groups[initialGroupIndex]?.id || groups[0]?.id || '';
+  const groupIdsKey = groups.map((item) => item.id).join('|');
+  const [selectedGroupId, setSelectedGroupId] = useState(initialGroupId);
+  const groupIndex = Math.max(0, groups.findIndex((item) => item.id === selectedGroupId));
   const activeGroup = groups[groupIndex] || groups[0] || null;
   const effectiveInputUrl = activeGroup?.inputUrl || context?.inputUrl || '';
   const effectiveOutputs = (activeGroup?.outputUrls || context?.outputUrls || []).filter((item) => String(item || '').trim());
   const safeOutputs = effectiveOutputs;
-  const outputUrl = safeOutputs[index] || safeOutputs[0] || url;
+  const outputUrl = safeOutputs[index] || safeOutputs[0] || '';
+  const hasGroupBrowser = groups.length > 0;
   const hasCompare = Boolean(effectiveInputUrl && safeOutputs.length > 0);
+  const activeUrl = hasCompare ? outputUrl : (effectiveInputUrl || outputUrl || url);
 
   useEffect(() => {
     setZoom(1);
     setMode(context?.mode || 'side-by-side');
     setIndex(context?.activeIndex || 0);
-    setGroupIndex(initialGroupIndex);
+    setSelectedGroupId(initialGroupId);
     setSlider(50);
     setOpacity(72);
-  }, [url, context?.activeIndex, context?.mode, context?.inputUrl, contextOutputKey, contextGroupKey, initialGroupIndex]);
+  }, [url, context?.activeGroupId, context?.activeIndex, context?.mode, context?.inputUrl, contextOutputKey, initialGroupId]);
 
   useEffect(() => {
     if (index < safeOutputs.length) return;
@@ -2329,9 +2334,13 @@ function Lightbox({
   }, [index, safeOutputs.length]);
 
   useEffect(() => {
-    if (groupIndex < groups.length) return;
-    setGroupIndex(0);
-  }, [groupIndex, groups.length]);
+    if (!groups.length) {
+      if (selectedGroupId) setSelectedGroupId('');
+      return;
+    }
+    if (groups.some((item) => item.id === selectedGroupId)) return;
+    setSelectedGroupId(groups[0]?.id || '');
+  }, [groupIdsKey, groups, selectedGroupId]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -2345,7 +2354,7 @@ function Lightbox({
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose, safeOutputs.length]);
 
-  if (!url) return null;
+  if (!url && !activeUrl) return null;
 
   const modes = [
     { value: 'side-by-side' as const, label: '并排' },
@@ -2358,10 +2367,9 @@ function Lightbox({
     '--podi-compare-opacity': `${opacity / 100}`,
     '--podi-lightbox-zoom': `${zoom}`,
   } as CSSProperties;
-  const displayTitle = title || (hasCompare ? `结果图 #${index + 1}` : '图片预览');
-  const activeUrl = hasCompare ? outputUrl : url;
+  const displayTitle = activeGroup?.label || title || (hasCompare ? `结果图 #${index + 1}` : '图片预览');
   const openOriginal = () => {
-    const target = hasCompare ? effectiveInputUrl : url;
+    const target = effectiveInputUrl || activeUrl || url;
     if (target) window.open(target, '_blank', 'noreferrer');
   };
   const openResult = () => {
@@ -2382,13 +2390,13 @@ function Lightbox({
     </div>
   );
   const selectGroup = (nextIndex: number) => {
-    setGroupIndex(nextIndex);
+    setSelectedGroupId(groups[nextIndex]?.id || '');
     setIndex(0);
   };
   const parameterEntries = Object.entries(activeGroup?.parameters || {});
 
   return (
-    <div className="podi-immersive-viewer" role="dialog" aria-modal="true" aria-label={displayTitle} onWheel={onWheel}>
+    <div className="podi-immersive-viewer" role="dialog" aria-modal="true" aria-label={displayTitle}>
       <header className="podi-immersive-viewer__topbar">
         <Button size="small" variant="outline" onClick={onClose}>
           返回
@@ -2426,8 +2434,8 @@ function Lightbox({
         <Button size="small" variant="outline" onClick={openOriginal}>
           原图
         </Button>
-        <Button size="small" theme="primary" variant="base" onClick={openResult}>
-          {hasCompare ? '结果图' : '新窗口打开'}
+        <Button size="small" theme="primary" variant="base" onClick={openResult} disabled={!activeUrl}>
+          {hasCompare ? '结果图' : '打开当前图'}
         </Button>
         <Button size="small" variant="text" onClick={onClose}>
           关闭
@@ -2435,7 +2443,7 @@ function Lightbox({
       </header>
 
       <div className="podi-immersive-viewer__body">
-        {hasCompare ? (
+        {hasGroupBrowser ? (
           <aside className="podi-immersive-viewer__rail">
             <div className="podi-immersive-viewer__rail-head">
               <span>{groups.length > 1 ? '结果组' : '本组图片'}</span>
@@ -2443,7 +2451,7 @@ function Lightbox({
             </div>
             {groups.length > 1 ? (
               groups.map((group, idx) => {
-                const preview = group.outputUrls[0] || group.inputUrl || '';
+                const preview = group.outputUrls[0] || '';
                 return (
                   <button
                     key={group.id}
@@ -2454,6 +2462,7 @@ function Lightbox({
                     <span className="podi-immersive-viewer__group-images">
                       {group.inputUrl ? <img src={group.inputUrl} alt={`${group.label} 原图`} loading="lazy" /> : null}
                       {preview ? <img src={preview} alt={`${group.label} 结果`} loading="lazy" /> : null}
+                      {!preview && group.inputUrl ? <span>等待结果</span> : null}
                     </span>
                     <strong>{group.label}</strong>
                     <small>{group.sublabel || group.runId || '—'}</small>
@@ -2483,7 +2492,7 @@ function Lightbox({
           </aside>
         ) : null}
 
-        <main className="podi-immersive-viewer__canvas">
+        <main className="podi-immersive-viewer__canvas" onWheel={onWheel}>
           {hasCompare ? (
             <div className={`podi-compare-stage podi-immersive-viewer__stage podi-compare-stage--${mode}`} style={style}>
               {mode === 'side-by-side' ? (
@@ -2505,9 +2514,17 @@ function Lightbox({
                 </div>
               )}
             </div>
+          ) : hasGroupBrowser && activeGroup ? (
+            <div className="podi-immersive-viewer__pending" style={style}>
+              {effectiveInputUrl ? <img src={effectiveInputUrl} alt={`${activeGroup.label} 原图`} draggable={false} /> : null}
+              <div className="podi-immersive-viewer__pending-card">
+                <strong>{formatEvalStageStatus('final', activeGroup.status || 'queued')}</strong>
+                <span>{safeOutputs.length > 0 ? '结果图加载中，请稍后刷新。' : '这一组还没有可展示的结果图，左侧列表仍可继续切换其他组。'}</span>
+              </div>
+            </div>
           ) : (
             <div className="podi-immersive-viewer__single" style={style}>
-              <img src={url} alt={title || 'preview'} draggable={false} />
+              <img src={activeUrl || url} alt={title || 'preview'} draggable={false} />
             </div>
           )}
         </main>
@@ -2529,11 +2546,11 @@ function Lightbox({
               <span>缩放</span>
               <strong>{Math.round(zoom * 100)}%</strong>
             </div>
-            {hasCompare ? (
+            {hasGroupBrowser ? (
               <>
                 <div className="podi-immersive-viewer__kv">
                   <span>结果</span>
-                  <strong>{Math.min(index + 1, safeOutputs.length)} / {safeOutputs.length}</strong>
+                  <strong>{safeOutputs.length > 0 ? `${Math.min(index + 1, safeOutputs.length)} / ${safeOutputs.length}` : '暂无结果'}</strong>
                 </div>
                 <div className="podi-immersive-viewer__kv">
                   <span>状态</span>
