@@ -53,6 +53,9 @@ from app.services.api_key_selector import is_usable
 from app.services.ability_seed import ensure_default_abilities
 from app.services.ability_task_service import get_ability_task_service
 from app.services.business_seed import ensure_default_business_capabilities
+from app.services.fission_control_prompt import compile_comfyui_v4_image_desc
+from app.services.fission_control_prompt import compile_comfyui_v4_prompt
+from app.services.fission_control_prompt import extract_fission_control_card
 from app.services.pattern_fission_prompt import LEGACY_TEMPLATE_ALIASES as PATTERN_FISSION_LEGACY_TEMPLATE_ALIASES
 from app.services.pattern_fission_prompt import TEMPLATE_ALIASES as PATTERN_FISSION_TEMPLATE_ALIASES
 from app.services.pattern_fission_prompt import TEMPLATE_ID as PATTERN_FISSION_TEMPLATE_ID
@@ -3917,6 +3920,7 @@ class BusinessRunService:
                     card = vl_summary.get("vlCard")
                 if not isinstance(card, dict):
                     card = {}
+                business_extra_prompt = self._first_string(inputs.get("prompt"))
                 prompt_main = self._first_string(
                     card.get("prompt_main"),
                     card.get("promptMain"),
@@ -3952,8 +3956,29 @@ class BusinessRunService:
                     inputs.get("profile"),
                     inputs.get("profile_id"),
                 )
+                pattern_risk_type = self._first_value(
+                    card.get("pattern_risk_type"),
+                    vl_summary.get("pattern_risk_type"),
+                    card.get("patternRiskType"),
+                    vl_summary.get("patternRiskType"),
+                    card.get("pattern_type"),
+                    vl_summary.get("patternType"),
+                )
+                object_variation_level = self._first_value(
+                    card.get("object_variation_level"),
+                    vl_summary.get("object_variation_level"),
+                    card.get("objectVariationLevel"),
+                    vl_summary.get("objectVariationLevel"),
+                )
                 if compiler == "comfyui_fission_control_card_v2":
                     profile_hint = profile_hint or "pattern_risk_routed_v4"
+                    prompt_main = compile_comfyui_v4_prompt(
+                        prompt_main=prompt_main,
+                        business_extra_prompt=business_extra_prompt,
+                        pattern_risk_type=pattern_risk_type,
+                        object_variation_level=object_variation_level,
+                        bili=inputs.get("bili"),
+                    )
                     color_lock_lines = []
                     if palette_card:
                         color_lock_lines.append(
@@ -3965,6 +3990,7 @@ class BusinessRunService:
                     color_lock_lines.append(
                         "Negative constraints: no new dominant color palette, no red brown dominance unless present in source, no orange yellow dominance unless present in source, no high saturation, no harsh contrast, no random white holes, no black block dominance, no photorealistic carpet scene, no perspective room render."
                     )
+                    prompt_control = compile_comfyui_v4_image_desc(prompt_control)
                     prompt_control = "\n".join([part for part in [prompt_control, *color_lock_lines] if part])
                 compiled_inputs = {
                     "prompt": prompt_main,
@@ -3982,6 +4008,7 @@ class BusinessRunService:
                     compiled_inputs["bili_mapping"] = "pattern_risk_routed_v4"
                     for field, *aliases in (
                         ("pattern_risk_type", "patternRiskType", "pattern_type", "patternType"),
+                        ("object_variation_level", "objectVariationLevel"),
                         ("density_risk_level", "densityRiskLevel"),
                         ("max_denoise", "maxDenoise"),
                         ("recommended_reference_lock", "recommendedReferenceLock"),
@@ -3994,6 +4021,22 @@ class BusinessRunService:
                         compiled_inputs["reference_lock"] = compiled_inputs["recommended_reference_lock"]
                     if inputs.get("color_lock") in (None, "") and compiled_inputs.get("recommended_color_lock") not in (None, ""):
                         compiled_inputs["color_lock"] = compiled_inputs["recommended_color_lock"]
+                    reference_lock_value = self._first_value(
+                        inputs.get("reference_lock"),
+                        compiled_inputs.get("reference_lock"),
+                        compiled_inputs.get("recommended_reference_lock"),
+                    )
+                    if reference_lock_value not in (None, "", []):
+                        compiled_inputs["reference_lock"] = reference_lock_value
+                        compiled_inputs["ipadapter_weight"] = reference_lock_value
+                    color_lock_value = self._first_value(
+                        inputs.get("color_lock"),
+                        compiled_inputs.get("color_lock"),
+                        compiled_inputs.get("recommended_color_lock"),
+                    )
+                    if color_lock_value not in (None, "", []):
+                        compiled_inputs["color_lock"] = color_lock_value
+                        compiled_inputs["colormatch_strength"] = color_lock_value
                 for field, value in compiled_inputs.items():
                     if field in pass_keys and value not in (None, "", []):
                         if overwrite or not inputs.get(field):
@@ -4041,6 +4084,7 @@ class BusinessRunService:
                 "vl_result",
                 "bili_mapping",
                 "pattern_risk_type",
+                "object_variation_level",
                 "density_risk_level",
                 "max_denoise",
                 "recommended_reference_lock",
@@ -5676,13 +5720,7 @@ class BusinessRunService:
         if first_text:
             parsed = self._try_parse_json(first_text)
             if isinstance(parsed, dict):
-                control_card = (
-                    parsed.get("fissionControlCard") if isinstance(parsed.get("fissionControlCard"), dict) else None
-                )
-                if not control_card:
-                    control_markers = {"route_mode", "pattern_type", "profile_hint", "prompt_main", "prompt_control"}
-                    if len(control_markers.intersection(parsed)) >= 3:
-                        control_card = parsed
+                control_card = extract_fission_control_card(parsed)
                 if isinstance(control_card, dict):
                     summary["fissionControlCard"] = control_card
                     for source_key, target_key in (
@@ -5690,14 +5728,18 @@ class BusinessRunService:
                         ("profile_hint", "profileHint"),
                         ("prompt_main", "promptMain"),
                         ("prompt_control", "promptControl"),
+                        ("image_desc", "imageDesc"),
+                        ("pattern_risk_type", "patternRiskType"),
+                        ("density_risk_level", "densityRiskLevel"),
                     ):
                         value = control_card.get(source_key)
                         if isinstance(value, (str, int, float)) and str(value).strip():
                             summary[target_key] = str(value).strip()[:1200]
                     if isinstance(control_card.get("prompt_main"), (str, int, float)):
                         summary.setdefault("positivePrompt", str(control_card.get("prompt_main")).strip()[:1200])
-                    if isinstance(control_card.get("prompt_control"), (str, int, float)):
-                        summary.setdefault("imageDesc", str(control_card.get("prompt_control")).strip()[:1200])
+                    prompt_control = control_card.get("prompt_control") or control_card.get("image_desc")
+                    if isinstance(prompt_control, (str, int, float)):
+                        summary.setdefault("imageDesc", str(prompt_control).strip()[:1200])
                 vl_card = parsed.get("vlCard") if isinstance(parsed.get("vlCard"), dict) else None
                 if not vl_card:
                     card_markers = {
@@ -5742,7 +5784,7 @@ class BusinessRunService:
                     ):
                         value = prompt_card.get(source_key)
                         if isinstance(value, (str, int, float)) and str(value).strip():
-                            summary[target_key] = str(value).strip()[:800]
+                            summary.setdefault(target_key, str(value).strip()[:800])
             else:
                 summary["textPreview"] = first_text[:800]
 

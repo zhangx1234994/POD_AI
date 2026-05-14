@@ -250,7 +250,9 @@ FISSION_CONTROL_CARD_VL_PROMPT = dedent(
     - pattern_risk_type 用于后端路由实际 denoise。分离的卡通、贴纸、图标、儿童、动物、食物、玩具等可识别对象，使用 separable_cartoon_icon_repeat。
     - prompt_main 是给生成模型的主提示词，重点描述要保留的系列感、主要元素、构图、风格和允许变化的对象级细节。
     - image_desc 是给工作流的补充控制描述，重点描述疏密、层级、边框、颜色比例、材质、禁止漂移方向。
-    - 对 separable_cartoon_icon_repeat，高裂变幅度要允许对象级变化：姿态、轮廓细节、发型、服饰、表情、配饰、局部小形状等，但必须保持重复布局、元素数量级、平均尺寸、间距节奏、背景占比和原图配色。
+    - 对 separable_cartoon_icon_repeat，高裂变幅度必须使用强对象级变化，不要写“微调”“轻微调整”“局部优化”等保守表达。
+    - 对 separable_cartoon_icon_repeat，prompt_main 必须包含或等价表达：
+      "High object-level fission: every repeated object should show visible local redesign. Vary poses, contour details, hair, clothing, expressions, accessory details, object decoration, ball panel patterns, heart silhouettes, and small shape details. Avoid keeping identical repeated objects. Preserve all-over repeat layout, motif count level, average motif size, spacing rhythm, background-to-motif area ratio, and source palette."
     - palette_card 必须给出主色、底色、点缀色、面积关系以及禁止新增的主导色系。
     - 颜色控制优先级高：保持原图主色、辅色、点缀色和深浅面积比例，不得新增原图没有的主导色系。
     - prompt_main 禁止出现“不同配色方案”“可调整配色”“重新设计色彩”“更丰富的色彩”等放权表达。
@@ -2212,7 +2214,7 @@ VL_ABILITIES: dict[str, AbilityDefinition] = {
         "description": "统一的图裂变前置 VL 组件，输出 prompt_main、prompt_control 和控制卡，供 ComfyUI/商业模型裂变复用。",
         "category": "vision_language",
         "input_schema": _vl_fission_control_card_schema(),
-        "metadata": _vl_fission_control_card_metadata(seed_version=4),
+        "metadata": _vl_fission_control_card_metadata(seed_version=5),
     },
     "fission_generated_image_evaluate": {
         "defaults": {

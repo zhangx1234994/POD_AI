@@ -97,6 +97,61 @@ def test_business_fission_payload_uses_pattern_fission_compiler(monkeypatch) -> 
     assert "保留系列感" in ability_payload.inputs["prompt"]
 
 
+def test_business_comfyui_v4_payload_extracts_vl_card_and_wires_reference_lock(monkeypatch) -> None:
+    monkeypatch.setattr(BusinessRunService, "_start_finalize_thread", lambda self: None)
+    service = BusinessRunService()
+    payload = BusinessRunCreateRequest(
+        imageUrl="https://example.com/source.png",
+        prompt="业务额外要求：保留童趣运动主题。",
+        inputs={
+            "bili": "80%",
+            "reference_lock": 0.34,
+            "color_lock": 0.9,
+            "profile": "pattern_risk_routed_v4",
+        },
+    )
+    recipe = {
+        "vlAssist": {
+            "enabled": True,
+            "applyToPrimary": {"compiler": "comfyui_fission_control_card_v2", "overwrite": True},
+        }
+    }
+    vl_summary = {
+        "fissionControlCard": {
+            "prompt_main": "童趣足球满版印花，保持原图布局和配色。",
+            "image_desc": "浅奶油底色，儿童、足球、爱心和圆点重复排列。",
+            "pattern_risk_type": "separable_cartoon_icon_repeat",
+            "object_variation_level": "high",
+            "recommended_reference_lock": 0.42,
+            "recommended_color_lock": 0.9,
+            "palette_card": {"dominant_colors": ["cream", "pastel blue"]},
+        }
+    }
+
+    ability_payload = service._build_ability_payload(
+        capability_key="fission",
+        payload=payload,
+        image_url="https://example.com/source.png",
+        route_info={"version": "comfyui-vl-control-v2"},
+        trace_context={"traceId": "trace-test"},
+        recipe=recipe,
+        vl_summary=vl_summary,
+    )
+
+    prompt = ability_payload.inputs["prompt"]
+    assert "High object-level fission" in prompt
+    assert "visible local redesign" in prompt
+    assert "Avoid keeping identical repeated objects" in prompt
+    assert "业务额外要求" in prompt
+    assert ability_payload.inputs["image_desc"].startswith("浅奶油底色")
+    assert "Preserve palette, density, motif scale" in ability_payload.inputs["image_desc"]
+    assert ability_payload.inputs["reference_lock"] == 0.34
+    assert ability_payload.inputs["ipadapter_weight"] == 0.34
+    assert ability_payload.inputs["color_lock"] == 0.9
+    assert ability_payload.inputs["colormatch_strength"] == 0.9
+    assert ability_payload.inputs["pattern_risk_type"] == "separable_cartoon_icon_repeat"
+
+
 def test_pattern_fission_prompt_keeps_legacy_template_available() -> None:
     compiled = compile_pattern_fission_prompt(
         vl_summary=_vl_summary(),

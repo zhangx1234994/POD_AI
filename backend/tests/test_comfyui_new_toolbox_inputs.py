@@ -285,6 +285,24 @@ def test_flux_strong_hq_softstyle_fission_colorlock_uses_v4_risk_route_and_contr
     assert overrides_high is not None
     assert overrides_high["24"] == {"steps": 8, "denoise": 0.72}
 
+    overrides_reference_lock, error_reference_lock = adapter._build_flux_strong_hq_softstyle_fission_inputs(
+        {
+            "image_url": "https://example.com/pattern.png",
+            "prompt": "keep palette and redesign motifs",
+            "bili": "100%",
+            "bili_mapping": "pattern_risk_routed_v4",
+            "profile": "pattern_risk_routed_v4",
+            "vl_result": {"pattern_risk_type": "separable_cartoon_icon_repeat"},
+            "reference_lock": 0.34,
+            "ipadapter_weight": 0.42,
+        },
+        context,
+        context.workflow.definition,
+    )
+    assert error_reference_lock is None
+    assert overrides_reference_lock is not None
+    assert overrides_reference_lock["20"] == {"weight": 0.34}
+
     overrides_conservative, error_conservative = adapter._build_flux_strong_hq_softstyle_fission_inputs(
         {
             "image_url": "https://example.com/pattern.png",

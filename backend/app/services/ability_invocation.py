@@ -34,6 +34,9 @@ from app.services.ability_presentation import get_public_field_schema, get_publi
 from app.services.task_id_codec import encode_task_id
 from app.services.ability_seed import ensure_default_abilities
 from app.services.executor_seed import ensure_default_executors
+from app.services.fission_control_prompt import compile_comfyui_v4_image_desc
+from app.services.fission_control_prompt import compile_comfyui_v4_prompt
+from app.services.fission_control_prompt import extract_fission_control_card
 from app.services.fission_image_evaluation import normalize_generated_image_eval_result
 from app.services.integration_test import integration_test_service
 from app.services.api_key_selector import build_vendor_credentials, bump_usage, pick_vendor_api_key
@@ -1537,13 +1540,7 @@ class AbilityInvocationService:
         parsed = self._parse_jsonish_payload(raw_vl_result)
         if not isinstance(parsed, dict):
             return
-        card = parsed.get("fissionControlCard") if isinstance(parsed.get("fissionControlCard"), dict) else None
-        if not card and isinstance(parsed.get("vl_result"), dict):
-            card = parsed.get("vl_result")
-        if not card and isinstance(parsed.get("vlResult"), dict):
-            card = parsed.get("vlResult")
-        if not card and ("prompt_main" in parsed or "prompt_control" in parsed):
-            card = parsed
+        card = extract_fission_control_card(parsed)
         if not isinstance(card, dict):
             return
 
@@ -1578,7 +1575,29 @@ class AbilityInvocationService:
             parsed.get("profileHint"),
             workflow_params.get("profile"),
         )
+        pattern_type = self._first_nonempty_text(
+            card.get("pattern_risk_type"),
+            card.get("patternRiskType"),
+            parsed.get("pattern_risk_type"),
+            parsed.get("patternRiskType"),
+            card.get("pattern_type"),
+            card.get("patternType"),
+            parsed.get("patternType"),
+        )
+        object_variation_level = self._first_nonempty_text(
+            card.get("object_variation_level"),
+            card.get("objectVariationLevel"),
+            parsed.get("object_variation_level"),
+            parsed.get("objectVariationLevel"),
+        )
         if profile in {"pattern_risk_routed_v4", "pattern_color_lock_v2", "pattern_color_lock_strict_v2"}:
+            prompt_main = compile_comfyui_v4_prompt(
+                prompt_main=prompt_main,
+                business_extra_prompt=workflow_params.get("prompt"),
+                pattern_risk_type=pattern_type,
+                object_variation_level=object_variation_level,
+                bili=workflow_params.get("bili"),
+            )
             color_lock_lines = []
             if palette_card:
                 color_lock_lines.append(
@@ -1590,23 +1609,15 @@ class AbilityInvocationService:
             color_lock_lines.append(
                 "Negative constraints: no new dominant color palette, no red brown dominance unless present in source, no orange yellow dominance unless present in source, no high saturation, no harsh contrast, no random white holes, no black block dominance, no photorealistic carpet scene, no perspective room render."
             )
+            prompt_control = compile_comfyui_v4_image_desc(prompt_control)
             prompt_control = "\n".join([part for part in [prompt_control, *color_lock_lines] if part])
-        if prompt_main and not workflow_params.get("prompt"):
+        if prompt_main:
             workflow_params["prompt"] = prompt_main
-        if prompt_control and not workflow_params.get("image_desc"):
+        if prompt_control:
             workflow_params["image_desc"] = prompt_control
         if profile:
             workflow_params.setdefault("profile", profile)
             workflow_params.setdefault("profile_id", profile)
-        pattern_type = self._first_nonempty_text(
-            card.get("pattern_risk_type"),
-            card.get("patternRiskType"),
-            parsed.get("pattern_risk_type"),
-            parsed.get("patternRiskType"),
-            card.get("pattern_type"),
-            card.get("patternType"),
-            parsed.get("patternType"),
-        )
         if pattern_type:
             workflow_params.setdefault("pattern_risk_type", pattern_type)
             workflow_params.setdefault("pattern_type", pattern_type)
@@ -1619,7 +1630,8 @@ class AbilityInvocationService:
             parsed.get("recommendedReferenceLock"),
         )
         if reference_lock:
-            workflow_params.setdefault("reference_lock", reference_lock)
+            workflow_params["reference_lock"] = reference_lock
+            workflow_params["ipadapter_weight"] = reference_lock
         color_lock = self._first_nonempty_text(
             workflow_params.get("color_lock"),
             workflow_params.get("colorLock"),
@@ -1629,7 +1641,8 @@ class AbilityInvocationService:
             parsed.get("recommendedColorLock"),
         )
         if color_lock:
-            workflow_params.setdefault("color_lock", color_lock)
+            workflow_params["color_lock"] = color_lock
+            workflow_params["colormatch_strength"] = color_lock
 
     @staticmethod
     def _first_nonempty_text(*values: Any) -> str | None:
@@ -2074,13 +2087,7 @@ class AbilityInvocationService:
                 }
                 if len(card_markers.intersection(parsed)) >= 3:
                     vl_card = parsed
-            fission_control_card = (
-                parsed.get("fissionControlCard") if isinstance(parsed.get("fissionControlCard"), dict) else None
-            )
-            if not fission_control_card:
-                control_markers = {"route_mode", "pattern_type", "profile_hint", "prompt_main", "prompt_control"}
-                if len(control_markers.intersection(parsed)) >= 3:
-                    fission_control_card = parsed
+            fission_control_card = extract_fission_control_card(parsed)
             prompt_card = parsed.get("promptCard")
             if not isinstance(prompt_card, dict):
                 if isinstance(fission_control_card, dict):
@@ -2094,6 +2101,8 @@ class AbilityInvocationService:
                         "imageDesc": self._first_nonempty_text(
                             fission_control_card.get("prompt_control"),
                             fission_control_card.get("promptControl"),
+                            fission_control_card.get("image_desc"),
+                            fission_control_card.get("imageDesc"),
                         )
                         or "",
                         "fissionHints": [],
@@ -2133,7 +2142,11 @@ class AbilityInvocationService:
                     fission_control_card.get("prompt_main") or fission_control_card.get("promptMain") or ""
                 )
                 structured["promptControl"] = (
-                    fission_control_card.get("prompt_control") or fission_control_card.get("promptControl") or ""
+                    fission_control_card.get("prompt_control")
+                    or fission_control_card.get("promptControl")
+                    or fission_control_card.get("image_desc")
+                    or fission_control_card.get("imageDesc")
+                    or ""
                 )
             return structured
         raw_text = value if isinstance(value, str) else self._stringify_value(value)

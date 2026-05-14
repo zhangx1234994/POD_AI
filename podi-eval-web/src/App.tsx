@@ -67,11 +67,30 @@ type LoraOption = { label: string; value: string };
 
 type CompareMode = 'slider' | 'side-by-side' | 'overlay' | 'diff';
 
+type ImageLightboxGroup = {
+  id: string;
+  label: string;
+  sublabel?: string;
+  inputUrl?: string;
+  outputUrls: string[];
+  status?: string;
+  runId?: string;
+  taskId?: string | null;
+  createdAt?: string | null;
+  durationMs?: number | null;
+  cost?: string;
+  executor?: string;
+  parameters?: Record<string, unknown> | null;
+  error?: string | null;
+};
+
 type ImageLightboxContext = {
   inputUrl?: string;
   outputUrls?: string[];
   activeIndex?: number;
   mode?: CompareMode;
+  groups?: ImageLightboxGroup[];
+  activeGroupId?: string;
 };
 
 type ImageLightboxState = {
@@ -1756,6 +1775,7 @@ const filterDisplayParams = (
   if (!params || typeof params !== 'object' || Array.isArray(params)) return null;
   const entries = Object.entries(params).filter(([key]) => {
     const normalized = key.trim().toLowerCase();
+    if (normalized.startsWith('__')) return false;
     return !OMIT_PARAM_KEYS.has(normalized);
   });
   if (entries.length === 0) return null;
@@ -2203,6 +2223,64 @@ const runHasVisibleOutput = (run: Pick<EvalRun, 'result_image_urls_json' | 'resu
 const isSucceededWithoutVisibleOutput = (run: Pick<EvalRun, 'status' | 'result_image_urls_json' | 'result_output_json'>): boolean =>
   ['succeeded', 'success', 'completed'].includes(String(run.status || '').toLowerCase()) && !runHasVisibleOutput(run);
 
+const buildImageLightboxGroup = (
+  run: RunWithLatest | EvalRun | null | undefined,
+  label?: string,
+): ImageLightboxGroup | null => {
+  if (!run) return null;
+  const inputUrl = (run.input_oss_urls_json || [])[0] || '';
+  const output = getRunOutputDescriptor(run);
+  const outputUrls = output.imageUrls.filter((item) => String(item || '').trim());
+  if (!inputUrl && outputUrls.length === 0) return null;
+  const params = filterDisplayParams(run.parameters_json as Record<string, unknown> | null);
+  return {
+    id: run.id,
+    label: label || `记录 ${run.id.slice(0, 8)}`,
+    sublabel: outputUrls.length > 0 ? `${outputUrls.length} 张结果` : output.label,
+    inputUrl,
+    outputUrls,
+    status: run.status,
+    runId: run.id,
+    taskId: run.podi_task_id,
+    createdAt: run.created_at,
+    durationMs: run.duration_ms,
+    cost: formatEvalRunCost(run),
+    executor: extractOutputField((run as any).result_output_json, 'ip'),
+    parameters: params,
+    error: run.error_message,
+  };
+};
+
+const buildImageLightboxGroups = (runs: Array<RunWithLatest | EvalRun>): ImageLightboxGroup[] =>
+  runs
+    .map((run, idx) => buildImageLightboxGroup(run, `第 ${idx + 1} 组`))
+    .filter((item): item is ImageLightboxGroup => Boolean(item));
+
+const LIGHTBOX_PARAM_LABELS: Record<string, string> = {
+  bili: '重绘幅度',
+  width: '输出宽度',
+  height: '输出高度',
+  profile: '裂变配置',
+  profile_id: '裂变配置',
+  reference_lock: '原图结构保留度',
+  color_lock: '颜色锁定强度',
+  variation_preset: '测评预设',
+  prompt: '额外要求',
+  variation_strength: '裂变幅度',
+  quality: '质量档位',
+  size: '尺寸预设',
+  output_format: '输出格式',
+  maskUrl: '蒙版地址',
+};
+
+const getLightboxParamLabel = (key: string): string => LIGHTBOX_PARAM_LABELS[key] || key;
+
+const formatLightboxParamValue = (value: unknown): string => {
+  if (value == null || value === '') return '未填写';
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return formatJsonPreview(value, 240);
+};
+
 function Lightbox({
   url,
   title,
@@ -2220,22 +2298,40 @@ function Lightbox({
   const [slider, setSlider] = useState(50);
   const [opacity, setOpacity] = useState(72);
   const contextOutputKey = (context?.outputUrls || []).join('|');
-  const safeOutputs = (context?.outputUrls || []).filter((item) => String(item || '').trim());
+  const contextGroupKey = (context?.groups || [])
+    .map((item) => `${item.id}:${(item.outputUrls || []).join(',')}`)
+    .join('|');
+  const groups = (context?.groups || []).filter((item) => item && (item.inputUrl || (item.outputUrls || []).length > 0));
+  const initialGroupIndex = Math.max(
+    0,
+    groups.findIndex((item) => item.id === context?.activeGroupId),
+  );
+  const [groupIndex, setGroupIndex] = useState(initialGroupIndex);
+  const activeGroup = groups[groupIndex] || groups[0] || null;
+  const effectiveInputUrl = activeGroup?.inputUrl || context?.inputUrl || '';
+  const effectiveOutputs = (activeGroup?.outputUrls || context?.outputUrls || []).filter((item) => String(item || '').trim());
+  const safeOutputs = effectiveOutputs;
   const outputUrl = safeOutputs[index] || safeOutputs[0] || url;
-  const hasCompare = Boolean(context?.inputUrl && safeOutputs.length > 0);
+  const hasCompare = Boolean(effectiveInputUrl && safeOutputs.length > 0);
 
   useEffect(() => {
     setZoom(1);
     setMode(context?.mode || 'side-by-side');
     setIndex(context?.activeIndex || 0);
+    setGroupIndex(initialGroupIndex);
     setSlider(50);
     setOpacity(72);
-  }, [url, context?.activeIndex, context?.mode, context?.inputUrl, contextOutputKey]);
+  }, [url, context?.activeIndex, context?.mode, context?.inputUrl, contextOutputKey, contextGroupKey, initialGroupIndex]);
 
   useEffect(() => {
     if (index < safeOutputs.length) return;
     setIndex(0);
   }, [index, safeOutputs.length]);
+
+  useEffect(() => {
+    if (groupIndex < groups.length) return;
+    setGroupIndex(0);
+  }, [groupIndex, groups.length]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -2265,7 +2361,7 @@ function Lightbox({
   const displayTitle = title || (hasCompare ? `结果图 #${index + 1}` : '图片预览');
   const activeUrl = hasCompare ? outputUrl : url;
   const openOriginal = () => {
-    const target = hasCompare ? context?.inputUrl : url;
+    const target = hasCompare ? effectiveInputUrl : url;
     if (target) window.open(target, '_blank', 'noreferrer');
   };
   const openResult = () => {
@@ -2285,6 +2381,11 @@ function Lightbox({
       <span className="podi-compare-pane__label">{label}</span>
     </div>
   );
+  const selectGroup = (nextIndex: number) => {
+    setGroupIndex(nextIndex);
+    setIndex(0);
+  };
+  const parameterEntries = Object.entries(activeGroup?.parameters || {});
 
   return (
     <div className="podi-immersive-viewer" role="dialog" aria-modal="true" aria-label={displayTitle} onWheel={onWheel}>
@@ -2337,24 +2438,48 @@ function Lightbox({
         {hasCompare ? (
           <aside className="podi-immersive-viewer__rail">
             <div className="podi-immersive-viewer__rail-head">
-              <span>结果列表</span>
-              <em>{safeOutputs.length}</em>
+              <span>{groups.length > 1 ? '结果组' : '本组图片'}</span>
+              <em>{groups.length > 1 ? groups.length : safeOutputs.length}</em>
             </div>
-            <button type="button" className="podi-immersive-viewer__thumb is-reference" onClick={openOriginal}>
-              {context?.inputUrl ? <img src={context.inputUrl} alt="原图缩略图" loading="lazy" /> : <span>无原图</span>}
-              <small>原图</small>
-            </button>
-            {safeOutputs.map((item, idx) => (
-              <button
-                key={`${item}-${idx}`}
-                type="button"
-                className={`podi-immersive-viewer__thumb ${idx === index ? 'is-active' : ''}`}
-                onClick={() => setIndex(idx)}
-              >
-                <img src={item} alt={`结果图 #${idx + 1}`} loading="lazy" />
-                <small>结果 #{idx + 1}</small>
-              </button>
-            ))}
+            {groups.length > 1 ? (
+              groups.map((group, idx) => {
+                const preview = group.outputUrls[0] || group.inputUrl || '';
+                return (
+                  <button
+                    key={group.id}
+                    type="button"
+                    className={`podi-immersive-viewer__group ${idx === groupIndex ? 'is-active' : ''}`}
+                    onClick={() => selectGroup(idx)}
+                  >
+                    <span className="podi-immersive-viewer__group-images">
+                      {group.inputUrl ? <img src={group.inputUrl} alt={`${group.label} 原图`} loading="lazy" /> : null}
+                      {preview ? <img src={preview} alt={`${group.label} 结果`} loading="lazy" /> : null}
+                    </span>
+                    <strong>{group.label}</strong>
+                    <small>{group.sublabel || group.runId || '—'}</small>
+                    {group.status ? <em>{formatEvalStageStatus('final', group.status)}</em> : null}
+                  </button>
+                );
+              })
+            ) : (
+              <>
+                <button type="button" className="podi-immersive-viewer__thumb is-reference" onClick={openOriginal}>
+                  {effectiveInputUrl ? <img src={effectiveInputUrl} alt="原图缩略图" loading="lazy" /> : <span>无原图</span>}
+                  <small>原图</small>
+                </button>
+                {safeOutputs.map((item, idx) => (
+                  <button
+                    key={`${item}-${idx}`}
+                    type="button"
+                    className={`podi-immersive-viewer__thumb ${idx === index ? 'is-active' : ''}`}
+                    onClick={() => setIndex(idx)}
+                  >
+                    <img src={item} alt={`结果图 #${idx + 1}`} loading="lazy" />
+                    <small>结果 #{idx + 1}</small>
+                  </button>
+                ))}
+              </>
+            )}
           </aside>
         ) : null}
 
@@ -2363,12 +2488,12 @@ function Lightbox({
             <div className={`podi-compare-stage podi-immersive-viewer__stage podi-compare-stage--${mode}`} style={style}>
               {mode === 'side-by-side' ? (
                 <>
-                  {renderStaticPane(context?.inputUrl || '', '原图', 'input')}
+                  {renderStaticPane(effectiveInputUrl, '原图', 'input')}
                   {renderStaticPane(outputUrl, `结果图 #${index + 1}`, 'output')}
                 </>
               ) : (
                 <div className="podi-compare-layer">
-                  <img className="podi-compare-layer__base" src={context?.inputUrl || ''} alt="原图" loading="lazy" draggable={false} />
+                  <img className="podi-compare-layer__base" src={effectiveInputUrl} alt="原图" loading="lazy" draggable={false} />
                   <span className="podi-compare-layer__tag podi-compare-layer__tag--input">原图</span>
                   <div className="podi-compare-layer__result">
                     <img src={outputUrl} alt={`结果图 #${index + 1}`} loading="lazy" draggable={false} />
@@ -2389,7 +2514,13 @@ function Lightbox({
 
         <aside className="podi-immersive-viewer__inspector">
           <section>
-            <div className="podi-immersive-viewer__section-title">当前查看</div>
+            <div className="podi-immersive-viewer__section-title">任务信息</div>
+            {activeGroup?.label ? (
+              <div className="podi-immersive-viewer__kv">
+                <span>当前组</span>
+                <strong>{activeGroup.label}</strong>
+              </div>
+            ) : null}
             <div className="podi-immersive-viewer__kv">
               <span>模式</span>
               <strong>{hasCompare ? modes.find((item) => item.value === mode)?.label : '单图'}</strong>
@@ -2405,18 +2536,49 @@ function Lightbox({
                   <strong>{Math.min(index + 1, safeOutputs.length)} / {safeOutputs.length}</strong>
                 </div>
                 <div className="podi-immersive-viewer__kv">
-                  <span>原图</span>
-                  <strong>{context?.inputUrl ? '已提供' : '无'}</strong>
+                  <span>状态</span>
+                  <strong>{activeGroup?.status ? formatEvalStageStatus('final', activeGroup.status) : '—'}</strong>
+                </div>
+                <div className="podi-immersive-viewer__kv">
+                  <span>任务</span>
+                  <strong title={activeGroup?.taskId || activeGroup?.runId || ''}>{activeGroup?.taskId || activeGroup?.runId?.slice(0, 12) || '—'}</strong>
                 </div>
               </>
             ) : null}
           </section>
           <section>
-            <div className="podi-immersive-viewer__section-title">操作提示</div>
-            <p>滚轮缩放，左右方向键切换结果，Esc 关闭。滑块/叠加/差异用于判断构图、颜色和边缘变化。</p>
+            <div className="podi-immersive-viewer__section-title">本图参数</div>
+            {parameterEntries.length > 0 ? (
+              <div className="podi-immersive-viewer__params">
+                {parameterEntries.map(([key, value]) => (
+                  <div key={key} className="podi-immersive-viewer__param">
+                    <span>{getLightboxParamLabel(key)}</span>
+                    <strong title={formatLightboxParamValue(value)}>{formatLightboxParamValue(value)}</strong>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p>这条记录没有额外业务参数，只有原图地址。</p>
+            )}
           </section>
           <section>
-            <div className="podi-immersive-viewer__section-title">链接</div>
+            <div className="podi-immersive-viewer__section-title">运行补充</div>
+            <div className="podi-immersive-viewer__kv">
+              <span>耗时</span>
+              <strong>{formatDuration(activeGroup?.durationMs)}</strong>
+            </div>
+            <div className="podi-immersive-viewer__kv">
+              <span>成本</span>
+              <strong>{activeGroup?.cost || '—'}</strong>
+            </div>
+            <div className="podi-immersive-viewer__kv">
+              <span>节点</span>
+              <strong>{activeGroup?.executor || '—'}</strong>
+            </div>
+            <p>滚轮缩放；左右方向键切换本组结果图；Esc 关闭。</p>
+          </section>
+          <section>
+            <div className="podi-immersive-viewer__section-title">当前图片链接</div>
             <div className="podi-immersive-viewer__url" title={activeUrl}>{activeUrl}</div>
           </section>
         </aside>
@@ -3095,12 +3257,16 @@ function ImageComparePanel({
   outputUrls,
   title,
   compact,
+  lightboxGroups,
+  activeGroupId,
   onOpenImage,
 }: {
   inputUrl: string;
   outputUrls: string[];
   title: string;
   compact?: boolean;
+  lightboxGroups?: ImageLightboxGroup[];
+  activeGroupId?: string;
   onOpenImage: (url: string, title?: string, context?: ImageLightboxContext) => void;
 }) {
   const [mode, setMode] = useState<CompareMode>('side-by-side');
@@ -3124,7 +3290,7 @@ function ImageComparePanel({
     <button
       type="button"
       className={`podi-compare-pane podi-compare-pane--${tone}`}
-      onClick={() => onOpenImage(url, label, { inputUrl, outputUrls: safeOutputs, activeIndex: index, mode: 'side-by-side' })}
+      onClick={() => onOpenImage(url, label, { inputUrl, outputUrls: safeOutputs, activeIndex: index, mode: 'side-by-side', groups: lightboxGroups, activeGroupId })}
       disabled={!url}
     >
       {url ? <img src={url} alt={label} loading="lazy" draggable={false} /> : <span>暂无图片</span>}
@@ -3173,7 +3339,7 @@ function ImageComparePanel({
           <button
             type="button"
             className="podi-compare-layer"
-            onClick={() => onOpenImage(outputUrl, `结果图 #${index + 1}`, { inputUrl, outputUrls: safeOutputs, activeIndex: index, mode })}
+            onClick={() => onOpenImage(outputUrl, `结果图 #${index + 1}`, { inputUrl, outputUrls: safeOutputs, activeIndex: index, mode, groups: lightboxGroups, activeGroupId })}
           >
             <img className="podi-compare-layer__base" src={inputUrl} alt="原图" loading="lazy" draggable={false} />
             <span className="podi-compare-layer__tag podi-compare-layer__tag--input">原图</span>
@@ -5834,6 +6000,8 @@ export function App() {
     return out;
   }, [toolRuns, historyFocus, filterStatus, filterRating, filterUnrated, search]);
 
+  const historyLightboxGroups = useMemo(() => buildImageLightboxGroups(filteredRuns), [filteredRuns]);
+
   const historySummary = useMemo(() => {
     const isSuccess = (run: EvalRun) => ['succeeded', 'success', 'completed'].includes(String(run.status || '').toLowerCase());
     const isRunning = (run: EvalRun) => ['queued', 'running'].includes(String(run.status || '').toLowerCase());
@@ -8103,6 +8271,10 @@ export function App() {
                     const latestInputUrl = latest ? (latest.input_oss_urls_json || [])[0] || formUrl.trim() : formUrl.trim();
                     const trialRunById = new Map(toolRuns.map((run) => [run.id, run]));
                     const trialItems = latestTrialRuns.map((item) => ({ input: item, run: trialRunById.get(item.runId) || null }));
+                    const latestLightboxGroups = latest ? [buildImageLightboxGroup(latest, '当前任务')].filter((item): item is ImageLightboxGroup => Boolean(item)) : [];
+                    const trialLightboxGroups = trialItems
+                      .map(({ run }, idx) => buildImageLightboxGroup(run, `图 ${idx + 1}`))
+                      .filter((item): item is ImageLightboxGroup => Boolean(item));
 
                   return (
                     <Space direction="vertical" size="large" style={{ width: '100%' }}>
@@ -8260,6 +8432,8 @@ export function App() {
                                         outputUrls={outputImages}
                                         title={`图 ${idx + 1} 对比`}
                                         compact
+                                        lightboxGroups={trialLightboxGroups.length > 1 ? trialLightboxGroups : undefined}
+                                        activeGroupId={run.id}
                                         onOpenImage={(u, title, context) => setLightbox({ url: u, title, context })}
                                       />
                                     ) : runStatus === 'queued' || runStatus === 'running' ? (
@@ -8313,6 +8487,8 @@ export function App() {
                                   inputUrl={latestInputUrl}
                                   outputUrls={imgs}
                                   title="最新结果对比"
+                                  lightboxGroups={latestLightboxGroups}
+                                  activeGroupId={latest.id}
                                   onOpenImage={(u, title, context) => setLightbox({ url: u, title, context })}
                                 />
                               ) : (
@@ -8516,6 +8692,7 @@ export function App() {
               <HistoryRow
                 key={run.id}
                 run={run}
+                lightboxGroups={historyLightboxGroups}
                 onAnnotate={annotate}
                 onOpenImage={(url, title, context) => setLightbox({ url, title, context })}
               />
@@ -8637,10 +8814,12 @@ export function App() {
 
 function HistoryRow({
   run,
+  lightboxGroups,
   onAnnotate,
   onOpenImage,
 }: {
   run: RunWithLatest;
+  lightboxGroups?: ImageLightboxGroup[];
   onAnnotate: (runId: string, rating: number, comment: string) => Promise<void>;
   onOpenImage: (url: string, title?: string, context?: ImageLightboxContext) => void;
 }) {
@@ -8844,6 +9023,8 @@ function HistoryRow({
                     outputUrls={outputs}
                     title="历史结果对比"
                     compact
+                    lightboxGroups={lightboxGroups}
+                    activeGroupId={run.id}
                     onOpenImage={onOpenImage}
                   />
                 ) : (
@@ -8851,7 +9032,7 @@ function HistoryRow({
                     {inputUrl ? (
                       <Button
                         variant="outline"
-                        onClick={() => onOpenImage(inputUrl, '原图')}
+                        onClick={() => onOpenImage(inputUrl, '原图', { inputUrl, outputUrls: outputs, activeIndex: 0, mode: 'side-by-side', groups: lightboxGroups, activeGroupId: run.id })}
                         style={{ padding: 6, height: 'auto' }}
                       >
                         <img src={inputUrl} alt="input" style={{ height: 128, width: '100%', objectFit: 'contain' }} />
@@ -8863,7 +9044,7 @@ function HistoryRow({
                         <Button
                           key={`${run.id}-out-${idx}`}
                           variant="outline"
-                          onClick={() => onOpenImage(u, `结果图 #${idx + 1}`)}
+                          onClick={() => onOpenImage(u, `结果图 #${idx + 1}`, { inputUrl, outputUrls: outputs, activeIndex: idx, mode: 'side-by-side', groups: lightboxGroups, activeGroupId: run.id })}
                           style={{ padding: 6, height: 'auto' }}
                         >
                           <img src={u} alt="output" loading="lazy" style={{ height: 128, width: '100%', objectFit: 'contain' }} />
