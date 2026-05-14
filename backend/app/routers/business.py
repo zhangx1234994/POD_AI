@@ -98,6 +98,19 @@ def _compact_business_payload(value: Any, *, max_text: int = 800) -> Any:
     return value
 
 
+def _parse_json_object_text(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text.startswith("{"):
+        return None
+    try:
+        parsed = json.loads(text)
+    except Exception:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
 def _business_run_full_response(run: dict[str, Any]) -> dict[str, Any]:
     return schemas.BusinessRunRead.model_validate(run).model_dump(mode="json", by_alias=False)
 
@@ -135,10 +148,11 @@ def _business_run_light_response(run: dict[str, Any]) -> dict[str, Any]:
         "startedAt": full.get("startedAt"),
         "finishedAt": full.get("finishedAt"),
     }
-    if not image_urls and not video_urls and not texts:
-        result_payload = full.get("resultPayload")
-        if isinstance(result_payload, dict) and result_payload:
-            result["resultPayload"] = _compact_business_payload(result_payload)
+    result_payload = full.get("resultPayload")
+    if not isinstance(result_payload, dict) or not result_payload:
+        result_payload = _parse_json_object_text(texts[0]) if texts else None
+    if isinstance(result_payload, dict) and result_payload:
+        result["resultPayload"] = _compact_business_payload(result_payload)
     return result
 
 
