@@ -153,6 +153,18 @@ PODI_INTERNAL_BASE_URL=http://172.17.0.1:8099
 - 前端静态产物：页面源码不得出现 `@vite/client`、`/src/main.tsx`、`@react-refresh`。
 - 管理端“发布前门禁”需有本次轻量门禁记录；真实巡检如果未跑，必须记录未跑原因。
 
+发布后数据收口检查：
+
+```bash
+backend/.venv/bin/python backend/scripts/morning_ops_check.py \
+  --date "$(date -d yesterday +%F)" \
+  --json
+```
+
+- 如果业务运行最终成功，但测评记录仍显示 `BUSINESS_RUN_TIMEOUT`、`BUSINESS_RUN_GET_FAILED` 或 `BUSINESS_RUN_TEMPORARY_UNAVAILABLE`，先触发测评端详情/列表查询或后台恢复逻辑补全记录，再判断是否真实失败。
+- 如果早检中出现 `ABILITY_LOG_STALE_PENDING`，先确认是否为历史任务收口；没有关联活跃业务且业务层无失败时，不直接定性为线上事故。
+- 如果早检中出现缺图、缺参数类错误，优先检查巡检脚本是否按当前接口 schema 构造了必填字段。
+
 业务闭环验证：
 
 ```bash
@@ -199,6 +211,20 @@ backend/.venv/bin/python backend/scripts/patrol_business_api.py \
   --mode route \
   --business all
 ```
+
+如果是某台 ComfyUI 维护或异常恢复，还要确认后端队列汇总重新识别到两台机器：
+
+```bash
+backend/.venv/bin/python backend/scripts/check_comfyui_node_health.py \
+  --backend-url http://127.0.0.1:8099 \
+  --json
+```
+
+判定口径：
+
+- `supportedServers=2`、`backendBlockedServers=0`：双机恢复正常。
+- `supportedServers=1`、`unsupportedServers=1`：允许降级运行，但必须记录故障节点和恢复计划。
+- `supportedServers=0` 或 `backendBlockedServers>0`：阻断发版和业务验收。
 
 ## 7. 失败处理
 
