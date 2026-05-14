@@ -399,11 +399,15 @@ def _poll_run(
     *,
     timeout_seconds: int,
     interval_seconds: float,
+    detail_full: bool = False,
 ) -> dict[str, Any]:
     deadline = time.monotonic() + max(1, timeout_seconds)
     latest: dict[str, Any] = {}
+    payload = {"runId": run_id}
+    if detail_full:
+        payload["detail"] = "full"
     while time.monotonic() < deadline:
-        status, data = _post_json(client, "/api/business/runs/get", {"runId": run_id})
+        status, data = _post_json(client, "/api/business/runs/get", payload)
         latest = data if isinstance(data, dict) else {"body": data}
         if status >= 400:
             latest.setdefault("status", "query_failed")
@@ -446,7 +450,13 @@ def _run_live(
             "detail": f"submit returned no runId status={status}",
             "response": data,
         }
-    final = _poll_run(client, run_id, timeout_seconds=timeout_seconds, interval_seconds=interval_seconds)
+    final = _poll_run(
+        client,
+        run_id,
+        timeout_seconds=timeout_seconds,
+        interval_seconds=interval_seconds,
+        detail_full=require_executor_evidence,
+    )
     ok, detail = _validate_terminal_run(final, require_executor_evidence=require_executor_evidence)
     return {
         "businessKey": spec.key,

@@ -24,6 +24,36 @@
 | `profile` | 否 | `pattern_color_lock_v2` | 颜色锁定配置；严格保色可传 `pattern_color_lock_strict_v2`。 |
 | `prompt` | 否 | 空 | 额外要求。不要写“放开配色”或“重新设计色彩”类要求。 |
 | `callbackUrl` | 否 | 空 | 终态回调地址；不传则用轮询查询结果。 |
+| `source` | 否 | `partner-api` | 调用来源标识，便于中台统计。 |
+| `channel` | 否 | `open-api` | 调用渠道标识，便于区分业务系统、测评端或脚本。 |
+| `requestId` | 否 | 自动生成 | 业务方请求 ID，建议每次唯一。 |
+| `traceId` | 否 | 自动生成 | 业务方链路 ID，便于排查。 |
+
+## 返回字段
+
+提交接口返回：
+
+| 字段 | 说明 |
+| --- | --- |
+| `runId` | 业务任务 ID。后续轮询、排障和回调关联都用它。 |
+| `status` / `taskStatus` | 当前状态。提交成功时通常是 `queued` 或 `running`。 |
+| `taskId` | 底层 ComfyUI 工作流任务 ID，可能稍后才生成；业务方不需要依赖。 |
+| `requestId` / `traceId` | 业务请求和链路 ID，用于把调用日志串起来。 |
+| `debugUrl` | 可选的中台排障链接，没有则为空。 |
+
+查询接口默认返回：
+
+| 字段 | 说明 |
+| --- | --- |
+| `status` / `taskStatus` | `queued/running` 继续轮询；`succeeded` 表示可取图；`failed` 表示失败。 |
+| `imageUrl` | 第一张结果图 URL。该接口固定一次返回 1 张。 |
+| `imageUrls` | 结果图列表。业务方建议统一按数组处理。 |
+| `expectedImageCount` | 预计出图数量，当前通常为 1。 |
+| `error` / `errorMessage` | 失败原因。中台已脱敏，不会返回密钥或 SQL 原文。 |
+| `errorCode` | 标准错误码，例如缺图、队列超时、ComfyUI 执行失败。 |
+| `debugResponse` | 给业务方看的简短排障提示。 |
+| `retryAfterSeconds` | 建议下次轮询等待秒数；为空时每 5-10 秒查一次。 |
+| `durationMs` | 任务耗时，单位毫秒。 |
 
 ## 运行 Demo
 
@@ -43,4 +73,3 @@ python3 demo.py
 | `COMFYUI_TIMEOUT` | 稍后重试或联系中台查看 ComfyUI 队列。 |
 | `COMFYUI_IMAGE_REQUIRED` | 确认原图 URL 可访问。 |
 | `ABILITY_TASK_FAILED` | 记录 `runId/requestId/traceId` 给中台排查。 |
-

@@ -11,7 +11,7 @@
 - 提交：`POST /api/business/fission-evaluate/runs`
 - 查询：`POST /api/business/runs/get`
 - 鉴权：`X-PODI-API-Key`
-- 输出：结构化评分结果，通常读取 `resultPayload` 或 `texts`。
+- 输出：结构化评分结果，优先读取 `texts`；如果返回了轻量 `resultPayload`，可读取其中的 `decision/score/problem_tags/reason/next_action`。完整排障字段用查询参数 `"detail": "full"`。
 
 ## 参数
 
@@ -21,8 +21,37 @@
 | `generatedImageUrl` | 是 | 无 | 裂变后的结果图 URL。 |
 | `context` | 否 | `{}` | 业务上下文，建议传裂变版本、提示词、重绘幅度、profile。 |
 | `callbackUrl` | 否 | 空 | 终态回调地址；不传则用轮询查询结果。 |
+| `source` | 否 | `partner-api` | 调用来源标识，便于中台统计。 |
+| `channel` | 否 | `open-api` | 调用渠道标识，便于区分业务系统、测评端或脚本。 |
 | `requestId` | 否 | 自动生成 | 业务方请求 ID，建议每次唯一。 |
 | `traceId` | 否 | 自动生成 | 业务方链路 ID，便于把评分和裂变任务关联。 |
+
+## 返回字段
+
+提交接口返回：
+
+| 字段 | 说明 |
+| --- | --- |
+| `runId` | 业务任务 ID。后续轮询、排障和回调关联都用它。 |
+| `status` / `taskStatus` | 当前状态。提交成功时通常是 `queued` 或 `running`。 |
+| `taskId` | 底层 VL 评分能力任务 ID，可能稍后才生成；业务方不需要依赖。 |
+| `requestId` / `traceId` | 业务请求和链路 ID，用于把裂变任务和评分任务关联起来。 |
+| `debugUrl` | 可选的中台排障链接，没有则为空。 |
+
+查询接口默认返回：
+
+| 字段 | 说明 |
+| --- | --- |
+| `status` / `taskStatus` | `queued/running` 继续轮询；`succeeded` 表示可读评分；`failed` 表示失败。 |
+| `texts` | 评分文本或结构化评分摘要，业务方优先读取。 |
+| `text` | 第一段评分文本，便于简单接入。 |
+| `resultPayload` | 轻量结构化结果，通常包含 `decision/score/problem_tags/reason/next_action`。 |
+| `imageUrls` | 当前评分接口通常为空，保留统一任务模型。 |
+| `error` / `errorMessage` | 失败原因。中台已脱敏，不会返回密钥或 SQL 原文。 |
+| `errorCode` | 标准错误码，例如缺少原图、缺少生成图、VL 评分失败。 |
+| `debugResponse` | 给业务方看的简短排障提示。 |
+| `retryAfterSeconds` | 建议下次轮询等待秒数；为空时每 5-10 秒查一次。 |
+| `durationMs` | 任务耗时，单位毫秒。 |
 
 ## 评分结果
 
@@ -52,4 +81,3 @@ python3 demo.py
 | `BUSINESS_API_KEY_BUSINESS_NOT_ALLOWED` | 当前 Key 未授权裂变评分。 |
 | `BUSINESS_RUN_TEMPORARY_UNAVAILABLE` | 稍后重试查询。 |
 | `ABILITY_TASK_FAILED` | 记录 `runId/requestId/traceId` 给中台排查。 |
-

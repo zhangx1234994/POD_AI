@@ -24,8 +24,35 @@
 | `size` | 否 | `auto` | 默认按原图尺寸回填；只有传固定尺寸才改变画布。 |
 | `maskUrl` | 否 | 空 | 蒙版图 URL，需要局部编辑时传。 |
 | `callbackUrl` | 否 | 空 | 终态回调地址；不传则用轮询查询结果。 |
+| `source` | 否 | `partner-api` | 调用来源标识，便于中台统计。 |
+| `channel` | 否 | `open-api` | 调用渠道标识，便于区分业务系统、测评端或脚本。 |
 | `requestId` | 否 | 自动生成 | 业务方请求 ID，建议每次唯一。 |
 | `traceId` | 否 | 自动生成 | 业务方链路 ID，便于排查。 |
+
+## 返回字段
+
+提交接口返回：
+
+| 字段 | 说明 |
+| --- | --- |
+| `runId` | 业务任务 ID。后续轮询、排障和回调关联都用它。 |
+| `status` / `taskStatus` | 当前状态。提交成功时通常是 `queued` 或 `running`。 |
+| `taskId` | 底层 OpenAI 图片编辑能力任务 ID，可能稍后才生成；业务方不需要依赖。 |
+| `requestId` / `traceId` | 业务请求和链路 ID，用于把调用日志串起来。 |
+| `debugUrl` | 可选的中台排障链接，没有则为空。 |
+
+查询接口默认返回：
+
+| 字段 | 说明 |
+| --- | --- |
+| `status` / `taskStatus` | `queued/running` 继续轮询；`succeeded` 表示可取图；`failed` 表示失败。 |
+| `imageUrl` | 第一张结果图 URL。该接口固定一次返回 1 张。 |
+| `imageUrls` | 结果图列表。业务方建议统一按数组处理。 |
+| `error` / `errorMessage` | 失败原因。中台已脱敏，不会返回密钥或 SQL 原文。 |
+| `errorCode` | 标准错误码，例如缺图、Key 无权限、上游失败。 |
+| `debugResponse` | 给业务方看的简短排障提示。 |
+| `retryAfterSeconds` | 建议下次轮询等待秒数；为空时每 5-10 秒查一次。 |
+| `durationMs` | 任务耗时，单位毫秒。 |
 
 ## 运行 Demo
 
@@ -45,4 +72,3 @@ python3 demo.py
 | `BUSINESS_API_KEY_BUSINESS_NOT_ALLOWED` | 当前 Key 未授权图裂变。 |
 | `BUSINESS_RUN_TEMPORARY_UNAVAILABLE` | 稍后重试查询，不要重新提交。 |
 | `ABILITY_TASK_FAILED` / `VENDOR_API_EXECUTION_FAILED` | 记录 `runId/requestId/traceId` 给中台排查。 |
-

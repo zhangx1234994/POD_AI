@@ -73,14 +73,20 @@
 
 - `runId`
 - `status`
+- `taskStatus`
+- `imageUrl`
 - `imageUrls`
+- `videoUrl`
 - `videoUrls`
+- `text`
 - `texts`
-- `assets`
 - `error`
+- `errorMessage`
+- `debugResponse`
 - `debugUrl`
-- `routeInfo`
-- `flowSummary`
+- `expectedImageCount`
+
+默认查询结果不得返回完整内部链路。`routeInfo/steps/flowSummary/assets/requestPayload/resultPayload/costBreakdown` 属于排障字段，只有 `detail=full` 或管理端内部接口才返回。
 
 错误必须覆盖：
 

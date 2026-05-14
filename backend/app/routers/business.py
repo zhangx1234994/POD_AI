@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import re
 import time
 from datetime import datetime
 from typing import Any
@@ -37,6 +38,137 @@ def _business_export_cell(value: Any) -> str:
     if isinstance(value, (dict, list)):
         return json.dumps(value, ensure_ascii=False)
     return str(value)
+
+
+def _business_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    text = str(value or "").strip().lower()
+    return text in {"1", "true", "yes", "y", "on", "full", "debug"}
+
+
+def _business_run_wants_full_detail(*, detail: Any = None, include_debug: Any = None) -> bool:
+    return str(detail or "").strip().lower() in {"full", "debug", "detail", "all"} or _business_bool(include_debug)
+
+
+def _normalize_business_task_status(status: Any) -> str:
+    text = str(status or "").strip().lower()
+    if text in {"queued", "pending", "created"}:
+        return "queued"
+    if text in {"running", "processing", "in_progress", "submitted"}:
+        return "running"
+    if text in {"succeeded", "success", "completed", "done"}:
+        return "succeeded"
+    if text in {"failed", "error", "cancelled", "canceled", "timeout"}:
+        return "failed"
+    return text or "queued"
+
+
+def _business_error_code(message: Any) -> str | None:
+    text = str(message or "").strip()
+    if not text:
+        return None
+    match = re.search(r"\b([A-Z][A-Z0-9_]{2,})\b", text)
+    return match.group(1) if match else None
+
+
+def _compact_business_payload(value: Any, *, max_text: int = 800) -> Any:
+    if isinstance(value, dict):
+        blocked = {
+            "raw",
+            "metadata",
+            "request",
+            "response",
+            "debug",
+            "debugRequest",
+            "debugResponse",
+            "_trace",
+            "_route",
+        }
+        compact: dict[str, Any] = {}
+        for key, item in value.items():
+            if str(key) in blocked:
+                continue
+            compact[str(key)] = _compact_business_payload(item, max_text=max_text)
+        return compact
+    if isinstance(value, list):
+        return [_compact_business_payload(item, max_text=max_text) for item in value[:20]]
+    if isinstance(value, str) and len(value) > max_text:
+        return f"{value[:max_text]}..."
+    return value
+
+
+def _business_run_full_response(run: dict[str, Any]) -> dict[str, Any]:
+    return schemas.BusinessRunRead.model_validate(run).model_dump(mode="json", by_alias=False)
+
+
+def _business_run_light_response(run: dict[str, Any]) -> dict[str, Any]:
+    full = _business_run_full_response(run)
+    status = _normalize_business_task_status(full.get("status"))
+    image_urls = full.get("imageUrls") if isinstance(full.get("imageUrls"), list) else []
+    video_urls = full.get("videoUrls") if isinstance(full.get("videoUrls"), list) else []
+    texts = full.get("texts") if isinstance(full.get("texts"), list) else []
+    error_message = str(full.get("errorMessage") or full.get("error") or full.get("callbackError") or "").strip() or None
+    result = {
+        "runId": full.get("runId") or full.get("id"),
+        "taskId": full.get("taskId"),
+        "status": status,
+        "taskStatus": status,
+        "imageUrl": image_urls[0] if image_urls else None,
+        "imageUrls": image_urls,
+        "videoUrl": video_urls[0] if video_urls else None,
+        "videoUrls": video_urls,
+        "text": texts[0] if texts else ("failed" if status == "failed" else status),
+        "texts": texts,
+        "error": error_message,
+        "errorMessage": error_message,
+        "errorCode": _business_error_code(error_message),
+        "debugUrl": full.get("debugUrl"),
+        "debugResponse": error_message,
+        "retryAfterSeconds": 10 if status in {"queued", "running"} else None,
+        "expectedImageCount": None,
+        "logId": full.get("abilityLogId"),
+        "traceId": full.get("traceId"),
+        "requestId": full.get("requestId"),
+        "durationMs": full.get("durationMs"),
+        "createdAt": full.get("createdAt"),
+        "startedAt": full.get("startedAt"),
+        "finishedAt": full.get("finishedAt"),
+    }
+    if not image_urls and not video_urls and not texts:
+        result_payload = full.get("resultPayload")
+        if isinstance(result_payload, dict) and result_payload:
+            result["resultPayload"] = _compact_business_payload(result_payload)
+    return result
+
+
+def _get_business_run_response(
+    *,
+    run_id: str,
+    request: Request,
+    user: User,
+    full_detail: bool = False,
+) -> dict[str, Any]:
+    try:
+        result = get_business_run_service().get_run(run_id=run_id, user=user)
+    except HTTPException as exc:
+        _record_business_api_key_usage(
+            request,
+            status_code=exc.status_code,
+            run_id=run_id,
+            error_code=str(exc.detail or ""),
+        )
+        raise
+    except Exception:
+        _record_business_api_key_usage(
+            request,
+            status_code=500,
+            run_id=run_id,
+            error_code="BUSINESS_RUN_GET_FAILED",
+        )
+        raise HTTPException(status_code=503, detail="BUSINESS_RUN_TEMPORARY_UNAVAILABLE")
+    _record_business_api_key_usage(request, status_code=200, run=result, run_id=run_id)
+    return _business_run_full_response(result) if full_detail else _business_run_light_response(result)
 
 
 def _business_runs_to_csv(items: list[dict[str, Any]]) -> str:
@@ -405,41 +537,29 @@ def preview_pattern_extract_route(
     return get_business_run_service().preview_route(business_key="pattern_extract", payload=payload, user=user)
 
 
-@router.get("/runs/{run_id}", response_model=schemas.BusinessRunRead, response_model_by_alias=False)
+@router.get("/runs/{run_id}", response_model=dict[str, Any], response_model_by_alias=False)
 def get_business_run(
     run_id: str,
     request: Request,
+    detail: str | None = Query(default=None, description="默认轻量返回；传 full/debug/detail/all 返回完整排障字段。"),
+    include_debug: bool | None = Query(default=None, alias="includeDebug", description="true 时返回完整排障字段。"),
     user: User = Depends(_resolve_business_user),
-) -> schemas.BusinessRunRead:
-    try:
-        result = get_business_run_service().get_run(run_id=run_id, user=user)
-    except HTTPException as exc:
-        _record_business_api_key_usage(
-            request,
-            status_code=exc.status_code,
-            run_id=run_id,
-            error_code=str(exc.detail or ""),
-        )
-        raise
-    except Exception:
-        _record_business_api_key_usage(
-            request,
-            status_code=500,
-            run_id=run_id,
-            error_code="BUSINESS_RUN_GET_FAILED",
-        )
-        raise HTTPException(status_code=503, detail="BUSINESS_RUN_TEMPORARY_UNAVAILABLE")
-    _record_business_api_key_usage(request, status_code=200, run=result, run_id=run_id)
-    return result
+) -> dict[str, Any]:
+    return _get_business_run_response(
+        run_id=run_id,
+        request=request,
+        user=user,
+        full_detail=_business_run_wants_full_detail(detail=detail, include_debug=include_debug),
+    )
 
 
-@router.post("/runs/get", response_model=schemas.BusinessRunRead, response_model_by_alias=False)
+@router.post("/runs/get", response_model=dict[str, Any], response_model_by_alias=False)
 def get_business_run_post(
     body: dict[str, Any],
     request: Request,
     user: User = Depends(_resolve_business_user),
-) -> schemas.BusinessRunRead:
-    run_id = str(body.get("runId") or body.get("run_id") or "").strip()
+) -> dict[str, Any]:
+    run_id = str(body.get("runId") or body.get("run_id") or body.get("taskId") or body.get("task_id") or "").strip()
     if not run_id:
         _record_business_api_key_usage(
             request,
@@ -447,7 +567,15 @@ def get_business_run_post(
             error_code="BUSINESS_RUN_ID_REQUIRED",
         )
         raise HTTPException(status_code=400, detail="BUSINESS_RUN_ID_REQUIRED")
-    return get_business_run(run_id=run_id, request=request, user=user)
+    return _get_business_run_response(
+        run_id=run_id,
+        request=request,
+        user=user,
+        full_detail=_business_run_wants_full_detail(
+            detail=body.get("detail") or body.get("responseMode") or body.get("response_mode"),
+            include_debug=body.get("includeDebug") or body.get("include_debug"),
+        ),
+    )
 
 
 @router.get("/openapi.json")
@@ -518,6 +646,49 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "callbackHttpStatus": {"type": "integer", "nullable": True},
             "callbackError": {"type": "string", "nullable": True},
             "debugUrl": {"type": "string", "nullable": True},
+        },
+    }
+    run_query_response_schema = {
+        "type": "object",
+        "description": "默认轻量查询结果。业务方正常轮询只需要读取这些字段；需要完整排障字段时传 detail=full。",
+        "properties": {
+            "runId": {"type": "string", "description": "业务任务 ID。"},
+            "taskId": {"type": "string", "nullable": True, "description": "底层能力任务 ID，仅用于排查。"},
+            "status": {
+                "type": "string",
+                "description": "业务任务状态：queued/running/succeeded/failed。",
+                "enum": ["queued", "running", "succeeded", "failed"],
+            },
+            "taskStatus": {
+                "type": "string",
+                "description": "兼容 Coze 轮询字段，值与 status 保持一致。",
+                "enum": ["queued", "running", "succeeded", "failed"],
+            },
+            "imageUrl": {"type": "string", "nullable": True, "description": "第一张结果图，兼容 Coze 字段。"},
+            "imageUrls": {"type": "array", "items": {"type": "string"}, "description": "全部结果图。"},
+            "videoUrl": {"type": "string", "nullable": True, "description": "第一个结果视频，兼容 Coze 字段。"},
+            "videoUrls": {"type": "array", "items": {"type": "string"}, "description": "全部结果视频。"},
+            "text": {"type": "string", "nullable": True, "description": "第一条文本结果或当前状态。"},
+            "texts": {"type": "array", "items": {"type": "string"}, "description": "文本结果。"},
+            "resultPayload": {
+                "type": "object",
+                "nullable": True,
+                "description": "仅在无图片/视频/文本时返回轻量结构化结果；完整链路请用 detail=full。",
+            },
+            "error": {"type": "string", "nullable": True, "description": "失败原因。"},
+            "errorMessage": {"type": "string", "nullable": True, "description": "失败原因，兼容业务方字段。"},
+            "errorCode": {"type": "string", "nullable": True, "description": "可机器判断的错误码。"},
+            "debugResponse": {"type": "string", "nullable": True, "description": "轻量排障提示，不返回内部 SQL 或密钥。"},
+            "debugUrl": {"type": "string", "nullable": True, "description": "排障链接。"},
+            "retryAfterSeconds": {"type": "integer", "nullable": True, "description": "排队或运行中建议轮询间隔。"},
+            "expectedImageCount": {"type": "integer", "nullable": True, "description": "预期图片数，兼容 Coze 字段。"},
+            "logId": {"type": "integer", "nullable": True, "description": "能力调用日志 ID。"},
+            "traceId": {"type": "string", "nullable": True},
+            "requestId": {"type": "string", "nullable": True},
+            "durationMs": {"type": "integer", "nullable": True},
+            "createdAt": {"type": "string", "nullable": True},
+            "startedAt": {"type": "string", "nullable": True},
+            "finishedAt": {"type": "string", "nullable": True},
         },
     }
     route_preview_schema = {
@@ -727,23 +898,33 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
         "poll_by_run_id": {
             "summary": "按提交接口返回的 runId 查询",
             "value": {"runId": "f5393c42a2b24c5d90852cce09f40b06"},
-        }
+        },
+        "poll_full_detail": {
+            "summary": "排障时返回完整链路字段",
+            "value": {"runId": "f5393c42a2b24c5d90852cce09f40b06", "detail": "full"},
+        },
     }
     error_schema = {
         "type": "object",
         "properties": {
             "detail": {
                 "type": "string",
-            "description": "平台错误码，例如 BUSINESS_IMAGE_URL_REQUIRED、BUSINESS_RUN_NOT_FOUND。",
+                "description": "平台错误码，例如 BUSINESS_IMAGE_URL_REQUIRED、BUSINESS_RUN_NOT_FOUND。",
             }
         },
     }
 
-    def _business_responses(*, success_description: str, errors_by_status: dict[str, list[str]]) -> dict[str, Any]:
+    def _business_responses(
+        *,
+        success_description: str,
+        errors_by_status: dict[str, list[str]],
+        success_schema: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        schema = success_schema or run_response_schema
         return {
             "200": {
                 "description": success_description,
-                "content": {"application/json": {"schema": run_response_schema}},
+                "content": {"application/json": {"schema": schema}},
             },
             "400": {
                 "description": "请求参数缺失或业务配置非法",
@@ -956,6 +1137,7 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                 "post": {
                     "operationId": "podi_business_run_get",
                     "summary": "PODI · 查询业务任务",
+                    "description": "默认返回轻量结果，字段与 Coze 轮询口径兼容。排障需要完整 routeInfo/steps/flowSummary 时传 detail=full 或 includeDebug=true。",
                     "security": business_api_key_security,
                     "requestBody": {
                         "required": True,
@@ -964,13 +1146,34 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                                 "schema": {
                                     "type": "object",
                                     "required": ["runId"],
-                                    "properties": {"runId": {"type": "string", "description": "业务任务 ID"}},
+                                    "properties": {
+                                        "runId": {"type": "string", "description": "业务任务 ID。"},
+                                        "taskId": {
+                                            "type": "string",
+                                            "description": "兼容旧 Coze 轮询字段；业务 API 中等价于 runId。",
+                                        },
+                                        "detail": {
+                                            "type": "string",
+                                            "nullable": True,
+                                            "enum": ["light", "full"],
+                                            "description": "默认 light；传 full 返回完整排障字段。",
+                                        },
+                                        "includeDebug": {
+                                            "type": "boolean",
+                                            "nullable": True,
+                                            "description": "true 时返回完整排障字段。",
+                                        },
+                                    },
                                 },
                                 "examples": run_get_examples,
                             }
                         },
                     },
-                    "responses": _business_responses(success_description="Business run", errors_by_status=get_errors),
+                    "responses": _business_responses(
+                        success_description="Business run",
+                        errors_by_status=get_errors,
+                        success_schema=run_query_response_schema,
+                    ),
                 }
             },
         },

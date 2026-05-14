@@ -101,6 +101,8 @@ curl -X POST "$PODI_BACKEND/api/coze/podi/tasks/get" \
 
 注意：`/api/coze/podi/tasks/get` 是 Coze/内网兼容入口，外部业务默认使用 `/api/business/runs/get`。
 
+默认查询结果是轻量格式，只包含 `status/taskStatus/imageUrls/videoUrls/texts/error/debugResponse` 等业务字段。排障时可传 `{"runId":"...","detail":"full"}` 获取 `routeInfo/steps/flowSummary` 等完整链路证据。
+
 ## 4. 结果判断
 
 业务查询接口按 `status` 判断：

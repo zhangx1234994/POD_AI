@@ -105,10 +105,11 @@ def test_live_poll_signature_stays_compatible() -> None:
 
             return Response()
 
-    def fake_poll_run(client, run_id, *, timeout_seconds, interval_seconds):
+    def fake_poll_run(client, run_id, *, timeout_seconds, interval_seconds, detail_full=False):
         called["run_id"] = run_id
         called["timeout_seconds"] = timeout_seconds
         called["interval_seconds"] = interval_seconds
+        called["detail_full"] = detail_full
         return {"status": "succeeded", "imageUrls": ["https://example.com/out.png"]}
 
     module._poll_run = fake_poll_run
@@ -126,6 +127,7 @@ def test_live_poll_signature_stays_compatible() -> None:
     assert item["businessKey"] == "fission"
     assert item["runId"] == "run-1"
     assert called["run_id"] == "run-1"
+    assert called["detail_full"] is False
 
 
 def test_extract_selected_capability_id_from_run_evidence() -> None:

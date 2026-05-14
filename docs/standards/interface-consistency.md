@@ -51,11 +51,12 @@
 
 ### 1.3.1 业务任务查询（`/api/business/runs/*`）
 
-- `status` 对外统一为：`queued` / `running` / `succeeded` / `failed` / `cancelled`
+- `status` 对外统一为：`queued` / `running` / `succeeded` / `failed`；历史 `cancelled` 进入业务展示层时按失败处理，避免业务方再分支。
 - 对外主键使用 `runId`；底层 `taskId` 只用于排查关联，不要求业务方理解。
-- 结果字段统一为 `imageUrls/videoUrls/texts/error/debugUrl`，不得把底层 ComfyUI 节点名作为主错误文案。
+- 默认查询结果字段统一为 `status/taskStatus/imageUrl/imageUrls/videoUrl/videoUrls/text/texts/error/errorMessage/debugResponse/debugUrl`，不得把底层 ComfyUI 节点名作为主错误文案。
+- `/api/business/runs/get` 默认轻量返回；需要 `routeInfo/steps/flowSummary/requestPayload/resultPayload/costBreakdown` 时，必须显式传 `detail=full` 或 `includeDebug=true`。
 - 业务版本切换由 `businessKey/version/isDefault/releaseTime` 表达，旧版本保留用于回滚。
-- 灰度路由结果统一放在 `routeInfo`，包含 `selectedBy/version/businessVersionId/routeKeyHash`；不得返回客户原始灰度标识。
+- 灰度路由结果统一放在完整模式的 `routeInfo`，包含 `selectedBy/version/businessVersionId/routeKeyHash`；不得返回客户原始灰度标识。
 - 业务调用明确传 `version` 时必须优先使用指定版本，不再参与灰度比例。
 
 ### 1.4 Agent 同步任务（`/api/agent/*` + `/api/admin/comfyui/tasks*`）

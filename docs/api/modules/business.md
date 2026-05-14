@@ -32,7 +32,7 @@
 1. 提交任务后保存 `runId`。
 2. 用 `runId` 轮询 `/api/business/runs/get`。
 3. Coze/内网工具箱兼容场景下，也可以把 `runId` 填到旧轮询接口 `/api/coze/podi/tasks/get` 的 `taskId` 字段。
-4. 终态优先看 `status/imageUrls/videoUrls/texts/error`；结构化和普通资源可从 `resultPayload` 与 `flowSummary.output` 查看，后续公开字段按同一口径扩展。
+4. 终态优先看 `status/taskStatus/imageUrls/videoUrls/texts/error`。默认查询结果保持轻量，结构化评分会在无图片输出时返回轻量 `resultPayload`；需要 `routeInfo/steps/flowSummary` 等排障字段时，查询接口传 `detail=full`。
 
 这条链路不要求业务方传 Coze 工作流 ID。Coze 可以继续作为接入入口，但业务 API 本身已经能完成“提交任务 -> 查询结果”的闭环；灰度或默认版本命中可先用 `route-preview` 验证。
 
@@ -108,7 +108,7 @@ curl -X POST "$PODI_BACKEND/api/admin/business/api-keys" \
 状态约定：
 
 - `queued/running`：任务还在排队或执行，业务方继续轮询。
-- `succeeded`：任务成功，读取 `imageUrls/videoUrls/texts`；结构化和普通资源查看 `resultPayload` 与 `flowSummary.output`。
+- `succeeded`：任务成功，读取 `imageUrls/videoUrls/texts`；结构化评分优先读取 `texts` 或轻量 `resultPayload`，完整链路证据用 `detail=full` 查询。
 - `failed/cancelled/timeout`：任务不可继续，读取 `error/errorMessage` 并按错误码处理。
 
 ### 0.2) 与管理端 API 开放页对齐
@@ -120,7 +120,7 @@ curl -X POST "$PODI_BACKEND/api/admin/business/api-keys" \
 | 业务 OpenAPI | `GET /api/business/openapi.json` | 8) OpenAPI 工具箱 | 无 | 返回 200，且包含业务提交、路由预览、任务查询工具。 |
 | 花纹提取 | `POST /api/business/pattern-extract/runs` | 2) 提交花纹提取 | `imageUrl` | 可先用 route-preview 验证版本命中；真实出图必须确认 `runId/status/imageUrls`。 |
 | 图裂变 | `POST /api/business/fission/runs` | 3) 提交图裂变 | `imageUrl` | 可先用 route-preview 验证版本命中；真实出图必须确认 `runId/status/imageUrls`。 |
-| 裂变生成图评估 | `POST /api/business/fission-evaluate/runs` | 4) 提交裂变生成图评估 | `originalImageUrl`、`generatedImageUrl` | 真实提交必须确认 `runId/status/resultPayload/texts`。 |
+| 裂变生成图评估 | `POST /api/business/fission-evaluate/runs` | 4) 提交裂变生成图评估 | `originalImageUrl`、`generatedImageUrl` | 真实提交必须确认 `runId/status/texts/resultPayload`。 |
 | 扩图 | `POST /api/business/outpaint/runs` | 5) 提交扩图 | `imageUrl` | 可先用 route-preview 验证版本命中；真实出图必须确认 `runId/status/imageUrls`。 |
 | 查询业务任务 | `POST /api/business/runs/get` | 6) 查询业务任务 | `runId` | 使用不存在的 `runId` 时应返回 `BUSINESS_RUN_NOT_FOUND` 或等价 404，不应返回 500。 |
 
@@ -680,6 +680,17 @@ ComfyUI 颜色锁定版请求示例：
 }
 ```
 
+默认返回轻量结果，字段与 Coze 轮询口径保持一致。排障时可追加：
+
+```json
+{
+  "runId": "d7f2f7f37d1d47ad8dd2a9d7d3cb3d39",
+  "detail": "full"
+}
+```
+
+也兼容 `includeDebug: true`。只有完整模式才返回 `routeInfo/steps/flowSummary/requestPayload/resultPayload/costBreakdown` 等内部排障字段。
+
 Coze 旧工具箱兼容查询：
 
 ```json
@@ -690,7 +701,38 @@ Coze 旧工具箱兼容查询：
 
 调用 `/api/coze/podi/tasks/get` 后返回 `taskStatus/imageUrls/debugResponse`。该入口主要给 Coze 或同机内网工具箱使用；外部业务默认使用 `/api/business/runs/get`。
 
-终态响应示例：
+默认轻量终态响应示例：
+
+```json
+{
+  "runId": "d7f2f7f37d1d47ad8dd2a9d7d3cb3d39",
+  "taskId": "t1.outpaint.default.xxx",
+  "status": "succeeded",
+  "taskStatus": "succeeded",
+  "imageUrl": "https://podi.oss-cn-hangzhou.aliyuncs.com/results/outpaint.png",
+  "imageUrls": [
+    "https://podi.oss-cn-hangzhou.aliyuncs.com/results/outpaint.png"
+  ],
+  "videoUrl": null,
+  "videoUrls": [],
+  "text": "succeeded",
+  "texts": [],
+  "error": null,
+  "errorMessage": null,
+  "errorCode": null,
+  "debugResponse": null,
+  "debugUrl": null,
+  "retryAfterSeconds": null,
+  "expectedImageCount": null,
+  "traceId": "trace-outpaint-001",
+  "requestId": "d7f2f7f37d1d47ad8dd2a9d7d3cb3d39",
+  "durationMs": 126000,
+  "createdAt": "2026-05-14T10:00:00",
+  "finishedAt": "2026-05-14T10:02:06"
+}
+```
+
+`detail=full` 排障响应示例：
 
 ```json
 {
@@ -833,8 +875,9 @@ Coze 旧工具箱兼容查询：
 
 说明：
 
-- `steps` 是业务配方步骤状态。当前版本至少记录主执行能力；启用 VL 辅助后会额外提交并记录 VL 步骤。
-- `flowSummary` 是给管理端和排障使用的链路证据：包含业务版本、原子能力、实际执行节点、输出回填和回调状态。业务方正常轮询只需要关注 `status/imageUrls/videoUrls/texts/error`，结构化和普通资源通过 `resultPayload` 与 `flowSummary.output` 补充判断。
+- 默认轻量响应只返回业务方真正需要处理的字段，避免把 VL 卡片、原子能力原始响应、执行节点证据和 SQL 排障信息一次性返回给业务方。
+- `steps` 只在 `detail=full` 或 `includeDebug=true` 时返回，是业务配方步骤状态。当前版本至少记录主执行能力；启用 VL 辅助后会额外提交并记录 VL 步骤。
+- `flowSummary` 只在完整模式返回，是给管理端和排障使用的链路证据：包含业务版本、原子能力、实际执行节点、输出回填和回调状态。业务方正常轮询只需要关注 `status/taskStatus/imageUrls/videoUrls/texts/error`。
 - `flowSummary.output` 会按 `imageCount/videoCount/textCount/structuredCount/resourceCount` 分开展示，管理端不得继续把所有结果都当图片处理。
 - `steps[].executorId/executorName/executionEvidence` 来自能力调用日志，用于确认任务是否真的打到预期机器，以及结果是否已经落 OSS。
 - 默认情况下最终出图仍以主执行能力为准，VL 伴随步骤用于链路观测和结果积累。

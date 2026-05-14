@@ -2843,6 +2843,52 @@ function SkeletonTile({ title, subtitle }: { title: string; subtitle?: string })
   );
 }
 
+function RunErrorNotice({
+  message,
+  runId,
+  taskId,
+  compact,
+  onCopy,
+}: {
+  message?: string | null;
+  runId?: string | null;
+  taskId?: string | null;
+  compact?: boolean;
+  onCopy?: (text: string) => void;
+}) {
+  const raw = String(message || '').trim();
+  const summary = formatCompactErrorMessage(raw);
+  const detail = [
+    runId ? `测评记录: ${runId}` : '',
+    taskId ? `中台任务: ${taskId}` : '',
+    raw ? `原始错误: ${raw}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  return (
+    <div className={`podi-run-error-notice ${compact ? 'podi-run-error-notice--compact' : ''}`}>
+      <div className="podi-run-error-notice__head">
+        <Tag theme="danger" variant="light">失败</Tag>
+        <Typography.Text>{summary}</Typography.Text>
+      </div>
+      <div className="podi-run-error-notice__actions">
+        {detail && onCopy ? (
+          <Button size="small" variant="outline" theme="danger" onClick={() => onCopy?.(detail)}>
+            复制排障信息
+          </Button>
+        ) : null}
+        {raw ? (
+          <details>
+            <summary>查看完整错误</summary>
+            <pre>{raw}</pre>
+          </details>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function ImageComparePanel({
   inputUrl,
   outputUrls,
@@ -7932,7 +7978,13 @@ export function App() {
                             </Col>
                             {latest.error_message ? (
                               <Col span={12}>
-                                <Alert theme="error" message={formatCompactErrorMessage(latest.error_message)} />
+                                <RunErrorNotice
+                                  message={latest.error_message}
+                                  runId={latest.id}
+                                  taskId={latest.podi_task_id}
+                                  compact
+                                  onCopy={copyRunError}
+                                />
                               </Col>
                             ) : null}
                           </Row>
@@ -7979,7 +8031,13 @@ export function App() {
                                     {!run ? (
                                       <Alert theme="info" message="任务已提交，等待刷新运行状态。" />
                                     ) : runStatus === 'failed' ? (
-                                      <Alert theme="error" message={formatCompactErrorMessage(run.error_message)} />
+                                      <RunErrorNotice
+                                        message={run.error_message}
+                                        runId={run.id}
+                                        taskId={run.podi_task_id}
+                                        compact
+                                        onCopy={copyRunError}
+                                      />
                                     ) : outputImages.length > 0 ? (
                                       <ImageComparePanel
                                         inputUrl={inputUrl}
@@ -8027,7 +8085,12 @@ export function App() {
                             ))}
                           </>
                             ) : status === 'failed' ? (
-                              <Alert theme="error" message={`生成失败（run: ${latest.id}）：${formatCompactErrorMessage(latest.error_message)}`} />
+                              <RunErrorNotice
+                                message={latest.error_message}
+                                runId={latest.id}
+                                taskId={latest.podi_task_id}
+                                onCopy={copyRunError}
+                              />
                             ) : imgs.length > 0 ? (
                               latestInputUrl ? (
                                 <ImageComparePanel
@@ -8461,7 +8524,14 @@ function HistoryRow({
                 </div>
               ))}
             </div>
-            {run.error_message ? <Alert theme="error" message={formatCompactErrorMessage(run.error_message)} /> : null}
+            {run.error_message ? (
+              <RunErrorNotice
+                message={run.error_message}
+                runId={run.id}
+                taskId={run.podi_task_id}
+                compact
+              />
+            ) : null}
           </div>
 
           <div className="podi-history-row-head__rate">

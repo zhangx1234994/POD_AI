@@ -112,26 +112,35 @@ def test_business_openapi_exposes_flat_business_tools() -> None:
         "runId",
         "taskId",
         "status",
+        "taskStatus",
+        "imageUrl",
         "imageUrls",
+        "videoUrl",
+        "videoUrls",
+        "text",
+        "texts",
         "error",
+        "errorMessage",
+        "errorCode",
+        "debugResponse",
         "debugUrl",
-        "abilityName",
-        "vendorModelName",
-        "routeInfo",
-        "steps",
+        "retryAfterSeconds",
+        "expectedImageCount",
         "traceId",
         "requestId",
         "durationMs",
-        "costAmount",
-        "currency",
-        "billingStatus",
-        "chargeable",
-        "noChargeReason",
-        "callbackStatus",
+        "createdAt",
+        "finishedAt",
     }.issubset(run_schema["properties"])
-    step_props = run_schema["properties"]["steps"]["items"]["properties"]
-    assert "resultSummary" in step_props
-    assert {"durationMs", "costAmount", "quotaUnits"}.issubset(step_props)
+    assert "routeInfo" not in run_schema["properties"]
+    assert "steps" not in run_schema["properties"]
+    assert "flowSummary" not in run_schema["properties"]
+    assert "requestPayload" not in run_schema["properties"]
+    assert "costBreakdown" not in run_schema["properties"]
+    run_get_request_schema = paths["/api/business/runs/get"]["post"]["requestBody"]["content"]["application/json"][
+        "schema"
+    ]
+    assert {"runId", "taskId", "detail", "includeDebug"}.issubset(run_get_request_schema["properties"])
     submit_responses = paths["/api/business/fission/runs"]["post"]["responses"]
     assert "400" in submit_responses
     assert "500" in submit_responses
@@ -382,6 +391,23 @@ def test_business_api_submit_and_query_do_not_require_coze_workflow(monkeypatch)
     query_body = query.json()
     assert query_body["runId"] == "run_direct_fission"
     assert query_body["taskId"] == "task_direct_fission"
+    assert query_body["status"] == "queued"
+    assert query_body["taskStatus"] == "queued"
+    assert query_body["retryAfterSeconds"] == 10
+    assert "routeInfo" not in query_body
+    assert "steps" not in query_body
+
+    full_query = client.post(
+        "/api/business/runs/get",
+        json={"runId": "run_direct_fission", "detail": "full"},
+        headers={"x-real-ip": "127.0.0.1"},
+    )
+
+    assert full_query.status_code == 200
+    full_body = full_query.json()
+    assert full_body["runId"] == "run_direct_fission"
+    assert full_body["routeInfo"]["entry"] == "business-api"
+    assert full_body["steps"] == []
 
 
 def test_coze_task_get_accepts_business_run_id_for_polling_compatibility(monkeypatch) -> None:

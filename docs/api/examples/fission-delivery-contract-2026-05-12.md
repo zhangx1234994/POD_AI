@@ -19,9 +19,9 @@
 | 入口 | 提交后主 ID | 轮询接口 | 状态字段 | 成功结果字段 | 说明 |
 | --- | --- | --- | --- | --- | --- |
 | 旧 Coze 工具箱 | `taskId` | `POST /api/coze/podi/tasks/get` | `taskStatus` | `imageUrls/videoUrls/texts` | Coze 继续使用的兼容入口。 |
-| 中台业务 API | `runId` | `POST /api/business/runs/get` | `status` | `imageUrls/videoUrls/texts` | 业务方优先使用的新入口。 |
+| 中台业务 API | `runId` | `POST /api/business/runs/get` | `status/taskStatus` | `imageUrls/videoUrls/texts` | 业务方优先使用的新入口；默认轻量返回。 |
 | 中台业务 API 兼容 Coze 轮询 | `runId` | `POST /api/coze/podi/tasks/get`，把 `runId` 填到 `taskId` | `taskStatus` | `imageUrls/videoUrls/texts` | 用于不想改旧轮询逻辑的业务方或 Coze 工具箱。 |
-| 中台业务 API 裂变评分 | `runId` | `POST /api/business/runs/get` | `status` | `resultPayload/texts/flowSummary.output` | 推荐给业务方使用的新入口，统一业务 Key 和轮询方式。 |
+| 中台业务 API 裂变评分 | `runId` | `POST /api/business/runs/get` | `status/taskStatus` | `texts/resultPayload` | 推荐给业务方使用的新入口，统一业务 Key 和轮询方式；完整链路证据用 `detail=full`。 |
 
 状态含义：
 
@@ -29,13 +29,14 @@
 | --- | --- | --- |
 | `queued` | 已接收，等待调度或等待前置步骤完成。 | 继续轮询。 |
 | `running` | 已下发到底层能力或正在等待回填。 | 继续轮询。 |
-| `succeeded` | 任务成功，结果已可读。 | 读取 `imageUrls/videoUrls/texts/resultPayload`。 |
+| `succeeded` | 任务成功，结果已可读。 | 读取 `imageUrls/videoUrls/texts`；评分类读取 `texts/resultPayload`。 |
 | `failed` | 任务失败。 | 读取 `error/errorMessage/debugResponse`，记录 `runId/taskId/traceId` 排查。 |
 | `cancelled` | 业务任务被取消。 | 不再轮询，按失败或取消处理。 |
 
 硬规则：
 
 - 外部业务默认使用 `/api/business/runs/get`。
+- `/api/business/runs/get` 默认只返回轻量字段；需要 `routeInfo/steps/flowSummary` 时传 `detail=full` 或 `includeDebug=true`。
 - Coze 或旧业务轮询不想改时，可以把 `runId` 填入 `/api/coze/podi/tasks/get` 的 `taskId`。
 - 底层 `taskId` 是能力任务 ID，只用于排障关联，不要求业务方理解。
 - 业务接口多了一层 `BusinessRun`，负责版本、灰度、步骤、回调、计费和排障证据；这层不改变“排队轮询”的外部模式。
@@ -66,8 +67,8 @@ classDiagram
         +routeInfo 灰度或指定版本命中结果
         +taskId 底层能力任务 ID
         +imageUrls 最终图片
-        +steps 业务步骤
-        +flowSummary 链路摘要
+        +steps 业务步骤(仅完整模式)
+        +flowSummary 链路摘要(仅完整模式)
         +error 错误摘要
     }
 

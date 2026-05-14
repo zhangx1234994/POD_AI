@@ -5,13 +5,32 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 import time
 import urllib.error
 import urllib.request
 
 
+def load_env_files() -> None:
+    for env_path in (
+        Path(__file__).resolve().parent.parent / ".env",
+        Path(__file__).resolve().parent.parent / "business_api_key.env",
+        Path(__file__).resolve().parent / ".env",
+    ):
+        if not env_path.exists():
+            continue
+        for line in env_path.read_text(encoding="utf-8").splitlines():
+            text = line.strip()
+            if not text or text.startswith("#") or "=" not in text:
+                continue
+            key, value = text.split("=", 1)
+            os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+load_env_files()
+
 BACKEND = os.environ.get("PODI_BACKEND", "http://114.55.0.56:8099").rstrip("/")
-API_KEY = os.environ.get("PODI_API_KEY", "")
+API_KEY = os.environ.get("PODI_API_KEY") or os.environ.get("PODI_BUSINESS_API_KEY", "")
 ORIGINAL_IMAGE_URL = os.environ.get("PODI_IMAGE_URL", "https://example.com/original.png")
 GENERATED_IMAGE_URL = os.environ.get("PODI_GENERATED_IMAGE_URL", "https://example.com/generated.png")
 
@@ -66,4 +85,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

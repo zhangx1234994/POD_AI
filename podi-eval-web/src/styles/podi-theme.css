@@ -666,6 +666,55 @@ html.t-theme-dark {
   background: color-mix(in srgb, var(--td-brand-color) 8%, #ffffff);
 }
 
+.podi-run-error-notice {
+  width: 100%;
+  border: 1px solid color-mix(in srgb, var(--td-error-color) 22%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--td-error-color) 8%, #ffffff);
+  padding: 12px;
+}
+
+.podi-run-error-notice--compact {
+  padding: 10px;
+}
+
+.podi-run-error-notice__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  line-height: 20px;
+}
+
+.podi-run-error-notice__actions {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.podi-run-error-notice__actions details {
+  max-width: 100%;
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+}
+
+.podi-run-error-notice__actions summary {
+  cursor: pointer;
+}
+
+.podi-run-error-notice__actions pre {
+  max-width: min(760px, 100%);
+  max-height: 180px;
+  overflow: auto;
+  margin: 8px 0 0;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.76);
+  padding: 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 @media (max-width: 1280px) {
   .podi-eval-category-board {
     grid-template-columns: repeat(3, minmax(0, 1fr));
