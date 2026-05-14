@@ -803,9 +803,17 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
         "channel": {"type": "string", "nullable": True, "description": "业务渠道，例如 coze-workflow、open-api、eval。"},
         "traceId": {"type": "string", "nullable": True, "description": "调用链路 ID，用于跨系统排查。"},
         "requestId": {"type": "string", "nullable": True, "description": "业务方请求 ID，用于幂等和日志关联。"},
-        "tenantId": {"type": "string", "nullable": True, "description": "租户/业务方 ID。"},
-        "clientId": {"type": "string", "nullable": True, "description": "客户端/应用 ID。"},
-        "callbackUrl": {"type": "string", "nullable": True, "description": "终态回调地址"},
+        "tenantId": {
+            "type": "string",
+            "nullable": True,
+            "description": "租户/业务方 ID。通常不需要业务方传入，由业务 API Key 绑定；显式传入时必须与 Key 或账号范围一致。",
+        },
+        "clientId": {
+            "type": "string",
+            "nullable": True,
+            "description": "客户端/应用 ID。通常不需要业务方传入，由业务 API Key 绑定；显式传入时必须与 Key 或账号范围一致。",
+        },
+        "callbackUrl": {"type": "string", "nullable": True, "description": "可选 Webhook 地址；常规链路仍是提交后拿 runId 轮询 /api/business/runs/get。"},
         "callbackHeaders": {"type": "object", "nullable": True, "description": "终态回调请求头。"},
         "metadata": {"type": "object", "nullable": True, "description": "业务上下文，例如 grayKey、tenantId、userId。"},
     }

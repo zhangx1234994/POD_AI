@@ -76,7 +76,14 @@ Authorization: Bearer <accessToken>
 
 ## 3. 核心推荐接口（给助理最重要）
 
-如果你是给另一个助理生成 skills，优先接这 5 类：
+如果你是给另一个助理生成业务 skills，优先接业务 API：
+
+1. `GET /api/business/capabilities`
+2. `POST /api/business/{business}/runs`
+3. `POST /api/business/runs/get`
+4. `POST /api/business/{business}/route-preview`
+
+如果你是给内部高级开发助理生成原子能力 skills，再接这 5 类：
 
 1. `POST /api/auth/login`
 2. `GET /api/abilities`
@@ -94,7 +101,7 @@ Authorization: Bearer <accessToken>
 
 ---
 
-## 4. 能力接口（推荐主入口）
+## 4. 原子能力接口（内部/高级开发入口）
 
 ### 4.1 查询能力列表
 
@@ -103,7 +110,8 @@ Authorization: Bearer <accessToken>
 用途：
 
 - 获取当前所有激活能力
-- 适合助理动态生成工具列表、表单、技能卡片
+- 适合内部助理动态生成工具列表、表单、技能卡片
+- 普通业务 skill 应优先封装 `/api/business/*`，不要让业务方直接面对 `abilityId/executorId/provider`
 
 关键字段：
 
@@ -409,19 +417,26 @@ curl http://117.50.80.158:8099/api/abilities   -H "Authorization: Bearer <access
 - `POST /api/auth/login`
 - `POST /api/auth/refresh`
 
-### Skill B：能力查询与调用
+### Skill B：业务能力查询与调用
+
+- `GET /api/business/capabilities`
+- `POST /api/business/{business}/runs`
+- `POST /api/business/runs/get`
+- `POST /api/business/{business}/route-preview`
+
+### Skill C：原子能力查询与调用（内部/高级开发）
 
 - `GET /api/abilities`
 - `GET /api/abilities/{abilityId}`
 - `POST /api/abilities/{abilityId}/invoke`
 
-### Skill C：异步任务
+### Skill D：原子能力异步任务
 
 - `POST /api/ability-tasks`
 - `GET /api/ability-tasks/{taskId}`
 - `GET /api/ability-tasks`
 
-### Skill D：评测工作流
+### Skill E：评测工作流
 
 - `GET /api/evals/workflow-versions`
 - `POST /api/evals/runs`
@@ -429,7 +444,7 @@ curl http://117.50.80.158:8099/api/abilities   -H "Authorization: Bearer <access
 - `GET /api/evals/docs/workflows`
 - `POST /api/evals/uploads`
 
-### Skill E：Coze 工具箱
+### Skill F：Coze 工具箱
 
 - `GET /api/coze/podi/openapi.json`
 - `GET /api/coze/podi/comfyui/lora/openapi.json`
@@ -465,7 +480,8 @@ curl http://117.50.80.158:8099/api/abilities   -H "Authorization: Bearer <access
 
 ## 11. 对接建议
 
-- 如果是“直接调用能力”，优先走 `/api/abilities/*`
+- 如果是“业务功能”，优先走 `/api/business/*`
+- 如果是“内部原子能力调试 / 高级开发”，再走 `/api/abilities/*`
 - 如果是“回归工作流 / 批量验收”，走 `/api/evals/*`
 - 如果是“Coze 工具箱自动导入”，走 `/api/coze/podi/*.json`
 - 如果是“另一个助理生成 skills”，优先从本文件抽取：

@@ -98,7 +98,7 @@ Python 代码遵循 Black + Ruff（4 空格、snake_case 模块、PascalCase Pyd
 - 2026-01-09：整理 `docs/comfyui/README.md`，集中记录四方连续 & 印花提取 workflow 的执行节点、关键节点、默认参数与版本更新指引。后续任何 ComfyUI 工作流/LoRA/能力表单变更，都需同步更新该文档，方便非技术同学查阅与版本追踪。
 - 2026-01-12：印花提取 workflow 精简为 `yinhua_tiqu` v2（去掉遮罩/预览，只保留核心链路），`abilities.py` schema 和 `ComfyUIExecutorAdapter` 均改写为映射节点 393/110/111/390/400；`docs/comfyui/README.md` 与 OSS 文件默认名同步更新。该版本默认输出 1800×1800 PNG，可在表单传入宽高和 LoRA 文件名控制结果。
 - 2026-01-12：新增 `/api/admin/comfyui/models` 接口，通过 ComfyUI `/object_info` 自动列出目标执行节点的 `unet/clip/vae/lora` 选项，管理端后续可直接绑定下拉框，不再手填模型/LoRA 名称。
-- 2026-01-12：对外开放统一能力 API：`GET /api/abilities` 列出全部激活能力，`POST /api/abilities/{abilityId}/invoke` 负责执行（字段包括 `inputs`、`images`、`metadata` 等，详见 `docs/api/abilities.md`）。所有调用自动写入 `ability_invocation_logs`，管理端“能力测试”与客户端调用共享同一条日志链路；“能力测试”页新增“统一能力接口”板块，可一键复制 Ability ID/cURL 示例，方便非技术同学验证。
+- 2026-01-12：上线统一原子能力 API：`GET /api/abilities` 列出全部激活能力，`POST /api/abilities/{abilityId}/invoke` 负责执行（字段包括 `inputs`、`images`、`metadata` 等，详见 `docs/api/abilities.md`）。该接口面向内部编排、测评端、管理端和高级开发；普通业务方正式接入优先使用 `/api/business/*`。所有调用自动写入 `ability_invocation_logs`，管理端“能力测试”与客户端调用共享同一条日志链路；“能力测试”页新增“统一能力接口”板块，可一键复制 Ability ID/cURL 示例，方便非技术同学验证。
 
 ### 能力调用记录 / Admin 日志（2026-01-12）
 - 新建 `ability_invocation_logs` 表与 `AbilityLogService`，所有 `admin/tests/*` 调用都会写入能力 ID、执行节点、来源（默认 `admin-test`）、耗时、请求/响应摘要以及输出的 OSS 链接，再由 FastAPI 的 `/api/admin/abilities/{ability_id}/logs` 接口按时间倒序返回最近 N 条记录。

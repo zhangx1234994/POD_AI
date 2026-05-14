@@ -15,6 +15,7 @@
 | 模块 | 文档 |
 | --- | --- |
 | 总览 | `docs/api/modules/overview.md` |
+| 对外接口边界 | `docs/standards/external-api-boundary.md` |
 | 认证与用户 | `docs/api/modules/auth.md` |
 | 媒资与上传 | `docs/api/modules/media.md` |
 | 业务能力接口 | `docs/api/modules/business.md` |
@@ -48,8 +49,11 @@
 后续页面展示不再按三类入口平铺为主，而是优先按业务分类组织。分类真源见：
 
 - `docs/standards/business-interface-taxonomy.md`
+- `docs/standards/external-api-boundary.md`
 
 同一业务分类下同时展示“原生业务 API / Coze 工具箱 / 原子能力 API / 测评入口”，避免业务方在多个技术列表中找同一个功能。
+
+业务方正式交付材料默认只引用“中台自有业务 API”。原子能力 API、Coze 工具箱 API、评测 API 和管理端 API 只能作为内部说明或高级开发附录出现。
 
 ---
 

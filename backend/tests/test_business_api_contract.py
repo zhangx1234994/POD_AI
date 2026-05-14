@@ -70,6 +70,9 @@ def test_business_openapi_exposes_flat_business_tools() -> None:
     assert "style_shift" not in submit_schema["properties"]
     assert "重绘幅度" in submit_schema["properties"]["bili"]["description"]
     assert "denoise" in submit_schema["properties"]["bili"]["description"]
+    assert "通常不需要业务方传入" in submit_schema["properties"]["tenantId"]["description"]
+    assert "业务 API Key" in submit_schema["properties"]["clientId"]["description"]
+    assert "runId 轮询" in submit_schema["properties"]["callbackUrl"]["description"]
     assert submit_schema["properties"]["size"]["enum"] == [
         "auto",
         "1024x1024",

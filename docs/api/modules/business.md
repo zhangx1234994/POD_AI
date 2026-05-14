@@ -101,9 +101,9 @@ curl -X POST "$PODI_BACKEND/api/admin/business/api-keys" \
 - `channel`：具体入口，例如 `coze-workflow`、`open-api`、`eval`。
 - `traceId`：跨系统排查 ID，建议业务方生成并传入。
 - `requestId`：业务方请求 ID，后续用于幂等和日志关联。
-- `tenantId/clientId`：租户和客户端标识，用于灰度、配额、统计和隔离。
+- `tenantId/clientId`：租户和客户端标识，用于灰度、配额、统计和隔离。业务方通常不需要传，优先由业务 API Key 绑定；显式传入时必须与 Key 或登录账号范围一致。
 - `userId`：业务方自己的用户标识，只作为外部上下文和排查字段保留；不会直接写入平台用户外键，也不会替代平台登录用户。
-- `callbackUrl`：可选。配置后任务终态会回调业务方；即使回调失败，业务方仍可用 `runId` 查询结果。
+- `callbackUrl`：可选 Webhook。配置后任务终态会通知业务方；即使 Webhook 失败，业务方仍可用 `runId` 轮询查询结果。常规业务链路是“提交后拿 `runId` 轮询”，不要把这个和 Webhook 回调混为一谈。
 
 状态约定：
 

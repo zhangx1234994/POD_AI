@@ -138,13 +138,13 @@
 
 ## 统一能力接口与日志（2026-01 更新）
 
-为对外提供稳定的“原子能力中心”，后端新增了 `AbilityService` 及配套的日志/成本模型：
+为内部编排、测评端、管理端和高级开发提供稳定的“原子能力中心”，后端新增了 `AbilityService` 及配套的日志/成本模型：
 
-- `GET /api/abilities` / `POST /api/abilities/{id}/invoke`：向客户端暴露统一的调用入口，与管理端表单保持同一份 `input_schema` / `default_params`。所有能力都必须在 `app/constants/abilities.py` 中登记，缺失字段会被阻止发布。
+- `GET /api/abilities` / `POST /api/abilities/{id}/invoke`：向内部编排、测评端、管理端和高级开发暴露统一的调用入口，与管理端表单保持同一份 `input_schema` / `default_params`。普通业务方正式接入优先使用 `/api/business/*`。所有能力都必须在 `app/constants/abilities.py` 中登记，缺失字段会被阻止发布。
 - `POST /api/ability-tasks`：承载异步/批量请求；后台线程池遵循 `ABILITY_TASK_MAX_WORKERS` + `executors.max_concurrency`，必要时可在配置中按能力/节点限流。
 - `ability_invocation_logs`：记录能力调用的 `request_id`、`executor_id`、`duration_ms`、`pricing`（对外价 & 折扣价）、`cost_amount`，并存储 OSS 输出列表。管理端“调用记录”即基于该表。
 - `metadata.pricing`：能力成本模型，字段包括 `currency`、`unit`、`list_price`、`discount_price`。管理端展示“¥0.30 / 每张（折扣） / ¥0.50 / 每张（对外）”形式，并在日志中回写实际 cost。ComfyUI 默认 ¥0.30/张，可覆盖。
 - `callbackUrl/callbackHeaders`：同步/异步调用均可附带回调，后端会在执行完毕后推送 `status/result/error/logId`，便于第三方系统解耦。
 - `traceId/workflowRunId`：请求可在 metadata 中携带自定义 ID，后端随日志返回，用于串联上下游链路。未来工作流层会将 `workflow_run_nodes` 与能力日志打通。
 
-通过上述机制，我们保证：① 客户端/管理端/工作流都使用统一接口；② 每次调用都有日志可查；③ 成本/队列/LoRA 这些运行时信息被显式暴露，利于运营和排障。
+通过上述机制，我们保证：① 内部编排、管理端、测评端和高级开发有统一原子能力入口；② 每次调用都有日志可查；③ 成本/队列/LoRA 这些运行时信息被显式暴露，利于运营和排障。普通业务方看到的是业务 API，不需要理解原子能力细节。

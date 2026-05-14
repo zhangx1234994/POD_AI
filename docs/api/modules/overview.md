@@ -17,6 +17,8 @@
 
 ## 3. 鉴权类型
 
+接口边界先看 `docs/standards/external-api-boundary.md`。普通业务方正式接入默认只使用 `/api/business/*`；`/api/coze/podi/*`、`/api/abilities/*`、`/api/evals/*`、`/api/admin/*` 都不是普通业务方第一接入口。
+
 ### 3.1 用户/管理员 Bearer Token
 
 - 获取：`POST /api/auth/login` → `accessToken`
@@ -38,6 +40,13 @@
 
 - 公共评测：`EVAL_PUBLIC_TOKEN`（Header: `X-Eval-Token` 或 URL `?token=`）
 - 评测管理：`EVAL_ADMIN_TOKEN`（Header: `X-Eval-Admin-Token` 或 URL `?admin_token=`）
+
+### 3.5 业务 API Key
+
+- 推荐业务方使用：`X-PODI-API-Key: <业务 API Key>`
+- 兼容：`Authorization: Bearer <业务 API Key>`
+- 常规业务流程：提交 `/api/business/{business}/runs`，保存 `runId`，再轮询 `/api/business/runs/get`。
+- `tenantId/clientId` 通常由业务 API Key 绑定，业务方不需要每次传；显式传入时必须与 Key 或账号范围一致。
 
 ## 4. 通用响应与错误契约
 
