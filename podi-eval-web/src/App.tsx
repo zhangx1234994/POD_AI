@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { CSSProperties, ReactNode, MouseEvent as ReactMouseEvent, WheelEvent as ReactWheelEvent } from 'react';
+import type { CSSProperties, ReactNode, MouseEvent as ReactMouseEvent, TouchEvent as ReactTouchEvent, WheelEvent as ReactWheelEvent } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
@@ -66,6 +66,9 @@ type PromptHint = {
 type LoraOption = { label: string; value: string };
 
 type CompareMode = 'slider' | 'side-by-side' | 'overlay' | 'diff';
+
+const DEFAULT_COMPARE_MODE: CompareMode = 'slider';
+const DEFAULT_COMPARE_SLIDER = 100;
 
 type ImageLightboxGroup = {
   id: string;
@@ -2293,10 +2296,12 @@ function Lightbox({
   onClose: () => void;
 }) {
   const [zoom, setZoom] = useState(1);
-  const [mode, setMode] = useState<CompareMode>(context?.mode || 'side-by-side');
+  const [mode, setMode] = useState<CompareMode>(context?.mode || DEFAULT_COMPARE_MODE);
   const [index, setIndex] = useState(context?.activeIndex || 0);
-  const [slider, setSlider] = useState(50);
+  const [slider, setSlider] = useState(DEFAULT_COMPARE_SLIDER);
   const [opacity, setOpacity] = useState(72);
+  const sliderLayerRef = useRef<HTMLDivElement | null>(null);
+  const sliderDraggingRef = useRef(false);
   const contextOutputKey = (context?.outputUrls || []).join('|');
   const groups = useMemo(
     () => (context?.groups || []).filter((item) => item && (item.inputUrl || (item.outputUrls || []).length > 0)),
@@ -2321,10 +2326,10 @@ function Lightbox({
 
   useEffect(() => {
     setZoom(1);
-    setMode(context?.mode || 'side-by-side');
+    setMode(context?.mode || DEFAULT_COMPARE_MODE);
     setIndex(context?.activeIndex || 0);
     setSelectedGroupId(initialGroupId);
-    setSlider(50);
+    setSlider(DEFAULT_COMPARE_SLIDER);
     setOpacity(72);
   }, [url, context?.activeGroupId, context?.activeIndex, context?.mode, context?.inputUrl, contextOutputKey, initialGroupId]);
 
@@ -2354,6 +2359,43 @@ function Lightbox({
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose, safeOutputs.length]);
 
+  const setSliderFromClientX = useCallback((clientX: number) => {
+    const rect = sliderLayerRef.current?.getBoundingClientRect();
+    if (!rect || rect.width <= 0) return;
+    const next = Math.round(((clientX - rect.left) / rect.width) * 100);
+    setSlider(Math.max(0, Math.min(100, next)));
+  }, []);
+
+  useEffect(() => {
+    const stopDrag = () => {
+      sliderDraggingRef.current = false;
+    };
+    const onMouseMove = (event: MouseEvent) => {
+      if (!sliderDraggingRef.current) return;
+      event.preventDefault();
+      setSliderFromClientX(event.clientX);
+    };
+    const onTouchMove = (event: TouchEvent) => {
+      if (!sliderDraggingRef.current) return;
+      const touch = event.touches[0];
+      if (!touch) return;
+      event.preventDefault();
+      setSliderFromClientX(touch.clientX);
+    };
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', stopDrag);
+    window.addEventListener('touchmove', onTouchMove, { passive: false });
+    window.addEventListener('touchend', stopDrag);
+    window.addEventListener('touchcancel', stopDrag);
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', stopDrag);
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('touchend', stopDrag);
+      window.removeEventListener('touchcancel', stopDrag);
+    };
+  }, [setSliderFromClientX]);
+
   if (!url && !activeUrl) return null;
 
   const modes = [
@@ -2368,12 +2410,36 @@ function Lightbox({
     '--podi-lightbox-zoom': `${zoom}`,
   } as CSSProperties;
   const displayTitle = activeGroup?.label || title || (hasCompare ? `结果图 #${index + 1}` : '图片预览');
-  const openOriginal = () => {
+  const showOriginal = () => {
+    if (hasCompare) {
+      setMode('slider');
+      setSlider(0);
+      return;
+    }
     const target = effectiveInputUrl || activeUrl || url;
     if (target) window.open(target, '_blank', 'noreferrer');
   };
-  const openResult = () => {
+  const showResult = () => {
+    if (hasCompare) {
+      setMode('slider');
+      setSlider(DEFAULT_COMPARE_SLIDER);
+      return;
+    }
     if (activeUrl) window.open(activeUrl, '_blank', 'noreferrer');
+  };
+  const startSliderDrag = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (mode !== 'slider') return;
+    sliderDraggingRef.current = true;
+    setSliderFromClientX(event.clientX);
+    event.preventDefault();
+  };
+  const startSliderTouch = (event: ReactTouchEvent<HTMLDivElement>) => {
+    if (mode !== 'slider') return;
+    const touch = event.touches[0];
+    if (!touch) return;
+    sliderDraggingRef.current = true;
+    setSliderFromClientX(touch.clientX);
+    event.preventDefault();
   };
   const onWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -2431,10 +2497,10 @@ function Lightbox({
             +
           </button>
         </div>
-        <Button size="small" variant="outline" onClick={openOriginal}>
+        <Button size="small" variant="outline" onClick={showOriginal}>
           原图
         </Button>
-        <Button size="small" theme="primary" variant="base" onClick={openResult} disabled={!activeUrl}>
+        <Button size="small" theme="primary" variant="base" onClick={showResult} disabled={!activeUrl}>
           {hasCompare ? '结果图' : '打开当前图'}
         </Button>
         <Button size="small" variant="text" onClick={onClose}>
@@ -2472,7 +2538,7 @@ function Lightbox({
               })
             ) : (
               <>
-                <button type="button" className="podi-immersive-viewer__thumb is-reference" onClick={openOriginal}>
+                <button type="button" className="podi-immersive-viewer__thumb is-reference" onClick={showOriginal}>
                   {effectiveInputUrl ? <img src={effectiveInputUrl} alt="原图缩略图" loading="lazy" /> : <span>无原图</span>}
                   <small>原图</small>
                 </button>
@@ -2501,7 +2567,12 @@ function Lightbox({
                   {renderStaticPane(outputUrl, `结果图 #${index + 1}`, 'output')}
                 </>
               ) : (
-                <div className="podi-compare-layer">
+                <div
+                  className="podi-compare-layer"
+                  ref={sliderLayerRef}
+                  onMouseDown={startSliderDrag}
+                  onTouchStart={startSliderTouch}
+                >
                   <img className="podi-compare-layer__base" src={effectiveInputUrl} alt="原图" loading="lazy" draggable={false} />
                   <span className="podi-compare-layer__tag podi-compare-layer__tag--input">原图</span>
                   <div className="podi-compare-layer__result">
@@ -2609,6 +2680,16 @@ function Lightbox({
               <input type="range" min="0" max="100" value={slider} onChange={(e) => setSlider(Number(e.target.value))} />
               <strong>{slider}%</strong>
             </label>
+          ) : null}
+          {mode === 'slider' ? (
+            <div className="podi-immersive-viewer__quick-switch" aria-label="快速切换">
+              <button type="button" className={slider <= 0 ? 'is-active' : ''} onClick={showOriginal}>
+                原图
+              </button>
+              <button type="button" className={slider >= 100 ? 'is-active' : ''} onClick={showResult}>
+                结果图
+              </button>
+            </div>
           ) : null}
           {mode === 'overlay' ? (
             <label>
@@ -3286,9 +3367,9 @@ function ImageComparePanel({
   activeGroupId?: string;
   onOpenImage: (url: string, title?: string, context?: ImageLightboxContext) => void;
 }) {
-  const [mode, setMode] = useState<CompareMode>('side-by-side');
+  const [mode, setMode] = useState<CompareMode>(DEFAULT_COMPARE_MODE);
   const [index, setIndex] = useState(0);
-  const [slider, setSlider] = useState(50);
+  const [slider, setSlider] = useState(DEFAULT_COMPARE_SLIDER);
   const [opacity, setOpacity] = useState(70);
   const safeOutputs = outputUrls.filter((item) => String(item || '').trim());
   const outputUrl = safeOutputs[index] || safeOutputs[0] || '';
@@ -3307,7 +3388,7 @@ function ImageComparePanel({
     <button
       type="button"
       className={`podi-compare-pane podi-compare-pane--${tone}`}
-      onClick={() => onOpenImage(url, label, { inputUrl, outputUrls: safeOutputs, activeIndex: index, mode: 'side-by-side', groups: lightboxGroups, activeGroupId })}
+      onClick={() => onOpenImage(url, label, { inputUrl, outputUrls: safeOutputs, activeIndex: index, mode, groups: lightboxGroups, activeGroupId })}
       disabled={!url}
     >
       {url ? <img src={url} alt={label} loading="lazy" draggable={false} /> : <span>暂无图片</span>}
@@ -3377,6 +3458,26 @@ function ImageComparePanel({
             <span>滑块位置</span>
             <input type="range" min="0" max="100" value={slider} onChange={(e) => setSlider(Number(e.target.value))} />
           </label>
+        ) : null}
+        {mode === 'slider' ? (
+          <div className="podi-compare-switch" aria-label="快速切换">
+            <Button
+              size="small"
+              variant={slider <= 0 ? 'base' : 'outline'}
+              theme={slider <= 0 ? 'primary' : 'default'}
+              onClick={() => setSlider(0)}
+            >
+              原图
+            </Button>
+            <Button
+              size="small"
+              variant={slider >= 100 ? 'base' : 'outline'}
+              theme={slider >= 100 ? 'primary' : 'default'}
+              onClick={() => setSlider(DEFAULT_COMPARE_SLIDER)}
+            >
+              结果图
+            </Button>
+          </div>
         ) : null}
         {mode === 'overlay' ? (
           <label>
@@ -9049,7 +9150,7 @@ function HistoryRow({
                     {inputUrl ? (
                       <Button
                         variant="outline"
-                        onClick={() => onOpenImage(inputUrl, '原图', { inputUrl, outputUrls: outputs, activeIndex: 0, mode: 'side-by-side', groups: lightboxGroups, activeGroupId: run.id })}
+                        onClick={() => onOpenImage(inputUrl, '原图', { inputUrl, outputUrls: outputs, activeIndex: 0, mode: DEFAULT_COMPARE_MODE, groups: lightboxGroups, activeGroupId: run.id })}
                         style={{ padding: 6, height: 'auto' }}
                       >
                         <img src={inputUrl} alt="input" style={{ height: 128, width: '100%', objectFit: 'contain' }} />
@@ -9061,7 +9162,7 @@ function HistoryRow({
                         <Button
                           key={`${run.id}-out-${idx}`}
                           variant="outline"
-                          onClick={() => onOpenImage(u, `结果图 #${idx + 1}`, { inputUrl, outputUrls: outputs, activeIndex: idx, mode: 'side-by-side', groups: lightboxGroups, activeGroupId: run.id })}
+                          onClick={() => onOpenImage(u, `结果图 #${idx + 1}`, { inputUrl, outputUrls: outputs, activeIndex: idx, mode: DEFAULT_COMPARE_MODE, groups: lightboxGroups, activeGroupId: run.id })}
                           style={{ padding: 6, height: 'auto' }}
                         >
                           <img src={u} alt="output" loading="lazy" style={{ height: 128, width: '100%', objectFit: 'contain' }} />

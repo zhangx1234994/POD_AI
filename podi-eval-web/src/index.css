@@ -412,6 +412,10 @@
   cursor: default;
 }
 
+.podi-compare-stage--slider .podi-compare-layer {
+  cursor: col-resize;
+}
+
 .podi-compare-pane img,
 .podi-compare-layer img {
   width: 100%;
@@ -524,6 +528,12 @@
 .podi-compare-panel__controls input[type="range"] {
   flex: 1;
   accent-color: var(--td-brand-color);
+}
+
+.podi-compare-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .podi-compare-thumbs {
@@ -1219,6 +1229,30 @@
   text-align: right;
 }
 
+.podi-immersive-viewer__quick-switch {
+  display: inline-flex;
+  overflow: hidden;
+  margin-left: 16px;
+  border: 1px solid #1e293b;
+  border-radius: 999px;
+  background: #111827;
+}
+
+.podi-immersive-viewer__quick-switch button {
+  border: 0;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 7px 12px;
+}
+
+.podi-immersive-viewer__quick-switch button.is-active {
+  background: #2563eb;
+  color: #eff6ff;
+}
+
 @media (max-width: 768px) {
   .podi-compare-panel__toolbar {
     align-items: flex-start;
@@ -1292,6 +1326,10 @@
 
   .podi-immersive-viewer__bottombar label {
     width: 100%;
+  }
+
+  .podi-immersive-viewer__quick-switch {
+    margin-left: 0;
   }
 }
 
