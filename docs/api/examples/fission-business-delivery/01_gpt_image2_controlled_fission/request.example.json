@@ -5,9 +5,9 @@
   "variation_strength": "same_series",
   "quality": "preview",
   "size": "auto",
+  "maskUrl": null,
   "source": "partner-api",
   "channel": "open-api",
   "requestId": "biz-gpt-image2-fission-001",
   "traceId": "trace-gpt-image2-fission-001"
 }
-

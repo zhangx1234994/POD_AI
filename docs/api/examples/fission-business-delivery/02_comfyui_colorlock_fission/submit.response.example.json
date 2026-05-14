@@ -1,0 +1,17 @@
+{
+  "runId": "run_comfyui_001",
+  "taskId": "t1.fission.auto.3c8d2a",
+  "businessKey": "fission",
+  "version": "comfyui-vl-control-v2",
+  "status": "queued",
+  "taskStatus": "queued",
+  "traceId": "trace-comfyui-colorlock-001",
+  "requestId": "biz-comfyui-colorlock-001",
+  "debugUrl": null,
+  "debugResponse": null,
+  "retryAfterSeconds": 10,
+  "error": null,
+  "errorMessage": null,
+  "errorCode": null,
+  "createdAt": "2026-05-14T10:00:00"
+}

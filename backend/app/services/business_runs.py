@@ -4049,6 +4049,34 @@ class BusinessRunService:
         else:
             assign("prompt", first_text("positivePrompt", "summary"))
 
+    @staticmethod
+    def _enforce_single_output_fission_inputs(inputs: dict[str, Any], *, keep_internal_n: bool = False) -> None:
+        """Business fission returns one output per runId."""
+
+        blocked_keys = [
+            "count",
+            "batch_size",
+            "batchSize",
+            "generate_count",
+            "generateCount",
+            "variant_count",
+            "variantCount",
+            "preserve_layout",
+            "preserveLayout",
+            "preserve_border",
+            "preserveBorder",
+            "preserve_count_density",
+            "preserveCountDensity",
+            "style_shift",
+            "styleShift",
+        ]
+        if not keep_internal_n:
+            blocked_keys.append("n")
+        for key in blocked_keys:
+            inputs.pop(key, None)
+        if keep_internal_n and "n" in inputs:
+            inputs["n"] = 1
+
     def _build_ability_payload(
         self,
         *,
@@ -4157,6 +4185,8 @@ class BusinessRunService:
         for key in pass_keys:
             if key not in inputs and key in flat_payload:
                 inputs[key] = flat_payload[key]
+        if capability_key == "fission":
+            self._enforce_single_output_fission_inputs(inputs)
         if capability_key == "fission_evaluate":
             original_image = self._first_string(
                 inputs.get("original_image"),
@@ -4187,6 +4217,8 @@ class BusinessRunService:
                 recipe=recipe or {},
                 vl_summary=vl_summary,
             )
+        if capability_key == "fission":
+            self._enforce_single_output_fission_inputs(inputs, keep_internal_n=True)
         ability_inputs = {key: value for key, value in inputs.items() if key in pass_keys and value not in (None, "", [])}
         return AbilityInvokeRequest(
             inputs=ability_inputs,

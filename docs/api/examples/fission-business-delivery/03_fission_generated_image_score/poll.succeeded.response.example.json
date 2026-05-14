@@ -1,0 +1,43 @@
+{
+  "runId": "run_score_001",
+  "taskId": "t1.fission_evaluate.auto.7a12",
+  "status": "succeeded",
+  "taskStatus": "succeeded",
+  "imageUrl": null,
+  "imageUrls": [],
+  "videoUrl": null,
+  "videoUrls": [],
+  "text": "{\"decision\":\"needs_refission\",\"score\":65,\"reason\":\"主体关系有偏移，建议二次裂变。\"}",
+  "texts": [
+    "{\"decision\":\"needs_refission\",\"score\":65,\"reason\":\"主体关系有偏移，建议二次裂变。\"}"
+  ],
+  "resultPayload": {
+    "decision": "needs_refission",
+    "score": 65,
+    "scores": {
+      "shape": 70,
+      "material": 62,
+      "scale": 66,
+      "logic": 60
+    },
+    "problem_tags": ["结构偏移", "图案密度变化"],
+    "reason": "主体关系有偏移，建议二次裂变。",
+    "next_action": {
+      "type": "refission_repeat",
+      "repeat": 2,
+      "route_action": "needs_refission"
+    }
+  },
+  "error": null,
+  "errorMessage": null,
+  "errorCode": null,
+  "debugResponse": null,
+  "retryAfterSeconds": null,
+  "expectedImageCount": null,
+  "traceId": "trace-fission-score-001",
+  "requestId": "biz-fission-score-001",
+  "durationMs": 26000,
+  "createdAt": "2026-05-14T10:00:00",
+  "startedAt": "2026-05-14T10:00:02",
+  "finishedAt": "2026-05-14T10:00:28"
+}

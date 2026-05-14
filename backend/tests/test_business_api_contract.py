@@ -344,6 +344,61 @@ def test_business_fission_evaluate_payload_maps_original_and_generated_images() 
     assert ability_payload.metadata["businessKey"] == "fission_evaluate"
 
 
+def test_business_fission_payload_forces_single_output_and_drops_legacy_fields() -> None:
+    payload = BusinessRunCreateRequest.model_validate(
+        {
+            "imageUrl": "https://example.com/input.png",
+            "version": "gpt-image2-vl-v2",
+            "prompt": "保持同系列图案",
+            "bili": "80%",
+            "width": 1600,
+            "height": 1200,
+            "count": 3,
+            "batch_size": 4,
+            "preserve_layout": True,
+            "preserve_border": "auto",
+            "preserve_count_density": True,
+            "style_shift": "standard",
+            "inputs": {
+                "n": 5,
+                "batchSize": 6,
+                "generateCount": 7,
+                "variantCount": 8,
+                "variation_strength": "same_series",
+                "quality": "candidate",
+                "size": "auto",
+            },
+        }
+    )
+
+    ability_payload = BusinessRunService()._build_ability_payload(
+        capability_key="fission",
+        payload=payload,
+        image_url="https://example.com/input.png",
+        route_info={"version": "gpt-image2-vl-v2"},
+        trace_context={"traceId": "trace-single-001", "requestId": "req-single-001"},
+    )
+
+    assert ability_payload.inputs["prompt"] == "保持同系列图案"
+    assert ability_payload.inputs["bili"] == "80%"
+    assert ability_payload.inputs["variation_strength"] == "same_series"
+    assert ability_payload.inputs["quality"] == "candidate"
+    assert ability_payload.inputs["size"] == "auto"
+    for key in (
+        "count",
+        "n",
+        "batch_size",
+        "batchSize",
+        "generateCount",
+        "variantCount",
+        "preserve_layout",
+        "preserve_border",
+        "preserve_count_density",
+        "style_shift",
+    ):
+        assert key not in ability_payload.inputs
+
+
 def test_business_api_submit_and_query_do_not_require_coze_workflow(monkeypatch) -> None:
     created: dict[str, object] = {}
 
@@ -448,6 +503,7 @@ def test_business_api_submit_and_query_do_not_require_coze_workflow(monkeypatch)
     assert query_body["taskId"] == "task_direct_fission"
     assert query_body["status"] == "queued"
     assert query_body["taskStatus"] == "queued"
+    assert query_body["expectedImageCount"] == 1
     assert query_body["retryAfterSeconds"] == 10
     assert "routeInfo" not in query_body
     assert "steps" not in query_body

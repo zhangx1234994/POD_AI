@@ -20,9 +20,11 @@
 - `/api/evals/docs/workflows` 结构化与 Markdown 内容一致
 - 对外文档不暴露内部参数（如 `count/generateCount/variantCount/n`）
 - 输出字段与错误码列表完整
- - 输出类型归类正确（`callback_task_id / image_url / json_output`）
- - 模型相关枚举按模型维度完整列出（比例/分辨率/多图上限）
- - 文档总索引 `docs/README.md` 已同步
+- 业务接口交付材料包含提交请求、查询请求、提交返回、查询排队中/成功/失败 JSON 样例
+- 业务接口参数表必须说明必填、默认值、类型、枚举值和业务含义
+- 输出类型归类正确（`callback_task_id / image_url / json_output`）
+- 模型相关枚举按模型维度完整列出（比例/分辨率/多图上限）
+- 文档总索引 `docs/README.md` 已同步
 
 ### C. 业务回归（必须执行）
 对所有**对外暴露的工作流**逐条回归：

@@ -139,6 +139,7 @@ def _business_run_light_response(run: dict[str, Any]) -> dict[str, Any]:
     image_urls = full.get("imageUrls") if isinstance(full.get("imageUrls"), list) else []
     video_urls = full.get("videoUrls") if isinstance(full.get("videoUrls"), list) else []
     texts = full.get("texts") if isinstance(full.get("texts"), list) else []
+    business_key = str(full.get("businessKey") or full.get("business_key") or "").strip()
     error_message = str(full.get("errorMessage") or full.get("error") or full.get("callbackError") or "").strip() or None
     result = {
         "runId": full.get("runId") or full.get("id"),
@@ -157,7 +158,7 @@ def _business_run_light_response(run: dict[str, Any]) -> dict[str, Any]:
         "debugUrl": full.get("debugUrl"),
         "debugResponse": error_message,
         "retryAfterSeconds": 10 if status in {"queued", "running"} else None,
-        "expectedImageCount": None,
+        "expectedImageCount": 1 if business_key == "fission" else None,
         "logId": full.get("abilityLogId"),
         "traceId": full.get("traceId"),
         "requestId": full.get("requestId"),

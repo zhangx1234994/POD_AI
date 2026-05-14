@@ -1,0 +1,17 @@
+{
+  "runId": "run_gpt_image2_001",
+  "taskId": "t1.fission.auto.8f7d2a",
+  "businessKey": "fission",
+  "version": "gpt-image2-vl-v2",
+  "status": "queued",
+  "taskStatus": "queued",
+  "traceId": "trace-gpt-image2-fission-001",
+  "requestId": "biz-gpt-image2-fission-001",
+  "debugUrl": null,
+  "debugResponse": null,
+  "retryAfterSeconds": 10,
+  "error": null,
+  "errorMessage": null,
+  "errorCode": null,
+  "createdAt": "2026-05-14T10:00:00"
+}

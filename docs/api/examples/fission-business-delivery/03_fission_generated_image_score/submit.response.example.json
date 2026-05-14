@@ -1,0 +1,17 @@
+{
+  "runId": "run_score_001",
+  "taskId": "t1.fission_evaluate.auto.7a12",
+  "businessKey": "fission_evaluate",
+  "version": "generated-image-eval-v1",
+  "status": "queued",
+  "taskStatus": "queued",
+  "traceId": "trace-fission-score-001",
+  "requestId": "biz-fission-score-001",
+  "debugUrl": null,
+  "debugResponse": null,
+  "retryAfterSeconds": 10,
+  "error": null,
+  "errorMessage": null,
+  "errorCode": null,
+  "createdAt": "2026-05-14T10:00:00"
+}
