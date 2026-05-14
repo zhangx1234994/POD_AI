@@ -41,6 +41,27 @@
 - 底层 `taskId` 是能力任务 ID，只用于排障关联，不要求业务方理解。
 - 业务接口多了一层 `BusinessRun`，负责版本、灰度、步骤、回调、计费和排障证据；这层不改变“排队轮询”的外部模式。
 
+轻量轮询返回字段：
+
+| 字段 | 含义 | 备注 |
+| --- | --- | --- |
+| `runId` | 业务任务 ID。 | 新业务接口的主 ID。 |
+| `taskId` | 底层原子能力任务 ID。 | 只用于排查。 |
+| `status` / `taskStatus` | 当前状态。 | 二者口径一致，保留 `taskStatus` 是为了兼容 Coze。 |
+| `imageUrl` / `imageUrls` | 第一张图 / 全部图片结果。 | 两个裂变接口成功后读取这里。 |
+| `videoUrl` / `videoUrls` | 第一条视频 / 全部视频结果。 | 当前三个接口通常为空。 |
+| `text` / `texts` | 第一条文本 / 全部文本结果。 | 评分接口会返回 JSON 字符串。 |
+| `resultPayload` | 结构化结果。 | 评分接口直接返回 `decision/score/problem_tags/reason/next_action`；裂变出图接口通常不需要读。 |
+| `errorCode` | 标准错误码。 | 程序判断失败类型时读这个字段。 |
+| `errorMessage` / `error` | 失败说明。 | 展示或排查用。 |
+| `debugResponse` / `debugUrl` | 脱敏调试信息 / 内部排障链接。 | 不作为业务逻辑判断依据。 |
+| `retryAfterSeconds` | 建议下次轮询间隔。 | 排队或运行中按该值等待。 |
+| `expectedImageCount` | 预计出图数量。 | 为空不代表失败。 |
+| `logId` | 中台能力调用日志 ID。 | 出问题时连同 `runId` 一起提供。 |
+| `traceId` / `requestId` | 调用方链路 ID / 请求 ID。 | 建议业务方主动传入。 |
+| `durationMs` | 终态耗时，单位毫秒。 | 只做统计和排障。 |
+| `createdAt` / `startedAt` / `finishedAt` | 创建、开始、结束时间。 | 用于拆分排队等待和执行耗时。 |
+
 ---
 
 ## 2. 类图关系
@@ -285,6 +306,19 @@ flowchart TD
 - 对外入口是 `POST /api/business/fission-evaluate/runs`，返回 `runId` 后继续用 `POST /api/business/runs/get` 轮询。
 - 输出重点是 `decision`、`score`、`problemTags` 和 `reason`。
 - 业务方根据结论自行决定是否再次调用裂变接口。
+
+评分结构字段：
+
+| 字段 | 含义 | 建议处理 |
+| --- | --- | --- |
+| `decision` | 总结论，常见值为 `pass`、`needs_refission`、`reject`。 | 优先作为业务分流依据。 |
+| `score` | 0-100 综合分。 | 可用于阈值和排序。 |
+| `scores` | 分项评分。 | 为空或 null 不代表失败。 |
+| `problem_tags` | 问题标签。 | 可用于二次裂变策略。 |
+| `reason` | 判定原因。 | 可展示给测试或运营。 |
+| `next_action` | 建议动作。 | 例如 `accept`、`refission`、`manual_review`。 |
+| `eval_json` | 详细评估证据。 | 质量复盘时使用。 |
+| `route_json` | 修复或路由建议。 | 需要自动二次裂变时参考。 |
 
 ---
 

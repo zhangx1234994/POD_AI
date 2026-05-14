@@ -151,7 +151,7 @@ vendor-api-ops 返回统一 envelope：
 
 ```env
 VENDOR_API_OPS_PORT=8310
-VENDOR_API_ALLOWED_CLIENTS=127.0.0.1,::1,114.55.0.56,117.50.80.158
+VENDOR_API_ALLOWED_CLIENTS=127.0.0.1,::1,114.55.0.56,117.50.80.158,117.50.216.233
 # 可选：白名单之外再叠加服务 token。不开也可以，白名单仍是主保护。
 VENDOR_API_OPS_ADMIN_TOKEN=
 OPENAI_BASE_URL=https://api.openai.com

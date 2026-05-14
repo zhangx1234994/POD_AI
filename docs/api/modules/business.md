@@ -732,6 +732,49 @@ Coze 旧工具箱兼容查询：
 }
 ```
 
+默认轻量响应字段说明：
+
+| 字段 | 类型 | 含义 | 业务方处理建议 |
+| --- | --- | --- | --- |
+| `runId` | string | 中台业务任务 ID，也是业务方保存和轮询的主 ID。 | 提交成功后必须保存；查询 `/api/business/runs/get` 时继续传这个值。 |
+| `taskId` | string/null | 底层原子能力任务 ID。 | 仅用于排障和中台定位；业务系统不需要依赖它。 |
+| `status` | string | 中台业务状态，取值通常为 `queued/running/succeeded/failed/cancelled/timeout`。 | 判断任务是否结束的主字段。 |
+| `taskStatus` | string | 兼容 Coze 旧轮询口径的状态字段。 | 老调用方可以继续读这个字段；含义与 `status` 保持一致。 |
+| `imageUrl` | string/null | 第一张结果图的 OSS 地址。 | 只需要单张结果时读取这个字段。 |
+| `imageUrls` | string[] | 全部结果图 OSS 地址。 | 裂变、扩图、花纹提取优先读取这个字段。 |
+| `videoUrl` | string/null | 第一个视频结果地址。 | 当前三个裂变交付接口通常为空，后续视频能力会使用。 |
+| `videoUrls` | string[] | 全部视频结果地址。 | 当前三个裂变交付接口通常为空。 |
+| `text` | string/null | 第一条文本结果；没有文本结果时通常为当前状态词。 | 评分接口可能是 JSON 字符串；普通生图接口可忽略。 |
+| `texts` | string[] | 全部文本结果。 | 评分接口可读取第一条并按 JSON 解析；普通生图接口通常为空数组。 |
+| `resultPayload` | object/null | 结构化结果。默认轻量响应只在评分等无图片输出场景返回关键结构。 | 裂变评分优先读取 `decision/score/problem_tags/reason/next_action`。 |
+| `error` | string/null | 失败摘要。 | 只在失败时读取；用于日志和人工排查。 |
+| `errorMessage` | string/null | 面向调用方的失败说明。 | 展示给业务或测试同学时优先用这个字段。 |
+| `errorCode` | string/null | 标准错误码。 | 程序判断失败类型时优先用这个字段，不要解析错误文案。 |
+| `debugResponse` | string/object/null | 脱敏后的调试信息。 | 只用于排障，不作为业务逻辑判断依据。 |
+| `debugUrl` | string/null | 中台内部排障链接。 | 内部人员使用；外部业务可忽略。 |
+| `retryAfterSeconds` | number/null | 建议下次轮询间隔。 | `queued/running` 时按该值延迟重试，避免高频轮询。 |
+| `expectedImageCount` | number/null | 预计出图数量。 | 可用于前端展示进度；为空时不要当作失败。 |
+| `logId` | number/null | 能力调用记录 ID。 | 中台排查使用；业务方可随问题单一起提供。 |
+| `traceId` | string/null | 调用方传入或中台生成的链路追踪 ID。 | 建议业务方每次提交主动传入，方便跨系统查日志。 |
+| `requestId` | string/null | 调用方请求 ID。 | 建议用于业务侧幂等和排障关联。 |
+| `durationMs` | number/null | 任务耗时，单位毫秒。 | 终态后用于统计耗时；排队中通常为空。 |
+| `createdAt` | string/null | 任务创建时间。 | ISO 时间字符串。 |
+| `startedAt` | string/null | 任务实际开始时间。 | 可用于判断排队等待时长。 |
+| `finishedAt` | string/null | 任务结束时间。 | 终态后出现。 |
+
+裂变评分 `resultPayload` 字段说明：
+
+| 字段 | 类型 | 含义 | 业务方处理建议 |
+| --- | --- | --- | --- |
+| `decision` | string | 总结论，常见值为 `pass`、`needs_refission`、`reject`。 | `pass` 可直接使用；`needs_refission` 可再次调用裂变；`reject` 建议人工复核或丢弃。 |
+| `score` | number | 0-100 的综合分。 | 可作为排序或阈值判断；最终动作仍以 `decision` 为准。 |
+| `scores` | object | 分项评分，例如形状、材质、比例、逻辑。 | 为空或 null 时不视为接口异常。 |
+| `problem_tags` | string[] | 问题标签列表。 | 用于二次裂变策略或人工筛选。 |
+| `reason` | string | 模型给出的判定原因。 | 可展示给测试/运营，用于解释为什么通过或不通过。 |
+| `next_action` | object | 建议动作，例如 `{"type":"accept"}`。 | 可按 `type` 做业务分流。 |
+| `eval_json` | object | 更详细的评估证据。 | 默认不要求业务方解析，主要用于质量复盘。 |
+| `route_json` | object | 路由或修复建议。 | 需要自动二次裂变时可参考；普通接入可忽略。 |
+
 `detail=full` 排障响应示例：
 
 ```json

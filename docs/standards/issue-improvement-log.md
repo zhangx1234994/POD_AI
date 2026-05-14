@@ -776,3 +776,13 @@
 - 根因：`patrol_eval_workflows.py` 只识别 `url/image_url/image_urls/cankaotu` 等历史图片字段，没有按 schema 的通用 `image` 类型和 `metadata.eval_execution.image_fields` 自动补样例图。
 - 改进：巡检参数构造统一识别通用图片字段，并补充单测覆盖 `original_image/generated_image/reference_image`。
 - 状态：已完成
+
+## 2026-05-14
+
+1) **GPT Image 2 主执行被 vendor-api-ops 白名单拒绝**
+- 范围：第三方 API 执行面 / 图裂变业务 API / 线上回归
+- 现象：114 更新后实跑 `gpt-image2-vl-v2`，VL 前置步骤成功，但主执行返回 `VENDOR_API_CLIENT_FORBIDDEN`；同一时间 114 到 158 的 vendor-api 受保护接口自检可通过。
+- 影响：业务方调用 GPT Image 2 裂变会失败，ComfyUI 颜色锁定版不受影响。
+- 根因：第三方 API 主执行链路仍可能由旧 worker 或能力节点发起，`vendor-api-ops` 默认白名单只包含 114 和 117.50.80.158，未包含 117.50.216.233，导致多机执行时白名单不完整。
+- 改进：`vendor-api-ops` 默认白名单补充 117.50.216.233，文档同步写明两台能力机都属于可信调用来源；生产上需要更新并重启 158 的 vendor-api-ops 后复测 GPT Image 2。
+- 状态：代码已完成，待 117 能力服务更新后复测
