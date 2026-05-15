@@ -202,6 +202,7 @@ def _get_business_run_response(
     request: Request,
     user: User,
     full_detail: bool = False,
+    request_payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     try:
         result = get_business_run_service().get_run(run_id=run_id, user=user)
@@ -211,6 +212,7 @@ def _get_business_run_response(
             status_code=exc.status_code,
             run_id=run_id,
             error_code=str(exc.detail or ""),
+            request_payload=request_payload,
         )
         raise
     except Exception:
@@ -219,6 +221,7 @@ def _get_business_run_response(
             status_code=500,
             run_id=run_id,
             error_code="BUSINESS_RUN_GET_FAILED",
+            request_payload=request_payload,
         )
         raise HTTPException(status_code=503, detail="BUSINESS_RUN_TEMPORARY_UNAVAILABLE")
     _record_business_api_key_usage(request, status_code=200, run=result, run_id=run_id)
@@ -478,12 +481,44 @@ def _record_business_api_key_usage(
     run: Any | None = None,
     run_id: str | None = None,
     error_code: str | None = None,
+    request_payload: dict[str, Any] | None = None,
 ) -> None:
     context = getattr(request.state, "business_api_key_context", None)
     if not isinstance(context, dict):
         return
     payload = run if isinstance(run, dict) else {}
+    request_payload = request_payload if isinstance(request_payload, dict) else {}
     resolved_run_id = run_id or str(payload.get("id") or payload.get("runId") or "").strip() or None
+    request_id = str(
+        payload.get("request_id")
+        or payload.get("requestId")
+        or request_payload.get("request_id")
+        or request_payload.get("requestId")
+        or ""
+    ).strip()
+    trace_id = str(
+        payload.get("trace_id")
+        or payload.get("traceId")
+        or request_payload.get("trace_id")
+        or request_payload.get("traceId")
+        or ""
+    ).strip()
+    tenant_id = str(
+        payload.get("tenant_id")
+        or payload.get("tenantId")
+        or request_payload.get("tenant_id")
+        or request_payload.get("tenantId")
+        or context.get("tenantId")
+        or ""
+    ).strip()
+    client_id = str(
+        payload.get("client_id")
+        or payload.get("clientId")
+        or request_payload.get("client_id")
+        or request_payload.get("clientId")
+        or context.get("clientId")
+        or ""
+    ).strip()
     duration_ms = None
     started_at = context.get("startedAt")
     if isinstance(started_at, (int, float)):
@@ -499,10 +534,10 @@ def _record_business_api_key_usage(
                 status_code=status_code,
                 business_key=business_key or str(payload.get("business_key") or payload.get("businessKey") or "") or None,
                 run_id=resolved_run_id,
-                request_id=str(payload.get("request_id") or payload.get("requestId") or "") or None,
-                trace_id=str(payload.get("trace_id") or payload.get("traceId") or "") or None,
-                tenant_id=str(payload.get("tenant_id") or payload.get("tenantId") or context.get("tenantId") or "") or None,
-                client_id=str(payload.get("client_id") or payload.get("clientId") or context.get("clientId") or "") or None,
+                request_id=request_id or None,
+                trace_id=trace_id or None,
+                tenant_id=tenant_id or None,
+                client_id=client_id or None,
                 error_code=str(error_code or "") or None,
                 duration_ms=duration_ms,
                 ip_address=_client_ip(request),
@@ -585,6 +620,7 @@ def _create_business_run_with_usage(
             status_code=exc.status_code,
             business_key=business_key,
             error_code=str(exc.detail or ""),
+            request_payload=payload.model_dump(exclude_none=True),
         )
         raise
     except Exception:
@@ -593,10 +629,49 @@ def _create_business_run_with_usage(
             status_code=500,
             business_key=business_key,
             error_code="BUSINESS_RUN_CREATE_FAILED",
+            request_payload=payload.model_dump(exclude_none=True),
         )
         raise
     _record_business_api_key_usage(request, status_code=200, business_key=business_key, run=result)
     return _business_run_submit_response(result)
+
+
+def _preview_business_route_with_usage(
+    *,
+    request: Request,
+    business_key: str,
+    payload: schemas.BusinessRunCreateRequest,
+    user: User,
+) -> schemas.BusinessRoutePreviewResponse:
+    request_payload = payload.model_dump(exclude_none=True)
+    try:
+        _business_key_allowed_for_api_key(request, business_key)
+        result = get_business_run_service().preview_route(business_key=business_key, payload=payload, user=user)
+    except HTTPException as exc:
+        _record_business_api_key_usage(
+            request,
+            status_code=exc.status_code,
+            business_key=business_key,
+            error_code=str(exc.detail or ""),
+            request_payload=request_payload,
+        )
+        raise
+    except Exception:
+        _record_business_api_key_usage(
+            request,
+            status_code=500,
+            business_key=business_key,
+            error_code="BUSINESS_ROUTE_PREVIEW_FAILED",
+            request_payload=request_payload,
+        )
+        raise
+    _record_business_api_key_usage(
+        request,
+        status_code=200,
+        business_key=business_key,
+        request_payload=request_payload,
+    )
+    return result
 
 
 @router.get("/capabilities", response_model=schemas.BusinessCapabilityListResponse, response_model_by_alias=False)
@@ -648,25 +723,28 @@ def create_pattern_extract_run(
 @router.post("/fission/route-preview", response_model=schemas.BusinessRoutePreviewResponse, response_model_by_alias=False)
 def preview_fission_route(
     payload: schemas.BusinessRunCreateRequest,
+    request: Request,
     user: User = Depends(_resolve_business_user),
 ) -> schemas.BusinessRoutePreviewResponse:
-    return get_business_run_service().preview_route(business_key="fission", payload=payload, user=user)
+    return _preview_business_route_with_usage(request=request, business_key="fission", payload=payload, user=user)
 
 
 @router.post("/outpaint/route-preview", response_model=schemas.BusinessRoutePreviewResponse, response_model_by_alias=False)
 def preview_outpaint_route(
     payload: schemas.BusinessRunCreateRequest,
+    request: Request,
     user: User = Depends(_resolve_business_user),
 ) -> schemas.BusinessRoutePreviewResponse:
-    return get_business_run_service().preview_route(business_key="outpaint", payload=payload, user=user)
+    return _preview_business_route_with_usage(request=request, business_key="outpaint", payload=payload, user=user)
 
 
 @router.post("/pattern-extract/route-preview", response_model=schemas.BusinessRoutePreviewResponse, response_model_by_alias=False)
 def preview_pattern_extract_route(
     payload: schemas.BusinessRunCreateRequest,
+    request: Request,
     user: User = Depends(_resolve_business_user),
 ) -> schemas.BusinessRoutePreviewResponse:
-    return get_business_run_service().preview_route(business_key="pattern_extract", payload=payload, user=user)
+    return _preview_business_route_with_usage(request=request, business_key="pattern_extract", payload=payload, user=user)
 
 
 @router.get("/runs/{run_id}", response_model=dict[str, Any], response_model_by_alias=False)
@@ -697,6 +775,7 @@ def get_business_run_post(
             request,
             status_code=400,
             error_code="BUSINESS_RUN_ID_REQUIRED",
+            request_payload=body,
         )
         raise HTTPException(status_code=400, detail="BUSINESS_RUN_ID_REQUIRED")
     return _get_business_run_response(
@@ -707,6 +786,7 @@ def get_business_run_post(
             detail=body.get("detail") or body.get("responseMode") or body.get("response_mode"),
             include_debug=body.get("includeDebug") or body.get("include_debug"),
         ),
+        request_payload=body,
     )
 
 

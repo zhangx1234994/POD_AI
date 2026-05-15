@@ -1,12 +1,13 @@
 import json
 from datetime import datetime, timezone
 
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.core.db import get_session
 from app.main import app
-from app.models.integration import BusinessApiKeyUsageLog, BusinessRun
+from app.models.integration import ApiKey, BusinessApiKeyUsageLog, BusinessRun
 from app.models.user import User
 from app.schemas.business import BusinessRunCreateRequest
 from app.services.business_runs import BusinessRunService
@@ -405,6 +406,105 @@ def test_business_admin_api_usage_supports_filters_summary_and_run_groups() -> N
     assert "submit" in export_text
     assert "poll" in export_text
     assert "BUSINESS_RUN_ID_REQUIRED" in export_text
+
+
+def test_business_api_key_usage_records_request_context_for_errors_and_route_preview(monkeypatch) -> None:
+    api_key_id = "api_key_usage_request_context"
+    api_key_value = "podi-request-context-key"
+    request_id = "req_business_usage_context"
+    trace_id = "trace_business_usage_context"
+    with get_session() as session:
+        for row in session.execute(
+            select(BusinessApiKeyUsageLog).where(BusinessApiKeyUsageLog.request_id == request_id)
+        ).scalars().all():
+            session.delete(row)
+        existing = session.get(ApiKey, api_key_id)
+        if existing:
+            session.delete(existing)
+        session.add(
+            ApiKey(
+                id=api_key_id,
+                provider="business_api",
+                name="业务方上下文测试 Key",
+                key=api_key_value,
+                status="active",
+                extra_metadata={"tenantId": "tenant-context", "clientId": "client-context", "allowedBusinessKeys": ["fission"]},
+            )
+        )
+        session.commit()
+
+    class FakeBusinessRunService:
+        def create_run(self, *, business_key, payload, user):  # noqa: ANN001
+            if not (payload.imageUrl or payload.url):
+                raise HTTPException(status_code=400, detail="BUSINESS_IMAGE_URL_REQUIRED")
+            raise AssertionError("create_run should not be called with a valid image in this contract test")
+
+        def preview_route(self, *, business_key, payload, user):  # noqa: ANN001
+            return {
+                "business_key": business_key,
+                "requested_version": payload.version,
+                "selected_capability_id": "biz_fission_preview",
+                "selected_version": payload.version or "v1",
+                "selected_display_name": "图裂变 · 预览测试版",
+                "selected_status": "active",
+                "selected_is_default": False,
+                "selected_by": "requested_version",
+                "route_info": {"selectedBy": "requested_version"},
+                "default_capability_id": "biz_fission_default",
+                "default_version": "v1",
+                "active_versions": [],
+            }
+
+    monkeypatch.setattr("app.routers.business.get_business_run_service", lambda: FakeBusinessRunService())
+
+    preview_resp = client.post(
+        "/api/business/fission/route-preview",
+        json={
+            "imageUrl": "https://example.com/input.png",
+            "version": "gpt-image2-vl-v2",
+            "requestId": request_id,
+            "traceId": trace_id,
+        },
+        headers={"X-PODI-API-Key": api_key_value},
+    )
+
+    assert preview_resp.status_code == 200
+
+    missing_image_resp = client.post(
+        "/api/business/fission/runs",
+        json={"version": "gpt-image2-vl-v2", "requestId": request_id, "traceId": trace_id},
+        headers={"X-PODI-API-Key": api_key_value},
+    )
+
+    assert missing_image_resp.status_code == 400
+
+    missing_run_resp = client.post(
+        "/api/business/runs/get",
+        json={"requestId": request_id, "traceId": trace_id},
+        headers={"X-PODI-API-Key": api_key_value},
+    )
+
+    assert missing_run_resp.status_code == 400
+
+    with get_session() as session:
+        rows = (
+            session.execute(
+                select(BusinessApiKeyUsageLog)
+                .where(BusinessApiKeyUsageLog.request_id == request_id)
+                .order_by(BusinessApiKeyUsageLog.id.asc())
+            )
+            .scalars()
+            .all()
+        )
+
+    assert [(row.path, row.status_code, row.error_code) for row in rows] == [
+        ("/api/business/fission/route-preview", 200, None),
+        ("/api/business/fission/runs", 400, "BUSINESS_IMAGE_URL_REQUIRED"),
+        ("/api/business/runs/get", 400, "BUSINESS_RUN_ID_REQUIRED"),
+    ]
+    assert {row.trace_id for row in rows} == {trace_id}
+    assert {row.tenant_id for row in rows} == {"tenant-context"}
+    assert {row.client_id for row in rows} == {"client-context"}
 
 
 def test_business_api_key_actor_does_not_write_fake_user_id() -> None:
