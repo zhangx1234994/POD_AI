@@ -1140,11 +1140,42 @@ OpenAPI 内每个工具都会枚举错误响应：
 响应结构：
 
 - `items`：分页后的调用明细，字段包括 Key 名称、接口路径、状态码、业务标识、runId、requestId、traceId、tenantId/clientId、错误码和耗时。
+- `total` / `offset` / `limit`：兼容旧前端的分页字段。
+- `pagination`：明确分页对象，包含 `total`、`offset`、`limit`、`hasMore`、`nextOffset`；新页面优先使用该对象。
 - `summary`：当前筛选范围内的总调用、成功、异常、提交、轮询、回调、去重 runId、平均耗时。
 - `groups`：按 `runId` 聚合的链路视图，包含提交次数、轮询次数、回调次数、异常次数和最近调用时间。
 - `groups[].needsAttention`：是否需要关注。
 - `groups[].issueCode`：当前可能值为 `HAS_ERROR`、`POLL_WITHOUT_SUBMIT`、`POLLING_TOO_FREQUENT`。
 - `groups[].issueHint`：给管理端展示的人类可读处理提示。
+
+响应示例：
+
+```json
+{
+  "items": [],
+  "total": 128,
+  "offset": 0,
+  "limit": 50,
+  "pagination": {
+    "total": 128,
+    "offset": 0,
+    "limit": 50,
+    "hasMore": true,
+    "nextOffset": 50
+  },
+  "summary": {
+    "total": 128,
+    "successCount": 124,
+    "errorCount": 4,
+    "submitCount": 16,
+    "pollCount": 112,
+    "callbackCount": 0,
+    "uniqueRunCount": 16,
+    "averageDurationMs": 72.5
+  },
+  "groups": []
+}
+```
 
 ### GET /api/admin/business/api-key-usage/export
 

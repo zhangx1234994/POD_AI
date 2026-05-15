@@ -892,7 +892,7 @@ export function ApiExposurePanel({
       setBusinessApiKeyUsage(usageRes.items || []);
       setBusinessApiKeyUsageGroups(usageRes.groups || []);
       setBusinessApiKeyUsageSummary(usageRes.summary || DEFAULT_BUSINESS_API_USAGE_SUMMARY);
-      setBusinessApiKeyUsageTotal(usageRes.total || 0);
+      setBusinessApiKeyUsageTotal(usageRes.pagination?.total ?? usageRes.total ?? 0);
     } catch (err) {
       setBusinessApiKeyError(String((err as Error)?.message || err));
     } finally {

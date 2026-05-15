@@ -366,6 +366,13 @@ def test_business_admin_api_usage_supports_filters_summary_and_run_groups() -> N
     assert resp.status_code == 200
     body = resp.json()
     assert body["total"] == 3
+    assert body["pagination"] == {
+        "total": 3,
+        "offset": 0,
+        "limit": 10,
+        "hasMore": False,
+        "nextOffset": None,
+    }
     assert body["summary"]["submitCount"] == 1
     assert body["summary"]["pollCount"] == 2
     assert body["summary"]["errorCount"] == 1
@@ -384,6 +391,7 @@ def test_business_admin_api_usage_supports_filters_summary_and_run_groups() -> N
 
     assert poll_resp.status_code == 200
     assert poll_resp.json()["total"] == 2
+    assert poll_resp.json()["pagination"]["total"] == 2
 
     export_resp = client.get(
         "/api/admin/business/api-key-usage/export",

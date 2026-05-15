@@ -1783,6 +1783,13 @@ def admin_list_business_api_key_usage(
             total=total,
             offset=offset,
             limit=limit,
+            pagination=schemas.BusinessApiKeyUsagePagination(
+                total=total,
+                offset=offset,
+                limit=limit,
+                has_more=offset + len(rows) < total,
+                next_offset=offset + len(rows) if offset + len(rows) < total else None,
+            ),
             summary=summary,
             groups=groups,
         )

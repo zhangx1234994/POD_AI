@@ -151,11 +151,20 @@ export interface BusinessApiKeyUsageRunGroup {
   lastSeenAt?: string | null;
 }
 
+export interface BusinessApiKeyUsagePagination {
+  total: number;
+  offset: number;
+  limit: number;
+  hasMore?: boolean;
+  nextOffset?: number | null;
+}
+
 export interface BusinessApiKeyUsageLogListResponse {
   items: BusinessApiKeyUsageLog[];
   total: number;
   offset: number;
   limit: number;
+  pagination?: BusinessApiKeyUsagePagination | null;
   summary: BusinessApiKeyUsageSummary;
   groups: BusinessApiKeyUsageRunGroup[];
 }

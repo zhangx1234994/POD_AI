@@ -278,6 +278,16 @@ class BusinessApiKeyUsageSummary(BaseModel):
     averageDurationMs: float | None = Field(default=None, alias="average_duration_ms")
 
 
+class BusinessApiKeyUsagePagination(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    total: int = 0
+    offset: int = 0
+    limit: int = 50
+    hasMore: bool = Field(default=False, alias="has_more")
+    nextOffset: int | None = Field(default=None, alias="next_offset")
+
+
 class BusinessApiKeyUsageLogListResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -285,6 +295,7 @@ class BusinessApiKeyUsageLogListResponse(BaseModel):
     total: int
     offset: int = 0
     limit: int = 50
+    pagination: BusinessApiKeyUsagePagination | None = None
     summary: BusinessApiKeyUsageSummary = Field(default_factory=BusinessApiKeyUsageSummary)
     groups: list[BusinessApiKeyUsageRunGroup] = Field(default_factory=list)
 
