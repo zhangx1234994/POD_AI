@@ -1622,35 +1622,12 @@ def invoke_tool(
         except Exception:
             debug_response = ""
 
-    def _first_url(items: list[dict[str, Any]]) -> str | None:
-        for it in items:
-            if not isinstance(it, dict):
-                continue
-            for k in ("ossUrl", "sourceUrl", "url"):
-                v = it.get(k)
-                if isinstance(v, str) and v.strip():
-                    return v.strip()
-        return None
+    def _first_url(items: list[Any]) -> str | None:
+        urls = _coze_url_list(items)
+        return urls[0] if urls else None
 
-    def _all_urls(items: list[dict[str, Any]]) -> list[str]:
-        out: list[str] = []
-        for it in items:
-            if not isinstance(it, dict):
-                continue
-            for k in ("ossUrl", "sourceUrl", "url"):
-                v = it.get(k)
-                if isinstance(v, str) and v.strip():
-                    out.append(v.strip())
-                    break
-        # preserve order, de-dup
-        seen: set[str] = set()
-        dedup: list[str] = []
-        for u in out:
-            if u in seen:
-                continue
-            seen.add(u)
-            dedup.append(u)
-        return dedup
+    def _all_urls(items: list[Any]) -> list[str]:
+        return _coze_url_list(items)
 
     return _prune(
         {
@@ -1852,34 +1829,12 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
         if isinstance(images, list):
             images = _limit_comfyui_images(capability_key, images)
 
-        def _first_url(items: list[dict[str, Any]]) -> str | None:
-            for it in items:
-                if not isinstance(it, dict):
-                    continue
-                for k in ("ossUrl", "sourceUrl", "url"):
-                    v = it.get(k)
-                    if isinstance(v, str) and v.strip():
-                        return v.strip()
-            return None
+        def _first_url(items: list[Any]) -> str | None:
+            urls = _coze_url_list(items)
+            return urls[0] if urls else None
 
-        def _all_urls(items: list[dict[str, Any]]) -> list[str]:
-            out: list[str] = []
-            for it in items:
-                if not isinstance(it, dict):
-                    continue
-                for k in ("ossUrl", "sourceUrl", "url"):
-                    v = it.get(k)
-                    if isinstance(v, str) and v.strip():
-                        out.append(v.strip())
-                        break
-            seen: set[str] = set()
-            dedup: list[str] = []
-            for u in out:
-                if u in seen:
-                    continue
-                seen.add(u)
-                dedup.append(u)
-            return dedup
+        def _all_urls(items: list[Any]) -> list[str]:
+            return _coze_url_list(items)
 
         return _prune(
             {
@@ -1961,17 +1916,8 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
                                 session.add(db_task)
                                 session.commit()
 
-                        def _urls(items: list[dict[str, Any]]) -> list[str]:
-                            out: list[str] = []
-                            for item in items:
-                                if not isinstance(item, dict):
-                                    continue
-                                for key in ("ossUrl", "sourceUrl", "url"):
-                                    value = item.get(key)
-                                    if isinstance(value, str) and value.strip():
-                                        out.append(value.strip())
-                                        break
-                            return out
+                        def _urls(items: list[Any]) -> list[str]:
+                            return _coze_url_list(items)
 
                         image_urls = _urls(images)
                         video_urls = _urls(videos)
@@ -2113,34 +2059,12 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
                 images = result_payload.get("images") or []
                 videos = result_payload.get("videos") or []
 
-                def _first_url(items: list[dict[str, Any]]) -> str | None:
-                    for it in items:
-                        if not isinstance(it, dict):
-                            continue
-                        for k in ("ossUrl", "sourceUrl", "url"):
-                            v = it.get(k)
-                            if isinstance(v, str) and v.strip():
-                                return v.strip()
-                    return None
+                def _first_url(items: list[Any]) -> str | None:
+                    urls = _coze_url_list(items)
+                    return urls[0] if urls else None
 
-                def _all_urls(items: list[dict[str, Any]]) -> list[str]:
-                    out: list[str] = []
-                    for it in items:
-                        if not isinstance(it, dict):
-                            continue
-                        for k in ("ossUrl", "sourceUrl", "url"):
-                            v = it.get(k)
-                            if isinstance(v, str) and v.strip():
-                                out.append(v.strip())
-                                break
-                    seen: set[str] = set()
-                    dedup: list[str] = []
-                    for u in out:
-                        if u in seen:
-                            continue
-                        seen.add(u)
-                        dedup.append(u)
-                    return dedup
+                def _all_urls(items: list[Any]) -> list[str]:
+                    return _coze_url_list(items)
 
                 return _prune(
                     {

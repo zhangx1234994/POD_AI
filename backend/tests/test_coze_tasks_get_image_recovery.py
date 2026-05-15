@@ -50,6 +50,34 @@ def test_tasks_get_recovers_images_from_ability_log_when_success_payload_empty()
     assert data["imageUrls"] == [image_url]
 
 
+def test_tasks_get_accepts_string_image_urls_in_success_payload():
+    task_id = uuid4().hex
+    image_url = "https://oss.example.com/string-image.png"
+
+    with get_session() as session:
+        session.add(
+            AbilityTask(
+                id=task_id,
+                ability_id="comfyui_sifang_lianxu",
+                ability_name="四方连续",
+                ability_provider="comfyui",
+                capability_key="sifang_lianxu",
+                status="succeeded",
+                request_payload={"metadata": {"expectedImageCount": 1}},
+                result_payload={"status": "succeeded", "texts": [], "images": [image_url], "metadata": {}},
+            )
+        )
+        session.commit()
+
+    response = client.post("/api/coze/podi/tasks/get", json={"taskId": task_id})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["taskStatus"] == "succeeded"
+    assert data["imageUrl"] == image_url
+    assert data["imageUrls"] == [image_url]
+
+
 def test_tasks_get_does_not_return_success_when_expected_images_are_not_ready():
     task_id = uuid4().hex
 
