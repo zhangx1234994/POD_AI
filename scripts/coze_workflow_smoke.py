@@ -209,8 +209,18 @@ def poll_task(task_get_url: str, service_token: str | None, task_id: str, max_wa
         except Exception as exc:
             last = {"error": str(exc)}
         status = str(last.get("taskStatus") or "").lower()
-        if status in {"succeeded", "failed"}:
+        if status == "failed":
             return last
+        if status == "succeeded":
+            expected_images = last.get("expectedImageCount")
+            try:
+                expected_images = int(expected_images or 0)
+            except (TypeError, ValueError):
+                expected_images = 0
+            image_urls = last.get("imageUrls") if isinstance(last.get("imageUrls"), list) else []
+            image_url = str(last.get("imageUrl") or "").strip()
+            if expected_images <= 0 or image_url or image_urls:
+                return last
         time.sleep(3)
     return last
 

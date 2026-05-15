@@ -1783,7 +1783,11 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
         if not images and isinstance(result_payload.get("assets"), list):
             images = result_payload.get("assets") or []
         expected_image_count = _positive_int(expected_images)
-        if expected_image_count > 0 and not images and task.get("log_id"):
+        if expected_image_count > 0 and isinstance(images, list) and not _coze_url_list(images):
+            assets = result_payload.get("assets")
+            if isinstance(assets, list) and _coze_url_list(assets):
+                images = assets
+        if expected_image_count > 0 and (not isinstance(images, list) or not _coze_url_list(images)) and task.get("log_id"):
             with get_session() as session:
                 db_task = session.get(AbilityTask, task_id.strip())
                 log = session.get(AbilityInvocationLog, task.get("log_id")) if db_task else None
@@ -1807,7 +1811,11 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
                         result_payload = task.get("result_payload") or {}
                         images = result_payload.get("images") or result_payload.get("assets") or []
 
-        if expected_image_count > 0 and not images:
+        if isinstance(images, list):
+            images = _limit_comfyui_images(capability_key, images)
+        image_urls = _coze_url_list(images) if isinstance(images, list) else []
+
+        if expected_image_count > 0 and not image_urls:
             return _prune(
                 {
                     "text": "running",
@@ -1826,8 +1834,6 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
                     "debugResponse": "RESULT_IMAGES_NOT_READY",
                 }
             )
-        if isinstance(images, list):
-            images = _limit_comfyui_images(capability_key, images)
 
         def _first_url(items: list[Any]) -> str | None:
             urls = _coze_url_list(items)
@@ -1840,8 +1846,8 @@ def get_task(body: dict[str, Any], request: Request) -> dict[str, Any]:
             {
             "text": texts[0] if isinstance(texts, list) and texts else None,
             "texts": texts if isinstance(texts, list) else [],
-            "imageUrl": _first_url(images) if isinstance(images, list) else None,
-            "imageUrls": _all_urls(images) if isinstance(images, list) else [],
+            "imageUrl": image_urls[0] if image_urls else None,
+            "imageUrls": image_urls,
             "videoUrl": _first_url(videos) if isinstance(videos, list) else None,
             "videoUrls": _all_urls(videos) if isinstance(videos, list) else [],
             "taskId": external_task_id or task.get("id"),

@@ -103,3 +103,35 @@ def test_tasks_get_does_not_return_success_when_expected_images_are_not_ready():
     assert data["taskStatus"] == "running"
     assert data["debugResponse"] == "RESULT_IMAGES_NOT_READY"
     assert data["imageUrls"] == []
+
+
+def test_tasks_get_treats_image_without_url_as_not_ready():
+    task_id = uuid4().hex
+
+    with get_session() as session:
+        session.add(
+            AbilityTask(
+                id=task_id,
+                ability_id="comfyui_sifang_lianxu",
+                ability_name="四方连续",
+                ability_provider="comfyui",
+                capability_key="sifang_lianxu",
+                status="succeeded",
+                request_payload={"metadata": {"expectedImageCount": 1}},
+                result_payload={
+                    "status": "succeeded",
+                    "texts": [],
+                    "images": [{"base64": "[omitted]", "type": "image/png"}],
+                    "metadata": {},
+                },
+            )
+        )
+        session.commit()
+
+    response = client.post("/api/coze/podi/tasks/get", json={"taskId": task_id})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["taskStatus"] == "running"
+    assert data["debugResponse"] == "RESULT_IMAGES_NOT_READY"
+    assert data["imageUrls"] == []
