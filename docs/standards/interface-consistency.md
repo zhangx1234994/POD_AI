@@ -153,6 +153,7 @@
 3. 测评端开发文档（`/api/evals/docs/workflows` 对应内容）
 4. 若涉及状态/错误口径，必须更新本文档
 5. 若涉及业务入口、Coze 工具箱、原生业务 API、原子能力 API 或测评分类，必须更新 `docs/standards/business-interface-taxonomy.md`
+6. 若涉及 `/api/business/*` 对外字段、枚举、返回结构或业务方交付材料，必须更新 `docs/standards/business-api-enums.md`
 
 ---
 
