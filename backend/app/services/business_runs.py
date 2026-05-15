@@ -18,6 +18,7 @@ import httpx
 from fastapi import HTTPException
 from sqlalchemy import and_, func, not_, or_, select, update
 from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import load_only
 
 from app.core.config import get_settings
 from app.core.db import get_session
@@ -771,6 +772,8 @@ class BusinessRunService:
         self,
         *,
         limit: int = 50,
+        window_hours: int | None = None,
+        detail: str = "summary",
         business_key: str | None = None,
         status: str | None = None,
         billing_status: str | None = None,
@@ -781,12 +784,15 @@ class BusinessRunService:
         tenant_id: str | None = None,
         client_id: str | None = None,
         trace_id: str | None = None,
-    ) -> tuple[int, list[BusinessRun]]:
+    ) -> tuple[int, list[dict[str, Any]]]:
         with get_session() as session:
             id_stmt = select(BusinessRun.id)
             count_stmt = select(func.count(BusinessRun.id))
             filters = []
             normalized_issue_category = self._normalize_issue_category(issue_category)
+            if window_hours:
+                since = datetime.utcnow() - timedelta(hours=max(1, min(int(window_hours), 24 * 90)))
+                filters.append(BusinessRun.created_at >= since)
             if business_key:
                 filters.append(BusinessRun.business_key == business_key)
             if status:
@@ -822,11 +828,20 @@ class BusinessRunService:
                     .all()
                 )
                 rows = self._load_runs_by_ids(session, run_ids)
-                items = [
-                    self._run_to_dict(row, session=session)
+                matched_rows = [
+                    row
                     for row in rows
                     if self._build_run_issue_summary(row, session=session)["category"] == normalized_issue_category
                 ]
+                items = [
+                    self._run_to_dict(row, session=session)
+                    for row in matched_rows
+                ]
+                if detail != "full":
+                    return len(items), [
+                        self._run_to_summary_dict(row, session=session)
+                        for row in matched_rows[:normalized_limit]
+                    ]
                 return len(items), items[:normalized_limit]
             total = int(session.scalar(count_stmt) or 0)
             run_ids = (
@@ -834,8 +849,11 @@ class BusinessRunService:
                 .scalars()
                 .all()
             )
-            rows = self._load_runs_by_ids(session, run_ids)
-            return total, [self._run_to_dict(row, session=session) for row in rows]
+            if detail == "full":
+                rows = self._load_runs_by_ids(session, run_ids)
+                return total, [self._run_to_dict(row, session=session) for row in rows]
+            rows = self._load_run_summaries_by_ids(session, run_ids)
+            return total, [self._run_to_summary_dict(row, session=session) for row in rows]
 
     def _load_runs_by_ids(self, session, run_ids: list[str]) -> list[BusinessRun]:
         rows: list[BusinessRun] = []
@@ -844,6 +862,60 @@ class BusinessRunService:
             if row:
                 rows.append(row)
         return rows
+
+    def _load_run_summaries_by_ids(self, session, run_ids: list[str]) -> list[BusinessRun]:
+        if not run_ids:
+            return []
+        rows = (
+            session.execute(
+                select(BusinessRun)
+                .options(
+                    load_only(
+                        BusinessRun.id,
+                        BusinessRun.business_key,
+                        BusinessRun.business_version_id,
+                        BusinessRun.version,
+                        BusinessRun.status,
+                        BusinessRun.source,
+                        BusinessRun.channel,
+                        BusinessRun.trace_id,
+                        BusinessRun.request_id,
+                        BusinessRun.tenant_id,
+                        BusinessRun.client_id,
+                        BusinessRun.user_id,
+                        BusinessRun.user_name,
+                        BusinessRun.ability_id,
+                        BusinessRun.ability_task_id,
+                        BusinessRun.ability_log_id,
+                        BusinessRun.request_payload,
+                        BusinessRun.image_urls,
+                        BusinessRun.video_urls,
+                        BusinessRun.texts,
+                        BusinessRun.error_message,
+                        BusinessRun.duration_ms,
+                        BusinessRun.billing_unit,
+                        BusinessRun.unit_price,
+                        BusinessRun.currency,
+                        BusinessRun.cost_amount,
+                        BusinessRun.quota_units,
+                        BusinessRun.cost_breakdown,
+                        BusinessRun.callback_status,
+                        BusinessRun.callback_http_status,
+                        BusinessRun.callback_error,
+                        BusinessRun.debug_url,
+                        BusinessRun.created_at,
+                        BusinessRun.updated_at,
+                        BusinessRun.started_at,
+                        BusinessRun.finished_at,
+                    )
+                )
+                .where(BusinessRun.id.in_(run_ids))
+            )
+            .scalars()
+            .all()
+        )
+        by_id = {row.id: row for row in rows}
+        return [by_id[run_id] for run_id in run_ids if run_id in by_id]
 
     def usage_summary(
         self,
@@ -5184,6 +5256,102 @@ class BusinessRunService:
             "finished_at": row.finished_at,
         }
 
+    def _run_to_summary_dict(self, row: BusinessRun, *, session=None) -> dict[str, Any]:
+        ability_name: str | None = None
+        ability_provider: str | None = None
+        vendor_model_id: int | None = None
+        vendor_model_name: str | None = None
+        vendor_model_provider: str | None = None
+        ability = session.get(Ability, row.ability_id) if session is not None and row.ability_id else None
+        if ability:
+            ability_name = ability.display_name
+            ability_provider = ability.provider
+            vendor_model_id = ability.vendor_model_id
+        vendor_model = session.get(VendorModelCatalog, vendor_model_id) if session is not None and vendor_model_id else None
+        if vendor_model:
+            vendor_model_name = vendor_model.display_name
+            vendor_model_provider = vendor_model.provider
+        route_info = (row.request_payload or {}).get("_route") if isinstance(row.request_payload, dict) else None
+        steps = self._run_steps_summary_to_dict(row, session=session)
+        billing_status = self._business_billing_status(row)
+        issue_summary = self._build_run_issue_summary(
+            row,
+            session=None,
+            steps=steps,
+            include_payload_counts=False,
+        )
+        return {
+            "id": row.id,
+            "business_key": row.business_key,
+            "business_version_id": row.business_version_id,
+            "version": row.version,
+            "status": row.status,
+            "source": row.source,
+            "channel": row.channel,
+            "trace_id": row.trace_id,
+            "request_id": row.request_id,
+            "tenant_id": row.tenant_id,
+            "client_id": row.client_id,
+            "user_id": row.user_id,
+            "user_name": row.user_name,
+            "ability_id": row.ability_id,
+            "ability_name": ability_name,
+            "ability_provider": ability_provider,
+            "vendor_model_id": vendor_model_id,
+            "vendor_model_name": vendor_model_name,
+            "vendor_model_provider": vendor_model_provider,
+            "ability_task_id": (
+                encode_task_id(task_id=row.ability_task_id, provider=row.business_key, executor_id=None)
+                if row.ability_task_id
+                else None
+            ),
+            "ability_log_id": row.ability_log_id,
+            "request_payload": None,
+            "result_payload": None,
+            "image_urls": row.image_urls,
+            "video_urls": row.video_urls,
+            "texts": row.texts,
+            "error_message": row.error_message,
+            "duration_ms": row.duration_ms,
+            "billing_unit": row.billing_unit,
+            "unit_price": float(row.unit_price) if row.unit_price is not None else None,
+            "cost_amount": float(row.cost_amount) if row.cost_amount is not None else None,
+            "currency": row.currency,
+            "quota_units": row.quota_units,
+            "cost_breakdown": None,
+            "billing_status": billing_status,
+            "chargeable": billing_status == "billable",
+            "no_charge_reason": self._business_no_charge_reason(row),
+            "callback_status": row.callback_status,
+            "callback_http_status": row.callback_http_status,
+            "callback_error": row.callback_error,
+            "debug_url": row.debug_url,
+            "route_info": route_info,
+            "issue_category": issue_summary["category"],
+            "issue_label": issue_summary["label"],
+            "issue_severity": issue_summary["severity"],
+            "issue_action": issue_summary["action"],
+            "issue_evidence": issue_summary["evidence"],
+            "retest_source_run_id": None,
+            "retest_latest_run_id": None,
+            "retest_latest_status": None,
+            "retest_attempts": 0,
+            "retest_recovered": False,
+            "retest_summary": None,
+            "flow_summary": self._build_run_flow_summary(
+                row,
+                steps=steps,
+                route_info=route_info,
+                session=None,
+                include_payload_counts=False,
+            ),
+            "steps": steps,
+            "created_at": row.created_at,
+            "updated_at": row.updated_at,
+            "started_at": row.started_at,
+            "finished_at": row.finished_at,
+        }
+
     def _run_steps_to_dict(self, row: BusinessRun, *, session=None) -> list[dict[str, Any]]:
         if session is None:
             return []
@@ -5242,6 +5410,90 @@ class BusinessRunService:
                     "currency": step.currency,
                     "quota_units": step.quota_units,
                     "cost_breakdown": step.cost_breakdown,
+                    "started_at": step.started_at,
+                    "finished_at": step.finished_at,
+                    "created_at": step.created_at,
+                    "updated_at": step.updated_at,
+                }
+            )
+        return rows
+
+    def _run_steps_summary_to_dict(self, row: BusinessRun, *, session=None) -> list[dict[str, Any]]:
+        if session is None:
+            return []
+        steps = (
+            session.execute(
+                select(BusinessRunStep)
+                .options(
+                    load_only(
+                        BusinessRunStep.id,
+                        BusinessRunStep.run_id,
+                        BusinessRunStep.step_order,
+                        BusinessRunStep.step_id,
+                        BusinessRunStep.step_type,
+                        BusinessRunStep.role,
+                        BusinessRunStep.display_name,
+                        BusinessRunStep.enabled,
+                        BusinessRunStep.status,
+                        BusinessRunStep.ability_id,
+                        BusinessRunStep.ability_name,
+                        BusinessRunStep.ability_provider,
+                        BusinessRunStep.ability_task_id,
+                        BusinessRunStep.ability_log_id,
+                        BusinessRunStep.error_message,
+                        BusinessRunStep.duration_ms,
+                        BusinessRunStep.billing_unit,
+                        BusinessRunStep.unit_price,
+                        BusinessRunStep.currency,
+                        BusinessRunStep.cost_amount,
+                        BusinessRunStep.quota_units,
+                        BusinessRunStep.started_at,
+                        BusinessRunStep.finished_at,
+                        BusinessRunStep.created_at,
+                        BusinessRunStep.updated_at,
+                    )
+                )
+                .where(BusinessRunStep.run_id == row.id)
+                .order_by(BusinessRunStep.step_order.asc(), BusinessRunStep.id.asc())
+            )
+            .scalars()
+            .all()
+        )
+        rows: list[dict[str, Any]] = []
+        for step in steps:
+            rows.append(
+                {
+                    "id": step.id,
+                    "run_id": step.run_id,
+                    "step_order": step.step_order,
+                    "step_id": step.step_id,
+                    "step_type": step.step_type,
+                    "role": step.role,
+                    "display_name": step.display_name,
+                    "enabled": step.enabled,
+                    "status": step.status,
+                    "ability_id": step.ability_id,
+                    "ability_name": step.ability_name,
+                    "ability_provider": step.ability_provider,
+                    "ability_task_id": (
+                        encode_task_id(task_id=step.ability_task_id, provider=row.business_key, executor_id=None)
+                        if step.ability_task_id
+                        else None
+                    ),
+                    "ability_log_id": step.ability_log_id,
+                    "executor_id": None,
+                    "executor_name": None,
+                    "executor_type": None,
+                    "execution_evidence": None,
+                    "result_summary": None,
+                    "error_message": step.error_message,
+                    "duration_ms": step.duration_ms,
+                    "billing_unit": step.billing_unit,
+                    "unit_price": float(step.unit_price) if step.unit_price is not None else None,
+                    "cost_amount": float(step.cost_amount) if step.cost_amount is not None else None,
+                    "currency": step.currency,
+                    "quota_units": step.quota_units,
+                    "cost_breakdown": None,
                     "started_at": step.started_at,
                     "finished_at": step.finished_at,
                     "created_at": step.created_at,
@@ -5485,11 +5737,16 @@ class BusinessRunService:
         *,
         session=None,
         steps: list[dict[str, Any]] | None = None,
+        include_payload_counts: bool = True,
     ) -> dict[str, Any]:
         if steps is None and session is not None:
             steps = self._run_steps_to_dict(row, session=session)
         steps = steps or []
-        result_payload = row.result_payload if isinstance(row.result_payload, dict) else {}
+        result_payload = (
+            row.result_payload
+            if include_payload_counts and isinstance(row.result_payload, dict)
+            else {}
+        )
         resolution = result_payload.get("_adminIssueResolution") or result_payload.get("_admin_issue_resolution")
         if isinstance(resolution, dict) and resolution.get("status") == "ignored":
             note = self._clean_optional_text(str(resolution.get("note") or ""))
@@ -5504,8 +5761,8 @@ class BusinessRunService:
         image_count = len(row.image_urls or [])
         video_count = len(row.video_urls or [])
         text_count = len(row.texts or [])
-        structured_count = self._count_structured_outputs(result_payload)
-        resource_count = self._count_resource_outputs(result_payload)
+        structured_count = self._count_structured_outputs(result_payload) if include_payload_counts else 0
+        resource_count = self._count_resource_outputs(result_payload) if include_payload_counts else 0
         has_output = bool(image_count or video_count or text_count or structured_count or resource_count)
         callback_failed = status == "succeeded" and (
             str(row.callback_status or "").strip().lower() == "failed" or bool(row.callback_error)
@@ -5586,6 +5843,7 @@ class BusinessRunService:
         steps: list[dict[str, Any]],
         route_info: dict[str, Any] | None,
         session=None,
+        include_payload_counts: bool = True,
     ) -> dict[str, Any]:
         counts = {
             "total": len(steps),
@@ -5625,8 +5883,9 @@ class BusinessRunService:
         image_count = len(row.image_urls or [])
         video_count = len(row.video_urls or [])
         text_count = len(row.texts or [])
-        structured_count = self._count_structured_outputs(row.result_payload if isinstance(row.result_payload, dict) else {})
-        resource_count = self._count_resource_outputs(row.result_payload if isinstance(row.result_payload, dict) else {})
+        result_payload = row.result_payload if include_payload_counts and isinstance(row.result_payload, dict) else {}
+        structured_count = self._count_structured_outputs(result_payload) if include_payload_counts else 0
+        resource_count = self._count_resource_outputs(result_payload) if include_payload_counts else 0
         has_output = bool(image_count or video_count or text_count or structured_count or resource_count)
         failed = counts["failed"] > 0 or row.status == "failed"
         if failed:

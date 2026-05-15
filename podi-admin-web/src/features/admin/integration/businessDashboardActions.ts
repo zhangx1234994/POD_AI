@@ -291,8 +291,10 @@ export const useBusinessDashboardActions = ({
   ]);
 
   const refreshBusinessRuns = useCallback(async () => {
-    const [res, summary, operationLogs, approvals] = await Promise.all([
-      adminApi.listBusinessRuns(businessRunFilters),
+    const res = await adminApi.listBusinessRuns(businessRunFilters);
+    setBusinessRuns(res.items || []);
+    setBusinessRunTotal(Number(res.total || 0));
+    const [summary, operationLogs, approvals] = await Promise.allSettled([
       adminApi.getBusinessUsageSummary(businessRunFilters),
       isBusinessReadOnly
         ? Promise.resolve({ items: [] })
@@ -301,11 +303,15 @@ export const useBusinessDashboardActions = ({
         ? Promise.resolve({ items: [] })
         : adminApi.listBusinessDefaultApprovals({ businessKey: businessRunFilters.businessKey, status: 'pending', limit: 20 }),
     ]);
-    setBusinessRuns(res.items || []);
-    setBusinessRunTotal(Number(res.total || 0));
-    setBusinessUsageSummary(summary);
-    setBusinessOperationLogs(operationLogs.items || []);
-    setBusinessDefaultApprovals(approvals.items || []);
+    if (summary.status === 'fulfilled') {
+      setBusinessUsageSummary(summary.value);
+    }
+    if (operationLogs.status === 'fulfilled') {
+      setBusinessOperationLogs(operationLogs.value.items || []);
+    }
+    if (approvals.status === 'fulfilled') {
+      setBusinessDefaultApprovals(approvals.value.items || []);
+    }
   }, [
     businessRunFilters,
     isBusinessReadOnly,

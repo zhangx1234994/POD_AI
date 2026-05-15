@@ -1459,6 +1459,7 @@ export function IntegrationDashboard({
   });
   const [businessRunDetail, setBusinessRunDetail] = useState<BusinessRun | null>(null);
   const [businessRunDetailOpen, setBusinessRunDetailOpen] = useState(false);
+  const [businessRunAutoRefresh, setBusinessRunAutoRefresh] = useState(true);
   const [businessDialogOpen, setBusinessDialogOpen] = useState(false);
   const [businessForm, setBusinessForm] = useState<BusinessCapabilityFormState>(defaultBusinessCapabilityForm);
   const [businessFormError, setBusinessFormError] = useState<string | null>(null);
@@ -5023,6 +5024,26 @@ export function IntegrationDashboard({
     setBusinessUsageSummary,
   });
 
+  const handleOpenBusinessRunDetail = useCallback((row: BusinessRun) => {
+    setBusinessRunDetail(row);
+    setBusinessRunDetailOpen(true);
+    setBusinessActionError(null);
+    void adminApi
+      .getBusinessRun(row.id)
+      .then((detail) => setBusinessRunDetail(detail))
+      .catch((error) => {
+        setBusinessActionError(error?.message || '加载业务运行详情失败，请刷新后重试。');
+      });
+  }, []);
+
+  useEffect(() => {
+    if (activeNav !== 'business' || !businessRunAutoRefresh || !pageVisible) return;
+    const timer = window.setInterval(() => {
+      void refreshBusinessRuns();
+    }, 10000);
+    return () => window.clearInterval(timer);
+  }, [activeNav, businessRunAutoRefresh, pageVisible, refreshBusinessRuns]);
+
   const refreshAbilityTemplateState = useCallback(
     async (abilityId?: string | null, options?: { silent?: boolean }) => {
       const targetId = String(abilityId || '').trim();
@@ -6465,17 +6486,16 @@ const extractErrorMessage = (error: unknown): string => {
                   actionLoadingId={businessActionLoadingId}
                   detail={businessRunDetail}
                   detailOpen={businessRunDetailOpen}
+                  autoRefresh={businessRunAutoRefresh}
                   onFiltersChange={setBusinessRunFilters}
+                  onAutoRefreshChange={setBusinessRunAutoRefresh}
                   onRefresh={refreshBusinessRuns}
                   onExport={exportBusinessRuns}
                   onBulkCallbackRetry={handleBusinessBulkCallbackRetry}
                   onBulkRetest={handleBusinessBulkRetest}
                   onBulkIgnoreIssues={handleBusinessBulkIgnoreIssues}
                   onGenerateIssueChecklist={handleBusinessGenerateIssueChecklist}
-                  onOpenDetail={(row) => {
-                    setBusinessRunDetail(row);
-                    setBusinessRunDetailOpen(true);
-                  }}
+                  onOpenDetail={handleOpenBusinessRunDetail}
                   onCloseDetail={() => setBusinessRunDetailOpen(false)}
                   onCallbackRetry={handleBusinessCallbackRetry}
                   formatDateTime={formatDateTime}

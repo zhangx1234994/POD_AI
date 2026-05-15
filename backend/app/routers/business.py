@@ -1620,6 +1620,8 @@ def admin_list_business_runs(
     tenant_id: str | None = Query(default=None),
     client_id: str | None = Query(default=None),
     trace_id: str | None = Query(default=None),
+    window_hours: int | None = Query(default=24, ge=1, le=2160),
+    detail: str = Query(default="summary", pattern="^(summary|full)$"),
     limit: int = Query(default=50, ge=1, le=200),
     user: User = Depends(_resolve_business_user),
 ) -> schemas.BusinessRunListResponse:
@@ -1627,6 +1629,8 @@ def admin_list_business_runs(
         raise HTTPException(status_code=403, detail="ADMIN_ONLY")
     total, items = get_business_run_service().list_runs(
         limit=limit,
+        window_hours=window_hours,
+        detail=detail,
         business_key=business_key,
         status=status,
         billing_status=billing_status,
@@ -1641,6 +1645,16 @@ def admin_list_business_runs(
     return schemas.BusinessRunListResponse(items=items, total=total)
 
 
+@admin_router.get("/runs/{run_id}", response_model=schemas.BusinessRunRead, response_model_by_alias=False)
+def admin_get_business_run(
+    run_id: str,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessRunRead:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    return get_business_run_service().get_run(run_id=run_id, user=user)
+
+
 @admin_router.get("/runs/export")
 def admin_export_business_runs(
     business_key: str | None = Query(default=None),
@@ -1653,6 +1667,7 @@ def admin_export_business_runs(
     tenant_id: str | None = Query(default=None),
     client_id: str | None = Query(default=None),
     trace_id: str | None = Query(default=None),
+    window_hours: int | None = Query(default=24, ge=1, le=2160),
     limit: int = Query(default=1000, ge=1, le=1000),
     user: User = Depends(_resolve_business_user),
 ) -> Response:
@@ -1660,6 +1675,8 @@ def admin_export_business_runs(
         raise HTTPException(status_code=403, detail="ADMIN_ONLY")
     _, items = get_business_run_service().list_runs(
         limit=limit,
+        window_hours=window_hours,
+        detail="summary",
         business_key=business_key,
         status=status,
         billing_status=billing_status,

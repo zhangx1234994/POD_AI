@@ -1203,13 +1203,14 @@ export const adminApi = {
   },
   listBusinessRuns: (options?: BusinessRunQueryOptions) => {
     const params = buildBusinessRunQuery(options);
-    params.delete('window_hours');
+    params.set('detail', 'summary');
     const suffix = params.toString() ? `?${params.toString()}` : '';
     return request<BusinessRunListResponse>(`/api/admin/business/runs${suffix}`);
   },
+  getBusinessRun: (runId: string) =>
+    request<BusinessRunListResponse['items'][number]>(`/api/admin/business/runs/${encodeURIComponent(runId)}`),
   exportBusinessRuns: (options?: BusinessRunQueryOptions) => {
     const params = buildBusinessRunQuery({ ...options, limit: options?.limit ?? 1000 });
-    params.delete('window_hours');
     return requestBlob(`/api/admin/business/runs/export?${params.toString()}`, {
       method: 'GET',
       headers: { Accept: 'text/csv' },

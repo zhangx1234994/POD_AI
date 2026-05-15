@@ -1599,7 +1599,9 @@ export const BusinessRunHistoryPanel = ({
   actionLoadingId,
   detail,
   detailOpen,
+  autoRefresh,
   onFiltersChange,
+  onAutoRefreshChange,
   onRefresh,
   onExport,
   onBulkCallbackRetry,
@@ -1622,7 +1624,9 @@ export const BusinessRunHistoryPanel = ({
   actionLoadingId?: string | null;
   detail?: BusinessRun | null;
   detailOpen: boolean;
+  autoRefresh: boolean;
   onFiltersChange: (updater: (prev: BusinessRunFilters) => BusinessRunFilters) => void;
+  onAutoRefreshChange: (value: boolean) => void;
   onRefresh: () => void;
   onExport: () => void;
   onBulkCallbackRetry: () => void;
@@ -1645,9 +1649,18 @@ export const BusinessRunHistoryPanel = ({
               <Typography.Text theme="secondary">已加载 {runs.length} / {total} 条</Typography.Text>
             </div>
           </div>
-          <Button variant="outline" onClick={onRefresh}>
-            刷新
-          </Button>
+          <Space size="small">
+            <Button
+              variant="outline"
+              theme={autoRefresh ? 'primary' : 'default'}
+              onClick={() => onAutoRefreshChange(!autoRefresh)}
+            >
+              {autoRefresh ? '自动刷新中' : '开启自动刷新'}
+            </Button>
+            <Button variant="outline" onClick={onRefresh}>
+              刷新
+            </Button>
+          </Space>
         </Space>
       }
     >
