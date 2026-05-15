@@ -117,9 +117,47 @@ export interface BusinessApiKeyUsageLog {
   createdAt: string;
 }
 
+export interface BusinessApiKeyUsageSummary {
+  total: number;
+  successCount: number;
+  errorCount: number;
+  submitCount: number;
+  pollCount: number;
+  callbackCount: number;
+  uniqueRunCount: number;
+  averageDurationMs?: number | null;
+}
+
+export interface BusinessApiKeyUsageRunGroup {
+  runId?: string | null;
+  businessKey?: string | null;
+  apiKeyName?: string | null;
+  apiKeyPreview?: string | null;
+  requestId?: string | null;
+  traceId?: string | null;
+  tenantId?: string | null;
+  clientId?: string | null;
+  totalCount: number;
+  submitCount: number;
+  pollCount: number;
+  callbackCount: number;
+  errorCount: number;
+  needsAttention?: boolean;
+  issueCode?: string | null;
+  issueHint?: string | null;
+  lastStatusCode?: number | null;
+  lastErrorCode?: string | null;
+  firstSeenAt?: string | null;
+  lastSeenAt?: string | null;
+}
+
 export interface BusinessApiKeyUsageLogListResponse {
   items: BusinessApiKeyUsageLog[];
   total: number;
+  offset: number;
+  limit: number;
+  summary: BusinessApiKeyUsageSummary;
+  groups: BusinessApiKeyUsageRunGroup[];
 }
 
 export interface AuthUser {

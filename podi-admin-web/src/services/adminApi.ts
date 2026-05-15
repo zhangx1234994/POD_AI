@@ -184,7 +184,19 @@ type BusinessApiKeyUsageQueryOptions = {
   businessKey?: string;
   tenantId?: string;
   clientId?: string;
+  method?: string;
+  path?: string;
+  endpointKind?: string;
+  statusCode?: number | string;
+  statusGroup?: string;
+  errorCode?: string;
+  runId?: string;
+  requestId?: string;
+  traceId?: string;
+  windowHours?: number | string;
+  offset?: number;
   limit?: number;
+  groupLimit?: number;
 };
 
 type BillingQueryOptions = {
@@ -392,11 +404,25 @@ function buildBusinessDefaultApprovalQuery(options?: BusinessDefaultApprovalQuer
 
 function buildBusinessApiKeyUsageQuery(options?: BusinessApiKeyUsageQueryOptions) {
   const params = new URLSearchParams();
-  if (options?.apiKeyId?.trim()) params.set('api_key_id', options.apiKeyId.trim());
+  if (options?.apiKeyId?.trim() && options.apiKeyId !== 'all') params.set('api_key_id', options.apiKeyId.trim());
   if (options?.businessKey?.trim() && options.businessKey !== 'all') params.set('business_key', options.businessKey.trim());
   if (options?.tenantId?.trim()) params.set('tenant_id', options.tenantId.trim());
   if (options?.clientId?.trim()) params.set('client_id', options.clientId.trim());
+  if (options?.method?.trim() && options.method !== 'all') params.set('method', options.method.trim());
+  if (options?.path?.trim()) params.set('path', options.path.trim());
+  if (options?.endpointKind?.trim() && options.endpointKind !== 'all') params.set('endpoint_kind', options.endpointKind.trim());
+  if (options?.statusCode !== undefined && String(options.statusCode).trim()) params.set('status_code', String(options.statusCode).trim());
+  if (options?.statusGroup?.trim() && options.statusGroup !== 'all') params.set('status_group', options.statusGroup.trim());
+  if (options?.errorCode?.trim()) params.set('error_code', options.errorCode.trim());
+  if (options?.runId?.trim()) params.set('run_id', options.runId.trim());
+  if (options?.requestId?.trim()) params.set('request_id', options.requestId.trim());
+  if (options?.traceId?.trim()) params.set('trace_id', options.traceId.trim());
+  if (options?.windowHours !== undefined && String(options.windowHours).trim()) {
+    params.set('window_hours', String(options.windowHours).trim());
+  }
+  if (options?.offset) params.set('offset', String(options.offset));
   if (options?.limit) params.set('limit', String(options.limit));
+  if (options?.groupLimit !== undefined) params.set('group_limit', String(options.groupLimit));
   return params;
 }
 
@@ -1200,6 +1226,11 @@ export const adminApi = {
     const params = buildBusinessApiKeyUsageQuery({ ...options, limit: options?.limit ?? 50 });
     const suffix = params.toString() ? `?${params.toString()}` : '';
     return request<BusinessApiKeyUsageLogListResponse>(`/api/admin/business/api-key-usage${suffix}`);
+  },
+  exportBusinessApiKeyUsage: (options?: BusinessApiKeyUsageQueryOptions) => {
+    const params = buildBusinessApiKeyUsageQuery({ ...options, limit: options?.limit ?? 5000 });
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    return requestBlob(`/api/admin/business/api-key-usage/export${suffix}`);
   },
   listBusinessRuns: (options?: BusinessRunQueryOptions) => {
     const params = buildBusinessRunQuery(options);

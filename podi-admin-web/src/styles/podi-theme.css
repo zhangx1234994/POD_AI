@@ -1310,7 +1310,7 @@ html.t-theme-dark {
 
 .podi-business-api-key-summary {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: var(--podi-space-2);
 }
 
@@ -1381,6 +1381,54 @@ html.t-theme-dark {
   gap: var(--podi-space-3);
   align-items: center;
   justify-content: space-between;
+}
+
+.podi-business-api-usage-header {
+  display: flex;
+  gap: var(--podi-space-3);
+  align-items: flex-start;
+  justify-content: space-between;
+  padding-top: 4px;
+  border-top: 1px solid var(--td-border-level-1-color);
+}
+
+.podi-business-api-usage-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: var(--podi-space-3);
+  padding: 14px;
+  border: 1px solid var(--td-border-level-1-color);
+  border-radius: var(--podi-radius-lg);
+  background: color-mix(in srgb, var(--td-bg-color-secondarycontainer) 70%, var(--td-bg-color-container));
+}
+
+.podi-business-api-usage-filters label {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--td-text-color-primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.podi-business-api-usage-filters select {
+  width: 100%;
+  height: 32px;
+  border: 1px solid var(--td-component-border);
+  border-radius: var(--td-radius-default);
+  background: var(--td-bg-color-container);
+  color: var(--td-text-color-primary);
+  font: inherit;
+  padding: 0 10px;
+}
+
+.podi-business-api-usage-pagination {
+  display: flex;
+  gap: var(--podi-space-3);
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0 0;
 }
 
 .podi-output-summary-card {
@@ -1995,6 +2043,12 @@ html.t-theme-dark {
   .podi-comfy-module-nav,
   .podi-comfy-module-switch {
     padding-top: 0;
+  }
+
+  .podi-business-api-usage-header,
+  .podi-business-api-usage-pagination {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
 

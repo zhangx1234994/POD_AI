@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Button, Card, Input, Space, Table, Tag, Typography } from 'tdesign-react';
 import { adminApi } from '../../../services/adminApi';
-import type { BusinessApiKey, BusinessApiKeyUsageLog, PublicAbility } from '../../../types/admin';
+import type {
+  BusinessApiKey,
+  BusinessApiKeyUsageLog,
+  BusinessApiKeyUsageRunGroup,
+  BusinessApiKeyUsageSummary,
+  PublicAbility,
+} from '../../../types/admin';
 
 type ApiEndpoint = {
   key: string;
@@ -37,6 +43,13 @@ type BusinessApiParamDoc = {
   example: string;
 };
 
+type BusinessApiEnumDoc = {
+  field: string;
+  value: string;
+  meaning: string;
+  action: string;
+};
+
 type DeliveryGuardStatus = 'done' | 'doing' | 'todo';
 
 type DeliveryGuard = {
@@ -66,6 +79,19 @@ type BusinessApiKeyFormState = {
   expireAt: string;
 };
 
+type BusinessApiUsageFilters = {
+  windowHours: string;
+  apiKeyId: string;
+  businessKey: string;
+  endpointKind: string;
+  statusGroup: string;
+  path: string;
+  runId: string;
+  requestId: string;
+  traceId: string;
+  errorCode: string;
+};
+
 type ApiExposurePanelProps = {
   publicAbilities: PublicAbility[];
   publicAbilitiesLoading: boolean;
@@ -75,6 +101,7 @@ type ApiExposurePanelProps = {
   };
   onRefreshPublicAbilities: () => void;
   onCopy: (value: string) => void;
+  onOpenBusinessRun?: (runId: string) => void;
   getProviderLabel: (value: string) => string;
   getCategoryLabel: (value: string) => string;
 };
@@ -280,6 +307,24 @@ const FISSION_API_PARAMS: BusinessApiParamDoc[] = [
     example: '50%',
   },
   {
+    key: 'profile',
+    required: false,
+    description: 'ComfyUI 裂变配置：pattern_risk_routed_v4、pattern_color_lock_v2、pattern_color_lock_strict_v2、pattern_default_v1。',
+    example: 'pattern_risk_routed_v4',
+  },
+  {
+    key: 'variation_preset',
+    required: false,
+    description: '测评/业务参数预设：default-high、safe、object-strong、color-free。显式传入的 bili/reference_lock/color_lock 优先。',
+    example: 'object-strong',
+  },
+  {
+    key: 'pattern_risk_type',
+    required: false,
+    description: 'VL 图案风险类型：element_pattern、object_variation、text_or_logo、border_or_layout、unknown。通常由中台自动生成。',
+    example: 'object_variation',
+  },
+  {
     key: 'width / height',
     required: false,
     description: '输出宽高。测评端上传图片后默认取原图宽高，业务方也可以手动指定。',
@@ -327,6 +372,16 @@ const FISSION_API_PARAMS: BusinessApiParamDoc[] = [
     description: '调用来源和接入渠道，例如 partner-api、open-api、coze-workflow。',
     example: 'partner-api / open-api',
   },
+];
+
+const BUSINESS_API_STATUS_DOCS: BusinessApiEnumDoc[] = [
+  { field: 'status / taskStatus', value: 'queued', meaning: '已进入中台队列，还没开始执行。', action: '按 retryAfterSeconds 继续查询。' },
+  { field: 'status / taskStatus', value: 'running', meaning: '正在执行或等待结果回填。', action: '按 retryAfterSeconds 继续查询。' },
+  { field: 'status / taskStatus', value: 'succeeded', meaning: '任务成功，结果字段可读取。', action: '读取 imageUrls / videoUrls / texts / resultPayload。' },
+  { field: 'status / taskStatus', value: 'failed', meaning: '任务失败或无法继续。', action: '读取 errorCode / errorMessage，并按错误码处理。' },
+  { field: 'decision', value: 'pass', meaning: '裂变评分通过。', action: '可以接受当前生成图。' },
+  { field: 'decision', value: 'needs_refission', meaning: '建议二次裂变。', action: '业务侧可重新提交裂变任务。' },
+  { field: 'decision', value: 'reject', meaning: '不建议使用。', action: '拒绝当前结果或人工复核。' },
 ];
 
 const FISSION_EVALUATE_API_PARAMS: BusinessApiParamDoc[] = [
@@ -516,6 +571,32 @@ const DEFAULT_BUSINESS_API_KEY_FORM: BusinessApiKeyFormState = {
   expireAt: '',
 };
 
+const BUSINESS_API_USAGE_PAGE_SIZE = 50;
+
+const DEFAULT_BUSINESS_API_USAGE_FILTERS: BusinessApiUsageFilters = {
+  windowHours: '24',
+  apiKeyId: 'all',
+  businessKey: 'all',
+  endpointKind: 'all',
+  statusGroup: 'all',
+  path: '',
+  runId: '',
+  requestId: '',
+  traceId: '',
+  errorCode: '',
+};
+
+const DEFAULT_BUSINESS_API_USAGE_SUMMARY: BusinessApiKeyUsageSummary = {
+  total: 0,
+  successCount: 0,
+  errorCount: 0,
+  submitCount: 0,
+  pollCount: 0,
+  callbackCount: 0,
+  uniqueRunCount: 0,
+  averageDurationMs: null,
+};
+
 function businessStatusLabel(status: BusinessInterfaceGroup['nativeStatus']): string {
   if (status === 'ready') return '原生 API 已具备';
   if (status === 'planning') return '待补原生 API';
@@ -583,6 +664,65 @@ function formatDateTime(value?: string | null): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString('zh-CN', { hour12: false });
+}
+
+function endpointKindLabel(value?: string | null): string {
+  if (value === 'submit') return '提交任务';
+  if (value === 'poll') return '轮询结果';
+  if (value === 'callback') return '回调';
+  return '全部接口';
+}
+
+function inferEndpointKind(path?: string | null): 'submit' | 'poll' | 'callback' | 'other' {
+  const text = String(path || '');
+  if (text === '/api/business/runs/get') return 'poll';
+  if (text.includes('callback')) return 'callback';
+  if (text.endsWith('/runs')) return 'submit';
+  return 'other';
+}
+
+function endpointKindTheme(value?: string | null): 'success' | 'primary' | 'warning' | 'default' {
+  const kind = value || 'other';
+  if (kind === 'submit') return 'success';
+  if (kind === 'poll') return 'primary';
+  if (kind === 'callback') return 'warning';
+  return 'default';
+}
+
+function businessApiUsageIssue(row: BusinessApiKeyUsageRunGroup): {
+  needsAttention: boolean;
+  code: string | null;
+  hint: string | null;
+} {
+  if (row.needsAttention) {
+    return { needsAttention: true, code: row.issueCode || 'NEEDS_ATTENTION', hint: row.issueHint || '该任务链路需要关注。' };
+  }
+  if ((row.errorCount || 0) > 0) {
+    return { needsAttention: true, code: 'HAS_ERROR', hint: '该任务链路存在异常响应或错误码。' };
+  }
+  if ((row.pollCount || 0) > 0 && (row.submitCount || 0) === 0) {
+    return { needsAttention: true, code: 'POLL_WITHOUT_SUBMIT', hint: '当前筛选范围内只有查询记录，没有提交记录。' };
+  }
+  if ((row.pollCount || 0) >= 30) {
+    return { needsAttention: true, code: 'POLLING_TOO_FREQUENT', hint: '同一任务查询次数偏多，建议业务方按建议间隔轮询。' };
+  }
+  return { needsAttention: false, code: null, hint: null };
+}
+
+function formatNumber(value?: number | null): string {
+  if (value == null || Number.isNaN(value)) return '0';
+  return new Intl.NumberFormat('zh-CN').format(value);
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function generateBusinessApiKeyValue(): string {
@@ -704,12 +844,23 @@ export function ApiExposurePanel({
   cozeAbilityStats,
   onRefreshPublicAbilities,
   onCopy,
+  onOpenBusinessRun,
   getProviderLabel,
   getCategoryLabel,
 }: ApiExposurePanelProps) {
   const [businessApiKeys, setBusinessApiKeys] = useState<BusinessApiKey[]>([]);
   const [businessApiKeyUsage, setBusinessApiKeyUsage] = useState<BusinessApiKeyUsageLog[]>([]);
+  const [businessApiKeyUsageGroups, setBusinessApiKeyUsageGroups] = useState<BusinessApiKeyUsageRunGroup[]>([]);
+  const [businessApiKeyUsageSummary, setBusinessApiKeyUsageSummary] = useState<BusinessApiKeyUsageSummary>(
+    DEFAULT_BUSINESS_API_USAGE_SUMMARY,
+  );
+  const [businessApiKeyUsageTotal, setBusinessApiKeyUsageTotal] = useState(0);
+  const [businessApiKeyUsagePage, setBusinessApiKeyUsagePage] = useState(1);
+  const [businessApiUsageFilters, setBusinessApiUsageFilters] = useState<BusinessApiUsageFilters>(
+    DEFAULT_BUSINESS_API_USAGE_FILTERS,
+  );
   const [businessApiKeyLoading, setBusinessApiKeyLoading] = useState(false);
+  const [businessApiUsageExporting, setBusinessApiUsageExporting] = useState(false);
   const [businessApiKeySaving, setBusinessApiKeySaving] = useState(false);
   const [businessApiKeyError, setBusinessApiKeyError] = useState('');
   const [businessApiKeyNotice, setBusinessApiKeyNotice] = useState('');
@@ -718,18 +869,36 @@ export function ApiExposurePanel({
     setBusinessApiKeyLoading(true);
     setBusinessApiKeyError('');
     try {
+      const usageOffset = Math.max(0, businessApiKeyUsagePage - 1) * BUSINESS_API_USAGE_PAGE_SIZE;
       const [keysRes, usageRes] = await Promise.all([
         adminApi.listBusinessApiKeys(),
-        adminApi.listBusinessApiKeyUsage({ limit: 50 }),
+        adminApi.listBusinessApiKeyUsage({
+          apiKeyId: businessApiUsageFilters.apiKeyId,
+          businessKey: businessApiUsageFilters.businessKey,
+          endpointKind: businessApiUsageFilters.endpointKind,
+          statusGroup: businessApiUsageFilters.statusGroup,
+          path: businessApiUsageFilters.path,
+          runId: businessApiUsageFilters.runId,
+          requestId: businessApiUsageFilters.requestId,
+          traceId: businessApiUsageFilters.traceId,
+          errorCode: businessApiUsageFilters.errorCode,
+          windowHours: businessApiUsageFilters.windowHours,
+          offset: usageOffset,
+          limit: BUSINESS_API_USAGE_PAGE_SIZE,
+          groupLimit: 30,
+        }),
       ]);
       setBusinessApiKeys(keysRes.items || []);
       setBusinessApiKeyUsage(usageRes.items || []);
+      setBusinessApiKeyUsageGroups(usageRes.groups || []);
+      setBusinessApiKeyUsageSummary(usageRes.summary || DEFAULT_BUSINESS_API_USAGE_SUMMARY);
+      setBusinessApiKeyUsageTotal(usageRes.total || 0);
     } catch (err) {
       setBusinessApiKeyError(String((err as Error)?.message || err));
     } finally {
       setBusinessApiKeyLoading(false);
     }
-  }, []);
+  }, [businessApiKeyUsagePage, businessApiUsageFilters]);
 
   useEffect(() => {
     void loadBusinessApiKeyAudit();
@@ -737,6 +906,51 @@ export function ApiExposurePanel({
 
   const updateBusinessApiKeyForm = (field: keyof BusinessApiKeyFormState, value: string) => {
     setBusinessApiKeyForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const updateBusinessApiUsageFilter = (field: keyof BusinessApiUsageFilters, value: string) => {
+    setBusinessApiKeyUsagePage(1);
+    setBusinessApiUsageFilters((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const resetBusinessApiUsageFilters = () => {
+    setBusinessApiKeyUsagePage(1);
+    setBusinessApiUsageFilters(DEFAULT_BUSINESS_API_USAGE_FILTERS);
+  };
+
+  const handleExportBusinessApiUsage = async () => {
+    setBusinessApiUsageExporting(true);
+    setBusinessApiKeyError('');
+    try {
+      const blob = await adminApi.exportBusinessApiKeyUsage({
+        apiKeyId: businessApiUsageFilters.apiKeyId,
+        businessKey: businessApiUsageFilters.businessKey,
+        endpointKind: businessApiUsageFilters.endpointKind,
+        statusGroup: businessApiUsageFilters.statusGroup,
+        path: businessApiUsageFilters.path,
+        runId: businessApiUsageFilters.runId,
+        requestId: businessApiUsageFilters.requestId,
+        traceId: businessApiUsageFilters.traceId,
+        errorCode: businessApiUsageFilters.errorCode,
+        windowHours: businessApiUsageFilters.windowHours,
+        limit: 5000,
+      });
+      downloadBlob(blob, `business-api-usage-${Date.now()}.csv`);
+    } catch (err) {
+      setBusinessApiKeyError(String((err as Error)?.message || err));
+    } finally {
+      setBusinessApiUsageExporting(false);
+    }
+  };
+
+  const handleOpenBusinessRun = (runId?: string | null) => {
+    const normalized = String(runId || '').trim();
+    if (!normalized) return;
+    if (onOpenBusinessRun) {
+      onOpenBusinessRun(normalized);
+      return;
+    }
+    onCopy(normalized);
   };
 
   const handleGenerateBusinessApiKey = () => {
@@ -815,9 +1029,13 @@ export function ApiExposurePanel({
     };
   });
   const activeBusinessApiKeyCount = businessApiKeys.filter((item) => item.status === 'active').length;
-  const failedBusinessApiUsageCount = businessApiKeyUsage.filter((item) => Number(item.statusCode || 0) >= 400 || item.errorCode).length;
+  const failedBusinessApiUsageCount = businessApiKeyUsageSummary.errorCount;
   const recentBusinessApiUsage = businessApiKeyUsage[0];
-  const businessApiUsageCount = businessApiKeyUsage.length;
+  const businessApiUsageCount = businessApiKeyUsageSummary.total || businessApiKeyUsageTotal;
+  const usagePageCount = Math.max(1, Math.ceil((businessApiKeyUsageTotal || 0) / BUSINESS_API_USAGE_PAGE_SIZE));
+  const usagePageStart =
+    businessApiKeyUsageTotal > 0 ? (businessApiKeyUsagePage - 1) * BUSINESS_API_USAGE_PAGE_SIZE + 1 : 0;
+  const usagePageEnd = Math.min(businessApiKeyUsageTotal, businessApiKeyUsagePage * BUSINESS_API_USAGE_PAGE_SIZE);
 
   return (
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
@@ -1016,6 +1234,25 @@ export function ApiExposurePanel({
               </Typography.Text>
               <CodeExample value={buildCozeCompatibleQueryExample()} onCopy={onCopy} />
             </details>
+            <details className="podi-api-param-details">
+              <summary>统一状态和评分枚举</summary>
+              <Table
+                rowKey="value"
+                size="small"
+                data={BUSINESS_API_STATUS_DOCS}
+                columns={[
+                  { colKey: 'field', title: '字段', width: 160 },
+                  {
+                    colKey: 'value',
+                    title: '取值',
+                    width: 150,
+                    cell: ({ row }) => <Typography.Text code>{row.value}</Typography.Text>,
+                  },
+                  { colKey: 'meaning', title: '含义', ellipsis: true },
+                  { colKey: 'action', title: '业务方动作', ellipsis: true },
+                ]}
+              />
+            </details>
           </Space>
         </Card>
         <Card bordered className="podi-api-mode-card">
@@ -1074,19 +1311,29 @@ export function ApiExposurePanel({
               <small>启用 {activeBusinessApiKeyCount}</small>
             </div>
             <div>
-              <span>最近记录</span>
-              <strong>{businessApiUsageCount}</strong>
-              <small>当前加载数量</small>
+              <span>接口调用</span>
+              <strong>{formatNumber(businessApiUsageCount)}</strong>
+              <small>当前筛选范围</small>
+            </div>
+            <div>
+              <span>提交任务</span>
+              <strong>{formatNumber(businessApiKeyUsageSummary.submitCount)}</strong>
+              <small>真正发起业务</small>
+            </div>
+            <div>
+              <span>轮询结果</span>
+              <strong>{formatNumber(businessApiKeyUsageSummary.pollCount)}</strong>
+              <small>查询 runId 结果</small>
             </div>
             <div>
               <span>需关注</span>
-              <strong>{failedBusinessApiUsageCount}</strong>
+              <strong>{formatNumber(failedBusinessApiUsageCount)}</strong>
               <small>状态码异常或有错误码</small>
             </div>
             <div>
-              <span>最近调用</span>
-              <strong>{recentBusinessApiUsage ? formatDateTime(recentBusinessApiUsage.createdAt) : '-'}</strong>
-              <small>{recentBusinessApiUsage?.apiKeyName || '暂无调用记录'}</small>
+              <span>关联任务</span>
+              <strong>{formatNumber(businessApiKeyUsageSummary.uniqueRunCount)}</strong>
+              <small>去重 runId</small>
             </div>
           </div>
           <div className="podi-business-api-key-form">
@@ -1239,6 +1486,229 @@ export function ApiExposurePanel({
             ]}
             empty={<Typography.Text theme="secondary">暂无业务 API Key。后续业务接入前先在这里开 Key。</Typography.Text>}
           />
+          <div className="podi-business-api-usage-header">
+            <div>
+              <Typography.Text strong>接口调用中心</Typography.Text>
+              <div>
+                <Typography.Text theme="secondary">
+                  这里用来判断业务方是否调用了正确接口、是否频繁轮询、失败码是什么，以及每个 runId 背后的完整调用轨迹。
+                </Typography.Text>
+              </div>
+            </div>
+            <Space>
+              <Typography.Text theme="secondary">
+                最近：{recentBusinessApiUsage ? formatDateTime(recentBusinessApiUsage.createdAt) : '暂无调用'}
+              </Typography.Text>
+              <Button
+                size="small"
+                variant="outline"
+                loading={businessApiUsageExporting}
+                onClick={() => void handleExportBusinessApiUsage()}
+              >
+                导出调用记录
+              </Button>
+              <Button size="small" variant="outline" onClick={resetBusinessApiUsageFilters}>
+                重置筛选
+              </Button>
+            </Space>
+          </div>
+          <div className="podi-business-api-usage-filters">
+            <label>
+              时间窗口
+              <select
+                value={businessApiUsageFilters.windowHours}
+                onChange={(event) => updateBusinessApiUsageFilter('windowHours', event.currentTarget.value)}
+              >
+                <option value="1">近 1 小时</option>
+                <option value="6">近 6 小时</option>
+                <option value="24">近 24 小时</option>
+                <option value="72">近 72 小时</option>
+                <option value="168">近 7 天</option>
+                <option value="0">不限制</option>
+              </select>
+            </label>
+            <label>
+              业务 Key
+              <select
+                value={businessApiUsageFilters.apiKeyId}
+                onChange={(event) => updateBusinessApiUsageFilter('apiKeyId', event.currentTarget.value)}
+              >
+                <option value="all">全部 Key</option>
+                {businessApiKeys.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              业务类型
+              <select
+                value={businessApiUsageFilters.businessKey}
+                onChange={(event) => updateBusinessApiUsageFilter('businessKey', event.currentTarget.value)}
+              >
+                <option value="all">全部业务</option>
+                <option value="fission">图裂变</option>
+                <option value="fission_evaluate">裂变评分</option>
+                <option value="outpaint">扩图</option>
+                <option value="pattern_extract">花纹提取</option>
+              </select>
+            </label>
+            <label>
+              接口动作
+              <select
+                value={businessApiUsageFilters.endpointKind}
+                onChange={(event) => updateBusinessApiUsageFilter('endpointKind', event.currentTarget.value)}
+              >
+                <option value="all">全部动作</option>
+                <option value="submit">提交任务</option>
+                <option value="poll">轮询结果</option>
+                <option value="callback">回调</option>
+              </select>
+            </label>
+            <label>
+              结果
+              <select
+                value={businessApiUsageFilters.statusGroup}
+                onChange={(event) => updateBusinessApiUsageFilter('statusGroup', event.currentTarget.value)}
+              >
+                <option value="all">全部结果</option>
+                <option value="success">成功</option>
+                <option value="error">失败或异常</option>
+              </select>
+            </label>
+            <label>
+              接口路径
+              <Input
+                value={businessApiUsageFilters.path}
+                placeholder="/api/business/fission/runs"
+                onChange={(value) => updateBusinessApiUsageFilter('path', String(value))}
+              />
+            </label>
+            <label>
+              runId
+              <Input
+                value={businessApiUsageFilters.runId}
+                placeholder="按任务查"
+                onChange={(value) => updateBusinessApiUsageFilter('runId', String(value))}
+              />
+            </label>
+            <label>
+              requestId
+              <Input
+                value={businessApiUsageFilters.requestId}
+                placeholder="业务请求 ID"
+                onChange={(value) => updateBusinessApiUsageFilter('requestId', String(value))}
+              />
+            </label>
+            <label>
+              traceId
+              <Input
+                value={businessApiUsageFilters.traceId}
+                placeholder="链路 ID"
+                onChange={(value) => updateBusinessApiUsageFilter('traceId', String(value))}
+              />
+            </label>
+            <label>
+              错误码
+              <Input
+                value={businessApiUsageFilters.errorCode}
+                placeholder="BUSINESS_RUN_ID_REQUIRED"
+                onChange={(value) => updateBusinessApiUsageFilter('errorCode', String(value))}
+              />
+            </label>
+          </div>
+          <Table
+            rowKey="runId"
+            size="small"
+            data={businessApiKeyUsageGroups}
+            loading={businessApiKeyLoading}
+            maxHeight={260}
+            columns={[
+              {
+                colKey: 'runId',
+                title: '按任务聚合',
+                ellipsis: true,
+                cell: ({ row }) => (
+                  <Space direction="vertical" size={2}>
+                    <Space>
+                      <Typography.Text code>{row.runId || '-'}</Typography.Text>
+                      {row.runId ? <CopyButton value={row.runId} onCopy={onCopy} /> : null}
+                      {row.runId ? (
+                        <Button size="small" variant="text" onClick={() => handleOpenBusinessRun(row.runId)}>
+                          打开任务
+                        </Button>
+                      ) : null}
+                    </Space>
+                    <Typography.Text theme="secondary">
+                      {row.businessKey || '-'} · {row.apiKeyName || '未知 Key'}
+                    </Typography.Text>
+                  </Space>
+                ),
+              },
+              {
+                colKey: 'counts',
+                title: '调用构成',
+                width: 220,
+                cell: ({ row }) => (
+                  <Space size={4} breakLine>
+                    <Tag size="small" theme="success" variant="light">
+                      提交 {row.submitCount || 0}
+                    </Tag>
+                    <Tag size="small" theme="primary" variant="light">
+                      轮询 {row.pollCount || 0}
+                    </Tag>
+                    <Tag size="small" theme={row.errorCount ? 'danger' : 'default'} variant="light">
+                      异常 {row.errorCount || 0}
+                    </Tag>
+                    <Tag size="small" variant="light">
+                      总计 {row.totalCount || 0}
+                    </Tag>
+                  </Space>
+                ),
+              },
+              {
+                colKey: 'issue',
+                title: '链路提示',
+                width: 220,
+                cell: ({ row }) => {
+                  const issue = businessApiUsageIssue(row);
+                  return issue.needsAttention ? (
+                    <Space direction="vertical" size={2}>
+                      <Tag size="small" theme="warning" variant="light">
+                        {issue.code}
+                      </Tag>
+                      <Typography.Text theme="secondary">{issue.hint}</Typography.Text>
+                    </Space>
+                  ) : (
+                    <Tag size="small" theme="success" variant="light">
+                      暂无异常
+                    </Tag>
+                  );
+                },
+              },
+              {
+                colKey: 'result',
+                title: '最后结果',
+                width: 150,
+                cell: ({ row }) => (
+                  <Space direction="vertical" size={2}>
+                    <Tag theme={row.lastStatusCode && row.lastStatusCode >= 400 ? 'danger' : 'success'} variant="light">
+                      {row.lastStatusCode || '-'}
+                    </Tag>
+                    {row.lastErrorCode ? <Typography.Text theme="error">{row.lastErrorCode}</Typography.Text> : null}
+                  </Space>
+                ),
+              },
+              {
+                colKey: 'lastSeenAt',
+                title: '最近调用',
+                width: 180,
+                cell: ({ row }) => <Typography.Text theme="secondary">{formatDateTime(row.lastSeenAt)}</Typography.Text>,
+              },
+            ]}
+            empty={<Typography.Text theme="secondary">当前筛选范围内没有可聚合的 runId。</Typography.Text>}
+          />
           <Table
             rowKey="id"
             size="small"
@@ -1269,12 +1739,22 @@ export function ApiExposurePanel({
                 ellipsis: true,
                 cell: ({ row }) => (
                   <Space direction="vertical" size={2}>
-                    <Typography.Text>
-                      {row.method} {row.path}
-                    </Typography.Text>
+                    <Space>
+                      <Tag theme={endpointKindTheme(inferEndpointKind(row.path))} variant="light">
+                        {endpointKindLabel(inferEndpointKind(row.path))}
+                      </Tag>
+                      <Typography.Text>
+                        {row.method} {row.path}
+                      </Typography.Text>
+                    </Space>
                     <Typography.Text theme="secondary">
                       {row.businessKey || '-'} · {row.runId || row.requestId || row.traceId || '-'}
                     </Typography.Text>
+                    {row.runId ? (
+                      <Button size="small" variant="text" onClick={() => handleOpenBusinessRun(row.runId)}>
+                        打开业务任务
+                      </Button>
+                    ) : null}
                   </Space>
                 ),
               },
@@ -1300,6 +1780,32 @@ export function ApiExposurePanel({
             ]}
             empty={<Typography.Text theme="secondary">暂无调用记录。业务 API Key 调用业务接口后会自动写入。</Typography.Text>}
           />
+          <div className="podi-business-api-usage-pagination">
+            <Typography.Text theme="secondary">
+              显示 {usagePageStart}-{usagePageEnd} / {businessApiKeyUsageTotal}
+            </Typography.Text>
+            <Space>
+              <Button
+                size="small"
+                variant="outline"
+                disabled={businessApiKeyUsagePage <= 1}
+                onClick={() => setBusinessApiKeyUsagePage((prev) => Math.max(1, prev - 1))}
+              >
+                上一页
+              </Button>
+              <Typography.Text>
+                第 {businessApiKeyUsagePage} / {usagePageCount} 页
+              </Typography.Text>
+              <Button
+                size="small"
+                variant="outline"
+                disabled={businessApiKeyUsagePage >= usagePageCount}
+                onClick={() => setBusinessApiKeyUsagePage((prev) => Math.min(usagePageCount, prev + 1))}
+              >
+                下一页
+              </Button>
+            </Space>
+          </div>
         </Space>
       </Card>
 

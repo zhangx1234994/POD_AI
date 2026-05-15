@@ -240,9 +240,53 @@ class BusinessApiKeyUsageLogRead(BaseModel):
     createdAt: datetime = Field(alias="created_at")
 
 
+class BusinessApiKeyUsageRunGroup(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    runId: str | None = Field(default=None, alias="run_id")
+    businessKey: str | None = Field(default=None, alias="business_key")
+    apiKeyName: str | None = Field(default=None, alias="api_key_name")
+    apiKeyPreview: str | None = Field(default=None, alias="api_key_preview")
+    requestId: str | None = Field(default=None, alias="request_id")
+    traceId: str | None = Field(default=None, alias="trace_id")
+    tenantId: str | None = Field(default=None, alias="tenant_id")
+    clientId: str | None = Field(default=None, alias="client_id")
+    totalCount: int = Field(default=0, alias="total_count")
+    submitCount: int = Field(default=0, alias="submit_count")
+    pollCount: int = Field(default=0, alias="poll_count")
+    callbackCount: int = Field(default=0, alias="callback_count")
+    errorCount: int = Field(default=0, alias="error_count")
+    needsAttention: bool = Field(default=False, alias="needs_attention")
+    issueCode: str | None = Field(default=None, alias="issue_code")
+    issueHint: str | None = Field(default=None, alias="issue_hint")
+    lastStatusCode: int | None = Field(default=None, alias="last_status_code")
+    lastErrorCode: str | None = Field(default=None, alias="last_error_code")
+    firstSeenAt: datetime | None = Field(default=None, alias="first_seen_at")
+    lastSeenAt: datetime | None = Field(default=None, alias="last_seen_at")
+
+
+class BusinessApiKeyUsageSummary(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    total: int = 0
+    successCount: int = Field(default=0, alias="success_count")
+    errorCount: int = Field(default=0, alias="error_count")
+    submitCount: int = Field(default=0, alias="submit_count")
+    pollCount: int = Field(default=0, alias="poll_count")
+    callbackCount: int = Field(default=0, alias="callback_count")
+    uniqueRunCount: int = Field(default=0, alias="unique_run_count")
+    averageDurationMs: float | None = Field(default=None, alias="average_duration_ms")
+
+
 class BusinessApiKeyUsageLogListResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     items: list[BusinessApiKeyUsageLogRead]
     total: int
+    offset: int = 0
+    limit: int = 50
+    summary: BusinessApiKeyUsageSummary = Field(default_factory=BusinessApiKeyUsageSummary)
+    groups: list[BusinessApiKeyUsageRunGroup] = Field(default_factory=list)
 
 
 class BusinessCapabilityCreateRequest(BaseModel):

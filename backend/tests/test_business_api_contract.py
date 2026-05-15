@@ -2,9 +2,11 @@ import json
 from datetime import datetime, timezone
 
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
+from app.core.db import get_session
 from app.main import app
-from app.models.integration import BusinessRun
+from app.models.integration import BusinessApiKeyUsageLog, BusinessRun
 from app.models.user import User
 from app.schemas.business import BusinessRunCreateRequest
 from app.services.business_runs import BusinessRunService
@@ -50,6 +52,7 @@ def test_business_openapi_exposes_flat_business_tools() -> None:
         "height",
         "profile",
         "mode",
+        "variation_preset",
         "vl_result",
         "image_desc",
         "traceId",
@@ -83,6 +86,21 @@ def test_business_openapi_exposes_flat_business_tools() -> None:
         "3840x2160",
         "2160x3840",
     ]
+    assert submit_schema["properties"]["profile"]["enum"] == [
+        "pattern_risk_routed_v4",
+        "pattern_color_lock_v2",
+        "pattern_color_lock_strict_v2",
+        "pattern_default_v1",
+    ]
+    assert submit_schema["properties"]["mode"]["enum"] == ["fission"]
+    assert submit_schema["properties"]["variation_preset"]["enum"] == ["default-high", "safe", "object-strong", "color-free"]
+    assert submit_schema["properties"]["pattern_risk_type"]["enum"] == [
+        "element_pattern",
+        "object_variation",
+        "text_or_logo",
+        "border_or_layout",
+        "unknown",
+    ]
     outpaint_schema = paths["/api/business/outpaint/runs"]["post"]["requestBody"]["content"]["application/json"][
         "schema"
     ]
@@ -111,6 +129,13 @@ def test_business_openapi_exposes_flat_business_tools() -> None:
     assert {"selectedVersion", "selectedBy", "routeInfo", "activeVersions"}.issubset(
         preview_response["properties"]
     )
+    assert preview_response["properties"]["selectedBy"]["enum"] == [
+        "explicit",
+        "default",
+        "rollout_allowlist",
+        "rollout_percent",
+    ]
+    assert preview_response["properties"]["selectedStatus"]["enum"] == ["active", "disabled", "archived"]
 
     run_schema = paths["/api/business/runs/get"]["post"]["responses"]["200"]["content"]["application/json"]["schema"]
     assert {
@@ -269,6 +294,109 @@ def test_business_admin_api_keys_require_admin_token() -> None:
 
     assert resp.status_code == 401
     assert resp.json()["detail"] == "AUTHORIZATION_REQUIRED"
+
+
+def test_business_admin_api_usage_supports_filters_summary_and_run_groups() -> None:
+    now = datetime.utcnow()
+    run_id = "run_usage_contract_001"
+    with get_session() as session:
+        for row in session.execute(select(BusinessApiKeyUsageLog).where(BusinessApiKeyUsageLog.run_id == run_id)).scalars().all():
+            session.delete(row)
+        session.add_all(
+            [
+                BusinessApiKeyUsageLog(
+                    api_key_id="api_key_usage_contract",
+                    api_key_name="业务方测试 Key",
+                    api_key_preview="podi...test",
+                    method="POST",
+                    path="/api/business/fission/runs",
+                    status_code=200,
+                    business_key="fission",
+                    run_id=run_id,
+                    request_id="req_usage_contract",
+                    trace_id="trace_usage_contract",
+                    tenant_id="tenant-usage",
+                    client_id="client-usage",
+                    duration_ms=120,
+                    created_at=now,
+                ),
+                BusinessApiKeyUsageLog(
+                    api_key_id="api_key_usage_contract",
+                    api_key_name="业务方测试 Key",
+                    api_key_preview="podi...test",
+                    method="POST",
+                    path="/api/business/runs/get",
+                    status_code=200,
+                    business_key="fission",
+                    run_id=run_id,
+                    request_id="req_usage_contract",
+                    trace_id="trace_usage_contract",
+                    tenant_id="tenant-usage",
+                    client_id="client-usage",
+                    duration_ms=60,
+                    created_at=now,
+                ),
+                BusinessApiKeyUsageLog(
+                    api_key_id="api_key_usage_contract",
+                    api_key_name="业务方测试 Key",
+                    api_key_preview="podi...test",
+                    method="POST",
+                    path="/api/business/runs/get",
+                    status_code=400,
+                    business_key="fission",
+                    run_id=run_id,
+                    request_id="req_usage_contract",
+                    trace_id="trace_usage_contract",
+                    tenant_id="tenant-usage",
+                    client_id="client-usage",
+                    error_code="BUSINESS_RUN_ID_REQUIRED",
+                    duration_ms=50,
+                    created_at=now,
+                ),
+            ]
+        )
+        session.commit()
+
+    resp = client.get(
+        "/api/admin/business/api-key-usage",
+        params={"run_id": run_id, "window_hours": 0, "limit": 10},
+        headers={"Authorization": "Bearer podi-test-service-token", "x-real-ip": "127.0.0.1"},
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == 3
+    assert body["summary"]["submitCount"] == 1
+    assert body["summary"]["pollCount"] == 2
+    assert body["summary"]["errorCount"] == 1
+    assert body["summary"]["uniqueRunCount"] == 1
+    assert body["groups"][0]["runId"] == run_id
+    assert body["groups"][0]["submitCount"] == 1
+    assert body["groups"][0]["pollCount"] == 2
+    assert body["groups"][0]["needsAttention"] is True
+    assert body["groups"][0]["issueCode"] == "HAS_ERROR"
+
+    poll_resp = client.get(
+        "/api/admin/business/api-key-usage",
+        params={"run_id": run_id, "endpoint_kind": "poll", "window_hours": 0, "limit": 10},
+        headers={"Authorization": "Bearer podi-test-service-token", "x-real-ip": "127.0.0.1"},
+    )
+
+    assert poll_resp.status_code == 200
+    assert poll_resp.json()["total"] == 2
+
+    export_resp = client.get(
+        "/api/admin/business/api-key-usage/export",
+        params={"run_id": run_id, "window_hours": 0},
+        headers={"Authorization": "Bearer podi-test-service-token", "x-real-ip": "127.0.0.1"},
+    )
+    assert export_resp.status_code == 200
+    assert "text/csv" in export_resp.headers["content-type"]
+    export_text = export_resp.text
+    assert "接口动作" in export_text
+    assert "submit" in export_text
+    assert "poll" in export_text
+    assert "BUSINESS_RUN_ID_REQUIRED" in export_text
 
 
 def test_business_api_key_actor_does_not_write_fake_user_id() -> None:

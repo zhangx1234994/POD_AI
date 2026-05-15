@@ -170,11 +170,25 @@
 | `VENDOR_API_RATE_LIMITED` | 第三方模型限流。 | 降低提交频率，稍后重试。 |
 | `COMFYUI_QUEUE_FULL` | ComfyUI 队列已满。 | 按提示稍后重试。 |
 
-## 9. 当前缺口
+## 9. 接口调用中心枚举
+
+管理端 `API 开放 -> 接口调用中心` 使用以下枚举识别业务调用链路：
+
+| 字段 | 允许值 | 含义 |
+| --- | --- | --- |
+| `endpoint_kind` | `submit` | 提交业务任务，例如 `/api/business/fission/runs`。 |
+| `endpoint_kind` | `poll` | 查询业务任务结果，例如 `/api/business/runs/get`。 |
+| `endpoint_kind` | `callback` | 业务回调相关接口。 |
+| `status_group` | `success` | HTTP 2xx/3xx 且无平台错误码。 |
+| `status_group` | `error` | HTTP 4xx/5xx 或存在平台错误码。 |
+| `issueCode` | `HAS_ERROR` | 同一个 `runId` 聚合链路里存在异常响应或错误码。 |
+| `issueCode` | `POLL_WITHOUT_SUBMIT` | 当前筛选范围内只有查询记录，没有提交记录。通常需要放宽时间窗口或核对 `runId`。 |
+| `issueCode` | `POLLING_TOO_FREQUENT` | 同一个 `runId` 轮询次数偏高，业务方应按 `retryAfterSeconds` 控制查询频率。 |
+
+## 10. 当前缺口
 
 以下内容需要在后续版本补到代码、OpenAPI 和页面中：
 
-- `profile/mode/pattern_risk_type/selectedStatus/selectedBy` 需要在 OpenAPI schema 中显式写入 `enum`。
-- API 调用记录需要独立页面，支持筛选、分页、导出和按 `runId` 聚合。
-- API 调用记录需要区分提交接口、查询接口、回调接口，避免查询轮询淹没真实业务提交。
 - 发版门禁需要检查业务 OpenAPI 中 `status/type/mode/profile/quality/size` 字段是否缺枚举说明。
+- API 调用中心需要继续补“从调用记录直接定位业务运行详情”的深链接持久化，目前管理端已支持页面内打开业务任务详情。
+- API 调用中心需要纳入发布后 smoke，至少检查筛选、导出、按 `runId` 聚合和轮询异常提示。

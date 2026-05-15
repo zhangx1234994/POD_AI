@@ -1116,7 +1116,7 @@ OpenAPI 内每个工具都会枚举错误响应：
 
 ### GET /api/admin/business/api-key-usage
 
-用途：查看业务 API Key 最近调用记录。每次 Key 调用业务提交、路由预览或任务查询都会写入。
+用途：查看业务 API Key 调用中心。每次 Key 调用业务提交、路由预览、任务查询或回调相关接口都会写入，管理端可据此判断业务方是否调用了正确接口、是否频繁轮询、失败码是什么。
 
 可选查询参数：
 
@@ -1124,9 +1124,35 @@ OpenAPI 内每个工具都会枚举错误响应：
 - `business_key`
 - `tenant_id`
 - `client_id`
-- `limit`，默认 50，最大 200。
+- `method`
+- `path`
+- `endpoint_kind`：`submit` / `poll` / `callback`
+- `status_code`
+- `status_group`：`success` / `error`
+- `error_code`
+- `run_id`
+- `request_id`
+- `trace_id`
+- `window_hours`：默认 24；传 0 表示不限制时间窗口。
+- `offset` / `limit`：分页参数，`limit` 默认 50，最大 200。
+- `group_limit`：按 `runId` 聚合返回数量，默认 30，传 0 表示不返回聚合。
 
-记录字段包括：Key 名称、接口路径、状态码、业务标识、runId、requestId、traceId、tenantId/clientId、错误码和耗时。
+响应结构：
+
+- `items`：分页后的调用明细，字段包括 Key 名称、接口路径、状态码、业务标识、runId、requestId、traceId、tenantId/clientId、错误码和耗时。
+- `summary`：当前筛选范围内的总调用、成功、异常、提交、轮询、回调、去重 runId、平均耗时。
+- `groups`：按 `runId` 聚合的链路视图，包含提交次数、轮询次数、回调次数、异常次数和最近调用时间。
+- `groups[].needsAttention`：是否需要关注。
+- `groups[].issueCode`：当前可能值为 `HAS_ERROR`、`POLL_WITHOUT_SUBMIT`、`POLLING_TOO_FREQUENT`。
+- `groups[].issueHint`：给管理端展示的人类可读处理提示。
+
+### GET /api/admin/business/api-key-usage/export
+
+用途：导出业务 API Key 调用记录 CSV，供日常排查、交付给业务方核对或早检归档。
+
+查询参数与 `/api/admin/business/api-key-usage` 基本一致，不支持 `offset/group_limit`；`limit` 默认 5000，最大 10000。
+
+导出列包括：时间、接口动作、方法、路径、状态码、业务、`run_id`、`request_id`、`trace_id`、Key 名称、租户、客户端、错误码、耗时、IP、User-Agent。
 
 ### GET /api/admin/business/capabilities
 

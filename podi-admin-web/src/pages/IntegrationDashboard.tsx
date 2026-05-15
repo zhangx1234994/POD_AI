@@ -5036,6 +5036,30 @@ export function IntegrationDashboard({
       });
   }, []);
 
+  const handleOpenBusinessRunDetailById = useCallback((runId: string) => {
+    const normalizedRunId = runId.trim();
+    if (!normalizedRunId) return;
+    setActiveNav('business');
+    setBusinessRunDetail(null);
+    setBusinessRunDetailOpen(true);
+    setBusinessActionError(null);
+    contentRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+    void adminApi
+      .getBusinessRun(normalizedRunId)
+      .then((detail) => {
+        setBusinessRunDetail(detail);
+        setBusinessRunFilters((prev) => ({
+          ...prev,
+          businessKey: detail.businessKey || prev.businessKey,
+          traceId: detail.traceId || prev.traceId,
+        }));
+      })
+      .catch((error) => {
+        setBusinessRunDetailOpen(false);
+        setBusinessActionError(error?.message || '加载业务运行详情失败，请刷新后重试。');
+      });
+  }, []);
+
   useEffect(() => {
     if (activeNav !== 'business' || !businessRunAutoRefresh || !pageVisible) return;
     const timer = window.setInterval(() => {
@@ -6528,6 +6552,7 @@ const extractErrorMessage = (error: unknown): string => {
                   cozeAbilityStats={cozeAbilityStats}
                   onRefreshPublicAbilities={refreshPublicAbilities}
                   onCopy={copyTextToClipboard}
+                  onOpenBusinessRun={handleOpenBusinessRunDetailById}
                   getProviderLabel={getProviderLabel}
                   getCategoryLabel={getCategoryLabel}
                 />

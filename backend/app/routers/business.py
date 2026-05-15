@@ -7,14 +7,14 @@ import io
 import json
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import select
+from sqlalchemy import and_, case, func, or_, select
 
 from app.core.config import get_settings
 from app.core.db import get_session
@@ -279,6 +279,84 @@ def _business_runs_to_csv(items: list[dict[str, Any]]) -> str:
                 item.get("error_message") or item.get("issue_evidence") or "",
                 _business_export_cell(item.get("created_at")),
                 _business_export_cell(item.get("finished_at")),
+            ]
+        )
+    return output.getvalue()
+
+
+def _business_api_usage_endpoint_kind(*, method: str | None, path: str | None) -> str:
+    normalized_path = str(path or "")
+    normalized_method = str(method or "").upper()
+    if normalized_path == "/api/business/runs/get":
+        return "poll"
+    if "callback" in normalized_path:
+        return "callback"
+    if normalized_method == "POST" and normalized_path.endswith("/runs"):
+        return "submit"
+    return "other"
+
+
+def _business_api_usage_group_issue(
+    *,
+    submit_count: int,
+    poll_count: int,
+    error_count: int,
+) -> tuple[bool, str | None, str | None]:
+    if error_count > 0:
+        return True, "HAS_ERROR", "该任务链路存在异常响应或错误码，请优先查看最后错误。"
+    if poll_count > 0 and submit_count == 0:
+        return True, "POLL_WITHOUT_SUBMIT", "当前筛选范围内只有结果查询记录，未看到提交记录；可放宽时间窗口或核对 runId。"
+    if poll_count >= 30:
+        return True, "POLLING_TOO_FREQUENT", "同一 runId 查询次数偏多，建议业务方按 retryAfterSeconds 控制轮询频率。"
+    return False, None, None
+
+
+def _business_api_key_usage_to_csv(items: list[BusinessApiKeyUsageLog]) -> str:
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(
+        [
+            "id",
+            "时间",
+            "接口动作",
+            "方法",
+            "路径",
+            "状态码",
+            "业务",
+            "run_id",
+            "request_id",
+            "trace_id",
+            "Key 名称",
+            "Key 脱敏",
+            "租户",
+            "客户端",
+            "错误码",
+            "耗时 ms",
+            "IP",
+            "User-Agent",
+        ]
+    )
+    for item in items:
+        writer.writerow(
+            [
+                item.id,
+                item.created_at.isoformat(sep=" ") if item.created_at else "",
+                _business_api_usage_endpoint_kind(method=item.method, path=item.path),
+                item.method,
+                item.path,
+                item.status_code or "",
+                item.business_key or "",
+                item.run_id or "",
+                item.request_id or "",
+                item.trace_id or "",
+                item.api_key_name or "",
+                item.api_key_preview or "",
+                item.tenant_id or "",
+                item.client_id or "",
+                item.error_code or "",
+                item.duration_ms if item.duration_ms is not None else "",
+                item.ip_address or "",
+                item.user_agent or "",
             ]
         )
     return output.getvalue()
@@ -782,9 +860,17 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "selectedCapabilityId": {"type": "string"},
             "selectedVersion": {"type": "string"},
             "selectedDisplayName": {"type": "string"},
-            "selectedStatus": {"type": "string"},
+            "selectedStatus": {
+                "type": "string",
+                "description": "命中版本状态。",
+                "enum": ["active", "disabled", "archived"],
+            },
             "selectedIsDefault": {"type": "boolean"},
-            "selectedBy": {"type": "string", "description": "explicit/default/rollout_allowlist/rollout_percent"},
+            "selectedBy": {
+                "type": "string",
+                "description": "版本选择原因：显式指定、默认版本、白名单灰度或比例灰度。",
+                "enum": ["explicit", "default", "rollout_allowlist", "rollout_percent"],
+            },
             "routeInfo": {"type": "object"},
             "defaultCapabilityId": {"type": "string", "nullable": True},
             "defaultVersion": {"type": "string", "nullable": True},
@@ -834,8 +920,20 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                 "type": "string",
                 "nullable": True,
                 "description": "裂变配置；ComfyUI 智能路由版默认 pattern_risk_routed_v4，旧版可继续兼容 pattern_default_v1。",
+                "enum": [
+                    "pattern_risk_routed_v4",
+                    "pattern_color_lock_v2",
+                    "pattern_color_lock_strict_v2",
+                    "pattern_default_v1",
+                ],
             },
-            "mode": {"type": "string", "nullable": True, "description": "执行模式，例如 fission。"},
+            "mode": {"type": "string", "nullable": True, "description": "执行模式；当前图裂变固定使用 fission。", "enum": ["fission"]},
+            "variation_preset": {
+                "type": "string",
+                "nullable": True,
+                "description": "测评/业务侧参数预设名称；用于日志和排查，不会覆盖显式传入的 bili/reference_lock/color_lock。",
+                "enum": ["default-high", "safe", "object-strong", "color-free"],
+            },
             "reference_lock": {
                 "type": "number",
                 "nullable": True,
@@ -851,7 +949,12 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                 "nullable": True,
                 "description": "上游 VL 控制卡 JSON；通常由中台 VL 组件自动生成，包含 pattern_risk_type、palette_card 等。",
             },
-            "pattern_risk_type": {"type": "string", "nullable": True, "description": "VL 图案风险类型；通常由中台自动生成。"},
+            "pattern_risk_type": {
+                "type": "string",
+                "nullable": True,
+                "description": "VL 图案风险类型；通常由中台自动生成，业务方一般不需要传。",
+                "enum": ["element_pattern", "object_variation", "text_or_logo", "border_or_layout", "unknown"],
+            },
             "image_desc": {"type": "string", "nullable": True, "description": "图片描述，可由 VL 分析结果填入。"},
             "batch_size": {
                 "type": "integer",
@@ -887,7 +990,7 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                     "2160x3840",
                 ],
             },
-            "output_format": {"type": "string", "nullable": True, "description": "GPT Image 2 输出格式，默认 png。"},
+            "output_format": {"type": "string", "nullable": True, "description": "GPT Image 2 输出格式，默认 png。", "enum": ["png", "jpeg", "webp"]},
             "maskUrl": {"type": "string", "nullable": True, "description": "可选蒙版 URL；用于局部编辑。"},
         },
     }
@@ -1440,6 +1543,86 @@ def admin_update_business_api_key(
         return _business_api_key_to_read(api_key)
 
 
+def _build_business_api_key_usage_filters(
+    *,
+    api_key_id: str | None = None,
+    business_key: str | None = None,
+    tenant_id: str | None = None,
+    client_id: str | None = None,
+    method: str | None = None,
+    path: str | None = None,
+    endpoint_kind: str | None = None,
+    status_code: int | None = None,
+    status_group: str | None = None,
+    error_code: str | None = None,
+    run_id: str | None = None,
+    request_id: str | None = None,
+    trace_id: str | None = None,
+    window_hours: int | None = 24,
+) -> dict[str, Any]:
+    filters = []
+    if api_key_id:
+        filters.append(BusinessApiKeyUsageLog.api_key_id == api_key_id)
+    if business_key:
+        filters.append(BusinessApiKeyUsageLog.business_key == business_key)
+    if tenant_id:
+        filters.append(BusinessApiKeyUsageLog.tenant_id == tenant_id)
+    if client_id:
+        filters.append(BusinessApiKeyUsageLog.client_id == client_id)
+    if method:
+        filters.append(BusinessApiKeyUsageLog.method == method.upper()[:16])
+    if path:
+        filters.append(BusinessApiKeyUsageLog.path.contains(path.strip()))
+    if status_code is not None:
+        filters.append(BusinessApiKeyUsageLog.status_code == status_code)
+    if error_code:
+        filters.append(BusinessApiKeyUsageLog.error_code == error_code.strip())
+    if run_id:
+        filters.append(BusinessApiKeyUsageLog.run_id == run_id.strip())
+    if request_id:
+        filters.append(BusinessApiKeyUsageLog.request_id == request_id.strip())
+    if trace_id:
+        filters.append(BusinessApiKeyUsageLog.trace_id == trace_id.strip())
+    if window_hours:
+        filters.append(BusinessApiKeyUsageLog.created_at >= datetime.utcnow() - timedelta(hours=window_hours))
+
+    poll_filter = BusinessApiKeyUsageLog.path == "/api/business/runs/get"
+    callback_filter = BusinessApiKeyUsageLog.path.contains("callback")
+    submit_filter = and_(
+        BusinessApiKeyUsageLog.method == "POST",
+        BusinessApiKeyUsageLog.path.like("%/runs"),
+        BusinessApiKeyUsageLog.path != "/api/business/runs/get",
+    )
+    endpoint_kind_value = str(endpoint_kind or "").strip().lower()
+    if endpoint_kind_value == "submit":
+        filters.append(submit_filter)
+    elif endpoint_kind_value == "poll":
+        filters.append(poll_filter)
+    elif endpoint_kind_value == "callback":
+        filters.append(callback_filter)
+
+    error_filter = or_(BusinessApiKeyUsageLog.status_code >= 400, BusinessApiKeyUsageLog.error_code.is_not(None))
+    success_filter = and_(
+        BusinessApiKeyUsageLog.status_code >= 200,
+        BusinessApiKeyUsageLog.status_code < 400,
+        BusinessApiKeyUsageLog.error_code.is_(None),
+    )
+    status_group_value = str(status_group or "").strip().lower()
+    if status_group_value == "success":
+        filters.append(success_filter)
+    elif status_group_value == "error":
+        filters.append(error_filter)
+
+    return {
+        "filters": filters,
+        "submit_filter": submit_filter,
+        "poll_filter": poll_filter,
+        "callback_filter": callback_filter,
+        "error_filter": error_filter,
+        "success_filter": success_filter,
+    }
+
+
 @admin_router.get(
     "/api-key-usage",
     response_model=schemas.BusinessApiKeyUsageLogListResponse,
@@ -1450,26 +1633,214 @@ def admin_list_business_api_key_usage(
     business_key: str | None = Query(default=None),
     tenant_id: str | None = Query(default=None),
     client_id: str | None = Query(default=None),
+    method: str | None = Query(default=None),
+    path: str | None = Query(default=None),
+    endpoint_kind: str | None = Query(default=None, description="submit/poll/callback"),
+    status_code: int | None = Query(default=None),
+    status_group: str | None = Query(default=None, description="success/error"),
+    error_code: str | None = Query(default=None),
+    run_id: str | None = Query(default=None),
+    request_id: str | None = Query(default=None),
+    trace_id: str | None = Query(default=None),
+    window_hours: int = Query(default=24, ge=0, le=24 * 90),
+    offset: int = Query(default=0, ge=0),
     limit: int = Query(default=50, ge=1, le=200),
+    group_limit: int = Query(default=30, ge=0, le=100),
     user: User = Depends(_resolve_business_user),
 ) -> schemas.BusinessApiKeyUsageLogListResponse:
     if user.role != "admin":
         raise HTTPException(status_code=403, detail="ADMIN_ONLY")
     with get_session() as session:
-        stmt = select(BusinessApiKeyUsageLog)
-        filters = []
-        if api_key_id:
-            filters.append(BusinessApiKeyUsageLog.api_key_id == api_key_id)
-        if business_key:
-            filters.append(BusinessApiKeyUsageLog.business_key == business_key)
-        if tenant_id:
-            filters.append(BusinessApiKeyUsageLog.tenant_id == tenant_id)
-        if client_id:
-            filters.append(BusinessApiKeyUsageLog.client_id == client_id)
+        query_parts = _build_business_api_key_usage_filters(
+            api_key_id=api_key_id,
+            business_key=business_key,
+            tenant_id=tenant_id,
+            client_id=client_id,
+            method=method,
+            path=path,
+            endpoint_kind=endpoint_kind,
+            status_code=status_code,
+            status_group=status_group,
+            error_code=error_code,
+            run_id=run_id,
+            request_id=request_id,
+            trace_id=trace_id,
+            window_hours=window_hours,
+        )
+        filters = query_parts["filters"]
+        submit_filter = query_parts["submit_filter"]
+        poll_filter = query_parts["poll_filter"]
+        callback_filter = query_parts["callback_filter"]
+        error_filter = query_parts["error_filter"]
+        success_filter = query_parts["success_filter"]
+
+        base_stmt = select(BusinessApiKeyUsageLog)
         if filters:
-            stmt = stmt.where(*filters)
-        rows = session.execute(stmt.order_by(BusinessApiKeyUsageLog.created_at.desc()).limit(limit)).scalars().all()
-        return schemas.BusinessApiKeyUsageLogListResponse(items=rows, total=len(rows))
+            base_stmt = base_stmt.where(*filters)
+
+        total = int(session.execute(select(func.count()).select_from(BusinessApiKeyUsageLog).where(*filters)).scalar() or 0)
+        rows = (
+            session.execute(
+                base_stmt.order_by(BusinessApiKeyUsageLog.created_at.desc()).offset(offset).limit(limit)
+            )
+            .scalars()
+            .all()
+        )
+
+        submit_count_expr = func.coalesce(func.sum(case((submit_filter, 1), else_=0)), 0)
+        poll_count_expr = func.coalesce(func.sum(case((poll_filter, 1), else_=0)), 0)
+        callback_count_expr = func.coalesce(func.sum(case((callback_filter, 1), else_=0)), 0)
+        error_count_expr = func.coalesce(func.sum(case((error_filter, 1), else_=0)), 0)
+        success_count_expr = func.coalesce(func.sum(case((success_filter, 1), else_=0)), 0)
+        summary_row = session.execute(
+            select(
+                success_count_expr,
+                error_count_expr,
+                submit_count_expr,
+                poll_count_expr,
+                callback_count_expr,
+                func.count(func.distinct(BusinessApiKeyUsageLog.run_id)),
+                func.avg(BusinessApiKeyUsageLog.duration_ms),
+            )
+            .select_from(BusinessApiKeyUsageLog)
+            .where(*filters)
+        ).one()
+        summary = schemas.BusinessApiKeyUsageSummary(
+            total=total,
+            success_count=int(summary_row[0] or 0),
+            error_count=int(summary_row[1] or 0),
+            submit_count=int(summary_row[2] or 0),
+            poll_count=int(summary_row[3] or 0),
+            callback_count=int(summary_row[4] or 0),
+            unique_run_count=int(summary_row[5] or 0),
+            average_duration_ms=float(summary_row[6]) if summary_row[6] is not None else None,
+        )
+
+        groups: list[schemas.BusinessApiKeyUsageRunGroup] = []
+        if group_limit > 0:
+            group_rows = session.execute(
+                select(
+                    BusinessApiKeyUsageLog.run_id,
+                    func.max(BusinessApiKeyUsageLog.business_key),
+                    func.max(BusinessApiKeyUsageLog.api_key_name),
+                    func.max(BusinessApiKeyUsageLog.api_key_preview),
+                    func.max(BusinessApiKeyUsageLog.request_id),
+                    func.max(BusinessApiKeyUsageLog.trace_id),
+                    func.max(BusinessApiKeyUsageLog.tenant_id),
+                    func.max(BusinessApiKeyUsageLog.client_id),
+                    func.count(),
+                    submit_count_expr,
+                    poll_count_expr,
+                    callback_count_expr,
+                    error_count_expr,
+                    func.max(BusinessApiKeyUsageLog.status_code),
+                    func.max(BusinessApiKeyUsageLog.error_code),
+                    func.min(BusinessApiKeyUsageLog.created_at),
+                    func.max(BusinessApiKeyUsageLog.created_at),
+                )
+                .select_from(BusinessApiKeyUsageLog)
+                .where(*filters, BusinessApiKeyUsageLog.run_id.is_not(None))
+                .group_by(BusinessApiKeyUsageLog.run_id)
+                .order_by(func.max(BusinessApiKeyUsageLog.created_at).desc())
+                .limit(group_limit)
+            ).all()
+            for row in group_rows:
+                submit_count = int(row[9] or 0)
+                poll_count = int(row[10] or 0)
+                error_count = int(row[12] or 0)
+                needs_attention, issue_code, issue_hint = _business_api_usage_group_issue(
+                    submit_count=submit_count,
+                    poll_count=poll_count,
+                    error_count=error_count,
+                )
+                groups.append(
+                    schemas.BusinessApiKeyUsageRunGroup(
+                        run_id=row[0],
+                        business_key=row[1],
+                        api_key_name=row[2],
+                        api_key_preview=row[3],
+                        request_id=row[4],
+                        trace_id=row[5],
+                        tenant_id=row[6],
+                        client_id=row[7],
+                        total_count=int(row[8] or 0),
+                        submit_count=submit_count,
+                        poll_count=poll_count,
+                        callback_count=int(row[11] or 0),
+                        error_count=error_count,
+                        needs_attention=needs_attention,
+                        issue_code=issue_code,
+                        issue_hint=issue_hint,
+                        last_status_code=int(row[13]) if row[13] is not None else None,
+                        last_error_code=row[14],
+                        first_seen_at=row[15],
+                        last_seen_at=row[16],
+                    )
+                )
+
+        return schemas.BusinessApiKeyUsageLogListResponse(
+            items=rows,
+            total=total,
+            offset=offset,
+            limit=limit,
+            summary=summary,
+            groups=groups,
+        )
+
+
+@admin_router.get("/api-key-usage/export")
+def admin_export_business_api_key_usage(
+    api_key_id: str | None = Query(default=None),
+    business_key: str | None = Query(default=None),
+    tenant_id: str | None = Query(default=None),
+    client_id: str | None = Query(default=None),
+    method: str | None = Query(default=None),
+    path: str | None = Query(default=None),
+    endpoint_kind: str | None = Query(default=None, description="submit/poll/callback"),
+    status_code: int | None = Query(default=None),
+    status_group: str | None = Query(default=None, description="success/error"),
+    error_code: str | None = Query(default=None),
+    run_id: str | None = Query(default=None),
+    request_id: str | None = Query(default=None),
+    trace_id: str | None = Query(default=None),
+    window_hours: int = Query(default=24, ge=0, le=24 * 90),
+    limit: int = Query(default=5000, ge=1, le=10000),
+    user: User = Depends(_resolve_business_user),
+) -> Response:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    query_parts = _build_business_api_key_usage_filters(
+        api_key_id=api_key_id,
+        business_key=business_key,
+        tenant_id=tenant_id,
+        client_id=client_id,
+        method=method,
+        path=path,
+        endpoint_kind=endpoint_kind,
+        status_code=status_code,
+        status_group=status_group,
+        error_code=error_code,
+        run_id=run_id,
+        request_id=request_id,
+        trace_id=trace_id,
+        window_hours=window_hours,
+    )
+    with get_session() as session:
+        rows = (
+            session.execute(
+                select(BusinessApiKeyUsageLog)
+                .where(*query_parts["filters"])
+                .order_by(BusinessApiKeyUsageLog.created_at.desc())
+                .limit(limit)
+            )
+            .scalars()
+            .all()
+        )
+    return Response(
+        content="\ufeff" + _business_api_key_usage_to_csv(rows),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="business-api-key-usage.csv"'},
+    )
 
 
 @admin_router.post("/capabilities", response_model=schemas.BusinessCapabilityRead, response_model_by_alias=False)
