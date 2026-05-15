@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { Ability, BusinessCapability, BusinessCapabilityFormState, JsonRecord } from '../../../types/admin';
-import { businessKeyLabel } from './businessLabels';
+import { businessKeyLabel, canonicalBusinessKey } from './businessLabels';
 
 interface BusinessRunFilterState {
   businessKey: string;
@@ -173,7 +173,7 @@ export const useBusinessDashboardDerivedState = ({
   const businessRunBusinessOptions = useMemo(() => {
     const seen = new Set<string>();
     const options = businessCapabilities
-      .map((item) => item.businessKey)
+      .map((item) => canonicalBusinessKey(item.businessKey))
       .filter((key) => {
         if (!key || seen.has(key)) return false;
         seen.add(key);
@@ -186,7 +186,7 @@ export const useBusinessDashboardDerivedState = ({
   const businessRunVersionOptions = useMemo(() => {
     const businessKey = businessRunFilters.businessKey;
     const versions = businessCapabilities
-      .filter((item) => businessKey === 'all' || item.businessKey === businessKey)
+      .filter((item) => businessKey === 'all' || canonicalBusinessKey(item.businessKey) === businessKey)
       .map((item) => item.version)
       .filter(Boolean);
     return [
@@ -220,7 +220,7 @@ export const useBusinessDashboardDerivedState = ({
       businessCapabilities
         .filter((item) => {
           if (!selectedBusinessCompareLeft) return true;
-          return item.businessKey === selectedBusinessCompareLeft.businessKey && item.id !== selectedBusinessCompareLeft.id;
+          return canonicalBusinessKey(item.businessKey) === canonicalBusinessKey(selectedBusinessCompareLeft.businessKey) && item.id !== selectedBusinessCompareLeft.id;
         })
         .map((item) => ({
           label: `${item.version}${item.isDefault ? ' · 默认' : ''} · ${item.displayName}`,

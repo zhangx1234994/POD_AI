@@ -12,6 +12,11 @@ const ERROR_CODE_MESSAGE_MAP: Record<string, string> = {
   TASK_NOT_FOUND: '任务不存在或已失效',
   TASK_TIMEOUT: '任务执行超时',
   CALLBACK_TASK_NOT_RESOLVED: '回调任务未解析成功',
+  INTERNAL_ONLY: '接口只允许内部服务调用',
+  VENDOR_API_KEY_MISSING: '第三方密钥不可用或未命中',
+  VENDOR_API_EXECUTION_FAILED: '第三方模型调用失败',
+  BUSINESS_RUN_TIMEOUT: '业务任务等待超时',
+  BUSINESS_RUN_GET_FAILED: '业务任务结果查询异常',
   Q1001: 'ComfyUI 队列已满',
   Q2001: '商业模型队列已满',
   COMFYUI_TIMEOUT: 'ComfyUI 执行超时',
@@ -49,6 +54,15 @@ export const extractErrorCode = (message: string): string => {
 export const toDisplayErrorMessage = (message?: string | null): string => {
   const text = parseErrorPayload(String(message || ''));
   if (!text) return '';
+  if (/system protection triggered by request burst/i.test(text)) {
+    return '上游触发请求保护：请求过快，请降低并发或拉长重试间隔。';
+  }
+  if (/out of sort memory/i.test(text)) {
+    return '数据库排序内存不足：请缩小查询范围或联系中台优化索引。';
+  }
+  if (/api[-_ ]?key|apikey|key.*missing|missing.*key/i.test(text)) {
+    return '第三方密钥不可用或未命中：先检查中台 Key 池、能力绑定和执行节点配置。';
+  }
   const code = extractErrorCode(text);
   const mapped = code ? ERROR_CODE_MESSAGE_MAP[code] : '';
   if (mapped) return `${mapped}（${code}）`;

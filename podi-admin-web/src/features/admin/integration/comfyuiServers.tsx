@@ -165,6 +165,33 @@ const getServerStatusText = (executor: Executor) => {
   return '暂不可用';
 };
 
+const getExecutorHost = (executor?: Executor | null) => {
+  const rawUrl = String(executor?.base_url || '').trim();
+  if (!rawUrl) return '';
+  try {
+    return new URL(rawUrl).hostname;
+  } catch {
+    return rawUrl.replace(/^https?:\/\//, '').split('/')[0]?.split(':')[0] || rawUrl;
+  }
+};
+
+const getComfyuiMachineLabel = (executor?: Executor | null) => {
+  const host = getExecutorHost(executor);
+  const tags = Array.isArray(executor?.tags) ? executor?.tags?.map((item) => String(item || '').trim()).filter(Boolean) || [] : [];
+  const gpuTag = tags.find((item) => item.toLowerCase().startsWith('gpu:'));
+  const hostTag = tags.find((item) => item.toLowerCase().startsWith('host:'));
+  const gpu = gpuTag ? gpuTag.replace(/^gpu:/i, '') : host === '117.50.80.158' ? '5090' : host === '117.50.216.233' ? '4090' : '';
+  const shortHost = hostTag
+    ? hostTag.replace(/^host:/i, '')
+    : host === '117.50.80.158'
+      ? '158'
+      : host === '117.50.216.233'
+        ? '233'
+        : host;
+  if (!gpu && !shortHost) return executor?.name || '未命名机器';
+  return [gpu ? `${gpu} 机器` : '', shortHost].filter(Boolean).join(' · ');
+};
+
 const withTimestamp = (prefix: string) => `${prefix}-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
 
 export function ComfyuiServersPanel({
@@ -321,9 +348,11 @@ export function ComfyuiServersPanel({
           <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/40">
             <div className="text-xs text-slate-500">主服务器</div>
             <div className="mt-1 truncate text-lg font-semibold text-slate-900 dark:text-white">
-              {baselineExecutor?.name || '未选择'}
+              {baselineExecutor ? getComfyuiMachineLabel(baselineExecutor) : '未选择'}
             </div>
-            <div className="mt-1 text-xs text-slate-500">{baselineExecutor?.id || '先选基准再做资源对齐'}</div>
+            <div className="mt-1 text-xs text-slate-500">
+              {baselineExecutor ? `${baselineExecutor.name} · ${baselineExecutor.id}` : '先选基准再做资源对齐'}
+            </div>
           </div>
           <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/40">
             <div className="text-xs text-slate-500">资源差异</div>
@@ -356,7 +385,7 @@ export function ComfyuiServersPanel({
                     options={[
                       { label: '请选择主服务器', value: '' },
                       ...executors.map((executor) => ({
-                        label: `${executor.name} · ${executor.id}`,
+                        label: `${getComfyuiMachineLabel(executor)} · ${executor.name}`,
                         value: executor.id,
                       })),
                     ]}
@@ -400,7 +429,7 @@ export function ComfyuiServersPanel({
               </Space>
               {baselineExecutor ? (
                 <div className="text-xs text-slate-500">
-                  主服务器：{baselineExecutor.name} · {baselineExecutor.id}
+                  主服务器：{getComfyuiMachineLabel(baselineExecutor)} · {baselineExecutor.name}
                 </div>
               ) : null}
             </Space>
@@ -437,13 +466,16 @@ export function ComfyuiServersPanel({
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
-                            <div className="truncate font-semibold text-slate-900 dark:text-white">{executor.name}</div>
+                            <div className="truncate font-semibold text-slate-900 dark:text-white">{getComfyuiMachineLabel(executor)}</div>
                             <StatusBadge status={executor.status} />
                             {isBaseline ? (
                               <Tag theme="primary" variant="light">
                                 主服务器
                               </Tag>
                             ) : null}
+                          </div>
+                          <div className="mt-1 truncate text-xs text-slate-700 dark:text-slate-300">
+                            {executor.name} · {executor.id}
                           </div>
                           <div className="mt-1 truncate text-xs text-slate-600 dark:text-slate-400">
                             {executor.base_url || '—'}

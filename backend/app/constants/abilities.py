@@ -2737,10 +2737,13 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             # Only keep final outputs from the known "SaveImage" node for this workflow.
             # Otherwise ComfyUI history may contain multiple intermediate previews.
             "output_node_ids": ["111"],
-            # Route across both ComfyUI nodes (same plugin/model baseline).
-            "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
+            # This workflow depends on the custom String node. 233 is currently
+            # hardened and lacks that node, so route it only to the 5090 node.
+            "allowed_executor_ids": ["executor_comfyui_pattern_extract_158"],
+            "required_node_keys": ["String", "StringConcatenate", "SaveImage"],
+            "routing_note": "2026-05-15: 233 lacks String; keep this low-frequency workflow on 5090 until node parity is restored.",
             "routing_policy": "queue",
-            "seed_version": 9,
+            "seed_version": 10,
             "pricing": {
                 "currency": "CNY",
                 "unit": "per_image",
@@ -2934,9 +2937,11 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "requires_image_input": True,
             "supports_vision": True,
             "output_node_ids": ["111"],
-            "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
+            "allowed_executor_ids": ["executor_comfyui_pattern_extract_158"],
+            "required_node_keys": ["String", "SaveImage"],
+            "routing_note": "2026-05-15: 233 lacks String; keep this legacy low-frequency workflow on 5090 until node parity is restored.",
             "routing_policy": "queue",
-            "seed_version": 1,
+            "seed_version": 2,
             "pricing": {
                 "currency": "CNY",
                 "unit": "per_image",
@@ -3044,9 +3049,11 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "action": "pattern_expand",
             "requires_image_input": True,
             "supports_vision": True,
-            "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
+            "allowed_executor_ids": ["executor_comfyui_pattern_extract_158"],
+            "required_node_keys": ["String", "SaveImage"],
+            "routing_note": "2026-05-15: 233 lacks String; keep this lightweight outpaint workflow on 5090 until node parity is restored.",
             "routing_policy": "queue",
-            "seed_version": 5,
+            "seed_version": 6,
             "pricing": {
                 "currency": "CNY",
                 "unit": "per_image",
@@ -3319,8 +3326,10 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "supports_vision": True,
             "output_node_ids": ["31"],
             "allowed_executor_ids": ["executor_comfyui_seamless_117", "executor_comfyui_pattern_extract_158"],
+            "required_node_keys": ["LoadImage", "CLIPVisionLoader", "IPAdapterModelLoader", "SaveImage"],
+            "routing_note": "2026-05-15: 158/233 both remain eligible; this high-frequency fission workflow does not depend on the missing String node.",
             "routing_policy": "queue",
-            "seed_version": 1,
+            "seed_version": 3,
             "pricing": {
                 "currency": "CNY",
                 "unit": "per_image",

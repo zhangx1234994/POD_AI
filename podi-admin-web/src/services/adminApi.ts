@@ -1302,7 +1302,7 @@ export const adminApi = {
     const params = buildBusinessRunQuery(options);
     params.delete('limit');
     if (!params.has('window_hours')) params.set('window_hours', '24');
-    return request<BusinessUsageSummaryResponse>(`/api/admin/business/usage-summary?${params.toString()}`);
+    return request<BusinessUsageSummaryResponse>(`/api/admin/business/usage-summary?${params.toString()}`, {}, 45000);
   },
   listBusinessOperationLogs: (options?: BusinessOperationLogQueryOptions) => {
     const params = buildBusinessOperationLogQuery(options);
@@ -1497,16 +1497,18 @@ export const adminApi = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
-  listAbilityLogs: (abilityId: string, options?: { limit?: number; offset?: number; search?: string; callbackFailed?: boolean }) => {
+  listAbilityLogs: (abilityId: string, options?: { limit?: number; offset?: number; sinceHours?: number; search?: string; callbackFailed?: boolean }) => {
     const params = new URLSearchParams();
     params.set('limit', String(options?.limit ?? 20));
     if (typeof options?.offset === 'number') params.set('offset', String(options.offset));
+    if (typeof options?.sinceHours === 'number') params.set('sinceHours', String(options.sinceHours));
     if (options?.search) params.set('search', options.search);
     if (options?.callbackFailed) params.set('callbackFailed', 'true');
     return request<AbilityLogListResponse>(
       `/api/admin/abilities/${encodeURIComponent(abilityId)}/logs?${params.toString()}`,
     );
   },
+  getAbilityLog: (logId: number) => request<AbilityInvocationLog>(`/api/admin/abilities/logs/${logId}`),
   listAllAbilityLogs: (options?: {
     limit?: number;
     offset?: number;
@@ -1517,6 +1519,7 @@ export const adminApi = {
     source?: string;
     templateId?: string;
     templatePublished?: boolean;
+    sinceHours?: number;
     search?: string;
     callbackFailed?: boolean;
   }) => {
@@ -1533,6 +1536,7 @@ export const adminApi = {
     if (typeof options?.templatePublished === 'boolean') {
       params.set('templatePublished', options.templatePublished ? 'true' : 'false');
     }
+    if (typeof options?.sinceHours === 'number') params.set('sinceHours', String(options.sinceHours));
     if (options?.search) params.set('search', options.search);
     if (options?.callbackFailed) params.set('callbackFailed', 'true');
     return request<AbilityLogListResponse>(`/api/admin/abilities/logs?${params.toString()}`);

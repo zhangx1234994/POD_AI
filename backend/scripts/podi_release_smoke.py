@@ -96,6 +96,70 @@ BUSINESS_ROUTE_SPECS: tuple[BusinessRouteSpec, ...] = (
 )
 
 
+REQUIRED_BUSINESS_DELIVERY_SAMPLE_FILES = (
+    "request.example.json",
+    "submit.response.example.json",
+    "poll.request.example.json",
+    "poll.running.response.example.json",
+    "poll.succeeded.response.example.json",
+    "poll.failed.response.example.json",
+)
+
+BUSINESS_DELIVERY_DOC_SPECS: tuple[dict[str, Any], ...] = (
+    {
+        "key": "gpt_image2_controlled_fission",
+        "label": "GPT Image 2 + VL 受控裂变",
+        "folder": "01_gpt_image2_controlled_fission",
+        "path": "/api/business/fission/runs",
+        "enum_fields": ("status", "variation_strength", "quality", "size"),
+        "error_codes": (
+            "BUSINESS_IMAGE_URL_REQUIRED",
+            "BUSINESS_RUN_TEMPORARY_UNAVAILABLE",
+            "VENDOR_API_EXECUTION_FAILED",
+        ),
+    },
+    {
+        "key": "comfyui_colorlock_fission",
+        "label": "ComfyUI 颜色锁定裂变",
+        "folder": "02_comfyui_colorlock_fission",
+        "path": "/api/business/fission/runs",
+        "enum_fields": ("status", "profile", "variation_preset"),
+        "error_codes": (
+            "BUSINESS_IMAGE_URL_REQUIRED",
+            "COMFYUI_TIMEOUT",
+            "ABILITY_TASK_FAILED",
+        ),
+    },
+    {
+        "key": "fission_generated_image_score",
+        "label": "裂变生成图评估",
+        "folder": "03_fission_generated_image_score",
+        "path": "/api/business/fission-evaluate/runs",
+        "enum_fields": ("status", "decision"),
+        "error_codes": (
+            "VL_EVAL_IMAGE_REQUIRED",
+            "ABILITY_TASK_FAILED",
+        ),
+    },
+)
+
+PER_FEATURE_RELEASE_CHECKLIST_TOKENS = (
+    "逐功能上线检查表",
+    "接口入口",
+    "入参字段",
+    "参数映射",
+    "执行节点",
+    "节点依赖",
+    "结果回填",
+    "错误路径",
+    "GPT Image 2 + VL 受控裂变",
+    "ComfyUI 颜色锁定裂变",
+    "裂变生成图评估",
+    "旧四方连续裂变",
+    "String",
+)
+
+
 def _short(value: Any, limit: int = 500) -> str:
     text = "" if value is None else str(value)
     return " ".join(text.split())[:limit]
@@ -415,6 +479,193 @@ def _validate_business_usage_summary(
         f"{total} failed={failed} running={running} queued={queued} "
         f"unresolved={unresolved_total} detail={unresolved_detail[:5] if unresolved_detail else '-'}",
     )
+
+
+def _validate_business_api_usage_center(data: Any) -> tuple[bool, str]:
+    if not isinstance(data, dict):
+        return False, "business API usage response is not an object"
+    items = data.get("items")
+    groups = data.get("groups")
+    summary = data.get("summary")
+    pagination = data.get("pagination")
+    if not isinstance(items, list):
+        return False, "items is missing or not a list"
+    if not isinstance(groups, list):
+        return False, "groups is missing or not a list"
+    if not isinstance(summary, dict):
+        return False, "summary is missing or not an object"
+    if not isinstance(pagination, dict):
+        return False, "pagination is missing or not an object"
+
+    required_summary_keys = {
+        "total",
+        "successCount",
+        "errorCount",
+        "submitCount",
+        "pollCount",
+        "callbackCount",
+        "uniqueRunCount",
+        "averageDurationMs",
+    }
+    missing_summary = sorted(required_summary_keys - set(summary))
+    if missing_summary:
+        return False, f"summary missing={missing_summary}"
+    required_pagination_keys = {"total", "offset", "limit", "hasMore", "nextOffset"}
+    missing_pagination = sorted(required_pagination_keys - set(pagination))
+    if missing_pagination:
+        return False, f"pagination missing={missing_pagination}"
+
+    schema_gaps: list[str] = []
+    for item in items[:10]:
+        if not isinstance(item, dict):
+            schema_gaps.append("usage item is not an object")
+            continue
+        missing = [key for key in ("id", "method", "path", "createdAt") if key not in item]
+        if missing:
+            schema_gaps.append(f"usage item {item.get('id') or '-'} missing={missing}")
+    for group in groups[:10]:
+        if not isinstance(group, dict):
+            schema_gaps.append("run group is not an object")
+            continue
+        missing = [
+            key
+            for key in (
+                "runId",
+                "totalCount",
+                "submitCount",
+                "pollCount",
+                "callbackCount",
+                "errorCount",
+                "needsAttention",
+                "lastSeenAt",
+            )
+            if key not in group
+        ]
+        if missing:
+            schema_gaps.append(f"run group {group.get('runId') or '-'} missing={missing}")
+    if schema_gaps:
+        return False, f"schema gaps={schema_gaps[:3]}"
+
+    total = int(summary.get("total") or data.get("total") or 0)
+    submit_count = int(summary.get("submitCount") or 0)
+    poll_count = int(summary.get("pollCount") or 0)
+    callback_count = int(summary.get("callbackCount") or 0)
+    error_count = int(summary.get("errorCount") or 0)
+    unique_run_count = int(summary.get("uniqueRunCount") or 0)
+    needs_attention = [
+        str(group.get("runId") or "-")
+        for group in groups
+        if isinstance(group, dict) and group.get("needsAttention") is True
+    ]
+    if unique_run_count > 0 and not groups:
+        return False, f"uniqueRunCount={unique_run_count} but run groups are empty"
+    return (
+        True,
+        "total="
+        f"{total} submit={submit_count} poll={poll_count} callback={callback_count} "
+        f"errors={error_count} runs={unique_run_count} groups={len(groups)} "
+        f"attention={len(needs_attention)} sample={needs_attention[:5] if needs_attention else '-'}",
+    )
+
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[2]
+
+
+def _validate_business_delivery_docs(repo_root: str | Path | None = None) -> tuple[bool, str]:
+    root = Path(repo_root).expanduser() if repo_root is not None else _repo_root()
+    base = root / "docs" / "api" / "examples" / "fission-business-delivery"
+    errors: list[str] = []
+    root_readme = base / "README.md"
+    if not root_readme.exists():
+        errors.append("missing fission-business-delivery README.md")
+    else:
+        root_text = root_readme.read_text(encoding="utf-8")
+        for token in ("runId", "/api/business/runs/get", "status", "错误码"):
+            if token not in root_text:
+                errors.append(f"root README missing {token}")
+
+    for spec in BUSINESS_DELIVERY_DOC_SPECS:
+        folder = base / str(spec["folder"])
+        readme = folder / "README.md"
+        label = str(spec["label"])
+        if not folder.exists():
+            errors.append(f"{label} missing folder={folder.relative_to(root) if folder.is_absolute() else folder}")
+            continue
+        if not readme.exists():
+            errors.append(f"{label} missing README.md")
+            continue
+        text = readme.read_text(encoding="utf-8")
+        required_text_tokens = (
+            str(spec["path"]),
+            "参数说明",
+            "常见错误",
+            "runId",
+            "status",
+        )
+        for token in required_text_tokens:
+            if token not in text:
+                errors.append(f"{label} README missing {token}")
+        for field in spec["enum_fields"]:
+            if str(field) not in text:
+                errors.append(f"{label} README missing enum field={field}")
+        for code in spec["error_codes"]:
+            if str(code) not in text:
+                errors.append(f"{label} README missing error code={code}")
+
+        for sample_name in REQUIRED_BUSINESS_DELIVERY_SAMPLE_FILES:
+            sample_path = folder / sample_name
+            if not sample_path.exists():
+                errors.append(f"{label} missing sample={sample_name}")
+                continue
+            try:
+                sample = json.loads(sample_path.read_text(encoding="utf-8"))
+            except Exception as exc:
+                errors.append(f"{label} invalid json sample={sample_name} error={exc}")
+                continue
+            if not isinstance(sample, dict):
+                errors.append(f"{label} sample is not object={sample_name}")
+                continue
+            if sample_name == "submit.response.example.json":
+                missing = [key for key in ("runId", "taskId", "status", "taskStatus", "retryAfterSeconds") if key not in sample]
+                if missing:
+                    errors.append(f"{label} submit response missing={missing}")
+            elif sample_name == "poll.request.example.json":
+                if not (sample.get("runId") or sample.get("taskId")):
+                    errors.append(f"{label} poll request missing runId/taskId")
+            elif sample_name.startswith("poll."):
+                if "status" not in sample:
+                    errors.append(f"{label} {sample_name} missing status")
+                if sample_name == "poll.failed.response.example.json":
+                    missing = [key for key in ("errorCode", "errorMessage") if key not in sample]
+                    if missing:
+                        errors.append(f"{label} failed response missing={missing}")
+
+    if errors:
+        return False, f"errors={errors[:8]} total={len(errors)}"
+    return True, f"contracts={len(BUSINESS_DELIVERY_DOC_SPECS)} samples={len(REQUIRED_BUSINESS_DELIVERY_SAMPLE_FILES)} each"
+
+
+def _run_business_delivery_docs_check() -> dict[str, Any]:
+    ok, detail = _validate_business_delivery_docs()
+    return _result("business_delivery_docs", ok, detail)
+
+
+def _validate_per_feature_release_checklist(repo_root: str | Path | None = None) -> tuple[bool, str]:
+    root = Path(repo_root).expanduser() if repo_root is not None else _repo_root()
+    path = root / "docs" / "standards" / "per-feature-release-checklist.md"
+    if not path.exists():
+        return False, f"missing {path.relative_to(root)}"
+    text = path.read_text(encoding="utf-8")
+    missing = [token for token in PER_FEATURE_RELEASE_CHECKLIST_TOKENS if token not in text]
+    if missing:
+        return False, f"missing tokens={missing} total={len(missing)}"
+    return True, f"tokens={len(PER_FEATURE_RELEASE_CHECKLIST_TOKENS)} path={path.relative_to(root)}"
+
+
+def _run_per_feature_release_checklist_check() -> dict[str, Any]:
+    ok, detail = _validate_per_feature_release_checklist()
+    return _result("per_feature_release_checklist", ok, detail)
 
 
 def _validate_business_capability_governance(
@@ -794,6 +1045,30 @@ def _run_business_usage_summary_check(
     return _result("business_usage_summary", response.status_code == 200 and ok, f"status={response.status_code} {detail}")
 
 
+def _run_business_api_usage_center_check(
+    *,
+    base_url: str,
+    admin_token: str,
+    window_hours: int,
+) -> dict[str, Any]:
+    if not str(admin_token or "").strip():
+        return _result("business_api_usage_center", True, "skipped: admin/service token not provided")
+    timeout = httpx.Timeout(30.0, connect=10.0)
+    params = {
+        "window_hours": str(max(0, min(int(window_hours or 24), 24 * 90))),
+        "limit": "10",
+        "group_limit": "20",
+    }
+    with httpx.Client(base_url=base_url, headers=_business_headers(admin_token), timeout=timeout, trust_env=False) as client:
+        response = client.get("/api/admin/business/api-key-usage", params=params)
+        try:
+            data = response.json()
+        except Exception:
+            data = {"text": response.text}
+    ok, detail = _validate_business_api_usage_center(data)
+    return _result("business_api_usage_center", response.status_code == 200 and ok, f"status={response.status_code} {detail}")
+
+
 def _run_business_capability_governance_check(
     *,
     base_url: str,
@@ -1003,6 +1278,9 @@ def main() -> int:
     if not args.skip_business_route:
         checks.extend(_run_business_route_checks(base_url=base_url, token=args.service_token))
 
+    checks.append(_run_business_delivery_docs_check())
+    checks.append(_run_per_feature_release_checklist_check())
+
     checks.append(
         _run_comfyui_workflow_compatibility_check(
             base_url=base_url,
@@ -1025,6 +1303,14 @@ def main() -> int:
             admin_token=args.admin_token or args.service_token,
             window_hours=args.business_summary_window_hours,
             max_unresolved_issues=args.max_unresolved_business_issues,
+        )
+    )
+
+    checks.append(
+        _run_business_api_usage_center_check(
+            base_url=base_url,
+            admin_token=args.admin_token or args.service_token,
+            window_hours=args.business_summary_window_hours,
         )
     )
 

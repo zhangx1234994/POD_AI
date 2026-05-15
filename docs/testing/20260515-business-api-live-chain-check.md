@@ -9,7 +9,7 @@
 - 业务 API Key 调用异常为 0；业务 run 异常为 0；测评 run 异常为 0。
 - 发现 2 个需要处理的隐患：
   - 业务方轮询频率偏高，21 个 run 产生 1071 次查询，部分 run 3 分钟内轮询 70+ 次。
-  - 233 ComfyUI 缺少 `String` 自定义节点，旧“四方连续裂变”工作流先打到 233 失败，再 fallback 到 158 成功。
+  - 233 ComfyUI 缺少 `String` 自定义节点，旧“四方连续裂变”工作流先打到 233 失败，再 fallback 到 158 成功；已决定先把依赖 `String` 的低频/轻量工作流固定到 158。
 
 ## 业务 API 使用情况
 
@@ -129,11 +129,11 @@ stored_url = https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/ad
 - 158 `/object_info/String` 返回节点信息，来源为 `custom_nodes.comfyui_bmad_nodes`。
 - 这不影响今天业务方使用的新 `comfyui-vl-control-v2` 接口，但说明 233 与 158 的自定义节点仍未完全同步。
 
-建议：
+处理策略：
 
-- 优先在 233 安装或同步 `comfyui_bmad_nodes`，补齐 `String` 节点。
+- 已将 `sifang_lianxu`、`huawen_kuotu`、`flux2_9b_liebian_sifang` 的路由边界调整为只允许 158，避免先命中 233 再失败。
 - 在“逐功能上线检查表”中增加 workflow 级节点检查，不能只检查 `KSampler/SaveImage/LoadImage`。
-- 在修复前，旧 `flux2_9b_liebian_sifang` 对 233 的失败会依赖 fallback，不应视为完全健康。
+- 后续如要恢复双机，优先在 233 安装或同步 `comfyui_bmad_nodes`，补齐 `String` 节点。
 
 ## 本次判断
 

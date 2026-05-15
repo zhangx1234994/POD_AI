@@ -42,6 +42,13 @@ export const readEvalRunIdFromHash = (): string => {
   return String(params?.get('runId') || params?.get('evalRunId') || '').trim();
 };
 
+export const readBusinessRunIdFromHash = (): string => {
+  const params = readHashParams();
+  const nav = String(params?.get('nav') || '').trim();
+  if (nav && nav !== 'business') return '';
+  return String(params?.get('businessRunId') || params?.get('runId') || '').trim();
+};
+
 export const abilityDetailTabs = [
   { id: 'overview', label: '概览' },
   { id: 'params', label: '参数' },

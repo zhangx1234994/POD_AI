@@ -62,8 +62,8 @@
 - 现象：2026-05-15 08:36，`flux2_9b_liebian_sifang` 先路由到 233 失败，报 `Node 'String' not found`；同一任务随后 fallback 到 158 成功。手动检查确认 233 `/object_info/String` 返回 `{}`，158 返回 `custom_nodes.comfyui_bmad_nodes` 的 `String` 节点。
 - 影响：今天业务方使用的新 `comfyui-vl-control-v2` 不受影响，但旧工作流如果优先命中 233，会依赖 fallback，说明两台 ComfyUI 并未做到完全能力同步。
 - 根因：基础健康检查只验证 `KSampler/SaveImage/LoadImage`，不能发现工作流级自定义节点缺失。
-- 改进：在 233 安装或同步 `comfyui_bmad_nodes`；逐功能上线检查表增加 workflow 所需节点清单校验；修复前不要把 `flux2_9b_liebian_sifang` 视作双机完全健康。
-- 状态：待处理
+- 改进：已将依赖 `String` 的低频/轻量工作流 `sifang_lianxu`、`huawen_kuotu`、`flux2_9b_liebian_sifang` 临时固定到 158，并禁用这些 workflow 的 233 绑定；逐功能上线检查表增加 workflow 所需节点清单校验。后续如要恢复双机，先确认 233 `/object_info/String` 正常。
+- 状态：已临时规避，服务器节点同步作为后续运维项
 
 ## 2026-05-13
 

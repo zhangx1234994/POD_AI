@@ -20,6 +20,7 @@ import {
   businessCapabilityLatestRunLabel,
   businessCapabilityRunMetricsLabel,
   businessKeyLabel,
+  canonicalBusinessKey,
   coreBusinessKeys,
 } from './businessLabels';
 import { buildCoreBusinessReleaseEvidenceRows } from './businessReleaseEvidence';
@@ -448,7 +449,7 @@ export function OverviewPanel({
   const activeDefaultBusinessKeys = new Set(
     coreBusinessOverviewItems
       .filter((item) => item.isDefault && item.status === 'active')
-      .map((item) => item.businessKey),
+      .map((item) => canonicalBusinessKey(item.businessKey)),
   );
   const coreBusinessReleaseRows = buildCoreBusinessReleaseEvidenceRows({
     capabilities: coreBusinessOverviewItems,
@@ -659,7 +660,7 @@ export function OverviewPanel({
   const baseReleaseReadinessTitle = releaseReadinessHasLoading
     ? '正在加载'
     : releaseReadinessBlockers.length > 0
-      ? '暂不能上线'
+      ? '发版需处理'
       : releaseReadinessWarnings.length > 0
         ? '待验收确认'
         : '可以上线';
@@ -673,7 +674,7 @@ export function OverviewPanel({
   const baseReleaseReadinessMessage = releaseReadinessHasLoading
     ? '正在加载业务、门禁和巡检数据，加载完成后再判断。'
     : releaseReadinessBlockers.length > 0
-      ? `存在 ${releaseReadinessBlockers.length} 个阻塞项：${releaseReadinessBlockers.map((item) => item.title).join('、')}。处理完成前不要发版。`
+      ? `发版门禁还有 ${releaseReadinessBlockers.length} 个事项：${releaseReadinessBlockers.map((item) => item.title).join('、')}。这表示上线前要补证据，不等同于当前业务不可用。`
       : releaseReadinessWarnings.length > 0
         ? `还需要确认 ${releaseReadinessWarnings.length} 个事项：${releaseReadinessWarnings.map((item) => item.title).join('、')}。确认后再安排线上闭环。`
         : '业务入口、轻量门禁、完整巡检和能力状态都已满足上线前检查要求。';
@@ -774,8 +775,8 @@ export function OverviewPanel({
             : queueRiskCount > 0
               ? '当前还有任务排队，观察是否能被两台 ComfyUI 能力机及时消化。'
               : '当前没有明显风险信号，继续保持自检和巡检节奏。',
-      action: '看能力调用',
-      target: 'ability-logs',
+      action: '看接口任务',
+      target: 'business',
       theme: strategyRiskCount > 0 || callbackRiskCount > 0 ? 'danger' : queueRiskCount > 0 ? 'warning' : 'success',
     },
   ];
@@ -811,10 +812,10 @@ export function OverviewPanel({
     },
     {
       key: 'api-exposure',
-      title: 'API 开放',
+      title: '接口调用',
       group: '业务',
       status: '已暴露',
-      detail: '中台自有业务 API、原子能力 API、Coze 工具箱导入地址分开查看。',
+      detail: '业务 API 文档、API Key、调用清单和 Coze 工具箱入口分开查看。',
       target: 'api-exposure',
       theme: 'success',
       stage: '核心入口',
@@ -851,10 +852,10 @@ export function OverviewPanel({
     },
     {
       key: 'ability-logs',
-      title: '能力调用排障',
+      title: '处理步骤',
       group: '能力',
       status: Number(dashboardMetrics?.today.failed || 0) > 0 ? `今日失败 ${dashboardMetrics?.today.failed || 0}` : '已暴露',
-      detail: '全局能力调用历史、失败样本、结果入库和问题标记。',
+      detail: 'VL、模型、ComfyUI 等后台处理步骤，用于从业务任务下钻排障。',
       target: 'ability-logs',
       theme: Number(dashboardMetrics?.today.failed || 0) > 0 ? 'warning' : 'success',
       stage: '治理入口',
@@ -1004,12 +1005,12 @@ export function OverviewPanel({
   releaseReadinessBlockers.slice(0, 3).forEach((item, index) => {
     operatorFocusItems.push({
       key: `release-blocker-${index}`,
-      priority: '必须先处理',
+      priority: '发版前处理',
       title: item.title,
       detail: item.detail,
       action: '去处理',
       target: readinessIssueTarget(item.title),
-      theme: 'danger',
+      theme: 'warning',
     });
   });
   if (operatorFocusItems.length < 5) {
@@ -1042,8 +1043,8 @@ export function OverviewPanel({
       priority: '上线前确认',
       title: '回调失败',
       detail: `回调失败 ${callbackRiskCount} 次，业务方可能收不到结果，需要先重试或确认回调地址。`,
-      action: '看能力调用',
-      target: 'ability-logs',
+      action: '看接口任务',
+      target: 'business',
       theme: 'warning',
     });
   }
@@ -1096,7 +1097,11 @@ export function OverviewPanel({
   return (
     <>
       {guardMessages.length > 0 ? (
-        <Alert theme="error" message={`发版守护提醒：${guardMessages.join('；')}。处理完成前不要发版。`} style={{ marginBottom: 16 }} />
+        <Alert
+          theme="warning"
+          message={`发版检查提醒：${guardMessages.join('；')}。这是上线前证据问题，不代表当前业务接口已经不可用。`}
+          style={{ marginBottom: 16 }}
+        />
       ) : null}
       {releaseCronRiskMessages.length > 0 ? (
         <Alert
@@ -1110,12 +1115,12 @@ export function OverviewPanel({
         <Space direction="vertical" size="small" style={{ width: '100%' }}>
           <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
             <div>
-              <Typography.Text strong>运营驾驶舱</Typography.Text>
-              <div>
-                <Typography.Text theme="secondary">
-                  先看上线、业务、能力、成本、风险五个结论；需要处理时再进入下面的详细模块。
-                </Typography.Text>
-              </div>
+            <Typography.Text strong>运营驾驶舱</Typography.Text>
+            <div>
+              <Typography.Text theme="secondary">
+                  先看业务接口、运行风险和上线证据；首页只给结论，不展开底层报错堆栈。
+              </Typography.Text>
+            </div>
             </div>
             <Button size="small" variant="outline" loading={loading} onClick={onRefresh}>
               刷新总览

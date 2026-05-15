@@ -14,18 +14,20 @@
 3. `docs/strategy/strategy-one-page-2026q2.md`
 4. `docs/architecture.md`
 5. `docs/BUSINESS_MODEL.md`
-6. `docs/api/INDEX.md`
-7. 对应模块文档：
+6. `docs/standards/business-mainline-contract.md`
+7. `docs/api/INDEX.md`
+8. 对应模块文档：
    - 评测端：`docs/eval/eval-platform.md`
    - Coze：`docs/coze/toolbox-inventory.md`
    - ComfyUI：`docs/comfyui/README.md`
    - 第三方模型 Key：`docs/admin/integration-dashboard.md`
-8. 每日早检：`docs/standards/morning-ops-check.md`
-9. 样本包导出：`docs/standards/business-sample-pack-export.md`
-10. 清理治理：`docs/standards/cleanup-governance.md`
-11. 发布与上线：`docs/standards/release-sop.md`
-12. 想回看阶段过程，再看：`docs/weekly/README.md`
-13. 需要回看历史客户端资料时，再看：`docs/client/README.md`
+9. 每日早检：`docs/standards/morning-ops-check.md`
+10. 样本包导出：`docs/standards/business-sample-pack-export.md`
+11. 逐功能上线检查：`docs/standards/per-feature-release-checklist.md`
+12. 清理治理：`docs/standards/cleanup-governance.md`
+13. 发布与上线：`docs/standards/release-sop.md`
+14. 想回看阶段过程，再看：`docs/weekly/README.md`
+15. 需要回看历史客户端资料时，再看：`docs/client/README.md`
 
 ## 当前运行基线（2026-04-27）
 
@@ -35,12 +37,14 @@
 - backend 是控制面，只负责能力目录、路由、任务、回调、OSS、日志与 OpenAPI；不承载高清放大、ComfyUI 或第三方 API 重执行。
 - 当前仓库不包含客户端代码目录；`docs/client/` 只作为历史客户端资料入口，不再代表当前开发主线。
 - 2026-04-27 发生 Coze 工具箱 `INTERNAL_ONLY` 事故，已记录复盘：`docs/retrospectives/2026-04-27-coze-toolbox-internal-only-incident.md`。
-- 更新服务后先在 114/Coze 主机内执行 `backend/scripts/podi_release_smoke.py`，确认工具箱入口、内部任务查询和 ComfyUI 队列都可达。
+- 更新服务后先在 114/Coze 主机内执行 `backend/scripts/podi_release_smoke.py`，确认工具箱入口、内部任务查询、ComfyUI 队列和接口调用中心都可达。
 - 发版后必须执行 `backend/scripts/patrol_eval_workflows.py --role production --max-in-flight 1` 做生产主入口巡检；需要全量覆盖灰度/历史能力时再显式使用 `--role all`，不能让定期自检一次性打满 ComfyUI 队列。
 - 发版前必须先执行 `backend/scripts/audit_ability_test_coverage.py --probe-comfyui --fail-on P1`，确认数据库最终态里不存在单机路由、测试节点误激活、节点不可达或 schema 缺失等问题。
 - ComfyUI 单机 10、双机 20 不能只看配置，必须通过 `backend/scripts/comfyui_capacity_probe.py` 验证实际队列喂入和任务分布。
 - 114 控制面发布统一走 `docs/standards/release-sop.md` 和 `scripts/release_114_control_plane.sh`，不再临时手工拼 tar/ssh/restart。
 - 2026-05-15 对外业务接口交付口径已收敛：正式交付材料默认只给 JSON 请求/响应样例，不默认交付 Python 脚本；两个裂变接口固定一请求一图，交付模板见 `docs/api/examples/fission-business-delivery/`。
+- 2026-05-15 中台业务主线已固定：一次业务调用以 `runId` 为主线，VL、ComfyUI、OpenAI、评分、回填、回调、计费都作为这次业务调用下的处理步骤或证据；标准见 `docs/standards/business-mainline-contract.md`。
+- 2026-05-15 逐功能上线检查已固化：每个对外功能上线前必须逐项核对接口、参数、默认值、实际 payload、执行节点、节点依赖、OSS 回填、查询返回和错误展示；标准见 `docs/standards/per-feature-release-checklist.md`。
 
 ## 现行真源
 
@@ -66,6 +70,8 @@
 - `docs/architecture.md`
 - `docs/BUSINESS_MODEL.md`
 - `docs/api/INDEX.md`
+- `docs/standards/business-mainline-contract.md`
+- `docs/standards/per-feature-release-checklist.md`
 - `docs/api/examples/fission-delivery-contract-2026-05-12.md`
 - `docs/api/examples/fission-business-delivery/README.md`
 - `docs/admin/integration-dashboard.md`
@@ -95,6 +101,7 @@
 | 平台边界 | `docs/PLATFORM_SURFACES.md` | 管理端 / 测评端 / 客户端 / 对话式助手边界 |
 | 战略规划 | `docs/strategy/README.md` | 平台愿景、路线、待办、治理 |
 | 核心业务链路 | `docs/strategy/core-business-chain-review-2026-05-03.md` | 花纹提取 / 图裂变 / 扩图的入口、路由、回填、测试和后续优先级 |
+| 业务主线契约 | `docs/standards/business-mainline-contract.md` | 固定业务入口、runId、业务版本、处理步骤、回填、回调、计费和页面动线 |
 | API | `docs/api/INDEX.md` | 全量接口模块入口 |
 | 图裂变交付契约图 | `docs/api/examples/fission-delivery-contract-2026-05-12.md` | 两个裂变接口和裂变评分的排队轮询、类图关系、参数聚合规则 |
 | 图裂变业务交付包模板 | `docs/api/examples/fission-business-delivery/README.md` | 给业务方交付的三个接口独立文档和 JSON 样例，不包含真实 Key |
@@ -114,6 +121,7 @@
 | 事故复盘 | `docs/retrospectives/2026-04-27-coze-toolbox-internal-only-incident.md` | Coze 工具箱不可用事故、巡检与并发整改项 |
 | 每日早检 SOP | `docs/standards/morning-ops-check.md` | 每天开发前先查前一天业务、能力、测评和 API Key 异常，并导出标准数据包 |
 | 业务样本包导出 | `docs/standards/business-sample-pack-export.md` | 按业务版本、时间窗口和执行节点导出原图、结果图、VL 内容和过程信息 |
+| 逐功能上线检查 | `docs/standards/per-feature-release-checklist.md` | 每个功能上线前逐项检查接口、参数、节点、回填、页面和错误展示 |
 | 清理治理 | `docs/standards/cleanup-governance.md` | 项目文件、数据库和 OSS 清理的审计脚本、删除边界和保留策略 |
 | 发布 SOP | `docs/standards/release-sop.md` | 114 控制面唯一发布入口、脚本参数、验证、回滚和记录 |
 | 发布门禁 | `docs/release-preflight.md` | 发版前必须执行的业务链路巡检、ComfyUI 队列验证和构建测试 |

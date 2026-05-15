@@ -19,11 +19,11 @@ export const integrationNavItems = [
   },
   {
     id: 'api-exposure',
-    label: 'API 开放',
+    label: '接口调用',
     shortLabel: 'API',
     group: 'business',
     groupLabel: '业务能力',
-    description: '中台自有 API 与 Coze 工具箱',
+    description: '业务 API 文档、Key、调用清单',
   },
   {
     id: 'ability-evals',
@@ -93,11 +93,11 @@ export const integrationNavItems = [
   },
   {
     id: 'ability-logs',
-    label: '能力调用',
+    label: '处理步骤',
     shortLabel: '调',
     group: 'usage',
     groupLabel: '调用与成本',
-    description: '全局历史记录',
+    description: '图片分析、生图、评分等后台步骤',
   },
   {
     id: 'billing',

@@ -164,8 +164,14 @@ export function ComfyuiTasksPanel({
     const tags = Array.isArray(server.tags) ? server.tags.map((item) => String(item || '').trim()).filter(Boolean) : [];
     const gpuTag = tags.find((item) => item.toLowerCase().startsWith('gpu:'));
     const hostTag = tags.find((item) => item.toLowerCase().startsWith('host:'));
-    const gpu = gpuTag ? gpuTag.replace(/^gpu:/i, '') : '';
-    const hostHint = hostTag ? hostTag.replace(/^host:/i, '') : '';
+    const gpu = gpuTag ? gpuTag.replace(/^gpu:/i, '') : host === '117.50.80.158' ? '5090' : host === '117.50.216.233' ? '4090' : '';
+    const hostHint = hostTag
+      ? hostTag.replace(/^host:/i, '')
+      : host === '117.50.80.158'
+        ? '158'
+        : host === '117.50.216.233'
+          ? '233'
+          : '';
     const parts = [
       hostHint ? `${hostHint} 机器` : host,
       gpu ? `${gpu} 显卡` : '',

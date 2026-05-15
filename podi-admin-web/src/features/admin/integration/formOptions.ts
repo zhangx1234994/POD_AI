@@ -17,8 +17,8 @@ export const abilityTypeOptions = [
 
 export const categoryOptions = [
   { value: 'pattern_extract', label: '花纹提取' },
-  { value: 'image_fission', label: '图裂变' },
-  { value: 'fission', label: '图裂变（兼容旧 key）' },
+  { value: 'fission', label: '图裂变' },
+  { value: 'image_fission', label: '图裂变（旧分类）' },
   { value: 'outpaint', label: '扩图' },
   { value: 'seamless_pattern', label: '连续图' },
   { value: 'cutout', label: '抠图' },

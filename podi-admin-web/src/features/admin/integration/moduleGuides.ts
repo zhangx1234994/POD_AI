@@ -21,14 +21,14 @@ export const moduleGuides: Record<IntegrationNavId, ModuleGuide> = {
   },
   'api-exposure': {
     audience: '平台管理员 / 开发接入方',
-    firstLook: '先区分业务 API、原子能力 API 和 Coze 工具箱。',
-    nextAction: '业务方优先给业务 API；内部编排再用原子能力 API；Coze 只导入工具箱。',
+    firstLook: '先看接口调用中心，再看业务 API、API Key 和 Coze 工具箱。',
+    nextAction: '业务方优先给业务 API；排障先按 runId 聚合查看调用清单；Coze 只导入工具箱。',
     riskHint: '不要让业务方直接理解底层模型、工作流和执行节点。',
   },
   'ability-evals': {
     audience: '平台管理员 / 测试人员',
     firstLook: '先确认生产主入口是否能提交、回调和回填结果。',
-    nextAction: '失败时复制运行 ID，回到总览或能力调用定位。',
+    nextAction: '失败时复制运行 ID，先回到业务任务清单定位，再看具体处理步骤。',
   },
   'vendor-models': {
     audience: '开发接入方',
@@ -70,8 +70,8 @@ export const moduleGuides: Record<IntegrationNavId, ModuleGuide> = {
   },
   'ability-logs': {
     audience: '平台管理员 / 开发接入方',
-    firstLook: '先用 runId、taskId、错误码定位失败链路。',
-    nextAction: '确认是参数、模型、线路还是回调问题后再处理。',
+    firstLook: '这里看图片分析、生图、评分等后台步骤，不作为业务是否成功的第一判断入口。',
+    nextAction: '先在业务任务里定位 runId，再下钻到这里确认 VL、模型、ComfyUI 或回调细节。',
   },
   billing: {
     audience: '平台管理员',

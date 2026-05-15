@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 
 
@@ -548,6 +549,235 @@ def test_business_usage_summary_check_blocks_recent_unresolved_schema_gap() -> N
 
     assert ok is False
     assert "schema gaps" in detail
+
+
+def test_business_api_usage_center_check_accepts_empty_window() -> None:
+    module = _load_smoke_module()
+
+    ok, detail = module._validate_business_api_usage_center(
+        {
+            "items": [],
+            "total": 0,
+            "offset": 0,
+            "limit": 10,
+            "pagination": {"total": 0, "offset": 0, "limit": 10, "hasMore": False, "nextOffset": None},
+            "summary": {
+                "total": 0,
+                "successCount": 0,
+                "errorCount": 0,
+                "submitCount": 0,
+                "pollCount": 0,
+                "callbackCount": 0,
+                "uniqueRunCount": 0,
+                "averageDurationMs": None,
+            },
+            "groups": [],
+        }
+    )
+
+    assert ok is True
+    assert "total=0" in detail
+
+
+def test_business_api_usage_center_check_accepts_grouped_business_calls() -> None:
+    module = _load_smoke_module()
+
+    ok, detail = module._validate_business_api_usage_center(
+        {
+            "items": [
+                {
+                    "id": 1,
+                    "method": "POST",
+                    "path": "/api/business/fission/runs",
+                    "statusCode": 200,
+                    "businessKey": "fission",
+                    "runId": "run_001",
+                    "createdAt": "2026-05-15T10:00:00",
+                }
+            ],
+            "total": 2,
+            "offset": 0,
+            "limit": 10,
+            "pagination": {"total": 2, "offset": 0, "limit": 10, "hasMore": False, "nextOffset": None},
+            "summary": {
+                "total": 2,
+                "successCount": 2,
+                "errorCount": 0,
+                "submitCount": 1,
+                "pollCount": 1,
+                "callbackCount": 0,
+                "uniqueRunCount": 1,
+                "averageDurationMs": 120.0,
+            },
+            "groups": [
+                {
+                    "runId": "run_001",
+                    "businessKey": "fission",
+                    "totalCount": 2,
+                    "submitCount": 1,
+                    "pollCount": 1,
+                    "callbackCount": 0,
+                    "errorCount": 0,
+                    "needsAttention": False,
+                    "lastSeenAt": "2026-05-15T10:01:00",
+                }
+            ],
+        }
+    )
+
+    assert ok is True
+    assert "runs=1" in detail
+    assert "groups=1" in detail
+
+
+def test_business_api_usage_center_check_blocks_missing_group_when_runs_exist() -> None:
+    module = _load_smoke_module()
+
+    ok, detail = module._validate_business_api_usage_center(
+        {
+            "items": [],
+            "total": 1,
+            "offset": 0,
+            "limit": 10,
+            "pagination": {"total": 1, "offset": 0, "limit": 10, "hasMore": False, "nextOffset": None},
+            "summary": {
+                "total": 1,
+                "successCount": 1,
+                "errorCount": 0,
+                "submitCount": 1,
+                "pollCount": 0,
+                "callbackCount": 0,
+                "uniqueRunCount": 1,
+                "averageDurationMs": 120.0,
+            },
+            "groups": [],
+        }
+    )
+
+    assert ok is False
+    assert "run groups are empty" in detail
+
+
+def test_business_api_usage_center_check_blocks_schema_gap() -> None:
+    module = _load_smoke_module()
+
+    ok, detail = module._validate_business_api_usage_center(
+        {
+            "items": [{"id": 1, "method": "POST"}],
+            "pagination": {"total": 1, "offset": 0, "limit": 10, "hasMore": False, "nextOffset": None},
+            "summary": {
+                "total": 1,
+                "successCount": 1,
+                "errorCount": 0,
+                "submitCount": 1,
+                "pollCount": 0,
+                "callbackCount": 0,
+                "uniqueRunCount": 0,
+                "averageDurationMs": 120.0,
+            },
+            "groups": [],
+        }
+    )
+
+    assert ok is False
+    assert "schema gaps" in detail
+
+
+def _write_business_delivery_fixture(tmp_path: Path, *, omit_sample: str | None = None, omit_error_code: bool = False) -> None:
+    module = _load_smoke_module()
+    base = tmp_path / "docs" / "api" / "examples" / "fission-business-delivery"
+    base.mkdir(parents=True)
+    (base / "README.md").write_text(
+        "统一说明：runId /api/business/runs/get status 错误码",
+        encoding="utf-8",
+    )
+    samples = {
+        "request.example.json": {"imageUrl": "https://example.com/input.png"},
+        "submit.response.example.json": {
+            "runId": "run_001",
+            "taskId": "run_001",
+            "status": "queued",
+            "taskStatus": "queued",
+            "retryAfterSeconds": 5,
+        },
+        "poll.request.example.json": {"runId": "run_001"},
+        "poll.running.response.example.json": {"runId": "run_001", "status": "running"},
+        "poll.succeeded.response.example.json": {"runId": "run_001", "status": "succeeded"},
+        "poll.failed.response.example.json": {
+            "runId": "run_001",
+            "status": "failed",
+            "errorCode": "ABILITY_TASK_FAILED",
+            "errorMessage": "failed",
+        },
+    }
+    for spec in module.BUSINESS_DELIVERY_DOC_SPECS:
+        folder = base / spec["folder"]
+        folder.mkdir(parents=True)
+        enum_text = " ".join(spec["enum_fields"])
+        error_codes = list(spec["error_codes"])
+        if omit_error_code and spec["key"] == "fission_generated_image_score":
+            error_codes = error_codes[1:]
+        error_text = " ".join(error_codes)
+        (folder / "README.md").write_text(
+            f"{spec['path']}\n参数说明\n枚举说明 {enum_text}\n常见错误 {error_text}\nrunId status\n",
+            encoding="utf-8",
+        )
+        for sample_name, payload in samples.items():
+            if omit_sample == sample_name and spec["key"] == "gpt_image2_controlled_fission":
+                continue
+            (folder / sample_name).write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+
+def test_business_delivery_docs_check_accepts_current_repo() -> None:
+    module = _load_smoke_module()
+    repo_root = Path(__file__).resolve().parents[2]
+
+    ok, detail = module._validate_business_delivery_docs(repo_root)
+
+    assert ok is True
+    assert "contracts=3" in detail
+
+
+def test_business_delivery_docs_check_blocks_missing_sample(tmp_path: Path) -> None:
+    module = _load_smoke_module()
+    _write_business_delivery_fixture(tmp_path, omit_sample="poll.failed.response.example.json")
+
+    ok, detail = module._validate_business_delivery_docs(tmp_path)
+
+    assert ok is False
+    assert "missing sample=poll.failed.response.example.json" in detail
+
+
+def test_business_delivery_docs_check_blocks_missing_error_code(tmp_path: Path) -> None:
+    module = _load_smoke_module()
+    _write_business_delivery_fixture(tmp_path, omit_error_code=True)
+
+    ok, detail = module._validate_business_delivery_docs(tmp_path)
+
+    assert ok is False
+    assert "VL_EVAL_IMAGE_REQUIRED" in detail
+
+
+def test_per_feature_release_checklist_accepts_current_repo() -> None:
+    module = _load_smoke_module()
+    repo_root = Path(__file__).resolve().parents[2]
+
+    ok, detail = module._validate_per_feature_release_checklist(repo_root)
+
+    assert ok is True
+    assert "per-feature-release-checklist.md" in detail
+
+
+def test_per_feature_release_checklist_blocks_missing_required_tokens(tmp_path: Path) -> None:
+    module = _load_smoke_module()
+    checklist = tmp_path / "docs" / "standards" / "per-feature-release-checklist.md"
+    checklist.parent.mkdir(parents=True)
+    checklist.write_text("# 逐功能上线检查表\n\n只有标题，没有节点和功能明细。\n", encoding="utf-8")
+
+    ok, detail = module._validate_per_feature_release_checklist(tmp_path)
+
+    assert ok is False
+    assert "String" in detail
 
 
 def _accepted_release_gate() -> dict:

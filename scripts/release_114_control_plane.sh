@@ -202,8 +202,28 @@ if [[ "$RUN_SMOKE" == "1" ]]; then
   if [[ "$SMOKE_ALLOW_COMFYUI_WARNINGS" == "1" ]]; then
     smoke_extra_args=" --allow-comfyui-compat-warnings"
   fi
-  remote "cd '$TARGET_ROOT' && BACKEND_URL_LOCAL='$BACKEND_URL_LOCAL' SMOKE_EXTRA_ARGS='$smoke_extra_args' SMOKE_EXPECT_SERVER_URL='${SMOKE_EXPECT_SERVER_URL:-}' bash -s" <<'REMOTE'
+remote "cd '$TARGET_ROOT' && BACKEND_URL_LOCAL='$BACKEND_URL_LOCAL' SMOKE_EXTRA_ARGS='$smoke_extra_args' SMOKE_EXPECT_SERVER_URL='${SMOKE_EXPECT_SERVER_URL:-}' bash -s" <<'REMOTE'
 set -euo pipefail
+if [[ -f backend/.env ]]; then
+  eval "$(backend/.venv/bin/python - <<'PY'
+from pathlib import Path
+import shlex
+
+keys = {"SERVICE_API_TOKEN", "ADMIN_API_TOKEN", "EVAL_ADMIN_TOKEN"}
+for raw_line in Path("backend/.env").read_text(encoding="utf-8").splitlines():
+    line = raw_line.strip()
+    if not line or line.startswith("#") or "=" not in line:
+        continue
+    key, value = line.split("=", 1)
+    key = key.strip()
+    if key not in keys:
+        continue
+    value = value.strip().strip("\"'")
+    if value:
+        print(f"export {key}={shlex.quote(value)}")
+PY
+)"
+fi
 expect_server_url="${SMOKE_EXPECT_SERVER_URL:-}"
 if [[ -z "$expect_server_url" && -f backend/.env ]]; then
   expect_server_url="$(awk -F= '/^PODI_INTERNAL_BASE_URL=/{print $2; exit}' backend/.env | tr -d '\r' | sed 's/^"//;s/"$//')"

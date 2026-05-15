@@ -320,6 +320,22 @@ def _enrich_log_entries(entries: list[AbilityInvocationLog]) -> list[AbilityInvo
     return _attach_template_summary(_attach_stage_status(_attach_callback_ids(entries)))
 
 
+def _serialize_ability_log(
+    entry: AbilityInvocationLog,
+    *,
+    include_payloads: bool,
+) -> log_schemas.AbilityInvocationLogRead:
+    item = log_schemas.AbilityInvocationLogRead.model_validate(entry)
+    if include_payloads:
+        return item
+    item.request_payload = None
+    item.response_payload = None
+    item.result_assets = None
+    item.callback_payload = None
+    item.callback_response = None
+    return item
+
+
 @router.get("", response_model=list[schemas.AbilityRead])
 def list_abilities() -> list[Ability]:
     with get_session() as session:
@@ -651,6 +667,8 @@ def list_ability_logs(
     ability_id: str,
     limit: int = Query(20, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    since_hours: int = Query(default=6, ge=0, le=24 * 30, alias="sinceHours"),
+    include_payloads: bool = Query(default=False, alias="includePayloads"),
     search: str | None = Query(default=None, max_length=128),
     callback_failed: bool = Query(default=False, alias="callbackFailed"),
 ):
@@ -658,11 +676,13 @@ def list_ability_logs(
         ability_id=ability_id,
         search=search,
         callback_failed=callback_failed,
+        since_hours=since_hours,
     )
     entries = ability_log_service.list_logs(
         ability_id=ability_id,
         search=search,
         callback_failed=callback_failed,
+        since_hours=since_hours,
         limit=limit,
         offset=offset,
     )
@@ -671,7 +691,7 @@ def list_ability_logs(
         "total": total,
         "limit": limit,
         "offset": offset,
-        "items": [log_schemas.AbilityInvocationLogRead.model_validate(entry) for entry in entries],
+        "items": [_serialize_ability_log(entry, include_payloads=include_payloads) for entry in entries],
     }
 
 
@@ -679,6 +699,8 @@ def list_ability_logs(
 def list_all_ability_logs(
     limit: int = Query(20, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    since_hours: int = Query(default=6, ge=0, le=24 * 30, alias="sinceHours"),
+    include_payloads: bool = Query(default=False, alias="includePayloads"),
     ability_id: str | None = Query(default=None, alias="abilityId"),
     provider: str | None = Query(default=None),
     capability_key: str | None = Query(default=None, alias="capabilityKey"),
@@ -702,6 +724,7 @@ def list_all_ability_logs(
         source=source,
         search=search,
         callback_failed=callback_failed,
+        since_hours=since_hours,
     )
     entries = ability_log_service.list_logs(
         ability_id=ability_id,
@@ -712,6 +735,7 @@ def list_all_ability_logs(
         source=source,
         search=search,
         callback_failed=callback_failed,
+        since_hours=since_hours,
         limit=limit,
         offset=offset,
     )
@@ -720,8 +744,18 @@ def list_all_ability_logs(
         "total": total,
         "limit": limit,
         "offset": offset,
-        "items": [log_schemas.AbilityInvocationLogRead.model_validate(entry) for entry in entries],
+        "items": [_serialize_ability_log(entry, include_payloads=include_payloads) for entry in entries],
     }
+
+
+@router.get("/logs/{log_id:int}", response_model=log_schemas.AbilityInvocationLogRead)
+def get_ability_log(log_id: int):
+    with get_session() as session:
+        log = session.get(AbilityInvocationLog, log_id)
+        if not log:
+            raise HTTPException(status_code=404, detail="ABILITY_LOG_NOT_FOUND")
+        enriched = _enrich_log_entries([log])[0]
+        return _serialize_ability_log(enriched, include_payloads=True)
 
 
 @router.post("/logs/{log_id}/resolve", response_model=log_schemas.AbilityInvocationLogRead)

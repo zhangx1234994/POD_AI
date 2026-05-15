@@ -156,6 +156,7 @@ class AbilityLogService:
         source: str | None = None,
         search: str | None = None,
         callback_failed: bool = False,
+        since_hours: int | None = None,
         limit: int = 20,
         offset: int = 0,
     ) -> list[AbilityInvocationLog]:
@@ -173,6 +174,7 @@ class AbilityLogService:
                 source=source,
                 search=search,
                 callback_failed=callback_failed,
+                since_hours=since_hours,
             )
             if stmt is None:
                 return []
@@ -194,6 +196,7 @@ class AbilityLogService:
         source: str | None = None,
         search: str | None = None,
         callback_failed: bool = False,
+        since_hours: int | None = None,
     ) -> int:
         """Return total count for the same filters used in list_logs."""
         with get_session() as session:
@@ -208,6 +211,7 @@ class AbilityLogService:
                 source=source,
                 search=search,
                 callback_failed=callback_failed,
+                since_hours=since_hours,
             )
             if stmt is None:
                 return 0
@@ -331,6 +335,7 @@ class AbilityLogService:
         source: str | None = None,
         search: str | None = None,
         callback_failed: bool = False,
+        since_hours: int | None = None,
     ) -> Any | None:
         if ability_ids is not None:
             normalized_ids = [item for item in ability_ids if item]
@@ -347,6 +352,9 @@ class AbilityLogService:
             stmt = stmt.where(AbilityInvocationLog.status == status)
         if source:
             stmt = stmt.where(AbilityInvocationLog.source == source)
+        if since_hours is not None and since_hours > 0:
+            cutoff = datetime.utcnow() - timedelta(hours=max(1, min(int(since_hours), 24 * 30)))
+            stmt = stmt.where(AbilityInvocationLog.created_at >= cutoff)
         if callback_failed:
             stmt = stmt.where(
                 or_(

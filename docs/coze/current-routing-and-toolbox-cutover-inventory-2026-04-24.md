@@ -79,13 +79,13 @@ Coze 不应直接调用 ComfyUI、image-ops 或 vendor-api-ops。
 | `beijing_koutu` | 背景抠图 | `beijing_koutu` | 158 / 5090 + 233 / 4090 通用节点 | 默认可见 |
 | `duotu_ronghe` | 多图融合 | `duotu_ronghe` | 158 / 5090 + 233 / 4090 通用节点 | 默认可见 |
 | `e7_flux2_liebian` | E7裂变重绘 | `e7_flux2_liebian` | 158 / 5090 + 233 / 4090 通用节点 | 默认可见 |
-| `flux2_9b_liebian_sifang` | FLUX2裂变+四方 | `flux2_9b_liebian_sifang` | 158 / 5090 + 233 / 4090 通用节点 | presentation 标记 `coze=false` |
+| `flux2_9b_liebian_sifang` | FLUX2裂变+四方 | `flux2_9b_liebian_sifang` | 158 / 5090；233 缺 `String` 前不参与 | presentation 标记 `coze=false` |
 | `flux2_klein_9b_outpaint` | FLUX2-Klein 扩图 | `flux2_klein_9b_outpaint` | 158 / 5090 + 233 / 4090 通用节点 | presentation 标记 `coze=true` |
 | `flux_strong_hq_softstyle_fission` | 多元素花纹裂变 | `flux_strong_hq_softstyle_fission` | 158 / 5090 + 233 / 4090 通用节点 | presentation 标记 `coze=true` |
-| `huawen_kuotu` | 花纹扩图 | `huawen_kuotu` | 158 / 5090 + 233 / 4090 通用节点 | 已 deprecated / hidden |
+| `huawen_kuotu` | 花纹扩图 | `huawen_kuotu` | 158 / 5090；233 缺 `String` 前不参与 | 已 deprecated / hidden |
 | `jisu_chuli` | 极速处理版 | `jisu_chuli` | 158 / 5090 + 233 / 4090 通用节点 | 默认可见 |
 | `qwen2512_print_shape_text_enhance` | 裂变文字强化 | `qwen2512_print_shape_text_enhance` | 158 / 5090 + 233 / 4090 通用节点 | presentation 标记 `coze=true` |
-| `sifang_lianxu` | 四方连续 | `sifang_lianxu` | 158 / 5090 + 233 / 4090 通用节点 | presentation 标记 `coze=false` |
+| `sifang_lianxu` | 四方连续 | `sifang_lianxu` | 158 / 5090；233 缺 `String` 前不参与 | presentation 标记 `coze=false` |
 | `toubu_kouxiang` | 头部抠像 | `toubu_kouxiang` | 158 / 5090 + 233 / 4090 通用节点 | 默认可见 |
 | `yinhua_tiqu` | 印花提取 | `yinhua_tiqu` | 158 / 5090 + 233 / 4090 通用节点 | presentation 标记 `coze=true` |
 | `yinhua_tiqu_lora_8step` | 8步加速可换LoRA | `yinhua_tiqu_lora_8step` | 158 / 5090 + 233 / 4090 通用节点 | 默认可见 |

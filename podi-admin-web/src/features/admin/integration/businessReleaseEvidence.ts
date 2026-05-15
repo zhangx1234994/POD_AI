@@ -4,7 +4,7 @@ import type {
   BusinessUsageBucket,
   BusinessUsageSummaryResponse,
 } from '../../../types/admin';
-import { businessKeyLabel, coreBusinessKeys } from './businessLabels';
+import { businessKeyLabel, canonicalBusinessKey, coreBusinessKeys } from './businessLabels';
 
 export type BusinessEvidenceTheme = 'success' | 'warning' | 'danger' | 'default';
 
@@ -172,13 +172,15 @@ export const buildCoreBusinessReleaseEvidenceRows = ({
   summary?: BusinessUsageSummaryResponse | null;
 }): CoreBusinessReleaseEvidenceRow[] =>
   coreBusinessKeys.map((businessKey) => {
-    const items = capabilities.filter((item) => item.businessKey === businessKey);
+    const items = capabilities.filter((item) => canonicalBusinessKey(item.businessKey) === businessKey);
     const defaultItem = items.find((item) => item.isDefault);
     const activeAlternatives = items.filter((item) => item.status === 'active' && !item.isDefault);
     const rollbackReadyAlternatives = activeAlternatives.filter(businessCapabilityHasRollbackEvidence);
     const activeCount = items.filter((item) => item.status === 'active').length;
-    const bucket = summary?.byBusiness?.find((item) => item.key === businessKey);
-    const hasPendingApproval = pendingApprovals.some((item) => item.businessKey === businessKey && item.status === 'pending');
+    const bucket = summary?.byBusiness?.find((item) => canonicalBusinessKey(item.key) === businessKey);
+    const hasPendingApproval = pendingApprovals.some(
+      (item) => canonicalBusinessKey(item.businessKey) === businessKey && item.status === 'pending',
+    );
     const outputCount = getBusinessRunOutputCount(defaultItem);
     const hasDefault = Boolean(defaultItem);
     const acceptancePassed = Boolean(defaultItem?.releaseGate?.acceptancePassed === true || defaultItem?.latestAcceptance?.status === 'passed');

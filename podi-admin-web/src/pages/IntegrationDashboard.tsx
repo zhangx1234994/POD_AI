@@ -151,6 +151,7 @@ import {
   statusOptions,
 } from '../features/admin/integration/formOptions';
 import {
+  canonicalBusinessKey,
   coreBusinessKeys,
 } from '../features/admin/integration/businessLabels';
 import { useBusinessDashboardDerivedState } from '../features/admin/integration/businessDashboardState';
@@ -212,6 +213,7 @@ import {
   defaultVendorModelForm,
   defaultWorkflowForm,
   globalAbilityLogPageSize,
+  readBusinessRunIdFromHash,
   readEvalRunIdFromHash,
   readHashParams,
   readNavFromHash,
@@ -232,8 +234,10 @@ import {
   BusinessCapabilityGrid,
   BusinessCoreClosurePanel,
   BusinessCoreDecisionPanel,
+  BusinessEntryCommandPanel,
   BusinessCoreEntryPanel,
   BusinessGovernancePanel,
+  BusinessMainlineContractPanel,
   BusinessOrchestrationMapPanel,
   BusinessOperationLogPanel,
   BusinessReleaseGuardPanel,
@@ -1459,6 +1463,7 @@ export function IntegrationDashboard({
   });
   const [businessRunDetail, setBusinessRunDetail] = useState<BusinessRun | null>(null);
   const [businessRunDetailOpen, setBusinessRunDetailOpen] = useState(false);
+  const [focusedBusinessRunId, setFocusedBusinessRunId] = useState<string>(() => readBusinessRunIdFromHash());
   const [businessRunAutoRefresh, setBusinessRunAutoRefresh] = useState(true);
   const [businessDialogOpen, setBusinessDialogOpen] = useState(false);
   const [businessForm, setBusinessForm] = useState<BusinessCapabilityFormState>(defaultBusinessCapabilityForm);
@@ -1541,6 +1546,7 @@ export function IntegrationDashboard({
   const [globalAbilityLogTemplatePublished, setGlobalAbilityLogTemplatePublished] = useState<string>('all');
   const [globalAbilityLogOnlyCallbackFailed, setGlobalAbilityLogOnlyCallbackFailed] = useState<boolean>(false);
   const [globalAbilityLogSearch, setGlobalAbilityLogSearch] = useState<string>('');
+  const [globalAbilityLogWindowHours, setGlobalAbilityLogWindowHours] = useState<number>(6);
   const [executorForm, setExecutorForm] = useState<ExecutorFormState>(defaultExecutorForm);
   const [workflowForm, setWorkflowForm] = useState<WorkflowFormState>(defaultWorkflowForm);
   const [workflowFormAllowedExecutors, setWorkflowFormAllowedExecutors] = useState<string[]>([]);
@@ -3513,9 +3519,10 @@ export function IntegrationDashboard({
   const exportGlobalAbilityLogs = async (format: 'csv' | 'json') => {
     setExportingAbilityLogs(true);
     try {
+      const exportSinceHours = globalAbilityLogWindowHours > 0 ? globalAbilityLogWindowHours : 24 * 30;
       const blob = await adminApi.exportAbilityLogs({
         format,
-        sinceHours: 24,
+        sinceHours: exportSinceHours,
         provider: globalAbilityLogProvider !== 'all' ? globalAbilityLogProvider : undefined,
         capabilityKey: globalAbilityLogCapabilityKey !== 'all' ? globalAbilityLogCapabilityKey : undefined,
         status: globalAbilityLogStatus !== 'all' ? globalAbilityLogStatus : undefined,
@@ -3527,7 +3534,8 @@ export function IntegrationDashboard({
         search: globalAbilityLogSearch.trim() || undefined,
         callbackFailed: globalAbilityLogOnlyCallbackFailed || undefined,
       });
-      const filename = `ability_logs_24h_${new Date().toISOString().slice(0, 10)}.${format}`;
+      const windowLabel = `${exportSinceHours}h`;
+      const filename = `ability_logs_${windowLabel}_${new Date().toISOString().slice(0, 10)}.${format}`;
       downloadBlob(blob, filename);
     } catch (err: any) {
       console.error('Export ability logs failed:', err);
@@ -4443,6 +4451,7 @@ export function IntegrationDashboard({
           globalAbilityLogTemplatePublished === 'all'
             ? undefined
             : globalAbilityLogTemplatePublished === 'published',
+        sinceHours: globalAbilityLogWindowHours,
         search: globalAbilityLogSearch.trim() || undefined,
         callbackFailed: globalAbilityLogOnlyCallbackFailed || undefined,
       });
@@ -4465,6 +4474,7 @@ export function IntegrationDashboard({
       globalAbilityLogCapabilityKey,
       globalAbilityLogPage,
       globalAbilityLogProvider,
+      globalAbilityLogWindowHours,
       globalAbilityLogOnlyCallbackFailed,
       globalAbilityLogSearch,
       globalAbilityLogSource,
@@ -4472,6 +4482,20 @@ export function IntegrationDashboard({
       globalAbilityLogTemplatePublished,
     ],
   );
+
+  const openAbilityLogDetail = useCallback(async (row: AbilityInvocationLog) => {
+    setAbilityLogDetail(row);
+    setAbilityLogResolveError(null);
+    setAbilityLogResolveLoading(false);
+    setAbilityLogDetailOpen(true);
+    try {
+      const detail = await adminApi.getAbilityLog(row.id);
+      setAbilityLogDetail(detail);
+    } catch (error: any) {
+      console.error('load ability log detail failed', error);
+      setAbilityLogResolveError(error?.message || '加载调用详情失败，请刷新后重试。');
+    }
+  }, []);
 
   const resolveAbilityLog = useCallback(async () => {
     if (!abilityLogDetail) return;
@@ -4542,6 +4566,7 @@ export function IntegrationDashboard({
     globalAbilityLogSource,
     globalAbilityLogStatus,
     globalAbilityLogTemplatePublished,
+    globalAbilityLogWindowHours,
   ]);
 
   useEffect(() => {
@@ -5025,11 +5050,13 @@ export function IntegrationDashboard({
   });
 
   const handleOpenBusinessRunDetail = useCallback((row: BusinessRun) => {
+    const runId = row.runId || row.id;
     setBusinessRunDetail(row);
     setBusinessRunDetailOpen(true);
+    setFocusedBusinessRunId(runId);
     setBusinessActionError(null);
     void adminApi
-      .getBusinessRun(row.id)
+      .getBusinessRun(runId)
       .then((detail) => setBusinessRunDetail(detail))
       .catch((error) => {
         setBusinessActionError(error?.message || '加载业务运行详情失败，请刷新后重试。');
@@ -5040,25 +5067,46 @@ export function IntegrationDashboard({
     const normalizedRunId = runId.trim();
     if (!normalizedRunId) return;
     setActiveNav('business');
+    setFocusedBusinessRunId(normalizedRunId);
     setBusinessRunDetail(null);
     setBusinessRunDetailOpen(true);
     setBusinessActionError(null);
     contentRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+
+  const handleCloseBusinessRunDetail = useCallback(() => {
+    setBusinessRunDetailOpen(false);
+    setFocusedBusinessRunId('');
+  }, []);
+
+  useEffect(() => {
+    const normalizedRunId = focusedBusinessRunId.trim();
+    if (activeNav !== 'business' || !normalizedRunId) return;
+    if (
+      businessRunDetailOpen &&
+      businessRunDetail &&
+      (businessRunDetail.runId === normalizedRunId || businessRunDetail.id === normalizedRunId)
+    ) {
+      return;
+    }
+    setBusinessRunDetail(null);
+    setBusinessRunDetailOpen(true);
+    setBusinessActionError(null);
     void adminApi
       .getBusinessRun(normalizedRunId)
       .then((detail) => {
         setBusinessRunDetail(detail);
         setBusinessRunFilters((prev) => ({
           ...prev,
-          businessKey: detail.businessKey || prev.businessKey,
+          businessKey: canonicalBusinessKey(detail.businessKey || prev.businessKey),
           traceId: detail.traceId || prev.traceId,
         }));
       })
       .catch((error) => {
         setBusinessRunDetailOpen(false);
-        setBusinessActionError(error?.message || '加载业务运行详情失败，请刷新后重试。');
+        setBusinessActionError(error?.message || '加载业务任务详情失败，请刷新后重试。');
       });
-  }, []);
+  }, [activeNav, businessRunDetail, businessRunDetailOpen, focusedBusinessRunId]);
 
   useEffect(() => {
     if (activeNav !== 'business' || !businessRunAutoRefresh || !pageVisible) return;
@@ -6064,11 +6112,7 @@ const extractErrorMessage = (error: unknown): string => {
       onAutoRefreshChange={setAbilityLogsAutoRefresh}
       onRefresh={refreshAbilityLogs}
       onPageChange={setAbilityLogPage}
-      onOpenDetail={(row) => {
-        setAbilityLogDetail(row);
-        setAbilityLogResolveError(null);
-        setAbilityLogDetailOpen(true);
-      }}
+      onOpenDetail={openAbilityLogDetail}
     />
   );
 
@@ -6094,6 +6138,9 @@ const extractErrorMessage = (error: unknown): string => {
     setActiveNav(id);
     if (id !== 'ability-evals') {
       setFocusedEvalRunId('');
+    }
+    if (id !== 'business') {
+      setFocusedBusinessRunId('');
     }
     // Only the right content pane scrolls. Switching sections resets scroll.
     contentRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
@@ -6141,6 +6188,7 @@ const extractErrorMessage = (error: unknown): string => {
       if (rawNav === 'ability-tests') {
         setActiveNav('abilities');
         setFocusedEvalRunId('');
+        setFocusedBusinessRunId('');
         setActiveAbilityDetailTab('testing');
         return;
       }
@@ -6150,6 +6198,7 @@ const extractErrorMessage = (error: unknown): string => {
       if (isBusinessReadOnly && !readOnlyNavIds.has(navFromHash)) {
         setActiveNav('business');
         setFocusedEvalRunId('');
+        setFocusedBusinessRunId(readBusinessRunIdFromHash());
         return;
       }
       if (!showAdvanced && isAdvancedNav(navFromHash)) {
@@ -6157,6 +6206,7 @@ const extractErrorMessage = (error: unknown): string => {
       }
       setActiveNav(navFromHash);
       setFocusedEvalRunId(navFromHash === 'ability-evals' ? readEvalRunIdFromHash() : '');
+      setFocusedBusinessRunId(navFromHash === 'business' ? readBusinessRunIdFromHash() : '');
       if (navFromHash === 'comfyui-management') {
         const comfyTabFromHash = readComfyuiTabFromHash();
         if (comfyTabFromHash) setComfyuiManageTab(comfyTabFromHash);
@@ -6183,11 +6233,14 @@ const extractErrorMessage = (error: unknown): string => {
     if (activeNav === 'ability-evals' && focusedEvalRunId) {
       params.set('runId', focusedEvalRunId);
     }
+    if (activeNav === 'business' && focusedBusinessRunId) {
+      params.set('businessRunId', focusedBusinessRunId);
+    }
     const nextHash = params.toString();
     const currentHash = window.location.hash.replace(/^#/, '');
     if (currentHash === nextHash) return;
     window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#${nextHash}`);
-  }, [activeNav, comfyuiManageTab, focusedEvalRunId]);
+  }, [activeNav, comfyuiManageTab, focusedBusinessRunId, focusedEvalRunId]);
 
   return (
     <AdminShell
@@ -6377,7 +6430,7 @@ const extractErrorMessage = (error: unknown): string => {
           )}
 
           {activeNav === 'business' && (
-            <Section id="business" title="业务能力" description="给业务方使用的稳定入口；执行能力可以换版本，但这里保持业务语义清楚。">
+            <Section id="business" title="业务能力" description="按业务入口管理版本、真实调用和每一步处理结果。">
               <Suspense
                 fallback={
                   <div className="rounded-3xl border border-slate-200 bg-white px-6 py-5 text-sm text-slate-600 shadow-sm">
@@ -6388,7 +6441,7 @@ const extractErrorMessage = (error: unknown): string => {
                 <Space direction="vertical" size="large" style={{ width: '100%' }}>
                 <Alert
                   theme="info"
-                  message="业务能力层优先沉淀花纹提取、图裂变、扩图三个主业务。其他高清、DPI、抠图等能力作为辅助处理，不抢主业务入口。"
+                  message="一条业务调用以 runId 为主线；VL 分析、ComfyUI 生图、OpenAI 编辑、评分等都归到这条任务的子步骤里。业务方只需要理解业务 API、runId、结果和错误码。"
                 />
                 {isBusinessReadOnly ? (
                   <Alert
@@ -6415,10 +6468,54 @@ const extractErrorMessage = (error: unknown): string => {
                     </Button>
                   ) : null}
                 </Space>
+                <BusinessMainlineContractPanel />
+                <BusinessEntryCommandPanel
+                  capabilities={businessCapabilities}
+                  pendingApprovals={businessDefaultApprovals}
+                  summary={businessUsageSummary}
+                  formatDateTime={formatDateTime}
+                />
                 <BusinessActionPanel
                   capabilities={businessCapabilities}
                   pendingApprovals={businessDefaultApprovals}
                   summary={businessUsageSummary}
+                />
+                <BusinessCoreEntryPanel
+                  capabilities={businessCapabilities}
+                  pendingApprovals={businessDefaultApprovals}
+                  formatDateTime={formatDateTime}
+                />
+                <BusinessOrchestrationMapPanel
+                  capabilities={businessCapabilities}
+                  pendingApprovals={businessDefaultApprovals}
+                  summary={businessUsageSummary}
+                  formatDateTime={formatDateTime}
+                />
+                <BusinessRunHistoryPanel
+                  runs={businessRuns}
+                  total={businessRunTotal}
+                  filters={businessRunFilters}
+                  businessOptions={businessRunBusinessOptions}
+                  versionOptions={businessRunVersionOptions}
+                  isReadOnly={isBusinessReadOnly}
+                  tenantId={currentUser?.tenantId}
+                  clientId={currentUser?.clientId}
+                  actionLoadingId={businessActionLoadingId}
+                  detail={businessRunDetail}
+                  detailOpen={businessRunDetailOpen}
+                  autoRefresh={businessRunAutoRefresh}
+                  onFiltersChange={setBusinessRunFilters}
+                  onAutoRefreshChange={setBusinessRunAutoRefresh}
+                  onRefresh={refreshBusinessRuns}
+                  onExport={exportBusinessRuns}
+                  onBulkCallbackRetry={handleBusinessBulkCallbackRetry}
+                  onBulkRetest={handleBusinessBulkRetest}
+                  onBulkIgnoreIssues={handleBusinessBulkIgnoreIssues}
+                  onGenerateIssueChecklist={handleBusinessGenerateIssueChecklist}
+                  onOpenDetail={handleOpenBusinessRunDetail}
+                  onCloseDetail={handleCloseBusinessRunDetail}
+                  onCallbackRetry={handleBusinessCallbackRetry}
+                  formatDateTime={formatDateTime}
                 />
                 <BusinessWorkPathPanel />
                 <BusinessCoreDecisionPanel
@@ -6431,16 +6528,6 @@ const extractErrorMessage = (error: unknown): string => {
                   capabilities={businessCapabilities}
                   pendingApprovals={businessDefaultApprovals}
                   summary={businessUsageSummary}
-                  formatDateTime={formatDateTime}
-                />
-                <BusinessCoreEntryPanel
-                  capabilities={businessCapabilities}
-                  pendingApprovals={businessDefaultApprovals}
-                  formatDateTime={formatDateTime}
-                />
-                <BusinessOrchestrationMapPanel
-                  capabilities={businessCapabilities}
-                  pendingApprovals={businessDefaultApprovals}
                   formatDateTime={formatDateTime}
                 />
                 {!isBusinessReadOnly ? (
@@ -6498,32 +6585,6 @@ const extractErrorMessage = (error: unknown): string => {
                     formatDateTime={formatDateTime}
                   />
                 ) : null}
-                <BusinessRunHistoryPanel
-                  runs={businessRuns}
-                  total={businessRunTotal}
-                  filters={businessRunFilters}
-                  businessOptions={businessRunBusinessOptions}
-                  versionOptions={businessRunVersionOptions}
-                  isReadOnly={isBusinessReadOnly}
-                  tenantId={currentUser?.tenantId}
-                  clientId={currentUser?.clientId}
-                  actionLoadingId={businessActionLoadingId}
-                  detail={businessRunDetail}
-                  detailOpen={businessRunDetailOpen}
-                  autoRefresh={businessRunAutoRefresh}
-                  onFiltersChange={setBusinessRunFilters}
-                  onAutoRefreshChange={setBusinessRunAutoRefresh}
-                  onRefresh={refreshBusinessRuns}
-                  onExport={exportBusinessRuns}
-                  onBulkCallbackRetry={handleBusinessBulkCallbackRetry}
-                  onBulkRetest={handleBusinessBulkRetest}
-                  onBulkIgnoreIssues={handleBusinessBulkIgnoreIssues}
-                  onGenerateIssueChecklist={handleBusinessGenerateIssueChecklist}
-                  onOpenDetail={handleOpenBusinessRunDetail}
-                  onCloseDetail={() => setBusinessRunDetailOpen(false)}
-                  onCallbackRetry={handleBusinessCallbackRetry}
-                  formatDateTime={formatDateTime}
-                />
                 <BusinessCapabilityEditorDialog
                   visible={businessDialogOpen}
                   form={businessForm}
@@ -6542,10 +6603,10 @@ const extractErrorMessage = (error: unknown): string => {
           {activeNav === 'api-exposure' && (
             <Section
               id="api-exposure"
-              title="API 开放"
-              description="把中台自有业务 API、原子能力 API 和 Coze 工具箱分开展示，避免接入方混用入口。"
+              title="接口调用"
+              description="业务 API 文档、API Key、调用清单和 Coze 工具箱入口统一在这里查看。"
             >
-              <Suspense fallback={panelFallback('API 开放')}>
+              <Suspense fallback={panelFallback('接口调用')}>
                 <ApiExposurePanel
                   publicAbilities={publicAbilities}
                   publicAbilitiesLoading={publicAbilitiesLoading}
@@ -6760,8 +6821,8 @@ const extractErrorMessage = (error: unknown): string => {
           {activeNav === 'ability-logs' && (
       <Section
         id="ability-logs"
-        title="能力调用记录"
-        description="同一模块内包含“指标”与“调用清单”，用于定位异常与归因。"
+        title="处理步骤"
+        description="这里展示图片分析、模型、生图、评分等后台步骤；业务是否成功先看接口任务清单。"
       >
         <Card bordered>
           <Space direction="vertical" size="large" style={{ width: '100%' }}>
@@ -6803,6 +6864,7 @@ const extractErrorMessage = (error: unknown): string => {
                 updatedAt={globalAbilityLogsUpdatedAt}
                 page={globalAbilityLogPage}
                 pageSize={globalAbilityLogPageSize}
+                windowHours={globalAbilityLogWindowHours}
                 autoRefresh={globalAbilityLogsAutoRefresh}
                 onlyCallbackFailed={globalAbilityLogOnlyCallbackFailed}
                 search={globalAbilityLogSearch}
@@ -6816,6 +6878,10 @@ const extractErrorMessage = (error: unknown): string => {
                 statuses={globalAbilityLogStatuses}
                 capabilityOptions={globalAbilityLogCapabilityOptions}
                 onAutoRefreshChange={setGlobalAbilityLogsAutoRefresh}
+                onWindowHoursChange={(value) => {
+                  setGlobalAbilityLogPage(1);
+                  setGlobalAbilityLogWindowHours(value);
+                }}
                 onRefresh={refreshGlobalAbilityLogs}
                 onPageChange={setGlobalAbilityLogPage}
                 onExport={exportGlobalAbilityLogs}
@@ -6848,11 +6914,7 @@ const extractErrorMessage = (error: unknown): string => {
                   setGlobalAbilityLogCapabilityKey(value);
                 }}
                 onCopy={copyTextToClipboard}
-                onOpenDetail={(row) => {
-                  setAbilityLogDetail(row);
-                  setAbilityLogResolveError(null);
-                  setAbilityLogDetailOpen(true);
-                }}
+                onOpenDetail={openAbilityLogDetail}
                 resolveLogPricing={resolveLogPricing}
               />
             )}

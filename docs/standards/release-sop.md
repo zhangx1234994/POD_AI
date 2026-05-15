@@ -42,7 +42,7 @@ bash scripts/release_114_control_plane.sh
 9. 重启 `podi-backend`、`podi-admin-web`、`podi-eval-web`
 10. 写入 `/srv/pod/DEPLOYED_COMMIT`、`.release_commit`、`.release_time`
 11. 等待 backend/admin/eval HTTP 入口就绪，避免刚重启时端口尚未监听导致误报
-12. 执行远端健康检查、`scripts/deploy_preflight.sh` 和 `podi_release_smoke.py`
+12. 执行远端健康检查、`scripts/deploy_preflight.sh` 和 `podi_release_smoke.py`；smoke 会读取线上 `backend/.env` 中的 `SERVICE_API_TOKEN`、`ADMIN_API_TOKEN`、`EVAL_ADMIN_TOKEN`，避免鉴权类检查被静默跳过。
 
 ## 3. 常用参数
 
@@ -91,6 +91,7 @@ RUN_LIVE_PATROL=1 bash scripts/release_114_control_plane.sh
   - `docs/api/INDEX.md` 或对应模块文档
   - `docs/standards/error-catalog.md`
   - 测评端文案或管理端页面
+- 若修改对外功能、测评功能或 Coze 工作流，已按 `docs/standards/per-feature-release-checklist.md` 完成逐功能检查，至少覆盖接口参数、默认值、实际 payload、执行节点、节点依赖、OSS 回填、查询返回体和错误展示。
 - 若修改数据库迁移，`alembic heads` 只有一个 head。
 
 阻断发布的情况：
@@ -127,6 +128,8 @@ backend/.venv/bin/python backend/scripts/podi_release_smoke.py \
   --expect-server-url "$(awk -F= '/^PODI_INTERNAL_BASE_URL=/{print $2; exit}' backend/.env)"
 ```
 
+`podi_release_smoke.py` 必须包含 `business_api_usage_center` 检查项。它验证管理端“接口调用”页背后的接口可用，并确认业务方提交、轮询、回调记录能按 `runId` 聚合。没有业务流量时不阻断发版；接口不可访问、返回结构缺失或有业务任务却无法聚合时必须阻断。
+
 Coze 工具箱地址必须从 Coze 容器内验证，不允许只在宿主机用 `127.0.0.1` 判断：
 
 ```bash
@@ -148,7 +151,9 @@ PODI_INTERNAL_BASE_URL=http://172.17.0.1:8099
 
 线上页面走查最少覆盖：
 
-- 管理端 8199：登录、总体概览、业务能力、API 开放、能力调用、ComfyUI 资源。
+- 管理端 8199：登录、总体概览、业务能力、接口调用、处理步骤、ComfyUI 资源。
+- 管理端“接口调用”：确认最近业务接口调用能看到提交、轮询、回调记录；点击 `runId` 能进入业务任务详情，能看到本次业务调用下的处理步骤。
+- 管理端“接口调用”：确认“逐功能上线检查表”里本次涉及功能不是待补齐；ComfyUI 类功能必须同时确认 workflow compatibility 没有缺节点或缺模型。
 - 测评端 8200：首页目录、图裂变分类、新增/更新功能角标、接口文档、上传与结果区基础交互。
 - 前端静态产物：页面源码不得出现 `@vite/client`、`/src/main.tsx`、`@react-refresh`。
 - 管理端“发布前门禁”需有本次轻量门禁记录；真实巡检如果未跑，必须记录未跑原因。

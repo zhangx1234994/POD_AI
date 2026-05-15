@@ -128,6 +128,7 @@ export function AbilityLogListPanel({
   updatedAt,
   page,
   pageSize,
+  windowHours,
   autoRefresh,
   onlyCallbackFailed,
   search,
@@ -141,6 +142,7 @@ export function AbilityLogListPanel({
   statuses,
   capabilityOptions,
   onAutoRefreshChange,
+  onWindowHoursChange,
   onRefresh,
   onPageChange,
   onExport,
@@ -164,6 +166,7 @@ export function AbilityLogListPanel({
   updatedAt?: string | null;
   page: number;
   pageSize: number;
+  windowHours: number;
   autoRefresh: boolean;
   onlyCallbackFailed: boolean;
   search: string;
@@ -177,6 +180,7 @@ export function AbilityLogListPanel({
   statuses: string[];
   capabilityOptions: SelectOption[];
   onAutoRefreshChange: (value: boolean) => void;
+  onWindowHoursChange: (value: number) => void;
   onRefresh: () => void;
   onPageChange: (page: number) => void;
   onExport: (format: 'csv' | 'json') => void;
@@ -231,11 +235,12 @@ export function AbilityLogListPanel({
       <ActionBar>
         <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
           <div>
-            <Typography.Text strong>能力调用清单</Typography.Text>
+            <Typography.Text strong>处理步骤清单</Typography.Text>
             <div>
               <Typography.Text theme="secondary">
                 第 {currentPage} / {totalPages} 页 · 当前页 {logs.length} 条
-                {typeof total === 'number' ? ` · 符合条件共 ${total} 条` : ''} · 筛选会查询全量历史
+                {typeof total === 'number' ? ` · 符合条件共 ${total} 条` : ''} · 当前窗口：
+                {windowHours > 0 ? `近 ${windowHours} 小时` : '全部历史'}
               </Typography.Text>
             </div>
           </div>
@@ -261,8 +266,8 @@ export function AbilityLogListPanel({
       {error ? <Alert theme="error" message={error} /> : null}
 
       <OperationFlowCard
-        title="能力调用排查路径"
-        description="先缩小范围，再看排障总览，最后打开详情确认任务、结果入库、回调和成本证据。"
+        title="处理步骤排查路径"
+        description="先从业务任务拿到 runId，再到这里确认图片分析、模型、生图、结果入库、回调和成本记录。"
         summary={troubleCount > 0 ? `当前筛选下有 ${troubleCount} 条需处理记录，先处理失败和回调异常。` : '当前筛选下没有明显阻塞，可继续看分页记录或导出归档。'}
         summaryTheme={troubleCount > 0 ? 'warning' : 'success'}
         steps={[
@@ -313,6 +318,20 @@ export function AbilityLogListPanel({
       </Space>
 
       <Row gutter={[12, 12]}>
+        <Col flex="180px">
+          <Select
+            value={String(windowHours)}
+            onChange={(value) => onWindowHoursChange(Number(value))}
+            options={[
+              { label: '近 1 小时', value: '1' },
+              { label: '近 6 小时', value: '6' },
+              { label: '近 24 小时', value: '24' },
+              { label: '近 72 小时', value: '72' },
+              { label: '近 7 天', value: '168' },
+              { label: '全部历史（慎用）', value: '0' },
+            ]}
+          />
+        </Col>
         <Col flex="auto">
           <Input value={search} placeholder="搜索：能力名/能力标识/节点/追踪/任务/回调编号…" onChange={(value) => onSearchChange(String(value))} clearable />
         </Col>
@@ -584,9 +603,10 @@ export function AbilityLogListPanel({
             cell: ({ row }) => {
               const message = row.error_message || row.callback_error || '';
               if (!message) return <Typography.Text theme="secondary">—</Typography.Text>;
+              const displayMessage = toDisplayErrorMessage(message);
               return (
                 <Typography.Text theme="error" style={{ fontSize: 12 }}>
-                  {truncateText(message, 80)}
+                  {truncateText(displayMessage, 80)}
                 </Typography.Text>
               );
             },

@@ -164,6 +164,7 @@
 | `BUSINESS_API_KEY_INVALID` | Key 不存在或已失效。 | 更换有效 Key。 |
 | `BUSINESS_API_KEY_BUSINESS_NOT_ALLOWED` | Key 无权调用该业务。 | 联系中台补授权。 |
 | `BUSINESS_USER_SCOPE_FORBIDDEN` | 租户或用户范围不匹配。 | 检查 `tenantId/clientId/userId`。 |
+| `VL_EVAL_IMAGE_REQUIRED` | 裂变生成图评估缺少原图或生成图。 | 补齐 `originalImageUrl` 和 `generatedImageUrl` 后重新提交。 |
 | `BUSINESS_RUN_TIMEOUT` | 任务超时。 | 稍后重试，必要时联系中台排查底层能力。 |
 | `BUSINESS_ABILITY_EXECUTION_FAILED` | 底层能力执行失败。 | 可重试；如持续失败，提供 `runId` 给中台。 |
 | `BUSINESS_VL_PREPROCESS_FAILED` | VL 前置分析失败。 | 可重试；如持续失败，提供 `runId` 给中台。 |
@@ -191,4 +192,9 @@
 
 - 发版门禁需要检查业务 OpenAPI 中 `status/type/mode/profile/quality/size` 字段是否缺枚举说明。
 - API 调用中心需要继续补“从调用记录直接定位业务运行详情”的深链接持久化，目前管理端已支持页面内打开业务任务详情。
-- API 调用中心需要纳入发布后 smoke，至少检查筛选、导出、按 `runId` 聚合和轮询异常提示。
+
+已完成：
+
+- 2026-05-15：API 调用中心已纳入发布后 smoke，`business_api_usage_center` 会检查接口可访问、分页结构正常和 `runId` 聚合可用。
+- 2026-05-15：管理端“接口调用”页新增三个交付接口逐项检查，固定检查 GPT Image 2 受控裂变、ComfyUI 颜色锁定裂变、裂变生成图评估是否具备独立文档、6 类 JSON 样例、枚举说明和常见错误码；发现缺口必须先补文档和页面口径，再进入上线。
+- 2026-05-15：管理端“接口调用中心”增加窗口级轮询频率提示；如果平均每次提交对应 30 次以上查询，页面会提示业务方按 `retryAfterSeconds` 或 5-10 秒间隔轮询。

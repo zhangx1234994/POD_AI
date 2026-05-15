@@ -3,6 +3,7 @@
 > 目标：避免“前后端状态词不一致、错误处理风格不一致、文档口径不一致”。
 > 适用范围：`/api/*`（管理端、评测端、Coze 工具、Agent 协议）与所有对外文档。
 > 业务分类和接口形态归属必须同时遵循：`docs/standards/business-interface-taxonomy.md`。
+> 业务任务、子任务和页面动线必须同时遵循：`docs/standards/business-mainline-contract.md`。
 
 ---
 
