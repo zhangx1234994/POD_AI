@@ -51,6 +51,8 @@
   - 2026-05-06 管理端易用性、ComfyUI 兼容性降级、能力调用排障、账号/账单/业务门禁回归记录
 - `20260515-business-api-delivery-regression.md`
   - 2026-05-15 对外业务接口契约硬化、交付包 v4、114 发布 smoke 和剩余风险记录
+- `20260515-business-api-live-chain-check.md`
+  - 2026-05-15 新业务接口被业务方真实调用后的链路排查，覆盖业务 run、Key 调用、VL、ComfyUI、OSS 回填、轮询和执行节点隐患
 - `COZE_WORKFLOW_TEST_PLAN.md`
 - `COMFYUI_TASK_STATE_REGRESSION_PLAN.md`
 - `AUTH_BILLING_TEST_PLAN.md`

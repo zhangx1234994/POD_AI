@@ -49,6 +49,22 @@
 - 改进：明天优先补“每功能上线检查表”，把接口契约、测评端表单、管理端调用记录、实际 payload、OSS 回填和结果展示纳入同一张表。
 - 状态：处理中
 
+0.5) **业务方轮询频率偏高**
+- 范围：对外业务 API / `/api/business/runs/get` / 业务方接入规范
+- 现象：2026-05-15 09:20~09:31，业务方提交 21 个 `comfyui-vl-control-v2` 裂变任务，同时产生 1071 次查询；部分 run 在约 3 分钟内查询 70+ 次。
+- 影响：当前查询平均 73ms、最大 418ms，未造成事故；但业务量扩大后，高频无意义轮询会放大数据库和后端压力。
+- 根因：业务方可能没有按文档建议的 5~10 秒间隔或 `retryAfterSeconds` 轮询。
+- 改进：短期提醒业务方按 `retryAfterSeconds` 轮询；中期在 API Key 使用记录里增加“轮询过密”提示；长期考虑按 Key 增加查询频率软限速或轻量缓存。
+- 状态：待处理
+
+0.6) **233 ComfyUI 缺少 `String` 自定义节点**
+- 范围：ComfyUI 执行节点同步 / 旧四方连续裂变工作流 / 工作流级健康检查
+- 现象：2026-05-15 08:36，`flux2_9b_liebian_sifang` 先路由到 233 失败，报 `Node 'String' not found`；同一任务随后 fallback 到 158 成功。手动检查确认 233 `/object_info/String` 返回 `{}`，158 返回 `custom_nodes.comfyui_bmad_nodes` 的 `String` 节点。
+- 影响：今天业务方使用的新 `comfyui-vl-control-v2` 不受影响，但旧工作流如果优先命中 233，会依赖 fallback，说明两台 ComfyUI 并未做到完全能力同步。
+- 根因：基础健康检查只验证 `KSampler/SaveImage/LoadImage`，不能发现工作流级自定义节点缺失。
+- 改进：在 233 安装或同步 `comfyui_bmad_nodes`；逐功能上线检查表增加 workflow 所需节点清单校验；修复前不要把 `flux2_9b_liebian_sifang` 视作双机完全健康。
+- 状态：待处理
+
 ## 2026-05-13
 
 0.1) **业务运行查询触发 MySQL `Out of sort memory`**
