@@ -49,6 +49,8 @@
   - 2026-05-03 事故整改后核心链路、业务计费口径与管理端构建回归记录
 - `RELEASE_REGRESSION_REPORT_2026-05-06.md`
   - 2026-05-06 管理端易用性、ComfyUI 兼容性降级、能力调用排障、账号/账单/业务门禁回归记录
+- `20260515-business-api-delivery-regression.md`
+  - 2026-05-15 对外业务接口契约硬化、交付包 v4、114 发布 smoke 和剩余风险记录
 - `COZE_WORKFLOW_TEST_PLAN.md`
 - `COMFYUI_TASK_STATE_REGRESSION_PLAN.md`
 - `AUTH_BILLING_TEST_PLAN.md`

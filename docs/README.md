@@ -40,6 +40,7 @@
 - 发版前必须先执行 `backend/scripts/audit_ability_test_coverage.py --probe-comfyui --fail-on P1`，确认数据库最终态里不存在单机路由、测试节点误激活、节点不可达或 schema 缺失等问题。
 - ComfyUI 单机 10、双机 20 不能只看配置，必须通过 `backend/scripts/comfyui_capacity_probe.py` 验证实际队列喂入和任务分布。
 - 114 控制面发布统一走 `docs/standards/release-sop.md` 和 `scripts/release_114_control_plane.sh`，不再临时手工拼 tar/ssh/restart。
+- 2026-05-15 对外业务接口交付口径已收敛：正式交付材料默认只给 JSON 请求/响应样例，不默认交付 Python 脚本；两个裂变接口固定一请求一图，交付模板见 `docs/api/examples/fission-business-delivery/`。
 
 ## 现行真源
 
@@ -66,6 +67,7 @@
 - `docs/BUSINESS_MODEL.md`
 - `docs/api/INDEX.md`
 - `docs/api/examples/fission-delivery-contract-2026-05-12.md`
+- `docs/api/examples/fission-business-delivery/README.md`
 - `docs/admin/integration-dashboard.md`
 - `docs/eval/eval-platform.md`
 - `docs/testing/ABILITY_TEST_LEDGER.md`
@@ -95,6 +97,7 @@
 | 核心业务链路 | `docs/strategy/core-business-chain-review-2026-05-03.md` | 花纹提取 / 图裂变 / 扩图的入口、路由、回填、测试和后续优先级 |
 | API | `docs/api/INDEX.md` | 全量接口模块入口 |
 | 图裂变交付契约图 | `docs/api/examples/fission-delivery-contract-2026-05-12.md` | 两个裂变接口和裂变评分的排队轮询、类图关系、参数聚合规则 |
+| 图裂变业务交付包模板 | `docs/api/examples/fission-business-delivery/README.md` | 给业务方交付的三个接口独立文档和 JSON 样例，不包含真实 Key |
 | 业务接口分类 | `docs/standards/business-interface-taxonomy.md` | 业务分类、Coze/原生/原子能力/测评入口的统一归属 |
 | 历史客户端资料 | `docs/client/README.md` | 当前仓库已无客户端代码，仅保留历史方案和测试包 |
 | 管理端 | `docs/admin/integration-dashboard.md` | 执行节点、能力、第三方模型 Key、测试与日志 |
