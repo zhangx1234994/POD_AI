@@ -10,6 +10,7 @@
 - **先验证再切流**：上线成功不等于验收成功，必须跑健康检查、发布 smoke 和必要业务巡检。
 - **失败先回滚入口，再排查新环境**：不要在线上半更新状态边跑边修。
 - **每次事故都反哺 SOP**：上线过程中新增的真实问题，必须同步到 `docs/standards/issue-improvement-log.md`。
+- **正式封版必须有版本号**：平台版本规则见 `docs/standards/version-control-rules.md`，版本记录写入 `docs/releases/CHANGELOG.md`。
 
 ## 2. 标准发布命令
 
@@ -39,10 +40,11 @@ bash scripts/release_114_control_plane.sh
 6. 上传到 114 的 `/srv/pod/.deploy_tmp/<commit>/`
 7. 保留线上 `backend/.env` 和 `backend/.venv`
 8. 远端执行 `alembic upgrade head`
-9. 重启 `podi-backend`、`podi-admin-web`、`podi-eval-web`
-10. 写入 `/srv/pod/DEPLOYED_COMMIT`、`.release_commit`、`.release_time`
-11. 等待 backend/admin/eval HTTP 入口就绪，避免刚重启时端口尚未监听导致误报
-12. 执行远端健康检查、`scripts/deploy_preflight.sh` 和 `podi_release_smoke.py`；smoke 会读取线上 `backend/.env` 中的 `SERVICE_API_TOKEN`、`ADMIN_API_TOKEN`、`EVAL_ADMIN_TOKEN`，避免鉴权类检查被静默跳过。
+9. 远端执行 `backend/scripts/refresh_workflow_seeds.py`，刷新内置执行节点、工作流、绑定和能力种子，避免代码和数据库配置漂移。
+10. 重启 `podi-backend`、`podi-admin-web`、`podi-eval-web`
+11. 写入 `/srv/pod/DEPLOYED_COMMIT`、`.release_commit`、`.release_time`
+12. 等待 backend/admin/eval HTTP 入口就绪，避免刚重启时端口尚未监听导致误报
+13. 执行远端健康检查、`scripts/deploy_preflight.sh` 和 `podi_release_smoke.py`；smoke 会读取线上 `backend/.env` 中的 `SERVICE_API_TOKEN`、`ADMIN_API_TOKEN`、`EVAL_ADMIN_TOKEN`，避免鉴权类检查被静默跳过。
 
 ## 3. 常用参数
 

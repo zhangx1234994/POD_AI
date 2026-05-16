@@ -7,6 +7,7 @@
 - `platform-vision-and-goals-2026.md`：平台愿景与核心目标（中台 / 测评端 / 客户端 / 对话式助手统一叙事）
 - `strategy-one-page-2026q2.md`：战略一页纸（北极星、KPI、90天里程碑）
 - `todo-master-2026q2.md`：唯一待办池（P0/P1/P2）
+- `business-orchestration-control-plane-v1.md`：下一阶段控制权收敛、业务编排 DSL、可视化编排和 runId 排障规划
 - `mid-platform-gap-and-roadmap-2026-05-07.md`：中台目标差距分析、成熟度判断和后续分阶段开发方案
 - `mid-platform-detailed-execution-plan-2026-05-07.md`：当前中台细化执行清单，承接唯一 TODO 的可验收小项
 - `core-business-chain-review-2026-05-03.md`：花纹提取 / 图裂变 / 扩图三条核心业务链路体检与后续优先级
@@ -53,4 +54,4 @@
    - `docs/BUSINESS_MODEL.md`
 3. 旧战略材料可以保留，但不应继续作为索引入口。
 
-*最后更新: 2026-05-07*
+*最后更新: 2026-05-16*
