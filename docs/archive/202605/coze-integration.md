@@ -1,3 +1,7 @@
+状态: archived
+归档原因: 顶层英文旧 Coze 集成说明，当前 Coze 工具箱入口已收敛。
+替代文档: docs/api/modules/coze.md；docs/coze/toolbox-inventory.md
+
 # Coze Studio Integration
 
 This repo integrates PODI "atomic abilities" into Coze Studio as a Plugin (OpenAPI tools).

@@ -15,14 +15,14 @@
 - 错误码：`docs/standards/error-catalog.md`
 - 错误契约：`docs/standards/error-contract.md`
 - 状态/结果一致性：`docs/standards/interface-consistency.md`
-- 开发与部署：`docs/development-guide.md`、`docs/DEPLOYMENT.md`、`docs/deploy-checklist.md`、`docs/release-preflight.md`
+- 开发与部署：`docs/development-guide.md`、`docs/standards/release-sop.md`、`docs/release-preflight.md`
 - 战略与待办唯一入口：`docs/strategy/README.md`、`docs/strategy/todo-master-2026q2.md`
 
 ### 历史或规划参考
-- 历史路线图：`docs/TODO_PLATFORM.md`
-- 历史错误码草案：`docs/error-codes.md`
+- 历史路线图：`docs/archive/202605/TODO_PLATFORM.md`
+- 历史错误码草案：`docs/archive/202605/error-codes.md`
 - 架构规划背景：`后端架构与业务模型.md`、`架构实施计划.md`
-- 需求规划稿：`docs/workflow-platform-requirements.md`
+- 需求规划稿：`docs/archive/202605/workflow-platform-requirements.md`
 
 ## 2. 当前系统真实边界
 

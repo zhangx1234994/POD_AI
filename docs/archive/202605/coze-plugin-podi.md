@@ -1,3 +1,7 @@
+状态: archived
+归档原因: 顶层旧 Coze 插件说明，当前插件契约以模块文档和工具箱清单为准。
+替代文档: docs/api/modules/coze.md；docs/coze/toolbox-contracts.md；docs/coze/toolbox-inventory.md
+
 # PODI × Coze：能力插件接入
 
 ## 目标

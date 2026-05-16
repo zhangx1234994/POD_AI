@@ -1,3 +1,7 @@
+状态: archived
+归档原因: 旧部署说明已被 114 控制面统一发布 SOP 取代。
+替代文档: docs/standards/release-sop.md
+
 # 部署（Prod-like，开发机/线上一致）
 
 目标：让“开发机所见即所得”，线上部署只需要 `git pull` + 一条命令，不再出现 `npm run dev` 造成的样式/资源错配。
@@ -66,7 +70,7 @@ bash scripts/deploy_prodlike_nodocker.sh
 
 ## 部署检查清单（必须执行）
 
-见：`docs/deploy-checklist.md`
+见：`docs/archive/202605/deploy-checklist.md`
 
 ## 日志与排查
 ```bash

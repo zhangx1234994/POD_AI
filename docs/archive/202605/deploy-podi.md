@@ -1,3 +1,7 @@
+状态: archived
+归档原因: 旧生产部署说明已不符合当前 114 控制面发布方式。
+替代文档: docs/standards/release-sop.md；docs/strategy/coze-server-layout-v1.md
+
 # 生产环境部署（PODI 后端/管理端）
 
 目标：Coze 部署在 A 服务器，PODI（后端 + 管理端）部署在 B 服务器。对外只暴露管理端（以及必要的 PODI API）。

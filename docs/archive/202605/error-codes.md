@@ -1,3 +1,7 @@
+状态: archived
+归档原因: 旧错误码草案已被现行错误码总表和错误契约取代。
+替代文档: docs/standards/error-catalog.md；docs/standards/error-contract.md
+
 # 错误码文档（历史草案）
 
 > ⚠️ 本文件为历史草案，**已不作为现行规范**。  

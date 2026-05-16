@@ -1,3 +1,7 @@
+状态: archived
+归档原因: 旧工作流平台规划已被业务编排控制面规划取代。
+替代文档: docs/strategy/business-orchestration-control-plane-v1.md
+
 # Workflow 平台需求总结（规划）
 
 > 说明：本文件为需求/规划稿，包含尚未落地的工作流平台能力，仅作设计参考。

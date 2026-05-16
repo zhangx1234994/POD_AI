@@ -1,5 +1,12 @@
 # 文档清理盘点（2026-04-30）
 
+## 0. 2026-05-16 更新
+
+- 顶层旧 Coze、旧部署、旧任务、旧错误码、旧工作流说明已迁入 `docs/archive/202605/`。
+- 当前入口只保留 `docs/README.md`、`docs/strategy/README.md`、模块 README 和标准文档。
+- 后续如果需要查历史部署或旧 Coze 接入，只从 `docs/archive/README.md` 进入，不再从根 README 或 docs 总索引进入。
+- 下一阶段当前真源新增 `docs/strategy/business-orchestration-control-plane-v1.md`、`docs/standards/version-control-rules.md`、`docs/releases/CHANGELOG.md`。
+
 ## 1. 本轮结论
 
 本轮先做低风险治理，不批量删除历史文档。
@@ -47,7 +54,7 @@
 - `docs/handover/`
 - `docs/plans/2026-04-16-experience-center-redesign/`
 - `docs/project-takeover-prep-2026-03-12.md`
-- `docs/TODO_PLATFORM.md`
+- `docs/archive/202605/TODO_PLATFORM.md`
 - `docs/COMPONENT_INTERACTIONS.md`
 
 ### 2.3 测试与过程记录
@@ -85,7 +92,7 @@
 - `docs/client/tech-review-2026-04-16/README.md` 已补齐，避免客户端历史评审入口断链。
 - `docs/handover/README.md` 已补齐，明确交接资料默认是历史参考，旧客户端内容不能当当前事实。
 - `AGENTS.md` 的“休假前暂停点”已替换为当前唯一待办池与恢复工作顺序。
-- `docs/COZE_INTEGRATION_GUIDE.md` 已标记为历史兼容指南，当前 Coze 接口真源收敛到 `docs/api/modules/coze.md`。
+- `docs/archive/202605/COZE_INTEGRATION_GUIDE.md` 已归档为历史兼容指南，当前 Coze 接口真源收敛到 `docs/api/modules/coze.md`。
 - `docs/standards/document-maintenance.md` 已补历史路径与断链规则，避免旧客户端目录和本地忽略凭证文件在检查中误判。
 - `scripts/check_doc_entry_references.py` 已补入口文档路径检查，并接入发布源预检。
 - `docs/BUSINESS_MODEL.md` 顶部已修正客户端引用口径，不再指向“最新前台骨架”。
@@ -99,7 +106,7 @@
 ### P2
 
 - `docs/BUSINESS_MODEL.md` 篇幅较长，后续仍可拆成当前摘要和历史附录。
-- `docs/COZE_INTEGRATION_GUIDE.md` 仍可进一步压缩，当前已先标记历史兼容状态。
+- `docs/archive/202605/COZE_INTEGRATION_GUIDE.md` 已退出主入口，只保留追溯价值。
 - 旧的 mock、dev server、临时测试说明需要逐步从主入口移出。
 
 ## 5. 验收标准
@@ -111,4 +118,4 @@
 - 历史资料保留但不出现在“现行真源”列表。
 - 发布前检查仍能通过，无 AppleDouble、无 Alembic 多 head、无未解释的临时产物。
 
-*最后更新: 2026-04-30*
+*最后更新: 2026-05-16*

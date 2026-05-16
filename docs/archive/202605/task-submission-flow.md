@@ -1,3 +1,7 @@
+状态: archived
+归档原因: 旧原子能力提交流程说明，当前主线已切到业务 runId 和业务 API。
+替代文档: docs/standards/business-mainline-contract.md；docs/standards/external-api-boundary.md
+
 # 任务提交流程（统一能力 API）
 
 > 说明：部分“客户端组件”描述来自历史客户端（已移除）。现行页面以管理端/评测端为准，本流程侧重后端链路与接口约定。

@@ -1,3 +1,7 @@
+状态: archived
+归档原因: 顶层旧 Coze 工作流联调说明，当前测评与工具箱口径已迁移。
+替代文档: docs/eval/eval-platform.md；docs/coze/comfyui-workflow-mapping.md；docs/api/modules/coze.md
+
 # Coze 工作流联调/测试文档（PODI）
 
 本文面向开发/联调同学，目标是：用 Coze OpenAPI 把每个 workflow 跑一遍，确认入参/出参符合评测平台与业务侧预期。
@@ -20,7 +24,7 @@ PODI 的 Coze 插件接口默认只允许内网访问（否则返回 `401 {"deta
 - 在 PODI 后端配置 `COZE_TRUSTED_IPS=<coze_source_ip,...>` 放行 Coze 源 IP
 - 或者在请求头携带 `Authorization: Bearer $SERVICE_API_TOKEN`（若后端配置了该 token）
 
-相关部署说明见 `docs/deploy-podi.md`。
+相关旧部署说明见 `docs/archive/202605/deploy-podi.md`。
 
 ## 3. 直接调用 Coze 工作流（OpenAPI）
 

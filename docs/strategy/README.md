@@ -41,7 +41,7 @@
 
 ## 与旧文档关系
 
-- `docs/TODO_PLATFORM.md` 作为历史路线图保留，不再作为新增任务入口。
+- `docs/archive/202605/TODO_PLATFORM.md` 作为历史路线图保留，不再作为新增任务入口。
 - 既有架构文档（如 `docs/architecture.md`、`docs/BUSINESS_MODEL.md`）继续保留为背景材料。
 - 客户端竞品对标和测试包文档继续保留，但平台级方向请优先以 `platform-vision-and-goals-2026.md` 与 `strategy-one-page-2026q2.md` 为准。
 

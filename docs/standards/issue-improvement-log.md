@@ -193,7 +193,7 @@
   - 新增 `docs/standards/release-sop.md` 作为 114 控制面唯一发布入口；
   - 新增 `scripts/release_114_control_plane.sh`，固定 source gate、测试、前端 build、干净打包、远端部署、服务重启、版本标记和 smoke；
   - `scripts/package_release_archive.py` 默认排除 `.env`、`.venv`、`node_modules`、`__pycache__`、`._*` 等非发布内容；
-  - `docs/README.md`、`docs/deploy-checklist.md`、`docs/standards/self-check-sop.md` 已改为指向统一发布 SOP。
+  - `docs/README.md`、`docs/archive/202605/deploy-checklist.md`、`docs/standards/self-check-sop.md` 已改为指向统一发布 SOP。
 - 状态：已完成（后续每次发布如有卡点继续反哺 SOP）
 
 ## 2026-04-29

@@ -134,7 +134,7 @@
 2. **第二阶段**：补充 API Key 轮询、限流与健康检查；Admin UI 增强（部署按钮、节点指标）。
 3. **第三阶段**：监控告警、工作流版本审计、ComfyUI 可视化编辑（后续可用 iframe 嵌入）。
 
-每个阶段完成后需同步更新 `docs/task-submission-flow.md`、`docs/development-guide.md` 与 `AGENTS.md`，并在 Admin 页面增加内嵌帮助链接。
+每个阶段完成后需同步更新 `docs/standards/business-mainline-contract.md`、`docs/development-guide.md` 与 `AGENTS.md`，并在 Admin 页面增加内嵌帮助链接。旧任务提交说明已归档到 `docs/archive/202605/task-submission-flow.md`，只用于追溯。
 
 ## 统一能力接口与日志（2026-01 更新）
 

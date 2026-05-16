@@ -1,3 +1,7 @@
+状态: archived
+归档原因: 顶层旧 Coze 对接指南，容易和当前工具箱契约混用。
+替代文档: docs/api/modules/coze.md；docs/coze/toolbox-inventory.md
+
 # Coze 工作流对接指南
 
 > 文档状态：历史兼容指南。当前 Coze 工具箱、OpenAPI、鉴权和任务轮询接口真源请看 `docs/api/modules/coze.md` 与 `docs/coze/toolbox-inventory.md`。

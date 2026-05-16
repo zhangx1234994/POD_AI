@@ -1,3 +1,7 @@
+状态: archived
+归档原因: 旧部署检查清单已被统一发布 SOP 覆盖。
+替代文档: docs/standards/release-sop.md
+
 # 部署检查清单（Server / 无 Docker）
 
 > 版本：2026-02-03  

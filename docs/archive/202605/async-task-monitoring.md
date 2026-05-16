@@ -1,3 +1,7 @@
+状态: archived
+归档原因: 包含历史客户端实现细节，当前任务观测已按业务 runId 主线重构。
+替代文档: docs/standards/business-mainline-contract.md；docs/standards/business-api-enums.md
+
 # 异步任务 & 能力监控说明
 
 > 说明：本文档包含历史客户端（已移除）的前端实现细节（hooks/组件路径）。

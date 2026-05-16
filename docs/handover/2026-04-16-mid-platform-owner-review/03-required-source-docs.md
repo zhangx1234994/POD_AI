@@ -45,7 +45,7 @@
 - `docs/api/abilities.md`
 - `docs/admin/integration-dashboard.md`
 - `docs/architecture.md`
-- `docs/DEPLOYMENT.md`
+- `docs/archive/202605/DEPLOYMENT.md`
 - `docs/PLATFORM_SURFACES.md`
 
 ## 真源阅读后的最低输出

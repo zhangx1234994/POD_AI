@@ -15,36 +15,35 @@
 4. `docs/architecture.md`
 5. `docs/BUSINESS_MODEL.md`
 6. `docs/standards/business-mainline-contract.md`
-7. `docs/api/INDEX.md`
-8. 对应模块文档：
+7. `docs/strategy/business-orchestration-control-plane-v1.md`
+8. `docs/standards/version-control-rules.md`
+9. `docs/api/INDEX.md`
+10. 对应模块文档：
    - 评测端：`docs/eval/eval-platform.md`
    - Coze：`docs/coze/toolbox-inventory.md`
    - ComfyUI：`docs/comfyui/README.md`
    - 第三方模型 Key：`docs/admin/integration-dashboard.md`
-9. 每日早检：`docs/standards/morning-ops-check.md`
-10. 样本包导出：`docs/standards/business-sample-pack-export.md`
-11. 逐功能上线检查：`docs/standards/per-feature-release-checklist.md`
-12. 清理治理：`docs/standards/cleanup-governance.md`
-13. 发布与上线：`docs/standards/release-sop.md`
-14. 想回看阶段过程，再看：`docs/weekly/README.md`
-15. 需要回看历史客户端资料时，再看：`docs/client/README.md`
+11. 每日早检：`docs/standards/morning-ops-check.md`
+12. 样本包导出：`docs/standards/business-sample-pack-export.md`
+13. 逐功能上线检查：`docs/standards/per-feature-release-checklist.md`
+14. 清理治理：`docs/standards/cleanup-governance.md`
+15. 发布与上线：`docs/standards/release-sop.md`
+16. 想回看阶段过程，再看：`docs/weekly/README.md`
+17. 需要回看历史客户端资料时，再看：`docs/client/README.md`
 
-## 当前运行基线（2026-04-27）
+## 当前运行基线（2026-05-16）
 
+- 当前封版基线为 `v0.1.0`，对应生产部署提交 `904f9a2a`。
+- `origin/main` 是唯一发版真源；后续版本按 `docs/standards/version-control-rules.md` 管理。
 - Coze、backend、管理端、测评端已收口到 Coze 主机：`114.55.0.56`。
 - Coze 工具箱统一指向 backend，不再以 `117.50.80.158:8099` 作为现行工具箱入口。
-- `117.50.80.158` 当前作为能力执行服务器使用，承载 image-ops 与 vendor-api-ops 等执行面；旧 backend 不再作为 Coze 工具箱主入口。
-- backend 是控制面，只负责能力目录、路由、任务、回调、OSS、日志与 OpenAPI；不承载高清放大、ComfyUI 或第三方 API 重执行。
+- `117.50.80.158` 与 `117.50.216.233` 当前作为 ComfyUI / image-ops / vendor-api-ops 等执行面，不承载中台控制面。
+- backend 是控制面，只负责业务入口、能力目录、路由、任务、回调、OSS、日志、OpenAPI 和版本证据；不承载高清放大、ComfyUI 或第三方 API 重执行。
 - 当前仓库不包含客户端代码目录；`docs/client/` 只作为历史客户端资料入口，不再代表当前开发主线。
-- 2026-04-27 发生 Coze 工具箱 `INTERNAL_ONLY` 事故，已记录复盘：`docs/retrospectives/2026-04-27-coze-toolbox-internal-only-incident.md`。
-- 更新服务后先在 114/Coze 主机内执行 `backend/scripts/podi_release_smoke.py`，确认工具箱入口、内部任务查询、ComfyUI 队列和接口调用中心都可达。
-- 发版后必须执行 `backend/scripts/patrol_eval_workflows.py --role production --max-in-flight 1` 做生产主入口巡检；需要全量覆盖灰度/历史能力时再显式使用 `--role all`，不能让定期自检一次性打满 ComfyUI 队列。
-- 发版前必须先执行 `backend/scripts/audit_ability_test_coverage.py --probe-comfyui --fail-on P1`，确认数据库最终态里不存在单机路由、测试节点误激活、节点不可达或 schema 缺失等问题。
-- ComfyUI 单机 10、双机 20 不能只看配置，必须通过 `backend/scripts/comfyui_capacity_probe.py` 验证实际队列喂入和任务分布。
+- 业务主线已固定：一次业务调用以 `runId` 为主线，VL、ComfyUI、OpenAI、评分、回填、回调、计费都归入这次业务调用下的处理步骤或证据；标准见 `docs/standards/business-mainline-contract.md`。
+- 下一阶段目标是收敛层层嵌套的控制单元，建立业务编排控制面；规划见 `docs/strategy/business-orchestration-control-plane-v1.md`。
 - 114 控制面发布统一走 `docs/standards/release-sop.md` 和 `scripts/release_114_control_plane.sh`，不再临时手工拼 tar/ssh/restart。
-- 2026-05-15 对外业务接口交付口径已收敛：正式交付材料默认只给 JSON 请求/响应样例，不默认交付 Python 脚本；两个裂变接口固定一请求一图，交付模板见 `docs/api/examples/fission-business-delivery/`。
-- 2026-05-15 中台业务主线已固定：一次业务调用以 `runId` 为主线，VL、ComfyUI、OpenAI、评分、回填、回调、计费都作为这次业务调用下的处理步骤或证据；标准见 `docs/standards/business-mainline-contract.md`。
-- 2026-05-15 逐功能上线检查已固化：每个对外功能上线前必须逐项核对接口、参数、默认值、实际 payload、执行节点、节点依赖、OSS 回填、查询返回和错误展示；标准见 `docs/standards/per-feature-release-checklist.md`。
+- 发版前必须执行逐功能上线检查、ComfyUI 队列验证、业务接口回归和线上 smoke；标准见 `docs/standards/per-feature-release-checklist.md`。
 
 ## 现行真源
 
@@ -55,16 +54,8 @@
 - `docs/strategy/strategy-one-page-2026q2.md`
 - `docs/strategy/mid-platform-gap-and-roadmap-2026-05-07.md`
 - `docs/strategy/mid-platform-detailed-execution-plan-2026-05-07.md`
+- `docs/strategy/business-orchestration-control-plane-v1.md`
 - `docs/strategy/core-business-chain-review-2026-05-03.md`
-- `docs/strategy/coze-mid-platform-migration-v1.md`
-- `docs/strategy/coze-control-plane-migration-pack-v1.md`
-- `docs/strategy/coze-migration-status-summary-2026-04-24.md`
-- `docs/strategy/coze-migration-config-matrix-v1.md`
-- `docs/strategy/coze-host-cutover-sequence-v1.md`
-- `docs/strategy/coze-migration-inventory-v1.md`
-- `docs/strategy/coze-host-reference-phasing-v1.md`
-- `docs/strategy/coze-desktop-centerurl-cutover-v1.md`
-- `docs/strategy/coze-server-layout-v1.md`
 - `docs/strategy/image-ops-service-split-v1.md`
 - `docs/strategy/remote-image-ops-158-plan-v1.md`
 - `docs/architecture.md`
@@ -93,6 +84,10 @@
 - `docs/standards/business-sample-pack-export.md`
 - `docs/standards/cleanup-governance.md`
 - `docs/standards/release-sop.md`
+- `docs/standards/version-control-rules.md`
+- `docs/releases/CHANGELOG.md`
+
+Coze 迁移过程文档仍保留在 `docs/strategy/`，但默认作为阶段记录读取；当前日常执行优先看 `docs/coze/toolbox-inventory.md`、`docs/api/modules/coze.md` 和发布 SOP。
 
 ## 模块入口
 
@@ -118,6 +113,7 @@
 | 测试计划 | `docs/testing/README.md` | 回归计划、线上 smoke 清单、迁移 runbook |
 | 能力测试台账 | `docs/testing/ABILITY_TEST_LEDGER.md` | 每个功能族的必测用例、必查链路和上线闸门 |
 | 复盘记录 | `docs/retrospectives/` | 复盘、风险、后续动作 |
+| 历史归档 | `docs/archive/README.md` | 已退出主入口的旧部署、旧 Coze、旧任务与旧错误文档 |
 | 事故复盘 | `docs/retrospectives/2026-04-27-coze-toolbox-internal-only-incident.md` | Coze 工具箱不可用事故、巡检与并发整改项 |
 | 每日早检 SOP | `docs/standards/morning-ops-check.md` | 每天开发前先查前一天业务、能力、测评和 API Key 异常，并导出标准数据包 |
 | 业务样本包导出 | `docs/standards/business-sample-pack-export.md` | 按业务版本、时间窗口和执行节点导出原图、结果图、VL 内容和过程信息 |
@@ -139,11 +135,8 @@
 - `docs/client/OPEN_TEST_NOW.md`
 - `docs/client/REVIEW_NOW.md`
 - `docs/handover/README.md`
-- `docs/async-task-monitoring.md`
-- `docs/smart-polling-mechanism.md`
-- `docs/error-codes.md`
-- `docs/TODO_PLATFORM.md`
-- `docs/COZE_INTEGRATION_GUIDE.md`
+- `docs/archive/README.md`
+- `docs/archive/202605/README.md`
 
 阅读这些文档时，默认按“历史基线 / 阶段记录”理解，不能直接当作当前实现依据。
 
@@ -164,6 +157,7 @@
 | `docs/retrospectives/` | 复盘记录 |
 | `docs/weekly/` | 周报归档与阶段过程汇总 |
 | `docs/wip/` | 草案与未定稿内容 |
+| `docs/archive/` | 已归档历史文档，只用于追溯，不作为当前执行口径 |
 
 ## 文档维护规则
 

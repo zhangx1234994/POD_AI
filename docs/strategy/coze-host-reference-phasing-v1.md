@@ -36,8 +36,8 @@
 这些文档里的 `<podi-backend-host>` 或示例地址，首轮必须与新 backend host 保持一致：
 
 - `docs/coze/toolbox-inventory.md`
-- `docs/coze-integration.md`
-- `docs/coze-plugin-podi.md`
+- `docs/archive/202605/coze-integration.md`
+- `docs/archive/202605/coze-plugin-podi.md`
 - `docs/api/modules/coze.md`
 
 处理要求：

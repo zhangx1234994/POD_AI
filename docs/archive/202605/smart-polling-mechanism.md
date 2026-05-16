@@ -1,3 +1,7 @@
+状态: archived
+归档原因: 历史客户端轮询实现说明，当前不作为管理端或测评端实现依据。
+替代文档: docs/standards/business-mainline-contract.md；docs/standards/business-api-enums.md
+
 # 智能轮询机制详细文档
 
 > 说明：本文档描述的是历史客户端（已移除）的前端实现细节（文件路径/组件）。

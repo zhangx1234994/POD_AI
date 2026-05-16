@@ -4,8 +4,9 @@ AI 能力中台（FastAPI 后端 + 管理端 + 可视化编排）。
 
 快速入口（本地开发）：
 - 文档总索引：`docs/README.md`
-- Coze Studio 集成与插件同步：`docs/coze-integration.md`
-- PODI × Coze 插件接入（中文说明）：`docs/coze-plugin-podi.md`
+- 当前平台规划：`docs/strategy/business-orchestration-control-plane-v1.md`
+- Coze 工具箱清单：`docs/coze/toolbox-inventory.md`
+- Coze 接口模块：`docs/api/modules/coze.md`
 - 开发指南（后端/前端启动命令等）：`docs/development-guide.md`
 - 发布 SOP（唯一上线入口）：`docs/standards/release-sop.md`
-- 生产部署（PODI 后端/管理端）：`docs/deploy-podi.md`
+- 版本规则：`docs/standards/version-control-rules.md`
