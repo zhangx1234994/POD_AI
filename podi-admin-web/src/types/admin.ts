@@ -1378,6 +1378,11 @@ export interface BusinessOrchestrationNode {
   abilityProvider?: string | null;
   abilityTaskId?: string | null;
   abilityLogId?: number | null;
+  inputSchema?: JsonRecord | null;
+  defaultParams?: JsonRecord | null;
+  routing?: JsonRecord | null;
+  recipeInputs?: JsonRecord | null;
+  recipeOutputs?: JsonRecord | null;
   executorId?: string | null;
   executorName?: string | null;
   executorType?: string | null;

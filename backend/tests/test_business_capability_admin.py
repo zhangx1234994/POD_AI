@@ -136,6 +136,18 @@ def install_business_db(
                 status="active",
                 ability_type="api",
                 vendor_model_id=model.id,
+                default_params={"size": "1024x1024", "quality": "preview"},
+                input_schema={
+                    "fields": [
+                        {"name": "imageUrl", "label": "原图 URL", "type": "image", "required": True},
+                        {"name": "prompt", "label": "额外要求", "type": "textarea", "required": False},
+                    ]
+                },
+                extra_metadata={
+                    "routing_policy": "queue",
+                    "allowed_executor_ids": ["executor_vendor_api_default"],
+                    "fallback_to_default": False,
+                },
             )
         )
         session.add(
@@ -203,6 +215,11 @@ def test_business_capability_create_sets_default_and_resolves_model(monkeypatch)
     assert created["egress_verified"] is True
     assert created["orchestration_graph"]["mode"] == "recipe"
     assert [node["id"] for node in created["orchestration_graph"]["nodes"]] == ["entry", "primary", "result"]
+    primary_node = created["orchestration_graph"]["nodes"][1]
+    assert primary_node["inputSchema"]["fieldCount"] == 2
+    assert primary_node["defaultParams"]["size"] == "1024x1024"
+    assert primary_node["routing"]["allowedExecutorIds"] == ["executor_vendor_api_default"]
+    assert primary_node["routing"]["fallbackToDefault"] is False
 
     listed = {item["id"]: item for item in service.list_capabilities()}
     assert listed["biz_fission_old"]["is_default"] is False

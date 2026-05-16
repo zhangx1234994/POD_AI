@@ -61,6 +61,7 @@ from app.services.pattern_fission_prompt import LEGACY_TEMPLATE_ALIASES as PATTE
 from app.services.pattern_fission_prompt import TEMPLATE_ALIASES as PATTERN_FISSION_TEMPLATE_ALIASES
 from app.services.pattern_fission_prompt import TEMPLATE_ID as PATTERN_FISSION_TEMPLATE_ID
 from app.services.pattern_fission_prompt import compile_pattern_fission_prompt
+from app.services.routing_governance import normalize_ability_routing
 from app.services.task_id_codec import encode_task_id
 from app.services.wallet import wallet_service
 
@@ -4636,6 +4637,11 @@ class BusinessRunService:
                 "abilityId": ability_id,
                 "abilityName": ability.display_name if ability else None,
                 "abilityProvider": ability.provider if ability else None,
+                "inputSchema": self._summarize_ability_input_schema(ability.input_schema) if ability else None,
+                "defaultParams": self._compact_graph_json(ability.default_params) if ability else None,
+                "routing": self._ability_routing_summary(ability) if ability else None,
+                "recipeInputs": self._compact_graph_json(self._extract_step_inputs(step)),
+                "recipeOutputs": self._compact_graph_json(step.get("outputs") if isinstance(step.get("outputs"), dict) else None),
             }
             rows.append({key: value for key, value in item.items() if value is not None})
         return rows
@@ -4673,6 +4679,11 @@ class BusinessRunService:
                         "abilityId": step.get("abilityId"),
                         "abilityName": step.get("abilityName"),
                         "abilityProvider": step.get("abilityProvider"),
+                        "inputSchema": step.get("inputSchema"),
+                        "defaultParams": step.get("defaultParams"),
+                        "routing": step.get("routing"),
+                        "recipeInputs": step.get("recipeInputs"),
+                        "recipeOutputs": step.get("recipeOutputs"),
                     }
                 )
             )
@@ -5675,9 +5686,19 @@ class BusinessRunService:
             session,
             [int(step.ability_log_id) for step in steps if step.ability_log_id],
         )
+        ability_ids = [str(step.ability_id) for step in steps if step.ability_id]
+        ability_map = {
+            ability.id: ability
+            for ability in (
+                session.execute(select(Ability).where(Ability.id.in_(ability_ids))).scalars().all()
+                if ability_ids
+                else []
+            )
+        }
         rows: list[dict[str, Any]] = []
         for step in steps:
             log = log_map.get(int(step.ability_log_id)) if step.ability_log_id else None
+            ability = ability_map.get(str(step.ability_id or ""))
             rows.append(
                 {
                     "id": step.id,
@@ -5701,6 +5722,9 @@ class BusinessRunService:
                     "executor_id": log.executor_id if log else None,
                     "executor_name": log.executor_name if log else None,
                     "executor_type": log.executor_type if log else None,
+                    "inputSchema": self._summarize_ability_input_schema(ability.input_schema) if ability else None,
+                    "defaultParams": self._compact_graph_json(ability.default_params) if ability else None,
+                    "routing": self._ability_routing_summary(ability) if ability else None,
                     "execution_evidence": self._build_execution_evidence(log),
                     "result_summary": self._build_step_result_summary(step),
                     "error_message": step.error_message,
@@ -5716,8 +5740,98 @@ class BusinessRunService:
                     "created_at": step.created_at,
                     "updated_at": step.updated_at,
                 }
-            )
+        )
         return rows
+
+    @staticmethod
+    def _compact_graph_json(value: Any, *, max_items: int = 16, max_text: int = 240) -> Any | None:
+        if value in (None, "", []):
+            return None
+        if isinstance(value, dict):
+            compact: dict[str, Any] = {}
+            for index, (key, item) in enumerate(value.items()):
+                if index >= max_items:
+                    compact["..."] = f"还有 {len(value) - max_items} 项"
+                    break
+                nested = BusinessRunService._compact_graph_json(item, max_items=max_items, max_text=max_text)
+                if nested not in (None, "", []):
+                    compact[str(key)] = nested
+            return compact or None
+        if isinstance(value, list):
+            items = [
+                BusinessRunService._compact_graph_json(item, max_items=max_items, max_text=max_text)
+                for item in value[:max_items]
+            ]
+            compact_items = [item for item in items if item not in (None, "", [])]
+            if len(value) > max_items:
+                compact_items.append(f"还有 {len(value) - max_items} 项")
+            return compact_items or None
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return None
+            return text if len(text) <= max_text else f"{text[:max_text]}..."
+        return value
+
+    @staticmethod
+    def _summarize_ability_input_schema(schema: dict[str, Any] | None) -> dict[str, Any] | None:
+        if not isinstance(schema, dict):
+            return None
+        raw_fields = schema.get("fields")
+        if not isinstance(raw_fields, list):
+            return BusinessRunService._compact_graph_json(schema)
+        fields: list[dict[str, Any]] = []
+        for field in raw_fields[:16]:
+            if not isinstance(field, dict):
+                continue
+            options = field.get("options")
+            if isinstance(options, list):
+                options = [
+                    {
+                        key: item.get(key)
+                        for key in ("label", "value")
+                        if isinstance(item, dict) and item.get(key) not in (None, "")
+                    }
+                    if isinstance(item, dict)
+                    else item
+                    for item in options[:12]
+                ]
+            item = {
+                "name": field.get("name"),
+                "label": field.get("label"),
+                "type": field.get("type"),
+                "required": field.get("required"),
+                "default": field.get("default"),
+                "description": field.get("description"),
+                "options": options,
+            }
+            fields.append({key: value for key, value in item.items() if value not in (None, "", [])})
+        return {
+            key: value
+            for key, value in {
+                "fieldCount": len(raw_fields),
+                "fields": fields,
+                "schemaVersion": schema.get("schemaVersion") or schema.get("schema_version"),
+            }.items()
+            if value not in (None, "", [])
+        }
+
+    @staticmethod
+    def _ability_routing_summary(ability: Ability | None) -> dict[str, Any] | None:
+        if not ability:
+            return None
+        metadata = ability.extra_metadata if isinstance(ability.extra_metadata, dict) else {}
+        routing = normalize_ability_routing(metadata)
+        summary = {
+            "selectionPolicy": routing.get("selection_policy"),
+            "requiredExecutorTags": routing.get("required_executor_tags"),
+            "allowedExecutorIds": routing.get("allowed_executor_ids"),
+            "fallbackToDefault": routing.get("fallback_to_default"),
+            "action": routing.get("action"),
+            "workflowKey": routing.get("workflow_key"),
+            "routingNote": metadata.get("routing_note"),
+        }
+        return BusinessRunService._compact_graph_json(summary)
 
     def _run_steps_summary_to_dict(self, row: BusinessRun, *, session=None) -> list[dict[str, Any]]:
         if session is None:

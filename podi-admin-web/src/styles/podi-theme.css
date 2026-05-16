@@ -786,6 +786,43 @@ html.t-theme-dark {
   word-break: break-word;
 }
 
+.podi-business-graph-node__diagnostics {
+  border-top: 1px dashed var(--td-border-level-1-color);
+  padding-top: 6px;
+}
+
+.podi-business-graph-node__diagnostics summary {
+  cursor: pointer;
+  color: var(--podi-accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.podi-business-graph-node__diagnostics-body {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.podi-business-graph-node__diagnostics-body > div {
+  display: grid;
+  gap: 3px;
+}
+
+.podi-business-graph-node__diagnostics pre {
+  max-height: 160px;
+  margin: 0;
+  overflow: auto;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--td-bg-color-page) 84%, var(--podi-accent-soft));
+  color: var(--td-text-color-primary);
+  font-size: 11px;
+  line-height: 1.5;
+  padding: 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .podi-business-graph__edge {
   display: flex;
   width: 22px;

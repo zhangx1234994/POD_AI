@@ -3511,6 +3511,89 @@ const businessGraphNodeOutputLabel = (node: BusinessOrchestrationNode) => {
   return parts.join(' · ');
 };
 
+const businessGraphHasValue = (value?: unknown) => {
+  if (value === undefined || value === null || value === '') return false;
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === 'object') return Object.keys(value as JsonRecord).length > 0;
+  return true;
+};
+
+const businessGraphSchemaSummary = (schema?: JsonRecord | null) => {
+  const source = asJsonRecord(schema);
+  const fields = Array.isArray(source.fields) ? source.fields : [];
+  const fieldLabels = fields
+    .slice(0, 6)
+    .map((field) => {
+      if (!field || typeof field !== 'object') return '';
+      const item = field as JsonRecord;
+      return String(item.label || item.name || '').trim();
+    })
+    .filter(Boolean);
+  const count = recordNumber(source, 'fieldCount', fields.length);
+  if (!count && fieldLabels.length === 0) return '';
+  return `${count || fieldLabels.length} 个字段${fieldLabels.length > 0 ? `：${fieldLabels.join('、')}` : ''}`;
+};
+
+const businessGraphRoutingSummary = (routing?: JsonRecord | null) => {
+  const source = asJsonRecord(routing);
+  const policy = recordText(source, 'selectionPolicy', '');
+  const tags = Array.isArray(source.requiredExecutorTags) ? source.requiredExecutorTags.join('、') : '';
+  const executors = Array.isArray(source.allowedExecutorIds) ? source.allowedExecutorIds.join('、') : '';
+  const fallback = source.fallbackToDefault === false ? '禁止兜底' : source.fallbackToDefault === true ? '允许兜底' : '';
+  return [policy ? `策略 ${policy}` : '', tags ? `标签 ${tags}` : '', executors ? `节点 ${executors}` : '', fallback].filter(Boolean).join(' · ');
+};
+
+const BusinessGraphNodeDiagnostics = ({ node }: { node: BusinessOrchestrationNode }) => {
+  const schemaSummary = businessGraphSchemaSummary(node.inputSchema);
+  const routingSummary = businessGraphRoutingSummary(node.routing);
+  const hasDiagnostics =
+    schemaSummary ||
+    routingSummary ||
+    businessGraphHasValue(node.defaultParams) ||
+    businessGraphHasValue(node.recipeInputs) ||
+    businessGraphHasValue(node.recipeOutputs);
+
+  if (!hasDiagnostics) return null;
+
+  return (
+    <details className="podi-business-graph-node__diagnostics">
+      <summary>参数 / 路由</summary>
+      <div className="podi-business-graph-node__diagnostics-body">
+        {schemaSummary ? (
+          <div>
+            <Typography.Text strong>字段</Typography.Text>
+            <Typography.Text theme="secondary">{schemaSummary}</Typography.Text>
+          </div>
+        ) : null}
+        {routingSummary ? (
+          <div>
+            <Typography.Text strong>路由</Typography.Text>
+            <Typography.Text theme="secondary">{routingSummary}</Typography.Text>
+          </div>
+        ) : null}
+        {businessGraphHasValue(node.recipeInputs) ? (
+          <div>
+            <Typography.Text strong>本步骤输入</Typography.Text>
+            <pre>{formatJsonValue(node.recipeInputs)}</pre>
+          </div>
+        ) : null}
+        {businessGraphHasValue(node.recipeOutputs) ? (
+          <div>
+            <Typography.Text strong>本步骤输出</Typography.Text>
+            <pre>{formatJsonValue(node.recipeOutputs)}</pre>
+          </div>
+        ) : null}
+        {businessGraphHasValue(node.defaultParams) ? (
+          <div>
+            <Typography.Text strong>能力默认值</Typography.Text>
+            <pre>{formatJsonValue(node.defaultParams)}</pre>
+          </div>
+        ) : null}
+      </div>
+    </details>
+  );
+};
+
 export const BusinessOrchestrationGraphView = ({
   graph,
   fallbackSteps,
@@ -3589,6 +3672,7 @@ export const BusinessOrchestrationGraphView = ({
                   {node.durationMs ? <Tag variant="light" size="small">{formatDurationMs(node.durationMs)}</Tag> : null}
                   {node.hasOssOutput ? <Tag theme="success" variant="light" size="small">已落盘</Tag> : null}
                 </Space>
+                <BusinessGraphNodeDiagnostics node={node} />
                 {outputText ? <Typography.Text theme="secondary">输出：{outputText}</Typography.Text> : null}
                 {node.abilityTaskId ? (
                   <Typography.Text theme="secondary">排障：{formatShortBusinessId(node.abilityTaskId)}</Typography.Text>
