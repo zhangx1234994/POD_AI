@@ -6,6 +6,8 @@ import type {
   BusinessCapabilityFormState,
   BusinessDefaultApproval,
   BusinessOperationLog,
+  BusinessOrchestrationGraph,
+  BusinessOrchestrationNode,
   BusinessRecipeStep,
   BusinessRun,
   BusinessRunStep,
@@ -2389,6 +2391,18 @@ export const BusinessRunHistoryPanel = ({
             </Col>
           </Row>
           <BusinessRunFlowEvidenceBar detail={detail} />
+          <Card bordered title="本次业务编排">
+            <Space direction="vertical" size="small" style={{ width: '100%' }}>
+              <Typography.Text theme="secondary">
+                一次业务调用只看一个 runId；下面按真实执行顺序展示入口、图像理解、生图/编辑、结果回填和当前卡点。
+              </Typography.Text>
+              <BusinessOrchestrationGraphView
+                graph={detail.orchestrationGraph}
+                fallbackSteps={detail.steps || []}
+                showRuntime
+              />
+            </Space>
+          </Card>
           {detail.retestSummary ? (
             <Card bordered title="复测追踪">
               {(() => {
@@ -3432,6 +3446,168 @@ export const BusinessRecipeFlow = ({
   );
 };
 
+const businessGraphNodeStatusTheme = (
+  node: BusinessOrchestrationNode,
+  graph?: BusinessOrchestrationGraph | null,
+): BusinessRunFlowStageTheme => {
+  const status = String(node.status || '').toLowerCase();
+  if (graph?.summary?.currentNodeId === node.id && businessRunIsActive(status)) return 'primary';
+  if (status === 'succeeded' || status === 'success' || status === 'completed') return 'success';
+  if (status === 'failed' || status === 'error' || status === 'timeout' || status === 'cancelled') return 'danger';
+  if (status === 'queued' || status === 'running' || status === 'pending') return 'warning';
+  return 'default';
+};
+
+const businessGraphStatusLabel = (node: BusinessOrchestrationNode) => {
+  const status = String(node.status || '').toLowerCase();
+  if (status === 'planned') return '待执行';
+  if (status === 'skipped') return '已跳过';
+  if (!status) return '未记录';
+  return businessRunStepStatusLabel(status);
+};
+
+const businessGraphModeLabel = (mode?: string | null) => {
+  if (mode === 'run') return '本次运行';
+  if (mode === 'recipe') return '版本配方';
+  return '业务编排';
+};
+
+const businessGraphNodeTitle = (node: BusinessOrchestrationNode) =>
+  node.label || node.abilityName || businessRecipeStepLabel(node.type, node.role);
+
+const businessGraphNodeKindLabel = (node: BusinessOrchestrationNode) => {
+  if (node.type === 'entry') return '入口';
+  if (node.type === 'result') return '结果';
+  return businessRecipeStepLabel(node.type, node.role);
+};
+
+const businessGraphNodeDetail = (node: BusinessOrchestrationNode, graph?: BusinessOrchestrationGraph | null) => {
+  if (node.type === 'entry') {
+    const business = businessKeyLabel(node.businessKey || graph?.businessKey);
+    const version = node.version || graph?.businessVersion || '未定版本';
+    return `${business} · ${version}`;
+  }
+  if (node.type === 'result') {
+    const output = [
+      node.imageCount ? `${node.imageCount} 张图` : '',
+      node.videoCount ? `${node.videoCount} 个视频` : '',
+      node.textCount ? `${node.textCount} 段文字` : '',
+    ].filter(Boolean);
+    const callback = node.callbackStatus ? `回调：${businessCallbackStatusLabel(node.callbackStatus)}` : '';
+    return [...output, callback].filter(Boolean).join(' · ') || '等待结果回填';
+  }
+  return node.abilityName || node.abilityId || '说明步骤，不直接调用底层能力';
+};
+
+const businessGraphNodeOutputLabel = (node: BusinessOrchestrationNode) => {
+  const output = asJsonRecord(node.output);
+  const parts = [
+    recordNumber(output, 'imageCount', 0) > 0 ? `${recordNumber(output, 'imageCount')} 张图` : '',
+    recordNumber(output, 'videoCount', 0) > 0 ? `${recordNumber(output, 'videoCount')} 个视频` : '',
+    recordNumber(output, 'textCount', 0) > 0 ? `${recordNumber(output, 'textCount')} 段文字` : '',
+    recordNumber(output, 'structuredCount', 0) > 0 ? `${recordNumber(output, 'structuredCount')} 个结构化结果` : '',
+    recordNumber(output, 'resourceCount', 0) > 0 ? `${recordNumber(output, 'resourceCount')} 个资源` : '',
+  ].filter(Boolean);
+  return parts.join(' · ');
+};
+
+export const BusinessOrchestrationGraphView = ({
+  graph,
+  fallbackSteps,
+  compact = false,
+  showRuntime = false,
+}: {
+  graph?: BusinessOrchestrationGraph | null;
+  fallbackSteps?: BusinessRecipeFlowStep[] | null;
+  compact?: boolean;
+  showRuntime?: boolean;
+}) => {
+  const nodes = (graph?.nodes || []).filter((node) => node && node.enabled !== false);
+  const edges = graph?.edges || [];
+  if (nodes.length === 0) {
+    return <BusinessRecipeFlow steps={fallbackSteps} compact={compact} showRuntime={showRuntime} />;
+  }
+  const summary = graph?.summary || {};
+  const hasRuntime = graph?.mode === 'run' || showRuntime;
+  const output = asJsonRecord(summary.output);
+  const outputLabel = [
+    recordNumber(output, 'imageCount', 0) > 0 ? `${recordNumber(output, 'imageCount')} 张图` : '',
+    recordNumber(output, 'videoCount', 0) > 0 ? `${recordNumber(output, 'videoCount')} 个视频` : '',
+    recordNumber(output, 'textCount', 0) > 0 ? `${recordNumber(output, 'textCount')} 段文字` : '',
+    recordNumber(output, 'structuredCount', 0) > 0 ? `${recordNumber(output, 'structuredCount')} 个结构化结果` : '',
+    recordNumber(output, 'resourceCount', 0) > 0 ? `${recordNumber(output, 'resourceCount')} 个资源` : '',
+  ].filter(Boolean).join(' · ');
+
+  return (
+    <div className={`podi-business-graph ${compact ? 'podi-business-graph--compact' : ''}`}>
+      <div className="podi-business-graph__head">
+        <Space size={6} breakLine>
+          <Tag theme={graph?.mode === 'run' ? 'primary' : 'default'} variant="light">
+            {businessGraphModeLabel(graph?.mode)}
+          </Tag>
+          <Tag variant="light">步骤 {summary.stepCount ?? Math.max(nodes.length - 2, 0)}</Tag>
+          {summary.executableStepCount !== undefined && summary.executableStepCount !== null ? (
+            <Tag variant="light">执行 {summary.executableStepCount}</Tag>
+          ) : null}
+          {summary.hasVlStep ? <Tag theme="primary" variant="light">含图像理解</Tag> : null}
+          {typeof summary.progressPercent === 'number' ? <Tag variant="light">进度 {summary.progressPercent}%</Tag> : null}
+          {outputLabel ? <Tag theme="success" variant="light">输出 {outputLabel}</Tag> : null}
+        </Space>
+        {summary.issueLabel ? (
+          <Typography.Text theme={summary.issueCategory === 'none' ? 'secondary' : 'warning'}>
+            {summary.issueLabel}
+          </Typography.Text>
+        ) : null}
+      </div>
+      <div className="podi-business-graph__track">
+        {nodes.map((node, index) => {
+          const theme = businessGraphNodeStatusTheme(node, graph);
+          const isCurrent = summary.currentNodeId === node.id;
+          const outputText = businessGraphNodeOutputLabel(node);
+          const nextEdge = edges.find((edge) => edge.source === node.id && nodes.some((item) => item.id === edge.target));
+          return (
+            <div className="podi-business-graph__segment" key={`${node.id}-${index}`}>
+              <section className={`podi-business-graph-node podi-business-graph-node--${theme} ${isCurrent ? 'podi-business-graph-node--current' : ''}`}>
+                <div className="podi-business-graph-node__top">
+                  <Tag theme={theme as any} variant="light" size="small">
+                    {businessGraphNodeKindLabel(node)}
+                  </Tag>
+                  <span>{node.order ?? index}</span>
+                </div>
+                <Typography.Text strong>{businessGraphNodeTitle(node)}</Typography.Text>
+                <Typography.Text theme="secondary">{businessGraphNodeDetail(node, graph)}</Typography.Text>
+                <Space size={6} breakLine>
+                  {hasRuntime ? (
+                    <Tag theme={theme as any} variant="light" size="small">
+                      {businessGraphStatusLabel(node)}
+                    </Tag>
+                  ) : null}
+                  {node.abilityProvider ? <Tag variant="light" size="small">{node.abilityProvider}</Tag> : null}
+                  {node.executorName || node.executorId ? (
+                    <Tag variant="light" size="small">{node.executorName || node.executorId}</Tag>
+                  ) : null}
+                  {node.durationMs ? <Tag variant="light" size="small">{formatDurationMs(node.durationMs)}</Tag> : null}
+                  {node.hasOssOutput ? <Tag theme="success" variant="light" size="small">已落盘</Tag> : null}
+                </Space>
+                {outputText ? <Typography.Text theme="secondary">输出：{outputText}</Typography.Text> : null}
+                {node.abilityTaskId ? (
+                  <Typography.Text theme="secondary">排障：{formatShortBusinessId(node.abilityTaskId)}</Typography.Text>
+                ) : null}
+                {node.error ? <Typography.Text theme="error">{node.error}</Typography.Text> : null}
+              </section>
+              {index < nodes.length - 1 ? (
+                <div className="podi-business-graph__edge" title={nextEdge?.label || ''}>
+                  →
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
 const readCapabilityRollout = (metadata?: JsonRecord | null) => {
   const rollout = metadata && typeof metadata.rollout === 'object' && !Array.isArray(metadata.rollout)
     ? (metadata.rollout as JsonRecord)
@@ -4101,7 +4277,11 @@ export const BusinessOrchestrationMapPanel = ({
                       3. 处理步骤
                     </Tag>
                     <Typography.Text theme="secondary">主执行：{businessCapabilityEngineLabel(row.defaultItem)}</Typography.Text>
-                    <BusinessRecipeFlow steps={row.defaultItem?.recipeSteps || []} compact />
+                    <BusinessOrchestrationGraphView
+                      graph={row.defaultItem?.orchestrationGraph}
+                      fallbackSteps={row.defaultItem?.recipeSteps || []}
+                      compact
+                    />
                   </Space>
                 </Card>
                 <Card bordered size="small">
@@ -4291,11 +4471,15 @@ function BusinessCapabilityTechnicalDetails({ item }: { item: BusinessCapability
             {[...governanceIssues.map((value) => businessGovernanceIssueLabel(value)), ...governanceSuggestions].slice(0, 3).join('；')}
           </Typography.Text>
         ) : null}
-        {item.recipeSteps && item.recipeSteps.length > 0 ? (
+        {(item.orchestrationGraph || (item.recipeSteps && item.recipeSteps.length > 0)) ? (
           <div>
-            <Typography.Text theme="secondary">业务流程</Typography.Text>
+            <Typography.Text theme="secondary">业务编排</Typography.Text>
             <div style={{ marginTop: 8 }}>
-              <BusinessRecipeFlow steps={item.recipeSteps} compact />
+              <BusinessOrchestrationGraphView
+                graph={item.orchestrationGraph}
+                fallbackSteps={item.recipeSteps}
+                compact
+              />
             </div>
           </div>
         ) : null}

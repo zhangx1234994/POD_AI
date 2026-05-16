@@ -1353,6 +1353,7 @@ export interface BusinessCapability {
   modelCostConfigured?: boolean | null;
   egressVerified?: boolean | null;
   recipeSteps?: BusinessRecipeStep[];
+  orchestrationGraph?: BusinessOrchestrationGraph | null;
   latestAcceptance?: BusinessAcceptanceRecord | null;
   acceptanceRecords?: BusinessAcceptanceRecord[];
   releaseGate?: BusinessReleaseGate | null;
@@ -1360,6 +1361,68 @@ export interface BusinessCapability {
   runMetrics?: BusinessCapabilityRunMetrics | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface BusinessOrchestrationNode {
+  id: string;
+  type?: string | null;
+  role?: string | null;
+  label?: string | null;
+  order?: number | null;
+  status?: string | null;
+  enabled?: boolean | null;
+  businessKey?: string | null;
+  version?: string | null;
+  abilityId?: string | null;
+  abilityName?: string | null;
+  abilityProvider?: string | null;
+  abilityTaskId?: string | null;
+  abilityLogId?: number | null;
+  executorId?: string | null;
+  executorName?: string | null;
+  executorType?: string | null;
+  durationMs?: number | null;
+  error?: string | null;
+  hasOssOutput?: boolean | null;
+  output?: JsonRecord | null;
+  imageCount?: number | null;
+  videoCount?: number | null;
+  textCount?: number | null;
+  callbackStatus?: string | null;
+  callbackHttpStatus?: number | null;
+}
+
+export interface BusinessOrchestrationEdge {
+  id?: string | null;
+  source: string;
+  target: string;
+  label?: string | null;
+}
+
+export interface BusinessOrchestrationGraphSummary {
+  status?: string | null;
+  progressPercent?: number | null;
+  currentNodeId?: string | null;
+  issueCategory?: string | null;
+  issueLabel?: string | null;
+  stepCount?: number | null;
+  executableStepCount?: number | null;
+  hasVlStep?: boolean | null;
+  hasPrimaryStep?: boolean | null;
+  output?: JsonRecord | null;
+}
+
+export interface BusinessOrchestrationGraph {
+  version?: number | null;
+  mode?: string | null;
+  runId?: string | null;
+  businessKey?: string | null;
+  businessVersionId?: string | null;
+  businessVersion?: string | null;
+  route?: JsonRecord | null;
+  nodes?: BusinessOrchestrationNode[];
+  edges?: BusinessOrchestrationEdge[];
+  summary?: BusinessOrchestrationGraphSummary | null;
 }
 
 export interface BusinessReleaseGate {
@@ -1571,6 +1634,7 @@ export interface BusinessRun {
   retestRecovered?: boolean | null;
   retestSummary?: JsonRecord | null;
   flowSummary?: BusinessRunFlowSummary | null;
+  orchestrationGraph?: BusinessOrchestrationGraph | null;
   steps?: BusinessRunStep[];
   createdAt: string;
   updatedAt: string;

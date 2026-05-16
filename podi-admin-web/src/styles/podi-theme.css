@@ -698,6 +698,108 @@ html.t-theme-dark {
   gap: 4px;
 }
 
+.podi-business-graph {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.podi-business-graph__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.podi-business-graph__track {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px 2px 8px;
+}
+
+.podi-business-graph--compact .podi-business-graph__track {
+  display: grid;
+  grid-template-columns: 1fr;
+  overflow: visible;
+}
+
+.podi-business-graph__segment {
+  display: flex;
+  min-width: 210px;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.podi-business-graph--compact .podi-business-graph__segment {
+  min-width: 0;
+}
+
+.podi-business-graph-node {
+  display: flex;
+  min-width: 190px;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--td-border-level-1-color);
+  border-radius: var(--podi-radius-md);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--td-bg-color-container) 94%, var(--podi-accent-soft)), var(--td-bg-color-container));
+}
+
+.podi-business-graph--compact .podi-business-graph-node {
+  min-width: 0;
+}
+
+.podi-business-graph-node--success {
+  border-color: color-mix(in srgb, var(--td-success-color) 30%, var(--td-border-level-1-color));
+}
+
+.podi-business-graph-node--warning {
+  border-color: color-mix(in srgb, var(--td-warning-color) 34%, var(--td-border-level-1-color));
+}
+
+.podi-business-graph-node--danger {
+  border-color: color-mix(in srgb, var(--td-error-color) 38%, var(--td-border-level-1-color));
+}
+
+.podi-business-graph-node--primary,
+.podi-business-graph-node--current {
+  border-color: color-mix(in srgb, var(--podi-accent) 42%, var(--td-border-level-1-color));
+  box-shadow: inset 3px 0 0 var(--podi-accent);
+}
+
+.podi-business-graph-node__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+}
+
+.podi-business-graph-node code,
+.podi-business-graph-node .t-typography {
+  word-break: break-word;
+}
+
+.podi-business-graph__edge {
+  display: flex;
+  width: 22px;
+  flex: 0 0 22px;
+  align-items: center;
+  justify-content: center;
+  color: var(--td-text-color-placeholder);
+  font-weight: 700;
+}
+
+.podi-business-graph--compact .podi-business-graph__edge {
+  display: none;
+}
+
 .podi-business-decision-card {
   border-color: color-mix(in srgb, var(--podi-accent) 20%, var(--td-border-level-1-color));
   background:
