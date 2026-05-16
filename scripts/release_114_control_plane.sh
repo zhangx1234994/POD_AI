@@ -198,9 +198,9 @@ section "Remote verification"
 remote "set -e; cd '$TARGET_ROOT'; echo release=\$(cat DEPLOYED_COMMIT); curl -fsS '$BACKEND_URL_LOCAL/health'; echo; BACKEND_URL='$BACKEND_URL_LOCAL' ADMIN_URL='$ADMIN_URL_LOCAL' EVAL_URL='$EVAL_URL_LOCAL' bash scripts/deploy_preflight.sh"
 
 if [[ "$RUN_SMOKE" == "1" ]]; then
-  smoke_extra_args=""
+  smoke_extra_args="${SMOKE_EXTRA_ARGS:-}"
   if [[ "$SMOKE_ALLOW_COMFYUI_WARNINGS" == "1" ]]; then
-    smoke_extra_args=" --allow-comfyui-compat-warnings"
+    smoke_extra_args="$smoke_extra_args --allow-comfyui-compat-warnings"
   fi
 remote "cd '$TARGET_ROOT' && BACKEND_URL_LOCAL='$BACKEND_URL_LOCAL' SMOKE_EXTRA_ARGS='$smoke_extra_args' SMOKE_EXPECT_SERVER_URL='${SMOKE_EXPECT_SERVER_URL:-}' bash -s" <<'REMOTE'
 set -euo pipefail
