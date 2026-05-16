@@ -4640,6 +4640,216 @@ class BusinessRunService:
             rows.append({key: value for key, value in item.items() if value is not None})
         return rows
 
+    def _build_recipe_orchestration_graph(self, recipe: dict[str, Any], *, session=None) -> dict[str, Any]:
+        steps = self._recipe_steps_to_dict(recipe, session=session)
+        nodes: list[dict[str, Any]] = [
+            {
+                "id": "entry",
+                "type": "entry",
+                "role": "entry",
+                "label": "业务入口",
+                "order": 0,
+                "status": "planned",
+            }
+        ]
+        edges: list[dict[str, Any]] = []
+        previous_id = "entry"
+        executable_count = 0
+        for step in steps:
+            node_id = self._graph_node_id(step.get("id"), fallback=f"step_{step.get('order') or len(nodes)}")
+            enabled = step.get("enabled") is not False
+            if enabled and str(step.get("type") or "").strip() in RECIPE_EXECUTABLE_STEP_TYPES:
+                executable_count += 1
+            nodes.append(
+                self._compact_graph_node(
+                    {
+                        "id": node_id,
+                        "type": step.get("type") or "ability_task",
+                        "role": step.get("role"),
+                        "label": step.get("displayName") or step.get("abilityName") or node_id,
+                        "order": step.get("order"),
+                        "status": "planned" if enabled else "skipped",
+                        "enabled": enabled,
+                        "abilityId": step.get("abilityId"),
+                        "abilityName": step.get("abilityName"),
+                        "abilityProvider": step.get("abilityProvider"),
+                    }
+                )
+            )
+            edges.append({"id": f"{previous_id}->{node_id}", "source": previous_id, "target": node_id})
+            previous_id = node_id
+        nodes.append(
+            {
+                "id": "result",
+                "type": "result",
+                "role": "result",
+                "label": "结果回填",
+                "order": len(nodes),
+                "status": "planned",
+            }
+        )
+        edges.append({"id": f"{previous_id}->result", "source": previous_id, "target": "result"})
+        return {
+            "version": 1,
+            "mode": "recipe",
+            "nodes": nodes,
+            "edges": edges,
+            "summary": {
+                "stepCount": len(steps),
+                "executableStepCount": executable_count,
+                "hasVlStep": any(str(step.get("type") or "").startswith("vl_") for step in steps),
+                "hasPrimaryStep": any(str(step.get("role") or "") == "primary" for step in steps),
+            },
+        }
+
+    def _build_run_orchestration_graph(
+        self,
+        row: BusinessRun,
+        *,
+        steps: list[dict[str, Any]],
+        route_info: dict[str, Any] | None,
+        flow_summary: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        route = route_info if isinstance(route_info, dict) else {}
+        flow = flow_summary if isinstance(flow_summary, dict) else {}
+        output = flow.get("output") if isinstance(flow.get("output"), dict) else {}
+        nodes: list[dict[str, Any]] = [
+            {
+                "id": "entry",
+                "type": "entry",
+                "role": "entry",
+                "label": "业务入口",
+                "order": 0,
+                "status": "succeeded" if steps or row.status not in {"queued", "running"} else row.status,
+                "businessKey": row.business_key,
+                "version": row.version,
+            }
+        ]
+        edges: list[dict[str, Any]] = []
+        previous_id = "entry"
+        active_node_id: str | None = None
+        for index, step in enumerate(steps, start=1):
+            node_id = self._graph_node_id(
+                step.get("step_id") or step.get("id"),
+                fallback=f"step_{step.get('step_order') or index}",
+            )
+            status = str(step.get("status") or "").strip().lower()
+            if active_node_id is None and status in {"failed", "running", "queued"}:
+                active_node_id = node_id
+            evidence = step.get("execution_evidence") if isinstance(step.get("execution_evidence"), dict) else {}
+            result_summary = step.get("result_summary") if isinstance(step.get("result_summary"), dict) else {}
+            nodes.append(
+                self._compact_graph_node(
+                    {
+                        "id": node_id,
+                        "type": step.get("step_type") or "ability_task",
+                        "role": step.get("role"),
+                        "label": step.get("display_name") or step.get("ability_name") or step.get("step_id") or node_id,
+                        "order": step.get("step_order") or index,
+                        "status": step.get("status"),
+                        "enabled": step.get("enabled"),
+                        "abilityId": step.get("ability_id"),
+                        "abilityName": step.get("ability_name"),
+                        "abilityProvider": step.get("ability_provider"),
+                        "abilityTaskId": step.get("ability_task_id"),
+                        "abilityLogId": step.get("ability_log_id"),
+                        "executorId": step.get("executor_id"),
+                        "executorName": step.get("executor_name"),
+                        "executorType": step.get("executor_type"),
+                        "durationMs": step.get("duration_ms"),
+                        "error": step.get("error_message"),
+                        "hasOssOutput": evidence.get("hasOssOutput"),
+                        "output": {
+                            key: value
+                            for key, value in {
+                                "imageCount": result_summary.get("imageCount"),
+                                "videoCount": result_summary.get("videoCount"),
+                                "textCount": result_summary.get("textCount"),
+                                "structuredCount": result_summary.get("structuredCount"),
+                                "resourceCount": result_summary.get("resourceCount"),
+                            }.items()
+                            if value not in (None, "", [])
+                        },
+                    }
+                )
+            )
+            edges.append({"id": f"{previous_id}->{node_id}", "source": previous_id, "target": node_id})
+            previous_id = node_id
+        if active_node_id is None and steps:
+            last_step = steps[-1]
+            active_node_id = self._graph_node_id(
+                last_step.get("step_id") or last_step.get("id"),
+                fallback=f"step_{last_step.get('step_order') or len(steps)}",
+            )
+        result_status = "succeeded" if row.status == "succeeded" and output.get("hasOutput") else row.status
+        nodes.append(
+            self._compact_graph_node(
+                {
+                    "id": "result",
+                    "type": "result",
+                    "role": "result",
+                    "label": "结果回填",
+                    "order": len(nodes),
+                    "status": result_status,
+                    "imageCount": len(row.image_urls or []),
+                    "videoCount": len(row.video_urls or []),
+                    "textCount": len(row.texts or []),
+                    "callbackStatus": row.callback_status,
+                    "callbackHttpStatus": row.callback_http_status,
+                    "error": row.error_message or row.callback_error,
+                }
+            )
+        )
+        edges.append({"id": f"{previous_id}->result", "source": previous_id, "target": "result"})
+        return {
+            "version": 1,
+            "mode": "run",
+            "runId": row.id,
+            "businessKey": row.business_key,
+            "businessVersionId": row.business_version_id,
+            "businessVersion": row.version,
+            "route": {
+                "selectedBy": route.get("selectedBy") or route.get("selected_by"),
+                "selectedCapabilityId": route.get("selectedCapabilityId") or route.get("selected_capability_id"),
+            },
+            "nodes": nodes,
+            "edges": edges,
+            "summary": {
+                "status": row.status,
+                "progressPercent": flow.get("progressPercent"),
+                "currentNodeId": active_node_id,
+                "issueCategory": flow.get("issueCategory"),
+                "issueLabel": flow.get("issueLabel"),
+                "stepCount": len(steps),
+                "output": output,
+            },
+        }
+
+    @staticmethod
+    def _graph_node_id(value: Any, *, fallback: str | None) -> str:
+        raw = str(value or fallback or "").strip()
+        if not raw:
+            return "node"
+        return "".join(char if char.isalnum() or char in {"_", "-"} else "_" for char in raw)[:96]
+
+    @staticmethod
+    def _compact_graph_node(node: dict[str, Any]) -> dict[str, Any]:
+        compact: dict[str, Any] = {}
+        for key, value in node.items():
+            if value in (None, "", []):
+                continue
+            if isinstance(value, dict):
+                nested = {
+                    nested_key: nested_value
+                    for nested_key, nested_value in value.items()
+                    if nested_value not in (None, "", [])
+                }
+                if nested:
+                    compact[key] = nested
+            else:
+                compact[key] = value
+        return compact
+
     @staticmethod
     def _first_value(*values: Any) -> Any | None:
         for value in values:
@@ -4908,6 +5118,7 @@ class BusinessRunService:
             "vendor_model_name": vendor_model_name,
             "vendor_model_provider": vendor_model_provider,
             "recipe_steps": self._recipe_steps_to_dict(recipe, session=session),
+            "orchestration_graph": self._build_recipe_orchestration_graph(recipe, session=session),
             "governance_status": governance["status"],
             "governance_issues": governance["issues"],
             "governance_suggestions": governance["suggestions"],
@@ -5268,6 +5479,7 @@ class BusinessRunService:
         billing_status = self._business_billing_status(row)
         issue_summary = self._build_run_issue_summary(row, session=session, steps=steps)
         retest_summary = self._build_retest_summary(row, session=session)
+        flow_summary = self._build_run_flow_summary(row, steps=steps, route_info=route_info, session=session)
         return {
             "id": row.id,
             "business_key": row.business_key,
@@ -5326,7 +5538,13 @@ class BusinessRunService:
             "retest_attempts": int(retest_summary.get("attempts") or 0),
             "retest_recovered": bool(retest_summary.get("recovered")),
             "retest_summary": retest_summary,
-            "flow_summary": self._build_run_flow_summary(row, steps=steps, route_info=route_info, session=session),
+            "flow_summary": flow_summary,
+            "orchestration_graph": self._build_run_orchestration_graph(
+                row,
+                steps=steps,
+                route_info=route_info,
+                flow_summary=flow_summary,
+            ),
             "steps": steps,
             "created_at": row.created_at,
             "updated_at": row.updated_at,
@@ -5356,7 +5574,12 @@ class BusinessRunService:
             row,
             session=None,
             steps=steps,
-            include_payload_counts=False,
+        )
+        flow_summary = self._build_run_flow_summary(
+            row,
+            steps=steps,
+            route_info=route_info,
+            session=None,
         )
         return {
             "id": row.id,
@@ -5416,12 +5639,12 @@ class BusinessRunService:
             "retest_attempts": 0,
             "retest_recovered": False,
             "retest_summary": None,
-            "flow_summary": self._build_run_flow_summary(
+            "flow_summary": flow_summary,
+            "orchestration_graph": self._build_run_orchestration_graph(
                 row,
                 steps=steps,
                 route_info=route_info,
-                session=None,
-                include_payload_counts=False,
+                flow_summary=flow_summary,
             ),
             "steps": steps,
             "created_at": row.created_at,

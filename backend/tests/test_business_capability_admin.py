@@ -201,6 +201,8 @@ def test_business_capability_create_sets_default_and_resolves_model(monkeypatch)
     assert created["runtime_key_configured"] is True
     assert created["model_cost_configured"] is True
     assert created["egress_verified"] is True
+    assert created["orchestration_graph"]["mode"] == "recipe"
+    assert [node["id"] for node in created["orchestration_graph"]["nodes"]] == ["entry", "primary", "result"]
 
     listed = {item["id"]: item for item in service.list_capabilities()}
     assert listed["biz_fission_old"]["is_default"] is False
@@ -706,6 +708,8 @@ def test_business_capability_create_accepts_multistep_recipe(monkeypatch) -> Non
         "ability_openai_fission",
     ]
     assert created["recipe_steps"][0]["abilityName"] == "VL 图像理解"
+    assert created["orchestration_graph"]["summary"]["hasVlStep"] is True
+    assert [edge["target"] for edge in created["orchestration_graph"]["edges"]] == ["vl", "primary", "result"]
 
 
 def test_business_run_records_recipe_steps(monkeypatch) -> None:
@@ -736,6 +740,9 @@ def test_business_run_records_recipe_steps(monkeypatch) -> None:
     assert run["steps"][0]["status"] == "queued"
     assert run["steps"][0]["ability_id"] == "ability_openai_fission"
     assert run["steps"][0]["ability_task_id"] == "t1.fission.auto.task_run_1"
+    assert run["orchestration_graph"]["mode"] == "run"
+    assert run["orchestration_graph"]["summary"]["currentNodeId"] == "primary"
+    assert [node["id"] for node in run["orchestration_graph"]["nodes"]] == ["entry", "primary", "result"]
 
 
 def test_business_run_accepts_flat_fission_params(monkeypatch) -> None:
@@ -2287,6 +2294,9 @@ def test_business_run_detail_includes_flow_evidence(monkeypatch) -> None:
     assert fetched["flow_summary"]["ability"]["id"] == "ability_openai_fission"
     assert fetched["flow_summary"]["executor"]["id"] == "executor_comfyui_4090"
     assert fetched["flow_summary"]["output"]["hasOssOutput"] is True
+    assert fetched["orchestration_graph"]["summary"]["status"] == "succeeded"
+    assert fetched["orchestration_graph"]["summary"]["output"]["hasOutput"] is True
+    assert [node["id"] for node in fetched["orchestration_graph"]["nodes"]] == ["entry", "primary", "result"]
     assert fetched["steps"][0]["executor_name"] == "ComfyUI 4090 · 233"
     assert fetched["steps"][0]["execution_evidence"]["hasOssOutput"] is True
 

@@ -13,7 +13,7 @@
 - `done`：已完成
 - `archived`：归档
 
-当前执行焦点（2026-05-15）：
+当前执行焦点（2026-05-16）：
 
 - 2026-05-16 已将 114 线上封版 commit `904f9a2a` 定义为平台 `v0.1.0`，版本规则见 `docs/standards/version-control-rules.md`，版本记录见 `docs/releases/CHANGELOG.md`。
 - 下一阶段主线切换为“控制权收敛 + 业务编排可视化”。规划见 `docs/strategy/business-orchestration-control-plane-v1.md`。核心目标是解决路由、参数、版本、测评展示、文档多处重复控制的问题。
@@ -42,6 +42,9 @@
 - 当前基线：`v0.1.0` / commit `904f9a2a`
 - 第一阶段任务：先做只读业务编排图和 runId 全链路排障，不急着做拖拽编辑。
 - 第二阶段任务：把业务版本、参数 schema、路由策略、测评入口和文档一致性纳入发布门禁。
+- 已完成（2026-05-16）：清理顶层旧 Coze、旧部署、旧任务、旧错误码和旧工作流说明，统一归档到 `docs/archive/202605/`，根 README 与 docs 总索引不再指向过时入口。
+- 已完成（2026-05-16）：后端业务版本和业务运行详情新增只读 `orchestration_graph`，从同一份 `BusinessCapability.recipe` 和 run steps 生成入口、处理步骤、结果回填节点与连线，为管理端后续编排图打底。
+- 已完成（2026-05-16）：修正业务运行轻量列表对结构化输出和“已忽略问题”的误判，避免成功记录在列表里被误归因为“结果回填问题”。
 - 验收：打开任意业务 runId，能按编排图看到 VL、生成、评分、OSS、回调等子步骤；修改一个参数或路由策略时，只有一个真源，其余位置自动读取或由门禁提示漂移。
 
 1. `doing` 当前线上版本固化与每日早检
@@ -809,7 +812,7 @@
 - 已完成（2026-05-12）：新增 `docs/standards/release-sop.md`，明确 114 控制面发布原则、标准命令、门禁、线上验证、117/233/vendor-api-ops 更新边界、失败处理、回滚和发布记录模板。
 - 已完成（2026-05-12）：新增 `scripts/release_114_control_plane.sh`，把源检查、关键测试、前端 lint/build、干净打包、上传 114、保留线上 `.env/.venv`、迁移、服务重启、版本标记、远端健康检查和 smoke 固化为一个入口。
 - 已完成（2026-05-12）：`scripts/package_release_archive.py` 默认排除 `.env`、`.venv`、`node_modules`、`__pycache__`、`.pytest_cache`、`.ruff_cache`、`.pyc/.pyo` 等非发布内容，降低手工打包污染风险。
-- 已完成（2026-05-12）：`README.md`、`docs/README.md`、`docs/deploy-checklist.md`、`docs/standards/self-check-sop.md`、`docs/standards/issue-improvement-log.md` 均已指向统一发布 SOP。
+- 已完成（2026-05-12）：`README.md`、`docs/README.md`、`docs/archive/202605/deploy-checklist.md`、`docs/standards/self-check-sop.md`、`docs/standards/issue-improvement-log.md` 均已指向统一发布 SOP。
 - 验证（2026-05-12）：`bash -n scripts/release_114_control_plane.sh`、`python3 -m py_compile scripts/package_release_archive.py`、`python3 scripts/check_doc_entry_references.py`、`python3 -m pytest backend/tests/test_release_archive_packaging.py -q` 均通过。
 
 下一步：暂停新增功能，先执行 2026-05-13 中台走查后的稳定性修复清单。
