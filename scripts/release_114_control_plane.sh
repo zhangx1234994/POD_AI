@@ -183,6 +183,7 @@ elif [[ "$INSTALL_DEPS" == "auto" ]]; then
   echo "[release-114] INSTALL_DEPS=auto: preserving current venv; set INSTALL_DEPS=1 when dependencies changed."
 fi
 .venv/bin/alembic upgrade head
+.venv/bin/python scripts/refresh_workflow_seeds.py
 
 systemctl restart podi-backend podi-admin-web podi-eval-web
 printf '%s' "$COMMIT" > "$TARGET_ROOT/DEPLOYED_COMMIT"
