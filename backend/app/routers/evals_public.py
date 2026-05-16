@@ -425,7 +425,7 @@ def _serialize_eval_run(run: EvalRun, billing: dict[str, Any] | None = None, *, 
     if compact_output:
         return _serialize_eval_run_for_list(run, billing)
 
-    _, has_result = _eval_run_output_kind(run)
+    output_kind, has_result = _eval_run_output_kind(run)
     stage = derive_eval_run_status(
         status=run.status,
         podi_task_id=run.podi_task_id,
@@ -439,6 +439,8 @@ def _serialize_eval_run(run: EvalRun, billing: dict[str, Any] | None = None, *, 
             "callback_status": stage.callback_status,
             "final_status": stage.final_status,
             "error_code": stage.error_code,
+            "result_output_kind": output_kind,
+            "result_has_output": has_result,
             **(billing or {}),
         }
     )
@@ -447,7 +449,7 @@ def _serialize_eval_run(run: EvalRun, billing: dict[str, Any] | None = None, *, 
 
 def _serialize_eval_run_for_list(run: EvalRun, billing: dict[str, Any] | None = None) -> EvalRunResponse:
     image_urls = run.result_image_urls_json if isinstance(run.result_image_urls_json, list) else None
-    has_result = bool(_non_empty_strings(image_urls or [])) or (run.status == "succeeded" and not run.error_message)
+    output_kind, has_result = _eval_run_output_kind(run)
     stage = derive_eval_run_status(
         status=run.status,
         podi_task_id=run.podi_task_id,
@@ -465,8 +467,10 @@ def _serialize_eval_run_for_list(run: EvalRun, billing: dict[str, Any] | None = 
         "coze_debug_url": run.coze_debug_url,
         "podi_task_id": run.podi_task_id,
         "result_image_urls_json": image_urls,
-        # 列表页不加载大体积结构化结果；详情页 /runs/{id} 再取完整内容。
+        # 列表页不加载大体积结构化正文，只返回结果类型摘要。
         "result_output_json": None,
+        "result_output_kind": output_kind,
+        "result_has_output": has_result,
         "error_message": run.error_message,
         "duration_ms": run.duration_ms,
         "created_by": run.created_by,

@@ -60,6 +60,38 @@ def test_eval_list_serializer_omits_heavy_structured_output() -> None:
 
     assert payload["result_image_urls_json"] == ["https://example.com/output.png"]
     assert payload["result_output_json"] is None
+    assert payload["result_output_kind"] == "image"
+    assert payload["result_has_output"] is True
+    assert payload["final_status"] == "success"
+
+
+def test_eval_list_serializer_preserves_structured_output_kind_without_payload() -> None:
+    now = datetime.utcnow()
+    run = EvalRun(
+        id="run_structured",
+        workflow_version_id="wf_structured",
+        dataset_item_id=None,
+        input_oss_urls_json=["https://example.com/input.png"],
+        parameters_json={},
+        status="succeeded",
+        coze_execute_id=None,
+        coze_debug_url=None,
+        podi_task_id="task_structured",
+        result_image_urls_json=[],
+        result_output_json={"decision": "pass", "score": 0.91, "reason": "ok"},
+        error_message=None,
+        duration_ms=123,
+        created_by="tester",
+        created_at=now,
+        updated_at=now,
+    )
+
+    payload = _serialize_eval_run_for_list(run).model_dump()
+
+    assert payload["result_output_json"] is None
+    assert payload["result_output_kind"] == "structured"
+    assert payload["result_has_output"] is True
+    assert payload["callback_status"] == "success"
     assert payload["final_status"] == "success"
 
 

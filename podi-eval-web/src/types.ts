@@ -101,6 +101,8 @@ export type EvalRun = {
   podi_task_id?: string | null;
   result_image_urls_json?: string[] | null;
   result_output_json?: unknown | null;
+  result_output_kind?: 'image' | 'video' | 'text' | 'structured' | 'none' | string | null;
+  result_has_output?: boolean | null;
   error_message?: string | null;
   duration_ms?: number | null;
   billing_unit?: string | null;

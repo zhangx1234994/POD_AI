@@ -289,6 +289,7 @@ const AI_EDITOR_WORKFLOW_ID = '7604714915110060032';
 const SHENGTU_WORKFLOW_ID = '7602916576198656000';
 const LORA_BATCH_MAX_TASKS = 5000;
 const TOOL_MULTI_IMAGE_MAX = 50;
+const TOOL_HISTORY_PAGE_SIZE = 20;
 const COMFYUI_FISSION_V4_PROFILE = 'pattern_risk_routed_v4';
 const COMFYUI_FISSION_V4_PRESETS = [
   {
@@ -437,6 +438,7 @@ const getOutputTone = (
   ) return 'success';
   if (outputLabel.includes('等待')) return 'primary';
   if (outputLabel.includes('成功无回填')) return 'warning';
+  if (outputLabel.includes('成功但缺结果')) return 'warning';
   if (outputLabel.includes('无结果')) return 'danger';
   return 'default';
 };
@@ -1156,7 +1158,7 @@ const getHistoryFocusMeta = (
   focus: ToolHistoryFocus,
 ): { label: string; message: string; theme: 'info' | 'success' | 'warning' | 'error' } | null => {
   if (focus === 'failed') return { label: '失败记录', message: '已定位到最近失败任务，优先查看错误码、调试链接和中台任务 ID。', theme: 'error' };
-  if (focus === 'no_output') return { label: '生成未回填', message: '已定位到状态成功但没有图片/结构化结果的任务，优先排查回填链路。', theme: 'warning' };
+  if (focus === 'no_output') return { label: '成功但缺结果', message: '已定位到状态成功但没有图片、文字或结构化结果的任务，优先排查结果入库链路。', theme: 'warning' };
   if (focus === 'running') return { label: '执行中', message: '已定位到正在排队或运行的任务，用于观察是否卡住。', theme: 'info' };
   if (focus === 'succeeded') return { label: '成功记录', message: '已定位到近期成功任务，可直接对照输出质量和参数。', theme: 'success' };
   return null;
@@ -2191,9 +2193,11 @@ type RunOutputDescriptor = {
 };
 
 const getRunOutputDescriptor = (
-  run: Pick<EvalRun, 'result_image_urls_json' | 'result_output_json'>,
+  run: Pick<EvalRun, 'result_image_urls_json' | 'result_output_json' | 'result_output_kind' | 'result_has_output'>,
 ): RunOutputDescriptor => {
   const output = parseOutputValue((run as any).result_output_json);
+  const backendKind = String((run as any).result_output_kind || '').trim().toLowerCase();
+  const backendHasOutput = (run as any).result_has_output === true;
   const directImages = filterImageUrls(run.result_image_urls_json);
   const nestedImages = collectOutputStrings(output, ['imageUrls', 'image_urls', 'images', 'resultUrls', 'result_urls']).filter(
     isLikelyImageUrl,
@@ -2210,20 +2214,32 @@ const getRunOutputDescriptor = (
   if (videoUrls.length > 0) {
     return { kind: 'video', label: `已回填 ${videoUrls.length} 个视频`, hasOutput: true, imageUrls, videoUrls, textCount: textValues.length, preview };
   }
+  if (backendHasOutput && backendKind === 'video') {
+    return { kind: 'video', label: '视频结果已完成', hasOutput: true, imageUrls, videoUrls, textCount: textValues.length, preview };
+  }
   if ((typeof output === 'string' && output.trim()) || textValues.length > 0) {
     return { kind: 'text', label: '有文字/VL结果', hasOutput: true, imageUrls, videoUrls, textCount: Math.max(1, textValues.length), preview };
+  }
+  if (backendHasOutput && backendKind === 'text') {
+    return { kind: 'text', label: '文字/VL结果已完成', hasOutput: true, imageUrls, videoUrls, textCount: Math.max(1, textValues.length), preview };
   }
   if (output && ((Array.isArray(output) && output.length > 0) || (typeof output === 'object' && Object.keys(output as Record<string, unknown>).length > 0))) {
     return { kind: 'structured', label: '有结构化结果', hasOutput: true, imageUrls, videoUrls, textCount: textValues.length, preview };
   }
+  if (backendHasOutput && backendKind === 'structured') {
+    return { kind: 'structured', label: '结构化结果已完成', hasOutput: true, imageUrls, videoUrls, textCount: textValues.length, preview };
+  }
+  if (backendHasOutput && backendKind === 'image') {
+    return { kind: 'image', label: '图片结果已完成', hasOutput: true, imageUrls, videoUrls, textCount: textValues.length, preview };
+  }
   return { kind: 'none', label: '无结果', hasOutput: false, imageUrls, videoUrls, textCount: 0, preview: '' };
 };
 
-const runHasVisibleOutput = (run: Pick<EvalRun, 'result_image_urls_json' | 'result_output_json'>): boolean => {
+const runHasVisibleOutput = (run: Pick<EvalRun, 'result_image_urls_json' | 'result_output_json' | 'result_output_kind' | 'result_has_output'>): boolean => {
   return getRunOutputDescriptor(run).hasOutput;
 };
 
-const isSucceededWithoutVisibleOutput = (run: Pick<EvalRun, 'status' | 'result_image_urls_json' | 'result_output_json'>): boolean =>
+const isSucceededWithoutVisibleOutput = (run: Pick<EvalRun, 'status' | 'result_image_urls_json' | 'result_output_json' | 'result_output_kind' | 'result_has_output'>): boolean =>
   ['succeeded', 'success', 'completed'].includes(String(run.status || '').toLowerCase()) && !runHasVisibleOutput(run);
 
 const buildImageLightboxGroup = (
@@ -3593,6 +3609,9 @@ export function App() {
   // Keep tool run history and global task list separate.
   // Otherwise, in-flight requests from one view can overwrite the other's list.
   const [toolRuns, setToolRuns] = useState<RunWithLatest[]>([]);
+  const [toolRunTotal, setToolRunTotal] = useState<number>(0);
+  const [toolRunPage, setToolRunPage] = useState<number>(1);
+  const [toolRunLoading, setToolRunLoading] = useState<boolean>(false);
   const [taskRuns, setTaskRuns] = useState<RunWithLatest[]>([]);
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [filterRating, setFilterRating] = useState<string>('all');
@@ -4241,19 +4260,24 @@ export function App() {
     [adminToken, pushNotice],
   );
 
-  const loadRunsForTool = async (workflowVersionId: string) => {
+  const loadRunsForTool = async (workflowVersionId: string, opts?: { page?: number; silent?: boolean }) => {
+    const page = Math.max(1, Number(opts?.page || toolRunPage || 1));
+    if (!opts?.silent) setToolRunLoading(true);
     try {
       const resp = await evalApi.listRunsWithLatestAnnotation({
         workflow_version_id: workflowVersionId,
         status: filterStatus !== 'all' ? filterStatus : undefined,
         unrated: filterUnrated,
-        limit: 80,
-        offset: 0,
+        limit: TOOL_HISTORY_PAGE_SIZE,
+        offset: (page - 1) * TOOL_HISTORY_PAGE_SIZE,
       });
       setToolRuns((resp.items || []) as RunWithLatest[]);
+      setToolRunTotal(Number(resp.total || 0));
     } catch (err) {
       console.error(err);
       pushNotice('error', String((err as any)?.message || err));
+    } finally {
+      if (!opts?.silent) setToolRunLoading(false);
     }
   };
 
@@ -4795,15 +4819,26 @@ export function App() {
   useEffect(() => {
     if (activeView !== 'tool' || !selectedTool) return;
     if (!pageVisible) return;
-    void loadRunsForTool(selectedTool.id);
-    const hasPending = toolRuns.some((r) => r.status === 'queued' || r.status === 'running');
+    void loadRunsForTool(selectedTool.id, { page: toolRunPage });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeView, selectedTool?.id, filterStatus, filterUnrated, toolRunPage, pageVisible]);
+
+  const toolRunsHasPending = useMemo(
+    () => toolRuns.some((r) => r.status === 'queued' || r.status === 'running'),
+    [toolRuns],
+  );
+
+  useEffect(() => {
+    if (activeView !== 'tool' || !selectedTool) return;
+    if (!pageVisible) return;
+    const hasPending = toolRunsHasPending;
     const recentActivity = Date.now() < recentTaskRefreshUntil;
     if (!hasPending && !recentActivity) return;
     const timer = window.setInterval(() => {
-      void loadRunsForTool(selectedTool.id);
+      void loadRunsForTool(selectedTool.id, { page: toolRunPage, silent: true });
     }, 5000);
     return () => window.clearInterval(timer);
-  }, [activeView, selectedTool?.id, filterStatus, filterUnrated, toolRuns, pageVisible, recentTaskRefreshUntil]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeView, selectedTool?.id, toolRunPage, toolRunsHasPending, pageVisible, recentTaskRefreshUntil]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     setBatchReviewGroups([]);
@@ -4858,6 +4893,9 @@ export function App() {
     autoFilledFissionSizeRef.current = null;
     // Prevent showing previous tool's results while the new tool's history is loading.
     setToolRuns([]);
+    setToolRunTotal(0);
+    setToolRunPage(1);
+    setToolRunLoading(false);
     setHistoryFocus(focus);
     setFilterStatus(
       focus === 'failed' ? 'failed' : focus === 'running' ? 'running' : focus === 'succeeded' || focus === 'no_output' ? 'succeeded' : 'all',
@@ -5346,7 +5384,8 @@ export function App() {
       }
       setTaskRuns((prev) => [...createdRuns, ...prev]);
       setLatestTrialRuns(createdTrials.filter((item) => item.runId));
-      await loadRunsForTool(selectedTool.id);
+      setToolRunPage(1);
+      await loadRunsForTool(selectedTool.id, { page: 1 });
       await loadTasks();
       await refreshMetrics();
       bumpTaskRefreshWindow();
@@ -7496,6 +7535,9 @@ export function App() {
   if (activeView === 'tool' && selectedTool) {
     const metric = metrics[selectedTool.id];
     const historyFocusMeta = getHistoryFocusMeta(historyFocus);
+    const toolRunTotalPages = Math.max(1, Math.ceil(Math.max(0, toolRunTotal) / TOOL_HISTORY_PAGE_SIZE));
+    const toolRunFrom = toolRunTotal <= 0 ? 0 : (toolRunPage - 1) * TOOL_HISTORY_PAGE_SIZE + 1;
+    const toolRunTo = toolRunTotal <= 0 ? 0 : Math.min(toolRunTotal, (toolRunPage - 1) * TOOL_HISTORY_PAGE_SIZE + toolRuns.length);
     const toolRuntimeHealth = getWorkflowRuntimeHealth(metric);
     const selectedToolAccent = getWorkflowAccent(selectedTool);
     const selectedToolReleaseDate = getWorkflowReleaseDate(selectedTool);
@@ -8653,7 +8695,11 @@ export function App() {
                                   {jsonPreview}
                                 </pre>
                               ) : (
-                                  <Typography.Text theme="secondary">该次运行无图片输出。</Typography.Text>
+                                  <Typography.Text theme={latestOutput?.hasOutput ? 'success' : 'secondary'}>
+                                    {latestOutput?.hasOutput
+                                      ? latestOutput.label
+                                      : '该次运行暂无图片、文字或结构化结果。'}
+                                  </Typography.Text>
                                 );
                               })()}
                             </Card>
@@ -8678,6 +8724,7 @@ export function App() {
                     size="small"
                     variant="text"
                     onClick={() => {
+                      setToolRunPage(1);
                       setHistoryFocus('all');
                       setFilterStatus('all');
                     }}
@@ -8692,6 +8739,7 @@ export function App() {
                 type="button"
                 className="podi-history-summary-card"
                 onClick={() => {
+                  setToolRunPage(1);
                   setHistoryFocus('all');
                   setFilterStatus('all');
                   setFilterRating('all');
@@ -8699,13 +8747,14 @@ export function App() {
                 }}
               >
                 <span>当前显示</span>
-                <strong>{historySummary.shown} / {historySummary.total}</strong>
-                <em>全部记录</em>
+                <strong>{historySummary.shown} / {toolRunTotal || historySummary.total}</strong>
+                <em>{toolRunTotal > TOOL_HISTORY_PAGE_SIZE ? `第 ${toolRunPage}/${toolRunTotalPages} 页` : '全部记录'}</em>
               </button>
               <button
                 type="button"
                 className="podi-history-summary-card podi-history-summary-card--success"
                 onClick={() => {
+                  setToolRunPage(1);
                   setHistoryFocus('succeeded');
                   setFilterStatus('all');
                 }}
@@ -8718,18 +8767,20 @@ export function App() {
                 type="button"
                 className="podi-history-summary-card podi-history-summary-card--warning"
                 onClick={() => {
+                  setToolRunPage(1);
                   setHistoryFocus('no_output');
                   setFilterStatus('all');
                 }}
               >
-                <span>成功无回填</span>
+                <span>成功但缺结果</span>
                 <strong>{historySummary.noOutput}</strong>
-                <em>优先查回调链路</em>
+                <em>优先查结果入库</em>
               </button>
               <button
                 type="button"
                 className="podi-history-summary-card podi-history-summary-card--danger"
                 onClick={() => {
+                  setToolRunPage(1);
                   setHistoryFocus('failed');
                   setFilterStatus('all');
                 }}
@@ -8742,6 +8793,7 @@ export function App() {
                 type="button"
                 className="podi-history-summary-card podi-history-summary-card--primary"
                 onClick={() => {
+                  setToolRunPage(1);
                   setHistoryFocus('running');
                   setFilterStatus('all');
                 }}
@@ -8754,6 +8806,7 @@ export function App() {
                 type="button"
                 className="podi-history-summary-card"
                 onClick={() => {
+                  setToolRunPage(1);
                   setHistoryFocus('all');
                   setFilterUnrated(true);
                 }}
@@ -8771,6 +8824,7 @@ export function App() {
                   <Select
                     value={filterStatus}
                     onChange={(v) => {
+                      setToolRunPage(1);
                       setHistoryFocus('all');
                       setFilterStatus(String(v));
                     }}
@@ -8785,7 +8839,10 @@ export function App() {
                   />
                   <Select
                     value={filterRating}
-                    onChange={(v) => setFilterRating(String(v))}
+                    onChange={(v) => {
+                      setToolRunPage(1);
+                      setFilterRating(String(v));
+                    }}
                     style={{ width: 140 }}
                     options={[
                       { label: '全部评分', value: 'all' },
@@ -8793,12 +8850,21 @@ export function App() {
                     ]}
                   />
                   <div className="podi-inline">
-                    <Switch value={filterUnrated} onChange={(v) => setFilterUnrated(Boolean(v))} />
+                    <Switch
+                      value={filterUnrated}
+                      onChange={(v) => {
+                        setToolRunPage(1);
+                        setFilterUnrated(Boolean(v));
+                      }}
+                    />
                     <Typography.Text theme="secondary">未打分</Typography.Text>
                   </div>
                   <Input
                     value={search}
-                    onChange={(v) => setSearch(String(v))}
+                    onChange={(v) => {
+                      setToolRunPage(1);
+                      setSearch(String(v));
+                    }}
                     style={{ width: 240 }}
                     placeholder="搜索备注/错误…"
                     clearable
@@ -8815,7 +8881,29 @@ export function App() {
                 onOpenImage={(url, title, context) => setLightbox({ url, title, context })}
               />
             ))}
+            {toolRunLoading ? <Alert theme="info" message="正在加载历史记录…" /> : null}
             {filteredRuns.length === 0 ? <Typography.Text theme="secondary">暂无记录。</Typography.Text> : null}
+            {toolRunTotal > TOOL_HISTORY_PAGE_SIZE ? (
+              <Space align="center" style={{ justifyContent: 'flex-end', width: '100%' }}>
+                <Typography.Text theme="secondary">
+                  第 {toolRunPage} / {toolRunTotalPages} 页，当前 {toolRunFrom}-{toolRunTo} 条，共 {toolRunTotal} 条
+                </Typography.Text>
+                <Button
+                  variant="outline"
+                  disabled={toolRunLoading || toolRunPage <= 1}
+                  onClick={() => setToolRunPage((prev) => Math.max(1, prev - 1))}
+                >
+                  上一页
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled={toolRunLoading || toolRunPage >= toolRunTotalPages}
+                  onClick={() => setToolRunPage((prev) => Math.min(toolRunTotalPages, prev + 1))}
+                >
+                  下一页
+                </Button>
+              </Space>
+            ) : null}
           </Space>
         </Card>
       </Space>,
@@ -8960,7 +9048,7 @@ function HistoryRow({
   const submitStage = run.submit_status || (run.coze_execute_id || run.podi_task_id ? 'submitted' : '');
   const callbackStage =
     run.callback_status ||
-    (outputs.length > 0 || jsonPreview
+    (output.hasOutput
       ? 'success'
       : run.status === 'failed'
         ? 'failed'
@@ -8974,7 +9062,7 @@ function HistoryRow({
       : output.hasOutput
         ? output.label
         : isSucceededWithoutVisibleOutput(run)
-          ? '成功无回填'
+          ? '成功但缺结果'
           : run.status === 'running' || run.status === 'queued'
             ? '等待结果'
             : '无结果';
@@ -9203,7 +9291,9 @@ function HistoryRow({
                           {jsonPreview}
                         </pre>
                       ) : (
-                        <Typography.Text theme="secondary">暂无输出</Typography.Text>
+                        <Typography.Text theme={output.hasOutput ? 'success' : 'secondary'}>
+                          {output.hasOutput ? output.label : '暂无输出'}
+                        </Typography.Text>
                       )
                     ) : (
                       <Typography.Text theme="secondary">生成中…</Typography.Text>

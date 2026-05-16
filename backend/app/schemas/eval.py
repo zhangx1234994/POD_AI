@@ -128,6 +128,8 @@ class EvalRunBase(BaseModel):
     podi_task_id: Optional[str] = Field(None, description="PODI任务ID")
     result_image_urls_json: Optional[List[str]] = Field(None, description="结果图URL")
     result_output_json: Optional[Any] = Field(None, description="非图片结果（如打标签 JSON）")
+    result_output_kind: Optional[str] = Field(None, description="结果类型：image/video/text/structured/none")
+    result_has_output: Optional[bool] = Field(None, description="是否已有可展示结果")
     error_message: Optional[str] = Field(None, description="错误信息")
     duration_ms: Optional[int] = Field(None, description="执行时长（毫秒）")
     billing_unit: Optional[str] = Field(None, description="成本计费单位")
