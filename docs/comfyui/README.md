@@ -14,21 +14,22 @@
 
 | workflow_key | ability / action | 推荐外部入参 | 最终输出节点 | 当前状态 |
 | --- | --- | --- | --- | --- |
-| `sifang_lianxu` | `comfyui.sifang_lianxu` / `seamless` | `prompt`、`patternType`、`resolution`、`width`、`height`、`url` | workflow 内置输出链路 | 线上在用；临时固定 158 |
-| `huawen_kuotu` | `comfyui.huawen_kuotu` / `pattern_expand` | `url`、`prompt`、`negative_prompt`、扩展像素参数 | workflow 内置输出链路 | 线上在用；临时固定 158 |
+| `sifang_lianxu` | `comfyui.sifang_lianxu` / `seamless` | `prompt`、`patternType`、`resolution`、`width`、`height`、`url` | workflow 内置输出链路 | 线上在用；233/158 双机 |
+| `huawen_kuotu` | `comfyui.huawen_kuotu` / `pattern_expand` | `url`、`prompt`、`negative_prompt`、扩展像素参数 | workflow 内置输出链路 | 线上在用；233/158 双机 |
 | `duotu_ronghe` | `comfyui.duotu_ronghe` / `multi_image_fusion` | `url`、`image_url_2`、`image_url_3`、`width`、`height`、`prompt`、`negative_prompt`、`seed` | `60` | 线上在用 |
 | `beijing_koutu` | `comfyui.beijing_koutu` / `background_remove` | `url` | `4` | 线上在用 |
 | `toubu_kouxiang` | `comfyui.toubu_kouxiang` / `head_extract` | `url` | `140` | 线上在用 |
 | `flux2_klein_9b_outpaint` | `comfyui.flux2_klein_9b_outpaint` / `outpaint` | `url`、`expand_left`、`expand_right`、`expand_top`、`expand_bottom` | `9` | 新增工具箱 |
 | `flux_strong_hq_softstyle_fission` | `comfyui.flux_strong_hq_softstyle_fission` / `image_fission` | `url`、`prompt`、`image_desc`、`bili`、`width`、`height` | `31` | 高质量图裂变，158 / 233 均可按队列路由；颜色锁定 v2 复用该 workflow |
-| `flux2_9b_liebian_sifang` | `comfyui.flux2_9b_liebian_sifang` / `image_fission` | `url`、`prompt` | `111` | 线上在用；临时固定 158 |
+| `flux2_9b_liebian_sifang` | `comfyui.flux2_9b_liebian_sifang` / `image_fission` | `url`、`prompt` | `111` | 线上在用；233/158 双机 |
 | `qwen2512_print_shape_text_enhance` | `comfyui.qwen2512_print_shape_text_enhance` / `text_enhance` | `url`、`prompt`、`bili` | `29` | 线上在用；上游 prompt 质量待优化 |
 | `yinhua_tiqu` | `comfyui.yinhua_tiqu` / `pattern_extract` | `url`、`prompt`、`negative_prompt`、`output_width`、`output_height`、`lora_name` | `421` | 线上在用 |
 
 ## 当前已知说明
 
 - 业务链路统一先走 OSS URL，再交给 ComfyUI；不要把外部临时链接当正式输入口径。
-- `sifang_lianxu`、`huawen_kuotu`、`flux2_9b_liebian_sifang` 当前依赖 `String` 自定义节点。2026-05-15 复核时 233 因安全加固后缺该节点，三者临时固定到 158；恢复双机前必须先确认 233 `/object_info/String` 正常。
+- 233 白名单后同构恢复任务记录见 `docs/comfyui/233-recovery-2026-05-16.md`；该任务的原则是补齐服务器节点和模型，不为 233 单点问题长期增加平台特殊分支。
+- `sifang_lianxu`、`huawen_kuotu`、`flux2_9b_liebian_sifang` 依赖 `String` 自定义节点。2026-05-16 233 已恢复 `String` 并强制跑通三条旧工作流，当前恢复 233/158 双机队列路由。
 - `qwen2512_print_shape_text_enhance` 当前执行链路已验证可跑通，主要待优化点是上游 Coze/VL 提示词质量，不是中台或评测执行接口。
 - 多图融合评测端在 `width/height` 留空时会先读取主图尺寸再提交；直接绕过前端调用工具箱时，不传尺寸仍沿用 workflow 默认 `1024x1024`。
 - `背景抠图` 存在过程图，正式回填只认最终输出节点 `4`；`头部抠像` 正式回填只认 `140`；`FLUX2裂变+四方` 正式回填只认 `111`；`裂变文字强化` 正式回填只认 `29`。
@@ -38,7 +39,7 @@
   - `ComfyUI/models/clip_vision/CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors`
   - `ComfyUI/models/ipadapter/ip-adapter-plus_sdxl_vit-h.safetensors`
   - 重启 ComfyUI 后需确认 `/object_info` 中 `CLIPVisionLoader.clip_name` 和 `IPAdapterModelLoader.ipadapter_file` 均能列出对应文件。
-- 233 承接 `flux2_9b_liebian_sifang` / `toubu_kouxiang` / `qwen2512_print_shape_text_enhance` 的历史补齐记录（2026-05-04，仅作历史参考，2026-05-15 复核时 `String` 已缺失）：
+- 233 承接 `flux2_9b_liebian_sifang` / `toubu_kouxiang` / `qwen2512_print_shape_text_enhance` 的历史补齐记录（2026-05-04，仅作历史参考，2026-05-15 复核时 `String` 已缺失；2026-05-16 在白名单保护下已恢复必要节点，详见 `docs/comfyui/233-recovery-2026-05-16.md`）：
   - `custom_nodes/comfyui_bmad_nodes` 提供 `String` 等 Bmad 节点。
   - `custom_nodes/ComfyUI-LogicUtils` 提供 `ComposeRGBAImageFromMask`。
   - `models/controlnet/qwen-image/instantx/Qwen-Image-InstantX-ControlNet-Inpainting.safetensors` 为 Qwen 文字增强 ControlNet。
@@ -46,7 +47,10 @@
   - `models/diffusion_models/qwen-image-2512-fp8.safetensors` 为 Qwen 文字增强 UNet。
   - `custom_nodes/ComfyUI-QualityOfLifeSuit_Omar92` 提供花纹扩图使用的 `Text _O`。
   - `custom_nodes/masquerade-nodes-comfyui` 提供花纹扩图使用的 `Get Image Size`。
-  - 2026-05-04 曾通过强制 233 执行验证；但 2026-05-15 以后不能再引用该记录证明 `String` 依赖 workflow 可跑，必须以最新 `/object_info` 为准。
+  - 2026-05-16 最新 `/object_info` 已确认 `String`、`ComposeRGBAImageFromMask`、`Text _O`、`Get Image Size` 均可见；114 release smoke 显示 `comfyui_workflow_compatibility total=16 ok=16 warnings=0 failed=0 servers=2`。
+  - 2026-05-16 已强制 233 跑通 `toubu_kouxiang`，输出 OSS：`https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/admin-comfyui/20260516/06413e32-1778887853.png`。
+  - 2026-05-16 恢复后主线裂变已有多条自然流量命中 233 并成功回填，其中 `flux_strong_hq_softstyle_fission_colorlock_v2` ability log `41244` 成功。
+  - 2026-05-16 已强制 233 跑通 `flux2_9b_liebian_sifang`、`huawen_kuotu`、`sifang_lianxu`，代码已恢复这些工作流的 233/158 双机队列路由。
 - `FLUX2裂变+四方` 的节点 `104` 为 workflow 内部固定输入，不作为外部参数暴露，也不应在工具箱适配层覆盖。
 
 ## 管理端入口
@@ -97,7 +101,7 @@
 | --- | --- |
 | 能力 ID | comfyui.sifang_lianxu |
 | Action | seamless |
-| 执行节点 | executor_comfyui_pattern_extract_158 |
+| 执行节点 | executor_comfyui_seamless_117 / executor_comfyui_pattern_extract_158 |
 | Workflow 文件 | backend/app/workflows/comfyui/sifang_lianxu.json |
 | 超时设置 | 480 秒 (defaults.timeout) |
 | 核心模型 | UNETLoader: 四方连续.safetensors、DualCLIPLoader: t5xxl_fp8_e4m3fn_scaled.safetensors + clip_l.safetensors、VAE: ae.safetensors |
@@ -127,7 +131,7 @@
 - 若管理端回显“中心留白”，优先检查节点 114/96 是否收到同一张可访问 URL，并确认节点 64 仍保持遮罩输入（104）。
 - 节点 104 为固定遮罩输入，线上执行保持原样，不做覆盖或删除。
 - 旧版 node 106（本地上传分支）已废弃，线上仅走 URL 分支（114 -> 96；102 读取 96）。
-- 2026-05-15 起该 workflow 因依赖 `String` / `StringConcatenate`，临时只走 158。233 补齐 `String` 前不要恢复双机路由。
+- 2026-05-16 已在 233 白名单保护下恢复 `String` / `StringConcatenate`，并强制 233 跑通，可恢复双机路由。
 
 > 说明：执行节点与 URL 为当前快照，主服务器可能调整，请以管理端“执行节点”配置为准。
 
@@ -137,7 +141,7 @@
 | --- | --- |
 | 能力 ID | comfyui.huawen_kuotu |
 | Action | pattern_expand |
-| 执行节点 | executor_comfyui_pattern_extract_158 |
+| 执行节点 | executor_comfyui_seamless_117 / executor_comfyui_pattern_extract_158 |
 | Workflow 文件 | backend/app/workflows/comfyui/huawen_kuotu.json |
 | 超时设置 | 420 秒（根据批次数/扩展像素自动放大） |
 | 核心模型 | UNET: qwen_image_edit_2511_fp8mixed、CLIP: qwen_2.5_vl_7b_fp8_scaled、VAE: qwen_image_vae、ControlNet: Qwen InstantX Inpainting、LoRA: Qwen-Image-Edit Lightning |
@@ -167,7 +171,7 @@
 **调试备注**
 
 - 扩展像素越大、批次数越多，任务耗时越长；后端会自动按批次数放宽 timeout，但仍建议分批提交。
-- 2026-05-15 起该 workflow 因依赖 `String`，临时只走 158。233 补齐 `String` 前不要恢复双机路由。
+- 2026-05-16 已在 233 白名单保护下恢复依赖节点，并强制 233 跑通，可恢复双机路由。
 - `output_long_side` 控制最终缩放尺寸（长边），若素材要求高分，请在能力表单中调高。
 - ControlNet/LoRA 组合对图案延展极为敏感，如需替换模型必须同步更新 workflow 与 `metadata.lora_presets`。
 
@@ -272,7 +276,7 @@
 | --- | --- |
 | 能力 ID | comfyui.flux2_9b_liebian_sifang |
 | Action | image_fission |
-| 执行节点 | executor_comfyui_pattern_extract_158 |
+| 执行节点 | executor_comfyui_seamless_117 / executor_comfyui_pattern_extract_158 |
 | Workflow 文件 | backend/app/workflows/comfyui/flux2_9b_liebian_sifang.json |
 | 超时设置 | 420 秒 |
 
@@ -292,7 +296,7 @@
 
 **调试备注**
 
-- 2026-05-15：该 workflow 依赖 `String` 自定义节点。233 当前缺该节点，因此临时固定到 158；恢复双机前必须先确认 233 `/object_info/String` 正常。
+- 2026-05-16：233 已恢复 `String` 自定义节点，并强制 233 跑通该 workflow，可恢复双机路由。
 - 工具箱只覆写 `141.url` 和 `132.inStr`。
 - 节点 `104`、`97`、`99`、`100`、`102`、`121`、`122`、`130`、`137` 等内部默认参数保持不变。
 - 最终输出固定取 `111 · SaveImage`。

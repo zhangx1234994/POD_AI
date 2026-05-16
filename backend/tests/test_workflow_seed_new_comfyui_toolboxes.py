@@ -6,7 +6,7 @@ DUAL_COMFYUI_EXECUTORS = {
     "executor_comfyui_pattern_extract_158",
 }
 
-STRING_NODE_ONLY_5090_WORKFLOWS = {
+STRING_NODE_RECOVERED_DUAL_WORKFLOWS = {
     "workflow_comfyui_sifang_lianxu_v1",
     "workflow_comfyui_huawen_kuotu_v1",
     "workflow_comfyui_flux2_9b_liebian_sifang_v1",
@@ -82,8 +82,8 @@ def test_new_comfyui_bindings_cover_two_executors():
             "executor_comfyui_seamless_117",
         )
     ].enabled is True
-    for workflow_id in STRING_NODE_ONLY_5090_WORKFLOWS:
-        assert bindings_by_pair[(workflow_id, "executor_comfyui_seamless_117")].enabled is False
+    for workflow_id in STRING_NODE_RECOVERED_DUAL_WORKFLOWS:
+        assert bindings_by_pair[(workflow_id, "executor_comfyui_seamless_117")].enabled is True
         assert bindings_by_pair[(workflow_id, "executor_comfyui_pattern_extract_158")].enabled is True
 
 
@@ -103,13 +103,11 @@ def test_core_comfyui_workflows_have_dual_executor_bindings():
         "workflow_comfyui_toubu_kouxiang_v1",
         "workflow_comfyui_qwen2512_print_shape_text_enhance_v1",
         "workflow_comfyui_flux_strong_hq_softstyle_fission_v1",
+        *STRING_NODE_RECOVERED_DUAL_WORKFLOWS,
     }
 
     for workflow_id in dual_routed_workflows:
         assert executors_by_workflow[workflow_id] >= DUAL_COMFYUI_EXECUTORS
-
-    for workflow_id in STRING_NODE_ONLY_5090_WORKFLOWS:
-        assert executors_by_workflow[workflow_id] == {"executor_comfyui_pattern_extract_158"}
 
 
 def test_high_frequency_flux_strong_fission_keeps_dual_routing():

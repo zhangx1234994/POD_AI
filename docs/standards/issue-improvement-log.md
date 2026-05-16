@@ -62,8 +62,8 @@
 - 现象：2026-05-15 08:36，`flux2_9b_liebian_sifang` 先路由到 233 失败，报 `Node 'String' not found`；同一任务随后 fallback 到 158 成功。手动检查确认 233 `/object_info/String` 返回 `{}`，158 返回 `custom_nodes.comfyui_bmad_nodes` 的 `String` 节点。
 - 影响：今天业务方使用的新 `comfyui-vl-control-v2` 不受影响，但旧工作流如果优先命中 233，会依赖 fallback，说明两台 ComfyUI 并未做到完全能力同步。
 - 根因：基础健康检查只验证 `KSampler/SaveImage/LoadImage`，不能发现工作流级自定义节点缺失。
-- 改进：已将依赖 `String` 的低频/轻量工作流 `sifang_lianxu`、`huawen_kuotu`、`flux2_9b_liebian_sifang` 临时固定到 158，并禁用这些 workflow 的 233 绑定；逐功能上线检查表增加 workflow 所需节点清单校验。后续如要恢复双机，先确认 233 `/object_info/String` 正常。
-- 状态：已临时规避，服务器节点同步作为后续运维项
+- 改进：已将依赖 `String` 的低频/轻量工作流 `sifang_lianxu`、`huawen_kuotu`、`flux2_9b_liebian_sifang` 临时固定到 158，并禁用这些 workflow 的 233 绑定；逐功能上线检查表增加 workflow 所需节点清单校验。2026-05-16 起进入 233 白名单后同构恢复任务，原则是补齐服务器依赖，而不是继续在平台侧扩大特殊路由。
+- 状态：已临时规避；服务器恢复见 `docs/comfyui/233-recovery-2026-05-16.md`
 
 ## 2026-05-13
 
@@ -165,6 +165,14 @@
 - 根因：发布门禁没有区分“全部能力机不可用”“后端已有任务但队列不可见”和“单机不可达但仍有健康节点可接任务”。
 - 改进：发布 smoke 改为三段判断：无可用 ComfyUI 或后端阻塞时失败；至少一台健康且仍有容量时允许降级通过并输出 `unsupportedServers`；能力机恢复后必须重跑 `check_comfyui_node_health.py` 和 route-preview。
 - 状态：已完成（2026-05-14 线上复核 158/233 均健康，后端队列容量 20、空闲 20）
+
+0.3.1) **233 安全加固后缺节点不能靠长期特殊路由解决**
+- 范围：233 ComfyUI / 自定义节点恢复 / 中台路由复杂度
+- 现象：233 为应对挖矿事件禁用了部分 custom nodes，导致 `String`、`ComposeRGBAImageFromMask` 等节点缺失，进而触发工作流兼容 warning 和头部抠像提交失败。
+- 影响：如果只在中台不断增加“这个业务只跑 158”的例外，短期能绕开失败，但会让平台路由越来越复杂，且 GPU 资源无法均衡使用。
+- 根因：服务器安全恢复和平台路由治理没有分层处理；安全问题应优先在服务器访问控制、运行权限和巡检上解决，而不是长期牺牲平台同构。
+- 改进：在 233 已启用白名单、低权限运行和 systemd 加固后，恢复必要 custom nodes，保留高风险 `srl-nodes` 禁用；恢复后必须从 114 跑节点健康、release smoke、workflow compatibility，并强制 233 跑真实样本。
+- 状态：进行中（2026-05-16 已恢复 `String`、`ComposeRGBAImageFromMask`、`Text _O`、`Get Image Size`，头部抠像真实任务已在 233 成功回填；其余强制 233 业务样本待继续。）
 
 0.4) **早检异常需要分类，不能把巡检误报和业务事故混在一起**
 - 范围：每日早检 / 能力调用 / 测评运行

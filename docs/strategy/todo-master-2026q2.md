@@ -991,12 +991,35 @@
 - 进展（2026-05-15）：管理端“接口调用中心”按窗口计算轮询/提交比例，偏高时直接提示业务方按 `retryAfterSeconds` 或 5-10 秒间隔轮询；按 `runId` 聚合表继续显示 `POLLING_TOO_FREQUENT`。
 - 验收：下一轮业务方测试时，同等任务量查询次数明显下降，且无查询错误。
 
-61. `done` K9 233 ComfyUI 工作流级节点同步
+61. `done` K9 233 ComfyUI 工作流级节点临时规避
 - 背景：233 缺 `custom_nodes.comfyui_bmad_nodes` 的 `String` 节点，旧 `flux2_9b_liebian_sifang` 先失败后 fallback 到 158 成功。
 - 目标：补齐 233 节点或调整该工作流路由策略；同时把 workflow 所需节点纳入健康检查。
 - 进展（2026-05-15）：发布脚本已修复 smoke token 注入问题，远端 `podi_release_smoke.py` 将读取线上 `.env` 的服务 token，从而实际执行 `/api/admin/comfyui/workflow-compatibility`，避免缺节点检查因未鉴权被跳过。
 - 进展（2026-05-15）：本地直连 `/object_info` 复核：158 `node_count=3230` 且 `String/KSampler/SaveImage` 均存在；233 `node_count=2094`，`KSampler/SaveImage` 存在但 `String` 仍缺失。队列接口两台均可达且当前 running/pending 为 0。代码门禁已能识别，实际恢复仍需要在 233 同步自定义节点。
 - 进展（2026-05-15）：结合 233 安全加固现状，先不为少数低频业务改服务器权限；已将 `sifang_lianxu`、`huawen_kuotu`、`flux2_9b_liebian_sifang` 固定到 5090/158，并禁用这些 workflow 的 233 绑定。高频或耗时较长且 233 已验证正常的业务继续保留双机路由。
 - 验收：依赖 `String` 的低频工作流不会再命中 233；如未来恢复双机，必须先确认 233 `/object_info/String` 返回节点信息。
+
+62. `doing` L1 233 ComfyUI 白名单后同构恢复
+- 背景：233 曾因 ComfyUI API 暴露被利用执行挖矿代码，后续通过低权限运行、systemd 加固、节点禁用和巡检降低风险；现在端口 `8079` 已改为白名单访问，可以在受控前提下恢复必要自定义节点。
+- 原则：这是临时运维任务，不是平台架构改造；不要为单台服务器缺节点继续增加长期特殊路由。优先补齐 233，使 158/233 尽量保持同构。
+- 当前已知缺口：`String`、`ComposeRGBAImageFromMask` 以及花纹扩图相关 `Text _O`、`Get Image Size` 需要重新复核；其中 `ComposeRGBAImageFromMask` 仍在 2026-05-16 release smoke 中暴露为 233 warning。
+- 执行文档：`docs/comfyui/233-recovery-2026-05-16.md`。
+- 进展（2026-05-16）：已确认 233 安全巡检 OK，ComfyUI 仍以低权限用户运行，`custom_nodes` 不恢复为运行时可写。
+- 进展（2026-05-16）：已恢复 `comfyui_bmad_nodes`、`ComfyUI-LogicUtils`、`ComfyUI-QualityOfLifeSuit_Omar92`、`masquerade-nodes-comfyui`；未恢复高风险 `srl-nodes`。
+- 进展（2026-05-16）：从 233 本机和 114 均确认 `String`、`ComposeRGBAImageFromMask`、`Text _O`、`Get Image Size`、`KSampler`、`SaveImage`、`LoadImage` 可见。
+- 进展（2026-05-16）：114 `check_comfyui_node_health.py` 通过，双节点容量 20；release smoke 通过，`comfyui_workflow_compatibility total=16 ok=16 warnings=0 failed=0 servers=2`。
+- 进展（2026-05-16）：强制 233 跑通“头部抠像”真实任务，输入图为历史失败样本，输出 OSS 为 `https://podiaidesign.oss-cn-hangzhou.aliyuncs.com/test/abilities/admin-comfyui/20260516/06413e32-1778887853.png`。
+- 进展（2026-05-16）：恢复后自然流量已命中 233 并成功回填多条主线裂变，包含 `flux_strong_hq_softstyle_fission_colorlock_v2` ability log `41244` 和多条 `flux_strong_hq_softstyle_fission` success 记录。
+- 进展（2026-05-16）：已强制 233 跑通 `flux2_9b_liebian_sifang`、`huawen_kuotu`、`sifang_lianxu`，输出分别为 `29ffc5e0-1778888248.png`、`0a7ee896-1778888402.png`、`fb9a25be-1778888539.png`。
+- 进展（2026-05-16）：代码已移除这三条 workflow 的临时 158-only 限制，恢复 `executor_comfyui_seamless_117` 与 `executor_comfyui_pattern_extract_158` 双机队列路由；待下次部署后生效。
+- 待办：
+  - [x] 登陆 233 前先确认白名单仍生效，安全巡检最新结果为 OK。
+  - [x] 复核 ComfyUI 运行用户、systemd 加固、`custom_nodes` 权限，不回到公网任意写入状态。
+  - [x] 从已有节点目录恢复或修补 `comfyui_bmad_nodes`、`ComfyUI-LogicUtils`、`ComfyUI-QualityOfLifeSuit_Omar92`、`masquerade-nodes-comfyui` 等必要依赖。
+  - [x] 用 `/object_info` 确认 `String`、`ComposeRGBAImageFromMask`、`Text _O`、`Get Image Size` 等关键节点可见。
+  - [x] 回到 114 跑 `check_comfyui_node_health.py`、`podi_release_smoke.py` 和 workflow compatibility。
+  - [x] 强制 233 跑旧四方连续裂变、花纹扩图、头部抠像、当前主线颜色锁定裂变，并记录 runId、executor、OSS 输出。
+  - [x] 强制 233 测试通过后，再评估是否移除临时 158-only 路由限制。
+- 验收：233 安全巡检 OK、关键节点齐全、强制 233 真实业务有 OSS 回填、平台侧没有新增长期复杂分支。
 
 *最后更新: 2026-05-16*
