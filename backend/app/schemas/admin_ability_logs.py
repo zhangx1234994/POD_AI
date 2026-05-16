@@ -144,7 +144,19 @@ def _build_output_summary(
         texts.append(str(payload.get("text")).strip())
     texts.extend(_collect_texts(payload.get("texts")))
     structured_count = 0
-    for key in ("jsonOutput", "outputJson", "resultOutputJson", "result_output_json", "structuredOutput"):
+    for key in (
+        "json",
+        "jsonOutput",
+        "json_output",
+        "outputJson",
+        "result",
+        "resultPayload",
+        "result_payload",
+        "resultOutputJson",
+        "result_output_json",
+        "structuredOutput",
+        "structured_output",
+    ):
         if key in payload and _has_structured_value(payload.get(key)):
             structured_count = 1
             break

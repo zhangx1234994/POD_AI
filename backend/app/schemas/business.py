@@ -698,5 +698,6 @@ class BusinessUsageSummaryResponse(BaseModel):
     byVersion: list[BusinessUsageBucket] = Field(default_factory=list, alias="by_version")
     byIssue: list[BusinessIssueBucket] = Field(default_factory=list, alias="by_issue")
     unresolvedIssues: list[BusinessUnresolvedIssueBucket] = Field(default_factory=list, alias="unresolved_issues")
+    unresolvedByBusiness: list[BusinessIssueBucket] = Field(default_factory=list, alias="unresolved_by_business")
     recentUnresolvedIssues: list[BusinessUnresolvedIssueItem] = Field(default_factory=list, alias="recent_unresolved_issues")
     recentFailures: list[BusinessUsageFailure] = Field(default_factory=list, alias="recent_failures")

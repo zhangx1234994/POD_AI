@@ -3488,6 +3488,9 @@ const businessCapabilityEngineLabel = (item?: BusinessCapability | null) => {
 const businessUsageBucketForKey = (summary: BusinessUsageSummaryResponse | null | undefined, businessKey: string) =>
   summary?.byBusiness?.find((item) => canonicalBusinessKey(item.key) === canonicalBusinessKey(businessKey));
 
+const businessUnresolvedBucketForKey = (summary: BusinessUsageSummaryResponse | null | undefined, businessKey: string) =>
+  summary?.unresolvedByBusiness?.find((item) => canonicalBusinessKey(item.key) === canonicalBusinessKey(businessKey));
+
 const businessUsageDigest = (summary: BusinessUsageSummaryResponse | null | undefined, businessKey: string) => {
   const bucket = businessUsageBucketForKey(summary, businessKey);
   const windowHours = Number(summary?.windowHours || 24);
@@ -3541,10 +3544,12 @@ const businessCoreEntrySuggestion = ({
   defaultItem,
   activeCount,
   hasPendingApproval,
+  unresolvedCount = 0,
 }: {
   defaultItem?: BusinessCapability;
   activeCount: number;
   hasPendingApproval: boolean;
+  unresolvedCount?: number;
 }) => {
   if (!defaultItem) return '先补一个启用版本并设为默认，否则业务方没有稳定入口。';
   if (defaultItem.status !== 'active') return '默认版本未启用，先启用或切换到可用版本。';
@@ -3558,7 +3563,8 @@ const businessCoreEntrySuggestion = ({
   if (defaultItem.releaseGate?.acceptancePassed === false || defaultItem.latestAcceptance?.status !== 'passed') {
     return '默认版本还没有验收通过记录，先跑真实链路测试并记录验收证据。';
   }
-  if (defaultItem.latestRun?.error || Number(defaultItem.runMetrics?.failed || 0) > 0) return '最近有失败样本，先打开运行记录确认卡点。';
+  if (defaultItem.latestRun?.error || unresolvedCount > 0) return '最近有失败样本，先打开接口任务清单确认卡点。';
+  if (Number(defaultItem.runMetrics?.failed || 0) > 0) return '历史失败已被后续成功样本覆盖，保留追溯即可。';
   if (hasPendingApproval) return '存在默认版本切换审批，先处理审批再对外说明。';
   if (defaultItem.releaseGate?.status === 'warning') return defaultItem.releaseGate.suggestions?.[0] || '上线前仍有风险项，先完成复核再小流量验证。';
   if (activeCount < 2) return '建议保留一个可用备选版本，便于灰度和快速回滚。';
@@ -3568,14 +3574,17 @@ const businessCoreEntrySuggestion = ({
 const businessEntryCommandStatus = ({
   defaultItem,
   bucket,
+  unresolvedBucket,
   activeCount,
   hasPendingApproval,
 }: {
   defaultItem?: BusinessCapability;
   bucket?: ReturnType<typeof businessUsageBucketForKey>;
+  unresolvedBucket?: ReturnType<typeof businessUnresolvedBucketForKey>;
   activeCount: number;
   hasPendingApproval: boolean;
 }) => {
+  const unresolvedCount = Number(unresolvedBucket?.total || 0);
   if (!defaultItem) {
     return {
       theme: 'danger',
@@ -3597,6 +3606,14 @@ const businessEntryCommandStatus = ({
       detail: '默认版本没有绑定真实执行能力。',
     };
   }
+  const latestRunSucceeded = String(defaultItem.latestRun?.status || '').toLowerCase() === 'succeeded' && !defaultItem.latestRun?.error;
+  if (defaultItem.releaseGate?.status === 'blocked' && latestRunSucceeded && unresolvedCount === 0) {
+    return {
+      theme: 'warning',
+      label: '待验收',
+      detail: '接口已有成功样本，但还缺验收通过记录；补证据后再作为封版依据。',
+    };
+  }
   if (defaultItem.governanceStatus === 'blocker' || defaultItem.releaseGate?.status === 'blocked') {
     return {
       theme: 'danger',
@@ -3604,11 +3621,11 @@ const businessEntryCommandStatus = ({
       detail: defaultItem.governanceSuggestions?.[0] || defaultItem.releaseGate?.suggestions?.[0] || '上线门禁或底层能力未通过。',
     };
   }
-  if (defaultItem.latestRun?.error || Number(bucket?.failed || 0) > 0) {
+  if (defaultItem.latestRun?.error || unresolvedCount > 0) {
     return {
       theme: 'warning',
       label: '需复核',
-      detail: '最近有失败样本，先看接口任务清单定位。',
+      detail: unresolvedCount > 0 ? `${unresolvedCount} 条失败还没被同版本成功样本覆盖，先看接口任务清单定位。` : '最近一次真实调用失败，先看接口任务清单定位。',
     };
   }
   if (Number(bucket?.callbackFailed || 0) > 0) {
@@ -3630,6 +3647,13 @@ const businessEntryCommandStatus = ({
       theme: 'warning',
       label: '缺备选',
       detail: '入口可用，但建议保留一个可回滚版本。',
+    };
+  }
+  if (Number(bucket?.failed || 0) > 0) {
+    return {
+      theme: 'success',
+      label: '可接入',
+      detail: '有历史失败，但后续同版本成功样本已覆盖；历史记录只保留追溯。',
     };
   }
   return {
@@ -3656,19 +3680,26 @@ export const BusinessEntryCommandPanel = ({
     const defaultItem = items.find((item) => item.isDefault);
     const activeCount = items.filter((item) => item.status === 'active').length;
     const bucket = businessUsageBucketForKey(summary, businessKey);
+    const unresolvedBucket = businessUnresolvedBucketForKey(summary, businessKey);
     const hasPendingApproval = pendingApprovals.some(
       (item) => canonicalBusinessKey(item.businessKey) === businessKey && item.status === 'pending',
     );
-    const status = businessEntryCommandStatus({ defaultItem, bucket, activeCount, hasPendingApproval });
+    const status = businessEntryCommandStatus({ defaultItem, bucket, unresolvedBucket, activeCount, hasPendingApproval });
     return {
       businessKey,
       items,
       defaultItem,
       activeCount,
       bucket,
+      unresolvedBucket,
       hasPendingApproval,
       status,
-      suggestion: businessCoreEntrySuggestion({ defaultItem, activeCount, hasPendingApproval }),
+      suggestion: businessCoreEntrySuggestion({
+        defaultItem,
+        activeCount,
+        hasPendingApproval,
+        unresolvedCount: Number(unresolvedBucket?.total || 0),
+      }),
     };
   });
   const readyCount = rows.filter((row) => row.status.theme === 'success').length;
@@ -3738,7 +3769,7 @@ export const BusinessEntryCommandPanel = ({
                 <div className="podi-business-command-metrics">
                   <strong>{row.bucket?.total || 0}</strong>
                   <span>成功 {row.bucket?.succeeded || 0}</span>
-                  <span>失败 {row.bucket?.failed || 0}</span>
+                  <span>{Number(row.unresolvedBucket?.total || 0) > 0 ? `未恢复 ${row.unresolvedBucket?.total || 0}` : `历史失败 ${row.bucket?.failed || 0}`}</span>
                   <span>排队/运行 {runningCount}</span>
                 </div>
                 <Typography.Text theme="secondary">成功率 {formatRatePercent(row.bucket?.successRate)}</Typography.Text>

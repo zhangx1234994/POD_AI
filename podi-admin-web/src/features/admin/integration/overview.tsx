@@ -461,6 +461,9 @@ export function OverviewPanel({
     .filter((key) => !activeDefaultBusinessKeys.has(key))
     .map((key) => businessKeyLabel(key));
   const businessFailedCount = Number(businessUsageSummary?.failed || 0);
+  const businessUnresolvedIssueCount = Number(
+    (businessUsageSummary?.unresolvedIssues || []).reduce((total, bucket) => total + Number(bucket.total || 0), 0),
+  );
   const businessPathLoading = loading && coreBusinessOverviewItems.length === 0;
   const vendorPathLoading = loading && vendorModelCount === 0 && vendorKeyCount === 0;
   const abilityPathLoading = loading && !abilityHealthSummary && Number(summary.abilities || 0) === 0;
@@ -483,12 +486,18 @@ export function OverviewPanel({
       body: '确认花纹提取、图裂变、扩图都有 active 默认版本，业务方只认这里的稳定入口。',
       status: businessPathLoading
         ? '加载中'
-        : missingCoreBusinessLabels.length > 0
-          ? `缺 ${missingCoreBusinessLabels.join('、')}`
-          : businessFailedCount > 0
-            ? `失败 ${businessFailedCount}`
+          : missingCoreBusinessLabels.length > 0
+            ? `缺 ${missingCoreBusinessLabels.join('、')}`
+          : businessUnresolvedIssueCount > 0
+            ? `待确认 ${businessUnresolvedIssueCount}`
             : '入口完整',
-      theme: businessPathLoading ? 'default' : missingCoreBusinessLabels.length > 0 ? 'danger' : businessFailedCount > 0 ? 'warning' : 'success',
+      theme: businessPathLoading
+        ? 'default'
+        : missingCoreBusinessLabels.length > 0
+          ? 'danger'
+          : businessUnresolvedIssueCount > 0
+            ? 'warning'
+            : 'success',
       action: '进入业务能力',
       target: 'business',
     },
@@ -580,19 +589,23 @@ export function OverviewPanel({
         ? '加载中'
         : missingCoreBusinessLabels.length > 0
           ? '阻塞'
-          : businessFailedCount > 0 || callbackFailedCount > 0
+          : businessUnresolvedIssueCount > 0 || callbackFailedCount > 0
             ? '需处理'
             : '通过',
       detail: businessPathLoading
         ? '正在加载默认版本和最近调用。'
         : missingCoreBusinessLabels.length > 0
           ? `缺少 ${missingCoreBusinessLabels.join('、')} 的 active 默认版本。`
-          : businessFailedCount > 0
-            ? `近 ${businessUsageSummary?.windowHours || 24} 小时业务失败 ${businessFailedCount} 次。`
+          : businessUnresolvedIssueCount > 0
+            ? `近 ${businessUsageSummary?.windowHours || 24} 小时还有 ${businessUnresolvedIssueCount} 条失败未确认恢复。`
             : callbackFailedCount > 0
               ? `当前还有 ${callbackFailedCount} 次回调失败。`
               : '三大主业务默认入口完整，最近无明显失败。',
-      theme: businessPathLoading ? 'default' : missingCoreBusinessLabels.length > 0 || businessFailedCount > 0 || callbackFailedCount > 0 ? 'danger' : 'success',
+      theme: businessPathLoading
+        ? 'default'
+        : missingCoreBusinessLabels.length > 0 || businessUnresolvedIssueCount > 0 || callbackFailedCount > 0
+          ? 'danger'
+          : 'success',
     },
     {
       title: '轻量门禁',
@@ -695,6 +708,7 @@ export function OverviewPanel({
           .join('、')}。这些提醒进入后续治理，不阻塞本次发布。`
       : '已登记可上线，业务入口、轻量门禁、完整巡检和能力状态都已满足上线前检查要求。'
     : baseReleaseReadinessMessage;
+  const releaseAttentionItems = releaseReadinessBlockers.length > 0 ? releaseReadinessBlockers : releaseReadinessWarnings;
   const businessTotal = Number(strategySummary?.business_total || businessUsageSummary?.total || 0);
   const strategyRiskCount = Number(strategySummary?.risk_count || 0);
   const billingPendingCount = Number(strategySummary?.billing_pending || strategySummary?.unpriced || 0);
@@ -726,14 +740,14 @@ export function OverviewPanel({
       detail:
         missingCoreBusinessLabels.length > 0
           ? `先补齐 ${missingCoreBusinessLabels.join('、')} 的默认版本。`
-          : businessFailedCount > 0
-            ? `近 ${businessUsageSummary?.windowHours || 24} 小时失败 ${businessFailedCount} 次，需要看失败样本。`
+          : businessUnresolvedIssueCount > 0
+            ? `近 ${businessUsageSummary?.windowHours || 24} 小时仍有 ${businessUnresolvedIssueCount} 条失败未确认恢复。`
             : businessTotal > 0
               ? `近 ${strategySummary?.window_hours || businessUsageSummary?.windowHours || 24} 小时已有 ${businessTotal} 次业务调用。`
               : '当前窗口暂无业务调用，发版前仍需跑真实巡检。',
       action: '看业务能力',
       target: 'business',
-      theme: missingCoreBusinessLabels.length > 0 || businessFailedCount > 0 ? 'danger' : businessTotal > 0 ? 'success' : 'warning',
+      theme: missingCoreBusinessLabels.length > 0 || businessUnresolvedIssueCount > 0 ? 'danger' : businessTotal > 0 ? 'success' : 'warning',
     },
     {
       key: 'ability',
@@ -1026,12 +1040,12 @@ export function OverviewPanel({
       });
     });
   }
-  if (operatorFocusItems.length < 5 && businessFailedCount > 0) {
+  if (operatorFocusItems.length < 5 && businessUnresolvedIssueCount > 0) {
     operatorFocusItems.push({
       key: 'business-failed',
       priority: '上线前确认',
       title: '业务失败样本',
-      detail: `近 ${businessUsageSummary?.windowHours || strategySummary?.window_hours || 24} 小时业务失败 ${businessFailedCount} 次，先看失败样本和结果状态。`,
+      detail: `近 ${businessUsageSummary?.windowHours || strategySummary?.window_hours || 24} 小时仍有 ${businessUnresolvedIssueCount} 条失败未确认恢复，先看 runId 详情。`,
       action: '看业务运行',
       target: 'business',
       theme: 'warning',
@@ -1096,31 +1110,14 @@ export function OverviewPanel({
 
   return (
     <>
-      {guardMessages.length > 0 ? (
-        <Alert
-          theme="warning"
-          message={`发版检查提醒：${guardMessages.join('；')}。这是上线前证据问题，不代表当前业务接口已经不可用。`}
-          style={{ marginBottom: 16 }}
-        />
-      ) : null}
-      {releaseCronRiskMessages.length > 0 ? (
-        <Alert
-          theme="warning"
-          message={`定时任务提醒：${releaseCronRiskMessages.join('；')}。这类问题不一定阻塞发版，但需要当天处理或登记原因。`}
-          style={{ marginBottom: 16 }}
-        />
-      ) : null}
-
       <Card bordered className="podi-executive-overview-card">
         <Space direction="vertical" size="small" style={{ width: '100%' }}>
           <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
             <div>
-            <Typography.Text strong>运营驾驶舱</Typography.Text>
-            <div>
-              <Typography.Text theme="secondary">
-                  先看业务接口、运行风险和上线证据；首页只给结论，不展开底层报错堆栈。
-              </Typography.Text>
-            </div>
+              <Typography.Text strong>封版判断</Typography.Text>
+              <div>
+                <Typography.Text theme="secondary">只回答两件事：能不能封版，卡在哪里。</Typography.Text>
+              </div>
             </div>
             <Button size="small" variant="outline" loading={loading} onClick={onRefresh}>
               刷新总览
@@ -1138,66 +1135,32 @@ export function OverviewPanel({
             }
             message={`当前结论：${releaseReadinessTitle}。${releaseReadinessMessage}`}
           />
-          <div className="podi-executive-pillar-grid">
-            {executivePillars.map((item) => (
-              <Card key={item.key} bordered size="small" className={`podi-executive-pillar podi-executive-pillar--${item.theme}`}>
-                <Space direction="vertical" size={6} style={{ width: '100%', height: '100%', justifyContent: 'space-between' }}>
-                  <Space direction="vertical" size={4} style={{ width: '100%' }}>
-                    <Space align="center" style={{ justifyContent: 'space-between', width: '100%', gap: 8 }}>
-                      <Typography.Text strong>{item.title}</Typography.Text>
-                      <Tag theme={item.theme} variant="light">
-                        {item.status}
-                      </Tag>
-                    </Space>
-                    <Typography.Text theme="secondary">{item.detail}</Typography.Text>
-                  </Space>
-                  <Button size="small" variant="outline" onClick={() => onNavigate?.(item.target)}>
-                    {item.action}
-                  </Button>
-                </Space>
-              </Card>
-            ))}
-          </div>
-        </Space>
-      </Card>
-
-      <Card bordered className="podi-operator-focus-card">
-        <Space direction="vertical" size="small" style={{ width: '100%' }}>
-          <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
-            <div>
-              <Typography.Text strong>今日处理顺序</Typography.Text>
-              <div>
-                <Typography.Text theme="secondary">
-                  按阻塞优先级自动整理；先处理这里，再进入下面的功能入口地图。
-                </Typography.Text>
-              </div>
-            </div>
-            <Tag theme={operatorFocusItems.some((item) => item.theme === 'danger') ? 'danger' : operatorFocusItems.some((item) => item.theme === 'warning') ? 'warning' : 'success'} variant="light">
-              {operatorFocusItems.length} 项
-            </Tag>
-          </Space>
-          <div className="podi-operator-focus-list">
-            {operatorFocusItems.map((item, index) => (
+          {releaseAttentionItems.length > 0 ? (
+            <div className="podi-operator-focus-list">
+              {releaseAttentionItems.slice(0, 5).map((item, index) => (
               <button
-                key={item.key}
+                key={`${item.title}-${item.status}-${index}`}
                 type="button"
                 className={`podi-operator-focus-item podi-operator-focus-item--${item.theme}`}
-                onClick={() => onNavigate?.(item.target)}
+                onClick={() => onNavigate?.(readinessIssueTarget(item.title))}
               >
                 <span className="podi-operator-focus-item__index">{index + 1}</span>
                 <span className="podi-operator-focus-item__body">
                   <span className="podi-operator-focus-item__topline">
                     <Tag theme={item.theme} variant="light" size="small">
-                      {item.priority}
+                      {item.status}
                     </Tag>
-                    <span>{item.action}</span>
+                    <span>去处理</span>
                   </span>
                   <span className="podi-operator-focus-item__title">{item.title}</span>
                   <span className="podi-operator-focus-item__detail">{item.detail}</span>
                 </span>
               </button>
-            ))}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <Alert theme="success" message="当前没有封版阻断项；下一步跑真实链路巡检并登记结果。" />
+          )}
         </Space>
       </Card>
 
@@ -2279,8 +2242,8 @@ export function OverviewPanel({
                 <Typography.Text theme="secondary">先看花纹提取、图裂变、扩图是否可用；辅助能力放到后续页面处理。</Typography.Text>
               </div>
             </div>
-            <Tag theme={Number(businessUsageSummary?.failed || 0) > 0 ? 'warning' : 'success'} variant="light">
-              {Number(businessUsageSummary?.failed || 0) > 0 ? '存在失败样本' : '近24小时无失败样本'}
+            <Tag theme={businessUnresolvedIssueCount > 0 ? 'warning' : 'success'} variant="light">
+              {businessUnresolvedIssueCount > 0 ? `待确认 ${businessUnresolvedIssueCount}` : '没有未收口失败'}
             </Tag>
           </Space>
           <Row gutter={[12, 12]}>

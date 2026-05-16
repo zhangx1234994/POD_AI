@@ -237,13 +237,11 @@ import {
   BusinessEntryCommandPanel,
   BusinessCoreEntryPanel,
   BusinessGovernancePanel,
-  BusinessMainlineContractPanel,
   BusinessOrchestrationMapPanel,
   BusinessOperationLogPanel,
   BusinessReleaseGuardPanel,
   BusinessRunHistoryPanel,
   BusinessUsageSummaryPanel,
-  BusinessWorkPathPanel,
   ApiExposurePanel,
   ComfyuiAgentsPanel,
   ComfyuiAlertsPanel,
@@ -6439,10 +6437,6 @@ const extractErrorMessage = (error: unknown): string => {
                 }
               >
                 <Space direction="vertical" size="large" style={{ width: '100%' }}>
-                <Alert
-                  theme="info"
-                  message="一条业务调用以 runId 为主线；VL 分析、ComfyUI 生图、OpenAI 编辑、评分等都归到这条任务的子步骤里。业务方只需要理解业务 API、runId、结果和错误码。"
-                />
                 {isBusinessReadOnly ? (
                   <Alert
                     theme="warning"
@@ -6453,9 +6447,7 @@ const extractErrorMessage = (error: unknown): string => {
                 ) : null}
                 {businessActionError ? <Alert theme="error" message={businessActionError} /> : null}
                 <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                  <Typography.Text theme="secondary">
-                    默认版本会直接影响业务入口，请只在测试通过后切换。
-                  </Typography.Text>
+                  <Typography.Text theme="secondary">先看业务入口总控和接口任务清单；底层能力只作为排障下钻。</Typography.Text>
                   {!isBusinessReadOnly ? (
                     <Button
                       theme="primary"
@@ -6468,7 +6460,6 @@ const extractErrorMessage = (error: unknown): string => {
                     </Button>
                   ) : null}
                 </Space>
-                <BusinessMainlineContractPanel />
                 <BusinessEntryCommandPanel
                   capabilities={businessCapabilities}
                   pendingApprovals={businessDefaultApprovals}
@@ -6479,17 +6470,6 @@ const extractErrorMessage = (error: unknown): string => {
                   capabilities={businessCapabilities}
                   pendingApprovals={businessDefaultApprovals}
                   summary={businessUsageSummary}
-                />
-                <BusinessCoreEntryPanel
-                  capabilities={businessCapabilities}
-                  pendingApprovals={businessDefaultApprovals}
-                  formatDateTime={formatDateTime}
-                />
-                <BusinessOrchestrationMapPanel
-                  capabilities={businessCapabilities}
-                  pendingApprovals={businessDefaultApprovals}
-                  summary={businessUsageSummary}
-                  formatDateTime={formatDateTime}
                 />
                 <BusinessRunHistoryPanel
                   runs={businessRuns}
@@ -6517,7 +6497,17 @@ const extractErrorMessage = (error: unknown): string => {
                   onCallbackRetry={handleBusinessCallbackRetry}
                   formatDateTime={formatDateTime}
                 />
-                <BusinessWorkPathPanel />
+                <BusinessOrchestrationMapPanel
+                  capabilities={businessCapabilities}
+                  pendingApprovals={businessDefaultApprovals}
+                  summary={businessUsageSummary}
+                  formatDateTime={formatDateTime}
+                />
+                <BusinessCoreEntryPanel
+                  capabilities={businessCapabilities}
+                  pendingApprovals={businessDefaultApprovals}
+                  formatDateTime={formatDateTime}
+                />
                 <BusinessCoreDecisionPanel
                   capabilities={businessCapabilities}
                   pendingApprovals={businessDefaultApprovals}

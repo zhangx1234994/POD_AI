@@ -51,7 +51,8 @@ export const getBusinessRunOutputCount = (item?: BusinessCapability) => {
   const latestRun = item?.latestRun;
   return (
     Number(latestRun?.imageCount ?? latestRun?.image_count ?? 0) +
-    Number(latestRun?.videoCount ?? latestRun?.video_count ?? 0)
+    Number(latestRun?.videoCount ?? latestRun?.video_count ?? 0) +
+    Number(latestRun?.textCount ?? latestRun?.text_count ?? 0)
   );
 };
 
@@ -131,12 +132,14 @@ const firstBusinessReleaseSuggestion = ({
   rollbackReadyCount,
   hasPendingApproval,
   reason,
+  unresolvedCount,
 }: {
   defaultItem?: BusinessCapability;
   activeCount: number;
   rollbackReadyCount: number;
   hasPendingApproval: boolean;
   reason: string;
+  unresolvedCount: number;
 }) => {
   if (!defaultItem) return '先补一个启用版本并设为默认，否则业务方没有稳定入口。';
   if (defaultItem.status !== 'active') return '默认版本未启用，先启用或切换到可用版本。';
@@ -150,7 +153,8 @@ const firstBusinessReleaseSuggestion = ({
   if (defaultItem.releaseGate?.acceptancePassed === false || defaultItem.latestAcceptance?.status !== 'passed') {
     return '默认版本还没有验收通过记录，先跑真实链路测试并记录验收证据。';
   }
-  if (defaultItem.latestRun?.error || Number(defaultItem.runMetrics?.failed || 0) > 0) return '最近有失败样本，先打开运行记录确认卡点。';
+  if (defaultItem.latestRun?.error || unresolvedCount > 0) return '最近有失败样本，先打开运行记录确认卡点。';
+  if (Number(defaultItem.runMetrics?.failed || 0) > 0) return '历史失败已被后续成功样本覆盖，保留追溯即可。';
   if (hasPendingApproval) return '存在默认版本切换审批，先处理审批再对外说明。';
   if (defaultItem.releaseGate?.status === 'warning') return defaultItem.releaseGate.suggestions?.[0] || '上线前仍有风险项，先完成复核再小流量验证。';
   if (rollbackReadyCount < 1) {
@@ -178,14 +182,26 @@ export const buildCoreBusinessReleaseEvidenceRows = ({
     const rollbackReadyAlternatives = activeAlternatives.filter(businessCapabilityHasRollbackEvidence);
     const activeCount = items.filter((item) => item.status === 'active').length;
     const bucket = summary?.byBusiness?.find((item) => canonicalBusinessKey(item.key) === businessKey);
+    const unresolvedBucket = summary?.unresolvedByBusiness?.find((item) => canonicalBusinessKey(item.key) === businessKey);
+    const unresolvedCount = Number(unresolvedBucket?.total || 0);
     const hasPendingApproval = pendingApprovals.some(
       (item) => canonicalBusinessKey(item.businessKey) === businessKey && item.status === 'pending',
     );
     const outputCount = getBusinessRunOutputCount(defaultItem);
     const hasDefault = Boolean(defaultItem);
     const acceptancePassed = Boolean(defaultItem?.releaseGate?.acceptancePassed === true || defaultItem?.latestAcceptance?.status === 'passed');
-    const gateBlocked = defaultItem?.releaseGate?.status === 'blocked' || defaultItem?.governanceStatus === 'blocker';
-    const runFailed = Boolean(defaultItem?.latestRun?.error) || Number(bucket?.failed || defaultItem?.runMetrics?.failed || 0) > 0;
+    const releaseGateBlockers = (defaultItem?.releaseGate?.blockers || []).map((item) => String(item));
+    const latestRunSucceeded = String(defaultItem?.latestRun?.status || '').toLowerCase() === 'succeeded' && !defaultItem?.latestRun?.error;
+    const acceptanceOnlyBlocked = Boolean(
+      defaultItem?.releaseGate?.status === 'blocked' &&
+      latestRunSucceeded &&
+      releaseGateBlockers.length > 0 &&
+      releaseGateBlockers.every((item) => item === 'BUSINESS_RELEASE_ACCEPTANCE_REQUIRED'),
+    );
+    const gateBlocked =
+      defaultItem?.governanceStatus === 'blocker' ||
+      (defaultItem?.releaseGate?.status === 'blocked' && !acceptanceOnlyBlocked);
+    const runFailed = Boolean(defaultItem?.latestRun?.error) || unresolvedCount > 0;
     const callbackRisk = Number(bucket?.callbackFailed || 0) + Number(bucket?.callbackMissing || 0);
     const billingRisk = Number(bucket?.unpriced || 0) + Number(bucket?.billingPending || 0);
     const missingRollback = hasDefault && rollbackReadyAlternatives.length === 0;
@@ -279,6 +295,7 @@ export const buildCoreBusinessReleaseEvidenceRows = ({
         rollbackReadyCount: rollbackReadyAlternatives.length,
         hasPendingApproval,
         reason,
+        unresolvedCount,
       }),
     };
   });

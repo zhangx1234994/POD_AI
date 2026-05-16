@@ -888,6 +888,7 @@ class BusinessRunService:
                         BusinessRun.ability_task_id,
                         BusinessRun.ability_log_id,
                         BusinessRun.request_payload,
+                        BusinessRun.result_payload,
                         BusinessRun.image_urls,
                         BusinessRun.video_urls,
                         BusinessRun.texts,
@@ -899,6 +900,7 @@ class BusinessRunService:
                         BusinessRun.cost_amount,
                         BusinessRun.quota_units,
                         BusinessRun.cost_breakdown,
+                        BusinessRun.callback_url,
                         BusinessRun.callback_status,
                         BusinessRun.callback_http_status,
                         BusinessRun.callback_error,
@@ -934,6 +936,7 @@ class BusinessRunService:
         since = datetime.utcnow() - timedelta(hours=normalized_window_hours)
         issue_summaries: dict[str, dict[str, Any]] = {}
         unresolved_issues: list[dict[str, Any]] = []
+        unresolved_by_business: list[dict[str, Any]] = []
         recent_unresolved_issues: list[dict[str, Any]] = []
         normalized_issue_category = self._normalize_issue_category(issue_category)
         with get_session() as session:
@@ -960,9 +963,9 @@ class BusinessRunService:
                 .scalars()
                 .all()
             )
-            rows = self._load_runs_by_ids(session, run_ids)
+            rows = self._load_run_summaries_by_ids(session, run_ids)
             issue_summaries = {
-                row.id: self._build_run_issue_summary(row, session=session)
+                row.id: self._build_run_issue_summary(row, steps=[])
                 for row in rows
             }
             if normalized_issue_category:
@@ -972,6 +975,11 @@ class BusinessRunService:
                     if issue_summaries.get(row.id, {}).get("category") == normalized_issue_category
                 ]
             unresolved_issues = self._usage_unresolved_issue_buckets(
+                rows,
+                issue_summaries,
+                session=session,
+            )
+            unresolved_by_business = self._usage_unresolved_business_buckets(
                 rows,
                 issue_summaries,
                 session=session,
@@ -1024,6 +1032,7 @@ class BusinessRunService:
             ),
             "by_issue": self._usage_issue_buckets(rows, issue_summaries),
             "unresolved_issues": unresolved_issues,
+            "unresolved_by_business": unresolved_by_business,
             "recent_unresolved_issues": recent_unresolved_issues,
             "recent_failures": recent_failures,
         }
@@ -1088,6 +1097,8 @@ class BusinessRunService:
             category = str(summary.get("category") or "none")
             if category == "none" or self._extract_retest_source_run_id(row):
                 continue
+            if self._has_later_successful_business_run(row, rows):
+                continue
             retest_summary = self._build_retest_summary(row, session=session)
             if retest_summary.get("recovered"):
                 continue
@@ -1115,6 +1126,48 @@ class BusinessRunService:
             reverse=True,
         )
 
+    def _usage_unresolved_business_buckets(
+        self,
+        rows: list[BusinessRun],
+        issue_summaries: dict[str, dict[str, Any]],
+        *,
+        session,
+    ) -> list[dict[str, Any]]:
+        groups: dict[str, list[BusinessRun]] = {}
+        category_counts_by_business: dict[str, dict[str, int]] = {}
+        for row in rows:
+            summary = issue_summaries.get(row.id) or self._build_run_issue_summary(row, session=session)
+            category = str(summary.get("category") or "none")
+            if category == "none" or self._extract_retest_source_run_id(row):
+                continue
+            if self._has_later_successful_business_run(row, rows):
+                continue
+            if self._build_retest_summary(row, session=session).get("recovered"):
+                continue
+            key = str(row.business_key or "unknown").strip() or "unknown"
+            groups.setdefault(key, []).append(row)
+            category_counts = category_counts_by_business.setdefault(key, {})
+            category_counts[category] = category_counts.get(category, 0) + 1
+
+        buckets: list[dict[str, Any]] = []
+        for key, group in groups.items():
+            bucket = self._summarize_usage_bucket(key, key, group)
+            category_counts = category_counts_by_business.get(key) or {}
+            top_category = max(category_counts.items(), key=lambda item: item[1])[0] if category_counts else "none"
+            issue = self._issue_category_meta(top_category)
+            bucket.update(
+                {
+                    "severity": issue["severity"],
+                    "action": issue["action"],
+                }
+            )
+            buckets.append(bucket)
+        return sorted(
+            buckets,
+            key=lambda item: (int(item.get("total") or 0), item.get("latest_at") or datetime.min),
+            reverse=True,
+        )
+
     def _recent_unresolved_issue_items(
         self,
         rows: list[BusinessRun],
@@ -1127,6 +1180,8 @@ class BusinessRunService:
             summary = issue_summaries.get(row.id) or self._build_run_issue_summary(row, session=session)
             category = str(summary.get("category") or "none")
             if category == "none" or self._extract_retest_source_run_id(row):
+                continue
+            if self._has_later_successful_business_run(row, rows):
                 continue
             retest_summary = self._build_retest_summary(row, session=session)
             if retest_summary.get("recovered"):
@@ -1151,6 +1206,29 @@ class BusinessRunService:
                 }
             )
         return sorted(items, key=lambda item: item["created_at"], reverse=True)[:10]
+
+    def _has_later_successful_business_run(self, row: BusinessRun, rows: list[BusinessRun]) -> bool:
+        """Treat an old failed sample as recovered when the same business version later succeeds."""
+        if not row.created_at:
+            return False
+        business_key = str(row.business_key or "").strip()
+        version = str(row.version or "").strip()
+        if not business_key or not version:
+            return False
+        for candidate in rows:
+            if candidate.id == row.id:
+                continue
+            if str(candidate.business_key or "").strip() != business_key:
+                continue
+            if str(candidate.version or "").strip() != version:
+                continue
+            if not candidate.created_at or candidate.created_at <= row.created_at:
+                continue
+            if str(candidate.status or "").lower() != "succeeded":
+                continue
+            if (candidate.image_urls or []) or (candidate.video_urls or []) or (candidate.texts or []):
+                return True
+        return False
 
     def _summarize_usage_bucket(self, key: str, label: str, rows: list[BusinessRun]) -> dict[str, Any]:
         statuses = {

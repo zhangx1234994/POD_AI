@@ -1398,6 +1398,8 @@ export interface BusinessCapabilityLatestRun {
   image_count?: number | null;
   videoCount?: number | null;
   video_count?: number | null;
+  textCount?: number | null;
+  text_count?: number | null;
   error?: string | null;
 }
 
@@ -1818,6 +1820,7 @@ export interface BusinessUsageSummaryResponse {
   byVersion: BusinessUsageBucket[];
   byIssue: BusinessIssueBucket[];
   unresolvedIssues?: BusinessUnresolvedIssueBucket[];
+  unresolvedByBusiness?: BusinessIssueBucket[];
   recentUnresolvedIssues?: BusinessUnresolvedIssue[];
   recentFailures: BusinessUsageFailure[];
 }
