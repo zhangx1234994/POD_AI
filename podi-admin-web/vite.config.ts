@@ -11,10 +11,11 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (!id.includes('node_modules')) return undefined;
-          if (id.includes('/react/') || id.includes('/react-dom/') || id.includes('/scheduler/')) return 'react-vendor';
-          if (id.includes('/tdesign-react/') || id.includes('/tdesign-icons-react/')) return 'tdesign-vendor';
+          // Keep heavy upload SDK lazy, but let Vite/Rollup place React and UI libraries.
+          // Hand-splitting React/TDesign caused a production-only circular chunk that crashed
+          // static admin builds with "Cannot access before initialization".
           if (id.includes('/ali-oss/')) return 'storage-vendor';
-          return 'vendor';
+          return undefined;
         },
       },
     },
