@@ -511,6 +511,68 @@ def test_business_run_detail_embeds_api_usage_evidence() -> None:
     assert {item["endpointKind"] for item in api_usage["items"]} == {"submit", "poll"}
 
 
+def test_business_run_detail_uses_standard_polling_too_frequent_issue_code() -> None:
+    now = datetime.utcnow()
+    run_id = "run_usage_polling_too_frequent"
+    with get_session() as session:
+        for row in session.execute(select(BusinessApiKeyUsageLog).where(BusinessApiKeyUsageLog.run_id == run_id)).scalars().all():
+            session.delete(row)
+        existing_run = session.get(BusinessRun, run_id)
+        if existing_run:
+            session.delete(existing_run)
+            session.flush()
+        session.add(
+            BusinessRun(
+                id=run_id,
+                business_key="fission",
+                version="comfyui-vl-control-v2",
+                status="running",
+                source="business-api",
+                channel="open-api",
+                image_urls=[],
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.add(
+            BusinessApiKeyUsageLog(
+                api_key_id="api_key_polling_issue",
+                api_key_name="业务方 Poll Key",
+                method="POST",
+                path="/api/business/fission/runs",
+                status_code=200,
+                business_key="fission",
+                run_id=run_id,
+                duration_ms=120,
+                created_at=now,
+            )
+        )
+        session.add_all(
+            [
+                BusinessApiKeyUsageLog(
+                    api_key_id="api_key_polling_issue",
+                    api_key_name="业务方 Poll Key",
+                    method="POST",
+                    path="/api/business/runs/get",
+                    status_code=200,
+                    business_key="fission",
+                    run_id=run_id,
+                    duration_ms=20,
+                    created_at=now,
+                )
+                for _ in range(31)
+            ]
+        )
+        session.commit()
+
+        service = object.__new__(BusinessRunService)
+        payload = service._run_to_dict(session.get(BusinessRun, run_id), session=session, include_api_usage=True)
+
+    api_usage = payload["api_usage"]
+    assert api_usage["summary"]["issueCode"] == "POLLING_TOO_FREQUENT"
+    assert api_usage["summary"]["needsAttention"] is True
+
+
 def test_business_api_key_usage_records_request_context_for_errors_and_route_preview(monkeypatch) -> None:
     api_key_id = "api_key_usage_request_context"
     api_key_value = "podi-request-context-key"

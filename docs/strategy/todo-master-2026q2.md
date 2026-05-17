@@ -103,6 +103,7 @@
 - 已完成（2026-05-15）：新增 `docs/standards/business-api-enums.md`，先固化 `/api/business/*` 对外任务状态、查询返回字段、图裂变参数、裂变评分结果、路由预览、计费/回调状态和常见错误码。
 - 进展（2026-05-15）：业务 OpenAPI 已补 `profile/mode/variation_preset/pattern_risk_type/output_format/selectedStatus/selectedBy` 显式枚举；接口调用中心枚举写入 `docs/standards/business-api-enums.md`。
 - 进展（2026-05-17）：`business_truth_source_consistency` 已把业务枚举文档纳入发布 smoke，先阻断状态、核心业务版本、参数枚举和常见错误码缺失。
+- 进展（2026-05-17）：业务运行详情入口调用证据统一复用接口调用中心枚举，轮询过频固定为 `POLLING_TOO_FREQUENT`，并纳入 smoke 枚举文档检查，避免页面与文档漂移。
 - 下一步：让接口页和业务交付包继续减少重复文案，逐步由同一份枚举真源生成页面提示。
 - 验收：业务方不需要问中台，也能知道所有状态值、参数可选值和错误处理方式。
 

@@ -5696,7 +5696,7 @@ class BusinessRunService:
         if submit_count <= 0:
             return "POLL_WITHOUT_SUBMIT", "只看到查询记录，没有看到提交记录；需要确认调用方是否保存并复用了正确的 runId。", True
         if poll_count > max(submit_count, 1) * 30:
-            return "POLL_TOO_FREQUENT", "查询次数明显偏高，建议调用方按 retryAfterSeconds 或 5-10 秒间隔轮询。", True
+            return "POLLING_TOO_FREQUENT", "查询次数明显偏高，建议调用方按 retryAfterSeconds 或 5-10 秒间隔轮询。", True
         return "OK", "入口提交和查询记录匹配，调用侧没有明显异常。", False
 
     def _business_api_usage_log_to_dict(self, row: BusinessApiKeyUsageLog) -> dict[str, Any]:
