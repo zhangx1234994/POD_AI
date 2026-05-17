@@ -62,6 +62,15 @@ type BusinessDeliveryContract = {
   note: string;
 };
 
+type BusinessDeliveryContractState = {
+  ok: boolean;
+  missingSamples: string[];
+  missingEnums: string[];
+  missingErrorCodes: boolean;
+  summary: string;
+  requiredEvidence: string[];
+};
+
 type FeatureReleaseChecklistItem = {
   key: string;
   name: string;
@@ -748,17 +757,25 @@ function buildBusinessApiContractChecks(): DeliveryGuard[] {
   ];
 }
 
-function businessDeliveryContractState(row: BusinessDeliveryContract) {
+function businessDeliveryContractState(row: BusinessDeliveryContract): BusinessDeliveryContractState {
   const enumFields = new Set(BUSINESS_API_STATUS_DOCS.map((item) => item.field));
   const missingSamples = REQUIRED_DELIVERY_SAMPLE_FILES.filter((file) => !row.sampleFiles.includes(file));
   const missingEnums = row.enumFields.filter((field) => !enumFields.has(field));
   const missingErrorCodes = row.errorCodes.length === 0;
   const ok = missingSamples.length === 0 && missingEnums.length === 0 && !missingErrorCodes;
+  const requiredEvidence = [
+    `文档：${row.docsPath}`,
+    `样例：${REQUIRED_DELIVERY_SAMPLE_FILES.join('、')}`,
+    `枚举：${row.enumFields.join('、') || '无'}`,
+    `错误码：${row.errorCodes.join('、') || '无'}`,
+    '总表：docs/standards/business-api-enums.md、docs/standards/error-catalog.md',
+  ];
   return {
     ok,
     missingSamples,
     missingEnums,
     missingErrorCodes,
+    requiredEvidence,
     summary: ok
       ? '请求、响应、错误、枚举都已覆盖。'
       : [
@@ -767,6 +784,14 @@ function businessDeliveryContractState(row: BusinessDeliveryContract) {
           missingErrorCodes ? '缺错误码' : '',
         ].filter(Boolean).join('；'),
   };
+}
+
+function businessDeliveryGapMessages(rows: BusinessDeliveryContract[]): string[] {
+  return rows.flatMap((row) => {
+    const state = businessDeliveryContractState(row);
+    if (state.ok) return [];
+    return [`${row.name}：${state.summary}`];
+  });
 }
 
 function deliveryDecisionTheme(status: DeliveryDecisionStatus): 'success' | 'warning' | 'danger' {
@@ -1372,6 +1397,7 @@ export function ApiExposurePanel({
   const businessApiPollingTooFrequent = businessApiPollingRatio >= 30;
   const businessApiContractChecks = buildBusinessApiContractChecks();
   const businessDeliveryContractRows = BUSINESS_DELIVERY_CONTRACTS;
+  const businessDeliveryGapRows = businessDeliveryGapMessages(businessDeliveryContractRows);
   const deliveryDecision = buildDeliveryDecision({
     contractChecks: businessApiContractChecks,
     deliveryContracts: businessDeliveryContractRows,
@@ -1571,6 +1597,14 @@ export function ApiExposurePanel({
               </Typography.Text>
             </div>
           </div>
+          <Alert
+            theme={businessDeliveryGapRows.length ? 'warning' : 'success'}
+            message={
+              businessDeliveryGapRows.length
+                ? `交付材料存在缺口：${businessDeliveryGapRows.join('；')}`
+                : '三个接口当前都具备独立文档、6 类 JSON 样例、枚举说明和错误码说明；如后续新增字段，先补文档再发版。'
+            }
+          />
           <Table
             rowKey="key"
             size="small"
@@ -1639,6 +1673,23 @@ export function ApiExposurePanel({
                 cell: ({ row }) => {
                   const state = businessDeliveryContractState(row);
                   return <Typography.Text theme={state.ok ? 'success' : 'error'}>{state.summary}</Typography.Text>;
+                },
+              },
+              {
+                colKey: 'evidence',
+                title: '检查依据',
+                ellipsis: true,
+                cell: ({ row }) => {
+                  const state = businessDeliveryContractState(row);
+                  return (
+                    <Space direction="vertical" size={2}>
+                      {state.requiredEvidence.map((item) => (
+                        <Typography.Text key={item} theme="secondary">
+                          {item}
+                        </Typography.Text>
+                      ))}
+                    </Space>
+                  );
                 },
               },
             ]}
