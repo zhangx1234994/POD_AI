@@ -1480,6 +1480,30 @@ const businessRunStepCountLabel = (steps?: BusinessRunStep[] | null) => {
   return `共 ${stats.total} 步 · 成功 ${stats.succeeded} · 进行中 ${stats.running} · 失败 ${stats.failed}`;
 };
 
+const businessApiEndpointKindLabel = (value?: string | null) => {
+  const normalized = String(value || '').trim();
+  if (normalized === 'submit') return '提交任务';
+  if (normalized === 'poll') return '查询结果';
+  if (normalized === 'callback') return '回调';
+  if (normalized === 'route_preview') return '路由预览';
+  return normalized || '其他';
+};
+
+const businessApiUsageIssueTheme = (code?: string | null, needsAttention?: boolean | null): 'success' | 'warning' | 'danger' | 'default' => {
+  if (code === 'OK') return 'success';
+  if (code === 'HAS_ERROR') return 'danger';
+  if (needsAttention) return 'warning';
+  return 'default';
+};
+
+const businessApiStatusTheme = (statusCode?: number | null): 'success' | 'warning' | 'danger' | 'default' => {
+  if (typeof statusCode !== 'number') return 'default';
+  if (statusCode >= 500) return 'danger';
+  if (statusCode >= 400) return 'warning';
+  if (statusCode >= 200 && statusCode < 400) return 'success';
+  return 'default';
+};
+
 function BusinessRunParentTaskCard({
   detail,
   formatDateTime,
@@ -1583,6 +1607,118 @@ function BusinessRunParentTaskCard({
           <Typography.Text>{formatShortBusinessId(detail.taskId || detail.abilityTaskId)}</Typography.Text>
         </Col>
       </Row>
+    </Card>
+  );
+}
+
+function BusinessRunApiUsageEvidenceCard({
+  detail,
+  formatDateTime,
+}: {
+  detail: BusinessRun;
+  formatDateTime: (value?: string | null) => string;
+}) {
+  const apiUsage = detail.apiUsage;
+  const summary = apiUsage?.summary || {};
+  const items = Array.isArray(apiUsage?.items) ? apiUsage.items : [];
+  const total = Number(summary.total || 0);
+  const issueCode = summary.issueCode || (total > 0 ? 'OK' : 'NO_ENTRY_LOG');
+  const issueTheme = businessApiUsageIssueTheme(issueCode, summary.needsAttention);
+  return (
+    <Card bordered title="入口调用证据">
+      <Space direction="vertical" size="small" style={{ width: '100%' }}>
+        <Alert
+          theme={issueTheme === 'danger' ? 'error' : issueTheme === 'warning' ? 'warning' : 'info'}
+          message={summary.issueHint || '没有找到入口调用记录；如果这是旧数据或后台补录任务，可继续看下方处理步骤。'}
+        />
+        <Row gutter={[12, 12]}>
+          <Col span={4}>
+            <Typography.Text theme="secondary">调用记录</Typography.Text>
+            <Typography.Text>{total}</Typography.Text>
+          </Col>
+          <Col span={4}>
+            <Typography.Text theme="secondary">提交</Typography.Text>
+            <Typography.Text>{Number(summary.submitCount || 0)}</Typography.Text>
+          </Col>
+          <Col span={4}>
+            <Typography.Text theme="secondary">查询</Typography.Text>
+            <Typography.Text>{Number(summary.pollCount || 0)}</Typography.Text>
+          </Col>
+          <Col span={4}>
+            <Typography.Text theme="secondary">失败</Typography.Text>
+            <Tag variant="light" theme={Number(summary.errorCount || 0) > 0 ? 'danger' : 'success'}>
+              {Number(summary.errorCount || 0)}
+            </Tag>
+          </Col>
+          <Col span={4}>
+            <Typography.Text theme="secondary">最近调用</Typography.Text>
+            <Typography.Text>{formatDateTime(summary.lastSeenAt)}</Typography.Text>
+          </Col>
+          <Col span={4}>
+            <Typography.Text theme="secondary">匹配方式</Typography.Text>
+            <Typography.Text>{(apiUsage?.matchBy || []).join(' / ') || 'runId'}</Typography.Text>
+          </Col>
+        </Row>
+        {items.length > 0 ? (
+          <Table
+            size="small"
+            rowKey="id"
+            data={items.slice(0, 8)}
+            columns={[
+              {
+                colKey: 'createdAt',
+                title: '时间',
+                width: 170,
+                cell: ({ row }) => <Typography.Text>{formatDateTime(row.createdAt)}</Typography.Text>,
+              },
+              {
+                colKey: 'endpointKind',
+                title: '动作',
+                width: 110,
+                cell: ({ row }) => <Tag variant="light">{businessApiEndpointKindLabel(row.endpointKind)}</Tag>,
+              },
+              {
+                colKey: 'path',
+                title: '接口',
+                ellipsis: true,
+                cell: ({ row }) => (
+                  <Space direction="vertical" size={2}>
+                    <Typography.Text code>
+                      {row.method || 'GET'} {row.path || '—'}
+                    </Typography.Text>
+                    <Typography.Text theme="secondary">
+                      {row.apiKeyName || '未记录 Key'}{row.apiKeyPreview ? ` · ${row.apiKeyPreview}` : ''}
+                    </Typography.Text>
+                  </Space>
+                ),
+              },
+              {
+                colKey: 'statusCode',
+                title: '结果',
+                width: 150,
+                cell: ({ row }) => (
+                  <Space direction="vertical" size={2}>
+                    <Tag variant="light" theme={businessApiStatusTheme(row.statusCode)}>
+                      HTTP {row.statusCode || '—'}
+                    </Tag>
+                    {row.errorCode ? <Typography.Text theme="error">{row.errorCode}</Typography.Text> : null}
+                  </Space>
+                ),
+              },
+              {
+                colKey: 'durationMs',
+                title: '耗时',
+                width: 100,
+                cell: ({ row }) => <Typography.Text>{formatDurationMs(row.durationMs)}</Typography.Text>,
+              },
+            ]}
+          />
+        ) : (
+          <Typography.Text theme="secondary">
+            暂无入口调用明细。若本任务由后台补录、复测或旧版本迁移产生，可以继续按下方处理步骤排查。
+          </Typography.Text>
+        )}
+      </Space>
     </Card>
   );
 }
@@ -2294,6 +2430,7 @@ export const BusinessRunHistoryPanel = ({
           />
           <BusinessRunParentTaskCard detail={detail} formatDateTime={formatDateTime} />
           <BusinessRunNextActionAlert detail={detail} />
+          <BusinessRunApiUsageEvidenceCard detail={detail} formatDateTime={formatDateTime} />
           <Row gutter={[12, 12]}>
             <Col span={6}>
               <Typography.Text theme="secondary">业务任务</Typography.Text>

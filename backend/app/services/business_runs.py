@@ -16,7 +16,7 @@ from uuid import uuid4
 
 import httpx
 from fastapi import HTTPException
-from sqlalchemy import and_, func, not_, or_, select, update
+from sqlalchemy import and_, case, func, not_, or_, select, update
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import load_only
 
@@ -29,6 +29,7 @@ from app.models.integration import (
     ApiKey,
     BusinessCapability,
     BusinessClient,
+    BusinessApiKeyUsageLog,
     BusinessDefaultApproval,
     BusinessOperationLog,
     BusinessRun,
@@ -1798,7 +1799,7 @@ class BusinessRunService:
                     raise HTTPException(status_code=404, detail="BUSINESS_RUN_NOT_FOUND")
                 if user and not self._can_user_access_run(row, user):
                     raise HTTPException(status_code=403, detail="BUSINESS_RUN_FORBIDDEN")
-                return self._run_to_dict(row, session=session)
+                return self._run_to_dict(row, session=session, include_api_usage=True)
         except HTTPException:
             raise
         except OperationalError:
@@ -5470,7 +5471,7 @@ class BusinessRunService:
             metrics["success_rate"] = round(int(metrics["succeeded"] or 0) / total, 4)
         return metrics
 
-    def _run_to_dict(self, row: BusinessRun, *, session=None) -> dict[str, Any]:
+    def _run_to_dict(self, row: BusinessRun, *, session=None, include_api_usage: bool = False) -> dict[str, Any]:
         ability_name: str | None = None
         ability_provider: str | None = None
         vendor_model_id: int | None = None
@@ -5550,6 +5551,7 @@ class BusinessRunService:
             "retest_recovered": bool(retest_summary.get("recovered")),
             "retest_summary": retest_summary,
             "flow_summary": flow_summary,
+            "api_usage": self._business_api_usage_evidence(row, session=session) if include_api_usage else None,
             "orchestration_graph": self._build_run_orchestration_graph(
                 row,
                 steps=steps,
@@ -5561,6 +5563,161 @@ class BusinessRunService:
             "updated_at": row.updated_at,
             "started_at": row.started_at,
             "finished_at": row.finished_at,
+        }
+
+    def _business_api_usage_evidence(
+        self,
+        row: BusinessRun,
+        *,
+        session=None,
+        limit: int = 20,
+    ) -> dict[str, Any] | None:
+        if session is None:
+            return None
+        match_clauses = [BusinessApiKeyUsageLog.run_id == row.id]
+        match_by = ["runId"]
+        if row.request_id:
+            match_clauses.append(
+                and_(
+                    BusinessApiKeyUsageLog.business_key == row.business_key,
+                    BusinessApiKeyUsageLog.request_id == row.request_id,
+                )
+            )
+            match_by.append("requestId")
+        if row.trace_id:
+            match_clauses.append(
+                and_(
+                    BusinessApiKeyUsageLog.business_key == row.business_key,
+                    BusinessApiKeyUsageLog.trace_id == row.trace_id,
+                )
+            )
+            match_by.append("traceId")
+
+        scope_filter = or_(*match_clauses)
+        submit_filter = self._business_api_usage_submit_filter()
+        poll_filter = BusinessApiKeyUsageLog.path == "/api/business/runs/get"
+        callback_filter = BusinessApiKeyUsageLog.path.contains("callback")
+        error_filter = or_(BusinessApiKeyUsageLog.status_code >= 400, BusinessApiKeyUsageLog.error_code.is_not(None))
+        success_filter = and_(
+            BusinessApiKeyUsageLog.status_code >= 200,
+            BusinessApiKeyUsageLog.status_code < 400,
+            BusinessApiKeyUsageLog.error_code.is_(None),
+        )
+        aggregate = session.execute(
+            select(
+                func.count(BusinessApiKeyUsageLog.id),
+                func.coalesce(func.sum(case((submit_filter, 1), else_=0)), 0),
+                func.coalesce(func.sum(case((poll_filter, 1), else_=0)), 0),
+                func.coalesce(func.sum(case((callback_filter, 1), else_=0)), 0),
+                func.coalesce(func.sum(case((error_filter, 1), else_=0)), 0),
+                func.coalesce(func.sum(case((success_filter, 1), else_=0)), 0),
+                func.avg(BusinessApiKeyUsageLog.duration_ms),
+                func.min(BusinessApiKeyUsageLog.created_at),
+                func.max(BusinessApiKeyUsageLog.created_at),
+            )
+            .select_from(BusinessApiKeyUsageLog)
+            .where(scope_filter)
+        ).one()
+        total = int(aggregate[0] or 0)
+        submit_count = int(aggregate[1] or 0)
+        poll_count = int(aggregate[2] or 0)
+        callback_count = int(aggregate[3] or 0)
+        error_count = int(aggregate[4] or 0)
+        success_count = int(aggregate[5] or 0)
+        issue_code, issue_hint, needs_attention = self._business_api_usage_issue_summary(
+            total=total,
+            submit_count=submit_count,
+            poll_count=poll_count,
+            error_count=error_count,
+        )
+        rows = (
+            session.execute(
+                select(BusinessApiKeyUsageLog)
+                .where(scope_filter)
+                .order_by(BusinessApiKeyUsageLog.created_at.desc(), BusinessApiKeyUsageLog.id.desc())
+                .limit(max(1, min(int(limit or 20), 100)))
+            )
+            .scalars()
+            .all()
+        )
+        return {
+            "matchBy": match_by,
+            "summary": {
+                "total": total,
+                "successCount": success_count,
+                "errorCount": error_count,
+                "submitCount": submit_count,
+                "pollCount": poll_count,
+                "callbackCount": callback_count,
+                "averageDurationMs": float(aggregate[6]) if aggregate[6] is not None else None,
+                "firstSeenAt": aggregate[7],
+                "lastSeenAt": aggregate[8],
+                "needsAttention": needs_attention,
+                "issueCode": issue_code,
+                "issueHint": issue_hint,
+            },
+            "items": [self._business_api_usage_log_to_dict(item) for item in rows],
+        }
+
+    @staticmethod
+    def _business_api_usage_submit_filter():
+        return and_(
+            BusinessApiKeyUsageLog.method == "POST",
+            BusinessApiKeyUsageLog.path.like("%/runs"),
+            BusinessApiKeyUsageLog.path != "/api/business/runs/get",
+        )
+
+    @staticmethod
+    def _business_api_usage_endpoint_kind(row: BusinessApiKeyUsageLog) -> str:
+        path = str(row.path or "")
+        method = str(row.method or "").upper()
+        if path == "/api/business/runs/get":
+            return "poll"
+        if "callback" in path:
+            return "callback"
+        if method == "POST" and path.endswith("/runs"):
+            return "submit"
+        if "route-preview" in path:
+            return "route_preview"
+        return "other"
+
+    @staticmethod
+    def _business_api_usage_issue_summary(
+        *,
+        total: int,
+        submit_count: int,
+        poll_count: int,
+        error_count: int,
+    ) -> tuple[str, str, bool]:
+        if total <= 0:
+            return "NO_ENTRY_LOG", "没有找到入口调用记录；可能是旧数据、后台补录，或调用方没有带 runId/requestId/traceId。", True
+        if error_count > 0:
+            return "HAS_ERROR", "入口调用记录里存在失败响应，先看下方最近失败的错误码和接口路径。", True
+        if submit_count <= 0:
+            return "POLL_WITHOUT_SUBMIT", "只看到查询记录，没有看到提交记录；需要确认调用方是否保存并复用了正确的 runId。", True
+        if poll_count > max(submit_count, 1) * 30:
+            return "POLL_TOO_FREQUENT", "查询次数明显偏高，建议调用方按 retryAfterSeconds 或 5-10 秒间隔轮询。", True
+        return "OK", "入口提交和查询记录匹配，调用侧没有明显异常。", False
+
+    def _business_api_usage_log_to_dict(self, row: BusinessApiKeyUsageLog) -> dict[str, Any]:
+        return {
+            "id": row.id,
+            "apiKeyId": row.api_key_id,
+            "apiKeyName": row.api_key_name,
+            "apiKeyPreview": row.api_key_preview,
+            "method": row.method,
+            "path": row.path,
+            "endpointKind": self._business_api_usage_endpoint_kind(row),
+            "statusCode": row.status_code,
+            "businessKey": row.business_key,
+            "runId": row.run_id,
+            "requestId": row.request_id,
+            "traceId": row.trace_id,
+            "tenantId": row.tenant_id,
+            "clientId": row.client_id,
+            "errorCode": row.error_code,
+            "durationMs": row.duration_ms,
+            "createdAt": row.created_at,
         }
 
     def _run_to_summary_dict(self, row: BusinessRun, *, session=None) -> dict[str, Any]:

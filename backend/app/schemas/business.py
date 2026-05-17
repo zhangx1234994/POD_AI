@@ -523,6 +523,7 @@ class BusinessRunRead(BaseModel):
     retestRecovered: bool = Field(default=False, alias="retest_recovered")
     retestSummary: dict[str, Any] | None = Field(default=None, alias="retest_summary")
     flowSummary: dict[str, Any] | None = Field(default=None, alias="flow_summary")
+    apiUsage: dict[str, Any] | None = Field(default=None, alias="api_usage")
     orchestrationGraph: dict[str, Any] | None = Field(default=None, alias="orchestration_graph")
     steps: list[BusinessRunStepRead] = Field(default_factory=list)
     createdAt: datetime = Field(alias="created_at")

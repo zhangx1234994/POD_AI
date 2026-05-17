@@ -408,6 +408,109 @@ def test_business_admin_api_usage_supports_filters_summary_and_run_groups() -> N
     assert "BUSINESS_RUN_ID_REQUIRED" in export_text
 
 
+def test_business_run_detail_embeds_api_usage_evidence() -> None:
+    now = datetime.utcnow()
+    run_id = "run_usage_detail_001"
+    request_id = "req_usage_detail_001"
+    trace_id = "trace_usage_detail_001"
+    with get_session() as session:
+        for row in session.execute(select(BusinessApiKeyUsageLog).where(BusinessApiKeyUsageLog.run_id == run_id)).scalars().all():
+            session.delete(row)
+        for row in session.execute(select(BusinessApiKeyUsageLog).where(BusinessApiKeyUsageLog.request_id == request_id)).scalars().all():
+            session.delete(row)
+        existing_run = session.get(BusinessRun, run_id)
+        if existing_run:
+            session.delete(existing_run)
+            session.flush()
+        session.add(
+            BusinessRun(
+                id=run_id,
+                business_key="fission",
+                version="comfyui-vl-control-v2",
+                status="succeeded",
+                source="business-api",
+                channel="open-api",
+                request_id=request_id,
+                trace_id=trace_id,
+                tenant_id="tenant-usage-detail",
+                client_id="client-usage-detail",
+                image_urls=["https://example.com/result.png"],
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.add_all(
+            [
+                BusinessApiKeyUsageLog(
+                    api_key_id="api_key_usage_detail",
+                    api_key_name="业务方 Detail Key",
+                    api_key_preview="podi...tail",
+                    method="POST",
+                    path="/api/business/fission/runs",
+                    status_code=200,
+                    business_key="fission",
+                    run_id=run_id,
+                    request_id=request_id,
+                    trace_id=trace_id,
+                    tenant_id="tenant-usage-detail",
+                    client_id="client-usage-detail",
+                    duration_ms=210,
+                    created_at=now,
+                ),
+                BusinessApiKeyUsageLog(
+                    api_key_id="api_key_usage_detail",
+                    api_key_name="业务方 Detail Key",
+                    api_key_preview="podi...tail",
+                    method="POST",
+                    path="/api/business/runs/get",
+                    status_code=200,
+                    business_key="fission",
+                    run_id=None,
+                    request_id=request_id,
+                    trace_id=trace_id,
+                    tenant_id="tenant-usage-detail",
+                    client_id="client-usage-detail",
+                    duration_ms=40,
+                    created_at=now,
+                ),
+                BusinessApiKeyUsageLog(
+                    api_key_id="api_key_usage_detail",
+                    api_key_name="业务方 Detail Key",
+                    api_key_preview="podi...tail",
+                    method="POST",
+                    path="/api/business/runs/get",
+                    status_code=400,
+                    business_key="fission",
+                    run_id=run_id,
+                    request_id=request_id,
+                    trace_id=trace_id,
+                    tenant_id="tenant-usage-detail",
+                    client_id="client-usage-detail",
+                    error_code="BUSINESS_RUN_ID_REQUIRED",
+                    duration_ms=30,
+                    created_at=now,
+                ),
+            ]
+        )
+        session.commit()
+
+        service = object.__new__(BusinessRunService)
+        row = session.get(BusinessRun, run_id)
+        summary_payload = service._run_to_dict(row, session=session)
+        payload = service._run_to_dict(row, session=session, include_api_usage=True)
+
+    assert summary_payload["api_usage"] is None
+    api_usage = payload["api_usage"]
+    assert api_usage["summary"]["total"] == 3
+    assert api_usage["summary"]["submitCount"] == 1
+    assert api_usage["summary"]["pollCount"] == 2
+    assert api_usage["summary"]["errorCount"] == 1
+    assert api_usage["summary"]["needsAttention"] is True
+    assert api_usage["summary"]["issueCode"] == "HAS_ERROR"
+    assert "requestId" in api_usage["matchBy"]
+    assert {item["endpointKind"] for item in api_usage["items"]} == {"submit", "poll"}
+
+
 def test_business_api_key_usage_records_request_context_for_errors_and_route_preview(monkeypatch) -> None:
     api_key_id = "api_key_usage_request_context"
     api_key_value = "podi-request-context-key"

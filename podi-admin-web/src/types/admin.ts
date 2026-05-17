@@ -1639,6 +1639,7 @@ export interface BusinessRun {
   retestRecovered?: boolean | null;
   retestSummary?: JsonRecord | null;
   flowSummary?: BusinessRunFlowSummary | null;
+  apiUsage?: BusinessRunApiUsageEvidence | null;
   orchestrationGraph?: BusinessOrchestrationGraph | null;
   steps?: BusinessRunStep[];
   createdAt: string;
@@ -1672,6 +1673,47 @@ export interface BusinessRunFlowSummary {
   executor?: JsonRecord | null;
   output?: JsonRecord | null;
   callback?: JsonRecord | null;
+}
+
+export interface BusinessRunApiUsageEvidence {
+  matchBy?: string[];
+  summary?: BusinessRunApiUsageSummary | null;
+  items?: BusinessRunApiUsageLog[];
+}
+
+export interface BusinessRunApiUsageSummary {
+  total?: number | null;
+  successCount?: number | null;
+  errorCount?: number | null;
+  submitCount?: number | null;
+  pollCount?: number | null;
+  callbackCount?: number | null;
+  averageDurationMs?: number | null;
+  firstSeenAt?: string | null;
+  lastSeenAt?: string | null;
+  needsAttention?: boolean | null;
+  issueCode?: string | null;
+  issueHint?: string | null;
+}
+
+export interface BusinessRunApiUsageLog {
+  id: number;
+  apiKeyId?: string | null;
+  apiKeyName?: string | null;
+  apiKeyPreview?: string | null;
+  method?: string | null;
+  path?: string | null;
+  endpointKind?: string | null;
+  statusCode?: number | null;
+  businessKey?: string | null;
+  runId?: string | null;
+  requestId?: string | null;
+  traceId?: string | null;
+  tenantId?: string | null;
+  clientId?: string | null;
+  errorCode?: string | null;
+  durationMs?: number | null;
+  createdAt?: string | null;
 }
 
 export interface BusinessRunStep {
