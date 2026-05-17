@@ -1021,7 +1021,7 @@ const getWorkflowInputSummary = (wf: EvalWorkflowVersion): string => {
   if (/prompt|desc|text|提示词|描述/.test(text)) parts.push('提示词');
   if (/width|height|size|aspect|ratio|宽|高|尺寸|比例/.test(text)) parts.push('尺寸');
   if (/重绘|repaint|bili|denoise|noise|幅度|噪点/.test(text)) parts.push('重绘幅度');
-  else if (/similarity|相似度/.test(text)) parts.push('相似度');
+  else if (/similarity|相似度/.test(text)) parts.push('重绘幅度');
   if (/count|batch|数量|批量/.test(text)) parts.push('数量');
   return parts.slice(0, 4).join(' + ') || '按表单参数';
 };
@@ -2538,7 +2538,7 @@ function Lightbox({
                   <button
                     key={group.id}
                     type="button"
-                    className={`podi-immersive-viewer__group ${idx === groupIndex ? 'is-active' : ''}`}
+                    className={`podi-immersive-viewer__group ${idx === groupIndex ? 'is-active' : ''} ${preview ? '' : 'is-pending'}`}
                     onClick={() => selectGroup(idx)}
                   >
                     <span className="podi-immersive-viewer__group-images">
@@ -2548,7 +2548,7 @@ function Lightbox({
                     </span>
                     <strong>{group.label}</strong>
                     <small>{group.sublabel || group.runId || '—'}</small>
-                    {group.status ? <em>{formatEvalStageStatus('final', group.status)}</em> : null}
+                    {group.status ? <em>{preview ? formatEvalStageStatus('final', group.status) : '等待结果'}</em> : null}
                   </button>
                 );
               })
@@ -2606,7 +2606,11 @@ function Lightbox({
               {effectiveInputUrl ? <img src={effectiveInputUrl} alt={`${activeGroup.label} 原图`} draggable={false} /> : null}
               <div className="podi-immersive-viewer__pending-card">
                 <strong>{formatEvalStageStatus('final', activeGroup.status || 'queued')}</strong>
-                <span>{safeOutputs.length > 0 ? '结果图加载中，请稍后刷新。' : '这一组还没有可展示的结果图，左侧列表仍可继续切换其他组。'}</span>
+                <span>
+                  {safeOutputs.length > 0
+                    ? '结果图加载中，请稍后刷新。'
+                    : '这一组还没有可展示的结果图。左侧是结果组列表，可以继续切换其他组；左上角返回可退出工作台。'}
+                </span>
               </div>
             </div>
           ) : (
@@ -2618,7 +2622,7 @@ function Lightbox({
 
         <aside className="podi-immersive-viewer__inspector">
           <section>
-            <div className="podi-immersive-viewer__section-title">任务信息</div>
+            <div className="podi-immersive-viewer__section-title">本组信息</div>
             {activeGroup?.label ? (
               <div className="podi-immersive-viewer__kv">
                 <span>当前组</span>
