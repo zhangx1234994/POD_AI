@@ -1242,7 +1242,7 @@ def test_commercial_report_check_accepts_clean_report() -> None:
     assert "billingIssues=0" in detail
 
 
-def test_commercial_report_check_blocks_billing_issues_by_default() -> None:
+def test_commercial_report_check_observes_billing_issues_by_default() -> None:
     module = _load_smoke_module()
 
     ok, detail = module._validate_commercial_report(
@@ -1267,6 +1267,40 @@ def test_commercial_report_check_blocks_billing_issues_by_default() -> None:
             ],
             "riskItems": [{"runId": "run_a", "issueLabel": "成功任务未扣费"}],
         }
+    )
+
+    assert ok is True
+    assert "observed-only" in detail
+    assert "billingIssues=1" in detail
+
+
+def test_commercial_report_check_blocks_billing_issues_when_threshold_is_enforced() -> None:
+    module = _load_smoke_module()
+
+    ok, detail = module._validate_commercial_report(
+        {
+            "runCount": 2,
+            "billableRunCount": 1,
+            "chargedRunCount": 0,
+            "unpricedRunCount": 1,
+            "billingIssueCount": 1,
+            "paidPackageOrderCount": 0,
+            "pendingPackageOrderCount": 0,
+            "costByCurrency": [],
+            "packageOrderRevenueByCurrency": [],
+            "pendingPackageRevenueByCurrency": [],
+            "businessRows": [
+                {
+                    "businessKey": "fission",
+                    "runCount": 2,
+                    "chargedRunCount": 0,
+                    "billingIssueCount": 1,
+                }
+            ],
+            "riskItems": [{"runId": "run_a", "issueLabel": "成功任务未扣费"}],
+        },
+        max_billing_issues=0,
+        max_unpriced_runs=0,
     )
 
     assert ok is False

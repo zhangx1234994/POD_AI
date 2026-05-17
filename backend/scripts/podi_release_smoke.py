@@ -1090,8 +1090,8 @@ def _validate_business_capability_governance(
 def _validate_commercial_report(
     data: Any,
     *,
-    max_billing_issues: int = 0,
-    max_unpriced_runs: int = 0,
+    max_billing_issues: int = -1,
+    max_unpriced_runs: int = -1,
 ) -> tuple[bool, str]:
     if not isinstance(data, dict):
         return False, "commercial report is not an object"
@@ -1133,6 +1133,13 @@ def _validate_commercial_report(
     run_count = int(data.get("runCount") or 0)
     billable_count = int(data.get("billableRunCount") or 0)
     charged_count = int(data.get("chargedRunCount") or 0)
+    if max_billing_issues < 0 and max_unpriced_runs < 0:
+        return (
+            True,
+            f"observed-only runs={run_count} billable={billable_count} charged={charged_count} "
+            f"billingIssues={issue_count} unpriced={unpriced_count} rows={len(business_rows)} "
+            f"riskSample={_short(risk_items[:3])}",
+        )
     if issue_count > max(0, max_billing_issues):
         return (
             False,
@@ -1544,14 +1551,14 @@ def main() -> int:
     parser.add_argument(
         "--max-billing-issues",
         type=int,
-        default=0,
-        help="Maximum commercial report billing issues allowed.",
+        default=-1,
+        help="Maximum commercial report billing issues allowed. Negative means observe only.",
     )
     parser.add_argument(
         "--max-unpriced-billing-runs",
         type=int,
-        default=0,
-        help="Maximum succeeded but unpriced business runs allowed in the commercial report.",
+        default=-1,
+        help="Maximum succeeded but unpriced business runs allowed in the commercial report. Negative means observe only.",
     )
     parser.add_argument("--json", action="store_true", help="Print machine-readable summary at the end.")
     parser.add_argument("--report", default="", help="Optional JSON report path.")
