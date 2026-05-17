@@ -7,6 +7,7 @@
 - **origin/main 是正式发版真源**：正式上线前必须确认本地 `HEAD` 与 `origin/main` 一致。
 - **114 只承载控制面**：backend、管理端静态产物、测评端静态产物部署到 114；ComfyUI、image-ops、vendor-api-ops 只在对应能力机更新。
 - **前端只部署 build 产物**：8199/8200 禁止长期跑 Vite dev。
+- **构建通过不等于页面可用**：管理端/测评端 build 后必须用静态产物打开一次真实浏览器，确认无生产运行时报错。
 - **先验证再切流**：上线成功不等于验收成功，必须跑健康检查、发布 smoke 和必要业务巡检。
 - **候选版本先本地闭环**：非紧急版本必须先完成本轮目标、本地门禁和页面走查，再输出更新步骤、影响范围和回滚口径；这些没有准备好之前不更新 114。
 - **失败先回滚入口，再排查新环境**：不要在线上半更新状态边跑边修。
@@ -55,6 +56,25 @@ bash scripts/release_114_control_plane.sh
 11. 写入 `/srv/pod/DEPLOYED_COMMIT`、`.release_commit`、`.release_time`
 12. 等待 backend/admin/eval HTTP 入口就绪，避免刚重启时端口尚未监听导致误报
 13. 执行远端健康检查、`scripts/deploy_preflight.sh` 和 `podi_release_smoke.py`；smoke 会读取线上 `backend/.env` 中的 `SERVICE_API_TOKEN`、`ADMIN_API_TOKEN`、`EVAL_ADMIN_TOKEN`，避免鉴权类检查被静默跳过。
+
+脚本完成前端 build 后，若本次改动包含前端打包、路由、懒加载、图形编排、测评端交互或依赖分包调整，发布人必须补做一次本地静态包浏览器检查；不能只看 `npm run build` 成功：
+
+```bash
+node scripts/node_static_proxy.mjs \
+  --root podi-admin-web/dist \
+  --port 8299 \
+  --api http://127.0.0.1:8099
+
+# 用真实浏览器打开：
+# http://127.0.0.1:8299/#nav=business
+```
+
+检查口径：
+
+- 控制台不能出现 `ReferenceError`、`SyntaxError`、模块导入失败、懒加载失败。
+- 管理端至少打开“业务能力”，确认业务链路图和版本卡片可渲染。
+- 测评端至少打开本次涉及分类和功能工作台，确认参数区、结果区和历史记录可渲染。
+- 如果本地静态包失败，必须先修复再发布；不能用 dev server 成功替代静态包成功。
 
 ## 3. 常用参数
 
@@ -112,6 +132,7 @@ RUN_LIVE_PATROL=1 bash scripts/release_114_control_plane.sh
 - 工作区有未提交改动。
 - Alembic 当前库版本不在代码迁移链中。
 - 后端关键测试、前端构建、远端 health 任一失败。
+- 本地或线上静态包真实浏览器检查出现生产运行时报错，例如 `Cannot access before initialization`、模块导入失败、空白页。
 - `tasks/get` 出现 `401 INTERNAL_ONLY`。
 - Coze 容器不可访问 OpenAPI 暴露的 `servers[0].url`。
 - 核心业务默认版本缺失或无可执行配方。
@@ -173,6 +194,7 @@ PODI_INTERNAL_BASE_URL=http://172.17.0.1:8099
 - 管理端“接口调用”：确认“逐功能上线检查表”里本次涉及功能不是待补齐；ComfyUI 类功能必须同时确认 workflow compatibility 没有缺节点或缺模型。
 - 测评端 8200：首页目录、图裂变分类、新增/更新功能角标、接口文档、上传与结果区基础交互；图裂变类功能必须确认“重绘幅度”文案、批量上传入口和结果对比入口仍可用。
 - 前端静态产物：页面源码不得出现 `@vite/client`、`/src/main.tsx`、`@react-refresh`。
+- 前端静态产物：管理端与测评端真实浏览器控制台不得出现生产运行时错误；如果只看到密码输入框 autocomplete 提示，可记录为非阻断。
 - 管理端“发布前门禁”需有本次轻量门禁记录；真实巡检如果未跑，必须记录未跑原因。
 
 发布后数据收口检查：
@@ -253,6 +275,7 @@ backend/.venv/bin/python backend/scripts/check_comfyui_node_health.py \
 | 失败点 | 处理方式 |
 | --- | --- |
 | GitHub push/fetch 超时 | 不进入正式发布；网络恢复后重试。紧急发布必须口头确认并在复盘记录原因。 |
+| SSH/SCP 上传失败 | 先用同一用户、同一端口做最小 SSH 连通性检查；如果连通性正常，可重新跑发布脚本。不能在无法确认上传状态时手工覆盖线上目录。 |
 | 本地测试失败 | 停止发布，先修代码。 |
 | 前端 build 失败 | 停止发布，不能用 dev server 顶替。 |
 | `alembic upgrade head` 失败 | 不重启服务；先确认迁移链和生产当前 revision。 |
