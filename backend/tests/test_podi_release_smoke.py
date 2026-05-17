@@ -758,6 +758,228 @@ def test_business_delivery_docs_check_blocks_missing_error_code(tmp_path: Path) 
     assert "VL_EVAL_IMAGE_REQUIRED" in detail
 
 
+def _truth_capability(
+    *,
+    business_key: str,
+    version: str,
+    primary_ability_id: str,
+    fields: list[str],
+    default: bool = False,
+) -> dict:
+    return {
+        "id": f"biz_{business_key}_{version}",
+        "businessKey": business_key,
+        "version": version,
+        "displayName": f"{business_key} {version}",
+        "status": "active",
+        "isDefault": default,
+        "recipe": {"primaryAbilityId": primary_ability_id},
+        "inputSchema": {"fields": [{"name": field, "label": field, "type": "text"} for field in fields]},
+        "outputSchema": {"fields": [{"name": "imageUrls", "type": "array"}]},
+        "primaryAbilityId": primary_ability_id,
+        "orchestrationGraph": {
+            "summary": {"executableStepCount": 1, "hasPrimaryStep": True},
+            "nodes": [
+                {"id": "entry", "type": "entry"},
+                {
+                    "id": "primary",
+                    "type": "ability_task",
+                    "role": "primary",
+                    "abilityId": primary_ability_id,
+                    "inputSchema": {"fieldCount": len(fields), "fields": [{"name": field} for field in fields]},
+                    "routing": {"requiredExecutorTags": ["test"]},
+                },
+                {"id": "result", "type": "result"},
+            ],
+        },
+    }
+
+
+def _truth_capabilities_payload() -> dict:
+    return {
+        "items": [
+            _truth_capability(
+                business_key="pattern_extract",
+                version="v1",
+                primary_ability_id="ability_pattern",
+                fields=["imageUrl", "prompt", "negative_prompt", "width", "height", "batch", "lora"],
+                default=True,
+            ),
+            _truth_capability(
+                business_key="fission",
+                version="v1",
+                primary_ability_id="ability_fission_default",
+                fields=["imageUrl", "prompt", "bili", "width", "height", "batch_size", "image_desc"],
+                default=True,
+            ),
+            _truth_capability(
+                business_key="fission",
+                version="gpt-image2-vl-v2",
+                primary_ability_id="ability_gpt_image2",
+                fields=["imageUrl", "prompt", "variation_strength", "quality", "size", "output_format", "maskUrl"],
+            ),
+            _truth_capability(
+                business_key="fission",
+                version="comfyui-vl-control-v2",
+                primary_ability_id="ability_comfyui_colorlock",
+                fields=["imageUrl", "bili", "width", "height", "profile", "reference_lock", "color_lock", "prompt"],
+            ),
+            _truth_capability(
+                business_key="fission_evaluate",
+                version="v1",
+                primary_ability_id="ability_fission_eval",
+                fields=["originalImageUrl", "generatedImageUrl", "context"],
+                default=True,
+            ),
+            _truth_capability(
+                business_key="outpaint",
+                version="v1",
+                primary_ability_id="ability_outpaint",
+                fields=["imageUrl", "prompt", "expand_left", "expand_right", "expand_top", "expand_bottom", "width", "height"],
+                default=True,
+            ),
+        ]
+    }
+
+
+def _truth_openapi_payload(*, omit_field: str | None = None) -> dict:
+    def schema(fields: list[str], *, required: list[str] | None = None) -> dict:
+        props = {field: {"type": "string"} for field in fields if field != omit_field}
+        return {
+            "post": {
+                "requestBody": {
+                    "content": {"application/json": {"schema": {"type": "object", "required": required or [], "properties": props}}}
+                }
+            }
+        }
+
+    common = ["imageUrl", "prompt", "version", "inputs", "source", "channel", "traceId", "requestId", "tenantId", "clientId"]
+    fission_fields = common + [
+        "bili",
+        "width",
+        "height",
+        "batch_size",
+        "image_desc",
+        "profile",
+        "variation_preset",
+        "reference_lock",
+        "color_lock",
+        "variation_strength",
+        "quality",
+        "size",
+        "output_format",
+        "maskUrl",
+    ]
+    return {
+        "paths": {
+            "/api/business/pattern-extract/runs": schema(
+                common + ["negative_prompt", "width", "height", "batch", "lora", "timeout"], required=["imageUrl"]
+            ),
+            "/api/business/pattern-extract/route-preview": schema(
+                common + ["negative_prompt", "width", "height", "batch", "lora", "timeout"]
+            ),
+            "/api/business/fission/runs": schema(fission_fields, required=["imageUrl"]),
+            "/api/business/fission/route-preview": schema(fission_fields),
+            "/api/business/fission-evaluate/runs": schema(
+                common + ["originalImageUrl", "generatedImageUrl", "context"], required=["originalImageUrl", "generatedImageUrl"]
+            ),
+            "/api/business/outpaint/runs": schema(
+                common + ["expand_left", "expand_right", "expand_top", "expand_bottom", "width", "height", "timeout"],
+                required=["imageUrl"],
+            ),
+            "/api/business/outpaint/route-preview": schema(
+                common + ["expand_left", "expand_right", "expand_top", "expand_bottom", "width", "height", "timeout"]
+            ),
+            "/api/business/runs/get": schema(["runId", "taskId", "detail", "includeDebug"]),
+        }
+    }
+
+
+def _truth_eval_catalog_payload(*, omit_workflow_id: str | None = None) -> list[dict]:
+    rows = [
+        ("business_fission_gpt_image2_vl_v1", "gpt-image2-vl-v2", ["url", "variation_strength", "quality", "size"]),
+        ("business_fission_comfyui_vl_control_v1", "comfyui-vl-control-v2", ["url", "bili", "profile", "reference_lock", "color_lock"]),
+        ("ability_fission_generated_image_evaluate_v1", "generated-image-eval-v1", ["original_image", "generated_image", "context"]),
+    ]
+    return [
+        {
+            "workflow_id": workflow_id,
+            "version": version,
+            "status": "active",
+            "parameters_schema": {"fields": [{"name": field, "type": "text"} for field in fields]},
+        }
+        for workflow_id, version, fields in rows
+        if workflow_id != omit_workflow_id
+    ]
+
+
+def test_business_truth_source_consistency_accepts_aligned_payload() -> None:
+    module = _load_smoke_module()
+    repo_root = Path(__file__).resolve().parents[2]
+
+    ok, detail = module._validate_business_truth_source_consistency(
+        _truth_capabilities_payload(),
+        _truth_openapi_payload(),
+        _truth_eval_catalog_payload(),
+        repo_root=repo_root,
+    )
+
+    assert ok is True
+    assert "gpt-image2-vl-v2" in detail
+
+
+def test_business_truth_source_consistency_blocks_missing_openapi_field() -> None:
+    module = _load_smoke_module()
+    repo_root = Path(__file__).resolve().parents[2]
+
+    ok, detail = module._validate_business_truth_source_consistency(
+        _truth_capabilities_payload(),
+        _truth_openapi_payload(omit_field="color_lock"),
+        _truth_eval_catalog_payload(),
+        repo_root=repo_root,
+    )
+
+    assert ok is False
+    assert "color_lock" in detail
+
+
+def test_business_truth_source_consistency_blocks_missing_eval_entry() -> None:
+    module = _load_smoke_module()
+    repo_root = Path(__file__).resolve().parents[2]
+
+    ok, detail = module._validate_business_truth_source_consistency(
+        _truth_capabilities_payload(),
+        _truth_openapi_payload(),
+        _truth_eval_catalog_payload(omit_workflow_id="business_fission_gpt_image2_vl_v1"),
+        repo_root=repo_root,
+    )
+
+    assert ok is False
+    assert "business_fission_gpt_image2_vl_v1" in detail
+
+
+def test_business_api_enum_docs_accepts_current_repo() -> None:
+    module = _load_smoke_module()
+    repo_root = Path(__file__).resolve().parents[2]
+
+    ok, detail = module._validate_business_api_enum_docs(repo_root)
+
+    assert ok is True
+    assert "business-api-enums.md" in detail
+
+
+def test_business_api_enum_docs_blocks_missing_required_tokens(tmp_path: Path) -> None:
+    module = _load_smoke_module()
+    doc = tmp_path / "docs" / "standards" / "business-api-enums.md"
+    doc.parent.mkdir(parents=True)
+    doc.write_text("# 中台业务 API 枚举与返回契约\n\nqueued running\n", encoding="utf-8")
+
+    ok, detail = module._validate_business_api_enum_docs(tmp_path)
+
+    assert ok is False
+    assert "gpt-image2-vl-v2" in detail
+
+
 def test_per_feature_release_checklist_accepts_current_repo() -> None:
     module = _load_smoke_module()
     repo_root = Path(__file__).resolve().parents[2]

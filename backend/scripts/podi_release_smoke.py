@@ -143,6 +143,72 @@ BUSINESS_DELIVERY_DOC_SPECS: tuple[dict[str, Any], ...] = (
     },
 )
 
+BUSINESS_TRUTH_SOURCE_SPECS: tuple[dict[str, Any], ...] = (
+    {
+        "key": "pattern_extract",
+        "version": None,
+        "label": "花纹提取默认版",
+        "submit_path": "/api/business/pattern-extract/runs",
+        "route_path": "/api/business/pattern-extract/route-preview",
+    },
+    {
+        "key": "fission",
+        "version": None,
+        "label": "图裂变默认版",
+        "submit_path": "/api/business/fission/runs",
+        "route_path": "/api/business/fission/route-preview",
+    },
+    {
+        "key": "fission",
+        "version": "gpt-image2-vl-v2",
+        "label": "GPT Image 2 + VL 受控裂变",
+        "submit_path": "/api/business/fission/runs",
+        "eval_workflow_id": "business_fission_gpt_image2_vl_v1",
+        "eval_version": "gpt-image2-vl-v2",
+    },
+    {
+        "key": "fission",
+        "version": "comfyui-vl-control-v2",
+        "label": "ComfyUI 颜色锁定裂变",
+        "submit_path": "/api/business/fission/runs",
+        "eval_workflow_id": "business_fission_comfyui_vl_control_v1",
+        "eval_version": "comfyui-vl-control-v2",
+    },
+    {
+        "key": "fission_evaluate",
+        "version": "v1",
+        "label": "裂变生成图评估",
+        "submit_path": "/api/business/fission-evaluate/runs",
+        "eval_workflow_id": "ability_fission_generated_image_evaluate_v1",
+        "eval_version": "generated-image-eval-v1",
+    },
+    {
+        "key": "outpaint",
+        "version": None,
+        "label": "扩图默认版",
+        "submit_path": "/api/business/outpaint/runs",
+        "route_path": "/api/business/outpaint/route-preview",
+    },
+)
+
+BUSINESS_API_ENUM_DOC_TOKENS = (
+    "queued",
+    "running",
+    "succeeded",
+    "failed",
+    "gpt-image2-vl-v2",
+    "comfyui-vl-control-v2",
+    "generated-image-eval-v1",
+    "variation_strength",
+    "profile",
+    "variation_preset",
+    "selectedBy",
+    "selectedStatus",
+    "BUSINESS_IMAGE_URL_REQUIRED",
+    "BUSINESS_RUN_ID_REQUIRED",
+    "COMFYUI_QUEUE_FULL",
+)
+
 PER_FEATURE_RELEASE_CHECKLIST_TOKENS = (
     "逐功能上线检查表",
     "接口入口",
@@ -649,6 +715,254 @@ def _validate_business_delivery_docs(repo_root: str | Path | None = None) -> tup
 def _run_business_delivery_docs_check() -> dict[str, Any]:
     ok, detail = _validate_business_delivery_docs()
     return _result("business_delivery_docs", ok, detail)
+
+
+def _field_names_from_schema(schema: Any) -> set[str]:
+    if not isinstance(schema, dict):
+        return set()
+    fields = schema.get("fields")
+    if not isinstance(fields, list):
+        return set()
+    names: set[str] = set()
+    for field in fields:
+        if not isinstance(field, dict):
+            continue
+        name = str(field.get("name") or "").strip()
+        if name:
+            names.add(name)
+    return names
+
+
+def _openapi_request_properties(openapi: Any, path: str) -> set[str]:
+    if not isinstance(openapi, dict):
+        return set()
+    paths = openapi.get("paths")
+    if not isinstance(paths, dict):
+        return set()
+    operation = paths.get(path)
+    if not isinstance(operation, dict):
+        return set()
+    post = operation.get("post")
+    if not isinstance(post, dict):
+        return set()
+    request_body = post.get("requestBody")
+    if not isinstance(request_body, dict):
+        return set()
+    content = request_body.get("content")
+    if not isinstance(content, dict):
+        return set()
+    json_content = content.get("application/json")
+    if not isinstance(json_content, dict):
+        return set()
+    schema = json_content.get("schema")
+    if not isinstance(schema, dict):
+        return set()
+    properties = schema.get("properties")
+    if not isinstance(properties, dict):
+        return set()
+    return {str(key) for key in properties}
+
+
+def _find_business_capability(items: list[Any], *, business_key: str, version: str | None) -> dict[str, Any] | None:
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("businessKey") or "").strip() != business_key:
+            continue
+        if version is None and item.get("isDefault") is True:
+            return item
+        if version is not None and str(item.get("version") or "").strip() == version:
+            return item
+    return None
+
+
+def _eval_workflow_index(eval_catalog: Any) -> dict[str, dict[str, Any]]:
+    items = eval_catalog.get("items") if isinstance(eval_catalog, dict) else eval_catalog
+    if not isinstance(items, list):
+        return {}
+    indexed: dict[str, dict[str, Any]] = {}
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        workflow_id = str(item.get("workflow_id") or item.get("workflowId") or item.get("id") or "").strip()
+        if workflow_id:
+            indexed[workflow_id] = item
+    return indexed
+
+
+def _graph_primary_node(graph: Any, primary_ability_id: str) -> dict[str, Any] | None:
+    if not isinstance(graph, dict):
+        return None
+    nodes = graph.get("nodes")
+    if not isinstance(nodes, list):
+        return None
+    for node in nodes:
+        if isinstance(node, dict) and str(node.get("abilityId") or "").strip() == primary_ability_id:
+            return node
+    return None
+
+
+def _validate_business_api_enum_docs(repo_root: str | Path | None = None) -> tuple[bool, str]:
+    root = Path(repo_root).expanduser() if repo_root is not None else _repo_root()
+    path = root / "docs" / "standards" / "business-api-enums.md"
+    if not path.exists():
+        return False, f"missing {path.relative_to(root)}"
+    text = path.read_text(encoding="utf-8")
+    missing = [token for token in BUSINESS_API_ENUM_DOC_TOKENS if token not in text]
+    if missing:
+        return False, f"missing tokens={missing[:8]} total={len(missing)}"
+    return True, f"tokens={len(BUSINESS_API_ENUM_DOC_TOKENS)} path={path.relative_to(root)}"
+
+
+def _validate_business_truth_source_consistency(
+    capabilities_data: Any,
+    business_openapi: Any,
+    eval_catalog: Any,
+    *,
+    repo_root: str | Path | None = None,
+) -> tuple[bool, str]:
+    if not isinstance(capabilities_data, dict):
+        return False, "business capability response is not an object"
+    items = capabilities_data.get("items")
+    if not isinstance(items, list):
+        return False, "business capability items is missing or not a list"
+    if not isinstance(business_openapi, dict):
+        return False, "business OpenAPI is not an object"
+
+    errors: list[str] = []
+    checked: list[str] = []
+    eval_index = _eval_workflow_index(eval_catalog)
+
+    run_get_props = _openapi_request_properties(business_openapi, "/api/business/runs/get")
+    if not {"runId", "taskId", "detail", "includeDebug"}.issubset(run_get_props):
+        errors.append("查询接口 /api/business/runs/get 缺少 runId/taskId/detail/includeDebug")
+
+    for spec in BUSINESS_TRUTH_SOURCE_SPECS:
+        business_key = str(spec["key"])
+        version = spec.get("version")
+        version_text = str(version) if version is not None else None
+        label = str(spec["label"])
+        item = _find_business_capability(items, business_key=business_key, version=version_text)
+        if item is None:
+            errors.append(f"{label} 缺少业务版本 businessKey={business_key} version={version_text or 'default'}")
+            continue
+        checked.append(f"{business_key}:{item.get('version') or '-'}")
+
+        if str(item.get("status") or "").strip().lower() != "active":
+            errors.append(f"{label} 业务版本未启用 status={item.get('status') or '-'}")
+        input_fields = _field_names_from_schema(item.get("inputSchema"))
+        output_fields = _field_names_from_schema(item.get("outputSchema"))
+        if not input_fields:
+            errors.append(f"{label} 缺少 inputSchema.fields")
+        if not output_fields:
+            errors.append(f"{label} 缺少 outputSchema.fields")
+
+        submit_path = str(spec["submit_path"])
+        request_props = _openapi_request_properties(business_openapi, submit_path)
+        if not request_props:
+            errors.append(f"{label} 业务 OpenAPI 缺少提交接口 {submit_path}")
+        else:
+            missing_fields = sorted(input_fields - request_props - {"url", "original_image", "generated_image"})
+            # 测评端会用 url/original_image/generated_image，业务 API 必须有规范字段。
+            alias_requirements = {
+                "url": "imageUrl",
+                "original_image": "originalImageUrl",
+                "generated_image": "generatedImageUrl",
+            }
+            for alias, canonical in alias_requirements.items():
+                if alias in input_fields and canonical not in request_props:
+                    missing_fields.append(canonical)
+            if missing_fields:
+                errors.append(f"{label} OpenAPI 参数缺失={missing_fields[:8]} path={submit_path}")
+
+        route_path = spec.get("route_path")
+        if route_path and not _openapi_request_properties(business_openapi, str(route_path)):
+            errors.append(f"{label} 业务 OpenAPI 缺少路由预览接口 {route_path}")
+
+        primary_ability_id = str(item.get("primaryAbilityId") or "").strip()
+        if not primary_ability_id:
+            errors.append(f"{label} 缺少 primaryAbilityId")
+            continue
+        recipe = item.get("recipe") if isinstance(item.get("recipe"), dict) else {}
+        recipe_primary = str(recipe.get("primaryAbilityId") or "").strip()
+        if recipe_primary and recipe_primary != primary_ability_id:
+            errors.append(f"{label} recipe.primaryAbilityId 与 primaryAbilityId 不一致 {recipe_primary}!={primary_ability_id}")
+        graph = item.get("orchestrationGraph") if isinstance(item.get("orchestrationGraph"), dict) else {}
+        summary = graph.get("summary") if isinstance(graph.get("summary"), dict) else {}
+        if int(summary.get("executableStepCount") or 0) <= 0:
+            errors.append(f"{label} 编排图没有可执行步骤")
+        if summary.get("hasPrimaryStep") is not True:
+            errors.append(f"{label} 编排图缺少主能力步骤")
+        primary_node = _graph_primary_node(graph, primary_ability_id)
+        if primary_node is None:
+            errors.append(f"{label} 编排图没有主能力节点 {primary_ability_id}")
+        else:
+            node_schema = primary_node.get("inputSchema") if isinstance(primary_node.get("inputSchema"), dict) else {}
+            if int(node_schema.get("fieldCount") or 0) <= 0:
+                errors.append(f"{label} 主能力节点缺少参数摘要 {primary_ability_id}")
+            if primary_node.get("routing") in (None, "", {}, []):
+                errors.append(f"{label} 主能力节点缺少路由摘要 {primary_ability_id}")
+
+        eval_workflow_id = str(spec.get("eval_workflow_id") or "").strip()
+        if eval_workflow_id:
+            eval_item = eval_index.get(eval_workflow_id)
+            if not eval_item:
+                errors.append(f"{label} 测评端缺少入口 workflow={eval_workflow_id}")
+            else:
+                expected_eval_version = str(spec.get("eval_version") or "").strip()
+                actual_eval_version = str(eval_item.get("version") or "").strip()
+                if expected_eval_version and actual_eval_version != expected_eval_version:
+                    errors.append(f"{label} 测评端版本不一致 {actual_eval_version}!={expected_eval_version}")
+                if str(eval_item.get("status") or "").strip().lower() != "active":
+                    errors.append(f"{label} 测评端入口未启用 status={eval_item.get('status') or '-'}")
+                eval_fields = _field_names_from_schema(eval_item.get("parameters_schema") or eval_item.get("parametersSchema"))
+                if not eval_fields:
+                    errors.append(f"{label} 测评端入口缺少参数 schema workflow={eval_workflow_id}")
+
+    docs_ok, docs_detail = _validate_business_api_enum_docs(repo_root)
+    if not docs_ok:
+        errors.append(f"业务 API 枚举文档不完整：{docs_detail}")
+
+    if errors:
+        return False, f"errors={errors[:10]} total={len(errors)} checked={checked}"
+    return True, f"checked={checked} enumDocs=ok evalLinks={len(eval_index)}"
+
+
+def _run_business_truth_source_consistency_check(
+    *,
+    base_url: str,
+    admin_token: str,
+) -> dict[str, Any]:
+    if not str(admin_token or "").strip():
+        return _result("business_truth_source_consistency", True, "skipped: admin/service token not provided")
+    timeout = httpx.Timeout(30.0, connect=10.0)
+    headers = _business_headers(admin_token)
+    with httpx.Client(base_url=base_url, headers=headers, timeout=timeout, trust_env=False) as authed_client:
+        cap_response = authed_client.get("/api/admin/business/capabilities")
+        try:
+            cap_data = cap_response.json()
+        except Exception:
+            cap_data = {"text": cap_response.text}
+    with httpx.Client(base_url=base_url, timeout=timeout, trust_env=False) as client:
+        openapi_response = client.get("/api/business/openapi.json")
+        try:
+            openapi_data = openapi_response.json()
+        except Exception:
+            openapi_data = {"text": openapi_response.text}
+        eval_response = client.get("/api/evals/workflow-versions", params={"includeAuxiliary": "true"})
+        try:
+            eval_data = eval_response.json()
+        except Exception:
+            eval_data = {"text": eval_response.text}
+    ok, detail = _validate_business_truth_source_consistency(cap_data, openapi_data, eval_data)
+    status_ok = cap_response.status_code == 200 and openapi_response.status_code == 200 and eval_response.status_code == 200
+    return _result(
+        "business_truth_source_consistency",
+        status_ok and ok,
+        "status="
+        f"capabilities:{cap_response.status_code} openapi:{openapi_response.status_code} "
+        f"eval:{eval_response.status_code} {detail}",
+    )
 
 
 def _validate_per_feature_release_checklist(repo_root: str | Path | None = None) -> tuple[bool, str]:
@@ -1280,6 +1594,13 @@ def main() -> int:
 
     checks.append(_run_business_delivery_docs_check())
     checks.append(_run_per_feature_release_checklist_check())
+
+    checks.append(
+        _run_business_truth_source_consistency_check(
+            base_url=base_url,
+            admin_token=args.admin_token or args.service_token,
+        )
+    )
 
     checks.append(
         _run_comfyui_workflow_compatibility_check(

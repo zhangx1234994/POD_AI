@@ -142,6 +142,8 @@ backend/.venv/bin/python backend/scripts/podi_release_smoke.py \
 
 `podi_release_smoke.py` 必须包含 `business_api_usage_center` 检查项。它验证管理端“接口调用”页背后的接口可用，并确认业务方提交、轮询、回调记录能按 `runId` 聚合。没有业务流量时不阻断发版；接口不可访问、返回结构缺失或有业务任务却无法聚合时必须阻断。
 
+`podi_release_smoke.py` 必须包含 `business_truth_source_consistency` 检查项。它同时读取业务版本、业务 OpenAPI、测评目录和业务枚举文档，阻断以下漂移：业务版本缺参数 schema、OpenAPI 缺对应参数、只读编排图缺主能力或路由摘要、测评端缺当前灰度入口、枚举文档缺状态或参数枚举。
+
 Coze 工具箱地址必须从 Coze 容器内验证，不允许只在宿主机用 `127.0.0.1` 判断：
 
 ```bash
