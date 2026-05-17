@@ -4,6 +4,8 @@
 
 输入一张原图，中台先生成 VL 图案风险控制卡，再调用 ComfyUI 智能路由裂变工作流。该接口适合验证“对象级变化”和“原图配色、疏密、结构稳定性”。
 
+权威口径：参数枚举以 `docs/standards/business-api-enums.md` 为准，错误码以 `docs/standards/error-catalog.md` 为准。本页只保留业务方可直接使用的摘要和示例。
+
 ## 接口
 
 | 项 | 内容 |

@@ -10,7 +10,7 @@ import type {
   BusinessRun,
   BusinessUsageSummaryResponse,
 } from '../../../types/admin';
-import { businessKeyLabel } from './businessLabels';
+import { businessKeyLabel, canonicalBusinessKey } from './businessLabels';
 import {
   createBusinessCapabilityFormState,
   createBusinessCapabilityPayload,
@@ -322,6 +322,71 @@ export const useBusinessDashboardActions = ({
     setBusinessUsageSummary,
   ]);
 
+  const handleBusinessDraftRun = useCallback(
+    async (item: BusinessCapability, draftPayload?: Record<string, unknown>) => {
+      setBusinessActionError(null);
+      const businessKey = canonicalBusinessKey(item.businessKey);
+      let payload: Record<string, unknown> = draftPayload ? { ...draftPayload } : {};
+      if (!draftPayload) {
+        const label = businessKeyLabel(item.businessKey);
+        const imageUrl = window.prompt(`试运行 ${label} ${item.version}。请输入一张可公网访问的样图 URL：`, '');
+        if (!imageUrl) return;
+        payload.imageUrl = imageUrl.trim();
+        if (businessKey === 'fission_evaluate') {
+          const generatedImageUrl = window.prompt('这个业务需要同时提供生成图 URL。请输入生成图 URL：', '');
+          if (!generatedImageUrl) return;
+          payload.generatedImageUrl = generatedImageUrl.trim();
+        }
+      }
+      const imageUrl = String(payload.imageUrl || payload.originalImageUrl || '').trim();
+      const generatedImageUrl = String(payload.generatedImageUrl || '').trim();
+      if (!imageUrl) {
+        setBusinessActionError('请先填写样图 URL。');
+        return;
+      }
+      if (businessKey === 'fission_evaluate' && !generatedImageUrl) {
+        setBusinessActionError('裂变评分试运行需要同时填写生成图 URL。');
+        return;
+      }
+      payload = {
+        ...payload,
+        imageUrl,
+        source: 'admin-draft-run',
+        channel: 'admin-web',
+        requestId: `admin-draft-${Date.now()}`,
+        metadata: {
+          ...((payload.metadata && typeof payload.metadata === 'object' && !Array.isArray(payload.metadata)
+            ? payload.metadata
+            : {}) as Record<string, unknown>),
+          adminDraftRun: true,
+          capabilityId: item.id,
+        },
+      };
+      if (businessKey === 'fission_evaluate') {
+        payload.originalImageUrl = imageUrl;
+        payload.generatedImageUrl = generatedImageUrl;
+      }
+      setBusinessActionLoadingId(`draft-run:${item.id}`);
+      try {
+        const run = await adminApi.runBusinessCapabilityDraft(item.id, payload);
+        setBusinessRunDetail(run);
+        setBusinessActionError(`试运行已提交：${run.runId || run.id}。可在下方业务任务清单继续跟踪。`);
+        await refreshBusinessRuns();
+      } catch (error: any) {
+        console.error('run business draft capability failed', error);
+        setBusinessActionError(error?.message || '业务版本试运行失败，请检查样图 URL、底层能力和服务日志。');
+      } finally {
+        setBusinessActionLoadingId(null);
+      }
+    },
+    [
+      refreshBusinessRuns,
+      setBusinessActionError,
+      setBusinessActionLoadingId,
+      setBusinessRunDetail,
+    ],
+  );
+
   const exportBusinessRuns = useCallback(async () => {
     setBusinessActionError(null);
     setBusinessActionLoadingId('export:runs');
@@ -507,6 +572,7 @@ export const useBusinessDashboardActions = ({
     handleBusinessDefaultApprovalDecision,
     handleBusinessToggleActive,
     handleBusinessRecordAcceptance,
+    handleBusinessDraftRun,
     handleBusinessCompare,
     handleBusinessRollback,
     refreshBusinessRuns,

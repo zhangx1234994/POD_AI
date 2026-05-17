@@ -642,13 +642,33 @@ def _repo_root() -> Path:
 def _validate_business_delivery_docs(repo_root: str | Path | None = None) -> tuple[bool, str]:
     root = Path(repo_root).expanduser() if repo_root is not None else _repo_root()
     base = root / "docs" / "api" / "examples" / "fission-business-delivery"
+    enum_doc = root / "docs" / "standards" / "business-api-enums.md"
+    error_catalog = root / "docs" / "standards" / "error-catalog.md"
     errors: list[str] = []
+    enum_text = ""
+    error_text = ""
+    if not enum_doc.exists():
+        errors.append("missing docs/standards/business-api-enums.md")
+    else:
+        enum_text = enum_doc.read_text(encoding="utf-8")
+    if not error_catalog.exists():
+        errors.append("missing docs/standards/error-catalog.md")
+    else:
+        error_text = error_catalog.read_text(encoding="utf-8")
+
     root_readme = base / "README.md"
     if not root_readme.exists():
         errors.append("missing fission-business-delivery README.md")
     else:
         root_text = root_readme.read_text(encoding="utf-8")
-        for token in ("runId", "/api/business/runs/get", "status", "错误码"):
+        for token in (
+            "runId",
+            "/api/business/runs/get",
+            "status",
+            "错误码",
+            "docs/standards/business-api-enums.md",
+            "docs/standards/error-catalog.md",
+        ):
             if token not in root_text:
                 errors.append(f"root README missing {token}")
 
@@ -669,6 +689,8 @@ def _validate_business_delivery_docs(repo_root: str | Path | None = None) -> tup
             "常见错误",
             "runId",
             "status",
+            "docs/standards/business-api-enums.md",
+            "docs/standards/error-catalog.md",
         )
         for token in required_text_tokens:
             if token not in text:
@@ -676,9 +698,13 @@ def _validate_business_delivery_docs(repo_root: str | Path | None = None) -> tup
         for field in spec["enum_fields"]:
             if str(field) not in text:
                 errors.append(f"{label} README missing enum field={field}")
+            if enum_text and str(field) not in enum_text:
+                errors.append(f"{label} enum field not in business-api-enums.md={field}")
         for code in spec["error_codes"]:
             if str(code) not in text:
                 errors.append(f"{label} README missing error code={code}")
+            if error_text and str(code) not in error_text:
+                errors.append(f"{label} error code not in error-catalog.md={code}")
 
         for sample_name in REQUIRED_BUSINESS_DELIVERY_SAMPLE_FILES:
             sample_path = folder / sample_name

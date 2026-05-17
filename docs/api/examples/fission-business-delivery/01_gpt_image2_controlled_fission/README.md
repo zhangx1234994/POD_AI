@@ -4,6 +4,8 @@
 
 输入一张原图，中台先做 VL 图像理解和提示词编译，再调用 GPT Image 2 生成同系列裂变图。该接口适合商业模型裂变测试和业务方快速接入。
 
+权威口径：参数枚举以 `docs/standards/business-api-enums.md` 为准，错误码以 `docs/standards/error-catalog.md` 为准。本页只保留业务方可直接使用的摘要和示例。
+
 ## 接口
 
 | 项 | 内容 |

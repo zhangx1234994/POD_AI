@@ -7,9 +7,11 @@ This router is intended for internal usage on a trusted network. You can:
 
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import datetime, timedelta
 import json
 import logging
+from types import SimpleNamespace
 from typing import Any
 from uuid import uuid4
 
@@ -32,6 +34,7 @@ from app.models.eval import (
 from app.models.integration import (
     AbilityInvocationLog,
     AbilityTask,
+    BusinessCapability,
     ComfyuiLora,
     ComfyuiModelCatalog,
     ComfyuiPluginCatalog,
@@ -184,29 +187,232 @@ def _extract_workflow_resource_bindings(schema: dict[str, Any] | None) -> list[E
     return list(dedup.values())
 
 
-def _serialize_workflow_version(version: EvalWorkflowVersion) -> EvalWorkflowVersionResponse:
-    response_metadata = build_eval_workflow_response_metadata(version)
+_BUSINESS_OPERATION_LABELS = {
+    "fission": "图像裂变",
+    "fission_evaluate": "裂变质量评估",
+    "outpaint": "扩图",
+    "pattern_extract": "花纹提取",
+}
+
+
+def _normalize_eval_schema_from_business(schema: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Convert business schema to the eval-console schema shape.
+
+    Business capabilities use `default`; the eval UI historically reads
+    `defaultValue`. Keeping the conversion at the API edge avoids copying
+    business parameter defaults into eval seed files.
+    """
+
+    if not isinstance(schema, dict):
+        return None
+    copied = deepcopy(schema)
+    fields = copied.get("fields")
+    if isinstance(fields, list):
+        for field in fields:
+            if not isinstance(field, dict):
+                continue
+            if "defaultValue" not in field and "default" in field:
+                field["defaultValue"] = field.get("default")
+    return copied
+
+
+def _business_eval_execution(row: EvalWorkflowVersion) -> tuple[str, str] | None:
+    metadata = row.extra_metadata if isinstance(row.extra_metadata, dict) else {}
+    execution = metadata.get("eval_execution")
+    if not isinstance(execution, dict):
+        return None
+    if str(execution.get("mode") or "").strip().lower() != "business_run":
+        return None
+    business_key = str(execution.get("business_key") or "").strip()
+    version = str(execution.get("version") or row.version or "").strip()
+    if not business_key or not version:
+        return None
+    return business_key, version
+
+
+def _load_business_capability_map(
+    db: Session,
+    rows: list[EvalWorkflowVersion],
+) -> dict[tuple[str, str], BusinessCapability]:
+    pairs = {pair for row in rows if (pair := _business_eval_execution(row))}
+    if not pairs:
+        return {}
+    business_keys = sorted({key for key, _version in pairs})
+    versions = sorted({version for _key, version in pairs})
+    capabilities = (
+        db.execute(
+            select(BusinessCapability).where(
+                BusinessCapability.business_key.in_(business_keys),
+                BusinessCapability.version.in_(versions),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {
+        (cap.business_key, cap.version): cap
+        for cap in capabilities
+        if (cap.business_key, cap.version) in pairs
+    }
+
+
+def _infer_eval_result_mode(schema: dict[str, Any] | None) -> str:
+    fields = schema.get("fields") if isinstance(schema, dict) else None
+    if not isinstance(fields, list):
+        return "structured"
+    names = {str(field.get("name") or "").strip() for field in fields if isinstance(field, dict)}
+    if names.intersection({"imageUrls", "image_urls", "images", "resultUrls", "result_urls"}):
+        return "image"
+    if names.intersection({"videoUrls", "video_urls", "videos"}):
+        return "video"
+    if names.intersection({"texts", "text", "decision", "reason"}):
+        return "text"
+    return "structured"
+
+
+def _business_variant_label(capability: BusinessCapability) -> str:
+    label = str(capability.display_name or capability.version or "").strip()
+    if "·" in label:
+        return label.split("·", 1)[1].strip()
+    return label or capability.version
+
+
+def _merge_business_eval_metadata(
+    row: EvalWorkflowVersion,
+    capability: BusinessCapability,
+    *,
+    input_schema: dict[str, Any] | None,
+    output_schema: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    metadata = deepcopy(row.extra_metadata) if isinstance(row.extra_metadata, dict) else {}
+    business_metadata = deepcopy(capability.extra_metadata) if isinstance(capability.extra_metadata, dict) else {}
+    execution = metadata.get("eval_execution") if isinstance(metadata.get("eval_execution"), dict) else {}
+    metadata["eval_execution"] = {
+        **execution,
+        "mode": "business_run",
+        "business_key": capability.business_key,
+        "version": capability.version,
+        "business_capability_id": capability.id,
+    }
+    metadata["business_capability"] = {
+        "id": capability.id,
+        "business_key": capability.business_key,
+        "version": capability.version,
+        "display_name": capability.display_name,
+        "status": capability.status,
+        "is_default": capability.is_default,
+        "release_time": capability.release_time.isoformat() if capability.release_time else None,
+        "updated_at": capability.updated_at.isoformat() if capability.updated_at else None,
+        "provider": business_metadata.get("provider"),
+        "interface_pack": business_metadata.get("interface_pack"),
+        "route_id": business_metadata.get("route_id"),
+    }
+
+    presentation = metadata.get("presentation") if isinstance(metadata.get("presentation"), dict) else {}
+    existing_badges = presentation.get("badges")
+    badges = [str(item).strip() for item in existing_badges if str(item).strip()] if isinstance(existing_badges, list) else []
+    badge = str(business_metadata.get("badge") or "").strip()
+    if badge:
+        badges.append(badge)
+    badges.append("原生业务接口")
+    dedup_badges = list(dict.fromkeys(badges))
+    metadata["presentation"] = {
+        **presentation,
+        "operation_label": _BUSINESS_OPERATION_LABELS.get(capability.business_key, capability.business_key),
+        "variant_label": _business_variant_label(capability),
+        "usage_hint": capability.description or presentation.get("usage_hint"),
+        "result_mode": presentation.get("result_mode") or _infer_eval_result_mode(output_schema),
+        "badges": dedup_badges,
+        "release_time": capability.release_time.date().isoformat() if capability.release_time else presentation.get("release_time"),
+        "update_time": capability.updated_at.date().isoformat() if capability.updated_at else presentation.get("update_time"),
+        "update_note": business_metadata.get("update_note")
+        or presentation.get("update_note")
+        or f"已同步业务版本 {capability.version} 的参数和执行链。",
+    }
+
+    usage = metadata.get("usage") if isinstance(metadata.get("usage"), dict) else {}
+    metadata["usage"] = {
+        **usage,
+        "single_run_enabled": usage.get("single_run_enabled", True),
+        "docs_enabled": usage.get("docs_enabled", True),
+        "supports_annotation": usage.get("supports_annotation", True),
+    }
+
+    governance = metadata.get("governance") if isinstance(metadata.get("governance"), dict) else {}
+    metadata["governance"] = {
+        **governance,
+        "role": governance.get("role") or "candidate",
+        "is_primary": governance.get("is_primary", False),
+    }
+    metadata["source_of_truth"] = {
+        "schema": "business_capabilities.input_schema",
+        "output": "business_capabilities.output_schema",
+        "recipe": "business_capabilities.recipe",
+    }
+    return metadata or None
+
+
+def _build_effective_eval_workflow_version(
+    row: EvalWorkflowVersion,
+    business_capabilities: dict[tuple[str, str], BusinessCapability] | None,
+) -> Any:
+    pair = _business_eval_execution(row)
+    capability = business_capabilities.get(pair) if pair and business_capabilities else None
+    if not capability:
+        return row
+
+    input_schema = _normalize_eval_schema_from_business(capability.input_schema)
+    output_schema = _normalize_eval_schema_from_business(capability.output_schema)
+    metadata = _merge_business_eval_metadata(
+        row,
+        capability,
+        input_schema=input_schema,
+        output_schema=output_schema,
+    )
+    return SimpleNamespace(
+        id=row.id,
+        category=row.category,
+        name=capability.display_name,
+        version=capability.version,
+        coze_base_url=row.coze_base_url,
+        workflow_id=row.workflow_id,
+        parameters_schema=input_schema or row.parameters_schema,
+        output_schema=output_schema or row.output_schema,
+        notes=capability.description or row.notes,
+        status=row.status,
+        extra_metadata=metadata,
+        created_at=row.created_at,
+        updated_at=max(row.updated_at, capability.updated_at) if row.updated_at and capability.updated_at else row.updated_at,
+    )
+
+
+def _serialize_workflow_version(
+    version: EvalWorkflowVersion,
+    business_capabilities: dict[tuple[str, str], BusinessCapability] | None = None,
+) -> EvalWorkflowVersionResponse:
+    effective = _build_effective_eval_workflow_version(version, business_capabilities)
+    response_metadata = build_eval_workflow_response_metadata(effective)
     return EvalWorkflowVersionResponse(
-        id=version.id,
-        category=version.category,
-        name=version.name,
-        version=version.version,
-        coze_base_url=version.coze_base_url,
-        workflow_id=version.workflow_id,
-        parameters_schema=version.parameters_schema,
-        output_schema=version.output_schema,
-        notes=version.notes,
-        status=version.status,
+        id=effective.id,
+        category=effective.category,
+        name=effective.name,
+        version=effective.version,
+        coze_base_url=effective.coze_base_url,
+        workflow_id=effective.workflow_id,
+        parameters_schema=effective.parameters_schema,
+        output_schema=effective.output_schema,
+        notes=effective.notes,
+        status=effective.status,
         **response_metadata,
-        resourceBindings=_extract_workflow_resource_bindings(version.parameters_schema),
+        resourceBindings=_extract_workflow_resource_bindings(effective.parameters_schema),
         routingGovernance=resolve_eval_workflow_routing_governance(
-            workflow_id=version.workflow_id,
-            name=version.name,
-            category=version.category,
-            output_schema=version.output_schema,
+            workflow_id=effective.workflow_id,
+            name=effective.name,
+            category=effective.category,
+            output_schema=effective.output_schema,
         ),
-        created_at=version.created_at,
-        updated_at=version.updated_at,
+        created_at=effective.created_at,
+        updated_at=effective.updated_at,
     )
 
 
@@ -1142,7 +1348,8 @@ def list_workflow_versions(
         if is_eval_workflow_visible_for_eval_catalog(row, include_auxiliary=include_auxiliary)
     ]
     rows = _dedupe_workflow_versions(rows)
-    return [_serialize_workflow_version(row) for row in rows]
+    business_capabilities = _load_business_capability_map(db, rows)
+    return [_serialize_workflow_version(row, business_capabilities) for row in rows]
 
 
 @router.get("/resources/options", response_model=admin_schemas.ComfyuiResourceOptionsResponse)
@@ -1683,7 +1890,8 @@ def admin_list_workflow_versions(
     if category:
         stmt = stmt.where(EvalWorkflowVersion.category == category)
     rows = db.execute(stmt.order_by(EvalWorkflowVersion.category.asc(), EvalWorkflowVersion.created_at.desc())).scalars().all()
-    return [_serialize_workflow_version(row) for row in rows]
+    business_capabilities = _load_business_capability_map(db, rows)
+    return [_serialize_workflow_version(row, business_capabilities) for row in rows]
 
 
 @router.get("/admin/operations-health", response_model=EvalOperationsHealthResponse)
@@ -1747,7 +1955,8 @@ def admin_update_workflow_version(
     db.add(row)
     db.commit()
     db.refresh(row)
-    return _serialize_workflow_version(row)
+    business_capabilities = _load_business_capability_map(db, [row])
+    return _serialize_workflow_version(row, business_capabilities)
 
 
 @router.post("/batches", response_model=EvalBatchSessionResponse)

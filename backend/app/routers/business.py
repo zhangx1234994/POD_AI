@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 import csv
 import io
 import json
@@ -1127,6 +1128,129 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
         **outpaint_submit_schema,
         "required": [],
     }
+
+    try:
+        capability_items = get_business_run_service().list_capabilities()
+    except Exception:
+        capability_items = []
+
+    def _capability_value(item: Any, *keys: str) -> Any:
+        if not isinstance(item, dict):
+            return None
+        for key in keys:
+            if key in item:
+                return item.get(key)
+        return None
+
+    def _field_name_for_business_api(raw_name: Any) -> str:
+        name = str(raw_name or "").strip()
+        aliases = {
+            "url": "imageUrl",
+            "image_url": "imageUrl",
+            "original_image": "originalImageUrl",
+            "generated_image": "generatedImageUrl",
+        }
+        return aliases.get(name, name)
+
+    def _business_schema_field_to_openapi(field: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
+        name = _field_name_for_business_api(field.get("name"))
+        if not name:
+            return None
+        field_type = str(field.get("type") or "text").strip().lower()
+        if field_type in {"number", "float", "decimal"}:
+            schema: dict[str, Any] = {"type": "number"}
+        elif field_type in {"integer", "int"}:
+            schema = {"type": "integer"}
+        elif field_type in {"array", "list"}:
+            schema = {"type": "array", "items": {"type": "string"}}
+        elif field_type in {"object", "json"}:
+            schema = {"type": "object"}
+        elif field_type in {"switch", "boolean", "bool"}:
+            schema = {"type": "boolean"}
+        else:
+            schema = {"type": "string"}
+        schema["nullable"] = not bool(field.get("required"))
+        label = str(field.get("label") or "").strip()
+        description = str(field.get("description") or "").strip()
+        if label:
+            schema["title"] = label
+        if description:
+            schema["description"] = description
+        elif label:
+            schema["description"] = label
+        default_value = field.get("defaultValue", field.get("default"))
+        if default_value is not None:
+            schema["default"] = default_value
+        options = field.get("options")
+        if isinstance(options, list):
+            enum_values: list[str] = []
+            for option in options:
+                if isinstance(option, dict):
+                    value = option.get("value")
+                else:
+                    value = option
+                text = str(value or "").strip()
+                if text and text not in enum_values:
+                    enum_values.append(text)
+            if enum_values:
+                schema["enum"] = enum_values
+        return name, schema
+
+    def _merge_business_capability_schema(
+        business_key: str,
+        fallback_schema: dict[str, Any],
+        *,
+        required_override: list[str] | None = None,
+    ) -> dict[str, Any]:
+        merged = deepcopy(fallback_schema)
+        properties = deepcopy(merged.get("properties") if isinstance(merged.get("properties"), dict) else {})
+        required_list = [str(item) for item in (merged.get("required") or []) if item]
+        required_seen = set(required_list)
+        matched = 0
+        for item in capability_items:
+            if str(_capability_value(item, "business_key", "businessKey") or "").strip() != business_key:
+                continue
+            if str(_capability_value(item, "status") or "").strip().lower() != "active":
+                continue
+            input_schema = _capability_value(item, "input_schema", "inputSchema")
+            fields = input_schema.get("fields") if isinstance(input_schema, dict) else None
+            if not isinstance(fields, list):
+                continue
+            matched += 1
+            for field in fields:
+                if not isinstance(field, dict):
+                    continue
+                converted = _business_schema_field_to_openapi(field)
+                if not converted:
+                    continue
+                name, schema = converted
+                existing = properties.get(name) if isinstance(properties.get(name), dict) else {}
+                merged_property = {**schema, **existing}
+                for optional_key in ("enum", "default", "title"):
+                    if optional_key in schema and optional_key not in existing:
+                        merged_property[optional_key] = schema[optional_key]
+                properties[name] = merged_property
+                if field.get("required") and name not in required_seen:
+                    required_list.append(name)
+                    required_seen.add(name)
+        merged["properties"] = properties
+        merged["required"] = required_override if required_override is not None else required_list
+        if matched:
+            merged["x-podi-source"] = "business_capabilities.input_schema"
+        return merged
+
+    pattern_extract_submit_schema = _merge_business_capability_schema("pattern_extract", pattern_extract_submit_schema)
+    pattern_extract_route_preview_schema = _merge_business_capability_schema(
+        "pattern_extract",
+        pattern_extract_route_preview_schema,
+        required_override=[],
+    )
+    fission_submit_schema = _merge_business_capability_schema("fission", fission_submit_schema)
+    fission_route_preview_schema = _merge_business_capability_schema("fission", fission_route_preview_schema, required_override=[])
+    fission_evaluate_submit_schema = _merge_business_capability_schema("fission_evaluate", fission_evaluate_submit_schema)
+    outpaint_submit_schema = _merge_business_capability_schema("outpaint", outpaint_submit_schema)
+    outpaint_route_preview_schema = _merge_business_capability_schema("outpaint", outpaint_route_preview_schema, required_override=[])
+
     business_api_key_security = [{"BusinessApiKey": []}, {"BearerAuth": []}]
     submit_examples = {
         "fission_gpt_image2_vl": {
@@ -1486,6 +1610,102 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
 admin_router = APIRouter(prefix="/admin/business", dependencies=[Depends(require_admin)], tags=["admin-business"])
 
 
+def _business_delivery_contract_audit() -> dict[str, Any]:
+    """Expose the same delivery contract evidence used by release smoke."""
+    try:
+        from scripts import podi_release_smoke as smoke
+    except Exception as exc:  # pragma: no cover - defensive for stripped deployments
+        return {
+            "ok": False,
+            "summary": f"无法加载发布检查脚本：{exc}",
+            "items": [],
+            "checkedAt": datetime.utcnow().isoformat(),
+        }
+
+    root = smoke._repo_root()
+    base = root / "docs" / "api" / "examples" / "fission-business-delivery"
+    enum_doc = root / "docs" / "standards" / "business-api-enums.md"
+    error_catalog = root / "docs" / "standards" / "error-catalog.md"
+    enum_text = enum_doc.read_text(encoding="utf-8") if enum_doc.exists() else ""
+    error_text = error_catalog.read_text(encoding="utf-8") if error_catalog.exists() else ""
+    sample_names = list(smoke.REQUIRED_BUSINESS_DELIVERY_SAMPLE_FILES)
+    ui_key_aliases = {
+        "gpt_image2_controlled_fission": "gpt-image2-fission",
+        "comfyui_colorlock_fission": "comfyui-colorlock-fission",
+        "fission_generated_image_score": "fission-score",
+    }
+    items: list[dict[str, Any]] = []
+    for spec in smoke.BUSINESS_DELIVERY_DOC_SPECS:
+        key = ui_key_aliases.get(str(spec["key"]), str(spec["key"]))
+        label = str(spec["label"])
+        folder = base / str(spec["folder"])
+        readme = folder / "README.md"
+        readme_text = readme.read_text(encoding="utf-8") if readme.exists() else ""
+        missing_samples = [name for name in sample_names if not (folder / name).exists()]
+        missing_enums = [str(field) for field in spec["enum_fields"] if str(field) not in readme_text]
+        missing_enum_source = [str(field) for field in spec["enum_fields"] if enum_text and str(field) not in enum_text]
+        missing_error_codes = [str(code) for code in spec["error_codes"] if str(code) not in readme_text]
+        missing_error_catalog = [str(code) for code in spec["error_codes"] if error_text and str(code) not in error_text]
+        missing_doc_refs = [
+            token
+            for token in ("docs/standards/business-api-enums.md", "docs/standards/error-catalog.md")
+            if token not in readme_text
+        ]
+        ok = (
+            readme.exists()
+            and not missing_samples
+            and not missing_enums
+            and not missing_enum_source
+            and not missing_error_codes
+            and not missing_error_catalog
+            and not missing_doc_refs
+        )
+        gap_messages: list[str] = []
+        if not readme.exists():
+            gap_messages.append("缺 README")
+        if missing_samples:
+            gap_messages.append(f"缺样例 {len(missing_samples)} 类")
+        if missing_enums or missing_enum_source:
+            gap_messages.append("枚举未对齐")
+        if missing_error_codes or missing_error_catalog:
+            gap_messages.append("错误码未对齐")
+        if missing_doc_refs:
+            gap_messages.append("缺真源引用")
+        items.append(
+            {
+                "key": key,
+                "name": label,
+                "path": str(spec["path"]),
+                "docsPath": str((folder / "README.md").relative_to(root)),
+                "sampleFiles": sample_names,
+                "enumFields": list(spec["enum_fields"]),
+                "errorCodes": list(spec["error_codes"]),
+                "missingSamples": missing_samples,
+                "missingEnums": missing_enums,
+                "missingEnumSource": missing_enum_source,
+                "missingErrorCodes": missing_error_codes,
+                "missingErrorCatalog": missing_error_catalog,
+                "missingDocRefs": missing_doc_refs,
+                "ok": ok,
+                "status": "done" if ok else "todo",
+                "summary": "交付文档、样例、枚举和错误码已对齐。" if ok else "；".join(gap_messages),
+                "requiredEvidence": [
+                    f"文档：{(folder / 'README.md').relative_to(root)}",
+                    f"样例：{'、'.join(sample_names)}",
+                    "枚举真源：docs/standards/business-api-enums.md",
+                    "错误码真源：docs/standards/error-catalog.md",
+                ],
+            }
+        )
+    ok, detail = smoke._validate_business_delivery_docs(root)
+    return {
+        "ok": ok,
+        "summary": detail,
+        "items": items,
+        "checkedAt": datetime.utcnow().isoformat(),
+    }
+
+
 @admin_router.get("/capabilities", response_model=schemas.BusinessCapabilityListResponse, response_model_by_alias=False)
 def admin_list_business_capabilities(
     user: User = Depends(_resolve_business_user),
@@ -1493,6 +1713,15 @@ def admin_list_business_capabilities(
     if user.role != "admin":
         raise HTTPException(status_code=403, detail="ADMIN_ONLY")
     return list_business_capabilities(user=user)
+
+
+@admin_router.get("/delivery-contracts")
+def admin_get_business_delivery_contracts(
+    user: User = Depends(_resolve_business_user),
+) -> dict[str, Any]:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    return _business_delivery_contract_audit()
 
 
 @admin_router.get("/clients", response_model=schemas.BusinessClientListResponse, response_model_by_alias=False)
@@ -1949,6 +2178,22 @@ def admin_update_business_capability(
     if user.role != "admin":
         raise HTTPException(status_code=403, detail="ADMIN_ONLY")
     return get_business_run_service().update_capability(capability_id, payload)
+
+
+@admin_router.post("/capabilities/{capability_id}/draft-run", response_model=schemas.BusinessRunRead, response_model_by_alias=False)
+def admin_run_business_capability_draft(
+    capability_id: str,
+    payload: schemas.BusinessRunCreateRequest,
+    user: User = Depends(_resolve_business_user),
+) -> schemas.BusinessRunRead:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    return get_business_run_service().create_run_for_capability(
+        capability_id=capability_id,
+        payload=payload,
+        user=user,
+        source="admin-draft-run",
+    )
 
 
 @admin_router.post(

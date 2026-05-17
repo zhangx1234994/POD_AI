@@ -34,11 +34,13 @@ import type {
   BusinessApiKeyCreatePayload,
   BusinessApiKeyUpdatePayload,
   BusinessApiKeyUsageLogListResponse,
+  BusinessDeliveryContractAuditResponse,
   BusinessCapability,
   BusinessCapabilityCompareResponse,
   BusinessCapabilityListResponse,
   BusinessDefaultApprovalListResponse,
   BusinessOperationLogListResponse,
+  BusinessRun,
   BusinessRunListResponse,
   BusinessRunBulkActionResponse,
   BusinessRunIssueChecklistResponse,
@@ -1158,6 +1160,11 @@ export const adminApi = {
       method: 'PATCH',
       body: JSON.stringify(payload),
     }),
+  runBusinessCapabilityDraft: (id: string, payload: Record<string, unknown>) =>
+    request<BusinessRun>(`/api/admin/business/capabilities/${encodeURIComponent(id)}/draft-run`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
   recordBusinessCapabilityAcceptance: (
     id: string,
     payload: {
@@ -1232,6 +1239,8 @@ export const adminApi = {
     const suffix = params.toString() ? `?${params.toString()}` : '';
     return requestBlob(`/api/admin/business/api-key-usage/export${suffix}`);
   },
+  getBusinessDeliveryContracts: () =>
+    request<BusinessDeliveryContractAuditResponse>('/api/admin/business/delivery-contracts'),
   listBusinessRuns: (options?: BusinessRunQueryOptions) => {
     const params = buildBusinessRunQuery(options);
     params.set('detail', 'summary');

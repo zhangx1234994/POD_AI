@@ -2,6 +2,12 @@
 
 本目录是给业务方交付包的 Git 内模板，不包含真实 Key。正式交付时复制本目录到交付目录，补充受控的 `business_api_key.env`，再压缩给业务方。
 
+权威口径：
+
+- 参数枚举以 `docs/standards/business-api-enums.md` 为准。
+- 错误码以 `docs/standards/error-catalog.md` 为准。
+- 如果本交付包与上述两份文档不一致，先修正真源和交付包，再发给业务方。
+
 ## 交付内容
 
 | 目录 | 接口 | 说明 |

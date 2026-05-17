@@ -6,6 +6,8 @@ import type {
   BusinessApiKeyUsageLog,
   BusinessApiKeyUsageRunGroup,
   BusinessApiKeyUsageSummary,
+  BusinessDeliveryContractAuditItem,
+  BusinessDeliveryContractAuditResponse,
   PublicAbility,
 } from '../../../types/admin';
 import { businessKeyLabel } from './businessLabels';
@@ -60,6 +62,7 @@ type BusinessDeliveryContract = {
   enumFields: string[];
   errorCodes: string[];
   note: string;
+  audit?: BusinessDeliveryContractAuditItem | null;
 };
 
 type BusinessDeliveryContractState = {
@@ -758,6 +761,19 @@ function buildBusinessApiContractChecks(): DeliveryGuard[] {
 }
 
 function businessDeliveryContractState(row: BusinessDeliveryContract): BusinessDeliveryContractState {
+  if (row.audit) {
+    const missingSamples = row.audit.missingSamples || [];
+    const missingEnums = [...(row.audit.missingEnums || []), ...(row.audit.missingEnumSource || [])];
+    const missingErrorCodes = (row.audit.missingErrorCodes || []).length > 0 || (row.audit.missingErrorCatalog || []).length > 0;
+    return {
+      ok: Boolean(row.audit.ok),
+      missingSamples,
+      missingEnums,
+      missingErrorCodes,
+      requiredEvidence: row.audit.requiredEvidence?.length ? row.audit.requiredEvidence : [`文档：${row.docsPath}`],
+      summary: row.audit.summary || (row.audit.ok ? '请求、响应、错误、枚举都已覆盖。' : '交付材料存在缺口。'),
+    };
+  }
   const enumFields = new Set(BUSINESS_API_STATUS_DOCS.map((item) => item.field));
   const missingSamples = REQUIRED_DELIVERY_SAMPLE_FILES.filter((file) => !row.sampleFiles.includes(file));
   const missingEnums = row.enumFields.filter((field) => !enumFields.has(field));
@@ -1217,6 +1233,23 @@ export function ApiExposurePanel({
   const [businessApiKeyError, setBusinessApiKeyError] = useState('');
   const [businessApiKeyNotice, setBusinessApiKeyNotice] = useState('');
   const [businessApiKeyForm, setBusinessApiKeyForm] = useState<BusinessApiKeyFormState>(DEFAULT_BUSINESS_API_KEY_FORM);
+  const [businessDeliveryAudit, setBusinessDeliveryAudit] = useState<BusinessDeliveryContractAuditResponse | null>(null);
+  const [businessDeliveryAuditError, setBusinessDeliveryAuditError] = useState('');
+
+  const loadBusinessDeliveryAudit = useCallback(async () => {
+    setBusinessDeliveryAuditError('');
+    try {
+      const res = await adminApi.getBusinessDeliveryContracts();
+      setBusinessDeliveryAudit(res);
+    } catch (err) {
+      setBusinessDeliveryAuditError(String((err as Error)?.message || err));
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadBusinessDeliveryAudit();
+  }, [loadBusinessDeliveryAudit]);
+
   const loadBusinessApiKeyAudit = useCallback(async () => {
     setBusinessApiKeyLoading(true);
     setBusinessApiKeyError('');
@@ -1396,7 +1429,11 @@ export function ApiExposurePanel({
         : 0;
   const businessApiPollingTooFrequent = businessApiPollingRatio >= 30;
   const businessApiContractChecks = buildBusinessApiContractChecks();
-  const businessDeliveryContractRows = BUSINESS_DELIVERY_CONTRACTS;
+  const deliveryAuditByKey = new Map((businessDeliveryAudit?.items || []).map((item) => [item.key, item]));
+  const businessDeliveryContractRows = BUSINESS_DELIVERY_CONTRACTS.map((item) => ({
+    ...item,
+    audit: deliveryAuditByKey.get(item.key) || null,
+  }));
   const businessDeliveryGapRows = businessDeliveryGapMessages(businessDeliveryContractRows);
   const deliveryDecision = buildDeliveryDecision({
     contractChecks: businessApiContractChecks,
@@ -1605,6 +1642,18 @@ export function ApiExposurePanel({
                 : '三个接口当前都具备独立文档、6 类 JSON 样例、枚举说明和错误码说明；如后续新增字段，先补文档再发版。'
             }
           />
+          {businessDeliveryAuditError ? (
+            <Alert theme="warning" message={`交付材料实时审计读取失败：${businessDeliveryAuditError}。当前表格先显示本地内置检查口径。`} />
+          ) : (
+            <Alert
+              theme={businessDeliveryAudit?.ok === false ? 'warning' : 'success'}
+              message={
+                businessDeliveryAudit
+                  ? `后端实时审计：${businessDeliveryAudit.summary}；检查时间 ${formatDateTime(businessDeliveryAudit.checkedAt)}。`
+                  : '正在读取后端交付材料实时审计结果。'
+              }
+            />
+          )}
           <Table
             rowKey="key"
             size="small"

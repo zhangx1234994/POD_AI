@@ -169,6 +169,33 @@ export interface BusinessApiKeyUsageLogListResponse {
   groups: BusinessApiKeyUsageRunGroup[];
 }
 
+export interface BusinessDeliveryContractAuditItem {
+  key: string;
+  name: string;
+  path: string;
+  docsPath: string;
+  sampleFiles: string[];
+  enumFields: string[];
+  errorCodes: string[];
+  missingSamples: string[];
+  missingEnums: string[];
+  missingEnumSource: string[];
+  missingErrorCodes: string[];
+  missingErrorCatalog: string[];
+  missingDocRefs: string[];
+  ok: boolean;
+  status: 'done' | 'todo';
+  summary: string;
+  requiredEvidence: string[];
+}
+
+export interface BusinessDeliveryContractAuditResponse {
+  ok: boolean;
+  summary: string;
+  checkedAt?: string | null;
+  items: BusinessDeliveryContractAuditItem[];
+}
+
 export interface AuthUser {
   id: string;
   username: string;

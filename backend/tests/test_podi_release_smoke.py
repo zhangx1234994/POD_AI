@@ -683,14 +683,29 @@ def test_business_api_usage_center_check_blocks_schema_gap() -> None:
     assert "schema gaps" in detail
 
 
-def _write_business_delivery_fixture(tmp_path: Path, *, omit_sample: str | None = None, omit_error_code: bool = False) -> None:
+def _write_business_delivery_fixture(
+    tmp_path: Path,
+    *,
+    omit_sample: str | None = None,
+    omit_error_code: bool = False,
+    omit_catalog_error_code: bool = False,
+) -> None:
     module = _load_smoke_module()
     base = tmp_path / "docs" / "api" / "examples" / "fission-business-delivery"
     base.mkdir(parents=True)
     (base / "README.md").write_text(
-        "统一说明：runId /api/business/runs/get status 错误码",
+        "统一说明：runId /api/business/runs/get status 错误码 "
+        "docs/standards/business-api-enums.md docs/standards/error-catalog.md",
         encoding="utf-8",
     )
+    standards = tmp_path / "docs" / "standards"
+    standards.mkdir(parents=True)
+    all_enum_fields = sorted({field for spec in module.BUSINESS_DELIVERY_DOC_SPECS for field in spec["enum_fields"]})
+    all_error_codes = sorted({code for spec in module.BUSINESS_DELIVERY_DOC_SPECS for code in spec["error_codes"]})
+    if omit_catalog_error_code:
+        all_error_codes = [code for code in all_error_codes if code != "VENDOR_API_EXECUTION_FAILED"]
+    (standards / "business-api-enums.md").write_text(" ".join(all_enum_fields), encoding="utf-8")
+    (standards / "error-catalog.md").write_text(" ".join(all_error_codes), encoding="utf-8")
     samples = {
         "request.example.json": {"imageUrl": "https://example.com/input.png"},
         "submit.response.example.json": {
@@ -719,7 +734,9 @@ def _write_business_delivery_fixture(tmp_path: Path, *, omit_sample: str | None 
             error_codes = error_codes[1:]
         error_text = " ".join(error_codes)
         (folder / "README.md").write_text(
-            f"{spec['path']}\n参数说明\n枚举说明 {enum_text}\n常见错误 {error_text}\nrunId status\n",
+            f"{spec['path']}\n参数说明\n枚举说明 {enum_text}\n常见错误 {error_text}\nrunId status\n"
+            "docs/standards/business-api-enums.md\n"
+            "docs/standards/error-catalog.md\n",
             encoding="utf-8",
         )
         for sample_name, payload in samples.items():
@@ -756,6 +773,17 @@ def test_business_delivery_docs_check_blocks_missing_error_code(tmp_path: Path) 
 
     assert ok is False
     assert "VL_EVAL_IMAGE_REQUIRED" in detail
+
+
+def test_business_delivery_docs_check_blocks_error_code_not_in_catalog(tmp_path: Path) -> None:
+    module = _load_smoke_module()
+    _write_business_delivery_fixture(tmp_path, omit_catalog_error_code=True)
+
+    ok, detail = module._validate_business_delivery_docs(tmp_path)
+
+    assert ok is False
+    assert "VENDOR_API_EXECUTION_FAILED" in detail
+    assert "error-catalog.md" in detail
 
 
 def _truth_capability(

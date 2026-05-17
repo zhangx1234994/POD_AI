@@ -6,6 +6,8 @@
 
 该接口只评分，不自动二次裂变。业务方如果需要“评分不通过就再裂变”，应在自己的业务逻辑中再次调用裂变接口。
 
+权威口径：参数枚举以 `docs/standards/business-api-enums.md` 为准，错误码以 `docs/standards/error-catalog.md` 为准。本页只保留业务方可直接使用的摘要和示例。
+
 ## 接口
 
 | 项 | 内容 |

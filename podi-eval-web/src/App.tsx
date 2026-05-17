@@ -1370,13 +1370,26 @@ const resolveModelAwareField = (
   };
 };
 
+const isPrimaryImageField = (name?: string | null): boolean => {
+  const normalized = String(name || '').trim().toLowerCase();
+  return normalized === 'url' || normalized === 'imageurl' || normalized === 'image_url';
+};
+
+const getSchemaDefaultValue = (field: SchemaField): string | undefined => {
+  const raw = (field as any).defaultValue ?? (field as any).default;
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw === 'object') return JSON.stringify(raw);
+  return String(raw);
+};
+
 const buildWorkflowDefaultParams = (wf: EvalWorkflowVersion): Record<string, string> => {
   const defaults: Record<string, string> = {};
   for (const f of getFields(wf)) {
-    if (f.name === 'url' || f.name === 'Url') continue;
+    if (isPrimaryImageField(f.name)) continue;
     const options = normalizeFieldOptions(f);
-    if (typeof (f as any).defaultValue === 'string') {
-      defaults[f.name] = String((f as any).defaultValue);
+    const defaultValue = getSchemaDefaultValue(f);
+    if (defaultValue !== undefined) {
+      defaults[f.name] = defaultValue;
     } else if (options.length > 0) {
       defaults[f.name] = options[0].value;
     } else {
@@ -1829,7 +1842,7 @@ const buildCozeDoc = (wf: EvalWorkflowVersion, urlExample: string) => {
     return !INTERNAL_EVAL_DOC_KEYS.has(String(f.name || '').toLowerCase());
   });
   for (const f of fields) {
-    if (f.name === 'url') {
+    if (isPrimaryImageField(f.name)) {
       paramsExample.url = urlExample || 'https://...';
       continue;
     }
@@ -1838,8 +1851,9 @@ const buildCozeDoc = (wf: EvalWorkflowVersion, urlExample: string) => {
       paramsExample[f.name] = String(options[0].value);
       continue;
     }
-    if (typeof (f as any).defaultValue === 'string') {
-      paramsExample[f.name] = (f as any).defaultValue;
+    const defaultValue = getSchemaDefaultValue(f);
+    if (defaultValue !== undefined) {
+      paramsExample[f.name] = defaultValue;
       continue;
     }
     paramsExample[f.name] = '';
@@ -1859,30 +1873,67 @@ type BusinessApiParamDoc = {
   example: string;
 };
 
+const formatBusinessDocValue = (value: unknown): string => {
+  if (value === undefined || value === null || value === '') return '—';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+};
+
+const buildBusinessFieldExample = (field: SchemaField, urlExample: string): string => {
+  if (isPrimaryImageField(field.name)) return urlExample || 'https://example.com/input.png';
+  const options = normalizeFieldOptions(field);
+  if (options.length > 0) return options[0].value;
+  const defaultValue = getSchemaDefaultValue(field);
+  if (defaultValue !== undefined) return defaultValue;
+  const type = String((field as any).type || '').toLowerCase();
+  if (type === 'number') return '0';
+  if (type === 'array') return '[]';
+  if (type === 'object') return '{}';
+  return '';
+};
+
+const buildBusinessFieldDescription = (field: SchemaField): string => {
+  const label = String(field.label || field.name || '').trim();
+  const description = String((field as any).description || '').trim();
+  const options = normalizeFieldOptions(field);
+  const optionText =
+    options.length > 0
+      ? `可选值：${options.map((item) => (item.label === item.value ? item.value : `${item.label}=${item.value}`)).join('、')}。`
+      : '';
+  return [label, description, optionText].filter(Boolean).join('；') || '按接口 schema 填写。';
+};
+
+const getBusinessApiSchemaFields = (wf: EvalWorkflowVersion): SchemaField[] =>
+  getFields(wf).filter((f) => {
+    if (!isFissionWorkflow(wf)) return true;
+    return !INTERNAL_EVAL_DOC_KEYS.has(String(f.name || '').toLowerCase());
+  });
+
 const getBusinessApiParamDocs = (wf: EvalWorkflowVersion): BusinessApiParamDoc[] => {
   const execution = getWorkflowEvalExecution(wf);
   const version = String(execution?.version || wf.version || '').trim();
-  const versionText = `${wf.workflow_id || ''} ${version} ${wf.name || ''}`.toLowerCase();
-  const isComfyColorLock = versionText.includes('comfyui-vl-control-v2') || versionText.includes('colorlock');
-  const docs: BusinessApiParamDoc[] = [
-    {
-      name: 'imageUrl',
-      required: true,
-      description: '原图地址。必须是中台、Coze 和能力服务器都能访问的图片 URL。',
-      example: 'https://example.com/input.png',
-    },
-    {
+  const docs: BusinessApiParamDoc[] = [];
+  const seen = new Set<string>();
+  for (const field of getBusinessApiSchemaFields(wf)) {
+    const name = isPrimaryImageField(field.name) ? 'imageUrl' : field.name;
+    if (seen.has(name)) continue;
+    seen.add(name);
+    docs.push({
+      name,
+      required: Boolean(field.required),
+      description: buildBusinessFieldDescription(field),
+      example: buildBusinessFieldExample(field, 'https://example.com/input.png'),
+    });
+  }
+  if (!seen.has('version')) {
+    docs.push({
       name: 'version',
       required: false,
-      description: '指定业务版本。不传时使用中台当前默认版本；要固定本功能版本时再传。',
-      example: version || 'gpt-image2-vl-v2',
-    },
-    {
-      name: 'prompt',
-      required: false,
-      description: '业务提示词。图裂变已有 VL 分析和默认系统提示词，不传也可以运行；传入后作为补充要求。',
-      example: '保持主体关系，生成更适合商品使用的花纹变化',
-    },
+      description: '指定业务版本。不传时使用中台当前默认版本；固定验收某个版本时再传。',
+      example: version || '当前默认版本',
+    });
+  }
+  docs.push(
     {
       name: 'requestId',
       required: false,
@@ -1919,77 +1970,7 @@ const getBusinessApiParamDocs = (wf: EvalWorkflowVersion): BusinessApiParamDoc[]
       description: '回调时附带的请求头，例如业务方验签 Token。不要把长期密钥写进日志。',
       example: '{"Authorization":"Bearer callback-token"}',
     },
-  ];
-  if (isFissionWorkflow(wf)) {
-    docs.push(
-      {
-        name: 'bili',
-        required: false,
-        description: isComfyColorLock
-          ? 'ComfyUI 智能路由版重绘幅度，默认 80%。建议低 30%、中 60%、高 80%、极高 100%+；只提示区间，不做硬限制。'
-          : 'ComfyUI 裂变重绘幅度，沿用旧约定。值越大变化越明显，值越小越接近原图。',
-        example: isComfyColorLock ? '80%' : '50%',
-      },
-      {
-        name: 'width',
-        required: false,
-        description: '输出宽度。测评端上传图片后默认回填原图宽度，用户可以手动调整。',
-        example: '2000',
-      },
-      {
-        name: 'height',
-        required: false,
-        description: '输出高度。测评端上传图片后默认回填原图高度，用户可以手动调整。',
-        example: '2000',
-      },
-      {
-        name: 'variation_strength',
-        required: false,
-        description: 'GPT Image 2 版本的裂变幅度：conservative、same_series、creative_same_series。',
-        example: 'same_series',
-      },
-      {
-        name: 'quality',
-        required: false,
-        description: 'GPT Image 2 质量档位：preview、candidate、premium。',
-        example: 'preview',
-      },
-      {
-        name: 'size',
-        required: false,
-        description: 'GPT Image 2 输出尺寸预设，例如 auto、1024x1024、1536x1024、1024x1536。',
-        example: 'auto',
-      },
-      {
-        name: 'maskUrl',
-        required: false,
-        description: '蒙版图片 URL。需要局部编辑时传入；普通裂变可不传。',
-        example: 'https://example.com/mask.png',
-      },
-    );
-    if (isComfyColorLock) {
-      docs.push(
-        {
-          name: 'reference_lock',
-          required: false,
-          description: '原图结构保留度。建议 0.34-0.50，不做硬限制；越高越像原图，裂变感更弱。',
-          example: '0.42',
-        },
-        {
-          name: 'color_lock',
-          required: false,
-          description: '颜色锁定强度。建议 0.75-1.00，不做硬限制；越高越不容易偏色。',
-          example: '0.90',
-        },
-        {
-          name: 'profile',
-          required: false,
-          description: '裂变路由配置。普通测试使用 pattern_risk_routed_v4。',
-          example: 'pattern_risk_routed_v4',
-        },
-      );
-    }
-  }
+  );
   return docs;
 };
 
@@ -2001,18 +1982,32 @@ const buildBusinessApiParamDocText = (wf: EvalWorkflowVersion): string =>
     })
     .join('\n');
 
+const buildBusinessApiOutputDocText = (wf: EvalWorkflowVersion): string => {
+  const fields = Array.isArray((wf.output_schema as any)?.fields) ? (((wf.output_schema as any).fields || []) as SchemaField[]) : [];
+  const outputDocs = fields.map((field) => {
+    const label = String(field.label || field.name || '').trim();
+    const description = String((field as any).description || '').trim();
+    const suffix = description ? `：${description}` : label ? `：${label}` : '';
+    return `- ${field.name}${suffix}`;
+  });
+  return [
+    '- runId：中台业务任务 ID，业务方后续查询优先保存这个字段。',
+    '- taskId：底层能力任务 ID；可能为空，也可能随版本切换变化，不建议业务方作为主键。',
+    '- status：任务状态。常见值为 queued、running、succeeded、failed。',
+    '- error：失败时的可读错误信息；排障时同时提供 runId/requestId/traceId。',
+    ...outputDocs.filter((item) => !item.startsWith('- runId') && !item.startsWith('- status') && !item.startsWith('- error')),
+  ].join('\n');
+};
+
 const buildBusinessApiDoc = (wf: EvalWorkflowVersion, urlExample: string) => {
   const execution = getWorkflowEvalExecution(wf);
   const businessKey = String(execution?.business_key || 'fission').trim() || 'fission';
   const businessVersion = String(execution?.version || wf.version || '').trim();
   const paramsExample: Record<string, unknown> = {};
-  const fields = getFields(wf).filter((f) => {
-    if (!isFissionWorkflow(wf)) return true;
-    return !INTERNAL_EVAL_DOC_KEYS.has(String(f.name || '').toLowerCase());
-  });
+  const fields = getBusinessApiSchemaFields(wf);
 
   for (const f of fields) {
-    if (f.name === 'url' || f.name === 'imageUrl') {
+    if (isPrimaryImageField(f.name)) {
       paramsExample.imageUrl = urlExample || 'https://...';
       continue;
     }
@@ -2021,8 +2016,9 @@ const buildBusinessApiDoc = (wf: EvalWorkflowVersion, urlExample: string) => {
       paramsExample[f.name] = String(options[0].value);
       continue;
     }
-    if (typeof f.defaultValue === 'string') {
-      paramsExample[f.name] = f.defaultValue;
+    const defaultValue = getSchemaDefaultValue(f);
+    if (defaultValue !== undefined) {
+      paramsExample[f.name] = defaultValue;
       continue;
     }
     paramsExample[f.name] = '';
@@ -2059,6 +2055,9 @@ const buildBusinessApiDoc = (wf: EvalWorkflowVersion, urlExample: string) => {
     '',
     '【参数说明】',
     buildBusinessApiParamDocText(wf),
+    '',
+    '【返回字段说明】',
+    buildBusinessApiOutputDocText(wf),
     '',
     '返回中的 runId 是中台业务任务 ID；taskId 是底层能力任务 ID。业务方优先保存 runId 并调用业务查询接口；Coze/内网旧链路可以把 runId 作为 taskId 调用旧查询工具。',
   ].join('\n');
@@ -3793,7 +3792,7 @@ export function App() {
     for (const wf of displayWorkflows) {
       if (!isWorkflowBatchEnabled(wf)) continue;
       const fields = getFields(wf);
-      const urlField = fields.find((f) => f.name === 'url' || f.name === 'Url') || null;
+      const urlField = fields.find((f) => isPrimaryImageField(f.name)) || null;
       if (!urlField) continue;
       const usage = getWorkflowUsage(wf);
       const resourceOptionTypes = Array.isArray(usage?.resourceOptionTypes) ? usage?.resourceOptionTypes.map((x) => String(x || '').toLowerCase()) : [];
@@ -3860,7 +3859,7 @@ export function App() {
   const batchExtraFields = useMemo(
     () =>
       batchFields.filter((f) => {
-        if (f.name === 'url' || f.name === 'Url') return false;
+        if (isPrimaryImageField(f.name)) return false;
         if (batchLoraFieldName && f.name === batchLoraFieldName) return false;
         if (batchPromptField && f.name === batchPromptField.name) return false;
         if (isBatchSizeFieldName(f.name)) return false;
@@ -4002,7 +4001,7 @@ export function App() {
 
   const toolFields = useMemo(() => getFields(selectedTool), [selectedTool]);
   const requiresImage = useMemo(
-    () => toolFields.some((f) => f.name === 'url' || f.name === 'Url'),
+    () => toolFields.some((f) => isPrimaryImageField(f.name)),
     [toolFields],
   );
   const shouldAutoFillFissionSize = useMemo(
@@ -4910,9 +4909,9 @@ export function App() {
     setSearch('');
     const defaults: Record<string, string> = {};
     for (const f of getFields(wf)) {
-      if (f.name === 'url') continue;
+      if (isPrimaryImageField(f.name)) continue;
       const opt = Array.isArray((f as any).options) && (f as any).options.length > 0 ? (f as any).options[0]?.value : undefined;
-      const def = typeof (f as any).defaultValue === 'string' ? (f as any).defaultValue : undefined;
+      const def = getSchemaDefaultValue(f);
       if (def !== undefined) {
         defaults[f.name] = String(def);
       } else if (opt !== undefined) {
@@ -5190,7 +5189,7 @@ export function App() {
     if (isRunning) return;
     if (!selectedTool) return;
     const url = formUrl.trim();
-    const requiresImage = toolFields.some((f) => f.name === 'url' || f.name === 'Url');
+    const requiresImage = toolFields.some((f) => isPrimaryImageField(f.name));
     if (requiresImage && !url) {
       pushNotice('error', '请先填写或上传图片 URL');
       return;
@@ -5218,7 +5217,7 @@ export function App() {
     const missing: string[] = [];
     for (const f of getFields(selectedTool)) {
       if (!(f as any)?.required) continue;
-      if (f.name === 'url' || f.name === 'Url' || f.name === 'prompt') continue;
+      if (isPrimaryImageField(f.name) || f.name === 'prompt') continue;
       if (isAiEditor && f.name === 'prompt') continue;
       const modelAware = resolveModelAwareField(f, selectedModelValue);
       if (modelAware.disabled) continue;
@@ -5445,7 +5444,7 @@ export function App() {
     const missingRequired: string[] = [];
     for (const f of getFields(selectedBatchWorkflow)) {
       if (!(f as any)?.required) continue;
-      if (f.name === 'url' || f.name === 'Url') continue;
+      if (isPrimaryImageField(f.name)) continue;
       if (isBatchSizeFieldName(f.name)) continue;
       const raw = String(effectiveParams[f.name] ?? '').trim();
       if (!raw) missingRequired.push((f as any)?.label || f.name);
@@ -8221,7 +8220,7 @@ export function App() {
                       />
                     ) : null}
                     {toolFields
-                      .filter((f) => f.name !== 'url' && f.name !== 'Url')
+                      .filter((f) => !isPrimaryImageField(f.name))
                       .filter((f) => !(isShengtuWorkflow && f.name === 'image_urls'))
                       .map((f) => {
                         const modelAware = modelAwareFieldMap.get(f.name);

@@ -431,6 +431,55 @@ def test_business_capability_update_rejects_stopping_default(monkeypatch) -> Non
         raise AssertionError("default business capability should not be stopped directly")
 
 
+def test_business_capability_update_rejects_default_recipe_mutation(monkeypatch) -> None:
+    install_business_db(monkeypatch)
+    service = BusinessRunService()
+
+    try:
+        service.update_capability(
+            "biz_fission_old",
+            BusinessCapabilityUpdateRequest(
+                primaryAbilityId="test_vl_analyze_image",
+            ),
+        )
+    except Exception as exc:
+        assert getattr(exc, "detail", None) == "BUSINESS_DEFAULT_VERSION_CONTROL_FIELDS_IMMUTABLE"
+    else:  # pragma: no cover - defensive
+        raise AssertionError("default business capability recipe should require a draft version")
+
+
+def test_business_capability_update_rejects_default_schema_mutation(monkeypatch) -> None:
+    install_business_db(monkeypatch)
+    service = BusinessRunService()
+
+    try:
+        service.update_capability(
+            "biz_fission_old",
+            BusinessCapabilityUpdateRequest(
+                inputSchema={"fields": [{"name": "imageUrl", "type": "image", "required": True}]},
+            ),
+        )
+    except Exception as exc:
+        assert getattr(exc, "detail", None) == "BUSINESS_DEFAULT_VERSION_CONTROL_FIELDS_IMMUTABLE"
+    else:  # pragma: no cover - defensive
+        raise AssertionError("default business capability schema should require a draft version")
+
+
+def test_business_capability_update_rejects_default_demotion(monkeypatch) -> None:
+    install_business_db(monkeypatch)
+    service = BusinessRunService()
+
+    try:
+        service.update_capability(
+            "biz_fission_old",
+            BusinessCapabilityUpdateRequest(isDefault=False),
+        )
+    except Exception as exc:
+        assert getattr(exc, "detail", None) == "BUSINESS_DEFAULT_VERSION_CONTROL_FIELDS_IMMUTABLE"
+    else:  # pragma: no cover - defensive
+        raise AssertionError("default business capability should be changed by promoting another version")
+
+
 def test_business_capability_update_switches_default(monkeypatch) -> None:
     install_business_db(monkeypatch, with_vendor_cost=True, with_vendor_key=True, with_vendor_acceptance=True)
     service = BusinessRunService()
@@ -760,6 +809,85 @@ def test_business_run_records_recipe_steps(monkeypatch) -> None:
     assert run["orchestration_graph"]["mode"] == "run"
     assert run["orchestration_graph"]["summary"]["currentNodeId"] == "primary"
     assert [node["id"] for node in run["orchestration_graph"]["nodes"]] == ["entry", "primary", "result"]
+
+
+def test_business_admin_draft_run_uses_selected_draft_capability(monkeypatch) -> None:
+    install_business_db(monkeypatch)
+
+    with business_runs_module.get_session() as session:
+        session.add(
+            BusinessCapability(
+                id="biz_fission_draft",
+                business_key="fission",
+                version="draft-v2",
+                display_name="草稿图裂变",
+                status="draft",
+                is_default=False,
+                recipe={
+                    "mode": "single_ability_task",
+                    "primaryAbilityId": "ability_openai_fission",
+                    "steps": [{"id": "primary", "type": "ability_task", "abilityId": "ability_openai_fission"}],
+                },
+            )
+        )
+        session.commit()
+
+    class FakeAbilityTaskService:
+        def enqueue(self, *, ability_id, payload, user):
+            assert ability_id == "ability_openai_fission"
+            assert payload.metadata["businessVersion"] == "draft-v2"
+            assert payload.metadata["businessRoute"]["selectedBy"] == "admin_draft"
+            return {"id": "task_draft_1", "status": "queued"}
+
+    monkeypatch.setattr(business_runs_module, "get_ability_task_service", lambda: FakeAbilityTaskService())
+    service = BusinessRunService()
+
+    run = service.create_run_for_capability(
+        capability_id="biz_fission_draft",
+        payload=BusinessRunCreateRequest(imageUrl="https://example.com/a.png", channel="admin-web"),
+        user=None,
+    )
+
+    assert run["version"] == "draft-v2"
+    assert run["business_version_id"] == "biz_fission_draft"
+    assert run["source"] == "admin-draft-run"
+    assert run["channel"] == "admin-web"
+    assert run["request_payload"]["_route"]["selectedBy"] == "admin_draft"
+    assert run["ability_task_id"] == "t1.fission.auto.task_draft_1"
+
+
+def test_business_public_run_does_not_select_draft_version(monkeypatch) -> None:
+    install_business_db(monkeypatch)
+
+    with business_runs_module.get_session() as session:
+        session.add(
+            BusinessCapability(
+                id="biz_fission_draft",
+                business_key="fission",
+                version="draft-v2",
+                display_name="草稿图裂变",
+                status="draft",
+                is_default=False,
+                recipe={
+                    "mode": "single_ability_task",
+                    "primaryAbilityId": "ability_openai_fission",
+                    "steps": [{"id": "primary", "type": "ability_task", "abilityId": "ability_openai_fission"}],
+                },
+            )
+        )
+        session.commit()
+
+    service = BusinessRunService()
+
+    with pytest.raises(HTTPException) as exc_info:
+        service.create_run(
+            business_key="fission",
+            payload=BusinessRunCreateRequest(imageUrl="https://example.com/a.png", version="draft-v2"),
+            user=None,
+        )
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "BUSINESS_CAPABILITY_NOT_FOUND"
 
 
 def test_business_run_accepts_flat_fission_params(monkeypatch) -> None:

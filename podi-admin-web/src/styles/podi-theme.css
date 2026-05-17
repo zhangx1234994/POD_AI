@@ -851,6 +851,173 @@ html.t-theme-dark {
   opacity: 0.38;
 }
 
+.podi-business-flow-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 14px;
+  min-height: 420px;
+}
+
+.podi-business-flow-canvas {
+  min-width: 0;
+  min-height: 420px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--td-border-level-1-color) 80%, var(--podi-accent-soft));
+  border-radius: 18px;
+  background:
+    radial-gradient(circle, color-mix(in srgb, var(--td-text-color-placeholder) 24%, transparent) 1px, transparent 1px),
+    linear-gradient(180deg, color-mix(in srgb, var(--td-bg-color-container) 92%, var(--podi-accent-soft)), var(--td-bg-color-container));
+  background-size: 18px 18px, 100% 100%;
+}
+
+.podi-business-flow-canvas .react-flow__pane {
+  cursor: grab;
+}
+
+.podi-business-flow-canvas .react-flow__pane:active {
+  cursor: grabbing;
+}
+
+.podi-business-flow-canvas .react-flow__controls,
+.podi-business-flow-canvas .react-flow__minimap {
+  border: 1px solid var(--td-border-level-1-color);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--td-shadow-color) 12%, transparent);
+}
+
+.podi-business-flow-node {
+  display: flex;
+  width: 280px;
+  min-height: 148px;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--td-border-level-1-color);
+  border-radius: 16px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--td-bg-color-container) 96%, var(--podi-accent-soft)), var(--td-bg-color-container));
+  box-shadow: 0 14px 34px color-mix(in srgb, var(--td-shadow-color) 13%, transparent);
+}
+
+.podi-business-flow-node--success {
+  border-color: color-mix(in srgb, var(--td-success-color) 34%, var(--td-border-level-1-color));
+}
+
+.podi-business-flow-node--warning {
+  border-color: color-mix(in srgb, var(--td-warning-color) 38%, var(--td-border-level-1-color));
+}
+
+.podi-business-flow-node--danger {
+  border-color: color-mix(in srgb, var(--td-error-color) 42%, var(--td-border-level-1-color));
+}
+
+.podi-business-flow-node--primary,
+.podi-business-flow-node--current,
+.podi-business-flow-node--selected {
+  border-color: color-mix(in srgb, var(--podi-accent) 50%, var(--td-border-level-1-color));
+  box-shadow:
+    inset 4px 0 0 var(--podi-accent),
+    0 16px 36px color-mix(in srgb, var(--podi-accent) 14%, transparent);
+}
+
+.podi-business-flow-node__top,
+.podi-business-flow-detail__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.podi-business-flow-node__top {
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+}
+
+.podi-business-flow-node .t-typography {
+  word-break: break-word;
+}
+
+.podi-business-flow-node__handle {
+  width: 9px;
+  height: 9px;
+  border: 2px solid var(--td-bg-color-container);
+  background: var(--podi-accent);
+}
+
+.podi-business-flow-detail {
+  display: flex;
+  min-width: 0;
+  max-height: 420px;
+  flex-direction: column;
+  gap: 12px;
+  overflow: auto;
+  border: 1px solid var(--td-border-level-1-color);
+  border-radius: 18px;
+  background: var(--td-bg-color-container);
+  padding: 16px;
+  box-shadow: 0 14px 34px color-mix(in srgb, var(--td-shadow-color) 10%, transparent);
+}
+
+.podi-business-flow-detail__facts {
+  display: grid;
+  gap: 6px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--td-bg-color-page) 78%, var(--podi-accent-soft));
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  padding: 10px;
+}
+
+.podi-business-flow-detail__block {
+  display: grid;
+  gap: 6px;
+}
+
+.podi-business-flow-detail__block pre {
+  max-height: 180px;
+  margin: 0;
+  overflow: auto;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--td-bg-color-page) 84%, var(--podi-accent-soft));
+  color: var(--td-text-color-primary);
+  font-size: 11px;
+  line-height: 1.5;
+  padding: 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.podi-business-draft-editor {
+  display: grid;
+  gap: 12px;
+}
+
+.podi-business-draft-step {
+  display: grid;
+  gap: 12px;
+  border: 1px solid color-mix(in srgb, var(--td-border-level-1-color) 82%, var(--podi-accent-soft));
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--td-bg-color-container) 96%, var(--podi-accent-soft)), var(--td-bg-color-container));
+  padding: 14px;
+}
+
+.podi-business-draft-step__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.podi-business-draft-preview {
+  display: grid;
+  gap: 8px;
+  border-top: 1px dashed var(--td-border-level-1-color);
+  padding-top: 10px;
+}
+
 .podi-business-workflow-map-card {
   border-color: color-mix(in srgb, var(--podi-accent) 22%, var(--td-border-level-1-color));
 }
@@ -973,6 +1140,14 @@ html.t-theme-dark {
   .podi-business-graph__track {
     min-height: 0;
     align-items: stretch;
+  }
+
+  .podi-business-flow-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .podi-business-flow-detail {
+    max-height: none;
   }
 }
 

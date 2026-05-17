@@ -91,6 +91,7 @@
 | BUSINESS_CAPABILITY_ID_REQUIRED | 业务版本自定义 ID 为空 | 400 |
 | BUSINESS_CAPABILITY_VERSION_DUPLICATED | 同一业务标识下版本号重复 | 409 |
 | BUSINESS_CAPABILITY_NOT_FOUND | 业务能力版本不存在或未启用 | 404 |
+| BUSINESS_CAPABILITY_NOT_RUNNABLE | 业务能力版本不可试运行 | 409，管理端草稿试运行拒绝 disabled/deprecated 版本 |
 | BUSINESS_ROLLBACK_TARGET_NOT_FOUND | 没有可回滚的上一业务版本 | 409 |
 | BUSINESS_STATUS_INVALID | 业务版本状态非法 | 400 |
 | BUSINESS_ACCEPTANCE_STATUS_INVALID | 业务版本验收状态非法 | 400，允许 `passed` / `failed` / `warning` / `waived` |
@@ -101,6 +102,7 @@
 | HEALTH_WATCH_UNIT_DISABLED | 自检守护定时器未启用 | `/api/admin/dashboard/health-watch/status` 响应内状态，不作为 HTTP 错误抛出 |
 | HEALTH_WATCH_UNIT_FAILED | 自检守护最近一次执行失败 | `/api/admin/dashboard/health-watch/status` 响应内状态，不作为 HTTP 错误抛出 |
 | BUSINESS_DEFAULT_VERSION_MUST_BE_ACTIVE | 默认业务版本必须是 active 状态 | 400 |
+| BUSINESS_DEFAULT_VERSION_CONTROL_FIELDS_IMMUTABLE | 线上默认业务版本的控制项不可直接修改 | 409，主能力、配方、业务标识、版本号、输入/输出 schema 或取消默认都必须通过新草稿版本和默认切换流程完成 |
 | BUSINESS_DEFAULT_ALREADY_ACTIVE | 目标业务版本已经是默认版本 | 409，默认版本审批申请 |
 | BUSINESS_DEFAULT_APPROVAL_PENDING | 目标业务版本已有待审批的默认切换申请 | 409，避免重复申请 |
 | BUSINESS_DEFAULT_APPROVAL_NOT_FOUND | 默认版本审批记录不存在 | 404 |

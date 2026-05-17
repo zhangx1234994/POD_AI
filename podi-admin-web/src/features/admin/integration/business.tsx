@@ -1,4 +1,19 @@
+import { useState } from 'react';
 import { Alert, Button, Card, Col, Dialog, Input, InputNumber, Row, Select, Space, Switch, Table, Tag, Textarea, Typography } from 'tdesign-react';
+import {
+  Background,
+  Controls,
+  Handle,
+  MarkerType,
+  MiniMap,
+  Position,
+  ReactFlow,
+  type Edge,
+  type Node,
+  type NodeProps,
+  type NodeTypes,
+} from '@xyflow/react';
+import '@xyflow/react/dist/style.css';
 
 import type {
   BusinessCapability,
@@ -22,7 +37,6 @@ import {
   businessRunIssueCategoryOptions,
   businessRunStatusOptions,
   businessUsageWindowOptions,
-  statusOptions,
 } from './formOptions';
 import {
   formatBucketDigest,
@@ -90,6 +104,377 @@ const businessGovernanceIssueLabel = (value?: string | null) => {
     BUSINESS_GOVERNANCE_VENDOR_EGRESS_NOT_VERIFIED: '出网未验证',
   };
   return labels[value || ''] || value || '暂无风险';
+};
+
+const businessCapabilityStatusOptions = [
+  { value: 'draft', label: '草稿' },
+  { value: 'inactive', label: '未启用' },
+  { value: 'active', label: '启用' },
+  { value: 'deprecated', label: '下线' },
+];
+
+const buildBusinessDraftRecipeText = (form: BusinessCapabilityFormState) => {
+  const steps: JsonRecord[] = [];
+  if (form.vlAssistEnabled) {
+    steps.push({
+      id: 'vl_analyze',
+      type: 'vl_analyze',
+      role: 'preprocess',
+      displayName: 'VL 图像理解',
+      abilityId: form.vlAssistAbilityId || 'vl_analyze_image',
+      enabled: true,
+    });
+  }
+  if (form.primaryAbilityId) {
+    steps.push({
+      id: 'primary',
+      type: 'ability_task',
+      role: 'primary',
+      displayName: '主执行能力',
+      abilityId: form.primaryAbilityId,
+      enabled: true,
+    });
+  }
+  return JSON.stringify(
+    {
+      mode: form.vlAssistEnabled ? 'vl_then_primary' : 'single_ability_task',
+      primaryAbilityId: form.primaryAbilityId || '',
+      visualDraft: {
+        version: 1,
+        source: 'admin_business_orchestration_canvas',
+        note: '草稿编排只保存到业务版本，不直接影响线上默认版本。',
+      },
+      steps,
+      vlAssist: form.vlAssistEnabled
+        ? {
+            enabled: true,
+            abilityId: form.vlAssistAbilityId || 'vl_analyze_image',
+          }
+        : undefined,
+    },
+    null,
+    2,
+  );
+};
+
+interface BusinessRecipeDraftStep {
+  id: string;
+  type: string;
+  role: string;
+  displayName: string;
+  abilityId: string;
+  enabled: boolean;
+  config?: JsonRecord;
+}
+
+const parseBusinessDraftRecipe = (value?: string): { ok: true; recipe: JsonRecord } | { ok: false; recipe: JsonRecord; error: string } => {
+  if (!value || !value.trim()) return { ok: true, recipe: {} };
+  try {
+    const parsed = JSON.parse(value);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return { ok: false, recipe: {}, error: '业务配方必须是 JSON 对象。' };
+    }
+    return { ok: true, recipe: parsed as JsonRecord };
+  } catch {
+    return { ok: false, recipe: {}, error: '业务配方 JSON 格式不正确，先修正后再用可视化编辑。' };
+  }
+};
+
+const readBusinessDraftSteps = (form: BusinessCapabilityFormState): {
+  recipe: JsonRecord;
+  steps: BusinessRecipeDraftStep[];
+  error?: string;
+} => {
+  const parsed = parseBusinessDraftRecipe(form.recipeText);
+  const recipe = parsed.recipe;
+  const rawSteps = Array.isArray(recipe.steps) ? recipe.steps : [];
+  const steps = rawSteps
+    .map((rawStep, index): BusinessRecipeDraftStep | null => {
+      if (!rawStep || typeof rawStep !== 'object' || Array.isArray(rawStep)) return null;
+      const step = rawStep as JsonRecord;
+      const stepType = String(step.type || 'ability_task');
+      const role = String(step.role || (stepType === 'vl_analyze' ? 'preprocess' : 'primary'));
+      const abilityId = String(step.abilityId || step.ability_id || '');
+      return {
+        id: String(step.id || `step_${index + 1}`),
+        type: stepType,
+        role,
+        displayName: String(step.displayName || step.name || step.title || (stepType === 'vl_analyze' ? 'VL 图像理解' : '主执行能力')),
+        abilityId,
+        enabled: step.enabled !== false,
+        config: step.config && typeof step.config === 'object' && !Array.isArray(step.config) ? (step.config as JsonRecord) : undefined,
+      };
+    })
+    .filter(Boolean) as BusinessRecipeDraftStep[];
+
+  if (steps.length === 0) {
+    if (form.vlAssistEnabled) {
+      steps.push({
+        id: 'vl_analyze',
+        type: 'vl_analyze',
+        role: 'preprocess',
+        displayName: 'VL 图像理解',
+        abilityId: form.vlAssistAbilityId || 'vl_analyze_image',
+        enabled: true,
+      });
+    }
+    if (form.primaryAbilityId) {
+      steps.push({
+        id: 'primary',
+        type: 'ability_task',
+        role: 'primary',
+        displayName: '主执行能力',
+        abilityId: form.primaryAbilityId,
+        enabled: true,
+      });
+    }
+  }
+
+  return {
+    recipe,
+    steps,
+    error: parsed.ok ? undefined : parsed.error,
+  };
+};
+
+const normalizeBusinessDraftStepForRecipe = (step: BusinessRecipeDraftStep, index: number): JsonRecord => {
+  const next: JsonRecord = {
+    id: step.id || `step_${index + 1}`,
+    type: step.type || 'ability_task',
+    role: step.role || (step.type === 'vl_analyze' ? 'preprocess' : 'primary'),
+    displayName: step.displayName || (step.type === 'vl_analyze' ? 'VL 图像理解' : '业务处理步骤'),
+    enabled: step.enabled,
+  };
+  if (step.abilityId) next.abilityId = step.abilityId;
+  if (step.config && Object.keys(step.config).length > 0) next.config = step.config;
+  return next;
+};
+
+const writeBusinessDraftStepsToForm = (
+  form: BusinessCapabilityFormState,
+  steps: BusinessRecipeDraftStep[],
+): BusinessCapabilityFormState => {
+  const parsed = parseBusinessDraftRecipe(form.recipeText);
+  const recipe: JsonRecord = parsed.ok ? { ...parsed.recipe } : {};
+  const normalizedSteps = steps.map(normalizeBusinessDraftStepForRecipe);
+  const primaryStep =
+    steps.find((step) => step.enabled && step.role === 'primary' && step.abilityId) ||
+    steps.find((step) => step.enabled && step.type !== 'vl_analyze' && step.abilityId);
+  const vlStep =
+    steps.find((step) => step.enabled && (step.type === 'vl_analyze' || step.role === 'preprocess') && step.abilityId);
+  const primaryAbilityId = primaryStep?.abilityId || form.primaryAbilityId;
+  recipe.steps = normalizedSteps;
+  recipe.primaryAbilityId = primaryAbilityId;
+  recipe.mode = vlStep ? 'vl_then_primary' : 'single_ability_task';
+  recipe.visualDraft = {
+    ...((recipe.visualDraft && typeof recipe.visualDraft === 'object' && !Array.isArray(recipe.visualDraft)
+      ? recipe.visualDraft
+      : {}) as JsonRecord),
+    version: 1,
+    source: 'admin_business_orchestration_canvas',
+  };
+  if (vlStep) {
+    const existingVlAssist =
+      recipe.vlAssist && typeof recipe.vlAssist === 'object' && !Array.isArray(recipe.vlAssist)
+        ? (recipe.vlAssist as JsonRecord)
+        : {};
+    recipe.vlAssist = {
+      ...existingVlAssist,
+      enabled: true,
+      abilityId: vlStep.abilityId,
+    };
+  } else {
+    delete recipe.vlAssist;
+  }
+
+  return {
+    ...form,
+    primaryAbilityId,
+    vlAssistEnabled: Boolean(vlStep),
+    vlAssistAbilityId: vlStep?.abilityId || form.vlAssistAbilityId,
+    recipeText: JSON.stringify(recipe, null, 2),
+  };
+};
+
+const createBusinessDraftStep = (type: 'vl_analyze' | 'ability_task', index: number): BusinessRecipeDraftStep => ({
+  id: type === 'vl_analyze' ? `vl_${index + 1}` : `ability_${index + 1}`,
+  type,
+  role: type === 'vl_analyze' ? 'preprocess' : 'primary',
+  displayName: type === 'vl_analyze' ? 'VL 图像理解' : '业务处理步骤',
+  abilityId: type === 'vl_analyze' ? 'vl_analyze_image' : '',
+  enabled: true,
+});
+
+const businessDraftStepTypeOptions = [
+  { label: 'VL 图像理解', value: 'vl_analyze' },
+  { label: '能力执行', value: 'ability_task' },
+];
+
+const businessDraftStepRoleOptions = [
+  { label: '前置分析', value: 'preprocess' },
+  { label: '主执行', value: 'primary' },
+  { label: '质检评分', value: 'evaluate' },
+  { label: '后处理', value: 'postprocess' },
+];
+
+const BusinessRecipeDraftEditor = ({
+  form,
+  abilityOptions,
+  vlAbilityOptions,
+  disabled,
+  onChange,
+}: {
+  form: BusinessCapabilityFormState;
+  abilityOptions: BusinessSelectOption[];
+  vlAbilityOptions: BusinessSelectOption[];
+  disabled?: boolean;
+  onChange: (next: BusinessCapabilityFormState) => void;
+}) => {
+  const { steps, error } = readBusinessDraftSteps(form);
+  const setSteps = (nextSteps: BusinessRecipeDraftStep[]) => onChange(writeBusinessDraftStepsToForm(form, nextSteps));
+  const updateStep = (index: number, patch: Partial<BusinessRecipeDraftStep>) => {
+    const nextSteps = steps.map((step, stepIndex) => (stepIndex === index ? { ...step, ...patch } : step));
+    setSteps(nextSteps);
+  };
+  const moveStep = (index: number, direction: -1 | 1) => {
+    const nextIndex = index + direction;
+    if (nextIndex < 0 || nextIndex >= steps.length) return;
+    const nextSteps = [...steps];
+    const [current] = nextSteps.splice(index, 1);
+    nextSteps.splice(nextIndex, 0, current);
+    setSteps(nextSteps);
+  };
+  const removeStep = (index: number) => setSteps(steps.filter((_, stepIndex) => stepIndex !== index));
+  const flowSteps: BusinessRecipeFlowStep[] = steps.map((step, index) => ({
+    id: step.id,
+    type: step.type,
+    role: step.role,
+    displayName: step.displayName,
+    abilityId: step.abilityId,
+    enabled: step.enabled,
+    order: index + 1,
+    params: step.config,
+  }));
+
+  return (
+    <Card bordered title="草稿编排">
+      <Space direction="vertical" size="small" style={{ width: '100%' }}>
+        <Alert
+          theme="info"
+          message="这里编辑的步骤会直接写回业务配方 recipe，不会另存第二套流程。线上默认版本请先复制为草稿再调整。"
+        />
+        {error ? <Alert theme="warning" message={error} /> : null}
+        <div className="podi-business-draft-editor">
+          {steps.map((step, index) => {
+            const stepAbilityOptions = step.type === 'vl_analyze' && vlAbilityOptions.length > 0 ? vlAbilityOptions : abilityOptions;
+            return (
+              <section className="podi-business-draft-step" key={`${step.id}-${index}`}>
+                <div className="podi-business-draft-step__head">
+                  <Tag theme={step.enabled ? 'primary' : 'default'} variant="light">
+                    第 {index + 1} 步
+                  </Tag>
+                  <Space size={4}>
+                    <Button size="small" variant="text" disabled={disabled || index === 0} onClick={() => moveStep(index, -1)}>
+                      上移
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="text"
+                      disabled={disabled || index === steps.length - 1}
+                      onClick={() => moveStep(index, 1)}
+                    >
+                      下移
+                    </Button>
+                    <Button size="small" variant="text" theme="danger" disabled={disabled} onClick={() => removeStep(index)}>
+                      删除
+                    </Button>
+                  </Space>
+                </div>
+                <Row gutter={[10, 10]}>
+                  <Col span={6}>
+                    <Typography.Text theme="secondary">步骤类型</Typography.Text>
+                    <Select
+                      value={step.type}
+                      disabled={disabled}
+                      options={businessDraftStepTypeOptions}
+                      onChange={(value) =>
+                        updateStep(index, {
+                          type: String(value),
+                          role: String(value) === 'vl_analyze' ? 'preprocess' : step.role || 'primary',
+                          displayName:
+                            step.displayName || (String(value) === 'vl_analyze' ? 'VL 图像理解' : '业务处理步骤'),
+                        })
+                      }
+                    />
+                  </Col>
+                  <Col span={6}>
+                    <Typography.Text theme="secondary">步骤角色</Typography.Text>
+                    <Select
+                      value={step.role}
+                      disabled={disabled}
+                      options={businessDraftStepRoleOptions}
+                      onChange={(value) => updateStep(index, { role: String(value) })}
+                    />
+                  </Col>
+                  <Col span={12}>
+                    <Typography.Text theme="secondary">显示名称</Typography.Text>
+                    <Input
+                      value={step.displayName}
+                      disabled={disabled}
+                      onChange={(value) => updateStep(index, { displayName: String(value) })}
+                    />
+                  </Col>
+                  <Col span={18}>
+                    <Typography.Text theme="secondary">调用能力</Typography.Text>
+                    <Select
+                      value={step.abilityId}
+                      filterable
+                      clearable
+                      disabled={disabled}
+                      options={stepAbilityOptions}
+                      placeholder="选择这个步骤实际调用的能力"
+                      onChange={(value) => updateStep(index, { abilityId: String(value || '') })}
+                    />
+                  </Col>
+                  <Col span={6}>
+                    <Typography.Text theme="secondary">是否启用</Typography.Text>
+                    <div style={{ paddingTop: 8 }}>
+                      <Switch
+                        value={step.enabled}
+                        disabled={disabled}
+                        onChange={(value) => updateStep(index, { enabled: Boolean(value) })}
+                      />
+                    </div>
+                  </Col>
+                </Row>
+              </section>
+            );
+          })}
+        </div>
+        <Space breakLine>
+          <Button
+            variant="outline"
+            disabled={disabled}
+            onClick={() => setSteps([...steps, createBusinessDraftStep('vl_analyze', steps.length)])}
+          >
+            添加 VL 步骤
+          </Button>
+          <Button
+            variant="outline"
+            disabled={disabled}
+            onClick={() => setSteps([...steps, createBusinessDraftStep('ability_task', steps.length)])}
+          >
+            添加能力步骤
+          </Button>
+          <Typography.Text theme="secondary">保存业务版本时，这些步骤会随配方一起提交。</Typography.Text>
+        </Space>
+        <div className="podi-business-draft-preview">
+          <Typography.Text strong>流程预览</Typography.Text>
+          <BusinessRecipeFlow steps={flowSteps} compact />
+        </div>
+      </Space>
+    </Card>
+  );
 };
 
 const businessGovernanceStatusLabel = (value?: string | null) => {
@@ -2846,14 +3231,16 @@ export const BusinessCapabilityEditorDialog = ({
   onChange: (next: BusinessCapabilityFormState) => void;
   onClose: () => void;
   onConfirm: () => void;
-}) => (
-  <Dialog
-    header={form.id ? '编辑业务版本' : '新增业务版本'}
-    visible={visible}
-    width={760}
-    onClose={onClose}
-    onConfirm={onConfirm}
-  >
+}) => {
+  const controlLocked = Boolean(form.id && form.isDefault);
+  return (
+    <Dialog
+      header={form.id ? '编辑业务版本' : '新增业务版本'}
+      visible={visible}
+      width={760}
+      onClose={onClose}
+      onConfirm={onConfirm}
+    >
     <Space direction="vertical" size="middle" style={{ width: '100%' }}>
       {error ? <Alert theme="error" message={error} /> : null}
       <Row gutter={[12, 12]}>
@@ -2877,17 +3264,27 @@ export const BusinessCapabilityEditorDialog = ({
           <Typography.Text theme="secondary">状态</Typography.Text>
           <Select
             value={form.status}
-            onChange={(value) => onChange({ ...form, status: String(value) })}
-            options={statusOptions}
+            onChange={(value) => {
+              const nextStatus = String(value);
+              onChange({ ...form, status: nextStatus, isDefault: nextStatus === 'active' ? form.isDefault : false });
+            }}
+            options={businessCapabilityStatusOptions}
           />
         </Col>
         <Col span={6}>
           <Typography.Text theme="secondary">是否默认</Typography.Text>
           <div style={{ paddingTop: 8 }}>
-            <Switch value={form.isDefault} onChange={(value) => onChange({ ...form, isDefault: Boolean(value) })} />
+            <Switch
+              value={form.isDefault}
+              disabled={controlLocked || form.status !== 'active'}
+              onChange={(value) => onChange({ ...form, isDefault: Boolean(value) })}
+            />
           </div>
         </Col>
       </Row>
+      {controlLocked ? (
+        <Alert theme="warning" message="这是线上默认版本。名称和说明可微调；主能力、配方、字段、版本号等控制项请通过新草稿版本修改。" />
+      ) : null}
       <Row gutter={[12, 12]}>
         <Col span={12}>
           <Typography.Text theme="secondary">业务名称</Typography.Text>
@@ -2990,8 +3387,42 @@ export const BusinessCapabilityEditorDialog = ({
         <summary style={{ cursor: 'pointer', fontWeight: 600 }}>高级配置：多步骤配方和接口字段</summary>
         <Space direction="vertical" size="small" style={{ width: '100%', marginTop: 12 }}>
           <Alert
-            theme="warning"
-            message="一般不用改。只有这个业务版本需要多步骤编排、特殊入参或特殊发布策略时，才编辑下面内容。"
+            theme={controlLocked ? 'error' : 'warning'}
+            message={
+              controlLocked
+                ? '当前是线上默认版本。不能直接改主能力、配方或接口字段；请复制为草稿版本，验收通过后再申请切默认。'
+                : '一般不用改。只有这个业务版本需要多步骤编排、特殊入参或特殊发布策略时，才编辑下面内容。'
+            }
+          />
+          <Space breakLine>
+            <Button
+              variant="outline"
+              disabled={!form.primaryAbilityId}
+              onClick={() =>
+                onChange({
+                  ...form,
+                  id: controlLocked ? undefined : form.id,
+                  version: controlLocked && !form.version.endsWith('-draft') ? `${form.version}-draft` : form.version,
+                  displayName:
+                    controlLocked && !form.displayName.includes('草稿') ? `${form.displayName} 草稿` : form.displayName,
+                  status: 'draft',
+                  isDefault: false,
+                  recipeText: buildBusinessDraftRecipeText(form),
+                })
+              }
+            >
+              {controlLocked ? '复制为草稿配方' : '按当前选择生成草稿配方'}
+            </Button>
+          <Typography.Text theme="secondary">
+            只生成草稿，不会覆盖线上默认版本；试运行和验收通过后再切默认。
+          </Typography.Text>
+          </Space>
+          <BusinessRecipeDraftEditor
+            form={form}
+            abilityOptions={abilityOptions}
+            vlAbilityOptions={vlAbilityOptions}
+            disabled={controlLocked}
+            onChange={onChange}
           />
           <Typography.Text theme="secondary">业务配方</Typography.Text>
           <Textarea
@@ -3014,8 +3445,9 @@ export const BusinessCapabilityEditorDialog = ({
         </Space>
       </details>
     </Space>
-  </Dialog>
-);
+    </Dialog>
+  );
+};
 
 export const BusinessGovernancePanel = ({
   capabilityOptions,
@@ -3731,6 +4163,126 @@ const BusinessGraphNodeDiagnostics = ({ node }: { node: BusinessOrchestrationNod
   );
 };
 
+interface BusinessFlowNodeData extends Record<string, unknown> {
+  node: BusinessOrchestrationNode;
+  graph?: BusinessOrchestrationGraph | null;
+  theme: BusinessRunFlowStageTheme;
+  hasRuntime: boolean;
+  outputText: string;
+  isCurrent: boolean;
+}
+
+type BusinessFlowNode = Node<BusinessFlowNodeData, 'businessGraphNode'>;
+
+const BusinessFlowNodeCard = ({ data, selected }: NodeProps<BusinessFlowNode>) => {
+  const node = data.node;
+  return (
+    <section
+      className={`podi-business-flow-node podi-business-flow-node--${data.theme} ${
+        data.isCurrent ? 'podi-business-flow-node--current' : ''
+      } ${selected ? 'podi-business-flow-node--selected' : ''}`}
+    >
+      <Handle type="target" position={Position.Left} className="podi-business-flow-node__handle" />
+      <div className="podi-business-flow-node__top">
+        <Tag theme={data.theme as any} variant="light" size="small">
+          {businessGraphNodeKindLabel(node)}
+        </Tag>
+        <span>{node.order ?? '—'}</span>
+      </div>
+      <Typography.Text strong>{businessGraphNodeTitle(node)}</Typography.Text>
+      <Typography.Text theme="secondary">{businessGraphNodeDetail(node, data.graph)}</Typography.Text>
+      <Space size={6} breakLine>
+        {data.hasRuntime ? (
+          <Tag theme={data.theme as any} variant="light" size="small">
+            {businessGraphStatusLabel(node)}
+          </Tag>
+        ) : null}
+        {node.abilityProvider ? <Tag variant="light" size="small">{node.abilityProvider}</Tag> : null}
+        {node.executorName || node.executorId ? (
+          <Tag variant="light" size="small">{node.executorName || node.executorId}</Tag>
+        ) : null}
+        {node.durationMs ? <Tag variant="light" size="small">{formatDurationMs(node.durationMs)}</Tag> : null}
+        {node.hasOssOutput ? <Tag theme="success" variant="light" size="small">已落盘</Tag> : null}
+      </Space>
+      {data.outputText ? <Typography.Text theme="secondary">输出：{data.outputText}</Typography.Text> : null}
+      {node.abilityTaskId ? (
+        <Typography.Text theme="secondary">排障：{formatShortBusinessId(node.abilityTaskId)}</Typography.Text>
+      ) : null}
+      {node.error ? <Typography.Text theme="error">{node.error}</Typography.Text> : null}
+      <Handle type="source" position={Position.Right} className="podi-business-flow-node__handle" />
+    </section>
+  );
+};
+
+const businessGraphNodeTypes: NodeTypes = {
+  businessGraphNode: BusinessFlowNodeCard,
+};
+
+const BusinessGraphJsonBlock = ({ title, value }: { title: string; value?: unknown }) => {
+  if (!businessGraphHasValue(value)) return null;
+  return (
+    <div className="podi-business-flow-detail__block">
+      <Typography.Text strong>{title}</Typography.Text>
+      <pre>{formatJsonValue(value)}</pre>
+    </div>
+  );
+};
+
+const BusinessGraphSelectedNodePanel = ({
+  node,
+  graph,
+}: {
+  node?: BusinessOrchestrationNode | null;
+  graph?: BusinessOrchestrationGraph | null;
+}) => {
+  if (!node) {
+    return (
+      <aside className="podi-business-flow-detail">
+        <Typography.Text strong>节点详情</Typography.Text>
+        <Typography.Text theme="secondary">点击画布里的节点查看参数、路由和排障信息。</Typography.Text>
+      </aside>
+    );
+  }
+  const schemaSummary = businessGraphSchemaSummary(node.inputSchema);
+  const routingSummary = businessGraphRoutingSummary(node.routing);
+  return (
+    <aside className="podi-business-flow-detail">
+      <div className="podi-business-flow-detail__head">
+        <Typography.Text strong>{businessGraphNodeTitle(node)}</Typography.Text>
+        <Tag theme={businessGraphNodeStatusTheme(node, graph) as any} variant="light">
+          {businessGraphStatusLabel(node)}
+        </Tag>
+      </div>
+      <Typography.Text theme="secondary">{businessGraphNodeDetail(node, graph)}</Typography.Text>
+      <div className="podi-business-flow-detail__facts">
+        <span>类型：{businessGraphNodeKindLabel(node)}</span>
+        <span>顺序：{node.order ?? '—'}</span>
+        <span>能力：{node.abilityName || node.abilityId || '无底层能力'}</span>
+        <span>节点：{node.executorName || node.executorId || '未指定'}</span>
+        <span>耗时：{node.durationMs ? formatDurationMs(node.durationMs) : '—'}</span>
+        <span>排障：{node.abilityTaskId ? formatShortBusinessId(node.abilityTaskId) : '—'}</span>
+      </div>
+      {schemaSummary ? (
+        <div className="podi-business-flow-detail__block">
+          <Typography.Text strong>字段摘要</Typography.Text>
+          <Typography.Text theme="secondary">{schemaSummary}</Typography.Text>
+        </div>
+      ) : null}
+      {routingSummary ? (
+        <div className="podi-business-flow-detail__block">
+          <Typography.Text strong>路由摘要</Typography.Text>
+          <Typography.Text theme="secondary">{routingSummary}</Typography.Text>
+        </div>
+      ) : null}
+      <BusinessGraphJsonBlock title="本步骤输入" value={node.recipeInputs} />
+      <BusinessGraphJsonBlock title="本步骤输出" value={node.recipeOutputs} />
+      <BusinessGraphJsonBlock title="能力默认值" value={node.defaultParams} />
+      <BusinessGraphJsonBlock title="路由详情" value={node.routing} />
+      {node.error ? <Alert theme="error" message={node.error} /> : null}
+    </aside>
+  );
+};
+
 const buildBusinessFallbackGraph = (
   steps?: BusinessRecipeFlowStep[] | null,
   baseGraph?: BusinessOrchestrationGraph | null,
@@ -3816,6 +4368,7 @@ export const BusinessOrchestrationGraphView = ({
       : buildBusinessFallbackGraph(fallbackSteps, graph);
   const nodes = (effectiveGraph?.nodes || []).filter((node) => node && node.enabled !== false);
   const edges = effectiveGraph?.edges || [];
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   if (nodes.length === 0) {
     return <BusinessRecipeFlow steps={fallbackSteps} compact={compact} showRuntime={showRuntime} />;
   }
@@ -3829,6 +4382,35 @@ export const BusinessOrchestrationGraphView = ({
     recordNumber(output, 'structuredCount', 0) > 0 ? `${recordNumber(output, 'structuredCount')} 个结构化结果` : '',
     recordNumber(output, 'resourceCount', 0) > 0 ? `${recordNumber(output, 'resourceCount')} 个资源` : '',
   ].filter(Boolean).join(' · ');
+  const selectedNode = nodes.find((node) => node.id === selectedNodeId) || nodes[0] || null;
+  const nodeIdSet = new Set(nodes.map((node) => node.id));
+  const flowNodes: BusinessFlowNode[] = nodes.map((node, index) => {
+    const theme = businessGraphNodeStatusTheme(node, effectiveGraph);
+    return {
+      id: node.id,
+      type: 'businessGraphNode',
+      position: { x: index * 330, y: index % 2 === 0 ? 0 : 34 },
+      data: {
+        node,
+        graph: effectiveGraph,
+        theme,
+        hasRuntime,
+        outputText: businessGraphNodeOutputLabel(node),
+        isCurrent: summary.currentNodeId === node.id,
+      },
+    };
+  });
+  const flowEdges: Edge[] = edges
+    .filter((edge) => nodeIdSet.has(edge.source) && nodeIdSet.has(edge.target))
+    .map((edge) => ({
+      id: edge.id || `${edge.source}-${edge.target}`,
+      source: edge.source,
+      target: edge.target,
+      label: edge.label || undefined,
+      type: 'smoothstep',
+      markerEnd: { type: MarkerType.ArrowClosed },
+      animated: summary.currentNodeId === edge.target,
+    }));
 
   return (
     <div className={`podi-business-graph ${compact ? 'podi-business-graph--compact' : ''}`}>
@@ -3851,52 +4433,77 @@ export const BusinessOrchestrationGraphView = ({
           </Typography.Text>
         ) : null}
       </div>
-      <div className="podi-business-graph__track">
-        {nodes.map((node, index) => {
-          const theme = businessGraphNodeStatusTheme(node, effectiveGraph);
-          const isCurrent = summary.currentNodeId === node.id;
-          const outputText = businessGraphNodeOutputLabel(node);
-          const nextEdge = edges.find((edge) => edge.source === node.id && nodes.some((item) => item.id === edge.target));
-          return (
-            <div className="podi-business-graph__segment" key={`${node.id}-${index}`}>
-              <section className={`podi-business-graph-node podi-business-graph-node--${theme} ${isCurrent ? 'podi-business-graph-node--current' : ''}`}>
-                <div className="podi-business-graph-node__top">
-                  <Tag theme={theme as any} variant="light" size="small">
-                    {businessGraphNodeKindLabel(node)}
-                  </Tag>
-                  <span>{node.order ?? index}</span>
-                </div>
-                <Typography.Text strong>{businessGraphNodeTitle(node)}</Typography.Text>
-                <Typography.Text theme="secondary">{businessGraphNodeDetail(node, effectiveGraph)}</Typography.Text>
-                <Space size={6} breakLine>
-                  {hasRuntime ? (
+      {compact ? (
+        <div className="podi-business-graph__track">
+          {nodes.map((node, index) => {
+            const theme = businessGraphNodeStatusTheme(node, effectiveGraph);
+            const isCurrent = summary.currentNodeId === node.id;
+            const outputText = businessGraphNodeOutputLabel(node);
+            const nextEdge = edges.find((edge) => edge.source === node.id && nodes.some((item) => item.id === edge.target));
+            return (
+              <div className="podi-business-graph__segment" key={`${node.id}-${index}`}>
+                <section className={`podi-business-graph-node podi-business-graph-node--${theme} ${isCurrent ? 'podi-business-graph-node--current' : ''}`}>
+                  <div className="podi-business-graph-node__top">
                     <Tag theme={theme as any} variant="light" size="small">
-                      {businessGraphStatusLabel(node)}
+                      {businessGraphNodeKindLabel(node)}
                     </Tag>
+                    <span>{node.order ?? index}</span>
+                  </div>
+                  <Typography.Text strong>{businessGraphNodeTitle(node)}</Typography.Text>
+                  <Typography.Text theme="secondary">{businessGraphNodeDetail(node, effectiveGraph)}</Typography.Text>
+                  <Space size={6} breakLine>
+                    {hasRuntime ? (
+                      <Tag theme={theme as any} variant="light" size="small">
+                        {businessGraphStatusLabel(node)}
+                      </Tag>
+                    ) : null}
+                    {node.abilityProvider ? <Tag variant="light" size="small">{node.abilityProvider}</Tag> : null}
+                    {node.executorName || node.executorId ? (
+                      <Tag variant="light" size="small">{node.executorName || node.executorId}</Tag>
+                    ) : null}
+                    {node.durationMs ? <Tag variant="light" size="small">{formatDurationMs(node.durationMs)}</Tag> : null}
+                    {node.hasOssOutput ? <Tag theme="success" variant="light" size="small">已落盘</Tag> : null}
+                  </Space>
+                  <BusinessGraphNodeDiagnostics node={node} />
+                  {outputText ? <Typography.Text theme="secondary">输出：{outputText}</Typography.Text> : null}
+                  {node.abilityTaskId ? (
+                    <Typography.Text theme="secondary">排障：{formatShortBusinessId(node.abilityTaskId)}</Typography.Text>
                   ) : null}
-                  {node.abilityProvider ? <Tag variant="light" size="small">{node.abilityProvider}</Tag> : null}
-                  {node.executorName || node.executorId ? (
-                    <Tag variant="light" size="small">{node.executorName || node.executorId}</Tag>
-                  ) : null}
-                  {node.durationMs ? <Tag variant="light" size="small">{formatDurationMs(node.durationMs)}</Tag> : null}
-                  {node.hasOssOutput ? <Tag theme="success" variant="light" size="small">已落盘</Tag> : null}
-                </Space>
-                <BusinessGraphNodeDiagnostics node={node} />
-                {outputText ? <Typography.Text theme="secondary">输出：{outputText}</Typography.Text> : null}
-                {node.abilityTaskId ? (
-                  <Typography.Text theme="secondary">排障：{formatShortBusinessId(node.abilityTaskId)}</Typography.Text>
+                  {node.error ? <Typography.Text theme="error">{node.error}</Typography.Text> : null}
+                </section>
+                {index < nodes.length - 1 ? (
+                  <div className="podi-business-graph__edge" title={nextEdge?.label || ''}>
+                    →
+                  </div>
                 ) : null}
-                {node.error ? <Typography.Text theme="error">{node.error}</Typography.Text> : null}
-              </section>
-              {index < nodes.length - 1 ? (
-                <div className="podi-business-graph__edge" title={nextEdge?.label || ''}>
-                  →
-                </div>
-              ) : null}
-            </div>
-          );
-        })}
-      </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="podi-business-flow-shell">
+          <div className="podi-business-flow-canvas">
+            <ReactFlow
+              nodes={flowNodes}
+              edges={flowEdges}
+              nodeTypes={businessGraphNodeTypes}
+              fitView
+              fitViewOptions={{ padding: 0.18 }}
+              minZoom={0.45}
+              maxZoom={1.35}
+              nodesDraggable={false}
+              nodesConnectable={false}
+              elementsSelectable
+              onNodeClick={(_, node) => setSelectedNodeId(node.id)}
+            >
+              <Background gap={18} size={1} />
+              <Controls showInteractive={false} />
+              <MiniMap pannable zoomable nodeStrokeWidth={3} />
+            </ReactFlow>
+          </div>
+          <BusinessGraphSelectedNodePanel node={selectedNode} graph={effectiveGraph} />
+        </div>
+      )}
     </div>
   );
 };
@@ -3933,6 +4540,9 @@ const businessApiEntryPath = (businessKey?: string | null) => {
   if (key === 'outpaint') return '/api/business/outpaint/runs';
   return '/api/business/{business}/runs';
 };
+
+const businessDraftRunRequiresGeneratedImage = (businessKey?: string | null) =>
+  canonicalBusinessKey(businessKey) === 'fission_evaluate';
 
 const businessEntryUsageHint = (businessKey?: string | null) => {
   const key = canonicalBusinessKey(businessKey);
@@ -3984,6 +4594,9 @@ const businessCapabilityMediaLabel = (item: BusinessCapability) => {
 };
 
 const businessCapabilityRiskTag = (item: BusinessCapability) => {
+  if (item.status === 'draft') {
+    return { theme: 'primary', text: '草稿中', detail: '只用于编排和试运行，不会承接线上业务请求。' };
+  }
   if (item.status !== 'active') {
     return { theme: 'default', text: '未对外启用', detail: '不会承接新的业务请求。' };
   }
@@ -4763,6 +5376,7 @@ export const BusinessCapabilityGrid = ({
   onSetDefault,
   onToggleActive,
   onRecordAcceptance,
+  onDraftRun,
   formatDateTime,
 }: {
   capabilities: BusinessCapability[];
@@ -4773,8 +5387,17 @@ export const BusinessCapabilityGrid = ({
   onSetDefault: (item: BusinessCapability) => void;
   onToggleActive: (item: BusinessCapability) => void;
   onRecordAcceptance: (item: BusinessCapability) => void;
+  onDraftRun: (item: BusinessCapability, payload?: Record<string, unknown>) => void | Promise<void>;
   formatDateTime: (value?: string | null) => string;
 }) => {
+  const [draftRunTarget, setDraftRunTarget] = useState<BusinessCapability | null>(null);
+  const [draftRunForm, setDraftRunForm] = useState({
+    imageUrl: '',
+    generatedImageUrl: '',
+    prompt: '',
+    extraParamsText: '',
+  });
+  const [draftRunError, setDraftRunError] = useState<string | null>(null);
   const grouped = capabilities.reduce<Record<string, BusinessCapability[]>>((map, item) => {
     const key = canonicalBusinessKey(item.businessKey);
     map[key] = map[key] || [];
@@ -4794,55 +5417,111 @@ export const BusinessCapabilityGrid = ({
     );
   }
 
-  return (
-    <Space direction="vertical" size="large" style={{ width: '100%' }}>
-      {groupKeys.map((businessKey) => {
-        const items = grouped[businessKey].slice().sort((left, right) => {
-          if (left.isDefault !== right.isDefault) return left.isDefault ? -1 : 1;
-          if (left.status !== right.status) return left.status === 'active' ? -1 : 1;
-          return String(right.releaseTime || right.createdAt || '').localeCompare(String(left.releaseTime || left.createdAt || ''));
-        });
-        const defaultItem = items.find((item) => item.isDefault);
-        const activeCount = items.filter((item) => item.status === 'active').length;
-        return (
-          <Card
-            key={businessKey}
-            bordered
-            title={
-              <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
-                <div>
-                  <Typography.Text strong>{businessKeyLabel(businessKey)}</Typography.Text>
-                  <div>
-                    <Typography.Text theme="secondary">{businessCapabilityGroupHint(businessKey)}</Typography.Text>
-                  </div>
-                </div>
-                <Space breakLine>
-                  <Tag theme={defaultItem ? 'success' : 'danger'} variant="light">
-                    默认：{defaultItem ? `${defaultItem.version} · ${defaultItem.displayName}` : '未设置'}
-                  </Tag>
-                  <Tag variant="light">启用 {activeCount}/{items.length}</Tag>
-                </Space>
-              </Space>
-            }
-          >
-            <Row gutter={[16, 16]}>
-              {items.map((item) => {
-                const rollout = readCapabilityRollout(item.metadata);
-                const risk = businessCapabilityRiskTag(item);
-                const defaultActionId = `default:${item.id}`;
-                const statusActionId = `status:${item.id}`;
-                const acceptanceActionId = `acceptance:${item.id}`;
-                const isActive = item.status === 'active';
-                const lockDefaultStop = isActive && item.isDefault;
-                const actionBusy = Boolean(actionLoadingId);
-                const defaultSwitchBlocked = item.releaseGate?.canRequestDefault === false;
-                const pendingApproval = pendingApprovals.find(
-                  (approval) => approval.targetCapabilityId === item.id && approval.status === 'pending',
-                );
+  const openDraftRunDialog = (item: BusinessCapability) => {
+    setDraftRunTarget(item);
+    setDraftRunError(null);
+    setDraftRunForm({
+      imageUrl: '',
+      generatedImageUrl: '',
+      prompt: '',
+      extraParamsText: '',
+    });
+  };
+  const submitDraftRunDialog = async () => {
+    if (!draftRunTarget) return;
+    const imageUrl = draftRunForm.imageUrl.trim();
+    const generatedImageUrl = draftRunForm.generatedImageUrl.trim();
+    const requiresGenerated = businessDraftRunRequiresGeneratedImage(draftRunTarget.businessKey);
+    if (!imageUrl) {
+      setDraftRunError('请填写原图 URL。');
+      return;
+    }
+    if (requiresGenerated && !generatedImageUrl) {
+      setDraftRunError('裂变评分需要填写生成图 URL。');
+      return;
+    }
+    let extraParams: Record<string, unknown> = {};
+    if (draftRunForm.extraParamsText.trim()) {
+      try {
+        const parsed = JSON.parse(draftRunForm.extraParamsText);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          setDraftRunError('附加参数必须是 JSON 对象。');
+          return;
+        }
+        extraParams = parsed as Record<string, unknown>;
+      } catch {
+        setDraftRunError('附加参数 JSON 格式不正确。');
+        return;
+      }
+    }
+    const payload: Record<string, unknown> = {
+      ...extraParams,
+      imageUrl,
+    };
+    if (draftRunForm.prompt.trim()) {
+      payload.prompt = draftRunForm.prompt.trim();
+    }
+    if (requiresGenerated) {
+      payload.originalImageUrl = imageUrl;
+      payload.generatedImageUrl = generatedImageUrl;
+    }
+    await onDraftRun(draftRunTarget, payload);
+    setDraftRunTarget(null);
+  };
+  const draftRunBusy = Boolean(draftRunTarget && actionLoadingId === `draft-run:${draftRunTarget.id}`);
+  const draftRunRequiresGenerated = businessDraftRunRequiresGeneratedImage(draftRunTarget?.businessKey);
 
-                return (
-                  <Col key={item.id} xs={12} md={6} xl={4}>
-                    <Card bordered size="small" style={{ height: '100%' }}>
+  return (
+    <>
+      <Space direction="vertical" size="large" style={{ width: '100%' }}>
+        {groupKeys.map((businessKey) => {
+          const items = grouped[businessKey].slice().sort((left, right) => {
+            if (left.isDefault !== right.isDefault) return left.isDefault ? -1 : 1;
+            if (left.status !== right.status) return left.status === 'active' ? -1 : 1;
+            return String(right.releaseTime || right.createdAt || '').localeCompare(String(left.releaseTime || left.createdAt || ''));
+          });
+          const defaultItem = items.find((item) => item.isDefault);
+          const activeCount = items.filter((item) => item.status === 'active').length;
+          return (
+            <Card
+              key={businessKey}
+              bordered
+              title={
+                <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+                  <div>
+                    <Typography.Text strong>{businessKeyLabel(businessKey)}</Typography.Text>
+                    <div>
+                      <Typography.Text theme="secondary">{businessCapabilityGroupHint(businessKey)}</Typography.Text>
+                    </div>
+                  </div>
+                  <Space breakLine>
+                    <Tag theme={defaultItem ? 'success' : 'danger'} variant="light">
+                      默认：{defaultItem ? `${defaultItem.version} · ${defaultItem.displayName}` : '未设置'}
+                    </Tag>
+                    <Tag variant="light">启用 {activeCount}/{items.length}</Tag>
+                  </Space>
+                </Space>
+              }
+            >
+              <Row gutter={[16, 16]}>
+                {items.map((item) => {
+                  const rollout = readCapabilityRollout(item.metadata);
+                  const risk = businessCapabilityRiskTag(item);
+                  const defaultActionId = `default:${item.id}`;
+                  const statusActionId = `status:${item.id}`;
+                  const acceptanceActionId = `acceptance:${item.id}`;
+                  const draftRunActionId = `draft-run:${item.id}`;
+                  const isActive = item.status === 'active';
+                  const lockDefaultStop = isActive && item.isDefault;
+                  const actionBusy = Boolean(actionLoadingId);
+                  const defaultSwitchBlocked = item.releaseGate?.canRequestDefault === false;
+                  const pendingApproval = pendingApprovals.find(
+                    (approval) => approval.targetCapabilityId === item.id && approval.status === 'pending',
+                  );
+
+                  return (
+                    <Col key={item.id} xs={12} md={6} xl={4}>
+                      <Card bordered size="small" style={{ height: '100%' }}>
                       <Space direction="vertical" size="small" style={{ width: '100%' }}>
                         <Space align="start" style={{ justifyContent: 'space-between', width: '100%', gap: 10 }}>
                           <div style={{ minWidth: 0 }}>
@@ -4915,6 +5594,20 @@ export const BusinessCapabilityGrid = ({
                             </Button>
                             <Button
                               size="small"
+                              theme={item.status === 'draft' ? 'primary' : 'default'}
+                              variant="outline"
+                              loading={actionLoadingId === draftRunActionId}
+                              disabled={
+                                item.status === 'deprecated' ||
+                                item.status === 'disabled' ||
+                                (actionBusy && actionLoadingId !== draftRunActionId)
+                              }
+                              onClick={() => openDraftRunDialog(item)}
+                            >
+                              {item.status === 'draft' ? '试运行草稿' : '跑一次验证'}
+                            </Button>
+                            <Button
+                              size="small"
                               theme="success"
                               variant="outline"
                               loading={actionLoadingId === acceptanceActionId}
@@ -4952,14 +5645,75 @@ export const BusinessCapabilityGrid = ({
                           </Space>
                         )}
                       </Space>
-                    </Card>
-                  </Col>
-                );
-              })}
-            </Row>
-          </Card>
-        );
-      })}
-    </Space>
+                      </Card>
+                    </Col>
+                  );
+                })}
+              </Row>
+            </Card>
+          );
+        })}
+      </Space>
+      <Dialog
+        visible={Boolean(draftRunTarget)}
+        header={draftRunTarget ? `试运行：${draftRunTarget.displayName}` : '试运行业务版本'}
+        width={680}
+        onClose={() => setDraftRunTarget(null)}
+        onConfirm={() => {
+          void submitDraftRunDialog();
+        }}
+        confirmBtn={draftRunBusy ? '提交中...' : '提交试运行'}
+        cancelBtn="取消"
+      >
+        <Space direction="vertical" size="small" style={{ width: '100%' }}>
+          {draftRunError ? <Alert theme="error" message={draftRunError} /> : null}
+          <Alert
+            theme="info"
+            message="试运行会生成真实 runId 和处理步骤，但来源标记为管理端草稿验证；业务方不会命中草稿版本。"
+          />
+          <Row gutter={[12, 12]}>
+            <Col span={12}>
+              <Typography.Text theme="secondary">原图 URL</Typography.Text>
+              <Input
+                value={draftRunForm.imageUrl}
+                placeholder="填写一张可公网访问的样图 URL"
+                onChange={(value) => setDraftRunForm((prev) => ({ ...prev, imageUrl: String(value) }))}
+              />
+            </Col>
+            {draftRunRequiresGenerated ? (
+              <Col span={12}>
+                <Typography.Text theme="secondary">生成图 URL</Typography.Text>
+                <Input
+                  value={draftRunForm.generatedImageUrl}
+                  placeholder="评分接口需要同时提供生成图"
+                  onChange={(value) => setDraftRunForm((prev) => ({ ...prev, generatedImageUrl: String(value) }))}
+                />
+              </Col>
+            ) : null}
+            <Col span={12}>
+              <Typography.Text theme="secondary">提示词 / 额外要求</Typography.Text>
+              <Textarea
+                autosize={{ minRows: 2, maxRows: 4 }}
+                value={draftRunForm.prompt}
+                placeholder="可选；不填则使用业务版本默认逻辑"
+                onChange={(value) => setDraftRunForm((prev) => ({ ...prev, prompt: String(value) }))}
+              />
+            </Col>
+            <Col span={12}>
+              <Typography.Text theme="secondary">附加参数 JSON</Typography.Text>
+              <Textarea
+                autosize={{ minRows: 2, maxRows: 4 }}
+                value={draftRunForm.extraParamsText}
+                placeholder='可选，例如 {"bili":"80%","profile":"pattern_risk_routed_v4"}'
+                onChange={(value) => setDraftRunForm((prev) => ({ ...prev, extraParamsText: String(value) }))}
+              />
+            </Col>
+          </Row>
+          <Typography.Text theme="secondary">
+            当前版本：{draftRunTarget ? `${businessKeyLabel(draftRunTarget.businessKey)} · ${draftRunTarget.version}` : '—'}
+          </Typography.Text>
+        </Space>
+      </Dialog>
+    </>
   );
 };

@@ -278,15 +278,29 @@ class BusinessRunService:
             )
             if duplicate:
                 raise HTTPException(status_code=409, detail="BUSINESS_CAPABILITY_VERSION_DUPLICATED")
+            recipe_touched = payload.recipe is not None or payload.primaryAbilityId is not None
             if payload.recipe is not None or payload.primaryAbilityId is not None:
-                row.recipe = self._build_recipe(
+                next_recipe = self._build_recipe(
                     base_recipe=payload.recipe if payload.recipe is not None else row.recipe,
                     primary_ability_id=payload.primaryAbilityId,
                 )
-                self._validate_recipe(session=session, recipe=row.recipe)
+                self._validate_recipe(session=session, recipe=next_recipe)
+                if was_default and next_recipe != (row.recipe or {}):
+                    raise HTTPException(status_code=409, detail="BUSINESS_DEFAULT_VERSION_CONTROL_FIELDS_IMMUTABLE")
+                row.recipe = next_recipe
             next_status = self._normalize_status(payload.status) if payload.status is not None else row.status
             next_is_default = bool(payload.isDefault) if payload.isDefault is not None else row.is_default
             self._validate_default_status(is_default=next_is_default, status=next_status)
+            if was_default and not next_is_default:
+                raise HTTPException(status_code=409, detail="BUSINESS_DEFAULT_VERSION_CONTROL_FIELDS_IMMUTABLE")
+            input_schema_touched = "inputSchema" in payload.model_fields_set or "input_schema" in payload.model_fields_set
+            output_schema_touched = "outputSchema" in payload.model_fields_set or "output_schema" in payload.model_fields_set
+            if was_default:
+                business_identity_changed = next_business_key != row.business_key or next_version != row.version
+                input_schema_changed = input_schema_touched and payload.inputSchema != row.input_schema
+                output_schema_changed = output_schema_touched and payload.outputSchema != row.output_schema
+                if business_identity_changed or input_schema_changed or output_schema_changed:
+                    raise HTTPException(status_code=409, detail="BUSINESS_DEFAULT_VERSION_CONTROL_FIELDS_IMMUTABLE")
             row.business_key = next_business_key
             row.version = next_version
             if payload.displayName is not None:
@@ -310,8 +324,7 @@ class BusinessRunService:
                     not was_default
                     or payload.isDefault is not None
                     or payload.status is not None
-                    or payload.recipe is not None
-                    or payload.primaryAbilityId is not None
+                    or recipe_touched
                 )
                 if default_gate_required:
                     self._ensure_default_release_ready(row, session)
@@ -1322,40 +1335,103 @@ class BusinessRunService:
         user: User | None,
         source: str = "business-api",
     ) -> BusinessRun:
+        return self._create_run_internal(
+            business_key=business_key,
+            capability_id=None,
+            payload=payload,
+            user=user,
+            source=source,
+            allow_non_active_capability=False,
+            selected_by="default",
+        )
+
+    def create_run_for_capability(
+        self,
+        *,
+        capability_id: str,
+        payload: BusinessRunCreateRequest,
+        user: User | None,
+        source: str = "admin-draft-run",
+    ) -> BusinessRun:
+        return self._create_run_internal(
+            business_key=None,
+            capability_id=capability_id,
+            payload=payload,
+            user=user,
+            source=source,
+            allow_non_active_capability=True,
+            selected_by="admin_draft",
+        )
+
+    def _create_run_internal(
+        self,
+        *,
+        business_key: str | None,
+        capability_id: str | None,
+        payload: BusinessRunCreateRequest,
+        user: User | None,
+        source: str,
+        allow_non_active_capability: bool,
+        selected_by: str,
+    ) -> BusinessRun:
         payload_inputs = payload.inputs or {}
-        if business_key == "fission_evaluate":
-            image_url = self._first_string(
-                payload.originalImageUrl,
-                payload.imageUrl,
-                payload.url,
-                payload_inputs.get("original_image"),
-                payload_inputs.get("originalImageUrl"),
-                payload_inputs.get("imageUrl"),
-                payload_inputs.get("url"),
-            )
-            generated_image_url = self._first_string(
-                payload.generatedImageUrl,
-                payload_inputs.get("generated_image"),
-                payload_inputs.get("generatedImageUrl"),
-            )
-            if not image_url or not generated_image_url:
-                raise HTTPException(status_code=400, detail="VL_EVAL_IMAGE_REQUIRED")
-        else:
-            image_url = self._first_string(payload.imageUrl, payload.url, payload_inputs.get("imageUrl"), payload_inputs.get("url"))
-        if not image_url:
-            raise HTTPException(status_code=400, detail="BUSINESS_IMAGE_URL_REQUIRED")
 
         with get_session() as session:
             ensure_default_abilities(session)
             ensure_default_business_capabilities(session)
-            capability, route_info = self._select_capability(
-                session,
-                business_key=business_key,
-                version=payload.version,
-                payload=payload,
-                user=user,
-                image_url=image_url,
-            )
+            capability: BusinessCapability | None = None
+            if capability_id:
+                capability = session.get(BusinessCapability, capability_id)
+                if not capability:
+                    raise HTTPException(status_code=404, detail="BUSINESS_CAPABILITY_NOT_FOUND")
+                if business_key and capability.business_key != business_key:
+                    raise HTTPException(status_code=404, detail="BUSINESS_CAPABILITY_NOT_FOUND")
+                if allow_non_active_capability:
+                    if capability.status in {"disabled", "deprecated"}:
+                        raise HTTPException(status_code=409, detail="BUSINESS_CAPABILITY_NOT_RUNNABLE")
+                elif capability.status != "active":
+                    raise HTTPException(status_code=404, detail="BUSINESS_CAPABILITY_NOT_FOUND")
+                business_key = capability.business_key
+            business_key = self._required_text(business_key, "BUSINESS_KEY_REQUIRED")
+
+            if business_key == "fission_evaluate":
+                image_url = self._first_string(
+                    payload.originalImageUrl,
+                    payload.imageUrl,
+                    payload.url,
+                    payload_inputs.get("original_image"),
+                    payload_inputs.get("originalImageUrl"),
+                    payload_inputs.get("imageUrl"),
+                    payload_inputs.get("url"),
+                )
+                generated_image_url = self._first_string(
+                    payload.generatedImageUrl,
+                    payload_inputs.get("generated_image"),
+                    payload_inputs.get("generatedImageUrl"),
+                )
+                if not image_url or not generated_image_url:
+                    raise HTTPException(status_code=400, detail="VL_EVAL_IMAGE_REQUIRED")
+            else:
+                image_url = self._first_string(
+                    payload.imageUrl,
+                    payload.url,
+                    payload_inputs.get("imageUrl"),
+                    payload_inputs.get("url"),
+                )
+            if not image_url:
+                raise HTTPException(status_code=400, detail="BUSINESS_IMAGE_URL_REQUIRED")
+
+            if capability is not None:
+                route_info = self._route_info(capability, selected_by=selected_by)
+            else:
+                capability, route_info = self._select_capability(
+                    session,
+                    business_key=business_key,
+                    version=payload.version,
+                    payload=payload,
+                    user=user,
+                    image_url=image_url,
+                )
             recipe = capability.recipe if isinstance(capability.recipe, dict) else {}
             ability_id = self._extract_primary_ability_id(recipe)
             ability = session.get(Ability, ability_id)

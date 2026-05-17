@@ -100,7 +100,7 @@ export const defaultBusinessCapabilityForm: BusinessCapabilityFormState = {
   version: 'v1',
   displayName: '',
   description: '',
-  status: 'inactive',
+  status: 'draft',
   isDefault: false,
   releaseTime: '',
   primaryAbilityId: '',

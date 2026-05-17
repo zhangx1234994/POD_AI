@@ -5011,6 +5011,7 @@ export function IntegrationDashboard({
     handleBusinessDefaultApprovalDecision,
     handleBusinessToggleActive,
     handleBusinessRecordAcceptance,
+    handleBusinessDraftRun,
     handleBusinessCompare,
     handleBusinessRollback,
     refreshBusinessRuns,
@@ -6561,6 +6562,7 @@ const extractErrorMessage = (error: unknown): string => {
                   onSetDefault={handleBusinessSetDefault}
                   onToggleActive={handleBusinessToggleActive}
                   onRecordAcceptance={handleBusinessRecordAcceptance}
+                  onDraftRun={handleBusinessDraftRun}
                   formatDateTime={formatDateTime}
                 />
                 <BusinessUsageSummaryPanel
