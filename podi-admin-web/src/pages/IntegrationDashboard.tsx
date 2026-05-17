@@ -6447,7 +6447,7 @@ const extractErrorMessage = (error: unknown): string => {
                 ) : null}
                 {businessActionError ? <Alert theme="error" message={businessActionError} /> : null}
                 <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                  <Typography.Text theme="secondary">先看业务入口总控和接口任务清单；底层能力只作为排障下钻。</Typography.Text>
+                  <Typography.Text theme="secondary">先看业务链路图，再查接口任务清单；底层能力只作为排障下钻。</Typography.Text>
                   {!isBusinessReadOnly ? (
                     <Button
                       theme="primary"
@@ -6460,6 +6460,12 @@ const extractErrorMessage = (error: unknown): string => {
                     </Button>
                   ) : null}
                 </Space>
+                <BusinessOrchestrationMapPanel
+                  capabilities={businessCapabilities}
+                  pendingApprovals={businessDefaultApprovals}
+                  summary={businessUsageSummary}
+                  formatDateTime={formatDateTime}
+                />
                 <BusinessEntryCommandPanel
                   capabilities={businessCapabilities}
                   pendingApprovals={businessDefaultApprovals}
@@ -6495,12 +6501,6 @@ const extractErrorMessage = (error: unknown): string => {
                   onOpenDetail={handleOpenBusinessRunDetail}
                   onCloseDetail={handleCloseBusinessRunDetail}
                   onCallbackRetry={handleBusinessCallbackRetry}
-                  formatDateTime={formatDateTime}
-                />
-                <BusinessOrchestrationMapPanel
-                  capabilities={businessCapabilities}
-                  pendingApprovals={businessDefaultApprovals}
-                  summary={businessUsageSummary}
                   formatDateTime={formatDateTime}
                 />
                 <BusinessCoreEntryPanel

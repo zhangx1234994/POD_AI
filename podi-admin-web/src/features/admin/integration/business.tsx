@@ -6,6 +6,7 @@ import type {
   BusinessCapabilityFormState,
   BusinessDefaultApproval,
   BusinessOperationLog,
+  BusinessOrchestrationEdge,
   BusinessOrchestrationGraph,
   BusinessOrchestrationNode,
   BusinessRecipeStep,
@@ -2035,164 +2036,162 @@ export const BusinessRunHistoryPanel = ({
         onGenerateIssueChecklist={onGenerateIssueChecklist}
       />
 
-      <Space align="center" size="small" style={{ marginBottom: 12, width: '100%', flexWrap: 'wrap' }}>
-        <Select
-          style={{ width: 130 }}
-          value={filters.windowHours}
-          options={businessUsageWindowOptions}
-          onChange={(value) =>
-            onFiltersChange((prev) => ({
-              ...prev,
-              windowHours: Number(value || 24),
-            }))
-          }
-        />
-        <Select
-          style={{ width: 160 }}
-          value={filters.businessKey}
-          options={businessOptions}
-          onChange={(value) =>
-            onFiltersChange((prev) => ({
-              ...prev,
-              businessKey: String(value),
-              version: 'all',
-            }))
-          }
-        />
-        <Select
-          style={{ width: 140 }}
-          value={filters.version}
-          options={versionOptions}
-          onChange={(value) =>
-            onFiltersChange((prev) => ({
-              ...prev,
-              version: String(value),
-            }))
-          }
-        />
-        <Select
-          style={{ width: 140 }}
-          value={filters.status}
-          options={businessRunStatusOptions}
-          onChange={(value) =>
-            onFiltersChange((prev) => ({
-              ...prev,
-              status: String(value),
-            }))
-          }
-        />
-        <Select
-          style={{ width: 130 }}
-          value={filters.billingStatus}
-          options={businessRunBillingStatusOptions}
-          onChange={(value) =>
-            onFiltersChange((prev) => ({
-              ...prev,
-              billingStatus: String(value),
-            }))
-          }
-        />
-        <Select
-          style={{ width: 130 }}
-          value={filters.callbackStatus}
-          options={businessRunCallbackStatusOptions}
-          onChange={(value) =>
-            onFiltersChange((prev) => ({
-              ...prev,
-              callbackStatus: String(value),
-            }))
-          }
-        />
-        <Select
-          style={{ width: 150 }}
-          value={filters.issueCategory}
-          options={businessRunIssueCategoryOptions}
-          onChange={(value) =>
-            onFiltersChange((prev) => ({
-              ...prev,
-              issueCategory: String(value),
-            }))
-          }
-        />
-        <Input
-          style={{ width: 130 }}
-          value={filters.source}
-          placeholder="来源，如 coze"
-          clearable
-          onChange={(value) =>
-            onFiltersChange((prev) => ({
-              ...prev,
-              source: String(value || ''),
-            }))
-          }
-        />
-        <Input
-          style={{ width: 160 }}
-          value={isReadOnly ? tenantId || '' : filters.tenantId}
-          placeholder="租户/业务方"
-          clearable
-          disabled={isReadOnly}
-          onChange={(value) =>
-            onFiltersChange((prev) => ({
-              ...prev,
-              tenantId: String(value || ''),
-            }))
-          }
-        />
-        <Input
-          style={{ width: 160 }}
-          value={isReadOnly ? clientId || '' : filters.clientId}
-          placeholder="客户端/应用"
-          clearable
-          disabled={isReadOnly}
-          onChange={(value) =>
-            onFiltersChange((prev) => ({
-              ...prev,
-              clientId: String(value || ''),
-            }))
-          }
-        />
-        <Input
-          style={{ width: 180 }}
-          value={filters.traceId}
-          placeholder="排障编号"
-          clearable
-          onChange={(value) =>
-            onFiltersChange((prev) => ({
-              ...prev,
-              traceId: String(value || ''),
-            }))
-          }
-        />
-        <Select
-          style={{ width: 120 }}
-          value={filters.limit}
-          options={[
-            { label: '最近 20 条', value: 20 },
-            { label: '最近 50 条', value: 50 },
-            { label: '最近 100 条', value: 100 },
-            { label: '最近 200 条', value: 200 },
-          ]}
-          onChange={(value) =>
-            onFiltersChange((prev) => ({
-              ...prev,
-              limit: Number(value || 20),
-            }))
-          }
-        />
-        <Button theme="primary" variant="outline" onClick={onRefresh}>
-          应用筛选
-        </Button>
-        <Button variant="outline" loading={actionLoadingId === 'export:runs'} onClick={onExport}>
-          导出调用记录
-        </Button>
-      </Space>
-      <Table
-        size="small"
-        rowKey="id"
-        data={runs}
-        empty={<Typography.Text theme="secondary">暂无业务调用记录。</Typography.Text>}
-        columns={[
+      <div className="podi-business-run-filters">
+        <div className="podi-business-run-filters__primary">
+          <Select
+            value={filters.windowHours}
+            options={businessUsageWindowOptions}
+            onChange={(value) =>
+              onFiltersChange((prev) => ({
+                ...prev,
+                windowHours: Number(value || 24),
+              }))
+            }
+          />
+          <Select
+            value={filters.businessKey}
+            options={businessOptions}
+            onChange={(value) =>
+              onFiltersChange((prev) => ({
+                ...prev,
+                businessKey: String(value),
+                version: 'all',
+              }))
+            }
+          />
+          <Select
+            value={filters.version}
+            options={versionOptions}
+            onChange={(value) =>
+              onFiltersChange((prev) => ({
+                ...prev,
+                version: String(value),
+              }))
+            }
+          />
+          <Select
+            value={filters.status}
+            options={businessRunStatusOptions}
+            onChange={(value) =>
+              onFiltersChange((prev) => ({
+                ...prev,
+                status: String(value),
+              }))
+            }
+          />
+          <Select
+            value={filters.issueCategory}
+            options={businessRunIssueCategoryOptions}
+            onChange={(value) =>
+              onFiltersChange((prev) => ({
+                ...prev,
+                issueCategory: String(value),
+              }))
+            }
+          />
+          <Select
+            value={filters.limit}
+            options={[
+              { label: '最近 20 条', value: 20 },
+              { label: '最近 50 条', value: 50 },
+              { label: '最近 100 条', value: 100 },
+              { label: '最近 200 条', value: 200 },
+            ]}
+            onChange={(value) =>
+              onFiltersChange((prev) => ({
+                ...prev,
+                limit: Number(value || 20),
+              }))
+            }
+          />
+          <div className="podi-business-run-filters__actions">
+            <Button theme="primary" variant="outline" onClick={onRefresh}>
+              应用筛选
+            </Button>
+            <Button variant="outline" loading={actionLoadingId === 'export:runs'} onClick={onExport}>
+              导出调用记录
+            </Button>
+          </div>
+        </div>
+        <details className="podi-business-run-filters__advanced">
+          <summary>更多筛选：来源、业务方、计费、回调、排障编号</summary>
+          <div className="podi-business-run-filters__secondary">
+            <Select
+              value={filters.billingStatus}
+              options={businessRunBillingStatusOptions}
+              onChange={(value) =>
+                onFiltersChange((prev) => ({
+                  ...prev,
+                  billingStatus: String(value),
+                }))
+              }
+            />
+            <Select
+              value={filters.callbackStatus}
+              options={businessRunCallbackStatusOptions}
+              onChange={(value) =>
+                onFiltersChange((prev) => ({
+                  ...prev,
+                  callbackStatus: String(value),
+                }))
+              }
+            />
+            <Input
+              value={filters.source}
+              placeholder="来源，如 coze"
+              clearable
+              onChange={(value) =>
+                onFiltersChange((prev) => ({
+                  ...prev,
+                  source: String(value || ''),
+                }))
+              }
+            />
+            <Input
+              value={isReadOnly ? tenantId || '' : filters.tenantId}
+              placeholder="租户/业务方"
+              clearable
+              disabled={isReadOnly}
+              onChange={(value) =>
+                onFiltersChange((prev) => ({
+                  ...prev,
+                  tenantId: String(value || ''),
+                }))
+              }
+            />
+            <Input
+              value={isReadOnly ? clientId || '' : filters.clientId}
+              placeholder="客户端/应用"
+              clearable
+              disabled={isReadOnly}
+              onChange={(value) =>
+                onFiltersChange((prev) => ({
+                  ...prev,
+                  clientId: String(value || ''),
+                }))
+              }
+            />
+            <Input
+              value={filters.traceId}
+              placeholder="排障编号"
+              clearable
+              onChange={(value) =>
+                onFiltersChange((prev) => ({
+                  ...prev,
+                  traceId: String(value || ''),
+                }))
+              }
+            />
+          </div>
+        </details>
+      </div>
+      <div className="podi-business-run-table-wrap">
+        <Table
+          size="small"
+          rowKey="id"
+          data={runs}
+          empty={<Typography.Text theme="secondary">暂无业务调用记录。</Typography.Text>}
+          columns={[
           {
             colKey: 'createdAt',
             title: '时间',
@@ -2410,8 +2409,9 @@ export const BusinessRunHistoryPanel = ({
               </Space>
             ),
           },
-        ]}
-      />
+          ]}
+        />
+      </div>
     </Card>
     <Dialog
       header="业务任务详情"
@@ -3731,6 +3731,74 @@ const BusinessGraphNodeDiagnostics = ({ node }: { node: BusinessOrchestrationNod
   );
 };
 
+const buildBusinessFallbackGraph = (
+  steps?: BusinessRecipeFlowStep[] | null,
+  baseGraph?: BusinessOrchestrationGraph | null,
+): BusinessOrchestrationGraph | null => {
+  const visibleSteps = (steps || []).filter((step) => step && step.enabled !== false);
+  if (visibleSteps.length === 0) return null;
+
+  const entryNode: BusinessOrchestrationNode = {
+    id: 'entry',
+    type: 'entry',
+    label: '业务入口',
+    order: 0,
+    businessKey: baseGraph?.businessKey,
+    version: baseGraph?.businessVersion,
+    status: baseGraph?.mode === 'run' ? 'succeeded' : 'planned',
+  };
+  const stepNodes: BusinessOrchestrationNode[] = visibleSteps.map((step, index) => {
+    const nodeId = String(step.id || step.stepId || step.abilityId || `step-${index + 1}`);
+    const params =
+      step.params && typeof step.params === 'object' && !Array.isArray(step.params)
+        ? (step.params as JsonRecord)
+        : undefined;
+    return {
+      id: nodeId,
+      type: step.type || step.stepType || 'ability_task',
+      role: step.role,
+      label: step.componentLabel || step.displayName || step.abilityName || businessRecipeStepLabel(step.type || step.stepType, step.role),
+      order: step.order || index + 1,
+      status: step.status || (baseGraph?.mode === 'run' ? 'planned' : 'planned'),
+      abilityId: step.abilityId,
+      abilityName: step.abilityName || step.displayName,
+      abilityProvider: step.abilityProvider,
+      abilityTaskId: step.abilityTaskId,
+      defaultParams: params,
+      recipeInputs: step.inputs && step.inputs.length > 0 ? { fields: step.inputs } : undefined,
+      recipeOutputs: step.outputs && step.outputs.length > 0 ? { fields: step.outputs } : undefined,
+      durationMs: step.durationMs,
+      error: step.error,
+    };
+  });
+  const resultNode: BusinessOrchestrationNode = {
+    id: 'result',
+    type: 'result',
+    label: '结果回填',
+    order: visibleSteps.length + 1,
+    status: baseGraph?.mode === 'run' ? baseGraph?.summary?.status || 'planned' : 'planned',
+  };
+  const nodes = [entryNode, ...stepNodes, resultNode];
+  const edges: BusinessOrchestrationEdge[] = nodes.slice(0, -1).map((node, index) => ({
+    id: `${node.id}-${nodes[index + 1].id}`,
+    source: node.id,
+    target: nodes[index + 1].id,
+  }));
+
+  return {
+    ...baseGraph,
+    mode: baseGraph?.mode || 'recipe',
+    nodes,
+    edges,
+    summary: {
+      ...(baseGraph?.summary || {}),
+      stepCount: visibleSteps.length,
+      executableStepCount: visibleSteps.filter((step) => step.abilityId || step.abilityName).length,
+      hasVlStep: visibleSteps.some((step) => String(step.role || step.type || step.stepType || '').toLowerCase().includes('vl')),
+    },
+  };
+};
+
 export const BusinessOrchestrationGraphView = ({
   graph,
   fallbackSteps,
@@ -3742,13 +3810,17 @@ export const BusinessOrchestrationGraphView = ({
   compact?: boolean;
   showRuntime?: boolean;
 }) => {
-  const nodes = (graph?.nodes || []).filter((node) => node && node.enabled !== false);
-  const edges = graph?.edges || [];
+  const effectiveGraph =
+    graph && (graph.nodes || []).some((node) => node && node.enabled !== false)
+      ? graph
+      : buildBusinessFallbackGraph(fallbackSteps, graph);
+  const nodes = (effectiveGraph?.nodes || []).filter((node) => node && node.enabled !== false);
+  const edges = effectiveGraph?.edges || [];
   if (nodes.length === 0) {
     return <BusinessRecipeFlow steps={fallbackSteps} compact={compact} showRuntime={showRuntime} />;
   }
-  const summary = graph?.summary || {};
-  const hasRuntime = graph?.mode === 'run' || showRuntime;
+  const summary = effectiveGraph?.summary || {};
+  const hasRuntime = effectiveGraph?.mode === 'run' || showRuntime;
   const output = asJsonRecord(summary.output);
   const outputLabel = [
     recordNumber(output, 'imageCount', 0) > 0 ? `${recordNumber(output, 'imageCount')} 张图` : '',
@@ -3762,8 +3834,8 @@ export const BusinessOrchestrationGraphView = ({
     <div className={`podi-business-graph ${compact ? 'podi-business-graph--compact' : ''}`}>
       <div className="podi-business-graph__head">
         <Space size={6} breakLine>
-          <Tag theme={graph?.mode === 'run' ? 'primary' : 'default'} variant="light">
-            {businessGraphModeLabel(graph?.mode)}
+          <Tag theme={effectiveGraph?.mode === 'run' ? 'primary' : 'default'} variant="light">
+            {businessGraphModeLabel(effectiveGraph?.mode)}
           </Tag>
           <Tag variant="light">步骤 {summary.stepCount ?? Math.max(nodes.length - 2, 0)}</Tag>
           {summary.executableStepCount !== undefined && summary.executableStepCount !== null ? (
@@ -3781,7 +3853,7 @@ export const BusinessOrchestrationGraphView = ({
       </div>
       <div className="podi-business-graph__track">
         {nodes.map((node, index) => {
-          const theme = businessGraphNodeStatusTheme(node, graph);
+          const theme = businessGraphNodeStatusTheme(node, effectiveGraph);
           const isCurrent = summary.currentNodeId === node.id;
           const outputText = businessGraphNodeOutputLabel(node);
           const nextEdge = edges.find((edge) => edge.source === node.id && nodes.some((item) => item.id === edge.target));
@@ -3795,7 +3867,7 @@ export const BusinessOrchestrationGraphView = ({
                   <span>{node.order ?? index}</span>
                 </div>
                 <Typography.Text strong>{businessGraphNodeTitle(node)}</Typography.Text>
-                <Typography.Text theme="secondary">{businessGraphNodeDetail(node, graph)}</Typography.Text>
+                <Typography.Text theme="secondary">{businessGraphNodeDetail(node, effectiveGraph)}</Typography.Text>
                 <Space size={6} breakLine>
                   {hasRuntime ? (
                     <Tag theme={theme as any} variant="light" size="small">
@@ -4407,136 +4479,109 @@ export const BusinessOrchestrationMapPanel = ({
   return (
     <Card
       bordered
+      className="podi-business-workflow-map-card"
       title={
         <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
           <div>
-            <Typography.Text strong>业务入口和处理地图</Typography.Text>
+            <Typography.Text strong>业务链路图</Typography.Text>
             <div>
               <Typography.Text theme="secondary">
-                从业务方调用的入口往后看：固定 API、当前版本、处理步骤、最近结果放在同一张图里。
+                按业务入口展示当前版本、处理组件和最近结果；排查时先看这张图，再下钻调用记录。
               </Typography.Text>
             </div>
           </div>
           <Tag theme="primary" variant="light">
-            中台工作流视角
+            组件化编排视角
           </Tag>
         </Space>
       }
     >
       <Space direction="vertical" size="small" style={{ width: '100%' }}>
-        <Alert
-          theme="info"
-          message="这张图只回答四件事：业务方调哪个入口、现在默认跑哪个版本、内部经过哪些处理步骤、最近是否跑通。Coze 工作流以后也应尽量只调用这里的业务入口。"
-        />
+        <div className="podi-business-workflow-map-hint">
+          一条业务调用只对应一个 runId；图片理解、生图、评分、回填都挂在这条业务链下面。
+        </div>
         {rows.map((row) => (
-          <Card key={row.businessKey} bordered size="small">
-            <Space direction="vertical" size="small" style={{ width: '100%' }}>
-              <Space align="center" style={{ justifyContent: 'space-between', width: '100%', gap: 8, flexWrap: 'wrap' }}>
-                <div>
+          <section key={row.businessKey} className="podi-business-workflow-row">
+            <aside className="podi-business-workflow-row__summary">
+              <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
                   <Typography.Text strong>{businessKeyLabel(row.businessKey)}</Typography.Text>
-                  <div>
-                    <Typography.Text theme="secondary">{businessCapabilityGroupHint(row.businessKey)}</Typography.Text>
-                  </div>
-                </div>
-                <Space size={6} breakLine>
                   <Tag theme={row.risk.theme as any} variant="light">
                     {row.risk.text}
                   </Tag>
+                </Space>
+                <Typography.Text theme="secondary">{businessCapabilityGroupHint(row.businessKey)}</Typography.Text>
+                <div className="podi-business-workflow-row__api">
+                  <Typography.Text theme="secondary">业务入口</Typography.Text>
+                  <Typography.Text code>{businessApiEntryPath(row.businessKey)}</Typography.Text>
+                  <Typography.Text theme="secondary">{businessEntryUsageHint(row.businessKey)}</Typography.Text>
+                </div>
+                <div className="podi-business-workflow-row__version">
+                  <Tag theme={row.defaultItem?.status === 'active' ? 'success' : 'warning'} variant="light">
+                    当前版本
+                  </Tag>
+                  <Typography.Text strong>
+                    {row.defaultItem ? `${row.defaultItem.version} · ${row.defaultItem.displayName}` : '未设置默认版本'}
+                  </Typography.Text>
+                  <Typography.Text theme="secondary">
+                    发布：{row.defaultItem ? formatDateTime(row.defaultItem.releaseTime || row.defaultItem.createdAt) : '—'}
+                  </Typography.Text>
+                  <Typography.Text theme="secondary">
+                    更新：{row.defaultItem ? formatDateTime(row.defaultItem.updatedAt || row.defaultItem.releaseTime || row.defaultItem.createdAt) : '—'}
+                  </Typography.Text>
+                </div>
+                <Space size={6} breakLine>
                   <Tag theme={row.usage?.failed ? 'warning' : 'default'} variant="light">
                     {businessUsageDigest(summary, row.businessKey)}
                   </Tag>
+                  <Tag theme={row.rollout.enabled ? 'warning' : 'default'} variant="light">
+                    灰度 {row.rollout.enabled ? `${row.rollout.percent}%` : '关闭'}
+                  </Tag>
+                  <Tag theme={row.rollbackReadyAlternatives.length > 0 ? 'success' : 'warning'} variant="light">
+                    {row.rollbackReadyAlternatives.length > 0
+                      ? `可回滚 ${row.rollbackReadyAlternatives.length}`
+                      : `备选 ${row.activeAlternatives.length}`}
+                  </Tag>
+                  {row.hasPendingApproval ? <Tag theme="warning" variant="light">切换审批中</Tag> : null}
                 </Space>
+                <Typography.Text
+                  theme={row.risk.theme === 'danger' ? 'error' : row.risk.theme === 'warning' ? 'warning' : 'secondary'}
+                >
+                  {row.suggestion}
+                </Typography.Text>
               </Space>
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-                  gap: 12,
-                  width: '100%',
-                }}
-              >
-                <Card bordered size="small">
-                  <Space direction="vertical" size={6} style={{ width: '100%' }}>
-                    <Tag theme="primary" variant="light">
-                      1. 业务入口
-                    </Tag>
-                    <Typography.Text code>{businessApiEntryPath(row.businessKey)}</Typography.Text>
-                    <Typography.Text theme="secondary">{businessEntryUsageHint(row.businessKey)}</Typography.Text>
-                    <Typography.Text theme="secondary">返回 runId 后，调用方用统一查询口看状态和结果。</Typography.Text>
-                  </Space>
-                </Card>
-                <Card bordered size="small">
-                  <Space direction="vertical" size={6} style={{ width: '100%' }}>
-                    <Tag theme={row.defaultItem?.status === 'active' ? 'success' : 'warning'} variant="light">
-                      2. 当前版本
-                    </Tag>
-                    <Typography.Text strong>
-                      {row.defaultItem ? `${row.defaultItem.version} · ${row.defaultItem.displayName}` : '未设置默认版本'}
-                    </Typography.Text>
-                    <Typography.Text theme="secondary">
-                      发布时间：{row.defaultItem ? formatDateTime(row.defaultItem.releaseTime || row.defaultItem.createdAt) : '—'}
-                    </Typography.Text>
-                    <Typography.Text theme="secondary">
-                      最近更新：{row.defaultItem ? formatDateTime(row.defaultItem.updatedAt || row.defaultItem.releaseTime || row.defaultItem.createdAt) : '—'}
-                    </Typography.Text>
-                    <Space size={6} breakLine>
-                      <Tag theme={row.rollout.enabled ? 'warning' : 'default'} variant="light">
-                        灰度 {row.rollout.enabled ? `${row.rollout.percent}%` : '关闭'}
-                      </Tag>
-                      <Tag theme={row.rollbackReadyAlternatives.length > 0 ? 'success' : 'warning'} variant="light">
-                        {row.rollbackReadyAlternatives.length > 0
-                          ? `可回滚 ${row.rollbackReadyAlternatives.length}`
-                          : `备选 ${row.activeAlternatives.length}`}
-                      </Tag>
-                      {row.hasPendingApproval ? <Tag theme="warning" variant="light">切换审批中</Tag> : null}
-                    </Space>
-                  </Space>
-                </Card>
-                <Card bordered size="small">
-                  <Space direction="vertical" size={6} style={{ width: '100%' }}>
-                    <Tag theme="primary" variant="light">
-                      3. 处理步骤
-                    </Tag>
-                    <Typography.Text theme="secondary">主执行：{businessCapabilityEngineLabel(row.defaultItem)}</Typography.Text>
-                    <BusinessOrchestrationGraphView
-                      graph={row.defaultItem?.orchestrationGraph}
-                      fallbackSteps={row.defaultItem?.recipeSteps || []}
-                      compact
-                    />
-                  </Space>
-                </Card>
-                <Card bordered size="small">
-                  <Space direction="vertical" size={6} style={{ width: '100%' }}>
-                    <Tag theme={row.risk.theme as any} variant="light">
-                      4. 最近结果
-                    </Tag>
-                    <Typography.Text>{row.defaultItem ? businessCapabilityLatestRunLabel(row.defaultItem) : '无运行记录'}</Typography.Text>
-                    <Typography.Text theme="secondary">{businessUsageDigest(summary, row.businessKey)}</Typography.Text>
-                    <Typography.Text theme={row.risk.theme === 'danger' ? 'error' : row.risk.theme === 'warning' ? 'warning' : 'secondary'}>
-                      {row.suggestion}
-                    </Typography.Text>
-                  </Space>
-                </Card>
-              </div>
-              <Space direction="vertical" size={6} style={{ width: '100%' }}>
-                <Typography.Text theme="secondary">同业务可切换版本</Typography.Text>
+            </aside>
+            <div className="podi-business-workflow-row__canvas">
+              <div className="podi-business-workflow-row__canvas-head">
+                <Space size={6} breakLine>
+                  <Tag theme="primary" variant="light">
+                    处理链路
+                  </Tag>
+                  <Tag variant="light">主执行：{businessCapabilityEngineLabel(row.defaultItem)}</Tag>
+                  <Tag theme={row.risk.theme as any} variant="light">
+                    最近：{row.defaultItem ? businessCapabilityLatestRunLabel(row.defaultItem) : '无运行记录'}
+                  </Tag>
+                </Space>
                 <Space size={6} breakLine>
                   {row.defaultItem ? (
                     <Tag theme="success" variant="light" size="small">
-                      默认：{row.defaultItem.version}
+                      默认 {row.defaultItem.version}
                     </Tag>
                   ) : null}
-                  {row.activeAlternatives.slice(0, 6).map((item) => (
+                  {row.activeAlternatives.slice(0, 4).map((item) => (
                     <Tag key={item.id} theme={businessCapabilityHasRollbackEvidence(item) ? 'success' : 'primary'} variant="light" size="small">
                       {item.version}
                     </Tag>
                   ))}
-                  {row.activeAlternatives.length > 6 ? <Tag variant="light" size="small">+{row.activeAlternatives.length - 6}</Tag> : null}
-                  {!row.defaultItem && row.activeAlternatives.length === 0 ? <Tag theme="warning" variant="light" size="small">暂无版本</Tag> : null}
+                  {row.activeAlternatives.length > 4 ? <Tag variant="light" size="small">+{row.activeAlternatives.length - 4}</Tag> : null}
                 </Space>
-              </Space>
-            </Space>
-          </Card>
+              </div>
+              <BusinessOrchestrationGraphView
+                graph={row.defaultItem?.orchestrationGraph}
+                fallbackSteps={row.defaultItem?.recipeSteps || []}
+              />
+            </div>
+          </section>
         ))}
       </Space>
     </Card>

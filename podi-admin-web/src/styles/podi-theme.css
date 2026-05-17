@@ -702,7 +702,7 @@ html.t-theme-dark {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 
 .podi-business-graph__head {
@@ -715,9 +715,17 @@ html.t-theme-dark {
 
 .podi-business-graph__track {
   display: flex;
-  gap: 8px;
+  gap: 14px;
   overflow-x: auto;
-  padding: 2px 2px 8px;
+  min-height: 190px;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--td-border-level-1-color) 80%, var(--podi-accent-soft));
+  border-radius: 18px;
+  background:
+    radial-gradient(circle, color-mix(in srgb, var(--td-text-color-placeholder) 28%, transparent) 1px, transparent 1px),
+    linear-gradient(180deg, color-mix(in srgb, var(--td-bg-color-container) 92%, var(--podi-accent-soft)), var(--td-bg-color-container));
+  background-size: 18px 18px, 100% 100%;
+  padding: 22px;
 }
 
 .podi-business-graph--compact .podi-business-graph__track {
@@ -728,9 +736,9 @@ html.t-theme-dark {
 
 .podi-business-graph__segment {
   display: flex;
-  min-width: 210px;
+  min-width: 250px;
   align-items: stretch;
-  gap: 8px;
+  gap: 14px;
 }
 
 .podi-business-graph--compact .podi-business-graph__segment {
@@ -739,15 +747,16 @@ html.t-theme-dark {
 
 .podi-business-graph-node {
   display: flex;
-  min-width: 190px;
+  min-width: 230px;
   flex: 1;
   flex-direction: column;
-  gap: 6px;
-  padding: 12px;
+  gap: 8px;
+  padding: 14px;
   border: 1px solid var(--td-border-level-1-color);
-  border-radius: var(--podi-radius-md);
+  border-radius: 16px;
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--td-bg-color-container) 94%, var(--podi-accent-soft)), var(--td-bg-color-container));
+  box-shadow: 0 14px 34px color-mix(in srgb, var(--td-shadow-color) 15%, transparent);
 }
 
 .podi-business-graph--compact .podi-business-graph-node {
@@ -825,12 +834,157 @@ html.t-theme-dark {
 
 .podi-business-graph__edge {
   display: flex;
-  width: 22px;
-  flex: 0 0 22px;
+  width: 38px;
+  flex: 0 0 38px;
   align-items: center;
   justify-content: center;
-  color: var(--td-text-color-placeholder);
+  color: var(--podi-accent);
   font-weight: 700;
+}
+
+.podi-business-graph__edge::before {
+  content: '';
+  width: 24px;
+  height: 2px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.38;
+}
+
+.podi-business-workflow-map-card {
+  border-color: color-mix(in srgb, var(--podi-accent) 22%, var(--td-border-level-1-color));
+}
+
+.podi-business-workflow-map-hint {
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--podi-accent-soft) 70%, transparent);
+  color: var(--td-text-color-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 8px 12px;
+}
+
+.podi-business-workflow-row {
+  display: grid;
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+  gap: 16px;
+  border: 1px solid var(--td-border-level-1-color);
+  border-radius: 20px;
+  background: var(--td-bg-color-container);
+  padding: 16px;
+}
+
+.podi-business-workflow-row__summary {
+  min-width: 0;
+  border-right: 1px solid var(--td-border-level-1-color);
+  padding-right: 16px;
+}
+
+.podi-business-workflow-row__api,
+.podi-business-workflow-row__version {
+  display: grid;
+  gap: 5px;
+}
+
+.podi-business-workflow-row__api code,
+.podi-business-workflow-row__summary .t-typography {
+  word-break: break-word;
+}
+
+.podi-business-workflow-row__canvas {
+  min-width: 0;
+}
+
+.podi-business-workflow-row__canvas-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.podi-business-run-filters {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid var(--td-border-level-1-color);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--td-bg-color-container) 92%, var(--td-bg-color-page));
+}
+
+.podi-business-run-filters__primary,
+.podi-business-run-filters__secondary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(138px, 1fr));
+  gap: 8px;
+  align-items: center;
+}
+
+.podi-business-run-filters__primary {
+  grid-template-columns: repeat(6, minmax(118px, 1fr)) minmax(190px, auto);
+}
+
+.podi-business-run-filters__secondary {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  margin-top: 8px;
+}
+
+.podi-business-run-filters__advanced {
+  border-top: 1px dashed var(--td-border-level-1-color);
+  padding-top: 8px;
+}
+
+.podi-business-run-filters__advanced summary {
+  cursor: pointer;
+  color: var(--td-text-color-secondary);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.podi-business-run-filters__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.podi-business-run-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+@media (max-width: 1180px) {
+  .podi-business-workflow-row {
+    grid-template-columns: 1fr;
+  }
+
+  .podi-business-run-filters__primary {
+    grid-template-columns: repeat(auto-fit, minmax(138px, 1fr));
+  }
+
+  .podi-business-workflow-row__summary {
+    border-right: 0;
+    border-bottom: 1px solid var(--td-border-level-1-color);
+    padding-right: 0;
+    padding-bottom: 14px;
+  }
+
+  .podi-business-graph__track {
+    min-height: 0;
+    align-items: stretch;
+  }
+}
+
+@media (max-width: 760px) {
+  .podi-business-run-filters__primary,
+  .podi-business-run-filters__secondary {
+    grid-template-columns: 1fr;
+  }
+
+  .podi-business-run-filters__actions {
+    justify-content: flex-start;
+  }
 }
 
 .podi-business-graph--compact .podi-business-graph__edge {
