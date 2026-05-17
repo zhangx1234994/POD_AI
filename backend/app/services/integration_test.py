@@ -326,7 +326,9 @@ class IntegrationTestService:
         def fetch_executor_object_info(executor: Executor) -> tuple[str, dict[str, Any] | None, dict[str, Any]]:
             base_url = self._base_url_for_executor(executor)
             try:
-                fetched_base_url, object_info = self._fetch_comfyui_object_info(executor, timeout_seconds=4.0)
+                # Some production nodes return a large object_info payload. Four seconds is
+                # too aggressive and causes false "node unavailable" warnings during release checks.
+                fetched_base_url, object_info = self._fetch_comfyui_object_info(executor, timeout_seconds=20.0)
                 return (
                     executor.id,
                     object_info,
