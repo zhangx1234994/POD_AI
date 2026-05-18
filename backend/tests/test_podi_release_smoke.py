@@ -1030,6 +1030,114 @@ def test_per_feature_release_checklist_blocks_missing_required_tokens(tmp_path: 
     assert "String" in detail
 
 
+def test_per_feature_release_audit_accepts_structured_checks() -> None:
+    module = _load_smoke_module()
+
+    ok, detail = module._validate_per_feature_release_audit(
+        {
+            "featureReleaseChecks": [
+                {
+                    "key": "gpt-image2-fission",
+                    "name": "GPT Image 2 + VL 受控裂变",
+                    "entry": "/api/business/fission/runs",
+                    "status": "done",
+                    "mustCheck": ["参数", "结果"],
+                    "releaseEvidence": "交付目录 01",
+                    "currentRisk": "商业模型质量波动",
+                    "summary": "可交付证据已闭环。",
+                    "blockers": [],
+                    "warnings": [],
+                    "evidence": [
+                        {
+                            "key": "delivery_docs",
+                            "title": "交付材料",
+                            "status": "done",
+                            "detail": "已覆盖",
+                            "action": "保持同步",
+                        }
+                    ],
+                },
+                {
+                    "key": "comfyui-colorlock-fission",
+                    "name": "ComfyUI 颜色锁定裂变",
+                    "entry": "/api/business/fission/runs",
+                    "status": "doing",
+                    "mustCheck": ["节点", "回填"],
+                    "releaseEvidence": "业务样本包",
+                    "currentRisk": "需复核节点",
+                    "summary": "需复核",
+                    "blockers": [],
+                    "warnings": ["需看 workflow compatibility"],
+                    "evidence": [
+                        {
+                            "key": "real_run",
+                            "title": "真实运行",
+                            "status": "doing",
+                            "detail": "待复核",
+                            "action": "跑真实样例",
+                        }
+                    ],
+                },
+                {
+                    "key": "fission-score",
+                    "name": "裂变生成图评估",
+                    "entry": "/api/business/fission-evaluate/runs",
+                    "status": "done",
+                    "mustCheck": ["原图", "结果图"],
+                    "releaseEvidence": "评分 runId",
+                    "currentRisk": "只给判断",
+                    "summary": "可交付证据已闭环。",
+                    "blockers": [],
+                    "warnings": [],
+                    "evidence": [
+                        {
+                            "key": "release_gate",
+                            "title": "验收与门禁",
+                            "status": "done",
+                            "detail": "通过",
+                            "action": "保留记录",
+                        }
+                    ],
+                },
+                {
+                    "key": "legacy-seamless-fission",
+                    "name": "旧四方连续裂变",
+                    "entry": "Coze 工具箱",
+                    "status": "doing",
+                    "mustCheck": ["Coze 巡检"],
+                    "releaseEvidence": "巡检报告",
+                    "currentRisk": "旧链路",
+                    "summary": "需复核",
+                    "blockers": [],
+                    "warnings": ["看巡检"],
+                    "evidence": [
+                        {
+                            "key": "legacy_workflow",
+                            "title": "旧 Coze 工作流",
+                            "status": "doing",
+                            "detail": "看巡检",
+                            "action": "跑巡检",
+                        }
+                    ],
+                },
+            ]
+        }
+    )
+
+    assert ok is True
+    assert "features=4" in detail
+    assert "attention=2" in detail
+
+
+def test_per_feature_release_audit_blocks_missing_required_feature() -> None:
+    module = _load_smoke_module()
+
+    ok, detail = module._validate_per_feature_release_audit({"featureReleaseChecks": []})
+
+    assert ok is False
+    assert "missing feature checks" in detail
+
+
 def _accepted_release_gate() -> dict:
     return {
         "latestAcceptance": {"status": "passed", "note": "测试通过"},

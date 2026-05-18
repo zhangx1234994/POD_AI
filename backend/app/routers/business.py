@@ -1644,6 +1644,310 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
 admin_router = APIRouter(prefix="/admin/business", dependencies=[Depends(require_admin)], tags=["admin-business"])
 
 
+FEATURE_RELEASE_AUDIT_SPECS: tuple[dict[str, Any], ...] = (
+    {
+        "key": "gpt-image2-fission",
+        "name": "GPT Image 2 + VL 受控裂变",
+        "entry": "/api/business/fission/runs",
+        "businessKey": "fission",
+        "version": "gpt-image2-vl-v2",
+        "deliveryKey": "gpt-image2-fission",
+        "expectedResult": "image",
+        "costSensitive": True,
+        "mustCheck": [
+            "参数：imageUrl、variation_strength、quality、size、maskUrl",
+            "默认：一次请求固定一张图，多图必须提交多次",
+            "结果：默认轻量返回，detail=full 才看底层步骤",
+            "页面：名称不随版本改动，尺寸默认跟原图走",
+        ],
+        "releaseEvidence": "交付目录 01 + 业务任务 runId + OpenAI 能力调用记录",
+        "currentRisk": "商业模型质量波动属于模型侧；平台重点确认入参、出参、轮询和错误码。",
+    },
+    {
+        "key": "comfyui-colorlock-fission",
+        "name": "ComfyUI 颜色锁定裂变",
+        "entry": "/api/business/fission/runs",
+        "businessKey": "fission",
+        "version": "comfyui-vl-control-v2",
+        "deliveryKey": "comfyui-colorlock-fission",
+        "expectedResult": "image",
+        "requiresGpuRun": True,
+        "mustCheck": [
+            "参数：bili、width、height、profile、variation_preset、reference_lock、color_lock",
+            "默认：bili 是重绘幅度，按约定映射 denoise，不叫相似度",
+            "节点：158/233 都要通过 workflow 兼容检查",
+            "结果：OSS 回填，测评端能并排或滑块查看原图/结果图",
+        ],
+        "releaseEvidence": "交付目录 02 + ComfyUI workflow 兼容检查 + 业务样本包",
+        "currentRisk": "如果执行节点缺自定义节点，必须先修服务器同构；只有止血时才临时限路由。",
+    },
+    {
+        "key": "fission-score",
+        "name": "裂变生成图评估",
+        "entry": "/api/business/fission-evaluate/runs",
+        "businessKey": "fission_evaluate",
+        "version": "v1",
+        "deliveryKey": "fission-score",
+        "expectedResult": "text",
+        "mustCheck": [
+            "参数：originalImageUrl、generatedImageUrl、context",
+            "枚举：decision 必须能解释通过、需复核、不通过",
+            "结果：评分文本和结构化 JSON 都能被业务读取",
+            "错误：缺原图或结果图返回 VL_EVAL_IMAGE_REQUIRED",
+        ],
+        "releaseEvidence": "交付目录 03 + 裂变任务结果图 + 评分 runId",
+        "currentRisk": "评分只给判断，不自动二次裂变；业务编排自行决定是否重跑。",
+    },
+    {
+        "key": "legacy-seamless-fission",
+        "name": "旧四方连续裂变",
+        "entry": "Coze 工具箱 / 既有工作流",
+        "businessKey": "legacy_coze",
+        "version": None,
+        "deliveryKey": None,
+        "expectedResult": "image",
+        "requiresGpuRun": True,
+        "externalEvidenceOnly": True,
+        "mustCheck": [
+            "节点：String、KSampler、SaveImage 等必需节点在目标机器存在",
+            "路由：158/233 不应长期只命中一台机器",
+            "失败：队列满或节点缺失要给可读错误",
+            "回填：生图完成后必须能进入任务查询结果",
+        ],
+        "releaseEvidence": "Coze 工作流巡检 + ComfyUI 兼容检查 + 能力调用记录",
+        "currentRisk": "该类仍依赖旧工作流，优先用 workflow-compatibility 检查节点差异。",
+    },
+)
+
+
+def _audit_value(row: dict[str, Any] | None, *keys: str, default: Any = None) -> Any:
+    if not isinstance(row, dict):
+        return default
+    for key in keys:
+        if key in row:
+            return row.get(key)
+    return default
+
+
+def _audit_first_int(value: Any) -> int:
+    try:
+        if value is None or value == "":
+            return 0
+        return int(value)
+    except Exception:
+        return 0
+
+
+def _find_capability_for_feature(
+    capabilities: list[dict[str, Any]],
+    *,
+    business_key: str,
+    version: str | None,
+) -> dict[str, Any] | None:
+    for item in capabilities:
+        if not isinstance(item, dict):
+            continue
+        if str(_audit_value(item, "business_key", "businessKey") or "").strip() != business_key:
+            continue
+        item_version = str(_audit_value(item, "version") or "").strip()
+        if version is None:
+            if _audit_value(item, "is_default", "isDefault") is True:
+                return item
+            continue
+        if item_version == version:
+            return item
+    return None
+
+
+def _feature_release_evidence(
+    *,
+    key: str,
+    title: str,
+    status: str,
+    detail: str,
+    action: str,
+) -> dict[str, str]:
+    return {
+        "key": key,
+        "title": title,
+        "status": status,
+        "detail": detail,
+        "action": action,
+    }
+
+
+def _build_feature_release_checks(
+    *,
+    delivery_items: list[dict[str, Any]],
+    capabilities: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    capabilities = capabilities or []
+    delivery_by_key = {str(item.get("key") or ""): item for item in delivery_items if isinstance(item, dict)}
+    checks: list[dict[str, Any]] = []
+    for spec in FEATURE_RELEASE_AUDIT_SPECS:
+        blockers: list[str] = []
+        warnings: list[str] = []
+        evidence: list[dict[str, str]] = []
+
+        delivery_key = str(spec.get("deliveryKey") or "")
+        delivery_item = delivery_by_key.get(delivery_key) if delivery_key else None
+        docs_ok = (
+            bool(delivery_item.get("ok"))
+            if isinstance(delivery_item, dict)
+            else bool(spec.get("externalEvidenceOnly"))
+        )
+        if delivery_key and not docs_ok:
+            blockers.append("交付材料缺请求、响应、错误或枚举证据。")
+        evidence.append(
+            _feature_release_evidence(
+                key="delivery_docs",
+                title="交付材料",
+                status="done" if docs_ok else "todo",
+                detail=(
+                    delivery_item.get("summary")
+                    if isinstance(delivery_item, dict)
+                    else "依赖 Coze 巡检和 workflow compatibility 记录。"
+                )
+                or "交付材料已检查。",
+                action="新增或改参数时，先补独立 README、6 类 JSON 样例、枚举和错误码。",
+            )
+        )
+
+        capability = None
+        if not spec.get("externalEvidenceOnly"):
+            capability = _find_capability_for_feature(
+                capabilities,
+                business_key=str(spec.get("businessKey") or ""),
+                version=str(spec.get("version") or "") if spec.get("version") is not None else None,
+            )
+        if spec.get("externalEvidenceOnly"):
+            evidence.append(
+                _feature_release_evidence(
+                    key="legacy_workflow",
+                    title="旧 Coze 工作流",
+                    status="doing",
+                    detail="该功能不属于中台自有业务版本，必须由 Coze 巡检和 ComfyUI 兼容检查提供证据。",
+                    action="上线前跑 Coze 主线巡检，并确认回填和任务查询。",
+                )
+            )
+            warnings.append("旧 Coze 链路需看巡检报告，不能只看业务版本列表。")
+        elif capability is None:
+            blockers.append("没有找到对应业务版本，页面、接口和门禁无法统一。")
+            evidence.append(
+                _feature_release_evidence(
+                    key="business_version",
+                    title="业务版本",
+                    status="todo",
+                    detail=f"缺少 businessKey={spec.get('businessKey')} version={spec.get('version')} 的业务版本。",
+                    action="先补业务版本配方，再补测评入口和文档。",
+                )
+            )
+        else:
+            status = str(_audit_value(capability, "status") or "").strip().lower()
+            release_gate = _audit_value(capability, "release_gate", "releaseGate", default={})
+            latest_run = _audit_value(capability, "latest_run", "latestRun", default={})
+            latest_acceptance = _audit_value(capability, "latest_acceptance", "latestAcceptance", default={})
+            primary_ability_id = str(_audit_value(capability, "primary_ability_id", "primaryAbilityId") or "").strip()
+            display_name = str(
+                _audit_value(capability, "display_name", "displayName") or spec.get("name") or ""
+            ).strip()
+
+            if status != "active":
+                blockers.append(f"业务版本未启用：{status or '-'}。")
+            if not primary_ability_id:
+                blockers.append("缺少主执行能力，业务入口只是配置壳。")
+            evidence.append(
+                _feature_release_evidence(
+                    key="business_version",
+                    title="业务版本",
+                    status="done" if status == "active" and primary_ability_id else "todo",
+                    detail=f"{display_name} · {status or '-'} · 主能力 {primary_ability_id or '-'}",
+                    action="版本升级必须保持业务名稳定，只用版本族和更新时间表达变化。",
+                )
+            )
+
+            latest_run_status = str(_audit_value(latest_run, "status") or "").strip().lower()
+            image_count = _audit_first_int(_audit_value(latest_run, "image_count", "imageCount"))
+            video_count = _audit_first_int(_audit_value(latest_run, "video_count", "videoCount"))
+            text_count = _audit_first_int(_audit_value(latest_run, "text_count", "textCount"))
+            result_total = image_count + video_count + text_count
+            run_id = str(_audit_value(latest_run, "id", "runId") or "").strip()
+            expected_result = str(spec.get("expectedResult") or "").strip()
+            if not run_id:
+                if spec.get("costSensitive"):
+                    warnings.append("商业模型真实调用可因成本跳过，但必须记录未跑原因。")
+                else:
+                    blockers.append("缺少真实运行记录，无法证明参数、执行和回填闭环。")
+            elif latest_run_status != "succeeded":
+                blockers.append(f"最近真实运行不是成功状态：{latest_run_status or '-'}。")
+            elif expected_result == "image" and image_count <= 0:
+                blockers.append("最近成功运行没有图片结果。")
+            elif expected_result == "text" and result_total <= 0:
+                blockers.append("最近成功运行没有文字或结构化结果。")
+            evidence.append(
+                _feature_release_evidence(
+                    key="real_run",
+                    title="真实运行",
+                    status=(
+                        "done"
+                        if run_id
+                        and latest_run_status == "succeeded"
+                        and (result_total > 0 or expected_result not in {"image", "text"})
+                        else "doing"
+                    ),
+                    detail=(
+                        f"runId={run_id or '-'} status={latest_run_status or '-'} "
+                        f"结果={image_count} 图/{video_count} 视频/{text_count} 文本"
+                    ),
+                    action="GPU 自有能力必须真实跑；第三方能力跳过时要写清成本原因。",
+                )
+            )
+
+            gate_status = str(_audit_value(release_gate, "status") or "").strip().lower()
+            acceptance_status = str(_audit_value(latest_acceptance, "status") or "").strip().lower()
+            gate_blockers = _audit_value(release_gate, "blockers", default=[])
+            gate_warnings = _audit_value(release_gate, "warnings", default=[])
+            if gate_status == "blocked":
+                blockers.append(f"业务版本门禁未通过：{gate_blockers or ['blocked']}。")
+            elif gate_status == "warning":
+                warnings.append(f"业务版本门禁有提醒：{gate_warnings or ['warning']}。")
+            evidence.append(
+                _feature_release_evidence(
+                    key="release_gate",
+                    title="验收与门禁",
+                    status="done" if gate_status == "ready" and acceptance_status == "passed" else "todo",
+                    detail=f"门禁={gate_status or '-'} 验收={acceptance_status or '-'}",
+                    action="真实链路通过后登记人工验收；没有验收记录不能标记可交付。",
+                )
+            )
+
+        status = "done"
+        if blockers:
+            status = "todo"
+        elif warnings:
+            status = "doing"
+        checks.append(
+            {
+                "key": spec["key"],
+                "name": spec["name"],
+                "entry": spec["entry"],
+                "businessKey": spec.get("businessKey"),
+                "version": spec.get("version"),
+                "mustCheck": list(spec.get("mustCheck") or []),
+                "releaseEvidence": spec.get("releaseEvidence") or "",
+                "currentRisk": spec.get("currentRisk") or "",
+                "status": status,
+                "summary": "可交付证据已闭环。" if status == "done" else "；".join(blockers or warnings),
+                "blockers": blockers,
+                "warnings": warnings,
+                "evidence": evidence,
+                "requiresGpuRun": bool(spec.get("requiresGpuRun")),
+                "costSensitive": bool(spec.get("costSensitive")),
+            }
+        )
+    return checks
+
+
 def _business_delivery_contract_audit() -> dict[str, Any]:
     """Expose the same delivery contract evidence used by release smoke."""
     try:
@@ -1731,12 +2035,18 @@ def _business_delivery_contract_audit() -> dict[str, Any]:
                 ],
             }
         )
+    try:
+        capabilities = get_business_run_service().list_capabilities()
+    except Exception:
+        capabilities = []
+    feature_release_checks = _build_feature_release_checks(delivery_items=items, capabilities=capabilities)
     ok, detail = smoke._validate_business_delivery_docs(root)
     contract_payload = business_api_contract_payload()
     return {
         "ok": ok,
         "summary": detail,
         "items": items,
+        "featureReleaseChecks": feature_release_checks,
         "enumDocs": contract_payload["enumDocs"],
         "requiredEnumFields": contract_payload["requiredEnumFields"],
         "enumValues": contract_payload["values"],

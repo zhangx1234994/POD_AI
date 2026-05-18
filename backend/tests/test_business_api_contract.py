@@ -220,6 +220,17 @@ def test_business_delivery_contract_audit_exposes_enum_truth_source() -> None:
         "same_series",
         "creative_same_series",
     ]
+    feature_checks = {item["key"]: item for item in payload["featureReleaseChecks"]}
+    assert {
+        "gpt-image2-fission",
+        "comfyui-colorlock-fission",
+        "fission-score",
+        "legacy-seamless-fission",
+    }.issubset(feature_checks)
+    assert feature_checks["comfyui-colorlock-fission"]["entry"] == "/api/business/fission/runs"
+    assert feature_checks["comfyui-colorlock-fission"]["mustCheck"]
+    assert feature_checks["comfyui-colorlock-fission"]["evidence"]
+    assert feature_checks["legacy-seamless-fission"]["status"] in {"doing", "todo", "done"}
 
 
 def test_business_capabilities_response_uses_public_camel_case(monkeypatch) -> None:

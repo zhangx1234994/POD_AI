@@ -5759,6 +5759,8 @@ class BusinessRunService:
                 BusinessRun.finished_at,
                 BusinessRun.image_urls,
                 BusinessRun.video_urls,
+                BusinessRun.texts,
+                BusinessRun.result_payload,
                 BusinessRun.error_message,
             )
             .where(BusinessRun.business_version_id == row.id)
@@ -5767,6 +5769,12 @@ class BusinessRunService:
         ).first()
         if not latest:
             return None
+        text_count = len(latest.texts or [])
+        if text_count <= 0 and isinstance(latest.result_payload, dict) and latest.result_payload:
+            if latest.result_payload.get("texts"):
+                text_count = len(latest.result_payload.get("texts") or [])
+            elif any(key in latest.result_payload for key in ("decision", "score", "normalized", "json", "jsonOutput")):
+                text_count = 1
         return {
             "id": latest.id,
             "status": latest.status,
@@ -5774,6 +5782,7 @@ class BusinessRunService:
             "finished_at": latest.finished_at,
             "image_count": len(latest.image_urls or []),
             "video_count": len(latest.video_urls or []),
+            "text_count": text_count,
             "error": latest.error_message,
         }
 

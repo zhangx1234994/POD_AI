@@ -11,6 +11,8 @@
 - 检查结论要能回到 `runId`、能力调用记录、OSS 链接或巡检报告，不能只写“已看”。
 - 默认按“版本升级”处理同一业务目标；只有业务目标、输入输出、独立验收边界或计费边界变化时才新增业务入口。不能把一次交付包修补直接新增成一个功能。
 - 功能名称必须稳定，“新版”只能作为角标或状态；若不确定是新功能还是版本升级，必须先确认。
+- 管理端“接口调用”页必须读取后端 `/api/admin/business/delivery-contracts` 的 `featureReleaseChecks`，不允许只展示前端静态清单。
+- 发布 smoke 必须包含 `per_feature_release_audit`，至少检查逐功能门禁审计结构、四类核心功能是否齐全、证据项是否可读。
 
 ## 2. 通用检查项
 
@@ -79,3 +81,21 @@
 - 图裂变交付目录：`docs/api/examples/fission-business-delivery/`
 - 发布 SOP：`docs/standards/release-sop.md`
 - 早检 SOP：`docs/standards/morning-ops-check.md`
+
+## 8. 动态审计输出
+
+2026-05-19 起，逐功能上线门禁不再只靠本文档和前端静态表。后端交付审计接口会输出：
+
+- `featureReleaseChecks[].status`：`done` 表示证据闭环，`doing` 表示需要复核，`todo` 表示暂不能标记可交付。
+- `featureReleaseChecks[].evidence`：逐项列出交付材料、业务版本、真实运行、验收门禁或旧 Coze 巡检证据。
+- `featureReleaseChecks[].blockers`：缺验收、缺运行、缺结果、缺业务版本等阻断项。
+- `featureReleaseChecks[].warnings`：旧 Coze 巡检、第三方模型成本跳过等复核项。
+
+当前审计先覆盖四类：
+
+- GPT Image 2 + VL 受控裂变
+- ComfyUI 颜色锁定裂变
+- 裂变生成图评估
+- 旧四方连续裂变
+
+后续新增业务能力时，必须同步补充后端审计规格、管理端展示、交付样例和 smoke 结构测试。

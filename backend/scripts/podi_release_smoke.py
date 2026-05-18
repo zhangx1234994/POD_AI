@@ -1014,6 +1014,105 @@ def _run_per_feature_release_checklist_check() -> dict[str, Any]:
     return _result("per_feature_release_checklist", ok, detail)
 
 
+def _validate_per_feature_release_audit(data: Any) -> tuple[bool, str]:
+    if not isinstance(data, dict):
+        return False, "delivery contract audit response is not an object"
+    checks = data.get("featureReleaseChecks")
+    if not isinstance(checks, list):
+        return False, "featureReleaseChecks is missing or not a list"
+    required_keys = {
+        "gpt-image2-fission",
+        "comfyui-colorlock-fission",
+        "fission-score",
+        "legacy-seamless-fission",
+    }
+    seen_keys: set[str] = set()
+    schema_gaps: list[str] = []
+    blocked: list[str] = []
+    attention: list[str] = []
+    for item in checks:
+        if not isinstance(item, dict):
+            schema_gaps.append("feature release check is not an object")
+            continue
+        key = str(item.get("key") or "").strip()
+        seen_keys.add(key)
+        missing = [
+            field
+            for field in (
+                "key",
+                "name",
+                "entry",
+                "status",
+                "mustCheck",
+                "releaseEvidence",
+                "currentRisk",
+                "summary",
+                "blockers",
+                "warnings",
+                "evidence",
+            )
+            if field not in item
+        ]
+        if missing:
+            schema_gaps.append(f"{key or '-'} missing={missing}")
+            continue
+        if item.get("status") not in {"done", "doing", "todo"}:
+            schema_gaps.append(f"{key}:bad status={item.get('status')}")
+        if not isinstance(item.get("mustCheck"), list) or not item.get("mustCheck"):
+            schema_gaps.append(f"{key}:mustCheck empty")
+        if not isinstance(item.get("blockers"), list):
+            schema_gaps.append(f"{key}:blockers not list")
+        if not isinstance(item.get("warnings"), list):
+            schema_gaps.append(f"{key}:warnings not list")
+        evidence = item.get("evidence")
+        if not isinstance(evidence, list) or not evidence:
+            schema_gaps.append(f"{key}:evidence empty")
+        else:
+            for evidence_item in evidence[:5]:
+                if not isinstance(evidence_item, dict):
+                    schema_gaps.append(f"{key}:evidence item is not object")
+                    continue
+                evidence_missing = [
+                    field
+                    for field in ("key", "title", "status", "detail", "action")
+                    if field not in evidence_item
+                ]
+                if evidence_missing:
+                    schema_gaps.append(f"{key}:evidence missing={evidence_missing}")
+        if item.get("status") == "todo":
+            blocked.append(key or "-")
+        elif item.get("status") == "doing":
+            attention.append(key or "-")
+    missing_keys = sorted(required_keys - seen_keys)
+    if missing_keys:
+        schema_gaps.append(f"missing feature checks={missing_keys}")
+    if schema_gaps:
+        return False, f"schema gaps={schema_gaps[:5]} total={len(schema_gaps)}"
+    return (
+        True,
+        f"features={len(checks)} blocked={len(blocked)} attention={len(attention)} "
+        f"blockedSample={blocked[:5] if blocked else '-'} attentionSample={attention[:5] if attention else '-'}",
+    )
+
+
+def _run_per_feature_release_audit_check(
+    *,
+    base_url: str,
+    admin_token: str,
+) -> dict[str, Any]:
+    if not str(admin_token or "").strip():
+        return _result("per_feature_release_audit", True, "skipped: admin/service token not provided")
+    timeout = httpx.Timeout(30.0, connect=10.0)
+    with httpx.Client(base_url=base_url, headers=_business_headers(admin_token), timeout=timeout, trust_env=False) as client:
+        response = client.get("/api/admin/business/delivery-contracts")
+        try:
+            data = response.json()
+        except Exception:
+            data = {"text": response.text}
+    ok, detail = _validate_per_feature_release_audit(data)
+    return _result("per_feature_release_audit", response.status_code == 200 and ok, f"status={response.status_code} {detail}")
+
+
 def _validate_business_capability_governance(
     data: Any,
     *,
@@ -1633,6 +1732,12 @@ def main() -> int:
 
     checks.append(_run_business_delivery_docs_check())
     checks.append(_run_per_feature_release_checklist_check())
+    checks.append(
+        _run_per_feature_release_audit_check(
+            base_url=base_url,
+            admin_token=args.admin_token or args.service_token,
+        )
+    )
 
     checks.append(
         _run_business_truth_source_consistency_check(

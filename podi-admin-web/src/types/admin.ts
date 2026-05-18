@@ -197,6 +197,32 @@ export interface BusinessDeliveryContractAuditItem {
   requiredEvidence: string[];
 }
 
+export interface BusinessFeatureReleaseEvidence {
+  key: string;
+  title: string;
+  status: 'done' | 'doing' | 'todo';
+  detail: string;
+  action: string;
+}
+
+export interface BusinessFeatureReleaseCheck {
+  key: string;
+  name: string;
+  entry: string;
+  businessKey?: string | null;
+  version?: string | null;
+  mustCheck: string[];
+  releaseEvidence: string;
+  currentRisk: string;
+  status: 'done' | 'doing' | 'todo';
+  summary: string;
+  blockers: string[];
+  warnings: string[];
+  evidence: BusinessFeatureReleaseEvidence[];
+  requiresGpuRun?: boolean;
+  costSensitive?: boolean;
+}
+
 export interface BusinessApiContractEnumDoc {
   field: string;
   value: string;
@@ -209,6 +235,7 @@ export interface BusinessDeliveryContractAuditResponse {
   summary: string;
   checkedAt?: string | null;
   items: BusinessDeliveryContractAuditItem[];
+  featureReleaseChecks?: BusinessFeatureReleaseCheck[];
   enumDocs?: BusinessApiContractEnumDoc[];
   requiredEnumFields?: string[];
   enumValues?: Record<string, string[]>;

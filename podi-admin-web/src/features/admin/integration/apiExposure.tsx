@@ -9,6 +9,7 @@ import type {
   BusinessApiKeyUsageSummary,
   BusinessDeliveryContractAuditItem,
   BusinessDeliveryContractAuditResponse,
+  BusinessFeatureReleaseCheck,
   PublicAbility,
 } from '../../../types/admin';
 import { businessKeyLabel } from './businessLabels';
@@ -78,6 +79,14 @@ type FeatureReleaseChecklistItem = {
   releaseEvidence: string;
   currentRisk: string;
   status: DeliveryGuardStatus;
+  summary?: string;
+  blockers?: string[];
+  warnings?: string[];
+  evidence?: BusinessFeatureReleaseCheck['evidence'];
+  businessKey?: string | null;
+  version?: string | null;
+  requiresGpuRun?: boolean;
+  costSensitive?: boolean;
 };
 
 type DeliveryGuardStatus = 'done' | 'doing' | 'todo';
@@ -1468,11 +1477,15 @@ export function ApiExposurePanel({
     ...item,
     audit: deliveryAuditByKey.get(item.key) || null,
   }));
+  const featureReleaseChecklistRows =
+    businessDeliveryAudit?.featureReleaseChecks && businessDeliveryAudit.featureReleaseChecks.length > 0
+      ? businessDeliveryAudit.featureReleaseChecks
+      : FEATURE_RELEASE_CHECKLIST;
   const businessDeliveryGapRows = businessDeliveryGapMessages(businessDeliveryContractRows);
   const deliveryDecision = buildDeliveryDecision({
     contractChecks: businessApiContractChecks,
     deliveryContracts: businessDeliveryContractRows,
-    releaseChecklist: FEATURE_RELEASE_CHECKLIST,
+    releaseChecklist: featureReleaseChecklistRows,
     activeKeyCount: activeBusinessApiKeyCount,
     usageCount: businessApiUsageCount,
     pollingTooFrequent: businessApiPollingTooFrequent,
@@ -1931,7 +1944,7 @@ export function ApiExposurePanel({
           <Table
             rowKey="key"
             size="small"
-            data={FEATURE_RELEASE_CHECKLIST}
+            data={featureReleaseChecklistRows}
             columns={[
               {
                 colKey: 'status',
@@ -1946,11 +1959,12 @@ export function ApiExposurePanel({
               {
                 colKey: 'name',
                 title: '功能',
-                width: 210,
+                width: 230,
                 cell: ({ row }) => (
                   <Space direction="vertical" size={2}>
                     <Typography.Text strong>{row.name}</Typography.Text>
                     <Typography.Text code>{row.entry}</Typography.Text>
+                    {row.version ? <Typography.Text theme="secondary">版本：{row.version}</Typography.Text> : null}
                   </Space>
                 ),
               },
@@ -1970,13 +1984,46 @@ export function ApiExposurePanel({
               },
               {
                 colKey: 'releaseEvidence',
-                title: '证据',
+                title: '证据状态',
                 ellipsis: true,
+                cell: ({ row }) => (
+                  <Space direction="vertical" size={2}>
+                    <Typography.Text theme="secondary">{row.releaseEvidence}</Typography.Text>
+                    {(row.evidence || []).slice(0, 3).map((item) => (
+                      <Tag key={item.key} size="small" theme={deliveryGuardTheme(item.status)} variant="light">
+                        {item.title}：{item.status === 'done' ? '已通过' : item.status === 'doing' ? '需复核' : '待补齐'}
+                      </Tag>
+                    ))}
+                  </Space>
+                ),
               },
               {
                 colKey: 'currentRisk',
-                title: '当前风险',
+                title: '当前结论',
                 ellipsis: true,
+                cell: ({ row }) => (
+                  <Space direction="vertical" size={2}>
+                    <Typography.Text
+                      theme={row.status === 'done' ? 'success' : row.status === 'doing' ? 'warning' : 'error'}
+                    >
+                      {(row.blockers || []).length
+                        ? `存在 ${(row.blockers || []).length} 个阻断项`
+                        : (row.warnings || []).length
+                          ? `存在 ${(row.warnings || []).length} 个复核项`
+                          : row.summary || row.currentRisk}
+                    </Typography.Text>
+                    {(row.blockers || []).slice(0, 2).map((item) => (
+                      <Typography.Text key={item} theme="error">
+                        {item}
+                      </Typography.Text>
+                    ))}
+                    {!(row.blockers || []).length && (row.warnings || []).slice(0, 2).map((item) => (
+                      <Typography.Text key={item} theme="warning">
+                        {item}
+                      </Typography.Text>
+                    ))}
+                  </Space>
+                ),
               },
             ]}
           />

@@ -173,6 +173,8 @@ backend/.venv/bin/python backend/scripts/podi_release_smoke.py \
 
 `podi_release_smoke.py` 必须包含 `business_truth_source_consistency` 检查项。它同时读取业务版本、业务 OpenAPI、测评目录和业务枚举文档，阻断以下漂移：业务版本缺参数 schema、OpenAPI 缺对应参数、只读编排图缺主能力或路由摘要、测评端缺当前灰度入口、枚举文档缺状态或参数枚举。
 
+`podi_release_smoke.py` 必须包含 `per_feature_release_audit` 检查项。它读取 `/api/admin/business/delivery-contracts` 的 `featureReleaseChecks`，确认逐功能门禁审计结构存在，并覆盖 GPT Image 2 裂变、ComfyUI 颜色锁定裂变、裂变评分和旧 Coze 裂变。该检查默认校验结构和证据可读性；具体阻断项需在管理端接口页和封版结论中逐项处理。
+
 `commercial_report` 在当前阶段只作为账单风险观察项：必须校验返回结构、汇总计费异常和未定价数量，但默认不按历史 `wallet_missing` 强阻断发版。进入正式收费版本时，发布命令必须显式增加 `SMOKE_EXTRA_ARGS="--max-billing-issues 0 --max-unpriced-billing-runs 0"`，把计费异常恢复为强门禁。
 
 Coze 工具箱地址必须从 Coze 容器内验证，不允许只在宿主机用 `127.0.0.1` 判断：
