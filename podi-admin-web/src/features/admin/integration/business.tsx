@@ -922,9 +922,10 @@ export const BusinessCoreDecisionPanel = ({
               </div>
               <div className="podi-business-decision-main">
                 <Typography.Text theme="secondary">当前默认</Typography.Text>
-                <Typography.Text>
-                  {defaultItem ? `${defaultItem.version} · ${defaultItem.displayName}` : '未设置默认版本'}
-                </Typography.Text>
+                <Typography.Text>{businessCapabilityVersionRoleLabel(defaultItem)}</Typography.Text>
+                {defaultItem ? (
+                  <Typography.Text theme="secondary">内部版本：{defaultItem.version}</Typography.Text>
+                ) : null}
                 <Typography.Text theme="secondary">
                   发布时间：{defaultItem ? formatDateTime(defaultItem.releaseTime || defaultItem.createdAt) : '—'}
                 </Typography.Text>
@@ -1081,10 +1082,11 @@ export const BusinessReleaseGuardPanel = ({
                     <Tag theme={row.defaultReady ? 'success' : 'danger'} variant="light">
                       {row.defaultReady ? '可用' : '需处理'}
                     </Tag>
-                    <Typography.Text>
-                      {row.defaultVersion ? `${row.defaultVersion.version} · ${row.defaultVersion.displayName}` : '未设置'}
-                    </Typography.Text>
+                    <Typography.Text>{businessCapabilityVersionRoleLabel(row.defaultVersion)}</Typography.Text>
                   </Space>
+                  {row.defaultVersion ? (
+                    <Typography.Text theme="secondary">内部版本：{row.defaultVersion.version}</Typography.Text>
+                  ) : null}
                   <Typography.Text theme="secondary">
                     {row.defaultVersion?.primaryAbilityName || row.defaultVersion?.primaryAbilityId || '未绑定主能力'}
                   </Typography.Text>
@@ -3684,10 +3686,11 @@ export const BusinessGovernancePanel = ({
             cell: ({ row }) => (
               <Space direction="vertical" size={2}>
                 <Typography.Text strong>
-                  {businessKeyLabel(row.businessKey)} · {row.targetCapability?.version || row.targetCapabilityId}
+                  {businessKeyLabel(row.businessKey)} · {businessCapabilityVersionRoleLabel(row.targetCapability)}
                 </Typography.Text>
                 <Typography.Text theme="secondary">
-                  {row.sourceCapability?.version || '当前默认'} → {row.targetCapability?.displayName || row.targetCapabilityId}
+                  {row.sourceCapability ? businessCapabilityVersionOptionLabel(row.sourceCapability) : '当前默认'} →{' '}
+                  {row.targetCapability ? businessCapabilityVersionOptionLabel(row.targetCapability) : row.targetCapabilityId}
                 </Typography.Text>
               </Space>
             ),
@@ -4745,8 +4748,23 @@ const businessCapabilityVersionLineage = (item?: BusinessCapability | null) => {
   };
 };
 
+const businessCapabilityVersionRoleLabel = (item?: BusinessCapability | null) => {
+  if (!item) return '未设置版本';
+  const line = businessCapabilityVersionLine(item);
+  if (item.isDefault) return `线上默认 · ${line.label}`;
+  if (line.key === 'rollback') return `保底回滚 · ${line.label}`;
+  if (line.key === 'quality-gate') return `质检入口 · ${line.label}`;
+  if (item.status === 'draft') return `草稿验证 · ${line.label}`;
+  return `备选验证 · ${line.label}`;
+};
+
+const businessCapabilityVersionOptionLabel = (item: BusinessCapability) => {
+  const versionLabel = item.version ? `版本 ${item.version}` : '未填版本号';
+  return `${businessCapabilityVersionRoleLabel(item)} · ${versionLabel}`;
+};
+
 const businessCapabilityVersionBrief = (item?: BusinessCapability | null) =>
-  item ? `${item.version} · ${item.displayName}` : '';
+  item ? businessCapabilityVersionOptionLabel(item) : '';
 
 const businessCapabilityVersionRelationLabel = (item: BusinessCapability, items: BusinessCapability[]) => {
   const lineage = businessCapabilityVersionLineage(item);
@@ -5046,12 +5064,13 @@ export const BusinessEntryCommandPanel = ({
                 <Typography.Text code>{businessApiEntryPath(row.businessKey)}</Typography.Text>
               </div>
               <div className="podi-business-command-cell">
-                <Typography.Text strong>
-                  {row.defaultItem ? `${row.defaultItem.version} · ${row.defaultItem.displayName}` : '未设置默认版本'}
-                </Typography.Text>
+                <Typography.Text strong>{businessCapabilityVersionRoleLabel(row.defaultItem)}</Typography.Text>
                 <Typography.Text theme="secondary">
                   发布：{row.defaultItem ? formatDateTime(row.defaultItem.releaseTime || row.defaultItem.createdAt) : '—'}
                 </Typography.Text>
+                {row.defaultItem ? (
+                  <Typography.Text theme="secondary">内部版本：{row.defaultItem.version}</Typography.Text>
+                ) : null}
                 <Space size={6} breakLine>
                   <Tag theme={row.defaultItem?.status === 'active' ? 'success' : 'default'} variant="light" size="small">
                     启用 {row.activeCount}/{row.items.length}
@@ -5146,9 +5165,10 @@ export const BusinessCoreClosurePanel = ({
             </div>
             <div className="podi-business-closure-item__version">
               <Typography.Text theme="secondary">当前默认</Typography.Text>
-              <Typography.Text>
-                {row.defaultItem ? `${row.defaultItem.version} · ${row.defaultItem.displayName}` : '未设置默认版本'}
-              </Typography.Text>
+              <Typography.Text>{businessCapabilityVersionRoleLabel(row.defaultItem)}</Typography.Text>
+              {row.defaultItem ? (
+                <Typography.Text theme="secondary">内部版本：{row.defaultItem.version}</Typography.Text>
+              ) : null}
               <Typography.Text theme="secondary">
                 发布时间：{row.defaultItem ? formatDateTime(row.defaultItem.releaseTime || row.defaultItem.createdAt) : '—'}
               </Typography.Text>
@@ -5289,7 +5309,7 @@ export const BusinessOrchestrationMapPanel = ({
               <Typography.Text theme="secondary">{businessUsageDigest(summary, row.businessKey)}</Typography.Text>
               <Typography.Text theme="secondary">
                 {row.defaultItem
-                  ? `${businessCapabilityVersionLine(row.defaultItem).label} · ${row.defaultItem.displayName}`
+                  ? `默认走：${businessCapabilityVersionLine(row.defaultItem).label} · 版本 ${row.defaultItem.version}`
                   : '未设置默认版本'}
               </Typography.Text>
             </button>
@@ -5319,7 +5339,7 @@ export const BusinessOrchestrationMapPanel = ({
                   <Select
                     value={selectedCapability?.id || ''}
                     options={selectedVersionItems.map((item) => ({
-                      label: `${item.isDefault ? '默认 · ' : ''}${businessCapabilityVersionLine(item).label} · ${item.version} · ${item.displayName}`,
+                      label: businessCapabilityVersionOptionLabel(item),
                       value: item.id,
                     }))}
                     onChange={(value) =>
@@ -5329,11 +5349,14 @@ export const BusinessOrchestrationMapPanel = ({
                   <Typography.Text theme="secondary">
                     版本族：{selectedCapability ? selectedCapabilityLine.label : '未设置'}
                   </Typography.Text>
-                  <Typography.Text strong>{selectedCapability?.displayName || '未设置业务版本'}</Typography.Text>
+                  <Typography.Text strong>{businessCapabilityVersionRoleLabel(selectedCapability)}</Typography.Text>
                   {selectedCapability ? (
                     <Typography.Text theme="secondary">
-                      版本：{selectedCapability.version}{selectedCapability.isDefault ? ' · 当前默认' : ''}
+                      内部版本：{selectedCapability.version}
                     </Typography.Text>
+                  ) : null}
+                  {selectedCapability?.displayName ? (
+                    <Typography.Text theme="secondary">技术说明：{selectedCapability.displayName}</Typography.Text>
                   ) : null}
                   <Typography.Text theme="secondary">
                     发布：{selectedCapability ? formatDateTime(selectedCapability.releaseTime || selectedCapability.createdAt) : '—'}
@@ -5393,8 +5416,9 @@ export const BusinessOrchestrationMapPanel = ({
                       theme={item.id === selectedCapability?.id ? 'primary' : (businessCapabilityVersionLine(item).theme as any)}
                       variant="light"
                       size="small"
+                      title={businessCapabilityVersionOptionLabel(item)}
                     >
-                      {businessCapabilityVersionLine(item).label} · {item.version}
+                      {item.isDefault ? '线上默认' : businessCapabilityVersionLine(item).label}
                     </Tag>
                   ))}
                   {selectedVersionItems.length > 5 ? <Tag variant="light" size="small">+{selectedVersionItems.length - 5}</Tag> : null}
@@ -5724,7 +5748,7 @@ export const BusinessCapabilityGrid = ({
                   </div>
                   <Space breakLine>
                     <Tag theme={defaultItem ? 'success' : 'danger'} variant="light">
-                      默认：{defaultItem ? `${businessCapabilityVersionLine(defaultItem).label} · ${defaultItem.displayName}` : '未设置'}
+                      默认：{defaultItem ? businessCapabilityVersionRoleLabel(defaultItem) : '未设置'}
                     </Tag>
                     <Tag variant="light">启用 {activeCount}/{items.length}</Tag>
                   </Space>
@@ -5772,11 +5796,12 @@ export const BusinessCapabilityGrid = ({
                       <Space direction="vertical" size="small" style={{ width: '100%' }}>
                         <Space align="start" style={{ justifyContent: 'space-between', width: '100%', gap: 10 }}>
                           <div style={{ minWidth: 0 }}>
-                            <Typography.Text strong>{item.displayName}</Typography.Text>
+                            <Typography.Text strong>{businessCapabilityVersionRoleLabel(item)}</Typography.Text>
                             <div>
-                              <Typography.Text theme="secondary">
-                                {businessCapabilityMediaLabel(item)}
-                              </Typography.Text>
+                              <Typography.Text theme="secondary">{item.displayName}</Typography.Text>
+                            </div>
+                            <div>
+                              <Typography.Text theme="secondary">{businessCapabilityMediaLabel(item)}</Typography.Text>
                             </div>
                           </div>
                           <Tag theme={risk.theme as any} variant="light">
