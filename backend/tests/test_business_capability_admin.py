@@ -1193,6 +1193,49 @@ def test_internal_patrol_run_is_no_charge_even_when_costed(monkeypatch) -> None:
     assert items == []
 
 
+def test_internal_realtest_run_is_no_charge_without_cost_policy(monkeypatch) -> None:
+    install_business_db(monkeypatch)
+    service = BusinessRunService()
+    now = datetime.utcnow()
+
+    with business_runs_module.get_session() as session:
+        session.add(
+            BusinessRun(
+                id="run_internal_realtest_unpriced",
+                business_key="fission_evaluate",
+                business_version_id="biz_fission_evaluate_v1",
+                version="v1",
+                status="succeeded",
+                source="partner-api",
+                channel="open-api",
+                tenant_id="podi-internal-realtest",
+                client_id="codex-realtest",
+                ability_id="vl_fission_generated_image_evaluate",
+                texts=['{"decision":"pass","score":86}'],
+                request_payload={
+                    "_trace": {
+                        "source": "partner-api",
+                        "tenantId": "podi-internal-realtest",
+                        "clientId": "codex-realtest",
+                    },
+                },
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.commit()
+
+    fetched = service.get_run(run_id="run_internal_realtest_unpriced", user=None)
+    assert fetched["billing_status"] == "no_charge"
+    assert fetched["chargeable"] is False
+    assert fetched["no_charge_reason"] == "内部巡检任务，不进入业务收费账单"
+
+    summary = service.usage_summary(window_hours=24, business_key="fission_evaluate")
+    assert summary["unpriced"] == 0
+    assert summary["no_charge"] == 1
+    assert summary["unresolved_issues"] == []
+
+
 def test_business_run_derives_cost_from_vendor_model_policy(monkeypatch) -> None:
     vendor_model_id = install_business_db(monkeypatch)
 

@@ -74,8 +74,8 @@ VENDOR_KEY_CHECK_STALE_DAYS = 7
 RECIPE_EXECUTABLE_STEP_TYPES = {"ability_task", "comfyui_workflow", "vendor_api", "vl_analyze", "vl_analyze_image"}
 RECIPE_PASSIVE_STEP_TYPES = {"input_mapping", "output_mapping", "prompt_template", "note"}
 INTERNAL_NO_CHARGE_SOURCES = {"business-api-patrol"}
-INTERNAL_NO_CHARGE_TENANTS = {"podi-internal-patrol"}
-INTERNAL_NO_CHARGE_CLIENTS = {"business-api-patrol"}
+INTERNAL_NO_CHARGE_TENANTS = {"podi-internal-patrol", "podi-internal-realtest"}
+INTERNAL_NO_CHARGE_CLIENTS = {"business-api-patrol", "codex-realtest"}
 NO_CHARGE_BILLING_MODES = {"no_charge", "no-charge", "free", "internal", "internal_patrol", "patrol", "test"}
 
 
