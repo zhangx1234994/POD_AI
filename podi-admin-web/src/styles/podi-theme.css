@@ -878,8 +878,7 @@ html.t-theme-dark {
   cursor: grabbing;
 }
 
-.podi-business-flow-canvas .react-flow__controls,
-.podi-business-flow-canvas .react-flow__minimap {
+.podi-business-flow-canvas .react-flow__controls {
   border: 1px solid var(--td-border-level-1-color);
   border-radius: 12px;
   overflow: hidden;
@@ -1016,6 +1015,32 @@ html.t-theme-dark {
   gap: 8px;
   border-top: 1px dashed var(--td-border-level-1-color);
   padding-top: 10px;
+}
+
+.podi-business-version-lineage {
+  display: grid;
+  gap: 8px;
+  border: 1px solid color-mix(in srgb, var(--td-border-level-1-color) 82%, var(--podi-accent-soft));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--td-bg-color-page) 80%, var(--podi-accent-soft));
+  padding: 10px;
+}
+
+.podi-business-version-lineage__grid {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 6px 8px;
+  font-size: 12px;
+}
+
+.podi-business-version-lineage__grid span {
+  color: var(--td-text-color-secondary);
+}
+
+.podi-business-version-lineage__grid strong {
+  color: var(--td-text-color-primary);
+  font-weight: 600;
+  word-break: break-word;
 }
 
 .podi-business-workflow-map-card {

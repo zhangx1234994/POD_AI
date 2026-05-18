@@ -17,6 +17,19 @@ from fastapi.responses import Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import and_, case, func, or_, select
 
+from app.constants.business_api_contract import (
+    BUSINESS_API_ENUM_DOCS,
+    BUSINESS_ROUTE_SELECTED_BY_VALUES,
+    BUSINESS_ROUTE_SELECTED_STATUS_VALUES,
+    BUSINESS_TASK_STATUS_VALUES,
+    COMFYUI_FISSION_PROFILE_VALUES,
+    COMFYUI_FISSION_VARIATION_PRESET_VALUES,
+    FISSION_PATTERN_RISK_TYPE_VALUES,
+    GPT_IMAGE2_QUALITY_VALUES,
+    GPT_IMAGE2_SIZE_VALUES,
+    GPT_IMAGE2_VARIATION_STRENGTH_VALUES,
+    business_api_contract_payload,
+)
 from app.core.config import get_settings
 from app.core.db import get_session
 from app.deps.auth import get_current_user, require_admin
@@ -377,13 +390,23 @@ def _resolve_business_user(
     settings = get_settings()
     token = credentials.credentials if credentials and credentials.scheme.lower() == "bearer" else None
     if token and settings.service_api_token and token == settings.service_api_token:
+        _ensure_business_usage_context(request, auth_type="service_token", api_key_name="服务令牌")
         return auth_service.build_service_user()
     api_key_user = _resolve_business_api_key_user(request, token)
     if api_key_user is not None:
         return api_key_user
     if token:
-        return get_current_user(request=request, credentials=credentials)  # type: ignore[arg-type]
+        user = get_current_user(request=request, credentials=credentials)  # type: ignore[arg-type]
+        _ensure_business_usage_context(
+            request,
+            auth_type="platform_jwt",
+            api_key_name="平台登录",
+            tenant_id=getattr(user, "tenant_id", None),
+            client_id=getattr(user, "client_id", None),
+        )
+        return user
     if _is_internal_request(request):
+        _ensure_business_usage_context(request, auth_type="internal_request", api_key_name="内部请求")
         return auth_service.build_service_user()
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="AUTHORIZATION_REQUIRED")
 
@@ -411,6 +434,31 @@ def _client_ip(request: Request) -> str | None:
         if value:
             return value.split(",", 1)[0].strip()[:64]
     return request.client.host[:64] if request.client and request.client.host else None
+
+
+def _ensure_business_usage_context(
+    request: Request,
+    *,
+    auth_type: str,
+    api_key_id: str | None = None,
+    api_key_name: str | None = None,
+    api_key_preview: str | None = None,
+    tenant_id: str | None = None,
+    client_id: str | None = None,
+    allowed_business_keys: list[str] | str | None = None,
+) -> None:
+    if isinstance(getattr(request.state, "business_api_key_context", None), dict):
+        return
+    request.state.business_api_key_context = {
+        "apiKeyId": api_key_id,
+        "apiKeyName": api_key_name,
+        "apiKeyPreview": api_key_preview,
+        "tenantId": tenant_id,
+        "clientId": client_id,
+        "allowedBusinessKeys": allowed_business_keys or [],
+        "authType": auth_type,
+        "startedAt": time.perf_counter(),
+    }
 
 
 def _string_meta(metadata: dict[str, Any], *keys: str) -> str | None:
@@ -872,12 +920,12 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "status": {
                 "type": "string",
                 "description": "提交后的状态，通常是 queued 或 running。",
-                "enum": ["queued", "running", "succeeded", "failed"],
+                "enum": BUSINESS_TASK_STATUS_VALUES,
             },
             "taskStatus": {
                 "type": "string",
                 "description": "兼容 Coze 的状态字段，值与 status 一致。",
-                "enum": ["queued", "running", "succeeded", "failed"],
+                "enum": BUSINESS_TASK_STATUS_VALUES,
             },
             "traceId": {"type": "string", "nullable": True, "description": "链路追踪 ID。"},
             "requestId": {"type": "string", "nullable": True, "description": "业务方请求 ID。"},
@@ -899,12 +947,12 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "status": {
                 "type": "string",
                 "description": "业务任务状态：queued/running/succeeded/failed。",
-                "enum": ["queued", "running", "succeeded", "failed"],
+                "enum": BUSINESS_TASK_STATUS_VALUES,
             },
             "taskStatus": {
                 "type": "string",
                 "description": "兼容 Coze 轮询字段，值与 status 保持一致。",
-                "enum": ["queued", "running", "succeeded", "failed"],
+                "enum": BUSINESS_TASK_STATUS_VALUES,
             },
             "imageUrl": {"type": "string", "nullable": True, "description": "第一张结果图，兼容 Coze 字段。"},
             "imageUrls": {"type": "array", "items": {"type": "string"}, "description": "全部结果图。"},
@@ -944,13 +992,13 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
             "selectedStatus": {
                 "type": "string",
                 "description": "命中版本状态。",
-                "enum": ["active", "disabled", "archived"],
+                "enum": BUSINESS_ROUTE_SELECTED_STATUS_VALUES,
             },
             "selectedIsDefault": {"type": "boolean"},
             "selectedBy": {
                 "type": "string",
                 "description": "版本选择原因：显式指定、默认版本、白名单灰度或比例灰度。",
-                "enum": ["explicit", "default", "rollout_allowlist", "rollout_percent"],
+                "enum": BUSINESS_ROUTE_SELECTED_BY_VALUES,
             },
             "routeInfo": {"type": "object"},
             "defaultCapabilityId": {"type": "string", "nullable": True},
@@ -1001,19 +1049,14 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                 "type": "string",
                 "nullable": True,
                 "description": "裂变配置；ComfyUI 智能路由版默认 pattern_risk_routed_v4，旧版可继续兼容 pattern_default_v1。",
-                "enum": [
-                    "pattern_risk_routed_v4",
-                    "pattern_color_lock_v2",
-                    "pattern_color_lock_strict_v2",
-                    "pattern_default_v1",
-                ],
+                "enum": COMFYUI_FISSION_PROFILE_VALUES,
             },
             "mode": {"type": "string", "nullable": True, "description": "执行模式；当前图裂变固定使用 fission。", "enum": ["fission"]},
             "variation_preset": {
                 "type": "string",
                 "nullable": True,
                 "description": "测评/业务侧参数预设名称；用于日志和排查，不会覆盖显式传入的 bili/reference_lock/color_lock。",
-                "enum": ["default-high", "safe", "object-strong", "color-free"],
+                "enum": COMFYUI_FISSION_VARIATION_PRESET_VALUES,
             },
             "reference_lock": {
                 "type": "number",
@@ -1034,7 +1077,7 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                 "type": "string",
                 "nullable": True,
                 "description": "VL 图案风险类型；通常由中台自动生成，业务方一般不需要传。",
-                "enum": ["element_pattern", "object_variation", "text_or_logo", "border_or_layout", "unknown"],
+                "enum": FISSION_PATTERN_RISK_TYPE_VALUES,
             },
             "image_desc": {"type": "string", "nullable": True, "description": "图片描述，可由 VL 分析结果填入。"},
             "batch_size": {
@@ -1048,28 +1091,19 @@ def get_business_openapi(request: Request) -> dict[str, Any]:
                 "type": "string",
                 "nullable": True,
                 "description": "GPT Image 2 裂变幅度：conservative / same_series / creative_same_series。",
-                "enum": ["conservative", "same_series", "creative_same_series"],
+                "enum": GPT_IMAGE2_VARIATION_STRENGTH_VALUES,
             },
             "quality": {
                 "type": "string",
                 "nullable": True,
                 "description": "商业模型质量档位：preview / candidate / premium。",
-                "enum": ["preview", "candidate", "premium"],
+                "enum": GPT_IMAGE2_QUALITY_VALUES,
             },
             "size": {
                 "type": "string",
                 "nullable": True,
                 "description": "GPT Image 2 比例尺寸预设；默认 auto，高分辨率档位成本和耗时更高。",
-                "enum": [
-                    "auto",
-                    "1024x1024",
-                    "1536x1024",
-                    "1024x1536",
-                    "2048x2048",
-                    "2048x1152",
-                    "3840x2160",
-                    "2160x3840",
-                ],
+                "enum": GPT_IMAGE2_SIZE_VALUES,
             },
             "output_format": {"type": "string", "nullable": True, "description": "GPT Image 2 输出格式，默认 png。", "enum": ["png", "jpeg", "webp"]},
             "maskUrl": {"type": "string", "nullable": True, "description": "可选蒙版 URL；用于局部编辑。"},
@@ -1698,10 +1732,16 @@ def _business_delivery_contract_audit() -> dict[str, Any]:
             }
         )
     ok, detail = smoke._validate_business_delivery_docs(root)
+    contract_payload = business_api_contract_payload()
     return {
         "ok": ok,
         "summary": detail,
         "items": items,
+        "enumDocs": contract_payload["enumDocs"],
+        "requiredEnumFields": contract_payload["requiredEnumFields"],
+        "enumValues": contract_payload["values"],
+        "contractSource": contract_payload["source"],
+        "contractVersion": contract_payload["version"],
         "checkedAt": datetime.utcnow().isoformat(),
     }
 

@@ -17,6 +17,11 @@ from typing import Any
 
 import httpx
 
+try:
+    from app.constants.business_api_contract import business_api_enum_doc_tokens
+except Exception:  # pragma: no cover - smoke can still validate docs in stripped envs
+    business_api_enum_doc_tokens = None
+
 
 PUBLIC_EVAL_WORKFLOW_ROLES = {"production", "candidate"}
 INTERNAL_EVAL_WORKFLOW_ROLES = PUBLIC_EVAL_WORKFLOW_ROLES | {"auxiliary"}
@@ -191,7 +196,7 @@ BUSINESS_TRUTH_SOURCE_SPECS: tuple[dict[str, Any], ...] = (
     },
 )
 
-BUSINESS_API_ENUM_DOC_TOKENS = (
+BUSINESS_API_ENUM_DOC_TOKENS = tuple(business_api_enum_doc_tokens()) if business_api_enum_doc_tokens else (
     "queued",
     "running",
     "succeeded",

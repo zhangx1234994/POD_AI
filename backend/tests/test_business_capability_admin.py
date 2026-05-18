@@ -198,7 +198,18 @@ def test_business_capability_create_sets_default_and_resolves_model(monkeypatch)
             status="active",
             isDefault=True,
             primaryAbilityId="ability_openai_fission",
-            metadata={**passed_acceptance_metadata(), "release_note": "test"},
+            metadata={
+                **passed_acceptance_metadata(),
+                "release_note": "test",
+                "versionLineage": {
+                    "parentVersionId": "biz_fission_old",
+                    "supersedesVersionId": "biz_fission_old",
+                    "changeSummary": "商业模型线验证通过后替代旧图裂变。",
+                    "breakingChange": False,
+                    "decision": "version_upgrade",
+                    "decisionNote": "入口不变，只替换底层模型。",
+                },
+            },
         )
     )
 
@@ -209,12 +220,25 @@ def test_business_capability_create_sets_default_and_resolves_model(monkeypatch)
     assert created["primary_ability_name"] == "GPT Image 2 图裂变"
     assert created["vendor_model_id"] == vendor_model_id
     assert created["vendor_model_name"] == "GPT Image 2"
+    assert created["version_line"]["key"] == "commercial-model"
+    assert created["version_line"]["label"] == "商业模型线"
+    assert created["version_lineage"]["parentVersionId"] == "biz_fission_old"
+    assert created["version_lineage"]["supersedesVersionId"] == "biz_fission_old"
+    assert created["version_lineage"]["changeSummary"] == "商业模型线验证通过后替代旧图裂变。"
+    assert created["version_lineage"]["breakingChange"] is False
+    assert created["version_lineage"]["decision"] == "version_upgrade"
+    assert created["version_lineage"]["decisionNote"] == "入口不变，只替换底层模型。"
     assert created["governance_status"] == "ready"
     assert created["runtime_key_configured"] is True
     assert created["model_cost_configured"] is True
     assert created["egress_verified"] is True
     assert created["orchestration_graph"]["mode"] == "recipe"
+    assert created["orchestration_graph"]["businessKey"] == "fission"
+    assert created["orchestration_graph"]["businessVersionId"] == created["id"]
+    assert created["orchestration_graph"]["businessVersion"] == "v2"
     assert [node["id"] for node in created["orchestration_graph"]["nodes"]] == ["entry", "primary", "result"]
+    assert created["orchestration_graph"]["nodes"][0]["businessKey"] == "fission"
+    assert created["orchestration_graph"]["nodes"][0]["version"] == "v2"
     primary_node = created["orchestration_graph"]["nodes"][1]
     assert primary_node["inputSchema"]["fieldCount"] == 2
     assert primary_node["defaultParams"]["size"] == "1024x1024"
@@ -265,6 +289,48 @@ def test_business_capability_governance_ready_when_vendor_runtime_is_configured(
     assert created["governance_issues"] == []
     assert created["runtime_key_configured"] is True
     assert created["model_cost_configured"] is True
+
+
+def test_business_capability_governance_detects_stale_recipe_step_ability(monkeypatch) -> None:
+    install_business_db(monkeypatch, with_vendor_cost=True, with_vendor_key=True, with_vendor_acceptance=True)
+    service = BusinessRunService()
+
+    with business_runs_module.get_session() as session:
+        session.add(
+            BusinessCapability(
+                id="biz_fission_stale_step",
+                business_key="fission",
+                version="stale-step",
+                display_name="图裂变异常步骤",
+                status="active",
+                is_default=False,
+                recipe={
+                    "mode": "pipeline",
+                    "primaryAbilityId": "ability_openai_fission",
+                    "steps": [
+                        {
+                            "id": "primary",
+                            "type": "ability_task",
+                            "role": "primary",
+                            "abilityId": "ability_openai_fission",
+                        },
+                        {
+                            "id": "score",
+                            "type": "ability_task",
+                            "role": "postprocess",
+                            "abilityId": "missing_score_ability",
+                        },
+                    ],
+                },
+            )
+        )
+        session.commit()
+
+    listed = {item["id"]: item for item in service.list_capabilities()}
+    stale = listed["biz_fission_stale_step"]
+    assert stale["governance_status"] == "blocker"
+    assert "BUSINESS_GOVERNANCE_STEP_ABILITY_NOT_FOUND" in stale["governance_issues"]
+    assert any("引用了不存在的能力" in item for item in stale["governance_suggestions"])
 
 
 def test_business_capability_governance_blocks_unaccepted_vendor_model(monkeypatch) -> None:
@@ -774,8 +840,29 @@ def test_business_capability_create_accepts_multistep_recipe(monkeypatch) -> Non
         "ability_openai_fission",
     ]
     assert created["recipe_steps"][0]["abilityName"] == "VL 图像理解"
+    assert created["version_lineage"]["decision"] == "version_upgrade"
+    assert "同一业务入口" in created["version_lineage"]["decisionNote"]
     assert created["orchestration_graph"]["summary"]["hasVlStep"] is True
     assert [edge["target"] for edge in created["orchestration_graph"]["edges"]] == ["vl", "primary", "result"]
+
+
+def test_business_capability_lineage_infers_rollback_when_old_metadata_unknown(monkeypatch) -> None:
+    install_business_db(monkeypatch)
+    service = BusinessRunService()
+
+    created = service.create_capability(
+        BusinessCapabilityCreateRequest(
+            businessKey="fission",
+            version="rollback-e7-v1",
+            displayName="图裂变 · E7 保底版",
+            status="active",
+            primaryAbilityId="ability_openai_fission",
+            metadata={"versionLineage": {"decision": "unknown"}},
+        )
+    )
+
+    assert created["version_lineage"]["decision"] == "rollback"
+    assert created["version_lineage"]["decisionNote"] == "保底回滚版本，只在主线异常时切回，不作为新业务入口。"
 
 
 def test_business_run_records_recipe_steps(monkeypatch) -> None:

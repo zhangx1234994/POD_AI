@@ -4699,6 +4699,96 @@ class BusinessRunService:
                 )
         return normalized
 
+    @classmethod
+    def _recipe_control_issues(cls, *, recipe: dict[str, Any], session=None) -> list[dict[str, Any]]:
+        """Return structural recipe issues that would otherwise surface only at runtime."""
+
+        issues: list[dict[str, Any]] = []
+        normalized_steps = cls._normalized_recipe_steps(recipe)
+        seen_step_ids: set[str] = set()
+        duplicate_step_ids: list[str] = []
+        primary_ability_id: str | None = None
+        try:
+            primary_ability_id = cls._extract_primary_ability_id(recipe)
+        except HTTPException:
+            primary_ability_id = None
+
+        for step in normalized_steps:
+            if step.get("enabled") is False:
+                continue
+            step_id = str(step.get("id") or "").strip()
+            if step_id:
+                if step_id in seen_step_ids and step_id not in duplicate_step_ids:
+                    duplicate_step_ids.append(step_id)
+                seen_step_ids.add(step_id)
+
+            step_type = str(step.get("type") or "").strip()
+            ability_id = cls._extract_step_ability_id(step)
+            is_executable = step_type in RECIPE_EXECUTABLE_STEP_TYPES or bool(ability_id)
+            if not is_executable:
+                continue
+            if not ability_id:
+                issues.append(
+                    {
+                        "code": "BUSINESS_GOVERNANCE_STEP_ABILITY_MISSING",
+                        "stepId": step_id,
+                        "detail": "可执行步骤缺少 abilityId。",
+                    }
+                )
+                continue
+            if session is None:
+                continue
+            ability = session.get(Ability, ability_id)
+            if ability is None:
+                issues.append(
+                    {
+                        "code": "BUSINESS_GOVERNANCE_STEP_ABILITY_NOT_FOUND",
+                        "stepId": step_id,
+                        "abilityId": ability_id,
+                        "detail": "配方引用的能力在能力目录中不存在。",
+                    }
+                )
+            elif ability.status != "active":
+                issues.append(
+                    {
+                        "code": "BUSINESS_GOVERNANCE_STEP_ABILITY_INACTIVE",
+                        "stepId": step_id,
+                        "abilityId": ability_id,
+                        "detail": "配方引用的能力未启用。",
+                    }
+                )
+
+        if duplicate_step_ids:
+            issues.append(
+                {
+                    "code": "BUSINESS_GOVERNANCE_RECIPE_STEP_ID_DUPLICATED",
+                    "stepIds": duplicate_step_ids,
+                    "detail": "配方步骤编号重复，编排图和运行步骤可能无法一一对应。",
+                }
+            )
+
+        primary_steps = [
+            step
+            for step in normalized_steps
+            if step.get("enabled") is not False
+            and (str(step.get("role") or "").strip() == "primary" or str(step.get("id") or "").strip() == "primary")
+        ]
+        mismatched_primary_steps = [
+            step
+            for step in primary_steps
+            if primary_ability_id and cls._extract_step_ability_id(step) and cls._extract_step_ability_id(step) != primary_ability_id
+        ]
+        if mismatched_primary_steps:
+            issues.append(
+                {
+                    "code": "BUSINESS_GOVERNANCE_RECIPE_PRIMARY_STEP_MISMATCH",
+                    "primaryAbilityId": primary_ability_id,
+                    "stepIds": [str(step.get("id") or "").strip() for step in mismatched_primary_steps],
+                    "detail": "primaryAbilityId 与主步骤绑定的能力不一致。",
+                }
+            )
+        return issues
+
     def _recipe_steps_to_dict(self, recipe: dict[str, Any], *, session=None) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         for order, step in enumerate(self._normalized_recipe_steps(recipe), start=1):
@@ -4714,7 +4804,9 @@ class BusinessRunService:
                 "abilityId": ability_id,
                 "abilityName": ability.display_name if ability else None,
                 "abilityProvider": ability.provider if ability else None,
-                "inputSchema": self._summarize_ability_input_schema(ability.input_schema) if ability else None,
+                "inputSchema": self._summarize_ability_input_schema(ability.input_schema, ability=ability)
+                if ability
+                else None,
                 "defaultParams": self._compact_graph_json(ability.default_params) if ability else None,
                 "routing": self._ability_routing_summary(ability) if ability else None,
                 "recipeInputs": self._compact_graph_json(self._extract_step_inputs(step)),
@@ -4723,7 +4815,16 @@ class BusinessRunService:
             rows.append({key: value for key, value in item.items() if value is not None})
         return rows
 
-    def _build_recipe_orchestration_graph(self, recipe: dict[str, Any], *, session=None) -> dict[str, Any]:
+    def _build_recipe_orchestration_graph(
+        self,
+        recipe: dict[str, Any],
+        *,
+        session=None,
+        business_key: str | None = None,
+        business_version_id: str | None = None,
+        business_version: str | None = None,
+        business_display_name: str | None = None,
+    ) -> dict[str, Any]:
         steps = self._recipe_steps_to_dict(recipe, session=session)
         nodes: list[dict[str, Any]] = [
             {
@@ -4733,6 +4834,9 @@ class BusinessRunService:
                 "label": "业务入口",
                 "order": 0,
                 "status": "planned",
+                "businessKey": business_key,
+                "version": business_version,
+                "displayName": business_display_name,
             }
         ]
         edges: list[dict[str, Any]] = []
@@ -4780,6 +4884,10 @@ class BusinessRunService:
         return {
             "version": 1,
             "mode": "recipe",
+            "businessKey": business_key,
+            "businessVersionId": business_version_id,
+            "businessVersion": business_version,
+            "businessDisplayName": business_display_name,
             "nodes": nodes,
             "edges": edges,
             "summary": {
@@ -5205,8 +5313,21 @@ class BusinessRunService:
             "vendor_model_id": vendor_model_id,
             "vendor_model_name": vendor_model_name,
             "vendor_model_provider": vendor_model_provider,
+            "version_line": self._business_capability_version_line(
+                row,
+                primary_ability_provider=primary_ability_provider,
+                vendor_model_provider=vendor_model_provider,
+            ),
+            "version_lineage": self._business_capability_version_lineage(row),
             "recipe_steps": self._recipe_steps_to_dict(recipe, session=session),
-            "orchestration_graph": self._build_recipe_orchestration_graph(recipe, session=session),
+            "orchestration_graph": self._build_recipe_orchestration_graph(
+                recipe,
+                session=session,
+                business_key=row.business_key,
+                business_version_id=row.id,
+                business_version=row.version,
+                business_display_name=row.display_name,
+            ),
             "governance_status": governance["status"],
             "governance_issues": governance["issues"],
             "governance_suggestions": governance["suggestions"],
@@ -5220,6 +5341,116 @@ class BusinessRunService:
             "run_metrics": run_metrics,
             "created_at": row.created_at,
             "updated_at": row.updated_at,
+        }
+
+    @staticmethod
+    def _business_capability_version_line(
+        row: BusinessCapability,
+        *,
+        primary_ability_provider: str | None = None,
+        vendor_model_provider: str | None = None,
+    ) -> dict[str, Any]:
+        metadata = row.extra_metadata if isinstance(row.extra_metadata, dict) else {}
+        version = (row.version or "").lower()
+        display_name = (row.display_name or "").lower()
+        role = str(metadata.get("role") or "").lower()
+        has_vendor_model = bool(vendor_model_provider)
+        provider = str(
+            metadata.get("provider")
+            or primary_ability_provider
+            or vendor_model_provider
+            or ""
+        ).lower()
+
+        if "rollback" in role or metadata.get("rollbackSafety") or "rollback" in version or "保底" in display_name:
+            return {
+                "key": "rollback",
+                "label": "保底回滚",
+                "detail": "只在主线异常时切回，不作为新功能入口。",
+                "priority": 80,
+            }
+        if "comfyui" in provider or "comfyui" in version or "comfyui" in display_name:
+            return {
+                "key": "comfyui",
+                "label": "ComfyUI 自研线",
+                "detail": "业务仍是同一个入口，底层由 ComfyUI 工作流执行。",
+                "priority": 20,
+            }
+        if "coze" in str(metadata.get("entry") or "").lower() or "coze" in display_name:
+            return {
+                "key": "coze",
+                "label": "Coze 旧链路",
+                "detail": "兼容旧业务接入，不作为新功能命名。",
+                "priority": 70,
+            }
+        commercial_provider_tokens = ("openai", "gpt-image", "kie", "volcengine", "doubao", "qwen", "seedream", "vendor-api")
+        if has_vendor_model or any(token in provider for token in commercial_provider_tokens) or "gpt-image" in version or "gpt image" in display_name:
+            return {
+                "key": "commercial-model",
+                "label": "商业模型线",
+                "detail": "业务仍是同一个入口，底层改用商业模型执行。",
+                "priority": 30,
+            }
+        return {
+            "key": "standard",
+            "label": "生产主线" if row.is_default else "标准版本",
+            "detail": "同一业务入口下的稳定版本。",
+            "priority": 10 if row.is_default else 50,
+        }
+
+    @staticmethod
+    def _business_capability_version_lineage(row: BusinessCapability) -> dict[str, Any]:
+        metadata = row.extra_metadata if isinstance(row.extra_metadata, dict) else {}
+        raw = metadata.get("versionLineage") or metadata.get("version_lineage")
+        if not isinstance(raw, dict):
+            raw = {}
+
+        def text_value(*keys: str) -> str | None:
+            for key in keys:
+                value = raw.get(key)
+                if value is None:
+                    continue
+                text = str(value).strip()
+                if text:
+                    return text
+            return None
+
+        def infer_decision() -> str:
+            text = " ".join(
+                [
+                    str(row.version or ""),
+                    str(row.display_name or ""),
+                    str(metadata.get("role") or ""),
+                ]
+            ).lower()
+            if (
+                "rollback" in text
+                or "回滚" in text
+                or "保底" in text
+                or bool(metadata.get("rollbackSafety"))
+            ):
+                return "rollback"
+            return "version_upgrade"
+
+        decision = text_value("decision", "versionDecision", "version_decision")
+        if decision not in {"version_upgrade", "new_feature", "rollback"}:
+            decision = infer_decision()
+        decision_note = text_value("decisionNote", "decision_note")
+        if not decision_note:
+            if decision == "rollback":
+                decision_note = "保底回滚版本，只在主线异常时切回，不作为新业务入口。"
+            elif decision == "version_upgrade":
+                decision_note = "同一业务入口下的版本迭代；除非明确新建分类，否则按版本升级处理。"
+            elif decision == "new_feature":
+                decision_note = "入口含义发生变化，需要作为独立业务管理。"
+
+        return {
+            "parentVersionId": text_value("parentVersionId", "parent_version_id", "sourceVersionId", "source_version_id"),
+            "supersedesVersionId": text_value("supersedesVersionId", "supersedes_version_id"),
+            "changeSummary": text_value("changeSummary", "change_summary", "releaseNote", "release_note"),
+            "breakingChange": bool(raw.get("breakingChange") or raw.get("breaking_change")),
+            "decision": decision,
+            "decisionNote": decision_note,
         }
 
     @staticmethod
@@ -5348,6 +5579,22 @@ class BusinessRunService:
         if not executable_steps:
             issues.append("BUSINESS_GOVERNANCE_EXECUTABLE_STEP_MISSING")
             suggestions.append("业务配方没有可执行步骤，当前只是配置壳，不能作为线上入口。")
+        recipe_control_issues = self._recipe_control_issues(recipe=recipe, session=session)
+        for control_issue in recipe_control_issues:
+            code = str(control_issue.get("code") or "").strip()
+            if not code or code in issues:
+                continue
+            issues.append(code)
+            if code == "BUSINESS_GOVERNANCE_STEP_ABILITY_MISSING":
+                suggestions.append("业务配方里存在缺少能力编号的步骤，先补齐或停用该步骤。")
+            elif code == "BUSINESS_GOVERNANCE_STEP_ABILITY_NOT_FOUND":
+                suggestions.append("业务配方里引用了不存在的能力，先恢复能力目录或切换到可用能力。")
+            elif code == "BUSINESS_GOVERNANCE_STEP_ABILITY_INACTIVE":
+                suggestions.append("业务配方里引用了未启用能力，先启用能力或切换到可用能力。")
+            elif code == "BUSINESS_GOVERNANCE_RECIPE_STEP_ID_DUPLICATED":
+                suggestions.append("业务配方步骤编号重复，先在草稿编排中修正步骤编号。")
+            elif code == "BUSINESS_GOVERNANCE_RECIPE_PRIMARY_STEP_MISMATCH":
+                suggestions.append("主能力和主步骤绑定不一致，先复制为草稿并重新生成配方。")
 
         provider = str(
             (vendor_model.provider if vendor_model else None)
@@ -5387,6 +5634,11 @@ class BusinessRunService:
             "BUSINESS_GOVERNANCE_PRIMARY_ABILITY_NOT_FOUND",
             "BUSINESS_GOVERNANCE_PRIMARY_ABILITY_INACTIVE",
             "BUSINESS_GOVERNANCE_EXECUTABLE_STEP_MISSING",
+            "BUSINESS_GOVERNANCE_STEP_ABILITY_MISSING",
+            "BUSINESS_GOVERNANCE_STEP_ABILITY_NOT_FOUND",
+            "BUSINESS_GOVERNANCE_STEP_ABILITY_INACTIVE",
+            "BUSINESS_GOVERNANCE_RECIPE_STEP_ID_DUPLICATED",
+            "BUSINESS_GOVERNANCE_RECIPE_PRIMARY_STEP_MISMATCH",
             "BUSINESS_GOVERNANCE_VENDOR_MODEL_NOT_FOUND",
             "BUSINESS_GOVERNANCE_VENDOR_MODEL_INACTIVE",
             "BUSINESS_GOVERNANCE_VENDOR_MODEL_ACCEPTANCE_REQUIRED",
@@ -5955,7 +6207,9 @@ class BusinessRunService:
                     "executor_id": log.executor_id if log else None,
                     "executor_name": log.executor_name if log else None,
                     "executor_type": log.executor_type if log else None,
-                    "inputSchema": self._summarize_ability_input_schema(ability.input_schema) if ability else None,
+                    "inputSchema": self._summarize_ability_input_schema(ability.input_schema, ability=ability)
+                    if ability
+                    else None,
                     "defaultParams": self._compact_graph_json(ability.default_params) if ability else None,
                     "routing": self._ability_routing_summary(ability) if ability else None,
                     "execution_evidence": self._build_execution_evidence(log),
@@ -6007,7 +6261,9 @@ class BusinessRunService:
         return value
 
     @staticmethod
-    def _summarize_ability_input_schema(schema: dict[str, Any] | None) -> dict[str, Any] | None:
+    def _summarize_ability_input_schema(
+        schema: dict[str, Any] | None, *, ability: Ability | None = None
+    ) -> dict[str, Any] | None:
         if not isinstance(schema, dict):
             return None
         raw_fields = schema.get("fields")
@@ -6029,6 +6285,7 @@ class BusinessRunService:
                     else item
                     for item in options[:12]
                 ]
+            field = BusinessRunService._normalize_repaint_strength_schema_field(field, ability=ability)
             item = {
                 "name": field.get("name"),
                 "label": field.get("label"),
@@ -6048,6 +6305,39 @@ class BusinessRunService:
             }.items()
             if value not in (None, "", [])
         }
+
+    @staticmethod
+    def _normalize_repaint_strength_schema_field(
+        field: dict[str, Any], *, ability: Ability | None = None
+    ) -> dict[str, Any]:
+        name = str(field.get("name") or field.get("key") or "").strip().lower()
+        label = str(field.get("label") or "").strip()
+        ability_text = ""
+        if ability is not None:
+            ability_text = " ".join(
+                str(value or "")
+                for value in (
+                    ability.id,
+                    ability.provider,
+                    ability.category,
+                    ability.capability_key,
+                    ability.display_name,
+                    ability.description,
+                )
+            ).lower()
+        repaint_context = any(token in ability_text for token in ("fission", "裂变", "qwen2512", "print_shape"))
+        should_normalize = name == "bili" or (name == "similarity" and repaint_context) or (
+            repaint_context and ("相似度" in label or "similarity" in label.lower())
+        )
+        if not should_normalize:
+            return field
+
+        item = dict(field)
+        item["label"] = "重绘幅度 Repaint Strength"
+        description = str(item.get("description") or "").strip()
+        if not description or "相似度" in description or "similarity" in description.lower():
+            item["description"] = "值越大，画面重绘变化越明显；旧 similarity 字段仅作为兼容字段保留。"
+        return item
 
     @staticmethod
     def _ability_routing_summary(ability: Ability | None) -> dict[str, Any] | None:

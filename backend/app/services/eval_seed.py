@@ -82,10 +82,8 @@ FISSION_WORKFLOW_IDS: set[str] = {
 }
 
 # 图裂变里的 bili 本质映射 ComfyUI denoise，不是“相似度”。
-# 文字增强仍保留原相似度口径，避免误改不同业务语义。
-REPAINT_STRENGTH_WORKFLOW_IDS: set[str] = FISSION_WORKFLOW_IDS - {
-    "7629024620879806464",  # qwen2512_print_shape_text_enhance
-}
+# 文字增强裂变也按同一口径展示，旧 similarity 只作为兼容字段。
+REPAINT_STRENGTH_WORKFLOW_IDS: set[str] = set(FISSION_WORKFLOW_IDS)
 REPAINT_STRENGTH_LABEL = "重绘幅度(%)"
 REPAINT_STRENGTH_DESCRIPTION = "控制裂变重绘变化程度，0%=更保守，100%=变化更大；后端按约定比例换算为 denoise。"
 
@@ -1412,18 +1410,18 @@ DEFAULT_EVAL_WORKFLOW_VERSIONS: list[dict[str, Any]] = [
         "version": "v1",
         "workflow_id": "7629024620879806464",
         "status": "active",
-        "notes": "文字增强（ComfyUI）。输入 url + prompt + bili（相似度），输出增强后的图片。输出 output 为回调 task id。",
+        "notes": "文字增强裂变（ComfyUI）。输入 url + prompt + bili（重绘幅度），输出增强后的图片。输出 output 为回调 task id。",
         "parameters_schema": {
             "fields": [
                 {"name": "url", "label": "图片 URL", "type": "text", "required": True},
                 {"name": "prompt", "label": "提示词", "type": "textarea", "required": False, "defaultValue": ""},
                 {
                     "name": "bili",
-                    "label": "相似度(%)",
+                    "label": REPAINT_STRENGTH_LABEL,
                     "type": "text",
                     "required": True,
                     "defaultValue": "50%",
-                    "description": "与原图保持相似的百分比（越高越接近原图）。",
+                    "description": REPAINT_STRENGTH_DESCRIPTION,
                 },
                 {"name": "count", "label": "裂变数量", "type": "text", "required": False, "defaultValue": "4", "description": "一次评测会触发 count 个子任务并聚合结果"},
             ]
@@ -1865,6 +1863,24 @@ def ensure_default_eval_workflow_versions(session: Session) -> bool:
             # Ensure AI 图片编辑器参数表单与默认值保持最新。
             desired = DEFAULT_EVAL_WORKFLOW_BY_ID.get(row.workflow_id)
             if desired:
+                if row.parameters_schema != desired.get("parameters_schema"):
+                    row.parameters_schema = desired.get("parameters_schema")
+                    dirty = True
+                if row.output_schema != desired.get("output_schema"):
+                    row.output_schema = desired.get("output_schema")
+                    dirty = True
+        if row.workflow_id == "7629024620879806464":
+            # Keep the existing display name editable, but force the agreed
+            # repaint-strength wording into old DB rows.
+            desired = DEFAULT_EVAL_WORKFLOW_BY_ID.get(row.workflow_id)
+            if desired:
+                desired_category = _resolve_eval_category(row.workflow_id, desired.get("category"))
+                if row.notes != desired.get("notes"):
+                    row.notes = desired.get("notes")
+                    dirty = True
+                if row.category != desired_category:
+                    row.category = desired_category
+                    dirty = True
                 if row.parameters_schema != desired.get("parameters_schema"):
                     row.parameters_schema = desired.get("parameters_schema")
                     dirty = True

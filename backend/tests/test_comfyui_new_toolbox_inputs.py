@@ -111,7 +111,7 @@ def test_flux2_klein_9b_outpaint_maps_uploaded_image_expand_and_random_seed():
     assert context.workflow.definition["_max_output_images"] == 1
 
 
-def test_qwen2512_print_shape_text_enhance_maps_url_prompt_and_bili_to_denoise():
+def test_qwen2512_print_shape_text_enhance_maps_url_prompt_and_bili_to_repaint_denoise():
     graph = {
         "10": {"inputs": {"url": "https://"}},
         "13": {"inputs": {"text1": "old prompt", "text2": ""}},
@@ -136,7 +136,7 @@ def test_qwen2512_print_shape_text_enhance_maps_url_prompt_and_bili_to_denoise()
     assert overrides == {
         "10": {"url": "https://example.com/pattern.png"},
         "13": {"text1": "new text enhance prompt"},
-        "27": {"seed": 424242, "steps": 8, "cfg": 1.0, "denoise": 0.75},
+        "27": {"seed": 424242, "steps": 8, "cfg": 1.0, "denoise": 0.625},
     }
     assert context.workflow.definition["output_node_ids"] == ["29"]
     assert context.workflow.definition["_max_output_images"] == 1

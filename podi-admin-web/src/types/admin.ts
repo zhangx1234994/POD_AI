@@ -189,11 +189,23 @@ export interface BusinessDeliveryContractAuditItem {
   requiredEvidence: string[];
 }
 
+export interface BusinessApiContractEnumDoc {
+  field: string;
+  value: string;
+  meaning: string;
+  action: string;
+}
+
 export interface BusinessDeliveryContractAuditResponse {
   ok: boolean;
   summary: string;
   checkedAt?: string | null;
   items: BusinessDeliveryContractAuditItem[];
+  enumDocs?: BusinessApiContractEnumDoc[];
+  requiredEnumFields?: string[];
+  enumValues?: Record<string, string[]>;
+  contractSource?: string | null;
+  contractVersion?: string | null;
 }
 
 export interface AuthUser {
@@ -1373,6 +1385,8 @@ export interface BusinessCapability {
   vendorModelId?: number | null;
   vendorModelName?: string | null;
   vendorModelProvider?: string | null;
+  versionLine?: BusinessCapabilityVersionLine | null;
+  versionLineage?: BusinessCapabilityVersionLineage | null;
   governanceStatus?: string | null;
   governanceIssues?: string[];
   governanceSuggestions?: string[];
@@ -1388,6 +1402,22 @@ export interface BusinessCapability {
   runMetrics?: BusinessCapabilityRunMetrics | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface BusinessCapabilityVersionLine {
+  key: string;
+  label: string;
+  detail?: string | null;
+  priority?: number | null;
+}
+
+export interface BusinessCapabilityVersionLineage {
+  parentVersionId?: string | null;
+  supersedesVersionId?: string | null;
+  changeSummary?: string | null;
+  breakingChange?: boolean | null;
+  decision?: string | null;
+  decisionNote?: string | null;
 }
 
 export interface BusinessOrchestrationNode {
@@ -1549,6 +1579,12 @@ export interface BusinessCapabilityFormState {
   rolloutEnabled: boolean;
   rolloutPercent: number;
   rolloutAllowlistText: string;
+  parentVersionId: string;
+  supersedesVersionId: string;
+  versionChangeSummary: string;
+  versionBreakingChange: boolean;
+  versionDecision: string;
+  versionDecisionNote: string;
   recipeText: string;
   inputSchemaText: string;
   outputSchemaText: string;

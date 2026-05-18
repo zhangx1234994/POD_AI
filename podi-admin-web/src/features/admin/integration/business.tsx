@@ -5,7 +5,6 @@ import {
   Controls,
   Handle,
   MarkerType,
-  MiniMap,
   Position,
   ReactFlow,
   type Edge,
@@ -96,6 +95,11 @@ const businessGovernanceIssueLabel = (value?: string | null) => {
     BUSINESS_GOVERNANCE_PRIMARY_ABILITY_NOT_FOUND: '主能力不存在',
     BUSINESS_GOVERNANCE_PRIMARY_ABILITY_INACTIVE: '主能力未启用',
     BUSINESS_GOVERNANCE_EXECUTABLE_STEP_MISSING: '配方没有可执行步骤',
+    BUSINESS_GOVERNANCE_STEP_ABILITY_MISSING: '步骤缺少能力',
+    BUSINESS_GOVERNANCE_STEP_ABILITY_NOT_FOUND: '步骤能力不存在',
+    BUSINESS_GOVERNANCE_STEP_ABILITY_INACTIVE: '步骤能力未启用',
+    BUSINESS_GOVERNANCE_RECIPE_STEP_ID_DUPLICATED: '步骤编号重复',
+    BUSINESS_GOVERNANCE_RECIPE_PRIMARY_STEP_MISMATCH: '主步骤不一致',
     BUSINESS_GOVERNANCE_VENDOR_MODEL_NOT_FOUND: '模型目录不存在',
     BUSINESS_GOVERNANCE_VENDOR_MODEL_INACTIVE: '模型未启用',
     BUSINESS_GOVERNANCE_VENDOR_MODEL_ACCEPTANCE_REQUIRED: '模型未验收',
@@ -111,6 +115,13 @@ const businessCapabilityStatusOptions = [
   { value: 'inactive', label: '未启用' },
   { value: 'active', label: '启用' },
   { value: 'deprecated', label: '下线' },
+];
+
+const businessVersionDecisionOptions = [
+  { value: 'version_upgrade', label: '同一业务版本升级' },
+  { value: 'new_feature', label: '新的业务功能' },
+  { value: 'rollback', label: '回滚保底版本' },
+  { value: 'unknown', label: '待确认' },
 ];
 
 const buildBusinessDraftRecipeText = (form: BusinessCapabilityFormState) => {
@@ -3335,6 +3346,63 @@ export const BusinessCapabilityEditorDialog = ({
           />
         </Col>
       </Row>
+      <Card bordered title="版本关系">
+        <Space direction="vertical" size="small" style={{ width: '100%' }}>
+          <Alert
+            theme="info"
+            message="默认按同一业务的版本升级处理；只有入口含义真的变化时，才标成新的业务功能。"
+          />
+          <Row gutter={[12, 12]}>
+            <Col span={12}>
+              <Typography.Text theme="secondary">归属判断</Typography.Text>
+              <Select
+                value={form.versionDecision}
+                options={businessVersionDecisionOptions}
+                onChange={(value) => onChange({ ...form, versionDecision: String(value) })}
+              />
+            </Col>
+            <Col span={12}>
+              <Typography.Text theme="secondary">是否破坏兼容</Typography.Text>
+              <div style={{ paddingTop: 8 }}>
+                <Switch
+                  value={form.versionBreakingChange}
+                  onChange={(value) => onChange({ ...form, versionBreakingChange: Boolean(value) })}
+                />
+              </div>
+            </Col>
+            <Col span={12}>
+              <Typography.Text theme="secondary">来源版本 ID</Typography.Text>
+              <Input
+                value={form.parentVersionId}
+                placeholder="从哪个版本继续迭代，可留空"
+                onChange={(value) => onChange({ ...form, parentVersionId: String(value) })}
+              />
+            </Col>
+            <Col span={12}>
+              <Typography.Text theme="secondary">替代版本 ID</Typography.Text>
+              <Input
+                value={form.supersedesVersionId}
+                placeholder="上线后主要替代哪个版本，可留空"
+                onChange={(value) => onChange({ ...form, supersedesVersionId: String(value) })}
+              />
+            </Col>
+          </Row>
+          <Typography.Text theme="secondary">本次更新说明</Typography.Text>
+          <Textarea
+            autosize={{ minRows: 2, maxRows: 4 }}
+            value={form.versionChangeSummary}
+            placeholder="写清楚这次改了什么，例如：修补锁色参数、保持接口不变。"
+            onChange={(value) => onChange({ ...form, versionChangeSummary: String(value) })}
+          />
+          <Typography.Text theme="secondary">判断备注</Typography.Text>
+          <Textarea
+            autosize={{ minRows: 2, maxRows: 3 }}
+            value={form.versionDecisionNote}
+            placeholder="如果不确定是新功能还是版本升级，在这里记录原因。"
+            onChange={(value) => onChange({ ...form, versionDecisionNote: String(value) })}
+          />
+        </Space>
+      </Card>
       <Card bordered title="灰度发布">
         <Space direction="vertical" size="small" style={{ width: '100%' }}>
           <Space align="center" size="large">
@@ -4083,12 +4151,21 @@ const businessGraphSchemaSummary = (schema?: JsonRecord | null) => {
     .map((field) => {
       if (!field || typeof field !== 'object') return '';
       const item = field as JsonRecord;
-      return String(item.label || item.name || '').trim();
+      return businessGraphFieldLabel(item);
     })
     .filter(Boolean);
   const count = recordNumber(source, 'fieldCount', fields.length);
   if (!count && fieldLabels.length === 0) return '';
   return `${count || fieldLabels.length} 个字段${fieldLabels.length > 0 ? `：${fieldLabels.join('、')}` : ''}`;
+};
+
+const businessGraphFieldLabel = (field: JsonRecord) => {
+  const name = String(field.name || field.key || '').trim().toLowerCase();
+  const label = String(field.label || field.name || '').trim();
+  if (name === 'bili' || name === 'similarity' || /相似度|similarity/i.test(label)) {
+    return '重绘幅度 Repaint Strength';
+  }
+  return label;
 };
 
 const businessGraphRoutingSummary = (routing?: JsonRecord | null) => {
@@ -4370,7 +4447,15 @@ export const BusinessOrchestrationGraphView = ({
     recordNumber(output, 'structuredCount', 0) > 0 ? `${recordNumber(output, 'structuredCount')} 个结构化结果` : '',
     recordNumber(output, 'resourceCount', 0) > 0 ? `${recordNumber(output, 'resourceCount')} 个资源` : '',
   ].filter(Boolean).join(' · ');
-  const selectedNode = nodes.find((node) => node.id === selectedNodeId) || nodes[0] || null;
+  const defaultSelectedNode =
+    nodes.find((node) => {
+      const type = String(node.type || '').toLowerCase();
+      return type !== 'entry' && type !== 'result' && (node.abilityId || node.abilityName || node.executorId || node.executorName);
+    }) ||
+    nodes.find((node) => String(node.type || '').toLowerCase() !== 'entry') ||
+    nodes[0] ||
+    null;
+  const selectedNode = nodes.find((node) => node.id === selectedNodeId) || defaultSelectedNode;
   const nodeIdSet = new Set(nodes.map((node) => node.id));
   const flowNodes: BusinessFlowNode[] = nodes.map((node, index) => {
     const theme = businessGraphNodeStatusTheme(node, effectiveGraph);
@@ -4482,11 +4567,11 @@ export const BusinessOrchestrationGraphView = ({
               nodesDraggable={false}
               nodesConnectable={false}
               elementsSelectable
+              proOptions={{ hideAttribution: true }}
               onNodeClick={(_, node) => setSelectedNodeId(node.id)}
             >
               <Background gap={18} size={1} />
               <Controls showInteractive={false} />
-              <MiniMap pannable zoomable nodeStrokeWidth={3} />
             </ReactFlow>
           </div>
           <BusinessGraphSelectedNodePanel node={selectedNode} graph={effectiveGraph} />
@@ -4550,6 +4635,145 @@ const businessCapabilityEngineLabel = (item?: BusinessCapability | null) => {
     return [item.vendorModelProvider, item.vendorModelName].filter(Boolean).join(' · ');
   }
   return item.primaryAbilityId || item.vendorModelId || '未绑定真实能力';
+};
+
+const businessCapabilityVersionLine = (item?: BusinessCapability | null) => {
+  const serverLine = item?.versionLine;
+  if (serverLine?.key || serverLine?.label) {
+    const key = String(serverLine.key || 'standard');
+    const theme =
+      key === 'rollback'
+        ? ('warning' as const)
+        : key === 'commercial-model'
+          ? ('primary' as const)
+          : key === 'comfyui'
+            ? ('success' as const)
+            : key === 'coze'
+              ? ('default' as const)
+              : item?.isDefault
+                ? ('success' as const)
+                : ('default' as const);
+    return {
+      key,
+      label: String(serverLine.label || '标准版本'),
+      theme,
+      detail: String(serverLine.detail || '同一业务入口下的稳定版本。'),
+      priority: Number(serverLine.priority ?? (item?.isDefault ? 10 : 50)),
+    };
+  }
+  const metadata = (item?.metadata || {}) as JsonRecord;
+  const role = String(metadata.role || '').toLowerCase();
+  const provider = String(metadata.provider || item?.primaryAbilityProvider || item?.vendorModelProvider || '').toLowerCase();
+  const version = String(item?.version || '').toLowerCase();
+  const displayName = String(item?.displayName || '').toLowerCase();
+  const hasVendorModel = Boolean(item?.vendorModelId || item?.vendorModelName || item?.vendorModelProvider);
+  if (!item) {
+    return { key: 'unknown', label: '未归类路线', theme: 'default' as const, detail: '还没有业务版本。', priority: 99 };
+  }
+  if (role.includes('rollback') || metadata.rollbackSafety || version.includes('rollback') || displayName.includes('保底')) {
+    return {
+      key: 'rollback',
+      label: '保底回滚',
+      theme: 'warning' as const,
+      detail: '只在主线异常时切回，不作为新功能入口。',
+      priority: 80,
+    };
+  }
+  if (provider.includes('comfyui') || version.includes('comfyui') || displayName.includes('comfyui')) {
+    return {
+      key: 'comfyui',
+      label: 'ComfyUI 自研线',
+      theme: 'success' as const,
+      detail: '业务仍是同一个入口，底层由 ComfyUI 工作流执行。',
+      priority: 20,
+    };
+  }
+  if (String(metadata.entry || '').toLowerCase().includes('coze') || displayName.includes('coze')) {
+    return {
+      key: 'coze',
+      label: 'Coze 旧链路',
+      theme: 'default' as const,
+      detail: '兼容旧业务接入，不作为新功能命名。',
+      priority: 70,
+    };
+  }
+  const commercialProviderTokens = ['openai', 'gpt-image', 'kie', 'volcengine', 'doubao', 'qwen', 'seedream', 'vendor-api'];
+  if (
+    hasVendorModel ||
+    commercialProviderTokens.some((token) => provider.includes(token)) ||
+    version.includes('gpt-image') ||
+    displayName.includes('gpt image')
+  ) {
+    return {
+      key: 'commercial-model',
+      label: '商业模型线',
+      theme: 'primary' as const,
+      detail: '业务仍是同一个入口，底层改用商业模型执行。',
+      priority: 30,
+    };
+  }
+  return {
+    key: 'standard',
+    label: item.isDefault ? '生产主线' : '标准版本',
+    theme: item.isDefault ? ('success' as const) : ('default' as const),
+    detail: '同一业务入口下的稳定版本。',
+    priority: item.isDefault ? 10 : 50,
+  };
+};
+
+const businessCapabilityVersionLineage = (item?: BusinessCapability | null) => {
+  const metadata = (item?.metadata || {}) as JsonRecord;
+  const raw = item?.versionLineage || (
+    metadata.versionLineage && typeof metadata.versionLineage === 'object' && !Array.isArray(metadata.versionLineage)
+      ? (metadata.versionLineage as JsonRecord)
+      : null
+  );
+  const parentVersionId = typeof raw?.parentVersionId === 'string' ? raw.parentVersionId : '';
+  const supersedesVersionId = typeof raw?.supersedesVersionId === 'string' ? raw.supersedesVersionId : '';
+  const changeSummary = typeof raw?.changeSummary === 'string' ? raw.changeSummary : '';
+  const decision = typeof raw?.decision === 'string' ? raw.decision : 'unknown';
+  const decisionNote = typeof raw?.decisionNote === 'string' ? raw.decisionNote : '';
+  return {
+    parentVersionId,
+    supersedesVersionId,
+    changeSummary,
+    breakingChange: Boolean(raw?.breakingChange),
+    decision,
+    decisionNote,
+  };
+};
+
+const businessCapabilityVersionBrief = (item?: BusinessCapability | null) =>
+  item ? `${item.version} · ${item.displayName}` : '';
+
+const businessCapabilityVersionRelationLabel = (item: BusinessCapability, items: BusinessCapability[]) => {
+  const lineage = businessCapabilityVersionLineage(item);
+  const parent = lineage.parentVersionId ? items.find((candidate) => candidate.id === lineage.parentVersionId) : null;
+  const supersedes = lineage.supersedesVersionId ? items.find((candidate) => candidate.id === lineage.supersedesVersionId) : null;
+  if (lineage.decision === 'new_feature') {
+    return `新功能判断：${lineage.decisionNote || '入口含义发生变化，需要作为独立业务管理。'}`;
+  }
+  if (parent || supersedes || lineage.parentVersionId || lineage.supersedesVersionId) {
+    const parts = [
+      parent ? `来源 ${businessCapabilityVersionBrief(parent)}` : lineage.parentVersionId ? `来源 ${formatShortBusinessId(lineage.parentVersionId)}` : '',
+      supersedes ? `替代 ${businessCapabilityVersionBrief(supersedes)}` : lineage.supersedesVersionId ? `替代 ${formatShortBusinessId(lineage.supersedesVersionId)}` : '',
+    ].filter(Boolean);
+    return parts.join('；');
+  }
+  const line = businessCapabilityVersionLine(item);
+  if (line.key === 'rollback') return '保底版本：只作为异常回滚，不新开功能。';
+  const sameLine = items
+    .filter((candidate) => businessCapabilityVersionLine(candidate).key === line.key)
+    .slice()
+    .sort((left, right) => {
+      const leftTime = String(left.releaseTime || left.createdAt || '');
+      const rightTime = String(right.releaseTime || right.createdAt || '');
+      return leftTime.localeCompare(rightTime);
+    });
+  const index = sameLine.findIndex((candidate) => candidate.id === item.id);
+  const previous = index > 0 ? sameLine[index - 1] : null;
+  if (previous) return `同路线参考：${previous.version} -> ${item.version}`;
+  return '同路线起点：后续修补继续作为版本升级。';
 };
 
 const businessUsageBucketForKey = (summary: BusinessUsageSummaryResponse | null | undefined, businessKey: string) =>
@@ -4781,10 +5005,10 @@ export const BusinessEntryCommandPanel = ({
       title={
         <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
           <div>
-            <Typography.Text strong>业务入口总控</Typography.Text>
+            <Typography.Text strong>业务入口概览</Typography.Text>
             <div>
               <Typography.Text theme="secondary">
-                先看这张表：业务方调哪个入口、线上默认跑哪个版本、最近有没有真实调用、现在该处理什么。
+                看业务方应该调哪个入口、线上默认跑哪个版本、最近有没有真实调用。
               </Typography.Text>
             </div>
           </div>
@@ -4952,93 +5176,6 @@ export const BusinessCoreClosurePanel = ({
   );
 };
 
-export const BusinessCoreEntryPanel = ({
-  capabilities,
-  pendingApprovals,
-  formatDateTime,
-}: {
-  capabilities: BusinessCapability[];
-  pendingApprovals: BusinessDefaultApproval[];
-  formatDateTime: (value?: string | null) => string;
-}) => {
-  const rows = coreBusinessKeys.map((businessKey) => {
-    const items = capabilities.filter((item) => canonicalBusinessKey(item.businessKey) === businessKey);
-    const defaultItem = items.find((item) => item.isDefault);
-    const activeCount = items.filter((item) => item.status === 'active').length;
-    const hasPendingApproval = pendingApprovals.some(
-      (item) => canonicalBusinessKey(item.businessKey) === businessKey && item.status === 'pending',
-    );
-    const risk = defaultItem ? businessCapabilityRiskTag(defaultItem) : { theme: 'danger', text: '缺默认入口', detail: '业务方无法稳定调用。' };
-    return {
-      businessKey,
-      items,
-      defaultItem,
-      activeCount,
-      hasPendingApproval,
-      risk,
-      suggestion: businessCoreEntrySuggestion({ defaultItem, activeCount, hasPendingApproval }),
-    };
-  });
-
-  return (
-    <Card bordered title="核心业务入口总览">
-      <Row gutter={[12, 12]}>
-        {rows.map((row) => (
-          <Col key={row.businessKey} xs={12} lg={4}>
-            <Card bordered size="small" style={{ height: '100%' }}>
-              <Space direction="vertical" size="small" style={{ width: '100%' }}>
-                <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                  <Typography.Text strong>{businessKeyLabel(row.businessKey)}</Typography.Text>
-                  <Tag theme={row.risk.theme as any} variant="light">
-                    {row.risk.text}
-                  </Tag>
-                </Space>
-                <Typography.Text theme="secondary">{businessCapabilityGroupHint(row.businessKey)}</Typography.Text>
-                <div>
-                  <Typography.Text theme="secondary">默认版本</Typography.Text>
-                  <div>
-                    <Typography.Text>
-                      {row.defaultItem ? `${row.defaultItem.version} · ${row.defaultItem.displayName}` : '未设置'}
-                    </Typography.Text>
-                  </div>
-                </div>
-                <Space size={6} style={{ flexWrap: 'wrap' }}>
-                  <Tag theme={row.defaultItem?.status === 'active' ? 'success' : 'warning'} variant="light">
-                    启用 {row.activeCount}/{row.items.length}
-                  </Tag>
-                  <Tag variant="light">{row.defaultItem ? businessCapabilityMediaLabel(row.defaultItem) : '缺输出定义'}</Tag>
-                  {row.hasPendingApproval ? (
-                    <Tag theme="warning" variant="light">
-                      有切换审批
-                    </Tag>
-                  ) : null}
-                </Space>
-                <div>
-                  <Typography.Text theme="secondary">最近结果</Typography.Text>
-                  <div>
-                    <Space size={6}>
-                      {row.defaultItem?.latestRun ? <StatusBadge status={row.defaultItem.latestRun.status} /> : null}
-                      <Typography.Text theme={row.defaultItem?.latestRun?.error ? 'error' : 'secondary'}>
-                        {row.defaultItem ? businessCapabilityLatestRunLabel(row.defaultItem) : '无运行记录'}
-                      </Typography.Text>
-                    </Space>
-                  </div>
-                </div>
-                <Typography.Text theme="secondary">
-                  发布时间：{row.defaultItem ? formatDateTime(row.defaultItem.releaseTime || row.defaultItem.createdAt) : '—'}
-                </Typography.Text>
-                <Typography.Text theme={row.risk.theme === 'danger' ? 'error' : row.risk.theme === 'warning' ? 'warning' : 'secondary'}>
-                  {row.suggestion}
-                </Typography.Text>
-              </Space>
-            </Card>
-          </Col>
-        ))}
-      </Row>
-    </Card>
-  );
-};
-
 export const BusinessOrchestrationMapPanel = ({
   capabilities,
   pendingApprovals,
@@ -5051,8 +5188,20 @@ export const BusinessOrchestrationMapPanel = ({
   formatDateTime: (value?: string | null) => string;
 }) => {
   const [selectedBusinessKey, setSelectedBusinessKey] = useState<(typeof businessOrchestrationKeys)[number]>('fission');
+  const [selectedCapabilityIds, setSelectedCapabilityIds] = useState<Record<string, string>>({});
   const rows = businessOrchestrationKeys.map((businessKey) => {
-    const items = capabilities.filter((item) => canonicalBusinessKey(item.businessKey) === businessKey);
+    const items = capabilities
+      .filter((item) => canonicalBusinessKey(item.businessKey) === businessKey)
+      .slice()
+      .sort((left, right) => {
+        if (left.isDefault !== right.isDefault) return left.isDefault ? -1 : 1;
+        if (left.status !== right.status) return left.status === 'active' ? -1 : 1;
+        const lineDiff = businessCapabilityVersionLine(left).priority - businessCapabilityVersionLine(right).priority;
+        if (lineDiff !== 0) return lineDiff;
+        return String(right.releaseTime || right.updatedAt || right.createdAt || '').localeCompare(
+          String(left.releaseTime || left.updatedAt || left.createdAt || ''),
+        );
+      });
     const defaultItem = items.find((item) => item.isDefault);
     const activeAlternatives = items.filter((item) => item.status === 'active' && !item.isDefault);
     const rollbackReadyAlternatives = activeAlternatives.filter(businessCapabilityHasRollbackEvidence);
@@ -5063,6 +5212,7 @@ export const BusinessOrchestrationMapPanel = ({
     const risk = defaultItem ? businessCapabilityRiskTag(defaultItem) : { theme: 'danger', text: '缺默认入口', detail: '业务方无法稳定调用。' };
     return {
       businessKey,
+      items,
       defaultItem,
       activeAlternatives,
       rollbackReadyAlternatives,
@@ -5078,6 +5228,23 @@ export const BusinessOrchestrationMapPanel = ({
     };
   });
   const selectedRow = rows.find((row) => row.businessKey === selectedBusinessKey) || rows[0];
+  const selectedVersionItems = selectedRow?.items || [];
+  const selectedCapabilityId =
+    selectedCapabilityIds[selectedBusinessKey] || selectedRow?.defaultItem?.id || selectedVersionItems[0]?.id || '';
+  const selectedCapability =
+    selectedVersionItems.find((item) => item.id === selectedCapabilityId) ||
+    selectedRow?.defaultItem ||
+    selectedVersionItems[0] ||
+    null;
+  const selectedCapabilityLine = businessCapabilityVersionLine(selectedCapability);
+  const selectedCapabilityLineage = businessCapabilityVersionLineage(selectedCapability);
+  const selectedCapabilityRisk = selectedCapability
+    ? businessCapabilityRiskTag(selectedCapability)
+    : selectedRow?.risk || { theme: 'danger', text: '缺默认入口', detail: '业务方无法稳定调用。' };
+  const selectedCapabilityRollout = readCapabilityRollout(selectedCapability?.metadata);
+  const selectedCapabilityRelation = selectedCapability
+    ? businessCapabilityVersionRelationLabel(selectedCapability, selectedVersionItems)
+    : '还没有可查看的业务版本。';
 
   return (
     <Card
@@ -5089,7 +5256,7 @@ export const BusinessOrchestrationMapPanel = ({
             <Typography.Text strong>业务链路图</Typography.Text>
             <div>
               <Typography.Text theme="secondary">
-                按业务入口展示当前版本、处理组件和最近结果；排查时先看这张图，再下钻调用记录。
+                只看当前选中业务的编排链路。入口状态、调用次数和接口问题回到“业务调用”查看。
               </Typography.Text>
             </div>
           </div>
@@ -5119,7 +5286,9 @@ export const BusinessOrchestrationMapPanel = ({
               </Space>
               <Typography.Text theme="secondary">{businessUsageDigest(summary, row.businessKey)}</Typography.Text>
               <Typography.Text theme="secondary">
-                {row.defaultItem ? `${row.defaultItem.version} · ${row.defaultItem.displayName}` : '未设置默认版本'}
+                {row.defaultItem
+                  ? `${businessCapabilityVersionLine(row.defaultItem).label} · ${row.defaultItem.displayName}`
+                  : '未设置默认版本'}
               </Typography.Text>
             </button>
           ))}
@@ -5141,25 +5310,46 @@ export const BusinessOrchestrationMapPanel = ({
                   <Typography.Text theme="secondary">{businessEntryUsageHint(selectedRow.businessKey)}</Typography.Text>
                 </div>
                 <div className="podi-business-workflow-focus__block">
-                  <Tag theme={selectedRow.defaultItem?.status === 'active' ? 'success' : 'warning'} variant="light">
-                    当前版本
+                  <Tag theme={selectedCapability?.status === 'active' ? 'success' : 'warning'} variant="light">
+                    查看版本
                   </Tag>
-                  <Typography.Text strong>
-                    {selectedRow.defaultItem ? `${selectedRow.defaultItem.version} · ${selectedRow.defaultItem.displayName}` : '未设置默认版本'}
+                  <Typography.Text theme="secondary">选择一个版本查看它的处理链路。</Typography.Text>
+                  <Select
+                    value={selectedCapability?.id || ''}
+                    options={selectedVersionItems.map((item) => ({
+                      label: `${item.isDefault ? '默认 · ' : ''}${businessCapabilityVersionLine(item).label} · ${item.version} · ${item.displayName}`,
+                      value: item.id,
+                    }))}
+                    onChange={(value) =>
+                      setSelectedCapabilityIds((prev) => ({ ...prev, [selectedBusinessKey]: String(value) }))
+                    }
+                  />
+                  <Typography.Text theme="secondary">
+                    版本族：{selectedCapability ? selectedCapabilityLine.label : '未设置'}
+                  </Typography.Text>
+                  <Typography.Text strong>{selectedCapability?.displayName || '未设置业务版本'}</Typography.Text>
+                  {selectedCapability ? (
+                    <Typography.Text theme="secondary">
+                      版本：{selectedCapability.version}{selectedCapability.isDefault ? ' · 当前默认' : ''}
+                    </Typography.Text>
+                  ) : null}
+                  <Typography.Text theme="secondary">
+                    发布：{selectedCapability ? formatDateTime(selectedCapability.releaseTime || selectedCapability.createdAt) : '—'}
                   </Typography.Text>
                   <Typography.Text theme="secondary">
-                    发布：{selectedRow.defaultItem ? formatDateTime(selectedRow.defaultItem.releaseTime || selectedRow.defaultItem.createdAt) : '—'}
+                    更新：{selectedCapability ? formatDateTime(selectedCapability.updatedAt || selectedCapability.releaseTime || selectedCapability.createdAt) : '—'}
                   </Typography.Text>
-                  <Typography.Text theme="secondary">
-                    更新：{selectedRow.defaultItem ? formatDateTime(selectedRow.defaultItem.updatedAt || selectedRow.defaultItem.releaseTime || selectedRow.defaultItem.createdAt) : '—'}
-                  </Typography.Text>
+                  <Typography.Text theme="secondary">{selectedCapabilityRelation}</Typography.Text>
+                  {selectedCapabilityLineage.changeSummary ? (
+                    <Typography.Text theme="secondary">更新说明：{selectedCapabilityLineage.changeSummary}</Typography.Text>
+                  ) : null}
                 </div>
                 <Space size={6} breakLine>
                   <Tag theme={selectedRow.usage?.failed ? 'warning' : 'default'} variant="light">
                     {businessUsageDigest(summary, selectedRow.businessKey)}
                   </Tag>
-                  <Tag theme={selectedRow.rollout.enabled ? 'warning' : 'default'} variant="light">
-                    灰度 {selectedRow.rollout.enabled ? `${selectedRow.rollout.percent}%` : '关闭'}
+                  <Tag theme={selectedCapabilityRollout.enabled ? 'warning' : 'default'} variant="light">
+                    灰度 {selectedCapabilityRollout.enabled ? `${selectedCapabilityRollout.percent}%` : '关闭'}
                   </Tag>
                   <Tag theme={selectedRow.rollbackReadyAlternatives.length > 0 ? 'success' : 'warning'} variant="light">
                     {selectedRow.rollbackReadyAlternatives.length > 0
@@ -5169,9 +5359,9 @@ export const BusinessOrchestrationMapPanel = ({
                   {selectedRow.hasPendingApproval ? <Tag theme="warning" variant="light">切换审批中</Tag> : null}
                 </Space>
                 <Typography.Text
-                  theme={selectedRow.risk.theme === 'danger' ? 'error' : selectedRow.risk.theme === 'warning' ? 'warning' : 'secondary'}
+                  theme={selectedCapabilityRisk.theme === 'danger' ? 'error' : selectedCapabilityRisk.theme === 'warning' ? 'warning' : 'secondary'}
                 >
-                  {selectedRow.suggestion}
+                  {selectedCapabilityRisk.detail || selectedRow.suggestion}
                 </Typography.Text>
               </Space>
             </aside>
@@ -5181,28 +5371,36 @@ export const BusinessOrchestrationMapPanel = ({
                   <Tag theme="primary" variant="light">
                     处理链路
                   </Tag>
-                  <Tag variant="light">主执行：{businessCapabilityEngineLabel(selectedRow.defaultItem)}</Tag>
-                  <Tag theme={selectedRow.risk.theme as any} variant="light">
-                    最近：{selectedRow.defaultItem ? businessCapabilityLatestRunLabel(selectedRow.defaultItem) : '无运行记录'}
+                  <Tag variant="light">
+                    版本族：{selectedCapability ? selectedCapabilityLine.label : '未设置'}
+                  </Tag>
+                  <Tag variant="light">主执行：{businessCapabilityEngineLabel(selectedCapability)}</Tag>
+                  <Tag theme={selectedCapabilityRisk.theme as any} variant="light">
+                    最近：{selectedCapability ? businessCapabilityLatestRunLabel(selectedCapability) : '无运行记录'}
                   </Tag>
                 </Space>
                 <Space size={6} breakLine>
-                  {selectedRow.defaultItem ? (
+                  {selectedCapability?.isDefault ? (
                     <Tag theme="success" variant="light" size="small">
-                      默认 {selectedRow.defaultItem.version}
+                      当前默认
                     </Tag>
                   ) : null}
-                  {selectedRow.activeAlternatives.slice(0, 4).map((item) => (
-                    <Tag key={item.id} theme={businessCapabilityHasRollbackEvidence(item) ? 'success' : 'primary'} variant="light" size="small">
-                      {item.version}
+                  {selectedVersionItems.slice(0, 5).map((item) => (
+                    <Tag
+                      key={item.id}
+                      theme={item.id === selectedCapability?.id ? 'primary' : (businessCapabilityVersionLine(item).theme as any)}
+                      variant="light"
+                      size="small"
+                    >
+                      {businessCapabilityVersionLine(item).label} · {item.version}
                     </Tag>
                   ))}
-                  {selectedRow.activeAlternatives.length > 4 ? <Tag variant="light" size="small">+{selectedRow.activeAlternatives.length - 4}</Tag> : null}
+                  {selectedVersionItems.length > 5 ? <Tag variant="light" size="small">+{selectedVersionItems.length - 5}</Tag> : null}
                 </Space>
               </div>
               <BusinessOrchestrationGraphView
-                graph={selectedRow.defaultItem?.orchestrationGraph}
-                fallbackSteps={selectedRow.defaultItem?.recipeSteps || []}
+                graph={selectedCapability?.orchestrationGraph}
+                fallbackSteps={selectedCapability?.recipeSteps || []}
               />
             </div>
           </section>
@@ -5485,14 +5683,31 @@ export const BusinessCapabilityGrid = ({
   return (
     <>
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
+        <Alert
+          theme="info"
+          message="命名规则：同一业务目标默认作为版本升级。技术路线、模型替换、参数修补放到版本族，不单独起功能名。"
+        />
         {groupKeys.map((businessKey) => {
           const items = grouped[businessKey].slice().sort((left, right) => {
             if (left.isDefault !== right.isDefault) return left.isDefault ? -1 : 1;
             if (left.status !== right.status) return left.status === 'active' ? -1 : 1;
+            const lineDiff = businessCapabilityVersionLine(left).priority - businessCapabilityVersionLine(right).priority;
+            if (lineDiff !== 0) return lineDiff;
             return String(right.releaseTime || right.createdAt || '').localeCompare(String(left.releaseTime || left.createdAt || ''));
           });
           const defaultItem = items.find((item) => item.isDefault);
           const activeCount = items.filter((item) => item.status === 'active').length;
+          const lineGroups = items.reduce<Record<string, BusinessCapability[]>>((map, item) => {
+            const line = businessCapabilityVersionLine(item);
+            if (!map[line.key]) map[line.key] = [];
+            map[line.key].push(item);
+            return map;
+          }, {});
+          const lineGroupEntries = Object.values(lineGroups).sort((left, right) => {
+            const leftLine = businessCapabilityVersionLine(left[0]);
+            const rightLine = businessCapabilityVersionLine(right[0]);
+            return leftLine.priority - rightLine.priority;
+          });
           return (
             <Card
               key={businessKey}
@@ -5507,17 +5722,36 @@ export const BusinessCapabilityGrid = ({
                   </div>
                   <Space breakLine>
                     <Tag theme={defaultItem ? 'success' : 'danger'} variant="light">
-                      默认：{defaultItem ? `${defaultItem.version} · ${defaultItem.displayName}` : '未设置'}
+                      默认：{defaultItem ? `${businessCapabilityVersionLine(defaultItem).label} · ${defaultItem.displayName}` : '未设置'}
                     </Tag>
                     <Tag variant="light">启用 {activeCount}/{items.length}</Tag>
                   </Space>
                 </Space>
               }
             >
-              <Row gutter={[16, 16]}>
-                {items.map((item) => {
+              <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                {lineGroupEntries.map((lineItems) => {
+                  const groupLine = businessCapabilityVersionLine(lineItems[0]);
+                  return (
+                    <section key={groupLine.key} className="podi-business-version-line-group">
+                      <Space align="center" style={{ justifyContent: 'space-between', width: '100%', marginBottom: 10 }}>
+                        <Space size={8}>
+                          <Tag theme={groupLine.theme as any} variant="light">
+                            {groupLine.label}
+                          </Tag>
+                          <Typography.Text theme="secondary">{groupLine.detail}</Typography.Text>
+                        </Space>
+                        <Tag variant="light" size="small">
+                          {lineItems.length} 个版本
+                        </Tag>
+                      </Space>
+                      <Row gutter={[16, 16]}>
+                        {lineItems.map((item) => {
                   const rollout = readCapabilityRollout(item.metadata);
                   const risk = businessCapabilityRiskTag(item);
+                  const versionLine = businessCapabilityVersionLine(item);
+                  const lineage = businessCapabilityVersionLineage(item);
+                  const relationLabel = businessCapabilityVersionRelationLabel(item, items);
                   const defaultActionId = `default:${item.id}`;
                   const statusActionId = `status:${item.id}`;
                   const acceptanceActionId = `acceptance:${item.id}`;
@@ -5539,7 +5773,7 @@ export const BusinessCapabilityGrid = ({
                             <Typography.Text strong>{item.displayName}</Typography.Text>
                             <div>
                               <Typography.Text theme="secondary">
-                                {item.version} · {businessCapabilityMediaLabel(item)}
+                                {businessCapabilityMediaLabel(item)}
                               </Typography.Text>
                             </div>
                           </div>
@@ -5547,6 +5781,46 @@ export const BusinessCapabilityGrid = ({
                             {risk.text}
                           </Tag>
                         </Space>
+                        <Space size={6} breakLine>
+                          <Tag theme={versionLine.theme as any} variant="light" size="small">
+                            {versionLine.label}
+                          </Tag>
+                          <Tag variant="light" size="small">
+                            版本 {item.version}
+                          </Tag>
+                          {item.isDefault ? (
+                            <Tag theme="success" variant="light" size="small">
+                              当前默认
+                            </Tag>
+                          ) : null}
+                        </Space>
+                        <Typography.Text theme="secondary">{relationLabel}</Typography.Text>
+                        {lineage.changeSummary ? (
+                          <Typography.Text theme="secondary">更新：{lineage.changeSummary}</Typography.Text>
+                        ) : null}
+                        <div className="podi-business-version-lineage">
+                          <Typography.Text strong>版本关系</Typography.Text>
+                          <div className="podi-business-version-lineage__grid">
+                            <span>来源版本</span>
+                            <strong>{lineage.parentVersionId ? formatShortBusinessId(lineage.parentVersionId) : '同路线起点'}</strong>
+                            <span>替代版本</span>
+                            <strong>{lineage.supersedesVersionId ? formatShortBusinessId(lineage.supersedesVersionId) : '未指定'}</strong>
+                            <span>归属判断</span>
+                            <strong>
+                              {businessVersionDecisionOptions.find((option) => option.value === lineage.decision)?.label || '待确认'}
+                            </strong>
+                            <span>更新说明</span>
+                            <strong>{lineage.changeSummary || relationLabel}</strong>
+                          </div>
+                          {lineage.decisionNote ? (
+                            <Typography.Text theme="secondary">判断备注：{lineage.decisionNote}</Typography.Text>
+                          ) : null}
+                        </div>
+                        {lineage.breakingChange ? (
+                          <Tag theme="warning" variant="light" size="small">
+                            破坏兼容，需单独验收
+                          </Tag>
+                        ) : null}
                         <Typography.Text theme="secondary">{item.description || risk.detail}</Typography.Text>
                         <Row gutter={[8, 8]}>
                           <Col span={6}>
@@ -5659,8 +5933,12 @@ export const BusinessCapabilityGrid = ({
                       </Card>
                     </Col>
                   );
+                        })}
+                      </Row>
+                    </section>
+                  );
                 })}
-              </Row>
+              </Space>
             </Card>
           );
         })}

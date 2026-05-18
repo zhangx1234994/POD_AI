@@ -1115,7 +1115,7 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
     def _build_qwen2512_print_shape_text_enhance_inputs(
         self, params: dict[str, Any], context: ExecutionContext, workflow_definition: dict[str, Any]
     ) -> tuple[dict[str, Any] | None, str | None]:
-        """裂变文字强化：图像输入 + 文本强化 + 相似度映射 denoise。
+        """裂变文字强化：图像输入 + 文本强化 + 重绘幅度映射 denoise。
 
         Node mapping (see `backend/app/workflows/comfyui/qwen2512_print_shape_text_enhance.json`):
         - 10: LoadImagesFromURL.url
@@ -1153,12 +1153,12 @@ class ComfyUIExecutorAdapter(ExecutorAdapter):
         except (TypeError, ValueError):
             overrides.setdefault("27", {})["cfg"] = 1.0
 
-        similarity_value = params.get("bili")
-        if similarity_value in (None, ""):
-            similarity_value = params.get("similarity")
-        if similarity_value in (None, ""):
-            similarity_value = 25
-        denoise = self._map_similarity_to_denoise(similarity_value)
+        repaint_value = params.get("bili")
+        if repaint_value in (None, ""):
+            repaint_value = params.get("similarity")
+        if repaint_value in (None, ""):
+            repaint_value = 25
+        denoise = self._map_repaint_strength_to_denoise(repaint_value)
         if denoise is not None:
             overrides.setdefault("27", {})["denoise"] = denoise
 

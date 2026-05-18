@@ -5,10 +5,12 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
+from app.constants.business_api_contract import business_api_contract_payload
 from app.core.db import get_session
 from app.main import app
 from app.models.integration import ApiKey, BusinessApiKeyUsageLog, BusinessRun
 from app.models.user import User
+from app.routers.business import _business_delivery_contract_audit
 from app.schemas.business import BusinessRunCreateRequest
 from app.services.business_runs import BusinessRunService
 
@@ -203,6 +205,23 @@ def test_business_openapi_exposes_flat_business_tools() -> None:
     assert "BUSINESS_RUN_ID_REQUIRED" in get_responses["400"]["x-podi-errors"]
 
 
+def test_business_delivery_contract_audit_exposes_enum_truth_source() -> None:
+    payload = _business_delivery_contract_audit()
+    contract = business_api_contract_payload()
+
+    assert payload["ok"] is True
+    assert payload["contractSource"] == contract["source"]
+    assert payload["contractVersion"] == contract["version"]
+    assert payload["enumDocs"] == contract["enumDocs"]
+    assert payload["requiredEnumFields"] == contract["requiredEnumFields"]
+    assert payload["enumValues"]["taskStatus"] == ["queued", "running", "succeeded", "failed"]
+    assert payload["enumValues"]["variation_strength"] == [
+        "conservative",
+        "same_series",
+        "creative_same_series",
+    ]
+
+
 def test_business_capabilities_response_uses_public_camel_case(monkeypatch) -> None:
     class FakeBusinessRunService:
         def list_capabilities(self):
@@ -220,6 +239,20 @@ def test_business_capabilities_response_uses_public_camel_case(monkeypatch) -> N
                     "input_schema": {"fields": []},
                     "output_schema": None,
                     "extra_metadata": {"seed_version": 1},
+                    "version_line": {
+                        "key": "comfyui",
+                        "label": "ComfyUI 自研线",
+                        "detail": "同一业务入口下的版本族",
+                        "priority": 20,
+                    },
+                    "version_lineage": {
+                        "parentVersionId": "biz_fission_v0",
+                        "supersedesVersionId": "biz_fission_v0",
+                        "changeSummary": "修补参数映射，业务入口不变。",
+                        "breakingChange": False,
+                        "decision": "version_upgrade",
+                        "decisionNote": "同一个图裂变入口。",
+                    },
                     "created_at": "2026-04-24T00:00:00",
                     "updated_at": "2026-04-24T00:00:00",
                 }
@@ -234,7 +267,13 @@ def test_business_capabilities_response_uses_public_camel_case(monkeypatch) -> N
     assert item["businessKey"] == "fission"
     assert item["displayName"] == "图裂变"
     assert item["isDefault"] is True
+    assert item["versionLine"]["key"] == "comfyui"
+    assert item["versionLine"]["label"] == "ComfyUI 自研线"
+    assert item["versionLineage"]["parentVersionId"] == "biz_fission_v0"
+    assert item["versionLineage"]["changeSummary"] == "修补参数映射，业务入口不变。"
     assert "business_key" not in item
+    assert "version_line" not in item
+    assert "version_lineage" not in item
 
 
 def test_business_fission_requires_image_url() -> None:
@@ -920,6 +959,85 @@ def test_business_api_submit_and_query_do_not_require_coze_workflow(monkeypatch)
     assert full_body["runId"] == "run_direct_fission"
     assert full_body["routeInfo"]["entry"] == "business-api"
     assert full_body["steps"] == []
+
+
+def test_internal_business_api_call_records_usage_without_api_key(monkeypatch) -> None:
+    now = datetime.now(timezone.utc)
+    request_id = "req-internal-usage-001"
+    trace_id = "trace-internal-usage-001"
+    run_id = "run_internal_usage_fission"
+
+    with get_session() as session:
+        for row in (
+            session.execute(select(BusinessApiKeyUsageLog).where(BusinessApiKeyUsageLog.request_id == request_id))
+            .scalars()
+            .all()
+        ):
+            session.delete(row)
+        session.commit()
+
+    class FakeBusinessRunService:
+        def create_run(self, *, business_key, payload, user):
+            assert user is not None
+            return {
+                "id": run_id,
+                "run_id": run_id,
+                "business_key": business_key,
+                "version": "v1",
+                "status": "queued",
+                "source": "business-api-patrol",
+                "channel": "release-smoke",
+                "trace_id": trace_id,
+                "request_id": request_id,
+                "tenant_id": "podi-internal-patrol",
+                "client_id": "business-api-patrol",
+                "ability_id": "comfyui_flux_strong_hq_softstyle_fission",
+                "ability_name": "ComfyUI · 多元素花纹裂变",
+                "ability_task_id": "task_internal_usage_fission",
+                "image_urls": [],
+                "video_urls": [],
+                "texts": [],
+                "created_at": now,
+                "updated_at": now,
+            }
+
+    monkeypatch.setattr("app.routers.business.get_business_run_service", lambda: FakeBusinessRunService())
+
+    resp = client.post(
+        "/api/business/fission/runs",
+        json={
+            "imageUrl": "https://example.com/input.png",
+            "requestId": request_id,
+            "traceId": trace_id,
+            "tenantId": "podi-internal-patrol",
+            "clientId": "business-api-patrol",
+            "source": "business-api-patrol",
+        },
+        headers={"x-real-ip": "127.0.0.1"},
+    )
+
+    assert resp.status_code == 200
+    with get_session() as session:
+        rows = (
+            session.execute(
+                select(BusinessApiKeyUsageLog)
+                .where(BusinessApiKeyUsageLog.request_id == request_id)
+                .order_by(BusinessApiKeyUsageLog.id.asc())
+            )
+            .scalars()
+            .all()
+        )
+
+    assert len(rows) == 1
+    assert rows[0].api_key_id is None
+    assert rows[0].api_key_name == "内部请求"
+    assert rows[0].path == "/api/business/fission/runs"
+    assert rows[0].status_code == 200
+    assert rows[0].business_key == "fission"
+    assert rows[0].run_id == run_id
+    assert rows[0].trace_id == trace_id
+    assert rows[0].tenant_id == "podi-internal-patrol"
+    assert rows[0].client_id == "business-api-patrol"
 
 
 def test_coze_task_get_accepts_business_run_id_for_polling_compatibility(monkeypatch) -> None:

@@ -113,6 +113,11 @@
 | BUSINESS_GOVERNANCE_PRIMARY_ABILITY_NOT_FOUND | 业务治理提示：主能力编号不存在 | `/api/admin/business/capabilities` 响应内提示，不作为 HTTP 错误抛出 |
 | BUSINESS_GOVERNANCE_PRIMARY_ABILITY_INACTIVE | 业务治理提示：主能力未启用 | `/api/admin/business/capabilities` 响应内提示，不作为 HTTP 错误抛出 |
 | BUSINESS_GOVERNANCE_EXECUTABLE_STEP_MISSING | 业务治理提示：配方没有可执行步骤 | `/api/admin/business/capabilities` 响应内提示，不作为 HTTP 错误抛出 |
+| BUSINESS_GOVERNANCE_STEP_ABILITY_MISSING | 业务治理提示：配方步骤缺少能力编号 | `/api/admin/business/capabilities` 响应内提示，不作为 HTTP 错误抛出 |
+| BUSINESS_GOVERNANCE_STEP_ABILITY_NOT_FOUND | 业务治理提示：配方步骤引用的能力不存在 | `/api/admin/business/capabilities` 响应内提示，不作为 HTTP 错误抛出 |
+| BUSINESS_GOVERNANCE_STEP_ABILITY_INACTIVE | 业务治理提示：配方步骤引用的能力未启用 | `/api/admin/business/capabilities` 响应内提示，不作为 HTTP 错误抛出 |
+| BUSINESS_GOVERNANCE_RECIPE_STEP_ID_DUPLICATED | 业务治理提示：配方步骤编号重复 | `/api/admin/business/capabilities` 响应内提示，不作为 HTTP 错误抛出 |
+| BUSINESS_GOVERNANCE_RECIPE_PRIMARY_STEP_MISMATCH | 业务治理提示：主能力和主步骤绑定不一致 | `/api/admin/business/capabilities` 响应内提示，不作为 HTTP 错误抛出 |
 | BUSINESS_GOVERNANCE_VENDOR_MODEL_NOT_FOUND | 业务治理提示：绑定的第三方模型不存在 | `/api/admin/business/capabilities` 响应内提示，不作为 HTTP 错误抛出 |
 | BUSINESS_GOVERNANCE_VENDOR_MODEL_INACTIVE | 业务治理提示：绑定的第三方模型未启用 | `/api/admin/business/capabilities` 响应内提示，不作为 HTTP 错误抛出 |
 | BUSINESS_GOVERNANCE_VENDOR_MODEL_ACCEPTANCE_REQUIRED | 业务治理提示：第三方模型缺少验收通过记录 | `/api/admin/business/capabilities` 响应内提示，不作为 HTTP 错误抛出 |

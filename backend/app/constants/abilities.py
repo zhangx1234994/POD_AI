@@ -1853,10 +1853,10 @@ def _comfyui_qwen2512_print_shape_text_enhance_schema() -> dict[str, Any]:
             {
                 "name": "bili",
                 "type": "number",
-                "label": _compose_bilingual_label("相似度", "Similarity"),
+                "label": _compose_bilingual_label("重绘幅度", "Repaint Strength"),
                 "description": _compose_bilingual_label(
-                    "映射到节点 27 · KSampler.denoise：0→0.95，50→0.75，100→0.55。",
-                    "Mapped to node 27 · KSampler.denoise: 0→0.95, 50→0.75, 100→0.55.",
+                    "映射到节点 27 · KSampler.denoise：值越大变化越明显；建议低 30%、中 60%、高 80%。",
+                    "Mapped to node 27 · KSampler.denoise: higher values produce stronger repainting; suggested low 30%, medium 60%, high 80%.",
                 ),
                 "required": False,
             },
@@ -2979,7 +2979,7 @@ COMFYUI_ABILITIES: dict[str, AbilityDefinition] = {
             "cfg": 1.0,
         },
         "display_name": "ComfyUI · 裂变文字强化",
-        "description": "输入图片 URL、文字强化提示词和相似度，走 Qwen2512 图像形状强化 workflow，输出最终强化结果。",
+        "description": "输入图片 URL、文字强化提示词和重绘幅度，走 Qwen2512 图像形状强化 workflow，输出最终强化结果。",
         "category": "image_generation",
         "input_schema": _comfyui_qwen2512_print_shape_text_enhance_schema(),
         "metadata": {

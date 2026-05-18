@@ -1787,6 +1787,25 @@ const OMIT_PARAM_KEYS = new Set([
   'oss_urls',
 ]);
 
+const REPAINT_PARAM_KEYS = new Set(['bili', 'similarity']);
+
+const isRepaintParamKey = (key: string | null | undefined): boolean =>
+  REPAINT_PARAM_KEYS.has(String(key || '').trim().toLowerCase());
+
+const normalizeRepaintParamLabel = (key: string | null | undefined, label: string): string => {
+  const rawLabel = String(label || '').trim();
+  if (isRepaintParamKey(key) || /相似度|similarity/i.test(rawLabel)) return '重绘幅度(%)';
+  return rawLabel;
+};
+
+const normalizeRepaintParamDescription = (key: string | null | undefined, description: string): string => {
+  const rawDescription = String(description || '').trim();
+  if (isRepaintParamKey(key) || /相似度|similarity/i.test(rawDescription)) {
+    return '值越大变化越明显，值越小越接近原图；建议低 30%、中 60%、高 80%、极高 100%+。';
+  }
+  return rawDescription;
+};
+
 const filterDisplayParams = (
   params: Record<string, unknown> | null | undefined,
 ): Record<string, unknown> | null => {
@@ -1797,7 +1816,16 @@ const filterDisplayParams = (
     return !OMIT_PARAM_KEYS.has(normalized);
   });
   if (entries.length === 0) return null;
-  return Object.fromEntries(entries);
+  const displayParams: Record<string, unknown> = {};
+  for (const [key, value] of entries) {
+    const displayKey = isRepaintParamKey(key) ? '重绘幅度' : key;
+    if (Object.prototype.hasOwnProperty.call(displayParams, displayKey)) {
+      displayParams[`${displayKey}(${key})`] = value;
+      continue;
+    }
+    displayParams[displayKey] = value;
+  }
+  return displayParams;
 };
 
 const INTERNAL_EVAL_DOC_KEYS = new Set(['count', 'generatecount', 'variantcount', 'n']);
@@ -1893,8 +1921,8 @@ const buildBusinessFieldExample = (field: SchemaField, urlExample: string): stri
 };
 
 const buildBusinessFieldDescription = (field: SchemaField): string => {
-  const label = String(field.label || field.name || '').trim();
-  const description = String((field as any).description || '').trim();
+  const label = normalizeRepaintParamLabel(field.name, String(field.label || field.name || '').trim());
+  const description = normalizeRepaintParamDescription(field.name, String((field as any).description || '').trim());
   const options = normalizeFieldOptions(field);
   const optionText =
     options.length > 0
@@ -2276,6 +2304,7 @@ const buildImageLightboxGroups = (runs: Array<RunWithLatest | EvalRun>): ImageLi
 
 const LIGHTBOX_PARAM_LABELS: Record<string, string> = {
   bili: '重绘幅度',
+  similarity: '重绘幅度',
   width: '输出宽度',
   height: '输出高度',
   profile: '裂变配置',
@@ -2291,7 +2320,11 @@ const LIGHTBOX_PARAM_LABELS: Record<string, string> = {
   maskUrl: '蒙版地址',
 };
 
-const getLightboxParamLabel = (key: string): string => LIGHTBOX_PARAM_LABELS[key] || key;
+const getLightboxParamLabel = (key: string): string => {
+  const normalized = String(key || '').trim();
+  if (isRepaintParamKey(normalized) || normalized === '重绘幅度') return '重绘幅度';
+  return LIGHTBOX_PARAM_LABELS[normalized] || normalizeRepaintParamLabel(normalized, normalized);
+};
 
 const formatLightboxParamValue = (value: unknown): string => {
   if (value == null || value === '') return '未填写';
@@ -2908,9 +2941,9 @@ function ParamField({
 }) {
   const rawLabel = String(field.label ?? field.name);
   const normalizedFieldName = String(field.name || '').trim().toLowerCase();
-  const isRepaintField = normalizedFieldName === 'bili' || normalizedFieldName === 'similarity';
+  const isRepaintField = isRepaintParamKey(normalizedFieldName) || /相似度|similarity/i.test(rawLabel);
   const isComfyuiFissionProfileField = normalizedFieldName === 'profile' || normalizedFieldName === 'profile_id';
-  const label = isRepaintField ? '重绘幅度(%)' : rawLabel;
+  const label = normalizeRepaintParamLabel(normalizedFieldName, rawLabel);
   const required = Boolean(field.required);
   const baseOptions = Array.isArray(optionsOverride)
     ? optionsOverride
@@ -2932,7 +2965,7 @@ function ParamField({
     : null;
   const rawHelperText = String(description ?? field.description ?? '').trim();
   const helperText = isRepaintField
-    ? '值越大变化越明显，值越小越接近原图；建议低 30%、中 60%、高 80%、极高 100%+，这里只提示不做硬限制。'
+    ? `${normalizeRepaintParamDescription(normalizedFieldName, rawHelperText)}这里只提示不做硬限制。`
     : isComfyuiFissionProfileField && value === COMFYUI_FISSION_V4_PROFILE
       ? '当前使用智能风险路由：后端会根据图案类型和重绘幅度自动换算实际重绘强度。'
     : rawHelperText;

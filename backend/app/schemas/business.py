@@ -29,6 +29,8 @@ class BusinessCapabilityRead(BaseModel):
     vendorModelId: int | None = Field(default=None, alias="vendor_model_id")
     vendorModelName: str | None = Field(default=None, alias="vendor_model_name")
     vendorModelProvider: str | None = Field(default=None, alias="vendor_model_provider")
+    versionLine: dict[str, Any] | None = Field(default=None, alias="version_line")
+    versionLineage: dict[str, Any] | None = Field(default=None, alias="version_lineage")
     recipeSteps: list[dict[str, Any]] = Field(default_factory=list, alias="recipe_steps")
     orchestrationGraph: dict[str, Any] | None = Field(default=None, alias="orchestration_graph")
     governanceStatus: str = Field(default="unknown", alias="governance_status")

@@ -135,7 +135,8 @@ def test_qwen2512_print_shape_text_enhance_is_fission_with_prompt_and_bili():
     assert names == ["url", "prompt", "bili", "count"]
 
     bili = _field_by_name(workflow, "bili")
-    assert bili.get("label") == "相似度(%)"
+    assert bili.get("label") == "重绘幅度(%)"
+    assert "相似度" not in str(bili)
     assert bili.get("required") is True
 
     outputs = ((workflow.get("output_schema") or {}).get("fields") or [])

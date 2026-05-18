@@ -39,6 +39,25 @@ export const readBusinessVlAssist = (recipe?: JsonRecord | null) => {
   };
 };
 
+const readBusinessVersionLineage = (item: BusinessCapability) => {
+  const metadata = item.metadata && typeof item.metadata === 'object' && !Array.isArray(item.metadata)
+    ? item.metadata
+    : {};
+  const raw = item.versionLineage && typeof item.versionLineage === 'object'
+    ? item.versionLineage
+    : metadata.versionLineage && typeof metadata.versionLineage === 'object' && !Array.isArray(metadata.versionLineage)
+      ? (metadata.versionLineage as JsonRecord)
+      : {};
+  return {
+    parentVersionId: typeof raw.parentVersionId === 'string' ? raw.parentVersionId : '',
+    supersedesVersionId: typeof raw.supersedesVersionId === 'string' ? raw.supersedesVersionId : '',
+    versionChangeSummary: typeof raw.changeSummary === 'string' ? raw.changeSummary : '',
+    versionBreakingChange: Boolean(raw.breakingChange),
+    versionDecision: typeof raw.decision === 'string' && raw.decision ? raw.decision : 'version_upgrade',
+    versionDecisionNote: typeof raw.decisionNote === 'string' ? raw.decisionNote : '',
+  };
+};
+
 const formatBusinessJsonValue = (value?: JsonRecord | null) => (value ? JSON.stringify(value, null, 2) : '');
 
 const parseBusinessJson = (value?: string | JsonRecord): { ok: boolean; value: JsonRecord } => {
@@ -60,6 +79,7 @@ const splitLinesOrComma = (value?: string): string[] =>
 export const createBusinessCapabilityFormState = (item: BusinessCapability): BusinessCapabilityFormState => {
   const rollout = readBusinessRollout(item.metadata);
   const vlAssist = readBusinessVlAssist(item.recipe);
+  const lineage = readBusinessVersionLineage(item);
   return {
     id: item.id,
     businessKey: item.businessKey || 'fission',
@@ -77,6 +97,12 @@ export const createBusinessCapabilityFormState = (item: BusinessCapability): Bus
     rolloutEnabled: rollout.enabled,
     rolloutPercent: rollout.percent,
     rolloutAllowlistText: rollout.allowlistText,
+    parentVersionId: lineage.parentVersionId,
+    supersedesVersionId: lineage.supersedesVersionId,
+    versionChangeSummary: lineage.versionChangeSummary,
+    versionBreakingChange: lineage.versionBreakingChange,
+    versionDecision: lineage.versionDecision,
+    versionDecisionNote: lineage.versionDecisionNote,
     recipeText: formatBusinessJsonValue(item.recipe),
     inputSchemaText: formatBusinessJsonValue(item.inputSchema),
     outputSchemaText: formatBusinessJsonValue(item.outputSchema),
@@ -110,6 +136,18 @@ export const createBusinessCapabilityPayload = (
   }
 
   const nextMetadata: JsonRecord = { ...metadata.value };
+  const parentVersionId = form.parentVersionId.trim();
+  const supersedesVersionId = form.supersedesVersionId.trim();
+  const versionChangeSummary = form.versionChangeSummary.trim();
+  const versionDecisionNote = form.versionDecisionNote.trim();
+  nextMetadata.versionLineage = {
+    parentVersionId: parentVersionId || null,
+    supersedesVersionId: supersedesVersionId || null,
+    changeSummary: versionChangeSummary || null,
+    breakingChange: Boolean(form.versionBreakingChange),
+    decision: form.versionDecision || 'version_upgrade',
+    decisionNote: versionDecisionNote || null,
+  };
   const rolloutAllowlist = splitLinesOrComma(form.rolloutAllowlistText);
   if (form.rolloutEnabled || Number(form.rolloutPercent || 0) > 0 || rolloutAllowlist.length > 0) {
     nextMetadata.rollout = {

@@ -231,7 +231,6 @@ import {
   BusinessCoreClosurePanel,
   BusinessCoreDecisionPanel,
   BusinessEntryCommandPanel,
-  BusinessCoreEntryPanel,
   BusinessGovernancePanel,
   BusinessOrchestrationMapPanel,
   BusinessOperationLogPanel,
@@ -267,6 +266,14 @@ const businessWorkspaceTabs: Array<{ label: string; value: BusinessWorkspaceTab 
   { label: '版本管理', value: 'versions' },
   { label: '治理记录', value: 'governance' },
 ];
+
+const businessWorkspaceTabValues = new Set(businessWorkspaceTabs.map((item) => item.value));
+const readBusinessWorkspaceTabFromParams = (params: URLSearchParams | null): BusinessWorkspaceTab | null => {
+  const value = params?.get('businessTab') as BusinessWorkspaceTab | null;
+  return value && businessWorkspaceTabValues.has(value) ? value : null;
+};
+const readBusinessWorkspaceTabFromHash = (): BusinessWorkspaceTab | null =>
+  readBusinessWorkspaceTabFromParams(readHashParams());
 
 type ExecutorTraffic = {
   count: number;
@@ -1468,7 +1475,7 @@ export function IntegrationDashboard({
   const [businessRunDetailOpen, setBusinessRunDetailOpen] = useState(false);
   const [focusedBusinessRunId, setFocusedBusinessRunId] = useState<string>(() => readBusinessRunIdFromHash());
   const [businessRunAutoRefresh, setBusinessRunAutoRefresh] = useState(true);
-  const [businessWorkspaceTab, setBusinessWorkspaceTab] = useState<BusinessWorkspaceTab>('runs');
+  const [businessWorkspaceTab, setBusinessWorkspaceTab] = useState<BusinessWorkspaceTab>(() => readBusinessWorkspaceTabFromHash() ?? 'runs');
   const [businessDialogOpen, setBusinessDialogOpen] = useState(false);
   const [businessForm, setBusinessForm] = useState<BusinessCapabilityFormState>(defaultBusinessCapabilityForm);
   const [businessFormError, setBusinessFormError] = useState<string | null>(null);
@@ -6222,6 +6229,9 @@ const extractErrorMessage = (error: unknown): string => {
       setActiveNav(navFromHash);
       setFocusedEvalRunId(navFromHash === 'ability-evals' ? readEvalRunIdFromHash() : '');
       setFocusedBusinessRunId(navFromHash === 'business' ? readBusinessRunIdFromHash() : '');
+      if (navFromHash === 'business') {
+        setBusinessWorkspaceTab(readBusinessWorkspaceTabFromParams(params) ?? 'runs');
+      }
       if (navFromHash === 'comfyui-management') {
         const comfyTabFromHash = readComfyuiTabFromHash();
         if (comfyTabFromHash) setComfyuiManageTab(comfyTabFromHash);
@@ -6251,11 +6261,14 @@ const extractErrorMessage = (error: unknown): string => {
     if (activeNav === 'business' && focusedBusinessRunId) {
       params.set('businessRunId', focusedBusinessRunId);
     }
+    if (activeNav === 'business') {
+      params.set('businessTab', businessWorkspaceTab);
+    }
     const nextHash = params.toString();
     const currentHash = window.location.hash.replace(/^#/, '');
     if (currentHash === nextHash) return;
     window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#${nextHash}`);
-  }, [activeNav, comfyuiManageTab, focusedBusinessRunId, focusedEvalRunId]);
+  }, [activeNav, businessWorkspaceTab, comfyuiManageTab, focusedBusinessRunId, focusedEvalRunId]);
 
   return (
     <AdminShell
@@ -6504,6 +6517,12 @@ const extractErrorMessage = (error: unknown): string => {
                 </Card>
                 {businessWorkspaceTab === 'runs' ? (
                   <>
+                    <BusinessEntryCommandPanel
+                      capabilities={businessCapabilities}
+                      pendingApprovals={businessDefaultApprovals}
+                      summary={businessUsageSummary}
+                      formatDateTime={formatDateTime}
+                    />
                     <BusinessRunHistoryPanel
                       runs={businessRuns}
                       total={businessRunTotal}
@@ -6545,21 +6564,10 @@ const extractErrorMessage = (error: unknown): string => {
                       summary={businessUsageSummary}
                       formatDateTime={formatDateTime}
                     />
-                    <BusinessEntryCommandPanel
-                      capabilities={businessCapabilities}
-                      pendingApprovals={businessDefaultApprovals}
-                      summary={businessUsageSummary}
-                      formatDateTime={formatDateTime}
-                    />
                   </>
                 ) : null}
                 {businessWorkspaceTab === 'versions' ? (
                   <>
-                    <BusinessCoreEntryPanel
-                      capabilities={businessCapabilities}
-                      pendingApprovals={businessDefaultApprovals}
-                      formatDateTime={formatDateTime}
-                    />
                     <BusinessCapabilityGrid
                       capabilities={businessCapabilities}
                       pendingApprovals={businessDefaultApprovals}

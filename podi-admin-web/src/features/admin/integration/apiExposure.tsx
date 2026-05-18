@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Alert, Button, Card, Input, Space, Table, Tag, Typography } from 'tdesign-react';
 import { adminApi } from '../../../services/adminApi';
 import type {
+  BusinessApiContractEnumDoc,
   BusinessApiKey,
   BusinessApiKeyUsageLog,
   BusinessApiKeyUsageRunGroup,
@@ -46,12 +47,7 @@ type BusinessApiParamDoc = {
   example: string;
 };
 
-type BusinessApiEnumDoc = {
-  field: string;
-  value: string;
-  meaning: string;
-  action: string;
-};
+type BusinessApiEnumDoc = BusinessApiContractEnumDoc;
 
 type BusinessDeliveryContract = {
   key: string;
@@ -425,7 +421,7 @@ const FISSION_API_PARAMS: BusinessApiParamDoc[] = [
   },
 ];
 
-const BUSINESS_API_STATUS_DOCS: BusinessApiEnumDoc[] = [
+const FALLBACK_BUSINESS_API_STATUS_DOCS: BusinessApiEnumDoc[] = [
   { field: 'status / taskStatus', value: 'queued', meaning: '已进入中台队列，还没开始执行。', action: '按 retryAfterSeconds 继续查询。' },
   { field: 'status / taskStatus', value: 'running', meaning: '正在执行或等待结果回填。', action: '按 retryAfterSeconds 继续查询。' },
   { field: 'status / taskStatus', value: 'succeeded', meaning: '任务成功，结果字段可读取。', action: '读取 imageUrls / videoUrls / texts / resultPayload。' },
@@ -717,8 +713,8 @@ const API_DELIVERY_GUARDS: DeliveryGuard[] = [
   },
 ];
 
-function buildBusinessApiContractChecks(): DeliveryGuard[] {
-  const enumFields = new Set(BUSINESS_API_STATUS_DOCS.map((item) => item.field));
+function buildBusinessApiContractChecks(enumDocs: BusinessApiEnumDoc[]): DeliveryGuard[] {
+  const enumFields = new Set(enumDocs.map((item) => item.field));
   const missingEnums = REQUIRED_BUSINESS_API_ENUM_FIELDS.filter((field) => !enumFields.has(field));
   const incompleteDeliveryContracts = BUSINESS_DELIVERY_CONTRACTS.filter((item) => {
     const missingContractEnums = item.enumFields.filter((field) => !enumFields.has(field));
@@ -774,7 +770,7 @@ function businessDeliveryContractState(row: BusinessDeliveryContract): BusinessD
       summary: row.audit.summary || (row.audit.ok ? '请求、响应、错误、枚举都已覆盖。' : '交付材料存在缺口。'),
     };
   }
-  const enumFields = new Set(BUSINESS_API_STATUS_DOCS.map((item) => item.field));
+  const enumFields = new Set(FALLBACK_BUSINESS_API_STATUS_DOCS.map((item) => item.field));
   const missingSamples = REQUIRED_DELIVERY_SAMPLE_FILES.filter((file) => !row.sampleFiles.includes(file));
   const missingEnums = row.enumFields.filter((field) => !enumFields.has(field));
   const missingErrorCodes = row.errorCodes.length === 0;
@@ -1429,7 +1425,11 @@ export function ApiExposurePanel({
         ? businessApiKeyUsageSummary.pollCount
         : 0;
   const businessApiPollingTooFrequent = businessApiPollingRatio >= 30;
-  const businessApiContractChecks = buildBusinessApiContractChecks();
+  const businessApiStatusDocs =
+    businessDeliveryAudit?.enumDocs && businessDeliveryAudit.enumDocs.length > 0
+      ? businessDeliveryAudit.enumDocs
+      : FALLBACK_BUSINESS_API_STATUS_DOCS;
+  const businessApiContractChecks = buildBusinessApiContractChecks(businessApiStatusDocs);
   const deliveryAuditByKey = new Map((businessDeliveryAudit?.items || []).map((item) => [item.key, item]));
   const businessDeliveryContractRows = BUSINESS_DELIVERY_CONTRACTS.map((item) => ({
     ...item,
@@ -2039,10 +2039,14 @@ export function ApiExposurePanel({
             </details>
             <details className="podi-api-param-details">
               <summary>常用参数和状态枚举</summary>
+              <Typography.Text theme="secondary">
+                枚举来源：{businessDeliveryAudit?.contractSource || '前端离线兜底'}；版本：
+                {businessDeliveryAudit?.contractVersion || '本地内置'}。
+              </Typography.Text>
               <Table
                 rowKey="value"
                 size="small"
-                data={BUSINESS_API_STATUS_DOCS}
+                data={businessApiStatusDocs}
                 columns={[
                   { colKey: 'field', title: '字段', width: 160 },
                   {
