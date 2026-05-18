@@ -15,25 +15,26 @@
 4. `docs/architecture.md`
 5. `docs/BUSINESS_MODEL.md`
 6. `docs/standards/business-mainline-contract.md`
-7. `docs/strategy/business-orchestration-control-plane-v1.md`
+7. `docs/strategy/business-control-plane-v0.2-plan.md`
 8. `docs/standards/version-control-rules.md`
-9. `docs/api/INDEX.md`
-10. 对应模块文档：
+9. `docs/strategy/todo-master-2026q2.md`
+10. `docs/api/INDEX.md`
+11. 对应模块文档：
    - 评测端：`docs/eval/eval-platform.md`
    - Coze：`docs/coze/toolbox-inventory.md`
    - ComfyUI：`docs/comfyui/README.md`
    - 第三方模型 Key：`docs/admin/integration-dashboard.md`
-11. 每日早检：`docs/standards/morning-ops-check.md`
-12. 样本包导出：`docs/standards/business-sample-pack-export.md`
-13. 逐功能上线检查：`docs/standards/per-feature-release-checklist.md`
-14. 清理治理：`docs/standards/cleanup-governance.md`
-15. 发布与上线：`docs/standards/release-sop.md`
-16. 想回看阶段过程，再看：`docs/weekly/README.md`
-17. 需要回看历史客户端资料时，再看：`docs/client/README.md`
+12. 每日早检：`docs/standards/morning-ops-check.md`
+13. 样本包导出：`docs/standards/business-sample-pack-export.md`
+14. 逐功能上线检查：`docs/standards/per-feature-release-checklist.md`
+15. 清理治理：`docs/standards/cleanup-governance.md`
+16. 发布与上线：`docs/standards/release-sop.md`
+17. 需要回看阶段过程，再看：`docs/weekly/README.md`
+18. 需要回看历史客户端资料时，再看：`docs/client/README.md`
 
-## 当前运行基线（2026-05-16）
+## 当前运行基线（2026-05-18）
 
-- 当前封版基线为 `v0.1.0`，对应生产部署提交 `904f9a2a`。
+- 当前线上稳定基线为 `v0.1.x`，已验证生产提交 `0f977db5`。
 - `origin/main` 是唯一发版真源；后续版本按 `docs/standards/version-control-rules.md` 管理。
 - Coze、backend、管理端、测评端已收口到 Coze 主机：`114.55.0.56`。
 - Coze 工具箱统一指向 backend，不再以 `117.50.80.158:8099` 作为现行工具箱入口。
@@ -41,9 +42,10 @@
 - backend 是控制面，只负责业务入口、能力目录、路由、任务、回调、OSS、日志、OpenAPI 和版本证据；不承载高清放大、ComfyUI 或第三方 API 重执行。
 - 当前仓库不包含客户端代码目录；`docs/client/` 只作为历史客户端资料入口，不再代表当前开发主线。
 - 业务主线已固定：一次业务调用以 `runId` 为主线，VL、ComfyUI、OpenAI、评分、回填、回调、计费都归入这次业务调用下的处理步骤或证据；标准见 `docs/standards/business-mainline-contract.md`。
-- 下一阶段目标是收敛层层嵌套的控制单元，建立业务编排控制面；规划见 `docs/strategy/business-orchestration-control-plane-v1.md`。
+- 下一阶段目标是 v0.2 业务控制面收敛版：减少多处控制点，让业务入口、版本、配方、测评、文档和发布门禁读取同一份真源；规划见 `docs/strategy/business-control-plane-v0.2-plan.md`。
 - 114 控制面发布统一走 `docs/standards/release-sop.md` 和 `scripts/release_114_control_plane.sh`，不再临时手工拼 tar/ssh/restart。
 - 发版前必须执行逐功能上线检查、ComfyUI 队列验证、业务接口回归和线上 smoke；标准见 `docs/standards/per-feature-release-checklist.md`。
+- 旧迁移方案、旧客户端资料和阶段过程文档不再作为当前执行入口；清理台账见 `docs/strategy/doc-cleanup-inventory-2026-05-18.md`。
 
 ## 现行真源
 
@@ -52,42 +54,34 @@
 - `docs/PLATFORM_SURFACES.md`
 - `docs/strategy/platform-vision-and-goals-2026.md`
 - `docs/strategy/strategy-one-page-2026q2.md`
-- `docs/strategy/mid-platform-gap-and-roadmap-2026-05-07.md`
-- `docs/strategy/mid-platform-detailed-execution-plan-2026-05-07.md`
-- `docs/strategy/business-orchestration-control-plane-v1.md`
-- `docs/strategy/core-business-chain-review-2026-05-03.md`
-- `docs/strategy/image-ops-service-split-v1.md`
-- `docs/strategy/remote-image-ops-158-plan-v1.md`
+- `docs/strategy/todo-master-2026q2.md`
+- `docs/strategy/business-control-plane-v0.2-plan.md`
+- `docs/strategy/doc-cleanup-inventory-2026-05-18.md`
 - `docs/architecture.md`
 - `docs/BUSINESS_MODEL.md`
 - `docs/api/INDEX.md`
 - `docs/standards/business-mainline-contract.md`
+- `docs/standards/version-control-rules.md`
 - `docs/standards/per-feature-release-checklist.md`
-- `docs/api/examples/fission-delivery-contract-2026-05-12.md`
-- `docs/api/examples/fission-business-delivery/README.md`
 - `docs/admin/integration-dashboard.md`
 - `docs/eval/eval-platform.md`
-- `docs/testing/ABILITY_TEST_LEDGER.md`
 - `docs/coze/toolbox-inventory.md`
 - `docs/comfyui/README.md`
-- `docs/weekly/README.md`
 - `docs/standards/error-catalog.md`
 - `docs/standards/error-contract.md`
 - `docs/standards/interface-consistency.md`
 - `docs/standards/business-interface-taxonomy.md`
 - `docs/standards/delivery-methodology.md`
-- `docs/standards/ability-presentation-layer.md`
-- `docs/standards/eval-workflow-presentation-layer.md`
-- `docs/standards/eval-workflow-usage-layer.md`
 - `docs/standards/document-maintenance.md`
 - `docs/standards/morning-ops-check.md`
 - `docs/standards/business-sample-pack-export.md`
 - `docs/standards/cleanup-governance.md`
 - `docs/standards/release-sop.md`
-- `docs/standards/version-control-rules.md`
+- `docs/testing/ABILITY_TEST_LEDGER.md`
+- `docs/releases/retrospectives/2026-05-18-business-control-plane-retrospective.md`
 - `docs/releases/CHANGELOG.md`
 
-Coze 迁移过程文档仍保留在 `docs/strategy/`，但默认作为阶段记录读取；当前日常执行优先看 `docs/coze/toolbox-inventory.md`、`docs/api/modules/coze.md` 和发布 SOP。
+以下文档降级为阶段记录，不再放入“当前真源”列表：Coze 迁移过程文档、旧客户端资料、旧中台差距分析、旧临时执行清单。需要追溯时从 `docs/strategy/doc-cleanup-inventory-2026-05-18.md` 进入。
 
 ## 模块入口
 
@@ -95,6 +89,7 @@ Coze 迁移过程文档仍保留在 `docs/strategy/`，但默认作为阶段记�
 | --- | --- | --- |
 | 平台边界 | `docs/PLATFORM_SURFACES.md` | 管理端 / 测评端 / 客户端 / 对话式助手边界 |
 | 战略规划 | `docs/strategy/README.md` | 平台愿景、路线、待办、治理 |
+| v0.2 版本方案 | `docs/strategy/business-control-plane-v0.2-plan.md` | 业务控制面收敛、版本族、接口调用中心、上线门禁和文档降噪 |
 | 核心业务链路 | `docs/strategy/core-business-chain-review-2026-05-03.md` | 花纹提取 / 图裂变 / 扩图的入口、路由、回填、测试和后续优先级 |
 | 业务主线契约 | `docs/standards/business-mainline-contract.md` | 固定业务入口、runId、业务版本、处理步骤、回填、回调、计费和页面动线 |
 | API | `docs/api/INDEX.md` | 全量接口模块入口 |
@@ -114,6 +109,7 @@ Coze 迁移过程文档仍保留在 `docs/strategy/`，但默认作为阶段记�
 | 能力测试台账 | `docs/testing/ABILITY_TEST_LEDGER.md` | 每个功能族的必测用例、必查链路和上线闸门 |
 | 复盘记录 | `docs/retrospectives/` | 复盘、风险、后续动作 |
 | 历史归档 | `docs/archive/README.md` | 已退出主入口的旧部署、旧 Coze、旧任务与旧错误文档 |
+| 文档清理台账 | `docs/strategy/doc-cleanup-inventory-2026-05-18.md` | 当前真源、阶段记录、历史资料和后续清理顺序 |
 | 事故复盘 | `docs/retrospectives/2026-04-27-coze-toolbox-internal-only-incident.md` | Coze 工具箱不可用事故、巡检与并发整改项 |
 | 每日早检 SOP | `docs/standards/morning-ops-check.md` | 每天开发前先查前一天业务、能力、测评和 API Key 异常，并导出标准数据包 |
 | 业务样本包导出 | `docs/standards/business-sample-pack-export.md` | 按业务版本、时间窗口和执行节点导出原图、结果图、VL 内容和过程信息 |
