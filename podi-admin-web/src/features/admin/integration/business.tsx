@@ -742,7 +742,7 @@ export function BusinessMainlineContractPanel() {
       theme: 'success' as const,
       detail: 'runId 就是这次任务的查询编号。查结果、看错误、找成本，都先用它。',
       checks: ['提交会返回 runId', '查询结果继续用同一个 runId', '多张图建议拆成多次提交'],
-      action: '排查业务是否成功时，先找接口任务清单里的 runId。',
+      action: '排查业务是否成功时，先找业务调用清单里的 runId。',
     },
     {
       key: 'version',
@@ -769,7 +769,7 @@ export function BusinessMainlineContractPanel() {
       theme: 'success' as const,
       detail: '结果图能打开是第一位；回调、成本、复测和回滚记录用于后续排查。',
       checks: ['结果可访问', '通知失败单独显示', '成本和验收不挡住结果查询'],
-      action: '上线或切默认版本时，只看业务任务和版本证据。',
+      action: '上线或切默认版本时，只看业务调用和版本证据。',
     },
   ];
 
@@ -1292,7 +1292,7 @@ export const BusinessUsageSummaryPanel = ({
           <Typography.Text strong>业务窗口统计</Typography.Text>
           <div>
             <Typography.Text theme="secondary">
-              只统计当前筛选的近 {summary?.windowHours || windowHours} 小时；完整调用请看“接口任务清单”。
+              只统计当前筛选的近 {summary?.windowHours || windowHours} 小时；逐条排查仍以“业务调用清单”的 runId 为准。
             </Typography.Text>
           </div>
         </div>
@@ -1346,7 +1346,7 @@ export const BusinessUsageSummaryPanel = ({
       <Alert
         theme="warning"
         style={{ marginTop: 12 }}
-        message={`仍有 ${Number((summary?.unresolvedIssues || []).reduce((total, bucket) => total + Number(bucket.total || 0), 0))} 条问题未确认恢复。优先筛选问题类型，批量复测后再看是否恢复。`}
+        message={`仍有 ${Number((summary?.unresolvedIssues || []).reduce((total, bucket) => total + Number(bucket.total || 0), 0))} 条问题未确认恢复。先回到上方业务调用清单筛选问题类型，再打开 runId 详情定位卡点。`}
       />
     ) : null}
     <Row gutter={[12, 12]} style={{ marginTop: 12 }}>
@@ -2221,35 +2221,23 @@ function BusinessRunRetestControlPanel({
   const canIgnore = issueRuns.length > 0;
 
   return (
-    <Card
-      bordered
-      style={{ marginBottom: 12 }}
-      title={
-        <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
-          <div>
-            <Typography.Text strong>业务复测闭环</Typography.Text>
-            <div>
-              <Typography.Text theme="secondary">
-                先筛选三条主业务，再对当前已加载记录生成排障清单、批量复测或重试回调。
-              </Typography.Text>
-            </div>
-          </div>
-          <Tag theme={retestableRuns.length > 0 ? 'warning' : 'success'} variant="light">
-            {retestableRuns.length > 0 ? `待复测 ${retestableRuns.length}` : '当前页暂无待复测'}
-          </Tag>
-        </Space>
-      }
-    >
-      <Row gutter={[12, 12]}>
+    <details className="podi-business-run-ops">
+      <summary>
+        <span>排障与批量操作</span>
+        <Tag theme={retestableRuns.length > 0 ? 'warning' : 'success'} variant="light" size="small">
+          {retestableRuns.length > 0 ? `待复测 ${retestableRuns.length}` : '当前页暂无待复测'}
+        </Tag>
+        <Typography.Text theme="secondary">
+          仅作用于当前已加载记录，需要时展开。
+        </Typography.Text>
+      </summary>
+      <Row gutter={[12, 12]} style={{ marginTop: 10 }}>
         <Col xs={12} lg={4}>
-          <Card bordered>
+          <Card bordered size="small">
             <Space direction="vertical" size="small">
               <Typography.Text strong>当前已加载问题</Typography.Text>
-              <Typography.Title level="h2" style={{ margin: 0 }}>
-                {issueRuns.length}
-              </Typography.Title>
-              <Typography.Text theme="secondary">
-                失败 {failedRuns.length} · 回调失败 {callbackFailedRuns.length} · 已恢复 {recoveredRuns.length}
+              <Typography.Text>
+                问题 {issueRuns.length} · 失败 {failedRuns.length} · 回调失败 {callbackFailedRuns.length} · 已恢复 {recoveredRuns.length}
               </Typography.Text>
               <Space size={6} breakLine>
                 {issueLabels.length > 0 ? (
@@ -2267,8 +2255,8 @@ function BusinessRunRetestControlPanel({
             </Space>
           </Card>
         </Col>
-        <Col xs={12} lg={4}>
-          <Card bordered>
+        <Col xs={12} lg={5}>
+          <Card bordered size="small">
             <Space direction="vertical" size="small" style={{ width: '100%' }}>
               <Typography.Text strong>本页可执行动作</Typography.Text>
               <Typography.Text theme="secondary">
@@ -2312,18 +2300,18 @@ function BusinessRunRetestControlPanel({
             </Space>
           </Card>
         </Col>
-        <Col xs={12} lg={4}>
+        <Col xs={12} lg={3}>
           <Alert
             theme={retestableRuns.length > 0 ? 'warning' : 'info'}
             message={
               retestableRuns.length > 0
-                ? '建议先生成排障清单留证，再批量复测。复测成功后回到版本卡片记录验收通过，形成上线证据。'
-                : '当前页没有待复测问题。上线前仍需按花纹提取、图裂变、扩图分别跑一次真实链路。'
+                ? '建议先生成排障清单留证，再批量复测。'
+                : '上线前仍需按主业务分别跑真实链路。'
             }
           />
         </Col>
       </Row>
-    </Card>
+    </details>
   );
 }
 
@@ -2384,10 +2372,10 @@ export const BusinessRunHistoryPanel = ({
       title={
         <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
           <div>
-            <Typography.Text strong>接口任务清单</Typography.Text>
+            <Typography.Text strong>业务调用清单</Typography.Text>
             <div>
               <Typography.Text theme="secondary">
-                已加载 {runs.length} / {total} 条；一行就是一次业务调用，图片分析、生图、评分会在详情里按步骤展示。
+                已加载 {runs.length} / {total} 条；一行就是一次业务调用，点详情查看图片分析、生图、评分、回填和回调。
               </Typography.Text>
             </div>
           </div>
@@ -2408,7 +2396,7 @@ export const BusinessRunHistoryPanel = ({
     >
       <Alert
         theme="info"
-        message="排查业务是否跑通时，先看这里的 runId、入口、版本、状态和结果；不要直接从原子能力调用列表判断整条业务是否成功。"
+        message="排查时先找 runId，再看详情里的处理步骤；原子能力调用只作为下钻证据。"
         style={{ marginBottom: 12 }}
       />
       <BusinessRunRetestControlPanel
@@ -2499,7 +2487,7 @@ export const BusinessRunHistoryPanel = ({
           </div>
         </div>
         <details className="podi-business-run-filters__advanced">
-          <summary>更多筛选：来源、业务方、计费、回调、排障编号</summary>
+          <summary>展开低频筛选：来源、业务方、计费、回调、排障编号</summary>
           <div className="podi-business-run-filters__secondary">
             <Select
               value={filters.billingStatus}
@@ -2585,7 +2573,7 @@ export const BusinessRunHistoryPanel = ({
           },
           {
             colKey: 'runId',
-            title: '任务 runId',
+            title: 'runId',
             width: 230,
             ellipsis: true,
             cell: ({ row }) => (
@@ -2630,7 +2618,7 @@ export const BusinessRunHistoryPanel = ({
           },
           {
             colKey: 'steps',
-            title: '链路判断',
+            title: '处理进度',
             minWidth: 300,
             cell: ({ row }) => {
               const steps = row.steps || [];
@@ -2688,7 +2676,7 @@ export const BusinessRunHistoryPanel = ({
           },
           {
             colKey: 'ability',
-            title: '实际执行',
+            title: '主执行能力',
             width: 260,
             cell: ({ row }) => (
               <Space direction="vertical" size={2}>
@@ -2752,7 +2740,7 @@ export const BusinessRunHistoryPanel = ({
           },
           {
             colKey: 'taskId',
-            title: '底层排障编号',
+            title: '排障编号',
             ellipsis: true,
             cell: ({ row }) => <Typography.Text theme="secondary">{formatShortBusinessId(row.taskId || row.abilityTaskId)}</Typography.Text>,
           },
@@ -2799,7 +2787,7 @@ export const BusinessRunHistoryPanel = ({
       </div>
     </Card>
     <Dialog
-      header="业务任务详情"
+      header="业务调用详情"
       visible={detailOpen}
       width={1120}
       confirmBtn={null}
@@ -2818,7 +2806,7 @@ export const BusinessRunHistoryPanel = ({
           <BusinessRunApiUsageEvidenceCard detail={detail} formatDateTime={formatDateTime} />
           <Row gutter={[12, 12]}>
             <Col span={6}>
-              <Typography.Text theme="secondary">业务任务</Typography.Text>
+              <Typography.Text theme="secondary">业务调用</Typography.Text>
               <Typography.Text code>{detail.runId || detail.id}</Typography.Text>
             </Col>
             <Col span={3}>
@@ -4645,7 +4633,7 @@ const businessCoreEntrySuggestion = ({
   if (defaultItem.releaseGate?.acceptancePassed === false || defaultItem.latestAcceptance?.status !== 'passed') {
     return '默认版本还没有验收通过记录，先跑真实链路测试并记录验收证据。';
   }
-  if (defaultItem.latestRun?.error || unresolvedCount > 0) return '最近有失败样本，先打开接口任务清单确认卡点。';
+  if (defaultItem.latestRun?.error || unresolvedCount > 0) return '最近有失败样本，先打开业务调用清单确认卡点。';
   if (Number(defaultItem.runMetrics?.failed || 0) > 0) return '历史失败已被后续成功样本覆盖，保留追溯即可。';
   if (hasPendingApproval) return '存在默认版本切换审批，先处理审批再对外说明。';
   if (defaultItem.releaseGate?.status === 'warning') return defaultItem.releaseGate.suggestions?.[0] || '上线前仍有风险项，先完成复核再小流量验证。';
@@ -4707,7 +4695,7 @@ const businessEntryCommandStatus = ({
     return {
       theme: 'warning',
       label: '需复核',
-      detail: unresolvedCount > 0 ? `${unresolvedCount} 条失败还没被同版本成功样本覆盖，先看接口任务清单定位。` : '最近一次真实调用失败，先看接口任务清单定位。',
+      detail: unresolvedCount > 0 ? `${unresolvedCount} 条失败还没被同版本成功样本覆盖，先看业务调用清单定位。` : '最近一次真实调用失败，先看业务调用清单定位。',
     };
   }
   if (Number(bucket?.callbackFailed || 0) > 0) {
@@ -5062,6 +5050,7 @@ export const BusinessOrchestrationMapPanel = ({
   summary?: BusinessUsageSummaryResponse | null;
   formatDateTime: (value?: string | null) => string;
 }) => {
+  const [selectedBusinessKey, setSelectedBusinessKey] = useState<(typeof businessOrchestrationKeys)[number]>('fission');
   const rows = businessOrchestrationKeys.map((businessKey) => {
     const items = capabilities.filter((item) => canonicalBusinessKey(item.businessKey) === businessKey);
     const defaultItem = items.find((item) => item.isDefault);
@@ -5088,6 +5077,7 @@ export const BusinessOrchestrationMapPanel = ({
       }),
     };
   });
+  const selectedRow = rows.find((row) => row.businessKey === selectedBusinessKey) || rows[0];
 
   return (
     <Card
@@ -5113,89 +5103,110 @@ export const BusinessOrchestrationMapPanel = ({
         <div className="podi-business-workflow-map-hint">
           一条业务调用只对应一个 runId；图片理解、生图、评分、回填都挂在这条业务链下面。
         </div>
-        {rows.map((row) => (
-          <section key={row.businessKey} className="podi-business-workflow-row">
-            <aside className="podi-business-workflow-row__summary">
+        <div className="podi-business-workflow-switcher">
+          {rows.map((row) => (
+            <button
+              key={row.businessKey}
+              className={`podi-business-workflow-switcher__item ${row.businessKey === selectedRow.businessKey ? 'is-active' : ''}`}
+              type="button"
+              onClick={() => setSelectedBusinessKey(row.businessKey)}
+            >
+              <Space size={6} breakLine>
+                <Typography.Text strong>{businessKeyLabel(row.businessKey)}</Typography.Text>
+                <Tag theme={row.risk.theme as any} variant="light" size="small">
+                  {row.risk.text}
+                </Tag>
+              </Space>
+              <Typography.Text theme="secondary">{businessUsageDigest(summary, row.businessKey)}</Typography.Text>
+              <Typography.Text theme="secondary">
+                {row.defaultItem ? `${row.defaultItem.version} · ${row.defaultItem.displayName}` : '未设置默认版本'}
+              </Typography.Text>
+            </button>
+          ))}
+        </div>
+        {selectedRow ? (
+          <section className="podi-business-workflow-focus">
+            <aside className="podi-business-workflow-focus__summary">
               <Space direction="vertical" size={8} style={{ width: '100%' }}>
                 <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                  <Typography.Text strong>{businessKeyLabel(row.businessKey)}</Typography.Text>
-                  <Tag theme={row.risk.theme as any} variant="light">
-                    {row.risk.text}
+                  <Typography.Text strong>{businessKeyLabel(selectedRow.businessKey)}</Typography.Text>
+                  <Tag theme={selectedRow.risk.theme as any} variant="light">
+                    {selectedRow.risk.text}
                   </Tag>
                 </Space>
-                <Typography.Text theme="secondary">{businessCapabilityGroupHint(row.businessKey)}</Typography.Text>
-                <div className="podi-business-workflow-row__api">
+                <Typography.Text theme="secondary">{businessCapabilityGroupHint(selectedRow.businessKey)}</Typography.Text>
+                <div className="podi-business-workflow-focus__block">
                   <Typography.Text theme="secondary">业务入口</Typography.Text>
-                  <Typography.Text code>{businessApiEntryPath(row.businessKey)}</Typography.Text>
-                  <Typography.Text theme="secondary">{businessEntryUsageHint(row.businessKey)}</Typography.Text>
+                  <Typography.Text code>{businessApiEntryPath(selectedRow.businessKey)}</Typography.Text>
+                  <Typography.Text theme="secondary">{businessEntryUsageHint(selectedRow.businessKey)}</Typography.Text>
                 </div>
-                <div className="podi-business-workflow-row__version">
-                  <Tag theme={row.defaultItem?.status === 'active' ? 'success' : 'warning'} variant="light">
+                <div className="podi-business-workflow-focus__block">
+                  <Tag theme={selectedRow.defaultItem?.status === 'active' ? 'success' : 'warning'} variant="light">
                     当前版本
                   </Tag>
                   <Typography.Text strong>
-                    {row.defaultItem ? `${row.defaultItem.version} · ${row.defaultItem.displayName}` : '未设置默认版本'}
+                    {selectedRow.defaultItem ? `${selectedRow.defaultItem.version} · ${selectedRow.defaultItem.displayName}` : '未设置默认版本'}
                   </Typography.Text>
                   <Typography.Text theme="secondary">
-                    发布：{row.defaultItem ? formatDateTime(row.defaultItem.releaseTime || row.defaultItem.createdAt) : '—'}
+                    发布：{selectedRow.defaultItem ? formatDateTime(selectedRow.defaultItem.releaseTime || selectedRow.defaultItem.createdAt) : '—'}
                   </Typography.Text>
                   <Typography.Text theme="secondary">
-                    更新：{row.defaultItem ? formatDateTime(row.defaultItem.updatedAt || row.defaultItem.releaseTime || row.defaultItem.createdAt) : '—'}
+                    更新：{selectedRow.defaultItem ? formatDateTime(selectedRow.defaultItem.updatedAt || selectedRow.defaultItem.releaseTime || selectedRow.defaultItem.createdAt) : '—'}
                   </Typography.Text>
                 </div>
                 <Space size={6} breakLine>
-                  <Tag theme={row.usage?.failed ? 'warning' : 'default'} variant="light">
-                    {businessUsageDigest(summary, row.businessKey)}
+                  <Tag theme={selectedRow.usage?.failed ? 'warning' : 'default'} variant="light">
+                    {businessUsageDigest(summary, selectedRow.businessKey)}
                   </Tag>
-                  <Tag theme={row.rollout.enabled ? 'warning' : 'default'} variant="light">
-                    灰度 {row.rollout.enabled ? `${row.rollout.percent}%` : '关闭'}
+                  <Tag theme={selectedRow.rollout.enabled ? 'warning' : 'default'} variant="light">
+                    灰度 {selectedRow.rollout.enabled ? `${selectedRow.rollout.percent}%` : '关闭'}
                   </Tag>
-                  <Tag theme={row.rollbackReadyAlternatives.length > 0 ? 'success' : 'warning'} variant="light">
-                    {row.rollbackReadyAlternatives.length > 0
-                      ? `可回滚 ${row.rollbackReadyAlternatives.length}`
-                      : `备选 ${row.activeAlternatives.length}`}
+                  <Tag theme={selectedRow.rollbackReadyAlternatives.length > 0 ? 'success' : 'warning'} variant="light">
+                    {selectedRow.rollbackReadyAlternatives.length > 0
+                      ? `可回滚 ${selectedRow.rollbackReadyAlternatives.length}`
+                      : `备选 ${selectedRow.activeAlternatives.length}`}
                   </Tag>
-                  {row.hasPendingApproval ? <Tag theme="warning" variant="light">切换审批中</Tag> : null}
+                  {selectedRow.hasPendingApproval ? <Tag theme="warning" variant="light">切换审批中</Tag> : null}
                 </Space>
                 <Typography.Text
-                  theme={row.risk.theme === 'danger' ? 'error' : row.risk.theme === 'warning' ? 'warning' : 'secondary'}
+                  theme={selectedRow.risk.theme === 'danger' ? 'error' : selectedRow.risk.theme === 'warning' ? 'warning' : 'secondary'}
                 >
-                  {row.suggestion}
+                  {selectedRow.suggestion}
                 </Typography.Text>
               </Space>
             </aside>
-            <div className="podi-business-workflow-row__canvas">
-              <div className="podi-business-workflow-row__canvas-head">
+            <div className="podi-business-workflow-focus__canvas">
+              <div className="podi-business-workflow-focus__canvas-head">
                 <Space size={6} breakLine>
                   <Tag theme="primary" variant="light">
                     处理链路
                   </Tag>
-                  <Tag variant="light">主执行：{businessCapabilityEngineLabel(row.defaultItem)}</Tag>
-                  <Tag theme={row.risk.theme as any} variant="light">
-                    最近：{row.defaultItem ? businessCapabilityLatestRunLabel(row.defaultItem) : '无运行记录'}
+                  <Tag variant="light">主执行：{businessCapabilityEngineLabel(selectedRow.defaultItem)}</Tag>
+                  <Tag theme={selectedRow.risk.theme as any} variant="light">
+                    最近：{selectedRow.defaultItem ? businessCapabilityLatestRunLabel(selectedRow.defaultItem) : '无运行记录'}
                   </Tag>
                 </Space>
                 <Space size={6} breakLine>
-                  {row.defaultItem ? (
+                  {selectedRow.defaultItem ? (
                     <Tag theme="success" variant="light" size="small">
-                      默认 {row.defaultItem.version}
+                      默认 {selectedRow.defaultItem.version}
                     </Tag>
                   ) : null}
-                  {row.activeAlternatives.slice(0, 4).map((item) => (
+                  {selectedRow.activeAlternatives.slice(0, 4).map((item) => (
                     <Tag key={item.id} theme={businessCapabilityHasRollbackEvidence(item) ? 'success' : 'primary'} variant="light" size="small">
                       {item.version}
                     </Tag>
                   ))}
-                  {row.activeAlternatives.length > 4 ? <Tag variant="light" size="small">+{row.activeAlternatives.length - 4}</Tag> : null}
+                  {selectedRow.activeAlternatives.length > 4 ? <Tag variant="light" size="small">+{selectedRow.activeAlternatives.length - 4}</Tag> : null}
                 </Space>
               </div>
               <BusinessOrchestrationGraphView
-                graph={row.defaultItem?.orchestrationGraph}
-                fallbackSteps={row.defaultItem?.recipeSteps || []}
+                graph={selectedRow.defaultItem?.orchestrationGraph}
+                fallbackSteps={selectedRow.defaultItem?.recipeSteps || []}
               />
             </div>
           </section>
-        ))}
+        ) : null}
       </Space>
     </Card>
   );

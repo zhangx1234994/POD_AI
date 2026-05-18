@@ -105,24 +105,7 @@ import type {
 } from '../types/admin';
 import type { UploadResult } from '../types/media';
 import { AdminShell } from '../layouts/AdminShell';
-import {
-  AbilityApiPanel,
-  AbilityOverviewSummaryPanel,
-  AbilityRoadmapPanel,
-} from '../features/admin/integration/abilityIntro';
-import { AbilityCatalogPanel } from '../features/admin/integration/abilityCatalog';
-import {
-  AbilityMetadataTab,
-  AbilityOverviewTab,
-  AbilityParamsTab,
-} from '../features/admin/integration/abilityDetailTabs';
-import { AbilityEditorDialog } from '../features/admin/integration/abilityEditor';
 import type { AbilityHealthFilter } from '../features/admin/integration/abilityHealth';
-import { AbilityTestingTab } from '../features/admin/integration/abilityTesting';
-import { AbilityLogListPanel } from '../features/admin/integration/abilityLogList';
-import { AbilityLogMetricsPanel } from '../features/admin/integration/abilityLogMetrics';
-import { AbilityRecentLogsPanel } from '../features/admin/integration/abilityRecentLogs';
-import { AbilityWorkbenchPanel } from '../features/admin/integration/abilityWorkbench';
 import { useAuthActions } from '../features/admin/integration/authActions';
 import { useBillingActions } from '../features/admin/integration/billingActions';
 import {
@@ -225,7 +208,20 @@ import {
   type AbilityTestResultPayload,
 } from '../features/admin/integration/integrationDashboardConfig';
 import {
+  AbilityApiPanel,
+  AbilityCatalogPanel,
+  AbilityEditorDialog,
   AbilityEvaluationPage,
+  AbilityLogListPanel,
+  AbilityLogMetricsPanel,
+  AbilityMetadataTab,
+  AbilityOverviewSummaryPanel,
+  AbilityOverviewTab,
+  AbilityParamsTab,
+  AbilityRecentLogsPanel,
+  AbilityRoadmapPanel,
+  AbilityTestingTab,
+  AbilityWorkbenchPanel,
   AuthPanel,
   BillingPanel,
   BindingRoutesPanel,
@@ -262,6 +258,15 @@ import {
   panelFallback,
 } from '../features/admin/integration/lazyPanels';
 import { ActionBar, ErrorState, PageHeader } from '../features/admin/shared/ui';
+
+type BusinessWorkspaceTab = 'runs' | 'map' | 'versions' | 'governance';
+
+const businessWorkspaceTabs: Array<{ label: string; value: BusinessWorkspaceTab }> = [
+  { label: '业务调用', value: 'runs' },
+  { label: '业务链路', value: 'map' },
+  { label: '版本管理', value: 'versions' },
+  { label: '治理记录', value: 'governance' },
+];
 
 type ExecutorTraffic = {
   count: number;
@@ -1463,6 +1468,7 @@ export function IntegrationDashboard({
   const [businessRunDetailOpen, setBusinessRunDetailOpen] = useState(false);
   const [focusedBusinessRunId, setFocusedBusinessRunId] = useState<string>(() => readBusinessRunIdFromHash());
   const [businessRunAutoRefresh, setBusinessRunAutoRefresh] = useState(true);
+  const [businessWorkspaceTab, setBusinessWorkspaceTab] = useState<BusinessWorkspaceTab>('runs');
   const [businessDialogOpen, setBusinessDialogOpen] = useState(false);
   const [businessForm, setBusinessForm] = useState<BusinessCapabilityFormState>(defaultBusinessCapabilityForm);
   const [businessFormError, setBusinessFormError] = useState<string | null>(null);
@@ -5057,6 +5063,7 @@ export function IntegrationDashboard({
 
   const handleOpenBusinessRunDetail = useCallback((row: BusinessRun) => {
     const runId = row.runId || row.id;
+    setBusinessWorkspaceTab('runs');
     setBusinessRunDetail(row);
     setBusinessRunDetailOpen(true);
     setFocusedBusinessRunId(runId);
@@ -5073,6 +5080,7 @@ export function IntegrationDashboard({
     const normalizedRunId = runId.trim();
     if (!normalizedRunId) return;
     setActiveNav('business');
+    setBusinessWorkspaceTab('runs');
     setFocusedBusinessRunId(normalizedRunId);
     setBusinessRunDetail(null);
     setBusinessRunDetailOpen(true);
@@ -5095,6 +5103,7 @@ export function IntegrationDashboard({
     ) {
       return;
     }
+    setBusinessWorkspaceTab('runs');
     setBusinessRunDetail(null);
     setBusinessRunDetailOpen(true);
     setBusinessActionError(null);
@@ -5110,7 +5119,7 @@ export function IntegrationDashboard({
       })
       .catch((error) => {
         setBusinessRunDetailOpen(false);
-        setBusinessActionError(error?.message || '加载业务任务详情失败，请刷新后重试。');
+        setBusinessActionError(error?.message || '加载业务调用详情失败，请刷新后重试。');
       });
   }, [activeNav, businessRunDetail, businessRunDetailOpen, focusedBusinessRunId]);
 
@@ -6454,135 +6463,176 @@ const extractErrorMessage = (error: unknown): string => {
                   />
                 ) : null}
                 {businessActionError ? <Alert theme="error" message={businessActionError} /> : null}
-                <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                  <Typography.Text theme="secondary">先看业务链路图，再查接口任务清单；底层能力只作为排障下钻。</Typography.Text>
-                  {!isBusinessReadOnly ? (
-                    <Button
-                      theme="primary"
-                      onClick={() => {
-                        resetBusinessForm();
-                        setBusinessDialogOpen(true);
-                      }}
-                    >
-                      新增业务版本
-                    </Button>
-                  ) : null}
-                </Space>
-                <BusinessOrchestrationMapPanel
-                  capabilities={businessCapabilities}
-                  pendingApprovals={businessDefaultApprovals}
-                  summary={businessUsageSummary}
-                  formatDateTime={formatDateTime}
-                />
-                <BusinessEntryCommandPanel
-                  capabilities={businessCapabilities}
-                  pendingApprovals={businessDefaultApprovals}
-                  summary={businessUsageSummary}
-                  formatDateTime={formatDateTime}
-                />
-                <BusinessActionPanel
-                  capabilities={businessCapabilities}
-                  pendingApprovals={businessDefaultApprovals}
-                  summary={businessUsageSummary}
-                />
-                <BusinessRunHistoryPanel
-                  runs={businessRuns}
-                  total={businessRunTotal}
-                  filters={businessRunFilters}
-                  businessOptions={businessRunBusinessOptions}
-                  versionOptions={businessRunVersionOptions}
-                  isReadOnly={isBusinessReadOnly}
-                  tenantId={currentUser?.tenantId}
-                  clientId={currentUser?.clientId}
-                  actionLoadingId={businessActionLoadingId}
-                  detail={businessRunDetail}
-                  detailOpen={businessRunDetailOpen}
-                  autoRefresh={businessRunAutoRefresh}
-                  onFiltersChange={setBusinessRunFilters}
-                  onAutoRefreshChange={setBusinessRunAutoRefresh}
-                  onRefresh={refreshBusinessRuns}
-                  onExport={exportBusinessRuns}
-                  onBulkCallbackRetry={handleBusinessBulkCallbackRetry}
-                  onBulkRetest={handleBusinessBulkRetest}
-                  onBulkIgnoreIssues={handleBusinessBulkIgnoreIssues}
-                  onGenerateIssueChecklist={handleBusinessGenerateIssueChecklist}
-                  onOpenDetail={handleOpenBusinessRunDetail}
-                  onCloseDetail={handleCloseBusinessRunDetail}
-                  onCallbackRetry={handleBusinessCallbackRetry}
-                  formatDateTime={formatDateTime}
-                />
-                <BusinessCoreEntryPanel
-                  capabilities={businessCapabilities}
-                  pendingApprovals={businessDefaultApprovals}
-                  formatDateTime={formatDateTime}
-                />
-                <BusinessCoreDecisionPanel
-                  capabilities={businessCapabilities}
-                  pendingApprovals={businessDefaultApprovals}
-                  summary={businessUsageSummary}
-                  formatDateTime={formatDateTime}
-                />
-                <BusinessCoreClosurePanel
-                  capabilities={businessCapabilities}
-                  pendingApprovals={businessDefaultApprovals}
-                  summary={businessUsageSummary}
-                  formatDateTime={formatDateTime}
-                />
-                {!isBusinessReadOnly ? (
-                  <BusinessReleaseGuardPanel
-                    capabilities={businessCapabilities}
-                    pendingApprovals={businessDefaultApprovals}
-                    summary={businessUsageSummary}
-                  />
+                <Card bordered>
+                  <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                    <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+                      <div>
+                        <Typography.Text strong>业务工作台</Typography.Text>
+                        <div>
+                          <Typography.Text theme="secondary">
+                            默认先看业务调用；链路、版本和治理分开处理，避免所有信息挤在一个页面。
+                          </Typography.Text>
+                        </div>
+                      </div>
+                      {!isBusinessReadOnly ? (
+                        <Button
+                          theme="primary"
+                          onClick={() => {
+                            resetBusinessForm();
+                            setBusinessDialogOpen(true);
+                          }}
+                        >
+                          新增业务版本
+                        </Button>
+                      ) : null}
+                    </Space>
+                    <Tabs
+                      value={businessWorkspaceTab}
+                      onChange={(value) => setBusinessWorkspaceTab(value as BusinessWorkspaceTab)}
+                      list={businessWorkspaceTabs}
+                    />
+                    <Typography.Text theme="secondary">
+                      {businessWorkspaceTab === 'runs'
+                        ? '排查业务是否跑通时，只看这里的一条 runId。VL、生成、评分、回填、回调都是这条调用下面的处理步骤。'
+                        : businessWorkspaceTab === 'map'
+                          ? '这里看每个业务入口当前用哪个版本、由哪些组件组成、最近是否跑通过。'
+                          : businessWorkspaceTab === 'versions'
+                            ? '这里管理业务版本、默认入口、草稿试运行和验收记录。'
+                            : '这里处理发布门禁、默认切换、回滚、复测和操作记录。'}
+                    </Typography.Text>
+                  </Space>
+                </Card>
+                {businessWorkspaceTab === 'runs' ? (
+                  <>
+                    <BusinessRunHistoryPanel
+                      runs={businessRuns}
+                      total={businessRunTotal}
+                      filters={businessRunFilters}
+                      businessOptions={businessRunBusinessOptions}
+                      versionOptions={businessRunVersionOptions}
+                      isReadOnly={isBusinessReadOnly}
+                      tenantId={currentUser?.tenantId}
+                      clientId={currentUser?.clientId}
+                      actionLoadingId={businessActionLoadingId}
+                      detail={businessRunDetail}
+                      detailOpen={businessRunDetailOpen}
+                      autoRefresh={businessRunAutoRefresh}
+                      onFiltersChange={setBusinessRunFilters}
+                      onAutoRefreshChange={setBusinessRunAutoRefresh}
+                      onRefresh={refreshBusinessRuns}
+                      onExport={exportBusinessRuns}
+                      onBulkCallbackRetry={handleBusinessBulkCallbackRetry}
+                      onBulkRetest={handleBusinessBulkRetest}
+                      onBulkIgnoreIssues={handleBusinessBulkIgnoreIssues}
+                      onGenerateIssueChecklist={handleBusinessGenerateIssueChecklist}
+                      onOpenDetail={handleOpenBusinessRunDetail}
+                      onCloseDetail={handleCloseBusinessRunDetail}
+                      onCallbackRetry={handleBusinessCallbackRetry}
+                      formatDateTime={formatDateTime}
+                    />
+                    <BusinessUsageSummaryPanel
+                      summary={businessUsageSummary}
+                      windowHours={businessRunFilters.windowHours}
+                      formatDateTime={formatDateTime}
+                    />
+                  </>
                 ) : null}
-                {!isBusinessReadOnly ? (
-                  <BusinessGovernancePanel
-                    capabilityOptions={businessCapabilityVersionOptions}
-                    targetOptions={businessCompareTargetOptions}
-                    compareLeftId={effectiveBusinessCompareLeftId}
-                    compareRightId={effectiveBusinessCompareRightId}
-                    selectedTarget={selectedBusinessCompareRight}
-                    compareResult={businessCompareResult}
-                    pendingApprovals={businessDefaultApprovals}
-                    actionLoadingId={businessActionLoadingId}
-                    onCompareLeftChange={(value) => {
-                      setBusinessCompareLeftId(value);
-                      setBusinessCompareRightId('');
-                      setBusinessCompareResult(null);
-                    }}
-                    onCompareRightChange={(value) => {
-                      setBusinessCompareRightId(value);
-                      setBusinessCompareResult(null);
-                    }}
-                    onCompare={handleBusinessCompare}
-                    onRollback={handleBusinessRollback}
-                    onApprovalDecision={handleBusinessDefaultApprovalDecision}
-                    formatDateTime={formatDateTime}
-                  />
+                {businessWorkspaceTab === 'map' ? (
+                  <>
+                    <BusinessOrchestrationMapPanel
+                      capabilities={businessCapabilities}
+                      pendingApprovals={businessDefaultApprovals}
+                      summary={businessUsageSummary}
+                      formatDateTime={formatDateTime}
+                    />
+                    <BusinessEntryCommandPanel
+                      capabilities={businessCapabilities}
+                      pendingApprovals={businessDefaultApprovals}
+                      summary={businessUsageSummary}
+                      formatDateTime={formatDateTime}
+                    />
+                  </>
                 ) : null}
-                <BusinessCapabilityGrid
-                  capabilities={businessCapabilities}
-                  pendingApprovals={businessDefaultApprovals}
-                  isReadOnly={isBusinessReadOnly}
-                  actionLoadingId={businessActionLoadingId}
-                  onEdit={handleBusinessEdit}
-                  onSetDefault={handleBusinessSetDefault}
-                  onToggleActive={handleBusinessToggleActive}
-                  onRecordAcceptance={handleBusinessRecordAcceptance}
-                  onDraftRun={handleBusinessDraftRun}
-                  formatDateTime={formatDateTime}
-                />
-                <BusinessUsageSummaryPanel
-                  summary={businessUsageSummary}
-                  windowHours={businessRunFilters.windowHours}
-                  formatDateTime={formatDateTime}
-                />
-                {!isBusinessReadOnly ? (
-                  <BusinessOperationLogPanel
-                    logs={businessOperationLogs}
-                    onRefresh={refreshBusinessRuns}
-                    formatDateTime={formatDateTime}
-                  />
+                {businessWorkspaceTab === 'versions' ? (
+                  <>
+                    <BusinessCoreEntryPanel
+                      capabilities={businessCapabilities}
+                      pendingApprovals={businessDefaultApprovals}
+                      formatDateTime={formatDateTime}
+                    />
+                    <BusinessCapabilityGrid
+                      capabilities={businessCapabilities}
+                      pendingApprovals={businessDefaultApprovals}
+                      isReadOnly={isBusinessReadOnly}
+                      actionLoadingId={businessActionLoadingId}
+                      onEdit={handleBusinessEdit}
+                      onSetDefault={handleBusinessSetDefault}
+                      onToggleActive={handleBusinessToggleActive}
+                      onRecordAcceptance={handleBusinessRecordAcceptance}
+                      onDraftRun={handleBusinessDraftRun}
+                      formatDateTime={formatDateTime}
+                    />
+                  </>
+                ) : null}
+                {businessWorkspaceTab === 'governance' ? (
+                  <>
+                    <BusinessActionPanel
+                      capabilities={businessCapabilities}
+                      pendingApprovals={businessDefaultApprovals}
+                      summary={businessUsageSummary}
+                    />
+                    <BusinessCoreDecisionPanel
+                      capabilities={businessCapabilities}
+                      pendingApprovals={businessDefaultApprovals}
+                      summary={businessUsageSummary}
+                      formatDateTime={formatDateTime}
+                    />
+                    <BusinessCoreClosurePanel
+                      capabilities={businessCapabilities}
+                      pendingApprovals={businessDefaultApprovals}
+                      summary={businessUsageSummary}
+                      formatDateTime={formatDateTime}
+                    />
+                    {!isBusinessReadOnly ? (
+                      <BusinessReleaseGuardPanel
+                        capabilities={businessCapabilities}
+                        pendingApprovals={businessDefaultApprovals}
+                        summary={businessUsageSummary}
+                      />
+                    ) : null}
+                    {!isBusinessReadOnly ? (
+                      <BusinessGovernancePanel
+                        capabilityOptions={businessCapabilityVersionOptions}
+                        targetOptions={businessCompareTargetOptions}
+                        compareLeftId={effectiveBusinessCompareLeftId}
+                        compareRightId={effectiveBusinessCompareRightId}
+                        selectedTarget={selectedBusinessCompareRight}
+                        compareResult={businessCompareResult}
+                        pendingApprovals={businessDefaultApprovals}
+                        actionLoadingId={businessActionLoadingId}
+                        onCompareLeftChange={(value) => {
+                          setBusinessCompareLeftId(value);
+                          setBusinessCompareRightId('');
+                          setBusinessCompareResult(null);
+                        }}
+                        onCompareRightChange={(value) => {
+                          setBusinessCompareRightId(value);
+                          setBusinessCompareResult(null);
+                        }}
+                        onCompare={handleBusinessCompare}
+                        onRollback={handleBusinessRollback}
+                        onApprovalDecision={handleBusinessDefaultApprovalDecision}
+                        formatDateTime={formatDateTime}
+                      />
+                    ) : null}
+                    {!isBusinessReadOnly ? (
+                      <BusinessOperationLogPanel
+                        logs={businessOperationLogs}
+                        onRefresh={refreshBusinessRuns}
+                        formatDateTime={formatDateTime}
+                      />
+                    ) : null}
+                  </>
                 ) : null}
                 <BusinessCapabilityEditorDialog
                   visible={businessDialogOpen}
@@ -6781,11 +6831,13 @@ const extractErrorMessage = (error: unknown): string => {
               title="原子能力总览"
               description="先判断能力是否可用，再进入参数、节点和测试细节。"
             >
-              <AbilityOverviewSummaryPanel
-                abilityHealthSummary={abilityHealthSummary}
-                abilityTotalFallback={summary.abilities || 0}
-                filteredCount={filteredAbilities.length}
-              />
+              <Suspense fallback={panelFallback('原子能力总览')}>
+                <AbilityOverviewSummaryPanel
+                  abilityHealthSummary={abilityHealthSummary}
+                  abilityTotalFallback={summary.abilities || 0}
+                  filteredCount={filteredAbilities.length}
+                />
+              </Suspense>
             </Section>
           )}
 
@@ -6795,7 +6847,9 @@ const extractErrorMessage = (error: unknown): string => {
               title="原子能力类型路线"
               description="把用户能理解的能力范围固定下来，避免所有能力都混在一张技术表里。"
             >
-              <AbilityRoadmapPanel />
+              <Suspense fallback={panelFallback('原子能力类型路线')}>
+                <AbilityRoadmapPanel />
+              </Suspense>
             </Section>
           )}
 
@@ -6805,15 +6859,17 @@ const extractErrorMessage = (error: unknown): string => {
               title="统一能力接口"
               description="面向客户端/业务方公开的 `/api/abilities` 清单与调用示例，便于快速查找能力 ID、输入要求、是否支持多图等。"
             >
-              <AbilityApiPanel
-                publicAbilities={publicAbilities}
-                publicAbilitiesLoading={publicAbilitiesLoading}
-                abilityApiExample={abilityApiExample}
-                onRefresh={refreshPublicAbilities}
-                onCopy={copyTextToClipboard}
-                getProviderLabel={getProviderLabel}
-                getCategoryLabel={getCategoryLabel}
-              />
+              <Suspense fallback={panelFallback('统一能力接口')}>
+                <AbilityApiPanel
+                  publicAbilities={publicAbilities}
+                  publicAbilitiesLoading={publicAbilitiesLoading}
+                  abilityApiExample={abilityApiExample}
+                  onRefresh={refreshPublicAbilities}
+                  onCopy={copyTextToClipboard}
+                  getProviderLabel={getProviderLabel}
+                  getCategoryLabel={getCategoryLabel}
+                />
+              </Suspense>
             </Section>
           )}
 
@@ -6821,8 +6877,9 @@ const extractErrorMessage = (error: unknown): string => {
       <Section
         id="ability-logs"
         title="处理步骤"
-        description="这里展示图片分析、模型、生图、评分等后台步骤；业务是否成功先看接口任务清单。"
+        description="这里展示图片分析、模型、生图、评分等后台步骤；业务是否成功先看业务调用清单。"
       >
+        <Suspense fallback={panelFallback('处理步骤')}>
         <Card bordered>
           <Space direction="vertical" size="large" style={{ width: '100%' }}>
             <Tabs
@@ -6919,6 +6976,7 @@ const extractErrorMessage = (error: unknown): string => {
             )}
           </Space>
         </Card>
+        </Suspense>
       </Section>
           )}
 
@@ -6928,6 +6986,7 @@ const extractErrorMessage = (error: unknown): string => {
         title="能力管理"
         description="集中维护各厂商能力、默认参数和绑定节点，后续工作流和测试面板将直接引用这些配置。"
       >
+        <Suspense fallback={panelFallback('能力管理')}>
         <AbilityCatalogPanel
           healthError={abilityHealthError}
           healthLoading={abilityHealthLoading}
@@ -7011,6 +7070,7 @@ const extractErrorMessage = (error: unknown): string => {
           onLoraAllowedBaseModelsChange={setAbilityLoraAllowedBaseModels}
           onLoraPolicyChange={setAbilityLoraPolicy}
         />
+        </Suspense>
       </Section>
           )}
 

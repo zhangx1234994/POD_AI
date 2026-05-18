@@ -1415,6 +1415,7 @@ export function ApiExposurePanel({
   });
   const activeBusinessApiKeyCount = businessApiKeys.filter((item) => item.status === 'active').length;
   const failedBusinessApiUsageCount = businessApiKeyUsageSummary.errorCount;
+  const businessApiRunIssueCount = businessApiKeyUsageGroups.filter((row) => businessApiUsageIssue(row).needsAttention).length;
   const recentBusinessApiUsage = businessApiKeyUsage[0];
   const businessApiUsageCount = businessApiKeyUsageSummary.total || businessApiKeyUsageTotal;
   const usagePageCount = Math.max(1, Math.ceil((businessApiKeyUsageTotal || 0) / BUSINESS_API_USAGE_PAGE_SIZE));
@@ -1523,6 +1524,136 @@ export function ApiExposurePanel({
               <Typography.Text theme="secondary">当前没有契约缺口，继续按上线 SOP 保留真实 runId 证据。</Typography.Text>
             )}
           </details>
+        </Space>
+      </Card>
+
+      <Card bordered className="podi-api-usage-priority-card">
+        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+          <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+            <div>
+              <Typography.Text theme="secondary">业务接口运行速览</Typography.Text>
+              <Typography.Title level="h4" style={{ margin: '4px 0' }}>
+                先看业务方有没有正确提交和轮询
+              </Typography.Title>
+              <Typography.Text theme="secondary">
+                这里按 runId 聚合最近调用。先判断接口调用是否正常，再下钻到业务运行详情看 VL、生图、评分和回调步骤。
+              </Typography.Text>
+            </div>
+            <Space>
+              <Button size="small" variant="outline" loading={businessApiKeyLoading} onClick={loadBusinessApiKeyAudit}>
+                刷新调用
+              </Button>
+              <Button
+                size="small"
+                theme="primary"
+                variant="outline"
+                onClick={() => document.getElementById('business-api-usage-center')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+              >
+                查看完整调用中心
+              </Button>
+            </Space>
+          </Space>
+          <div className="podi-business-api-key-summary">
+            <div>
+              <span>提交任务</span>
+              <strong>{formatNumber(businessApiKeyUsageSummary.submitCount)}</strong>
+              <small>真正发起业务</small>
+            </div>
+            <div>
+              <span>轮询结果</span>
+              <strong>{formatNumber(businessApiKeyUsageSummary.pollCount)}</strong>
+              <small>查询 runId 结果</small>
+            </div>
+            <div>
+              <span>接口异常</span>
+              <strong>{formatNumber(failedBusinessApiUsageCount)}</strong>
+              <small>状态码异常或有错误码</small>
+            </div>
+            <div>
+              <span>关联任务</span>
+              <strong>{formatNumber(businessApiKeyUsageSummary.uniqueRunCount)}</strong>
+              <small>去重 runId</small>
+            </div>
+            <div>
+              <span>问题 runId</span>
+              <strong>{formatNumber(businessApiRunIssueCount)}</strong>
+              <small>聚合后仍需排查</small>
+            </div>
+          </div>
+          <Table
+            rowKey="runId"
+            size="small"
+            data={businessApiKeyUsageGroups.slice(0, 5)}
+            loading={businessApiKeyLoading}
+            columns={[
+              {
+                colKey: 'runId',
+                title: 'runId',
+                ellipsis: true,
+                cell: ({ row }) => (
+                  <Space direction="vertical" size={2}>
+                    <Space>
+                      <Typography.Text code>{row.runId || '-'}</Typography.Text>
+                      {row.runId ? <CopyButton value={row.runId} onCopy={onCopy} /> : null}
+                      {row.runId ? (
+                        <Button size="small" variant="text" onClick={() => handleOpenBusinessRun(row.runId)}>
+                          打开业务详情
+                        </Button>
+                      ) : null}
+                    </Space>
+                    <Typography.Text theme="secondary">
+                      {businessKeyLabel(row.businessKey || '')} · {row.apiKeyName || '未知 Key'}
+                    </Typography.Text>
+                  </Space>
+                ),
+              },
+              {
+                colKey: 'counts',
+                title: '提交 / 轮询 / 异常',
+                width: 210,
+                cell: ({ row }) => (
+                  <Space size={4} breakLine>
+                    <Tag size="small" theme="success" variant="light">
+                      提交 {row.submitCount || 0}
+                    </Tag>
+                    <Tag size="small" theme="primary" variant="light">
+                      轮询 {row.pollCount || 0}
+                    </Tag>
+                    <Tag size="small" theme={row.errorCount ? 'danger' : 'default'} variant="light">
+                      异常 {row.errorCount || 0}
+                    </Tag>
+                  </Space>
+                ),
+              },
+              {
+                colKey: 'issue',
+                title: '问题判断',
+                width: 260,
+                cell: ({ row }) => {
+                  const issue = businessApiUsageIssue(row);
+                  return issue.needsAttention ? (
+                    <Space direction="vertical" size={2}>
+                      <Tag size="small" theme="warning" variant="light">
+                        {issue.code}
+                      </Tag>
+                      <Typography.Text theme="secondary">{issue.hint}</Typography.Text>
+                    </Space>
+                  ) : (
+                    <Tag size="small" theme="success" variant="light">
+                      暂无明显问题
+                    </Tag>
+                  );
+                },
+              },
+              {
+                colKey: 'lastSeenAt',
+                title: '最近调用',
+                width: 180,
+                cell: ({ row }) => <Typography.Text theme="secondary">{formatDateTime(row.lastSeenAt)}</Typography.Text>,
+              },
+            ]}
+            empty={<Typography.Text theme="secondary">当前筛选范围内还没有业务接口调用记录。</Typography.Text>}
+          />
         </Space>
       </Card>
 
@@ -1961,22 +2092,23 @@ export function ApiExposurePanel({
         </Card>
       </div>
 
-      <Card bordered>
-        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-          <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
-            <div>
-              <Typography.Text strong>业务 API Key 与调用记录</Typography.Text>
+      <div id="business-api-usage-center" className="podi-anchor-target">
+        <Card bordered>
+          <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+            <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
               <div>
-                <Typography.Text theme="secondary">
-                  当前先做身份识别和审计，暂不强制限流；后续计费、套餐和业务方排障都会复用这份记录。
-                </Typography.Text>
+                <Typography.Text strong>接口调用中心</Typography.Text>
+                <div>
+                  <Typography.Text theme="secondary">
+                    先确认业务方有没有正确提交任务、有没有拿 runId 轮询、失败集中在哪一步；Key 管理是低频操作，已折叠到下方。
+                  </Typography.Text>
+                </div>
               </div>
-            </div>
-            <Button size="small" variant="outline" loading={businessApiKeyLoading} onClick={loadBusinessApiKeyAudit}>
-              刷新 Key 记录
-            </Button>
-          </Space>
-          <div className="podi-business-api-key-summary">
+              <Button size="small" variant="outline" loading={businessApiKeyLoading} onClick={loadBusinessApiKeyAudit}>
+                刷新调用记录
+              </Button>
+            </Space>
+            <div className="podi-business-api-key-summary">
             <div>
               <span>业务 Key</span>
               <strong>{businessApiKeys.length}</strong>
@@ -2007,157 +2139,172 @@ export function ApiExposurePanel({
               <strong>{formatNumber(businessApiKeyUsageSummary.uniqueRunCount)}</strong>
               <small>去重 runId</small>
             </div>
-          </div>
-          <div className="podi-business-api-key-form">
-            <div className="podi-business-api-key-form__field">
-              <label>Key 名称</label>
-              <Input
-                value={businessApiKeyForm.name}
-                placeholder="例如：业务方 A · 图裂变接入"
-                onChange={(value) => updateBusinessApiKeyForm('name', String(value))}
-              />
-            </div>
-            <div className="podi-business-api-key-form__field podi-business-api-key-form__field--wide">
-              <label>Key 值</label>
-              <Space>
-                <Input
-                  value={businessApiKeyForm.key}
-                  placeholder="点击生成，或粘贴已有 Key"
-                  onChange={(value) => updateBusinessApiKeyForm('key', String(value))}
-                />
-                <Button variant="outline" onClick={handleGenerateBusinessApiKey}>
-                  生成
-                </Button>
-              </Space>
-            </div>
-            <div className="podi-business-api-key-form__field">
-              <label>租户 ID</label>
-              <Input
-                value={businessApiKeyForm.tenantId}
-                placeholder="可选，例如 tenant-a"
-                onChange={(value) => updateBusinessApiKeyForm('tenantId', String(value))}
-              />
-            </div>
-            <div className="podi-business-api-key-form__field">
-              <label>客户端 ID</label>
-              <Input
-                value={businessApiKeyForm.clientId}
-                placeholder="可选，例如 open-api"
-                onChange={(value) => updateBusinessApiKeyForm('clientId', String(value))}
-              />
-            </div>
-            <div className="podi-business-api-key-form__field podi-business-api-key-form__field--wide">
-              <label>可调用业务</label>
-              <Input
-                value={businessApiKeyForm.allowedBusinessKeys}
-                placeholder="留空表示全部；多个用逗号分隔"
-                onChange={(value) => updateBusinessApiKeyForm('allowedBusinessKeys', String(value))}
-              />
-              <small>常用：fission、fission_evaluate、outpaint、pattern_extract。</small>
-            </div>
-            <div className="podi-business-api-key-form__field">
-              <label>过期时间</label>
-              <input
-                type="datetime-local"
-                value={businessApiKeyForm.expireAt}
-                onChange={(event) => updateBusinessApiKeyForm('expireAt', event.currentTarget.value)}
-              />
-            </div>
-            <div className="podi-business-api-key-form__actions">
-              <Button theme="primary" loading={businessApiKeySaving} onClick={handleCreateBusinessApiKey}>
-                创建业务 Key
-              </Button>
-              <Typography.Text theme="secondary">完整 Key 只在创建时可见；列表只展示脱敏值和调用记录。</Typography.Text>
+            <div>
+              <span>问题 runId</span>
+              <strong>{formatNumber(businessApiRunIssueCount)}</strong>
+              <small>聚合后仍需排查</small>
             </div>
           </div>
-          {businessApiKeyNotice ? <Alert theme="success" message={businessApiKeyNotice} /> : null}
-          {businessApiKeyError ? <Alert theme="error" message={businessApiKeyError} /> : null}
-          <Table
-            rowKey="id"
-            size="small"
-            data={businessApiKeys}
-            loading={businessApiKeyLoading}
-            maxHeight={260}
-            columns={[
-              {
-                colKey: 'name',
-                title: 'Key',
-                cell: ({ row }) => (
-                  <Space direction="vertical" size={2}>
-                    <Typography.Text>{row.name}</Typography.Text>
-                    <Typography.Text theme="secondary">{row.keyPreview || '-'}</Typography.Text>
+          <details className="podi-business-api-key-admin">
+            <summary>
+              <span>Key 管理（低频操作）</span>
+              <small>
+                当前 {businessApiKeys.length} 个 Key，启用 {activeBusinessApiKeyCount} 个；展开后可创建、停用或查看 Key 范围。
+              </small>
+            </summary>
+            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+              <div className="podi-business-api-key-form">
+                <div className="podi-business-api-key-form__field">
+                  <label>Key 名称</label>
+                  <Input
+                    value={businessApiKeyForm.name}
+                    placeholder="例如：业务方 A · 图裂变接入"
+                    onChange={(value) => updateBusinessApiKeyForm('name', String(value))}
+                  />
+                </div>
+                <div className="podi-business-api-key-form__field podi-business-api-key-form__field--wide">
+                  <label>Key 值</label>
+                  <Space>
+                    <Input
+                      value={businessApiKeyForm.key}
+                      placeholder="点击生成，或粘贴已有 Key"
+                      onChange={(value) => updateBusinessApiKeyForm('key', String(value))}
+                    />
+                    <Button variant="outline" onClick={handleGenerateBusinessApiKey}>
+                      生成
+                    </Button>
                   </Space>
-                ),
-              },
-              {
-                colKey: 'status',
-                title: '状态',
-                width: 100,
-                cell: ({ row }) => (
-                  <Tag theme={apiKeyStatusTheme(row.status)} variant="light">
-                    {apiKeyStatusLabel(row.status)}
-                  </Tag>
-                ),
-              },
-              {
-                colKey: 'scope',
-                title: '业务方范围',
-                ellipsis: true,
-                cell: ({ row }) => (
-                  <Space direction="vertical" size={2}>
-                    <Typography.Text>{row.tenantId || '未绑定租户'}</Typography.Text>
-                    <Typography.Text theme="secondary">{row.clientId || '未绑定客户端'}</Typography.Text>
-                  </Space>
-                ),
-              },
-              {
-                colKey: 'allowedBusinessKeys',
-                title: '可调用业务',
-                width: 180,
-                cell: ({ row }) =>
-                  row.allowedBusinessKeys?.length ? (
-                    <Space size={4} breakLine>
-                      {row.allowedBusinessKeys.map((item) => (
-                        <Tag key={item} size="small">
-                          {businessKeyLabel(item)}
-                        </Tag>
-                      ))}
-                    </Space>
-                  ) : (
-                    <Typography.Text theme="secondary">全部业务</Typography.Text>
-                  ),
-              },
-              {
-                colKey: 'usageCount',
-                title: '累计调用',
-                width: 100,
-                cell: ({ row }) => <Typography.Text>{row.usageCount || 0}</Typography.Text>,
-              },
-              {
-                colKey: 'expireAt',
-                title: '过期时间',
-                width: 180,
-                cell: ({ row }) => <Typography.Text theme="secondary">{formatDateTime(row.expireAt)}</Typography.Text>,
-              },
-              {
-                colKey: 'operation',
-                title: '操作',
-                width: 110,
-                cell: ({ row }) => (
-                  <Button
-                    size="small"
-                    variant="outline"
-                    theme={row.status === 'active' ? 'danger' : 'primary'}
-                    loading={businessApiKeySaving}
-                    onClick={() => void handleToggleBusinessApiKeyStatus(row)}
-                  >
-                    {row.status === 'active' ? '停用' : '启用'}
+                </div>
+                <div className="podi-business-api-key-form__field">
+                  <label>租户 ID</label>
+                  <Input
+                    value={businessApiKeyForm.tenantId}
+                    placeholder="可选，例如 tenant-a"
+                    onChange={(value) => updateBusinessApiKeyForm('tenantId', String(value))}
+                  />
+                </div>
+                <div className="podi-business-api-key-form__field">
+                  <label>客户端 ID</label>
+                  <Input
+                    value={businessApiKeyForm.clientId}
+                    placeholder="可选，例如 open-api"
+                    onChange={(value) => updateBusinessApiKeyForm('clientId', String(value))}
+                  />
+                </div>
+                <div className="podi-business-api-key-form__field podi-business-api-key-form__field--wide">
+                  <label>可调用业务</label>
+                  <Input
+                    value={businessApiKeyForm.allowedBusinessKeys}
+                    placeholder="留空表示全部；多个用逗号分隔"
+                    onChange={(value) => updateBusinessApiKeyForm('allowedBusinessKeys', String(value))}
+                  />
+                  <small>常用：fission、fission_evaluate、outpaint、pattern_extract。</small>
+                </div>
+                <div className="podi-business-api-key-form__field">
+                  <label>过期时间</label>
+                  <input
+                    type="datetime-local"
+                    value={businessApiKeyForm.expireAt}
+                    onChange={(event) => updateBusinessApiKeyForm('expireAt', event.currentTarget.value)}
+                  />
+                </div>
+                <div className="podi-business-api-key-form__actions">
+                  <Button theme="primary" loading={businessApiKeySaving} onClick={handleCreateBusinessApiKey}>
+                    创建业务 Key
                   </Button>
-                ),
-              },
-            ]}
-            empty={<Typography.Text theme="secondary">暂无业务 API Key。后续业务接入前先在这里开 Key。</Typography.Text>}
-          />
+                  <Typography.Text theme="secondary">完整 Key 只在创建时可见；列表只展示脱敏值和调用记录。</Typography.Text>
+                </div>
+              </div>
+              {businessApiKeyNotice ? <Alert theme="success" message={businessApiKeyNotice} /> : null}
+              {businessApiKeyError ? <Alert theme="error" message={businessApiKeyError} /> : null}
+              <Table
+                rowKey="id"
+                size="small"
+                data={businessApiKeys}
+                loading={businessApiKeyLoading}
+                maxHeight={260}
+                columns={[
+                  {
+                    colKey: 'name',
+                    title: 'Key',
+                    cell: ({ row }) => (
+                      <Space direction="vertical" size={2}>
+                        <Typography.Text>{row.name}</Typography.Text>
+                        <Typography.Text theme="secondary">{row.keyPreview || '-'}</Typography.Text>
+                      </Space>
+                    ),
+                  },
+                  {
+                    colKey: 'status',
+                    title: '状态',
+                    width: 100,
+                    cell: ({ row }) => (
+                      <Tag theme={apiKeyStatusTheme(row.status)} variant="light">
+                        {apiKeyStatusLabel(row.status)}
+                      </Tag>
+                    ),
+                  },
+                  {
+                    colKey: 'scope',
+                    title: '业务方范围',
+                    ellipsis: true,
+                    cell: ({ row }) => (
+                      <Space direction="vertical" size={2}>
+                        <Typography.Text>{row.tenantId || '未绑定租户'}</Typography.Text>
+                        <Typography.Text theme="secondary">{row.clientId || '未绑定客户端'}</Typography.Text>
+                      </Space>
+                    ),
+                  },
+                  {
+                    colKey: 'allowedBusinessKeys',
+                    title: '可调用业务',
+                    width: 180,
+                    cell: ({ row }) =>
+                      row.allowedBusinessKeys?.length ? (
+                        <Space size={4} breakLine>
+                          {row.allowedBusinessKeys.map((item) => (
+                            <Tag key={item} size="small">
+                              {businessKeyLabel(item)}
+                            </Tag>
+                          ))}
+                        </Space>
+                      ) : (
+                        <Typography.Text theme="secondary">全部业务</Typography.Text>
+                      ),
+                  },
+                  {
+                    colKey: 'usageCount',
+                    title: '累计调用',
+                    width: 100,
+                    cell: ({ row }) => <Typography.Text>{row.usageCount || 0}</Typography.Text>,
+                  },
+                  {
+                    colKey: 'expireAt',
+                    title: '过期时间',
+                    width: 180,
+                    cell: ({ row }) => <Typography.Text theme="secondary">{formatDateTime(row.expireAt)}</Typography.Text>,
+                  },
+                  {
+                    colKey: 'operation',
+                    title: '操作',
+                    width: 110,
+                    cell: ({ row }) => (
+                      <Button
+                        size="small"
+                        variant="outline"
+                        theme={row.status === 'active' ? 'danger' : 'primary'}
+                        loading={businessApiKeySaving}
+                        onClick={() => void handleToggleBusinessApiKeyStatus(row)}
+                      >
+                        {row.status === 'active' ? '停用' : '启用'}
+                      </Button>
+                    ),
+                  },
+                ]}
+                empty={<Typography.Text theme="secondary">暂无业务 API Key。后续业务接入前先在这里开 Key。</Typography.Text>}
+              />
+            </Space>
+          </details>
           <div className="podi-business-api-usage-header">
             <div>
               <Typography.Text strong>接口调用中心</Typography.Text>
@@ -2491,7 +2638,8 @@ export function ApiExposurePanel({
             </Space>
           </div>
         </Space>
-      </Card>
+        </Card>
+      </div>
 
       <Card bordered>
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>

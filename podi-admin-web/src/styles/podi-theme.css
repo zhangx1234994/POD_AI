@@ -1031,6 +1031,80 @@ html.t-theme-dark {
   padding: 8px 12px;
 }
 
+.podi-business-workflow-switcher {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+}
+
+.podi-business-workflow-switcher__item {
+  display: grid;
+  gap: 6px;
+  min-height: 96px;
+  border: 1px solid var(--td-border-level-1-color);
+  border-radius: 16px;
+  background: var(--td-bg-color-container);
+  color: inherit;
+  cursor: pointer;
+  padding: 12px;
+  text-align: left;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+}
+
+.podi-business-workflow-switcher__item:hover,
+.podi-business-workflow-switcher__item.is-active {
+  border-color: color-mix(in srgb, var(--podi-accent) 72%, var(--td-border-level-1-color));
+  box-shadow: 0 12px 30px color-mix(in srgb, var(--podi-accent) 12%, transparent);
+  transform: translateY(-1px);
+}
+
+.podi-business-workflow-switcher__item.is-active {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--podi-accent-soft) 48%, var(--td-bg-color-container)), var(--td-bg-color-container));
+}
+
+.podi-business-workflow-focus {
+  display: grid;
+  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
+  gap: 16px;
+  border: 1px solid var(--td-border-level-1-color);
+  border-radius: 20px;
+  background: var(--td-bg-color-container);
+  padding: 16px;
+}
+
+.podi-business-workflow-focus__summary {
+  min-width: 0;
+  border-right: 1px solid var(--td-border-level-1-color);
+  padding-right: 16px;
+}
+
+.podi-business-workflow-focus__block {
+  display: grid;
+  gap: 5px;
+}
+
+.podi-business-workflow-focus__block code,
+.podi-business-workflow-focus__summary .t-typography {
+  word-break: break-word;
+}
+
+.podi-business-workflow-focus__canvas {
+  min-width: 0;
+}
+
+.podi-business-workflow-focus__canvas .podi-business-flow-shell,
+.podi-business-workflow-focus__canvas .podi-business-flow-canvas {
+  min-height: 540px;
+}
+
+.podi-business-workflow-focus__canvas-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
 .podi-business-workflow-row {
   display: grid;
   grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
@@ -1080,6 +1154,23 @@ html.t-theme-dark {
   background: color-mix(in srgb, var(--td-bg-color-container) 92%, var(--td-bg-color-page));
 }
 
+.podi-business-run-ops {
+  margin-bottom: 12px;
+  border: 1px solid var(--td-border-level-1-color);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--td-bg-color-container) 96%, var(--td-bg-color-page));
+  padding: 9px 12px;
+}
+
+.podi-business-run-ops summary {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  cursor: pointer;
+  font-weight: 650;
+}
+
 .podi-business-run-filters__primary,
 .podi-business-run-filters__secondary {
   display: grid;
@@ -1122,6 +1213,17 @@ html.t-theme-dark {
 }
 
 @media (max-width: 1180px) {
+  .podi-business-workflow-focus {
+    grid-template-columns: 1fr;
+  }
+
+  .podi-business-workflow-focus__summary {
+    border-right: 0;
+    border-bottom: 1px solid var(--td-border-level-1-color);
+    padding-right: 0;
+    padding-bottom: 14px;
+  }
+
   .podi-business-workflow-row {
     grid-template-columns: 1fr;
   }
@@ -1908,6 +2010,17 @@ html.t-theme-dark {
   white-space: nowrap;
 }
 
+.podi-api-usage-priority-card {
+  border-color: color-mix(in srgb, var(--podi-accent) 36%, var(--td-border-level-1-color));
+  background:
+    radial-gradient(circle at 0 0, color-mix(in srgb, var(--podi-accent-soft) 44%, transparent), transparent 34%),
+    linear-gradient(180deg, color-mix(in srgb, var(--td-bg-color-container) 92%, var(--podi-accent-soft)), var(--td-bg-color-container));
+}
+
+.podi-anchor-target {
+  scroll-margin-top: 18px;
+}
+
 .podi-business-api-key-form {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1950,6 +2063,56 @@ html.t-theme-dark {
   font-size: 20px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.podi-business-api-key-admin {
+  border: 1px solid var(--td-border-level-1-color);
+  border-radius: var(--podi-radius-lg);
+  background: color-mix(in srgb, var(--td-bg-color-secondarycontainer) 66%, var(--td-bg-color-container));
+}
+
+.podi-business-api-key-admin summary {
+  display: flex;
+  gap: var(--podi-space-2);
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  padding: 12px 14px;
+  list-style: none;
+}
+
+.podi-business-api-key-admin summary::-webkit-details-marker {
+  display: none;
+}
+
+.podi-business-api-key-admin summary::after {
+  content: '展开';
+  flex: 0 0 auto;
+  border: 1px solid var(--td-border-level-1-color);
+  border-radius: 999px;
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  line-height: 1;
+  padding: 5px 10px;
+}
+
+.podi-business-api-key-admin[open] summary::after {
+  content: '收起';
+}
+
+.podi-business-api-key-admin summary span {
+  color: var(--td-text-color-primary);
+  font-weight: 700;
+}
+
+.podi-business-api-key-admin summary small {
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+}
+
+.podi-business-api-key-admin > .t-space {
+  border-top: 1px solid var(--td-border-level-1-color);
+  padding: 14px;
 }
 
 .podi-business-api-key-form__field {

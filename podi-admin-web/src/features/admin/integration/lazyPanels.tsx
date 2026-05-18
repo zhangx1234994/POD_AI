@@ -6,6 +6,46 @@ export const AbilityEvaluationPage = lazy(() =>
   })),
 );
 
+export const AbilityApiPanel = lazy(() =>
+  import('./abilityIntro').then((mod) => ({ default: mod.AbilityApiPanel })),
+);
+export const AbilityOverviewSummaryPanel = lazy(() =>
+  import('./abilityIntro').then((mod) => ({ default: mod.AbilityOverviewSummaryPanel })),
+);
+export const AbilityRoadmapPanel = lazy(() =>
+  import('./abilityIntro').then((mod) => ({ default: mod.AbilityRoadmapPanel })),
+);
+export const AbilityCatalogPanel = lazy(() =>
+  import('./abilityCatalog').then((mod) => ({ default: mod.AbilityCatalogPanel })),
+);
+export const AbilityOverviewTab = lazy(() =>
+  import('./abilityDetailTabs').then((mod) => ({ default: mod.AbilityOverviewTab })),
+);
+export const AbilityParamsTab = lazy(() =>
+  import('./abilityDetailTabs').then((mod) => ({ default: mod.AbilityParamsTab })),
+);
+export const AbilityMetadataTab = lazy(() =>
+  import('./abilityDetailTabs').then((mod) => ({ default: mod.AbilityMetadataTab })),
+);
+export const AbilityEditorDialog = lazy(() =>
+  import('./abilityEditor').then((mod) => ({ default: mod.AbilityEditorDialog })),
+);
+export const AbilityTestingTab = lazy(() =>
+  import('./abilityTesting').then((mod) => ({ default: mod.AbilityTestingTab })),
+);
+export const AbilityLogListPanel = lazy(() =>
+  import('./abilityLogList').then((mod) => ({ default: mod.AbilityLogListPanel })),
+);
+export const AbilityLogMetricsPanel = lazy(() =>
+  import('./abilityLogMetrics').then((mod) => ({ default: mod.AbilityLogMetricsPanel })),
+);
+export const AbilityRecentLogsPanel = lazy(() =>
+  import('./abilityRecentLogs').then((mod) => ({ default: mod.AbilityRecentLogsPanel })),
+);
+export const AbilityWorkbenchPanel = lazy(() =>
+  import('./abilityWorkbench').then((mod) => ({ default: mod.AbilityWorkbenchPanel })),
+);
+
 export const BusinessCapabilityGrid = lazy(() =>
   import('./business').then((mod) => ({ default: mod.BusinessCapabilityGrid })),
 );
