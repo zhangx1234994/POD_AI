@@ -30,6 +30,7 @@ from app.constants.business_api_contract import (
     GPT_IMAGE2_VARIATION_STRENGTH_VALUES,
     business_api_contract_payload,
 )
+from app.constants.business_components import business_component_catalog_payload
 from app.core.config import get_settings
 from app.core.db import get_session
 from app.deps.auth import get_current_user, require_admin
@@ -2072,6 +2073,15 @@ def admin_get_business_delivery_contracts(
     if user.role != "admin":
         raise HTTPException(status_code=403, detail="ADMIN_ONLY")
     return _business_delivery_contract_audit()
+
+
+@admin_router.get("/component-catalog")
+def admin_get_business_component_catalog(
+    user: User = Depends(_resolve_business_user),
+) -> dict[str, Any]:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="ADMIN_ONLY")
+    return business_component_catalog_payload()
 
 
 @admin_router.get("/clients", response_model=schemas.BusinessClientListResponse, response_model_by_alias=False)

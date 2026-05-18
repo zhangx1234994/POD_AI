@@ -233,6 +233,53 @@ def test_business_delivery_contract_audit_exposes_enum_truth_source() -> None:
     assert feature_checks["legacy-seamless-fission"]["status"] in {"doing", "todo", "done"}
 
 
+def test_admin_business_component_catalog_exposes_controlled_component_types() -> None:
+    resp = client.get(
+        "/api/admin/business/component-catalog",
+        headers={"Authorization": "Bearer podi-test-service-token", "x-real-ip": "127.0.0.1"},
+    )
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["source"] == "backend.app.constants.business_components"
+    assert payload["rules"]["defaultVersionReadonly"] is True
+    assert payload["rules"]["draftOnlyEditing"] is True
+    assert payload["rules"]["noArbitraryCode"] is True
+    assert payload["rules"]["heavyExecutionMustBeExternal"] is True
+
+    components = {item["type"]: item for item in payload["componentTypes"]}
+    assert {
+        "input",
+        "vl",
+        "comfyui",
+        "vendor_api",
+        "image_ops",
+        "score",
+        "result",
+        "callback",
+        "billing",
+        "acceptance",
+    }.issubset(components)
+    for item in components.values():
+        assert item["label"]
+        assert item["stage"]
+        assert isinstance(item["inputs"], list)
+        assert isinstance(item["outputs"], list)
+        assert isinstance(item["errors"], list)
+        assert isinstance(item["editableFields"], list)
+        assert isinstance(item["lockedFields"], list)
+        assert item["routing"]["mode"]
+
+    comfyui = components["comfyui"]
+    assert comfyui["label"] == "自有 GPU 生图"
+    assert comfyui["routing"]["mode"] == "executor_tags"
+    assert any(field["key"] == "bili" and field["label"] == "重绘幅度" for field in comfyui["editableFields"])
+    assert any(item["code"] == "COMFYUI_QUEUE_FULL" for item in comfyui["errors"])
+    vendor = components["vendor_api"]
+    assert any(field["key"] == "model" for field in vendor["editableFields"])
+    assert any(item["key"] == "apiKey" for item in vendor["lockedFields"])
+
+
 def test_business_capabilities_response_uses_public_camel_case(monkeypatch) -> None:
     class FakeBusinessRunService:
         def list_capabilities(self):

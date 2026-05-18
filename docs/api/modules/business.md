@@ -1191,6 +1191,102 @@ OpenAPI 内每个工具都会枚举错误响应：
 
 导出列包括：时间、接口动作、方法、路径、状态码、业务、`run_id`、`request_id`、`trace_id`、Key 名称、租户、客户端、错误码、耗时、IP、User-Agent。
 
+### GET /api/admin/business/component-catalog
+
+用途：返回业务编排工作台可使用的受控组件目录。这个接口不是业务方调用入口，而是管理端渲染业务链路图、草稿编辑器和上线门禁的组件真源。
+
+当前组件类型：
+
+| 组件类型 | 页面名称 | 用途 |
+| --- | --- | --- |
+| `input` | 业务入口 | 接收业务参数，生成 `runId`，记录鉴权和调用审计。 |
+| `vl` | 图像理解 | 输出图片描述、提示词卡片或业务控制卡。 |
+| `comfyui` | 自有 GPU 生图 | 调用 ComfyUI 执行节点完成裂变、扩图等 GPU 任务。 |
+| `vendor_api` | 第三方模型 | 调用 OpenAI、火山、KIE、Qwen 等商业模型。 |
+| `image_ops` | 图像处理 | 调用自研放大、DPI、尺寸修复等处理服务。 |
+| `score` | 质量评估 | 输出评分、判定和问题标签。 |
+| `result` | 结果整理 | 归一图片、视频、文本和结构化结果。 |
+| `callback` | 业务通知 | 任务终态后通知业务方系统。 |
+| `billing` | 成本记录 | 记录内部成本、免计费和后续收费证据。 |
+| `acceptance` | 验收证据 | 记录真实样本、人工验收和发布门禁。 |
+
+响应示例：
+
+```json
+{
+  "version": "2026-05-19.v1",
+  "source": "backend.app.constants.business_components",
+  "rules": {
+    "defaultVersionReadonly": true,
+    "draftOnlyEditing": true,
+    "noArbitraryCode": true,
+    "noArbitraryHttp": true,
+    "businessLanguageFirst": true,
+    "internalIdsAsDebugOnly": true,
+    "heavyExecutionMustBeExternal": true
+  },
+  "componentTypes": [
+    {
+      "type": "comfyui",
+      "label": "自有 GPU 生图",
+      "summary": "调用 ComfyUI 执行节点完成裂变、扩图、抠图等 GPU 任务。",
+      "stage": "generation",
+      "owner": "backend",
+      "draftEditable": true,
+      "inputs": [
+        {
+          "key": "imageUrl",
+          "label": "原图",
+          "description": "ComfyUI 工作流输入图。",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "key": "imageUrls",
+          "label": "结果图",
+          "description": "落到自有 OSS 后返回的图片地址。",
+          "required": true
+        }
+      ],
+      "routing": {
+        "mode": "executor_tags",
+        "description": "通过 required_executor_tags、allowed_executor_ids、健康状态和队列容量选择执行节点。"
+      },
+      "editableFields": [
+        {
+          "key": "bili",
+          "label": "重绘幅度",
+          "type": "number",
+          "description": "越高变化越明显；后端按约定映射 denoise。",
+          "required": false
+        }
+      ],
+      "lockedFields": [
+        {
+          "key": "workflowJson",
+          "label": "工作流 JSON",
+          "reason": "工作流文件由能力目录和交付包管理，草稿只改受控字段。"
+        }
+      ],
+      "errors": [
+        {
+          "code": "COMFYUI_QUEUE_FULL",
+          "label": "队列已满",
+          "action": "稍后重试或检查节点容量。"
+        }
+      ]
+    }
+  ]
+}
+```
+
+维护规则：
+
+- 管理端业务编排节点必须优先读取该接口，不再各自写死组件类型和可编辑字段。
+- 新增组件类型时，必须同步补输入、输出、错误、路由、可编辑字段和不可编辑字段。
+- 线上默认版本仍只读；该目录只说明草稿允许编辑哪些受控字段，不代表可以绕过发布门禁。
+
 ### GET /api/admin/business/capabilities
 
 用途：管理端展示业务能力版本、发布时间、默认版本、配方来源。

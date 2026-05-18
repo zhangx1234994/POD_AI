@@ -96,6 +96,7 @@
 | BUSINESS_STATUS_INVALID | 业务版本状态非法 | 400 |
 | BUSINESS_ACCEPTANCE_STATUS_INVALID | 业务版本验收状态非法 | 400，允许 `passed` / `failed` / `warning` / `waived` |
 | BUSINESS_ACCEPTANCE_REQUIRED | 业务版本缺少最近一次“验收通过”记录 | 409，默认版本切换申请或直接设默认前必须先记录验收 |
+| BUSINESS_RELEASE_ACCEPTANCE_REQUIRED | 业务版本发布缺少验收证据 | 发布门禁提示码，需先登记真实样本或人工验收 |
 | BUSINESS_RELEASE_GATE_BLOCKED | 业务版本完整上线门禁未通过 | 409，默认版本切换、审批申请或直接设默认前必须补齐治理阻断项 |
 | HEALTH_WATCH_SYSTEMD_UNAVAILABLE | 当前环境无法读取 systemd | `/api/admin/dashboard/health-watch/status` 响应内状态，不作为 HTTP 错误抛出 |
 | HEALTH_WATCH_UNIT_UNAVAILABLE | 自检守护单元未安装或不可加载 | `/api/admin/dashboard/health-watch/status` 响应内状态，不作为 HTTP 错误抛出 |
@@ -315,6 +316,7 @@
 | COMFYUI_OBJECT_INFO_INVALID | /object_info JSON 异常 | |
 | COMFYUI_QUEUE_STATUS_ERROR | /queue/status 异常 | |
 | COMFYUI_QUEUE_STATUS_INVALID | queue JSON 异常 | |
+| COMFYUI_QUEUE_FULL | ComfyUI 队列已满 | 业务 API、Coze 工具箱或能力调用应提示稍后重试，不允许静默丢任务 |
 | COMFYUI_QUEUE_HEALTH_UNAVAILABLE | ComfyUI 队列健康检查整体失败 | 评测健康检查无法读取队列汇总 |
 | COMFYUI_EXECUTOR_UNREACHABLE | 部分 ComfyUI 执行节点不可用 | 评测健康检查发现 active 节点队列不可读 |
 | COMFYUI_NO_AVAILABLE_EXECUTOR | 没有可用 ComfyUI 执行节点 | 所有 active ComfyUI 节点队列不可读 |
@@ -436,6 +438,10 @@
 | MEDIA_CALLBACK_OBJECT_INVALID | OSS 回调 object key 格式非法 | `/api/media/v1/oss-callback` |
 | MEDIA_CALLBACK_OBJECT_OUT_OF_SCOPE | OSS 回调 object key 不在当前上传前缀内 | `/api/media/v1/oss-callback` |
 | MEDIA_CALLBACK_SIZE_INVALID | OSS 回调文件大小无效 | `/api/media/v1/oss-callback` |
+| IMAGE_OPS_BASE_URL_NOT_CONFIGURED | 图像处理服务地址未配置 | 中台调用 image-ops-service 前置校验失败 |
+| IMAGE_OPS_INVALID_RESPONSE | 图像处理服务返回结构异常 | 需查看 image-ops-service 日志和响应结构 |
+| IMAGE_OPS_CONTENT_MISSING | 图像处理服务没有返回可入库内容 | 需确认上游服务是否真正产出图片或文件 |
+| IMAGE_OPS_CONTENT_INVALID | 图像处理服务返回内容无法解析 | Base64、URL 或文件内容格式异常 |
 | IMAGE_DOWNLOAD_FAILED | 下载图片失败 | |
 | EXPAND_MASK_RENDER_FAILED | 扩边占位图渲染失败 | PODI 扩边占位工具在 Pillow/图像处理阶段异常。 |
 | EXPAND_MASK_UPLOAD_FAILED | 扩边占位图上传失败 | PODI 扩边占位工具在 OSS 上传阶段异常。 |
