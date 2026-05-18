@@ -32,6 +32,32 @@ def _field(
     return payload
 
 
+def _version_line(key: str, label: str, detail: str, priority: int) -> dict[str, Any]:
+    return {"key": key, "label": label, "detail": detail, "priority": priority}
+
+
+def _version_lineage(
+    *,
+    decision: str = "version_upgrade",
+    decision_note: str,
+    change_summary: str,
+    parent_version_id: str | None = None,
+    supersedes_version_id: str | None = None,
+    breaking_change: bool = False,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "decision": decision,
+        "decisionNote": decision_note,
+        "changeSummary": change_summary,
+        "breakingChange": breaking_change,
+    }
+    if parent_version_id:
+        payload["parentVersionId"] = parent_version_id
+    if supersedes_version_id:
+        payload["supersedesVersionId"] = supersedes_version_id
+    return payload
+
+
 def _image_generation_output_schema() -> dict[str, Any]:
     return {
         "fields": [
@@ -215,6 +241,16 @@ DEFAULT_BUSINESS_CAPABILITY_SEEDS: list[BusinessCapabilitySeed] = [
         metadata={
             "category": "pattern_extract",
             "entry": "business-api",
+            "versionLine": _version_line(
+                "comfyui",
+                "ComfyUI 自研线",
+                "花纹提取稳定入口，底层由自研 ComfyUI 工作流执行。",
+                20,
+            ),
+            "versionLineage": _version_lineage(
+                decision_note="花纹提取初始生产版本，业务入口保持稳定。",
+                change_summary="建立花纹提取业务入口，作为后续裂变和扩图的上游素材能力。",
+            ),
             "coze_strategy": "Coze 只调用该业务入口，不再手搓底层节点。",
             "seed_version": 1,
         },
@@ -258,6 +294,18 @@ DEFAULT_BUSINESS_CAPABILITY_SEEDS: list[BusinessCapabilitySeed] = [
             "role": "rollback_safety",
             "rollbackSafety": True,
             "rollbackReason": "默认花纹提取版本异常时，保留可直接切回的 8 步加速执行链路。",
+            "versionLine": _version_line(
+                "rollback",
+                "保底回滚",
+                "只在主线异常时切回，不作为新功能入口。",
+                80,
+            ),
+            "versionLineage": _version_lineage(
+                decision="rollback",
+                parent_version_id="biz_pattern_extract_v1_yinhua_tiqu",
+                decision_note="保底回滚版本，只在默认花纹提取异常时切回，不作为新业务入口。",
+                change_summary="保留 8 步加速 LoRA 链路作为花纹提取回滚方案。",
+            ),
             "coze_strategy": "Coze 仍调用同一个业务入口，回滚只在中台切默认版本。",
             "seed_version": 1,
         },
@@ -304,6 +352,16 @@ DEFAULT_BUSINESS_CAPABILITY_SEEDS: list[BusinessCapabilitySeed] = [
         metadata={
             "category": "image_fission",
             "entry": "business-api",
+            "versionLine": _version_line(
+                "comfyui",
+                "ComfyUI 自研线",
+                "图裂变生产主线，底层由自研 ComfyUI 工作流执行。",
+                20,
+            ),
+            "versionLineage": _version_lineage(
+                decision_note="图裂变初始生产版本，业务入口保持稳定。",
+                change_summary="建立图裂变业务入口，底层使用高质量多元素花纹 ComfyUI 工作流。",
+            ),
             "coze_strategy": "Coze 只调用该业务入口，不再手搓底层节点。",
             "seed_version": 3,
         },
@@ -405,6 +463,17 @@ DEFAULT_BUSINESS_CAPABILITY_SEEDS: list[BusinessCapabilitySeed] = [
             "isNewVersion": True,
             "provider": "openai",
             "model": "gpt-image-2",
+            "versionLine": _version_line(
+                "commercial-model",
+                "商业模型线",
+                "同一图裂变入口下的商业模型验证路线。",
+                30,
+            ),
+            "versionLineage": _version_lineage(
+                parent_version_id="biz_fission_v1_flux_strong_hq_softstyle",
+                decision_note="入口不变，只替换底层模型和提示词编译链路。",
+                change_summary="新增 GPT Image 2 + VL 控制的图裂变验证路线。",
+            ),
             "route_id": "OPENAI_GPT_IMAGE2_PATTERN_V21",
             "prompt_template_id": "pattern_fission_prompt_template_v21",
             "quality_map": {"preview": "low", "production": "medium", "premium": "high"},
@@ -520,6 +589,18 @@ DEFAULT_BUSINESS_CAPABILITY_SEEDS: list[BusinessCapabilitySeed] = [
             "isNewVersion": True,
             "provider": "openai",
             "model": "gpt-image-2",
+            "versionLine": _version_line(
+                "commercial-model",
+                "商业模型线",
+                "同一图裂变入口下的商业模型验证路线。",
+                30,
+            ),
+            "versionLineage": _version_lineage(
+                parent_version_id="biz_fission_v2_openai_gpt_image2_vl",
+                supersedes_version_id="biz_fission_v2_openai_gpt_image2_vl",
+                decision_note="入口不变，修正 GPT Image 2 裂变控制方式和提示词编译链路。",
+                change_summary="将 GPT Image 2 + VL 控制版升级为受控提示词和质量门禁版本。",
+            ),
             "route_id": "OPENAI_GPT_IMAGE2_PATTERN_CONTROLLED_V2",
             "route_version": "pattern_fission_controlled_v2.0",
             "prompt_template_id": "pattern_fission_controlled_v2",
@@ -591,6 +672,17 @@ DEFAULT_BUSINESS_CAPABILITY_SEEDS: list[BusinessCapabilitySeed] = [
             "isNewVersion": True,
             "provider": "comfyui",
             "interface_pack": "11_2026-05-12_comfyui_fission_interface_pack_v1",
+            "versionLine": _version_line(
+                "comfyui",
+                "ComfyUI 自研线",
+                "同一图裂变入口下的自研 ComfyUI 验证路线。",
+                20,
+            ),
+            "versionLineage": _version_lineage(
+                parent_version_id="biz_fission_v1_flux_strong_hq_softstyle",
+                decision_note="入口不变，增加 VL 控制卡作为前置步骤。",
+                change_summary="新增 ComfyUI VL 控制卡裂变路线。",
+            ),
             "vl_component_ability_id": "vl_fission_control_card",
             "eval_component_ability_id": "vl_fission_generated_image_evaluate",
             "coze_strategy": "Coze 仍调用图裂变业务入口；中台内部完成 VL 控制卡生成和 ComfyUI 裂变调用，生成图评估由业务方按需单独调用。",
@@ -671,6 +763,18 @@ DEFAULT_BUSINESS_CAPABILITY_SEEDS: list[BusinessCapabilitySeed] = [
             "isNewVersion": True,
             "provider": "comfyui",
             "interface_pack": "15_2026-05-14_comfyui_fission_object_variation_interface_pack_v4",
+            "versionLine": _version_line(
+                "comfyui",
+                "ComfyUI 自研线",
+                "同一图裂变入口下的自研 ComfyUI 验证路线。",
+                20,
+            ),
+            "versionLineage": _version_lineage(
+                parent_version_id="biz_fission_v3_comfyui_vl_control_card",
+                supersedes_version_id="biz_fission_v3_comfyui_vl_control_card",
+                decision_note="入口不变，升级为颜色锁定和智能风险路由版本。",
+                change_summary="将 ComfyUI VL 控制卡裂变升级为颜色锁定版。",
+            ),
             "vl_component_ability_id": "vl_fission_control_card",
             "eval_component_ability_id": "vl_fission_generated_image_evaluate",
             "coze_strategy": "Coze 仍调用图裂变业务入口；中台内部完成 VL 风险类型识别和 ComfyUI 智能路由裂变调用。",
@@ -725,6 +829,18 @@ DEFAULT_BUSINESS_CAPABILITY_SEEDS: list[BusinessCapabilitySeed] = [
             "role": "rollback_safety",
             "rollbackSafety": True,
             "rollbackReason": "默认高质量裂变版本异常时，保留可直接切回的旧稳定执行链路。",
+            "versionLine": _version_line(
+                "rollback",
+                "保底回滚",
+                "只在主线异常时切回，不作为新功能入口。",
+                80,
+            ),
+            "versionLineage": _version_lineage(
+                decision="rollback",
+                parent_version_id="biz_fission_v1_flux_strong_hq_softstyle",
+                decision_note="保底回滚版本，只在图裂变主线异常时切回，不作为新业务入口。",
+                change_summary="保留 E7 + FLUX2 旧稳定链路作为图裂变回滚方案。",
+            ),
             "coze_strategy": "Coze 仍调用同一个业务入口，回滚只在中台切默认版本。",
             "seed_version": 3,
         },
@@ -785,6 +901,16 @@ DEFAULT_BUSINESS_CAPABILITY_SEEDS: list[BusinessCapabilitySeed] = [
             "provider": "vl",
             "ability_id": "vl_fission_generated_image_evaluate",
             "interface_pack": "12_2026-05-12_generated_image_eval_interface_pack_v1",
+            "versionLine": _version_line(
+                "quality-gate",
+                "质量评估线",
+                "裂变完成后的独立质量评估入口，不自动再次裂变。",
+                40,
+            ),
+            "versionLineage": _version_lineage(
+                decision_note="裂变评分初始版本，作为图裂变后置质检接口。",
+                change_summary="建立裂变生成图质量与逻辑评估业务入口。",
+            ),
             "coze_strategy": "业务方可在裂变完成后单独调用该业务 API；中台返回 runId 并统一走 /api/business/runs/get 轮询。",
             "seed_version": 1,
         },
@@ -826,6 +952,16 @@ DEFAULT_BUSINESS_CAPABILITY_SEEDS: list[BusinessCapabilitySeed] = [
         metadata={
             "category": "outpaint",
             "entry": "business-api",
+            "versionLine": _version_line(
+                "comfyui",
+                "ComfyUI 自研线",
+                "扩图稳定入口，底层由自研 ComfyUI 工作流执行。",
+                20,
+            ),
+            "versionLineage": _version_lineage(
+                decision_note="扩图初始生产版本，业务入口保持稳定。",
+                change_summary="建立扩图业务入口，底层使用 FLUX2-Klein 9B 扩图工作流。",
+            ),
             "coze_strategy": "Coze 只调用该业务入口，不再手搓底层节点。",
             "seed_version": 1,
         },
@@ -872,6 +1008,18 @@ DEFAULT_BUSINESS_CAPABILITY_SEEDS: list[BusinessCapabilitySeed] = [
             "role": "rollback_safety",
             "rollbackSafety": True,
             "rollbackReason": "默认 FLUX2-Klein 扩图版本异常时，保留可直接切回的旧稳定执行链路。",
+            "versionLine": _version_line(
+                "rollback",
+                "保底回滚",
+                "只在主线异常时切回，不作为新功能入口。",
+                80,
+            ),
+            "versionLineage": _version_lineage(
+                decision="rollback",
+                parent_version_id="biz_outpaint_v1_flux2_klein_9b",
+                decision_note="保底回滚版本，只在默认扩图异常时切回，不作为新业务入口。",
+                change_summary="保留旧花纹扩图工作流作为扩图回滚方案。",
+            ),
             "coze_strategy": "Coze 仍调用同一个业务入口，回滚只在中台切默认版本。",
             "seed_version": 1,
         },

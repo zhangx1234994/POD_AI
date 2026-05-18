@@ -70,11 +70,15 @@ def test_business_seed_keeps_rollback_safety_versions_available() -> None:
         assert pattern_extract_default.recipe["primaryAbilityId"] == "comfyui_yinhua_tiqu"
         assert pattern_extract_default.version == "v1"
         assert pattern_extract_default.is_default is True
+        assert pattern_extract_default.extra_metadata["versionLine"]["key"] == "comfyui"
+        assert pattern_extract_default.extra_metadata["versionLineage"]["decision"] == "version_upgrade"
 
         assert pattern_extract_fallback is not None
         assert pattern_extract_fallback.recipe["primaryAbilityId"] == "comfyui_yinhua_tiqu_lora_8step"
         assert pattern_extract_fallback.version == "rollback-lora-8step-v1"
         assert pattern_extract_fallback.is_default is False
+        assert pattern_extract_fallback.extra_metadata["versionLine"]["key"] == "rollback"
+        assert pattern_extract_fallback.extra_metadata["versionLineage"]["decision"] == "rollback"
 
         assert fission_fallback is not None
         assert fission_fallback.recipe["primaryAbilityId"] == "comfyui_e7_flux2_liebian"
@@ -88,6 +92,8 @@ def test_business_seed_keeps_rollback_safety_versions_available() -> None:
         assert gpt_image2_fission.recipe["mode"] == "vl_then_primary"
         assert gpt_image2_fission.recipe["primaryAbilityId"] == "openai_gpt_image_2_edit"
         assert gpt_image2_fission.recipe["vlAssist"]["applyToPrimary"]["compiler"] == "pattern_fission_prompt_template_v21"
+        assert gpt_image2_fission.extra_metadata["versionLine"]["key"] == "commercial-model"
+        assert gpt_image2_fission.extra_metadata["versionLineage"]["parentVersionId"] == "biz_fission_v1_flux_strong_hq_softstyle"
         assert session.get(Ability, "openai_gpt_image_2_edit") is not None
         assert session.get(Ability, "vl_analyze_image") is not None
         field_names = {field["name"] for field in gpt_image2_fission.input_schema["fields"]}
@@ -107,6 +113,8 @@ def test_business_seed_keeps_rollback_safety_versions_available() -> None:
         assert gpt_image2_controlled.recipe["primaryAbilityId"] == "openai_gpt_image_2_edit"
         assert gpt_image2_controlled.recipe["vlAssist"]["applyToPrimary"]["compiler"] == "pattern_fission_controlled_v2"
         assert gpt_image2_controlled.recipe["promptCompiler"]["routeId"] == "OPENAI_GPT_IMAGE2_PATTERN_CONTROLLED_V2"
+        assert gpt_image2_controlled.extra_metadata["versionLine"]["key"] == "commercial-model"
+        assert gpt_image2_controlled.extra_metadata["versionLineage"]["supersedesVersionId"] == "biz_fission_v2_openai_gpt_image2_vl"
         controlled_fields = {field["name"] for field in gpt_image2_controlled.input_schema["fields"]}
         assert {"variation_strength", "quality", "size", "maskUrl"}.issubset(controlled_fields)
         assert "count" not in controlled_fields
@@ -119,6 +127,7 @@ def test_business_seed_keeps_rollback_safety_versions_available() -> None:
         assert comfyui_vl_fission.recipe["primaryAbilityId"] == "comfyui_flux_strong_hq_softstyle_fission_control_v1"
         assert comfyui_vl_fission.recipe["vlAssist"]["abilityId"] == "vl_fission_control_card"
         assert comfyui_vl_fission.recipe["vlAssist"]["applyToPrimary"]["compiler"] == "comfyui_fission_control_card_v1"
+        assert comfyui_vl_fission.extra_metadata["versionLine"]["key"] == "comfyui"
         assert session.get(Ability, "comfyui_flux_strong_hq_softstyle_fission_control_v1") is not None
         assert session.get(Ability, "vl_fission_control_card") is not None
         assert session.get(Ability, "vl_fission_generated_image_evaluate") is not None
@@ -130,6 +139,8 @@ def test_business_seed_keeps_rollback_safety_versions_available() -> None:
         assert comfyui_colorlock.is_default is False
         assert comfyui_colorlock.recipe["primaryAbilityId"] == "comfyui_flux_strong_hq_softstyle_fission_colorlock_v2"
         assert comfyui_colorlock.recipe["vlAssist"]["applyToPrimary"]["compiler"] == "comfyui_fission_control_card_v2"
+        assert comfyui_colorlock.extra_metadata["versionLine"]["key"] == "comfyui"
+        assert comfyui_colorlock.extra_metadata["versionLineage"]["supersedesVersionId"] == "biz_fission_v3_comfyui_vl_control_card"
         assert session.get(Ability, "comfyui_flux_strong_hq_softstyle_fission_colorlock_v2") is not None
         fields = {field["name"]: field for field in comfyui_colorlock.input_schema["fields"]}
         assert fields["bili"]["default"] == "80%"
@@ -142,3 +153,4 @@ def test_business_seed_keeps_rollback_safety_versions_available() -> None:
         assert outpaint_fallback.recipe["primaryAbilityId"] == "comfyui_huawen_kuotu"
         assert outpaint_fallback.version == "rollback-huawen-v1"
         assert outpaint_fallback.is_default is False
+        assert outpaint_fallback.extra_metadata["versionLine"]["key"] == "rollback"

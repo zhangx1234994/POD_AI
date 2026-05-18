@@ -4644,6 +4644,8 @@ const businessCapabilityVersionLine = (item?: BusinessCapability | null) => {
     const theme =
       key === 'rollback'
         ? ('warning' as const)
+        : key === 'quality-gate'
+          ? ('primary' as const)
         : key === 'commercial-model'
           ? ('primary' as const)
           : key === 'comfyui'

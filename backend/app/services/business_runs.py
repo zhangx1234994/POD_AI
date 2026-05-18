@@ -5351,6 +5351,21 @@ class BusinessRunService:
         vendor_model_provider: str | None = None,
     ) -> dict[str, Any]:
         metadata = row.extra_metadata if isinstance(row.extra_metadata, dict) else {}
+        explicit_line = metadata.get("versionLine") or metadata.get("version_line")
+        if isinstance(explicit_line, dict):
+            key = str(explicit_line.get("key") or "").strip() or "standard"
+            label = str(explicit_line.get("label") or "").strip() or ("生产主线" if row.is_default else "标准版本")
+            detail = str(explicit_line.get("detail") or "").strip() or "同一业务入口下的稳定版本。"
+            try:
+                priority = int(explicit_line.get("priority") if explicit_line.get("priority") is not None else (10 if row.is_default else 50))
+            except (TypeError, ValueError):
+                priority = 10 if row.is_default else 50
+            return {
+                "key": key,
+                "label": label,
+                "detail": detail,
+                "priority": priority,
+            }
         version = (row.version or "").lower()
         display_name = (row.display_name or "").lower()
         role = str(metadata.get("role") or "").lower()

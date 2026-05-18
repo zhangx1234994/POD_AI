@@ -48,6 +48,42 @@ def passed_acceptance_metadata(note: str = "测试环境业务验收通过") -> 
     return {"latestAcceptance": record, "acceptanceRecords": [record]}
 
 
+def test_business_capability_version_line_prefers_recipe_metadata() -> None:
+    row = BusinessCapability(
+        id="biz_test_custom_line",
+        business_key="fission",
+        version="gpt-image2-vl-v9",
+        display_name="图裂变 · 测试版本",
+        status="active",
+        is_default=False,
+        recipe={"primaryAbilityId": "ability_openai_fission"},
+        input_schema={"fields": []},
+        output_schema={"fields": []},
+        extra_metadata={
+            "provider": "openai",
+            "versionLine": {
+                "key": "business-owned-line",
+                "label": "业务指定路线",
+                "detail": "由业务配方显式指定，不再靠 provider 或版本名推断。",
+                "priority": 12,
+            },
+        },
+    )
+
+    line = BusinessRunService._business_capability_version_line(
+        row,
+        primary_ability_provider="openai",
+        vendor_model_provider="openai",
+    )
+
+    assert line == {
+        "key": "business-owned-line",
+        "label": "业务指定路线",
+        "detail": "由业务配方显式指定，不再靠 provider 或版本名推断。",
+        "priority": 12,
+    }
+
+
 def install_business_db(
     monkeypatch,
     *,
