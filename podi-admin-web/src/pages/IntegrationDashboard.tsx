@@ -1778,6 +1778,7 @@ export function IntegrationDashboard({
   const [globalAbilityLogPage, setGlobalAbilityLogPage] = useState(1);
   const [globalAbilityLogsAutoRefresh, setGlobalAbilityLogsAutoRefresh] = useState(true);
   const [globalAbilityLogsUpdatedAt, setGlobalAbilityLogsUpdatedAt] = useState<string | null>(null);
+  const globalAbilityLogsRequestInFlightRef = useRef(false);
   const [abilityLogMetrics, setAbilityLogMetrics] = useState<AbilityLogMetricsResponse | null>(null);
   const [abilityLogMetricsLoading, setAbilityLogMetricsLoading] = useState(false);
   const [abilityLogMetricsError, setAbilityLogMetricsError] = useState<string | null>(null);
@@ -4434,6 +4435,10 @@ export function IntegrationDashboard({
     async (options?: { silent?: boolean; page?: number }) => {
     const silent = options?.silent;
     const targetPage = Math.max(1, options?.page ?? globalAbilityLogPage);
+    if (globalAbilityLogsRequestInFlightRef.current) {
+      return;
+    }
+    globalAbilityLogsRequestInFlightRef.current = true;
     if (!silent) {
       setGlobalAbilityLogsLoading(true);
     }
@@ -4463,6 +4468,7 @@ export function IntegrationDashboard({
       console.debug('load global ability logs failed', error);
       setGlobalAbilityLogsError(error instanceof Error ? error.message : '加载能力调用清单失败');
     } finally {
+      globalAbilityLogsRequestInFlightRef.current = false;
       if (!silent) {
         setGlobalAbilityLogsLoading(false);
       }
@@ -4547,8 +4553,9 @@ export function IntegrationDashboard({
   }, [abilities, globalAbilityLogProvider, globalAbilityLogCapabilityKey]);
 
   useEffect(() => {
+    if (activeNav !== 'ability-logs' || abilityLogTab !== 'logs') return;
     void refreshGlobalAbilityLogs();
-  }, [refreshGlobalAbilityLogs]);
+  }, [activeNav, abilityLogTab, refreshGlobalAbilityLogs]);
 
   useEffect(() => {
     setAbilityLogPage(1);
@@ -4581,12 +4588,12 @@ export function IntegrationDashboard({
   }, [selectedAbility?.id, abilityLogsAutoRefresh, refreshAbilityLogs, pageVisible]);
 
   useEffect(() => {
-    if (activeNav !== 'ability-logs' || !globalAbilityLogsAutoRefresh || !pageVisible) return;
+    if (activeNav !== 'ability-logs' || abilityLogTab !== 'logs' || !globalAbilityLogsAutoRefresh || !pageVisible) return;
     const interval = window.setInterval(() => {
       void refreshGlobalAbilityLogs({ silent: true });
     }, 12000);
     return () => window.clearInterval(interval);
-  }, [activeNav, globalAbilityLogsAutoRefresh, refreshGlobalAbilityLogs, pageVisible]);
+  }, [activeNav, abilityLogTab, globalAbilityLogsAutoRefresh, refreshGlobalAbilityLogs, pageVisible]);
 
   const refreshPublicAbilities = useCallback(async () => {
     setPublicAbilitiesLoading(true);

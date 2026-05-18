@@ -289,6 +289,11 @@ class Ability(Base):
 
 class AbilityInvocationLog(Base):
     __tablename__ = "ability_invocation_logs"
+    __table_args__ = (
+        Index("ix_ability_logs_provider_capability_created", "ability_provider", "capability_key", "created_at"),
+        Index("ix_ability_logs_status_created", "status", "created_at"),
+        Index("ix_ability_logs_source_created", "source", "created_at"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     ability_id: Mapped[str | None] = mapped_column(
